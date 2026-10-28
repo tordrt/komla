@@ -341,6 +341,9 @@ describe("installBundledSkills", () => {
     );
     expect(content).not.toContain("Would you like to use these defaults");
     expect(content).toContain("Install dependencies on creation");
+    // What setup installs, Trash cleanup frees, and the user hears that restoring doesn't reinstall.
+    expect(content).toMatch(/Pair it\s+with a Trash cleanup that frees what setup re-creates/);
+    expect(content).toMatch(/Restoring doesn't reinstall/);
     expect(content).toMatch(/Primary development command/i);
     expect(content).toMatch(/Offer more\s+choices only when the\s+user asks/);
     expect(content).toMatch(

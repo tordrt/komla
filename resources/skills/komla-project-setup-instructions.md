@@ -81,7 +81,9 @@ Quick Command:
 - **Install dependencies on creation and environment readiness.** Prefer a lockfile-native
   `workspace-creation` step and project-owned bootstrap. A checked-in template may use a creation
   step that never overwrites an existing file. When secrets or user-specific values are required, state the
-  manual prerequisite instead. Do not put secret values in chat, commands, or settings.
+  manual prerequisite instead. Do not put secret values in chat, commands, or settings. Pair it
+  with a Trash cleanup that frees what setup re-creates, such as `rm -rf node_modules dist`; a
+  failing cleanup keeps the workspace out of the Trash. Restoring doesn't reinstall, so tell the user.
 - **Primary development command** as a manual Project Quick Command, using the canonical command.
 - **Secondary development commands**: group selected services while creating separate manual Quick Commands.
 
@@ -107,12 +109,10 @@ user asks; show a small relevant subset. Add a line there for each of these that
 - **Desktop apps on SSH hosts:** an optional extra for users who run apps on the SSH host. When SSH
   is configured or current and a component opens native windows (Electron, Tauri, Qt, GTK, Flutter
   desktop), a manual Quick Command `komla desktop run -- <command>` with
-  `"sshExecutionLocation": "remote"` runs the app on its own virtual desktop, which opens from
-  Komla's globe button in a VNC app or Komla's browser (`--app` or `--browser` opens it right
-  away), even when other Quick Commands run in the Local copy
-  (host prerequisite, if missing: `sudo apt install -y tigervnc-standalone-server openbox novnc
-  websockify`). Keep the plain development command as the recommendation; many users run apps
-  locally through the Local copy instead.
+  `"sshExecutionLocation": "remote"` runs the app on a virtual desktop on the host (prerequisite, if
+  missing: `sudo apt install -y tigervnc-standalone-server openbox novnc websockify`).
+  Keep the plain development command as the recommendation; many users run apps locally through
+  the Local copy instead.
 
 Choose the recommended setup for its concrete benefit. Mention existing settings only when they
 materially constrain a change. For Git projects, state once:
@@ -218,7 +218,6 @@ JSON
 ```
 
 Run only the command for each resource being changed. Global Quick Commands use `--scope global`.
-Automations use `komla settings apply automations` the same way.
 
 Say: “Creating this setup in Komla now. Komla should show a confirmation dialog in the target Komla
 window before saving.” A pending `settings apply` proves only that confirmation has not resolved,

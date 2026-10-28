@@ -22,9 +22,9 @@ komla trash                               # moves this workspace to the Trash wh
 komla open ~/notes                        # opens a folder on this computer in Komla; no agent
 ```
 
-`komla --help` lists every command, option and guide, such as `--from-current-branch` to branch a
-new workspace from this one. For anything else, print a guide with `komla skill <name>` and follow
-it:
+`komla --help` lists every command, and `komla <command> --help` shows one command's options and
+examples, such as `komla launch --help` for `--from-current-branch`, which branches a new workspace
+from this one. For anything else, print a guide with `komla skill <name>` and follow it:
 
 - `customize`: Komla's settings, such as Quick Commands, keyboard shortcuts, the theme, status
   bar items, agents Komla starts on a schedule, and hooks: scripts that run on agent events or on

@@ -27,6 +27,14 @@ komla agent launch "Review the current implementation."
 komla preview open http://localhost:5173
 ```
 
+`komla --help` prints an index of the commands, one line each, grouped by what they're for, with
+the commands Komla and its integrations run last. `komla <command> --help` (or `komla help
+<command>`) prints that command's page: its usage, what it does, its options and examples. A
+command's first words show each command they start, such as every `status` command for `status`;
+`workspace tag` and its siblings show `tag`'s page. Each command is one entry in
+`native/src/help.rs`, wrapped at 80 columns when printed. The agent guides point there for options
+and keep only when and how to use them.
+
 `komla workspace list [--all] [--json]` lists the workspaces, with those in the Trash under
 `--all`: each one's `id`, `name`, `project`, `branch`, `path`, `environment`, `agentActive`, the
 `attention` it shows and its `tag`. Through an SSH host's tunnel it lists that host's

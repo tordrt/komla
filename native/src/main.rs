@@ -7,6 +7,7 @@ mod clock;
 mod desktop;
 #[cfg(unix)]
 mod exec_channel;
+mod help;
 mod lifecycle;
 mod mailbox;
 mod offline_workspace;
@@ -41,7 +42,11 @@ fn run() -> anyhow::Result<()> {
             );
             Ok(())
         }
-        Some("help" | "--help" | "-h") => {
+        Some("help") => {
+            cli::print_help_for(&args[2..]);
+            Ok(())
+        }
+        Some("--help" | "-h") => {
             cli::print_help();
             Ok(())
         }

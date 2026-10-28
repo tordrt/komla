@@ -92,16 +92,7 @@ fn with_network_hint(error: anyhow::Error) -> anyhow::Error {
     )
 }
 
-const USAGE: &str = "usage: komla <command> [arguments]\n\n\
-commands:\n  launch [prompt] [--here] [--preset <name-or-id>] [--mode <id>]\n    [--project <name-or-id>] [--name <name>] [--description <text>] [--branch <name>]\n    [--from-current-branch] [--prompt-file <path|->] [--json]\n    Starts an agent in a new workspace by default; --here opens a tab in the current workspace.\n    --from-current-branch branches from this workspace's branch instead of the base branch.\n  preview [url] [--json]\n    Opens a running dev server in Komla's browser preview.\n  desktop run [--browser | --app] [--] <command> [arguments]\n    Runs a GUI app. On Linux without a display, such as on an SSH host, it runs on a virtual\n    desktop of its own, listed under Komla's globe button to open in a VNC app such as Screen\n    Sharing or in Komla's browser preview; --app or --browser opens it there right away.\n    desktop start|status|stop manage virtual desktops.\n  title <title> [--description <text>] [--json]\n    Updates the current workspace's sidebar title and description.\n\
-  open [folder] [--json]\n    Opens a folder on this computer, the current one by default, in Komla as Open Folder does:\n    a workspace of its own, or the one already open there.\n\
-  snooze <30m|2h|1d|17:30|YYYY-MM-DD HH:MM> [--until-notified] [--json]\n    Hides the current workspace on the sidebar's Snoozed shelf until then, in Komla's time\n    zone. It comes back marked Woke, or sooner when an agent there needs input or fails.\n    --until-notified also wakes it at its next notification, such as an agent's turn ending\n    there, komla notify or a background Quick Command; with it, the time is optional.\n\
-  wake [--json]\n    Ends the current workspace's snooze now, marked Woke, such as when a job it waits on ends.\n\
-  tag <tag> [--tooltip <text>] [--tone <tone>] [--icon <file|svg>] [--spinner] [--if <tag>]\n    [--json]\n    Tags the current workspace to say what it waits on, such as \"Waiting for review\" after\n    opening a pull request, or what a script sees, such as \"CI running\". The tag shows on its\n    card while no agent is busy there, until it's taken off or replaced; a workspace has one.\n    A tag Komla doesn't have yet joins the user's list, colored by --tone (neutral, info,\n    attention, success, warning or error), with --icon (as for status set, its shape in the\n    tag's color) or --spinner in place of the tag glyph; a tag it has keeps the user's look.\n    --tooltip says more on hover, until the tag changes. --if changes only a workspace that\n    has that tag.\n\
-  untag [<tag>] [--json]\n    Takes the current workspace's tag off, or only that tag, so a script leaves alone a tag\n    put on since.\n\
-  tags [--json]\n    Lists the user's tags, which komla tag gives a workspace with the look the user gave them.\n\
-  trash [--json]\n    Moves the current workspace to the Trash once the agent's turn finishes, stopping its\n    terminals; the user can restore it for 7 days. It stays when the turn is interrupted or\n    fails, or when another tab's agent works, waits for input or failed. Run it last: when\n    Komla can't follow the agent's turns, it moves a second later.\n  status set <id> <text> [--icon <file|svg>] [--icon-color <color>]\n    [--tone <success|warning|error|info>] [--color <color>] [--tooltip <text>] [--link <url>]\n    [--popover <markdown> | --popover-file <path|->] [--json]\n    Shows a short status, such as test results or a pull request, in Komla's status bar while\n    the current workspace is open. Setting an id again replaces it; --link opens on click, or\n    with --popover shows as a button below the popover's Markdown. --color is success, warning,\n    error, info, muted, foreground or a hex color; the text can carry Nerd Font icons and\n    terminal colors for parts of it, such as \"$(printf '\\033[32m✓\\033[0m CI')\".\n    --icon puts an image file (SVG, PNG, WebP, GIF or JPEG, up to 32 KB) or SVG markup\n    before the text; --icon-color shows its shape in a color, such as foreground for a\n    one-color logo that follows the theme. --segments (or --segments-file) replaces the\n    text with a JSON array of parts, to put icons anywhere, such as\n    [{\"icon\":\"logo.svg\"},{\"text\":\" CI\",\"color\":\"success\"}].\n  status clear [id] [--json]\n    Clears one status item, or all of the current workspace's.\n  status refresh <id> [--json]\n    Runs a status-items.json item's command again now, as from a hook when what it shows\n    changed, and waits for it.\n  notify <title> [--body <text>] [--kind <kind>] [--color <color>] [--badge <text>]\n    [--icon <file|svg>] [--icon-color <color>]\n    Shows a notification for the current workspace. Its title shows on the sidebar card, or\n    --badge's shorter text with the title on hover. --color is success, warning, error, info,\n    attention, muted or a CSS color; --icon (as for status set) replaces the kind's glyph.\n  notify [<title>] -- <command> [arguments]\n    Runs a command, showing its tab as working, and notifies when it finishes or fails.\n  settings <get|apply> <actions|workspace-setup|automations|appearance|status-items|hooks|shortcuts|terminal|agents> [--scope <scope>] [--file <path>]\n    Reads or replaces Quick Commands (actions, with --scope global|current-project), Workspace\n    Setup, the project's automations, the theme, status bar items, hooks, keyboard shortcuts,\n    terminal settings, or agent presets' arguments and level pickers.\n    apply takes JSON on stdin or from --file and waits for the user to confirm in Komla.\n  settings schema <status-items|hooks|shortcuts|terminal|agents> [--json]\n    Prints the fields a settings resource takes, with their limits, defaults and what they do;\n    --json prints it as JSON Schema.\n  skill <customize|status-items|automations|project-setup|appearance|onboarding-demo|self-integration>\n    Prints Komla's current guide for changing Komla's settings, making status bar items or\n    automations, setting up a project, changing the theme, running a demo, or connecting an agent\n    CLI Komla doesn't support out of the box.\n  context [--json]\n    Shows the project, workspace, and terminal that commands target.\n  agent presets [--all] [--json]\n    Lists agent presets and modes for --preset and --mode. Presets marked inactive (shown with\n    --all) or unavailable can't be launched, nor can modes marked unavailable; --json says why.\n    Modes marked isolated SSH host only start only on an SSH host the user marked isolated.\n  agent launch [prompt] [--new-workspace] ... (legacy: defaults to a tab)\n  workspace list [--all] [--json]\n    Lists the workspaces (--all adds those in the Trash) with their ids, for --workspace.\n  workspace <title|snooze|wake|tag|untag|trash> ...\n  --workspace <id>\n    Acts on the workspace with that id in place of the current one, as from a script that\n    runs outside any workspace. Works with every command that acts on a workspace but trash\n    and notify -- <command>.\n  preview open ...\n  git snapshot [-C <path>] [--target <branch>]\n  git target <push|pull|merge-remote|merge-source|sync> [-C <path>] [--target <branch>]\n  mcp\n    Serves Komla's MCP tools over stdio for clients that require an MCP server.\n  automation <list|save|delete|run|tick> ...\n    Manages the agent tasks this SSH host starts on a schedule; Komla's Automations settings use it.\n  version";
-
+const UNKNOWN_COMMAND: &str = "komla has no such command; `komla --help` lists them";
 const NOTIFY_USAGE: &str =
     "usage: komla notify <title> [--body <text>] [--kind <kind>] [--color <color>] [--badge <text>] \
 [--icon <file|svg>] [--icon-color <color>]\n       komla notify [<title>] -- <command> [arguments]";
@@ -829,7 +820,7 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
         return notify_when_done(title, command);
     }
     if help_requested(args) {
-        print_help();
+        print_help_for(args);
         return Ok(());
     }
     if args.first().map(String::as_str) == Some("git") {
@@ -870,7 +861,7 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 | "mcp"
         )
     ) {
-        bail!(USAGE);
+        bail!(UNKNOWN_COMMAND);
     }
     let environment = CliEnvironment::discover(reaches_host_desktop(args))?;
     let mut api = HttpKomlaApi {
@@ -1080,7 +1071,20 @@ fn help_requested(args: &[String]) -> bool {
 }
 
 pub(crate) fn print_help() {
-    println!("{USAGE}");
+    print!("{}", crate::help::index());
+}
+
+/// Prints the help for the command `args` name, such as `tag` or `status set`, or the index.
+pub(crate) fn print_help_for(args: &[String]) {
+    let words: Vec<&str> = args
+        .iter()
+        .map(String::as_str)
+        .take_while(|argument| !argument.starts_with('-'))
+        .collect();
+    match crate::help::command(&words) {
+        Some(help) => print!("{help}"),
+        None => print_help(),
+    }
 }
 
 fn run_command(
@@ -1193,7 +1197,7 @@ cannot be used with --here"
         }
         Some("notify") => notify_command(&args[1..], &environment, api, input, output, hook_input),
         Some("mcp") => mcp_command(&args[1..], api, input, output, errors),
-        _ => bail!(USAGE),
+        _ => bail!(UNKNOWN_COMMAND),
     }
 }
 
@@ -3557,11 +3561,30 @@ mod tests {
     #[test]
     fn help_and_usage_errors_agree_on_skill_guides_and_settings() {
         let guides = format!("skill <{}>", SKILL_GUIDES.map(|(guide, _)| guide).join("|"));
-        assert!(USAGE.contains(&guides), "{guides}");
         assert!(SKILL_USAGE.ends_with(&guides), "{guides}");
-        for usage in [SETTINGS_USAGE, SETTINGS_SCHEMA_USAGE] {
-            let settings = usage.trim_start_matches("usage: komla ");
-            assert!(USAGE.contains(settings), "{settings}");
+        let skill = crate::help::command(&["skill"]).unwrap();
+        for (guide, _) in SKILL_GUIDES {
+            assert!(skill.contains(guide), "{guide}");
+        }
+        // Each resource the usage errors name, the help names too.
+        let resources = |usage: &str| -> Vec<String> {
+            let list = usage
+                .split('<')
+                .nth(usage.matches('<').count())
+                .unwrap_or("");
+            list.split('>')
+                .next()
+                .unwrap()
+                .split('|')
+                .map(str::to_owned)
+                .collect()
+        };
+        let settings = crate::help::command(&["settings"]).unwrap();
+        for resource in resources(SETTINGS_USAGE.split(" [").next().unwrap())
+            .into_iter()
+            .chain(resources(SETTINGS_SCHEMA_USAGE.split(" [").next().unwrap()))
+        {
+            assert!(settings.contains(&resource), "{resource}");
         }
     }
 
@@ -3589,12 +3612,6 @@ mod tests {
             assert_eq!(error.to_string(), SETTINGS_SCHEMA_USAGE, "{args:?}");
         }
         assert!(api.requests.is_empty());
-    }
-
-    #[test]
-    fn public_help_omits_the_internal_companion_entrypoint() {
-        assert!(!USAGE.contains("sidecar"));
-        assert!(!USAGE.contains("__companion"));
     }
 
     #[test]

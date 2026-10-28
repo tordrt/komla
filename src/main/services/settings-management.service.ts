@@ -21,6 +21,7 @@ import {
   AUTOMATION_MISSED_RUN_GRACE_MINUTES,
   DEFAULT_AUTOMATION_MISSED_RUN_GRACE_MINUTES,
 } from '../../shared/types/automation';
+import { describeSettingsSchema, settingsJsonSchema } from '../lib/settings-schema';
 
 import type { WorkspaceSetupState } from './project.service';
 import type { DesiredWorkspaceEnvironment } from '../../shared/lib/agent-environment';
@@ -42,6 +43,7 @@ import type {
   AutomationTargetSnapshot,
   SaveAutomationParams,
 } from '../../shared/types/automation';
+import type { SettingsSchemaSection } from '../lib/settings-schema';
 
 export type SettingsActionScope = 'global' | 'current-project';
 
@@ -139,6 +141,8 @@ export interface SettingsProposalResult<T> {
 export interface SettingsFileAdapter {
   /** The file's name, as in messages. */
   name: string;
+  /** What `komla settings schema` shows: the settings' format, then what their commands print. */
+  schema: SettingsSchemaSection[];
   /** What `komla settings get` shows. */
   read(): Record<string, unknown>;
   /** Changes whenever the file does, so a change made while the user decides isn't lost. */
@@ -417,6 +421,11 @@ function workspaceSetup(project: Project): WorkspaceSetupState {
 
 export class SettingsManagementService {
   private readonly pending = new Set<string>();
+  // A file's format is fixed while Komla runs, so each is rendered once.
+  private readonly schemas = new Map<
+    SettingsFileResource,
+    ReturnType<SettingsManagementService['readSettingsFileSchema']>
+  >();
   private readonly generateId: () => string;
 
   constructor(private readonly deps: Dependencies) {
@@ -1166,6 +1175,27 @@ export class SettingsManagementService {
 
   readSettingsFile(resource: SettingsFileResource): Record<string, unknown> {
     return this.deps.files[resource].read();
+  }
+
+  /** The settings file's format, as text for an agent and as JSON Schema. */
+  readSettingsFileSchema(resource: SettingsFileResource): {
+    resource: SettingsFileResource;
+    text: string;
+    sections: { title?: string; schema: Record<string, unknown> }[];
+  } {
+    const cached = this.schemas.get(resource);
+    if (cached) return cached;
+    const sections = this.deps.files[resource].schema;
+    const schema = {
+      resource,
+      text: describeSettingsSchema(resource, sections),
+      sections: sections.map((section) => ({
+        ...(section.title && { title: section.title }),
+        schema: settingsJsonSchema(section),
+      })),
+    };
+    this.schemas.set(resource, schema);
+    return schema;
   }
 
   async proposeSettingsFile(

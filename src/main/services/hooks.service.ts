@@ -36,6 +36,7 @@ export const INTERVAL_TICK_MS = 5000;
 /** Interval runs at once, so a hook for every workspace doesn't start them all together. */
 export const MAX_PARALLEL_INTERVAL_RUNS = 4;
 
+// The descriptions are what `komla settings schema hooks` tells agents.
 const hookSchema = z
   .object({
     id: z
@@ -43,15 +44,32 @@ const hookSchema = z
       .regex(
         STATUS_ITEM_ID_PATTERN,
         'ids are up to 40 letters, digits, dots, dashes and underscores'
-      ),
-    event: z.enum(HOOK_EVENTS),
-    command: z.string().trim().min(1).max(16_000),
-    /** How often an interval hook runs. */
-    intervalSeconds: z.number().int().min(10).max(86_400).optional(),
-    /** Where it runs: in each workspace's folder (the default), or once on this computer. */
-    runOn: z.enum(['workspace', 'local']).optional(),
-    timeoutSeconds: z.number().int().min(1).max(3600).default(60),
-    projects: z.array(z.string().trim().min(1)).min(1).optional(),
+      )
+      .meta({ description: 'Unique in the file.' }),
+    event: z.enum(HOOK_EVENTS).meta({
+      description:
+        "When it runs: `agent.done` when an agent finishes its turn, `agent.needs-input` when it asks for permission or an answer, `agent.error` when it reports an error, `agent.prompt` when a prompt is sent to it, `workspace.created` once a new workspace's terminals have started and it has its name (its setup steps may still be running), `workspace.trashed` when a workspace moves to the Trash, or `interval` on a timer.",
+    }),
+    command: z.string().trim().min(1).max(16_000).meta({
+      description:
+        "Runs in the user's shell, which has the `komla` CLI. Its output is discarded, and its own notifications set off no hooks. It gets `KOMLA_EVENT` and `KOMLA_HOOK_ID`; when it runs for a workspace also `KOMLA_WORKSPACE_ID`, `KOMLA_WORKSPACE_NAME`, `KOMLA_BRANCH` and `KOMLA_PROJECT`, and for agent events `KOMLA_TERMINAL_ID`, `KOMLA_AGENT` (such as `claude-code`) and `KOMLA_MESSAGE` (the agent's last answer, what it asks for, or the prompt, up to 4,000 characters), when Komla has them.",
+    }),
+    intervalSeconds: z.number().int().min(10).max(86_400).optional().meta({
+      description:
+        "How often an `interval` hook runs; only those take it, and they need it. Komla also runs them when it starts and after hooks.json changes, a few at a time, and doesn't start a run that's still going again.",
+    }),
+    runOn: z.enum(['workspace', 'local']).optional().meta({
+      description:
+        "`workspace`, the default, runs it in the workspace's folder or on its SSH host; an `interval` hook then runs in every workspace outside the Trash. `local` runs it on this computer in the home folder: once per interval for an `interval` hook, which then takes no `projects`, or for an event even while the workspace's SSH host is away.",
+    }),
+    timeoutSeconds: z.number().int().min(1).max(3600).default(60).meta({
+      description: 'How long it may run before Komla stops it and everything it started.',
+    }),
+    projects: z
+      .array(z.string().trim().min(1))
+      .min(1)
+      .optional()
+      .meta({ description: 'Project names or ids to run it in; every workspace when left out.' }),
   })
   .strict()
   .refine((hook) => (hook.event === 'interval') === (hook.intervalSeconds !== undefined), {
@@ -63,7 +81,7 @@ const hookSchema = z
 
 export const hooksFileSchema = z
   .object({
-    _version: z.number().int().optional(),
+    _version: z.number().int().optional().meta({ description: "The file's format, 1." }),
     hooks: z
       .array(hookSchema)
       .max(MAX_HOOKS)
@@ -71,7 +89,11 @@ export const hooksFileSchema = z
         message: 'each hook needs its own id',
       }),
   })
-  .strict();
+  .strict()
+  .meta({
+    description:
+      "Commands Komla runs when something happens in a workspace, or on a timer. Apply the whole file: keep every hook the user didn't ask to change. While a hook still runs for a terminal, that terminal's next event doesn't start it again; when one fails in a workspace, Komla says why once, until it succeeds there again.",
+  });
 
 type Hook = z.infer<typeof hookSchema>;
 

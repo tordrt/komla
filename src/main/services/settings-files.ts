@@ -16,7 +16,11 @@ import { writeFileAtomicSync } from '../lib/atomic-write';
 import { parseSettingsFile } from '../lib/settings-file';
 
 import { hooksFileSchema } from './hooks.service';
-import { statusCommandsFileSchema } from './status-commands.service';
+import {
+  commandOutputSchema,
+  popoverOutputDescription,
+  statusCommandsFileSchema,
+} from './status-commands.service';
 
 import type { SettingsFileAdapter } from './settings-management.service';
 import type {
@@ -25,6 +29,7 @@ import type {
   TerminalConfig,
 } from '../../shared/types';
 import type { HookEvent } from '../../shared/types/hooks';
+import type { SettingsSchemaSection } from '../lib/settings-schema';
 
 const FILE_VERSION = 1;
 
@@ -70,6 +75,7 @@ function commandFile<Entry extends CommandEntry>({
   name,
   listKey,
   schema,
+  outputs = [],
   describe,
 }: {
   path: string;
@@ -77,6 +83,8 @@ function commandFile<Entry extends CommandEntry>({
   name: string;
   listKey: string;
   schema: z.ZodType;
+  /** What the entries' commands print, for `komla settings schema`. */
+  outputs?: SettingsSchemaSection[];
   describe: (entry: Entry) => Omit<SettingsApprovalChange, 'operation'>;
 }): SettingsFileAdapter {
   const content = () => (existsSync(path) ? readFileSync(path, 'utf-8') : undefined);
@@ -90,6 +98,7 @@ function commandFile<Entry extends CommandEntry>({
   };
   return {
     name,
+    schema: [{ schema }, ...outputs],
     read() {
       const current = content();
       if (current === undefined) return { _version: FILE_VERSION, [listKey]: [] };
@@ -170,9 +179,19 @@ function leaves(value: unknown, prefix = ''): Map<string, unknown> {
   return result;
 }
 
+// The descriptions here are what `komla settings schema` tells agents.
 const shortcutsSchema = z
-  .object({ shortcuts: z.record(z.string(), z.string().trim().max(100)) })
-  .strict();
+  .object({
+    shortcuts: z.record(z.string(), z.string().trim().max(100)).meta({
+      description:
+        'Each action to change and its keys, such as `"workspace.new": "Cmd+N"`. `Cmd` is ⌘ on macOS and Ctrl on Windows and Linux; an empty string unbinds the action.',
+    }),
+  })
+  .strict()
+  .meta({
+    description:
+      '`komla settings get shortcuts` lists every action with its keys. Apply only the shortcuts to change; the rest stay as they are.',
+  });
 
 const PRESET_COMMANDS = {
   openCommand: 'Open command',
@@ -189,6 +208,8 @@ type PresetUpdates = Partial<
 // here, is refused.
 const NOT_AN_ARGUMENT = /[;&|<>`\r\n]|\$\(|\{\{/;
 
+const ONLY_ARGUMENTS = 'Only arguments: no `;`, `&`, `|`, `<`, `>`, backticks, `$(` or `{{…}}`.';
+
 const argumentsSchema = z
   .string()
   .trim()
@@ -196,23 +217,45 @@ const argumentsSchema = z
   .max(1000)
   .refine((value) => !NOT_AN_ARGUMENT.test(value), {
     message: 'Only arguments can be added: no ;, &, |, <, >, backticks, $( or {{placeholders}}',
-  });
+  })
+  .meta({ description: ONLY_ARGUMENTS });
+
+// A preset's name and program change only in Settings.
+const SHOWN_BY_GET =
+  'Shown by get. Keep it as it is or leave it out; change it under Settings → Agents.';
 
 // The picker next to the agent in the new workspace dialog. Levels, when given, are the whole
 // list; one given by name alone keeps its arguments.
 const levelPickerSchema = z
   .object({
     ...levelPickerFields,
+    title: levelPickerFields.title.meta({ description: '`Effort` when left out.' }),
+    icon: levelPickerFields.icon.meta({
+      description: '`gauge`, the default, shows a meter of the picked level.',
+    }),
+    hidden: levelPickerFields.hidden.meta({
+      description:
+        '`true` hides the picker in the new workspace dialog and keeps its levels; new workspaces then start with Default, while existing ones keep their level. Left out, it stays as it is.',
+    }),
     levels: z
       .array(
         z
           .object({
-            name: z.string().trim().min(1).max(MAX_REASONING_LEVEL_NAME_LENGTH),
-            arguments: argumentsSchema.optional(),
+            name: z.string().trim().min(1).max(MAX_REASONING_LEVEL_NAME_LENGTH).meta({
+              description:
+                "Unique in the list. The user's pick follows a level's name, so rename one only when asked.",
+            }),
+            arguments: argumentsSchema.optional().meta({
+              description: `What Komla adds where launch mode arguments go when the user picks the level. A level given by its current name alone keeps its arguments. ${ONLY_ARGUMENTS}`,
+            }),
           })
           .strict()
       )
       .max(MAX_REASONING_LEVELS)
+      .meta({
+        description:
+          'The whole list, lowest first; leave it out to keep the levels as they are. The picker also offers Default, which adds nothing, and an empty list hides it.',
+      })
       .superRefine((levels, context) => {
         levels.forEach((level, index) => {
           if (levels.findIndex((other) => other.name === level.name) < index) {
@@ -234,18 +277,31 @@ const agentsSchema = z
       .array(
         z
           .object({
-            id: z.string(),
+            id: z.string().meta({ description: 'The preset to change.' }),
             // What `get` shows, so its output can be applied back.
-            name: z.string().optional(),
-            program: z.string().optional(),
-            addArguments: argumentsSchema.optional(),
-            levelPicker: levelPickerSchema.optional(),
+            name: z.string().optional().meta({ description: SHOWN_BY_GET }),
+            program: z.string().optional().meta({ description: SHOWN_BY_GET }),
+            addArguments: argumentsSchema.optional().meta({
+              description: `Arguments the agent needs each time it starts. Komla adds them right after the program in each command that runs it. ${ONLY_ARGUMENTS}`,
+            }),
+            levelPicker: levelPickerSchema.optional().meta({
+              description: 'The picker beside the agent in the new workspace dialog.',
+            }),
           })
           .strict()
       )
       .max(100),
   })
-  .strict();
+  .strict()
+  .meta({
+    description:
+      "Agent presets' arguments and level pickers. Apply only the presets to change. Anything else about a preset, such as its commands, name or launch modes, changes under Settings → Agents.",
+  });
+
+const terminalSchema = terminalUpdateSchema.strict().meta({
+  description:
+    'The terminal\'s font, cursor and scrollback, such as `{"font": {"size": 14}}`. Apply only the values to change; `komla settings get terminal` shows every one. Most terminal colors follow the theme, which `komla skill appearance` changes.',
+});
 
 const PRESETS_WARNING =
   "Komla runs these commands, with a level's arguments when that level is picked, without asking again each time this agent starts, by you or by another agent, wherever its workspace runs: on this computer or an SSH host.";
@@ -308,6 +364,10 @@ export function createSettingsFiles({
       name: 'Status bar items',
       listKey: 'items',
       schema: statusCommandsFileSchema,
+      outputs: [
+        { title: 'What `command` prints', schema: commandOutputSchema },
+        { title: 'What `popoverCommand` prints', schema: popoverOutputDescription },
+      ],
       describe: (item) => {
         const moreContent = [
           ...(item.popoverCommand
@@ -369,6 +429,7 @@ export function createSettingsFiles({
     }),
     shortcuts: {
       name: 'Keyboard shortcuts',
+      schema: [{ schema: shortcutsSchema }],
       read: () => ({ shortcuts: shortcuts.get() }),
       revision: () => hashOf(shortcuts.get()),
       prepare(desired) {
@@ -404,10 +465,11 @@ export function createSettingsFiles({
     },
     terminal: {
       name: 'Terminal',
+      schema: [{ schema: terminalSchema }],
       read: () => ({ ...terminal.get() }),
       revision: () => hashOf(terminal.get()),
       prepare(desired) {
-        const parsed = terminalUpdateSchema.strict().safeParse(desired);
+        const parsed = terminalSchema.safeParse(desired);
         if (!parsed.success) return { problems: problemsOf(parsed.error) };
         const current = leaves(terminal.get());
         const changes: SettingsApprovalChange[] = [];
@@ -434,6 +496,7 @@ export function createSettingsFiles({
     // hold keys, nor replace them; nor a level's arguments, which go into them.
     agents: {
       name: 'Agents',
+      schema: [{ schema: agentsSchema }],
       read: () => ({
         presets: presets.list().map((preset) => ({
           id: preset.id,

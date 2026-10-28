@@ -447,6 +447,14 @@ const settingsAppearancePayloadSchema = z
 // Each settings file checks its own content, so problems name its fields.
 const settingsFilePayloadSchema = z.record(z.string(), z.unknown());
 
+/** The guide that describes each settings resource without a schema. */
+const SETTINGS_SCHEMA_GUIDES: Record<string, string> = {
+  actions: 'project-setup',
+  'workspace-setup': 'project-setup',
+  automations: 'automations',
+  appearance: 'appearance',
+};
+
 /** What the confirmation names for each settings file. */
 const SETTINGS_FILE_TARGETS: Record<SettingsFileResource, string> = {
   'status-items': 'Status bar items',
@@ -1290,6 +1298,11 @@ class HttpServerService {
       const pathname = url.pathname.startsWith('/api/v1/settings/')
         ? url.pathname.slice('/api/v1'.length)
         : url.pathname;
+      const schemaOf = /^\/settings\/([a-z-]+)\/schema$/.exec(pathname)?.[1];
+      if (schemaOf !== undefined) {
+        this.writeSettingsSchema(req, res, schemaOf);
+        return;
+      }
       const isActions = pathname === '/settings/actions';
       const isSetup = pathname === '/settings/workspace-setup';
       const isAppearance = pathname === '/settings/appearance';
@@ -1461,6 +1474,39 @@ class HttpServerService {
   private requestedAt(req: http.IncomingMessage): number | undefined {
     const value = this.singleHeader(req.headers['x-komla-queued-ms']);
     return value && /^\d{1,16}$/.test(value) ? Date.now() - Number(value) : undefined;
+  }
+
+  /** A settings resource's format, which `komla settings schema` prints. */
+  private writeSettingsSchema(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    resource: string
+  ): void {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'GET' });
+      res.end(
+        JSON.stringify({
+          error: { code: 'METHOD_NOT_ALLOWED', message: 'Only GET is supported.', details: [] },
+        })
+      );
+      return;
+    }
+    const fileResource = SETTINGS_FILE_RESOURCES.find((candidate) => candidate === resource);
+    if (!fileResource) {
+      // Komla checks these beyond what a schema says, so their guides describe them.
+      const guide = SETTINGS_SCHEMA_GUIDES[resource];
+      this.writeSettingsError(
+        res,
+        404,
+        guide ? 'SCHEMA_UNAVAILABLE' : 'NOT_FOUND',
+        guide ? `${resource} has no schema; \`komla skill ${guide}\` describes it.` : 'Not found.'
+      );
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify(this.getSettingsManagementService().readSettingsFileSchema(fileResource))
+    );
   }
 
   private writeSettingsError(

@@ -73,26 +73,69 @@ const COLOR_MESSAGE =
   'iconColor: success, warning, error, info, muted, foreground or a hex color such as #e5c07b';
 const commandSchema = z.string().trim().min(1).max(16_000);
 
+const ICON_DESCRIPTION = `SVG markup, an image data URL (SVG, PNG, WebP, GIF or JPEG, up to ${MAX_STATUS_ICON_BYTES / 1024} KB), or a file the user keeps in the settings folder's icons folder, named \`icons/<file>\``;
+const COLOR_DESCRIPTION =
+  '`success`, `warning`, `error`, `info`, `muted`, `foreground` or a hex color such as `#e5c07b`';
+
+// The descriptions are what `komla settings schema status-items` tells agents.
 const statusCommandSchema = z
   .object({
-    id: z.string().regex(STATUS_ITEM_ID_PATTERN, ID_MESSAGE),
-    command: commandSchema,
-    intervalSeconds: z.number().int().min(10).max(86_400).default(60),
-    /** How long its command and popover command may run. */
-    timeoutSeconds: z.number().int().min(1).max(600).optional(),
-    runOn: z.enum(['workspace', 'local']).optional(),
-    label: z.string().trim().min(1).max(MAX_STATUS_ITEM_TEXT).optional(),
-    projects: z.array(z.string().trim().min(1)).min(1).optional(),
-    popoverCommand: commandSchema.optional(),
-    action: z.string().trim().min(1).max(200).optional(),
-    iconColor: z.string().refine(isStatusItemColor, { message: COLOR_MESSAGE }).optional(),
+    id: z
+      .string()
+      .regex(STATUS_ITEM_ID_PATTERN, ID_MESSAGE)
+      .meta({ description: 'Unique in the file.' }),
+    command: commandSchema.meta({
+      description:
+        "Runs in the user's shell on each interval while the workspace is open. Komla shows the first line of its output, in the terminal colors it prints, with the rest as the tooltip, or a JSON object it prints, as under What `command` prints. Empty output hides the item.",
+    }),
+    intervalSeconds: z.number().int().min(10).max(86_400).default(60).meta({
+      description:
+        'How often the command runs. `komla status refresh <id>`, as from a hook or a Quick Command, runs it again at once.',
+    }),
+    timeoutSeconds: z
+      .number()
+      .int()
+      .min(1)
+      .max(600)
+      .optional()
+      .meta({
+        description: `How long the command and popover command may run, ${STATUS_COMMAND_TIMEOUT_MS / 1000} when left out. Past it, Komla stops the command and shows the label.`,
+      }),
+    runOn: z.enum(['workspace', 'local']).optional().meta({
+      description:
+        "`workspace`, the default, runs its commands where the workspace's files are. `local` runs them on this computer in the home folder, even for an SSH workspace, and every workspace shows the same output, for items that don't depend on the workspace, such as an account's usage.",
+    }),
+    label: z.string().trim().min(1).max(MAX_STATUS_ITEM_TEXT).optional().meta({
+      description:
+        "Shown in place of the output while the command fails, in the status bar's menu, and as the item when it shows only icons.",
+    }),
+    projects: z
+      .array(z.string().trim().min(1))
+      .min(1)
+      .optional()
+      .meta({ description: 'Project names or ids to show it in; every workspace when left out.' }),
+    popoverCommand: commandSchema.optional().meta({
+      description:
+        'Runs when the item is clicked, and its output shows in a popover: Markdown, or a JSON object it prints, as under What `popoverCommand` prints.',
+    }),
+    action: z.string().trim().min(1).max(200).optional().meta({
+      description: 'A Quick Command, by title, that clicking the item runs, in place of a popover.',
+    }),
+    iconColor: z
+      .string()
+      .refine(isStatusItemColor, { message: COLOR_MESSAGE })
+      .optional()
+      .meta({
+        description: `Shows the icon's shape in a color: ${COLOR_DESCRIPTION}. Without it, the icon keeps its own colors.`,
+      }),
     icon: z
       .string()
       .trim()
       .refine((icon) => isSettingsIconPath(icon) || statusIconDataUrl(icon) !== undefined, {
         message: `icon: a file in the settings folder's icons folder, such as icons/logo.svg, SVG markup, or an image data URL of at most ${MAX_STATUS_ICON_BYTES / 1024} KB`,
       })
-      .optional(),
+      .optional()
+      .meta({ description: `A logo or image before the output: ${ICON_DESCRIPTION}.` }),
     commands: z
       .record(z.string(), commandSchema)
       .refine(
@@ -104,7 +147,10 @@ const statusCommandSchema = z
       .refine((commands) => Object.keys(commands).length <= MAX_STATUS_ITEM_COMMANDS, {
         message: `at most ${MAX_STATUS_ITEM_COMMANDS} commands`,
       })
-      .optional(),
+      .optional()
+      .meta({
+        description: `Up to ${MAX_STATUS_ITEM_COMMANDS} named commands for the popover's buttons, which need a \`popoverCommand\`, such as \`{"rerun": "gh run rerun --failed"}\`. Komla runs one in the workspace when its button is clicked, then updates the item and the popover. Like the item's other commands, they have the \`komla\` CLI.`,
+      }),
   })
   .strict()
   .refine((item) => !(item.popoverCommand && item.action), {
@@ -116,7 +162,7 @@ const statusCommandSchema = z
 
 export const statusCommandsFileSchema = z
   .object({
-    _version: z.number().int().optional(),
+    _version: z.number().int().optional().meta({ description: "The file's format, 1." }),
     items: z
       .array(statusCommandSchema)
       .max(MAX_STATUS_COMMANDS)
@@ -124,7 +170,11 @@ export const statusCommandsFileSchema = z
         message: 'each item needs its own id',
       }),
   })
-  .strict();
+  .strict()
+  .meta({
+    description:
+      "Status bar items whose text comes from a command. Apply the whole file: keep every item the user didn't ask to change. If Komla can't read the file, a warning item in the status bar says what's wrong.",
+  });
 
 type ConfiguredStatusCommand = z.infer<typeof statusCommandSchema>;
 
@@ -137,16 +187,25 @@ export function parseStatusCommandsFile(content: string): {
   return 'problem' in parsed ? { items: [], problem: parsed.problem } : parsed.value;
 }
 
-const outputColorSchema = z.string().refine(isStatusItemColor).optional().catch(undefined);
+const outputColorSchema = z
+  .string()
+  .refine(isStatusItemColor)
+  .optional()
+  .catch(undefined)
+  .meta({ description: COLOR_DESCRIPTION });
 const outputSegmentSchema = z.union([
   z.object({
     text: z.string(),
     color: outputColorSchema,
     bold: z.boolean().optional().catch(undefined),
   }),
-  z.object({ icon: z.string(), color: outputColorSchema }),
+  z.object({
+    icon: z.string().meta({ description: ICON_DESCRIPTION }),
+    color: outputColorSchema.meta({ description: `The icon's color: ${COLOR_DESCRIPTION}.` }),
+  }),
 ]);
-const commandOutputSchema = z
+/** What a status item's command can print as JSON, which `komla settings schema` shows. */
+export const commandOutputSchema = z
   .object({
     text: z.string().optional(),
     // Parts it can't show are left out, as are those past the most an item has.
@@ -157,15 +216,39 @@ const commandOutputSchema = z
         return shown.length > 0 ? shown.slice(0, MAX_STATUS_ITEM_SEGMENTS) : undefined;
       })
       .optional()
-      .catch(undefined),
-    icon: z.string().optional().catch(undefined),
+      .catch(undefined)
+      .meta({
+        description: `Parts in place of \`text\`, up to ${MAX_STATUS_ITEM_SEGMENTS}, to color parts or put icons anywhere, such as \`[{"text": "\\uf00c", "color": "success"}, {"text": " 2", "bold": true}]\`. An item shows at most ${MAX_STATUS_ITEM_ICONS} icons. \`color\` then applies to the parts without one.`,
+      }),
+    icon: z
+      .string()
+      .optional()
+      .catch(undefined)
+      .meta({ description: `In place of the item's \`icon\`: ${ICON_DESCRIPTION}.` }),
     iconColor: outputColorSchema,
-    tone: z.enum(STATUS_ITEM_TONES).optional().catch(undefined),
-    color: z.string().refine(isStatusItemColor).optional().catch(undefined),
+    tone: z
+      .enum(STATUS_ITEM_TONES)
+      .optional()
+      .catch(undefined)
+      .meta({ description: 'Adds a dot of that color.' }),
+    color: z
+      .string()
+      .refine(isStatusItemColor)
+      .optional()
+      .catch(undefined)
+      .meta({ description: `Colors the text: ${COLOR_DESCRIPTION}.` }),
     tooltip: z.string().optional().catch(undefined),
-    link: z.string().optional().catch(undefined),
+    link: z
+      .string()
+      .optional()
+      .catch(undefined)
+      .meta({ description: 'An http(s) URL the item opens when clicked.' }),
   })
-  .refine((output) => output.text !== undefined || output.segments !== undefined);
+  .refine((output) => output.text !== undefined || output.segments !== undefined)
+  .meta({
+    description:
+      "A JSON object in place of plain output, with `text` or `segments`. Nerd Font icons, such as U+F407 for a pull request (`\\uf407` in JSON), show from Komla's bundled font.",
+  });
 
 // JSON output starts with `{`; anything else, or JSON that doesn't parse, is text.
 function parseJsonOutput(output: string): unknown {
@@ -254,17 +337,50 @@ export async function resolveStatusIcons(
 
 const buttonLabelSchema = z.string().trim().min(1).max(MAX_STATUS_BUTTON_LABEL);
 const popoverButtonSchema = z.union([
-  z.object({ label: buttonLabelSchema, link: z.string().trim().refine(isBrowserUrl) }),
-  z.object({ label: buttonLabelSchema, action: z.string().trim().min(1).max(200) }),
-  z.object({ label: buttonLabelSchema, run: z.string() }),
+  z.object({
+    label: buttonLabelSchema,
+    link: z
+      .string()
+      .trim()
+      .refine(isBrowserUrl)
+      .meta({ description: 'An http(s) URL the button opens.' }),
+  }),
+  z.object({
+    label: buttonLabelSchema,
+    action: z.string().trim().min(1).max(200).meta({
+      description: "One of the project's Quick Commands, by title, for the button to run.",
+    }),
+  }),
+  z.object({
+    label: buttonLabelSchema,
+    run: z
+      .string()
+      .meta({ description: "One of the item's `commands`, by name, for the button to run." }),
+  }),
 ]);
 const popoverOutputSchema = z
   .object({
     markdown: z.string().optional(),
-    html: z.string().optional(),
+    html: z.string().optional().meta({
+      description:
+        "A page shown in a sandbox: inline `<style>` and `<script>` work, but nothing loads from the web and it can't reach Komla. `komla skill status-items` says how to make it match Komla's theme.",
+    }),
     buttons: z.array(z.unknown()).optional().catch(undefined),
   })
   .refine((output) => output.markdown !== undefined || output.html !== undefined);
+
+/** The popover's buttons as `komla settings schema` shows them; they parse one by one. */
+export const popoverOutputDescription = popoverOutputSchema
+  .safeExtend({
+    buttons: z
+      .array(popoverButtonSchema)
+      .max(MAX_STATUS_POPOVER_BUTTONS)
+      .optional()
+      .meta({
+        description: `Shown below the page, up to ${MAX_STATUS_POPOVER_BUTTONS}. A button can't carry a command of its own, since output can include text from elsewhere, such as a pull request title.`,
+      }),
+  })
+  .meta({ description: 'A JSON object in place of Markdown output, with `markdown` or `html`.' });
 
 /** A popover command's output: Markdown, or HTML for Komla to serve as a sandboxed page. */
 export interface ParsedStatusPopover {

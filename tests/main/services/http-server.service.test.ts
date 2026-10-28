@@ -1,6 +1,7 @@
 import { join } from 'path';
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { z } from 'zod';
 
 import { IPC } from '../../../src/shared/constants/ipc-channels';
 import {
@@ -149,6 +150,13 @@ vi.mock('../../../src/main/services/customization.service', () => ({
 // One stand-in serves every settings file; each file's own checks are tested with the files.
 const mockSettingsFile = {
   name: 'Hooks',
+  schema: [
+    {
+      schema: z
+        .object({ hooks: z.array(z.object({ id: z.string() })) })
+        .meta({ description: 'Hooks to run.' }),
+    },
+  ],
   read: vi.fn(() => ({ _version: 1, hooks: [] as unknown[] })),
   revision: vi.fn(() => 'revision-1'),
   prepare: vi.fn(),
@@ -870,6 +878,33 @@ describe('HttpServerService', () => {
       await vi.waitFor(() => expect(pending.res.end).toHaveBeenCalled());
       expect(mockSettingsFile.write).toHaveBeenCalledWith(desired);
       expect(parseJsonResponse(pending.res)).toMatchObject({ status: 'applied', applied: true });
+    });
+
+    it("serves a settings file's format, and names the guide for a resource without one", async () => {
+      httpServerService.start();
+
+      const { res } = await sendRequest('GET', '/api/v1/settings/hooks/schema');
+      expect(parseJsonResponse(res)).toEqual({
+        resource: 'hooks',
+        text: expect.stringContaining('# hooks\n\nHooks to run.\n\n- `hooks` (required)'),
+        sections: [
+          { schema: expect.objectContaining({ type: 'object', description: 'Hooks to run.' }) },
+        ],
+      });
+
+      const actions = await sendRequest('GET', '/settings/actions/schema');
+      expect(actions.res.writeHead).toHaveBeenCalledWith(404, expect.any(Object));
+      expect(parseJsonResponse(actions.res)).toMatchObject({
+        error: {
+          code: 'SCHEMA_UNAVAILABLE',
+          message: 'actions has no schema; `komla skill project-setup` describes it.',
+        },
+      });
+
+      const put = await sendRequest('PUT', '/settings/hooks/schema', '{}', {
+        'content-type': 'application/json',
+      });
+      expect(put.res.writeHead).toHaveBeenCalledWith(405, expect.any(Object));
     });
 
     it('rejects a settings file with problems before asking for approval', async () => {

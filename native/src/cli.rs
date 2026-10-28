@@ -100,7 +100,7 @@ commands:\n  launch [prompt] [--here] [--preset <name-or-id>] [--mode <id>]\n   
   tag <tag> [--tooltip <text>] [--tone <tone>] [--icon <file|svg>] [--spinner] [--if <tag>]\n    [--json]\n    Tags the current workspace to say what it waits on, such as \"Waiting for review\" after\n    opening a pull request, or what a script sees, such as \"CI running\". The tag shows on its\n    card while no agent is busy there, until it's taken off or replaced; a workspace has one.\n    A tag Komla doesn't have yet joins the user's list, colored by --tone (neutral, info,\n    attention, success, warning or error), with --icon (as for status set, its shape in the\n    tag's color) or --spinner in place of the tag glyph; a tag it has keeps the user's look.\n    --tooltip says more on hover, until the tag changes. --if changes only a workspace that\n    has that tag.\n\
   untag [<tag>] [--json]\n    Takes the current workspace's tag off, or only that tag, so a script leaves alone a tag\n    put on since.\n\
   tags [--json]\n    Lists the user's tags, which komla tag gives a workspace with the look the user gave them.\n\
-  trash [--json]\n    Moves the current workspace to the Trash once the agent's turn finishes, stopping its\n    terminals; the user can restore it for 7 days. It stays when the turn is interrupted or\n    fails, or when another tab's agent works, waits for input or failed. Run it last: when\n    Komla can't follow the agent's turns, it moves a second later.\n  status set <id> <text> [--icon <file|svg>] [--icon-color <color>]\n    [--tone <success|warning|error|info>] [--color <color>] [--tooltip <text>] [--link <url>]\n    [--popover <markdown> | --popover-file <path|->] [--json]\n    Shows a short status, such as test results or a pull request, in Komla's status bar while\n    the current workspace is open. Setting an id again replaces it; --link opens on click, or\n    with --popover shows as a button below the popover's Markdown. --color is success, warning,\n    error, info, muted, foreground or a hex color; the text can carry Nerd Font icons and\n    terminal colors for parts of it, such as \"$(printf '\\033[32m✓\\033[0m CI')\".\n    --icon puts an image file (SVG, PNG, WebP, GIF or JPEG, up to 32 KB) or SVG markup\n    before the text; --icon-color shows its shape in a color, such as foreground for a\n    one-color logo that follows the theme. --segments (or --segments-file) replaces the\n    text with a JSON array of parts, to put icons anywhere, such as\n    [{\"icon\":\"logo.svg\"},{\"text\":\" CI\",\"color\":\"success\"}].\n  status clear [id] [--json]\n    Clears one status item, or all of the current workspace's.\n  status refresh <id> [--json]\n    Runs a status-items.json item's command again now, as from a hook when what it shows\n    changed, and waits for it.\n  notify <title> [--body <text>] [--kind <kind>] [--color <color>] [--badge <text>]\n    [--icon <file|svg>] [--icon-color <color>]\n    Shows a notification for the current workspace. Its title shows on the sidebar card, or\n    --badge's shorter text with the title on hover. --color is success, warning, error, info,\n    attention, muted or a CSS color; --icon (as for status set) replaces the kind's glyph.\n  notify [<title>] -- <command> [arguments]\n    Runs a command, showing its tab as working, and notifies when it finishes or fails.\n  settings <get|apply> <actions|workspace-setup|automations|appearance|status-items|hooks|shortcuts|terminal|agents> [--scope <scope>] [--file <path>]\n    Reads or replaces Quick Commands (actions, with --scope global|current-project), Workspace\n    Setup, the project's automations, the theme, status bar items, hooks, keyboard shortcuts,\n    terminal settings, or agent presets' arguments and level pickers.\n    apply takes JSON on stdin or from --file and waits for the user to confirm in Komla.\n  skill <customize|status-items|automations|project-setup|appearance|onboarding-demo|self-integration>\n    Prints Komla's current guide for changing Komla's settings, making status bar items or\n    automations, setting up a project, changing the theme, running a demo, or connecting an agent\n    CLI Komla doesn't support out of the box.\n  context [--json]\n    Shows the project, workspace, and terminal that commands target.\n  agent presets [--all] [--json]\n    Lists agent presets and modes for --preset and --mode. Presets marked inactive (shown with\n    --all) or unavailable can't be launched, nor can modes marked unavailable; --json says why.\n    Modes marked isolated SSH host only start only on an SSH host the user marked isolated.\n  agent launch [prompt] [--new-workspace] ... (legacy: defaults to a tab)\n  workspace list [--all] [--json]\n    Lists the workspaces (--all adds those in the Trash) with their ids, for --workspace.\n  workspace <title|snooze|wake|tag|untag|trash> ...\n  --workspace <id>\n    Acts on the workspace with that id in place of the current one, as from a script that\n    runs outside any workspace. Works with every command that acts on a workspace but trash\n    and notify -- <command>.\n  preview open ...\n  git snapshot [-C <path>] [--target <branch>]\n  git target <push|pull|merge-remote|merge-source|sync> [-C <path>] [--target <branch>]\n  mcp\n    Serves Komla's MCP tools over stdio for clients that require an MCP server.\n  automation <list|save|delete|run|tick> ...\n    Manages the agent tasks this SSH host starts on a schedule; Komla's Automations settings use it.\n  version";
+  trash [--json]\n    Moves the current workspace to the Trash once the agent's turn finishes, stopping its\n    terminals; the user can restore it for 7 days. It stays when the turn is interrupted or\n    fails, or when another tab's agent works, waits for input or failed. Run it last: when\n    Komla can't follow the agent's turns, it moves a second later.\n  status set <id> <text> [--icon <file|svg>] [--icon-color <color>]\n    [--tone <success|warning|error|info>] [--color <color>] [--tooltip <text>] [--link <url>]\n    [--popover <markdown> | --popover-file <path|->] [--json]\n    Shows a short status, such as test results or a pull request, in Komla's status bar while\n    the current workspace is open. Setting an id again replaces it; --link opens on click, or\n    with --popover shows as a button below the popover's Markdown. --color is success, warning,\n    error, info, muted, foreground or a hex color; the text can carry Nerd Font icons and\n    terminal colors for parts of it, such as \"$(printf '\\033[32m✓\\033[0m CI')\".\n    --icon puts an image file (SVG, PNG, WebP, GIF or JPEG, up to 32 KB) or SVG markup\n    before the text; --icon-color shows its shape in a color, such as foreground for a\n    one-color logo that follows the theme. --segments (or --segments-file) replaces the\n    text with a JSON array of parts, to put icons anywhere, such as\n    [{\"icon\":\"logo.svg\"},{\"text\":\" CI\",\"color\":\"success\"}].\n  status clear [id] [--json]\n    Clears one status item, or all of the current workspace's.\n  status refresh <id> [--json]\n    Runs a status-items.json item's command again now, as from a hook when what it shows\n    changed, and waits for it.\n  notify <title> [--body <text>] [--kind <kind>] [--color <color>] [--badge <text>]\n    [--icon <file|svg>] [--icon-color <color>]\n    Shows a notification for the current workspace. Its title shows on the sidebar card, or\n    --badge's shorter text with the title on hover. --color is success, warning, error, info,\n    attention, muted or a CSS color; --icon (as for status set) replaces the kind's glyph.\n  notify [<title>] -- <command> [arguments]\n    Runs a command, showing its tab as working, and notifies when it finishes or fails.\n  settings <get|apply> <actions|workspace-setup|automations|appearance|status-items|hooks|shortcuts|terminal|agents> [--scope <scope>] [--file <path>]\n    Reads or replaces Quick Commands (actions, with --scope global|current-project), Workspace\n    Setup, the project's automations, the theme, status bar items, hooks, keyboard shortcuts,\n    terminal settings, or agent presets' arguments and level pickers.\n    apply takes JSON on stdin or from --file and waits for the user to confirm in Komla.\n  settings schema <status-items|hooks|shortcuts|terminal|agents> [--json]\n    Prints the fields a settings resource takes, with their limits, defaults and what they do;\n    --json prints it as JSON Schema.\n  skill <customize|status-items|automations|project-setup|appearance|onboarding-demo|self-integration>\n    Prints Komla's current guide for changing Komla's settings, making status bar items or\n    automations, setting up a project, changing the theme, running a demo, or connecting an agent\n    CLI Komla doesn't support out of the box.\n  context [--json]\n    Shows the project, workspace, and terminal that commands target.\n  agent presets [--all] [--json]\n    Lists agent presets and modes for --preset and --mode. Presets marked inactive (shown with\n    --all) or unavailable can't be launched, nor can modes marked unavailable; --json says why.\n    Modes marked isolated SSH host only start only on an SSH host the user marked isolated.\n  agent launch [prompt] [--new-workspace] ... (legacy: defaults to a tab)\n  workspace list [--all] [--json]\n    Lists the workspaces (--all adds those in the Trash) with their ids, for --workspace.\n  workspace <title|snooze|wake|tag|untag|trash> ...\n  --workspace <id>\n    Acts on the workspace with that id in place of the current one, as from a script that\n    runs outside any workspace. Works with every command that acts on a workspace but trash\n    and notify -- <command>.\n  preview open ...\n  git snapshot [-C <path>] [--target <branch>]\n  git target <push|pull|merge-remote|merge-source|sync> [-C <path>] [--target <branch>]\n  mcp\n    Serves Komla's MCP tools over stdio for clients that require an MCP server.\n  automation <list|save|delete|run|tick> ...\n    Manages the agent tasks this SSH host starts on a schedule; Komla's Automations settings use it.\n  version";
 
 const NOTIFY_USAGE: &str =
     "usage: komla notify <title> [--body <text>] [--kind <kind>] [--color <color>] [--badge <text>] \
@@ -108,6 +108,8 @@ const NOTIFY_USAGE: &str =
 const SETTINGS_USAGE: &str = "usage: komla settings <get|apply> \
 <actions|workspace-setup|automations|appearance|status-items|hooks|shortcuts|terminal|agents> \
 [--scope <scope>] [--file <path>]";
+const SETTINGS_SCHEMA_USAGE: &str =
+    "usage: komla settings schema <status-items|hooks|shortcuts|terminal|agents> [--json]";
 const STATUS_USAGE: &str =
     "usage: komla status set <id> <text> [--icon <file|svg>] [--icon-color <color>] [--tone <success|warning|error|info>] \
 [--color <color>] [--tooltip <text>] [--link <url>] [--popover <markdown> | --popover-file <path|->] \
@@ -1203,8 +1205,18 @@ fn settings_command(
     output: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let operation = args.first().context(SETTINGS_USAGE)?;
-    let resource = args.get(1).context(SETTINGS_USAGE)?;
+    let usage = if operation == "schema" {
+        SETTINGS_SCHEMA_USAGE
+    } else {
+        SETTINGS_USAGE
+    };
+    let resource = args.get(1).context(usage)?;
     let mut options = args[2..].to_vec();
+    if operation == "schema" {
+        let json_output = take_flag(&mut options, "--json")?;
+        ensure_no_arguments(&options)?;
+        return settings_schema(resource, json_output, api, output);
+    }
     let scope = take_option(&mut options, "--scope")?;
     let file = take_option(&mut options, "--file")?;
     ensure_no_arguments(&options)?;
@@ -1242,10 +1254,38 @@ fn settings_command(
             let body = read_json_input(file.as_deref(), input)?;
             ("PUT", body, true)
         }
-        _ => bail!("settings operation must be get or apply"),
+        _ => bail!("settings operation must be get, apply or schema"),
     };
     let response = api.request(method, &path, &body, allow_long_running)?;
     write_success(response, output)
+}
+
+/// Prints a settings resource's format: the fields an agent writes, as text or JSON Schema.
+fn settings_schema(
+    resource: &str,
+    json_output: bool,
+    api: &mut dyn KomlaApi,
+    output: &mut dyn Write,
+) -> anyhow::Result<()> {
+    // A name such as `status-items`; one led by a dash is an option in its place.
+    if !resource.starts_with(|character: char| character.is_ascii_lowercase())
+        || !resource
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character == '-')
+    {
+        bail!(SETTINGS_SCHEMA_USAGE);
+    }
+    let response = api.request("GET", &format!("/settings/{resource}/schema"), &[], false)?;
+    if json_output || !(200..300).contains(&response.status) {
+        return write_success(response, output);
+    }
+    let body: Value =
+        serde_json::from_str(&response.body).context("Komla returned an invalid schema")?;
+    let text = body["text"]
+        .as_str()
+        .context("Komla returned a schema without text")?;
+    write!(output, "{text}")?;
+    Ok(())
 }
 
 fn skill_command(
@@ -3519,8 +3559,36 @@ mod tests {
         let guides = format!("skill <{}>", SKILL_GUIDES.map(|(guide, _)| guide).join("|"));
         assert!(USAGE.contains(&guides), "{guides}");
         assert!(SKILL_USAGE.ends_with(&guides), "{guides}");
-        let settings = SETTINGS_USAGE.trim_start_matches("usage: komla ");
-        assert!(USAGE.contains(settings), "{settings}");
+        for usage in [SETTINGS_USAGE, SETTINGS_SCHEMA_USAGE] {
+            let settings = usage.trim_start_matches("usage: komla ");
+            assert!(USAGE.contains(settings), "{settings}");
+        }
+    }
+
+    #[test]
+    fn settings_schema_prints_the_text_or_with_json_the_whole_answer() {
+        let answer = json!({"resource": "hooks", "text": "# hooks\n\n- `hooks` (required)\n", "sections": []});
+        let mut api = FakeApi::responding(answer.clone());
+        let output = run_with(&mut api, &["settings", "schema", "hooks"], "").unwrap();
+        assert_eq!(output, "# hooks\n\n- `hooks` (required)\n");
+        assert_eq!(api.requests[0].method, "GET");
+        assert_eq!(api.requests[0].path, "/settings/hooks/schema");
+
+        let mut api = FakeApi::responding(answer.clone());
+        let output = run_with(&mut api, &["settings", "schema", "hooks", "--json"], "").unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&output).unwrap(), answer);
+
+        let mut api = FakeApi::responding(answer);
+        for args in [
+            &["settings", "schema", "../hooks"][..],
+            &["settings", "schema", ""],
+            &["settings", "schema"],
+            &["settings", "schema", "--json"],
+        ] {
+            let error = run_with(&mut api, args, "").unwrap_err();
+            assert_eq!(error.to_string(), SETTINGS_SCHEMA_USAGE, "{args:?}");
+        }
+        assert!(api.requests.is_empty());
     }
 
     #[test]

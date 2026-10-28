@@ -276,6 +276,14 @@ komla settings get|apply appearance
 
 The former `/api/v1/settings/...` paths remain compatibility aliases.
 
+`komla settings schema <resource>` (`GET /settings/<resource>/schema`) prints the fields a settings
+file takes, with their limits, defaults and descriptions, rendered from the Zod schema Komla
+validates it with; `--json` prints the JSON Schema. The descriptions live on the schemas as
+`.meta({ description })`, so the agent guides keep only when and how to use a resource. Status bar
+items add what their commands print. Quick Commands, Workspace Setup, automations and appearance
+answer `SCHEMA_UNAVAILABLE` naming their guide, because Komla checks them beyond their HTTP
+schemas.
+
 The CLI resolves the scoped transport internally. Project Setup uses one environment-independent
 workflow for local, SSH, and SSH Local-copy terminals; its destination values select where each
 step runs.

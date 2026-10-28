@@ -341,6 +341,9 @@ mod tests {
         assert!(!runs_path(base, "auto-1").exists());
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn lets_one_tick_run_at_a_time() {
         let temp = tempfile::tempdir().unwrap();

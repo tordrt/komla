@@ -331,6 +331,7 @@ fn write_match(
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
 
     use serde_json::Value;
     use tempfile::tempdir;
@@ -448,7 +449,10 @@ mod tests {
 
         assert_eq!(
             summary(&found),
-            [(".hidden".to_owned(), 1), ("src/kept.rs".to_owned(), 1)]
+            [
+                (".hidden".to_owned(), 1),
+                (Path::new("src").join("kept.rs").display().to_string(), 1)
+            ]
         );
     }
 

@@ -4489,11 +4489,13 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
 
     #[test]
     fn open_sends_the_folder_from_the_current_directory() {
+        let cwd = Path::new("/repo with spaces");
         for (args, path) in [
-            (vec!["open"], "/repo with spaces/."),
-            (vec!["open", "notes", "--json"], "/repo with spaces/notes"),
-            (vec!["open", "/tmp/notes"], "/tmp/notes"),
+            (vec!["open"], cwd.join(".")),
+            (vec!["open", "notes", "--json"], cwd.join("notes")),
+            (vec!["open", "/tmp/notes"], cwd.join("/tmp/notes")),
         ] {
+            let path = path.to_string_lossy();
             let mut api =
                 FakeApi::responding(json!({"ok": true, "result": {"folder": {"path": path}}}));
             run_with(&mut api, &args, "").unwrap_or_else(|error| panic!("{args:?}: {error}"));

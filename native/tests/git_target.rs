@@ -149,6 +149,7 @@ impl Repo {
         serde_json::from_slice(&output.stdout).unwrap()
     }
     // Gives the local target and origin's a commit each, touching different files.
+    #[cfg(unix)]
     fn diverge_cleanly(&self) -> (String, String) {
         let target = self.seed.parent().unwrap().join("local main");
         git(
@@ -283,6 +284,8 @@ impl Repo {
         assert!(!self.bare.join("komla-target-operation.lock").exists());
     }
 }
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn merges_once_and_leaves_helper_detached() {
     let repo = Repo::new();
@@ -325,6 +328,8 @@ fn cleans_failed_private_merge_but_preserves_active_worktree_conflicts() {
         }
     }
 }
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn moves_the_target_without_a_helper_checkout() {
     let repo = Repo::new();
@@ -335,6 +340,8 @@ fn moves_the_target_without_a_helper_checkout() {
     assert!(!repo.helper().exists());
     repo.assert_released();
 }
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn merges_origin_into_a_diverged_target_without_a_checkout() {
     let repo = Repo::new();
@@ -502,6 +509,8 @@ fn interrupted_target_operation_cleans_its_helper_and_lock() {
     repo.assert_clean_helper();
 }
 
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn merges_source_even_when_target_has_not_been_published() {
     let repo = Repo::new();
@@ -538,6 +547,8 @@ fn returns_a_structured_push_rejection_without_leaving_the_helper_checked_out() 
     repo.assert_clean_helper();
 }
 
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn sync_fast_forwards_a_behind_target_and_names_it() {
     let repo = Repo::new();
@@ -547,6 +558,8 @@ fn sync_fast_forwards_a_behind_target_and_names_it() {
     repo.assert_released();
 }
 
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn sync_fast_forwards_a_behind_branch_from_the_bare_repository() {
     let repo = Repo::new();
@@ -661,6 +674,8 @@ fn sync_names_origin_without_moving_a_target_another_worktree_is_rebasing() {
     assert_eq!(git(&target, &["rev-parse", "HEAD"]), local);
 }
 
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn sync_replaces_a_reservation_a_killed_sync_left_behind() {
     let repo = Repo::new();
@@ -671,6 +686,8 @@ fn sync_replaces_a_reservation_a_killed_sync_left_behind() {
     repo.assert_released();
 }
 
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn target_operations_remove_a_reservation_a_killed_sync_left_behind() {
     let repo = Repo::new();
@@ -714,6 +731,8 @@ fn interrupted_sync_finishes_moving_the_target_and_releases_it() {
     repo.assert_released();
 }
 
+// `komla git target` runs on Linux and macOS SSH hosts; on Windows its reservation worktree fails.
+#[cfg(unix)]
 #[test]
 fn sync_replaces_a_locked_reservation_a_killed_worktree_add_left_behind() {
     for remove_directory in [false, true] {

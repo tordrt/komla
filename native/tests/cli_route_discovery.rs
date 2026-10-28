@@ -8,6 +8,18 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 use tempfile::TempDir;
 
+/// What a Windows process needs after `env_clear`: SystemRoot to open sockets and PATH to find
+/// git. Unix needs neither.
+fn windows_essentials() -> Vec<(&'static str, std::ffi::OsString)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    ["SystemRoot", "PATH"]
+        .into_iter()
+        .filter_map(|name| std::env::var_os(name).map(|value| (name, value)))
+        .collect()
+}
+
 fn git(directory: &std::path::Path, arguments: &[&str]) {
     let output = Command::new("git")
         .args(arguments)
@@ -64,6 +76,7 @@ fn spawn_mailbox_notify(inbox: &std::path::Path) -> (Child, ChildStdin) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_komla"))
         .args(["notify", "--source", "codex", "--event", "Stop"])
         .env_clear()
+        .envs(windows_essentials())
         .env("KOMLA_API_URL", "http://127.0.0.1:1/terminals/terminal-1")
         .env("KOMLA_TERMINAL_ID", "terminal-1")
         .env("KOMLA_WORKSPACE_ID", "workspace-1")
@@ -100,6 +113,7 @@ fn notify_preserves_help_flags_used_as_body_values() {
         let output = Command::new(env!("CARGO_BIN_EXE_komla"))
             .args(["notify", "Test notification", "--body", body])
             .env_clear()
+            .envs(windows_essentials())
             .env("KOMLA_API_URL", "http://127.0.0.1:1")
             .env("KOMLA_TERMINAL_ID", "terminal-1")
             .env("KOMLA_COMPANION_INBOX", &inbox)
@@ -122,6 +136,8 @@ fn notify_preserves_help_flags_used_as_body_values() {
     }
 }
 
+// The managed companion route is a Remote Companion install on a Linux or macOS SSH host.
+#[cfg(unix)]
 #[test]
 fn notify_discovers_the_matching_managed_companion_route() {
     let temporary = TempDir::new().unwrap();
@@ -223,6 +239,7 @@ fn notify_hooks_exit_cleanly_when_komla_is_not_running() {
             .args(arguments)
             .current_dir(temporary.path())
             .env_clear()
+            .envs(windows_essentials())
             .env("KOMLA_DATA_DIR", temporary.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -256,6 +273,7 @@ fn antigravity_hooks_reply_even_when_komla_is_not_running() {
             .args(["notify", "--source", "antigravity", "--event", event])
             .current_dir(temporary.path())
             .env_clear()
+            .envs(windows_essentials())
             .env("KOMLA_DATA_DIR", temporary.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -289,6 +307,7 @@ fn notify_hooks_exit_cleanly_when_komla_rejects_the_notification() {
         .args(["notify", "--source", "codex", "--event", "UserPromptSubmit"])
         .current_dir(temporary.path())
         .env_clear()
+        .envs(windows_essentials())
         .env("KOMLA_API_URL", api_url)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -419,6 +438,7 @@ fn git_snapshot_reads_the_repository_without_a_desktop_connection() {
             "main",
         ])
         .env_clear()
+        .envs(windows_essentials())
         .output()
         .unwrap();
 
@@ -461,6 +481,7 @@ fn tags_reaches_komla_from_the_installed_cli() {
         .arg("tags")
         .current_dir(temporary.path())
         .env_clear()
+        .envs(windows_essentials())
         .env("KOMLA_API_URL", api_url)
         .stdin(Stdio::null())
         .output()

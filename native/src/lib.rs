@@ -22,7 +22,6 @@ mod tests {
     #[cfg(unix)]
     use std::time::Duration;
 
-    #[cfg(unix)]
     use base64::Engine;
     use tempfile::tempdir;
 

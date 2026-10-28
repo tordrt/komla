@@ -1081,6 +1081,9 @@ pub(crate) mod tests {
         }
     }
 
+    // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
+
+    #[cfg(unix)]
     #[test]
     fn creates_a_sibling_workspace_and_asks_the_next_device_to_add_it() {
         let (_temp, caller) = host();
@@ -1132,6 +1135,9 @@ pub(crate) mod tests {
         assert!(manifest["backend"].get("defaultBranch").is_none());
     }
 
+    // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
+
+    #[cfg(unix)]
     #[test]
     fn picks_a_free_branch_when_the_requested_one_is_taken() {
         let (_temp, caller) = host();
@@ -1149,6 +1155,9 @@ pub(crate) mod tests {
         assert_eq!(launcher.started[0].command, "claude --model opus");
     }
 
+    // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
+
+    #[cfg(unix)]
     #[test]
     fn starts_from_the_branch_checked_out_in_the_source_workspace() {
         let (_temp, caller) = host();
@@ -1180,6 +1189,9 @@ pub(crate) mod tests {
         assert_eq!(manifest["backend"]["baseBranch"], "main");
     }
 
+    // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
+
+    #[cfg(unix)]
     #[test]
     fn refuses_to_start_from_a_detached_head() {
         let (_temp, caller) = host();
@@ -1198,6 +1210,9 @@ pub(crate) mod tests {
         assert!(launcher.started.is_empty());
     }
 
+    // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
+
+    #[cfg(unix)]
     #[test]
     fn resolves_the_workspace_from_the_directory_outside_a_komla_terminal() {
         let (_temp, mut caller) = host();
@@ -1210,6 +1225,8 @@ pub(crate) mod tests {
         assert_eq!(created.branch, "add-search");
     }
 
+    // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
+    #[cfg(unix)]
     #[test]
     fn removes_the_worktree_when_the_agent_cannot_start() {
         let (_temp, caller) = host();
@@ -1248,6 +1265,9 @@ pub(crate) mod tests {
         assert!(error.contains("outside Komla's data directory"), "{error}");
     }
 
+    // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
+
+    #[cfg(unix)]
     #[test]
     fn refuses_a_base_branch_that_git_would_read_as_an_option() {
         let (temp, caller) = host();
@@ -1266,6 +1286,9 @@ pub(crate) mod tests {
         assert!(!marker.exists());
     }
 
+    // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
+
+    #[cfg(unix)]
     #[test]
     fn explains_when_no_device_has_saved_agent_settings_yet() {
         let (_temp, caller) = host();

@@ -725,10 +725,13 @@ pub(crate) fn command(
 #[cfg(test)]
 pub(crate) mod tests {
     use std::fs;
+    #[cfg(unix)]
     use std::process::Command;
 
+    #[cfg(unix)]
     use super::crontab::tests::FakeCrontab;
     use super::*;
+    #[cfg(unix)]
     use crate::offline_workspace::TerminalSession;
 
     pub(crate) fn automation(base: &Path) -> HostAutomation {
@@ -765,10 +768,12 @@ pub(crate) mod tests {
         }
     }
 
+    #[cfg(unix)]
     struct RecordingLauncher {
         started: Vec<TerminalSession>,
     }
 
+    #[cfg(unix)]
     impl SessionLauncher for RecordingLauncher {
         fn start(&mut self, session: &TerminalSession) -> anyhow::Result<()> {
             self.started.push(session.clone());
@@ -778,6 +783,7 @@ pub(crate) mod tests {
         fn stop(&mut self, _terminal_id: &str) {}
     }
 
+    #[cfg(unix)]
     fn git(directory: &Path, args: &[&str]) {
         let status = Command::new("git")
             .arg("-C")
@@ -794,6 +800,7 @@ pub(crate) mod tests {
         assert!(status.success(), "git {args:?} failed");
     }
 
+    #[cfg(unix)]
     /// A host with a bare clone whose default branch is `trunk`, and a saved automation.
     fn host() -> (tempfile::TempDir, PathBuf, OfflineCaller) {
         let temp = tempfile::tempdir().unwrap();
@@ -837,10 +844,14 @@ pub(crate) mod tests {
         (temp, base, caller)
     }
 
+    #[cfg(unix)]
     fn at(iso: &str) -> i64 {
         iso.parse::<jiff::Timestamp>().unwrap().as_millisecond()
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_tick_starts_a_due_automation_once_in_a_new_workspace() {
         let (_temp, base, caller) = host();
@@ -894,6 +905,9 @@ pub(crate) mod tests {
         assert_eq!(launcher.started.len(), 1);
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_tick_records_a_time_missed_past_its_grace() {
         let (_temp, base, caller) = host();
@@ -913,6 +927,9 @@ pub(crate) mod tests {
         );
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_tick_skips_disabled_automations() {
         let (_temp, base, caller) = host();
@@ -929,6 +946,9 @@ pub(crate) mod tests {
         assert!(launcher.started.is_empty());
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_run_that_cant_be_recorded_doesnt_stop_the_others() {
         let (_temp, base, caller) = host();
@@ -950,6 +970,9 @@ pub(crate) mod tests {
         assert_eq!(store::runs(&base, "auto-2"), runs);
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_manual_run_waits_for_a_tick_in_progress() {
         let (_temp, base, caller) = host();
@@ -982,6 +1005,9 @@ pub(crate) mod tests {
         ticking.join().unwrap();
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_failed_run_is_recorded_with_its_reason() {
         let (_temp, base, caller) = host();
@@ -1004,6 +1030,9 @@ pub(crate) mod tests {
         assert_eq!(store::runs(&base, "auto-1").len(), 1);
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_manual_run_starts_from_the_projects_base_branch() {
         let (_temp, base, caller) = host();
@@ -1034,6 +1063,9 @@ pub(crate) mod tests {
         );
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_run_starts_from_its_own_branch_and_targets_the_projects() {
         let (temp, base, caller) = host();
@@ -1080,6 +1112,9 @@ pub(crate) mod tests {
         assert_eq!(environment["KOMLA_TARGET_BRANCH"], "trunk");
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn a_run_targets_its_own_branch_when_the_project_has_none() {
         let (temp, base, caller) = host();
@@ -1117,6 +1152,9 @@ pub(crate) mod tests {
         assert_eq!(environment["KOMLA_TARGET_BRANCH"], "release");
     }
 
+    // Automations run on Linux and macOS hosts, so inside() accepts only POSIX paths.
+
+    #[cfg(unix)]
     #[test]
     fn a_save_that_leaves_when_it_runs_doesnt_skip_a_time_still_due() {
         let (_temp, base, caller) = host();
@@ -1150,6 +1188,9 @@ pub(crate) mod tests {
         assert!(runs.is_empty(), "{runs:?}");
     }
 
+    // Automations run on Linux and macOS hosts, so inside() accepts only POSIX paths.
+
+    #[cfg(unix)]
     #[test]
     fn save_writes_the_automation_and_the_crontab_line() {
         let (_temp, base, _caller) = host();
@@ -1178,6 +1219,9 @@ pub(crate) mod tests {
         assert_eq!(crontab.contents.as_deref(), Some(""));
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn turns_off_an_automation_as_the_host_has_it_even_when_it_cant_run() {
         let (_temp, base, _caller) = host();
@@ -1209,6 +1253,9 @@ pub(crate) mod tests {
         assert!(error.contains("no longer on this host"), "{error}");
     }
 
+    // Automations run on Linux and macOS hosts, so inside() accepts only POSIX paths.
+
+    #[cfg(unix)]
     #[test]
     fn saves_and_deletes_when_cron_refuses_this_user() {
         let (_temp, base, _caller) = host();
@@ -1236,6 +1283,9 @@ pub(crate) mod tests {
         assert!(store::read(&base, "auto-2").is_none());
     }
 
+    // Automations run on Linux and macOS hosts, so inside() accepts only POSIX paths.
+
+    #[cfg(unix)]
     #[test]
     fn save_refuses_what_this_host_cant_run() {
         let (temp, base, _caller) = host();
@@ -1284,6 +1334,9 @@ pub(crate) mod tests {
         drop(temp);
     }
 
+    // Automations run on Linux and macOS hosts; store.rs refuses them elsewhere.
+
+    #[cfg(unix)]
     #[test]
     fn list_shows_runs_newest_first() {
         let (_temp, base, caller) = host();
@@ -1331,12 +1384,12 @@ pub(crate) mod tests {
         let caller = host_caller(base);
 
         assert_eq!(caller.installation_key.as_deref(), Some("bbbb"));
-        assert!(caller
-            .companion_inbox
-            .unwrap()
-            .ends_with("companion/bbbb/inbox"));
+        assert!(Path::new(&caller.companion_inbox.unwrap()).ends_with("companion/bbbb/inbox"));
     }
 
+    // Needs a POSIX symlink.
+
+    #[cfg(unix)]
     #[test]
     fn compares_paths_inside_the_data_folder_through_symlinks() {
         let temp = tempfile::tempdir().unwrap();

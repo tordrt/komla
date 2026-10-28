@@ -10,6 +10,8 @@ For anything bigger than a small fix, open an issue first, so we can agree on th
 
 Follow [Build from source](README.md#build-from-source). `npm run dev` runs Komla with its data in `~/.komla-dev`, apart from any Komla you have installed.
 
+`npm install` turns on a pre-commit hook that rejects unformatted `src/` files; `npm run format` fixes them. It keeps any `core.hooksPath` or `.git/hooks` you already use, and `git commit --no-verify` skips it once.
+
 [AGENTS.md](AGENTS.md) describes the architecture and which checks each kind of change needs. It is written for coding agents, and it is also the best map of the codebase for people.
 
 [docs/RELEASING.md](docs/RELEASING.md) covers official releases, which need the maintainers' signing and upload credentials. You don't need it to build or test Komla.

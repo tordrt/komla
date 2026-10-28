@@ -44,7 +44,7 @@
     "test:e2e:no-build": "npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts",
     "smoke-test": "bash scripts/smoke-test.sh",
     "release": "bash scripts/release.sh",
-    "postinstall": "install-electron && node scripts/worktree-deps.cjs postinstall",
+    "postinstall": "install-electron && node scripts/worktree-deps.cjs postinstall && node scripts/install-git-hooks.cjs",
     "deps:gc": "node scripts/worktree-deps.cjs gc",
     "screenshots": "npx playwright test --config e2e/playwright.config.ts e2e/screenshots/",
     "screenshots:process": "node scripts/process-screenshots.mjs",

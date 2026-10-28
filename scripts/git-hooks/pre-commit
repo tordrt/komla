@@ -1,0 +1,28 @@
+#!/bin/sh
+# Rejects a commit whose staged src/ files aren't formatted, as CI would.
+# Lint and tests stay in CI and AGENTS.md: they are too slow for every commit.
+# It checks the staged contents, not the files on disk, and
+# `git commit --no-verify` skips it. scripts/install-git-hooks.cjs turns it on
+# during `npm install`.
+
+root=$(pwd)
+staged=$(mktemp -d) || exit 1
+trap 'rm -rf "$staged"' EXIT
+trap 'exit 1' INT TERM HUP
+
+git diff --cached --name-only --diff-filter=ACMR -z -- \
+  'src/*.ts' 'src/*.tsx' 'src/*.css' 'src/*.json' >"$staged/.files" || exit 1
+[ -s "$staged/.files" ] || exit 0
+
+oxfmt="$root/node_modules/.bin/oxfmt"
+if [ ! -x "$oxfmt" ]; then
+  echo 'pre-commit: skipped the format check, as dependencies are not installed here.' >&2
+  exit 0
+fi
+
+# Without line-ending conversion, the copies match the blobs CI checks.
+git -c core.autocrlf=false -c core.eol=lf checkout-index -z --stdin --prefix="$staged/" \
+  <"$staged/.files" || exit 1
+(cd "$staged" && "$oxfmt" --check -c "$root/.oxfmtrc.json" src) && exit 0
+echo 'pre-commit: these staged files are not formatted. Run `npm run format`, stage the result, and commit again.' >&2
+exit 1

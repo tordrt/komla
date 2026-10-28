@@ -457,7 +457,10 @@ describe('NewWorkspaceDialog UI fixes', () => {
 
     await user.click(screen.getByRole('button', { name: /add new project/i }));
     await user.click(screen.getByRole('button', { name: /clone from remote/i }));
-    await user.type(screen.getByLabelText('Repository URL'), 'git@github.com:acme/repo.git');
+    // Pasted rather than typed: rendering the dialog for each character took long enough
+    // to time out on a busy computer.
+    await user.click(screen.getByLabelText('Repository URL'));
+    await user.paste('git@github.com:acme/repo.git');
     await user.keyboard('{Enter}');
 
     await waitFor(() =>
@@ -482,7 +485,8 @@ describe('NewWorkspaceDialog UI fixes', () => {
     render(<NewWorkspaceDialog open={true} onOpenChange={onOpenChange} />);
 
     const prompt = await findPrompt();
-    await user.type(prompt, 'Compare implementations');
+    await user.click(prompt);
+    await user.paste('Compare implementations');
     await user.click(screen.getByTitle(/click to select agent/i));
     await user.click(screen.getByRole('button', { name: /^select multiple$/i }));
     await user.click(screen.getByRole('checkbox', { name: /^Codex, Default$/i }));

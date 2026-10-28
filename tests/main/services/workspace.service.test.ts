@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { join } from 'path';
 import { IPC } from '../../../src/shared/constants/ipc-channels';
 import {
   isResumable,
@@ -41,6 +42,17 @@ const workspaceFileWrites = () =>
   (mockWriteFileAtomic.mock.calls as unknown as Array<[string, string]>).filter(([path]) =>
     path.endsWith('workspaces.json')
   );
+/**
+ * A window whose renderer hears what the service sends. On Windows the attention
+ * badge flashes the focused window's frame, so it needs those methods as well.
+ */
+const rendererWindow = (send: (...args: unknown[]) => void) =>
+  ({
+    isDestroyed: () => false,
+    isFocused: () => false,
+    flashFrame: vi.fn(),
+    webContents: { send },
+  }) as never;
 /** Sends the registry's Terminal Attention State a hook the notify endpoint matched to a Terminal. */
 const hookTerminal = (
   workspaceService: {
@@ -696,10 +708,8 @@ vi.mock('../../../src/shared/lib/random-names', () => ({
 
 function escapeForExpectedShell(value: string): string {
   const normalized = value.replace(/\r?\n/g, ' ');
-  if (process.platform === 'win32') {
-    const escaped = normalized.replace(/(["^&|<>()%!])/g, '^$1');
-    return `"${escaped}"`;
-  }
+  // Desktop commands run in PowerShell on Windows.
+  if (process.platform === 'win32') return `'${normalized.replace(/'/g, "''")}'`;
   return `'${normalized.replace(/'/g, `'"'"'`)}'`;
 }
 
@@ -734,6 +744,9 @@ function createSshWorktreePathConflictError(): Error {
     code: 'SSH_WORKTREE_PATH_CONFLICT',
   });
 }
+
+// Windows refuses SSH Local copy steps before preparing them (workspace-setup/step-resolution.ts).
+const itWithLocalCopySteps = it.skipIf(process.platform === 'win32');
 
 describe('WorkspaceService', () => {
   beforeEach(() => {
@@ -1273,12 +1286,7 @@ describe('WorkspaceService', () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        {
-          isDestroyed: () => false,
-          webContents: { send },
-        } as never,
-      ]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
 
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
       const { workspaceStatusService } =
@@ -1912,12 +1920,7 @@ describe('WorkspaceService', () => {
 
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        {
-          isDestroyed: () => false,
-          webContents: { send },
-        } as never,
-      ]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
 
       await import('../../../src/main/services/workspace.service');
       await vi.advanceTimersByTimeAsync(0);
@@ -2382,9 +2385,7 @@ describe('WorkspaceService', () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([persistedWorkspace]));
       const { BrowserWindow } = await import('electron');
       const send = vi.fn();
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        { isDestroyed: () => false, webContents: { send } },
-      ] as unknown as BrowserWindow[]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
 
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
       // Longer than one check interval, so the alarm has to look again before it wakes.
@@ -3765,7 +3766,7 @@ describe('WorkspaceService', () => {
           1,
           '/mock/repo',
           'my-feature',
-          '/mock/home/.komla/worktrees/Test-Project/my-feature',
+          join('/mock/home/.komla/worktrees/Test-Project/my-feature'),
           'main',
           { fetchRemote: undefined }
         );
@@ -3773,7 +3774,7 @@ describe('WorkspaceService', () => {
           2,
           '/mock/repo',
           'my-feature',
-          '/mock/home/.komla/worktrees/Test-Project/my-feature',
+          join('/mock/home/.komla/worktrees/Test-Project/my-feature'),
           'develop',
           { fetchRemote: undefined }
         );
@@ -3829,7 +3830,7 @@ describe('WorkspaceService', () => {
         expect(mockGitService.createWorktree).toHaveBeenCalledWith(
           '/mock/repo',
           'second-feature',
-          '/mock/home/.komla/worktrees/Test-Project/second-feature',
+          join('/mock/home/.komla/worktrees/Test-Project/second-feature'),
           'develop',
           { fetchRemote: undefined }
         );
@@ -3979,7 +3980,7 @@ describe('WorkspaceService', () => {
         expect(mockGitService.createWorktree).toHaveBeenCalledWith(
           '/mock/repo',
           'agent/calm-river',
-          '/mock/home/.komla/worktrees/Test-Project/agent-calm-river',
+          join('/mock/home/.komla/worktrees/Test-Project/agent-calm-river'),
           'main',
           { fetchRemote: undefined }
         );
@@ -4007,7 +4008,7 @@ describe('WorkspaceService', () => {
         expect(mockGitService.createWorktree).toHaveBeenCalledWith(
           '/some/repo.git',
           'my-feature',
-          '/mock/home/.komla/worktrees/repo/my-feature',
+          join('/mock/home/.komla/worktrees/repo/my-feature'),
           'main',
           { fetchRemote: undefined }
         );
@@ -4996,7 +4997,7 @@ describe('WorkspaceService', () => {
         expect(workspace.setupActivities).toEqual([]);
       });
 
-      it('prepares an SSH Local copy setup terminal independently of the action preference', async () => {
+      itWithLocalCopySteps('prepares an SSH Local copy setup terminal independently of the action preference', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
         mockConfigService.get.mockReturnValue({ defaultSshWorkspaceMode: 'remote' });
         mockProjectService.get.mockReturnValue(
@@ -5039,7 +5040,7 @@ describe('WorkspaceService', () => {
         );
       });
 
-      it('does not launch a pending SSH Local copy background step after the workspace stops', async () => {
+      itWithLocalCopySteps('does not launch a pending SSH Local copy background step after the workspace stops', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
         let finishPreparing: (() => void) | undefined;
         mockLocalMirrorService.prepare.mockImplementationOnce(
@@ -5084,7 +5085,7 @@ describe('WorkspaceService', () => {
         expect(workspace.setupActivities).toEqual([]);
       });
 
-      it('does not launch a pending SSH Local copy background step during deletion', async () => {
+      itWithLocalCopySteps('does not launch a pending SSH Local copy background step during deletion', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
         let finishPreparing: (() => void) | undefined;
         let finishRemoving: (() => void) | undefined;
@@ -5138,7 +5139,7 @@ describe('WorkspaceService', () => {
         await deletion;
       });
 
-      it('substitutes sshTarget and sshPort in an SSH Local copy command', async () => {
+      itWithLocalCopySteps('substitutes sshTarget and sshPort in an SSH Local copy command', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
         mockConfigService.get.mockReturnValue({
           defaultSshWorkspaceMode: 'remote',
@@ -5450,7 +5451,7 @@ describe('WorkspaceService', () => {
         expect(workspace.terminals.map((terminal) => terminal.name)).toContain('Remote shell');
       });
 
-      it('classifies missing rsync discovered during Local copy preparation as unsupported', async () => {
+      itWithLocalCopySteps('classifies missing rsync discovered during Local copy preparation as unsupported', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
         mockLocalMirrorService.prepare.mockRejectedValueOnce(
           new Error('Local copies require rsync to be installed on this computer')
@@ -5493,6 +5494,51 @@ describe('WorkspaceService', () => {
         expect(mockBackgroundProcessService.spawn).not.toHaveBeenCalled();
         expect(workspace.terminals.map((terminal) => terminal.name)).toContain('Remote shell');
       });
+
+      it.runIf(process.platform === 'win32')(
+        'reports SSH Local copy steps as unsupported on Windows without preparing them',
+        async () => {
+          vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+          mockProjectService.get.mockReturnValue(
+            createProject({
+              id: 'project-1',
+              name: 'Test Project',
+              repositoryPath: '/mock/repo',
+              setupSteps: [
+                createBackgroundStep({
+                  id: 'copy-step',
+                  name: 'Install local app',
+                  command: 'npm install',
+                  destination: 'ssh-local-copy',
+                }),
+                createTabStep({ name: 'Remote shell', command: 'echo ready' }),
+              ],
+            })
+          );
+
+          const { workspaceService } = await import('../../../src/main/services/workspace.service');
+          const workspace = await workspaceService.create({
+            mode: 'worktree',
+            projectId: 'project-1',
+            branchName: 'agent/windows-copy',
+            useExactBranchName: true,
+            location: { kind: 'ssh', hostId: 'ssh-dev' },
+          });
+
+          await vi.waitFor(() =>
+            expect(workspace.setupActivities).toEqual([
+              expect.objectContaining({
+                stepId: 'copy-step',
+                state: 'unsupported',
+                error: 'SSH Local copy requires rsync on this computer and the SSH host',
+              }),
+            ])
+          );
+          expect(mockLocalMirrorService.prepare).not.toHaveBeenCalled();
+          expect(mockBackgroundProcessService.spawn).not.toHaveBeenCalled();
+          expect(workspace.terminals.map((terminal) => terminal.name)).toContain('Remote shell');
+        }
+      );
 
       it('isolates Local copy path allocation failures from later setup launches', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
@@ -5841,12 +5887,7 @@ describe('WorkspaceService', () => {
         );
         const send = vi.fn();
         const { BrowserWindow } = await import('electron');
-        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-          {
-            isDestroyed: () => false,
-            webContents: { send },
-          } as never,
-        ]);
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
         const { workspaceService } = await import('../../../src/main/services/workspace.service');
         await vi.advanceTimersByTimeAsync(0);
         send.mockClear();
@@ -8309,12 +8350,7 @@ describe('WorkspaceService', () => {
         );
         const send = vi.fn();
         const { BrowserWindow } = await import('electron');
-        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-          {
-            isDestroyed: () => false,
-            webContents: { send },
-          } as never,
-        ]);
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
 
         const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
@@ -8908,7 +8944,7 @@ describe('WorkspaceService', () => {
       expect(mockPtyService.spawn).toHaveBeenCalledWith(
         expect.any(String),
         '/workspace',
-        "codex --cd '/workspace'"
+        `codex --cd '${join('/workspace')}'`
       );
     });
 
@@ -9631,12 +9667,7 @@ describe('WorkspaceService', () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(existingWorkspaces));
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        {
-          isDestroyed: () => false,
-          webContents: { send },
-        } as never,
-      ]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
       const terminal = workspaceService.addTerminal('ws-1', 'Terminal 1');
 
@@ -10696,9 +10727,7 @@ describe('WorkspaceService', () => {
       mockSshWorkspaceService.findTerminalSessions.mockResolvedValue(new Set(['t-other']));
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        { isDestroyed: () => false, webContents: { send } } as never,
-      ]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
       await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
@@ -10890,9 +10919,7 @@ describe('WorkspaceService', () => {
         onHost(theirs);
         const send = vi.fn();
         const { BrowserWindow } = await import('electron');
-        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-          { isDestroyed: () => false, webContents: { send } } as never,
-        ]);
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
         const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
         await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
@@ -10941,9 +10968,7 @@ describe('WorkspaceService', () => {
       persistSshWorkspace();
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        { isDestroyed: () => false, webContents: { send } } as never,
-      ]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
       savedOnHost({
         ...manifest,
         terminals: [manifest.terminals[0]],
@@ -11011,7 +11036,7 @@ describe('WorkspaceService', () => {
       ).toMatchObject({ customName: 'Renamed offline' });
       await vi.waitFor(() =>
         expect(mockWriteFileAtomic).toHaveBeenCalledWith(
-          '/mock/home/.komla/ssh-workspace-sync.json',
+          join('/mock/home/.komla/ssh-workspace-sync.json'),
           expect.stringContaining('"customName":"Renamed offline"')
         )
       );
@@ -11151,9 +11176,7 @@ describe('WorkspaceService', () => {
       mockSshWorkspaceSyncHost.inspect.mockResolvedValue({ state: 'deleted' });
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        { isDestroyed: () => false, webContents: { send } } as never,
-      ]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
       workspaceService.update('ws-42', { customName: 'Fix login' });
@@ -13612,7 +13635,8 @@ describe('WorkspaceService', () => {
       expect(mockPtyService.spawn).toHaveBeenCalledWith(
         secondTerminal!.id,
         '/ws1',
-        'agy --add-dir "$PWD"'
+        // Local terminals launch in PowerShell on Windows.
+        process.platform === 'win32' ? 'agy --add-dir $PWD.ProviderPath' : 'agy --add-dir "$PWD"'
       );
     });
 
@@ -16024,12 +16048,7 @@ describe('WorkspaceService', () => {
     it('broadcasts local mirror sync status to renderer windows', async () => {
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        {
-          isDestroyed: () => false,
-          webContents: { send },
-        } as never,
-      ]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
       await import('../../../src/main/services/workspace.service');
 
       mockLocalMirrorSyncStatusListener?.({ workspaceId: 'ssh-ws', state: 'syncing' });
@@ -17471,9 +17490,7 @@ describe('WorkspaceService', () => {
       const { workspaceService, workspaceId, createdAt } = await createWorkspaceForTurns();
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
-      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        { isDestroyed: () => false, webContents: { send } } as never,
-      ]);
+      vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
       await vi.advanceTimersByTimeAsync(600);
       mockWriteFileAtomic.mockClear();
 
@@ -18272,14 +18289,8 @@ describe('WorkspaceService', () => {
       const secondWindowSend = vi.fn();
       const { BrowserWindow } = await import('electron');
       vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([
-        {
-          isDestroyed: () => false,
-          webContents: { send: firstWindowSend },
-        } as never,
-        {
-          isDestroyed: () => false,
-          webContents: { send: secondWindowSend },
-        } as never,
+        rendererWindow(firstWindowSend),
+        rendererWindow(secondWindowSend),
       ]);
       workspaceService.update(workspace.id, { customName: undefined });
 

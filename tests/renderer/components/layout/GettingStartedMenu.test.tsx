@@ -5,9 +5,11 @@ import { act, render, screen, fireEvent, waitFor, within } from '@testing-librar
 import React from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useActionsStore } from '../../../../src/renderer/stores/actions.store';
 import { useAgentPresetsStore } from '../../../../src/renderer/stores/agent-presets.store';
 import { useDialogsStore } from '../../../../src/renderer/stores/dialogs.store';
 import { useLayoutStore } from '../../../../src/renderer/stores/layout.store';
+import { useProjectsStore } from '../../../../src/renderer/stores/projects.store';
 import { useSshHostDialogStore } from '../../../../src/renderer/stores/ssh-host-dialog.store';
 import { useStatusBarCustomizeStore } from '../../../../src/renderer/stores/status-bar-customize.store';
 import { useToastStore } from '../../../../src/renderer/stores/toast.store';
@@ -124,6 +126,8 @@ describe('GettingStartedMenu', () => {
     vi.clearAllMocks();
     skillConfigured(false);
     useSshHostDialogStore.setState({ open: false, request: null, requestId: 0 });
+    useProjectsStore.setState({ projects: [] });
+    useActionsStore.setState({ actions: [] });
     mockConfigState.config = {
       onboardingTipsDismissed: false,
     };
@@ -145,17 +149,17 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     expect(screen.getByText('Komla CLI demo')).toBeTruthy();
     expect(screen.queryByText('MCP demo')).toBeNull();
-    expect(screen.getByText('Run project setup skill')).toBeTruthy();
+    expect(screen.getByText('Set up project in Komla')).toBeTruthy();
     expect(screen.getByText('Set up agent integrations')).toBeTruthy();
     expect(screen.getByText('Get notified when your agents finish or need you')).toBeTruthy();
-    expect(screen.getByText('Install the Komla skill')).toBeTruthy();
+    expect(screen.getByText('Komla skill')).toBeTruthy();
     expect(screen.getByText('Teach your agents how to use the Komla CLI')).toBeTruthy();
     expect(screen.queryByText('Enable notifications')).toBeNull();
     expect(screen.queryByText('Enable MCP server')).toBeNull();
-    expect(screen.getByText('Set up voice dictation')).toBeTruthy();
-    expect(screen.getByText('Multi-window support')).toBeTruthy();
-    expect(screen.getByText('Learn keyboard shortcuts')).toBeTruthy();
-    expect(screen.getByText('Share feedback')).toBeTruthy();
+    expect(screen.getByText('Voice dictation')).toBeTruthy();
+    expect(screen.getByText('New window')).toBeTruthy();
+    expect(screen.getByText('Keyboard shortcuts')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Share feedback' })).toBeTruthy();
     expect(screen.queryByText('Keep workspace titles fresh')).toBeNull();
     expect(
       screen.queryByText(
@@ -183,7 +187,7 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Integrate your agent with Komla')?.className).toContain('opacity-60');
+      expect(isDone('Integrate your agent with Komla')).toBe(true);
     });
   });
 
@@ -333,11 +337,7 @@ describe('GettingStartedMenu', () => {
       await renderComponent();
 
       expect(screen.getByText('Integrate Cursor CLI and Pi with Komla')).toBeTruthy();
-      expect(
-        screen.getByText(
-          'They have no one-click setup, so they wire up notifications & the Komla skill themselves'
-        )
-      ).toBeTruthy();
+      expect(screen.getByText('No one-click setup, so they set themselves up')).toBeTruthy();
       expect(screen.queryByText('Integrate your agent with Komla')).toBeNull();
     });
 
@@ -446,7 +446,7 @@ describe('GettingStartedMenu', () => {
     it("opens the workspace's agent in a new tab with the customize skill", async () => {
       const onOpenNewWorkspace = vi.fn();
       await renderComponent({ onOpenNewWorkspace });
-      fireEvent.click(rowFor('Customize Komla with your agent')!);
+      fireEvent.click(rowFor('Customize with an agent')!);
 
       await waitFor(() =>
         expect(useLayoutStore.getState().tabsByWorkspace['ws-1']).toEqual(['terminal-customize'])
@@ -461,7 +461,7 @@ describe('GettingStartedMenu', () => {
     it('opens in an SSH workspace too, where the Komla CLI reaches Komla', async () => {
       useWorkspacesStore.setState({ workspaces: [workspace({ kind: 'ssh' }) as never] });
       await renderComponent();
-      fireEvent.click(rowFor('Customize Komla with your agent')!);
+      fireEvent.click(rowFor('Customize with an agent')!);
 
       await waitFor(() =>
         expect(useLayoutStore.getState().tabsByWorkspace['ws-1']).toEqual(['terminal-customize'])
@@ -472,7 +472,7 @@ describe('GettingStartedMenu', () => {
       useWorkspacesStore.setState({ workspaces: [], selectedWorkspaceId: null });
       const onOpenNewWorkspace = vi.fn();
       await renderComponent({ onOpenNewWorkspace });
-      fireEvent.click(rowFor('Customize Komla with your agent')!);
+      fireEvent.click(rowFor('Customize with an agent')!);
 
       await waitFor(() => expect(onOpenNewWorkspace).toHaveBeenCalledOnce());
       expect(useDialogsStore.getState().newWorkspaceDialogPrompt).toContain(
@@ -484,7 +484,7 @@ describe('GettingStartedMenu', () => {
     it('says so when the tab could not open', async () => {
       (window as any).api.addAgentTab.mockRejectedValue(new Error('pty failed'));
       await renderComponent();
-      fireEvent.click(rowFor('Customize Komla with your agent')!);
+      fireEvent.click(rowFor('Customize with an agent')!);
 
       await waitFor(() =>
         expect(useToastStore.getState().toasts.map((toast) => toast.message)).toEqual([
@@ -497,15 +497,17 @@ describe('GettingStartedMenu', () => {
   it('calls onOpenShortcuts when shortcuts tip is clicked', async () => {
     const onOpenShortcuts = vi.fn();
     await renderComponent({ onOpenShortcuts });
-    fireEvent.click(rowFor('Learn keyboard shortcuts')!);
+    fireEvent.click(rowFor('Keyboard shortcuts')!);
     expect(onOpenShortcuts).toHaveBeenCalled();
   });
 
-  it('calls onOpenFeedback when feedback tip is clicked', async () => {
+  it('closes Tips and opens feedback from its header', async () => {
     const onOpenFeedback = vi.fn();
     await renderComponent({ onOpenFeedback });
-    fireEvent.click(rowFor('Share feedback')!);
+    openPopover();
+    fireEvent.click(screen.getByRole('button', { name: 'Share feedback' }));
     expect(onOpenFeedback).toHaveBeenCalled();
+    expect(screen.getByTestId('popover').getAttribute('data-open')).toBe('false');
   });
 
   it('calls onOpenNewWorkspace when demo tip is clicked', async () => {
@@ -518,7 +520,7 @@ describe('GettingStartedMenu', () => {
   it('calls onOpenNewWorkspace when project-setup tip is clicked', async () => {
     const onOpenNewWorkspace = vi.fn();
     await renderComponent({ onOpenNewWorkspace });
-    fireEvent.click(rowFor('Run project setup skill')!);
+    fireEvent.click(rowFor('Set up project in Komla')!);
     await waitFor(() => expect(onOpenNewWorkspace).toHaveBeenCalled());
   });
 
@@ -535,9 +537,8 @@ describe('GettingStartedMenu', () => {
       await renderComponent({ onOpenSettingsTab });
       openPopover();
       await waitFor(() => expect((window as any).api.getKomlaSkillStatus).toHaveBeenCalled());
-      expect(within(rowFor('Install the Komla skill')!).getByText('Install')).toBeTruthy();
 
-      fireEvent.click(rowFor('Install the Komla skill')!);
+      fireEvent.click(rowFor('Komla skill')!);
 
       expect(mockOfferKomlaSkillInstall).toHaveBeenCalledOnce();
       expect((window as any).api.enableKomlaSkill).not.toHaveBeenCalled();
@@ -551,10 +552,10 @@ describe('GettingStartedMenu', () => {
       await renderComponent({ onOpenSettingsTab });
       openPopover();
       await waitFor(() => {
-        expect(rowFor('Install the Komla skill')?.className).toContain('opacity-60');
+        expect(isDone('Komla skill')).toBe(true);
       });
 
-      fireEvent.click(rowFor('Install the Komla skill')!);
+      fireEvent.click(rowFor('Komla skill')!);
 
       expect(onOpenSettingsTab).toHaveBeenCalledWith('integrations', { sshSetupSource: 'tips' });
       expect(mockOfferKomlaSkillInstall).not.toHaveBeenCalled();
@@ -576,14 +577,14 @@ describe('GettingStartedMenu', () => {
   it('calls onOpenSettingsTab with voice when voice dictation tip is clicked', async () => {
     const onOpenSettingsTab = vi.fn();
     await renderComponent({ onOpenSettingsTab });
-    fireEvent.click(rowFor('Set up voice dictation')!);
+    fireEvent.click(rowFor('Voice dictation')!);
     expect(onOpenSettingsTab).toHaveBeenCalledWith('voice', { sshSetupSource: 'tips' });
   });
 
   it('calls onOpenSettingsTab with automations when the automations tip is clicked', async () => {
     const onOpenSettingsTab = vi.fn();
     await renderComponent({ onOpenSettingsTab });
-    fireEvent.click(rowFor('Schedule an automation')!);
+    fireEvent.click(rowFor('Automations')!);
     expect(onOpenSettingsTab).toHaveBeenCalledWith('automations', { sshSetupSource: 'tips' });
   });
 
@@ -592,7 +593,7 @@ describe('GettingStartedMenu', () => {
     mockConfigState.config = { showStatusBar: false };
     await renderComponent();
 
-    fireEvent.click(rowFor('Customize the status bar')!);
+    fireEvent.click(rowFor('Status bar items')!);
 
     expect(mockConfigState.updateConfig).toHaveBeenCalledWith({ showStatusBar: true });
     expect(useStatusBarCustomizeStore.getState()).toMatchObject({ open: true, anchor: null });
@@ -601,21 +602,21 @@ describe('GettingStartedMenu', () => {
   it('opens Settings → Remote when the remote control tip is clicked', async () => {
     const onOpenSettingsTab = vi.fn();
     await renderComponent({ onOpenSettingsTab });
-    fireEvent.click(rowFor('Use Komla from your phone')!);
+    fireEvent.click(rowFor('Phone access')!);
     expect(onOpenSettingsTab).toHaveBeenCalledWith('remote', { sshSetupSource: 'tips' });
   });
 
-  it('offers SSH, not a sandbox, in the setup section', async () => {
+  it('offers SSH, not a sandbox, as the last step', async () => {
     await renderComponent();
     const row = rowFor('Set up an SSH host')!;
-    expect(row.closest('section')?.textContent).toContain('Set up Komla');
+    expect(steps().at(-1)).toBe(row);
     expect(row.textContent).toContain('a VM or a container');
     expect(screen.queryByRole('button', { name: 'Local VM' })).toBeNull();
   });
 
   it('opens a new window when multi-window tip is clicked', async () => {
     await renderComponent();
-    fireEvent.click(screen.getByText('Try'));
+    fireEvent.click(rowFor('New window')!);
     expect((window as any).api.createWindow).toHaveBeenCalled();
   });
 
@@ -668,7 +669,7 @@ describe('GettingStartedMenu', () => {
     expect(screen.getByTestId('popover').getAttribute('data-open')).toBe('true');
     expect(mockConfigState.updateConfig).toHaveBeenCalledWith({ onboardingTipsViewed: true });
 
-    fireEvent.click(screen.getByText('Learn keyboard shortcuts'));
+    fireEvent.click(screen.getByText('Keyboard shortcuts'));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -693,45 +694,146 @@ describe('GettingStartedMenu', () => {
     expect(screen.getByText('Tips stays in the settings menu')).toBeInTheDocument();
   });
 
-  it('lists setup in one group by importance, and keeps optional features collapsed', async () => {
+  // The Start here steps, in order.
+  function steps() {
+    return within(screen.getByRole('region', { name: 'Start here' })).getAllByRole('button');
+  }
+
+  it('starts with the steps worth taking first, in order', async () => {
     mockConfigState.config = { selfIntegrationTipCreated: true };
     await renderComponent();
-    const titles = (heading: string) =>
-      [...screen.getByText(heading).parentElement!.querySelectorAll('.font-medium')].map(
-        (title) => title.textContent
-      );
 
-    expect(titles('Set up Komla')).toEqual([
-      'Set up agent integrations',
-      'Integrate your agent with Komla',
-      'Run project setup skill',
-      'Set up an SSH host',
-      'Install the Komla skill',
-      'Komla CLI demo',
-      'Customize the status bar',
-      'Schedule an automation',
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
+      'Start here',
+      'More to explore',
     ]);
-    expect(screen.queryByText('Configure with your agent')).toBeNull();
-    expect(screen.queryByText('Try a demo')).toBeNull();
-    expect(screen.getByText('More to explore').closest('details')?.open).toBe(false);
-    expect(titles('More to explore')[0]).toBe('Customize Komla with your agent');
-    expect(screen.getByText('Learn keyboard shortcuts').closest('details')).not.toBeNull();
+    expect(steps()).toEqual([
+      rowFor('Set up agent integrations'),
+      rowFor('Integrate your agent with Komla'),
+      rowFor('Set up project in Komla'),
+      rowFor('Set up an SSH host'),
+    ]);
+    expect(steps().map((step) => step.textContent?.match(/^\d/)?.[0])).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+    ]);
+    // Nothing is tucked away behind a disclosure.
+    expect(screen.getByTestId('popover-content').querySelector('details')).toBeNull();
   });
 
-  it('keeps the setup order without the self-integration tip', async () => {
+  it('numbers the steps without the self-integration step', async () => {
     await renderComponent();
-    const titles = [
-      ...screen.getByText('Set up Komla').parentElement!.querySelectorAll('.font-medium'),
-    ].map((title) => title.textContent);
 
-    expect(titles).toEqual([
-      'Set up agent integrations',
-      'Run project setup skill',
-      'Set up an SSH host',
-      'Install the Komla skill',
+    expect(steps()).toEqual([
+      rowFor('Set up agent integrations'),
+      rowFor('Set up project in Komla'),
+      rowFor('Set up an SSH host'),
+    ]);
+    expect(within(rowFor('Set up an SSH host')!).getByText('3')).toBeTruthy();
+  });
+
+  it('offers everything else as tiles, described in their tooltips', async () => {
+    await renderComponent();
+    const more = screen.getByRole('region', { name: 'More to explore' });
+
+    expect(
+      within(more)
+        .getAllByRole('button')
+        .map((tile) => tile.textContent)
+    ).toEqual([
+      'Komla skill',
+      'Customize with an agent',
+      'Automations',
+      'Phone accessAlpha',
+      'Status bar items',
+      'Voice dictation',
+      'Keyboard shortcuts',
+      'New window',
       'Komla CLI demo',
-      'Customize the status bar',
-      'Schedule an automation',
+    ]);
+    expect(within(more).getByText('Teach your agents how to use the Komla CLI')).toBeTruthy();
+  });
+
+  it('marks the steps that run an agent', async () => {
+    mockConfigState.config = { selfIntegrationTipCreated: true };
+    await renderComponent();
+
+    expect(steps().map((step) => within(step).queryByText('Run') !== null)).toEqual([
+      false,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it('counts the steps done', async () => {
+    skillConfigured(true);
+    (window as any).api.getNotificationHookDetails.mockResolvedValueOnce({ isConfigured: true });
+    await renderComponent();
+    const start = screen.getByRole('region', { name: 'Start here' });
+    // Nothing is known to be done before the first check, so no count would be right yet.
+    expect(within(start).queryByText(/ done$/)).toBeNull();
+
+    openPopover();
+    expect(await within(start).findByText('1 of 3 done')).toBeTruthy();
+  });
+
+  it('says all set once every step is done', async () => {
+    (window as any).api.getNotificationHookDetails.mockResolvedValueOnce({ isConfigured: true });
+    (window as any).api.listSshHosts.mockResolvedValueOnce([{ id: 'host-1' }]);
+    useProjectsStore.setState({ projects: [{ id: 'p1', setupSteps: [{ id: 's1' }] }] as never });
+    await renderComponent();
+    openPopover();
+
+    const start = screen.getByRole('region', { name: 'Start here' });
+    expect(await within(start).findByText('All set')).toBeTruthy();
+  });
+
+  it.each([
+    ['Setup steps', [{ id: 'p1', setupSteps: [{ id: 's1' }] }], []],
+    ['a Quick Command of its own', [{ id: 'p1' }], [{ id: 'a1', projectIds: ['p1'] }]],
+  ])('marks project setup done once a project has %s', async (_case, projects, actions) => {
+    useProjectsStore.setState({ projects: projects as never });
+    useActionsStore.setState({ actions: actions as never });
+    await renderComponent();
+
+    expect(isDone('Set up project in Komla')).toBe(true);
+  });
+
+  it('leaves project setup to do with only global Quick Commands, or a removed project’s', async () => {
+    useProjectsStore.setState({ projects: [{ id: 'p1', setupSteps: [] }] as never });
+    useActionsStore.setState({
+      actions: [{ id: 'a1' }, { id: 'a2', projectIds: [] }, { id: 'a3', projectIds: ['gone'] }],
+    } as never);
+    await renderComponent();
+
+    expect(isDone('Set up project in Komla')).toBe(false);
+  });
+
+  it('fills the progress bar for the steps done, wherever they are', async () => {
+    (window as any).api.listSshHosts.mockResolvedValueOnce([{ id: 'host-1' }]);
+    await renderComponent();
+    openPopover();
+
+    await waitFor(() => expect(isDone('Set up an SSH host')).toBe(true));
+    const segments = screen
+      .getByRole('region', { name: 'Start here' })
+      .querySelectorAll('[aria-hidden="true"] > span');
+    expect([...segments].map((segment) => segment.className.includes('bg-success'))).toEqual(
+      steps().map((step) => step === rowFor('Set up an SSH host'))
+    );
+  });
+
+  it('points at the first step left to do', async () => {
+    (window as any).api.getNotificationHookDetails.mockResolvedValueOnce({ isConfigured: true });
+    await renderComponent();
+    openPopover();
+
+    await waitFor(() => expect(isDone('Set up agent integrations')).toBe(true));
+    expect(steps().filter((step) => step.getAttribute('aria-current') === 'step')).toEqual([
+      rowFor('Set up project in Komla'),
     ]);
   });
 
@@ -745,6 +847,10 @@ describe('GettingStartedMenu', () => {
     return screen.getByText(label).closest('[class*="rounded-md"]') as HTMLElement | null;
   }
 
+  function isDone(label: string): boolean {
+    return within(rowFor(label)!).queryByText('(done)') !== null;
+  }
+
   function openPopover() {
     fireEvent.click(screen.getByTestId('popover-trigger'));
   }
@@ -756,9 +862,9 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Set up agent integrations')?.className).toContain('opacity-60');
+      expect(isDone('Set up agent integrations')).toBe(true);
     });
-    expect(rowFor('Install the Komla skill')?.className).not.toContain('opacity-60');
+    expect(isDone('Komla skill')).toBe(false);
   });
 
   it('marks only the skill tip done when only the Komla skill is installed', async () => {
@@ -766,9 +872,9 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Install the Komla skill')?.className).toContain('opacity-60');
+      expect(isDone('Komla skill')).toBe(true);
     });
-    expect(rowFor('Set up agent integrations')?.className).not.toContain('opacity-60');
+    expect(isDone('Set up agent integrations')).toBe(false);
   });
 
   it('marks dictation as done when voice model status is ready', async () => {
@@ -776,7 +882,7 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Set up voice dictation')?.className).toContain('opacity-60');
+      expect(isDone('Voice dictation')).toBe(true);
     });
   });
 
@@ -785,7 +891,7 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Set up an SSH host')?.className).toContain('opacity-60');
+      expect(isDone('Set up an SSH host')).toBe(true);
     });
   });
 
@@ -797,7 +903,7 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Schedule an automation')?.className).toContain('opacity-60');
+      expect(isDone('Automations')).toBe(true);
     });
   });
 
@@ -809,9 +915,9 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Set up voice dictation')?.className).toContain('opacity-60');
+      expect(isDone('Voice dictation')).toBe(true);
     });
-    expect(rowFor('Schedule an automation')?.className).not.toContain('opacity-60');
+    expect(isDone('Automations')).toBe(false);
   });
 
   it('marks remote control done once a device is paired', async () => {
@@ -819,7 +925,7 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Use Komla from your phone')?.className).toContain('opacity-60');
+      expect(isDone('Phone access')).toBe(true);
     });
   });
 
@@ -829,7 +935,7 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(rowFor('Set up voice dictation')?.className).toContain('opacity-60');
+      expect(isDone('Voice dictation')).toBe(true);
     });
   });
 });

@@ -139,7 +139,7 @@ describe('TitleBar Tips', { timeout: 30000 }, () => {
 
     await openTipsFromSettingsMenu(user);
 
-    expect(tipsPopover()).toHaveTextContent('Run project setup skill');
+    expect(tipsPopover()).toHaveTextContent('Set up project in Komla');
   });
 
   it('opens Tips from the settings menu when the status bar leaves it out, and keeps it open', async () => {
@@ -150,7 +150,7 @@ describe('TitleBar Tips', { timeout: 30000 }, () => {
     expect(screen.queryByRole('button', { name: 'Tips' })).not.toBeInTheDocument();
     await openTipsFromSettingsMenu(user);
 
-    expect(tipsPopover()).toHaveTextContent('Run project setup skill');
+    expect(tipsPopover()).toHaveTextContent('Set up project in Komla');
     expect(moreButton()).toHaveFocus();
     expect(mockState.configStore.updateConfig).toHaveBeenCalledWith({
       onboardingTipsViewed: true,
@@ -164,7 +164,7 @@ describe('TitleBar Tips', { timeout: 30000 }, () => {
 
     await openTipsFromSettingsMenu(user);
 
-    expect(tipsPopover()).toHaveTextContent('Run project setup skill');
+    expect(tipsPopover()).toHaveTextContent('Set up project in Komla');
     expect(screen.queryByRole('button', { name: 'Hide from status bar' })).not.toBeInTheDocument();
   });
 
@@ -182,7 +182,7 @@ describe('TitleBar Tips', { timeout: 30000 }, () => {
     await user.keyboard('{Enter}');
     await settle();
 
-    expect(tipsPopover()).toHaveTextContent('Run project setup skill');
+    expect(tipsPopover()).toHaveTextContent('Set up project in Komla');
     expect(moreButton()).toHaveFocus();
   });
 

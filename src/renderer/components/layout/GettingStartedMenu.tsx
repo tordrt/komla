@@ -1,17 +1,14 @@
 import {
   Lightbulb,
-  Wrench,
-  Plugs,
   Browsers,
   Keyboard,
   ChatCircle,
   Tray,
-  Cloud,
   Microphone,
   Sparkle,
   Check,
-  Plug,
   CaretRight,
+  Play,
   SlidersHorizontal,
   CalendarDots,
   Layout,
@@ -19,18 +16,23 @@ import {
   DeviceMobile,
 } from '@phosphor-icons/react';
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { StatusBarButton } from '@/components/layout/status-bar/StatusBarButton';
 import { AgentPresetIcon } from '@/components/terminal/AgentPresetIcon';
+import { AlphaBadge, Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openCustomizeAgent } from '@/lib/customize-agent';
+import { useActionsStore } from '@/stores/actions.store';
 import { offerKomlaSkillInstall } from '@/stores/agent-launch-defaults-dialog.store';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { useConfigStore } from '@/stores/config.store';
 import { openNewWorkspaceDialog, useDialogsStore } from '@/stores/dialogs.store';
 import { useLayoutStore } from '@/stores/layout.store';
+import { useProjectsStore } from '@/stores/projects.store';
 import { useSshHostDialogStore } from '@/stores/ssh-host-dialog.store';
 import { useStatusBarCustomizeStore } from '@/stores/status-bar-customize.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -46,141 +48,104 @@ import { buildProjectSetupPrompt } from '../../../shared/constants/project-setup
 import type { SettingsDialogTarget } from '@/stores/settings-dialog.store';
 import type { AgentPreset } from '@/types';
 
-type TipSection = 'setup' | 'explore';
-
 interface TipDef {
   id: string;
   title: string;
   subtitle: string;
-  actionLabel?: string;
-  icon: React.ElementType;
-  section: TipSection;
 }
 
-const SECTION_LABELS: Record<TipSection, string> = {
-  setup: 'Set up Komla',
-  explore: 'More to explore',
-};
+/** A step worth taking first, in the order to take it. */
+interface StepDef extends TipDef {
+  /** Starts an agent with a prompt, rather than opening a page or panel. */
+  runsAgent?: boolean;
+}
 
-const TIPS: TipDef[] = [
+/** Everything else, offered as a compact tile; the subtitle shows on hover. */
+interface MoreTipDef extends TipDef {
+  icon: React.ElementType;
+  alpha?: boolean;
+}
+
+const STEPS: StepDef[] = [
   {
     id: 'agent-integrations',
     title: 'Set up agent integrations',
     subtitle: 'Get notified when your agents finish or need you',
-    actionLabel: 'Settings',
-    icon: Plugs,
-    section: 'setup',
   },
   {
     id: 'self-integration',
     title: 'Integrate your agent with Komla',
-    subtitle: 'Let your agent wire up notifications & the Komla skill itself',
-    actionLabel: 'Run',
-    icon: Plug,
-    section: 'setup',
+    subtitle: 'Your agent adds notifications and the Komla skill',
+    runsAgent: true,
   },
   {
     id: 'project-setup',
-    title: 'Run project setup skill',
-    subtitle: 'Get quick commands, workspace setup & automation recommendations',
-    actionLabel: 'Run',
-    icon: Wrench,
-    section: 'setup',
+    title: 'Set up project in Komla',
+    subtitle: 'Get Quick Commands, Setup steps & automations',
+    runsAgent: true,
   },
   {
     id: 'ssh',
     title: 'Set up an SSH host',
     subtitle: 'Run agents on another machine, a VM or a container',
-    actionLabel: 'Set up',
-    icon: Cloud,
-    section: 'setup',
   },
+];
+
+const MORE_TIPS: MoreTipDef[] = [
   {
     id: 'komla-skill',
-    title: 'Install the Komla skill',
+    title: 'Komla skill',
     subtitle: 'Teach your agents how to use the Komla CLI',
-    actionLabel: 'Install',
     icon: BookOpenText,
-    section: 'setup',
+  },
+  {
+    id: 'customize',
+    title: 'Customize with an agent',
+    subtitle: 'Ask your agent for hooks, shortcuts, a theme and more',
+    icon: SlidersHorizontal,
+  },
+  {
+    id: 'automations',
+    title: 'Automations',
+    subtitle: 'Run an agent on a schedule, here or on an SSH host',
+    icon: CalendarDots,
+  },
+  {
+    id: 'remote-control',
+    title: 'Phone access',
+    subtitle: 'Check on agents and answer prompts from your phone, over Tailscale',
+    icon: DeviceMobile,
+    alpha: true,
+  },
+  {
+    id: 'status-bar',
+    title: 'Status bar items',
+    subtitle: 'Show Claude Code or Codex usage, or add your own',
+    icon: Layout,
+  },
+  {
+    id: 'dictation',
+    title: 'Voice dictation',
+    subtitle: 'Dictate prompts instead of typing them',
+    icon: Microphone,
+  },
+  {
+    id: 'shortcuts',
+    title: 'Keyboard shortcuts',
+    subtitle: 'Navigate workspaces & panes without the mouse',
+    icon: Keyboard,
+  },
+  {
+    id: 'multi-window',
+    title: 'New window',
+    subtitle: 'Work across several Komla windows at once',
+    icon: Browsers,
   },
   {
     id: 'demo',
     title: 'Komla CLI demo',
-    subtitle: 'See Komla’s CLI commands in action',
-    actionLabel: 'Run',
+    subtitle: 'Watch an agent try Komla’s CLI commands',
     icon: Sparkle,
-    section: 'setup',
-  },
-  {
-    id: 'status-bar',
-    title: 'Customize the status bar',
-    subtitle: 'Pick items like Claude Code or Codex usage, or add custom ones',
-    actionLabel: 'Customize',
-    icon: Layout,
-    section: 'setup',
-  },
-  {
-    id: 'automations',
-    title: 'Schedule an automation',
-    subtitle: 'Run an agent on a schedule, here or on an SSH host',
-    actionLabel: 'Settings',
-    icon: CalendarDots,
-    section: 'setup',
-  },
-  {
-    id: 'customize',
-    title: 'Customize Komla with your agent',
-    subtitle: 'Ask for status bar items, hooks, shortcuts or a theme',
-    actionLabel: 'Run',
-    icon: SlidersHorizontal,
-    section: 'explore',
-  },
-  {
-    id: 'dictation',
-    title: 'Set up voice dictation',
-    subtitle: 'Dictate prompts instead of typing them',
-    actionLabel: 'Settings',
-    icon: Microphone,
-    section: 'explore',
-  },
-  {
-    id: 'remote-control',
-    title: 'Use Komla from your phone',
-    subtitle: 'Check on agents and answer prompts. Needs Tailscale (alpha)',
-    actionLabel: 'Settings',
-    icon: DeviceMobile,
-    section: 'explore',
-  },
-  {
-    id: 'multi-window',
-    title: 'Multi-window support',
-    subtitle: 'Work across multiple Komla windows',
-    actionLabel: 'Try',
-    icon: Browsers,
-    section: 'explore',
-  },
-  {
-    id: 'shortcuts',
-    title: 'Learn keyboard shortcuts',
-    subtitle: 'Navigate workspaces & panes without the mouse',
-    actionLabel: 'View',
-    icon: Keyboard,
-    section: 'explore',
-  },
-  {
-    id: 'feedback',
-    title: 'Share feedback',
-    subtitle: 'Feature requests & bug reports',
-    actionLabel: 'Open',
-    icon: ChatCircle,
-    section: 'explore',
-  },
-  {
-    id: 'workspace-lifecycle',
-    title: 'Done with a workspace?',
-    subtitle: `Snooze it for later, or move it to the Trash, which keeps it ${TRASH_RETENTION_DAYS} days`,
-    icon: Tray,
-    section: 'explore',
   },
 ];
 
@@ -265,7 +230,17 @@ export function GettingStartedMenu({
 }: GettingStartedMenuProps) {
   const { config, updateConfig, hasProjects } = useConfigStore();
   const { presets, activePreset, activePresets, loadPresets } = useAgentPresetsStore();
-  const [doneTipIds, setDoneTipIds] = useState<Set<string>>(new Set());
+  // What the status checks found done; null until the first check, when no count is shown.
+  const [checkedDoneIds, setCheckedDoneIds] = useState<Set<string> | null>(null);
+  // What project setup leaves behind: Setup steps, or Quick Commands of a project's own.
+  const scopedProjectIds = useActionsStore(
+    useShallow((s) => [...new Set(s.actions.flatMap((action) => action.projectIds ?? []))])
+  );
+  const projectSetUp = useProjectsStore((s) =>
+    s.projects.some(
+      (project) => (project.setupSteps?.length ?? 0) > 0 || scopedProjectIds.includes(project.id)
+    )
+  );
   const hideButtonOnClose = useRef(false);
   const selectedWorkspace = useWorkspacesStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.selectedWorkspaceId)
@@ -298,6 +273,9 @@ export function GettingStartedMenu({
   useEffect(() => {
     if (open) void loadPresets();
   }, [open, loadPresets]);
+
+  const doneTipIds = new Set(checkedDoneIds);
+  if (projectSetUp) doneTipIds.add('project-setup');
 
   // Refresh "done" status each time the popover opens
   useEffect(() => {
@@ -354,7 +332,7 @@ export function GettingStartedMenu({
 
       if (config?.selfIntegrationTipCompleted === true) done.add('self-integration');
 
-      if (!cancelled) setDoneTipIds(done);
+      if (!cancelled) setCheckedDoneIds(done);
     })();
     return () => {
       cancelled = true;
@@ -414,7 +392,10 @@ export function GettingStartedMenu({
         const prompt = status.generic?.integrationPrompt;
         if (prompt) {
           useDialogsStore.getState().setNewWorkspaceDialogPrompt(prompt);
-          void updateConfig({ selfIntegrationTipCompleted: true, selfSetupNudgePending: false });
+          void updateConfig({
+            selfIntegrationTipCompleted: true,
+            selfSetupNudgePending: false,
+          });
           setOpen(false);
           onOpenNewWorkspace();
         }
@@ -473,10 +454,6 @@ export function GettingStartedMenu({
         setOpen(false);
         onOpenShortcuts();
         break;
-      case 'feedback':
-        setOpen(false);
-        onOpenFeedback();
-        break;
     }
   };
 
@@ -495,6 +472,12 @@ export function GettingStartedMenu({
     if (open && introPending) void updateConfig({ tipsIntroPending: false });
   }, [open, introPending, updateConfig]);
 
+  const steps = STEPS.filter((step) => step.id !== 'self-integration' || showSelfIntegrationTip);
+  // Only once statuses are in, so the highlight doesn't jump from the first step.
+  const nextStepId = checkedDoneIds
+    ? steps.find((step) => !doneTipIds.has(step.id))?.id
+    : undefined;
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       {anchorRef ? (
@@ -506,7 +489,7 @@ export function GettingStartedMenu({
       <PopoverContent
         side={side}
         align={align}
-        className="max-h-[var(--radix-popover-content-available-height)] w-80 overflow-y-auto p-0"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-96 flex-col p-0"
         onOpenAutoFocus={(e) => e.preventDefault()}
         // Hide the button only once Tips has closed: mid-fade, Tips would jump to the menu's anchor.
         onCloseAutoFocus={(e) => {
@@ -516,55 +499,82 @@ export function GettingStartedMenu({
           onHideButton?.();
         }}
       >
-        <div className="px-3 py-2.5">
-          <span className="text-sm font-semibold tracking-tight">Tips</span>
+        <div className="flex shrink-0 items-center justify-between border-b border-border/60 py-1.5 pr-1.5 pl-3.5">
+          <h2 className="text-sm font-semibold tracking-tight">Tips</h2>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded px-1.5 py-1 text-ui text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+            onClick={() => {
+              setOpen(false);
+              onOpenFeedback();
+            }}
+          >
+            <ChatCircle className="size-3.5" />
+            Share feedback
+          </button>
         </div>
-        <div className="border-b border-border/60" />
 
-        <div className="flex flex-col p-1.5">
-          {(['setup', 'explore'] as TipSection[]).map((section, sectionIdx) => {
-            const sectionTips = TIPS.filter(
-              (tip) =>
-                tip.section === section && (tip.id !== 'self-integration' || showSelfIntegrationTip)
-            );
-            if (sectionTips.length === 0) return null;
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <TipSection
+            label="Start here"
+            progress={checkedDoneIds ? steps.map((step) => doneTipIds.has(step.id)) : undefined}
+          >
+            <ol className="flex flex-col">
+              {steps.map((step, index) => {
+                const state = doneTipIds.has(step.id)
+                  ? 'done'
+                  : step.id === nextStepId
+                    ? 'next'
+                    : 'todo';
+                return (
+                  <li key={step.id}>
+                    {step.id === 'self-integration' && selfSetupAgents.length > 0 ? (
+                      <SelfSetupStep
+                        step={step}
+                        number={index + 1}
+                        state={state}
+                        agents={selfSetupAgents}
+                        inWorkspace={setupWorkspaceId !== null}
+                        onStart={(agents) => void startSelfSetup(agents)}
+                      />
+                    ) : (
+                      <StepRow
+                        step={step}
+                        number={index + 1}
+                        state={state}
+                        onAction={() => void handleTipAction(step.id)}
+                      />
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </TipSection>
 
-            const Section = section === 'explore' ? 'details' : 'section';
-            const Heading = section === 'explore' ? 'summary' : 'div';
-            return (
-              <Section key={section} className="group flex flex-col gap-0.5">
-                <Heading
-                  className={`flex cursor-pointer list-none items-center justify-between px-2 pb-1 text-2xs font-semibold tracking-wide text-muted-foreground/60 uppercase ${sectionIdx === 0 ? 'pt-1' : 'pt-2.5'}`}
-                >
-                  {SECTION_LABELS[section]}
-                  {section === 'explore' && <CaretRight className="size-3 group-open:rotate-90" />}
-                </Heading>
-                {sectionTips.map((tip) =>
-                  tip.id === 'self-integration' && selfSetupAgents.length > 0 ? (
-                    <SelfSetupTip
-                      key={tip.id}
-                      tip={tip}
-                      doneTipIds={doneTipIds}
-                      agents={selfSetupAgents}
-                      inWorkspace={setupWorkspaceId !== null}
-                      onStart={(agents) => void startSelfSetup(agents)}
-                    />
-                  ) : (
-                    <TipRow
-                      key={tip.id}
-                      tip={tip}
-                      doneTipIds={doneTipIds}
-                      onAction={handleTipAction}
-                    />
-                  )
-                )}
-              </Section>
-            );
-          })}
+          <TipSection label="More to explore">
+            <div className="grid grid-cols-2 gap-0.5">
+              {MORE_TIPS.map((tip) => (
+                <MoreTipTile
+                  key={tip.id}
+                  tip={tip}
+                  done={doneTipIds.has(tip.id)}
+                  onAction={() => void handleTipAction(tip.id)}
+                />
+              ))}
+            </div>
+          </TipSection>
+
+          <p className="mx-3.5 flex gap-2.5 border-t border-border/60 py-2.5 text-ui text-muted-foreground">
+            <Tray className="mt-px size-3.5 shrink-0" />
+            <span>
+              <span className="font-medium text-foreground">Done with a workspace?</span> Snooze it
+              for later, or move it to the Trash, which keeps it {TRASH_RETENTION_DAYS} days.
+            </span>
+          </p>
         </div>
 
         {onHideButton && (
-          <div className="flex items-center gap-2 border-t border-border/60 px-3 py-1.5">
+          <div className="flex shrink-0 items-center gap-2 border-t border-border/60 py-1.5 pr-1.5 pl-3.5">
             <span className="min-w-0 truncate text-2xs text-muted-foreground/70">{hideHint}</span>
             <button
               type="button"
@@ -615,72 +625,175 @@ function TipsButton({ showNewDot }: { showNewDot: boolean }) {
   );
 }
 
-function TipRow({
-  tip,
-  doneTipIds,
+/** A titled part of Tips, optionally counting how many of its steps are done. */
+function TipSection({
+  label,
+  progress,
+  children,
+}: {
+  label: string;
+  /** Whether each step is done, in order. */
+  progress?: boolean[];
+  children: React.ReactNode;
+}) {
+  const headingId = useId();
+  const doneCount = progress?.filter(Boolean).length ?? 0;
+  const allDone = progress != null && doneCount === progress.length;
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col px-1.5 pt-1 pb-1.5">
+      <div className="flex items-center justify-between px-2 pt-2 pb-1.5">
+        <h3 id={headingId} className="text-ui font-medium text-muted-foreground">
+          {label}
+        </h3>
+        {progress && (
+          <span
+            className={`flex items-center gap-1 text-2xs tabular-nums ${allDone ? 'text-success' : 'text-muted-foreground'}`}
+          >
+            {allDone ? (
+              <>
+                <Check weight="bold" className="size-3" />
+                All set
+              </>
+            ) : (
+              `${doneCount} of ${progress.length} done`
+            )}
+          </span>
+        )}
+      </div>
+      {progress && (
+        <div aria-hidden="true" className="mx-2 mb-1.5 flex gap-1">
+          {progress.map((done, index) => (
+            <span
+              key={index}
+              className={`h-1 flex-1 rounded-full ${done ? 'bg-success' : 'bg-muted'}`}
+            />
+          ))}
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+type StepState = 'done' | 'next' | 'todo';
+
+const STEP_MARKER: Record<StepState, string> = {
+  done: 'bg-success/15 text-success',
+  next: 'bg-foreground text-background',
+  todo: 'border border-border text-muted-foreground',
+};
+
+function StepRow({
+  step,
+  number,
+  state,
   onAction,
   expanded,
 }: {
-  tip: TipDef;
-  doneTipIds: Set<string>;
-  onAction: (tipId: string) => Promise<void>;
+  step: StepDef;
+  number: number;
+  state: StepState;
+  onAction: () => void;
   /** Set when the row shows or hides more below it. */
   expanded?: boolean;
 }) {
-  const Icon = tip.icon;
-  const isDone = doneTipIds.has(tip.id);
-
-  const Row = tip.actionLabel ? 'button' : 'div';
   return (
-    <Row
+    <button
+      type="button"
       aria-expanded={expanded}
-      onClick={tip.actionLabel ? () => void onAction(tip.id) : undefined}
-      className={`flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left ${tip.actionLabel ? 'hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden' : ''} ${isDone ? 'opacity-60' : ''}`}
+      aria-current={state === 'next' ? 'step' : undefined}
+      onClick={onAction}
+      className={`group/tip flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden ${state === 'next' ? 'bg-accent/60' : ''}`}
     >
-      <div className="flex size-6 shrink-0 items-center justify-center">
-        {isDone ? (
-          <Check weight="bold" className="size-4 text-success" />
-        ) : (
-          <Icon className="size-4 text-muted-foreground" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 text-xs font-medium">{tip.title}</div>
-        <div className="text-ui text-muted-foreground">{tip.subtitle}</div>
-      </div>
-      {tip.actionLabel && (
-        <span className="shrink-0 text-ui text-muted-foreground">
-          {isDone ? 'Open' : tip.actionLabel}
+      <span
+        className={`flex size-6 shrink-0 items-center justify-center rounded-full text-2xs font-semibold tabular-nums ${STEP_MARKER[state]}`}
+      >
+        {state === 'done' ? <Check weight="bold" className="size-3.5" /> : number}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs font-medium">
+          {step.title}
+          {state === 'done' && <span className="sr-only"> (done)</span>}
         </span>
+        <span className="block text-ui text-muted-foreground">{step.subtitle}</span>
+      </span>
+      {expanded === undefined && step.runsAgent ? (
+        <Badge
+          variant="outline"
+          className="gap-0.5 group-hover/tip:text-foreground group-hover/tip:ring-foreground/30"
+        >
+          <Play weight="fill" className="size-2" />
+          Run
+        </Badge>
+      ) : (
+        <CaretRight
+          aria-hidden="true"
+          className={`size-3.5 shrink-0 text-muted-foreground/60 transition-transform group-hover/tip:text-foreground ${expanded ? 'rotate-90' : ''}`}
+        />
       )}
-    </Row>
+    </button>
+  );
+}
+
+function MoreTipTile({
+  tip,
+  done,
+  onAction,
+}: {
+  tip: MoreTipDef;
+  done: boolean;
+  onAction: () => void;
+}) {
+  const Icon = tip.icon;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onAction}
+          className="group/tip flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+        >
+          {done ? (
+            <Check weight="bold" className="size-3.5 shrink-0 text-success" />
+          ) : (
+            <Icon className="size-3.5 shrink-0 text-muted-foreground group-hover/tip:text-foreground" />
+          )}
+          <span className="truncate">{tip.title}</span>
+          {done && <span className="sr-only"> (done)</span>}
+          {tip.alpha && <AlphaBadge />}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tip.subtitle}</TooltipContent>
+    </Tooltip>
   );
 }
 
 const agentListFormat = new Intl.ListFormat('en', { type: 'conjunction' });
 
-// The self-integration tip, naming the agents without one-click setup and which of them to set up.
-function SelfSetupTip({
-  tip,
-  doneTipIds,
+// The self-integration step, naming the agents without one-click setup and which of them to set up.
+function SelfSetupStep({
+  step,
+  number,
+  state,
   agents,
   inWorkspace,
   onStart,
 }: {
-  tip: TipDef;
-  doneTipIds: Set<string>;
+  step: StepDef;
+  number: number;
+  state: StepState;
   agents: AgentPreset[];
   /** Setup opens as tabs in the open workspace, rather than from New Workspace. */
   inWorkspace: boolean;
   onStart: (agents: AgentPreset[]) => void;
 }) {
   const several = agents.length > 1;
-  const namedTip = {
-    ...tip,
+  const namedStep = {
+    ...step,
     title: `Integrate ${listAgentNames(agents.map((agent) => agent.name))} with Komla`,
     subtitle: several
-      ? 'They have no one-click setup, so they wire up notifications & the Komla skill themselves'
-      : 'It has no one-click setup, so it wires up notifications & the Komla skill itself',
+      ? 'No one-click setup, so they set themselves up'
+      : 'No one-click setup, so it sets itself up',
   };
   const [expanded, setExpanded] = useState(false);
   // Agents left out; the rest start ticked.
@@ -697,14 +810,15 @@ function SelfSetupTip({
 
   return (
     <>
-      <TipRow
-        tip={namedTip}
-        doneTipIds={doneTipIds}
+      <StepRow
+        step={namedStep}
+        number={number}
+        state={state}
         expanded={expanded}
-        onAction={async () => setExpanded(!expanded)}
+        onAction={() => setExpanded(!expanded)}
       />
       {expanded && (
-        <div className="mr-2 mb-1.5 ml-10 space-y-2">
+        <div className="mr-2 mb-1.5 ml-10.5 space-y-2">
           <p className="text-ui text-muted-foreground">
             {inWorkspace
               ? several

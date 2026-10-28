@@ -34,7 +34,7 @@ import {
 } from 'react';
 
 import { ProjectMark } from '@/components/projects/ProjectMark';
-import { Badge } from '@/components/ui/badge';
+import { AlphaBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -369,14 +369,6 @@ function waitForVisibleCard(
   };
   lookUp();
   return () => cancelAnimationFrame(frame);
-}
-
-function AlphaBadge() {
-  return (
-    <Badge tone="warning" className="px-1.5 text-[10px] font-semibold tracking-wide uppercase">
-      Alpha
-    </Badge>
-  );
 }
 
 interface SettingsNavRowProps {

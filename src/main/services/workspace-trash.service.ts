@@ -5,6 +5,7 @@ import { isSshWorkspace, TRASH_RETENTION_MS, type Workspace } from '../../shared
 import { createLogger } from '../lib/logger';
 
 import { gitExec } from './git/git-exec';
+import { localMirrorService } from './local-mirror.service';
 import { projectService } from './project.service';
 import { windowService } from './window.service';
 import { workspaceService } from './workspace.service';
@@ -21,10 +22,15 @@ export interface WorkspaceTrashDependencies {
   workspaces: () => Iterable<Workspace>;
   /** Deletes the workspace for good; rejects when it couldn't, to try again at the next check. */
   deleteForGood: (workspace: Workspace) => Promise<void>;
+  /** Removes local copies whose workspace is gone or in the Trash, until `stopped`. */
+  removeLeftoverLocalCopies: (stopped: () => boolean) => Promise<void>;
   now: () => number;
 }
 
-/** Deletes workspaces for good once their time in the Trash is up. */
+/**
+ * Deletes workspaces for good once their time in the Trash is up, and removes local copies a
+ * workspace left behind.
+ */
 export class WorkspaceTrash {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private checking: Promise<void> | undefined;
@@ -39,7 +45,7 @@ export class WorkspaceTrash {
     this.timer.unref?.();
   }
 
-  /** Stops checking. Resolves once a check under way has finished the deletion it is on. */
+  /** Stops checking. Resolves once a check under way finishes the deletion or removal it is on. */
   stop(): Promise<void> {
     this.stops += 1;
     clearTimeout(this.timer);
@@ -47,9 +53,9 @@ export class WorkspaceTrash {
     return this.checking ?? Promise.resolve();
   }
 
-  /** Deletes each workspace whose time in the Trash is up, one at a time. */
+  /** Deletes each workspace whose time in the Trash is up, one at a time, then leftover copies. */
   check(): Promise<void> {
-    this.checking ??= this.deleteExpired().finally(() => {
+    this.checking ??= this.empty().finally(() => {
       this.checking = undefined;
     });
     return this.checking;
@@ -64,8 +70,20 @@ export class WorkspaceTrash {
     });
   }
 
-  private async deleteExpired(): Promise<void> {
+  private async empty(): Promise<void> {
     const stops = this.stops;
+    await this.deleteExpired(stops);
+    if (this.stops !== stops) return;
+    try {
+      await this.dependencies.removeLeftoverLocalCopies(() => this.stops !== stops);
+    } catch (error) {
+      logger.warn('Could not remove leftover local copies', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async deleteExpired(stops: number): Promise<void> {
     const expired = [...this.dependencies.workspaces()].filter(
       (workspace) =>
         workspace.status === 'trashed' &&
@@ -128,5 +146,10 @@ export const workspaceTrash = new WorkspaceTrash({
     });
     windowService.broadcastToAll(IPC.WORKSPACES_CHANGED);
   },
+  removeLeftoverLocalCopies: (stopped) =>
+    localMirrorService.removeLeftovers(
+      (workspaceId) => workspaceService.get(workspaceId)?.status === 'active',
+      stopped
+    ),
   now: () => Date.now(),
 });

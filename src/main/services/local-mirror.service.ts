@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, readdir, readFile, rmdir, writeFile } from 'fs/promises';
 import { basename, join, resolve, sep } from 'path';
 import { promisify } from 'util';
 
@@ -24,6 +24,7 @@ const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 const MIRROR_OWNER_FILE = '.komla-local-mirror';
 const MIRROR_PATH_MAX_ATTEMPTS = 25;
 const MIRROR_REMOVE_OPTIONS = { recursive: true, force: true, maxRetries: 3, retryDelay: 100 };
+const WORKSPACE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 type SyncReason = 'prepare' | 'remote-change' | 'initial-sync' | 'retry';
 
@@ -40,13 +41,16 @@ class LocalMirrorService {
   private syncStatusListeners = new Set<(status: LocalMirrorSyncStatus) => void>();
   private mirrorPaths = new Map<string, string>();
   private pathOwners = new Map<string, string>();
+  private leftoverRemovals = new Map<string, Promise<void>>();
+  // Counts the remove() calls under way for each workspace.
+  private removing = new Map<string, number>();
 
   getMirrorPath(workspaceId: string, backend: SshWorkspaceBackend): string {
     this.validateWorkspaceId(workspaceId);
     const current = this.mirrorPaths.get(workspaceId);
     if (current) return current;
 
-    const root = resolve(getKomlaBasePath(), 'mirrors');
+    const root = this.mirrorRoot();
     const projectName =
       backend.projectName || basename(backend.remoteRepoPath).replace(/\.git$/i, '') || 'project';
     const branchName = backend.branchName || basename(backend.remoteDirectory) || 'branch';
@@ -191,6 +195,7 @@ class LocalMirrorService {
       throw new Error('Local copies are not yet supported on Windows');
     }
 
+    await this.leftoverRemovals.get(workspaceId);
     const mirrorPath = this.getMirrorPath(workspaceId, backend);
     await mkdir(mirrorPath, { recursive: true });
     await writeFile(join(mirrorPath, MIRROR_OWNER_FILE), workspaceId, 'utf8');
@@ -217,18 +222,87 @@ class LocalMirrorService {
 
   async remove(workspaceId: string, backend?: SshWorkspaceBackend): Promise<void> {
     this.pendingSyncs.delete(workspaceId);
-    await this.initializations.get(workspaceId)?.catch(() => undefined);
-    await this.syncs.get(workspaceId)?.catch(() => undefined);
-    const mirrorPath =
-      this.mirrorPaths.get(workspaceId) ??
-      (backend ? this.getMirrorPath(workspaceId, backend) : undefined);
-    if (mirrorPath) {
-      await removePath(mirrorPath, MIRROR_REMOVE_OPTIONS);
-      this.pathOwners.delete(mirrorPath);
-      this.mirrorPaths.delete(workspaceId);
+    this.removing.set(workspaceId, (this.removing.get(workspaceId) ?? 0) + 1);
+    try {
+      await this.initializations.get(workspaceId)?.catch(() => undefined);
+      await this.syncs.get(workspaceId)?.catch(() => undefined);
+      await this.leftoverRemovals.get(workspaceId);
+      const mirrorPath =
+        this.mirrorPaths.get(workspaceId) ??
+        (backend ? this.getMirrorPath(workspaceId, backend) : undefined);
+      if (mirrorPath) {
+        await removePath(mirrorPath, MIRROR_REMOVE_OPTIONS);
+        this.pathOwners.delete(mirrorPath);
+        this.mirrorPaths.delete(workspaceId);
+      }
+      this.syncedWorkspaceIds.delete(workspaceId);
+      this.syncStatuses.delete(workspaceId);
+    } finally {
+      const count = (this.removing.get(workspaceId) ?? 1) - 1;
+      if (count > 0) this.removing.set(workspaceId, count);
+      else this.removing.delete(workspaceId);
     }
-    this.syncedWorkspaceIds.delete(workspaceId);
-    this.syncStatuses.delete(workspaceId);
+  }
+
+  /**
+   * Removes the local copies of workspaces `keep` rejects, such as ones left when removing a
+   * copy failed or Komla quit partway through a deletion. Folders without an owner marker were
+   * not made by Komla and stay, as does a copy being made, synced or removed. Once `stopped`, it
+   * removes no more.
+   */
+  async removeLeftovers(
+    keep: (workspaceId: string) => boolean,
+    stopped: () => boolean = () => false
+  ): Promise<void> {
+    const root = this.mirrorRoot();
+    for (const project of await readDirectoryNames(root)) {
+      const projectPath = join(root, project);
+      for (const folder of await readDirectoryNames(projectPath)) {
+        if (stopped()) return;
+        await this.removeLeftover(join(projectPath, folder), keep, stopped);
+      }
+      // Fails, as it should, while the project folder still holds a copy or anything else.
+      await rmdir(projectPath).catch(() => undefined);
+    }
+  }
+
+  private async removeLeftover(
+    mirrorPath: string,
+    keep: (workspaceId: string) => boolean,
+    stopped: () => boolean
+  ): Promise<void> {
+    const owner = await readFile(join(mirrorPath, MIRROR_OWNER_FILE), 'utf8')
+      .then(ownerFromMarker)
+      .catch(() => undefined);
+    if (stopped() || !owner || !WORKSPACE_ID_PATTERN.test(owner) || keep(owner)) return;
+    if (this.initializations.has(owner) || this.syncs.has(owner) || this.removing.has(owner)) {
+      return;
+    }
+
+    const removal = removePath(mirrorPath, MIRROR_REMOVE_OPTIONS);
+    this.leftoverRemovals.set(
+      owner,
+      removal.catch(() => undefined)
+    );
+    try {
+      await removal;
+      if (this.mirrorPaths.get(owner) === mirrorPath) this.mirrorPaths.delete(owner);
+      if (this.pathOwners.get(mirrorPath) === owner) this.pathOwners.delete(mirrorPath);
+      this.syncedWorkspaceIds.delete(owner);
+      // A workspace restored meanwhile is already syncing its new copy.
+      if (!this.syncs.has(owner) && this.syncStatuses.has(owner)) {
+        this.setSyncStatus({ workspaceId: owner, state: 'ready' });
+      }
+      logger.info('removed a leftover local copy', { workspaceId: owner, mirrorPath });
+    } catch (error) {
+      logger.warn('could not remove a leftover local copy', {
+        workspaceId: owner,
+        mirrorPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.leftoverRemovals.delete(owner);
+    }
   }
 
   private async sync(workspaceId: string, backend: SshWorkspaceBackend): Promise<string> {
@@ -343,8 +417,12 @@ class LocalMirrorService {
     for (const listener of this.syncStatusListeners) listener(status);
   }
 
+  private mirrorRoot(): string {
+    return resolve(getKomlaBasePath(), 'mirrors');
+  }
+
   private validateWorkspaceId(workspaceId: string): void {
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(workspaceId)) {
+    if (!WORKSPACE_ID_PATTERN.test(workspaceId)) {
       throw new Error('Invalid workspace id for local copy');
     }
   }
@@ -357,11 +435,21 @@ class LocalMirrorService {
 
   private readOwner(mirrorPath: string): string | undefined {
     try {
-      return readFileSync(join(mirrorPath, MIRROR_OWNER_FILE), 'utf8').trim() || undefined;
+      return ownerFromMarker(readFileSync(join(mirrorPath, MIRROR_OWNER_FILE), 'utf8'));
     } catch {
       return undefined;
     }
   }
+}
+
+function ownerFromMarker(content: string): string | undefined {
+  return content.trim() || undefined;
+}
+
+async function readDirectoryNames(path: string): Promise<string[]> {
+  const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
+  // Not following links keeps removal inside the mirrors folder.
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 }
 
 export const localMirrorService = new LocalMirrorService();

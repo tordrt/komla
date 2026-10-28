@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   deleteWorkspace: vi.fn<(id: string, force: boolean, deleteBranch: boolean) => Promise<void>>(),
   execGitAsync: vi.fn<(repoPath: string, args: string[]) => Promise<string>>(),
   broadcastToAll: vi.fn(),
+  removeLeftovers:
+    vi.fn<(keep: (workspaceId: string) => boolean, stopped: () => boolean) => Promise<void>>(),
 }));
 
 vi.mock('../../../src/main/lib/logger', () => ({
@@ -21,6 +23,9 @@ vi.mock('../../../src/main/services/workspace.service', () => ({
     get: (id: string) => mocks.workspaces.get(id),
     delete: mocks.deleteWorkspace,
   },
+}));
+vi.mock('../../../src/main/services/local-mirror.service', () => ({
+  localMirrorService: { removeLeftovers: mocks.removeLeftovers },
 }));
 vi.mock('../../../src/main/services/git/git-exec', () => ({
   gitExec: { execGitAsync: mocks.execGitAsync },
@@ -64,6 +69,7 @@ describe('workspaceTrash', () => {
     });
     mocks.execGitAsync.mockReset().mockResolvedValue('0');
     mocks.broadcastToAll.mockReset();
+    mocks.removeLeftovers.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -222,5 +228,45 @@ describe('workspaceTrash', () => {
     expect(mocks.deleteWorkspace).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mocks.deleteWorkspace).toHaveBeenCalledTimes(2);
+  });
+  it('removes local copies left by workspaces that are gone or in the Trash', async () => {
+    add(
+      createSshWorkspace({ id: 'active', status: 'active' }),
+      createSshWorkspace({ id: 'trashed', status: 'trashed', trashedAt: expired + 1 })
+    );
+
+    await (await loadTrash()).check();
+
+    expect(mocks.removeLeftovers).toHaveBeenCalledTimes(1);
+    const keep = mocks.removeLeftovers.mock.calls[0]![0];
+    expect(keep('active')).toBe(true);
+    expect(keep('trashed')).toBe(false);
+    expect(keep('gone')).toBe(false);
+  });
+
+  it('removes leftover local copies after deleting expired workspaces, and survives failure', async () => {
+    add(createSshWorkspace({ id: 'expired', status: 'trashed', trashedAt: expired }));
+    mocks.removeLeftovers.mockImplementation(async (keep) => {
+      // The expired workspace is already deleted, so its copy is a leftover too.
+      expect(mocks.deleteWorkspace).toHaveBeenCalledTimes(1);
+      expect(keep('expired')).toBe(false);
+      throw new Error('EACCES');
+    });
+
+    await expect((await loadTrash()).check()).resolves.toBeUndefined();
+    expect(mocks.removeLeftovers).toHaveBeenCalledTimes(1);
+  });
+  it('lets a quit stop removing leftover local copies', async () => {
+    let stoppedWhileRemoving: boolean | undefined;
+    const trash = await loadTrash();
+    mocks.removeLeftovers.mockImplementation(async (_keep, stopped) => {
+      expect(stopped()).toBe(false);
+      void trash.stop();
+      stoppedWhileRemoving = stopped();
+    });
+
+    await trash.check();
+
+    expect(stoppedWhileRemoving).toBe(true);
   });
 });

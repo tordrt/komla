@@ -220,11 +220,11 @@ function GroupPanel({ children }: { children: ReactNode }) {
 // Sized like the sidebar's group header.
 function GroupRow({ project }: { project: Project & { color: string } }) {
   return (
-    <div className="flex shrink-0 items-center gap-2 py-1.5 pl-2 text-[13px]">
+    <div className="flex shrink-0 items-center gap-2 py-1.5 pl-1.5 text-[13px]">
       <ProjectMark
         project={project}
-        iconClassName="size-4"
-        dotClassName="light-darken mx-0.75 size-2.5"
+        iconClassName="size-5"
+        dotClassName="light-darken mx-1.25 size-2.5"
       />
       <span className="truncate font-semibold text-foreground">{project.name}</span>
     </div>

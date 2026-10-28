@@ -210,19 +210,19 @@ function GroupHeaderIcon({ isDirectory, expanded, icon }: GroupHeaderIconProps) 
     return (
       <ProjectMark
         project={{ icon }}
-        iconClassName={cn('size-4 transition-opacity', !expanded && 'opacity-60')}
+        iconClassName={cn('size-5 transition-opacity', !expanded && 'opacity-60')}
       />
     );
   }
   if (isDirectory) {
     return (
-      <Folder className="light-darken size-4 shrink-0 text-[color:var(--group-header-color)]" />
+      <Folder className="light-darken size-5 shrink-0 text-[color:var(--group-header-color)]" />
     );
   }
   return (
     <span
       className={cn(
-        'light-darken mx-0.75 shrink-0 rounded-full bg-[var(--group-header-color)] transition-all',
+        'light-darken mx-1.25 shrink-0 rounded-full bg-[var(--group-header-color)] transition-all',
         expanded ? 'size-2.5' : 'h-0.5 w-2.5'
       )}
     />
@@ -359,7 +359,7 @@ const GroupHeader = React.forwardRef<
         type="button"
         aria-expanded={expanded}
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-2 text-[13px] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-1.5 text-[13px] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
       >
         <GroupHeaderIcon
           isDirectory={group.isDirectory ?? false}

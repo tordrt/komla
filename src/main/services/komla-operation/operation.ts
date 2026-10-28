@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from 'path';
 
 import {
+  getAgentCapability,
   isAgentCapabilityEnabled,
   type AgentCapabilityId,
 } from '../../../shared/constants/agent-capabilities';
@@ -1561,7 +1562,8 @@ export class KomlaOperationService {
     if (isAgentCapabilityEnabled(capability, this.dependencies.getConfig())) return;
     throw new KomlaOperationError(
       'CAPABILITY_DISABLED',
-      `The ${capability} agent capability is disabled in Komla settings.`,
+      // Named as the settings toggle is, by its command, so the user can find it.
+      `\`${getAgentCapability(capability)?.command ?? capability}\` is turned off in Komla. Ask the user to turn it on in Settings → Integrations & MCP → MCP and CLI access.`,
       403,
       { capability }
     );

@@ -1493,7 +1493,12 @@ describe('KomlaOperationService', () => {
 
     await expect(
       service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.tag', tag: 'Blocked' })
-    ).rejects.toMatchObject({ code: 'CAPABILITY_DISABLED', statusCode: 403 });
+    ).rejects.toMatchObject({
+      code: 'CAPABILITY_DISABLED',
+      statusCode: 403,
+      message:
+        '`komla tag` is turned off in Komla. Ask the user to turn it on in Settings → Integrations & MCP → MCP and CLI access.',
+    });
     expect(updateWorkspace).not.toHaveBeenCalled();
   });
 

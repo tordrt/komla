@@ -146,6 +146,42 @@ describe('RemoteAgentIntegrationsPanel', () => {
     expect(mockOfferAgentLaunchDefaults).toHaveBeenCalledOnce();
   });
 
+  it('reports the skill and MCP to a caller that offers the launch defaults later', async () => {
+    const user = userEvent.setup();
+    const api = setupMockApi();
+    const onLaunchIntegrationChange = vi.fn();
+    const status = { ...emptyStatus, claude: { notifications: false, mcp: true } };
+    api.getSshIntegrationStatus.mockImplementation(async () => ({ ...status }));
+    api.setSshKomlaSkill.mockImplementation(async (_hostId: string, enabled: boolean) => {
+      status.komlaSkill = enabled;
+    });
+    render(
+      <RemoteAgentIntegrationsPanel
+        target={{ kind: 'ssh', host }}
+        onLaunchIntegrationChange={onLaunchIntegrationChange}
+      />
+    );
+
+    await user.click((await screen.findAllByRole('button', { name: 'Enable' }))[0]);
+    await waitFor(() => expect(onLaunchIntegrationChange).toHaveBeenLastCalledWith(true));
+
+    // Removing the skill leaves Claude Code's MCP server, so agents there still start others.
+    await user.click(await screen.findByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(api.setSshKomlaSkill).toHaveBeenCalledWith(host.id, false));
+    await screen.findAllByRole('button', { name: 'Enable' });
+    expect(onLaunchIntegrationChange).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole('button', { name: /Claude Code/ }));
+    status.claude = { notifications: false, mcp: false };
+    await user.click(
+      within(screen.getByRole('group', { name: 'Claude Code' })).getByRole('button', {
+        name: 'Remove',
+      })
+    );
+    await waitFor(() => expect(onLaunchIntegrationChange).toHaveBeenLastCalledWith(false));
+    expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
+  });
+
   it('removes the Komla skill on the host', async () => {
     const user = userEvent.setup();
     const api = setupMockApi();

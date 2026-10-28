@@ -37,6 +37,7 @@ const mockDeleteHost = vi.fn(async () => ({ deletedWorkspaceIds: [] }));
 const mockLoadWorkspaces = vi.fn(async () => undefined);
 const mockUpdateProject = vi.fn(async () => undefined);
 const mockAddToast = vi.fn();
+const mockOfferAgentLaunchDefaults = vi.hoisted(() => vi.fn(() => true));
 const mockPresets = [
   {
     id: 'codex',
@@ -84,6 +85,10 @@ vi.mock('../../../../../src/renderer/stores/ssh-hosts.store', () => {
     ),
   };
 });
+
+vi.mock('../../../../../src/renderer/stores/agent-launch-defaults-dialog.store', () => ({
+  offerAgentLaunchDefaults: mockOfferAgentLaunchDefaults,
+}));
 
 vi.mock('../../../../../src/renderer/stores/workspaces.store', () => ({
   useWorkspacesStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -213,6 +218,7 @@ describe('SshTab', () => {
       }),
       enableSshIntegration: vi.fn().mockResolvedValue(undefined),
       disableSshIntegration: vi.fn().mockResolvedValue(undefined),
+      setSshKomlaSkill: vi.fn().mockResolvedValue(undefined),
       listRemoteSshWorkspaces: vi.fn().mockResolvedValue([]),
       syncSshHostWorkspaces: vi.fn().mockResolvedValue(undefined),
       trackSshHostAdded: vi.fn().mockResolvedValue(undefined),
@@ -1275,6 +1281,66 @@ describe('SshTab', () => {
       await waitFor(() => {
         expect(mockSaveHost).toHaveBeenCalledWith({ ...host, setupPending: false });
       });
+    });
+
+    it('shows the launch defaults once the step closes, so they can pick the host', async () => {
+      mockHosts = [{ ...host, setupPending: true }];
+      const user = userEvent.setup();
+      renderSsh();
+
+      const dialog = await screen.findByRole('dialog');
+      await user.click((await within(dialog).findAllByRole('button', { name: 'Enable' }))[0]);
+      await waitFor(() => expect(window.api.setSshKomlaSkill).toHaveBeenCalledWith(host.id, true));
+      expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
+
+      await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(mockHosts).toEqual([{ ...host, setupPending: false }]);
+      expect(mockOfferAgentLaunchDefaults).toHaveBeenCalledOnce();
+    });
+
+    it('shows the launch defaults when the skill finishes turning on after the step closes', async () => {
+      mockHosts = [{ ...host, setupPending: true }];
+      let finishSkill = () => {};
+      vi.mocked(window.api.setSshKomlaSkill).mockReturnValue(
+        new Promise<void>((resolve) => {
+          finishSkill = resolve;
+        })
+      );
+      const user = userEvent.setup();
+      renderSsh();
+
+      const dialog = await screen.findByRole('dialog');
+      await user.click((await within(dialog).findAllByRole('button', { name: 'Enable' }))[0]);
+      await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
+
+      await act(async () => finishSkill());
+
+      await waitFor(() => expect(mockOfferAgentLaunchDefaults).toHaveBeenCalledOnce());
+    });
+
+    it('leaves the launch defaults unshown when the skill comes back off', async () => {
+      mockHosts = [{ ...host, setupPending: true }];
+      const status = await window.api.getSshIntegrationStatus(host.id);
+      vi.mocked(window.api.setSshKomlaSkill).mockImplementation(async (_hostId, enabled) => {
+        status.komlaSkill = enabled;
+      });
+      vi.mocked(window.api.getSshIntegrationStatus).mockImplementation(async () => ({ ...status }));
+      const user = userEvent.setup();
+      renderSsh();
+
+      const dialog = await screen.findByRole('dialog');
+      await user.click((await within(dialog).findAllByRole('button', { name: 'Enable' }))[0]);
+      await user.click(await within(dialog).findByRole('button', { name: 'Remove' }));
+      await waitFor(() => expect(window.api.setSshKomlaSkill).toHaveBeenCalledWith(host.id, false));
+
+      await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
     });
 
     it('stays on the integrations step while the user remains there', async () => {

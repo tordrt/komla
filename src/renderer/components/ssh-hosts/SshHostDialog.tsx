@@ -19,6 +19,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { offerAgentLaunchDefaults } from '@/stores/agent-launch-defaults-dialog.store';
 import { useConfigStore } from '@/stores/config.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -109,6 +110,16 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
   const configHosts = useSshConfigHosts();
   const [configAlias, setConfigAlias] = useState(startingConfigHost?.alias ?? null);
   const returnFocus = useReturnFocus();
+  // The integrations step holds the launch defaults until the dialog has closed, rather than
+  // stacking them on it: a first host's setup is pending until then, and the defaults can't pin
+  // agents to a pending host. An integration that finishes turning on after the close offers them.
+  const launchDefaultsHeld = useRef(false);
+  const closed = useRef(false);
+  const offerLaunchDefaults = () => {
+    if (useSshHostsStore.getState().hosts.some((host) => host.id === readyHostId)) {
+      offerAgentLaunchDefaults();
+    }
+  };
 
   const isEdit = draft.id !== null;
   const isDirty = JSON.stringify(draft) !== JSON.stringify(initialDraft);
@@ -282,7 +293,12 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
         className="flex max-w-xl flex-col"
         onInteractOutside={guardOutsideDismiss}
         onEscapeKeyDown={handleEscape}
-        onCloseAutoFocus={returnFocus}
+        onCloseAutoFocus={(event) => {
+          returnFocus(event);
+          closed.current = true;
+          if (launchDefaultsHeld.current) offerLaunchDefaults();
+          launchDefaultsHeld.current = false;
+        }}
       >
         {view === 'ready' ? (
           <ReadyStep
@@ -290,6 +306,10 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
             status={readyStatus}
             error={error}
             saving={saving}
+            onLaunchIntegrationChange={(on) => {
+              if (on && closed.current) offerLaunchDefaults();
+              else launchDefaultsHeld.current = on;
+            }}
             onDone={() => void finishSetup()}
           />
         ) : view === 'config' ? (
@@ -559,12 +579,14 @@ function ReadyStep({
   status,
   error,
   saving,
+  onLaunchIntegrationChange,
   onDone,
 }: {
   host: SshHost | undefined;
   status: SshIntegrationStatus | null;
   error: string | null;
   saving: boolean;
+  onLaunchIntegrationChange: (on: boolean) => void;
   onDone: () => void;
 }) {
   if (!host) return null;
@@ -582,7 +604,11 @@ function ReadyStep({
       </DialogHeader>
       <DialogBody>
         <SettingsCard>
-          <RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} initialStatus={status} />
+          <RemoteAgentIntegrationsPanel
+            target={{ kind: 'ssh', host }}
+            initialStatus={status}
+            onLaunchIntegrationChange={onLaunchIntegrationChange}
+          />
         </SettingsCard>
       </DialogBody>
       {error && <FormError message={error} />}

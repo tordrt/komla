@@ -39,13 +39,20 @@ const INTEGRATION_LABELS: Record<SshIntegrationType, string> = {
   mcp: 'MCP server',
 };
 
+const SSH_AGENTS = Object.keys(AGENT_LABELS) as SshAgent[];
+
 type RemoteIntegrationTarget = { kind: 'ssh'; host: SshHost };
+
+/** Whether agents on the host can start other agents through the Komla skill or MCP. */
+const launchesAgents = (status: SshIntegrationStatus) =>
+  status.komlaSkill || SSH_AGENTS.some((agent) => status[agent]?.mcp);
 
 export function RemoteAgentIntegrationsPanel({
   target,
   agentFilter,
   initialStatus = null,
   onUpdateAgentsChange,
+  onLaunchIntegrationChange,
 }: {
   target: RemoteIntegrationTarget;
   agentFilter?: SshAgent;
@@ -53,6 +60,11 @@ export function RemoteAgentIntegrationsPanel({
   initialStatus?: SshIntegrationStatus | null;
   /** Reports the agents whose notification setup needs an update after each check. */
   onUpdateAgentsChange?: (agents: SshAgent[]) => void;
+  /**
+   * Takes over offering the launch defaults, for a caller that shows them later: true once the
+   * skill or an MCP server is turned on, and false once a removal leaves the host with neither.
+   */
+  onLaunchIntegrationChange?: (on: boolean) => void;
 }) {
   const addToast = useToastStore((state) => state.addToast);
   const [status, setStatus] = useState<SshIntegrationStatus | null>(initialStatus);
@@ -63,18 +75,29 @@ export function RemoteAgentIntegrationsPanel({
   const [integrationPrompt, setIntegrationPrompt] = useState<string | null>(null);
 
   // Keeps the last status on screen while it rechecks, so the rows don't blank after each change.
-  const loadStatus = async () => {
+  const loadStatus = async (): Promise<SshIntegrationStatus | null> => {
     try {
       const nextStatus = await window.api.getSshIntegrationStatus(target.host.id);
       setStatus(nextStatus);
-      onUpdateAgentsChange?.(
-        (Object.keys(AGENT_LABELS) as SshAgent[]).filter((agent) => nextStatus[agent]?.update)
-      );
+      onUpdateAgentsChange?.(SSH_AGENTS.filter((agent) => nextStatus[agent]?.update));
       setStatusLabel('');
+      return nextStatus;
     } catch (error) {
       setStatus(null);
       setStatusLabel('Unavailable');
       setIntegrationError((error as Error).message || 'Failed to check agent integrations.');
+      return null;
+    }
+  };
+
+  // Agents there can start other agents once the skill or an MCP server is on.
+  const reportLaunchIntegration = (enabled: boolean, nextStatus: SshIntegrationStatus | null) => {
+    if (!onLaunchIntegrationChange) {
+      if (enabled) offerAgentLaunchDefaults();
+    } else if (enabled) {
+      onLaunchIntegrationChange(true);
+    } else if (nextStatus && !launchesAgents(nextStatus)) {
+      onLaunchIntegrationChange(false);
     }
   };
 
@@ -106,9 +129,9 @@ export function RemoteAgentIntegrationsPanel({
     setIntegrationError(null);
     try {
       await window.api.setSshKomlaSkill(target.host.id, enabled);
-      await loadStatus();
+      const nextStatus = await loadStatus();
       addToast(`Komla skill ${enabled ? 'added' : 'removed'} on ${targetLabel}`, 'success');
-      if (enabled) offerAgentLaunchDefaults();
+      reportLaunchIntegration(enabled, nextStatus);
     } catch (error) {
       reportFailure(
         `Failed to ${enabled ? 'add' : 'remove'} the Komla skill: ${(error as Error).message}`
@@ -128,13 +151,13 @@ export function RemoteAgentIntegrationsPanel({
       } else {
         await window.api.disableSshIntegration(target.host.id, agent, type);
       }
-      await loadStatus();
+      const nextStatus = await loadStatus();
       const outcome = enabled ? 'enabled' : 'removed';
       addToast(
         `${AGENT_LABELS[agent]} ${INTEGRATION_LABELS[type]} ${outcome} on ${targetLabel}`,
         'success'
       );
-      if (enabled && type === 'mcp') offerAgentLaunchDefaults();
+      if (type === 'mcp') reportLaunchIntegration(enabled, nextStatus);
     } catch (error) {
       reportFailure(
         `Failed to ${enabled ? 'enable' : 'remove'} ${INTEGRATION_LABELS[type]}: ${(error as Error).message}`
@@ -174,7 +197,7 @@ export function RemoteAgentIntegrationsPanel({
             }
           />
         </div>
-        {(agentFilter ? [agentFilter] : (Object.keys(AGENT_LABELS) as SshAgent[])).map((agent) => {
+        {(agentFilter ? [agentFilter] : SSH_AGENTS).map((agent) => {
           const agentStatus = status?.[agent];
           const configured = agentStatus?.notifications ?? false;
           const notificationsLoading = integrationLoading[`${agent}-notifications`] ?? false;

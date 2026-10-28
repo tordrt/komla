@@ -674,29 +674,26 @@ describe('SshTab', () => {
 
       const dialog = await startAdding(user, 'first.example.com', 'First remote');
       expect(within(dialog).getByRole('heading', { name: 'Add SSH host' })).toBeInTheDocument();
-      expect(
-        within(dialog)
-          .getByText(/can use your forwarded SSH credentials/)
-          .closest('[data-tone]')
-      ).toHaveAttribute('data-tone', 'warning');
-      expect(within(dialog).getByText(/Your private keys are not copied/)).toBeInTheDocument();
+      expect(within(dialog).getByLabelText('User')).not.toHaveAttribute('placeholder');
+      expect(within(dialog).queryByLabelText('Identity file')).not.toBeInTheDocument();
+      expect(within(dialog).getByText(/Agents on the machine can use your SSH keys/)).toBeVisible();
       const forwardingDetails = within(dialog).getByText('Learn more').closest('details');
       expect(forwardingDetails).not.toHaveAttribute('open');
       await user.click(within(dialog).getByText('Learn more'));
       expect(forwardingDetails).toHaveAttribute('open');
       expect(
-        within(dialog).getByText(/Agents kept running in tmux lose access to forwarded credentials/)
+        within(dialog).getByText(
+          /Agents kept running in tmux lose the keys after Komla disconnects/
+        )
       ).toBeInTheDocument();
       expect(within(dialog).getByRole('switch', { name: 'Treat as isolated' })).toBeChecked();
       await user.click(within(dialog).getByRole('switch', { name: 'Forward SSH agent' }));
       expect(
-        within(dialog).getByText(/the remote user must have its own SSH key or HTTPS credentials/)
+        within(dialog).getByText(/needs its own Git credentials to create workspaces/)
       ).toBeInTheDocument();
-      expect(
-        within(dialog).getByText(/Check machine connects over SSH .* without changing anything/)
-      ).toBeInTheDocument();
-      const setupDetails = within(dialog).getByText('See what changes').closest('details');
-      await user.click(within(dialog).getByText('See what changes'));
+      expect(within(dialog).getByText(/Checking changes nothing on the machine/)).toBeVisible();
+      const setupDetails = within(dialog).getByText('See what setup changes').closest('details');
+      await user.click(within(dialog).getByText('See what setup changes'));
       expect(setupDetails).toHaveAttribute('open');
       const setupItems = setupDetails?.querySelectorAll('li');
       expect(setupItems).toHaveLength(5);
@@ -1219,13 +1216,13 @@ describe('SshTab', () => {
       ).toBeInTheDocument();
     });
 
-    it('links the setup guide', async () => {
+    it('links more info about SSH hosts', async () => {
       render(<SshHostDialogHost />);
 
       act(() => useSshHostDialogStore.getState().openAdd('settings'));
       const dialog = await screen.findByRole('dialog');
 
-      expect(within(dialog).getByRole('link', { name: /Setup guide/ })).toHaveAttribute(
+      expect(within(dialog).getByRole('link', { name: /More info/ })).toHaveAttribute(
         'href',
         expect.stringMatching(/\/remote-workspaces$/)
       );
@@ -1467,19 +1464,21 @@ describe('SshTab', () => {
       });
     });
 
-    it('shows the agent-forwarding warning only while forwarding is on', async () => {
+    it('describes key access only while forwarding is on', async () => {
       const user = userEvent.setup();
       renderSsh();
 
       await user.click(screen.getByRole('button', { name: 'Edit SSH host' }));
       await screen.findByRole('dialog');
-      expect(screen.getByText(/can use your forwarded SSH credentials/)).toBeInTheDocument();
+      expect(
+        screen.getByText(/can use your SSH keys while Komla is connected/)
+      ).toBeInTheDocument();
 
       await user.click(screen.getByRole('switch', { name: 'Forward SSH agent' }));
-      expect(screen.queryByText(/can use your forwarded SSH credentials/)).not.toBeInTheDocument();
       expect(
-        screen.getByText(/the remote user must have its own SSH key/).closest('[data-tone]')
-      ).toBeNull();
+        screen.queryByText(/can use your SSH keys while Komla is connected/)
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(/needs its own Git credentials/)).toBeInTheDocument();
     });
 
     it('keeps the remote Komla path fixed for a saved host without workspaces', async () => {

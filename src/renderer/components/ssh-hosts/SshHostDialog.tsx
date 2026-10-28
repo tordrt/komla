@@ -94,7 +94,9 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
   );
   const [readyStatus, setReadyStatus] = useState<SshIntegrationStatus | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(() =>
-    Boolean(initialDraft.extraSshArgs || initialDraft.portForwards.length > 0)
+    Boolean(
+      initialDraft.identityFile || initialDraft.extraSshArgs || initialDraft.portForwards.length > 0
+    )
   );
   const [setupState, setSetupState] = useState<SetupState>('idle');
   const [setupResult, setSetupResult] = useState<(SshHostSetupResult & { hostId: string }) | null>(
@@ -266,6 +268,7 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
     draft.hostname,
     startingConfigHost ? [...(configHosts.hosts ?? []), startingConfigHost] : configHosts.hosts
   );
+  const fromConfig = hostHint !== undefined;
 
   return (
     <Dialog
@@ -319,7 +322,7 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
                   onChange={updateDraft}
                   onHostBlur={() => setDraft(applySshHostInput)}
                   hostHint={hostHint}
-                  fromConfig={hostHint !== undefined}
+                  fromConfig={fromConfig}
                   isEdit={isEdit}
                   workspaceCount={workspaceCount}
                 />
@@ -338,6 +341,7 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
                   expanded={showAdvanced}
                   onExpandedChange={setShowAdvanced}
                   isEdit={isEdit}
+                  fromConfig={fromConfig}
                   locked={locksConnectionIdentity}
                   portForwardStatus={portForwardStatus}
                   unsaved={isDirty}
@@ -526,8 +530,8 @@ function FormHeader({ isEdit, name }: { isEdit: boolean; name: string }) {
           'Changes are checked on the machine before they are saved.'
         ) : (
           <>
-            A machine you can log into over SSH. Agents run there in tmux and keep working while
-            this computer sleeps. <SshGuideLink />
+            A machine you can log into over SSH. Agents keep working there while this computer
+            sleeps. <SshGuideLink>More info ↗</SshGuideLink>
           </>
         )}
       </DialogDescription>
@@ -545,6 +549,10 @@ function RevealedError({ message }: { message: string | null }) {
 }
 
 type DraftChange = <K extends keyof HostDraft>(key: K, value: HostDraft[K]) => void;
+
+/** A field left empty for a ~/.ssh/config alias takes its value from the file. */
+const configPlaceholder = (fromConfig: boolean, fallback?: string) =>
+  fromConfig ? 'From ~/.ssh/config' : fallback;
 
 function ReadyStep({
   host,
@@ -608,7 +616,6 @@ function ConnectionFields({
   workspaceCount: number;
 }) {
   const locked = workspaceCount > 0;
-  const placeholder = (fallback: string) => (fromConfig ? 'From ~/.ssh/config' : fallback);
   return (
     <div className="grid grid-cols-2 gap-x-3 gap-y-4">
       <Field label="Host or alias" hint={hostHint}>
@@ -644,7 +651,7 @@ function ConnectionFields({
             className="h-9"
             value={draft.user}
             onChange={(e) => onChange('user', e.target.value)}
-            placeholder={placeholder('Optional')}
+            placeholder={configPlaceholder(fromConfig)}
             disabled={locked}
           />
         )}
@@ -657,24 +664,7 @@ function ConnectionFields({
             value={draft.port}
             inputMode="numeric"
             onChange={(e) => onChange('port', e.target.value)}
-            placeholder={placeholder('22')}
-            disabled={locked}
-          />
-        )}
-      </Field>
-      <Field
-        label="Identity file"
-        className="col-span-2"
-        hint="Optional. Your SSH agent and ~/.ssh/config are used by default."
-      >
-        {(id, describedBy) => (
-          <Input
-            id={id}
-            aria-describedby={describedBy}
-            className="h-9"
-            value={draft.identityFile}
-            onChange={(e) => onChange('identityFile', e.target.value)}
-            placeholder={placeholder('~/.ssh/id_ed25519')}
+            placeholder={configPlaceholder(fromConfig, '22')}
             disabled={locked}
           />
         )}
@@ -695,6 +685,7 @@ function AdvancedOptions({
   expanded,
   onExpandedChange,
   isEdit,
+  fromConfig,
   locked,
   portForwardStatus,
   unsaved,
@@ -704,7 +695,9 @@ function AdvancedOptions({
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   isEdit: boolean;
-  /** Workspaces on the host keep its SSH arguments fixed. */
+  /** The host is an alias in ~/.ssh/config, which fills in the fields left empty. */
+  fromConfig: boolean;
+  /** Workspaces on the host keep its identity file and SSH arguments fixed. */
   locked: boolean;
   portForwardStatus: SshPortForwardStatus | null;
   /** The dialog holds changes that the saved forwards don't have yet. */
@@ -725,6 +718,19 @@ function AdvancedOptions({
       </Button>
       {expanded && (
         <div className="mt-3 space-y-4">
+          <Field label="Identity file" hint="Your SSH agent and ~/.ssh/config are used by default.">
+            {(id, describedBy) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                className="h-9"
+                value={draft.identityFile}
+                onChange={(e) => onChange('identityFile', e.target.value)}
+                placeholder={configPlaceholder(fromConfig, '~/.ssh/id_ed25519')}
+                disabled={locked}
+              />
+            )}
+          </Field>
           <Field
             label="Remote Komla path"
             hint={
@@ -845,36 +851,26 @@ function ForwardAgentRow({
         </label>
         <div id={`${id}-description`} className="mt-0.5 text-muted-foreground">
           {checked ? (
-            <>
-              <p data-tone="warning" className="flex gap-1.5">
-                <Warning weight="fill" className="mt-0.5 size-3.5 shrink-0 text-warning" />
-                <span>
-                  Agents and other processes on this machine can use your forwarded SSH credentials
-                  while Komla is connected. Your private keys are not copied.
+            <details className="group">
+              <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                Agents on the machine can use your SSH keys while Komla is connected. Keys are never
+                copied.{' '}
+                <span className="text-foreground underline underline-offset-2 group-open:hidden">
+                  Learn more
                 </span>
+                <span className="hidden text-foreground underline underline-offset-2 group-open:inline">
+                  Hide details
+                </span>
+              </summary>
+              <p className="mt-1">
+                So can other processes there. Agents kept running in tmux lose the keys after Komla
+                disconnects, so give the remote user its own Git credentials if they need Git
+                unattended.
               </p>
-              <details className="group pl-5">
-                <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                  Forwarded credentials stop working after disconnecting.{' '}
-                  <span className="text-foreground underline underline-offset-2 group-open:hidden">
-                    Learn more
-                  </span>
-                  <span className="hidden text-foreground underline underline-offset-2 group-open:inline">
-                    Hide details
-                  </span>
-                </summary>
-                <p className="mt-1">
-                  Agents kept running in tmux lose access to forwarded credentials after Komla
-                  disconnects. Configure persistent Git credentials for the remote user if they need
-                  unattended Git operations.
-                </p>
-              </details>
-            </>
+            </details>
           ) : (
             <p>
-              Without forwarding, the remote user must have its own SSH key or HTTPS credentials
-              with access to the Git repositories you use. Otherwise, SSH workspace creation will
-              fail.
+              The machine needs its own Git credentials to create workspaces from your repositories.
             </p>
           )}
           {isEdit && <p className="mt-1">Changes apply to new SSH sessions.</p>}
@@ -906,8 +902,8 @@ function IsolatedHostRow({
           Treat as isolated
         </label>
         <p id={`${id}-description`} className="mt-0.5 text-muted-foreground">
-          Agents may start other agents here in modes that skip permission prompts, such as --yolo.
-          Turn this off for a machine with anything on it you&apos;d mind an agent changing.
+          Agents may start other agents here that skip permission prompts. Turn off for a machine
+          you&apos;d mind them changing.
         </p>
       </div>
       <Switch
@@ -922,50 +918,39 @@ function IsolatedHostRow({
 }
 
 function SetupExplainer({ isEdit }: { isEdit: boolean }) {
-  if (isEdit) {
-    return (
-      <p className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
-        <Info className="mt-0.5 size-3.5 shrink-0" />
-        Check changes connects over SSH and verifies the host again without changing it. Save
-        changes becomes available once it passes.
-      </p>
-    );
-  }
+  // The header already says edits are checked before they're saved.
+  if (isEdit) return null;
   return (
-    <div className="flex gap-2 text-xs leading-relaxed text-muted-foreground">
-      <Info className="mt-0.5 size-3.5 shrink-0" />
-      <div className="min-w-0">
-        <p>
-          Check machine connects over SSH and verifies Git, tmux, and required utilities without
-          changing anything. Set up machine becomes available once it passes.
-        </p>
-        <details className="group mt-1">
-          <summary className="cursor-pointer list-none text-foreground underline underline-offset-2 [&::-webkit-details-marker]:hidden">
-            <span className="group-open:hidden">See what changes</span>
-            <span className="hidden group-open:inline">Hide setup details</span>
-          </summary>
-          <ul className="mt-2 list-disc space-y-1 pl-4">
-            <li>Checks the remote OS, Git, required utilities, tmux, rsync, and Git identity.</li>
-            <li>
-              Creates Komla-managed repository, worktree, and runtime folders under the configured
-              Komla folder.
-            </li>
-            <li>
-              Installs or refreshes the Remote Companion and its private support files so Komla can
-              observe workspaces and receive agent events.
-            </li>
-            <li>
-              If needed, configures the remote Git identity using this computer&apos;s global Git
-              name and email.
-            </li>
-            <li>
-              Leaves project packages and Git credentials unchanged. Repositories and workspaces are
-              created later, when you ask for them.
-            </li>
-          </ul>
-        </details>
-      </div>
-    </div>
+    <details className="group text-xs leading-relaxed text-muted-foreground">
+      <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+        Checking changes nothing on the machine.{' '}
+        <span className="text-foreground underline underline-offset-2 group-open:hidden">
+          See what setup changes
+        </span>
+        <span className="hidden text-foreground underline underline-offset-2 group-open:inline">
+          Hide setup details
+        </span>
+      </summary>
+      <ul className="mt-2 list-disc space-y-1 pl-4">
+        <li>Checks the remote OS, Git, required utilities, tmux, rsync, and Git identity.</li>
+        <li>
+          Creates Komla-managed repository, worktree, and runtime folders under the configured Komla
+          folder.
+        </li>
+        <li>
+          Installs or refreshes the Remote Companion and its private support files so Komla can
+          observe workspaces and receive agent events.
+        </li>
+        <li>
+          If needed, configures the remote Git identity using this computer&apos;s global Git name
+          and email.
+        </li>
+        <li>
+          Leaves project packages and Git credentials unchanged. Repositories and workspaces are
+          created later, when you ask for them.
+        </li>
+      </ul>
+    </details>
   );
 }
 

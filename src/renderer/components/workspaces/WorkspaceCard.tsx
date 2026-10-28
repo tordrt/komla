@@ -772,11 +772,14 @@ function ProjectBadge({
       style={{ '--project-color': projectInfo.color } as React.CSSProperties}
     >
       {projectInfo.icon ? (
-        <ProjectMark project={{ icon: projectInfo.icon }} iconClassName="size-3" />
+        <ProjectMark project={{ icon: projectInfo.icon }} iconClassName="size-3.5" />
       ) : !workspace.isWorktree ? (
-        <Folder className="light-darken size-3 shrink-0 text-[color:var(--project-color)]" />
+        <Folder className="light-darken size-3.5 shrink-0 text-[color:var(--project-color)]" />
       ) : (
-        <span className="light-darken size-2 shrink-0 rounded-full bg-[var(--project-color)]" />
+        // The dot sits in an icon-sized box, so project names line up whatever the card shows.
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          <span className="light-darken size-2 rounded-full bg-[var(--project-color)]" />
+        </span>
       )}
       <span className="truncate text-ui font-semibold text-foreground">{projectInfo.name}</span>
     </div>

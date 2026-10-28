@@ -1,5 +1,5 @@
 import { CaretDown, Sparkle, Trash } from '@phosphor-icons/react';
-import { useId, useRef, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
 
 import { BranchSelect } from '@/components/ui/branch-select';
 import { Button } from '@/components/ui/button';
@@ -203,8 +203,10 @@ export function AutomationEditorDialog({
     setGrace(chosen.missedRunGraceMinutes);
   };
 
-  const updateDraft = (changes: Partial<ScheduleDraft>) =>
-    setDraft((current) => ({ ...current, ...changes }));
+  const updateDraft = useCallback(
+    (changes: Partial<ScheduleDraft>) => setDraft((current) => ({ ...current, ...changes })),
+    []
+  );
 
   return (
     <>

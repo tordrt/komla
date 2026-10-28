@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 
 import { Callout } from '@/components/ui/callout';
 import { Input } from '@/components/ui/input';
@@ -35,8 +35,11 @@ interface AutomationScheduleSectionProps {
   onTimeZoneChange: (timeZone: string) => void;
 }
 
-/** Repeat, the fields the frequency needs, the time zone, and the next three runs. */
-export function AutomationScheduleSection({
+/**
+ * Repeat, the fields the frequency needs, the time zone, and the next three runs. Memoized, so
+ * typing a name or prompt doesn't render every time zone again.
+ */
+export const AutomationScheduleSection = memo(function AutomationScheduleSection({
   fieldId,
   draft,
   cron,
@@ -111,7 +114,7 @@ export function AutomationScheduleSection({
       )}
     </div>
   );
-}
+});
 
 interface ScheduleDraftFieldsProps {
   fieldId: string;

@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { GroupHeaderIcon } from '@/components/workspaces/GroupHeaderIcon';
 import { PROJECT_PANEL_CLASS } from '@/components/workspaces/project-panel';
 import { useIconColors } from '@/hooks/useIconColors';
 import { getProjectColor, resolvePickedColor } from '@/lib/project-colors';
@@ -22,7 +23,6 @@ import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { canPromptForProjectIcon } from '@/types';
 
 import { ProjectIconPicker } from './ProjectIconPicker';
-import { ProjectMark } from './ProjectMark';
 
 import type { Project, ProjectIconCandidate } from '@/types';
 
@@ -221,10 +221,11 @@ function GroupPanel({ children }: { children: ReactNode }) {
 function GroupRow({ project }: { project: Project & { color: string } }) {
   return (
     <div className="flex shrink-0 items-center gap-2 py-1.5 pl-1.5 text-[13px]">
-      <ProjectMark
-        project={project}
-        iconClassName="size-5"
-        dotClassName="light-darken mx-1.25 size-2.5"
+      <GroupHeaderIcon
+        isDirectory={project.kind === 'directory'}
+        expanded
+        color={project.color}
+        icon={project.icon}
       />
       <span className="truncate font-semibold text-foreground">{project.name}</span>
     </div>

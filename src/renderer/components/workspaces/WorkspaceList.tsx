@@ -3,7 +3,6 @@ import {
   CaretRight,
   CircleNotch,
   EyeSlash,
-  Folder,
   Palette,
   Plus,
   PushPin,
@@ -17,7 +16,6 @@ import {
 } from '@phosphor-icons/react';
 import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 
-import { ProjectMark } from '@/components/projects/ProjectMark';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -38,6 +36,7 @@ import { TRASH_RETENTION_DAYS, type Project, type Workspace } from '@/types';
 import { ActivitySpinner } from './activity-spinners';
 import { BulkDeleteDialog } from './BulkDeleteDialog';
 import { DirectoryGroupContextMenu } from './DirectoryGroupContextMenu';
+import { GroupHeaderIcon } from './GroupHeaderIcon';
 import { PROJECT_PANEL_CLASS } from './project-panel';
 import { ProjectGroupContextMenu } from './ProjectGroupContextMenu';
 import {
@@ -199,36 +198,6 @@ function GroupContextMenuWrapper({ group, groupProject, children }: GroupContext
   return <>{children}</>;
 }
 
-interface GroupHeaderIconProps {
-  isDirectory: boolean;
-  expanded: boolean;
-  icon?: string;
-}
-
-function GroupHeaderIcon({ isDirectory, expanded, icon }: GroupHeaderIconProps) {
-  if (icon) {
-    return (
-      <ProjectMark
-        project={{ icon }}
-        iconClassName={cn('size-5 transition-opacity', !expanded && 'opacity-60')}
-      />
-    );
-  }
-  if (isDirectory) {
-    return (
-      <Folder className="light-darken size-5 shrink-0 text-[color:var(--group-header-color)]" />
-    );
-  }
-  return (
-    <span
-      className={cn(
-        'light-darken mx-1.25 shrink-0 rounded-full bg-[var(--group-header-color)] transition-all',
-        expanded ? 'size-2.5' : 'h-0.5 w-2.5'
-      )}
-    />
-  );
-}
-
 // What the cards of a collapsed group would show: who needs the user, and who is working.
 function GroupAttentionSummary({ workspaces }: { workspaces: Workspace[] }) {
   const { needsInput, errors, running } = summarizeWorkspaceAttention(workspaces);
@@ -334,14 +303,9 @@ const GroupHeader = React.forwardRef<
   HTMLDivElement,
   GroupHeaderProps & React.HTMLAttributes<HTMLDivElement>
 >(function GroupHeader(
-  { group, expanded, containsSelection, groupProject, onToggle, className, style, ...rest },
+  { group, expanded, containsSelection, groupProject, onToggle, className, ...rest },
   ref
 ) {
-  const groupStyle = {
-    '--group-header-color': group.projectInfo!.color,
-    ...style,
-  } as React.CSSProperties;
-
   return (
     <div
       {...rest}
@@ -353,7 +317,6 @@ const GroupHeader = React.forwardRef<
         containsSelection && 'bg-accent hover:bg-accent',
         className
       )}
-      style={groupStyle}
     >
       <button
         type="button"
@@ -364,6 +327,7 @@ const GroupHeader = React.forwardRef<
         <GroupHeaderIcon
           isDirectory={group.isDirectory ?? false}
           expanded={expanded}
+          color={group.projectInfo!.color}
           icon={group.projectInfo!.icon}
         />
         <span

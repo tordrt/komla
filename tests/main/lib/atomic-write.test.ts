@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createVirtualFs } from '../../mocks/fs';
 
@@ -257,9 +259,10 @@ describe('atomic-write', () => {
       cleanupTmpFilesRecursive('/mock/home/.komla');
 
       // Should only delete .tmp files
-      expect(vfs.mock.unlinkSync).toHaveBeenCalledWith('/mock/home/.komla/config.json.tmp');
-      expect(vfs.mock.unlinkSync).not.toHaveBeenCalledWith('/mock/home/.komla/config.json');
-      expect(vfs.mock.unlinkSync).not.toHaveBeenCalledWith('/mock/home/.komla/workspaces.json');
+      const dir = '/mock/home/.komla';
+      expect(vfs.mock.unlinkSync).toHaveBeenCalledWith(join(dir, 'config.json.tmp'));
+      expect(vfs.mock.unlinkSync).not.toHaveBeenCalledWith(join(dir, 'config.json'));
+      expect(vfs.mock.unlinkSync).not.toHaveBeenCalledWith(join(dir, 'workspaces.json'));
     });
 
     it('should recurse into subdirectories', async () => {
@@ -279,8 +282,9 @@ describe('atomic-write', () => {
       cleanupTmpFilesRecursive('/mock/home/.komla');
 
       // Should clean up both the top-level .tmp and the nested one
-      expect(vfs.mock.unlinkSync).toHaveBeenCalledWith('/mock/home/.komla/orphaned.tmp');
-      expect(vfs.mock.unlinkSync).toHaveBeenCalledWith('/mock/home/.komla/settings/theme.json.tmp');
+      const dir = '/mock/home/.komla';
+      expect(vfs.mock.unlinkSync).toHaveBeenCalledWith(join(dir, 'orphaned.tmp'));
+      expect(vfs.mock.unlinkSync).toHaveBeenCalledWith(join(dir, 'settings', 'theme.json.tmp'));
     });
 
     it('should not fail if directory does not exist', async () => {

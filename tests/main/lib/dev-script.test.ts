@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -62,9 +62,14 @@ describe('development launcher', () => {
 
   it('restores cached companion artifacts without building in normal development startup', () => {
     const output = run(devScript, ['default']);
+    // Git for Windows' bash turns HOME into a POSIX path such as /d/a/komla/.test-home.
+    const home = execFileSync('bash', ['-c', 'printf %s "$HOME"'], {
+      encoding: 'utf8',
+      env: { ...process.env, HOME: testHome },
+    });
 
     expect(output).toBe(
-      `restore companion\nprepare dependencies\nlaunch KOMLA_DATA_DIR=${testHome}/.komla-dev KOMLA_DIAGNOSTICS=1 electron-vite dev\n`
+      `restore companion\nprepare dependencies\nlaunch KOMLA_DATA_DIR=${home}/.komla-dev KOMLA_DIAGNOSTICS=1 electron-vite dev\n`
     );
   });
 });
@@ -148,7 +153,7 @@ describe('shared development companion cache', () => {
         ...process.env,
         HOME: join(sandbox, 'home'),
         XDG_CACHE_HOME: join(sandbox, 'cache'),
-        PATH: `${join(sandbox, 'bin')}:${process.env.PATH ?? ''}`,
+        PATH: `${join(sandbox, 'bin')}${delimiter}${process.env.PATH ?? ''}`,
         GIT_CEILING_DIRECTORIES: sandbox,
         GIT_DIR: undefined,
         KOMLA_DEV_HOST_OS: 'Linux',
@@ -185,7 +190,7 @@ describe('shared development companion cache', () => {
     ensure(third, ['--restore-only']);
 
     expect(builds()).toEqual(linuxTargets);
-    expect(output).toContain(join(sandbox, 'cache', 'komla-companion-artifacts'));
+    expect(output).toContain(`${join(sandbox, 'cache')}/komla-companion-artifacts`);
     for (const target of linuxTargets) {
       expect(readFileSync(artifact(second, target), 'utf8')).toBe('fn main() {}\n');
       expect(readFileSync(artifact(third, target), 'utf8')).toBe('fn main() {}\n');
@@ -294,13 +299,18 @@ describe('shared development companion cache', () => {
     expect(builds()).toEqual([...linuxTargets, ...linuxTargets]);
   });
 
-  it('keeps only the ten most recently used builds', () => {
-    for (let index = 0; index < 11; index += 1) {
-      ensure(createCheckout(`checkout-${index}`, `fn main() { ${index}; }\n`));
-    }
+  // Eleven script runs take 12–17 s on a Windows runner, where Git Bash starts slowly.
+  it(
+    'keeps only the ten most recently used builds',
+    () => {
+      for (let index = 0; index < 11; index += 1) {
+        ensure(createCheckout(`checkout-${index}`, `fn main() { ${index}; }\n`));
+      }
 
-    expect(readdirSync(join(sandbox, 'cache', 'komla-companion-artifacts'))).toHaveLength(10);
-  });
+      expect(readdirSync(join(sandbox, 'cache', 'komla-companion-artifacts'))).toHaveLength(10);
+    },
+    process.platform === 'win32' ? 60_000 : undefined
+  );
 
   it('does not build on a cache miss when only restoring', () => {
     const checkout = createCheckout('fresh');

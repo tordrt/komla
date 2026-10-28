@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, parse, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -225,7 +225,8 @@ describe('Claude Code format hook', () => {
     linkOxfmt();
     write('src/a.ts', UNFORMATTED);
 
-    expect(formatEditedFile(edited(join(repo, 'src/a.ts')), '/')).toBeNull();
+    // The filesystem root holding the repo: on Windows, '/' is the current drive's root.
+    expect(formatEditedFile(edited(join(repo, 'src/a.ts')), parse(repo).root)).toBeNull();
     expect(read('src/a.ts')).toBe(FORMATTED);
   });
 
@@ -291,7 +292,7 @@ describe('Claude Code format hook', () => {
     write('src/a.ts', 'export const = ;\n');
 
     expect(formatEditedFile(edited(join(repo, 'src/a.ts')), repo)).toContain(
-      "oxfmt couldn't format src/a.ts"
+      `oxfmt couldn't format ${join('src', 'a.ts')}`
     );
   });
 
@@ -305,7 +306,7 @@ describe('Claude Code format hook', () => {
     });
 
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain("Couldn't format src/a.ts");
+    expect(result.stderr).toContain(`Couldn't format ${join('src', 'a.ts')}`);
   });
 
   it('exits 0 after formatting', () => {

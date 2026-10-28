@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { createMockBrowserWindow, mockElectron } from '../mocks/electron';
@@ -118,7 +120,7 @@ describe('staging app identity', () => {
     expect(electronMock.app.name).toBe('Komla Staging');
     expect(electronMock.app.setPath).toHaveBeenCalledWith(
       'userData',
-      '/mock/appData/Komla Staging'
+      join('/mock/appData', 'Komla Staging')
     );
 
     // Clean up

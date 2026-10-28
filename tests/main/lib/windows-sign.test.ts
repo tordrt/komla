@@ -72,30 +72,35 @@ describe('Windows signing hook', () => {
     expect(await jsignCalls()).toBe('');
   });
 
-  it('signs an unsigned binary without putting the password on the command line', async () => {
-    const file = await signFile('Komla.exe', peImage({ pe32Plus: false }));
+  // The jsign stub is a sh script, which Windows can't run as a command. Releases sign
+  // Windows builds from macOS (see docs/RELEASING.md).
+  it.skipIf(process.platform === 'win32')(
+    'signs an unsigned binary without putting the password on the command line',
+    async () => {
+      const file = await signFile('Komla.exe', peImage({ pe32Plus: false }));
 
-    const calls = await jsignCalls();
-    expect(calls.split('\n')).toEqual([
-      '--storetype',
-      'ESIGNER',
-      '--storepass',
-      'env:WIN_SIGN_STOREPASS',
-      '--alias',
-      'certificate-id',
-      '--alg',
-      'SHA-256',
-      '--tsaurl',
-      'http://timestamp.digicert.com,http://timestamp.sectigo.com',
-      '--tsmode',
-      'RFC3161',
-      '--name',
-      'Komla',
-      file,
-      'storepass=user|secret',
-      '',
-    ]);
-  });
+      const calls = await jsignCalls();
+      expect(calls.split('\n')).toEqual([
+        '--storetype',
+        'ESIGNER',
+        '--storepass',
+        'env:WIN_SIGN_STOREPASS',
+        '--alias',
+        'certificate-id',
+        '--alg',
+        'SHA-256',
+        '--tsaurl',
+        'http://timestamp.digicert.com,http://timestamp.sectigo.com',
+        '--tsmode',
+        'RFC3161',
+        '--name',
+        'Komla',
+        file,
+        'storepass=user|secret',
+        '',
+      ]);
+    }
+  );
 
   it('keeps the signature of a binary that is already signed', async () => {
     await signFile('conpty.dll', peImage({ signed: true }));
@@ -109,7 +114,8 @@ describe('Windows signing hook', () => {
     expect(await jsignCalls()).toBe('');
   });
 
-  it('fails the build when jsign fails', async () => {
+  // The jsign stub is a sh script, which Windows can't run as a command.
+  it.skipIf(process.platform === 'win32')('fails the build when jsign fails', async () => {
     vi.stubEnv('JSIGN_STUB_EXIT', '2');
 
     await expect(signFile('Komla.exe', peImage())).rejects.toThrow('exited with 2');

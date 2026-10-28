@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { GroupHeaderIcon } from '@/components/workspaces/GroupHeaderIcon';
-import { PROJECT_PANEL_CLASS } from '@/components/workspaces/project-panel';
+import { SIDEBAR_PANEL_CLASS } from '@/components/workspaces/sidebar-panel';
 import { useIconColors } from '@/hooks/useIconColors';
 import { getProjectColor, resolvePickedColor } from '@/lib/project-colors';
 import { cn } from '@/lib/utils';
@@ -214,7 +214,7 @@ function IconPreview({ project, color, icon }: { project: Project; color: string
 
 // The panel each project sits on in the sidebar.
 function GroupPanel({ children }: { children: ReactNode }) {
-  return <div className={cn('flex shrink-0 flex-col gap-1', PROJECT_PANEL_CLASS)}>{children}</div>;
+  return <div className={cn('flex shrink-0 flex-col gap-1', SIDEBAR_PANEL_CLASS)}>{children}</div>;
 }
 
 // Sized like the sidebar's group header.

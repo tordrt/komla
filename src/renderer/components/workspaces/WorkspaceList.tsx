@@ -37,8 +37,8 @@ import { ActivitySpinner } from './activity-spinners';
 import { BulkDeleteDialog } from './BulkDeleteDialog';
 import { DirectoryGroupContextMenu } from './DirectoryGroupContextMenu';
 import { GroupHeaderIcon } from './GroupHeaderIcon';
-import { PROJECT_PANEL_CLASS } from './project-panel';
 import { ProjectGroupContextMenu } from './ProjectGroupContextMenu';
+import { SIDEBAR_PANEL_CLASS } from './sidebar-panel';
 import {
   AddSshRepositoryAsProjectButton,
   SshRepositoryGroupContextMenu,
@@ -1357,7 +1357,10 @@ export function WorkspaceList({
         >
           <div className="p-2.5">
             {sections.pinned.length > 0 && (
-              <section aria-label="Pinned" className={cn(workspaceGroups.length > 0 && 'mb-2.5')}>
+              <section
+                aria-label="Pinned"
+                className={cn(SIDEBAR_PANEL_CLASS, workspaceGroups.length > 0 && 'mb-2.5')}
+              >
                 <PinnedShelfHeader />
                 <div
                   className={cn(
@@ -1375,17 +1378,21 @@ export function WorkspaceList({
               const isGroupDraggable = !selectionMode;
               const isGroupBeingDragged = draggedGroupKey === group.key;
 
-              // Groups without project info, and the ungrouped list: render cards flat, each
-              // naming its project
+              // Groups without project info, and the ungrouped list: cards on a panel with no
+              // header, each naming its project
               if (!group.projectInfo) {
                 return (
-                  <div
-                    key={group.key}
-                    className={cn(index > 0 && 'mt-2.5', compact ? 'space-y-0.5' : 'space-y-1')}
-                  >
-                    {group.workspaces.map((workspace) =>
-                      renderWorkspaceCard(workspace, getProjectInfo(workspace))
-                    )}
+                  <div key={group.key} className={cn(SIDEBAR_PANEL_CLASS, index > 0 && 'mt-2.5')}>
+                    <div
+                      className={cn(
+                        'relative [clip-path:inset(-4px_-100vw)]',
+                        compact ? 'space-y-0.5' : 'space-y-1'
+                      )}
+                    >
+                      {group.workspaces.map((workspace) =>
+                        renderWorkspaceCard(workspace, getProjectInfo(workspace))
+                      )}
+                    </div>
                   </div>
                 );
               }
@@ -1415,7 +1422,7 @@ export function WorkspaceList({
                   key={group.key}
                   className={cn(
                     'relative',
-                    PROJECT_PANEL_CLASS,
+                    SIDEBAR_PANEL_CLASS,
                     index > 0 && 'mt-2.5',
                     isGroupBeingDragged && 'opacity-50',
                     getDropIndicatorClass(group.key, groupDropTarget)

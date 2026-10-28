@@ -51,6 +51,20 @@ pub(crate) enum Shown {
     VncApp { name: String },
 }
 
+/// Komla's answer when it has nowhere to show the desktop: the user's computer has no VNC app,
+/// or `--app` asked for one, and the host no browser view, or `--browser` asked for one. Komla
+/// doesn't list such a desktop, so an app started on it would run where no one can see it.
+#[derive(Debug)]
+pub(crate) struct NowhereToShow(pub(crate) String);
+
+impl std::fmt::Display for NowhereToShow {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for NowhereToShow {}
+
 pub(crate) type ShowDesktop<'a> = dyn FnMut(&DesktopView) -> anyhow::Result<Shown> + 'a;
 
 pub(crate) fn run(args: &[String], show: &mut ShowDesktop) -> anyhow::Result<()> {
@@ -248,7 +262,7 @@ mod linux {
     use anyhow::{anyhow, bail, Context};
 
     use super::vnc_auth::vnc_password_file;
-    use super::{DesktopView, Display, ShowDesktop, Shown, Viewer};
+    use super::{DesktopView, Display, NowhereToShow, ShowDesktop, Shown, Viewer};
 
     /// `desktop __start <claim> <command>`, which `desktop run` runs to start the app's desktop.
     pub(super) const START_FOR_APP: &str = "__start";
@@ -369,8 +383,11 @@ sudo apt install -y tigervnc-standalone-server openbox novnc websockify";
             return Ok(None);
         };
         // A terminal on the desktop itself, which runs without Komla's variables, shows it already.
+        // The app still joins a desktop Komla can't show, which runs whether or not it does.
         if env::var_os("KOMLA_WORKSPACE_ID").is_some() {
-            show_desktop(&state, &desktop, viewer, show);
+            if let Err(error) = show_desktop(&state, &desktop, viewer, show) {
+                eprintln!("Couldn't show the desktop in Komla: {error:#}");
+            }
         }
         Ok(Some(Display {
             number,
@@ -416,7 +433,9 @@ sudo apt install -y tigervnc-standalone-server openbox novnc websockify";
         };
         let desktop =
             running(&state, number).context("the virtual desktop stopped as it started")?;
-        show_desktop(&state, &desktop, viewer, show);
+        // Returning drops the apps lock, so the desktop's watcher stops it.
+        show_desktop(&state, &desktop, viewer, show)
+            .context("could not show the virtual desktop in Komla, so the app didn't start")?;
         Ok(Display {
             number,
             xauthority: xauthority_path(&desktop_path(&state, number)),
@@ -424,13 +443,13 @@ sudo apt install -y tigervnc-standalone-server openbox novnc websockify";
         })
     }
 
-    /// Shows the desktop in Komla, saying where.
-    fn show_desktop(
+    /// Shows the desktop in Komla, saying where; fails only with Komla's `NowhereToShow`.
+    pub(super) fn show_desktop(
         state: &Path,
         desktop: &Desktop,
         viewer: Option<Viewer>,
         show: &mut ShowDesktop,
-    ) {
+    ) -> anyhow::Result<()> {
         let viewer_url = desktop.viewer_url();
         let app = desktop.app.as_deref().map(desktop_name);
         let vnc_ports: Vec<u16> = running_desktops(state)
@@ -460,8 +479,10 @@ or add --app or --browser to open it right away.",
 Komla's browser preview."
             ),
             Ok(Shown::Preview) => {}
+            Err(error) if error.is::<NowhereToShow>() => return Err(error),
             Err(error) => eprintln!("Couldn't show the desktop in Komla: {error:#}"),
         }
+        Ok(())
     }
 
     /// `desktop __start <claim> <command>`: starts a desktop for the app, makes the claim
@@ -689,12 +710,12 @@ Komla's browser preview."
             .filter(|number| (1..=LAST_DISPLAY).contains(number))
     }
 
-    struct Desktop {
-        number: u16,
-        password: String,
-        viewer: bool,
+    pub(super) struct Desktop {
+        pub(super) number: u16,
+        pub(super) password: String,
+        pub(super) viewer: bool,
         /// The command it was started for; None for `desktop start`'s.
-        app: Option<String>,
+        pub(super) app: Option<String>,
     }
 
     impl Desktop {
@@ -958,14 +979,20 @@ Komla's browser preview."
     /// Starts the window manager and browser view where they aren't running, as both are optional.
     fn start_parts(path: &Path, display: u16) {
         if alive(path, WINDOW_MANAGER).is_none() {
-            if let Some(openbox) = find_executable("openbox") {
-                let mut command = Command::new(openbox);
-                command
-                    .env("DISPLAY", format!(":{display}"))
-                    .env("XAUTHORITY", xauthority_path(path));
-                if let Err(error) = spawn(path, WINDOW_MANAGER, command) {
-                    eprintln!("{error:#}");
+            match find_executable("openbox") {
+                Some(openbox) => {
+                    let mut command = Command::new(openbox);
+                    command
+                        .env("DISPLAY", format!(":{display}"))
+                        .env("XAUTHORITY", xauthority_path(path));
+                    if let Err(error) = spawn(path, WINDOW_MANAGER, command) {
+                        eprintln!("{error:#}");
+                    }
                 }
+                None => eprintln!(
+                    "openbox not found, so windows on the desktop have no title bars; install \
+openbox to add them."
+                ),
             }
         }
         if alive(path, VIEWER).is_none() {
@@ -1505,6 +1532,7 @@ mod tests {
         use std::time::{Duration, SystemTime};
 
         use super::super::linux::*;
+        use super::super::{DesktopView, NowhereToShow, Shown, Viewer};
 
         #[test]
         fn process_start_time_counts_fields_after_the_command_name() {
@@ -1666,6 +1694,28 @@ mod tests {
             std::fs::write(web_root.join("vnc.html"), "").unwrap();
 
             assert_eq!(novnc_web_root(&websockify), Some(web_root));
+        }
+
+        #[test]
+        fn show_desktop_fails_only_when_komla_has_nowhere_to_show_it() {
+            let state = tempfile::tempdir().unwrap();
+            let desktop = Desktop {
+                number: 3,
+                password: "pa55word".to_owned(),
+                viewer: false,
+                app: Some("xterm".to_owned()),
+            };
+            let mut nowhere = |_: &DesktopView| -> anyhow::Result<Shown> {
+                Err(NowhereToShow("Install novnc and websockify".to_owned()).into())
+            };
+            let mut unreachable =
+                |_: &DesktopView| -> anyhow::Result<Shown> { anyhow::bail!("connection refused") };
+
+            let error = show_desktop(state.path(), &desktop, Some(Viewer::Preview), &mut nowhere)
+                .unwrap_err();
+            assert!(error.is::<NowhereToShow>(), "{error:#}");
+            // Komla may just not be running, as outside it, where the desktop is still of use.
+            show_desktop(state.path(), &desktop, None, &mut unreachable).unwrap();
         }
     }
 }

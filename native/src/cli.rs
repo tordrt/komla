@@ -16,7 +16,7 @@ use komla::{NotificationPresentation, PendingTerminalHook, RepositorySnapshot};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::desktop::{DesktopView, Shown, Viewer};
+use crate::desktop::{DesktopView, NowhereToShow, Shown, Viewer};
 use crate::mailbox;
 use crate::offline_workspace::{
     self, CreatedWorkspace, OfflineCaller, OfflineLaunchRequest, TmuxSessionLauncher,
@@ -794,7 +794,15 @@ fn show_desktop_with(
             .to_owned()
         }),
     );
-    let result = execute_operation(api, environment, operation)?;
+    let result = execute_operation(api, environment, operation).map_err(|error| {
+        match error.downcast::<OperationFailure>() {
+            Ok(failure) if failure.code == "DESKTOP_VIEWER_UNAVAILABLE" => {
+                NowhereToShow(failure.message).into()
+            }
+            Ok(failure) => failure.into(),
+            Err(error) => error,
+        }
+    })?;
     let desktop = &result["desktop"];
     let shown = match (desktop["viewer"].as_str(), desktop["vncApp"].as_str()) {
         (Some("vnc-app"), Some(name)) => Shown::VncApp {
@@ -3361,6 +3369,54 @@ mod tests {
         );
         let request = serde_json::from_slice::<Value>(&api.requests[0].body).unwrap();
         assert_eq!(request["viewer"], "vnc-app");
+    }
+
+    #[test]
+    fn tells_when_komla_has_nowhere_to_show_the_desktop() {
+        let message = "Install novnc and websockify on the host to show the desktop in Komla’s \
+browser preview.";
+        let mut api = FakeApi {
+            requests: Vec::new(),
+            target: None,
+            responses: VecDeque::from([HttpResponse {
+                status: 400,
+                body: json!({
+                    "ok": false,
+                    "error": {"code": "DESKTOP_VIEWER_UNAVAILABLE", "message": message},
+                })
+                .to_string(),
+            }]),
+        };
+        let view = DesktopView {
+            viewer_url: None,
+            viewer: Some(Viewer::Preview),
+            ..desktop_view()
+        };
+
+        let error = show_desktop_with(&mut api, &environment(), &view).unwrap_err();
+
+        let nowhere = error.downcast_ref::<NowhereToShow>().expect("{error:#}");
+        assert_eq!(nowhere.to_string(), message);
+    }
+
+    #[test]
+    fn other_failures_to_show_the_desktop_stay_ordinary_errors() {
+        let mut api = FakeApi {
+            requests: Vec::new(),
+            target: None,
+            responses: VecDeque::from([HttpResponse {
+                status: 502,
+                body: json!({
+                    "ok": false,
+                    "error": {"code": "DESKTOP_VIEWER_FAILED", "message": "Couldn’t open it"},
+                })
+                .to_string(),
+            }]),
+        };
+
+        let error = show_desktop_with(&mut api, &environment(), &desktop_view()).unwrap_err();
+
+        assert!(error.downcast_ref::<NowhereToShow>().is_none());
     }
 
     fn environment() -> CliEnvironment {

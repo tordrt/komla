@@ -81,15 +81,33 @@ function toBase64Url(value: Buffer): string {
   return value.toString('base64url');
 }
 
-function fromBase64Url(value: string, expectedBytes: number, name: string): Buffer {
+function decodeBase64Url(value: string, name: string): Buffer {
   if (!/^[A-Za-z0-9_-]+={0,2}$/.test(value)) {
     throw new Error(`${name} is not base64url`);
   }
-  const decoded = Buffer.from(value, 'base64url');
+  return Buffer.from(value, 'base64url');
+}
+
+function fromBase64Url(value: string, expectedBytes: number, name: string): Buffer {
+  const decoded = decodeBase64Url(value, name);
   if (decoded.length !== expectedBytes) {
     throw new Error(`${name} must be ${expectedBytes} bytes`);
   }
   return decoded;
+}
+
+// ECDH.getPrivateKey() drops leading zero bytes, so about 1 in 256 scalars comes back short.
+function padPrivateScalar(scalar: Buffer): Buffer {
+  return Buffer.concat([Buffer.alloc(PRIVATE_KEY_BYTES - scalar.length), scalar]);
+}
+
+function decodePrivateScalar(value: string, name: string): Buffer {
+  const decoded = decodeBase64Url(value, name);
+  // Keys stored before scalars were padded may be shorter than 32 bytes.
+  if (decoded.length === 0 || decoded.length > PRIVATE_KEY_BYTES) {
+    throw new Error(`${name} must be ${PRIVATE_KEY_BYTES} bytes`);
+  }
+  return padPrivateScalar(decoded);
 }
 
 function decodePublicPoint(value: string, name: string): Buffer {
@@ -109,7 +127,7 @@ export function generateVapidKeys(): VapidKeys {
   ecdh.generateKeys();
   return {
     publicKey: toBase64Url(ecdh.getPublicKey()),
-    privateKey: toBase64Url(ecdh.getPrivateKey()),
+    privateKey: toBase64Url(padPrivateScalar(ecdh.getPrivateKey())),
   };
 }
 
@@ -181,7 +199,7 @@ function vapidSigningKey(vapid: VapidKeys) {
     key: {
       kty: 'EC',
       crv: 'P-256',
-      d: toBase64Url(fromBase64Url(vapid.privateKey, PRIVATE_KEY_BYTES, 'VAPID private key')),
+      d: toBase64Url(decodePrivateScalar(vapid.privateKey, 'VAPID private key')),
       x: toBase64Url(publicPoint.subarray(1, 33)),
       y: toBase64Url(publicPoint.subarray(33, 65)),
     },

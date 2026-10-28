@@ -99,9 +99,9 @@ component when present, plus a useful test, build, or quality command. Show exac
 full list; do not print the full component or shortcut inventory. Offer more choices only when the
 user asks; show a small relevant subset. Add a line there for each of these that applies:
 
-- **Background:** offer `"background": true` for a Terminal Command that runs for minutes and
-  ends, such as a test suite, build or `gh pr checks --watch`: it runs without a tab and Komla
-  notifies when it ends. Servers and watchers stay in tabs.
+- **Background:** offer `"background": true` for a Terminal Command that runs for minutes, such as
+  tests, a build or `gh pr checks --watch`: it runs without a tab and Komla notifies how it ended;
+  `komla skill customize` shows tagging the workspace meanwhile. Servers and watchers stay in tabs.
 - **Automations:** when the repository has a recurring chore, such as CI or dependency updates, name
   one automation, an agent Komla starts with a fixed prompt on a schedule, and its schedule.
 - **Desktop apps on SSH hosts:** an optional extra for users who run apps on the SSH host. When SSH

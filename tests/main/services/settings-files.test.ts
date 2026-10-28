@@ -68,6 +68,20 @@ describe('settings files', () => {
     writeFileSync(join(settingsPath, name), JSON.stringify(value));
 
   describe('hooks and status bar items', () => {
+    it("takes the guides' examples as they are", () => {
+      const examples = (guide: string) =>
+        [
+          ...readFileSync(join('resources', 'skills', guide), 'utf-8').matchAll(
+            /```json\n([\s\S]*?)```/g
+          ),
+        ].map(([, json]) => JSON.parse(json) as Record<string, unknown>);
+      const [hooks] = examples('komla-customize-instructions.md');
+      const [items] = examples('komla-status-items-instructions.md');
+
+      expect(files.hooks.prepare(hooks)).not.toHaveProperty('problems');
+      expect(files['status-items'].prepare(items)).not.toHaveProperty('problems');
+    });
+
     it('reads an empty file when there is none yet', () => {
       expect(files.hooks.read()).toEqual({ _version: 1, hooks: [] });
       expect(files['status-items'].read()).toEqual({ _version: 1, items: [] });

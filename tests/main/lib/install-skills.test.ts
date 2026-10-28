@@ -186,9 +186,6 @@ describe("installBundledSkills", () => {
       "when the user asks Komla to start an agent in a new workspace or tab",
     );
     expect(description).not.toMatch(/in parallel|hand off|split work/i);
-    expect(content).toContain(
-      "Run each `komla` command for an effect the user asked for",
-    );
   });
 
   it("komla skill creates scheduled agents as automations through the customize guide", () => {
@@ -206,9 +203,8 @@ describe("installBundledSkills", () => {
     );
 
     expect(skill.match(/description: (.*?) --- /)?.[1]).toContain("on a schedule");
-    expect(skill).toContain("agents Komla starts on a schedule");
-    expect(customize).toContain("run `komla skill automations` for their format");
-    expect(customize).toContain("The resource is `automations`.");
+    expect(skill).toContain("`automations`: agents Komla starts on a schedule.");
+    expect(customize).toMatch(/on a schedule \| `komla skill automations` \| `automations`/);
     expect(customize).toContain("Settings → General → Settings history records every change except automations");
     expect(automations).toMatch(/Settings history doesn't record automations/);
   });

@@ -21,9 +21,7 @@ komla title "Welcome to Komla" --description "Komla CLI demo"
 ```
 
 Point out the changed title in the sidebar. Explain that agents use the same `komla` command for
-everything in this tour, with no setup, and that `komla --help` lists every command. If a capability
-is disabled, name it and direct the user to **Settings → Integrations & MCP → MCP and CLI access**
-rather than changing settings yourself.
+everything in this tour, with no setup, and that `komla --help` lists every command.
 
 ## 2. Launch an agent in a new workspace
 

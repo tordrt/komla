@@ -1,6 +1,6 @@
 ---
 name: komla
-description: Komla's `komla` CLI, for when the user asks Komla to start an agent in a new workspace or tab, preview a page, open a folder, or title, tag, snooze or trash this workspace, or to set up this project, run an agent on a schedule, run a script in the background or on a timer, show a status bar item or change Komla's settings.
+description: Komla's `komla` CLI for day-to-day work, for when the user asks Komla to start an agent in a new workspace or tab, preview a page or open a folder, or to title, tag, snooze or trash this workspace, and for work that shows better in Komla, such as a preview of a dev server the agent started. Also points to the guide for setting up this project in Komla or changing its settings, such as Quick Commands, hooks, status bar items, the theme or agents it runs on a schedule. Not for the project's own setup, scripts or schedules outside Komla.
 ---
 
 # Use Komla
@@ -11,36 +11,40 @@ terminal: tell the user so. When a sandbox blocks a `komla` command's network ac
 to approve running it again with network access.
 
 ```sh
-komla launch "Fix the flaky login test"   # agent in a new isolated workspace; --here opens a tab instead
+komla launch "Fix the flaky login test"   # an agent in a new isolated workspace; --here opens a tab
 komla preview http://localhost:3000       # once the dev server responds
-komla title "Login fix" --description "Fix the flaky login test"
+komla tags                                # the user's tags, to reuse one before making another
+komla tag "Blocked"                       # says on its card what it waits on; komla untag takes it off
 komla snooze 2h                           # hides this workspace until then; komla wake ends it
 komla snooze --until-notified             # until its next notification, such as your turn's end
-komla tag "Waiting for review"            # says on its card what it waits on; komla untag takes it off
-komla tags                                # lists the user's tags, to reuse one before making another
+komla workspace list --json               # every workspace's id, branch and tag, dont do unless user wants this
 komla trash                               # moves this workspace to the Trash when your turn ends
 komla open ~/notes                        # opens a folder on this computer in Komla; no agent
+komla title "Login fix" --description "Fix the flaky login test"
+komla desktop run -- <app command>        # on an SSH host, shows the app on a virtual desktop
 ```
 
-`komla --help` lists every command, and `komla <command> --help` shows one command's options and
-examples, such as `komla launch --help` for `--from-current-branch`, which branches a new workspace
-from this one. For anything else, print a guide with `komla skill <name>` and follow it:
-
-- `customize`: Komla's settings, such as Quick Commands, keyboard shortcuts, the theme, status
-  bar items, agents Komla starts on a schedule, and hooks: scripts that run on agent events or on
-  a timer in the background, such as one that tags workspaces "CI running" while their checks run.
-- `project-setup`: Quick Commands and Workspace Setup for this project, including GUI apps shown
-  from an SSH host.
+`komla <command> --help` shows a command's options and examples, such as `--from-current-branch`
+for `komla launch`, which branches a new workspace from this one; `komla --help` lists every
+command.
 
 Rules:
 
-- Run each `komla` command for an effect the user asked for, and launch as many Komla agents as
-  they ask for; your own subagents handle research and subtasks.
-- Open a preview or a folder, tag, snooze or trash when the user says to, such as "show me the
-  page in Komla", "tag this waiting for review once the PR is up" or "trash this when you're
-  done"; run `komla trash` as your last step.
-- Launch the default agent unless the user names another from `komla agent presets --json`.
-  Report a new workspace as provisioning until the result says its agent started.
-- Check each result before reporting success. Reach Komla only through `komla`; on an error,
-  report it and stop. For a disabled capability, point the user to Settings → Integrations & MCP →
-  MCP and CLI access.
+- Keep tags to a word or two, since a card has little room, and reuse one `komla tags` lists, such
+  as "Blocked", before you make one.
+- Komla already notifies the user about your turns. `komla notify` is for the Quick Commands,
+  hooks and status bar items the guides set up, or if you want to add some custom notification to a process you run for them.
+- Run `komla desktop run` only when the user asks to see a GUI app, such as an Electron app, that
+  runs on a Komla SSH host. Elsewhere the app opens as usual and needs no `komla`.
+
+## Settings and project setup
+
+To set up this project in Komla or change its settings, first run `komla skill <guide>` and follow
+it:
+- `customize`: hooks, keyboard shortcuts, the terminal, agent presets, and which guide covers
+  anything else.
+- `project-setup`: Setup helpful quick Commands and Workspace Setup for this project.
+- `status-items`: custom status bar items.
+- `automations`: agents Komla starts on a schedule.
+- `appearance`: custom theming and accent color.
+

@@ -1,6 +1,6 @@
 {
   "name": "komla",
-  "version": "1.0.0",
+  "version": "1.0.0-staging.1",
   "description": "Run multiple AI coding agent CLIs in parallel",
   "author": "Tafjord Invest AS",
   "license": "AGPL-3.0-only",

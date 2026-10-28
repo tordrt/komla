@@ -152,6 +152,21 @@ export interface MockedFsFunctions {
 }
 
 /**
+ * The virtual filesystem keys paths as POSIX strings, the way tests write
+ * fixtures. On Windows, code under test builds the same paths with `path.join`
+ * and `path.resolve`, so `/mock/home` arrives as `\mock\home` or
+ * `D:\mock\home`. Both are mapped back to the POSIX key there; elsewhere a
+ * path is used as given. The host is read once, because tests pin
+ * `process.platform` while the `path` module keeps the host's separators.
+ */
+const windowsHost = process.platform === 'win32';
+
+export function toVirtualPath(path: string): string {
+  if (!windowsHost) return path;
+  return path.replace(/^[A-Za-z]:(?=[\\/])/, '').replace(/\\/g, '/');
+}
+
+/**
  * Virtual filesystem for more realistic testing.
  * Simulates file existence, reading, and writing in memory.
  */
@@ -164,7 +179,8 @@ export function createVirtualFs(
   let nextFd = 42;
 
   // Initialize with provided files
-  for (const [path, content] of Object.entries(initialFiles)) {
+  for (const [rawPath, content] of Object.entries(initialFiles)) {
+    const path = toVirtualPath(rawPath);
     files.set(path, content);
     // Add parent directories
     const parts = path.split('/');
@@ -173,11 +189,13 @@ export function createVirtualFs(
     }
   }
 
-  const existsSync = vi.fn((path: string) => {
+  const existsSync = vi.fn((rawPath: string) => {
+    const path = toVirtualPath(rawPath);
     return files.has(path) || directories.has(path);
   });
 
-  const readFileSync = vi.fn((path: string, encoding?: BufferEncoding) => {
+  const readFileSync = vi.fn((rawPath: string, encoding?: BufferEncoding) => {
+    const path = toVirtualPath(rawPath);
     const content = files.get(path);
     if (content === undefined) {
       const error = new Error(`ENOENT: no such file or directory, open '${path}'`);
@@ -191,7 +209,7 @@ export function createVirtualFs(
   });
 
   const writeFileSync = vi.fn((pathOrFd: string | number, data: string | Buffer) => {
-    const path = typeof pathOrFd === 'number' ? fdToPath.get(pathOrFd) : pathOrFd;
+    const path = typeof pathOrFd === 'number' ? fdToPath.get(pathOrFd) : toVirtualPath(pathOrFd);
     if (!path) {
       const error = new Error(`EBADF: bad file descriptor, write`);
       (error as NodeJS.ErrnoException).code = 'EBADF';
@@ -207,15 +225,17 @@ export function createVirtualFs(
   });
 
   const mkdirSync = vi.fn((path: string) => {
-    directories.add(path);
+    directories.add(toVirtualPath(path));
   });
 
-  const rmSync = vi.fn((path: string) => {
+  const rmSync = vi.fn((rawPath: string) => {
+    const path = toVirtualPath(rawPath);
     files.delete(path);
     directories.delete(path);
   });
 
-  const unlinkSync = vi.fn((path: string) => {
+  const unlinkSync = vi.fn((rawPath: string) => {
+    const path = toVirtualPath(rawPath);
     if (!files.has(path)) {
       const error = new Error(`ENOENT: no such file or directory, unlink '${path}'`);
       (error as NodeJS.ErrnoException).code = 'ENOENT';
@@ -224,7 +244,9 @@ export function createVirtualFs(
     files.delete(path);
   });
 
-  const renameSync = vi.fn((oldPath: string, newPath: string) => {
+  const renameSync = vi.fn((rawOldPath: string, rawNewPath: string) => {
+    const oldPath = toVirtualPath(rawOldPath);
+    const newPath = toVirtualPath(rawNewPath);
     const content = files.get(oldPath);
     if (content === undefined) {
       const error = new Error(`ENOENT: no such file or directory, rename '${oldPath}'`);
@@ -235,7 +257,9 @@ export function createVirtualFs(
     files.set(newPath, content);
   });
 
-  const copyFileSync = vi.fn((src: string, dest: string) => {
+  const copyFileSync = vi.fn((rawSrc: string, rawDest: string) => {
+    const src = toVirtualPath(rawSrc);
+    const dest = toVirtualPath(rawDest);
     const content = files.get(src);
     if (content === undefined) {
       const error = new Error(`ENOENT: no such file or directory, copyfile '${src}'`);
@@ -245,7 +269,8 @@ export function createVirtualFs(
     files.set(dest, content);
   });
 
-  const readdirSync = vi.fn((dirPath: string) => {
+  const readdirSync = vi.fn((rawDirPath: string) => {
+    const dirPath = toVirtualPath(rawDirPath);
     const entries: string[] = [];
     const prefix = dirPath.endsWith('/') ? dirPath : dirPath + '/';
 
@@ -272,7 +297,8 @@ export function createVirtualFs(
     return entries;
   });
 
-  const statSync = vi.fn((path: string) => {
+  const statSync = vi.fn((rawPath: string) => {
+    const path = toVirtualPath(rawPath);
     if (files.has(path)) {
       const content = files.get(path)!;
       return {
@@ -296,7 +322,8 @@ export function createVirtualFs(
   });
 
   // Low-level file operations for atomic writes
-  const openSync = vi.fn((path: string, flags?: string) => {
+  const openSync = vi.fn((rawPath: string, flags?: string) => {
+    const path = toVirtualPath(rawPath);
     if (flags?.includes('w')) {
       files.set(path, '');
       const parts = path.split('/');
@@ -325,7 +352,8 @@ export function createVirtualFs(
     unlinkSync,
     statSync,
     readdirSync,
-    accessSync: vi.fn((path: string) => {
+    accessSync: vi.fn((rawPath: string) => {
+      const path = toVirtualPath(rawPath);
       if (!files.has(path) && !directories.has(path)) {
         const error = new Error(`ENOENT: no such file or directory, access '${path}'`);
         (error as NodeJS.ErrnoException).code = 'ENOENT';
@@ -354,7 +382,8 @@ export function createVirtualFs(
         return Promise.resolve();
       }),
       stat: vi.fn((path: string) => Promise.resolve(statSync(path))),
-      access: vi.fn((path: string) => {
+      access: vi.fn((rawPath: string) => {
+        const path = toVirtualPath(rawPath);
         if (!files.has(path) && !directories.has(path)) {
           return Promise.reject(
             Object.assign(new Error(`ENOENT: no such file or directory, access '${path}'`), {
@@ -376,7 +405,8 @@ export function createVirtualFs(
         unlinkSync(path);
         return Promise.resolve();
       }),
-      open: vi.fn((path: string, flags?: string) => {
+      open: vi.fn((rawPath: string, flags?: string) => {
+        const path = toVirtualPath(rawPath);
         if (flags?.includes('w')) {
           files.set(path, '');
           const parts = path.split('/');
@@ -399,11 +429,11 @@ export function createVirtualFs(
   return {
     mock,
     // Utilities for test assertions
-    getFile: (path: string) => files.get(path),
-    hasFile: (path: string) => files.has(path),
-    hasDirectory: (path: string) => directories.has(path),
-    setFile: (path: string, content: string | Buffer) => files.set(path, content),
-    deleteFile: (path: string) => files.delete(path),
+    getFile: (path: string) => files.get(toVirtualPath(path)),
+    hasFile: (path: string) => files.has(toVirtualPath(path)),
+    hasDirectory: (path: string) => directories.has(toVirtualPath(path)),
+    setFile: (path: string, content: string | Buffer) => files.set(toVirtualPath(path), content),
+    deleteFile: (path: string) => files.delete(toVirtualPath(path)),
     clear: () => {
       files.clear();
       directories.clear();

@@ -196,7 +196,7 @@ test.describe('Critical Workflows', () => {
 
     // Right-click and delete
     await sidebarBranchLocator(appWindow, 'test/e2e-delete').click({ button: 'right' });
-    await appWindow.getByRole('menuitem', { name: 'Delete Workspace' }).click();
+    await appWindow.getByRole('menuitem', { name: 'Delete Permanently...' }).click();
 
     // Confirm deletion dialog
     const dialog = appWindow.getByRole('dialog');

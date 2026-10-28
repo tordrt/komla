@@ -81,35 +81,38 @@ function ThemePreview({
     <div
       aria-hidden
       className="flex h-18 overflow-hidden rounded-md border border-border/60"
-      style={{ background: surface('--chrome') }}
+      style={{ backgroundColor: surface('--chrome') }}
     >
       <div className="flex w-[36%] flex-col gap-1 p-1 pt-3.5">
         <div
           className="flex items-center gap-1 rounded-sm px-1 py-0.5"
-          style={{ background: surface('--sidebar-accent') }}
+          style={{ backgroundColor: surface('--sidebar-accent') }}
         >
-          <span className="size-1.5 shrink-0 rounded-full" style={{ background: accent }} />
-          <span className="h-1 flex-1 rounded-full opacity-80" style={{ background: text }} />
+          <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: accent }} />
+          <span className="h-1 flex-1 rounded-full opacity-80" style={{ backgroundColor: text }} />
         </div>
         {['70%', '55%'].map((width) => (
           <div key={width} className="flex items-center gap-1 px-1 py-0.5">
             <span
               className="size-1.5 shrink-0 rounded-full opacity-30"
-              style={{ background: text }}
+              style={{ backgroundColor: text }}
             />
-            <span className="h-1 rounded-full opacity-30" style={{ background: text, width }} />
+            <span
+              className="h-1 rounded-full opacity-30"
+              style={{ backgroundColor: text, width }}
+            />
           </div>
         ))}
       </div>
       {/* The work area card, with rounded left corners like the window's. */}
       <div
         className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-[6px]"
-        style={{ background: surface('--card'), borderLeft: `1px solid ${border}` }}
+        style={{ backgroundColor: surface('--card'), borderLeft: `1px solid ${border}` }}
       >
         <div className="h-2.5 shrink-0" style={{ borderBottom: `1px solid ${border}` }} />
         <div
           className="flex flex-1 flex-col gap-1.5 p-1.5"
-          style={{ background: terminal.background }}
+          style={{ backgroundColor: terminal.background }}
         >
           {TERMINAL_LINES.map((line, index) => (
             <div key={index} className="flex h-1 gap-1">
@@ -117,7 +120,7 @@ function ThemePreview({
                 <span
                   key={color}
                   className="rounded-full"
-                  style={{ background: terminal[color], width }}
+                  style={{ backgroundColor: terminal[color], width }}
                 />
               ))}
             </div>

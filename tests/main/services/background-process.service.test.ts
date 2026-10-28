@@ -104,6 +104,12 @@ vi.mock('child_process', () => ({
   spawn: mockChildProcessSpawn,
 }));
 
+// killProcessTree signals the PTY on Unix and runs taskkill on Windows, so tests of signals run the
+// Unix path on every host.
+function onUnix(): void {
+  vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+}
+
 describe('BackgroundProcessService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,6 +122,7 @@ describe('BackgroundProcessService', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   describe('spawn', () => {
@@ -335,6 +342,7 @@ describe('BackgroundProcessService', () => {
 
   describe('killForWorkspace', () => {
     it('should kill all processes for a workspace', async () => {
+      onUnix();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 
@@ -349,6 +357,7 @@ describe('BackgroundProcessService', () => {
     });
 
     it('should not affect processes from other workspaces', async () => {
+      onUnix();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 
@@ -372,6 +381,7 @@ describe('BackgroundProcessService', () => {
     });
 
     it('should send SIGKILL after timeout if process does not exit', async () => {
+      onUnix();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 
@@ -411,6 +421,7 @@ describe('BackgroundProcessService', () => {
 
   describe('killAll', () => {
     it('should kill all tracked processes across all workspaces', async () => {
+      onUnix();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 

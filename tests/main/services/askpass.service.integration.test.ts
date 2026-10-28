@@ -29,7 +29,11 @@ let unixSocketListenSupported = process.platform === 'win32';
 
 function createTestContext(): TestContext {
   const id = Math.random().toString(36).slice(2);
-  const socketPath = join(tmpdir(), `komla-askpass-test-${id}.sock`);
+  // Like askpass.service: Windows has no Unix domain sockets, so the server uses a named pipe.
+  const socketPath =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\komla-askpass-test-${id}`
+      : join(tmpdir(), `komla-askpass-test-${id}.sock`);
   const jsPath = join(tmpdir(), `komla-askpass-test-${id}.js`);
   return { server: null, socketPath, jsPath };
 }

@@ -1,5 +1,7 @@
 import { EventEmitter } from 'events';
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'fs';
+import { join } from 'path';
+
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 
 vi.mock('electron', () => ({
@@ -60,6 +62,10 @@ function speechClip(seconds = 1): Float32Array {
 }
 
 const mockExistsSync = vi.mocked(existsSync);
+
+// The service joins its paths, so their separators are the host's.
+const MODELS_DIR_SUFFIX = join('/', 'models');
+const CTC_MODEL_DIR_SUFFIX = join(MODELS_DIR_SUFFIX, 'parakeet-tdt-ctc-110m-int8');
 
 describe('VoiceTranscriptionService', () => {
   beforeEach(() => {
@@ -781,7 +787,8 @@ describe('VoiceTranscriptionService', () => {
           !(call[1] as string[]).includes('-tzf') && !(call[1] as string[]).includes('-tf')
       );
       expect(extractCall).toBeDefined();
-      expect(extractCall![1]).toContain('-xzf');
+      // tar on Windows (bsdtar) detects the compression itself.
+      expect(extractCall![1]).toContain(process.platform === 'win32' ? '-xf' : '-xzf');
       expect(extractCall![1]).toContain('--strip-components=1');
     });
 
@@ -814,7 +821,7 @@ describe('VoiceTranscriptionService', () => {
           !(call[1] as string[]).includes('-tjf') && !(call[1] as string[]).includes('-tf')
       );
       expect(extractCall).toBeDefined();
-      expect(extractCall![1]).toContain('-xjf');
+      expect(extractCall![1]).toContain(process.platform === 'win32' ? '-xf' : '-xjf');
       expect(extractCall![1]).toContain('--strip-components=2');
     });
   });
@@ -822,7 +829,7 @@ describe('VoiceTranscriptionService', () => {
   describe('post-extraction verification', () => {
     it('removes stale temporary download directories on startup', async () => {
       vi.mocked(readdirSync).mockImplementation((path) => {
-        if (String(path).endsWith('/models')) {
+        if (String(path).endsWith(MODELS_DIR_SUFFIX)) {
           return [
             '.parakeet-tdt-ctc-110m-int8.download-123-456',
             'parakeet-tdt-ctc-110m-int8.old-123-456',
@@ -981,7 +988,7 @@ describe('VoiceTranscriptionService', () => {
         );
       });
       vi.mocked(readdirSync).mockImplementation((path) => {
-        if (String(path).endsWith('/models')) return [] as any;
+        if (String(path).endsWith(MODELS_DIR_SUFFIX)) return [] as any;
         return ['model.int8.onnx', 'tokens.txt'] as any;
       });
 
@@ -1040,7 +1047,7 @@ describe('VoiceTranscriptionService', () => {
         );
       });
       vi.mocked(readdirSync).mockImplementation((path) => {
-        if (String(path).endsWith('/models')) return [] as any;
+        if (String(path).endsWith(MODELS_DIR_SUFFIX)) return [] as any;
         return ['model.int8.onnx', 'tokens.txt'] as any;
       });
 
@@ -1159,7 +1166,7 @@ describe('VoiceTranscriptionService', () => {
         );
       });
       vi.mocked(readdirSync).mockImplementation((path) => {
-        if (String(path).endsWith('/models')) return [] as any;
+        if (String(path).endsWith(MODELS_DIR_SUFFIX)) return [] as any;
         return ['model.int8.onnx', 'tokens.txt'] as any;
       });
 
@@ -1457,14 +1464,14 @@ describe('VoiceTranscriptionService', () => {
     it('moves an existing model aside and restores it if publishing fails', async () => {
       mockExistsSync.mockImplementation((path) => {
         const pathString = String(path);
-        if (pathString.endsWith('/models/parakeet-tdt-ctc-110m-int8')) return true;
+        if (pathString.endsWith(CTC_MODEL_DIR_SUFFIX)) return true;
         return (
           pathString.includes('.download-') &&
           (pathString.endsWith('model.int8.onnx') || pathString.endsWith('tokens.txt'))
         );
       });
       vi.mocked(readdirSync).mockImplementation((path) => {
-        if (String(path).endsWith('/models')) return [] as any;
+        if (String(path).endsWith(MODELS_DIR_SUFFIX)) return [] as any;
         return ['model.int8.onnx', 'tokens.txt'] as any;
       });
 
@@ -1519,7 +1526,7 @@ describe('VoiceTranscriptionService', () => {
       const renameCalls = vi.mocked(renameSync).mock.calls;
       const modelDir = renameCalls[0][0] as string;
       const backupDir = renameCalls[0][1] as string;
-      expect(modelDir).toMatch(/models\/parakeet-tdt-ctc-110m-int8$/);
+      expect(modelDir.endsWith(CTC_MODEL_DIR_SUFFIX)).toBe(true);
       expect(backupDir).toContain('.old-');
       expect(renameCalls[1]).toEqual([expect.stringContaining('.download-'), modelDir]);
       expect(renameCalls[2]).toEqual([backupDir, modelDir]);

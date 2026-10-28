@@ -189,7 +189,14 @@ function expectedPowerShellStartup(echoedText: string, command: string): string 
 }
 
 describe('PtyService', () => {
+  // Tests cover the POSIX shell path unless they set `process.platform` to 'win32' themselves.
+  // node-pty, fs and child_process are mocked, so a Windows host runs them as Linux.
+  const hostPlatform = process.platform;
+
   beforeEach(() => {
+    if (hostPlatform === 'win32') {
+      Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    }
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.resetModules();
@@ -202,6 +209,7 @@ describe('PtyService', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    Object.defineProperty(process, 'platform', { value: hostPlatform, configurable: true });
   });
 
   describe('spawn', () => {

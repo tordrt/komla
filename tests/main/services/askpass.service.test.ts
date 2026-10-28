@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { join } from 'path';
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -89,6 +90,15 @@ function createSocket(): MockSocket {
   return socket;
 }
 
+// The service joins its file names onto the mocked tmpdir. On Windows it listens on a named pipe
+// instead of a socket file and writes a .cmd wrapper instead of a .sh one.
+const IS_WINDOWS = process.platform === 'win32';
+const HELPER_BASE_PATH = join('/tmp', 'komla-askpass-fixed-id-1234');
+const SOCKET_PATH = IS_WINDOWS
+  ? '\\\\.\\pipe\\komla-askpass-fixed-id-1234'
+  : `${HELPER_BASE_PATH}.sock`;
+const WRAPPER_PATH = `${HELPER_BASE_PATH}${IS_WINDOWS ? '.cmd' : '.sh'}`;
+
 async function settle(): Promise<void> {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 }
@@ -118,10 +128,14 @@ describe('AskpassService', () => {
     await askpassService.start();
 
     expect(askpassService.isRunning()).toBe(true);
-    expect(askpassService.getSocketPath()).toBe('/tmp/komla-askpass-fixed-id-1234.sock');
-    expect(askpassService.getHelperScriptPath()).toBe('/tmp/komla-askpass-fixed-id-1234.sh');
-    expect(mockFs.writeFileSync).toHaveBeenCalledTimes(2); // .js helper + .sh wrapper
-    expect(mockFs.chmodSync).toHaveBeenCalledWith('/tmp/komla-askpass-fixed-id-1234.sh', 0o700);
+    expect(askpassService.getSocketPath()).toBe(SOCKET_PATH);
+    expect(askpassService.getHelperScriptPath()).toBe(WRAPPER_PATH);
+    expect(mockFs.writeFileSync).toHaveBeenCalledTimes(2); // .js helper + .sh/.cmd wrapper
+    if (IS_WINDOWS) {
+      expect(mockFs.chmodSync).not.toHaveBeenCalled();
+    } else {
+      expect(mockFs.chmodSync).toHaveBeenCalledWith(WRAPPER_PATH, 0o700);
+    }
     expect(electronMock.ipcMain.on).toHaveBeenCalledWith('askpass:response', expect.any(Function));
   });
 
@@ -233,14 +247,20 @@ describe('AskpassService', () => {
     );
     expect(latestServer?.close).toHaveBeenCalled();
     expect(socket.write).toHaveBeenCalledWith('{"passphrase":null}\n');
-    expect(mockFs.unlinkSync).toHaveBeenCalledWith('/tmp/komla-askpass-fixed-id-1234.sock');
-    expect(mockFs.unlinkSync).toHaveBeenCalledWith('/tmp/komla-askpass-fixed-id-1234.js');
-    expect(mockFs.unlinkSync).toHaveBeenCalledWith('/tmp/komla-askpass-fixed-id-1234.sh');
+    // A named pipe goes away with its server; only a socket file needs removing.
+    if (IS_WINDOWS) {
+      expect(mockFs.unlinkSync).not.toHaveBeenCalledWith(SOCKET_PATH);
+    } else {
+      expect(mockFs.unlinkSync).toHaveBeenCalledWith(SOCKET_PATH);
+    }
+    expect(mockFs.unlinkSync).toHaveBeenCalledWith(`${HELPER_BASE_PATH}.js`);
+    expect(mockFs.unlinkSync).toHaveBeenCalledWith(WRAPPER_PATH);
     expect(askpassService.isRunning()).toBe(false);
   });
 
   describe('SSH key passphrases', () => {
-    const KEY_PATH = '/home/me/.ssh/id_ed25519';
+    // sshKeyPathFromPrompt only trusts drive-letter paths on Windows.
+    const KEY_PATH = IS_WINDOWS ? 'C:\\Users\\me\\.ssh\\id_ed25519' : '/home/me/.ssh/id_ed25519';
     const KEY_PROMPT = `Enter passphrase for key '${KEY_PATH}': `;
 
     async function startWithWindow() {

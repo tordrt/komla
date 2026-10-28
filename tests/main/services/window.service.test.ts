@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { createMockBrowserWindow } from '../../mocks/electron';
@@ -166,7 +168,7 @@ describe('WindowService', () => {
     windowService.createWindow();
 
     const constructorArgs = browserWindowCtor.mock.calls[0]?.[0];
-    expect(constructorArgs.webPreferences.preload).toContain('/preload/index.cjs');
+    expect(constructorArgs.webPreferences.preload).toContain(join('/', 'preload', 'index.cjs'));
     expect(constructorArgs.webPreferences.sandbox).toBe(true);
     expect(constructorArgs.webPreferences.contextIsolation).toBe(true);
     expect(constructorArgs.webPreferences.nodeIntegration).toBe(false);

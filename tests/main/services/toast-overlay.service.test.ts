@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Listener = (...args: any[]) => void;
@@ -106,14 +108,16 @@ describe('ToastOverlayService', () => {
 
     expect(view.options).toMatchObject({
       webPreferences: {
-        preload: '/app/out/preload/index.cjs',
+        preload: join('/app/out/main', '../preload/index.cjs'),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
       },
     });
     expect(view.setBackgroundColor).toHaveBeenCalledWith('#00000000');
-    expect(view.webContents.loadFile).toHaveBeenCalledWith('/app/out/renderer/toast-overlay.html');
+    expect(view.webContents.loadFile).toHaveBeenCalledWith(
+      join('/app/out/main', '../renderer/toast-overlay.html')
+    );
     expect(owner.contentView.children.at(-1)).toBe(view);
   });
 

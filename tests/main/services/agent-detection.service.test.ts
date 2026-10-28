@@ -296,7 +296,9 @@ describe('detectInstalledAgents', () => {
     await expect(detectInstalledAgents(templates)).resolves.toEqual(['Codex']);
   });
 
-  it("also counts agents on Komla's own PATH", async () => {
+  // Runs the Unix branch against a real directory: its executable bit and a PATH split on ':',
+  // which a Windows temp dir's drive letter breaks.
+  it.skipIf(originalPlatform === 'win32')("also counts agents on Komla's own PATH", async () => {
     const binDir = mkdtempSync(join(tmpdir(), 'komla-agent-path-'));
     try {
       writeFileSync(join(binDir, 'codex'), '#!/bin/sh\n');

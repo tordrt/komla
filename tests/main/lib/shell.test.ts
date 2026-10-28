@@ -27,6 +27,18 @@ vi.mock('../../../src/main/lib/logger', () => ({
   }),
 }));
 
+// Windows matches process.env keys case-insensitively, so `process.env.Path = x` there only
+// changes whichever PATH key the host has. Replace every variant so the inherited key is `Path`.
+function setInheritedPath(value: string): () => void {
+  const saved = Object.entries(process.env).filter(([key]) => key.toLowerCase() === 'path');
+  for (const [key] of saved) delete process.env[key];
+  process.env.Path = value;
+  return () => {
+    delete process.env.Path;
+    for (const [key, savedValue] of saved) process.env[key] = savedValue;
+  };
+}
+
 describe('shell', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -251,9 +263,8 @@ describe('shell', () => {
 
     it('should fall back to process.env PATH when registry query fails on Windows', async () => {
       const originalPlatform = process.platform;
-      const originalPath = process.env.Path;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-      process.env.Path = 'C:\\FallbackPath';
+      const restorePath = setInheritedPath('C:\\FallbackPath');
 
       mockExecFileSync.mockImplementation(() => {
         throw new Error('reg not found');
@@ -267,15 +278,14 @@ describe('shell', () => {
         expect(env.Path).toBe('C:\\FallbackPath');
       } finally {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
-        process.env.Path = originalPath;
+        restorePath();
       }
     });
 
     it('should fall back to inherited PATH when system PATH query fails but user succeeds', async () => {
       const originalPlatform = process.platform;
-      const originalPath = process.env.Path;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-      process.env.Path = 'C:\\InheritedPath';
+      const restorePath = setInheritedPath('C:\\InheritedPath');
 
       // HKLM fails, HKCU succeeds — should NOT use partial result
       mockExecFileSync.mockImplementation((cmd: string, args: string[]) => {
@@ -296,7 +306,7 @@ describe('shell', () => {
         expect(env.Path).toBe('C:\\InheritedPath');
       } finally {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
-        process.env.Path = originalPath;
+        restorePath();
       }
     });
 

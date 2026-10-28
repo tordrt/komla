@@ -34,7 +34,7 @@ import { MODE_TEXT } from '../../../src/shared/lib/appearance';
 import type { ThemeConfig } from '../../../src/renderer/types';
 
 const skill = readFileSync('resources/skills/komla-appearance-instructions.md', 'utf8');
-const example = JSON.parse(skill.match(/```json\n([\s\S]*?)```/)![1]).customPalette;
+const example = JSON.parse(skill.match(/```json\r?\n([\s\S]*?)```/)![1]).customPalette;
 
 function theme(overrides: Partial<ThemeConfig> = {}): ThemeConfig {
   return {

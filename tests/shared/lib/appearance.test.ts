@@ -25,7 +25,7 @@ function settings(overrides: Partial<AppearanceSettings> = {}): AppearanceSettin
 describe('appearanceProblems', () => {
   it('accepts the example apply in the appearance skill', () => {
     const skill = readFileSync('resources/skills/komla-appearance-instructions.md', 'utf8');
-    const example = JSON.parse(skill.match(/```json\n([\s\S]*?)```/)![1]);
+    const example = JSON.parse(skill.match(/```json\r?\n([\s\S]*?)```/)![1]);
 
     expect(appearanceProblems(example)).toEqual([]);
   });

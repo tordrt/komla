@@ -89,8 +89,10 @@ vi.mock('../../../../../src/renderer/stores/actions.store', () => ({
 }));
 
 vi.mock('../../../../../src/renderer/stores/workspaces.store', () => ({
-  useWorkspacesStore: (selector: (state: { workspaces: [] }) => unknown) =>
-    selector({ workspaces: [] }),
+  useWorkspacesStore: Object.assign(
+    (selector: (state: { workspaces: [] }) => unknown) => selector({ workspaces: [] }),
+    { getState: () => ({ workspaces: [] }) }
+  ),
 }));
 
 vi.mock('../../../../../src/renderer/stores/toast.store', () => ({
@@ -493,15 +495,29 @@ describe('ProjectSettingsPage', () => {
     expect(screen.getByText(/Save the target branch first/)).toBeInTheDocument();
   });
 
-  it('shows only the name, color and delete for a directory project', () => {
+  it('shows only the general settings, workspace cleanup and delete for a directory project', () => {
     renderPage({ ...project, kind: 'directory' });
 
     expect(screen.getByRole('textbox', { name: 'Name' })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Branch prefix' })).not.toBeInTheDocument();
     expect(screen.queryByText('Setup controls')).not.toBeInTheDocument();
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Clean up…' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Leftover branches')).not.toBeInTheDocument();
+    expect(screen.getByText('Finished workspaces')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Clean up…' })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Delete project' })).toBeInTheDocument();
+  });
+
+  it('opens the workspace cleanup for this project', async () => {
+    const user = userEvent.setup();
+    window.api.checkWorkspacesForCleanup = vi.fn().mockResolvedValue([]) as never;
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: 'Clean up…' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Clean up workspaces' });
+    expect(await within(dialog).findByText('No workspaces to clean up.')).toBeInTheDocument();
+    expect(window.api.checkWorkspacesForCleanup).toHaveBeenCalledWith(project.id);
   });
 
   it('shows only the section picked in the nav', () => {

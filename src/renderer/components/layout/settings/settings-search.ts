@@ -248,6 +248,12 @@ const gitOnly = (entries: SettingsSearchEntry[]): ProjectSearchEntry[] =>
 const PROJECT_SEARCH_INDEX: readonly ProjectSearchEntry[] = [
   card('General'),
   ...rows('General', 'Name', 'Color'),
+  {
+    kind: 'row',
+    label: 'Finished workspaces',
+    card: 'General',
+    keywords: 'prune clean up old stale unused workspaces',
+  },
   ...gitOnly([
     card('Branches', 'prune clean up delete old branches'),
     ...rows('Branches', 'Branch prefix', 'Target branch', 'Leftover branches'),

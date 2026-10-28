@@ -43,6 +43,7 @@ import {
   projectSetSshWorkspaceModeIfUnsetArgsSchema,
   projectTakeIconPromptArgsSchema,
   projectChooseIconFileArgsSchema,
+  projectCheckWorkspacesForCleanupArgsSchema,
   projectUpdateArgsSchema,
   projectValidateRepoArgsSchema,
 } from '../validation/config-ipc.schemas';
@@ -54,6 +55,7 @@ import type {
   LeftoverBranches,
   ProjectIconCandidate,
   ProjectIconSource,
+  WorkspaceCleanupStatus,
 } from '../../../shared/types';
 import type { ActivePresetEntry } from '../../../shared/types/agent-preset';
 
@@ -312,6 +314,16 @@ export function registerProjectHandlers(): void {
         const { repo, keep } = await workspaceService.getBranchCleanupScope(projectId, hostId);
         return gitService.deleteLeftoverBranches(repo, branches, keep);
       }
+    )
+  );
+
+  ipcMain.handle(
+    IPC.PROJECT_CHECK_WORKSPACES_FOR_CLEANUP,
+    handleValidated(
+      IPC.PROJECT_CHECK_WORKSPACES_FOR_CLEANUP,
+      projectCheckWorkspacesForCleanupArgsSchema,
+      async (_, [projectId]): Promise<WorkspaceCleanupStatus[]> =>
+        workspaceService.checkWorkspacesForCleanup(projectId)
     )
   );
 

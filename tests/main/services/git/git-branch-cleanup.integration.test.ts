@@ -99,6 +99,18 @@ describe.each(['local', 'ssh'] as const)('GitBranchCleanupService integration (%
         branches: Array<{ name: string; commit: string }>,
         keep: ReadonlySet<string>
       ) => gitBranchCleanupService.deleteBranches(repo(path), branches, keep),
+      /** As workspace cleanup checks one: read in the worktree, landed in the repository. */
+      checkWorktree: async (path: string, targetBranch: string) => {
+        const { commit, uncommittedChanges } = await gitBranchCleanupService.readWorktree(
+          repo(path)
+        );
+        const [landed] = await gitBranchCleanupService.findLandedCommits(
+          repo(repoPath),
+          targetBranch,
+          [commit]
+        );
+        return { landed, uncommittedChanges };
+      },
     };
   }
 
@@ -385,5 +397,65 @@ describe.each(['local', 'ssh'] as const)('GitBranchCleanupService integration (%
     await expect(
       runGit(repoPath, ['config', '--get-regexp', '^branch\\.leftover\\.'])
     ).rejects.toThrow();
+  });
+
+  describe('checkWorktree', () => {
+    async function addWorktree(branch: string): Promise<string> {
+      const worktreePath = mkdtempSync(join(tmpdir(), 'komla-branch-cleanup-wt-'));
+      tempPaths.push(worktreePath);
+      rmSync(worktreePath, { recursive: true });
+      await runGit(repoPath, ['worktree', 'add', worktreePath, branch]);
+      return worktreePath;
+    }
+
+    it('counts a worktree as landed once its changes are in the target, squashed or not', async () => {
+      await branchWithCommits('squashed', ['one.txt', 'two.txt']);
+      await branchWithCommits('unmerged', ['three.txt']);
+      await branchWithCommits('fresh', []);
+      await runGit(repoPath, ['merge', '--squash', 'squashed']);
+      await runGit(repoPath, ['commit', '-m', 'squash merge']);
+      const service = await loadService();
+
+      await expect(service.checkWorktree(await addWorktree('squashed'), 'main')).resolves.toEqual({
+        landed: true,
+        uncommittedChanges: false,
+      });
+      await expect(service.checkWorktree(await addWorktree('unmerged'), 'main')).resolves.toEqual({
+        landed: false,
+        uncommittedChanges: false,
+      });
+      await expect(service.checkWorktree(await addWorktree('fresh'), 'main')).resolves.toEqual({
+        landed: true,
+        uncommittedChanges: false,
+      });
+    });
+
+    it('tells uncommitted changes apart, untracked files included', async () => {
+      await branchWithCommits('edited', []);
+      await branchWithCommits('untracked', []);
+      const edited = await addWorktree('edited');
+      const untracked = await addWorktree('untracked');
+      writeFileSync(join(edited, 'readme.txt'), 'edited\n');
+      writeFileSync(join(untracked, 'new.txt'), 'new\n');
+      const service = await loadService();
+
+      await expect(service.checkWorktree(edited, 'main')).resolves.toEqual({
+        landed: true,
+        uncommittedChanges: true,
+      });
+      await expect(service.checkWorktree(untracked, 'main')).resolves.toEqual({
+        landed: true,
+        uncommittedChanges: true,
+      });
+    });
+
+    it('fails when the worktree is gone', async () => {
+      await branchWithCommits('gone', []);
+      const worktreePath = await addWorktree('gone');
+      rmSync(worktreePath, { recursive: true, force: true });
+      const service = await loadService();
+
+      await expect(service.checkWorktree(worktreePath, 'main')).rejects.toThrow();
+    });
   });
 });

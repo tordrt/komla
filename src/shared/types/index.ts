@@ -100,6 +100,8 @@ export type {
   LeftoverBranch,
   LeftoverBranches,
   BranchDeletionResult,
+  WorktreeCleanupCheck,
+  WorkspaceCleanupStatus,
   CreateProjectParams,
   CreateProjectFromRemoteParams,
   CreateProjectFromNewParams,

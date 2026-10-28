@@ -1,6 +1,10 @@
 import { gitBlameService } from './git-blame';
 import { gitBranchService } from './git-branch';
-import { gitBranchCleanupService, type GitBatchRunner } from './git-branch-cleanup';
+import {
+  gitBranchCleanupService,
+  type GitBatchRunner,
+  type WorktreeHead,
+} from './git-branch-cleanup';
 import { gitCommitService } from './git-commit';
 import { gitDiffService } from './git-diff';
 import { gitExec } from './git-exec';
@@ -149,6 +153,16 @@ class GitService {
     keep: ReadonlySet<string>
   ): Promise<BranchDeletionResult> {
     return gitBranchCleanupService.deleteBranches(repo, branches, keep);
+  }
+  readWorktreeForCleanup(worktree: GitBatchRunner): Promise<WorktreeHead> {
+    return gitBranchCleanupService.readWorktree(worktree);
+  }
+  findLandedCommits(
+    repo: GitBatchRunner,
+    targetBranch: string,
+    commits: readonly string[]
+  ): Promise<boolean[]> {
+    return gitBranchCleanupService.findLandedCommits(repo, targetBranch, commits);
   }
 
   // --- GitDiffService delegates ---

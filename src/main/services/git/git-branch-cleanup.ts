@@ -30,6 +30,11 @@ export interface GitBatchCommand {
   patchIds?: boolean;
 }
 
+export interface WorktreeHead {
+  commit: string;
+  uncommittedChanges: boolean;
+}
+
 /** A command's trimmed output, or why it failed. */
 export type GitBatchResult = { ok: true; output: string } | { ok: false; error: string };
 
@@ -338,6 +343,34 @@ async function findLanded(
   });
 }
 
+/**
+ * Whether every change on each branch is in the target branch, locally or on origin: one that
+ * landed in either counts.
+ */
+async function findLandedInTarget(
+  repo: GitBatchRunner,
+  targetBranch: string,
+  branches: Array<{ commit: string }>
+): Promise<boolean[]> {
+  const targets = await repo.run([
+    git('rev-parse', '--verify', '--quiet', `refs/heads/${targetBranch}^{commit}`),
+    git('rev-parse', '--verify', '--quiet', `refs/remotes/origin/${targetBranch}^{commit}`),
+  ]);
+  const intoCommits = [...new Set(targets.map(outputOf).filter((into): into is string => !!into))];
+
+  const landed = branches.map(() => false);
+  for (const into of intoCommits) {
+    const unsettled = [...landed.keys()].filter((index) => !landed[index]);
+    const found = await findLanded(
+      repo,
+      into,
+      unsettled.map((index) => branches[index])
+    );
+    for (const [i, index] of unsettled.entries()) if (found[i]) landed[index] = true;
+  }
+  return landed;
+}
+
 interface RepositoryRefs {
   branches: Omit<LeftoverBranch, 'landed'>[];
   /** Branches checked out in any worktree, including the main one of a bare repository. */
@@ -408,26 +441,45 @@ export class GitBranchCleanupService {
       ({ name }) =>
         !inUse.has(name.toLowerCase()) && !(skipBranchesOnOrigin && refs.originBranches.has(name))
     );
-    const targets = await repo.run([
-      git('rev-parse', '--verify', '--quiet', `refs/heads/${target}^{commit}`),
-      git('rev-parse', '--verify', '--quiet', `refs/remotes/origin/${target}^{commit}`),
-    ]);
-    const intoCommits = [
-      ...new Set(targets.map(outputOf).filter((into): into is string => !!into)),
-    ];
-
-    const landed = new Set<string>();
-    for (const into of intoCommits) {
-      const unsettled = candidates.filter((branch) => !landed.has(branch.name));
-      const found = await findLanded(repo, into, unsettled);
-      for (const [index, branch] of unsettled.entries()) if (found[index]) landed.add(branch.name);
-    }
+    const landed = await findLandedInTarget(repo, target, candidates);
     return {
       targetBranch: target,
       branches: candidates
-        .map((branch) => ({ ...branch, landed: landed.has(branch.name) }))
+        .map((branch, index) => ({ ...branch, landed: landed[index] }))
         .sort((a, b) => b.lastCommitAt - a.lastCommitAt),
     };
+  }
+
+  /** A worktree's HEAD, and whether it has files it hasn't committed, untracked ones included. */
+  async readWorktree(worktree: GitBatchRunner): Promise<WorktreeHead> {
+    // One after the other: on an SSH host that is one script, not one each.
+    const [head, status] = await worktree.run(
+      [
+        git('rev-parse', '--verify', '--quiet', 'HEAD^{commit}'),
+        git('status', '--porcelain', '--untracked-files=normal'),
+      ],
+      { serial: true }
+    );
+    return {
+      commit: required(head, 'HEAD'),
+      uncommittedChanges: required(status, 'status') !== '',
+    };
+  }
+
+  /**
+   * Whether every change on each commit is already in `targetBranch`, locally or on origin,
+   * reading the target's history once for them all.
+   */
+  findLandedCommits(
+    repo: GitBatchRunner,
+    targetBranch: string,
+    commits: readonly string[]
+  ): Promise<boolean[]> {
+    return findLandedInTarget(
+      repo,
+      targetBranch,
+      commits.map((commit) => ({ commit }))
+    );
   }
 
   /**

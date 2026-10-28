@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
-import { stat } from 'fs/promises';
+import { realpath, stat } from 'fs/promises';
 import { join, basename, dirname, posix as pathPosix, resolve, sep } from 'path';
 import { isDeepStrictEqual } from 'util';
 
@@ -58,8 +58,10 @@ import {
   attentionWakesSnooze,
   canDeleteWorkspaceBranch,
   getBranchesInUse,
+  hasWorkspaceFiles,
   isSshWorkspace,
   isWorkspaceSnoozed,
+  resolveWorkspaceTargetBranch,
   SshProjectNeedsRemoteError,
   toLocalBranchName,
   type CommandKind,
@@ -87,7 +89,13 @@ import { agentPresetService } from './agent-preset.service';
 import { backgroundProcessService } from './background-process.service';
 import { configService } from './config.service';
 import { executionLocations } from './execution-location';
-import { localGitBatchRunner } from './git/git-branch-cleanup';
+import {
+  CHECK_CONCURRENCY,
+  localGitBatchRunner,
+  mapWithConcurrency,
+  type GitBatchRunner,
+  type WorktreeHead,
+} from './git/git-branch-cleanup';
 import { gitService } from './git.service';
 import { httpServerService } from './http-server.service';
 import { FREE_WORKSPACE_LIMIT, licenseService } from './license.service';
@@ -161,6 +169,7 @@ import type {
   Project,
   AgentPreset,
   AddAgentTabOptions,
+  WorkspaceCleanupStatus,
 } from '../../shared/types';
 import type {
   SshWorkspaceLaunch,
@@ -5572,6 +5581,112 @@ class WorkspaceService {
       keep: getBranchesInUse([mainBranch, targetBranch], workspaces),
       skipBranchesOnOrigin: project.managed,
     };
+  }
+
+  /**
+   * How each of the project's worktree workspaces stands against its target branch. Each
+   * worktree's HEAD and uncommitted files are read in the worktree itself, on its SSH host for
+   * an SSH workspace; whether HEAD landed is then checked once per repository and target branch,
+   * in the project's repository the worktree belongs to. Workspaces in the Trash, or whose
+   * files aren't ready, are left out.
+   */
+  async checkWorkspacesForCleanup(projectId: string): Promise<WorkspaceCleanupStatus[]> {
+    const project = projectService.get(projectId);
+    if (!project) throw new Error('Project not found');
+    if (project.kind === 'directory') return [];
+    const workspaces = this.getWorkspacesByProjectId(projectId).filter(
+      (workspace) =>
+        workspace.status === 'active' && workspace.isWorktree && hasWorkspaceFiles(workspace)
+    );
+    const failure = (error: unknown) => (error instanceof Error ? error.message : String(error));
+    const once = <T>(cache: Map<string, Promise<T>>, key: string, load: () => Promise<T>) => {
+      const loaded = cache.get(key) ?? load();
+      cache.set(key, loaded);
+      return loaded;
+    };
+    const gitDirOf = (path: string) =>
+      gitService.getCommonGitDir(path).then((dir) => realpath(dir));
+    // Where a local worktree may come from, as managedWorktree() allows.
+    const localRepos = [...new Set([project.managedRepoPath, project.repositoryPath])].filter(
+      (repoPath): repoPath is string => !!repoPath
+    );
+    const repoGitDirs = new Map<string, Promise<string | null>>();
+    const mainBranches = new Map<string, Promise<string>>();
+    /** The project repository whose Git directory the worktree shares, if any. */
+    const localRepoOf = async (worktreePath: string) => {
+      const gitDir = await gitDirOf(worktreePath);
+      for (const repoPath of localRepos) {
+        const repoGitDir = await once(repoGitDirs, repoPath, () =>
+          gitDirOf(repoPath).catch(() => null)
+        );
+        if (repoGitDir === gitDir) return repoPath;
+      }
+      throw new Error("The workspace isn't a worktree of the project's repository");
+    };
+
+    const statuses = new Map<string, WorkspaceCleanupStatus>();
+    const groups = new Map<
+      string,
+      { repo: GitBatchRunner; targetBranch: string; heads: Array<WorktreeHead & { id: string }> }
+    >();
+    await mapWithConcurrency(workspaces, CHECK_CONCURRENCY, async (workspace) => {
+      const ssh = isSshWorkspace(workspace) ? workspace.backend : null;
+      const branch = toLocalBranchName(
+        resolveWorkspaceTargetBranch(workspace, project.baseBranch) ?? ''
+      );
+      let targetBranch = branch || toLocalBranchName(ssh?.defaultBranch ?? '') || 'main';
+      try {
+        const head = await gitService.readWorktreeForCleanup(
+          ssh
+            ? sshWorkspaceGit.gitBatchRunner(ssh.hostId, ssh.remoteDirectory)
+            : localGitBatchRunner(workspace.workingDirectory)
+        );
+        let repo: GitBatchRunner;
+        if (ssh) {
+          repo = sshWorkspaceGit.gitBatchRunner(ssh.hostId, ssh.remoteRepoPath);
+        } else {
+          const repoPath = await localRepoOf(workspace.workingDirectory);
+          if (!branch) {
+            targetBranch = await once(mainBranches, repoPath, () =>
+              gitService.getMainBranch(repoPath).catch(() => 'main')
+            );
+          }
+          repo = localGitBatchRunner(repoPath);
+        }
+        const key = `${repo.label}\0${targetBranch}`;
+        const group = groups.get(key) ?? { repo, targetBranch, heads: [] };
+        group.heads.push({ id: workspace.id, ...head });
+        groups.set(key, group);
+      } catch (error) {
+        logger.warn('Could not read workspace for cleanup', { workspaceId: workspace.id, error });
+        const status = { targetBranch, ok: false as const, error: failure(error) };
+        statuses.set(workspace.id, { workspaceId: workspace.id, ...status });
+      }
+    });
+
+    // The worktrees of one repository share its history, so its target is read once for all.
+    await mapWithConcurrency([...groups.values()], CHECK_CONCURRENCY, async (group) => {
+      const { repo, targetBranch, heads } = group;
+      try {
+        const commits = heads.map(({ commit }) => commit);
+        const landed = await gitService.findLandedCommits(repo, targetBranch, commits);
+        heads.forEach(({ id, uncommittedChanges }, index) =>
+          statuses.set(id, {
+            workspaceId: id,
+            targetBranch,
+            ok: true,
+            landed: landed[index],
+            uncommittedChanges,
+          })
+        );
+      } catch (error) {
+        logger.warn('Could not check workspaces for cleanup', { repo: repo.label, error });
+        for (const { id } of heads) {
+          statuses.set(id, { workspaceId: id, targetBranch, ok: false, error: failure(error) });
+        }
+      }
+    });
+    return workspaces.flatMap((workspace) => statuses.get(workspace.id) ?? []);
   }
 
   /**

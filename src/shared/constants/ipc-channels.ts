@@ -251,6 +251,7 @@ export const IPC = {
   PROJECT_CHOOSE_ICON_FILE: 'project:choose-icon-file',
   PROJECT_LIST_LEFTOVER_BRANCHES: 'project:list-leftover-branches',
   PROJECT_DELETE_LEFTOVER_BRANCHES: 'project:delete-leftover-branches',
+  PROJECT_CHECK_WORKSPACES_FOR_CLEANUP: 'project:check-workspaces-for-cleanup',
   PROJECT_LIST_HOST_BRANCHES: 'project:list-host-branches',
 
   // Project events (main → renderer)

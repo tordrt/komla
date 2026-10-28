@@ -121,6 +121,7 @@ vi.mock('fs/promises', () => ({
   rm: vi.fn(() => Promise.resolve()),
   access: vi.fn(() => Promise.resolve()),
   stat: vi.fn(() => Promise.resolve({ isFile: () => true, isDirectory: () => false })),
+  realpath: vi.fn((path: string) => Promise.resolve(path)),
 }));
 
 let mockUuidCounter = 0;
@@ -151,6 +152,9 @@ const mockGitService = {
   fastForwardBranchToRemoteIfSafe: vi.fn(() => Promise.resolve(false)),
   fetchOriginStartPoint: vi.fn((): Promise<string | undefined> => Promise.resolve(undefined)),
   stopBackgroundWork: vi.fn(),
+  readWorktreeForCleanup: vi.fn(),
+  findLandedCommits: vi.fn(),
+  getCommonGitDir: vi.fn(),
 };
 vi.mock('../../../src/main/services/git.service', () => ({
   gitService: mockGitService,
@@ -15333,6 +15337,164 @@ describe('WorkspaceService', () => {
       await expect(
         workspaceService.getBranchCleanupScope('project-1', 'ssh-unused')
       ).rejects.toThrow('The project has no workspaces on this host');
+    });
+  });
+
+  describe('checkWorkspacesForCleanup', () => {
+    function worktreeWorkspace(id: string, extra: Record<string, unknown> = {}) {
+      return {
+        id,
+        name: id,
+        workingDirectory: `/worktrees/${id}`,
+        branchName: `agent/${id}`,
+        isWorktree: true,
+        projectId: 'project-1',
+        windowId: null,
+        categoryId: null,
+        createdAt: 1000,
+        lastActivityAt: 1000,
+        order: 0,
+        status: 'active',
+        ...extra,
+      };
+    }
+    const landed = (workspaceId: string, targetBranch: string) => ({
+      workspaceId,
+      targetBranch,
+      ok: true,
+      landed: true,
+      uncommittedChanges: false,
+    });
+
+    /** Worktrees of /mock/repo, but `managed-*` ones of the managed clone and `stray` of neither. */
+    function commonGitDir(path: string): Promise<string> {
+      const name = path.split('/').pop() ?? '';
+      if (path === '/mock/managed' || name.startsWith('managed-')) {
+        return Promise.resolve('/mock/managed');
+      }
+      return Promise.resolve(name === 'stray' ? '/home/user/.git' : '/mock/repo/.git');
+    }
+
+    beforeEach(() => {
+      mockGitService.getCommonGitDir.mockImplementation(commonGitDir);
+      mockGitService.readWorktreeForCleanup.mockImplementation(async (repo: { label: string }) => {
+        if (repo.label === '/worktrees/broken') throw new Error('not a git repository');
+        return { commit: `c-${repo.label.split('/').pop()}`, uncommittedChanges: false };
+      });
+      mockGitService.findLandedCommits.mockImplementation(async (_repo, _target, commits) =>
+        (commits as string[]).map((commit) => commit !== 'c-local-2')
+      );
+      return () => {
+        mockProject.managedRepoPath = undefined;
+      };
+    });
+
+    it('reads each active worktree in place, and checks it landed once per repository and target', async () => {
+      mockProject.baseBranch = 'origin/develop';
+      mockProject.managedRepoPath = '/mock/managed';
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          worktreeWorkspace('local'),
+          worktreeWorkspace('local-2'),
+          worktreeWorkspace('managed-1'),
+          worktreeWorkspace('own-target', { baseBranch: 'release' }),
+          worktreeWorkspace('remote', {
+            workingDirectory: 'ssh://ssh-dev/home/dev/remote',
+            backend: {
+              kind: 'ssh',
+              hostId: 'ssh-dev',
+              remoteDirectory: '/home/dev/remote',
+              remoteRepoPath: '/home/dev/.komla/repos/test-project/repo.git',
+              remoteProjectRoot: '/home/dev/.komla/worktrees/test-project',
+              gitUrl: 'git@example.com:repo.git',
+            },
+          }),
+          worktreeWorkspace('broken'),
+          worktreeWorkspace('stray'),
+          worktreeWorkspace('trashed', { status: 'trashed' }),
+          worktreeWorkspace('provisioning', { provisioning: true }),
+          worktreeWorkspace('main-checkout', { isWorktree: false }),
+          worktreeWorkspace('elsewhere', { projectId: 'project-2' }),
+        ])
+      );
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const statuses = await workspaceService.checkWorkspacesForCleanup('project-1');
+
+      // One check per repository and target, in whatever order their worktrees were read.
+      const checks = mockGitService.findLandedCommits.mock.calls.map(([repo, target, commits]) => [
+        (repo as { label: string }).label,
+        target,
+        commits,
+      ]);
+      expect(checks).toHaveLength(4);
+      expect(checks).toEqual(
+        expect.arrayContaining([
+          ['/mock/repo', 'develop', ['c-local', 'c-local-2']],
+          ['/mock/managed', 'develop', ['c-managed-1']],
+          ['/mock/repo', 'release', ['c-own-target']],
+          ['ssh-dev:/home/dev/.komla/repos/test-project/repo.git', 'develop', ['c-remote']],
+        ])
+      );
+      expect(mockSshWorkspaceGit.gitBatchRunner).toHaveBeenCalledWith('ssh-dev', '/home/dev/remote');
+      expect(statuses).toEqual([
+        landed('local', 'develop'),
+        { ...landed('local-2', 'develop'), landed: false },
+        landed('managed-1', 'develop'),
+        landed('own-target', 'release'),
+        landed('remote', 'develop'),
+        { workspaceId: 'broken', targetBranch: 'develop', ok: false, error: 'not a git repository' },
+        {
+          workspaceId: 'stray',
+          targetBranch: 'develop',
+          ok: false,
+          error: "The workspace isn't a worktree of the project's repository",
+        },
+      ]);
+    });
+
+    it("falls back to the main branch of each worktree's repository, and checks nothing in a directory project", async () => {
+      mockProject.managedRepoPath = '/mock/managed';
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([worktreeWorkspace('local'), worktreeWorkspace('managed-1')])
+      );
+      mockGitService.getMainBranch.mockImplementation(async (repoPath: string) =>
+        repoPath === '/mock/managed' ? 'trunk' : 'main'
+      );
+      mockGitService.readWorktreeForCleanup.mockResolvedValue({
+        commit: 'c',
+        uncommittedChanges: true,
+      });
+      mockGitService.findLandedCommits.mockResolvedValue([false]);
+      folderProjects.set('/folder', createProject({ id: 'folder-1', kind: 'directory', name: 'f' }));
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await expect(workspaceService.checkWorkspacesForCleanup('project-1')).resolves.toEqual([
+        { ...landed('local', 'main'), landed: false, uncommittedChanges: true },
+        { ...landed('managed-1', 'trunk'), landed: false, uncommittedChanges: true },
+      ]);
+      await expect(workspaceService.checkWorkspacesForCleanup('folder-1')).resolves.toEqual([]);
+      await expect(workspaceService.checkWorkspacesForCleanup('missing')).rejects.toThrow(
+        'Project not found'
+      );
+    });
+
+    it("says why each workspace couldn't be checked when the repository's check fails", async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([worktreeWorkspace('local'), worktreeWorkspace('local-2')])
+      );
+      mockGitService.findLandedCommits.mockRejectedValue(new Error('bad object'));
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await expect(workspaceService.checkWorkspacesForCleanup('project-1')).resolves.toEqual([
+        { workspaceId: 'local', targetBranch: 'main', ok: false, error: 'bad object' },
+        { workspaceId: 'local-2', targetBranch: 'main', ok: false, error: 'bad object' },
+      ]);
     });
   });
 

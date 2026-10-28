@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { BranchCleanupDialog } from '@/components/projects/BranchCleanupDialog';
 import { ProjectIconPicker } from '@/components/projects/ProjectIconPicker';
+import { WorkspaceCleanupDialog } from '@/components/projects/WorkspaceCleanupDialog';
 import { BranchSelect } from '@/components/ui/branch-select';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
@@ -163,6 +164,7 @@ export function ProjectSettingsPage({
   const [isSaving, setIsSaving] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [branchCleanupOpen, setBranchCleanupOpen] = useState(false);
+  const [workspaceCleanupOpen, setWorkspaceCleanupOpen] = useState(false);
   const isDirty = isDraftChanged(draft, saved);
   // Take up changes made elsewhere, such as by an agent over MCP, while nothing is edited.
   if (latest !== saved && !isDirty) {
@@ -265,6 +267,24 @@ export function ProjectSettingsPage({
           color={draft.color || getProjectColor(project.name)}
         />
       </SettingsRow>
+      <SettingsRow
+        label="Finished workspaces"
+        description={
+          isDirectory
+            ? "Move workspaces you haven't used in 30 days to the Trash."
+            : "Move workspaces with no changes to lose, or that you haven't used in 30 days, to the Trash."
+        }
+      >
+        <Button variant="outline" size="sm" onClick={() => setWorkspaceCleanupOpen(true)}>
+          Clean up…
+        </Button>
+      </SettingsRow>
+      <WorkspaceCleanupDialog
+        projectId={project.id}
+        isDirectory={isDirectory}
+        open={workspaceCleanupOpen}
+        onOpenChange={setWorkspaceCleanupOpen}
+      />
     </SettingsCard>
   );
 

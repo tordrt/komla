@@ -146,6 +146,20 @@ export interface BranchDeletionResult {
   failed: Array<{ name: string; message: string }>;
 }
 
+/** What moving a worktree to the Trash would set aside that its target branch doesn't have. */
+export interface WorktreeCleanupCheck {
+  /** Every change on its HEAD is already in the target branch. */
+  landed: boolean;
+  /** It has files it hasn't committed, untracked ones included. */
+  uncommittedChanges: boolean;
+}
+
+/** A project's workspace on a branch, as workspace cleanup sees it. */
+export type WorkspaceCleanupStatus = {
+  workspaceId: string;
+  targetBranch: string;
+} & (({ ok: true } & WorktreeCleanupCheck) | { ok: false; error: string });
+
 export interface CreateProjectParams {
   kind?: ProjectKind;
   name?: string;

@@ -17,6 +17,7 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BranchCleanupDialog } from '@/components/projects/BranchCleanupDialog';
+import { WorkspaceCleanupDialog } from '@/components/projects/WorkspaceCleanupDialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -84,6 +85,7 @@ export function ProjectGroupContextMenu({ project, children }: ProjectGroupConte
   const [isCreating, setIsCreating] = useState(false);
   const [actionInputDialogOpen, setActionInputDialogOpen] = useState(false);
   const [branchCleanupOpen, setBranchCleanupOpen] = useState(false);
+  const [workspaceCleanupOpen, setWorkspaceCleanupOpen] = useState(false);
   const [pendingActionLaunch, setPendingActionLaunch] = useState<PendingActionLaunch | null>(null);
 
   // Branch picker state
@@ -698,6 +700,12 @@ export function ProjectGroupContextMenu({ project, children }: ProjectGroupConte
               Workspace Setup
             </ContextMenuItem>
           )}
+          {hasActiveWorkspace && (
+            <ContextMenuItem onClick={() => setWorkspaceCleanupOpen(true)}>
+              <Broom />
+              Clean Up Workspaces...
+            </ContextMenuItem>
+          )}
           {!isDirectoryProject && (
             <ContextMenuItem onClick={() => setBranchCleanupOpen(true)}>
               <Broom />
@@ -740,6 +748,14 @@ export function ProjectGroupContextMenu({ project, children }: ProjectGroupConte
           />
         </DeferredDialog>
       )}
+      <DeferredDialog open={workspaceCleanupOpen}>
+        <WorkspaceCleanupDialog
+          projectId={project.id}
+          isDirectory={isDirectoryProject}
+          open={workspaceCleanupOpen}
+          onOpenChange={setWorkspaceCleanupOpen}
+        />
+      </DeferredDialog>
       <DeferredDialog open={actionInputDialogOpen}>
         <ActionInputDialog
           open={actionInputDialogOpen}

@@ -7,6 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from 'fs';
+import { basename, dirname, join } from 'path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -268,7 +269,7 @@ describe('app IPC behavior', () => {
     const result = await ipcMain._invoke('clipboard:import-image', 'workspace-1', 'workspace');
 
     expect(result).toBe('.komla-files/clipboard-image.png');
-    expect(mockMkdirSync).toHaveBeenCalledWith('/mock/temp/komla-clipboard-images', {
+    expect(mockMkdirSync).toHaveBeenCalledWith(join('/mock/temp/komla-clipboard-images'), {
       recursive: true,
     });
     expect(mockWriteFileSync).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), png);
@@ -342,11 +343,11 @@ describe('app IPC behavior', () => {
 
     registerAppHandlers();
 
-    const result = await ipcMain._invoke('clipboard:stage-image');
+    const result = (await ipcMain._invoke('clipboard:stage-image')) as string;
 
-    expect(result).toMatch(
-      /^\/mock\/temp\/komla-clipboard-images\/staged\/[^/]+\/clipboard-image-.*\.png$/
-    );
+    // <temp>/komla-clipboard-images/staged/<id>/clipboard-image-….png
+    expect(dirname(dirname(result))).toBe(join('/mock/temp/komla-clipboard-images/staged'));
+    expect(basename(result)).toMatch(/^clipboard-image-.*\.png$/);
     expect(mockWriteFileSync).toHaveBeenCalledWith(result, png);
     expect(mockWorkspaceFileService.importExternalFile).not.toHaveBeenCalled();
     expect(mockRmSync).not.toHaveBeenCalled();
@@ -356,12 +357,12 @@ describe('app IPC behavior', () => {
     electronMock.clipboard.read.mockResolvedValue([
       { types: ['image/png'], getType: vi.fn(async () => new Blob([Buffer.from([1])])) },
     ]);
-    const staged = '/mock/temp/komla-clipboard-images/staged';
+    const staged = join('/mock/temp/komla-clipboard-images/staged');
     mockReaddirSync.mockReturnValueOnce([{ name: 'old' }, { name: 'recent' }] as never);
     mockStatSync.mockImplementation(
       (path) =>
         ({
-          mtimeMs: Date.now() - (path === `${staged}/old` ? 8 : 6) * 24 * 60 * 60 * 1000,
+          mtimeMs: Date.now() - (path === join(staged, 'old') ? 8 : 6) * 24 * 60 * 60 * 1000,
         }) as never
     );
     const { registerAppHandlers } = await import('../../../../src/main/ipc/handlers/app.handlers');
@@ -372,7 +373,9 @@ describe('app IPC behavior', () => {
     registerAppHandlers();
     await ipcMain._invoke('clipboard:stage-image');
 
-    expect(mockRmSync.mock.calls).toEqual([[`${staged}/old`, { recursive: true, force: true }]]);
+    expect(mockRmSync.mock.calls).toEqual([
+      [join(staged, 'old'), { recursive: true, force: true }],
+    ]);
   });
 
   it('clipboard:stage-image returns null when clipboard has no image', async () => {
@@ -472,11 +475,14 @@ describe('app IPC behavior', () => {
 
     await ipcMain._invoke('data:clear-logs');
 
-    expect(mockRmSync).toHaveBeenCalledWith('/tmp/.komla/logs', { recursive: true, force: true });
+    expect(mockRmSync).toHaveBeenCalledWith(join('/tmp/.komla/logs'), {
+      recursive: true,
+      force: true,
+    });
   });
 
   it('data:reset-app preserves license, stops services, deletes dir, relaunches', async () => {
-    mockExistsSync.mockImplementation((path) => path === '/tmp/.komla/license.json');
+    mockExistsSync.mockImplementation((path) => path === join('/tmp/.komla/license.json'));
     mockReadFileSync.mockReturnValue('{"licenseKey":"abc"}');
 
     const { registerAppHandlers } = await import('../../../../src/main/ipc/handlers/app.handlers');
@@ -502,7 +508,7 @@ describe('app IPC behavior', () => {
     });
     expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/.komla', { recursive: true });
     expect(mockWriteFileSync).toHaveBeenCalledWith(
-      '/tmp/.komla/license.json',
+      join('/tmp/.komla/license.json'),
       '{"licenseKey":"abc"}',
       'utf-8'
     );
@@ -514,7 +520,7 @@ describe('app IPC behavior', () => {
     // Regression guard: this fix relies on `await ptyService.killAll()` so the
     // node-pty exit ThreadSafeFunctions drain before app.quit() runs. If a
     // future change drops the `await`, this test should fail.
-    mockExistsSync.mockImplementation((path) => path === '/tmp/.komla/license.json');
+    mockExistsSync.mockImplementation((path) => path === join('/tmp/.komla/license.json'));
     mockReadFileSync.mockReturnValue('{"licenseKey":"abc"}');
 
     let resolveKillAll!: () => void;

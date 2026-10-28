@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { mockElectron } from '../../mocks/electron';
@@ -42,6 +44,8 @@ vi.mock('../../../src/main/services/paths', () => ({
   getKomlaBasePath: vi.fn(() => '/mock/home/.komla'),
 }));
 
+const repoPathOf = (...segments: string[]) => join('/mock/home/.komla/repos', ...segments);
+
 describe('ManagedRepoService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -67,20 +71,20 @@ describe('ManagedRepoService', () => {
 
     const repoPath = await managedRepoService.createManagedRepo('/src/repo', 'my project');
 
-    expect(repoPath).toBe('/mock/home/.komla/repos/my-project/.git');
-    expect(mockFs.mkdirSync).toHaveBeenCalledWith('/mock/home/.komla/repos/my-project', {
+    expect(repoPath).toBe(repoPathOf('my-project', '.git'));
+    expect(mockFs.mkdirSync).toHaveBeenCalledWith(repoPathOf('my-project'), {
       recursive: true,
     });
     expect(mockGitService.cloneBare).toHaveBeenCalledWith(
       '/src/repo',
-      '/mock/home/.komla/repos/my-project/.git'
+      repoPathOf('my-project', '.git')
     );
     expect(mockGitService.removeRemote).toHaveBeenCalledWith(
-      '/mock/home/.komla/repos/my-project/.git',
+      repoPathOf('my-project', '.git'),
       'origin'
     );
     expect(mockGitService.addRemote).toHaveBeenCalledWith(
-      '/mock/home/.komla/repos/my-project/.git',
+      repoPathOf('my-project', '.git'),
       'origin',
       'git@github.com:org/repo.git'
     );
@@ -93,7 +97,7 @@ describe('ManagedRepoService', () => {
     await managedRepoService.createManagedRepo('/src/repo', 'no-remote');
 
     expect(mockGitService.removeRemote).toHaveBeenCalledWith(
-      '/mock/home/.komla/repos/no-remote/.git',
+      repoPathOf('no-remote', '.git'),
       'origin'
     );
     expect(mockGitService.addRemote).not.toHaveBeenCalled();
@@ -115,14 +119,16 @@ describe('ManagedRepoService', () => {
       '--format=%(refname) %(objectname)',
       'refs/remotes/origin/',
     ]);
-    expect(mockGitExec.execGitAsync).toHaveBeenCalledWith(
-      '/mock/home/.komla/repos/with-refs/.git',
-      ['update-ref', 'refs/remotes/origin/main', 'abc123']
-    );
-    expect(mockGitExec.execGitAsync).toHaveBeenCalledWith(
-      '/mock/home/.komla/repos/with-refs/.git',
-      ['update-ref', 'refs/remotes/origin/dev', 'def456']
-    );
+    expect(mockGitExec.execGitAsync).toHaveBeenCalledWith(repoPathOf('with-refs', '.git'), [
+      'update-ref',
+      'refs/remotes/origin/main',
+      'abc123',
+    ]);
+    expect(mockGitExec.execGitAsync).toHaveBeenCalledWith(repoPathOf('with-refs', '.git'), [
+      'update-ref',
+      'refs/remotes/origin/dev',
+      'def456',
+    ]);
   });
 
   it('skips refs/remotes/origin/HEAD when copying remote-tracking refs', async () => {
@@ -143,10 +149,11 @@ describe('ManagedRepoService', () => {
       'abc123',
     ]);
     // Should copy main
-    expect(mockGitExec.execGitAsync).toHaveBeenCalledWith(
-      '/mock/home/.komla/repos/skip-head/.git',
-      ['update-ref', 'refs/remotes/origin/main', 'def456']
-    );
+    expect(mockGitExec.execGitAsync).toHaveBeenCalledWith(repoPathOf('skip-head', '.git'), [
+      'update-ref',
+      'refs/remotes/origin/main',
+      'def456',
+    ]);
   });
 
   it('does not copy refs when source has no remote', async () => {
@@ -203,13 +210,13 @@ describe('ManagedRepoService', () => {
       onProgress
     );
 
-    expect(repoPath).toBe('/mock/home/.komla/repos/remote-project/.git');
-    expect(mockFs.mkdirSync).toHaveBeenCalledWith('/mock/home/.komla/repos/remote-project', {
+    expect(repoPath).toBe(repoPathOf('remote-project', '.git'));
+    expect(mockFs.mkdirSync).toHaveBeenCalledWith(repoPathOf('remote-project'), {
       recursive: true,
     });
     expect(mockGitService.cloneBareFromRemote).toHaveBeenCalledWith(
       'https://github.com/org/remote.git',
-      '/mock/home/.komla/repos/remote-project/.git',
+      repoPathOf('remote-project', '.git'),
       onProgress
     );
   });
@@ -256,7 +263,7 @@ describe('ManagedRepoService', () => {
       const path1 = managedRepoService.getProjectFolderPath('my-project');
 
       // Now simulate that directory exists with a .project-name marker for "my-project"
-      const markerPath = path1 + '/.project-name';
+      const markerPath = join(path1, '.project-name');
       mockFs.existsSync.mockImplementation((p: string) => {
         if (p === path1) return true;
         if (p === markerPath) return true;
@@ -284,12 +291,8 @@ describe('ManagedRepoService', () => {
       const { managedRepoService } =
         await import('../../../src/main/services/managed-repo.service');
 
-      mockFs.existsSync.mockImplementation(
-        (p: string) => p === '/mock/home/.komla/repos/my-project'
-      );
-      expect(managedRepoService.getProjectFolderPath('my-project')).toBe(
-        '/mock/home/.komla/repos/my-project'
-      );
+      mockFs.existsSync.mockImplementation((p: string) => p === repoPathOf('my-project'));
+      expect(managedRepoService.getProjectFolderPath('my-project')).toBe(repoPathOf('my-project'));
     });
   });
 });

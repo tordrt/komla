@@ -841,6 +841,7 @@ describe('CodexSettingsService', () => {
   });
 
   it('should invoke the installed Komla CLI on Unix', async () => {
+    setPlatform('linux');
     const { codexSettingsService } =
       await import('../../../src/main/services/codex-settings.service');
 

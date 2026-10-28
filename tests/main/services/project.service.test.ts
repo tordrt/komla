@@ -1,3 +1,5 @@
+import { resolve } from 'path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { mockElectron } from '../../mocks/electron';
@@ -512,7 +514,7 @@ describe('ProjectService', () => {
     expect(project).toMatchObject({
       kind: 'directory',
       name: 'not-a-repo',
-      repositoryPath: '/not-a-repo',
+      repositoryPath: resolve('/not-a-repo'),
       managed: false,
     });
     expect(mockManagedRepoService.createManagedRepo).not.toHaveBeenCalled();
@@ -619,7 +621,7 @@ describe('ProjectService', () => {
       expect(project).toMatchObject({
         kind: 'directory',
         name: 'notes',
-        repositoryPath: '/notes',
+        repositoryPath: resolve('/notes'),
         color: 'hsl(1, 2%, 3%)',
       });
       expect(projectService.list()).toEqual([project]);
@@ -1146,7 +1148,7 @@ describe('ProjectService', () => {
 
       expect(await service.findForFolder('/code/new/src')).toEqual({
         project: null,
-        repoRoot: '/code/new',
+        repoRoot: resolve('/code/new'),
       });
     });
 
@@ -1171,12 +1173,13 @@ describe('ProjectService', () => {
     ] as const)(
       'ignores case in paths only on macOS and Windows (%s)',
       async (platform, expected) => {
+        seed([{ id: 'app', name: 'app', repositoryPath: '/Code/App' }]);
+        mockGitService.isGitRepo.mockResolvedValue(false);
+        // Loaded on the real platform: the virtual filesystem maps Windows paths only there.
+        const service = await load();
         const original = process.platform;
         Object.defineProperty(process, 'platform', { value: platform });
         try {
-          seed([{ id: 'app', name: 'app', repositoryPath: '/Code/App' }]);
-          mockGitService.isGitRepo.mockResolvedValue(false);
-          const service = await load();
           expect((await service.findForFolder('/code/app')).project?.id).toBe(expected);
         } finally {
           Object.defineProperty(process, 'platform', { value: original });

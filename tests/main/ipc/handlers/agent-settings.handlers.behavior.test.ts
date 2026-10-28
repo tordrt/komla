@@ -606,7 +606,10 @@ describe('agent-settings IPC behavior', () => {
       };
       type Status = { generic: { integrationPrompt: string; notifyCommand: string } };
       const base = getKomlaBasePath();
-      const fallback = `If Windows refuses to run it, read \`${join(base, 'skills', 'komla-self-integration-instructions.md')}\` instead.`;
+      // The prompt and the command give paths with forward slashes.
+      const slashed = (...segments: string[]) => join(base, ...segments).replace(/\\/g, '/');
+      const instructions = slashed('skills', 'komla-self-integration-instructions.md');
+      const fallback = `If Windows refuses to run it, read \`${instructions}\` instead.`;
 
       registerAgentSettingsHandlers();
       const allowed = (await ipcMain._invoke('mcp:get-status', 'Amp')) as Status;
@@ -620,7 +623,7 @@ describe('agent-settings IPC behavior', () => {
       expect(blocked.generic.integrationPrompt).toContain('komla skill self-integration');
       expect(blocked.generic.integrationPrompt).toContain(fallback);
       expect(blocked.generic.notifyCommand).toBe(
-        `"${join(base, 'komla-node.cmd')}" "${join(base, 'notify.js')}" --source my-agent --event Stop`
+        `"${slashed('komla-node.cmd')}" "${slashed('notify.js')}" --source my-agent --event Stop`
       );
       // SSH agents run their own CLI, which Windows doesn't police.
       expect(ssh.generic.integrationPrompt).not.toContain('Windows');

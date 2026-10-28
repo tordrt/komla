@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { createMockBrowserWindow, mockElectron } from '../../mocks/electron';
@@ -158,7 +160,7 @@ describe('CustomizationService', () => {
     vi.advanceTimersByTime(1);
     expect(mockWriteFileAtomicSync).toHaveBeenCalledTimes(1);
     expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
-      '/mock/home/.komla/settings/theme.json',
+      join('/mock/home/.komla/settings/theme.json'),
       expect.stringContaining('"accent": "blue"')
     );
   });
@@ -261,7 +263,7 @@ describe('CustomizationService', () => {
     expect(theme.customPalette).toBeUndefined();
     vi.advanceTimersByTime(500);
     expect(mockWriteFileAtomicSync).toHaveBeenCalledWith(
-      '/mock/home/.komla/settings/theme.json',
+      join('/mock/home/.komla/settings/theme.json'),
       expect.not.stringContaining('customPalette')
     );
   });

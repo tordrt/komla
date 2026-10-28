@@ -73,6 +73,20 @@ const mockWriteFileAtomicSync = vi.mocked(writeFileAtomicSync);
 const { randomUUID: mockUuid } = await import('crypto');
 const { BrowserWindow } = await import('electron');
 
+// Commands here expect the POSIX printf escaping of a macOS or Linux desktop shell. A
+// Windows host uses PowerShell escaping instead, which the 'on Windows' tests cover.
+function usePosixDesktopShell(): void {
+  const originalPlatform = process.platform;
+  beforeEach(() => {
+    if (originalPlatform === 'win32') {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+    }
+  });
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+  });
+}
+
 describe('AgentPresetService', () => {
   let agentPresetService: any;
 
@@ -171,6 +185,8 @@ describe('AgentPresetService', () => {
   });
 
   describe('templates', () => {
+    usePosixDesktopShell();
+
     it('should return builtin templates via listTemplates', () => {
       const templates = agentPresetService.listTemplates();
       expect(templates.length).toBeGreaterThanOrEqual(6);
@@ -1100,6 +1116,8 @@ describe('AgentPresetService', () => {
   });
 
   describe('resolveCommand', () => {
+    usePosixDesktopShell();
+
     it('composes launch mode arguments into a prompt command', () => {
       const preset = {
         id: 'claude',

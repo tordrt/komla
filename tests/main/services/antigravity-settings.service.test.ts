@@ -87,6 +87,8 @@ describe('AntigravitySettingsService', () => {
   });
 
   it('writes a komla hook set for model calls, tool results and stops', async () => {
+    // The Windows commands are covered below.
+    setPlatform('linux');
     const service = await loadService();
 
     service.enableNotificationHook();

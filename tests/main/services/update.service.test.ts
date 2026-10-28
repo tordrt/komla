@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { app, net } from 'electron';
 
@@ -41,6 +43,7 @@ vi.mock('../../../src/main/services/paths', () => ({
 
 // Track fs state for pending-update tests
 const mockFs: Record<string, string> = {};
+const markerPath = join('/mock/komla', 'pending-update.json');
 
 vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
@@ -488,8 +491,8 @@ describe('UpdateService', () => {
 
       updateService.installUpdate();
 
-      expect(mockFs['/mock/komla/pending-update.json']).toBeDefined();
-      const marker = JSON.parse(mockFs['/mock/komla/pending-update.json']);
+      expect(mockFs[markerPath]).toBeDefined();
+      const marker = JSON.parse(mockFs[markerPath]);
       expect(marker.version).toBe('2.0.0');
       expect(marker.timestamp).toBeTypeOf('number');
       expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalled();
@@ -503,7 +506,7 @@ describe('UpdateService', () => {
 
       updateService.installUpdate();
 
-      const marker = JSON.parse(mockFs['/mock/komla/pending-update.json']);
+      const marker = JSON.parse(mockFs[markerPath]);
       expect(marker.version).toBe('2.0.0');
     });
 
@@ -547,14 +550,14 @@ describe('UpdateService', () => {
     it('should return false and clear marker on non-darwin platforms', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-      mockFs['/mock/komla/pending-update.json'] = JSON.stringify({
+      mockFs[markerPath] = JSON.stringify({
         version: '2.0.0',
         timestamp: Date.now(),
       });
 
       try {
         expect(handlePendingUpdateRelaunch()).toBe(false);
-        expect(mockFs['/mock/komla/pending-update.json']).toBeUndefined();
+        expect(mockFs[markerPath]).toBeUndefined();
       } finally {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
       }
@@ -564,14 +567,14 @@ describe('UpdateService', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
       vi.mocked(app.getVersion).mockReturnValue('2.0.0');
-      mockFs['/mock/komla/pending-update.json'] = JSON.stringify({
+      mockFs[markerPath] = JSON.stringify({
         version: '2.0.0',
         timestamp: Date.now(),
       });
 
       try {
         expect(handlePendingUpdateRelaunch()).toBe(false);
-        expect(mockFs['/mock/komla/pending-update.json']).toBeUndefined();
+        expect(mockFs[markerPath]).toBeUndefined();
       } finally {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
         vi.mocked(app.getVersion).mockReturnValue('1.0.0');
@@ -582,14 +585,14 @@ describe('UpdateService', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
       vi.mocked(app.getVersion).mockReturnValue('1.0.0');
-      mockFs['/mock/komla/pending-update.json'] = JSON.stringify({
+      mockFs[markerPath] = JSON.stringify({
         version: '2.0.0',
         timestamp: Date.now() - 60_000, // older than 30s
       });
 
       try {
         expect(handlePendingUpdateRelaunch()).toBe(false);
-        expect(mockFs['/mock/komla/pending-update.json']).toBeUndefined();
+        expect(mockFs[markerPath]).toBeUndefined();
       } finally {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
       }
@@ -599,14 +602,14 @@ describe('UpdateService', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
       vi.mocked(app.getVersion).mockReturnValue('1.0.0');
-      mockFs['/mock/komla/pending-update.json'] = JSON.stringify({
+      mockFs[markerPath] = JSON.stringify({
         version: '2.0.0',
         timestamp: Date.now() + 60_000, // in the future
       });
 
       try {
         expect(handlePendingUpdateRelaunch()).toBe(false);
-        expect(mockFs['/mock/komla/pending-update.json']).toBeUndefined();
+        expect(mockFs[markerPath]).toBeUndefined();
       } finally {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
       }
@@ -615,11 +618,11 @@ describe('UpdateService', () => {
     it('should return false and clear marker with invalid JSON', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
-      mockFs['/mock/komla/pending-update.json'] = 'not json at all';
+      mockFs[markerPath] = 'not json at all';
 
       try {
         expect(handlePendingUpdateRelaunch()).toBe(false);
-        expect(mockFs['/mock/komla/pending-update.json']).toBeUndefined();
+        expect(mockFs[markerPath]).toBeUndefined();
       } finally {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
       }
@@ -628,11 +631,11 @@ describe('UpdateService', () => {
     it('should return false and clear marker with valid JSON but wrong shape', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
-      mockFs['/mock/komla/pending-update.json'] = JSON.stringify({ foo: 'bar' });
+      mockFs[markerPath] = JSON.stringify({ foo: 'bar' });
 
       try {
         expect(handlePendingUpdateRelaunch()).toBe(false);
-        expect(mockFs['/mock/komla/pending-update.json']).toBeUndefined();
+        expect(mockFs[markerPath]).toBeUndefined();
       } finally {
         Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
       }
@@ -642,7 +645,7 @@ describe('UpdateService', () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
       vi.mocked(app.getVersion).mockReturnValue('1.0.0');
-      mockFs['/mock/komla/pending-update.json'] = JSON.stringify({
+      mockFs[markerPath] = JSON.stringify({
         version: '2.0.0',
         timestamp: Date.now(),
       });

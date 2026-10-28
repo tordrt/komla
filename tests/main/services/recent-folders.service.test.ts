@@ -1,3 +1,5 @@
+import { resolve } from 'path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const config: { recentFolders?: string[] } = {};
@@ -51,15 +53,17 @@ describe('recent folders', () => {
   const folders = (...paths: string[]) => paths.forEach((path) => existing.add(path));
 
   it('puts an opened folder first, once, and tells windows and listeners', async () => {
-    folders('/a', '/b');
-    config.recentFolders = ['/a', '/b'];
+    // Resolved as an opened folder is, which on Windows adds the drive.
+    const [a, b] = [resolve('/a'), resolve('/b')];
+    folders(a, b);
+    config.recentFolders = [a, b];
     const listener = vi.fn();
     const stop = onRecentFoldersChanged(listener);
 
     recordOpenedFolder('/b/');
     await settle();
 
-    expect(getRecentFolders()).toEqual(['/b', '/a']);
+    expect(getRecentFolders()).toEqual([b, a]);
     expect(windowService.broadcastToAll).toHaveBeenCalledWith(expect.any(String), config);
     expect(listener).toHaveBeenCalledOnce();
     stop();
@@ -67,17 +71,18 @@ describe('recent folders', () => {
 
   it('keeps the ten opened last, and folders that are gone, which may come back', async () => {
     const paths = Array.from({ length: 12 }, (_, i) => `/f${i}`);
-    folders('/new', ...paths);
+    const opened = resolve('/new');
+    folders(opened, ...paths);
     config.recentFolders = ['/gone', ...paths];
 
     recordOpenedFolder('/new');
     await settle();
 
-    expect(config.recentFolders).toEqual(['/new', '/gone', ...paths.slice(0, 8)]);
-    expect(getRecentFolders()).toEqual(['/new', ...paths.slice(0, 8)]);
+    expect(config.recentFolders).toEqual([opened, '/gone', ...paths.slice(0, 8)]);
+    expect(getRecentFolders()).toEqual([opened, ...paths.slice(0, 8)]);
 
     folders('/gone');
-    await expect(refreshRecentFolders()).resolves.toEqual(['/new', '/gone', ...paths.slice(0, 8)]);
+    await expect(refreshRecentFolders()).resolves.toEqual([opened, '/gone', ...paths.slice(0, 8)]);
   });
 
   it('leaves out a folder whose check takes too long', async () => {

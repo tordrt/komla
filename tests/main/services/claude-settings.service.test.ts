@@ -272,13 +272,13 @@ describe('ClaudeSettingsService', () => {
 
     claudeSettingsService.enableNotificationHook();
 
-    expect(mockMkdirSync).toHaveBeenCalledWith('/mock/home/.claude', { recursive: true });
+    expect(mockMkdirSync).toHaveBeenCalledWith(join('/mock/home/.claude'), { recursive: true });
     expect(mockWriteFileSync).toHaveBeenCalledOnce();
 
     const [settingsPath, writtenSettings] = mockWriteFileSync.mock.calls[0] as [string, string];
     const parsed = JSON.parse(writtenSettings);
 
-    expect(settingsPath).toBe('/mock/home/.claude/settings.json');
+    expect(settingsPath).toBe(join('/mock/home/.claude/settings.json'));
     expect(parsed.hooks.Notification).toHaveLength(1);
     expect(parsed.hooks.Stop).toHaveLength(1);
     expect(parsed.hooks.UserPromptSubmit).toHaveLength(1);
@@ -395,7 +395,7 @@ describe('ClaudeSettingsService', () => {
   });
 
   it('checks MCP configuration via ~/.claude.json first (fast path)', async () => {
-    mockExistsSync.mockImplementation((path) => path === '/mock/home/.claude.json');
+    mockExistsSync.mockImplementation((path) => path === join('/mock/home/.claude.json'));
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         mcpServers: {

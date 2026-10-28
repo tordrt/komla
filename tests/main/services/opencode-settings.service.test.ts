@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { runInNewContext } from 'node:vm';
+import { join } from 'path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -211,13 +212,13 @@ describe('OpenCodeSettingsService', () => {
 
     opencodeSettingsService.enableNotificationPlugin();
 
-    expect(mockMkdirSync).toHaveBeenCalledWith('/mock/home/.config/opencode/plugins', {
+    expect(mockMkdirSync).toHaveBeenCalledWith(join('/mock/home/.config/opencode/plugins'), {
       recursive: true,
     });
     expect(mockWriteFileSync).toHaveBeenCalledOnce();
 
     const [pluginPath, pluginContent] = mockWriteFileSync.mock.calls[0] as [string, string];
-    expect(pluginPath).toBe('/mock/home/.config/opencode/plugins/komla-notify.js');
+    expect(pluginPath).toBe(join('/mock/home/.config/opencode/plugins/komla-notify.js'));
     expect(pluginContent).toContain('/bin/komla');
     expect(pluginContent).toContain('"notify"');
     expect(pluginContent).not.toContain('/notify.js');
@@ -751,7 +752,7 @@ describe('OpenCodeSettingsService', () => {
 
   it('removes the plugin when disabling notifications', async () => {
     mockExistsSync.mockImplementation(
-      (path) => path === '/mock/home/.config/opencode/plugins/komla-notify.js'
+      (path) => path === join('/mock/home/.config/opencode/plugins/komla-notify.js')
     );
 
     const { opencodeSettingsService } =
@@ -759,7 +760,7 @@ describe('OpenCodeSettingsService', () => {
     opencodeSettingsService.disableNotificationPlugin();
 
     expect(mockUnlinkSync).toHaveBeenCalledWith(
-      '/mock/home/.config/opencode/plugins/komla-notify.js'
+      join('/mock/home/.config/opencode/plugins/komla-notify.js')
     );
   });
 

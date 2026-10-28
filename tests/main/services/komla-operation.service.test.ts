@@ -1,3 +1,5 @@
+import { resolve } from 'path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -1952,9 +1954,9 @@ describe('KomlaOperationService', () => {
       );
 
       await expect(open(service, { terminalId: 'terminal-1' })).resolves.toEqual({
-        folder: { path: '/notes' },
+        folder: { path: resolve('/notes') },
       });
-      expect(requestOpenFolder).toHaveBeenCalledExactlyOnceWith('/notes', 'window-2');
+      expect(requestOpenFolder).toHaveBeenCalledExactlyOnceWith(resolve('/notes'), 'window-2');
     });
 
     it('opens it in any window from outside a workspace', async () => {
@@ -1962,7 +1964,7 @@ describe('KomlaOperationService', () => {
       const service = new KomlaOperationService(createDependencies({ requestOpenFolder }));
 
       await open(service);
-      expect(requestOpenFolder).toHaveBeenCalledExactlyOnceWith('/notes', undefined);
+      expect(requestOpenFolder).toHaveBeenCalledExactlyOnceWith(resolve('/notes'), undefined);
     });
 
     it.each([

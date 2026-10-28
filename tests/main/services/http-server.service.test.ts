@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { IPC } from '../../../src/shared/constants/ipc-channels';
@@ -353,8 +355,9 @@ describe('HttpServerService', () => {
     mockLoggerInfo.mockReset();
     mockLoggerWarn.mockReset();
     mockRealpathSync.mockReset();
+    // Either separator: on Windows the service normalizes the cwd to backslashes first.
     mockRealpathSync.mockImplementation((path: string) =>
-      path.replace('/private/tmp/komla-dev', '/tmp/komla-dev')
+      path.replace(/^([\\/])private\1tmp\1komla-dev/, '$1tmp$1komla-dev')
     );
     mockRealpathSync.native = mockRealpathSync;
     mockReadFileSync.mockReset();
@@ -2836,7 +2839,7 @@ describe('HttpServerService', () => {
       });
       expect(res.end).toHaveBeenCalledWith('# Scoped instructions');
       expect(mockReadFileSync).toHaveBeenCalledWith(
-        expect.stringContaining('/skills/komla-project-setup-instructions.md'),
+        join('/mock/home/.komla/skills/komla-project-setup-instructions.md'),
         'utf-8'
       );
     });
@@ -2864,7 +2867,7 @@ describe('HttpServerService', () => {
 
       expect(mockReadFileSync).toHaveBeenCalledTimes(1);
       expect(mockReadFileSync).toHaveBeenCalledWith(
-        expect.stringContaining('/skills/komla-project-setup-instructions.md'),
+        join('/mock/home/.komla/skills/komla-project-setup-instructions.md'),
         'utf-8'
       );
       expect(res.end).toHaveBeenCalledWith('# Environment-independent instructions');
@@ -2892,7 +2895,7 @@ describe('HttpServerService', () => {
       );
 
       expect(mockReadFileSync).toHaveBeenCalledWith(
-        expect.stringContaining('/skills/komla-self-integration-instructions.md'),
+        join('/mock/home/.komla/skills/komla-self-integration-instructions.md'),
         'utf-8'
       );
       expect(res.end).toHaveBeenCalledWith('# Integration instructions');
@@ -2948,13 +2951,16 @@ describe('HttpServerService', () => {
   // --------------------------------------------------------------------------
 
   describe('GET /validate-settings', () => {
+    const projectsJsonPath = join('/mock/home/.komla/settings/projects.json');
+    const actionsJsonPath = join('/mock/home/.komla/settings/actions.json');
+
     beforeEach(() => {
       httpServerService.start();
     });
 
     it('returns ok when projects.json and actions.json are valid', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) {
+        if (path === projectsJsonPath) {
           return JSON.stringify({
             _version: 1,
             projects: [
@@ -2970,7 +2976,7 @@ describe('HttpServerService', () => {
             ],
           });
         }
-        if (path.endsWith('/actions.json')) {
+        if (path === actionsJsonPath) {
           return JSON.stringify({
             _version: 1,
             actions: [
@@ -3000,8 +3006,8 @@ describe('HttpServerService', () => {
 
     it('reports parse errors without exposing file contents', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) return '{';
-        if (path.endsWith('/actions.json')) return JSON.stringify({ actions: [] });
+        if (path === projectsJsonPath) return '{';
+        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
         throw new Error('Unexpected file');
       });
 
@@ -3020,8 +3026,8 @@ describe('HttpServerService', () => {
 
     it('accepts but warns about a leading UTF-8 BOM', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) return '\ufeff{"projects":[]}';
-        if (path.endsWith('/actions.json')) return JSON.stringify({ actions: [] });
+        if (path === projectsJsonPath) return '\ufeff{"projects":[]}';
+        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
         throw new Error('Unexpected file');
       });
 
@@ -3041,10 +3047,10 @@ describe('HttpServerService', () => {
 
     it('reports schema-compatible errors for invalid entries', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) {
+        if (path === projectsJsonPath) {
           return JSON.stringify({ projects: [{ id: 'missing-required-fields' }] });
         }
-        if (path.endsWith('/actions.json')) return JSON.stringify({ actions: [] });
+        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
         throw new Error('Unexpected file');
       });
 
@@ -3062,7 +3068,7 @@ describe('HttpServerService', () => {
 
     it('rejects project entries with malformed optional setup fields', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) {
+        if (path === projectsJsonPath) {
           return JSON.stringify({
             projects: [
               {
@@ -3078,7 +3084,7 @@ describe('HttpServerService', () => {
             ],
           });
         }
-        if (path.endsWith('/actions.json')) return JSON.stringify({ actions: [] });
+        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
         throw new Error('Unexpected file');
       });
 
@@ -3096,7 +3102,7 @@ describe('HttpServerService', () => {
 
     it('rejects setup steps with an array-shaped agent target', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) {
+        if (path === projectsJsonPath) {
           return JSON.stringify({
             projects: [
               {
@@ -3120,7 +3126,7 @@ describe('HttpServerService', () => {
             ],
           });
         }
-        if (path.endsWith('/actions.json')) return JSON.stringify({ actions: [] });
+        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
         throw new Error('Unexpected file');
       });
 
@@ -3138,7 +3144,7 @@ describe('HttpServerService', () => {
 
     it('rejects project entries with duplicate ids', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) {
+        if (path === projectsJsonPath) {
           return JSON.stringify({
             projects: [
               {
@@ -3162,7 +3168,7 @@ describe('HttpServerService', () => {
             ],
           });
         }
-        if (path.endsWith('/actions.json')) return JSON.stringify({ actions: [] });
+        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
         throw new Error('Unexpected file');
       });
 
@@ -3178,8 +3184,8 @@ describe('HttpServerService', () => {
 
     it('rejects action entries with malformed optional fields', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) return JSON.stringify({ projects: [] });
-        if (path.endsWith('/actions.json')) {
+        if (path === projectsJsonPath) return JSON.stringify({ projects: [] });
+        if (path === actionsJsonPath) {
           return JSON.stringify({
             actions: [
               {
@@ -3207,8 +3213,8 @@ describe('HttpServerService', () => {
 
     it('rejects action entries with duplicate ids', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) return JSON.stringify({ projects: [] });
-        if (path.endsWith('/actions.json')) {
+        if (path === projectsJsonPath) return JSON.stringify({ projects: [] });
+        if (path === actionsJsonPath) {
           return JSON.stringify({
             actions: [
               {
@@ -3241,8 +3247,8 @@ describe('HttpServerService', () => {
 
     it('accepts action entries with nullable lastUsedAt', async () => {
       mockReadFileSync.mockImplementation((path: string) => {
-        if (path.endsWith('/projects.json')) return JSON.stringify({ projects: [] });
-        if (path.endsWith('/actions.json')) {
+        if (path === projectsJsonPath) return JSON.stringify({ projects: [] });
+        if (path === actionsJsonPath) {
           return JSON.stringify({
             actions: [
               {

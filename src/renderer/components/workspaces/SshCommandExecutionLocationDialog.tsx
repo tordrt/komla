@@ -70,8 +70,8 @@ export function SshCommandExecutionLocationDialog({
               selected={!local}
               onSelect={() => onChoiceChange('remote')}
             >
-              Runs next to your agents and code. To open a dev server here, forward its port from
-              the Browser pane menu.
+              Runs next to your agents and code. Open a dev server from the Browser dropdown and its
+              port is forwarded automatically.
             </LocationCard>
             <LocationCard
               icon={Desktop}

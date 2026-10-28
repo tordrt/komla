@@ -396,7 +396,7 @@ describe('SshTab', () => {
       expect(screen.getByRole('button', { name: 'Delete host' })).toBeInTheDocument();
     });
 
-    it('keeps custom agent integration guidance inside Other Agent CLIs', async () => {
+    it('keeps custom agent integration guidance inside Other agents', async () => {
       const user = userEvent.setup();
       renderSsh();
 
@@ -407,7 +407,7 @@ describe('SshTab', () => {
         })
       ).not.toBeInTheDocument();
 
-      await user.click(screen.getByRole('button', { name: /Other Agent CLIs/ }));
+      await user.click(screen.getByRole('button', { name: /Other agents/ }));
 
       expect(
         screen.getByRole('heading', {
@@ -478,7 +478,7 @@ describe('SshTab', () => {
       const dispatchEvent = vi.spyOn(window, 'dispatchEvent');
       renderSsh();
 
-      await user.click(await screen.findByRole('button', { name: /Other Agent CLIs/ }));
+      await user.click(await screen.findByRole('button', { name: /Other agents/ }));
       await user.click(
         await screen.findByRole('button', { name: 'Launch self-integration skill' })
       );
@@ -490,7 +490,7 @@ describe('SshTab', () => {
       expect(openEvent?.detail).toEqual({ sshHostId: 'ssh-dev' });
     });
 
-    it("counts hooks in each agent's integration summary", async () => {
+    it('shows which agents have hooks, and counts the MCP server apart', async () => {
       vi.mocked(window.api.getSshIntegrationStatus).mockResolvedValue({
         claude: { notifications: false, mcp: true },
         codex: { notifications: true, mcp: false },
@@ -501,12 +501,10 @@ describe('SshTab', () => {
 
       renderSsh();
 
-      const hostPanel = within(
-        (await screen.findByText('Hooks and the Komla skill for agents running on this SSH host.'))
-          .parentElement!
-      );
-      expect(await hostPanel.findAllByText('Not configured')).toHaveLength(2);
-      expect(hostPanel.getAllByText('Configured')).toHaveLength(2);
+      const hooks = within(await screen.findByRole('group', { name: 'Hooks' }));
+      expect(await hooks.findAllByRole('button', { name: 'Enable' })).toHaveLength(2);
+      expect(hooks.getAllByText(/Configured/)).toHaveLength(2);
+      expect(screen.getByRole('group', { name: 'MCP server' })).toHaveTextContent('1 on');
     });
   });
 
@@ -1074,12 +1072,11 @@ describe('SshTab', () => {
       await user.click(await within(dialog).findByRole('button', { name: 'Set up machine' }));
 
       expect(await screen.findByText('first.example.com is ready')).toBeInTheDocument();
-      await user.click(await screen.findByRole('button', { name: /Codex CLI/ }));
-      await user.click(
-        within(screen.getByRole('group', { name: 'Codex CLI' })).getAllByRole('button', {
-          name: 'Enable',
-        })[0]
-      );
+      // Hooks lead the step, one row per agent, with nothing to expand first.
+      const codexRow = within(screen.getByRole('group', { name: 'Hooks' }))
+        .getByText('Codex CLI')
+        .closest('div.space-y-2') as HTMLElement;
+      await user.click(within(codexRow).getByRole('button', { name: 'Enable' }));
 
       await waitFor(() => {
         expect(window.api.enableSshIntegration).toHaveBeenCalledWith(
@@ -1121,8 +1118,9 @@ describe('SshTab', () => {
       });
 
       expect(await screen.findByText('first.example.com is ready')).toBeInTheDocument();
-      expect(screen.getByText('Configured')).toBeInTheDocument();
-      expect(screen.getAllByText('Not configured')).toHaveLength(3);
+      const hooks = within(screen.getByRole('group', { name: 'Hooks' }));
+      expect(hooks.getAllByText(/Configured/)).toHaveLength(1);
+      expect(hooks.getAllByRole('button', { name: 'Enable' })).toHaveLength(3);
       expect(screen.queryByText('Checking...')).not.toBeInTheDocument();
       expect(window.api.getSshIntegrationStatus).toHaveBeenCalledOnce();
     });
@@ -1289,7 +1287,7 @@ describe('SshTab', () => {
       renderSsh();
 
       const dialog = await screen.findByRole('dialog');
-      await user.click((await within(dialog).findAllByRole('button', { name: 'Enable' }))[0]);
+      await user.click(await skillButton(dialog, 'Enable'));
       await waitFor(() => expect(window.api.setSshKomlaSkill).toHaveBeenCalledWith(host.id, true));
       expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
 
@@ -1312,7 +1310,7 @@ describe('SshTab', () => {
       renderSsh();
 
       const dialog = await screen.findByRole('dialog');
-      await user.click((await within(dialog).findAllByRole('button', { name: 'Enable' }))[0]);
+      await user.click(await skillButton(dialog, 'Enable'));
       await user.click(within(dialog).getByRole('button', { name: 'Done' }));
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
       expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
@@ -1333,8 +1331,8 @@ describe('SshTab', () => {
       renderSsh();
 
       const dialog = await screen.findByRole('dialog');
-      await user.click((await within(dialog).findAllByRole('button', { name: 'Enable' }))[0]);
-      await user.click(await within(dialog).findByRole('button', { name: 'Remove' }));
+      await user.click(await skillButton(dialog, 'Enable'));
+      await user.click(await skillButton(dialog, 'Remove'));
       await waitFor(() => expect(window.api.setSshKomlaSkill).toHaveBeenCalledWith(host.id, false));
 
       await user.click(within(dialog).getByRole('button', { name: 'Done' }));
@@ -1609,3 +1607,10 @@ describe('SshTab', () => {
     });
   });
 });
+
+// The Komla skill's Enable or Remove, under Komla CLI in the integrations step.
+function skillButton(dialog: HTMLElement, name: 'Enable' | 'Remove'): Promise<HTMLElement> {
+  return within(within(dialog).getByRole('group', { name: 'Komla CLI' })).findByRole('button', {
+    name,
+  });
+}

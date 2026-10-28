@@ -79,11 +79,8 @@ describe('RemoteAgentIntegrationsPanel', () => {
     api.enableSshIntegration.mockRejectedValue(new Error('permission denied on ~/.claude'));
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
 
-    await user.click(await screen.findByRole('button', { name: /Claude Code/ }));
     await user.click(
-      within(screen.getByRole('group', { name: 'Claude Code' })).getAllByRole('button', {
-        name: 'Enable',
-      })[0]
+      await within(await row('Hooks', 'Claude Code')).findByRole('button', { name: 'Enable' })
     );
 
     await waitFor(() =>
@@ -98,22 +95,58 @@ describe('RemoteAgentIntegrationsPanel', () => {
     );
   });
 
+  it('puts hooks first, then the Komla skill, then the MCP server, collapsed', async () => {
+    setupMockApi();
+    render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
+    await within(await row('Hooks', 'Claude Code')).findByRole('button', { name: 'Enable' });
+
+    const tiers = screen
+      .getAllByRole('group')
+      .map((group) => group.getAttribute('aria-label'))
+      .filter((label) => ['Hooks', 'Komla CLI', 'MCP server'].includes(label ?? ''));
+    expect(tiers).toEqual(['Hooks', 'Komla CLI', 'MCP server']);
+    const hooks = screen.getByRole('group', { name: 'Hooks' });
+    expect(within(hooks).getByText('Recommended')).toBeInTheDocument();
+    // One Enable per agent, with nothing to expand first.
+    expect(within(hooks).getAllByRole('button', { name: 'Enable' })).toHaveLength(4);
+    const mcp = screen.getByRole('group', { name: 'MCP server' });
+    expect(within(mcp).getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+    expect(mcp).toHaveTextContent('Off');
+  });
+
+  it('shows each agent’s logo in its own colors, and a muted mark for other agents', async () => {
+    setupMockApi();
+    render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
+
+    for (const agent of ['Claude Code', 'Codex CLI', 'Antigravity CLI', 'OpenCode']) {
+      const logo = (await row('Hooks', agent)).querySelector('[data-agent-preset-icon]');
+      expect(logo).not.toHaveAttribute('data-agent-preset-icon', 'fallback');
+      expect(logo).not.toHaveClass('text-muted-foreground');
+    }
+    const otherMark = screen
+      .getByRole('group', { name: 'Other agents' })
+      .querySelector('[data-agent-preset-icon]');
+    expect(otherMark).toHaveAttribute('data-agent-preset-icon', 'fallback');
+    expect(otherMark).toHaveClass('text-muted-foreground');
+  });
+
   it('keeps the agent list while it rechecks after a change', async () => {
     const user = userEvent.setup();
     const api = setupMockApi();
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
-    await user.click(await screen.findByRole('button', { name: /Claude Code/ }));
+    const claude = await row('Hooks', 'Claude Code');
+    const enable = await within(claude).findByRole('button', { name: 'Enable' });
     api.getSshIntegrationStatus.mockReturnValue(new Promise(() => {}));
 
-    await user.click(
-      within(screen.getByRole('group', { name: 'Claude Code' })).getAllByRole('button', {
-        name: 'Enable',
-      })[0]
-    );
+    await user.click(enable);
 
     await waitFor(() => expect(api.getSshIntegrationStatus).toHaveBeenCalledTimes(2));
     expect(screen.queryByText('Checking...')).not.toBeInTheDocument();
-    expect(screen.getAllByText('Not configured')).toHaveLength(4);
+    expect(
+      within(screen.getByRole('group', { name: 'Hooks' })).getAllByRole('button', {
+        name: 'Enable',
+      })
+    ).toHaveLength(4);
   });
 
   it('opens on the status the caller already read', () => {
@@ -125,19 +158,32 @@ describe('RemoteAgentIntegrationsPanel', () => {
       />
     );
 
-    expect(screen.getByText('Configured')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: 'Hooks' })).getByText(/Configured/)
+    ).toBeInTheDocument();
     expect(api.getSshIntegrationStatus).not.toHaveBeenCalled();
+  });
+
+  it('points to komla --help under the Komla skill', () => {
+    setupMockApi();
+    render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
+
+    expect(screen.getByRole('group', { name: 'Komla CLI' })).toHaveTextContent(
+      'Agents can also look up any command with komla --help or komla <command> --help.'
+    );
   });
 
   it('adds the Komla skill on the host for every agent from one row', async () => {
     const user = userEvent.setup();
     const api = setupMockApi();
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
-    await screen.findAllByText('Not configured');
     expect(screen.getAllByText('Komla skill')).toHaveLength(1);
 
-    // The skill's row comes before the agents.
-    await user.click(screen.getAllByRole('button', { name: 'Enable' })[0]);
+    await user.click(
+      await within(screen.getByRole('group', { name: 'Komla CLI' })).findByRole('button', {
+        name: 'Enable',
+      })
+    );
 
     await waitFor(() => expect(api.setSshKomlaSkill).toHaveBeenCalledWith(host.id, true));
     expect(api.enableSshIntegration).not.toHaveBeenCalled();
@@ -162,7 +208,11 @@ describe('RemoteAgentIntegrationsPanel', () => {
       />
     );
 
-    await user.click((await screen.findAllByRole('button', { name: 'Enable' }))[0]);
+    await user.click(
+      await within(screen.getByRole('group', { name: 'Komla CLI' })).findByRole('button', {
+        name: 'Enable',
+      })
+    );
     await waitFor(() => expect(onLaunchIntegrationChange).toHaveBeenLastCalledWith(true));
 
     // Removing the skill leaves Claude Code's MCP server, so agents there still start others.
@@ -171,12 +221,12 @@ describe('RemoteAgentIntegrationsPanel', () => {
     await screen.findAllByRole('button', { name: 'Enable' });
     expect(onLaunchIntegrationChange).toHaveBeenCalledOnce();
 
-    await user.click(screen.getByRole('button', { name: /Claude Code/ }));
+    await user.click(
+      within(screen.getByRole('group', { name: 'MCP server' })).getAllByRole('button')[0]
+    );
     status.claude = { notifications: false, mcp: false };
     await user.click(
-      within(screen.getByRole('group', { name: 'Claude Code' })).getByRole('button', {
-        name: 'Remove',
-      })
+      within(await row('MCP server', 'Claude Code')).getByRole('button', { name: 'Remove' })
     );
     await waitFor(() => expect(onLaunchIntegrationChange).toHaveBeenLastCalledWith(false));
     expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
@@ -195,37 +245,60 @@ describe('RemoteAgentIntegrationsPanel', () => {
     expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
   });
 
-  it('says when an SSH host MCP server is reachable', async () => {
+  it('enables an agent’s MCP server on the host, saying when it is reachable', async () => {
     const user = userEvent.setup();
-    setupMockApi();
+    const api = setupMockApi();
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
 
-    await user.click(await screen.findByRole('button', { name: /Claude Code/ }));
+    const mcp = screen.getByRole('group', { name: 'MCP server' });
+    expect(mcp).toHaveTextContent('Available while a Komla SSH terminal for this host is open.');
+    await user.click(within(mcp).getByRole('button'));
+    await user.click(
+      await within(await row('MCP server', 'Codex CLI')).findByRole('button', { name: 'Enable' })
+    );
 
-    expect(
-      screen.getByText('Available while a Komla SSH terminal for this host is open.')
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.enableSshIntegration).toHaveBeenCalledWith(host.id, 'codex', 'mcp')
+    );
+  });
+
+  it('says every tier is unavailable when the host can’t be checked', async () => {
+    const user = userEvent.setup();
+    const api = setupMockApi();
+    api.getSshIntegrationStatus.mockRejectedValue(new Error('connection refused'));
+    render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
+
+    const mcp = screen.getByRole('group', { name: 'MCP server' });
+    await waitFor(() => expect(mcp).toHaveTextContent('Unavailable'));
+    await user.click(within(mcp).getByRole('button'));
+    const codex = await row('MCP server', 'Codex CLI');
+    expect(within(codex).getByText('Unavailable')).toBeInTheDocument();
+    expect(within(codex).queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument();
   });
 
   it('explains Codex hook approval on the host', async () => {
-    const user = userEvent.setup();
     setupMockApi();
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
 
-    await user.click(await screen.findByRole('button', { name: /Codex CLI/ }));
-
-    expect(
-      screen.getByText(/Codex won.t run the Komla hooks until you approve them/)
-    ).toBeInTheDocument();
-    expect(screen.getByText(/workspace titles won.t follow the chat/)).toBeInTheDocument();
+    const codex = await row('Hooks', 'Codex CLI');
+    expect(codex).toHaveTextContent(/Codex won.t run the Komla hooks until you approve them/);
+    expect(codex).toHaveTextContent(/workspace titles won.t follow the chat/);
   });
 
   it('offers Antigravity CLI and other agents on the host', async () => {
     setupMockApi();
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
 
-    expect(await screen.findByRole('button', { name: /Antigravity CLI/ })).toBeInTheDocument();
+    expect(await row('Hooks', 'Antigravity CLI')).toBeInTheDocument();
     expect(screen.queryByText(/Gemini CLI/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Other Agent CLIs/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Other agents/ })).toBeInTheDocument();
   });
 });
+
+// An agent's row in a tier.
+async function row(tier: 'Hooks' | 'MCP server', agent: string): Promise<HTMLElement> {
+  const label = await within(screen.getByRole('group', { name: tier })).findByText(agent, {
+    selector: 'span',
+  });
+  return label.closest('div.space-y-2') as HTMLElement;
+}

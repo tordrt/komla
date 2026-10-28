@@ -1,13 +1,23 @@
-import { Check, Cloud, Copy, Desktop, Info, Warning } from '@phosphor-icons/react';
+import {
+  BellRinging,
+  Check,
+  Cloud,
+  Copy,
+  Desktop,
+  Plugs,
+  TerminalWindow,
+  Warning,
+} from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
 import { IconButton } from '@/components/ui/icon-button';
+import { KomlaMark } from '@/components/ui/komla-mark';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { reportsOwnStatus } from '@/lib/agent-status-reports';
 import { lastUsedIntegrationTarget, type IntegrationTarget } from '@/lib/integration-target';
+import { cn } from '@/lib/utils';
 import { offerAgentLaunchDefaults } from '@/stores/agent-launch-defaults-dialog.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -16,18 +26,33 @@ import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { KomlaCliIntegration } from '../KomlaCliIntegration';
 
 import {
+  AGENT_NAMES,
+  AgentIcon,
+  CollapsibleIntegrationGroup,
   ConfiguredAction,
   ConfiguredBadge,
-  ConfiguredDot,
+  enabledSummary,
   EnableButton,
+  IntegrationGroup,
   IntegrationItem,
   NotificationUpdateAction,
-  SectionShell,
+  OtherAgentsRow,
+  RecommendedBadge,
 } from './AgentIntegrationParts';
-import { HooksHelp, hooksSummary, KomlaSkillHelp, McpHelp, mcpServerNote } from './IntegrationHelp';
+import { FormError } from './FormError';
+import {
+  CodexHookApproval,
+  HOOKS_DESCRIPTION,
+  HooksHelp,
+  KOMLA_CLI_DESCRIPTION,
+  KomlaCliHelpNote,
+  KomlaSkillHelp,
+  MCP_DESCRIPTION,
+  McpHelp,
+} from './IntegrationHelp';
 import { OtherAgentCallout } from './OtherAgentCallout';
 import { RemoteAgentIntegrationsPanel } from './RemoteAgentIntegrationsPanel';
-import { SettingsCard } from './SettingsCard';
+import { SETTINGS_CARD_CLASS, SettingsCard } from './SettingsCard';
 
 import type { NotificationIntegrationUpdate } from '../../../../shared/types/notification-integration';
 import type { KomlaSkillStatus, McpStatus, SshAgent } from '@/types';
@@ -70,15 +95,8 @@ interface OpenCodeNotificationInfo {
   isConfigured: boolean;
 }
 
-type ExpandedSections = {
-  claude: boolean;
-  antigravity: boolean;
-  codex: boolean;
-  opencode: boolean;
-  generic: boolean;
-};
-
-export type SectionKey = keyof ExpandedSections;
+/** What a link into the menu is for: an agent's integrations, or other agents' setup. */
+export type SectionKey = AgentIntegrationFilter | 'generic';
 
 interface CopyApi {
   copiedField: string | null;
@@ -113,7 +131,7 @@ export function AgentIntegrationsPanel({
 }: {
   // When set, render only this agent's section — no generic section.
   agentFilter?: AgentIntegrationFilter;
-  /** The section that starts expanded, such as the agent a link came for. */
+  /** What a link came for; other agents' setup starts expanded for it. */
   openSection?: SectionKey;
   /** The agent the self-integration skill launches with, instead of New Workspace's default. */
   selfSetupPresetId?: string;
@@ -158,6 +176,8 @@ export function AgentIntegrationsPanel({
 
   const [mcpStatus, setMcpStatus] = useState<McpStatus | null>(null);
   const [mcpChecking, setMcpChecking] = useState(true);
+  // Why the MCP status couldn't be read, for the whole MCP tier.
+  const [mcpLoadError, setMcpLoadError] = useState<string | null>(null);
   const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [codexMcpLoading, setCodexMcpLoading] = useState(false);
@@ -168,19 +188,26 @@ export function AgentIntegrationsPanel({
   const [skillStatus, setSkillStatus] = useState<KomlaSkillStatus | null>(null);
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillError, setSkillError] = useState<string | null>(null);
+  // Why the skill's status couldn't be read, apart from why a change to it failed.
+  const [skillLoadError, setSkillLoadError] = useState<string | null>(null);
 
   const [expandedDetail, setExpandedDetail] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [expandedSections, setExpandedSections] = useState<ExpandedSections>(() => {
-    const open = agentFilter ?? openSection;
-    return {
-      claude: open === 'claude',
-      antigravity: open === 'antigravity',
-      codex: open === 'codex',
-      opencode: open === 'opencode',
-      generic: open === 'generic',
-    };
-  });
+  // Every agent's hooks are always in view, so only other agents' setup opens for a link.
+  const [otherExpanded, setOtherExpanded] = useState(
+    () => !agentFilter && openSection === 'generic'
+  );
+  const [mcpExpanded, setMcpExpanded] = useState(false);
+  // Why each agent's hook details couldn't be read, so its row says so instead of spinning.
+  const [hookLoadErrors, setHookLoadErrors] = useState<
+    Partial<Record<AgentIntegrationFilter, string>>
+  >({});
+  const setHookLoadError = (agent: AgentIntegrationFilter, err: unknown) =>
+    setHookLoadErrors((current) => {
+      const message =
+        err === null ? undefined : getIpcErrorMessage(err, 'Couldn’t check its hooks');
+      return current[agent] === message ? current : { ...current, [agent]: message };
+    });
   const [komlaBasePath, setKomlaBasePath] = useState<string | null>(null);
   const activeIntegrationTarget =
     integrationTarget.startsWith('ssh:') &&
@@ -192,8 +219,10 @@ export function AgentIntegrationsPanel({
     try {
       const info = await window.api.getNotificationHookDetails();
       setNotificationInfo(info);
+      setHookLoadError('claude', null);
     } catch (err) {
       console.error('Failed to load notification info:', err);
+      setHookLoadError('claude', err);
     }
   };
 
@@ -201,8 +230,10 @@ export function AgentIntegrationsPanel({
     try {
       const info = await window.api.getAntigravityNotificationHookDetails();
       setAntigravityNotificationInfo(info);
+      setHookLoadError('antigravity', null);
     } catch (err) {
       console.error('Failed to load Antigravity notification info:', err);
+      setHookLoadError('antigravity', err);
     }
   };
 
@@ -211,8 +242,10 @@ export function AgentIntegrationsPanel({
       const status = await window.api.getMcpStatus();
       setMcpStatus(status);
       setMcpError(null);
+      setMcpLoadError(null);
     } catch (err) {
       console.error('Failed to load MCP status:', err);
+      setMcpLoadError(getIpcErrorMessage(err, 'Couldn’t check the MCP server'));
     } finally {
       setMcpChecking(false);
     }
@@ -221,8 +254,10 @@ export function AgentIntegrationsPanel({
   const loadSkillStatus = async () => {
     try {
       setSkillStatus(await window.api.getKomlaSkillStatus());
+      setSkillLoadError(null);
     } catch (err) {
       console.error('Failed to load the Komla skill status:', err);
+      setSkillLoadError(getIpcErrorMessage(err, 'Couldn’t check the Komla skill'));
     }
   };
 
@@ -247,7 +282,7 @@ export function AgentIntegrationsPanel({
       setCodexNotificationInfo(info);
       setCodexNotificationError(null);
     } catch (err) {
-      setCodexNotificationError(getIpcErrorMessage(err, 'Update failed'));
+      setCodexNotificationError(getIpcErrorMessage(err, 'Couldn’t check its hooks'));
     }
   };
 
@@ -255,8 +290,10 @@ export function AgentIntegrationsPanel({
     try {
       const info = await window.api.getOpenCodeNotificationHookDetails();
       setOpencodeNotificationInfo(info);
+      setHookLoadError('opencode', null);
     } catch (err) {
       console.error('Failed to load OpenCode notification info:', err);
+      setHookLoadError('opencode', err);
     }
   };
 
@@ -560,10 +597,6 @@ export function AgentIntegrationsPanel({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const toggleSection = (key: SectionKey) => {
-    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
   const localNeedsUpdate = [
     notificationInfo,
     codexNotificationInfo,
@@ -576,10 +609,12 @@ export function AgentIntegrationsPanel({
     setRemoteUpdateAgents((current) => ({ ...current, [target]: agents }));
 
   const copyApi: CopyApi = { copiedField, copyToClipboard };
+  const shows = (agent: AgentIntegrationFilter) => !agentFilter || agentFilter === agent;
 
   return (
     <>
       <SettingsCard
+        plain
         title={
           agentFilter ? `${AGENT_FILTER_LABELS[agentFilter]} integration` : 'Agent integrations'
         }
@@ -619,112 +654,191 @@ export function AgentIntegrationsPanel({
           </Tabs>
         )}
         <div hidden={activeIntegrationTarget !== 'local'}>
-          {/* Edge to edge in the card, one agent per row. */}
-          <div className="-mx-5 -my-4 divide-y divide-foreground/8">
-            <div className="px-2 py-0.5">
+          <div className="space-y-3">
+            <IntegrationGroup
+              icon={<BellRinging />}
+              title="Hooks"
+              badge={<RecommendedBadge />}
+              description={HOOKS_DESCRIPTION}
+            >
+              {shows('claude') &&
+                (notificationInfo ? (
+                  <ClaudeNotificationItem
+                    info={notificationInfo}
+                    loading={notificationLoading}
+                    expandedDetail={expandedDetail}
+                    setExpandedDetail={setExpandedDetail}
+                    copy={copyApi}
+                    onAdd={handleAddNotifications}
+                    onRemove={handleRemoveNotifications}
+                  />
+                ) : (
+                  <CheckingItem agent="claude" error={hookLoadErrors.claude} />
+                ))}
+              {shows('codex') &&
+                (codexNotificationInfo ? (
+                  <CodexNotificationItem
+                    info={codexNotificationInfo}
+                    loading={codexNotificationLoading}
+                    error={codexNotificationError}
+                    expandedDetail={expandedDetail}
+                    setExpandedDetail={setExpandedDetail}
+                    copy={copyApi}
+                    onAdd={handleAddCodexNotifications}
+                    onRemove={handleRemoveCodexNotifications}
+                    onForceEnable={handleForceEnableCodexNotifications}
+                  />
+                ) : (
+                  <CheckingItem agent="codex" error={codexNotificationError} />
+                ))}
+              {shows('antigravity') &&
+                (antigravityNotificationInfo ? (
+                  <AntigravityNotificationItem
+                    info={antigravityNotificationInfo}
+                    loading={antigravityNotificationLoading}
+                    expandedDetail={expandedDetail}
+                    setExpandedDetail={setExpandedDetail}
+                    copy={copyApi}
+                    onAdd={handleAddAntigravityNotifications}
+                    onRemove={handleRemoveAntigravityNotifications}
+                  />
+                ) : (
+                  <CheckingItem agent="antigravity" error={hookLoadErrors.antigravity} />
+                ))}
+              {shows('opencode') &&
+                (opencodeNotificationInfo ? (
+                  <OpenCodeNotificationItem
+                    info={opencodeNotificationInfo}
+                    loading={opencodeNotificationLoading}
+                    expandedDetail={expandedDetail}
+                    setExpandedDetail={setExpandedDetail}
+                    copy={copyApi}
+                    onAdd={handleAddOpencodeNotifications}
+                    onRemove={handleRemoveOpencodeNotifications}
+                  />
+                ) : (
+                  <CheckingItem agent="opencode" error={hookLoadErrors.opencode} />
+                ))}
+              {!agentFilter && (
+                <OtherAgentsRow
+                  description="They can set themselves up"
+                  expanded={otherExpanded}
+                  onToggle={() => setOtherExpanded((current) => !current)}
+                >
+                  {mcpChecking ? (
+                    <Spinner size="xs" className="text-muted-foreground" />
+                  ) : (
+                    <>
+                      <OtherAgentCallout
+                        integrationPrompt={mcpStatus?.generic?.integrationPrompt}
+                        setsUpThisComputer
+                        workspacePrefill={
+                          selfSetupPresetId ? { presetIds: [selfSetupPresetId] } : undefined
+                        }
+                      />
+                      {!mcpStatus?.generic && <FormError message={mcpLoadError} />}
+                      {mcpStatus?.generic && (
+                        <ManualHookCommands
+                          generic={mcpStatus.generic}
+                          expandedDetail={expandedDetail}
+                          setExpandedDetail={setExpandedDetail}
+                          copy={copyApi}
+                        />
+                      )}
+                    </>
+                  )}
+                </OtherAgentsRow>
+              )}
+            </IntegrationGroup>
+            <IntegrationGroup
+              icon={<TerminalWindow />}
+              title="Komla CLI"
+              description={KOMLA_CLI_DESCRIPTION}
+            >
               <KomlaSkillItem
                 status={skillStatus}
                 loading={skillLoading}
-                error={skillError}
+                // Why a change failed matters more than why the recheck after it did.
+                error={skillError ?? skillLoadError}
                 expandedDetail={expandedDetail}
                 setExpandedDetail={setExpandedDetail}
                 copy={copyApi}
                 onToggle={(on) => void handleToggleSkill(on)}
               />
-            </div>
-            {(!agentFilter || agentFilter === 'claude') && (
-              <ClaudeSection
-                expanded={expandedSections.claude}
-                onToggle={() => toggleSection('claude')}
-                configured={notificationInfo?.isConfigured ?? false}
-                mcpChecking={mcpChecking}
-                notificationInfo={notificationInfo}
-                notificationLoading={notificationLoading}
-                mcpStatus={mcpStatus}
-                mcpLoading={mcpLoading}
-                mcpError={mcpError}
-                expandedDetail={expandedDetail}
-                setExpandedDetail={setExpandedDetail}
-                copy={copyApi}
-                onAddNotifications={handleAddNotifications}
-                onRemoveNotifications={handleRemoveNotifications}
-                onRunMcpCli={handleRunMcpCli}
-                onRemoveMcp={handleRemoveMcp}
-              />
-            )}
-
-            {(!agentFilter || agentFilter === 'codex') && (
-              <CodexSection
-                expanded={expandedSections.codex}
-                onToggle={() => toggleSection('codex')}
-                configured={codexNotificationInfo?.isConfigured ?? false}
-                mcpChecking={mcpChecking}
-                notificationInfo={codexNotificationInfo}
-                notificationLoading={codexNotificationLoading}
-                notificationError={codexNotificationError}
-                mcpStatus={mcpStatus}
-                mcpLoading={codexMcpLoading}
-                mcpError={codexMcpError}
-                expandedDetail={expandedDetail}
-                setExpandedDetail={setExpandedDetail}
-                copy={copyApi}
-                onAddNotifications={handleAddCodexNotifications}
-                onRemoveNotifications={handleRemoveCodexNotifications}
-                onForceEnableNotifications={handleForceEnableCodexNotifications}
-                onRunMcpCli={handleRunCodexMcpCli}
-                onRemoveMcp={handleRemoveCodexMcp}
-              />
-            )}
-
-            {(!agentFilter || agentFilter === 'antigravity') && (
-              <AntigravitySection
-                expanded={expandedSections.antigravity}
-                onToggle={() => toggleSection('antigravity')}
-                configured={antigravityNotificationInfo?.isConfigured ?? false}
-                mcpChecking={mcpChecking}
-                notificationInfo={antigravityNotificationInfo}
-                notificationLoading={antigravityNotificationLoading}
-                mcpStatus={mcpStatus}
-                mcpLoading={antigravityMcpLoading}
-                mcpError={antigravityMcpError}
-                expandedDetail={expandedDetail}
-                setExpandedDetail={setExpandedDetail}
-                copy={copyApi}
-                onAddNotifications={handleAddAntigravityNotifications}
-                onRemoveNotifications={handleRemoveAntigravityNotifications}
-                onRunMcpCli={handleRunAntigravityMcpCli}
-                onRemoveMcp={handleRemoveAntigravityMcp}
-              />
-            )}
-
-            {(!agentFilter || agentFilter === 'opencode') && (
-              <OpenCodeSection
-                expanded={expandedSections.opencode}
-                onToggle={() => toggleSection('opencode')}
-                configured={opencodeNotificationInfo?.isConfigured ?? false}
-                mcpChecking={mcpChecking}
-                notificationInfo={opencodeNotificationInfo}
-                notificationLoading={opencodeNotificationLoading}
-                mcpStatus={mcpStatus}
-                expandedDetail={expandedDetail}
-                setExpandedDetail={setExpandedDetail}
-                copy={copyApi}
-                onAddNotifications={handleAddOpencodeNotifications}
-                onRemoveNotifications={handleRemoveOpencodeNotifications}
-              />
-            )}
-
-            {!agentFilter && (
-              <GenericSection
-                expanded={expandedSections.generic}
-                onToggle={() => toggleSection('generic')}
-                selfSetupPresetId={selfSetupPresetId}
-                mcpStatus={mcpStatus}
-                expandedDetail={expandedDetail}
-                setExpandedDetail={setExpandedDetail}
-                copy={copyApi}
-              />
-            )}
+            </IntegrationGroup>
+            <CollapsibleIntegrationGroup
+              icon={<Plugs />}
+              title="MCP server"
+              description={MCP_DESCRIPTION}
+              summary={mcpSummary(mcpChecking, mcpStatus, shows)}
+              expanded={mcpExpanded}
+              onToggle={() => setMcpExpanded((current) => !current)}
+            >
+              {/* Why the status couldn't be read: in place of the rows on the first check, or above
+                  the last status after a recheck. */}
+              {mcpLoadError && (
+                <div className="px-3 py-2.5">
+                  <FormError message={mcpLoadError} />
+                </div>
+              )}
+              {(mcpChecking || mcpStatus) && (
+                <>
+                  {shows('claude') && (
+                    <ClaudeMcpItem
+                      mcpStatus={mcpStatus}
+                      mcpChecking={mcpChecking}
+                      loading={mcpLoading}
+                      error={mcpError}
+                      expandedDetail={expandedDetail}
+                      setExpandedDetail={setExpandedDetail}
+                      copy={copyApi}
+                      onAdd={handleRunMcpCli}
+                      onRemove={handleRemoveMcp}
+                    />
+                  )}
+                  {shows('codex') && mcpStatus?.codex && (
+                    <CodexMcpItem
+                      mcp={mcpStatus.codex}
+                      loading={codexMcpLoading}
+                      error={codexMcpError}
+                      expandedDetail={expandedDetail}
+                      setExpandedDetail={setExpandedDetail}
+                      copy={copyApi}
+                      onAdd={handleRunCodexMcpCli}
+                      onRemove={handleRemoveCodexMcp}
+                    />
+                  )}
+                  {shows('antigravity') && mcpStatus?.antigravity && (
+                    <AntigravityMcpItem
+                      mcp={mcpStatus.antigravity}
+                      loading={antigravityMcpLoading}
+                      error={antigravityMcpError}
+                      expandedDetail={expandedDetail}
+                      setExpandedDetail={setExpandedDetail}
+                      copy={copyApi}
+                      onAdd={handleRunAntigravityMcpCli}
+                      onRemove={handleRemoveAntigravityMcp}
+                    />
+                  )}
+                  {shows('opencode') && mcpStatus?.opencode && (
+                    <OpenCodeMcpItem
+                      mcp={mcpStatus.opencode}
+                      expandedDetail={expandedDetail}
+                      setExpandedDetail={setExpandedDetail}
+                      copy={copyApi}
+                    />
+                  )}
+                  {!agentFilter && mcpStatus?.generic && (
+                    <GenericMcpItem
+                      generic={mcpStatus.generic}
+                      expandedDetail={expandedDetail}
+                      setExpandedDetail={setExpandedDetail}
+                      copy={copyApi}
+                    />
+                  )}
+                </>
+              )}
+            </CollapsibleIntegrationGroup>
           </div>
         </div>
         {sshHosts.map((host) => {
@@ -739,13 +853,33 @@ export function AgentIntegrationsPanel({
             </div>
           ) : null;
         })}
-        {agentFilter && <KomlaCliIntegration komlaBasePath={komlaBasePath} />}
+        {agentFilter && (
+          <div className={cn(SETTINGS_CARD_CLASS, 'px-5 py-4')}>
+            <KomlaCliIntegration komlaBasePath={komlaBasePath} />
+          </div>
+        )}
       </SettingsCard>
     </>
   );
 }
 
 // ---------------- Helper components ----------------
+
+/** How many shown agents have the MCP server, or why that isn't known yet. */
+function mcpSummary(
+  checking: boolean,
+  status: McpStatus | null,
+  shows: (agent: AgentIntegrationFilter) => boolean
+): string {
+  if (checking) return 'Checking...';
+  if (!status) return 'Unavailable';
+  return enabledSummary([
+    shows('claude') && status.isConfigured,
+    shows('codex') && !!status.codex?.isConfigured,
+    shows('antigravity') && !!status.antigravity?.isConfigured,
+    shows('opencode') && !!status.opencode?.isConfigured,
+  ]);
+}
 
 function CopyIconButton({ text, field, copy }: { text: string; field: string; copy: CopyApi }) {
   return (
@@ -763,21 +897,28 @@ function CopyIconButton({ text, field, copy }: { text: string; field: string; co
   );
 }
 
+/** Shows or hides a row's details, under its label unless `className` places it elsewhere. */
 function DetailToggle({
   active,
   onClick,
   showLabel = 'Show what this changes',
   hideLabel = 'Hide details',
+  className,
 }: {
   active: boolean;
   onClick: () => void;
   showLabel?: string;
   hideLabel?: string;
+  className?: string;
 }) {
   return (
     <button
       type="button"
-      className="mt-1 ml-4 text-xs text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground"
+      className={cn(
+        'mt-1 ml-6 text-xs text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground',
+        className
+      )}
+      aria-expanded={active}
       onClick={onClick}
     >
       {active ? hideLabel : showLabel}
@@ -799,7 +940,7 @@ function FilePathDetail({
   pre?: string;
 }) {
   return (
-    <div className="ml-4 space-y-1">
+    <div className="ml-6 space-y-1">
       <div className="flex items-center justify-between">
         <span className="font-mono text-ui text-muted-foreground">{path}</span>
         <CopyIconButton text={copyText} field={copyField} copy={copy} />
@@ -813,9 +954,19 @@ function FilePathDetail({
   );
 }
 
-// The project-setup skill and both demo tours apply to every agent, so they live
-// in their own card rather than reading as part of the per-agent integrations.
-// ---------------- Per-agent sections ----------------
+/** An agent's row while Komla reads its setup, or why it couldn't. */
+function CheckingItem({ agent, error }: { agent: AgentIntegrationFilter; error?: string | null }) {
+  return (
+    <IntegrationItem
+      icon={<AgentIcon name={AGENT_NAMES[agent]} command={agent} />}
+      label={AGENT_NAMES[agent]}
+      action={error ? null : <Spinner size="xs" className="text-muted-foreground" />}
+      errorMessage={error}
+    />
+  );
+}
+
+// ---------------- Per-agent rows ----------------
 
 function KomlaSkillItem({
   status,
@@ -838,10 +989,10 @@ function KomlaSkillItem({
   const isOpen = expandedDetail === detailKey;
   return (
     <IntegrationItem
-      isConfigured={status?.isConfigured ?? false}
+      icon={<KomlaMark className="size-4" />}
       label="Komla skill"
       help={<KomlaSkillHelp />}
-      description="Teaches your agents how to use the Komla CLI"
+      note={<KomlaCliHelpNote />}
       detailToggle={
         status && (
           <DetailToggle
@@ -852,7 +1003,7 @@ function KomlaSkillItem({
       }
       action={
         !status ? (
-          <Spinner size="xs" className="text-muted-foreground" />
+          !error && <Spinner size="xs" className="text-muted-foreground" />
         ) : status.isConfigured ? (
           <ConfiguredAction loading={loading} onRemove={() => onToggle(false)} />
         ) : (
@@ -878,26 +1029,6 @@ function KomlaSkillItem({
       }
     />
   );
-}
-
-interface ClaudeSectionProps {
-  expanded: boolean;
-  onToggle: () => void;
-  /** Whether its notifications are on. */
-  configured: boolean;
-  mcpChecking: boolean;
-  notificationInfo: NotificationInfo | null;
-  notificationLoading: boolean;
-  mcpStatus: McpStatus | null;
-  mcpLoading: boolean;
-  mcpError: string | null;
-  expandedDetail: string | null;
-  setExpandedDetail: (key: string | null) => void;
-  copy: CopyApi;
-  onAddNotifications: () => void;
-  onRemoveNotifications: () => void;
-  onRunMcpCli: () => void;
-  onRemoveMcp: () => void;
 }
 
 function IntegrationTargetTab({
@@ -928,63 +1059,6 @@ function IntegrationTargetTab({
   );
 }
 
-function ClaudeSection(props: ClaudeSectionProps) {
-  const {
-    expanded,
-    onToggle,
-    configured,
-    mcpChecking,
-    notificationInfo,
-    notificationLoading,
-    mcpStatus,
-    mcpLoading,
-    mcpError,
-    expandedDetail,
-    setExpandedDetail,
-    copy,
-    onAddNotifications,
-    onRemoveNotifications,
-    onRunMcpCli,
-    onRemoveMcp,
-  } = props;
-
-  return (
-    <SectionShell
-      title="Claude Code"
-      command="claude"
-      description="Hooks, MCP server"
-      expanded={expanded}
-      onToggle={onToggle}
-      statusDot={<ConfiguredDot isConfigured={configured} />}
-      needsUpdate={!!notificationInfo?.update}
-      statusLabel={mcpChecking ? 'Checking...' : configured ? 'Configured' : 'Not configured'}
-    >
-      {notificationInfo && (
-        <ClaudeNotificationItem
-          info={notificationInfo}
-          loading={notificationLoading}
-          expandedDetail={expandedDetail}
-          setExpandedDetail={setExpandedDetail}
-          copy={copy}
-          onAdd={onAddNotifications}
-          onRemove={onRemoveNotifications}
-        />
-      )}
-      <ClaudeMcpItem
-        mcpStatus={mcpStatus}
-        mcpChecking={mcpChecking}
-        loading={mcpLoading}
-        error={mcpError}
-        expandedDetail={expandedDetail}
-        setExpandedDetail={setExpandedDetail}
-        copy={copy}
-        onAdd={onRunMcpCli}
-        onRemove={onRemoveMcp}
-      />
-    </SectionShell>
-  );
-}
-
 function ClaudeNotificationItem({
   info,
   loading,
@@ -1006,11 +1080,9 @@ function ClaudeNotificationItem({
   const isOpen = expandedDetail === detailKey;
   return (
     <IntegrationItem
-      isConfigured={info.isConfigured}
-      outdated={!!info.update}
-      label="Hooks"
+      icon={<AgentIcon name={AGENT_NAMES.claude} command="claude" />}
+      label={AGENT_NAMES.claude}
       help={<HooksHelp agent="Claude Code" integration="claude" />}
-      description={hooksSummary('claude')}
       detailToggle={
         <DetailToggle
           active={isOpen}
@@ -1079,10 +1151,9 @@ function ClaudeMcpItem({
   });
   return (
     <IntegrationItem
-      isConfigured={mcpStatus?.isConfigured ?? false}
-      label="MCP Server"
+      icon={<AgentIcon name={AGENT_NAMES.claude} command="claude" />}
+      label={AGENT_NAMES.claude}
       help={<McpHelp agent="Claude Code" />}
-      {...mcpServerNote}
       detailToggle={
         mcpStatus && (
           <DetailToggle
@@ -1131,89 +1202,6 @@ function renderClaudeMcpAction({
   return <EnableButton loading={loading} onClick={onAdd} />;
 }
 
-interface AntigravitySectionProps {
-  expanded: boolean;
-  onToggle: () => void;
-  /** Whether its notifications are on. */
-  configured: boolean;
-  mcpChecking: boolean;
-  notificationInfo: NotificationInfo | null;
-  notificationLoading: boolean;
-  mcpStatus: McpStatus | null;
-  mcpLoading: boolean;
-  mcpError: string | null;
-  expandedDetail: string | null;
-  setExpandedDetail: (key: string | null) => void;
-  copy: CopyApi;
-  onAddNotifications: () => void;
-  onRemoveNotifications: () => void;
-  onRunMcpCli: () => void;
-  onRemoveMcp: () => void;
-}
-
-function AntigravitySection(props: AntigravitySectionProps) {
-  const {
-    expanded,
-    onToggle,
-    configured,
-    mcpChecking,
-    notificationInfo,
-    notificationLoading,
-    mcpStatus,
-    mcpLoading,
-    mcpError,
-    expandedDetail,
-    setExpandedDetail,
-    copy,
-    onAddNotifications,
-    onRemoveNotifications,
-    onRunMcpCli,
-    onRemoveMcp,
-  } = props;
-
-  // Original logic: section content only renders when notificationInfo exists.
-  const showContent = expanded && notificationInfo != null;
-
-  return (
-    <SectionShell
-      title="Antigravity CLI"
-      command="antigravity"
-      description="Hooks, MCP server"
-      expanded={expanded}
-      onToggle={onToggle}
-      statusDot={<ConfiguredDot isConfigured={configured} />}
-      needsUpdate={!!notificationInfo?.update}
-      statusLabel={mcpChecking ? 'Checking...' : configured ? 'Configured' : 'Not configured'}
-    >
-      {showContent && notificationInfo && (
-        <>
-          <AntigravityNotificationItem
-            info={notificationInfo}
-            loading={notificationLoading}
-            expandedDetail={expandedDetail}
-            setExpandedDetail={setExpandedDetail}
-            copy={copy}
-            onAdd={onAddNotifications}
-            onRemove={onRemoveNotifications}
-          />
-          {mcpStatus?.antigravity && (
-            <AntigravityMcpItem
-              mcp={mcpStatus.antigravity}
-              loading={mcpLoading}
-              error={mcpError}
-              expandedDetail={expandedDetail}
-              setExpandedDetail={setExpandedDetail}
-              copy={copy}
-              onAdd={onRunMcpCli}
-              onRemove={onRemoveMcp}
-            />
-          )}
-        </>
-      )}
-    </SectionShell>
-  );
-}
-
 function AntigravityNotificationItem({
   info,
   loading,
@@ -1235,11 +1223,9 @@ function AntigravityNotificationItem({
   const isOpen = expandedDetail === detailKey;
   return (
     <IntegrationItem
-      isConfigured={info.isConfigured}
-      outdated={!!info.update}
-      label="Hooks"
+      icon={<AgentIcon name={AGENT_NAMES.antigravity} command="antigravity" />}
+      label={AGENT_NAMES.antigravity}
       help={<HooksHelp agent="Antigravity CLI" integration="antigravity" />}
-      description={hooksSummary('antigravity')}
       detailToggle={
         <DetailToggle
           active={isOpen}
@@ -1299,10 +1285,9 @@ function AntigravityMcpItem({
   const isOpen = expandedDetail === detailKey;
   return (
     <IntegrationItem
-      isConfigured={mcp.isConfigured}
-      label="MCP Server"
+      icon={<AgentIcon name={AGENT_NAMES.antigravity} command="antigravity" />}
+      label={AGENT_NAMES.antigravity}
       help={<McpHelp agent="Antigravity CLI" />}
-      {...mcpServerNote}
       detailToggle={
         <DetailToggle
           active={isOpen}
@@ -1319,7 +1304,7 @@ function AntigravityMcpItem({
       errorMessage={error}
       detailContent={
         isOpen && (
-          <div className="ml-4 space-y-1">
+          <div className="ml-6 space-y-1">
             <div className="flex items-center justify-between">
               <span className="font-mono text-ui text-muted-foreground">{mcp.cliCommand}</span>
               <CopyIconButton text={mcp.cliCommand} field="antigravity-mcp-cli" copy={copy} />
@@ -1328,94 +1313,6 @@ function AntigravityMcpItem({
         )
       }
     />
-  );
-}
-
-interface CodexSectionProps {
-  expanded: boolean;
-  onToggle: () => void;
-  /** Whether its notifications are on. */
-  configured: boolean;
-  mcpChecking: boolean;
-  notificationInfo: CodexNotificationInfo | null;
-  notificationLoading: boolean;
-  notificationError: string | null;
-  mcpStatus: McpStatus | null;
-  mcpLoading: boolean;
-  mcpError: string | null;
-  expandedDetail: string | null;
-  setExpandedDetail: (key: string | null) => void;
-  copy: CopyApi;
-  onAddNotifications: () => void;
-  onRemoveNotifications: () => void;
-  onForceEnableNotifications: () => void;
-  onRunMcpCli: () => void;
-  onRemoveMcp: () => void;
-}
-
-function CodexSection(props: CodexSectionProps) {
-  const {
-    expanded,
-    onToggle,
-    configured,
-    mcpChecking,
-    notificationInfo,
-    notificationLoading,
-    notificationError,
-    mcpStatus,
-    mcpLoading,
-    mcpError,
-    expandedDetail,
-    setExpandedDetail,
-    copy,
-    onAddNotifications,
-    onRemoveNotifications,
-    onForceEnableNotifications,
-    onRunMcpCli,
-    onRemoveMcp,
-  } = props;
-
-  const showContent = expanded && notificationInfo != null;
-
-  return (
-    <SectionShell
-      title="Codex CLI"
-      command="codex"
-      description="Hooks, MCP server"
-      expanded={expanded}
-      onToggle={onToggle}
-      statusDot={<ConfiguredDot isConfigured={configured} />}
-      needsUpdate={!!notificationInfo?.update}
-      statusLabel={mcpChecking ? 'Checking...' : configured ? 'Configured' : 'Not configured'}
-    >
-      {showContent && notificationInfo && (
-        <>
-          <CodexNotificationItem
-            info={notificationInfo}
-            loading={notificationLoading}
-            error={notificationError}
-            expandedDetail={expandedDetail}
-            setExpandedDetail={setExpandedDetail}
-            copy={copy}
-            onAdd={onAddNotifications}
-            onRemove={onRemoveNotifications}
-            onForceEnable={onForceEnableNotifications}
-          />
-          {mcpStatus?.codex && (
-            <CodexMcpItem
-              mcp={mcpStatus.codex}
-              loading={mcpLoading}
-              error={mcpError}
-              expandedDetail={expandedDetail}
-              setExpandedDetail={setExpandedDetail}
-              copy={copy}
-              onAdd={onRunMcpCli}
-              onRemove={onRemoveMcp}
-            />
-          )}
-        </>
-      )}
-    </SectionShell>
   );
 }
 
@@ -1444,11 +1341,9 @@ function CodexNotificationItem({
   const isOpen = expandedDetail === detailKey;
   return (
     <IntegrationItem
-      isConfigured={info.isConfigured}
-      outdated={!!info.update}
-      label="Hooks"
+      icon={<AgentIcon name={AGENT_NAMES.codex} command="codex" />}
+      label={AGENT_NAMES.codex}
       help={<HooksHelp agent="Codex" integration="codex" />}
-      description={hooksSummary('codex')}
       detailToggle={
         <DetailToggle
           active={isOpen}
@@ -1470,33 +1365,13 @@ function CodexNotificationItem({
       }
       warning={
         <>
-          <Callout
-            tone="warning"
-            size="sm"
-            icon={<Info className="size-3.5" />}
-            className="ml-4 gap-2 py-2"
-          >
-            <span className="font-medium">
-              Codex won&rsquo;t run the Komla hooks until you approve them.
-            </span>{' '}
-            After enabling, run <code className="font-mono">/hooks</code> inside Codex, then select
-            and approve each Komla hook individually. Until you do,{' '}
-            {reportsOwnStatus('codex') ? (
-              'workspace titles won’t follow the chat.'
-            ) : (
-              <>
-                notifications won&rsquo;t fire at all. Codex{' '}
-                <code className="font-mono">/review</code> may also skip the normal completion hook,
-                which can leave the activity spinner on until the next completion event.
-              </>
-            )}
-          </Callout>
+          <CodexHookApproval />
           {info.hasConflict && (
             <Callout
               tone="warning"
               size="sm"
               icon={<Warning className="size-3.5" />}
-              className="ml-4 px-2"
+              className="ml-6 px-2"
             >
               {info.conflictMessage}
             </Callout>
@@ -1576,10 +1451,9 @@ function CodexMcpItem({
   const isOpen = expandedDetail === detailKey;
   return (
     <IntegrationItem
-      isConfigured={mcp.isConfigured}
-      label="MCP Server"
+      icon={<AgentIcon name={AGENT_NAMES.codex} command="codex" />}
+      label={AGENT_NAMES.codex}
       help={<McpHelp agent="Codex" />}
-      {...mcpServerNote}
       detailToggle={
         <DetailToggle
           active={isOpen}
@@ -1609,76 +1483,6 @@ function CodexMcpItem({
   );
 }
 
-interface OpenCodeSectionProps {
-  expanded: boolean;
-  onToggle: () => void;
-  /** Whether its notifications are on. */
-  configured: boolean;
-  mcpChecking: boolean;
-  notificationInfo: OpenCodeNotificationInfo | null;
-  notificationLoading: boolean;
-  mcpStatus: McpStatus | null;
-  expandedDetail: string | null;
-  setExpandedDetail: (key: string | null) => void;
-  copy: CopyApi;
-  onAddNotifications: () => void;
-  onRemoveNotifications: () => void;
-}
-
-function OpenCodeSection(props: OpenCodeSectionProps) {
-  const {
-    expanded,
-    onToggle,
-    configured,
-    mcpChecking,
-    notificationInfo,
-    notificationLoading,
-    mcpStatus,
-    expandedDetail,
-    setExpandedDetail,
-    copy,
-    onAddNotifications,
-    onRemoveNotifications,
-  } = props;
-
-  const showContent = expanded && notificationInfo != null;
-
-  return (
-    <SectionShell
-      title="OpenCode"
-      command="opencode"
-      description="Hooks, MCP server"
-      expanded={expanded}
-      onToggle={onToggle}
-      statusDot={<ConfiguredDot isConfigured={configured} />}
-      needsUpdate={!!notificationInfo?.update}
-      statusLabel={mcpChecking ? 'Checking...' : configured ? 'Configured' : 'Not configured'}
-    >
-      {showContent && notificationInfo && (
-        <>
-          <OpenCodeNotificationItem
-            info={notificationInfo}
-            loading={notificationLoading}
-            expandedDetail={expandedDetail}
-            setExpandedDetail={setExpandedDetail}
-            copy={copy}
-            onAdd={onAddNotifications}
-            onRemove={onRemoveNotifications}
-          />
-          {mcpStatus?.opencode && (
-            <OpenCodeMcpItem
-              mcp={mcpStatus.opencode}
-              expandedDetail={expandedDetail}
-              setExpandedDetail={setExpandedDetail}
-              copy={copy}
-            />
-          )}
-        </>
-      )}
-    </SectionShell>
-  );
-}
-
 function OpenCodeNotificationItem({
   info,
   loading,
@@ -1700,11 +1504,9 @@ function OpenCodeNotificationItem({
   const isOpen = expandedDetail === detailKey;
   return (
     <IntegrationItem
-      isConfigured={info.isConfigured}
-      outdated={!!info.update}
-      label="Hooks"
+      icon={<AgentIcon name={AGENT_NAMES.opencode} command="opencode" />}
+      label={AGENT_NAMES.opencode}
       help={<HooksHelp agent="OpenCode" integration="opencode" />}
-      description={hooksSummary('opencode')}
       detailToggle={
         <DetailToggle
           active={isOpen}
@@ -1761,16 +1563,18 @@ function OpenCodeMcpItem({
 
   return (
     <IntegrationItem
-      isConfigured={mcp.isConfigured}
-      label="MCP Server"
+      icon={<AgentIcon name={AGENT_NAMES.opencode} command="opencode" />}
+      label={AGENT_NAMES.opencode}
       help={<McpHelp agent="OpenCode" />}
-      {...mcpServerNote}
+      // Until it's configured, the command always shows, so there's nothing to toggle.
       detailToggle={
-        <DetailToggle
-          active={isOpen}
-          onClick={() => setExpandedDetail(isOpen ? null : detailKey)}
-          showLabel="Show command"
-        />
+        mcp.isConfigured && (
+          <DetailToggle
+            active={isOpen}
+            onClick={() => setExpandedDetail(isOpen ? null : detailKey)}
+            showLabel="Show command"
+          />
+        )
       }
       action={
         mcp.isConfigured ? (
@@ -1798,7 +1602,7 @@ function OpenCodeMcpItem({
       }
       detailContent={
         showDetail && (
-          <div className="ml-4 space-y-2">
+          <div className="ml-6 space-y-2">
             {mcp.cliCommand && (
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
@@ -1817,65 +1621,6 @@ function OpenCodeMcpItem({
   );
 }
 
-interface GenericSectionProps {
-  expanded: boolean;
-  onToggle: () => void;
-  selfSetupPresetId?: string;
-  mcpStatus: McpStatus | null;
-  expandedDetail: string | null;
-  setExpandedDetail: (key: string | null) => void;
-  copy: CopyApi;
-}
-
-function GenericSection(props: GenericSectionProps) {
-  const {
-    expanded,
-    onToggle,
-    selfSetupPresetId,
-    mcpStatus,
-    expandedDetail,
-    setExpandedDetail,
-    copy,
-  } = props;
-  const generic = mcpStatus?.generic;
-  const showContent = expanded && generic != null;
-
-  return (
-    <SectionShell
-      title="Other Agent CLIs"
-      description="Hooks and MCP for any compatible agent"
-      expanded={expanded}
-      onToggle={onToggle}
-      statusDot={<span className="size-2 rounded-full bg-muted-foreground" />}
-      statusLabel="Manual"
-    >
-      {showContent && generic && (
-        <>
-          <div className="px-3 py-2.5">
-            <OtherAgentCallout
-              integrationPrompt={generic.integrationPrompt}
-              setsUpThisComputer
-              workspacePrefill={selfSetupPresetId ? { presetIds: [selfSetupPresetId] } : undefined}
-            />
-          </div>
-          <GenericNotificationItem
-            generic={generic}
-            expandedDetail={expandedDetail}
-            setExpandedDetail={setExpandedDetail}
-            copy={copy}
-          />
-          <GenericMcpItem
-            generic={generic}
-            expandedDetail={expandedDetail}
-            setExpandedDetail={setExpandedDetail}
-            copy={copy}
-          />
-        </>
-      )}
-    </SectionShell>
-  );
-}
-
 const NOTIFY_EVENTS: { event: string; fires: string }[] = [
   { event: 'Stop', fires: 'the agent finishes its turn' },
   { event: 'UserPromptSubmit', fires: 'the user sends a new message' },
@@ -1883,7 +1628,8 @@ const NOTIFY_EVENTS: { event: string; fires: string }[] = [
   { event: 'Notification', fires: 'the agent has gone idle' },
 ];
 
-function GenericNotificationItem({
+/** How to wire another agent's lifecycle hooks to Komla by hand, behind a link. */
+function ManualHookCommands({
   generic,
   expandedDetail,
   setExpandedDetail,
@@ -1897,25 +1643,16 @@ function GenericNotificationItem({
   const detailKey = 'generic-notification';
   const isOpen = expandedDetail === detailKey;
   return (
-    <div className="space-y-2 px-3 py-2.5">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="size-2 shrink-0 rounded-full bg-muted-foreground/60" />
-            <span className="text-[13px] font-medium">Hooks</span>
-            <span className="hidden text-ui text-muted-foreground sm:inline">
-              Invoke the Komla CLI from a hook
-            </span>
-          </div>
-          <DetailToggle
-            active={isOpen}
-            onClick={() => setExpandedDetail(isOpen ? null : detailKey)}
-            showLabel="Show details"
-          />
-        </div>
-      </div>
+    <div className="space-y-2">
+      <DetailToggle
+        active={isOpen}
+        onClick={() => setExpandedDetail(isOpen ? null : detailKey)}
+        showLabel="Or wire up its hooks yourself"
+        hideLabel="Hide hook commands"
+        className="mt-0 ml-0"
+      />
       {isOpen && (
-        <div className="ml-4 space-y-2">
+        <div className="space-y-2">
           <p className="text-ui text-muted-foreground">
             Komla injects its CLI into managed terminals. Hooks can call it to match the{' '}
             <code className="font-mono">cwd</code> to a workspace and update the dock badge or tab
@@ -1967,55 +1704,49 @@ function GenericMcpItem({
   const isOpen = expandedDetail === detailKey;
   const cliField = 'generic-mcp-cli';
   return (
-    <div className="space-y-2 px-3 py-2.5">
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="size-2 shrink-0 rounded-full bg-muted-foreground/60" />
-            <span className="text-[13px] font-medium">MCP Server</span>
-            <span className="hidden text-ui text-muted-foreground sm:inline">
-              Stdio through the Komla CLI
-            </span>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => copy.copyToClipboard(generic.cliCommand, cliField)}
-          >
-            {copy.copiedField === cliField ? (
-              <>
-                <Check className="mr-1 size-3 text-success" />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy className="mr-1 size-3" />
-                Copy command
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
-      <div className="ml-4 space-y-2">
-        <code className="block rounded bg-muted/50 p-2 font-mono text-ui break-all">
-          {generic.cliCommand}
-        </code>
-        <button
-          type="button"
-          className="text-xs text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground"
-          onClick={() => setExpandedDetail(isOpen ? null : detailKey)}
+    <IntegrationItem
+      icon={<AgentIcon name="Other agents" />}
+      label="Other agents"
+      description="Stdio through the Komla CLI"
+      action={
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => copy.copyToClipboard(generic.cliCommand, cliField)}
         >
-          {isOpen ? 'Hide JSON config' : 'Show JSON config'}
-        </button>
-        {isOpen && (
-          <pre className="max-h-24 overflow-x-auto rounded bg-muted/50 p-2 font-mono text-ui">
-            {generic.configJson}
-          </pre>
-        )}
-      </div>
-    </div>
+          {copy.copiedField === cliField ? (
+            <>
+              <Check className="mr-1 size-3 text-success" />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy className="mr-1 size-3" />
+              Copy command
+            </>
+          )}
+        </Button>
+      }
+      detailContent={
+        <div className="ml-6 space-y-2">
+          <code className="block rounded bg-muted/50 p-2 font-mono text-ui break-all">
+            {generic.cliCommand}
+          </code>
+          <DetailToggle
+            active={isOpen}
+            onClick={() => setExpandedDetail(isOpen ? null : detailKey)}
+            showLabel="Show JSON config"
+            hideLabel="Hide JSON config"
+            className="mt-0 ml-0"
+          />
+          {isOpen && (
+            <pre className="max-h-24 overflow-x-auto rounded bg-muted/50 p-2 font-mono text-ui">
+              {generic.configJson}
+            </pre>
+          )}
+        </div>
+      }
+    />
   );
 }

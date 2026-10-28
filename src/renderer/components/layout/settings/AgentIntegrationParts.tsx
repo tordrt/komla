@@ -1,4 +1,4 @@
-import { ArrowsClockwise, CaretDown } from '@phosphor-icons/react';
+import { CaretDown } from '@phosphor-icons/react';
 
 import { AgentPresetIcon } from '@/components/terminal/AgentPresetIcon';
 import { Badge } from '@/components/ui/badge';
@@ -8,119 +8,214 @@ import { cn } from '@/lib/utils';
 
 import { FormError } from './FormError';
 import { NotificationUpdateReview } from './NotificationUpdateReview';
+import { SETTINGS_CARD_CLASS } from './SettingsCard';
 
 import type { NotificationIntegrationUpdate } from '../../../../shared/types/notification-integration';
+import type { SshAgent } from '@/types';
 import type { ReactNode } from 'react';
 
 // Building blocks shared by every place in the Agent Integrations menu, so local,
-// SSH integrations look and report status the same way.
+// SSH integrations look and report status the same way. The menu ranks them: hooks first, then
+// the Komla CLI, then the MCP server, which no longer gets new features.
 
-interface SectionShellProps {
-  title: string;
-  description: string;
-  /** The agent's command, for its logo; without one, a generic agent mark. */
-  command?: string;
-  expanded: boolean;
-  onToggle: () => void;
-  statusDot: ReactNode;
-  statusLabel: ReactNode;
-  /** Shown in place of the status when Komla's notification hooks are out of date. */
-  needsUpdate?: boolean;
-  children?: ReactNode;
+/** Each agent with a one-click integration, by its key, as its rows in the menu name it. */
+export const AGENT_NAMES: Record<SshAgent, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex CLI',
+  antigravity: 'Antigravity CLI',
+  opencode: 'OpenCode',
+};
+
+/** The Hooks tier's badge: they're what most of Komla's agent features rely on. */
+export function RecommendedBadge() {
+  return <Badge tone="primary">Recommended</Badge>;
 }
 
+// A tier's rows under its band, their content lined up with its heading.
+const TIER_ROWS_CLASS = 'divide-y divide-border/30 px-1 py-1';
+
 /**
- * An agent in a list of them, edge to edge in its card: its logo, name and status, and its
- * integrations below once expanded, lined up under its name.
+ * A tier's band: its icon, name and what it adds. `trailing` sits at its right edge. With
+ * `toggle`, its name is the button that shows and hides the rows, and the whole band clicks it.
  */
-export function SectionShell({
+function TierHeading({
+  icon,
   title,
+  badge,
   description,
-  command,
-  expanded,
-  onToggle,
-  statusDot,
-  statusLabel,
-  needsUpdate = false,
-  children,
-}: SectionShellProps) {
+  trailing,
+  toggle,
+  open = true,
+}: {
+  icon: ReactNode;
+  title: string;
+  badge?: ReactNode;
+  description: ReactNode;
+  trailing?: ReactNode;
+  toggle?: { expanded: boolean; onToggle: () => void };
+  /** Whether rows follow, so the band gets a line below it. */
+  open?: boolean;
+}) {
   return (
-    <div role="group" aria-label={title}>
-      <button
-        type="button"
-        className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-foreground/[0.03]"
-        aria-expanded={expanded}
-        onClick={onToggle}
-      >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-foreground/10 bg-foreground/[0.04]">
-          <AgentPresetIcon
-            preset={command ? { name: title, openCommand: command } : null}
-            className="size-4"
-          />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium">{title}</div>
-          <p className="truncate text-xs text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {needsUpdate ? (
-            <UpdateBadge />
-          ) : (
-            <span className="flex items-center gap-1.5 rounded-full border border-foreground/10 px-2 py-0.5 text-ui text-muted-foreground">
-              {statusDot}
-              {statusLabel}
-            </span>
-          )}
-          <CaretDown
-            className={cn(
-              'size-3.5 text-muted-foreground transition-transform',
-              expanded && 'rotate-180'
-            )}
-          />
-        </div>
-      </button>
-      {/* Indented to the name: the padding, logo and gap above, less each item's own padding. */}
-      {expanded && children && (
-        <div className="divide-y divide-foreground/8 border-t border-foreground/8 bg-foreground/[0.02] pr-2 pl-[3.25rem]">
-          {children}
-        </div>
+    <div
+      className={cn(
+        'flex items-center gap-3 bg-foreground/[0.06] px-4 py-3',
+        open && 'border-b border-border/70',
+        toggle && 'relative transition-colors hover:bg-foreground/[0.09]'
       )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground/[0.08] text-foreground/80 [&>svg]:size-3.5">
+            {icon}
+          </span>
+          <h4 className="text-sm font-semibold">
+            {toggle ? (
+              <button
+                type="button"
+                aria-expanded={toggle.expanded}
+                onClick={toggle.onToggle}
+                className="text-left after:absolute after:inset-0 focus-visible:outline-hidden focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+              >
+                {title}
+              </button>
+            ) : (
+              title
+            )}
+          </h4>
+          {badge}
+        </div>
+        <p className="mt-1 pl-8.5 text-xs leading-relaxed text-muted-foreground">{description}</p>
+      </div>
+      {trailing}
     </div>
   );
 }
 
-export function ConfiguredDot({ isConfigured }: { isConfigured: boolean }) {
-  return (
-    <span
-      className={`size-2 rounded-full ${isConfigured ? 'bg-success' : 'bg-muted-foreground'}`}
-    />
-  );
-}
-
-export function StatusDot({
-  isConfigured,
-  outdated,
+/** One tier of integrations, as a card of its own: its band, then one row per agent. */
+export function IntegrationGroup({
+  icon,
+  title,
+  badge,
+  description,
+  children,
 }: {
-  isConfigured: boolean;
-  outdated?: boolean;
+  icon: ReactNode;
+  title: string;
+  badge?: ReactNode;
+  description: ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <span
-      className={cn(
-        'size-2 shrink-0 rounded-full',
-        outdated ? 'bg-warning' : isConfigured ? 'bg-success' : 'bg-muted-foreground/60'
-      )}
+    <div role="group" aria-label={title} className={SETTINGS_CARD_CLASS}>
+      <TierHeading icon={icon} title={title} badge={badge} description={description} />
+      <div className={TIER_ROWS_CLASS}>{children}</div>
+    </div>
+  );
+}
+
+/** A tier whose rows start hidden, with `summary` saying what's on at its band's right. */
+export function CollapsibleIntegrationGroup({
+  icon,
+  title,
+  description,
+  summary,
+  expanded,
+  onToggle,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: ReactNode;
+  summary: ReactNode;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div role="group" aria-label={title} className={SETTINGS_CARD_CLASS}>
+      <TierHeading
+        icon={icon}
+        title={title}
+        description={description}
+        toggle={{ expanded, onToggle }}
+        open={expanded}
+        trailing={
+          <span className="flex shrink-0 items-center gap-2 text-ui text-muted-foreground">
+            {summary}
+            <Caret expanded={expanded} />
+          </span>
+        }
+      />
+      {expanded && <div className={TIER_ROWS_CLASS}>{children}</div>}
+    </div>
+  );
+}
+
+/** Says how many of a tier's integrations are on. */
+export function enabledSummary(enabled: boolean[]): string {
+  const count = enabled.filter(Boolean).length;
+  return count === 0 ? 'Off' : `${count} on`;
+}
+
+/** An agent's logo for its row, in its brand colors; without a command, a muted generic mark. */
+export function AgentIcon({ name, command }: { name: string; command?: string }) {
+  return (
+    <AgentPresetIcon
+      preset={command ? { name, openCommand: command } : null}
+      className={cn('size-4', !command && 'text-muted-foreground')}
     />
   );
 }
 
-/** Marks an integration whose Komla notification setup differs from what Komla installs now. */
-function UpdateBadge({ label = 'Update available' }: { label?: string }) {
+/**
+ * A row for agents without a one-click integration, which expands to how they set themselves
+ * up. Its content lines up under its label.
+ */
+export function OtherAgentsRow({
+  description,
+  expanded,
+  onToggle,
+  children,
+}: {
+  description: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
   return (
-    <Badge tone="warning" size="md">
-      <ArrowsClockwise className="size-3" />
-      {label}
-    </Badge>
+    <div role="group" aria-label="Other agents">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.03]"
+        aria-expanded={expanded}
+        onClick={onToggle}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <AgentIcon name="Other agents" />
+        </span>
+        <span className="text-[13px] font-medium">Other agents</span>
+        <span className="hidden min-w-0 truncate text-ui text-muted-foreground sm:inline">
+          {description}
+        </span>
+        <span className="ml-auto">
+          <Caret expanded={expanded} />
+        </span>
+      </button>
+      {/* Indented to the label: the padding, icon and gap above. */}
+      {expanded && <div className="space-y-2 pr-3 pb-3 pl-9">{children}</div>}
+    </div>
+  );
+}
+
+function Caret({ expanded }: { expanded: boolean }) {
+  return (
+    <CaretDown
+      className={cn(
+        'size-3.5 shrink-0 text-muted-foreground transition-transform',
+        expanded && 'rotate-180'
+      )}
+    />
   );
 }
 
@@ -201,15 +296,14 @@ export function ConfiguredAction({
 }
 
 interface IntegrationItemProps {
-  isConfigured?: boolean;
-  outdated?: boolean;
-  showStatusDot?: boolean;
+  /** Shown before the label, such as the agent's logo. */
+  icon: ReactNode;
   label: string;
   /** What the integration does, behind an info icon beside the label. */
   help?: ReactNode;
   description?: string;
-  /** `warning` shows the description in amber, for notes the user shouldn't miss. */
-  descriptionTone?: 'muted' | 'warning';
+  /** A line under the label. */
+  note?: ReactNode;
   detailToggle?: ReactNode;
   action: ReactNode;
   warning?: ReactNode;
@@ -217,14 +311,13 @@ interface IntegrationItemProps {
   detailContent?: ReactNode;
 }
 
+/** One integration in a tier. Notes and details below line up under its label. */
 export function IntegrationItem({
-  isConfigured,
-  outdated = false,
-  showStatusDot = true,
+  icon,
   label,
   help,
   description,
-  descriptionTone = 'muted',
+  note,
   detailToggle,
   action,
   warning,
@@ -236,22 +329,14 @@ export function IntegrationItem({
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            {showStatusDot && (
-              <StatusDot isConfigured={isConfigured ?? false} outdated={outdated} />
-            )}
+            <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
             <span className="text-[13px] font-medium">{label}</span>
             {help}
             {description && (
-              <span
-                className={cn(
-                  'hidden text-ui sm:inline',
-                  descriptionTone === 'warning' ? 'text-warning' : 'text-muted-foreground'
-                )}
-              >
-                {description}
-              </span>
+              <span className="hidden text-ui text-muted-foreground sm:inline">{description}</span>
             )}
           </div>
+          {note && <p className="mt-0.5 ml-6 text-xs text-muted-foreground">{note}</p>}
           {detailToggle}
         </div>
         <div className="flex shrink-0 items-center gap-2">{action}</div>

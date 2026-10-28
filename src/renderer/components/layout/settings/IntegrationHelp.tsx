@@ -1,16 +1,57 @@
+import { Info } from '@phosphor-icons/react';
+
+import { Callout } from '@/components/ui/callout';
 import { InfoTip } from '@/components/ui/info-tip';
 import { reportsOwnStatus } from '@/lib/agent-status-reports';
 
 import type { AgentIntegrationFilter } from './AgentIntegrations';
 
 // What turning on an agent's hooks, Komla skill or MCP server does, behind an info icon, for the
-// setup wizard's Connect step and Settings → Integrations.
+// setup wizard's Connect step and Settings → Integrations, and the copy each tier shares.
 
-/** One line on what an agent's hooks add, beside their switch. */
-export function hooksSummary(agent: AgentIntegrationFilter | null | undefined): string {
-  return reportsOwnStatus(agent)
-    ? 'Up-to-date workspace titles, and a done you can trust'
-    : 'Know when it’s done or needs you, with up-to-date workspace titles';
+// What each tier of the Agent Integrations menu adds, under its name.
+export const HOOKS_DESCRIPTION =
+  'Komla knows when an agent is really done or needs you, and keeps every workspace named after what you’re working on.';
+export const KOMLA_CLI_DESCRIPTION =
+  'Every Komla terminal has the komla command, for starting agents, opening previews and more. The Komla skill teaches your agents to use it.';
+export const MCP_DESCRIPTION =
+  'Only for agents that work through MCP alone: new features go to the komla CLI and skill instead.';
+
+/** Under the Komla skill row: agents without the skill can still find the commands. */
+export function KomlaCliHelpNote() {
+  return (
+    <>
+      Agents can also look up any command with <code className="font-mono">komla --help</code> or{' '}
+      <code className="font-mono">komla &lt;command&gt; --help</code>.
+    </>
+  );
+}
+
+/** Codex runs Komla's hooks only once approved, below its Hooks row. */
+export function CodexHookApproval() {
+  return (
+    <Callout
+      tone="warning"
+      size="sm"
+      icon={<Info className="size-3.5" />}
+      className="ml-6 gap-2 py-2 text-xs"
+    >
+      <span className="font-medium">
+        Codex won&rsquo;t run the Komla hooks until you approve them.
+      </span>{' '}
+      After enabling, run <code className="font-mono">/hooks</code> inside Codex, then select and
+      approve each Komla hook individually. Until you do,{' '}
+      {reportsOwnStatus('codex') ? (
+        'workspace titles won’t follow the chat.'
+      ) : (
+        <>
+          notifications won&rsquo;t fire at all. Codex <code className="font-mono">/review</code>{' '}
+          may also skip the normal completion hook, which can leave the activity spinner on until
+          the next completion event.
+        </>
+      )}
+    </Callout>
+  );
 }
 
 export function HooksHelp({
@@ -84,12 +125,6 @@ export function KomlaSkillHelp() {
     </InfoTip>
   );
 }
-
-/** The MCP Server rows' note, in amber so users don't miss that MCP no longer gets new features. */
-export const mcpServerNote = {
-  description: 'New features go to the komla CLI and skill instead',
-  descriptionTone: 'warning',
-} as const;
 
 export function McpHelp({ agent }: { agent: string }) {
   return (

@@ -150,7 +150,10 @@ function setupMockApi(opts: MockOpts = {}) {
     getMcpStatus: vi.fn().mockResolvedValue(opts.mcpStatus ?? baseMcpStatus),
     getKomlaSkillStatus: vi.fn().mockResolvedValue({
       isConfigured: opts.skill ?? false,
-      paths: ['/home/user/.claude/skills/komla/SKILL.md', '/home/user/.agents/skills/komla/SKILL.md'],
+      paths: [
+        '/home/user/.claude/skills/komla/SKILL.md',
+        '/home/user/.agents/skills/komla/SKILL.md',
+      ],
     }),
     enableKomlaSkill: vi.fn().mockResolvedValue(undefined),
     disableKomlaSkill: vi.fn().mockResolvedValue(undefined),
@@ -195,12 +198,18 @@ async function waitForLoad(): Promise<void> {
   await waitFor(() => expect(screen.queryAllByText(/Checking\.\.\./).length).toBe(0));
 }
 
-// Helper: expand a collapsible section by clicking its header button.
-async function expandSection(name: RegExp): Promise<HTMLElement> {
-  const header = screen.getByRole('button', { name });
-  await userEvent.click(header);
-  // Return the section's container so callers can scope queries to it.
-  return header.closest('[role="group"]') as HTMLElement;
+// Helper: an agent's row in a tier, so callers can scope queries to it.
+function agentRow(tier: 'Hooks' | 'MCP server', agent: string): HTMLElement {
+  return within(screen.getByRole('group', { name: tier }))
+    .getByText(agent, { selector: 'span' })
+    .closest('div.space-y-2') as HTMLElement;
+}
+
+// Helper: expand a collapsed tier or row by clicking its header button.
+async function expand(group: 'MCP server' | 'Other agents'): Promise<HTMLElement> {
+  const container = screen.getByRole('group', { name: group });
+  await userEvent.click(within(container).getAllByRole('button')[0]);
+  return container;
 }
 
 describe('AgentIntegrationsPanel', () => {
@@ -217,23 +226,43 @@ describe('AgentIntegrationsPanel', () => {
   it.each([
     ['claude', 'notificationInfo', 'enableNotifications', baseNotification],
     ['codex', 'codexNotificationInfo', 'enableCodexNotifications', baseCodexNotification],
-    ['antigravity', 'antigravityNotificationInfo', 'enableAntigravityNotifications', baseNotification],
-    ['opencode', 'opencodeNotificationInfo', 'enableOpenCodeNotifications', baseOpencodeNotification],
-  ] as const)('requires review and explicit application for %s updates', async (agent, field, enable, base) => {
-    const user = userEvent.setup();
-    const update = { files: [{ path: '/home/user/agent-config', description: 'Update Komla hooks; preserve other settings.' }] };
-    const api = setupMockApi({ [field]: { ...base, isConfigured: true, update } });
-    render(<AgentIntegrationsPanel agentFilter={agent} />);
-    await user.click(await screen.findByRole('button', { name: 'Review update' }));
-    expect(screen.getByText('/home/user/agent-config')).toBeInTheDocument();
-    expect(screen.getByText(update.files[0].description)).toBeInTheDocument();
-    expect(api[enable]).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(api[enable]).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Review update' }));
-    await user.click(screen.getByRole('button', { name: 'Apply update' }));
-    await waitFor(() => expect(api[enable]).toHaveBeenCalledOnce());
-  });
+    [
+      'antigravity',
+      'antigravityNotificationInfo',
+      'enableAntigravityNotifications',
+      baseNotification,
+    ],
+    [
+      'opencode',
+      'opencodeNotificationInfo',
+      'enableOpenCodeNotifications',
+      baseOpencodeNotification,
+    ],
+  ] as const)(
+    'requires review and explicit application for %s updates',
+    async (agent, field, enable, base) => {
+      const user = userEvent.setup();
+      const update = {
+        files: [
+          {
+            path: '/home/user/agent-config',
+            description: 'Update Komla hooks; preserve other settings.',
+          },
+        ],
+      };
+      const api = setupMockApi({ [field]: { ...base, isConfigured: true, update } });
+      render(<AgentIntegrationsPanel agentFilter={agent} />);
+      await user.click(await screen.findByRole('button', { name: 'Review update' }));
+      expect(screen.getByText('/home/user/agent-config')).toBeInTheDocument();
+      expect(screen.getByText(update.files[0].description)).toBeInTheDocument();
+      expect(api[enable]).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(api[enable]).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Review update' }));
+      await user.click(screen.getByRole('button', { name: 'Apply update' }));
+      await waitFor(() => expect(api[enable]).toHaveBeenCalledOnce());
+    }
+  );
 
   it('keeps Local Machine first and adds tabs for SSH hosts', async () => {
     const api = setupMockApi();
@@ -265,15 +294,17 @@ describe('AgentIntegrationsPanel', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Build Server' }));
     expect(api.getSshIntegrationStatus).toHaveBeenCalledTimes(1);
 
-    const otherSection = await expandSection(/Other Agent CLIs/);
+    // Role queries skip the hidden Local Machine panel.
+    const otherAgents = await expand('Other agents');
     expect(
-      within(otherSection).getByRole('heading', {
+      within(otherAgents).getByRole('heading', {
         name: 'No prebuilt one-click integration for your agent yet?',
       })
     ).toBeInTheDocument();
 
-    const claudeSection = await expandSection(/Claude Code/);
-    await userEvent.click(within(claudeSection).getAllByRole('button', { name: 'Enable' })[0]);
+    await userEvent.click(
+      await within(agentRow('Hooks', 'Claude Code')).findByRole('button', { name: 'Enable' })
+    );
     await waitFor(() =>
       expect(api.enableSshIntegration).toHaveBeenCalledWith('server-1', 'claude', 'notifications')
     );
@@ -284,7 +315,12 @@ describe('AgentIntegrationsPanel', () => {
     mockConfigState.config = { notificationPort: 52863 };
     useSshHostsStore.setState({
       hosts: [
-        { id: 'server-1', name: 'Build Server', hostname: 'build.example.com', basePath: '~/.komla' },
+        {
+          id: 'server-1',
+          name: 'Build Server',
+          hostname: 'build.example.com',
+          basePath: '~/.komla',
+        },
       ],
     });
     useWorkspacesStore.setState({
@@ -317,11 +353,18 @@ describe('AgentIntegrationsPanel', () => {
   });
 
   it('marks the Local Machine tab when a local integration has an update while another tab is open', async () => {
-    const update = { files: [{ path: '/home/user/.claude/settings.json', description: 'Update hooks.' }] };
+    const update = {
+      files: [{ path: '/home/user/.claude/settings.json', description: 'Update hooks.' }],
+    };
     setupMockApi({ notificationInfo: { ...baseNotification, isConfigured: true, update } });
     useSshHostsStore.setState({
       hosts: [
-        { id: 'server-1', name: 'Build Server', hostname: 'build.example.com', basePath: '~/.komla' },
+        {
+          id: 'server-1',
+          name: 'Build Server',
+          hostname: 'build.example.com',
+          basePath: '~/.komla',
+        },
       ],
     });
     useWorkspacesStore.setState({
@@ -344,7 +387,9 @@ describe('AgentIntegrationsPanel', () => {
 
     const localTab = screen.getByRole('tab', { name: /Local Machine/ });
     expect(localTab).toHaveAttribute('aria-selected', 'false');
-    expect(await within(localTab).findByRole('img', { name: 'Update available' })).toBeInTheDocument();
+    expect(
+      await within(localTab).findByRole('img', { name: 'Update available' })
+    ).toBeInTheDocument();
     expect(
       within(screen.getByRole('tab', { name: /Build Server/ })).queryByRole('img', {
         name: 'Update available',
@@ -359,7 +404,12 @@ describe('AgentIntegrationsPanel', () => {
     mockConfigState.config = { notificationPort: 52863 };
     useSshHostsStore.setState({
       hosts: [
-        { id: 'server-1', name: 'Build Server', hostname: 'build.example.com', basePath: '~/.komla' },
+        {
+          id: 'server-1',
+          name: 'Build Server',
+          hostname: 'build.example.com',
+          basePath: '~/.komla',
+        },
       ],
     });
 
@@ -377,7 +427,12 @@ describe('AgentIntegrationsPanel', () => {
     setupMockApi({ cachedSshIntegrationUpdates: { 'server-1': { codex: 'hooks' } } });
     useSshHostsStore.setState({
       hosts: [
-        { id: 'server-1', name: 'Build Server', hostname: 'build.example.com', basePath: '~/.komla' },
+        {
+          id: 'server-1',
+          name: 'Build Server',
+          hostname: 'build.example.com',
+          basePath: '~/.komla',
+        },
       ],
     });
 
@@ -405,15 +460,18 @@ describe('AgentIntegrationsPanel', () => {
     });
     useSshHostsStore.setState({
       hosts: [
-        { id: 'server-1', name: 'Build Server', hostname: 'build.example.com', basePath: '~/.komla' },
+        {
+          id: 'server-1',
+          name: 'Build Server',
+          hostname: 'build.example.com',
+          basePath: '~/.komla',
+        },
       ],
     });
 
     render(<AgentIntegrationsPanel />);
     await user.click(screen.getByRole('tab', { name: /Build Server/ }));
-    const claudeHeader = await screen.findByRole('button', { name: /Claude Code.*Update available/ });
-    await user.click(claudeHeader);
-    await user.click(screen.getByRole('button', { name: 'Review update' }));
+    await user.click(await screen.findByRole('button', { name: 'Review update' }));
     expect(screen.getByText('/home/dev/.claude/settings.json')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Apply update' }));
 
@@ -445,41 +503,208 @@ describe('AgentIntegrationsPanel', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Build Server' }));
     await waitFor(() => expect(api.getSshIntegrationStatus).toHaveBeenCalledWith('server-1'));
-    expect(screen.getByRole('button', { name: /Claude Code/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Codex CLI/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Other Agent CLIs/ })).not.toBeInTheDocument();
+    const hooks = screen.getByRole('group', { name: 'Hooks' });
+    expect(within(hooks).getByText('Claude Code')).toBeInTheDocument();
+    expect(within(hooks).queryByText('Codex CLI')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Other agents' })).not.toBeInTheDocument();
   });
 
-  describe('Claude section', () => {
-    it('shows Not configured and two Enable buttons when nothing is configured', async () => {
+  describe('tiers', () => {
+    it('puts hooks first, then the Komla CLI, then the MCP server', async () => {
       setupMockApi();
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Claude Code/);
-      expect(within(section).getByText('Not configured')).toBeInTheDocument();
-      // Notifications and the MCP server.
-      const enableButtons = within(section).getAllByRole('button', { name: /^Enable$/ });
-      expect(enableButtons).toHaveLength(2);
-      expect(within(section).queryByText('Komla skill')).not.toBeInTheDocument();
-      expect(within(section).queryByText('Auto-Trust')).not.toBeInTheDocument();
+      const tiers = screen
+        .getAllByRole('group')
+        .filter((group) =>
+          ['Hooks', 'Komla CLI', 'MCP server'].includes(group.getAttribute('aria-label') ?? '')
+        );
+      expect(tiers.map((tier) => tier.getAttribute('aria-label'))).toEqual([
+        'Hooks',
+        'Komla CLI',
+        'MCP server',
+      ]);
+      expect(within(tiers[0]).getByText('Recommended')).toBeInTheDocument();
+      // Each tier is named by a heading; the MCP tier's heading holds its toggle.
+      for (const name of ['Hooks', 'Komla CLI', 'MCP server']) {
+        expect(screen.getByRole('heading', { name })).toBeInTheDocument();
+      }
+      expect(
+        within(screen.getByRole('heading', { name: 'MCP server' })).getByRole('button', {
+          name: 'MCP server',
+        })
+      ).toHaveAttribute('aria-expanded', 'false');
     });
 
-    it('counts notifications, not the MCP server', async () => {
+    it('offers every agent’s hooks without expanding anything', async () => {
+      setupMockApi();
+      render(<AgentIntegrationsPanel />);
+      await waitForLoad();
+
+      for (const agent of ['Claude Code', 'Codex CLI', 'Antigravity CLI', 'OpenCode']) {
+        expect(
+          within(agentRow('Hooks', agent)).getByRole('button', { name: /^Enable$/ })
+        ).toBeVisible();
+      }
+    });
+
+    it('keeps the MCP server collapsed, saying how many agents have it', async () => {
+      setupMockApi({ mcpStatus: { ...baseMcpStatus, isConfigured: true } });
+      render(<AgentIntegrationsPanel />);
+      await waitForLoad();
+
+      const mcp = screen.getByRole('group', { name: 'MCP server' });
+      expect(within(mcp).getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+      expect(mcp).toHaveTextContent('1 on');
+      expect(within(mcp).queryByText('Claude Code')).not.toBeInTheDocument();
+
+      await expand('MCP server');
+      expect(
+        within(agentRow('MCP server', 'Claude Code')).getByRole('button', { name: /^Remove$/ })
+      ).toBeInTheDocument();
+      expect(
+        within(agentRow('MCP server', 'Codex CLI')).getByRole('button', { name: /^Enable$/ })
+      ).toBeInTheDocument();
+    });
+
+    it('counts hooks apart from the MCP server', async () => {
       setupMockApi({ notificationInfo: { ...baseNotification, isConfigured: true } });
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Claude Code/);
-      expect(within(section).getByText('Configured')).toBeInTheDocument();
-      expect(within(section).getAllByRole('button', { name: /^Remove$/ })).toHaveLength(1);
-      expect(within(section).getByText('MCP Server')).toBeInTheDocument();
+      const row = agentRow('Hooks', 'Claude Code');
+      expect(within(row).getByText(/Configured/)).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: /^Remove$/ })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'MCP server' })).toHaveTextContent('Off');
     });
+  });
+
+  describe('when a check fails', () => {
+    it.each([
+      ['getNotificationHookDetails', 'Claude Code'],
+      ['getAntigravityNotificationHookDetails', 'Antigravity CLI'],
+      ['getOpenCodeNotificationHookDetails', 'OpenCode'],
+    ] as const)('says so on the Hooks row when %s fails', async (method, agent) => {
+      const api = setupMockApi();
+      api[method].mockRejectedValue(new Error('login shell failed'));
+      render(<AgentIntegrationsPanel />);
+
+      const row = agentRow('Hooks', agent);
+      expect(await within(row).findByText('login shell failed')).toBeInTheDocument();
+      expect(row.querySelector('[role="status"], .animate-spin')).toBeNull();
+    });
+
+    it('says the MCP server is unavailable, and still offers other agents’ setup', async () => {
+      const api = setupMockApi();
+      api.getMcpStatus.mockRejectedValue(new Error('no MCP'));
+      render(<AgentIntegrationsPanel />);
+      await waitForLoad();
+
+      expect(screen.getByRole('group', { name: 'MCP server' })).toHaveTextContent('Unavailable');
+      const mcp = await expand('MCP server');
+      // The reason, once for the tier, in place of rows that would offer Enable.
+      expect(within(mcp).getAllByText('no MCP')).toHaveLength(1);
+      expect(within(mcp).queryByText('Claude Code')).not.toBeInTheDocument();
+      expect(within(mcp).queryByRole('button', { name: /^Enable$/ })).not.toBeInTheDocument();
+      const other = await expand('Other agents');
+      expect(
+        within(other).getByRole('button', { name: 'Launch self-integration skill' })
+      ).toBeDisabled();
+      expect(within(other).getByText('no MCP')).toBeInTheDocument();
+    });
+
+    it('says it couldn’t check Codex’s hooks, not that an update failed', async () => {
+      const api = setupMockApi();
+      api.getCodexNotificationHookDetails.mockRejectedValue({});
+      render(<AgentIntegrationsPanel />);
+
+      const row = agentRow('Hooks', 'Codex CLI');
+      expect(await within(row).findByText('Couldn’t check its hooks')).toBeInTheDocument();
+      expect(within(row).queryByText('Update failed')).not.toBeInTheDocument();
+    });
+
+    it('keeps why a change failed when the recheck after it fails too', async () => {
+      const api = setupMockApi();
+      render(<AgentIntegrationsPanel />);
+      await waitForLoad();
+      const tier = screen.getByRole('group', { name: 'Komla CLI' });
+      const enable = await within(tier).findByRole('button', { name: /^Enable$/ });
+
+      api.enableKomlaSkill.mockRejectedValue(new Error('EACCES: ~/.claude/skills'));
+      api.getKomlaSkillStatus.mockRejectedValue(new Error('skills folder unreadable'));
+      await userEvent.click(enable);
+
+      expect(await within(tier).findByText('EACCES: ~/.claude/skills')).toBeInTheDocument();
+      expect(within(tier).queryByText('skills folder unreadable')).not.toBeInTheDocument();
+    });
+
+    it('says so on the Komla skill row when its check fails', async () => {
+      const api = setupMockApi();
+      api.getKomlaSkillStatus.mockRejectedValue(new Error('skills folder unreadable'));
+      render(<AgentIntegrationsPanel />);
+
+      const tier = screen.getByRole('group', { name: 'Komla CLI' });
+      expect(await within(tier).findByText('skills folder unreadable')).toBeInTheDocument();
+      expect(tier.querySelector('.animate-spin')).toBeNull();
+    });
+
+    it('says so in the MCP tier when the check after a change fails', async () => {
+      const api = setupMockApi();
+      render(<AgentIntegrationsPanel agentFilter="codex" />);
+      await waitForLoad();
+      await expand('MCP server');
+
+      api.getMcpStatus.mockRejectedValue(new Error('no MCP'));
+      await userEvent.click(
+        within(agentRow('MCP server', 'Codex CLI')).getByRole('button', { name: /^Enable$/ })
+      );
+
+      // Claude Code isn't shown here, so the reason can't go on its row.
+      expect(
+        await within(screen.getByRole('group', { name: 'MCP server' })).findByText('no MCP')
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('shows OpenCode’s MCP command until it’s configured, with no toggle that does nothing', async () => {
+    setupMockApi();
+    render(<AgentIntegrationsPanel />);
+    await waitForLoad();
+    await expand('MCP server');
+
+    const row = agentRow('MCP server', 'OpenCode');
+    expect(within(row).getByText('opencode mcp add komla ...')).toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'Show command' })).not.toBeInTheDocument();
+  });
+
+  it('lets you show OpenCode’s MCP command once it’s configured', async () => {
+    setupMockApi({
+      mcpStatus: { ...baseMcpStatus, opencode: { ...baseMcpStatus.opencode, isConfigured: true } },
+    });
+    render(<AgentIntegrationsPanel />);
+    await waitForLoad();
+    await expand('MCP server');
+
+    const row = agentRow('MCP server', 'OpenCode');
+    expect(within(row).queryByText('opencode mcp add komla ...')).not.toBeInTheDocument();
+    await userEvent.click(within(row).getByRole('button', { name: 'Show command' }));
+    expect(within(row).getByText('opencode mcp add komla ...')).toBeInTheDocument();
   });
 
   describe('Komla skill', () => {
     const skillRow = async () =>
       (await screen.findByText('Komla skill')).closest('div.space-y-2') as HTMLElement;
+
+    it('points to komla --help under the skill', async () => {
+      setupMockApi();
+      render(<AgentIntegrationsPanel />);
+      await waitForLoad();
+
+      expect(await skillRow()).toHaveTextContent(
+        'Agents can also look up any command with komla --help or komla <command> --help.'
+      );
+    });
 
     it('adds the skill for every agent from one row', async () => {
       const api = setupMockApi();
@@ -525,49 +750,50 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Claude Code/);
-      // First Enable in Claude is Notifications (then MCP).
-      const enableButtons = within(section).getAllByRole('button', { name: /^Enable$/ });
-      await userEvent.click(enableButtons[0]);
+      await userEvent.click(
+        within(agentRow('Hooks', 'Claude Code')).getByRole('button', { name: /^Enable$/ })
+      );
 
       await waitFor(() => expect(api.enableNotifications).toHaveBeenCalledTimes(1));
       expect(mockAddToast).toHaveBeenCalledWith('Claude Code hooks added', 'success');
     });
   });
 
-  describe('Antigravity section', () => {
-    it('shows Not configured and two Enable buttons when nothing is configured', async () => {
+  describe('Antigravity', () => {
+    it('offers its hooks and MCP server when nothing is configured', async () => {
       setupMockApi();
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Antigravity CLI/);
-      expect(within(section).getByText('Not configured')).toBeInTheDocument();
-      const enableButtons = within(section).getAllByRole('button', { name: /^Enable$/ });
-      expect(enableButtons).toHaveLength(2);
+      expect(
+        within(agentRow('Hooks', 'Antigravity CLI')).getByRole('button', { name: /^Enable$/ })
+      ).toBeInTheDocument();
+      await expand('MCP server');
+      expect(
+        within(agentRow('MCP server', 'Antigravity CLI')).getByRole('button', { name: /^Enable$/ })
+      ).toBeInTheDocument();
     });
 
-    it('shows Configured when notifications are set up', async () => {
+    it('shows Configured when its hooks are set up', async () => {
       setupMockApi({
         antigravityNotificationInfo: { ...baseNotification, isConfigured: true },
       });
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Antigravity CLI/);
-      expect(within(section).getByText('Configured')).toBeInTheDocument();
-      const removeButtons = within(section).getAllByRole('button', { name: /^Remove$/ });
-      expect(removeButtons).toHaveLength(1);
+      const row = agentRow('Hooks', 'Antigravity CLI');
+      expect(within(row).getByText(/Configured/)).toBeInTheDocument();
+      expect(within(row).getAllByRole('button', { name: /^Remove$/ })).toHaveLength(1);
     });
   });
 
-  describe('Codex section', () => {
+  describe('Codex', () => {
     it('always shows hook approval info for Codex (heads-up regardless of configured state)', async () => {
       setupMockApi();
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Codex CLI/);
+      const section = agentRow('Hooks', 'Codex CLI');
       expect(
         within(section).getByText(/won.t run the Komla hooks until you approve them/i)
       ).toBeInTheDocument();
@@ -585,7 +811,7 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Codex CLI/);
+      const section = agentRow('Hooks', 'Codex CLI');
       expect(section).toHaveTextContent(/notifications won.t fire at all/i);
       expect(section).toHaveTextContent(/review.*completion hook/i);
     });
@@ -597,7 +823,7 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Codex CLI/);
+      const section = agentRow('Hooks', 'Codex CLI');
       expect(
         within(section).getByText(/won.t run the Komla hooks until you approve them/i)
       ).toBeInTheDocument();
@@ -615,7 +841,7 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Codex CLI/);
+      const section = agentRow('Hooks', 'Codex CLI');
       expect(within(section).getByRole('button', { name: /Force Enable/ })).toBeInTheDocument();
       expect(within(section).getByText('Existing notify config detected')).toBeInTheDocument();
     });
@@ -633,7 +859,7 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Codex CLI/);
+      const section = agentRow('Hooks', 'Codex CLI');
       await userEvent.click(within(section).getByRole('button', { name: /Force Enable/ }));
 
       await waitFor(() => expect(api.enableCodexNotificationsForce).toHaveBeenCalledTimes(1));
@@ -654,7 +880,7 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Codex CLI/);
+      const section = agentRow('Hooks', 'Codex CLI');
       await userEvent.click(within(section).getByRole('button', { name: /Force Enable/ }));
 
       await waitFor(() => expect(api.showMessageBox).toHaveBeenCalledTimes(1));
@@ -663,16 +889,19 @@ describe('AgentIntegrationsPanel', () => {
     });
   });
 
-  describe('OpenCode section', () => {
-    it('shows Not configured and an Enable button for notifications when unconfigured', async () => {
+  describe('OpenCode', () => {
+    it('offers its hooks, and a command for its MCP server', async () => {
       setupMockApi();
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/OpenCode/);
-      expect(within(section).getByText('Not configured')).toBeInTheDocument();
-      // Notifications have Enable; MCP has a Copy command instead.
-      expect(within(section).getAllByRole('button', { name: /^Enable$/ })).toHaveLength(1);
+      expect(
+        within(agentRow('Hooks', 'OpenCode')).getByRole('button', { name: /^Enable$/ })
+      ).toBeInTheDocument();
+      await expand('MCP server');
+      const mcp = agentRow('MCP server', 'OpenCode');
+      expect(within(mcp).queryByRole('button', { name: /^Enable$/ })).not.toBeInTheDocument();
+      expect(within(mcp).getByRole('button', { name: /Copy command/ })).toBeInTheDocument();
     });
 
     it('shows Configured when the notification plugin is set up', async () => {
@@ -682,26 +911,34 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/OpenCode/);
-      expect(within(section).getByText('Configured')).toBeInTheDocument();
+      expect(within(agentRow('Hooks', 'OpenCode')).getByText(/Configured/)).toBeInTheDocument();
     });
   });
 
-  describe('Generic section', () => {
-    it('renders the Other Agent CLIs section with Manual indicator', async () => {
+  describe('Other agents', () => {
+    it('shows how other agents set up their hooks, and their MCP command in the MCP tier', async () => {
+      const user = userEvent.setup();
       setupMockApi();
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Other Agent CLIs/);
-      // "Manual" appears in both the section status label and the notification row.
-      expect(within(section).getAllByText('Manual').length).toBeGreaterThan(0);
-      expect(within(section).getByText('Invoke the Komla CLI from a hook')).toBeInTheDocument();
-      expect(within(section).getByText('komla mcp')).toBeInTheDocument();
-      expect(section).not.toHaveTextContent('notify.js');
-      expect(section).not.toHaveTextContent('/api/v1/notify');
-      // Generic MCP shows a Copy command button rather than Enable/Remove.
-      expect(within(section).getByRole('button', { name: /Copy command/ })).toBeInTheDocument();
+      const other = await expand('Other agents');
+      expect(
+        within(other).getByRole('button', { name: 'Launch self-integration skill' })
+      ).toBeInTheDocument();
+      await user.click(
+        within(other).getByRole('button', { name: 'Or wire up its hooks yourself' })
+      );
+      expect(other).toHaveTextContent('--event Stop');
+      expect(other).not.toHaveTextContent('notify.js');
+      expect(other).not.toHaveTextContent('/api/v1/notify');
+      expect(other).not.toHaveTextContent('komla mcp');
+
+      await expand('MCP server');
+      const mcp = agentRow('MCP server', 'Other agents');
+      expect(within(mcp).getByText('komla mcp')).toBeInTheDocument();
+      // Its MCP server is a command to copy rather than Enable/Remove.
+      expect(within(mcp).getByRole('button', { name: /Copy command/ })).toBeInTheDocument();
     });
 
     it('drops the self-setup nudge once the self-integration skill launches', async () => {
@@ -709,9 +946,9 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const section = await expandSection(/Other Agent CLIs/);
+      const other = await expand('Other agents');
       await userEvent.click(
-        within(section).getByRole('button', { name: 'Launch self-integration skill' })
+        within(other).getByRole('button', { name: 'Launch self-integration skill' })
       );
 
       expect(mockUpdateConfig).toHaveBeenCalledWith({ selfSetupNudgePending: false });
@@ -732,18 +969,30 @@ describe('AgentIntegrationsPanel', () => {
     });
   });
 
-  it.each([
-    ['codex', /Codex CLI/],
-    ['generic', /Other Agent CLIs/],
-  ] as const)('opens with the %s section a link asks for expanded', async (section, name) => {
+  it('opens other agents’ setup for a link that asks for it', async () => {
     setupMockApi();
-    render(<AgentIntegrationsPanel openSection={section} />);
+    render(<AgentIntegrationsPanel openSection="generic" />);
     await waitForLoad();
 
-    expect(screen.getByRole('button', { name })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: /Claude Code/ })).toHaveAttribute(
+    const other = screen.getByRole('group', { name: 'Other agents' });
+    expect(within(other).getByRole('button', { name: /Other agents/ })).toHaveAttribute(
       'aria-expanded',
-      'false'
+      'true'
     );
+  });
+
+  it('shows an agent’s hooks for a link about it without expanding anything else', async () => {
+    setupMockApi();
+    render(<AgentIntegrationsPanel openSection="codex" />);
+    await waitForLoad();
+
+    expect(
+      within(agentRow('Hooks', 'Codex CLI')).getByRole('button', { name: /^Enable$/ })
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole('group', { name: 'Other agents' })).getByRole('button', {
+        name: /Other agents/,
+      })
+    ).toHaveAttribute('aria-expanded', 'false');
   });
 });

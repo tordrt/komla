@@ -1,45 +1,44 @@
-import { Info } from '@phosphor-icons/react';
+import { BellRinging, Plugs, TerminalWindow } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 
-import { Callout } from '@/components/ui/callout';
-import { reportsOwnStatus } from '@/lib/agent-status-reports';
+import { KomlaMark } from '@/components/ui/komla-mark';
 import { offerAgentLaunchDefaults } from '@/stores/agent-launch-defaults-dialog.store';
 import { useToastStore } from '@/stores/toast.store';
 
 import {
+  AGENT_NAMES,
+  AgentIcon,
+  CollapsibleIntegrationGroup,
   ConfiguredAction,
-  ConfiguredDot,
+  enabledSummary,
   EnableButton,
+  IntegrationGroup,
   IntegrationItem,
   NotificationUpdateAction,
-  SectionShell,
+  OtherAgentsRow,
+  RecommendedBadge,
 } from './AgentIntegrationParts';
 import { FormError } from './FormError';
-import { HooksHelp, KomlaSkillHelp, McpHelp, mcpServerNote } from './IntegrationHelp';
+import {
+  CodexHookApproval,
+  HOOKS_DESCRIPTION,
+  HooksHelp,
+  KOMLA_CLI_DESCRIPTION,
+  KomlaCliHelpNote,
+  KomlaSkillHelp,
+  MCP_DESCRIPTION,
+  McpHelp,
+} from './IntegrationHelp';
 import { OtherAgentCallout } from './OtherAgentCallout';
 
 import type { SshAgent, SshHost, SshIntegrationStatus, SshIntegrationType } from '@/types';
-
-const AGENT_LABELS: Record<SshAgent, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex CLI',
-  antigravity: 'Antigravity CLI',
-  opencode: 'OpenCode',
-};
-
-const AGENT_DESCRIPTIONS: Record<SshAgent, string> = {
-  claude: 'Hooks, MCP server',
-  codex: 'Hooks, MCP server',
-  antigravity: 'Hooks, MCP server',
-  opencode: 'Hooks, MCP server',
-};
 
 const INTEGRATION_LABELS: Record<SshIntegrationType, string> = {
   notifications: 'hooks',
   mcp: 'MCP server',
 };
 
-const SSH_AGENTS = Object.keys(AGENT_LABELS) as SshAgent[];
+const SSH_AGENTS = Object.keys(AGENT_NAMES) as SshAgent[];
 
 type RemoteIntegrationTarget = { kind: 'ssh'; host: SshHost };
 
@@ -53,6 +52,7 @@ export function RemoteAgentIntegrationsPanel({
   initialStatus = null,
   onUpdateAgentsChange,
   onLaunchIntegrationChange,
+  showIntro = true,
 }: {
   target: RemoteIntegrationTarget;
   agentFilter?: SshAgent;
@@ -65,11 +65,14 @@ export function RemoteAgentIntegrationsPanel({
    * skill or an MCP server is turned on, and false once a removal leaves the host with neither.
    */
   onLaunchIntegrationChange?: (on: boolean) => void;
+  /** False where the panel sits in a dialog that already says what it's for. */
+  showIntro?: boolean;
 }) {
   const addToast = useToastStore((state) => state.addToast);
   const [status, setStatus] = useState<SshIntegrationStatus | null>(initialStatus);
   const [statusLabel, setStatusLabel] = useState(initialStatus ? '' : 'Checking...');
-  const [expandedAgents, setExpandedAgents] = useState<Record<string, boolean>>({});
+  const [otherExpanded, setOtherExpanded] = useState(false);
+  const [mcpExpanded, setMcpExpanded] = useState(false);
   const [integrationLoading, setIntegrationLoading] = useState<Record<string, boolean>>({});
   const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [integrationPrompt, setIntegrationPrompt] = useState<string | null>(null);
@@ -154,7 +157,7 @@ export function RemoteAgentIntegrationsPanel({
       const nextStatus = await loadStatus();
       const outcome = enabled ? 'enabled' : 'removed';
       addToast(
-        `${AGENT_LABELS[agent]} ${INTEGRATION_LABELS[type]} ${outcome} on ${targetLabel}`,
+        `${AGENT_NAMES[agent]} ${INTEGRATION_LABELS[type]} ${outcome} on ${targetLabel}`,
         'success'
       );
       if (type === 'mcp') reportLaunchIntegration(enabled, nextStatus);
@@ -167,22 +170,90 @@ export function RemoteAgentIntegrationsPanel({
     }
   };
 
+  const agents = agentFilter ? [agentFilter] : SSH_AGENTS;
+  // Each row's action until the host's status is read, or why it couldn't be.
+  const pendingAction = <span className="text-ui text-muted-foreground">{statusLabel}</span>;
+
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        Hooks and the Komla skill for agents running on this SSH host.
-      </p>
+    <div className="space-y-4">
+      {showIntro && (
+        <p className="text-xs text-muted-foreground">
+          Hooks and the Komla skill for agents running on this SSH host.
+        </p>
+      )}
       {integrationError && <FormError message={integrationError} />}
-      {/* Edge to edge in the card, one agent per row. */}
-      <div className="-mx-5 -mb-4 divide-y divide-foreground/8 border-t border-foreground/8">
-        <div className="px-2 py-0.5">
+      <div className="space-y-3">
+        <IntegrationGroup
+          icon={<BellRinging />}
+          title="Hooks"
+          badge={<RecommendedBadge />}
+          description={HOOKS_DESCRIPTION}
+        >
+          {agents.map((agent) => {
+            const agentStatus = status?.[agent];
+            const loading = integrationLoading[`${agent}-notifications`] ?? false;
+            return (
+              <IntegrationItem
+                key={agent}
+                // Each agent's key is its command.
+                icon={<AgentIcon name={AGENT_NAMES[agent]} command={agent} />}
+                label={AGENT_NAMES[agent]}
+                help={<HooksHelp agent={AGENT_NAMES[agent]} integration={agent} />}
+                action={
+                  !status ? (
+                    pendingAction
+                  ) : agentStatus?.update ? (
+                    <NotificationUpdateAction
+                      update={agentStatus.update}
+                      preview={agentStatus.update.preview}
+                      loading={loading}
+                      onApply={() => void changeIntegration(agent, 'notifications', true)}
+                      onRemove={() => void changeIntegration(agent, 'notifications', false)}
+                    />
+                  ) : !agentStatus?.notifications ? (
+                    <EnableButton
+                      loading={loading}
+                      onClick={() => void changeIntegration(agent, 'notifications', true)}
+                    />
+                  ) : (
+                    <ConfiguredAction
+                      loading={loading}
+                      onRemove={() => void changeIntegration(agent, 'notifications', false)}
+                    />
+                  )
+                }
+                warning={agent === 'codex' && <CodexHookApproval />}
+              />
+            );
+          })}
+          {!agentFilter && (
+            <OtherAgentsRow
+              description="They can set themselves up"
+              expanded={otherExpanded}
+              onToggle={() => setOtherExpanded((current) => !current)}
+            >
+              <OtherAgentCallout
+                integrationPrompt={integrationPrompt}
+                launchButtonTone="subtle"
+                workspacePrefill={{ sshHostId: target.host.id }}
+              />
+            </OtherAgentsRow>
+          )}
+        </IntegrationGroup>
+        <IntegrationGroup
+          icon={<TerminalWindow />}
+          title="Komla CLI"
+          description={KOMLA_CLI_DESCRIPTION}
+        >
           <IntegrationItem
-            isConfigured={status?.komlaSkill ?? false}
+            icon={<KomlaMark className="size-4" />}
             label="Komla skill"
             help={<KomlaSkillHelp />}
-            description="Teaches your agents how to use the Komla CLI"
+            note={<KomlaCliHelpNote />}
             action={
-              status?.komlaSkill ? (
+              !status ? (
+                pendingAction
+              ) : status.komlaSkill ? (
                 <ConfiguredAction
                   loading={integrationLoading.skill ?? false}
                   onRemove={() => void changeKomlaSkill(false)}
@@ -190,135 +261,55 @@ export function RemoteAgentIntegrationsPanel({
               ) : (
                 <EnableButton
                   loading={integrationLoading.skill ?? false}
-                  disabled={!status || (integrationLoading.skill ?? false)}
                   onClick={() => void changeKomlaSkill(true)}
                 />
               )
             }
           />
-        </div>
-        {(agentFilter ? [agentFilter] : SSH_AGENTS).map((agent) => {
-          const agentStatus = status?.[agent];
-          const configured = agentStatus?.notifications ?? false;
-          const notificationsLoading = integrationLoading[`${agent}-notifications`] ?? false;
-          const mcpLoading = integrationLoading[`${agent}-mcp`] ?? false;
-
-          return (
-            <SectionShell
-              key={agent}
-              title={AGENT_LABELS[agent]}
-              // Each agent's key is its command.
-              command={agent}
-              description={AGENT_DESCRIPTIONS[agent]}
-              expanded={expandedAgents[agent] ?? false}
-              onToggle={() =>
-                setExpandedAgents((current) => ({ ...current, [agent]: !current[agent] }))
-              }
-              statusDot={<ConfiguredDot isConfigured={configured} />}
-              needsUpdate={!!agentStatus?.update}
-              statusLabel={status ? (configured ? 'Configured' : 'Not configured') : statusLabel}
-            >
+        </IntegrationGroup>
+        <CollapsibleIntegrationGroup
+          icon={<Plugs />}
+          title="MCP server"
+          description={
+            <>
+              {MCP_DESCRIPTION}{' '}
+              {/* The MCP server reaches Komla through the terminal's reverse tunnel. */}
+              Available while a Komla SSH terminal for this host is open.
+            </>
+          }
+          summary={
+            status ? enabledSummary(agents.map((agent) => !!status[agent]?.mcp)) : statusLabel
+          }
+          expanded={mcpExpanded}
+          onToggle={() => setMcpExpanded((current) => !current)}
+        >
+          {agents.map((agent) => {
+            const loading = integrationLoading[`${agent}-mcp`] ?? false;
+            return (
               <IntegrationItem
-                isConfigured={agentStatus?.notifications ?? false}
-                outdated={!!agentStatus?.update}
-                label="Hooks"
-                help={<HooksHelp agent={AGENT_LABELS[agent]} integration={agent} />}
+                key={agent}
+                icon={<AgentIcon name={AGENT_NAMES[agent]} command={agent} />}
+                label={AGENT_NAMES[agent]}
+                help={<McpHelp agent={AGENT_NAMES[agent]} />}
                 action={
-                  agentStatus?.update ? (
-                    <NotificationUpdateAction
-                      update={agentStatus.update}
-                      preview={agentStatus.update.preview}
-                      loading={notificationsLoading}
-                      onApply={() => void changeIntegration(agent, 'notifications', true)}
-                      onRemove={() => void changeIntegration(agent, 'notifications', false)}
-                    />
-                  ) : !agentStatus?.notifications ? (
-                    <EnableButton
-                      loading={notificationsLoading}
-                      disabled={!status || notificationsLoading}
-                      onClick={() => void changeIntegration(agent, 'notifications', true)}
-                    />
-                  ) : (
+                  !status ? (
+                    pendingAction
+                  ) : status[agent]?.mcp ? (
                     <ConfiguredAction
-                      loading={notificationsLoading}
-                      onRemove={() => void changeIntegration(agent, 'notifications', false)}
-                    />
-                  )
-                }
-                warning={
-                  agent === 'codex' && (
-                    <Callout
-                      tone="warning"
-                      size="sm"
-                      icon={<Info className="size-3.5" />}
-                      className="ml-4 gap-2 py-2 text-xs"
-                    >
-                      <span className="font-medium">
-                        Codex won&rsquo;t run the Komla hooks until you approve them.
-                      </span>{' '}
-                      After enabling, run <code className="font-mono">/hooks</code> inside Codex,
-                      then select and approve each Komla hook individually. Until you do,{' '}
-                      {reportsOwnStatus('codex') ? (
-                        'workspace titles won’t follow the chat.'
-                      ) : (
-                        <>
-                          notifications won&rsquo;t fire at all. Codex{' '}
-                          <code className="font-mono">/review</code> may also skip the normal
-                          completion hook, which can leave the activity spinner on until the next
-                          completion event.
-                        </>
-                      )}
-                    </Callout>
-                  )
-                }
-              />
-              <IntegrationItem
-                isConfigured={agentStatus?.mcp ?? false}
-                label="MCP Server"
-                help={<McpHelp agent={AGENT_LABELS[agent]} />}
-                {...mcpServerNote}
-                action={
-                  agentStatus?.mcp ? (
-                    <ConfiguredAction
-                      loading={mcpLoading}
+                      loading={loading}
                       onRemove={() => void changeIntegration(agent, 'mcp', false)}
                     />
                   ) : (
                     <EnableButton
-                      loading={mcpLoading}
-                      disabled={!status || mcpLoading}
+                      loading={loading}
                       onClick={() => void changeIntegration(agent, 'mcp', true)}
                     />
                   )
                 }
-                warning={
-                  // The MCP server reaches Komla through the terminal's reverse tunnel.
-                  <p className="ml-4 text-xs leading-relaxed text-muted-foreground">
-                    Available while a Komla SSH terminal for this host is open.
-                  </p>
-                }
               />
-            </SectionShell>
-          );
-        })}
-        {!agentFilter && (
-          <SectionShell
-            title="Other Agent CLIs"
-            description="Hooks and MCP for any compatible agent"
-            expanded={expandedAgents.other ?? false}
-            onToggle={() => setExpandedAgents((current) => ({ ...current, other: !current.other }))}
-            statusDot={<ConfiguredDot isConfigured={false} />}
-            statusLabel="Manual"
-          >
-            <div className="p-3">
-              <OtherAgentCallout
-                integrationPrompt={integrationPrompt}
-                launchButtonTone="subtle"
-                workspacePrefill={{ sshHostId: target.host.id }}
-              />
-            </div>
-          </SectionShell>
-        )}
+            );
+          })}
+        </CollapsibleIntegrationGroup>
       </div>
     </div>
   );

@@ -88,7 +88,8 @@ describe('RemoteHostAccessCard', () => {
 
     expect(await screen.findByText('Turn on remote control above first.')).toBeTruthy();
     expect(
-      (screen.getByRole('switch', { name: 'Direct access to devbox' }) as HTMLButtonElement).disabled
+      (screen.getByRole('switch', { name: 'Direct access to devbox' }) as HTMLButtonElement)
+        .disabled
     ).toBe(true);
     expect(
       (screen.getByRole('switch', { name: 'Direct access to build' }) as HTMLButtonElement).disabled

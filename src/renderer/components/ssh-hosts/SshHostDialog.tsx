@@ -35,7 +35,6 @@ import {
 
 import { FormError } from '../layout/settings/FormError';
 import { RemoteAgentIntegrationsPanel } from '../layout/settings/RemoteAgentIntegrationsPanel';
-import { SettingsCard } from '../layout/settings/SettingsCard';
 
 import { SshGuideLink } from './ssh-guide';
 import {
@@ -598,18 +597,17 @@ function ReadyStep({
           <DialogTitle>{host.name} is ready</DialogTitle>
         </div>
         <DialogDescription>
-          New workspaces will start on it; switch in the New Workspace dialog. Turn on notifications
-          for the agents you use there, so Komla knows when they need you.
+          New workspaces will start on it; switch in the New Workspace dialog. Turn on hooks for the
+          agents you use there, so Komla knows when they’re done or need you.
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
-        <SettingsCard>
-          <RemoteAgentIntegrationsPanel
-            target={{ kind: 'ssh', host }}
-            initialStatus={status}
-            onLaunchIntegrationChange={onLaunchIntegrationChange}
-          />
-        </SettingsCard>
+        <RemoteAgentIntegrationsPanel
+          target={{ kind: 'ssh', host }}
+          initialStatus={status}
+          onLaunchIntegrationChange={onLaunchIntegrationChange}
+          showIntro={false}
+        />
       </DialogBody>
       {error && <FormError message={error} />}
       <DialogFooter>

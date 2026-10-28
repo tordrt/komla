@@ -617,7 +617,9 @@ describe('ProjectSettingsPage', () => {
       renderPage({ ...project, icon: saved, color: '#61dafb' });
 
       const suggested = () =>
-        screen.getAllByRole('button', { name: /^Icon color/ }).map((b) => b.getAttribute('aria-label'));
+        screen
+          .getAllByRole('button', { name: /^Icon color/ })
+          .map((b) => b.getAttribute('aria-label'));
       await waitFor(() =>
         expect(suggested()).toEqual(['Icon color #61dafb', 'Icon color #e11d48'])
       );

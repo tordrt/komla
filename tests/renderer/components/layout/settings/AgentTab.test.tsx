@@ -568,9 +568,7 @@ describe('AgentTab', () => {
     expect(mockUpdatePreset).toHaveBeenCalledWith(
       'preset-1',
       expect.objectContaining({
-        reasoningLevels: [
-          { id: expect.any(String), name: 'High', arguments: '--thinking high' },
-        ],
+        reasoningLevels: [{ id: expect.any(String), name: 'High', arguments: '--thinking high' }],
       })
     );
   });
@@ -671,20 +669,23 @@ describe('AgentTab', () => {
   it.each([
     ['e.g., --effort high', '--thinking high'],
     ['e.g., High', 'High'],
-  ])('requires both a name and arguments for effort levels (%s filled)', async (placeholder, value) => {
-    const user = userEvent.setup();
-    mockPresets = [existingPreset];
-    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
-    render(<AgentTab onClose={vi.fn()} />);
+  ])(
+    'requires both a name and arguments for effort levels (%s filled)',
+    async (placeholder, value) => {
+      const user = userEvent.setup();
+      mockPresets = [existingPreset];
+      mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+      render(<AgentTab onClose={vi.fn()} />);
 
-    await user.click(screen.getByRole('button', { name: 'Edit preset' }));
-    await user.click(screen.getByRole('button', { name: /Add level/i }));
-    await user.type(screen.getByPlaceholderText(placeholder), value);
-    await user.click(screen.getByRole('button', { name: /^Save$/i }));
+      await user.click(screen.getByRole('button', { name: 'Edit preset' }));
+      await user.click(screen.getByRole('button', { name: /Add level/i }));
+      await user.type(screen.getByPlaceholderText(placeholder), value);
+      await user.click(screen.getByRole('button', { name: /^Save$/i }));
 
-    expect(
-      await screen.findByText('Every effort level needs a name and arguments')
-    ).toBeInTheDocument();
-    expect(mockUpdatePreset).not.toHaveBeenCalled();
-  });
+      expect(
+        await screen.findByText('Every effort level needs a name and arguments')
+      ).toBeInTheDocument();
+      expect(mockUpdatePreset).not.toHaveBeenCalled();
+    }
+  );
 });

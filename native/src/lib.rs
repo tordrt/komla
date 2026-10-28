@@ -288,6 +288,21 @@ mod tests {
             })
         );
 
+        // Windows reports every add as Create(Any), for folders as well as files.
+        fs::create_dir(repository.join("added-directory")).unwrap();
+        let added_directory = Event::new(EventKind::Create(CreateKind::Any))
+            .add_path(repository.join("added-directory"));
+        assert_eq!(
+            RepositoryEventClassifier::analyze(&paths, &filter, Ok(added_directory)),
+            Some(RepositoryWatchSignal::Changed {
+                kinds: HashSet::from([RepositoryEventKind::WorkingTree]),
+                paths: named(&["added-directory"]),
+                file_list_may_change: true,
+                reload_ignore_rules: false,
+                rebuild_watcher: true,
+            })
+        );
+
         let mut overflow = Event::new(EventKind::Any);
         overflow.attrs.set_flag(Flag::Rescan);
         assert_eq!(
@@ -539,6 +554,47 @@ mod tests {
             }
         }
         assert!(saw_change, "native watcher should observe README.md writes");
+    }
+
+    #[test]
+    fn native_watcher_rebuilds_after_a_directory_is_created() {
+        let temp = tempdir().unwrap();
+        let repository = temp.path().join("repository");
+        fs::create_dir(&repository).unwrap();
+        git(&repository, &["init"]);
+        let paths = RepositoryWatchPaths::discover(&repository).unwrap();
+        let filter = RepositoryEventFilter::load(&repository).unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let _watcher = super::RepositoryWatcher::start(&paths, &filter, move |event| {
+            let _ = sender.send(event);
+        })
+        .unwrap();
+
+        // Working-tree directories are watched one level deep, so files in a new
+        // directory are seen only after the watcher is rebuilt.
+        fs::create_dir(repository.join("feature")).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut saw_rebuild = false;
+        while std::time::Instant::now() < deadline {
+            if let Ok(event) = receiver.recv_timeout(std::time::Duration::from_millis(50)) {
+                if super::RepositoryEventClassifier::analyze(&paths, &filter, event)
+                    == Some(RepositoryWatchSignal::Changed {
+                        kinds: HashSet::from([RepositoryEventKind::WorkingTree]),
+                        paths: named(&["feature"]),
+                        file_list_may_change: true,
+                        reload_ignore_rules: false,
+                        rebuild_watcher: true,
+                    })
+                {
+                    saw_rebuild = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            saw_rebuild,
+            "native watcher should rebuild after a directory is created"
+        );
     }
 
     #[test]

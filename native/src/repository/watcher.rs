@@ -304,16 +304,21 @@ impl RepositoryEventClassifier {
         if matches!(event.kind, EventKind::Access(_)) {
             return None;
         }
-        let rebuild_for_directory_change =
-            matches!(
-                event.kind,
-                EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder)
-            ) || matches!(event.kind, EventKind::Modify(ModifyKind::Name(_)))
-                && event.paths.iter().any(|path| path.is_dir());
+        // Windows reports every add as Create(Any), so a new folder is told apart by its path.
+        let rebuild_for_directory_change = matches!(
+            event.kind,
+            EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder)
+        ) || matches!(
+            event.kind,
+            EventKind::Create(CreateKind::Any) | EventKind::Modify(ModifyKind::Name(_))
+        ) && event.paths.iter().any(|path| path.is_dir());
+        // Windows reports every change to a file's contents or attributes as Modify(Any), and
+        // adds, removes and renames as their own events.
         let edits_only = matches!(
             event.kind,
             EventKind::Modify(ModifyKind::Data(_) | ModifyKind::Metadata(_))
-        );
+        ) || cfg!(windows)
+            && matches!(event.kind, EventKind::Modify(ModifyKind::Any));
         let mut kinds = HashSet::new();
         let mut changed_paths = Some(Vec::new());
         let mut file_list_may_change = false;

@@ -14,7 +14,7 @@ Komla is an Electron desktop app for running multiple AI coding agent CLIs in pa
 Before finishing, run every check the changed scopes require. Run commands from the repository root unless scoped instructions say otherwise. Use `npm run` as the authoritative script list.
 
 - Desktop, shared, or root tooling changes: run `npm test`. It type-checks `src/` first; `npm run typecheck` runs only that step.
-- Changes under `src/`: also run `npm run lint`.
+- Changes under `src/`: also run `npm run format` and `npm run lint`. CI fails on unformatted code and on lint errors. Claude Code formats each `src/` file it edits through a hook in `.claude/settings.json`; other agents run `npm run format` themselves.
 - Changes under `packages/` or `remote-web/`: also run that workspace's own `npm test`.
 - End-to-end behavior: follow `e2e/AGENTS.md`; `npm run test:e2e` builds before running Playwright.
 - Release validation or a broad cross-process change: run `npm run smoke-test`.

@@ -1,3 +1,5 @@
+import { join, resolve as resolvePath } from 'path';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { createMockBrowserWindow, mockElectron } from '../../mocks/electron';
@@ -68,13 +70,23 @@ const mockFs = {
 };
 vi.mock('fs', () => mockFs);
 
+/**
+ * A POSIX fixture path as this platform spells it, as path.join and the watcher's events do:
+ * unchanged on macOS and Linux, a path on the current drive on Windows.
+ */
+function nativePath(posixPath: string): string {
+  return resolvePath(posixPath);
+}
+
+const REPO = nativePath('/repo');
+
 function setupRegularRepo(dirPath: string) {
-  const gitPath = `${dirPath}/.git`;
+  const gitPath = join(dirPath, '.git');
   mockFs.existsSync.mockImplementation((path: string) => {
     if (path === dirPath) return true;
     if (path === gitPath) return true;
-    if (path === `${dirPath}/.gitignore`) return false;
-    if (path === `${gitPath}/commondir`) return false;
+    if (path === join(dirPath, '.gitignore')) return false;
+    if (path === join(gitPath, 'commondir')) return false;
     return false;
   });
   mockFs.statSync.mockImplementation((path: string) => {
@@ -87,12 +99,12 @@ function setupRegularRepo(dirPath: string) {
 }
 
 function setupWorktreeWithSharedCommonDir(dirPath: string, gitDir: string, commonDir: string) {
-  const gitPath = `${dirPath}/.git`;
+  const gitPath = join(dirPath, '.git');
   mockFs.existsSync.mockImplementation((path: string) => {
     if (path === dirPath) return true;
     if (path === gitPath) return true;
-    if (path === `${dirPath}/.gitignore`) return false;
-    if (path === `${gitDir}/commondir`) return true;
+    if (path === join(dirPath, '.gitignore')) return false;
+    if (path === join(gitDir, 'commondir')) return true;
     if (path === commonDir) return true;
     return false;
   });
@@ -106,7 +118,7 @@ function setupWorktreeWithSharedCommonDir(dirPath: string, gitDir: string, commo
 
   mockFs.readFileSync.mockImplementation((path: string) => {
     if (path === gitPath) return `gitdir: ${gitDir}`;
-    if (path === `${gitDir}/commondir`) return commonDir;
+    if (path === join(gitDir, 'commondir')) return commonDir;
     return '';
   });
 }
@@ -137,20 +149,20 @@ describe('WorktreeWatcherService', () => {
       await import('../../../src/main/services/worktree-watcher.service');
 
     // existsSync returns false by default (from beforeEach)
-    await worktreeWatcherService.startWatching('ws-1', '/deleted-worktree');
+    await worktreeWatcherService.startWatching('ws-1', nativePath('/deleted-worktree'));
 
     expect(mockSubscribe).not.toHaveBeenCalled();
     expect(worktreeWatcherService.isWatching('ws-1')).toBe(false);
   });
 
   it('startAllWatchers continues when one workspace fails', async () => {
-    setupRegularRepo('/good-repo');
+    setupRegularRepo(nativePath('/good-repo'));
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
     await worktreeWatcherService.startAllWatchers([
-      { id: 'ws-ok', workingDirectory: '/good-repo' },
-      { id: 'ws-gone', workingDirectory: '/deleted-dir' },
+      { id: 'ws-ok', workingDirectory: nativePath('/good-repo') },
+      { id: 'ws-gone', workingDirectory: nativePath('/deleted-dir') },
     ]);
 
     // The valid workspace should have a watcher; the missing one should not
@@ -159,20 +171,20 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('starts only file watcher for non-git directories', async () => {
-    mockFs.existsSync.mockImplementation((path: string) => path === '/not-git');
+    mockFs.existsSync.mockImplementation((path: string) => path === nativePath('/not-git'));
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
-    await worktreeWatcherService.startWatching('ws-1', '/not-git');
+    await worktreeWatcherService.startWatching('ws-1', nativePath('/not-git'));
 
     // Should have 1 subscription (file watcher), but no git watchers
     expect(mockSubscribe).toHaveBeenCalledTimes(1);
-    expect(subscriptions[0].dir).toBe('/not-git');
+    expect(subscriptions[0].dir).toBe(nativePath('/not-git'));
     expect(worktreeWatcherService.isWatching('ws-1')).toBe(true);
   });
 
   it('publishes an authoritative repository observation when a watcher starts', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const initialTree = {
       files: [
         { path: 'changed.txt', status: 'modified', staged: false, additions: 2, deletions: 1 },
@@ -199,7 +211,7 @@ describe('WorktreeWatcherService', () => {
     const onObservation = vi.fn(async () => undefined);
     worktreeWatcherService.onObservation = onObservation;
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
     expect(onObservation).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -216,7 +228,7 @@ describe('WorktreeWatcherService', () => {
     (
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const branch = {
       behindTargetBranch: 0,
       aheadTargetBranch: 1,
@@ -236,9 +248,9 @@ describe('WorktreeWatcherService', () => {
       await import('../../../src/main/services/worktree-watcher.service');
     worktreeWatcherService.onObservation = vi.fn(async () => undefined);
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
-    const fileSub = subscriptions.find((subscription) => subscription.dir === '/repo');
-    fileSub?.callback(null, [{ type: 'update', path: '/repo/src/file.ts' }]);
+    await worktreeWatcherService.startWatching('ws-1', REPO);
+    const fileSub = subscriptions.find((subscription) => subscription.dir === REPO);
+    fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/src/file.ts') }]);
     await vi.advanceTimersByTimeAsync(500);
 
     expect(mockGetBranchQuickStatus).toHaveBeenCalledTimes(1);
@@ -253,7 +265,7 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('orders overlapping observations by scan start instead of scan completion', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const initialTree = {
       files: [],
       summary: { additions: 0, deletions: 0, filesChanged: 0 },
@@ -294,7 +306,7 @@ describe('WorktreeWatcherService', () => {
     worktreeWatcherService.onObservation = vi.fn(async (observation) => {
       observations.push(observation);
     });
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     const internal = worktreeWatcherService as unknown as {
       watchers: Map<string, { pendingChangeTypes: Set<string>; pendingActivity: boolean }>;
       notifyRenderer: (sessionId: string) => Promise<void>;
@@ -320,7 +332,7 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([liveWindow, destroyedWindow]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     const onActivity = vi.fn();
@@ -339,13 +351,13 @@ describe('WorktreeWatcherService', () => {
       })
       .mockResolvedValueOnce(changedResult);
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
     // Advance past the initial activity suppression window (5000ms)
     await vi.advanceTimersByTimeAsync(5000);
 
-    const fileSub = subscriptions.find((s) => s.dir === '/repo');
-    fileSub?.callback(null, [{ type: 'update', path: '/repo/src/index.ts' }]);
+    const fileSub = subscriptions.find((s) => s.dir === REPO);
+    fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/src/index.ts') }]);
 
     await vi.advanceTimersByTimeAsync(500);
 
@@ -361,23 +373,23 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('keeps directories git ignores by any rule out of the file watcher', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const existsSync = mockFs.existsSync.getMockImplementation() as (path: string) => boolean;
     mockFs.existsSync.mockImplementation(
-      (path: string) => path === '/repo/.gitignore' || existsSync(path)
+      (path: string) => path === nativePath('/repo/.gitignore') || existsSync(path)
     );
     mockFs.readFileSync.mockImplementation((path: string) =>
-      path === '/repo/.gitignore' ? 'dist/\n' : ''
+      path === nativePath('/repo/.gitignore') ? 'dist/\n' : ''
     );
     mockListIgnoredDirectories.mockResolvedValue(['dist', 'packages/app/node_modules', '.venv']);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
-    expect(mockListIgnoredDirectories).toHaveBeenCalledWith('/repo');
+    expect(mockListIgnoredDirectories).toHaveBeenCalledWith(REPO);
     // The root .gitignore's glob already covers dist.
-    expect(subscriptions.find((s) => s.dir === '/repo')?.options?.ignore).toEqual([
+    expect(subscriptions.find((s) => s.dir === REPO)?.options?.ignore).toEqual([
       '**/.git/**',
       '**/dist/**',
       'packages/app/node_modules',
@@ -386,33 +398,33 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('keeps out an ignored directory whose rule a negation keeps out of the globs', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const existsSync = mockFs.existsSync.getMockImplementation() as (path: string) => boolean;
     mockFs.existsSync.mockImplementation(
-      (path: string) => path === '/repo/.gitignore' || existsSync(path)
+      (path: string) => path === nativePath('/repo/.gitignore') || existsSync(path)
     );
     // Git can't re-include a path under an ignored directory, so it still ignores all of it.
     mockFs.readFileSync.mockImplementation((path: string) =>
-      path === '/repo/.gitignore' ? 'node_modules/\n!node_modules/patched/\n' : ''
+      path === nativePath('/repo/.gitignore') ? 'node_modules/\n!node_modules/patched/\n' : ''
     );
     mockListIgnoredDirectories.mockResolvedValue(['node_modules']);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
-    expect(subscriptions.find((s) => s.dir === '/repo')?.options?.ignore).toEqual([
+    expect(subscriptions.find((s) => s.dir === REPO)?.options?.ignore).toEqual([
       '**/.git/**',
       'node_modules',
     ]);
   });
 
   it('keeps dependency folders out of the file watcher of a directory without git', async () => {
-    mockFs.existsSync.mockImplementation((path: string) => path === '/not-git');
+    mockFs.existsSync.mockImplementation((path: string) => path === nativePath('/not-git'));
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
-    await worktreeWatcherService.startWatching('ws-1', '/not-git');
+    await worktreeWatcherService.startWatching('ws-1', nativePath('/not-git'));
 
     expect(mockListIgnoredDirectories).not.toHaveBeenCalled();
     expect(subscriptions[0].options?.ignore).toEqual([
@@ -423,7 +435,7 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('releases what a start subscribed after the watcher was stopped', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     let finishSubscribe!: () => void;
@@ -434,7 +446,7 @@ describe('WorktreeWatcherService', () => {
       return defaultSubscribe(...args);
     });
 
-    const starting = worktreeWatcherService.startWatching('ws-1', '/repo');
+    const starting = worktreeWatcherService.startWatching('ws-1', REPO);
     await vi.waitFor(() => expect(mockSubscribe).toHaveBeenCalledOnce());
     await worktreeWatcherService.stopWatching('ws-1');
     finishSubscribe();
@@ -447,32 +459,33 @@ describe('WorktreeWatcherService', () => {
 
   it('shares one commondir git watcher between worktrees that start at once', async () => {
     const worktrees = new Map([
-      ['/wt/one', '/shared/worktrees/one'],
-      ['/wt/two', '/shared/worktrees/two'],
+      [nativePath('/wt/one'), nativePath('/shared/worktrees/one')],
+      [nativePath('/wt/two'), nativePath('/shared/worktrees/two')],
     ]);
-    const gitDirs = new Set(worktrees.values());
+    const gitFiles = new Map([...worktrees].map(([dir, gitDir]) => [join(dir, '.git'), gitDir]));
+    const commondirFiles = new Set([...worktrees.values()].map((dir) => join(dir, 'commondir')));
     mockFs.existsSync.mockImplementation(
       (path: string) =>
         worktrees.has(path) ||
-        worktrees.has(path.replace(/\/\.git$/, '')) ||
-        gitDirs.has(path.replace(/\/commondir$/, '')) ||
-        path === '/shared/main.git'
+        gitFiles.has(path) ||
+        commondirFiles.has(path) ||
+        path === nativePath('/shared/main.git')
     );
     mockFs.statSync.mockImplementation(() => ({ isDirectory: () => false, isFile: () => true }));
     mockFs.readFileSync.mockImplementation((path: string) => {
-      const worktreeGitDir = worktrees.get(path.replace(/\/\.git$/, ''));
+      const worktreeGitDir = gitFiles.get(path);
       if (worktreeGitDir) return `gitdir: ${worktreeGitDir}`;
-      return path.endsWith('/commondir') ? '/shared/main.git' : '';
+      return commondirFiles.has(path) ? nativePath('/shared/main.git') : '';
     });
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
     await Promise.all([
-      worktreeWatcherService.startWatching('ws-1', '/wt/one'),
-      worktreeWatcherService.startWatching('ws-2', '/wt/two'),
+      worktreeWatcherService.startWatching('ws-1', nativePath('/wt/one')),
+      worktreeWatcherService.startWatching('ws-2', nativePath('/wt/two')),
     ]);
 
-    const shared = subscriptions.filter((s) => s.dir === '/shared/main.git');
+    const shared = subscriptions.filter((s) => s.dir === nativePath('/shared/main.git'));
     expect(shared).toHaveLength(1);
     await worktreeWatcherService.stopWatching('ws-1');
     expect(shared[0].unsubscribe).not.toHaveBeenCalled();
@@ -481,39 +494,39 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('resubscribes file watcher when .gitignore changes', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
-    const firstFileSub = subscriptions.find((s) => s.dir === '/repo');
-    firstFileSub?.callback(null, [{ type: 'update', path: '/repo/.gitignore' }]);
+    const firstFileSub = subscriptions.find((s) => s.dir === REPO);
+    firstFileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/.gitignore') }]);
 
-    await vi.waitFor(() => expect(subscriptions.filter((s) => s.dir === '/repo').length).toBe(2));
+    await vi.waitFor(() => expect(subscriptions.filter((s) => s.dir === REPO).length).toBe(2));
     expect(firstFileSub?.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('keeps only the newest file subscription when .gitignore changes overlap', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     const listings: Array<(directories: string[]) => void> = [];
     mockListIgnoredDirectories.mockImplementation(
       () => new Promise((resolve) => listings.push(resolve))
     );
 
-    const firstFileSub = subscriptions.find((s) => s.dir === '/repo');
-    firstFileSub?.callback(null, [{ type: 'update', path: '/repo/.gitignore' }]);
-    firstFileSub?.callback(null, [{ type: 'update', path: '/repo/.gitignore' }]);
+    const firstFileSub = subscriptions.find((s) => s.dir === REPO);
+    firstFileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/.gitignore') }]);
+    firstFileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/.gitignore') }]);
     await vi.waitFor(() => expect(listings).toHaveLength(2));
     listings[1]([]);
-    await vi.waitFor(() => expect(subscriptions.filter((s) => s.dir === '/repo')).toHaveLength(2));
+    await vi.waitFor(() => expect(subscriptions.filter((s) => s.dir === REPO)).toHaveLength(2));
     listings[0]([]);
-    await vi.waitFor(() => expect(subscriptions.filter((s) => s.dir === '/repo')).toHaveLength(3));
+    await vi.waitFor(() => expect(subscriptions.filter((s) => s.dir === REPO)).toHaveLength(3));
 
-    const resubscribed = subscriptions.filter((s) => s.dir === '/repo').slice(1);
+    const resubscribed = subscriptions.filter((s) => s.dir === REPO).slice(1);
     await vi.waitFor(() =>
       expect(resubscribed.filter((s) => s.unsubscribe.mock.calls.length === 0)).toHaveLength(1)
     );
@@ -523,27 +536,35 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('resubscribes after a .gitignore change when the old subscription fails to unsubscribe', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
-    const firstFileSub = subscriptions.find((s) => s.dir === '/repo');
+    const firstFileSub = subscriptions.find((s) => s.dir === REPO);
     firstFileSub?.unsubscribe.mockRejectedValueOnce(new Error('watcher gone'));
-    firstFileSub?.callback(null, [{ type: 'update', path: '/repo/.gitignore' }]);
+    firstFileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/.gitignore') }]);
 
-    await vi.waitFor(() => expect(subscriptions.filter((s) => s.dir === '/repo')).toHaveLength(2));
+    await vi.waitFor(() => expect(subscriptions.filter((s) => s.dir === REPO)).toHaveLength(2));
   });
 
   it('shares commondir git watcher across sessions and unsubscribes it when last session stops', async () => {
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
-    setupWorktreeWithSharedCommonDir('/wt/one', '/shared/worktrees/one', '/shared/main.git');
-    await worktreeWatcherService.startWatching('ws-1', '/wt/one');
+    setupWorktreeWithSharedCommonDir(
+      nativePath('/wt/one'),
+      nativePath('/shared/worktrees/one'),
+      nativePath('/shared/main.git')
+    );
+    await worktreeWatcherService.startWatching('ws-1', nativePath('/wt/one'));
 
-    setupWorktreeWithSharedCommonDir('/wt/two', '/shared/worktrees/two', '/shared/main.git');
-    await worktreeWatcherService.startWatching('ws-2', '/wt/two');
+    setupWorktreeWithSharedCommonDir(
+      nativePath('/wt/two'),
+      nativePath('/shared/worktrees/two'),
+      nativePath('/shared/main.git')
+    );
+    await worktreeWatcherService.startWatching('ws-2', nativePath('/wt/two'));
 
     expect(subscriptions.length).toBe(5);
     const sharedSub = subscriptions[2];
@@ -561,16 +582,16 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     const onActivity = vi.fn();
     worktreeWatcherService.onActivity = onActivity;
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     const initialSubscribeCount = mockSubscribe.mock.calls.length;
 
-    const gitSub = subscriptions.find((s) => s.dir === '/repo/.git');
+    const gitSub = subscriptions.find((s) => s.dir === nativePath('/repo/.git'));
 
     gitSub?.callback(new Error('fsevents dropped'), []);
     gitSub?.callback(new Error('fsevents dropped again'), []);
@@ -596,13 +617,13 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     const onActivity = vi.fn();
     worktreeWatcherService.onActivity = onActivity;
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
     await (
       worktreeWatcherService as unknown as { notifyRenderer: (sessionId: string) => Promise<void> }
@@ -618,18 +639,18 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
     // Advance past activity suppression window
     await vi.advanceTimersByTimeAsync(5000);
 
-    const gitSub = subscriptions.find((s) => s.dir === '/repo/.git');
+    const gitSub = subscriptions.find((s) => s.dir === nativePath('/repo/.git'));
 
     // Test packed-refs (git-branch: file status pushed because branch ref changes affect diff)
-    gitSub?.callback(null, [{ type: 'update', path: '/repo/.git/packed-refs' }]);
+    gitSub?.callback(null, [{ type: 'update', path: nativePath('/repo/.git/packed-refs') }]);
     await vi.advanceTimersByTimeAsync(500);
     expect(window.webContents.send).toHaveBeenCalledWith(
       'git-status:worktree-changed',
@@ -641,7 +662,7 @@ describe('WorktreeWatcherService', () => {
     vi.clearAllMocks();
 
     // Test FETCH_HEAD (git-head: file status pushed, no activity because fingerprint unchanged)
-    gitSub?.callback(null, [{ type: 'update', path: '/repo/.git/FETCH_HEAD' }]);
+    gitSub?.callback(null, [{ type: 'update', path: nativePath('/repo/.git/FETCH_HEAD') }]);
     await vi.advanceTimersByTimeAsync(500);
     expect(window.webContents.send).toHaveBeenCalledWith(
       'git-status:worktree-changed',
@@ -653,7 +674,7 @@ describe('WorktreeWatcherService', () => {
     vi.clearAllMocks();
 
     // Test MERGE_HEAD (git-head: file status pushed)
-    gitSub?.callback(null, [{ type: 'update', path: '/repo/.git/MERGE_HEAD' }]);
+    gitSub?.callback(null, [{ type: 'update', path: nativePath('/repo/.git/MERGE_HEAD') }]);
     await vi.advanceTimersByTimeAsync(500);
     expect(window.webContents.send).toHaveBeenCalledWith(
       'git-status:worktree-changed',
@@ -665,7 +686,7 @@ describe('WorktreeWatcherService', () => {
     vi.clearAllMocks();
 
     // Test robust branch matching (no trailing slash)
-    gitSub?.callback(null, [{ type: 'update', path: '/repo/.git/refs/heads/feature' }]);
+    gitSub?.callback(null, [{ type: 'update', path: nativePath('/repo/.git/refs/heads/feature') }]);
     await vi.advanceTimersByTimeAsync(500);
     expect(window.webContents.send).toHaveBeenCalledWith(
       'git-status:worktree-changed',
@@ -684,26 +705,36 @@ describe('WorktreeWatcherService', () => {
 
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
-    setupWorktreeWithSharedCommonDir('/wt/one', '/shared/worktrees/one', '/shared/main.git');
-    await worktreeWatcherService.startWatching('ws-1', '/wt/one');
-    setupWorktreeWithSharedCommonDir('/wt/two', '/shared/worktrees/two', '/shared/main.git');
-    await worktreeWatcherService.startWatching('ws-2', '/wt/two');
+    setupWorktreeWithSharedCommonDir(
+      nativePath('/wt/one'),
+      nativePath('/shared/worktrees/one'),
+      nativePath('/shared/main.git')
+    );
+    await worktreeWatcherService.startWatching('ws-1', nativePath('/wt/one'));
+    setupWorktreeWithSharedCommonDir(
+      nativePath('/wt/two'),
+      nativePath('/shared/worktrees/two'),
+      nativePath('/shared/main.git')
+    );
+    await worktreeWatcherService.startWatching('ws-2', nativePath('/wt/two'));
     await vi.advanceTimersByTimeAsync(5000);
     vi.mocked(window.webContents.send).mockClear();
 
-    const sharedSub = subscriptions.find((s) => s.dir === '/shared/main.git');
+    const sharedSub = subscriptions.find((s) => s.dir === nativePath('/shared/main.git'));
     expect(sharedSub?.options?.ignore).toEqual(['objects', 'logs', 'worktrees', 'lfs']);
 
     sharedSub?.callback(null, [
-      { type: 'update', path: '/shared/main.git/worktrees/two/HEAD' },
-      { type: 'update', path: '/shared/main.git/worktrees/two/COMMIT_EDITMSG' },
-      { type: 'update', path: '/shared/main.git/logs/HEAD' },
-      { type: 'update', path: '/shared/main.git/logs/refs/heads/two' },
+      { type: 'update', path: nativePath('/shared/main.git/worktrees/two/HEAD') },
+      { type: 'update', path: nativePath('/shared/main.git/worktrees/two/COMMIT_EDITMSG') },
+      { type: 'update', path: nativePath('/shared/main.git/logs/HEAD') },
+      { type: 'update', path: nativePath('/shared/main.git/logs/refs/heads/two') },
     ]);
     await vi.advanceTimersByTimeAsync(5000);
     expect(window.webContents.send).not.toHaveBeenCalled();
 
-    sharedSub?.callback(null, [{ type: 'update', path: '/shared/main.git/refs/heads/two' }]);
+    sharedSub?.callback(null, [
+      { type: 'update', path: nativePath('/shared/main.git/refs/heads/two') },
+    ]);
     await vi.advanceTimersByTimeAsync(5000);
     expect(window.webContents.send).toHaveBeenCalledWith(
       'git-status:worktree-changed',
@@ -722,20 +753,28 @@ describe('WorktreeWatcherService', () => {
 
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
-    setupWorktreeWithSharedCommonDir('/wt/one', '/shared/worktrees/one', '/shared/main.git');
-    await worktreeWatcherService.startWatching('ws-1', '/wt/one');
-    setupWorktreeWithSharedCommonDir('/wt/two', '/shared/worktrees/two', '/shared/main.git');
-    await worktreeWatcherService.startWatching('ws-2', '/wt/two');
+    setupWorktreeWithSharedCommonDir(
+      nativePath('/wt/one'),
+      nativePath('/shared/worktrees/one'),
+      nativePath('/shared/main.git')
+    );
+    await worktreeWatcherService.startWatching('ws-1', nativePath('/wt/one'));
+    setupWorktreeWithSharedCommonDir(
+      nativePath('/wt/two'),
+      nativePath('/shared/worktrees/two'),
+      nativePath('/shared/main.git')
+    );
+    await worktreeWatcherService.startWatching('ws-2', nativePath('/wt/two'));
     await vi.advanceTimersByTimeAsync(5000);
     vi.mocked(window.webContents.send).mockClear();
-    const sharedSub = subscriptions.find((s) => s.dir === '/shared/main.git');
+    const sharedSub = subscriptions.find((s) => s.dir === nativePath('/shared/main.git'));
 
     // A fetch or commit in the main checkout; each worktree keeps these files in its own git dir.
     sharedSub?.callback(null, [
-      { type: 'update', path: '/shared/main.git/FETCH_HEAD' },
-      { type: 'update', path: '/shared/main.git/COMMIT_EDITMSG' },
-      { type: 'update', path: '/shared/main.git/ORIG_HEAD' },
-      { type: 'update', path: '/shared/main.git/HEAD' },
+      { type: 'update', path: nativePath('/shared/main.git/FETCH_HEAD') },
+      { type: 'update', path: nativePath('/shared/main.git/COMMIT_EDITMSG') },
+      { type: 'update', path: nativePath('/shared/main.git/ORIG_HEAD') },
+      { type: 'update', path: nativePath('/shared/main.git/HEAD') },
     ]);
     await vi.advanceTimersByTimeAsync(5000);
 
@@ -748,31 +787,31 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     let backgroundOnly = true;
     worktreeWatcherService.isBackgroundOnly = () => backgroundOnly;
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     await vi.advanceTimersByTimeAsync(5000);
-    const fileSub = subscriptions.find((s) => s.dir === '/repo');
+    const fileSub = subscriptions.find((s) => s.dir === REPO);
 
     // Sustained activity: the normal 3s cap no longer forces a refresh.
     for (let i = 0; i < 10; i++) {
-      fileSub?.callback(null, [{ type: 'update', path: '/repo/src/app.ts' }]);
+      fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/src/app.ts') }]);
       await vi.advanceTimersByTimeAsync(1000);
     }
     expect(window.webContents.send).not.toHaveBeenCalled();
 
     // ...but the background cap still bounds staleness.
     for (let i = 0; i < 25; i++) {
-      fileSub?.callback(null, [{ type: 'update', path: '/repo/src/app.ts' }]);
+      fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/src/app.ts') }]);
       await vi.advanceTimersByTimeAsync(1000);
     }
     expect(window.webContents.send).toHaveBeenCalledTimes(1);
     vi.mocked(window.webContents.send).mockClear();
 
-    fileSub?.callback(null, [{ type: 'update', path: '/repo/src/app.ts' }]);
+    fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/src/app.ts') }]);
     await vi.advanceTimersByTimeAsync(1000);
     expect(window.webContents.send).not.toHaveBeenCalled();
 
@@ -799,18 +838,18 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     let offScreen = true;
     worktreeWatcherService.isOffScreen = (sessionId) => sessionId === 'ws-1' && offScreen;
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     await vi.advanceTimersByTimeAsync(5000);
-    const fileSub = subscriptions.find((s) => s.dir === '/repo');
+    const fileSub = subscriptions.find((s) => s.dir === REPO);
 
     // An agent writing every second; on screen, each write would refresh.
     for (let i = 0; i < 10; i++) {
-      fileSub?.callback(null, [{ type: 'update', path: '/repo/src/app.ts' }]);
+      fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/src/app.ts') }]);
       await vi.advanceTimersByTimeAsync(1000);
     }
     expect(window.webContents.send).not.toHaveBeenCalled();
@@ -838,7 +877,7 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     const onActivity = vi.fn();
@@ -852,11 +891,11 @@ describe('WorktreeWatcherService', () => {
     };
     mockGetChangedFilesWithSummary.mockResolvedValue(unchangedResult);
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     await vi.advanceTimersByTimeAsync(5000);
 
-    const fileSub = subscriptions.find((s) => s.dir === '/repo');
-    fileSub?.callback(null, [{ type: 'update', path: '/repo/notes.txt' }]);
+    const fileSub = subscriptions.find((s) => s.dir === REPO);
+    fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/notes.txt') }]);
     await vi.advanceTimersByTimeAsync(500);
 
     expect(window.webContents.send).toHaveBeenCalledWith(
@@ -875,7 +914,7 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     const onActivity = vi.fn();
@@ -895,11 +934,11 @@ describe('WorktreeWatcherService', () => {
         summary: { additions: 4, deletions: 2, filesChanged: 1 },
       });
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     await vi.advanceTimersByTimeAsync(5000);
 
-    const fileSub = subscriptions.find((s) => s.dir === '/repo');
-    fileSub?.callback(null, [{ type: 'update', path: '/repo/src/index.ts' }]);
+    const fileSub = subscriptions.find((s) => s.dir === REPO);
+    fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/src/index.ts') }]);
     await vi.advanceTimersByTimeAsync(500);
 
     expect(window.webContents.send).toHaveBeenCalledWith(
@@ -923,14 +962,14 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     const initialSubscribeCount = mockSubscribe.mock.calls.length;
 
-    await worktreeWatcherService.restartWatching('ws-1', '/repo');
+    await worktreeWatcherService.restartWatching('ws-1', REPO);
 
     // startWatching was called again (stops old watcher, creates new one)
     expect(mockSubscribe.mock.calls.length).toBeGreaterThan(initialSubscribeCount);
@@ -947,7 +986,7 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('uses a fresh observation epoch whenever a watcher is restarted', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     mockGetBranchQuickStatus.mockResolvedValue({
       behindTargetBranch: 0,
       aheadTargetBranch: 0,
@@ -967,9 +1006,9 @@ describe('WorktreeWatcherService', () => {
     const onObservation = vi.fn(async () => undefined);
     worktreeWatcherService.onObservation = onObservation;
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
-    await worktreeWatcherService.restartWatching('ws-1', '/repo');
-    await worktreeWatcherService.restartWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
+    await worktreeWatcherService.restartWatching('ws-1', REPO);
+    await worktreeWatcherService.restartWatching('ws-1', REPO);
 
     expect(onObservation).toHaveBeenCalledTimes(3);
     const observations = onObservation.mock.calls.map(([value]) => value);
@@ -978,7 +1017,7 @@ describe('WorktreeWatcherService', () => {
   });
 
   it('discards an initial scan after its watcher has been replaced', async () => {
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const oldTree = {
       files: [{ path: 'old.ts', status: 'modified', staged: false, additions: 1, deletions: 0 }],
       summary: { additions: 1, deletions: 0, filesChanged: 1 },
@@ -1011,9 +1050,9 @@ describe('WorktreeWatcherService', () => {
     const onObservation = vi.fn(async () => undefined);
     worktreeWatcherService.onObservation = onObservation;
 
-    const oldStart = worktreeWatcherService.startWatching('ws-1', '/repo');
+    const oldStart = worktreeWatcherService.startWatching('ws-1', REPO);
     await vi.waitFor(() => expect(mockGetChangedFilesWithSummary).toHaveBeenCalledTimes(1));
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     resolveOldScan(oldTree);
     await oldStart;
 
@@ -1027,7 +1066,7 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     const onActivity = vi.fn();
@@ -1055,14 +1094,14 @@ describe('WorktreeWatcherService', () => {
       })
       .mockReturnValueOnce(heldPromise);
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     // ignoreActivityUntil is now ~5000ms from "now"
 
     // Fire change at t≈4400 so debounce (500ms) fires at t≈4900 — still inside
     // the suppression window. notifyRenderer then awaits the held status call.
     await vi.advanceTimersByTimeAsync(4400);
-    const fileSub = subscriptions.find((s) => s.dir === '/repo');
-    fileSub?.callback(null, [{ type: 'update', path: '/repo/src/a.ts' }]);
+    const fileSub = subscriptions.find((s) => s.dir === REPO);
+    fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/src/a.ts') }]);
     await vi.advanceTimersByTimeAsync(500);
 
     // Status call is still pending — activity should NOT yet be emitted.
@@ -1096,7 +1135,7 @@ describe('WorktreeWatcherService', () => {
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([window]);
 
-    setupRegularRepo('/repo');
+    setupRegularRepo(REPO);
     const { worktreeWatcherService } =
       await import('../../../src/main/services/worktree-watcher.service');
     const onActivity = vi.fn(() => {
@@ -1114,11 +1153,11 @@ describe('WorktreeWatcherService', () => {
         summary: { additions: 1, deletions: 0, filesChanged: 1 },
       });
 
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    await worktreeWatcherService.startWatching('ws-1', REPO);
     await vi.advanceTimersByTimeAsync(5000);
 
-    const fileSub = subscriptions.find((s) => s.dir === '/repo');
-    fileSub?.callback(null, [{ type: 'update', path: '/repo/a.ts' }]);
+    const fileSub = subscriptions.find((s) => s.dir === REPO);
+    fileSub?.callback(null, [{ type: 'update', path: nativePath('/repo/a.ts') }]);
     await vi.advanceTimersByTimeAsync(500);
 
     // Callback threw, but neither the IPC send nor the callback itself should
@@ -1141,8 +1180,8 @@ describe('WorktreeWatcherService', () => {
     const mockLogger = (createLogger as ReturnType<typeof vi.fn>).mock.results[0]?.value;
 
     // Start and then manually remove the entry to simulate the edge case
-    setupRegularRepo('/repo');
-    await worktreeWatcherService.startWatching('ws-1', '/repo');
+    setupRegularRepo(REPO);
+    await worktreeWatcherService.startWatching('ws-1', REPO);
 
     // Access the internal watchers map and delete the entry after startWatching completes
     // but before restartWatching checks for it
@@ -1153,7 +1192,7 @@ describe('WorktreeWatcherService', () => {
       (worktreeWatcherService as any).watchers.delete(sid);
     });
 
-    await worktreeWatcherService.restartWatching('ws-1', '/repo');
+    await worktreeWatcherService.restartWatching('ws-1', REPO);
 
     expect(mockLogger.warn).toHaveBeenCalledWith('Watcher entry missing after startWatching', {
       sessionId: 'ws-1',

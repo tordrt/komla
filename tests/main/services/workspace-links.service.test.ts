@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { mockElectron } from '../../mocks/electron';
+import { toVirtualPath } from '../../mocks/fs';
 
 vi.mock('electron', () => mockElectron());
 
@@ -50,27 +51,31 @@ vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
   return {
     ...actual,
-    existsSync: (p: string) => {
+    existsSync: (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       const target = fsState.links.get(p);
       if (target) return entryExists(target);
       return entryExists(p);
     },
     // The git exclude helper reads and writes synchronously. Tests on a real temp dir keep the
     // real calls; the rest use the in-memory store.
-    readFileSync: (p: string, ...rest: unknown[]) => {
-      if (p.startsWith(tmpdir())) return (actual.readFileSync as Function)(p, ...rest);
+    readFileSync: (rawPath: string, ...rest: unknown[]) => {
+      if (rawPath.startsWith(tmpdir())) return (actual.readFileSync as Function)(rawPath, ...rest);
+      const p = toVirtualPath(rawPath);
       if (fsState.files.has(p)) return fsState.files.get(p)!;
       const err = new Error(`${fsState.dirs.has(p) ? 'EISDIR' : 'ENOENT'}: ${p}`);
       (err as NodeJS.ErrnoException).code = fsState.dirs.has(p) ? 'EISDIR' : 'ENOENT';
       throw err;
     },
-    writeFileSync: (p: string, ...rest: unknown[]) => {
-      if (p.startsWith(tmpdir())) return (actual.writeFileSync as Function)(p, ...rest);
+    writeFileSync: (rawPath: string, ...rest: unknown[]) => {
+      if (rawPath.startsWith(tmpdir())) return (actual.writeFileSync as Function)(rawPath, ...rest);
+      const p = toVirtualPath(rawPath);
       fsState.files.set(p, rest[0] as string);
       ensureParentDirs(p);
     },
-    mkdirSync: (p: string, ...rest: unknown[]) => {
-      if (p.startsWith(tmpdir())) return (actual.mkdirSync as Function)(p, ...rest);
+    mkdirSync: (rawPath: string, ...rest: unknown[]) => {
+      if (rawPath.startsWith(tmpdir())) return (actual.mkdirSync as Function)(rawPath, ...rest);
+      const p = toVirtualPath(rawPath);
       fsState.dirs.add(p);
       ensureParentDirs(p);
     },
@@ -79,17 +84,20 @@ vi.mock('fs', async (importOriginal) => {
 
 vi.mock('fs/promises', () => {
   return {
-    mkdir: vi.fn(async (p: string) => {
+    mkdir: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       fsState.dirs.add(p);
       ensureParentDirs(p);
     }),
-    readFile: vi.fn(async (p: string) => {
+    readFile: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       if (fsState.files.has(p)) return fsState.files.get(p)!;
       const err = new Error(`ENOENT: ${p}`);
       (err as NodeJS.ErrnoException).code = 'ENOENT';
       throw err;
     }),
-    lstat: vi.fn(async (p: string) => {
+    lstat: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       const isDir = fsState.dirs.has(p);
       const isFile = fsState.files.has(p);
       const isLink = fsState.links.has(p);
@@ -104,7 +112,8 @@ vi.mock('fs/promises', () => {
         isSymbolicLink: () => isLink,
       };
     }),
-    stat: vi.fn(async (p: string) => {
+    stat: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       const isDir = fsState.dirs.has(p);
       const isFile = fsState.files.has(p);
       const isLink = fsState.links.has(p);
@@ -119,7 +128,8 @@ vi.mock('fs/promises', () => {
         isSymbolicLink: () => isLink,
       };
     }),
-    readdir: vi.fn(async (p: string) => {
+    readdir: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       if (fsState.files.has(p)) {
         const err = new Error(`ENOTDIR: ${p}`);
         (err as NodeJS.ErrnoException).code = 'ENOTDIR';
@@ -139,13 +149,15 @@ vi.mock('fs/promises', () => {
       }
       return Array.from(seen);
     }),
-    readlink: vi.fn(async (p: string) => {
+    readlink: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       if (fsState.links.has(p)) return fsState.links.get(p)!;
       const err = new Error(`EINVAL: ${p}`);
       (err as NodeJS.ErrnoException).code = 'EINVAL';
       throw err;
     }),
-    rm: vi.fn(async (p: string) => {
+    rm: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       // Recursive delete: drop the path and anything under it.
       const prefix = p.endsWith('/') ? p : p + '/';
       fsState.files.delete(p);
@@ -161,7 +173,8 @@ vi.mock('fs/promises', () => {
         if (k.startsWith(prefix)) fsState.links.delete(k);
       }
     }),
-    rmdir: vi.fn(async (p: string) => {
+    rmdir: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       // Non-recursive: fail if directory has any children.
       const prefix = p.endsWith('/') ? p : p + '/';
       for (const k of [...fsState.files.keys(), ...fsState.links.keys(), ...fsState.dirs]) {
@@ -179,11 +192,13 @@ vi.mock('fs/promises', () => {
       }
       fsState.dirs.delete(p);
     }),
-    symlink: vi.fn(async (target: string, linkPath: string) => {
+    symlink: vi.fn(async (target: string, rawLinkPath: string) => {
+      const linkPath = toVirtualPath(rawLinkPath);
       fsState.links.set(linkPath, target);
       ensureParentDirs(linkPath);
     }),
-    unlink: vi.fn(async (p: string) => {
+    unlink: vi.fn(async (rawPath: string) => {
+      const p = toVirtualPath(rawPath);
       if (fsState.links.has(p)) {
         fsState.links.delete(p);
         return;
@@ -196,7 +211,8 @@ vi.mock('fs/promises', () => {
       (err as NodeJS.ErrnoException).code = 'ENOENT';
       throw err;
     }),
-    writeFile: vi.fn(async (p: string, data: string) => {
+    writeFile: vi.fn(async (rawPath: string, data: string) => {
+      const p = toVirtualPath(rawPath);
       fsState.files.set(p, data);
       ensureParentDirs(p);
     }),

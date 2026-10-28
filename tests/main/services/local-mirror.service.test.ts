@@ -52,7 +52,9 @@ const backend = {
   branchName: 'agent/local-preview',
 };
 
-describe('LocalMirrorService', () => {
+// Local copies aren't supported on Windows, where initializeMirror refuses, so these run on
+// macOS and Linux.
+describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -423,5 +425,22 @@ describe('LocalMirrorService', () => {
       '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
       { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }
     );
+  });
+});
+
+describe.runIf(process.platform === 'win32')('LocalMirrorService on Windows', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('refuses to create a local copy', async () => {
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+
+    await expect(localMirrorService.initialize('workspace-1', backend)).rejects.toThrow(
+      'Local copies are not yet supported on Windows'
+    );
+    expect(mocks.mkdir).not.toHaveBeenCalled();
+    expect(mocks.writeFile).not.toHaveBeenCalled();
   });
 });

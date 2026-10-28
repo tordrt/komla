@@ -1,3 +1,5 @@
+import { resolve } from 'path';
+
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
@@ -561,11 +563,15 @@ describe('workspace IPC behavior', () => {
 
       expect(mockProjectService.get).toHaveBeenCalledWith('proj-1');
       expect(mockExecFile).not.toHaveBeenCalled();
-      expect(mockRm).toHaveBeenCalledWith('/tmp/repo/node_modules', {
+      // The handler resolves each path, which on Windows puts it on the current drive.
+      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'node_modules'), {
         recursive: true,
         force: true,
       });
-      expect(mockRm).toHaveBeenCalledWith('/tmp/repo/dist', { recursive: true, force: true });
+      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'dist'), {
+        recursive: true,
+        force: true,
+      });
       expect(mockWorkspaceService.update).toHaveBeenCalledWith('ws-1', { status: 'trashed' });
     });
 
@@ -846,8 +852,8 @@ describe('workspace IPC behavior', () => {
       // Simulate `vendor` inside the workspace being a symlink to /shared so that
       // the realpath of the parent of `vendor/bundle` lands outside the workspace.
       mockRealpath.mockImplementation(async (p: string) => {
-        if (p === '/tmp/repo') return '/tmp/repo';
-        if (p === '/tmp/repo/vendor') return '/shared';
+        if (p === resolve('/tmp/repo')) return resolve('/tmp/repo');
+        if (p === resolve('/tmp/repo', 'vendor')) return resolve('/shared');
         return p;
       });
 
@@ -880,7 +886,7 @@ describe('workspace IPC behavior', () => {
         isWorktree: true,
       });
       mockRealpath.mockImplementation(async (p: string) => {
-        if (p === '/tmp/repo/ghost') {
+        if (p === resolve('/tmp/repo', 'ghost')) {
           throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
         }
         return p;
@@ -889,11 +895,14 @@ describe('workspace IPC behavior', () => {
       await ipcMain._invoke('workspace:update', 'ws-1', { status: 'trashed' });
 
       // node_modules deletes normally; ghost/missing is silently skipped.
-      expect(mockRm).toHaveBeenCalledWith('/tmp/repo/node_modules', {
+      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'node_modules'), {
         recursive: true,
         force: true,
       });
-      expect(mockRm).not.toHaveBeenCalledWith('/tmp/repo/ghost/missing', expect.anything());
+      expect(mockRm).not.toHaveBeenCalledWith(
+        resolve('/tmp/repo', 'ghost', 'missing'),
+        expect.anything()
+      );
     });
 
     it('falls back to shell when the rm script contains shell metacharacters', async () => {

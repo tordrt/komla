@@ -1447,6 +1447,38 @@ describe('KomlaOperationService', () => {
     expect(fromHost.workspaces.map((workspace) => workspace.id)).toEqual(['w3']);
   });
 
+  it('lists the tags for komla tag, marking an icon in place of its image and hidden ones', async () => {
+    const service = new KomlaOperationService(
+      createDependencies({
+        workspaceTags: () => [
+          { name: 'In review', tone: 'info', pullRequestState: 'in-review' },
+          {
+            name: 'CI running',
+            tone: 'info',
+            icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+            spinner: true,
+          },
+          { name: 'Blocked', tone: 'error' },
+        ],
+        // Tags belong to the user, not to a workspace, so turning tagging off leaves them listed.
+        getConfig: () => ({
+          agentDisabledCapabilities: ['workspace.tag'],
+          hiddenWorkspaceTags: ['blocked'],
+        }),
+      })
+    );
+
+    for (const context of [{}, { sshHostId: 'host-1' }]) {
+      await expect(service.execute(context, { type: 'tag.list' })).resolves.toEqual({
+        tags: [
+          { name: 'In review', tone: 'info', pullRequestState: 'in-review' },
+          { name: 'CI running', tone: 'info', hasIcon: true, spinner: true },
+          { name: 'Blocked', tone: 'error', hidden: true },
+        ],
+      });
+    }
+  });
+
   it('refuses to tag when the user turned it off', async () => {
     const updateWorkspace = vi.fn();
     const service = new KomlaOperationService(

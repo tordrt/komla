@@ -333,6 +333,7 @@ const komlaOperationSchema = z.discriminatedUnion('type', [
     }),
   z.object({ type: z.literal('workspace.wake') }).strict(),
   z.object({ type: z.literal('workspace.list'), includeTrashed: z.boolean().optional() }).strict(),
+  z.object({ type: z.literal('tag.list') }).strict(),
   z
     .object({
       type: z.literal('workspace.tag'),

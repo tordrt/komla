@@ -17,6 +17,7 @@ komla title "Login fix" --description "Fix the flaky login test"
 komla snooze 2h                           # hides this workspace until then; komla wake ends it
 komla snooze --until-notified             # until its next notification; your turn's end doesn't count
 komla tag "Waiting for review"            # says on its card what it waits on; komla untag takes it off
+komla tags                                # lists the user's tags, to reuse one before making another
 komla trash                               # moves this workspace to the Trash when your turn ends
 komla open ~/notes                        # opens a folder on this computer in Komla; no agent
 ```

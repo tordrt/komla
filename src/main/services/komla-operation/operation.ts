@@ -179,6 +179,8 @@ export interface KomlaOperationDependencies {
     agentLaunchDefaultLaunchModeId?: string | null;
     agentLaunchDefaultSshHostId?: string;
     agentDisabledCapabilities?: readonly string[];
+    /** Tag keys whose workspaces the sidebar moves to its Filtered shelf. */
+    hiddenWorkspaceTags?: readonly string[];
   };
   listPresets(): AgentPreset[];
   getActivePresets(): ActivePresetEntry[];
@@ -285,6 +287,8 @@ export type KomlaOperation =
       fromCurrentBranch?: boolean;
     }
   | { type: 'workspace.list'; includeTrashed?: boolean }
+  /** The user's tags, which `workspace.tag` gives a workspace with the look the user gave it. */
+  | { type: 'tag.list' }
   | { type: 'workspace.title'; title: string; description?: string }
   /**
    * `until` is as `parseSnoozeUntil` reads it, in the desktop's time zone. `untilNotified` also
@@ -374,6 +378,8 @@ export class KomlaOperationService {
         return this.launchAgent(context, operation);
       case 'workspace.list':
         return this.listWorkspaces(context, operation.includeTrashed === true);
+      case 'tag.list':
+        return this.listTags();
       case 'workspace.title':
         return this.setWorkspaceTitle(context, operation);
       case 'workspace.snooze':
@@ -1476,6 +1482,23 @@ export class KomlaOperationService {
         };
       });
     return { workspaces };
+  }
+
+  /**
+   * An icon shows as `hasIcon`: its image is the user's, and too big to list for each tag. `hidden`
+   * marks a tag whose workspaces leave the sidebar's list, so an agent doesn't hide one by tagging.
+   */
+  private listTags(): unknown {
+    const hidden = new Set(this.dependencies.getConfig().hiddenWorkspaceTags);
+    const tags = this.dependencies.workspaceTags().map((tag) => ({
+      name: tag.name,
+      tone: tag.tone,
+      ...(tag.pullRequestState && { pullRequestState: tag.pullRequestState }),
+      ...(tag.icon && { hasIcon: true }),
+      ...(tag.spinner && { spinner: true }),
+      ...(hidden.has(workspaceTagKey(tag.name)) && { hidden: true }),
+    }));
+    return { tags };
   }
 
   private resolveWorkspace(context: KomlaOperationContext): KomlaOperationWorkspace | undefined {

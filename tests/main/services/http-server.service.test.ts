@@ -1253,6 +1253,27 @@ describe('HttpServerService', () => {
       }
     });
 
+    it('lists the tags without a workspace, and refuses options it has none of', async () => {
+      mockConfigService.get.mockReturnValue({ workspaceTags: [{ name: 'Blocked', tone: 'error' }] });
+      httpServerService.start();
+      const list = (operation: object) =>
+        sendRequest(
+          'POST',
+          '/api/v1/commands',
+          JSON.stringify({ type: 'tag.list', ...operation }),
+          { 'content-type': 'application/json' }
+        );
+
+      const { res } = await list({});
+      expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
+      expect(parseJsonResponse(res)).toEqual({
+        ok: true,
+        result: { tags: [{ name: 'Blocked', tone: 'error' }] },
+      });
+      const { res: refused } = await list({ includeTrashed: true });
+      expect(refused.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
+    });
+
     it('takes a snooze until notified with or without a time, but not one with neither', async () => {
       mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(
         createWorkspace({ id: 'workspace-1', workingDirectory: '/projects/komla' })

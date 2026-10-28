@@ -96,6 +96,7 @@ commands:\n  launch [prompt] [--here] [--preset <name-or-id>] [--mode <id>]\n   
   wake [--json]\n    Ends the current workspace's snooze now, marked Woke, such as when a job it waits on ends.\n\
   tag <tag> [--tooltip <text>] [--tone <tone>] [--icon <file|svg>] [--spinner] [--if <tag>]\n    [--json]\n    Tags the current workspace to say what it waits on, such as \"Waiting for review\" after\n    opening a pull request, or what a script sees, such as \"CI running\". The tag shows on its\n    card while no agent is busy there, until it's taken off or replaced; a workspace has one.\n    A tag Komla doesn't have yet joins the user's list, colored by --tone (neutral, info,\n    attention, success, warning or error), with --icon (as for status set, its shape in the\n    tag's color) or --spinner in place of the tag glyph; a tag it has keeps the user's look.\n    --tooltip says more on hover, until the tag changes. --if changes only a workspace that\n    has that tag.\n\
   untag [<tag>] [--json]\n    Takes the current workspace's tag off, or only that tag, so a script leaves alone a tag\n    put on since.\n\
+  tags [--json]\n    Lists the user's tags, which komla tag gives a workspace with the look the user gave them.\n\
   trash [--json]\n    Moves the current workspace to the Trash once the agent's turn finishes, stopping its\n    terminals; the user can restore it for 7 days. It stays when the turn is interrupted or\n    fails, or when another tab's agent works, waits for input or failed. Run it last: when\n    Komla can't follow the agent's turns, it moves a second later.\n  status set <id> <text> [--icon <file|svg>] [--icon-color <color>]\n    [--tone <success|warning|error|info>] [--color <color>] [--tooltip <text>] [--link <url>]\n    [--popover <markdown> | --popover-file <path|->] [--json]\n    Shows a short status, such as test results or a pull request, in Komla's status bar while\n    the current workspace is open. Setting an id again replaces it; --link opens on click, or\n    with --popover shows as a button below the popover's Markdown. --color is success, warning,\n    error, info, muted, foreground or a hex color; the text can carry Nerd Font icons and\n    terminal colors for parts of it, such as \"$(printf '\\033[32m✓\\033[0m CI')\".\n    --icon puts an image file (SVG, PNG, WebP, GIF or JPEG, up to 32 KB) or SVG markup\n    before the text; --icon-color shows its shape in a color, such as foreground for a\n    one-color logo that follows the theme. --segments (or --segments-file) replaces the\n    text with a JSON array of parts, to put icons anywhere, such as\n    [{\"icon\":\"logo.svg\"},{\"text\":\" CI\",\"color\":\"success\"}].\n  status clear [id] [--json]\n    Clears one status item, or all of the current workspace's.\n  status refresh <id> [--json]\n    Runs a status-items.json item's command again now, as from a hook when what it shows\n    changed, and waits for it.\n  notify <title> [--body <text>] [--kind <kind>] [--color <color>] [--badge <text>]\n    [--icon <file|svg>] [--icon-color <color>]\n    Shows a notification for the current workspace. Its title shows on the sidebar card, or\n    --badge's shorter text with the title on hover. --color is success, warning, error, info,\n    attention, muted or a CSS color; --icon (as for status set) replaces the kind's glyph.\n  notify [<title>] -- <command> [arguments]\n    Runs a command, showing its tab as working, and notifies when it finishes or fails.\n  settings <get|apply> <actions|workspace-setup|automations|appearance|status-items|hooks|shortcuts|terminal|agents> [--scope <scope>] [--file <path>]\n    Reads or replaces Quick Commands (actions, with --scope global|current-project), Workspace\n    Setup, the project's automations, the theme, status bar items, hooks, keyboard shortcuts,\n    terminal settings, or agent presets' arguments and level pickers.\n    apply takes JSON on stdin or from --file and waits for the user to confirm in Komla.\n  skill <customize|status-items|automations|project-setup|appearance|onboarding-demo|self-integration>\n    Prints Komla's current guide for changing Komla's settings, making status bar items or\n    automations, setting up a project, changing the theme, running a demo, or connecting an agent\n    CLI Komla doesn't support out of the box.\n  context [--json]\n    Shows the project, workspace, and terminal that commands target.\n  agent presets [--all] [--json]\n    Lists agent presets and modes for --preset and --mode. Presets marked inactive (shown with\n    --all) or unavailable can't be launched, nor can modes marked unavailable; --json says why.\n    Modes marked isolated SSH host only start only on an SSH host the user marked isolated.\n  agent launch [prompt] [--new-workspace] ... (legacy: defaults to a tab)\n  workspace list [--all] [--json]\n    Lists the workspaces (--all adds those in the Trash) with their ids, for --workspace.\n  workspace <title|snooze|wake|tag|untag|trash> ...\n  --workspace <id>\n    Acts on the workspace with that id in place of the current one, as from a script that\n    runs outside any workspace. Works with every command that acts on a workspace but trash\n    and notify -- <command>.\n  preview open ...\n  git snapshot [-C <path>] [--target <branch>]\n  git target <push|pull|merge-remote|merge-source|sync> [-C <path>] [--target <branch>]\n  mcp\n    Serves Komla's MCP tools over stdio for clients that require an MCP server.\n  automation <list|save|delete|run|tick> ...\n    Manages the agent tasks this SSH host starts on a schedule; Komla's Automations settings use it.\n  version";
 
 const NOTIFY_USAGE: &str =
@@ -701,6 +702,7 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 | "wake"
                 | "tag"
                 | "untag"
+                | "tags"
                 | "trash"
                 | "open"
                 | "status"
@@ -945,7 +947,7 @@ fn run_command_with_hook_input(
         }
         if matches!(
             args.first().map(String::as_str),
-            Some("settings" | "skill" | "mcp" | "trash")
+            Some("settings" | "skill" | "mcp" | "tags" | "trash")
         ) || args
             .get(..2)
             .is_some_and(|words| words == ["workspace", "trash"])
@@ -1004,6 +1006,7 @@ cannot be used with --here"
             agent_command(&options, &environment, api, input, output)
         }
         Some("workspace") => workspace_command(&args[1..], &environment, api, output),
+        Some("tags") => tags_command(&args[1..], &environment, api, output),
         Some("open") => open_command(&args[1..], &environment, api, output),
         Some("status") => status_command(&args[1..], &environment, api, input, output),
         Some("agent") => agent_command(&args[1..], &environment, api, input, output),
@@ -1259,6 +1262,49 @@ fn workspace_command(
         }
         _ => bail!("workspace operation must be title, snooze, wake, tag, untag or trash"),
     }
+}
+
+fn tags_command(
+    args: &[String],
+    environment: &CliEnvironment,
+    api: &mut dyn KomlaApi,
+    output: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut options = args.to_vec();
+    let json_output = take_flag(&mut options, "--json")?;
+    // `komla tags Blocked` is most likely `komla tag Blocked` mistyped.
+    if !options.is_empty() {
+        bail!("usage: komla tags [--json]; komla tag <tag> tags a workspace");
+    }
+    let result = execute_operation(api, environment, json!({"type": "tag.list"}))?;
+    if json_output {
+        return write_operation_result(&result, true, output);
+    }
+    for tag in result
+        .get("tags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let mut looks = vec![tag.get("tone").and_then(Value::as_str).unwrap_or("neutral")];
+        if tag.get("hasIcon").and_then(Value::as_bool) == Some(true) {
+            looks.push("icon");
+        }
+        if tag.get("spinner").and_then(Value::as_bool) == Some(true) {
+            looks.push("spinner");
+        }
+        match tag.get("pullRequestState").and_then(Value::as_str) {
+            Some("in-review") => looks.push("pull requests in review"),
+            Some("needs-changes") => looks.push("pull requests needing changes"),
+            _ => {}
+        }
+        if tag.get("hidden").and_then(Value::as_bool) == Some(true) {
+            looks.push("hidden in the sidebar");
+        }
+        let name = tag.get("name").and_then(Value::as_str).unwrap_or("");
+        writeln!(output, "{name}  ({})", looks.join(", "))?;
+    }
+    Ok(())
 }
 
 // Komla counts the length as JavaScript does, in UTF-16 code units.
@@ -2678,7 +2724,7 @@ fn execute_operation(
     }
     let may_have_side_effects = !matches!(
         operation.get("type").and_then(Value::as_str),
-        Some("context.get" | "agent.presets" | "workspace.list")
+        Some("context.get" | "agent.presets" | "workspace.list" | "tag.list")
     );
     let response = api.request(
         "POST",
@@ -4317,6 +4363,41 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
             request_body(&api, 0),
             json!({"type": "workspace.list", "includeTrashed": true})
         );
+    }
+
+    #[test]
+    fn tags_lists_names_with_their_looks() {
+        let result = json!({"ok": true, "result": {"tags": [
+            {"name": "In review", "tone": "info", "pullRequestState": "in-review"},
+            {"name": "CI running", "tone": "info", "hasIcon": true, "spinner": true},
+            {"name": "Blocked", "tone": "error", "hidden": true},
+        ]}});
+        let mut api = fake_api(vec![result.clone()]);
+        let output = run_with(&mut api, &["tags"], "").unwrap();
+        assert_eq!(
+            output,
+            "In review  (info, pull requests in review)\nCI running  (info, icon, spinner)\nBlocked  (error, hidden in the sidebar)\n"
+        );
+        assert_eq!(request_body(&api, 0), json!({"type": "tag.list"}));
+        assert!(!api.requests[0].allow_long_running);
+
+        let mut api = fake_api(vec![result]);
+        let output = run_with(&mut api, &["tags", "--json"], "").unwrap();
+        assert!(output.starts_with("{\"tags\":"));
+    }
+
+    #[test]
+    fn tags_refuses_a_tag_name_and_workspace_targeting() {
+        for (args, expected) in [
+            (vec!["tags", "Blocked"], "komla tag <tag>"),
+            (vec!["tags", "list"], "komla tag <tag>"),
+            (vec!["tags", "--workspace", "w1"], "--workspace works with"),
+        ] {
+            let mut api = fake_api(Vec::new());
+            let error = run_with(&mut api, &args, "").unwrap_err().to_string();
+            assert!(error.contains(expected), "{args:?}: {error}");
+            assert!(api.requests.is_empty(), "{args:?}");
+        }
     }
 
     #[test]

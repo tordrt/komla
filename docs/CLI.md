@@ -54,6 +54,13 @@ the list keeps the look the user gave it in Settings. A full list (50 tags) refu
 script that finishes late leaves alone a tag the user put on since. The user removes any tag from
 the card's Tag menu.
 
+`komla tags [--json]` lists the user's tags in the list's order, so an agent can pick a tag the
+user already has. Each tag has its `name` and `tone`; `hasIcon` and `spinner` mark the rest of its
+look, `pullRequestState` (`in-review` or `needs-changes`) marks a tag Komla puts on workspaces whose
+pull request stands so, and `hidden` marks one the user hides in the sidebar, whose workspaces move
+to the Filtered shelf while nothing there needs the user. The list belongs to the user, so `tags`
+takes no `--workspace` and works the same through an SSH host's tunnel.
+
 `komla agent launch [prompt]` is the single launch interface. It opens a tab by default;
 `--new-workspace` creates a workspace and launches exactly one agent there. Use `--prompt-file` for
 longer instructions or stdin, and `--preset` with an optional `--mode` after discovering canonical

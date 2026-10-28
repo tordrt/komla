@@ -438,3 +438,36 @@ fn git_snapshot_reads_the_repository_without_a_desktop_connection() {
         .as_str()
         .is_some_and(|value| !value.is_empty()));
 }
+
+#[test]
+fn tags_reaches_komla_from_the_installed_cli() {
+    let temporary = TempDir::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let api_url = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = read_http_request(&mut stream);
+        let body = br#"{"ok":true,"result":{"tags":[{"name":"Blocked","tone":"error"}]}}"#;
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.write_all(body).unwrap();
+        request
+    });
+
+    let output = Command::new(env!("CARGO_BIN_EXE_komla"))
+        .arg("tags")
+        .current_dir(temporary.path())
+        .env_clear()
+        .env("KOMLA_API_URL", api_url)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    // A CLI that never reaches Komla leaves the server waiting, so check it first.
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "Blocked  (error)\n");
+    let request = String::from_utf8(server.join().unwrap()).unwrap();
+    assert!(request.ends_with(r#"{"type":"tag.list"}"#), "{request}");
+}

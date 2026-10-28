@@ -97,6 +97,7 @@ export function SshTab() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [otherDeviceWorkspaces, setOtherDeviceWorkspaces] = useState<RemoteSshWorkspace[]>([]);
   const [checkingOtherDevices, setCheckingOtherDevices] = useState(false);
+  const [workspaceCheckFailed, setWorkspaceCheckFailed] = useState(false);
   // Identifies the dialog a host check belongs to, so a late reply can't reach another one.
   const deleteCheckToken = useRef(0);
   const [deletingHost, setDeletingHost] = useState(false);
@@ -144,9 +145,11 @@ export function SshTab() {
 
   const startDeleteHost = (hostId: string) => {
     setDeleteHostId(hostId);
-    setDeleteRemoteData(true);
+    // Other devices may still use the host's data, so deleting it is opt-in.
+    setDeleteRemoteData(false);
     setOtherDeviceWorkspaces([]);
     setCheckingOtherDevices(true);
+    setWorkspaceCheckFailed(false);
     setDeleteError(null);
     const token = ++deleteCheckToken.current;
     // Workspaces this device hasn't added may belong to the user's other devices.
@@ -154,11 +157,11 @@ export function SshTab() {
       .listRemoteSshWorkspaces(hostId)
       .then((remote) => {
         if (deleteCheckToken.current !== token) return;
-        const others = remote.filter((workspace) => workspace.mayBeOnOtherDevices);
-        setOtherDeviceWorkspaces(others);
-        if (others.length > 0) setDeleteRemoteData(false);
+        setOtherDeviceWorkspaces(remote.filter((workspace) => workspace.mayBeOnOtherDevices));
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (deleteCheckToken.current === token) setWorkspaceCheckFailed(true);
+      })
       .finally(() => {
         if (deleteCheckToken.current === token) setCheckingOtherDevices(false);
       });
@@ -364,6 +367,12 @@ export function SshTab() {
                 : `${otherDeviceWorkspaces.length} workspaces on this host may be in use on another device`}
               : {otherDeviceWorkspaces.map((workspace) => workspace.name).join(', ')}. Deleting all
               Komla data also deletes them and stops their agents.
+            </Callout>
+          )}
+          {deleteRemoteData && workspaceCheckFailed && (
+            <Callout tone="warning" className="leading-relaxed">
+              Komla couldn't check whether other devices have workspaces on this host. Deleting all
+              Komla data also deletes theirs and stops their agents.
             </Callout>
           )}
           {deleteRemoteData && checkingOtherDevices && (

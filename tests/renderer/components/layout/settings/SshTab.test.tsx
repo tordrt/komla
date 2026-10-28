@@ -518,45 +518,111 @@ describe('SshTab', () => {
       await user.click(screen.getByRole('button', { name: 'Delete host' }));
 
       expect(screen.getByRole('heading', { name: 'Delete SSH Host' })).toBeInTheDocument();
-      expect(
+      await user.click(
         screen.getByRole('switch', { name: 'Delete all Komla data from this host' })
-      ).toBeChecked();
+      );
 
       await user.click(screen.getByRole('button', { name: 'Delete Host' }));
       expect(mockDeleteHost).toHaveBeenCalledWith('ssh-dev', { deleteRemoteData: true });
       expect(await screen.findByText('Remote cleanup was refused')).toBeInTheDocument();
     });
 
-    it('keeps remote data by default when the host has workspaces from other devices', async () => {
-      vi.mocked(window.api.listRemoteSshWorkspaces).mockResolvedValue([
-        {
-          workspaceId: 'mine',
-          name: 'mine',
-          terminalCount: 1,
-          updatedAt: 2,
-          adopted: true,
-          mayBeOnOtherDevices: false,
-        },
-        {
-          workspaceId: 'ws-42',
-          name: 'fix-login',
-          terminalCount: 2,
-          updatedAt: 1,
-          adopted: false,
-          mayBeOnOtherDevices: true,
-        },
-      ]);
+    it('keeps remote data unless the user opts in', async () => {
       const user = userEvent.setup();
       renderSsh();
 
       await user.click(screen.getByRole('button', { name: 'Delete host' }));
-
-      expect(await screen.findByText(/may be in use on another device: fix-login\./)).toBeVisible();
       expect(
         screen.getByRole('switch', { name: 'Delete all Komla data from this host' })
       ).not.toBeChecked();
       await user.click(screen.getByRole('button', { name: 'Delete Host' }));
       expect(mockDeleteHost).toHaveBeenCalledWith('ssh-dev', { deleteRemoteData: false });
+    });
+
+    it('warns when it cannot check the host for workspaces from other devices', async () => {
+      vi.mocked(window.api.listRemoteSshWorkspaces).mockRejectedValue(
+        new Error('Connection timed out')
+      );
+      const user = userEvent.setup();
+      renderSsh();
+
+      await user.click(screen.getByRole('button', { name: 'Delete host' }));
+      const deleteData = screen.getByRole('switch', {
+        name: 'Delete all Komla data from this host',
+      });
+      expect(deleteData).not.toBeChecked();
+      await user.click(deleteData);
+
+      expect(
+        await screen.findByText(/couldn't check whether other devices have workspaces/)
+      ).toBeVisible();
+    });
+
+    it('ignores a failed check from an earlier dialog', async () => {
+      let failFirstCheck: ((error: Error) => void) | undefined;
+      vi.mocked(window.api.listRemoteSshWorkspaces)
+        .mockReturnValueOnce(
+          new Promise((_resolve, reject) => {
+            failFirstCheck = reject;
+          })
+        )
+        .mockResolvedValueOnce([]);
+      const user = userEvent.setup();
+      renderSsh();
+
+      await user.click(screen.getByRole('button', { name: 'Delete host' }));
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      await user.click(screen.getByRole('button', { name: 'Delete host' }));
+      await user.click(
+        screen.getByRole('switch', { name: 'Delete all Komla data from this host' })
+      );
+      await act(async () => {
+        failFirstCheck?.(new Error('Connection timed out'));
+      });
+
+      expect(screen.queryByText(/couldn't check whether other devices/)).not.toBeInTheDocument();
+    });
+
+    it('warns about workspaces from other devices without overriding the choice', async () => {
+      let answerCheck: ((value: RemoteSshWorkspace[]) => void) | undefined;
+      vi.mocked(window.api.listRemoteSshWorkspaces).mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerCheck = resolve;
+        })
+      );
+      const user = userEvent.setup();
+      renderSsh();
+
+      await user.click(screen.getByRole('button', { name: 'Delete host' }));
+      const deleteData = screen.getByRole('switch', {
+        name: 'Delete all Komla data from this host',
+      });
+      await user.click(deleteData);
+      await act(async () => {
+        answerCheck?.([
+          {
+            workspaceId: 'mine',
+            name: 'mine',
+            terminalCount: 1,
+            updatedAt: 2,
+            adopted: true,
+            mayBeOnOtherDevices: false,
+          },
+          {
+            workspaceId: 'ws-42',
+            name: 'fix-login',
+            terminalCount: 2,
+            updatedAt: 1,
+            adopted: false,
+            mayBeOnOtherDevices: true,
+          },
+        ]);
+      });
+
+      expect(await screen.findByText(/may be in use on another device: fix-login\./)).toBeVisible();
+      expect(deleteData).toBeChecked();
+      await user.click(screen.getByRole('button', { name: 'Delete Host' }));
+      expect(mockDeleteHost).toHaveBeenCalledWith('ssh-dev', { deleteRemoteData: true });
     });
 
     it('waits for the other-device check and ignores replies for an earlier dialog', async () => {
@@ -571,10 +637,14 @@ describe('SshTab', () => {
       const user = userEvent.setup();
       renderSsh();
 
+      const deleteData = () =>
+        screen.getByRole('switch', { name: 'Delete all Komla data from this host' });
       await user.click(screen.getByRole('button', { name: 'Delete host' }));
+      await user.click(deleteData());
       expect(screen.getByRole('button', { name: 'Delete Host' })).toBeDisabled();
       await user.click(screen.getByRole('button', { name: 'Cancel' }));
       await user.click(screen.getByRole('button', { name: 'Delete host' }));
+      await user.click(deleteData());
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Delete Host' })).toBeEnabled()
       );
@@ -592,9 +662,7 @@ describe('SshTab', () => {
       });
 
       expect(screen.queryByText(/may be in use on another device/)).not.toBeInTheDocument();
-      expect(
-        screen.getByRole('switch', { name: 'Delete all Komla data from this host' })
-      ).toBeChecked();
+      expect(deleteData()).toBeChecked();
     });
   });
 

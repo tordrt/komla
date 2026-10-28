@@ -167,6 +167,27 @@ describe('web-push VAPID', () => {
     ).toBe(true);
   });
 
+  it('stores every private scalar as 32 bytes, including those with a leading zero byte', () => {
+    // About 1 in 256 P-256 scalars starts with 0x00, which ECDH.getPrivateKey() drops.
+    for (let i = 0; i < 2_000; i++) {
+      expect(b64(generateVapidKeys().privateKey)).toHaveLength(32);
+    }
+  });
+
+  it('signs with a stored private key that lost its leading zero byte', () => {
+    const ecdh = createECDH('prime256v1');
+    ecdh.setPrivateKey(Buffer.concat([Buffer.from([0]), Buffer.alloc(31, 7)]));
+    const vapid = {
+      publicKey: ecdh.getPublicKey().toString('base64url'),
+      privateKey: ecdh.getPrivateKey().toString('base64url'),
+    };
+    expect(b64(vapid.privateKey)).toHaveLength(31);
+
+    expect(
+      createVapidAuthorization('https://push.example.net/x', vapid, 'https://komla.dev')
+    ).toMatch(/^vapid t=/);
+  });
+
   it('requires a mailto: or https: subject', () => {
     expect(() =>
       createVapidAuthorization('https://push.example.net/x', generateVapidKeys(), 'komla.dev')

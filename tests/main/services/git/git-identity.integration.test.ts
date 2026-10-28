@@ -136,9 +136,11 @@ describe('gitIdentityService', () => {
   it('prefills a name that comes from an included config file', async () => {
     const includedPath = join(tempDir, 'identity.gitconfig');
     writeFileSync(includedPath, '[user]\n\tname = Ada\n');
+    // A backslash starts an escape in git config, so a Windows path goes in with forward slashes.
+    const includeValue = includedPath.replace(/\\/g, '/');
     writeFileSync(
       globalConfigPath,
-      `[user]\n\tuseConfigOnly = true\n[include]\n\tpath = ${includedPath}\n`
+      `[user]\n\tuseConfigOnly = true\n[include]\n\tpath = ${includeValue}\n`
     );
     const service = await loadService();
 

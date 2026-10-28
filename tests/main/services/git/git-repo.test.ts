@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('child_process', () => ({
@@ -377,7 +379,7 @@ describe('GitRepoService', () => {
     it('keeps Komla-imported files browsable when git excludes them', async () => {
       const { gitRepoService, isGitRepoSpy, rawExecSpy, existsSync, readdir } = await setup();
       existsSync.mockImplementation(
-        (path: string) => path === '/repo' || path === '/repo/.komla-files'
+        (path: string) => path === '/repo' || path === join('/repo', '.komla-files')
       );
       isGitRepoSpy.mockResolvedValue(true);
       rawExecSpy
@@ -432,13 +434,13 @@ describe('GitRepoService', () => {
         lstat: ReturnType<typeof vi.fn>;
       };
       existsSync.mockImplementation(
-        (path: string) => path === '/repo' || path === '/repo/linked-workspaces'
+        (path: string) => path === '/repo' || path === join('/repo', 'linked-workspaces')
       );
       fsPromises.readdir.mockResolvedValueOnce(['peer', 'notes.md']);
       fsPromises.lstat.mockImplementation(async (path: string) => ({
         isDirectory: () => true,
         isFile: () => false,
-        isSymbolicLink: () => path === '/repo/linked-workspaces/peer',
+        isSymbolicLink: () => path === join('/repo', 'linked-workspaces', 'peer'),
       }));
       isGitRepoSpy.mockResolvedValue(true);
       rawExecSpy
@@ -488,7 +490,7 @@ describe('GitRepoService', () => {
         lstat: ReturnType<typeof vi.fn>;
       };
       existsSync.mockImplementation(
-        (path: string) => path === '/repo' || path === '/repo/linked-workspaces'
+        (path: string) => path === '/repo' || path === join('/repo', 'linked-workspaces')
       );
       isGitRepoSpy.mockResolvedValue(false);
       fsPromises.readdir.mockImplementation(
@@ -500,17 +502,17 @@ describe('GitRepoService', () => {
                 { name: 'linked-workspaces', isDirectory: () => true },
               ];
             }
-            if (path === '/repo/src') {
+            if (path === join('/repo', 'src')) {
               return [{ name: 'main.ts', isDirectory: () => false }];
             }
-            if (path === '/repo/linked-workspaces') {
+            if (path === join('/repo', 'linked-workspaces')) {
               return [{ name: 'peer', isDirectory: () => false }];
             }
-            if (path === '/repo/linked-workspaces/peer') {
+            if (path === join('/repo', 'linked-workspaces', 'peer')) {
               return [{ name: 'README.md', isDirectory: () => false }];
             }
           }
-          if (path === '/repo/linked-workspaces') return ['peer'];
+          if (path === join('/repo', 'linked-workspaces')) return ['peer'];
           return [];
         }
       );
@@ -541,10 +543,10 @@ describe('GitRepoService', () => {
             { name: 'Movies', isDirectory: () => true },
           ];
         }
-        if (path === '/repo/Movies') {
+        if (path === join('/repo', 'Movies')) {
           return [{ name: 'TV', isDirectory: () => true }];
         }
-        if (path === '/repo/Movies/TV') {
+        if (path === join('/repo', 'Movies', 'TV')) {
           const error = new Error('operation not permitted') as NodeJS.ErrnoException;
           error.code = 'EPERM';
           throw error;
@@ -750,7 +752,7 @@ describe('GitRepoService', () => {
 
       const result = await gitRepoService.getFileMetadata('/repo', 'document.pdf');
 
-      expect(stat).toHaveBeenCalledWith('/repo/document.pdf');
+      expect(stat).toHaveBeenCalledWith(join('/repo', 'document.pdf'));
       expect(readFile).not.toHaveBeenCalled();
       expect(result).toEqual({ size: 1234, mtimeMs: 5678 });
     });

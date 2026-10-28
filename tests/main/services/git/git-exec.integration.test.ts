@@ -58,9 +58,10 @@ function createEditorCommand(repoPath: string): string {
   );
 
   if (process.platform === 'win32') {
-    const wrapperPath = join(repoPath, 'sleep-editor.cmd');
-    writeFileSync(wrapperPath, `@"${process.execPath}" "${editorScriptPath}" %*\r\n`, 'utf8');
-    return wrapperPath;
+    // Git for Windows runs the editor through its sh, which would read a backslash as an
+    // escape, so node and the script go in quoted, with forward slashes.
+    const shPath = (path: string) => `"${path.replace(/\\/g, '/')}"`;
+    return `${shPath(process.execPath)} ${shPath(editorScriptPath)}`;
   }
 
   const wrapperPath = join(repoPath, 'sleep-editor.sh');

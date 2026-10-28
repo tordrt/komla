@@ -1,3 +1,5 @@
+import { join } from 'path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('child_process', () => ({
@@ -232,7 +234,7 @@ describe('GitDiffService', () => {
     it('collapses deleted + recreated same-path entries into a single modified entry', async () => {
       const { gitDiffService, execFile, existsSync } = await setup();
       existsSync.mockImplementation(
-        (path?: string) => path === '/repo/replaced.ts' || path === '/repo'
+        (path?: string) => path === join('/repo', 'replaced.ts') || path === '/repo'
       );
       execFile.mockImplementation(
         (_cmd: string, _args: string[], _opts: unknown, cb?: Function) => {
@@ -360,7 +362,7 @@ describe('GitDiffService', () => {
     it('deleted + recreated same-path file diffs as modified against HEAD', async () => {
       const { gitDiffService, execFile, existsSync, execSpy, execBufferSpy } = await setup();
       existsSync.mockImplementation(
-        (path?: string) => path === '/repo/replaced.ts' || path === '/repo'
+        (path?: string) => path === join('/repo', 'replaced.ts') || path === '/repo'
       );
       const { readFile } = (await import('fs/promises')) as unknown as {
         readFile: ReturnType<typeof vi.fn>;
@@ -422,7 +424,7 @@ describe('GitDiffService', () => {
     it('keeps per-file stats aligned for deleted + recreated same-path files', async () => {
       const { gitDiffService, execFile, existsSync, execSpy } = await setup();
       existsSync.mockImplementation(
-        (path?: string) => path === '/repo/replaced.ts' || path === '/repo'
+        (path?: string) => path === join('/repo', 'replaced.ts') || path === '/repo'
       );
       const { readFile } = (await import('fs/promises')) as unknown as {
         readFile: ReturnType<typeof vi.fn>;
@@ -488,7 +490,7 @@ describe('GitDiffService', () => {
     it('keeps summary stats aligned for deleted + recreated same-path files', async () => {
       const { gitDiffService, execFile, existsSync, execSpy } = await setup();
       existsSync.mockImplementation(
-        (path?: string) => path === '/repo/replaced.ts' || path === '/repo'
+        (path?: string) => path === join('/repo', 'replaced.ts') || path === '/repo'
       );
       const { readFile } = (await import('fs/promises')) as unknown as {
         readFile: ReturnType<typeof vi.fn>;

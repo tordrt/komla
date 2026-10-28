@@ -67,9 +67,7 @@ describe.skipIf(process.platform === 'win32')('buildGitEnv', () => {
       expect(buildGitEnv().PATH).toBe('/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin');
 
       vi.stubEnv('PATH', '/custom/bin');
-      expect(buildGitEnv().PATH).toBe(
-        '/custom/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin'
-      );
+      expect(buildGitEnv().PATH).toBe('/custom/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin');
     });
   });
 
@@ -155,7 +153,9 @@ describe('GitExec.execGitWithProgress', () => {
       await vi.advanceTimersByTimeAsync(1_000);
       await rejected;
 
-      expect(kill).toHaveBeenCalled();
+      // Windows ends a killed git without its cleanup, so git is left to finish there.
+      if (process.platform === 'win32') expect(kill).not.toHaveBeenCalled();
+      else expect(kill).toHaveBeenCalled();
       const env = vi.mocked(childProcess.spawn).mock.calls[0][2]!.env!;
       expect(env).toMatchObject({
         GIT_TERMINAL_PROMPT: '0',
@@ -171,41 +171,45 @@ describe('GitExec.execGitWithProgress', () => {
     }
   });
 
-  it('stops background git, running or queued, so other work goes ahead', async () => {
-    const childProcess = await import('child_process');
-    const { gitExec } = await import('../../../../src/main/services/git/git-exec');
-    const procs: Array<EventEmitter & { kill: () => void }> = [];
-    vi.mocked(childProcess.spawn).mockImplementation(() => {
-      const proc = Object.assign(new EventEmitter(), {
-        stdout: new EventEmitter(),
-        stderr: new EventEmitter(),
-        // Exits on kill, but an ssh child keeps git's output open, so 'close' never comes.
-        kill: vi.fn(() => queueMicrotask(() => proc.emit('exit', null, 'SIGTERM'))),
+  // Windows leaves running git to finish instead, as the win32 test below covers.
+  it.skipIf(process.platform === 'win32')(
+    'stops background git, running or queued, so other work goes ahead',
+    async () => {
+      const childProcess = await import('child_process');
+      const { gitExec } = await import('../../../../src/main/services/git/git-exec');
+      const procs: Array<EventEmitter & { kill: () => void }> = [];
+      vi.mocked(childProcess.spawn).mockImplementation(() => {
+        const proc = Object.assign(new EventEmitter(), {
+          stdout: new EventEmitter(),
+          stderr: new EventEmitter(),
+          // Exits on kill, but an ssh child keeps git's output open, so 'close' never comes.
+          kill: vi.fn(() => queueMicrotask(() => proc.emit('exit', null, 'SIGTERM'))),
+        });
+        procs.push(proc);
+        return proc as never;
       });
-      procs.push(proc);
-      return proc as never;
-    });
-    const fetch = (): Promise<string> =>
-      gitExec.execGitWithProgress('/repo', ['fetch', 'origin'], undefined, {
-        noPrompts: { config: '' },
-        background: gitExec.backgroundMark('/repo'),
-      });
+      const fetch = (): Promise<string> =>
+        gitExec.execGitWithProgress('/repo', ['fetch', 'origin'], undefined, {
+          noPrompts: { config: '' },
+          background: gitExec.backgroundMark('/repo'),
+        });
 
-    const running = fetch();
-    await vi.waitFor(() => expect(procs).toHaveLength(1));
-    const queued = fetch();
-    gitExec.stopBackgroundWork('/repo');
-    await expect(running).rejects.toThrow('stopped for other work');
-    await expect(queued).rejects.toThrow('stopped for other work');
-    expect(procs[0].kill).toHaveBeenCalled();
-    // The queued fetch never started git.
-    expect(procs).toHaveLength(1);
+      const running = fetch();
+      await vi.waitFor(() => expect(procs).toHaveLength(1));
+      const queued = fetch();
+      gitExec.stopBackgroundWork('/repo');
+      await expect(running).rejects.toThrow('stopped for other work');
+      await expect(queued).rejects.toThrow('stopped for other work');
+      expect(procs[0].kill).toHaveBeenCalled();
+      // The queued fetch never started git.
+      expect(procs).toHaveLength(1);
 
-    const pull = gitExec.execGitWithProgress('/repo', ['pull']);
-    await vi.waitFor(() => expect(procs).toHaveLength(2));
-    procs[1].emit('close', 0);
-    await expect(pull).resolves.toBe('');
-  });
+      const pull = gitExec.execGitWithProgress('/repo', ['pull']);
+      await vi.waitFor(() => expect(procs).toHaveLength(2));
+      procs[1].emit('close', 0);
+      await expect(pull).resolves.toBe('');
+    }
+  );
 
   it("doesn't start background work begun before a stop", async () => {
     const childProcess = await import('child_process');
@@ -219,35 +223,39 @@ describe('GitExec.execGitWithProgress', () => {
     expect(childProcess.spawn).not.toHaveBeenCalled();
   });
 
-  it('still gives up on stopped git at the timeout when it never exits', async () => {
-    vi.useFakeTimers();
-    try {
-      const childProcess = await import('child_process');
-      const { gitExec } = await import('../../../../src/main/services/git/git-exec');
-      const kill = vi.fn();
-      vi.mocked(childProcess.spawn).mockImplementation(
-        () =>
-          Object.assign(new EventEmitter(), {
-            stdout: new EventEmitter(),
-            stderr: new EventEmitter(),
-            kill,
-          }) as never
-      );
+  // Windows never stops running git; the win32 test below covers its timeout.
+  it.skipIf(process.platform === 'win32')(
+    'still gives up on stopped git at the timeout when it never exits',
+    async () => {
+      vi.useFakeTimers();
+      try {
+        const childProcess = await import('child_process');
+        const { gitExec } = await import('../../../../src/main/services/git/git-exec');
+        const kill = vi.fn();
+        vi.mocked(childProcess.spawn).mockImplementation(
+          () =>
+            Object.assign(new EventEmitter(), {
+              stdout: new EventEmitter(),
+              stderr: new EventEmitter(),
+              kill,
+            }) as never
+        );
 
-      const fetch = gitExec.execGitWithProgress('/repo', ['fetch', 'origin'], undefined, {
-        timeoutMs: 1_000,
-        background: gitExec.backgroundMark('/repo'),
-      });
-      const rejected = expect(fetch).rejects.toThrow('Git took longer than 1000 ms');
-      await vi.advanceTimersByTimeAsync(0);
-      gitExec.stopBackgroundWork('/repo');
-      expect(kill).toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(1_000);
-      await rejected;
-    } finally {
-      vi.useRealTimers();
+        const fetch = gitExec.execGitWithProgress('/repo', ['fetch', 'origin'], undefined, {
+          timeoutMs: 1_000,
+          background: gitExec.backgroundMark('/repo'),
+        });
+        const rejected = expect(fetch).rejects.toThrow('Git took longer than 1000 ms');
+        await vi.advanceTimersByTimeAsync(0);
+        gitExec.stopBackgroundWork('/repo');
+        expect(kill).toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1_000);
+        await rejected;
+      } finally {
+        vi.useRealTimers();
+      }
     }
-  });
+  );
 
   it('leaves running git to finish on Windows, which would end it without its cleanup', async () => {
     await onPlatform('win32', async () => {
@@ -329,9 +337,8 @@ describe('GitExec.execGitWithProgress', () => {
 
   it('keeps only the credential helpers known never to open a dialog on Linux', async () => {
     await onPlatform('linux', async () => {
-      const { quietCredentialHelperConfig } = await import(
-        '../../../../src/main/services/git/git-exec'
-      );
+      const { quietCredentialHelperConfig } =
+        await import('../../../../src/main/services/git/git-exec');
       const entries = [
         'core.sshcommand\nssh -i ~/.ssh/work',
         'credential.helper\nosxkeychain',
@@ -378,9 +385,8 @@ describe('GitExec.execGitWithProgress', () => {
       "credential.https://gist.github.com.helper=!'/Program Files/GitHub CLI/gh.exe' auth git-credential",
     ];
     await onPlatform('darwin', async () => {
-      const { quietCredentialHelperConfig } = await import(
-        '../../../../src/main/services/git/git-exec'
-      );
+      const { quietCredentialHelperConfig } =
+        await import('../../../../src/main/services/git/git-exec');
       expect(quietCredentialHelperConfig(entries)).toEqual([
         'credential.helper=',
         'credential.helper=/usr/local/share/gcm-core/git-credential-manager',
@@ -389,9 +395,8 @@ describe('GitExec.execGitWithProgress', () => {
       ]);
     });
     await onPlatform('win32', async () => {
-      const { quietCredentialHelperConfig } = await import(
-        '../../../../src/main/services/git/git-exec'
-      );
+      const { quietCredentialHelperConfig } =
+        await import('../../../../src/main/services/git/git-exec');
       expect(quietCredentialHelperConfig(entries)).toEqual([
         'credential.helper=',
         'credential.helper=/usr/local/share/gcm-core/git-credential-manager',
@@ -488,6 +493,11 @@ describe('GitExec SSH passphrase prompts', () => {
       KOMLA_ASKPASS_SESSION: 'session-1',
     });
     const usesPathSsh = vi.mocked(askpassService.issueSession).mock.calls[0][0];
+    if (process.platform === 'win32') {
+      // Git for Windows runs its own bundled ssh, so git is never asked.
+      await expect(usesPathSsh?.()).resolves.toBe(false);
+      return;
+    }
     gitConfig(Object.assign(new Error('unset'), { code: 1 }));
     await expect(usesPathSsh?.()).resolves.toBe(true);
     gitConfig(null, 'ssh -F ~/.ssh/work_config\n');

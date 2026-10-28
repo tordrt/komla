@@ -656,7 +656,12 @@ describe('GitWorktreeService', () => {
       existsSync.mockReturnValue(true); // dir still exists
 
       await gitWorktreeService.deleteWorktree('/repo', '/wt');
-      expect(rm).toHaveBeenCalledWith('/wt', { recursive: true, force: true });
+      const options = { recursive: true, force: true };
+      // Windows adds retries, as the next test covers.
+      expect(rm).toHaveBeenCalledWith(
+        '/wt',
+        process.platform === 'win32' ? expect.objectContaining(options) : options
+      );
     });
 
     it('asks fs.rm to retry the folder on Windows, where it can stay in use for seconds', async () => {

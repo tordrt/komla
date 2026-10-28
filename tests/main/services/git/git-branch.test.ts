@@ -1550,11 +1550,12 @@ describe('GitBranchService', () => {
     it('pushes from the common git dir so deleting the worktree after setup does not affect push cwd', async () => {
       const { gitBranchService, getTargetBranchSpy, execSpy, execGitWithProgressSpy } =
         await setup();
+      const gitDir = path.resolve('/repo/.git');
       getTargetBranchSpy.mockResolvedValue('main');
       execSpy.mockImplementation(async (_repoPath, args) => {
         if (args.join(' ') === 'rev-parse --git-common-dir') return '../../.git';
         if (
-          args.join(' ') === '--git-dir /repo/.git rev-list --left-right --count origin/main...main'
+          args.join(' ') === `--git-dir ${gitDir} rev-list --left-right --count origin/main...main`
         ) {
           return '0\t1';
         }
@@ -1565,8 +1566,8 @@ describe('GitBranchService', () => {
       const result = await gitBranchService.pushTargetBranch('/repo/worktrees/feature');
 
       expect(execGitWithProgressSpy).toHaveBeenCalledWith(
-        '/repo/.git',
-        ['--git-dir', '/repo/.git', 'push', 'origin', 'main', '--progress'],
+        gitDir,
+        ['--git-dir', gitDir, 'push', 'origin', 'main', '--progress'],
         undefined,
         { enableAskpass: true }
       );
@@ -1576,12 +1577,13 @@ describe('GitBranchService', () => {
     it('resolves relative origin URL before pushing from the common git dir', async () => {
       const { gitBranchService, getTargetBranchSpy, execSpy, execGitWithProgressSpy } =
         await setup();
+      const gitDir = path.resolve('/repo/.git');
       getTargetBranchSpy.mockResolvedValue('main');
       execSpy.mockImplementation(async (_repoPath, args) => {
         const command = args.join(' ');
         if (command === 'ls-remote --get-url origin') return '../remote.git';
         if (command === 'rev-parse --git-common-dir') return '../../.git';
-        if (command === '--git-dir /repo/.git rev-list --left-right --count origin/main...main') {
+        if (command === `--git-dir ${gitDir} rev-list --left-right --count origin/main...main`) {
           return '0\t1';
         }
         return '';
@@ -1591,12 +1593,12 @@ describe('GitBranchService', () => {
       const result = await gitBranchService.pushTargetBranch('/repo/worktrees/feature');
 
       expect(execGitWithProgressSpy).toHaveBeenCalledWith(
-        '/repo/.git',
+        gitDir,
         [
           '--git-dir',
-          '/repo/.git',
+          gitDir,
           '-c',
-          'remote.origin.url=/repo/worktrees/remote.git',
+          `remote.origin.url=${path.resolve('/repo/worktrees/remote.git')}`,
           'push',
           'origin',
           'main',

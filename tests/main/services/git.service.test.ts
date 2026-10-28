@@ -3,6 +3,8 @@
  * branch management, diffs, and status queries.
  */
 
+import { join } from 'path';
+
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mockElectron } from '../../mocks/electron';
 import { createVirtualFs } from '../../mocks/fs';
@@ -437,7 +439,7 @@ describe('GitService', () => {
       // Default destination path should use safe branch name
       const result = await gitService.createWorktree('/repo', 'feature/my-branch');
 
-      expect(result.path).toBe('/repo/.worktrees/feature-my-branch');
+      expect(result.path).toBe(join('/repo', '.worktrees', 'feature-my-branch'));
     });
   });
 

@@ -168,25 +168,25 @@ describe('gitDiffService changed files', () => {
   it.each(Object.keys(listings))(
     '%s keeps names git would quote as they are on disk',
     async (listing) => {
-      writeFileSync(join(repoPath, 'café.md'), 'a\n');
-      writeFileSync(join(repoPath, 'say "hi".md'), 'a\n');
+      // Windows doesn't allow `"` in a file name, so only the accented name exists there.
+      const modified = ['café.md', ...(process.platform === 'win32' ? [] : ['say "hi".md'])];
+      for (const name of modified) writeFileSync(join(repoPath, name), 'a\n');
       await git('add', '.');
       await git('commit', '-q', '-m', 'init');
-      writeFileSync(join(repoPath, 'café.md'), 'a\nb\n');
-      writeFileSync(join(repoPath, 'say "hi".md'), 'a\nb\n');
+      for (const name of modified) writeFileSync(join(repoPath, name), 'a\nb\n');
       writeFileSync(join(repoPath, 'naïve.txt'), 'new\n');
 
       const { files, summary } = await listings[listing as keyof typeof listings]();
 
       expect(files.map(({ path, status, additions }) => ({ path, status, additions }))).toEqual(
         expect.arrayContaining([
-          { path: 'café.md', status: 'modified', additions: 1 },
-          { path: 'say "hi".md', status: 'modified', additions: 1 },
+          ...modified.map((path) => ({ path, status: 'modified', additions: 1 })),
           { path: 'naïve.txt', status: 'untracked', additions: 1 },
         ])
       );
-      expect(files).toHaveLength(3);
-      expect(summary).toEqual({ additions: 3, deletions: 0, filesChanged: 3 });
+      const changed = modified.length + 1;
+      expect(files).toHaveLength(changed);
+      expect(summary).toEqual({ additions: changed, deletions: 0, filesChanged: changed });
     }
   );
 

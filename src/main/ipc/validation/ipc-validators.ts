@@ -18,7 +18,7 @@ function parseTuple<TSchema extends AnyTupleSchema>(
 ): z.infer<TSchema> {
   const parsed = schema.safeParse(rawArgs);
   if (parsed.success) {
-    return parsed.data as z.infer<TSchema>;
+    return parsed.data;
   }
 
   const issues = parsed.error.issues.map((issue) => ({

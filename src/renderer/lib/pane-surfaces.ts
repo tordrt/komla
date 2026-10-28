@@ -749,6 +749,8 @@ export function saveBrowserPanes(): () => void {
     window.api.updateWorkspace(workspaceId, { browserPanes }).catch(() => {});
   };
   const saveAll = () => {
+    // A save updates the stores, whose subscribers can schedule more saves.
+    // oxlint-disable-next-line unicorn/no-useless-spread -- iterate a snapshot
     for (const workspaceId of [...timers.keys()]) save(workspaceId);
   };
   const schedule = (workspaceId: string) => {
@@ -852,6 +854,8 @@ export function restoreSavedBrowserPanes(): () => void {
     for (const workspace of previous.workspaces) {
       if (!ids.has(workspace.id)) pagesAwaitingTerminal.delete(workspace.id);
     }
+    // A restore updates the stores, whose subscribers can add to the set.
+    // oxlint-disable-next-line unicorn/no-useless-spread -- iterate a snapshot
     for (const workspaceId of [...awaitingListing]) {
       if (!isListed(workspaceId)) continue;
       awaitingListing.delete(workspaceId);

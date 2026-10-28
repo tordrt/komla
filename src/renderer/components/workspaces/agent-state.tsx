@@ -244,6 +244,7 @@ function SynchronizedActivitySpinner({ label }: { label?: string }) {
       {...(label ? { role: 'status', 'aria-label': label } : { 'aria-hidden': true })}
       className="size-3.5 shrink-0"
     >
+      {/* oxlint-disable-next-line react/static-components -- one of the fixed spinner glyphs */}
       <Glyph className="size-full text-muted-foreground" />
     </span>
   );

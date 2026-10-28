@@ -20,7 +20,7 @@ import { announcementService, type Announcement } from '../../services/announcem
 import { backgroundProcessService } from '../../services/background-process.service';
 import { databaseService } from '../../services/database.service';
 import { errorReportingService } from '../../services/error-reporting.service';
-import { feedbackService, FeedbackPayload, FeedbackResult } from '../../services/feedback.service';
+import { feedbackService, FeedbackResult } from '../../services/feedback.service';
 import { notesService } from '../../services/notes.service';
 import { getKomlaBasePath } from '../../services/paths';
 import { ptyService } from '../../services/pty.service';
@@ -217,7 +217,7 @@ export function registerAppHandlers(): void {
       IPC.FEEDBACK_SEND,
       feedbackSendArgsSchema,
       async (_, [payload]): Promise<FeedbackResult> => {
-        return feedbackService.sendFeedback(payload as FeedbackPayload);
+        return feedbackService.sendFeedback(payload);
       }
     )
   );

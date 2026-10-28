@@ -8,8 +8,6 @@ import type { TreeThemeInput } from '@pierre/trees';
 import type { languages as monacoLanguages, editor as monacoEditor } from 'monaco-editor';
 import type { BundledLanguage, Highlighter, bundledLanguages } from 'shiki';
 
-type MonacoWorkerFactory = new () => Worker;
-
 // Two registered theme names — Shiki keys its loaded themes by name, so we
 // must use the same identifier in Monaco's defineTheme/setTheme. The active
 // name follows the current palette mode and is exposed via
@@ -542,11 +540,11 @@ export function ensureMonacoInitialized(): Promise<void> {
     overviewRulerFeature.ONE_OVERVIEW_WIDTH = 6;
     overviewRulerFeature.ENTIRE_DIFF_OVERVIEW_WIDTH = 12;
 
-    const editorWorker = editorWorkerModule.default as MonacoWorkerFactory;
-    const cssWorker = cssWorkerModule.default as MonacoWorkerFactory;
-    const htmlWorker = htmlWorkerModule.default as MonacoWorkerFactory;
-    const jsonWorker = jsonWorkerModule.default as MonacoWorkerFactory;
-    const tsWorker = tsWorkerModule.default as MonacoWorkerFactory;
+    const editorWorker = editorWorkerModule.default;
+    const cssWorker = cssWorkerModule.default;
+    const htmlWorker = htmlWorkerModule.default;
+    const jsonWorker = jsonWorkerModule.default;
+    const tsWorker = tsWorkerModule.default;
 
     // Monaco workers must be provided explicitly in Electron.
     const monacoGlobal = globalThis as MonacoGlobal;

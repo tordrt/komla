@@ -27,9 +27,9 @@ const MAY_NAME_DISPLAY = /display/i;
 // Long enough to hold an error split across output chunks.
 const TAIL_LENGTH = 120;
 // Agent TUIs may move the cursor right over a space rather than print it.
-// eslint-disable-next-line no-control-regex
+// oxlint-disable-next-line no-control-regex
 const CURSOR_FORWARD = /\x1b\[\d*C/g;
-// eslint-disable-next-line no-control-regex
+// oxlint-disable-next-line no-control-regex
 const ESCAPE_SEQUENCE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])/g;
 
 function isDismissed(): boolean {

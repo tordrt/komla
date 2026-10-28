@@ -381,5 +381,5 @@ export function parseSshWorkspaceManifest(text: string): SshWorkspaceManifest | 
 /** Returns `value` if it is a valid manifest, e.g. one parsed from a host's file or saved locally. */
 export function validSshWorkspaceManifest(value: unknown): SshWorkspaceManifest | undefined {
   const parsed = manifestSchema.safeParse(value);
-  return parsed.success ? (parsed.data as SshWorkspaceManifest) : undefined;
+  return parsed.success ? parsed.data : undefined;
 }

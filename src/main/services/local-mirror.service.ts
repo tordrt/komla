@@ -318,6 +318,7 @@ class LocalMirrorService {
       this.setSyncStatus({
         workspaceId,
         state: 'error',
+        // oxlint-disable-next-line typescript/no-base-to-string -- last resort for a non-Error rejection
         message: error instanceof Error ? error.message : String(error),
       });
     } else {

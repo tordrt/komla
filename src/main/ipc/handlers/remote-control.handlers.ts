@@ -17,7 +17,6 @@ import type { PairedDeviceRecord } from '../../../shared/types/paired-device';
 import type {
   RemoteControlDirectPairingOffer,
   RemoteControlDirectServerInfo,
-  RemoteControlDirectStartOptions,
   RemoteControlDirectState,
   RemoteControlDirectTailscaleStatus,
   RemoteControlDirectTailscaleServeResult,
@@ -67,9 +66,7 @@ export function registerRemoteControlHandlers(): void {
   ipcMain.handle(
     IPC.REMOTE_CONTROL_DIRECT_START,
     async (_evt, rawOptions): Promise<RemoteControlDirectServerInfo> => {
-      const options = DirectStartOptionsSchema.parse(rawOptions) as
-        | RemoteControlDirectStartOptions
-        | undefined;
+      const options = DirectStartOptionsSchema.parse(rawOptions);
       const { remoteControlDirectService } =
         await import('../../services/remote-control-direct.service');
       const config = configService.get();
@@ -115,9 +112,7 @@ export function registerRemoteControlHandlers(): void {
   ipcMain.handle(
     IPC.REMOTE_CONTROL_DIRECT_START_PAIRING,
     async (_evt, rawOptions): Promise<RemoteControlDirectPairingOffer> => {
-      const options = DirectStartOptionsSchema.parse(rawOptions) as
-        | RemoteControlDirectStartOptions
-        | undefined;
+      const options = DirectStartOptionsSchema.parse(rawOptions);
       const { remoteControlDirectService } =
         await import('../../services/remote-control-direct.service');
       const config = configService.get();
@@ -136,9 +131,7 @@ export function registerRemoteControlHandlers(): void {
   ipcMain.handle(
     IPC.REMOTE_CONTROL_DIRECT_START_TAILSCALE_SERVE,
     async (_evt, rawOptions): Promise<RemoteControlDirectTailscaleServeResult> => {
-      const options = DirectStartOptionsSchema.parse(rawOptions) as
-        | RemoteControlDirectStartOptions
-        | undefined;
+      const options = DirectStartOptionsSchema.parse(rawOptions);
       if (!options?.publicOrigin) {
         throw new Error('Enter a Tailscale HTTPS origin before starting Tailscale Serve');
       }

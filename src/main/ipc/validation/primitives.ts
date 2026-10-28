@@ -4,6 +4,7 @@ export const nonEmptyStringSchema = z.string().trim().min(1);
 export const idSchema = z.string().trim().min(1).max(256);
 // Git's branch name rules that matter here: no revision syntax, ranges or leading dash.
 export const BRANCH_NAME_PATTERN =
+  // oxlint-disable-next-line no-control-regex -- git refuses control characters in ref names
   /^(?![-/])(?!.*(?:\.\.|@\{|\/\/|\.lock$|\/$))[^\x00-\x20~^:?*[\\\x7f]+$/;
 
 export const safeStringSchema = z.string().refine((value) => !value.includes('\0'), {

@@ -188,5 +188,6 @@ export function useActivityGlyph(): ActivityGlyph {
 /** The working spinner, in the chosen style. */
 export function ActivitySpinner({ className }: ActivityGlyphProps) {
   const Glyph = useActivityGlyph();
+  // oxlint-disable-next-line react/static-components -- one of the fixed spinner glyphs
   return <Glyph className={className} />;
 }

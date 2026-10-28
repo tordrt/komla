@@ -140,7 +140,7 @@ function localPageUrl(url: string): string {
 
 function compact(preview: LinkPreview): LinkPreview | null {
   const entries = Object.entries(preview).filter(([, value]) => value !== undefined);
-  return entries.length > 0 ? (Object.fromEntries(entries) as LinkPreview) : null;
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
 export function createLinkPreviewService(deps: LinkPreviewServiceDeps): LinkPreviewService {

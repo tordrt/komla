@@ -1403,12 +1403,7 @@ class HttpServerService {
           return;
         }
         const result = fileResource
-          ? await service.proposeSettingsFile(
-              context,
-              fileResource,
-              parsed.data as Record<string, unknown>,
-              controller.signal
-            )
+          ? await service.proposeSettingsFile(context, fileResource, parsed.data, controller.signal)
           : isActions
             ? await service.proposeActions(
                 context,

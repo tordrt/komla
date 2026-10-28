@@ -419,6 +419,7 @@ export function createSettingsFiles({
             title: path,
             details: [
               { label: 'Value', value: String(value) },
+              // oxlint-disable-next-line typescript/no-base-to-string -- leaves are primitives or arrays
               { label: 'From', value: String(current.get(path) ?? 'not set') },
             ],
           });

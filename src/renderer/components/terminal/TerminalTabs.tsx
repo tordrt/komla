@@ -1725,7 +1725,7 @@ export const TerminalTabs = memo(function TerminalTabs({
       observerRef.current.disconnect();
       observerRef.current = null;
     }
-    (contentRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    contentRef.current = el;
     if (!el) return;
     // Measure synchronously on mount
     setContentWidth(el.clientWidth);

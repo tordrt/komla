@@ -88,7 +88,8 @@ function formatMessage(level: LogLevel, service: string, message: string, args: 
               return '[Unserializable]';
             }
           }
-          return String(arg as string | number | boolean | bigint | symbol | null | undefined);
+          // oxlint-disable-next-line typescript/no-base-to-string -- objects returned above
+          return String(arg);
         })
         .join(' ');
   }

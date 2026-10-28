@@ -70,9 +70,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
     // Update the specific model's status optimistically
     set((state) => ({
-      models: state.models.map((m) =>
-        m.id === modelId ? { ...m, status: 'downloading' as ModelStatus } : m
-      ),
+      models: state.models.map((m) => (m.id === modelId ? { ...m, status: 'downloading' } : m)),
       modelStatus:
         state.models.find((m) => m.isCurrent)?.id === modelId ? 'downloading' : state.modelStatus,
     }));
@@ -111,9 +109,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
       // Surface error state so the UI shows Retry instead of Download
       if (failed) {
         set((state) => ({
-          models: state.models.map((m) =>
-            m.id === modelId ? { ...m, status: 'error' as ModelStatus } : m
-          ),
+          models: state.models.map((m) => (m.id === modelId ? { ...m, status: 'error' } : m)),
           modelStatus:
             state.models.find((m) => m.isCurrent)?.id === modelId ? 'error' : state.modelStatus,
         }));

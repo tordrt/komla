@@ -663,7 +663,7 @@ class CustomizationService {
           THEME_VERSION,
           THEME_MIGRATIONS
         );
-        return this.mergeWithDefaults(rest as Partial<ThemeConfig>, DEFAULT_THEME);
+        return this.mergeWithDefaults(rest, DEFAULT_THEME);
       }
     } catch (error) {
       console.error('Failed to load theme config:', error);
@@ -680,7 +680,7 @@ class CustomizationService {
           TERMINAL_VERSION,
           TERMINAL_MIGRATIONS
         );
-        return this.mergeWithDefaults(rest as Partial<TerminalConfig>, DEFAULT_TERMINAL_CONFIG);
+        return this.mergeWithDefaults(rest, DEFAULT_TERMINAL_CONFIG);
       }
     } catch (error) {
       console.error('Failed to load terminal config:', error);
@@ -701,10 +701,7 @@ class CustomizationService {
           defaultVal !== null &&
           !Array.isArray(defaultVal)
         ) {
-          result[key] = this.mergeWithDefaults(
-            partial[key] as object,
-            defaultVal as object
-          ) as T[Extract<keyof T, string>];
+          result[key] = this.mergeWithDefaults(partial[key], defaultVal);
         } else {
           result[key] = partial[key] as T[Extract<keyof T, string>];
         }

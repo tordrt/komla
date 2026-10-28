@@ -121,7 +121,7 @@ export class DevPreviewService {
     }
     // Its pages close first, or one could write its cookies back.
     for (const slots of this.slotsByOwner.values()) {
-      for (const slot of [...slots.values()]) {
+      for (const slot of slots.values()) {
         if (slot.session === previewSession) this.destroySlot(slot);
       }
     }

@@ -109,7 +109,7 @@ export function ToastItem({ toast, mirrored = false, overlay }: ToastItemProps) 
       onMouseLeave={() => setHovered(false)}
       onFocus={() => setFocused(true)}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
       }}
       className={`toast-enter ${exiting ? 'toast-exit' : ''} no-drag ${mirrored ? '' : 'pointer-events-auto'} relative flex max-w-[min(70vw,560px)] items-center overflow-hidden border text-foreground shadow-soft-lg backdrop-blur-xl ${
         toast.quiet

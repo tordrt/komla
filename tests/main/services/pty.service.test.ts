@@ -2324,6 +2324,8 @@ describe('PtyService', () => {
 
       const snapshot = await ptyService.getPresentationSnapshot('term-1');
       expect(snapshot.buffer).toContain('one');
+      // Let the output windows opened by the first chunks close, or 'more' is held back.
+      await new Promise((resolve) => setTimeout(resolve, 20));
       write.mockClear();
       spawnedPtys[0]._simulateData('more');
       spawnedPtys[1]._simulateData('more');

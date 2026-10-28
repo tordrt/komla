@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'fs';
@@ -55,6 +56,23 @@ async function pathWithoutPs(root: string): Promise<string> {
     symlinkSync(stdout.trim(), join(bin, name));
   }
   return bin;
+}
+
+/**
+ * A PATH holding a sleep that starts counting once `pidFile` is written, so the fetch's
+ * watchdog can't stop git before git has started the fake ssh, however busy the computer is.
+ */
+async function pathWithSleepAfter(root: string, pidFile: string, path: string): Promise<string> {
+  const bin = join(root, 'bin-with-sleep-after-ssh');
+  mkdirSync(bin);
+  const { stdout } = await execFileAsync('sh', ['-c', 'command -v sleep']);
+  const sleep = stdout.trim();
+  writeFileSync(
+    join(bin, 'sleep'),
+    `#!/bin/sh\nwhile [ ! -s '${pidFile}' ]; do '${sleep}' 0.05; done\nexec '${sleep}' "$@"\n`
+  );
+  chmodSync(join(bin, 'sleep'), 0o755);
+  return `${bin}:${path}`;
 }
 
 async function git(cwd: string, ...args: string[]): Promise<void> {
@@ -125,25 +143,28 @@ describe('sshWorkspaceGit.fetchOriginWithoutPrompts', () => {
   it.skipIf(process.platform === 'win32').for([{ ps: true }, { ps: false }])(
     'stops a fetch that takes too long, along with the ssh git started (ps: $ps)',
     async ({ ps }, { skip }) => {
-      if (!ps) {
-        // Without ps the script reads parent ids from /proc, which only Linux hosts have.
-        skip(!existsSync('/proc'), 'no /proc on this platform');
-        const path = await pathWithoutPs(root);
-        run.mockImplementation((host: unknown, command: string) => hostShell(host, command, path));
-      }
+      // Without ps the script reads parent ids from /proc, which only Linux hosts have.
+      if (!ps) skip(!existsSync('/proc'), 'no /proc on this platform');
       const fakeSsh = join(root, 'fake-ssh');
       const pidFile = join(root, 'ssh.pid');
       writeFileSync(fakeSsh, `#!/bin/sh\necho $$ > '${pidFile}'\nexec sleep 30\n`);
       chmodSync(fakeSsh, 0o755);
       await git(clone, 'config', 'core.sshCommand', fakeSsh);
       await git(clone, 'remote', 'set-url', 'origin', 'ssh://git.example.invalid/repo.git');
+      const path = await pathWithSleepAfter(
+        root,
+        pidFile,
+        ps ? process.env.PATH! : await pathWithoutPs(root)
+      );
+      run.mockImplementation((host: unknown, command: string) => hostShell(host, command, path));
 
-      const startedAt = Date.now();
       await expect(
         sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 1_000)
       ).rejects.toThrow();
 
-      expect(Date.now() - startedAt).toBeLessThan(10_000);
+      expect(existsSync(pidFile), 'git never started ssh').toBe(true);
+      // Stopped soon after ssh started, however long git took to start it.
+      expect(Date.now() - statSync(pidFile).mtimeMs).toBeLessThan(10_000);
       const sshPid = Number(readFileSync(pidFile, 'utf8'));
       await vi.waitFor(() => expect(() => process.kill(sshPid, 0)).toThrow(), { timeout: 5_000 });
     }

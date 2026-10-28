@@ -440,8 +440,12 @@ describe('execution locations', () => {
     });
 
     it('trusts the Antigravity working directory the launch shell reports', () => {
+      // A Windows client launches local terminals in PowerShell.
       expect(build('agy {{antigravityAutoTrustArgs}} --continue')).toEqual({
-        command: 'agy --add-dir "$PWD" --continue',
+        command:
+          process.platform === 'win32'
+            ? 'agy --add-dir $PWD.ProviderPath --continue'
+            : 'agy --add-dir "$PWD" --continue',
       });
     });
 

@@ -164,6 +164,21 @@ const originalPlatform = process.platform;
 const originalPath = process.env.PATH;
 const originalSystemRoot = process.env.SystemRoot;
 
+// Runs generated scripts or remote commands in a real POSIX shell standing in for the SSH host,
+// and Windows has none.
+const itWithPosixShell = it.skipIf(process.platform === 'win32');
+// Terminal control-master pools are Unix sockets, which Komla only uses on macOS and Linux.
+const itWithControlMasters = it.skipIf(process.platform === 'win32');
+
+// Komla shares SSH connections through control masters only from macOS and Linux clients.
+function expectInteractiveSshMultiplexing(sshArgs: unknown): void {
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    expect(sshArgs).toContain('ControlPersist=600');
+  } else {
+    expect(sshArgs).not.toContain('ControlPersist=600');
+  }
+}
+
 function runGit(args: string[], cwd?: string): string {
   return execFileSync('git', args, {
     cwd,
@@ -436,7 +451,7 @@ async function resolveRemoteBasePathForTest(basePath: string): Promise<string> {
 }
 
 describe('generateTmuxServerScript', () => {
-  it('starts the managed server without the user tmux config before applying Komla settings', async () => {
+  itWithPosixShell('starts the managed server without the user tmux config before applying Komla settings', async () => {
     const { generateTmuxServerScript } =
       await import('../../../src/main/services/ssh-workspace.service');
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-tmux-server-'));
@@ -476,7 +491,7 @@ describe('generateTmuxServerScript', () => {
     }
   });
 
-  it("starts tmux's search again from the stored query only where the running server can", async () => {
+  itWithPosixShell("starts tmux's search again from the stored query only where the running server can", async () => {
     const { generateTmuxServerScript } =
       await import('../../../src/main/services/ssh-workspace.service');
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-tmux-server-'));
@@ -513,7 +528,7 @@ describe('generateTmuxServerScript', () => {
     }
   });
 
-  it('passes 24-bit color through tmux too old for terminal-features', async () => {
+  itWithPosixShell('passes 24-bit color through tmux too old for terminal-features', async () => {
     const { generateTmuxServerScript } =
       await import('../../../src/main/services/ssh-workspace.service');
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-tmux-server-'));
@@ -699,7 +714,7 @@ describe('sshWorkspaceService', () => {
     }
   );
 
-  it("searches plain text with the search command of the host's running tmux server", async () => {
+  itWithPosixShell("searches plain text with the search command of the host's running tmux server", async () => {
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-tmux-find-'));
@@ -826,7 +841,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('writes both helper scripts in one round trip', async () => {
+  itWithPosixShell('writes both helper scripts in one round trip', async () => {
     const remoteHome = realpathSync(mkdtempSync(join(tmpdir(), 'komla-ssh-helpers-')));
     const helpers = join(remoteHome, '.komla', 'helpers');
     mkdirSync(helpers, { recursive: true });
@@ -866,7 +881,8 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it.skipIf(process.getuid?.() === 0)(
+  // Runs the remote commands in a real POSIX shell standing in for the SSH host.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
     'fails the remote layout when it cannot write its data marker, though notify.sh is installed',
     async () => {
       const remoteHome = realpathSync(mkdtempSync(join(tmpdir(), 'komla-ssh-layout-')));
@@ -888,7 +904,7 @@ describe('sshWorkspaceService', () => {
     }
   );
 
-  it('includes untracked files when generating a remote commit draft', async () => {
+  itWithPosixShell('includes untracked files when generating a remote commit draft', async () => {
     const repo = createTargetBranchTestRepo();
     mockRemoteShell(repo.root);
     writeFileSync(join(repo.featurePath, 'new file.txt'), 'new content\n');
@@ -907,7 +923,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('generates a remote commit draft before the first commit', async () => {
+  itWithPosixShell('generates a remote commit draft before the first commit', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-unborn-'));
     const workspacePath = join(root, 'workspace');
     mkdirSync(workspacePath);
@@ -936,7 +952,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('limits remote diff output before generating a commit draft', async () => {
+  itWithPosixShell('limits remote diff output before generating a commit draft', async () => {
     const repo = createTargetBranchTestRepo();
     mockRemoteShell(repo.root);
     writeFileSync(join(repo.featurePath, 'feature.txt'), 'x'.repeat(11 * 1024 * 1024));
@@ -961,7 +977,7 @@ describe('sshWorkspaceService', () => {
     else process.env.SystemRoot = originalSystemRoot;
   });
 
-  it.each([
+  itWithPosixShell.each([
     {
       name: 'stdin hooks',
       inputModeArgs: [] as string[],
@@ -1021,7 +1037,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('drops oversized remote notification hook input', async () => {
+  itWithPosixShell('drops oversized remote notification hook input', async () => {
     const { generateNotifyShellScript } =
       await import('../../../src/main/services/ssh-workspace.service');
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-notify-large-'));
@@ -1051,7 +1067,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('uses direct HTTP when no companion mailbox was configured for the terminal', async () => {
+  itWithPosixShell('uses direct HTTP when no companion mailbox was configured for the terminal', async () => {
     const { generateNotifyShellScript } =
       await import('../../../src/main/services/ssh-workspace.service');
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-notify-fallback-'));
@@ -1096,7 +1112,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('queues a hook when its configured companion session is restarting', async () => {
+  itWithPosixShell('queues a hook when its configured companion session is restarting', async () => {
     const { generateNotifyShellScript } =
       await import('../../../src/main/services/ssh-workspace.service');
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-notify-restart-'));
@@ -1140,7 +1156,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('discovers a recovered terminal companion mailbox from its tmux session', async () => {
+  itWithPosixShell('discovers a recovered terminal companion mailbox from its tmux session', async () => {
     const { generateNotifyShellScript } =
       await import('../../../src/main/services/ssh-workspace.service');
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-notify-recovered-'));
@@ -1264,6 +1280,8 @@ describe('sshWorkspaceService', () => {
   );
 
   it('creates managed remote terminal sessions without an uploaded launcher', async () => {
+    // A Windows client wraps the same script for PowerShell; see the Windows terminal tests.
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
     const command = sshWorkspaceService.buildTerminalCommand(
@@ -1294,7 +1312,7 @@ describe('sshWorkspaceService', () => {
     expect(command).toContain('codex --resume');
   });
 
-  it('executes quoted commands and Komla env through inline tmux creation', async () => {
+  itWithPosixShell('executes quoted commands and Komla env through inline tmux creation', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -1331,7 +1349,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it.each([
+  itWithPosixShell.each([
     { label: 'a plain zsh', shell: 'zsh', command: null, invocations: '-lc\n-i\n' },
     { label: 'an empty command in zsh', shell: 'zsh', command: '', invocations: '-lc\n-i\n' },
     // bash's login files source .bashrc, which expects an interactive shell.
@@ -1384,7 +1402,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it.each([
+  itWithPosixShell.each([
     { label: 'through the companion PTY proxy', proxy: 'current', expected: 'proxied:-lic\nran\n' },
     { label: 'directly with a companion older than the proxy', proxy: 'old', expected: 'ran\n' },
     { label: 'directly before the companion is installed', proxy: 'none', expected: 'ran\n' },
@@ -1439,7 +1457,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('rejects replacement when the existing managed session survives termination', async () => {
+  itWithPosixShell('rejects replacement when the existing managed session survives termination', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -1501,7 +1519,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('seeds Komla recovery context into each new managed session', async () => {
+  itWithPosixShell('seeds Komla recovery context into each new managed session', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -1581,7 +1599,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it.each(['start', 'reconnect'] as const)(
+  itWithPosixShell.each(['start', 'reconnect'] as const)(
     "updates an outdated tmux server's settings before reattaching on %s",
     async (action) => {
       Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
@@ -1743,7 +1761,7 @@ describe('sshWorkspaceService', () => {
     run.mockRestore();
   });
 
-  it.each([
+  itWithPosixShell.each([
     ['GIT_SSH_COMMAND', 'custom-ssh --identity deploy'],
     ['GIT_SSH', '/opt/bin/custom-ssh'],
   ])('preserves a configured %s Git transport', async (variable, value) => {
@@ -1768,7 +1786,7 @@ describe('sshWorkspaceService', () => {
     expect(output).toBe(variable === 'GIT_SSH_COMMAND' ? value : '');
   });
 
-  it('preserves a repository core.sshCommand transport', async () => {
+  itWithPosixShell('preserves a repository core.sshCommand transport', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-transport-'));
     const remoteRepoPath = join(root, 'repo.git');
     const backend = {
@@ -1795,7 +1813,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('ignores core.sshCommand from an unrelated working-directory repository', async () => {
+  itWithPosixShell('ignores core.sshCommand from an unrelated working-directory repository', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-unrelated-ssh-transport-'));
     const binPath = join(root, 'bin');
     const homePath = join(root, 'home');
@@ -1839,7 +1857,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('preserves an environment-injected core.sshCommand transport', async () => {
+  itWithPosixShell('preserves an environment-injected core.sshCommand transport', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-env-ssh-transport-'));
     const binPath = join(root, 'bin');
     const homePath = join(root, 'home');
@@ -1878,7 +1896,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('preserves core.sshCommand from an included global config', async () => {
+  itWithPosixShell('preserves core.sshCommand from an included global config', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-included-ssh-transport-'));
     const binPath = join(root, 'bin');
     const homePath = join(root, 'home');
@@ -1923,7 +1941,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('preserves command-scoped core.sshCommand without requiring Git --show-scope', async () => {
+  itWithPosixShell('preserves command-scoped core.sshCommand without requiring Git --show-scope', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-old-git-ssh-transport-'));
     const binPath = join(root, 'bin');
     const homePath = join(root, 'home');
@@ -1978,7 +1996,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('does not enable accept-new when the remote SSH client does not support it', async () => {
+  itWithPosixShell('does not enable accept-new when the remote SSH client does not support it', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-old-ssh-'));
     const binPath = join(root, 'bin');
     const backend = {
@@ -2010,7 +2028,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('enables accept-new when SSH supports it and no custom Git transport is configured', async () => {
+  itWithPosixShell('enables accept-new when SSH supports it and no custom Git transport is configured', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-current-ssh-'));
     const binPath = join(root, 'bin');
     const backend = {
@@ -2248,7 +2266,7 @@ describe('sshWorkspaceService', () => {
     });
   });
 
-  it('streams output and retries a stale multiplexed SSH session without multiplexing', async () => {
+  itWithPosixShell('streams output and retries a stale multiplexed SSH session without multiplexing', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const root = mkdtempSync(join(tmpdir(), 'komla-streaming-ssh-'));
     const sshPath = join(root, 'ssh');
@@ -2306,7 +2324,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('shares streaming SSH connections within a workspace but not between workspaces', async () => {
+  itWithPosixShell('shares streaming SSH connections within a workspace but not between workspaces', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const root = mkdtempSync(join(tmpdir(), 'komla-scoped-streaming-ssh-'));
     const sshPath = join(root, 'ssh');
@@ -2351,7 +2369,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('launches independent streaming commands without waiting for earlier commands to exit', async () => {
+  itWithPosixShell('launches independent streaming commands without waiting for earlier commands to exit', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const root = mkdtempSync(join(tmpdir(), 'komla-concurrent-streaming-ssh-'));
     const sshPath = join(root, 'ssh');
@@ -2663,7 +2681,7 @@ describe('sshWorkspaceService', () => {
     expect(args.some((arg) => arg.includes('ControlPersist'))).toBe(false);
   });
 
-  it('multiplexes Unix terminals across a lazy bounded control-master pool', async () => {
+  itWithPosixShell('multiplexes Unix terminals across a lazy bounded control-master pool', async () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -2718,7 +2736,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('tries the next terminal master when the real session is refused before attachment', async () => {
+  itWithPosixShell('tries the next terminal master when the real session is refused before attachment', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -2774,7 +2792,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('reuses a later live terminal master before creating a missing preferred master', async () => {
+  itWithPosixShell('reuses a later live terminal master before creating a missing preferred master', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -2878,7 +2896,7 @@ describe('sshWorkspaceService', () => {
     }
   );
 
-  it('tries another missing terminal master after a create race reaches capacity', async () => {
+  itWithPosixShell('tries another missing terminal master after a create race reaches capacity', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -2984,7 +3002,7 @@ describe('sshWorkspaceService', () => {
     );
   });
 
-  it('checks only the current terminal master and one lazy expansion candidate', async () => {
+  itWithControlMasters('checks only the current terminal master and one lazy expansion candidate', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -3013,7 +3031,7 @@ describe('sshWorkspaceService', () => {
     sshWorkspaceService.releaseTerminalPoolAssignment('term-lazy-pool');
   });
 
-  it('expands beyond four terminal masters before falling back to standalone SSH', async () => {
+  itWithControlMasters('expands beyond four terminal masters before falling back to standalone SSH', async () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -3210,7 +3228,7 @@ describe('sshWorkspaceService', () => {
     }
   );
 
-  it.each([
+  itWithPosixShell.each([
     ['keeps', 'latest', false],
     ['detaches', 'largest', true],
     ['detaches', '', true],
@@ -3561,7 +3579,7 @@ describe('sshWorkspaceService', () => {
     expect(remoteCommand).toContain('git branch -r --sort=-committerdate');
   });
 
-  it('reads the commit graph of a remote workspace over SSH', async () => {
+  itWithPosixShell('reads the commit graph of a remote workspace over SSH', async () => {
     const repo = createTargetBranchTestRepo();
     runGit(['push', '-u', 'origin', 'feature'], repo.featurePath);
     writeFileSync(join(repo.featurePath, 'later.txt'), 'later\n');
@@ -3586,7 +3604,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it("reads a remote commit's changes, a merge's against its first parent", async () => {
+  itWithPosixShell("reads a remote commit's changes, a merge's against its first parent", async () => {
     const repo = createTargetBranchTestRepo();
     runGit(['switch', '-c', 'side'], repo.featurePath);
     writeFileSync(join(repo.featurePath, 'side.txt'), 'from side\n');
@@ -3629,7 +3647,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('reads both sides of a remote image diff as image data', async () => {
+  itWithPosixShell('reads both sides of a remote image diff as image data', async () => {
     const repo = createTargetBranchTestRepo();
     // Bytes that aren't valid UTF-8, so a text round trip would corrupt them.
     const oldPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x01]);
@@ -3668,7 +3686,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('reads a remote image over the text size cap, and leaves an image git sees as text', async () => {
+  itWithPosixShell('reads a remote image over the text size cap, and leaves an image git sees as text', async () => {
     const repo = createTargetBranchTestRepo();
     const largePng = Buffer.alloc(6 * 1024 * 1024, 0xff);
     largePng.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
@@ -3696,7 +3714,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('reads a remote commit whose message or file names imitate its output, signed and shown so', async () => {
+  itWithPosixShell('reads a remote commit whose message or file names imitate its output, signed and shown so', async () => {
     const repo = createTargetBranchTestRepo();
     const subject = 'imitate __KOMLA_NUMSTAT__';
     for (const name of ['café.txt', 'x__KOMLA_NAME_STATUS__']) {
@@ -3732,7 +3750,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it("reads older commits of one file's history on another remote branch", async () => {
+  itWithPosixShell("reads older commits of one file's history on another remote branch", async () => {
     const repo = createTargetBranchTestRepo();
     for (const line of ['two', 'three']) {
       writeFileSync(join(repo.featurePath, 'shared.txt'), `${line}\n`);
@@ -3759,7 +3777,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('reads an empty commit graph for a remote branch without commits', async () => {
+  itWithPosixShell('reads an empty commit graph for a remote branch without commits', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-graph-'));
     runGit(['init', '-b', 'main', join(root, 'empty')]);
     mockRemoteShell(root);
@@ -3786,7 +3804,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('switches a remote-only branch from a non-origin remote', async () => {
+  itWithPosixShell('switches a remote-only branch from a non-origin remote', async () => {
     const repo = createTargetBranchTestRepo();
     runGit(['switch', '-c', 'upstream-only'], repo.seedPath);
     writeFileSync(join(repo.seedPath, 'upstream.txt'), 'upstream\n');
@@ -3843,7 +3861,7 @@ describe('sshWorkspaceService', () => {
     expect(remoteCommand).toContain('git stash apply "$stash_sha"');
   });
 
-  it('restores its own auto-stash when another worktree of the repo stashes meanwhile', async () => {
+  itWithPosixShell('restores its own auto-stash when another worktree of the repo stashes meanwhile', async () => {
     const repo = createTargetBranchTestRepo();
     const targetPath = join(repo.root, 'worktrees', 'main');
     runGit(['--git-dir', repo.remoteRepoPath, 'worktree', 'add', targetPath, 'main']);
@@ -3876,7 +3894,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('leaves an older auto-stash with the same name alone when the stash saves nothing', async () => {
+  itWithPosixShell('leaves an older auto-stash with the same name alone when the stash saves nothing', async () => {
     const repo = createTargetBranchTestRepo();
     const otherPath = join(repo.root, 'worktrees', 'other');
     runGit(['--git-dir', repo.remoteRepoPath, 'worktree', 'add', '-b', 'other', otherPath, 'main']);
@@ -3913,7 +3931,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('reports remote merge conflicts clearly after safely aborting', async () => {
+  itWithPosixShell('reports remote merge conflicts clearly after safely aborting', async () => {
     const repo = createTargetBranchTestRepo();
     createBranchConflict(repo);
     mockRemoteShell(repo.root);
@@ -3934,7 +3952,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('leaves an active remote merge and auto-stash untouched when abort fails', async () => {
+  itWithPosixShell('leaves an active remote merge and auto-stash untouched when abort fails', async () => {
     const repo = createTargetBranchTestRepo();
     createBranchConflict(repo);
     writeFileSync(join(repo.featurePath, 'dirty.txt'), 'uncommitted\n');
@@ -3961,7 +3979,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('reports remote rebase conflicts clearly after safely aborting', async () => {
+  itWithPosixShell('reports remote rebase conflicts clearly after safely aborting', async () => {
     const repo = createTargetBranchTestRepo();
     createBranchConflict(repo);
     mockRemoteShell(repo.root);
@@ -4006,7 +4024,7 @@ describe('sshWorkspaceService', () => {
     return { callsPath: companion.callsPath, ensureInstalled };
   }
 
-  it('rebases a remote workspace onto the target ref the installed companion resolves', async () => {
+  itWithPosixShell('rebases a remote workspace onto the target ref the installed companion resolves', async () => {
     const repo = createTargetBranchTestRepo();
     pushTwoTargetCommits(repo);
     const { callsPath, ensureInstalled } = await installCompanion(repo, (path) =>
@@ -4032,7 +4050,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('merges the target ref the installed companion resolves into a remote workspace', async () => {
+  itWithPosixShell('merges the target ref the installed companion resolves into a remote workspace', async () => {
     const repo = createTargetBranchTestRepo();
     pushTwoTargetCommits(repo);
     const { callsPath, ensureInstalled } = await installCompanion(repo, (path) =>
@@ -4056,7 +4074,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('uses the local target as it is when the companion cannot be installed', async () => {
+  itWithPosixShell('uses the local target as it is when the companion cannot be installed', async () => {
     const repo = createTargetBranchTestRepo();
     pushTwoTargetCommits(repo);
     const { callsPath, ensureInstalled } = await installCompanion(repo, () =>
@@ -4079,7 +4097,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('does not ask the companion about a branch that is not the target', async () => {
+  itWithPosixShell('does not ask the companion about a branch that is not the target', async () => {
     const repo = createTargetBranchTestRepo();
     pushTwoTargetCommits(repo);
     const { callsPath, ensureInstalled } = await installCompanion(repo, (path) =>
@@ -4101,7 +4119,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('leaves an active remote rebase and auto-stash untouched when abort fails', async () => {
+  itWithPosixShell('leaves an active remote rebase and auto-stash untouched when abort fails', async () => {
     const repo = createTargetBranchTestRepo();
     createBranchConflict(repo);
     writeFileSync(join(repo.featurePath, 'dirty.txt'), 'uncommitted\n');
@@ -4338,7 +4356,7 @@ describe('sshWorkspaceService', () => {
     expect(second.backend.remoteProjectRoot).toBe('/home/devuser/.komla/worktrees/Shared-Name');
   });
 
-  it('adopts an existing remote repo when the same project is re-added with a new ID', async () => {
+  itWithPosixShell('adopts an existing remote repo when the same project is re-added with a new ID', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-readded-project-'));
     const originPath = join(root, 'origin.git');
     const seedPath = join(root, 'seed');
@@ -4379,7 +4397,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('adopts an existing HTTPS remote after Komla converts the same repository to SSH', async () => {
+  itWithPosixShell('adopts an existing HTTPS remote after Komla converts the same repository to SSH', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-readded-protocol-'));
     const binPath = join(root, 'bin');
 
@@ -4433,7 +4451,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('ignores HTTPS credentials when adopting the same hosted repository', async () => {
+  itWithPosixShell('ignores HTTPS credentials when adopting the same hosted repository', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-readded-credentials-'));
     const binPath = join(root, 'bin');
 
@@ -4598,7 +4616,7 @@ describe('sshWorkspaceService', () => {
     }
   );
 
-  it('does not adopt a generic SSH remote owned by a different username', async () => {
+  itWithPosixShell('does not adopt a generic SSH remote owned by a different username', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-username-collision-'));
 
     try {
@@ -4635,7 +4653,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('refuses a Git URL that git would read as an option', async () => {
+  itWithPosixShell('refuses a Git URL that git would read as an option', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-dash-url-'));
 
     try {
@@ -4662,7 +4680,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('does not adopt a distinct generic repository whose path differs only by .git', async () => {
+  itWithPosixShell('does not adopt a distinct generic repository whose path differs only by .git', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-dot-git-collision-'));
     const firstOriginPath = join(root, 'origin');
     const secondOriginPath = join(root, 'origin.git');
@@ -4698,7 +4716,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('does not adopt an existing remote project directory for a different Git repo', async () => {
+  itWithPosixShell('does not adopt an existing remote project directory for a different Git repo', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-project-collision-'));
     const firstOriginPath = join(root, 'first-origin.git');
     const secondOriginPath = join(root, 'second-origin.git');
@@ -4886,7 +4904,7 @@ describe('sshWorkspaceService', () => {
     run.mockRestore();
   });
 
-  it('pulls the published feature branch when its legacy upstream is origin/main', async () => {
+  itWithPosixShell('pulls the published feature branch when its legacy upstream is origin/main', async () => {
     const repo = createTargetBranchTestRepo();
 
     try {
@@ -4929,7 +4947,7 @@ describe('sshWorkspaceService', () => {
     runGit(['config', 'pull.ff', 'true'], repo.featurePath);
   }
 
-  it('merges a diverged branch on pull, like a local pull', async () => {
+  itWithPosixShell('merges a diverged branch on pull, like a local pull', async () => {
     const repo = createTargetBranchTestRepo();
 
     try {
@@ -4946,7 +4964,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('reports the whole pull failure, not the fetch line Git prints first', async () => {
+  itWithPosixShell('reports the whole pull failure, not the fetch line Git prints first', async () => {
     const repo = createTargetBranchTestRepo();
     const hooksPath = join(repo.root, 'hooks');
 
@@ -4969,7 +4987,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('leaves a conflicted pull merge in place and names the files, like a local pull', async () => {
+  itWithPosixShell('leaves a conflicted pull merge in place and names the files, like a local pull', async () => {
     const repo = createTargetBranchTestRepo();
 
     try {
@@ -5018,7 +5036,7 @@ describe('sshWorkspaceService', () => {
     expect(setupCommand).not.toContain('__KOMLA_SSH_BRANCH_ALREADY_EXISTS__');
   });
 
-  it('creates a remote worktree for an existing origin branch', async () => {
+  itWithPosixShell('creates a remote worktree for an existing origin branch', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-existing-'));
     const originPath = join(root, 'origin.git');
     const seedPath = join(root, 'seed');
@@ -5077,7 +5095,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('checks a branch out again after its remote worktree directory was removed by hand', async () => {
+  itWithPosixShell('checks a branch out again after its remote worktree directory was removed by hand', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-existing-pruned-'));
     const originPath = join(root, 'origin.git');
     const seedPath = join(root, 'seed');
@@ -5116,7 +5134,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('fast-forwards a stale local branch after checking it out', async () => {
+  itWithPosixShell('fast-forwards a stale local branch after checking it out', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-existing-stale-'));
     const originPath = join(root, 'origin.git');
     const seedPath = join(root, 'seed');
@@ -5167,7 +5185,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('does not move an existing branch that another worktree has checked out', async () => {
+  itWithPosixShell('does not move an existing branch that another worktree has checked out', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-existing-busy-'));
     const originPath = join(root, 'origin.git');
     const seedPath = join(root, 'seed');
@@ -5217,7 +5235,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('starts a target-based SSH workspace from the ref the companion resolves', async () => {
+  itWithPosixShell('starts a target-based SSH workspace from the ref the companion resolves', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-companion-start-'));
     const originPath = join(root, 'origin.git');
     const seedPath = join(root, 'seed');
@@ -5481,7 +5499,7 @@ describe('sshWorkspaceService', () => {
     expect(remoteCommand).toContain(targetMarker);
   });
 
-  it('keeps an existing SSH worktree usable when origin is unavailable', async () => {
+  itWithPosixShell('keeps an existing SSH worktree usable when origin is unavailable', async () => {
     const repo = createTargetBranchTestRepo();
 
     try {
@@ -5499,7 +5517,8 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  describe('managed repo layout on the host', () => {
+  // Runs the remote commands in a real POSIX shell standing in for the SSH host.
+  describe.skipIf(process.platform === 'win32')('managed repo layout on the host', () => {
     let root: string;
     let originPath: string;
     let base: string;
@@ -5551,7 +5570,7 @@ describe('sshWorkspaceService', () => {
     });
   });
 
-  it('reports a clear error when the remote default branch cannot be resolved', async () => {
+  itWithPosixShell('reports a clear error when the remote default branch cannot be resolved', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-missing-default-'));
     const originPath = join(root, 'origin.git');
 
@@ -5576,7 +5595,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('refreshes a cached bare repository after the remote default branch is renamed', async () => {
+  itWithPosixShell('refreshes a cached bare repository after the remote default branch is renamed', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-ssh-default-rename-'));
     const originPath = join(root, 'origin.git');
     const seedPath = join(root, 'seed');
@@ -5860,6 +5879,8 @@ describe('sshWorkspaceService', () => {
   });
 
   it('returns an SSH terminal launch without connection metadata output', async () => {
+    // A Windows client launches ssh from PowerShell, without exec; see the Windows terminal tests.
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
     const backend = {
@@ -6038,7 +6059,7 @@ describe('sshWorkspaceService', () => {
     expect(layoutCall).toBeDefined();
   });
 
-  it.each([
+  itWithPosixShell.each([
     ['a home-relative path', '~/.komla-test', (home: string) => `${home}/.komla-test`],
     ['an absolute path', '__ABSOLUTE__', (_home: string, absolute: string) => absolute],
   ])('resolves %s with the real remote shell script', async (_name, configured, expectedPath) => {
@@ -6057,7 +6078,7 @@ describe('sshWorkspaceService', () => {
     }
   });
 
-  it('resolves a bare tilde to home before rejecting it as an unsafe base path', async () => {
+  itWithPosixShell('resolves a bare tilde to home before rejecting it as an unsafe base path', async () => {
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-home-path-'));
     const remoteHome = realpathSync(tempPath);
     mockRemoteShell(remoteHome);
@@ -6390,7 +6411,8 @@ describe('sshWorkspaceService', () => {
     });
 
     expect(result.localMirror).toEqual({
-      platform: 'supported',
+      // Komla does not mirror workspaces to a Windows client.
+      platform: process.platform === 'win32' ? 'unsupported' : 'supported',
       localRsync: 'missing',
       remoteRsync: 'missing',
     });
@@ -7624,7 +7646,7 @@ describe('sshWorkspaceService', () => {
     );
     expect(configWrites).toHaveLength(2);
     for (const write of configWrites) {
-      expect(write[1]).toContain('ControlPersist=600');
+      expectInteractiveSshMultiplexing(write[1]);
     }
   });
 
@@ -7760,7 +7782,7 @@ describe('sshWorkspaceService', () => {
     expect(deleteCommand).toContain('failed to delete remote workspace directory');
     expect(deleteCommand).toContain('worktree prune');
     for (const call of execFileMock.mock.calls.filter((call) => call[0] === 'ssh')) {
-      expect(call[1]).toContain('ControlPersist=600');
+      expectInteractiveSshMultiplexing(call[1]);
     }
   });
 

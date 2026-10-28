@@ -190,7 +190,10 @@ describe('sshConnectionService', () => {
 
   it('lets workspace creation go on when no connection directory can be made', async () => {
     vi.resetModules();
-    vi.stubEnv('TMPDIR', '/nonexistent-komla-control-root');
+    // os.tmpdir() reads TMPDIR on macOS and Linux, and TEMP or TMP on Windows.
+    for (const name of ['TMPDIR', 'TEMP', 'TMP']) {
+      vi.stubEnv(name, '/nonexistent-komla-control-root');
+    }
     try {
       const { sshConnectionService } =
         await import('../../../src/main/services/ssh-connection.service');
@@ -921,42 +924,51 @@ describe('sshConnectionService', () => {
     });
   });
 
-  it("sends a terminal's ssh prompts to Komla's dialog", async () => {
-    askpassMock.isRunning.mockReturnValue(true);
-    askpassMock.getHelperScriptPath.mockReturnValue('/tmp/komla-askpass.sh' as never);
-    askpassMock.getSocketPath.mockReturnValue('/tmp/komla-askpass.sock' as never);
-    const bin = mkdtempSync(join(tmpdir(), 'komla-ssh-terminal-test-'));
-    writeFileSync(
-      join(bin, 'ssh'),
-      '#!/bin/sh\necho "$SSH_ASKPASS|$SSH_ASKPASS_REQUIRE|$KOMLA_ASKPASS_SOCKET|$KOMLA_ASKPASS_SESSION|${DISPLAY-none}"\n',
-      { mode: 0o755 }
-    );
-    try {
-      const { sshConnectionService } =
-        await import('../../../src/main/services/ssh-connection.service');
-      const { execFileSync } =
-        await vi.importActual<typeof import('child_process')>('child_process');
+  // Runs the terminal command in a real POSIX shell.
+  it.skipIf(process.platform === 'win32')(
+    "sends a terminal's ssh prompts to Komla's dialog",
+    async () => {
+      askpassMock.isRunning.mockReturnValue(true);
+      askpassMock.getHelperScriptPath.mockReturnValue('/tmp/komla-askpass.sh' as never);
+      askpassMock.getSocketPath.mockReturnValue('/tmp/komla-askpass.sock' as never);
+      const bin = mkdtempSync(join(tmpdir(), 'komla-ssh-terminal-test-'));
+      writeFileSync(
+        join(bin, 'ssh'),
+        '#!/bin/sh\necho "$SSH_ASKPASS|$SSH_ASKPASS_REQUIRE|$KOMLA_ASKPASS_SOCKET|$KOMLA_ASKPASS_SESSION|${DISPLAY-none}"\n',
+        { mode: 0o755 }
+      );
+      try {
+        const { sshConnectionService } =
+          await import('../../../src/main/services/ssh-connection.service');
+        const { execFileSync } =
+          await vi.importActual<typeof import('child_process')>('child_process');
 
-      for (const terminalId of ['terminal-1', 'terminal-2', 'terminal-3']) {
-        const command = sshConnectionService.buildTerminalCommand(host, terminalId, 'tmux', false);
-        const output = execFileSync('/bin/sh', ['-c', command], {
-          encoding: 'utf8',
-          env: { PATH: `${bin}:${process.env.PATH}` },
-        });
-        expect(output).toContain(
-          '/tmp/komla-askpass.sh|force|/tmp/komla-askpass.sock|session-1|none'
-        );
+        for (const terminalId of ['terminal-1', 'terminal-2', 'terminal-3']) {
+          const command = sshConnectionService.buildTerminalCommand(
+            host,
+            terminalId,
+            'tmux',
+            false
+          );
+          const output = execFileSync('/bin/sh', ['-c', command], {
+            encoding: 'utf8',
+            env: { PATH: `${bin}:${process.env.PATH}` },
+          });
+          expect(output).toContain(
+            '/tmp/komla-askpass.sh|force|/tmp/komla-askpass.sock|session-1|none'
+          );
+        }
+
+        Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+        expect(
+          sshConnectionService.buildTerminalCommand(host, 'terminal-4', 'tmux', false)
+        ).not.toContain('SSH_ASKPASS');
+      } finally {
+        rmSync(bin, { recursive: true, force: true });
+        askpassMock.isRunning.mockReturnValue(false);
+        askpassMock.getHelperScriptPath.mockReturnValue(null);
+        askpassMock.getSocketPath.mockReturnValue(null);
       }
-
-      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-      expect(
-        sshConnectionService.buildTerminalCommand(host, 'terminal-4', 'tmux', false)
-      ).not.toContain('SSH_ASKPASS');
-    } finally {
-      rmSync(bin, { recursive: true, force: true });
-      askpassMock.isRunning.mockReturnValue(false);
-      askpassMock.getHelperScriptPath.mockReturnValue(null);
-      askpassMock.getSocketPath.mockReturnValue(null);
     }
-  });
+  );
 });

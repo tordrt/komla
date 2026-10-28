@@ -20,6 +20,7 @@ vi.mock('../../../src/main/services/remote-companion.service', () => ({
   remoteCompanionService: {},
 }));
 
+import { shellQuotePosix } from '../../../src/shared/lib/shell-quote';
 import { sshWorkspaceGit } from '../../../src/main/services/workspace-git/ssh-git';
 
 /** The host's shell, here this computer's, after a login profile that prints a greeting. */
@@ -46,7 +47,8 @@ describe('sshWorkspaceGit.gitBatchRunner', () => {
   beforeEach(async () => {
     repoPath = mkdtempSync(join(tmpdir(), 'komla-ssh-git-batch-'));
     runWithInput.mockReset().mockImplementation(hostShell);
-    await hostShell(null, `git init --quiet ${repoPath}`, '');
+    // Quoted, as the batch script quotes it, so a Windows path keeps its backslashes.
+    await hostShell(null, `git init --quiet ${shellQuotePosix(repoPath)}`, '');
   });
 
   afterEach(() => {

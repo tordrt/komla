@@ -128,71 +128,79 @@ describe('RemoteCompanionService', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('links an installed helper in the round trip that finds it', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'komla-companion-linked-'));
-    const remoteBase = join(root, 'remote');
-    const artifact = join(root, 'x86_64-unknown-linux-musl', 'komla');
-    mkdirSync(join(artifact, '..'), { recursive: true });
-    writeFileSync(artifact, 'binary');
-    const run = vi.fn(async (_host: SshHost, command: string) =>
-      command.includes('uname -s')
-        ? 'Linux\nx86_64\n'
-        : execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' })
-    );
-    const upload = vi.fn().mockResolvedValue('');
-    const service = new RemoteCompanionService({ resourceRoot: () => root, run, upload });
-
-    try {
-      const detected = service.detectPlatform(host);
-      const installedPath = join(
-        remoteBase,
-        'helpers/bin/protocol-1',
-        createHash('sha256').update('binary').digest('hex'),
-        'komla'
+  // Runs the host's install script, which links the helper, in a real POSIX shell.
+  it.skipIf(process.platform === 'win32')(
+    'links an installed helper in the round trip that finds it',
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), 'komla-companion-linked-'));
+      const remoteBase = join(root, 'remote');
+      const artifact = join(root, 'x86_64-unknown-linux-musl', 'komla');
+      mkdirSync(join(artifact, '..'), { recursive: true });
+      writeFileSync(artifact, 'binary');
+      const run = vi.fn(async (_host: SshHost, command: string) =>
+        command.includes('uname -s')
+          ? 'Linux\nx86_64\n'
+          : execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' })
       );
-      mkdirSync(dirname(installedPath), { recursive: true });
-      writeFileSync(installedPath, '#!/bin/sh\necho 1.0.0\n', { mode: 0o755 });
+      const upload = vi.fn().mockResolvedValue('');
+      const service = new RemoteCompanionService({ resourceRoot: () => root, run, upload });
 
-      await expect(service.ensureInstalled(host, remoteBase)).resolves.toBe(installedPath);
+      try {
+        const detected = service.detectPlatform(host);
+        const installedPath = join(
+          remoteBase,
+          'helpers/bin/protocol-1',
+          createHash('sha256').update('binary').digest('hex'),
+          'komla'
+        );
+        mkdirSync(dirname(installedPath), { recursive: true });
+        writeFileSync(installedPath, '#!/bin/sh\necho 1.0.0\n', { mode: 0o755 });
 
-      await expect(detected).resolves.toEqual(['Linux', 'x86_64']);
-      expect(run).toHaveBeenCalledTimes(2);
-      expect(upload).not.toHaveBeenCalled();
-      expect(readlinkSync(join(remoteBase, 'helpers/komla'))).toBe(installedPath);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+        await expect(service.ensureInstalled(host, remoteBase)).resolves.toBe(installedPath);
+
+        await expect(detected).resolves.toEqual(['Linux', 'x86_64']);
+        expect(run).toHaveBeenCalledTimes(2);
+        expect(upload).not.toHaveBeenCalled();
+        expect(readlinkSync(join(remoteBase, 'helpers/komla'))).toBe(installedPath);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
-  it('links a new helper in the round trip that uploads it', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'komla-companion-uploaded-'));
-    const remoteBase = join(root, 'remote');
-    const artifact = join(root, 'x86_64-unknown-linux-musl', 'komla');
-    mkdirSync(join(artifact, '..'), { recursive: true });
-    writeFileSync(artifact, '#!/bin/sh\necho 1.0.0\n');
-    const run = vi.fn(async (_host: SshHost, command: string) =>
-      command.includes('uname -s')
-        ? 'Linux\nx86_64\n'
-        : execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' })
-    );
-    const upload = vi.fn(async (_host: SshHost, command: string, sourcePath: string) =>
-      execFileSync('/bin/sh', ['-c', command], {
-        encoding: 'utf8',
-        input: readFileSync(sourcePath),
-      })
-    );
-    const service = new RemoteCompanionService({ resourceRoot: () => root, run, upload });
+  // Runs the host's install script, which links the helper, in a real POSIX shell.
+  it.skipIf(process.platform === 'win32')(
+    'links a new helper in the round trip that uploads it',
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), 'komla-companion-uploaded-'));
+      const remoteBase = join(root, 'remote');
+      const artifact = join(root, 'x86_64-unknown-linux-musl', 'komla');
+      mkdirSync(join(artifact, '..'), { recursive: true });
+      writeFileSync(artifact, '#!/bin/sh\necho 1.0.0\n');
+      const run = vi.fn(async (_host: SshHost, command: string) =>
+        command.includes('uname -s')
+          ? 'Linux\nx86_64\n'
+          : execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' })
+      );
+      const upload = vi.fn(async (_host: SshHost, command: string, sourcePath: string) =>
+        execFileSync('/bin/sh', ['-c', command], {
+          encoding: 'utf8',
+          input: readFileSync(sourcePath),
+        })
+      );
+      const service = new RemoteCompanionService({ resourceRoot: () => root, run, upload });
 
-    try {
-      const installedPath = await service.ensureInstalled(host, remoteBase);
+      try {
+        const installedPath = await service.ensureInstalled(host, remoteBase);
 
-      expect(upload).toHaveBeenCalledOnce();
-      expect(run).toHaveBeenCalledTimes(2);
-      expect(readlinkSync(join(remoteBase, 'helpers/komla'))).toBe(installedPath);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
+        expect(upload).toHaveBeenCalledOnce();
+        expect(run).toHaveBeenCalledTimes(2);
+        expect(readlinkSync(join(remoteBase, 'helpers/komla'))).toBe(installedPath);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it('knows the helper it installed without installing one', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-companion-installed-'));

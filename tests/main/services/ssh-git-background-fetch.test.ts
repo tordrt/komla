@@ -121,7 +121,8 @@ describe('sshWorkspaceGit.fetchOriginWithoutPrompts', () => {
     );
   });
 
-  it.for([{ ps: true }, { ps: false }])(
+  // Checks the fake ssh script's process id, which a Windows shell's $$ is not.
+  it.skipIf(process.platform === 'win32').for([{ ps: true }, { ps: false }])(
     'stops a fetch that takes too long, along with the ssh git started (ps: $ps)',
     async ({ ps }, { skip }) => {
       if (!ps) {

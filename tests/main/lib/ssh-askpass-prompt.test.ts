@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   opensshMarksServerPrompts,
@@ -6,6 +6,15 @@ import {
 } from '../../../src/main/lib/ssh-askpass-prompt';
 
 describe('sshKeyPathFromPrompt', () => {
+  // A Windows client's ssh names keys by drive letter, which its own test below covers.
+  const originalPlatform = process.platform;
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+  });
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+  });
+
   it('returns the key file ssh is loading', () => {
     expect(sshKeyPathFromPrompt("Enter passphrase for key '/home/me/.ssh/id_ed25519': ")).toBe(
       '/home/me/.ssh/id_ed25519'

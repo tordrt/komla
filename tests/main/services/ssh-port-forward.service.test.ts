@@ -207,6 +207,20 @@ function mockAllocatedPorts(ports: number[]): void {
   });
 }
 
+const originalPlatform = process.platform;
+
+// A tunnel is its own control master, whose forwards change in place, only on macOS and Linux.
+// Elsewhere Komla starts a new tunnel with every forward.
+const tunnelsHaveMasters = process.platform === 'darwin' || process.platform === 'linux';
+const tunnelMasterArgs = tunnelsHaveMasters
+  ? ['-o', 'ControlMaster=yes', '-o', 'ControlPersist=no']
+  : [];
+
+/** For tests of forwards that change through a tunnel's master, on every platform. */
+function useTunnelMasters(): void {
+  Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+}
+
 /** The forwards changed through tunnels' masters, as [command, ...-L specs]. */
 function controlCommands(): string[][] {
   return mockControlCommand.mock.calls.map((call) => {
@@ -268,9 +282,13 @@ describe('sshPortForwardService', () => {
   });
 
   afterEach(async () => {
-    const { sshPortForwardService } =
-      await import('../../../src/main/services/ssh-port-forward.service');
-    await sshPortForwardService.dispose();
+    try {
+      const { sshPortForwardService } =
+        await import('../../../src/main/services/ssh-port-forward.service');
+      await sshPortForwardService.dispose();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    }
   });
 
   it('starts an SSH local forward that resolves localhost on the remote host', async () => {
@@ -301,10 +319,7 @@ describe('sshPortForwardService', () => {
     expect(mockSpawn).toHaveBeenCalledWith(
       'ssh',
       [
-        '-o',
-        'ControlMaster=yes',
-        '-o',
-        'ControlPersist=no',
+        ...tunnelMasterArgs,
         '-o',
         'IgnoreUnknown=StdinNull,ForkAfterAuthentication,SessionType',
         '-o',
@@ -322,7 +337,7 @@ describe('sshPortForwardService', () => {
         '-J',
         'bastion',
         '-S',
-        expect.stringMatching(/komla-ssh-/),
+        tunnelsHaveMasters ? expect.stringMatching(/komla-ssh-/) : 'none',
         '-T',
         '-L',
         '127.0.0.1:53127:localhost:3000',
@@ -577,7 +592,7 @@ describe('sshPortForwardService', () => {
     });
 
     const sshArgs = mockSpawn.mock.calls[0]?.[1] as string[];
-    expect(sshArgs.slice(4, 14)).toEqual([
+    expect(sshArgs.slice(tunnelMasterArgs.length, tunnelMasterArgs.length + 10)).toEqual([
       '-o',
       'IgnoreUnknown=StdinNull,ForkAfterAuthentication,SessionType',
       '-o',
@@ -1164,6 +1179,7 @@ describe('sshPortForwardService', () => {
   });
 
   it('aggregates preview forwards for the same host into one SSH process', async () => {
+    useTunnelMasters();
     mockAllocatedPorts([53127, 53128]);
     const child = createMockChild();
     mockSpawn.mockReturnValue(child);
@@ -1257,6 +1273,7 @@ describe('sshPortForwardService', () => {
   });
 
   it('keeps a preview forward per browser tab, so showing another tab moves none', async () => {
+    useTunnelMasters();
     mockAllocatedPorts([53127, 53128]);
     const firstChild = createMockChild();
     mockSpawn.mockReturnValue(firstChild);
@@ -1301,6 +1318,7 @@ describe('sshPortForwardService', () => {
   });
 
   it('cancels every forward a workspace gives up with one control command', async () => {
+    useTunnelMasters();
     mockAllocatedPorts([53127, 53128, 53129]);
     const child = createMockChild();
     mockSpawn.mockReturnValueOnce(child);
@@ -1364,6 +1382,7 @@ describe('sshPortForwardService', () => {
     }
 
     it("when the tunnel's master refuses the change", async () => {
+      useTunnelMasters();
       mockControlCommand.mockImplementation(
         (
           _file: string,
@@ -1499,6 +1518,7 @@ describe('sshPortForwardService', () => {
   });
 
   it("gives a link's forward up to another workspace that forwards its port", async () => {
+    useTunnelMasters();
     mockAllocatedPorts([53127, 53128]);
     mockSpawn.mockImplementation(() => createMockChild());
     const { sshPortForwardService } =
@@ -1659,6 +1679,7 @@ describe('sshPortForwardService', () => {
   });
 
   it("stops a link's own forward, and no other", async () => {
+    useTunnelMasters();
     mockAllocatedPorts([53127, 53128]);
     mockSpawn.mockImplementation(() => createMockChild());
     const { sshPortForwardService } =
@@ -1692,6 +1713,7 @@ describe('sshPortForwardService', () => {
   });
 
   it('lists the ports it forwards for each host, by what each is for', async () => {
+    useTunnelMasters();
     mockAllocatedPorts([53127, 53128, 53129]);
     const desktopChild = createMockChild();
     const savedChild = createMockChild();
@@ -1964,6 +1986,7 @@ describe('sshPortForwardService', () => {
   });
 
   it('removes a forward when the remaining tunnel cannot migrate without a conflict', async () => {
+    useTunnelMasters();
     mockAllocatedPorts([53127, 53128, 53129]);
     const firstChild = createMockChild();
     const otherHostChild = createMockChild();

@@ -57,7 +57,6 @@ import { isLocalTerminalExecutionLocation } from '../../shared/types/terminal';
 import {
   attentionWakesSnooze,
   canDeleteWorkspaceBranch,
-  endsSnoozingTurn,
   getBranchesInUse,
   isSshWorkspace,
   isWorkspaceSnoozed,
@@ -832,7 +831,6 @@ class WorkspaceService {
           this.relayInterrupt(workspace, terminalId, sources),
       },
       promptSubmitted: (workspaceId, prompt, terminalId) => {
-        this.endSnoozingTurnOnNewPrompt(workspaceId, terminalId);
         this.recordPromptSubmit(workspaceId, prompt, terminalId);
         publishHookEvent({
           event: 'agent.prompt',
@@ -4142,32 +4140,13 @@ class WorkspaceService {
   }
 
   /**
-   * A new prompt to the agent that snoozed its workspace until notified ends the snoozing turn,
-   * also one interrupted without a turn-complete, so that agent's next news wakes the workspace.
-   */
-  private endSnoozingTurnOnNewPrompt(workspaceId: string, terminalId: string | undefined): void {
-    const workspace = this.workspaces.get(workspaceId);
-    if (!workspace?.snoozeOutlastsTurnOf || workspace.snoozeOutlastsTurnOf !== terminalId) return;
-    workspace.snoozeOutlastsTurnOf = undefined;
-    this.saveWorkspaces();
-    this.broadcastWorkspaceUpdate(workspace);
-  }
-
-  /**
    * An agent waiting on the user, or failing, ends its workspace's snooze early, as any
    * notification does for a snooze until notified.
    */
   private wakeSnoozedForAttention(workspaceId: string, attention: WorkspaceAttention): void {
     const workspace = this.workspaces.get(workspaceId);
     if (!workspace) return;
-    if (!attentionWakesSnooze(workspace, attention)) {
-      // The agent that snoozed it is done with that turn; its next news wakes the workspace.
-      if (endsSnoozingTurn(workspace, attention)) {
-        workspace.snoozeOutlastsTurnOf = undefined;
-        this.broadcastWorkspaceUpdate(workspace);
-      }
-      return;
-    }
+    if (!attentionWakesSnooze(workspace, attention)) return;
     wakeWorkspace(workspace, attention.updatedAt);
     this.saveWorkspaces();
     this.broadcastWorkspaceUpdate(workspace);
@@ -5753,10 +5732,6 @@ class WorkspaceService {
       publishHookEvent({ event: 'workspace.trashed', workspaceId });
     }
     const snoozeChanged = 'snoozedUntil' in updates || 'wakesOnNotification' in updates;
-    // A snooze set or ended some other way no longer waits out an agent's turn.
-    if (snoozeChanged && !('snoozeOutlastsTurnOf' in updates)) {
-      workspace.snoozeOutlastsTurnOf = undefined;
-    }
     if (snoozeChanged) this.snoozeAlarm.check();
     if ('status' in updates || snoozeChanged) this.attention.workspaceStatusChanged();
 

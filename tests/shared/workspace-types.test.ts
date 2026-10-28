@@ -39,21 +39,6 @@ describe('attentionWakesSnooze', () => {
     );
   });
 
-  it("does not wake for the end of the turn of the agent that snoozed it, but for others' news", () => {
-    const snooze = { wakesOnNotification: true, snoozeOutlastsTurnOf: 'term-1' };
-    const from = (terminalId: string, overrides: Partial<WorkspaceAttention> = {}) => ({
-      ...attention('turn-complete'),
-      terminalId,
-      ...overrides,
-    });
-
-    expect(attentionWakesSnooze(snooze, from('term-1'))).toBe(false);
-    expect(attentionWakesSnooze(snooze, from('term-2'))).toBe(true);
-    // A command's report from that same Terminal, as `<command>; komla notify` gives, wakes it.
-    expect(attentionWakesSnooze(snooze, from('term-1', { source: 'command' }))).toBe(true);
-    expect(attentionWakesSnooze(snooze, from('term-1', { kind: 'error' }))).toBe(true);
-  });
-
   it('leaves a workspace that is not snoozed alone', () => {
     expect(attentionWakesSnooze({}, attention('error'))).toBe(false);
   });

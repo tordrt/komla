@@ -339,11 +339,6 @@ export interface Workspace {
   snoozedUntil?: number;
   /** Kept in the Snoozed shelf until the workspace's next notification, or snoozedUntil first. */
   wakesOnNotification?: boolean;
-  /**
-   * The Terminal whose agent snoozed it until notified during a turn: that turn's end is no news
-   * (not persisted).
-   */
-  snoozeOutlastsTurnOf?: string;
   agentActive?: boolean; // True while the agent is processing (set on prompt-submit, activity, or Claude Code input-required; cleared on accepted turn-complete/idle)
   agentActiveSince?: number; // When agentActive last turned on
   showsPaneSurfaces?: boolean; // True while a window shows a browser or note pane of it, which keeps it running without a terminal (not persisted)
@@ -543,33 +538,17 @@ export function needsAttention(attention: WorkspaceAttention | undefined): boole
   return !!attention && attention.kind !== 'idle';
 }
 
-type WorkspaceSnooze = Pick<
-  Workspace,
-  'snoozedUntil' | 'wakesOnNotification' | 'snoozeOutlastsTurnOf'
->;
+type WorkspaceSnooze = Pick<Workspace, 'snoozedUntil' | 'wakesOnNotification'>;
 
 /** Whether the workspace is on the Snoozed shelf: until a time, its next notification, or both. */
 export function isWorkspaceSnoozed(workspace: WorkspaceSnooze): boolean {
   return workspace.snoozedUntil !== undefined || workspace.wakesOnNotification === true;
 }
 
-/** Whether `attention` ends the turn of the agent that snoozed its workspace until notified. */
-export function endsSnoozingTurn(
-  workspace: WorkspaceSnooze,
-  attention: WorkspaceAttention
-): boolean {
-  return (
-    workspace.snoozeOutlastsTurnOf !== undefined &&
-    attention.terminalId === workspace.snoozeOutlastsTurnOf &&
-    attention.kind === 'turn-complete' &&
-    attention.source !== COMMAND_ATTENTION_SOURCE
-  );
-}
-
 /**
  * Whether attention raised in a snoozed workspace ends its snooze: an agent waiting on the user or
- * failing always does, and any notification does for a snooze until notified, except the end of
- * the turn that snoozed it.
+ * failing always does, and any notification does for a snooze until notified, also the end of
+ * the turn of an agent that snoozed it.
  */
 export function attentionWakesSnooze(
   workspace: WorkspaceSnooze,
@@ -577,11 +556,7 @@ export function attentionWakesSnooze(
 ): boolean {
   if (!isWorkspaceSnoozed(workspace)) return false;
   if (isWorkspaceAttentionActionable(attention)) return true;
-  return (
-    workspace.wakesOnNotification === true &&
-    needsAttention(attention) &&
-    !endsSnoozingTurn(workspace, attention)
-  );
+  return workspace.wakesOnNotification === true && needsAttention(attention);
 }
 
 /**

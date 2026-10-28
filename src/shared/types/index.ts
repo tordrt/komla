@@ -52,7 +52,6 @@ export {
   DUPLICATE_WORKSPACE_ERROR_PREFIX,
   attentionOutranks,
   attentionWakesSnooze,
-  endsSnoozingTurn,
   getWorkspaceCwdIdentity,
   canDeleteWorkspaceBranch,
   canPromptForProjectIcon,

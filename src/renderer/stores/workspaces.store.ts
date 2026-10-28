@@ -1681,7 +1681,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
       previous.tagSource === workspace.tagSource &&
       previous.snoozedUntil === workspace.snoozedUntil &&
       previous.wakesOnNotification === workspace.wakesOnNotification &&
-      previous.snoozeOutlastsTurnOf === workspace.snoozeOutlastsTurnOf &&
       previous.unread?.reason === workspace.unread?.reason &&
       previous.unread?.at === workspace.unread?.at;
     if (!unchanged) {
@@ -1691,7 +1690,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         tagSource: workspace.tagSource,
         snoozedUntil: workspace.snoozedUntil,
         wakesOnNotification: workspace.wakesOnNotification,
-        snoozeOutlastsTurnOf: workspace.snoozeOutlastsTurnOf,
         unread: workspace.unread,
       });
     }

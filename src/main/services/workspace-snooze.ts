@@ -54,11 +54,10 @@ export function parseSnoozeUntil(input: string, now: Date): number | undefined {
 /** What waking from a snooze changes: back in the sidebar, marked unread so it stands out. */
 export function wokenMarks(
   at: number
-): Pick<Workspace, 'snoozedUntil' | 'wakesOnNotification' | 'snoozeOutlastsTurnOf' | 'unread'> {
+): Pick<Workspace, 'snoozedUntil' | 'wakesOnNotification' | 'unread'> {
   return {
     snoozedUntil: undefined,
     wakesOnNotification: undefined,
-    snoozeOutlastsTurnOf: undefined,
     unread: { reason: 'snooze-ended', at },
   };
 }

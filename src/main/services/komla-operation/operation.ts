@@ -583,19 +583,13 @@ export class KomlaOperationService {
       );
     }
     const now = new Date();
-    // An agent snoozing it mid-turn would wake it again with that turn's end.
-    const caller = workspace.terminals?.find((terminal) => terminal.id === context.terminalId);
-    const notifiedSnooze = {
-      wakesOnNotification: true,
-      snoozeOutlastsTurnOf: caller?.agentActive ? caller.id : undefined,
-    };
     if (input === undefined) {
       if (!untilNotified) {
         throw new KomlaOperationError('INVALID_SNOOZE_TIME', 'Say when the snooze ends.', 400);
       }
       this.updateAndPublish(workspace.id, {
         snoozedUntil: undefined,
-        ...notifiedSnooze,
+        wakesOnNotification: true,
         unread: undefined,
       });
       return { snooze: { workspaceId: workspace.id, untilNotified: true } };
@@ -616,7 +610,7 @@ export class KomlaOperationService {
     }
     this.updateAndPublish(workspace.id, {
       snoozedUntil: until,
-      ...(untilNotified ? notifiedSnooze : { wakesOnNotification: undefined }),
+      wakesOnNotification: untilNotified ? true : undefined,
       unread: undefined,
     });
     const untilText = new Date(until).toLocaleString(undefined, {

@@ -1592,7 +1592,6 @@ describe('KomlaOperationService', () => {
     expect(updateWorkspace).toHaveBeenLastCalledWith('workspace-1', {
       snoozedUntil: undefined,
       wakesOnNotification: true,
-      snoozeOutlastsTurnOf: undefined,
       unread: undefined,
     });
 
@@ -1620,7 +1619,7 @@ describe('KomlaOperationService', () => {
     ).rejects.toMatchObject({ code: 'INVALID_SNOOZE_TIME' });
   });
 
-  it("lets an agent's snooze until notified outlast the turn it was set in", async () => {
+  it("keeps no turn of an agent's for its snooze until notified to wait out", async () => {
     const updateWorkspace = vi.fn((id: string, updates: Record<string, unknown>) => ({
       id,
       ...updates,
@@ -1640,10 +1639,11 @@ describe('KomlaOperationService', () => {
       { type: 'workspace.snooze', untilNotified: true }
     );
 
-    expect(updateWorkspace).toHaveBeenLastCalledWith(
-      'workspace-1',
-      expect.objectContaining({ wakesOnNotification: true, snoozeOutlastsTurnOf: 'terminal-1' })
-    );
+    expect(updateWorkspace).toHaveBeenLastCalledWith('workspace-1', {
+      snoozedUntil: undefined,
+      wakesOnNotification: true,
+      unread: undefined,
+    });
   });
 
   it('wakes a workspace snoozed only until notified', async () => {

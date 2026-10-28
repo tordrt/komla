@@ -2464,64 +2464,6 @@ describe('WorkspaceService', () => {
       expect(workspaceService.get('ws-2')?.snoozedUntil).toBe(400_000);
     });
 
-    it("keeps an agent's snooze until notified through that turn's end, then wakes", async () => {
-      vi.setSystemTime(10_000);
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([persistedWorkspace]));
-      const { electronAttentionWindows } =
-        await import('../../../src/main/services/terminal-attention/windows');
-      const attentionRaised = vi.spyOn(electronAttentionWindows, 'attentionRaised');
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      const terminal = workspaceService.addTerminal('ws-1', 'Terminal 1');
-      workspaceService.update('ws-1', {
-        wakesOnNotification: true,
-        snoozeOutlastsTurnOf: terminal.id,
-      });
-
-      await hookTerminal(workspaceService, terminal.id, { kind: 'turn-complete', source: 'codex' });
-      expect(workspaceService.get('ws-1')).toMatchObject({
-        wakesOnNotification: true,
-        snoozeOutlastsTurnOf: undefined,
-      });
-      // The windows already have the snoozing turn cleared, so they're told it stays snoozed.
-      expect(attentionRaised).toHaveBeenLastCalledWith(
-        expect.objectContaining({ workspaceId: 'ws-1', snoozed: true })
-      );
-
-      await hookTerminal(workspaceService, terminal.id, { kind: 'turn-complete', source: 'codex' });
-      expect(workspaceService.get('ws-1')).toMatchObject({
-        wakesOnNotification: undefined,
-        unread: { reason: 'snooze-ended' },
-      });
-      expect(attentionRaised).toHaveBeenLastCalledWith(
-        expect.objectContaining({ workspaceId: 'ws-1', snoozed: false })
-      );
-    });
-
-    it('wakes at the next turn of an agent whose snoozing turn was interrupted', async () => {
-      vi.setSystemTime(10_000);
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([persistedWorkspace]));
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      const terminal = workspaceService.addTerminal('ws-1', 'Terminal 1');
-      workspaceService.update('ws-1', {
-        wakesOnNotification: true,
-        snoozeOutlastsTurnOf: terminal.id,
-      });
-
-      // Interrupted, its turn ends without a turn-complete; the user prompts it again.
-      await hookTerminal(workspaceService, terminal.id, {
-        kind: 'prompt-submit',
-        source: 'codex',
-        message: 'Try another approach',
-      });
-      expect(workspaceService.get('ws-1')).toMatchObject({
-        wakesOnNotification: true,
-        snoozeOutlastsTurnOf: undefined,
-      });
-
-      await hookTerminal(workspaceService, terminal.id, { kind: 'turn-complete', source: 'codex' });
-      expect(workspaceService.get('ws-1')?.wakesOnNotification).toBeUndefined();
-    });
-
     it('tells hooks about each prompt sent to an agent', async () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([persistedWorkspace]));
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
@@ -2539,16 +2481,6 @@ describe('WorkspaceService', () => {
       expect(events).toEqual([
         { event: 'agent.prompt', workspaceId: 'ws-1', terminalId: terminal.id, message: 'Add search' },
       ]);
-    });
-
-    it('forgets the turn a snooze waited out once the snooze is set again', async () => {
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([persistedWorkspace]));
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      workspaceService.update('ws-1', { wakesOnNotification: true, snoozeOutlastsTurnOf: 't-1' });
-
-      workspaceService.update('ws-1', { wakesOnNotification: true });
-
-      expect(workspaceService.get('ws-1')?.snoozeOutlastsTurnOf).toBeUndefined();
     });
 
     it('takes a snoozed workspace off the dock badge until it wakes', async () => {

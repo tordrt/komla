@@ -387,7 +387,9 @@ fn notify_rejects_oversized_hook_input_before_queueing() {
     }
     drop(stdin);
 
-    let status = wait_for_hook(&mut child);
+    // With stdin closed nothing can keep the hook waiting, so give it as long as a busy
+    // computer takes to read and reject the input.
+    let status = child.wait().unwrap();
     let mut stderr = String::new();
     child
         .stderr

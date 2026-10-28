@@ -33,6 +33,8 @@ const MAX_NOTIFICATION_BODY_UTF16_UNITS: usize = 64 * 1024;
 const MAX_NOTIFICATION_COLOR_UTF16_UNITS: usize = 256;
 const MAX_NOTIFICATION_BADGE_UTF16_UNITS: usize = 64;
 const HOOK_STDIN_TIMEOUT: Duration = Duration::from_secs(1);
+// However steadily a runner trickles its input, the hook doesn't wait longer than this.
+const HOOK_STDIN_DEADLINE: Duration = Duration::from_secs(10);
 const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
 
 #[derive(Debug)]
@@ -723,7 +725,7 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let mut errors = stderr.lock();
     let hook_input = (args.first().map(String::as_str) == Some("notify")
         && !environment.stdin_is_terminal)
-        .then(|| read_process_hook_input(HOOK_STDIN_TIMEOUT))
+        .then(|| read_process_hook_input(HOOK_STDIN_TIMEOUT, HOOK_STDIN_DEADLINE))
         .transpose()?;
     let result = if let Some(hook_input) = hook_input {
         let mut input = std::io::Cursor::new(Vec::<u8>::new());
@@ -3077,16 +3079,48 @@ fn read_optional_json(input: &mut dyn Read) -> anyhow::Result<(Value, bool)> {
     })
 }
 
-fn read_process_hook_input(timeout: Duration) -> anyhow::Result<(Value, bool)> {
-    let (sender, receiver) = mpsc::sync_channel(1);
+enum HookInputRead {
+    Progress,
+    Done(anyhow::Result<(Value, bool)>),
+}
+
+/// Tells the waiting thread each time stdin hands over more bytes.
+struct ProgressReader<R> {
+    input: R,
+    progress: mpsc::Sender<HookInputRead>,
+}
+
+impl<R: Read> Read for ProgressReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.input.read(buffer)?;
+        if read > 0 {
+            let _ = self.progress.send(HookInputRead::Progress);
+        }
+        Ok(read)
+    }
+}
+
+/// Gives up once stdin has been silent for `timeout`, rather than after `timeout` in all, so a
+/// large input read and parsed in pieces on a busy computer isn't dropped. `deadline` bounds
+/// the whole read.
+fn read_process_hook_input(timeout: Duration, deadline: Duration) -> anyhow::Result<(Value, bool)> {
+    let give_up_at = Instant::now() + deadline;
+    let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         let stdin = std::io::stdin();
-        let mut input = stdin.lock();
-        let _ = sender.send(read_optional_json(&mut input));
+        let mut input = ProgressReader {
+            input: stdin.lock(),
+            progress: sender.clone(),
+        };
+        let _ = sender.send(HookInputRead::Done(read_optional_json(&mut input)));
     });
-    match receiver.recv_timeout(timeout) {
-        Ok(input) => input,
-        Err(_) => Ok((json!({}), false)),
+    loop {
+        let wait = timeout.min(give_up_at.saturating_duration_since(Instant::now()));
+        match receiver.recv_timeout(wait) {
+            Ok(HookInputRead::Progress) => continue,
+            Ok(HookInputRead::Done(input)) => return input,
+            Err(_) => return Ok((json!({}), false)),
+        }
     }
 }
 

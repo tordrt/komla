@@ -1,0 +1,27 @@
+{
+  "name": "komla-remote-web",
+  "version": "0.1.0",
+  "private": true,
+  "//": "vite is intentionally not a direct devDependency here — the root workspace's electron-rebuild lifecycle hook fires on any install in this folder, which fails outside the Electron app. We rely on the hoisted root devDep until that hook is scoped to the root workspace.",
+  "scripts": {
+    "prebuild:web": "cd .. && node scripts/fix-workspace-symlinks.cjs",
+    "build:web": "vite build --config vite.web.config.ts",
+    "pretest": "cd .. && node scripts/fix-workspace-symlinks.cjs",
+    "test": "npm run build:web && vitest run --config vitest.web.config.ts",
+    "test:watch": "vitest --config vitest.web.config.ts",
+    "test:web": "vitest run --config vitest.web.config.ts",
+    "pretypecheck": "cd .. && node scripts/fix-workspace-symlinks.cjs",
+    "typecheck": "tsc --noEmit -p web/tsconfig.json"
+  },
+  "dependencies": {
+    "@komla/remote-protocol": "*",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/xterm": "^6.0.0"
+  },
+  "devDependencies": {
+    "@leeoniya/ufuzzy": "^1.0.19",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.12"
+  }
+}

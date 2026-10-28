@@ -1,0 +1,53 @@
+{"scenario": "normal", "kind": "event", "id": "evt_164dfe222001yTWPX53Q1knhdo", "type": "session.created", "data": {"sessionID": "ses_e9b201defffeYMncs70nDO9ZuB", "location": {"directory": "/work/projA"}}}
+{"scenario": "normal", "kind": "prompt", "sessionID": "ses_e9b201defffeYMncs70nDO9ZuB", "prompt": {"text": "normal hello"}}
+{"scenario": "normal", "kind": "event", "id": "evt_164dfe3270014qnLK0Wj8ubCr7", "type": "session.execution.started", "data": {"sessionID": "ses_e9b201defffeYMncs70nDO9ZuB"}}
+{"scenario": "normal", "kind": "event", "id": "evt_164dfe3a1001ZYv3e6sLZ0tx1H", "type": "session.execution.succeeded", "data": {"sessionID": "ses_e9b201defffeYMncs70nDO9ZuB"}}
+{"scenario": "abort-stream", "kind": "event", "id": "evt_164dfebcf001PZ2Uyz2VXM2SeY", "type": "session.created", "data": {"sessionID": "ses_e9b20143fffe3HOfhal95PdKqL", "location": {"directory": "/work/projB"}}}
+{"scenario": "abort-stream", "kind": "prompt", "sessionID": "ses_e9b20143fffe3HOfhal95PdKqL", "prompt": {"text": "slow please"}}
+{"scenario": "abort-stream", "kind": "event", "id": "evt_164dfecda001N90qUxfO8iIaGu", "type": "session.execution.started", "data": {"sessionID": "ses_e9b20143fffe3HOfhal95PdKqL"}}
+{"scenario": "abort-stream", "kind": "event", "id": "evt_164dff4c5001l768B5IlrwViKg", "type": "session.execution.interrupted", "data": {"sessionID": "ses_e9b20143fffe3HOfhal95PdKqL", "reason": "user"}}
+{"scenario": "fail", "kind": "event", "id": "evt_164dffd58001iPSzg8GSZfTtSE", "type": "session.created", "data": {"sessionID": "ses_e9b2002b3ffedh8N0j68orbdp3", "location": {"directory": "/work/projA"}}}
+{"scenario": "fail", "kind": "prompt", "sessionID": "ses_e9b2002b3ffedh8N0j68orbdp3", "prompt": {"text": "fail now"}}
+{"scenario": "fail", "kind": "event", "id": "evt_164dffd66001H8GGMFCAdXBsG6", "type": "session.execution.started", "data": {"sessionID": "ses_e9b2002b3ffedh8N0j68orbdp3"}}
+{"scenario": "fail", "kind": "event", "id": "evt_164dffda7001BNjU7FsHFHlUpH", "type": "session.execution.failed", "data": {"sessionID": "ses_e9b2002b3ffedh8N0j68orbdp3", "error": {"type": "provider.auth", "message": "mock invalid api key"}}}
+{"scenario": "permission", "kind": "event", "id": "evt_164e0060b001t0FbCKIXJH09dN", "type": "session.created", "data": {"sessionID": "ses_e9b1ff9ffffeTw55aHdaGh6icr", "location": {"directory": "/work/projB"}}}
+{"scenario": "permission", "kind": "prompt", "sessionID": "ses_e9b1ff9ffffeTw55aHdaGh6icr", "prompt": {"text": "run shell"}}
+{"scenario": "permission", "kind": "event", "id": "evt_164e00617001umfoMZ4YezgiOw", "type": "session.execution.started", "data": {"sessionID": "ses_e9b1ff9ffffeTw55aHdaGh6icr"}}
+{"scenario": "permission", "kind": "tool", "sessionID": "ses_e9b1ff9ffffeTw55aHdaGh6icr", "tool": "shell"}
+{"scenario": "permission", "kind": "event", "id": "evt_164e00684002exDmLV2gUlOGrX", "type": "permission.asked", "data": {"id": "per_164e006840011eE6GEUbVo5Dci", "sessionID": "ses_e9b1ff9ffffeTw55aHdaGh6icr", "action": "shell", "resources": ["echo hi"]}}
+{"scenario": "permission", "kind": "event", "id": "evt_164e006a9001a839671MDgEsMK", "type": "permission.replied", "data": {"sessionID": "ses_e9b1ff9ffffeTw55aHdaGh6icr", "requestID": "per_164e006840011eE6GEUbVo5Dci", "reply": "once"}}
+{"scenario": "permission", "kind": "event", "id": "evt_164e00706001BAUkWQAkjpR7Wu", "type": "session.execution.succeeded", "data": {"sessionID": "ses_e9b1ff9ffffeTw55aHdaGh6icr"}}
+{"scenario": "question", "kind": "event", "id": "evt_164e00f85001VXHFkWP93cMjsE", "type": "session.created", "data": {"sessionID": "ses_e9b1ff086ffeopoh1APIKw2nja", "location": {"directory": "/work/projA"}}}
+{"scenario": "question", "kind": "prompt", "sessionID": "ses_e9b1ff086ffeopoh1APIKw2nja", "prompt": {"text": "ask question"}}
+{"scenario": "question", "kind": "event", "id": "evt_164e00f92001qdHNNNduaB2Yt8", "type": "session.execution.started", "data": {"sessionID": "ses_e9b1ff086ffeopoh1APIKw2nja"}}
+{"scenario": "question", "kind": "tool", "sessionID": "ses_e9b1ff086ffeopoh1APIKw2nja", "tool": "question"}
+{"scenario": "question", "kind": "event", "id": "evt_164e00fde0021L9Lp4rgfK6eMR", "type": "form.created", "data": {"form": {"id": "frm_164e00fde001yG3mdAUc07IprZ", "sessionID": "ses_e9b1ff086ffeopoh1APIKw2nja", "title": "Questions", "metadata": {"kind": "question"}, "fields": [{"description": "Which database should we use?"}]}}}
+{"scenario": "question", "kind": "event", "id": "evt_164e01003001Ym1Bn4Kq4yQC9v", "type": "form.replied", "data": {"id": "frm_164e00fde001yG3mdAUc07IprZ", "sessionID": "ses_e9b1ff086ffeopoh1APIKw2nja"}}
+{"scenario": "question", "kind": "event", "id": "evt_164e01047001ZzUvuYxRThV2BZ", "type": "session.execution.succeeded", "data": {"sessionID": "ses_e9b1ff086ffeopoh1APIKw2nja"}}
+{"scenario": "subagent", "kind": "event", "id": "evt_164e019000017voponvpAeinsH", "type": "session.created", "data": {"sessionID": "ses_e9b1fe70bffe3IWi0UWAajDb1H", "location": {"directory": "/work/projB"}}}
+{"scenario": "subagent", "kind": "prompt", "sessionID": "ses_e9b1fe70bffe3IWi0UWAajDb1H", "prompt": {"text": "spawn subagent"}}
+{"scenario": "subagent", "kind": "event", "id": "evt_164e0190f001dMjfTudwboGcTe", "type": "session.execution.started", "data": {"sessionID": "ses_e9b1fe70bffe3IWi0UWAajDb1H"}}
+{"scenario": "subagent", "kind": "tool", "sessionID": "ses_e9b1fe70bffe3IWi0UWAajDb1H", "tool": "subagent"}
+{"scenario": "subagent", "kind": "prompt", "sessionID": "ses_e9b1fe6a9ffebVu0ziz7LF7IIG", "prompt": {"text": "You are a subagent spawned by another session.\nchildtask please"}}
+{"scenario": "subagent", "kind": "event", "id": "evt_164e01961001kVWiz4uWix9r1T", "type": "session.created", "data": {"sessionID": "ses_e9b1fe6a9ffebVu0ziz7LF7IIG", "location": {"directory": "/work/projB"}, "parentID": "ses_e9b1fe70bffe3IWi0UWAajDb1H"}}
+{"scenario": "subagent", "kind": "event", "id": "evt_164e0196b0012yP1TwKON00LaE", "type": "session.execution.started", "data": {"sessionID": "ses_e9b1fe6a9ffebVu0ziz7LF7IIG"}}
+{"scenario": "subagent", "kind": "tool", "sessionID": "ses_e9b1fe6a9ffebVu0ziz7LF7IIG", "tool": "shell"}
+{"scenario": "subagent", "kind": "event", "id": "evt_164e019aa002APITrWzSI6Rrvn", "type": "permission.asked", "data": {"id": "per_164e019aa001siWpzFek6wIIEM", "sessionID": "ses_e9b1fe6a9ffebVu0ziz7LF7IIG", "action": "shell", "resources": ["echo child"]}}
+{"scenario": "subagent", "kind": "event", "id": "evt_164e019cd001BrPP1vdAdvRAig", "type": "permission.replied", "data": {"sessionID": "ses_e9b1fe6a9ffebVu0ziz7LF7IIG", "requestID": "per_164e019aa001siWpzFek6wIIEM", "reply": "once"}}
+{"scenario": "subagent", "kind": "event", "id": "evt_164e01a21001Iq3te7PAo5ZQHx", "type": "session.execution.succeeded", "data": {"sessionID": "ses_e9b1fe6a9ffebVu0ziz7LF7IIG"}}
+{"scenario": "subagent", "kind": "event", "id": "evt_164e01a5f001UQJm2LntxvsABp", "type": "session.execution.succeeded", "data": {"sessionID": "ses_e9b1fe70bffe3IWi0UWAajDb1H"}}
+{"scenario": "abort-at-permission", "kind": "event", "id": "evt_164e0227c001dAso36xF4v9k81", "type": "session.created", "data": {"sessionID": "ses_e9b1fdd8fffel8DInLAsWDdcWg", "location": {"directory": "/work/projA"}}}
+{"scenario": "abort-at-permission", "kind": "prompt", "sessionID": "ses_e9b1fdd8fffel8DInLAsWDdcWg", "prompt": {"text": "run shell"}}
+{"scenario": "abort-at-permission", "kind": "event", "id": "evt_164e022890013JD2vw4IjR9dye", "type": "session.execution.started", "data": {"sessionID": "ses_e9b1fdd8fffel8DInLAsWDdcWg"}}
+{"scenario": "abort-at-permission", "kind": "tool", "sessionID": "ses_e9b1fdd8fffel8DInLAsWDdcWg", "tool": "shell"}
+{"scenario": "abort-at-permission", "kind": "event", "id": "evt_164e022cd002xAyLQndcwx3kDv", "type": "permission.asked", "data": {"id": "per_164e022cd001WZIKamGhYJj2hO", "sessionID": "ses_e9b1fdd8fffel8DInLAsWDdcWg", "action": "shell", "resources": ["echo hi"]}}
+{"scenario": "abort-at-permission", "kind": "event", "id": "evt_164e02490001X0kU1QOeeB9CKg", "type": "session.execution.interrupted", "data": {"sessionID": "ses_e9b1fdd8fffel8DInLAsWDdcWg", "reason": "user"}}
+{"scenario": "subagent-fail", "kind": "event", "id": "evt_164e02d290011W5RwQWoGGSnoR", "type": "session.created", "data": {"sessionID": "ses_e9b1fd2e1ffe05d7Rq0qoeyvOY", "location": {"directory": "/work/projA"}}}
+{"scenario": "subagent-fail", "kind": "prompt", "sessionID": "ses_e9b1fd2e1ffe05d7Rq0qoeyvOY", "prompt": {"text": "spawn subagent breaking"}}
+{"scenario": "subagent-fail", "kind": "event", "id": "evt_164e02d34001Qk8qkc0vGifEFs", "type": "session.execution.started", "data": {"sessionID": "ses_e9b1fd2e1ffe05d7Rq0qoeyvOY"}}
+{"scenario": "subagent-fail", "kind": "tool", "sessionID": "ses_e9b1fd2e1ffe05d7Rq0qoeyvOY", "tool": "subagent"}
+{"scenario": "subagent-fail", "kind": "prompt", "sessionID": "ses_e9b1fd284ffeF4BfInGHpNb5PG", "prompt": {"text": "You are a subagent spawned by another session.\nchildtask breaking"}}
+{"scenario": "subagent-fail", "kind": "event", "id": "evt_164e02d85001T5ZyCYKOZ4wMBo", "type": "session.created", "data": {"sessionID": "ses_e9b1fd284ffeF4BfInGHpNb5PG", "location": {"directory": "/work/projA"}, "parentID": "ses_e9b1fd2e1ffe05d7Rq0qoeyvOY"}}
+{"scenario": "subagent-fail", "kind": "event", "id": "evt_164e02d8d001atI799THtK79Qx", "type": "session.execution.started", "data": {"sessionID": "ses_e9b1fd284ffeF4BfInGHpNb5PG"}}
+{"scenario": "subagent-fail", "kind": "event", "id": "evt_164e02db7001O0N2C4gX17sjf2", "type": "session.execution.failed", "data": {"sessionID": "ses_e9b1fd284ffeF4BfInGHpNb5PG", "error": {"type": "provider.auth", "message": "mock invalid api key"}}}
+{"scenario": "subagent-fail", "kind": "event", "id": "evt_164e02df4001kuzWH7W5cF0Ez0", "type": "session.execution.succeeded", "data": {"sessionID": "ses_e9b1fd2e1ffe05d7Rq0qoeyvOY"}}

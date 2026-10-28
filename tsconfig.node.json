@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "outDir": "./out",
+    "lib": ["ESNext"],
+    "types": ["node"]
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "scripts/third-party-licenses.d.mts",
+    "src/main/**/*",
+    "src/preload/**/*",
+    "src/shared/**/*",
+    "src/shared/**/*.json",
+    "src/renderer/types/**/*",
+    "packages/remote-protocol/src/app/**/*"
+  ]
+}

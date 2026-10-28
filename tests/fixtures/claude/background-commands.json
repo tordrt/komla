@@ -1,0 +1,1330 @@
+[
+  {
+    "command": "log=~/linux-desktop/logs/komla.log; for i in $(seq 240); do\n  grep -q -i -E 'start electron app|electron app started' \"$log\" 2>/dev/null && { sleep 20; break; }\n  ~/linux-desktop/linux-desktop.sh status | grep -q 'komla    running' || { echo \"komla exited\"; break; }\n  sleep 1\ndone; tail -40 \"$log\"",
+    "hold": true
+  },
+  {
+    "command": "log=~/.local/state/komla-linux-desktop/2/logs/komla.log\nfor i in $(seq 180); do\n  grep -q 'Notification server listening' \"$log\" 2>/dev/null && { sleep 15; break; }\n  sleep 1\ndone\ngrep -E 'Starting Komla|starting electron|Local:|Notification server|ERROR' \"$log\" | cut -c1-200",
+    "hold": true
+  },
+  {
+    "command": "for i in $(seq 1 60); do j=$(curl -s \"https://api.github.com/repos/owner/repo/actions/runs?head_sha=5901f0d$(git -C /work/repo rev-parse HEAD | cut -c8-)\"); s=$(echo \"$j\" | python3 -c \"import json,sys; r=json.load(sys.stdin).get('workflow_runs',[]); print(' '.join(f\\\"{x['name']}:{x['status']}:{x['conclusion']}:{x['id']}\\\" for x in r))\"); echo \"$(date +%T) $s\"; case \"$s\" in *Test:completed*) break;; esac; sleep 20; done",
+    "hold": true
+  },
+  {
+    "command": "for i in $(seq 1 60); do s=$(curl -s \"https://api.github.com/repos/owner/repo/actions/runs?head_sha=931f4c3$(git -C /work/repo rev-parse HEAD | cut -c8-)\" | python3 -c \"import json,sys; r=json.load(sys.stdin).get('workflow_runs',[]); print(' '.join(f\\\"{x['name']}:{x['status']}:{x['conclusion']}:{x['id']}\\\" for x in r))\"); echo \"$(date +%T) $s\"; case \"$s\" in *Test:completed*) break;; esac; sleep 20; done",
+    "hold": true
+  },
+  {
+    "command": "for i in $(seq 1 90); do s=$(curl -s \"https://api.github.com/repos/owner/repo/actions/runs?event=push&per_page=5\" | python3 -c \"import json,sys; r=[x for x in json.load(sys.stdin)['workflow_runs'] if x['name']=='Release' and x['head_branch']=='v1.4.2']; print(' '.join(f\\\"{x['status']}:{x['conclusion']}:{x['id']}\\\" for x in r))\"); echo \"$(date +%T) Release $s\"; case \"$s\" in completed*) break;; esac; sleep 20; done",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo && S=/tmp/scratch/scratchpad; for f in \"\" --inline --setup --actions --links --local-copy --restart --archive --retirement --agent-launch --integrations --channels --git-status; do echo \"== $f\"; timeout 200 xvfb-run -a dbus-run-session /usr/bin/python3 workspace-ui/tests/webkit-smoke.py $f 2>&1 | grep -v \"^$\" | tail -3; done > $S/baseline.txt 2>&1; cat $S/baseline.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; for f in \"\" --inline --setup --actions --links --local-copy --restart --archive --retirement --agent-launch --integrations --channels --git-status; do echo \"== $f\"; timeout 250 xvfb-run -a dbus-run-session /usr/bin/python3 workspace-ui/tests/webkit-smoke.py $f 2>&1 | grep -v \"a11y\\|^$\" | tail -2; done > $S/after.txt 2>&1; cat $S/after.txt",
+    "hold": true
+  },
+  {
+    "command": "echo \"ZIG_GLOBAL_CACHE_DIR=$ZIG_GLOBAL_CACHE_DIR\"; zig env 2>/dev/null | grep -i cache; nproc; (time zig build 2>&1 | tail -30) > /tmp/scratch/scratchpad/zigbuild.txt 2>&1",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; X=$S/xtools; zig build 2>&1 | tail -3; for m in --review-commit --review-discard \"\"; do echo \"== $m\"; PATH=$X/bin:$PATH timeout 600 xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py $m 2>&1 | grep -v \"a11y\\|^$\" | tail -3; done > $S/native.txt 2>&1; cat $S/native.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && (for i in 1 2 3 4 5 6 7 8; do timeout 300 xvfb-run -a /usr/bin/python3 workspace-ui/tests/webkit-smoke.py --inline 2>&1 | grep -v \"a11y\\|^$\" | tail -1; done) > $S/inline-loop.txt 2>&1",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo && S=/tmp/scratch/scratchpad && for i in 1 2 3 4 5; do echo \"head: $(timeout 300 xvfb-run -a /usr/bin/python3 $S/headroot/workspace-ui/tests/webkit-smoke.py --inline 2>&1 | grep -v 'a11y\\|^$' | tail -1 | cut -c1-120)\"; echo \"new: $(timeout 300 xvfb-run -a /usr/bin/python3 workspace-ui/tests/webkit-smoke.py --inline 2>&1 | grep -v 'a11y\\|^$' | tail -1 | cut -c1-120)\"; done > $S/compare-loop.txt 2>&1",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && for m in \"\" --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do echo \"== $m: $(timeout 400 xvfb-run -a /usr/bin/python3 workspace-ui/tests/webkit-smoke.py $m 2>&1 | grep -v 'a11y\\|^$' | tail -1 | cut -c1-160)\"; done > $S/all-modes.txt 2>&1",
+    "hold": true
+  },
+  {
+    "command": "time zig build 2>&1 | tail -20",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/smoke.sh /tmp/scratch/scratchpad/baseline creation branches explorer",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/smoke.sh /tmp/scratch/scratchpad/run1 browser html-browser explorer appearance agent-operations notification-badge shortcuts actions archive creation review-commit related-branches branches attachments links window-ownership",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/smoke.sh /tmp/scratch/scratchpad/run2 html-browser html-browser",
+    "hold": true
+  },
+  {
+    "command": "until grep -q DONE /tmp/scratch/scratchpad/run2/summary.txt 2>/dev/null; do sleep 2; done; cat /tmp/scratch/scratchpad/run2/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "time zig build test 2>&1 | tail -30; echo \"test exit=${PIPESTATUS[0]}\"",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/smoke.sh /tmp/scratch/scratchpad/final browser html-browser explorer appearance agent-operations notification-badge shortcuts actions archive creation review-commit related-branches branches attachments links window-ownership git-progress",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/smoke.sh /tmp/scratch/scratchpad/baseline.txt",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/smoke.sh /tmp/scratch/scratchpad/run1.txt",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/pending-ux-k7q2/run-smoke.sh /tmp/scratch/scratchpad/pending-ux-k7q2/run1.txt",
+    "hold": true
+  },
+  {
+    "command": "F=/tmp/scratch/scratchpad/pending-ux-k7q2/run1.txt; until grep -q DONE $F; do sleep 1; done; cat $F",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/pending-ux-k7q2/run-smoke.sh /tmp/scratch/scratchpad/pending-ux-k7q2/run2.txt; cat /tmp/scratch/scratchpad/pending-ux-k7q2/run2.txt",
+    "hold": true
+  },
+  {
+    "command": "sed -i '22,25s/background-color: #fbfbfd;/background-color: #fafcff;/' src/apprt/gtk/css/style.css && zig fmt src/apprt/gtk/workspace_host.zig && (time zig build) > /tmp/scratch/scratchpad/zigbuild.txt 2>&1; tail -5 /tmp/scratch/scratchpad/zigbuild.txt",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo && SP=/tmp/scratch/scratchpad; for m in \"\" --inline --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do r=$(timeout 240 xvfb-run -a /usr/bin/python3 workspace-ui/tests/webkit-smoke.py $m 2>&1 | grep -E \"^PASS|FAIL|Error|error:\" | head -3 | tr '\\n' ' '); echo \"${m:-default}: $r\"; done > $SP/webkit.txt 2>&1; cat $SP/webkit.txt",
+    "hold": true
+  },
+  {
+    "command": "(zig build > /tmp/scratch/scratchpad/zigbuild2.txt 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/zigbuild2.txt) ; tail -3 /tmp/scratch/scratchpad/zigbuild2.txt",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad; cd /work/repo && git worktree add --detach $SP/base HEAD > /dev/null 2>&1; cd $SP/base && (time zig build) > $SP/basebuild.txt 2>&1; echo \"exit $?\" >> $SP/basebuild.txt",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad; cd /work/repo && export LD_LIBRARY_PATH=/tmp/agentty-parity-tools/root/usr/lib/x86_64-linux-gnu AGENTTY_XDOTOOL=/tmp/agentty-parity-tools/root/usr/bin/xdotool AGENTTY_XWD=/tmp/agentty-parity-tools/root/usr/bin/xwd; for m in \"--window-ownership --window-preferences\" \"--appearance\" \"--explorer\"; do timeout 600 xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py $m > $SP/native-mode.log 2>&1; echo \"$m exit=$? $(grep -E '^PASS|AssertionError|Error:' $SP/native-mode.log | tail -2 | tr '\\n' ' ')\"; done > $SP/native-modes.txt; cat $SP/native-modes.txt",
+    "hold": true
+  },
+  {
+    "command": "zig fmt --check src/apprt/gtk/workspace_host.zig && echo fmt-ok; (zig build > /tmp/scratch/scratchpad/zigbuild3.txt 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/zigbuild3.txt)",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/parity4 && mkdir -p $S && T=/tmp/agentty-parity-tools/root/usr && export AGENTTY_XDOTOOL=$T/bin/xdotool AGENTTY_XWD=$T/bin/xwd LD_LIBRARY_PATH=$T/lib/x86_64-linux-gnu && run(){ n=$1; shift; timeout 600 \"$@\" > $S/$n.log 2>&1; echo \"$n exit=$?\" >> $S/summary.txt; }; : > $S/summary.txt\nrun skill python3 test/workspace-skill-cli-smoke.py\nrun cli-notify python3 test/workspace-cli-notify-smoke.py\nrun native-agent-ops xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py --agent-operations\nrun native-browser xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py --browser\nrun native-html-browser xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py --html-browser\nrun browser-toolbar xvfb-run -a /usr/bin/python3 workspace-ui/tests/browser-toolbar-smoke.py\nrun ssh-cli python3 test/workspace-ssh-cli-test.py\nrun ssh-mcp python3 test/workspace-ssh-mcp-test.py\necho DONE >> $S/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/parity5 && T=/tmp/agentty-parity-tools/root/usr && export AGENTTY_XDOTOOL=$T/bin/xdotool AGENTTY_XWD=$T/bin/xwd LD_LIBRARY_PATH=$T/lib/x86_64-linux-gnu && run(){ n=$1; shift; timeout 600 \"$@\" > $S/$n.log 2>&1; echo \"$n exit=$?\" >> $S/summary.txt; }; : > $S/summary.txt\nX=\"xvfb-run -a -s -screen\\ 0\\ 1280x1024x24\"\nrun skill python3 test/workspace-skill-cli-smoke.py\nrun cli-notify python3 test/workspace-cli-notify-smoke.py\nrun integration-cli python3 test/workspace-integration-cli-smoke.py\nrun mcp-setup python3 test/workspace-mcp-setup-smoke.py\nrun ssh-cli python3 test/workspace-ssh-cli-test.py\nrun ssh-mcp python3 test/workspace-ssh-mcp-test.py\nrun ssh-helper python3 test/workspace-ssh-agent-helper-test.py\nrun browser-toolbar xvfb-run -a /usr/bin/python3 workspace-ui/tests/browser-toolbar-smoke.py\nrun browser-widget xvfb-run -a /usr/bin/python3 test/workspace-browser-smoke.py\nfor m in --agent-operations --browser --html-browser --notification-badge --settings-approval --explorer --appearance; do run native$m xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py $m; done\necho DONE >> $S/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/parity5; until grep -q DONE $S/summary.txt && grep -q \"^exit=\" $S/broad.log; do sleep 5; done; tail -4 $S/summary.txt; grep \"^exit=\" $S/broad.log; grep -E \"tests passed|failed\" $S/broad.log | tail -3",
+    "hold": true
+  },
+  {
+    "command": "until [ -s /tmp/scratch/tasks/b45pdbpsw.output ]; do sleep 5; done; cat /tmp/scratch/tasks/b45pdbpsw.output",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/parity5 && : > $S/webkit.txt; for m in \"\" --inline --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do timeout 400 xvfb-run -a /usr/bin/python3 workspace-ui/tests/webkit-smoke.py $m > $S/webkit$m.log 2>&1; echo \"webkit${m:-default} exit=$? $(grep -E 'PASS' $S/webkit$m.log | tail -1 | cut -c1-80)\" >> $S/webkit.txt; done; timeout 2400 zig build 2>&1 | grep -E \"error\" | grep -v \"build-exe\\|following\" | head -3 >> $S/webkit.txt; timeout 2400 zig build -Dapp-runtime=none 2>&1 | grep -E \"error\" | grep -v \"build-exe\\|following\" | head -3 >> $S/webkit.txt; echo BUILDS-DONE >> $S/webkit.txt; cat $S/webkit.txt",
+    "hold": true
+  },
+  {
+    "command": "until grep -q BUILDS-DONE /tmp/scratch/scratchpad/parity5/webkit.txt 2>/dev/null; do sleep 10; done; cat /tmp/scratch/scratchpad/parity5/webkit.txt",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/parity6/native.sh /tmp/scratch/scratchpad/parity6/run1 --browser --html-browser --agent-operations \"--agent-operations --settings-approval\" --notification-badge --explorer --appearance",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/parity6; rm -rf $S/web1 $S/all1; $S/webkit.sh $S/web1; $S/native.sh $S/all1 \"\" --shortcuts --appearance --actions --setup --archive --preparation --creation --notification-badge --review-commit --review-discard --branch-recovery --git-progress --related-branches --branches --html-browser --browser --attachments --large-file-links --file-links --printed-files --links --explorer --file-menu --selected-action-target --agent-operations \"--agent-operations --settings-approval\" --window-ownership",
+    "hold": true
+  },
+  {
+    "command": "until grep -q DONE /tmp/scratch/scratchpad/parity6/all1/summary.txt 2>/dev/null; do sleep 20; done; cat /tmp/scratch/scratchpad/parity6/all1/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/parity6/baseline.sh",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/parity6; rm -rf $S/run3 $S/web3; $S/native.sh $S/run3 --browser --html-browser --explorer --appearance --agent-operations \"--agent-operations --settings-approval\" --notification-badge --branch-recovery \"--file-links --printed-files\" --shortcuts --actions --archive --creation --review-commit --related-branches --branches --attachments --links --window-ownership; $S/webkit.sh $S/web3",
+    "hold": true
+  },
+  {
+    "command": "(zig build test > /tmp/scratch/scratchpad/parity6/zigtest.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/parity6/zigtest.log)",
+    "hold": true
+  },
+  {
+    "command": "zig fmt --check src/Surface.zig src/config/Config.zig src/apprt/gtk/class/surface.zig src/apprt/gtk/class/split_tree.zig src/apprt/gtk/class/surface_scrolled_window.zig src/apprt/gtk/class/application.zig src/apprt/gtk/build/gresource.zig; echo fmt=$?; S=/tmp/scratch/scratchpad; (zig build test > $S/feel/zigtest.log 2>&1; echo \"exit=$?\" >> $S/feel/zigtest.log) ",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/feel/native1; bash $S/parity6/native.sh $S/feel/native1 --browser --html-browser --explorer --appearance --agent-operations --notification-badge --shortcuts --actions --archive --creation --review-commit --related-branches --branches --attachments --links --window-ownership; cat $S/feel/native1/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/feel/native2; bash $S/parity6/native.sh $S/feel/native2 --browser --html-browser --actions; cat $S/feel/native2/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/feel/native3; bash $S/parity6/native.sh $S/feel/native3 --browser --html-browser --explorer --appearance --agent-operations --notification-badge --shortcuts --actions --archive --creation --review-commit --related-branches --branches --attachments --links --window-ownership --git-progress --branch-recovery --file-links; cat $S/feel/native3/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/feel/native4 $S/feel/webkit4; bash $S/parity6/native.sh $S/feel/native4 --archive; cat $S/feel/native4/summary.txt; bash $S/parity6/webkit.sh $S/feel/webkit4; cat $S/feel/webkit4/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; tail -5 \"$S/feel/webkit4/webkit--local-copy.log\"; cd /work/repo && (timeout 300 xvfb-run -a /usr/bin/python3 workspace-ui/tests/webkit-smoke.py --local-copy > $S/feel/webkit4/local-copy-2.log 2>&1; echo \"local-copy rerun exit=$?\" >> $S/feel/webkit4/summary2.txt); rm -rf $S/feel/native5; bash $S/parity6/native.sh $S/feel/native5 --file-links --branch-recovery; cat $S/feel/webkit4/summary2.txt $S/feel/native5/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "sed -i 's/    click(1146,22);time.sleep(.6);click(1073,76);time.sleep(1)/    click(1146,22);time.sleep(.6);click(1073,62);time.sleep(1)/; s/        click(245,22); time.sleep(.6); click(210,197)/        click(245,22); time.sleep(.6); click(210,172)/' test/workspace-terminal-smoke.py && grep -n \"click(1073,62)\\|click(210,172)\" test/workspace-terminal-smoke.py && zig build 2>&1 | head -3; S=/tmp/scratch/scratchpad; rm -rf $S/feel/native6; bash $S/parity6/native.sh $S/feel/native6 --browser --html-browser --explorer --appearance --agent-operations --notification-badge --shortcuts --actions --archive --creation --review-commit --related-branches --branches --attachments --links --window-ownership --git-progress --branch-recovery \"--file-links --file-menu\"; cat $S/feel/native6/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/feel/native7; bash $S/parity6/native.sh $S/feel/native7 \"--file-links --file-menu\" --html-browser --file-links; cat $S/feel/native7/summary.txt; for f in $S/feel/native7/*.log; do grep -h \"AssertionError\\|PASS\" \"$f\" | tail -1; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/feel/native8; bash $S/parity6/native.sh $S/feel/native8 \"--file-links --file-menu\" --file-links --html-browser --git-progress --appearance --review-commit; cat $S/feel/native8/summary.txt; for f in $S/feel/native8/*.log; do echo \"== $(basename \"$f\")\"; grep -h \"AssertionError\\|PASS\\|line [0-9]*, in <module>\" \"$f\" | tail -2; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/feel/native12 $S/feel/webkit12; bash $S/parity6/native.sh $S/feel/native12 --file-links \"--file-links --file-menu\" --html-browser --explorer; cat $S/feel/native12/summary.txt; for f in $S/feel/native12/*.log; do grep -h \"AssertionError\\|PASS\" \"$f\" | tail -1; done; bash $S/parity6/webkit.sh $S/feel/webkit12; cat $S/feel/webkit12/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/feel/native15; bash $S/parity6/native.sh $S/feel/native15 --browser --html-browser --explorer --appearance --agent-operations --notification-badge --shortcuts --actions --archive --creation --review-commit --related-branches --branches --attachments --links --window-ownership --git-progress --branch-recovery \"--file-links --file-menu\"; cat $S/feel/native15/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "(zig fmt --check src/workspace/branches.zig src/workspace/pull_request.zig src/workspace/main.zig src/apprt/gtk/workspace_host.zig src/main.zig && echo FMT_OK; zig build 2>&1 | tail -20; echo BUILD_EXIT=$?; zig build test --summary all 2>&1 | grep -E \"error|FAIL|failed|Build Summary|passed\" | head -30; echo TEST_DONE) > /tmp/scratch/scratchpad/zig-checks.log 2>&1",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo && zig build 2>&1 | tail -3; X=/tmp/scratch/scratchpad/xtools/bin; S=/tmp/scratch/scratchpad; for flag in \"\" --card-git --explorer --review-discard --branches; do echo \"== smoke ${flag:-default}\"; AGENTTY_XDOTOOL=$X/xdotool timeout 400 xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py $flag 2>&1 | grep -E \"PASS|Error|assert|Traceback|^tmp|agentty-native-smoke\" | tail -4; done > $S/smoke.log 2>&1; cat $S/smoke.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; (zig build test -Dtest-filter=\"workspace organization\" -Dtest-filter=\"workspace card shortcuts\" -Dtest-filter=\"git status includes live diff\" --summary all 2>&1 | tail -30) > $S/focused.log 2>&1; echo EXIT=$? >> $S/focused.log; tail -15 $S/focused.log",
+    "hold": true
+  },
+  {
+    "command": "zig build test --summary all 2>&1 | grep -E \"Build Summary|tests passed|failed|error:\" | head -20",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; $S/run-smokes.sh $S/smoke-review --review-commit --links --explorer --review-discard; cat $S/smoke-review/summary.txt",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; OUT=/tmp/scratch/scratchpad/smoke.log; : > $OUT; for f in \"\" --inline --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do r=$(GTK_A11Y=none timeout 300 xvfb-run -a python3 workspace-ui/tests/webkit-smoke.py $f 2>&1 | grep -E \"PASS|FAIL|Error|error\" | grep -v a11y | tail -3); echo \"[$f] $r\" >> $OUT; done; cat $OUT",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; time zig build 2>&1 | tail -15; ls -la zig-out/bin/ghostty",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; B=/tmp/scratch/scratchpad/baseline; git worktree add --detach $B HEAD >/dev/null 2>&1; cd $B && zig build 2>&1 | tail -5; ls -la zig-out/bin/ghostty",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cd $S/baseline; export AGENTTY_XDOTOOL=/tmp/agentty-parity-tools/root/usr/bin/xdotool LD_LIBRARY_PATH=/tmp/agentty-parity-tools/root/usr/lib/x86_64-linux-gnu; OUT=$S/native-baseline.log; : > $OUT; for f in \"\" --actions --agent-operations --appearance --archive --attachments --branches --branch-recovery --browser --creation --cross-window --explorer --file-links --git-progress --html-browser --links --notification-badge --preparation --review-commit --review-discard --settings-approval --setup --shortcuts --window-menu --window-move --window-ownership --window-preferences --window-reclaim --window-restore; do r=$(timeout 240 xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py $f 2>&1 | grep -E \"^PASS|Error:|RuntimeError\" | tail -1); echo \"[$f] ${r:-TIMEOUT/none}\" >> $OUT; done; echo SWEEP-DONE >> $OUT",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; S=/tmp/scratch/scratchpad; export AGENTTY_XDOTOOL=/tmp/agentty-parity-tools/root/usr/bin/xdotool LD_LIBRARY_PATH=/tmp/agentty-parity-tools/root/usr/lib/x86_64-linux-gnu; OUT=$S/native-new.log; : > $OUT; for f in --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership; do r=$(timeout 240 xvfb-run -a -s '-screen 0 1280x1024x24' dbus-run-session -- python3 test/workspace-terminal-smoke.py $f 2>&1 | grep -E \"^PASS|Error:|RuntimeError\" | tail -1); echo \"[$f] ${r:-TIMEOUT/none}\" >> $OUT; done; cat $OUT",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership 2>&1 | tee /tmp/scratch/scratchpad/sweep1.log",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/sweep.sh --actions --appearance --branches --notification-badge",
+    "hold": true
+  },
+  {
+    "command": "/tmp/scratch/scratchpad/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership",
+    "hold": true
+  },
+  {
+    "command": "git worktree remove --force /tmp/scratch/scratchpad/baseline && git worktree list | grep -c baseline; /tmp/scratch/scratchpad/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership",
+    "hold": true
+  },
+  {
+    "command": "cmp workspace-ui/dist/index.html src/workspace/ui.html && echo same; for m in \"\" --inline --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do echo \"[$m] $(GTK_A11Y=none timeout 300 xvfb-run -a python3 workspace-ui/tests/webkit-smoke.py $m 2>&1 | tail -1)\"; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cat $S/sweep.sh | head -12; for m in \"\" --inline --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do echo \"[webkit $m] $(GTK_A11Y=none timeout 300 xvfb-run -a python3 workspace-ui/tests/webkit-smoke.py $m 2>&1 | tail -1)\"; done; bash $S/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership",
+    "hold": true
+  },
+  {
+    "command": "zig build 2>&1 | tail -3; S=/tmp/scratch/scratchpad; for m in \"\" --inline --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do echo \"[webkit $m] $(GTK_A11Y=none timeout 300 xvfb-run -a python3 workspace-ui/tests/webkit-smoke.py $m 2>&1 | tail -1)\"; done; bash $S/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership --related-branches 2>&1",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/sweep.sh --actions --appearance --branches --related-branches --notification-badge --archive --links 2>&1 | grep \"^\\[\"",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership --related-branches --archive --links 2>&1 | grep \"^\\[\"",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; timeout 900 zig build 2>&1 | grep error; cmp workspace-ui/dist/index.html src/workspace/ui.html && echo synced; bash /tmp/scratch/scratchpad/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership --related-branches --archive --links 2>&1 | grep \"^\\[\"",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; for m in \"\" --inline --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do echo \"[$m] $(GTK_A11Y=none timeout 300 xvfb-run -a python3 workspace-ui/tests/webkit-smoke.py $m 2>&1 | grep -v '^$' | grep -v WARNING | tail -1 | cut -c1-300)\"; done",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership --related-branches --archive --links 2>&1 | grep -v \"tmp:\"",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; bash /tmp/scratch/scratchpad/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership --related-branches --archive --links 2>&1 | grep -v \"tmp:\"; for m in \"\" --inline --setup --retirement --archive --local-copy --restart --actions --links --agent-launch --integrations --git-status --channels; do echo \"[webkit $m] $(GTK_A11Y=none timeout 300 xvfb-run -a python3 workspace-ui/tests/webkit-smoke.py $m 2>&1 | grep -v '^$' | grep -v WARNING | tail -1 | cut -c1-300)\"; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cd /work/repo && bash $S/sweep.sh --actions --agent-operations --appearance --attachments --branches --browser --explorer --notification-badge --review-commit --shortcuts --window-ownership --related-branches --archive --links 2>&1 | tail -16",
+    "hold": true
+  },
+  {
+    "command": "until ! pgrep -f workspace-terminal-smoke >/dev/null; do sleep 5; done; cat /tmp/scratch/tasks/bnutlk1l5.output",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; bash $S/sweep.sh --actions --agent-operations --appearance --attachments --browser --explorer --review-commit --shortcuts --window-ownership 2>&1 | grep '^\\['",
+    "hold": true
+  },
+  {
+    "command": "until ! pgrep -f \"sweep.sh\" >/dev/null; do sleep 5; done; cat /tmp/scratch/tasks/boihmrhcu.output",
+    "hold": true
+  },
+  {
+    "command": "npm run dev",
+    "hold": false
+  },
+  {
+    "command": "xvfb-run -a npm run dev",
+    "hold": false
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npmtest.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npmtest.log",
+    "hold": true
+  },
+  {
+    "command": "xvfb-run -a npm run test:e2e > /tmp/scratch/scratchpad/e2e.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/e2e.log",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build.log 2>&1; echo exit=$?; tail -5 /tmp/scratch/scratchpad/build.log",
+    "hold": true
+  },
+  {
+    "command": "git status -sb | head -1; (npm run lint:react > /tmp/scratch/scratchpad/lint.log 2>&1; echo lint=$?; npm test > /tmp/scratch/scratchpad/test.log 2>&1; echo test=$?)",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests |FAIL|error\" /tmp/scratch/scratchpad/npm-test.log | tail -15",
+    "hold": true
+  },
+  {
+    "command": "(cd remote-companion && cargo fmt --check && echo \"fmt ok\"); npm test > /tmp/scratch/scratchpad/npm-test2.log 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests |FAIL \" /tmp/scratch/scratchpad/npm-test2.log | tail -8",
+    "hold": true
+  },
+  {
+    "command": "L=/tmp/scratch/scratchpad/build.log; until grep -q \"^EXIT\" $L; do sleep 3; done; tail -5 $L",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"EXIT $?\"; grep -E \"Test Files|Tests  |FAIL|×\" /tmp/scratch/scratchpad/npm-test.log | head -30",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test-2.log 2>&1; echo \"npm test exit $?\"; grep -E \"Test Files|Tests  |FAIL\" /tmp/scratch/scratchpad/npm-test-2.log | head; npm run test:remote-companion 2>&1 | grep -E \"test result|FAILED|panicked|error\\[\" | head",
+    "hold": true
+  },
+  {
+    "command": "(npm test > /tmp/scratch/scratchpad/npm-test-3.log 2>&1; echo \"EXIT $?\" >> /tmp/scratch/scratchpad/npm-test-3.log)",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build2.log 2>&1; echo \"EXIT $?\"; tail -2 /tmp/scratch/scratchpad/build2.log",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build3.log 2>&1; echo \"exit $?\"; tail -5 /tmp/scratch/scratchpad/build3.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\"; tail -30 /tmp/scratch/scratchpad/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build.log 2>&1; echo \"exit $?\"; tail -5 /tmp/scratch/scratchpad/build.log",
+    "hold": true
+  },
+  {
+    "command": "npx electron-vite build > /tmp/scratch/scratchpad/build2.log 2>&1; echo \"exit $?\"; tail -3 /tmp/scratch/scratchpad/build2.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test2.log 2>&1; grep -E \"^ FAIL|Test Files|Tests  \" /tmp/scratch/scratchpad/npm-test2.log | head -30",
+    "hold": true
+  },
+  {
+    "command": "node -e 'const s=require(\"./package.json\").scripts; console.log(\"test:\", s.test); console.log(\"lint:react:\", s[\"lint:react\"])'; (npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"npm test exit $?\" >> /tmp/scratch/scratchpad/npm-test.log; npm run lint:react > /tmp/scratch/scratchpad/lint.log 2>&1; echo \"lint exit $?\" >> /tmp/scratch/scratchpad/lint.log)",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad\ncd $S/clihome && export HOME=$S/clihome\nbash $S/dl/kiro/install.sh > $S/install-kiro.log 2>&1 </dev/null; echo \"kiro exit $?\" >> $S/install-kiro.log\nsh $S/dl/droid/install.sh > $S/install-droid.log 2>&1 </dev/null; echo \"droid exit $?\" >> $S/install-droid.log\nbash $S/dl/hermes/install.sh --skip-setup --skip-browser > $S/install-hermes.log 2>&1 </dev/null; echo \"hermes exit $?\" >> $S/install-hermes.log\ntail -4 $S/install-kiro.log $S/install-droid.log $S/install-hermes.log; ls -la $S/clihome/.local/bin",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npm test > $S/npm-test2.log 2>&1; echo \"npm test exit $?\" >> $S/npm-test2.log; npm run lint:react > $S/lint2.log 2>&1; echo \"lint exit $?\" >> $S/lint2.log; grep -E \"Test Files|Tests |FAIL\" $S/npm-test2.log | head; tail -3 $S/lint2.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad\ncd ~ && bash $S/dl/kiro/install.sh > $S/real-kiro.log 2>&1 </dev/null; echo \"kiro exit $?\" >> $S/real-kiro.log\nsh $S/dl/droid/install.sh > $S/real-droid.log 2>&1 </dev/null; echo \"droid exit $?\" >> $S/real-droid.log\nbash $S/dl/hermes/install.sh --skip-setup > $S/real-hermes.log 2>&1 </dev/null; echo \"hermes exit $?\" >> $S/real-hermes.log\ntail -2 $S/real-kiro.log $S/real-droid.log; tail -8 $S/real-hermes.log; ls -la ~/.local/bin | grep -E 'hermes|droid|kiro'",
+    "hold": true
+  },
+  {
+    "command": "grep -n '\"lint:react\"\\|\"test\":' package.json; npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests  |FAIL\" /tmp/scratch/scratchpad/npm-test.log | head -20",
+    "hold": true
+  },
+  {
+    "command": "until grep -q \"^exit \" /tmp/scratch/tasks/b8z0vt33u.output 2>/dev/null; do sleep 2; done; cat /tmp/scratch/tasks/b8z0vt33u.output",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test2.log 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests  | FAIL \" /tmp/scratch/scratchpad/npm-test2.log | sort -u | head -20",
+    "hold": true
+  },
+  {
+    "command": "npx oxfmt --check src/renderer/components/terminal/workspace-restart-description.ts tests/main/services/agent-preset.service.test.ts src/shared/lib/launch-mode-permissions.ts src/renderer/components/layout/settings/AgentLaunchDefaultsCard.tsx src/renderer/components/terminal/TerminalTabs.tsx tests/renderer/components/terminal/TerminalTabs.restart-description.test.ts 2>&1 | grep -v \"^$\" | tail -2; npm test > /tmp/scratch/scratchpad/npm-test3.log 2>&1; grep -E \"Test Files|Tests  | FAIL \" /tmp/scratch/scratchpad/npm-test3.log | sort -u | head -20",
+    "hold": true
+  },
+  {
+    "command": "M=~/.claude/projects/-home-agent--komla-repos-komla-repo-git/memory/komla-agent-preset-cli-verification.md; python3 -I - \"$M\" <<'EOF'\n…\nEOF\ncd /work/repo && npm test > /tmp/scratch/scratchpad/npm-test4.log 2>&1; grep -E \"Test Files|Tests  | FAIL \" /tmp/scratch/scratchpad/npm-test4.log | sort -u | head",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test5.log 2>&1; grep -E \"Test Files|Tests  | FAIL \" /tmp/scratch/scratchpad/npm-test5.log | sort -u | head",
+    "hold": true
+  },
+  {
+    "command": "npm test 2>&1 | grep -E '(FAIL|Test Files|Tests )' | head -20",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad && (npm test > $SP/test2.log 2>&1; echo \"test exit $?\" >> $SP/gates.log; npm run lint > $SP/lint2.log 2>&1; echo \"lint exit $?\" >> $SP/gates.log; npm run lint:react > $SP/lintreact2.log 2>&1; echo \"lint:react exit $?\" >> $SP/gates.log)",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad && rm -f $SP/gates3.log && (npm test > $SP/test3.log 2>&1; echo \"test exit $?\" >> $SP/gates3.log; npm run lint > $SP/lint3.log 2>&1; echo \"lint exit $?\" >> $SP/gates3.log)",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/test2.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/test2.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/test4.log 2>&1; echo \"exit=$?\"; grep -E \"Test Files|Tests  |FAIL\" /tmp/scratch/scratchpad/test4.log | sort -u | head -20",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/test5.log 2>&1; echo \"exit=$?\"; grep -E \"Test Files|Tests  |^ FAIL\" /tmp/scratch/scratchpad/test5.log | sort -u | head -20",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; mkdir -p $S/pwsh-dl $S/pwsh && curl -fsSL -o $S/pwsh-dl/pwsh.tar.gz https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz && tar -xzf $S/pwsh-dl/pwsh.tar.gz -C $S/pwsh && chmod +x $S/pwsh/pwsh && $S/pwsh/pwsh -NoProfile -NoLogo -Command '$PSVersionTable.PSVersion.ToString()'",
+    "hold": true
+  },
+  {
+    "command": "exec python3 -m http.server 51885 --bind 127.0.0.1 --directory /tmp/scratch/scratchpad/komla-demo-AwCIHg",
+    "hold": false
+  },
+  {
+    "command": "cargo test --manifest-path remote-companion/Cargo.toml 2>&1 | tail -40",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && readlink node_modules && rm node_modules && GIT_DIR=/nonexistent timeout 1200 npx -y npm@10.9.2 ci > $S/ci-pr1.log 2>&1; echo \"exit $?\"; tail -15 $S/ci-pr1.log | grep -v EBADDEVENGINES; ls -ld node_modules; git status --short",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; uptime; timeout 1500 npx vitest run > $S/pr1/vitest.txt 2>&1; echo \"vitest exit $?\"; grep -E \"Test Files|Tests |FAIL|✗|×\" $S/pr1/vitest.txt | head -30",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && pgrep -af \"screenshots/\" | grep -v pgrep | head -2; rm -f e2e/screenshots/*.png e2e/screenshots/*.json; for t in dark light; do SCREENSHOT_THEME=$t timeout 1500 xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/screenshots/ > $S/shots-v3-$t.log 2>&1; echo \"$t exit $?\"; tail -4 $S/shots-v3-$t.log; done; mkdir -p $S/shots-v3 && mv e2e/screenshots/*.png e2e/screenshots/*.json $S/shots-v3/ && ls $S/shots-v3 | wc -l && du -sh $S/shots-v3",
+    "hold": true
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad && for r in \"v3 light\" \"v3b dark\"; do timeout 700 xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" node capture.mjs $r 2>&1 | grep -v \"^ok\"; echo \"$r done\"; done",
+    "hold": true
+  },
+  {
+    "command": "[ -d node_modules ] && [ ! -L node_modules ] && rm -rf node_modules && GIT_DIR=/nonexistent timeout 1200 npx -y npm@10.9.2 ci 2>&1 | grep -v EBADDEVENGINES | tail -4; node -p \"['tailwindcss','@tailwindcss/vite','tailwind-merge'].map(p=>p+'@'+require('./node_modules/'+p+'/package.json').version).join(' ')\"; git status --short",
+    "hold": true
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad && for r in \"v4 dark\" \"v4 light\"; do timeout 700 xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" node capture.mjs $r 2>&1 | grep -v \"^ok\"; echo \"$r done\"; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npx electron-vite build > $S/build-v4d.txt 2>&1; echo \"v4 build exit $?\"; cd $S && for r in \"v3 dark:$S/v3src\" \"v3 light:$S/v3src\" \"v3b dark:$S/v3src\" \"v4 dark:\" \"v4 light:\"; do args=\"${r%%:*}\"; dir=\"${r#*:}\"; APP_DIR=\"$dir\" timeout 700 xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" node capture.mjs $args 2>&1 | grep -v \"^ok\"; echo \"$args done\"; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; timeout 1800 npx vitest run > $S/vitest-tw4.txt 2>&1; echo \"vitest exit $?\"; grep -E \"Test Files|Tests |FAIL\" $S/vitest-tw4.txt | head -10",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; (npm --workspace baton-remote-worker run build:web && npx electron-vite build) > $S/build-rebased.txt 2>&1; echo \"build exit $?\"; timeout 1800 npx vitest run > $S/vitest-rebased.txt 2>&1; echo \"vitest exit $?\"; grep -E \"Test Files|Tests |FAIL\" $S/vitest-rebased.txt | head -8",
+    "hold": true
+  },
+  {
+    "command": "python3 -m http.server 60937 --bind 127.0.0.1 --directory /tmp/komla-mcp-demo-y2lUkz",
+    "hold": false
+  },
+  {
+    "command": "bash scripts/link-deps.sh && npx vitest run > /tmp/scratch/scratchpad/baseline-vitest.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/baseline-vitest.log; tail -15 /tmp/scratch/scratchpad/baseline-vitest.log",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo\nS=/tmp/scratch/scratchpad\nnpx vitest run > $S/new-vitest.log 2>&1; echo \"exit=$?\" >> $S/new-vitest.log\ntail -8 $S/new-vitest.log; grep -E \"^ (FAIL|×)| FAIL \" $S/new-vitest.log | sort -u | head -20",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo\nS=/tmp/scratch/scratchpad\nfor c in tsconfig.node.json tsconfig.web.json tsconfig.test.json; do echo \"## $c\"; ./node_modules/.bin/tsc --noEmit -p $c 2>&1 | grep -E \"error TS\" | sort; done > $S/new-tsc.log\necho \"tsc baseline lines: $(wc -l < $S/base-tsc.log)  new: $(wc -l < $S/new-tsc.log)\"; diff $S/base-tsc.log $S/new-tsc.log | head -20 && echo \"tsc: identical error set\"\n./node_modules/.bin/oxlint src --type-aware > $S/new-oxlint.log 2>&1; echo \"oxlint exit=$?\"; tail -3 $S/new-oxlint.log | head -2\ndiff <(grep -cE \"warning|error\" $S/base-oxlint.log) <(grep -cE \"warning|error\" $S/new-oxlint.log) && echo \"oxlint: same count\"\n./node_modules/.bin/eslint src --ext .ts,.tsx > $S/new-eslint.log 2>&1; echo \"eslint exit=$?\"; tail -3 $S/new-eslint.log\n./node_modules/.bin/oxfmt --check \"src/**/*.{ts,tsx,css,json}\" > $S/new-oxfmt.log 2>&1; echo \"oxfmt exit=$?\"; tail -2 $S/new-oxfmt.log\ndiff <(grep -vE \"Finished|Format issues\" $S/base-oxfmt.log | sort) <(grep -vE \"Finished|Format issues\" $S/new-oxfmt.log | sort) | head -20",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo\nS=/tmp/scratch/scratchpad\n{ npm --workspace baton-remote-worker run build:web > $S/build.log 2>&1 && ./node_modules/.bin/electron-vite build >> $S/build.log 2>&1; echo \"build exit=$?\"; tail -4 $S/build.log\n  ./node_modules/.bin/electron-builder --linux dir --x64 --publish never -c.beforePack=null > $S/pack.log 2>&1; echo \"pack exit=$?\"; grep -vE \"^\\s*$\" $S/pack.log | tail -8; ls dist/linux-unpacked 2>/dev/null | head -5\n  xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $S/e2e.log 2>&1; echo \"e2e exit=$?\"; tail -15 $S/e2e.log; }",
+    "hold": true
+  },
+  {
+    "command": "rm node_modules && (GIT_DIR=/nonexistent npm ci > /tmp/scratch/scratchpad/electron/ci.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/electron/ci.log)",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo\nS=/tmp/scratch/scratchpad\nfor c in tsconfig.node.json tsconfig.web.json tsconfig.test.json; do echo \"## $c\"; ./node_modules/.bin/tsc --noEmit -p $c 2>&1 | grep -E \"error TS\" | sort; done > $S/e44-tsc.log\necho \"tsc baseline lines: $(wc -l < $S/new-tsc.log)  e44: $(wc -l < $S/e44-tsc.log)\"; diff $S/new-tsc.log $S/e44-tsc.log | head -30\n./node_modules/.bin/oxlint src --type-aware > $S/e44-oxlint.log 2>&1; echo \"oxlint exit=$?\"; diff <(grep -E \"warning|error\" $S/new-oxlint.log | sed 's/:[0-9]*:[0-9]*:/:/' | sort) <(grep -E \"warning|error\" $S/e44-oxlint.log | sed 's/:[0-9]*:[0-9]*:/:/' | sort) | head -20\n./node_modules/.bin/eslint src --ext .ts,.tsx > $S/e44-eslint.log 2>&1; echo \"eslint exit=$?\"; tail -3 $S/e44-eslint.log\n./node_modules/.bin/oxfmt --check src/main/ipc/handlers/app.handlers.ts src/main/ipc/handlers/git.handlers.ts tests/mocks/electron.ts tests/main/ipc/handlers/app.handlers.behavior.test.ts tests/main/ipc/handlers/git.handlers.behavior.test.ts package.json; echo \"oxfmt exit=$?\"\nnpx vitest run > $S/e44-vitest.log 2>&1; echo \"vitest exit=$?\"; grep -E \"Test Files|Tests \" $S/e44-vitest.log; grep -E \"^ FAIL\" $S/e44-vitest.log | sort -u | head",
+    "hold": true
+  },
+  {
+    "command": "until grep -q \"vitest exit=\" /tmp/scratch/tasks/bcl7f0h70.output; do sleep 3; done; tail -6 /tmp/scratch/tasks/bcl7f0h70.output",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo\nS=/tmp/scratch/scratchpad\nls -d dist 2>/dev/null && echo \"dist exists already\"\n{ npm --workspace baton-remote-worker run build:web > $S/e44-build.log 2>&1 && ./node_modules/.bin/electron-vite build >> $S/e44-build.log 2>&1; echo \"build exit=$?\"; tail -3 $S/e44-build.log\n  xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $S/e44-e2e.log 2>&1; echo \"e2e exit=$?\"; grep -E \"✘|failed|flaky|passed|skipped\" $S/e44-e2e.log | tail -8\n  ./node_modules/.bin/electron-builder --linux dir --x64 --publish never --config $S/eb-nohook.yml > $S/e44-pack.log 2>&1; echo \"pack exit=$?\"; grep -vE \"^\\s+at |^\\s*$\" $S/e44-pack.log | tail -8; ls dist/linux-unpacked 2>/dev/null | head -20; cat dist/linux-unpacked/version 2>/dev/null; }",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo\nS=/tmp/scratch/scratchpad\nrm -rf e2e/results\n{ xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $S/e44-e2e2.log 2>&1; echo \"e2e exit=$?\"; grep -E \"✘|failed|flaky|passed|skipped|did not run\" $S/e44-e2e2.log | tail -12\n  ./node_modules/.bin/electron-builder --linux dir --x64 --publish never --config $S/eb-nohook.yml > $S/e44-pack.log 2>&1; echo \"pack exit=$?\"; grep -vE \"^\\s+at |^\\s*$\" $S/e44-pack.log | tail -8; cat dist/linux-unpacked/version 2>/dev/null; echo; ls dist/linux-unpacked 2>/dev/null | tr '\\n' ' '; }",
+    "hold": true
+  },
+  {
+    "command": "until grep -q \"e2e exit=\" /tmp/scratch/tasks/bp0zucqo6.output 2>/dev/null; do sleep 3; done; grep -A12 \"e2e exit=\" /tmp/scratch/tasks/bp0zucqo6.output",
+    "hold": true
+  },
+  {
+    "command": "until grep -q \"pack exit=\" /tmp/scratch/tasks/bp0zucqo6.output 2>/dev/null; do sleep 3; done; sed -n '/pack exit=/,$p' /tmp/scratch/tasks/bp0zucqo6.output",
+    "hold": true
+  },
+  {
+    "command": "rm -rf e2e/results && S=/tmp/scratch/scratchpad && xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/project-creation-form.test.ts --repeat-each=4 > $S/e44-pcf-repeat.log 2>&1; echo \"exit=$?\"; grep -E \"✘|passed|failed\" $S/e44-pcf-repeat.log | tail -15",
+    "hold": true
+  },
+  {
+    "command": "rm -rf e2e/results && S=/tmp/scratch/scratchpad && xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $S/e44-e2e3.log 2>&1; echo \"exit=$?\"; grep -E \"✘|passed|failed\" $S/e44-e2e3.log | tail -8",
+    "hold": true
+  },
+  {
+    "command": "until [ \"$(grep -cE '✓|✘' /tmp/scratch/scratchpad/e44-e2e3.log)\" -ge 33 ] || grep -q \"exit=\" /tmp/scratch/tasks/b5lglytpr.output; do sleep 3; done; grep -E \"✓|✘\" /tmp/scratch/scratchpad/e44-e2e3.log | sed -n '26,33p'",
+    "hold": true
+  },
+  {
+    "command": "until grep -q \"exit=\" /tmp/scratch/tasks/b5lglytpr.output 2>/dev/null; do sleep 3; done; cat /tmp/scratch/tasks/b5lglytpr.output",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && npx vitest run > $S/r19-vitest.log 2>&1; echo \"vitest exit=$?\"; grep -E \"Test Files|Tests \" $S/r19-vitest.log; grep -E \"^ FAIL\" $S/r19-vitest.log | sort -u | head -30",
+    "hold": true
+  },
+  {
+    "command": "rm -rf e2e/results && S=/tmp/scratch/scratchpad && { npm --workspace baton-remote-worker run build:web > $S/r19-build.log 2>&1 && ./node_modules/.bin/electron-vite build >> $S/r19-build.log 2>&1; echo \"build exit=$?\"; grep -iE \"error|warn\" $S/r19-build.log | grep -v \"chunks are larger\\|dynamic import\\|manualChunks\\|chunkSizeWarningLimit\" | head -5; xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $S/r19-e2e.log 2>&1; echo \"e2e exit=$?\"; grep -E \"✘|passed|failed|flaky\" $S/r19-e2e.log | tail -10; }",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && { npx vitest run > $S/z4-vitest.log 2>&1; echo \"vitest exit=$?\"; grep -E \"Test Files|Tests \" $S/z4-vitest.log; grep -E \"^ FAIL\" $S/z4-vitest.log | sort -u | head -40; npm --workspace @komla/remote-protocol test > $S/z4-rp.log 2>&1; echo \"remote-protocol exit=$?\"; grep -E \"Test Files|Tests \" $S/z4-rp.log; grep -E \"^ FAIL| FAIL \" $S/z4-rp.log | sort -u | head; npm --workspace baton-remote-worker test > $S/z4-rw.log 2>&1; echo \"remote-worker exit=$?\"; grep -E \"Test Files|Tests \" $S/z4-rw.log; grep -E \"FAIL\" $S/z4-rw.log | sort -u | head; }",
+    "hold": true
+  },
+  {
+    "command": "rm -rf e2e/results && S=/tmp/scratch/scratchpad && { (cd remote-worker && npx wrangler deploy --dry-run --outdir $S/rw-dist > $S/z4-wrangler.log 2>&1); echo \"wrangler dry-run exit=$?\"; grep -iE \"Total Upload|gzip|error\" $S/z4-wrangler.log | head -5; npm --workspace baton-remote-worker run build:web > $S/z4-build.log 2>&1 && ./node_modules/.bin/electron-vite build >> $S/z4-build.log 2>&1; echo \"build exit=$?\"; xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $S/z4-e2e.log 2>&1; echo \"e2e exit=$?\"; grep -E \"✘|passed|failed|flaky\" $S/z4-e2e.log | tail -10; }",
+    "hold": true
+  },
+  {
+    "command": "until grep -q \"e2e exit=\" /tmp/scratch/tasks/bmm9j5v7b.output 2>/dev/null; do sleep 3; done; cat /tmp/scratch/tasks/bmm9j5v7b.output",
+    "hold": true
+  },
+  {
+    "command": "readlink node_modules && rm node_modules && GIT_DIR=/nonexistent npm ci > /tmp/scratch/scratchpad/npm-ci.log 2>&1; echo \"exit $?\"; tail -15 /tmp/scratch/scratchpad/npm-ci.log",
+    "hold": true
+  },
+  {
+    "command": "npx vitest run > /tmp/scratch/scratchpad/vitest.log 2>&1; echo \"exit $?\"; grep -E 'Test Files|Tests  ' /tmp/scratch/scratchpad/vitest.log; grep -E '^ (FAIL|×)| FAIL ' /tmp/scratch/scratchpad/vitest.log | sort -u | head -40",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && git worktree add --detach $S/main-base main >/dev/null 2>&1 && ln -s $PWD/node_modules $S/main-base/node_modules && for t in node web; do npx tsc --noEmit -p tsconfig.$t.json 2>&1 | grep -E '^[^ ].*error TS' | sed -E 's/\\([0-9]+,[0-9]+\\)//' | sort > $S/tsc-$t-branch.txt; (cd $S/main-base && npx tsc --noEmit -p tsconfig.$t.json 2>&1 | grep -E '^[^ ].*error TS' | sed -E 's/\\([0-9]+,[0-9]+\\)//' | sort > $S/tsc-$t-main.txt); echo \"$t: branch $(wc -l < $S/tsc-$t-branch.txt) main $(wc -l < $S/tsc-$t-main.txt)\"; comm -23 $S/tsc-$t-branch.txt $S/tsc-$t-main.txt | sort | uniq -c | head -40; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npm test > $S/npm-test.log 2>&1; echo \"exit=$?\" >> $S/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npm run lint:react > $S/lint-react.log 2>&1; echo \"exit=$?\" >> $S/lint-react.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && (npm test > $S/npm-test.log 2>&1; echo \"npm test exit $?\" >> $S/npm-test.log) & (npm run lint:react > $S/lint.log 2>&1; echo \"lint exit $?\" >> $S/lint.log) & wait; tail -5 $S/lint.log; grep -E \"Test Files|Tests |exit|FAIL\" $S/npm-test.log | head -20",
+    "hold": true
+  },
+  {
+    "command": "(npm run lint:react 2>&1 | tail -15; echo \"LINT EXIT ${PIPESTATUS[0]}\"; npm test 2>&1 | tail -25; echo \"TEST EXIT ${PIPESTATUS[0]}\") > /tmp/scratch/scratchpad/checks.log 2>&1; tail -45 /tmp/scratch/scratchpad/checks.log",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build.log 2>&1 && xvfb-run -a npx playwright test --config e2e/playwright.config.ts e2e/onboarding-integrations.test.ts 2>&1 | tail -30",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo exit=$? >> /tmp/scratch/scratchpad/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && (npm test > $S/npm-test-3.log 2>&1; echo \"test=$?\" >> $S/npm-test-3.log; npm run lint > $S/lint.log 2>&1; echo \"lint=$?\" >> $S/lint.log; npm run lint:react > $S/lint-react.log 2>&1; echo \"lint-react=$?\" >> $S/lint-react.log)",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit=$?\"; tail -15 /tmp/scratch/scratchpad/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "npx oxfmt --check tests/main/lib/dev-script.test.ts >/dev/null; echo \"oxfmt exit=$?\"; npm test > /tmp/scratch/scratchpad/npm-test-2.log 2>&1; echo \"test exit=$?\"; grep -E \"Test Files|Tests  | FAIL \" /tmp/scratch/scratchpad/npm-test-2.log | sort -u | head",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad\ncd $S/rec && mkdir -p project2 && cp project/package.json project2/ && python3 - <<'EOF'\n…\nEOF\nrm -f hooks2.jsonl; timeout 220 python3 tools/drive.py $S/rec/hooks2.jsonl $S/rec/project2 $S/rec/tools/settings.json \"Use the Agent tool (general-purpose, NOT run_in_background) to launch one subagent with this task: 'Run \\`npm test > test.log 2>&1\\` with the Bash tool using run_in_background: true, then immediately reply \\\"started\\\" without waiting or polling.' After the subagent returns, end your turn with one sentence. If you are later notified the tests finished, read test.log and reply with a one-line summary.\"",
+    "hold": true
+  },
+  {
+    "command": "npm run test:remote-companion > /tmp/scratch/scratchpad/companion-test.log 2>&1; echo \"exit $?\"; tail -15 /tmp/scratch/scratchpad/companion-test.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad\ncd $S/rec && mkdir -p project4 && cat > project4/package.json <<'EOF'\n…\nEOF\nH=\"node $S/rec/tools/record-hook.js $S/rec/hooks4.jsonl\" && jq -n --arg c \"$H\" '{hooks: ([\"UserPromptSubmit\",\"PreToolUse\",\"Stop\",\"Notification\"] | map({key: ., value: [{matcher: \"\", hooks: [{type: \"command\", command: $c}]}]}) | from_entries)}' > tools/settings4.json\nsed -e 's/if stops() >= 2:/if stops() >= 2 or time.time() - start > 170:/' -e 's/< 180:/< 200:/' tools/drive.py > tools/drive4.py\nrm -f hooks4.jsonl; timeout 230 python3 tools/drive4.py $S/rec/hooks4.jsonl $S/rec/project4 $S/rec/tools/settings4.json > drive4.log 2>&1; echo \"exit $?\"; jq -c '(.input) as $i | {t: ((.t/1000)|floor), ev: $i.hook_event_name, nt: $i.notification_type, bg: ($i.background_tasks // null | if . then map(.status) else null end)}' hooks4.jsonl",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad; for i in 2 3 4 5 6; do npx vitest run > $SP/run$i.txt 2>&1; echo \"run$i exit=$?\"; grep -E \"^ FAIL|Tests  \" $SP/run$i.txt | sort -u; done",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad; until grep -q \"^run6\" $SP/../tasks/bb5d33yi2.output; do sleep 3; done; PATH=$SP/node25/node-v25.9.0-linux-x64/bin:$PATH node node_modules/vitest/vitest.mjs run > $SP/run-node25.txt 2>&1; echo \"node25 exit=$?\"; grep -E \"^ FAIL|Tests  |TypeError: .*[lL]ocal[sS]torage\" $SP/run-node25.txt | sort | uniq -c",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad; export PATH=$SP/node22222/node-v22.22.2-linux-x64/bin:$PATH; node --version; for i in 1 2 3 4 5; do bash scripts/link-deps.sh >/dev/null 2>&1; node node_modules/vitest/vitest.mjs run > $SP/n22222-run$i.txt 2>&1; echo \"run$i exit=$?\"; grep -E \"^ FAIL|Tests  \" $SP/n22222-run$i.txt | sort -u; grep -iE \"storage\" $SP/n22222-run$i.txt | grep -iE \"error|fail\" | head -5; done",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build.log 2>&1; echo exit $?",
+    "hold": true
+  },
+  {
+    "command": "npm run test:remote-companion > /tmp/scratch/scratchpad/rust.log 2>&1; echo exit $?",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build2.log 2>&1; echo exit $?",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/test.log 2>&1; echo \"exit $?\"; tail -25 /tmp/scratch/scratchpad/test.log",
+    "hold": true
+  },
+  {
+    "command": "npm install 2>&1 | tail -15",
+    "hold": true
+  },
+  {
+    "command": "sleep 900; echo done",
+    "hold": true
+  },
+  {
+    "command": "timeout 600 npx -y react-doctor@latest . --diff --verbose > /tmp/scratch/scratchpad/rd-before.txt 2>&1; echo exit $?",
+    "hold": true
+  },
+  {
+    "command": "timeout 1200 npm test > /tmp/scratch/scratchpad/npm-test.txt 2>&1; echo \"exit $?\"",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build.log 2>&1; echo EXIT=$?",
+    "hold": true
+  },
+  {
+    "command": "(npm --workspace baton-remote-worker run build:web && npx electron-vite build) > /tmp/scratch/scratchpad/build.log 2>&1; echo EXIT=$?; tail -5 /tmp/scratch/scratchpad/build.log",
+    "hold": true
+  },
+  {
+    "command": "for t in dark light; do SCREENSHOT_THEME=$t xvfb-run -a -s \"-screen 0 1600x1000x24\" npx playwright test --config e2e/playwright.config.ts e2e/screenshots/main-layout.screenshot.ts e2e/screenshots/setup-wizard.screenshot.ts e2e/screenshots/settings.screenshot.ts e2e/screenshots/dialogs.screenshot.ts e2e/screenshots/file-views.screenshot.ts --reporter=line 2>&1 | tail -25; done; ls e2e/screenshots/*.png",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/cap && cat > $S/pw.config.mjs <<EOF\n…\nEOF\nfor p in default frost; do CAP_PALETTE=$p xvfb-run -a -s \"-screen 0 1600x1000x24\" npx playwright test --config $S/pw.config.mjs 2>&1 | grep -v \"^\\s*$\" | tail -30; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/cap && echo '{\"type\":\"module\"}' > $S/package.json && for p in default frost; do CAP_PALETTE=$p timeout 400 xvfb-run -a -s \"-screen 0 1600x1000x24\" npx playwright test --config $S/pw.config.mjs 2>&1 | grep -v \"^\\s*$\" | cut -c1-1500 | tail -30; done",
+    "hold": true
+  },
+  {
+    "command": "grep -n '\"typecheck\\|\"tsc\\|type-check' package.json; npx vitest run > /tmp/scratch/scratchpad/baseline-tests.log 2>&1; echo EXIT=$?; tail -15 /tmp/scratch/scratchpad/baseline-tests.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo EXIT=$?; grep -E \"Test Files|Tests |test result|FAIL\" /tmp/scratch/scratchpad/npm-test.log | sort -u | head -12",
+    "hold": true
+  },
+  {
+    "command": "(npm --workspace baton-remote-worker run build:web && npx electron-vite build) > /tmp/scratch/scratchpad/build2.log 2>&1; echo EXIT=$?; tail -3 /tmp/scratch/scratchpad/build2.log",
+    "hold": true
+  },
+  {
+    "command": "timeout 900 npm run lint:react > /tmp/scratch/scratchpad/lint-react.log 2>&1; echo EXIT=$?; tail -40 /tmp/scratch/scratchpad/lint-react.log",
+    "hold": true
+  },
+  {
+    "command": "npx electron-vite build > /tmp/scratch/scratchpad/build4.log 2>&1 || { echo BUILD_FAILED; tail -20 /tmp/scratch/scratchpad/build4.log; exit 1; }; S=/tmp/scratch/scratchpad; rm -rf $S/shots; for p in default frost; do CAP_PALETTE=$p timeout 500 xvfb-run -a -s \"-screen 0 1600x1000x24\" npx playwright test --config $S/cap/pw.config.mjs 2>&1 | grep -E \"STEP FAILED|passed|failed\" | cut -c1-200; done; ls $S/shots",
+    "hold": true
+  },
+  {
+    "command": "timeout 900 npx vitest run > /tmp/scratch/scratchpad/vitest-p2.log 2>&1; tail -8 /tmp/scratch/scratchpad/vitest-p2.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cp -r $S/shots $S/shots-p1 2>/dev/null; cd /work/repo && for p in default frost; do CAP_PALETTE=$p xvfb-run -a npx playwright test --config $S/cap/pw.config.mjs 2>&1 | grep -E \"STEP FAILED|passed|failed\" ; done; ls $S/shots | head -40",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && npm test > $S/npm-test-fb.log 2>&1; echo \"npm test exit $?\" ; npm run lint:react > $S/lint-react-fb.log 2>&1; echo \"lint:react exit $?\"; (npm --workspace baton-remote-worker run build:web && npx electron-vite build) > $S/build-fb.log 2>&1; echo \"build exit $?\"; rm -f $S/shots/default-*; xvfb-run -a npx playwright test --config $S/cap/pw.config.mjs 2>&1 | grep -E \"STEP FAILED|passed|failed\"",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/rebase/verify.sh",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/squash/per-commit.sh",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && (npm --workspace baton-remote-worker run build:web && npx electron-vite build) > $S/build-menu.log 2>&1; echo \"build exit $?\"; xvfb-run -a npx playwright test --config $S/probe/pw.config.mjs 2>&1 | sed -n '/LOG/,/passed\\|failed/p' | grep -E \"composer|focusin INPUT|passed|failed\"; xvfb-run -a npx playwright test --config $S/probe/pw.config.mjs 2>&1 | grep -E \"after 1.6s|focused\"",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; until grep -q -E \"passed|failed|Error\" $S/probe-note.log 2>/dev/null || grep -q -i \"error\" $S/build-note.log 2>/dev/null; do sleep 3; done; grep -E \"passed|failed\" $S/probe-note.log; sed -n '/FOOTER/,/LOG/p' $S/probe-note.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; until grep -q -E \"[0-9]+ (passed|failed)\" $S/probe-note.log 2>/dev/null; do sleep 3; done; grep -E \"[0-9]+ (passed|failed)\" $S/probe-note.log; sed -n '/FOOTER/,/LOG/p' $S/probe-note.log",
+    "hold": true
+  },
+  {
+    "command": "bash /tmp/scratch/scratchpad/rebase/verify3.sh",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/merge-check && cd \"$S\" && npm test > \"$S/../merge-npm-test.log\" 2>&1; echo \"npm test exit $?\" >> \"$S/../merge-npm-test.log\"; CARGO_TARGET_DIR=/work/repo/remote-companion/target cargo test --manifest-path remote-companion/Cargo.toml > \"$S/../merge-cargo.log\" 2>&1; echo \"cargo exit $?\" >> \"$S/../merge-cargo.log\"",
+    "hold": true
+  },
+  {
+    "command": "(npm test > /tmp/scratch/scratchpad/test.log 2>&1; echo \"test exit $?\") ; (npx electron-vite build > /tmp/scratch/scratchpad/build.log 2>&1; echo \"build exit $?\"); tail -6 /tmp/scratch/scratchpad/test.log; grep -o 'require(\"original-fs\")' out/main/*.js | head -2",
+    "hold": true
+  },
+  {
+    "command": "mkdir -p /tmp/scratch/scratchpad/pwsh && cd /tmp/scratch/scratchpad/pwsh && curl -fsSL -o pwsh.tgz https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz && mkdir -p dist && tar -xzf pwsh.tgz -C dist && chmod +x dist/pwsh && DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 ./dist/pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npmtest.log 2>&1; echo \"exit=$?\"; rg \"Test Files|Tests |FAIL|×\" /tmp/scratch/scratchpad/npmtest.log | head -20",
+    "hold": true
+  },
+  {
+    "command": "until grep -q \"^exit=\" /tmp/scratch/tasks/b06i3trpn.output; do sleep 2; done; cat /tmp/scratch/tasks/b06i3trpn.output",
+    "hold": true
+  },
+  {
+    "command": "python3 - <<'EOF'\n…\nEOF\nsed -n 2697p tests/main/services/ssh-workspace.service.test.ts; npm test > /tmp/scratch/scratchpad/npmtest2.log 2>&1; rg \"Test Files|Tests  |FAIL \" /tmp/scratch/scratchpad/npmtest2.log | sort -u",
+    "hold": true
+  },
+  {
+    "command": "npm ci --no-audit --no-fund 2>&1 | tail -3; ls /work/repo/node_modules >/dev/null 2>&1 && echo root-deps-ok",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; grep -n '\"test\"\\|\"typecheck' package.json; npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo exit=$?; grep -E \"Test Files|Tests |^\\s+(FAIL)\" /tmp/scratch/scratchpad/npm-test.log | tail -12",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test-review-fix.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/npm-test-review-fix.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test-busy-asks.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/npm-test-busy-asks.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test2.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npm-test2.log",
+    "hold": true
+  },
+  {
+    "command": "bash scripts/link-deps.sh >/dev/null 2>&1; npx vitest run 2>&1 | tail -40 > /tmp/scratch/scratchpad/tes/baseline.txt; tail -15 /tmp/scratch/scratchpad/tes/baseline.txt",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npmtest1.txt 2>&1; echo \"exit=$?\"; grep -E 'Test Files|Tests |FAIL|test result' /tmp/scratch/scratchpad/npmtest1.txt | head -20",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test-step2.log 2>&1; echo \"exit $?\"",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && for c in $(git rev-list --reverse b770e315..jade-lake-rebuild); do git checkout -q --detach $c; npx vitest run > $S/per-commit-$c.log 2>&1; echo \"$(git log -1 --format='%h %s' $c) :: $(grep -E 'Tests  ' $S/per-commit-$c.log | tail -1 | sed 's/^ *//') :: $(grep -E '^ FAIL ' $S/per-commit-$c.log | sed 's/ > .*//; s/^ FAIL  //' | sort -u | tr '\\n' ' ')\"; done; git switch -q jade-lake-rebuild; git status --short --branch | head -2",
+    "hold": true
+  },
+  {
+    "command": "SCRATCH=/tmp/scratch/scratchpad && mkdir -p $SCRATCH && npx tsc --noEmit -p tsconfig.node.json > $SCRATCH/tsc-node.txt 2>&1; grep -E \"dev-preview|pty.service|preload/index|shared/types\" $SCRATCH/tsc-node.txt | head -30; echo \"total: $(wc -l < $SCRATCH/tsc-node.txt)\"",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.txt 2>&1; echo \"exit: $?\" >> /tmp/scratch/scratchpad/npm-test.txt",
+    "hold": true
+  },
+  {
+    "command": "sleep 1; echo waiting",
+    "hold": true
+  },
+  {
+    "command": "F=/tmp/scratch/scratchpad/npm-test.txt; until grep -q '^exit:' \"$F\"; do sleep 2; done; tail -1 \"$F\"",
+    "hold": true
+  },
+  {
+    "command": "npm run test:remote-companion 2>&1 | grep -E \"test result|FAILED|failed|panicked|error\" | head -20",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build.txt 2>&1; echo \"exit: $?\" >> /tmp/scratch/scratchpad/build.txt; tail -3 /tmp/scratch/scratchpad/build.txt",
+    "hold": true
+  },
+  {
+    "command": "F=/tmp/scratch/scratchpad/build.txt; until grep -q '^exit:' \"$F\"; do sleep 2; done; tail -4 \"$F\"; cd /work/repo && git status --short | grep -v \"^??\" | grep -v \"src/\\|tests/\\|docs/\"",
+    "hold": true
+  },
+  {
+    "command": "bash scripts/link-deps.sh >/dev/null 2>&1; npx vitest run 2>&1 | grep -E \"Test Files|Tests |FAIL|×\" | head -20",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo exit=$?",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build3.txt 2>&1; echo exit=$?; tail -3 /tmp/scratch/scratchpad/build3.txt; git status --short | grep -v \"^ M src\\|^ M tests\\|^A \\|^D \\|^?? src\\|^?? tests\"",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test2.log 2>&1; echo exit=$?",
+    "hold": true
+  },
+  {
+    "command": "npx electron-vite build > /tmp/scratch/scratchpad/build6.txt 2>&1; echo exit=$?; tail -3 /tmp/scratch/scratchpad/build6.txt",
+    "hold": true
+  },
+  {
+    "command": "npm run lint 2>&1 | grep -E \"✖|Found [0-9]+ (error|warning)\" | tail -3; npx tsc --noEmit -p tsconfig.node.json 2>&1 | grep \"dev-preview-services\" | head -5; npm test > /tmp/scratch/scratchpad/npm-test3.log 2>&1; echo test=$?; grep -E \"Test Files|Tests |FAIL\" /tmp/scratch/scratchpad/npm-test3.log | sort -u | head -20",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npm run test:ssh-workspace > $S/ssh-test2.log 2>&1; echo ssh=$?; grep -E \"Tests |FAIL\" $S/ssh-test2.log | sort -u | head; npm test > $S/npm-test4.log 2>&1; echo test=$?; grep -E \"Test Files|Tests |FAIL\" $S/npm-test4.log | sort -u | head -20",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; which limactl docker cargo 2>&1; npm test 2>&1 | tail -25",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; timeout 1500 npm run test:vm-security 2>&1 | tail -40",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; npm test 2>&1 | grep -E \"FAIL|Test Files|Tests \" | head -20",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; timeout 1700 npm run test:ssh-workspace 2>&1 | grep -E \"FAIL|✓|×|Test Files|Tests |Error\" | tail -40",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; git check-ignore -v remote-companion/artifacts/x 2>&1; (timeout 1200 npm run build:remote-companion 2>&1 | tail -8) && ls -la remote-companion/artifacts/*/ && timeout 1700 npm run test:ssh-workspace 2>&1 | grep -E \"FAIL|×|Test Files|Tests |Error:\" | tail -30",
+    "hold": true
+  },
+  {
+    "command": "npm test 2>&1 | tail -8",
+    "hold": true
+  },
+  {
+    "command": "npm run test:ssh-workspace 2>&1 | tail -8",
+    "hold": true
+  },
+  {
+    "command": "npm test 2>&1 | grep -E \"FAIL|Tests \" | sort -u",
+    "hold": true
+  },
+  {
+    "command": "npm run test:ssh-workspace 2>&1 | grep -E \"FAIL|×|Tests \" | sort -u",
+    "hold": true
+  },
+  {
+    "command": "timeout 600 npx vitest run tests/main/ipc/handlers/agent-settings.handlers.behavior.test.ts tests/main/lib/codex-mcp-config.test.ts tests/main/services/gemini-settings.service.test.ts tests/main/services/codex-settings.service.test.ts tests/main/services/opencode-settings.service.test.ts tests/main/services/claude-settings.service.test.ts tests/main/services/lima.service.test.ts tests/renderer/components/layout/settings/AgentIntegrations.test.tsx tests/renderer/components/layout/SetupWizard.test.tsx tests/main/lib/komla-cli.test.ts tests/main/ipc/handlers/project.handlers.validation.test.ts tests/main/ipc/handlers/project.handlers.behavior.test.ts tests/renderer/components/layout/settings/SshTab.test.tsx tests/renderer/components/layout/settings/AgentTab.test.tsx 2>&1 | tail -25",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && rm -rf $S/head && git worktree add --detach $S/head HEAD >/dev/null 2>&1 && ln -s $PWD/node_modules $S/head/node_modules && for p in node web; do (npx tsc --noEmit -p tsconfig.$p.json 2>&1 | grep -E \"^src/\" | sed -E 's/\\([0-9]+,[0-9]+\\)//' | sort > $S/new-$p.txt) & (cd $S/head && npx tsc --noEmit -p tsconfig.$p.json 2>&1 | grep -E \"^src/\" | sed -E 's/\\([0-9]+,[0-9]+\\)//' | sort > $S/old-$p.txt) & done; wait; for p in node web; do echo \"== $p new-only:\"; comm -13 $S/old-$p.txt $S/new-$p.txt; echo \"== $p fixed:\"; comm -23 $S/old-$p.txt $S/new-$p.txt | head; done",
+    "hold": true
+  },
+  {
+    "command": "timeout 1500 npm test > /tmp/scratch/scratchpad/npm-test.txt 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests |^ FAIL\" /tmp/scratch/scratchpad/npm-test.txt | head -20",
+    "hold": true
+  },
+  {
+    "command": "until grep -q \"^exit\\|Test Files\" /tmp/scratch/tasks/b13l2i9qf.output; do sleep 5; done; cat /tmp/scratch/tasks/b13l2i9qf.output",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; (timeout 1500 npm test > $S/npm-test2.txt 2>&1; echo \"npm test exit $?\" >> $S/npm-test2.txt) & (timeout 1500 npm run test:remote-companion > $S/cargo.txt 2>&1; echo \"cargo exit $?\" >> $S/cargo.txt) & wait; grep -E \"Test Files|Tests |^ FAIL|exit\" $S/npm-test2.txt | head; grep -E \"test result|FAILED|panicked|exit\" $S/cargo.txt | head -20",
+    "hold": true
+  },
+  {
+    "command": "timeout 300 npx vitest run tests/renderer/components/workspaces/NewWorkspaceContextBar.test.tsx tests/renderer/components/workspaces/NewWorkspaceDialog.test.tsx 2>&1 | tail -30",
+    "hold": true
+  },
+  {
+    "command": "L=/tmp/scratch/scratchpad/full.log; (bash scripts/link-deps.sh && npx vitest run; echo \"vitest exit=$?\"; npm run test:remote-companion; echo \"cargo exit=$?\") > $L 2>&1",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test-2.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npm-test-2.log",
+    "hold": true
+  },
+  {
+    "command": "(npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"npm test exit $?\" >> /tmp/scratch/scratchpad/npm-test.log)",
+    "hold": true
+  },
+  {
+    "command": "npm run test:remote-companion > /tmp/scratch/scratchpad/rust.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/rust.log",
+    "hold": true
+  },
+  {
+    "command": "git diff --stat && (npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npm-test.log)",
+    "hold": true
+  },
+  {
+    "command": "timeout 1500 npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit=$?\"",
+    "hold": true
+  },
+  {
+    "command": "python3 - <<'EOF'\n…\nEOF\ntimeout 1500 npm test > /tmp/scratch/scratchpad/npm-test2.log 2>&1; echo \"exit=$?\"",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/komla-build2.log 2>&1; echo EXIT $?; git checkout -- package-lock.json; tail -3 /tmp/scratch/scratchpad/komla-build2.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo EXIT $?; grep -E \"Test Files|Tests \" /tmp/scratch/scratchpad/npm-test.log | tail -4",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/komla-build3.log 2>&1; echo EXIT $?; git checkout -- package-lock.json; cd /tmp/scratch/scratchpad && timeout 300 xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" node shot2.mjs after 2>&1 | tail -3 && timeout 200 xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" node shot3.mjs after 2>&1 | tail -2 && node composite.cjs dark-main dark-sidebar dark-diff dark-split light-main | tail -1",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test2.log 2>&1; echo EXIT $?; grep -E \"Test Files|Tests  |^ FAIL\" /tmp/scratch/scratchpad/npm-test2.log | head -20",
+    "hold": true
+  },
+  {
+    "command": "xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npm run test:e2e > /tmp/scratch/scratchpad/e2e.log 2>&1; echo EXIT $?; git checkout -- package-lock.json; grep -E \"passed|failed|flaky|skipped|✘\" /tmp/scratch/scratchpad/e2e.log | tail -20",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/komla-build.log 2>&1; echo EXIT $?; tail -5 /tmp/scratch/scratchpad/komla-build.log",
+    "hold": true
+  },
+  {
+    "command": "F=/tmp/scratch/scratchpad && pgrep -af node_modules/playwright/lib/worker | head -3; {\nnpm test > $F/npm-test3.log 2>&1; echo \"NPM_TEST_EXIT $?\";\nnpm run lint:react > $F/lint-react3.log 2>&1; echo \"LINT_REACT_EXIT $?\";\nnpx tsc --noEmit -p tsconfig.web.json > $F/tsc-web-v2.txt 2>&1; echo \"TSC_WEB errors: $(grep -c 'error TS' $F/tsc-web-v2.txt) (head $(grep -c 'error TS' $F/tsc-web-head.txt))\";\nnpx tsc --noEmit -p tsconfig.node.json > $F/tsc-node-v2.txt 2>&1; echo \"TSC_NODE errors: $(grep -c 'error TS' $F/tsc-node-v2.txt) (head $(grep -c 'error TS' $F/tsc-node-head.txt))\";\nxvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts > $F/e2e3.log 2>&1; echo \"E2E_EXIT $?\";\ngit checkout -- package-lock.json 2>/dev/null; } > $F/checks3.log 2>&1; cat $F/checks3.log; grep -E \"Test Files|Tests \" $F/npm-test3.log | tail -2; grep -E \"passed|failed|flaky\" $F/e2e3.log | tail -4",
+    "hold": true
+  },
+  {
+    "command": "python3 -I - <<'EOF'\n…\nEOF\nF=/tmp/scratch/scratchpad; pgrep -af node_modules/playwright/lib/worker | head -2; {\nnpm test > $F/npm-test4.log 2>&1; echo \"NPM_TEST_EXIT $?\";\nnpm run lint:react > $F/lint-react4.log 2>&1; echo \"LINT_REACT_EXIT $?\";\nnpx tsc --noEmit -p tsconfig.web.json > $F/tsc-web-v3.txt 2>&1; echo \"TSC_WEB errors: $(grep -c 'error TS' $F/tsc-web-v3.txt) (head $(grep -c 'error TS' $F/tsc-web-head.txt))\";\nnpx tsc --noEmit -p tsconfig.node.json > $F/tsc-node-v3.txt 2>&1; echo \"TSC_NODE errors: $(grep -c 'error TS' $F/tsc-node-v3.txt) (head $(grep -c 'error TS' $F/tsc-node-head.txt))\";\nxvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $F/e2e4.log 2>&1; echo \"E2E_EXIT $?\";\ngit checkout -- package-lock.json 2>/dev/null; } > $F/checks4.log 2>&1; cat $F/checks4.log; grep -E \"Test Files|Tests \" $F/npm-test4.log | tail -2; grep -E \"^\\s+[0-9]+ (passed|failed|flaky)\" $F/e2e4.log",
+    "hold": true
+  },
+  {
+    "command": "F=/tmp/scratch/scratchpad && pgrep -af node_modules/playwright/lib/worker | head -2; {\nnpm test > $F/npm-test5.log 2>&1; echo \"NPM_TEST_EXIT $?\";\nnpm run lint:react > $F/lint-react5.log 2>&1; echo \"LINT_REACT_EXIT $?\";\nnpx tsc --noEmit -p tsconfig.web.json > $F/tsc-web-v4.txt 2>&1; echo \"TSC_WEB errors: $(grep -c 'error TS' $F/tsc-web-v4.txt) (head $(grep -c 'error TS' $F/tsc-web-head.txt))\";\nxvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $F/e2e5.log 2>&1; echo \"E2E_EXIT $?\";\ngit checkout -- package-lock.json 2>/dev/null; } > $F/checks5.log 2>&1; cat $F/checks5.log; grep -E \"Tests \" $F/npm-test5.log | tail -1; grep -E \"FAIL \" $F/npm-test5.log | sort -u | head -4; grep -E \"^\\s+[0-9]+ (passed|failed|flaky)\" $F/e2e5.log; git status --short | wc -l",
+    "hold": true
+  },
+  {
+    "command": "F=/tmp/scratch/scratchpad && pgrep -af node_modules/playwright/lib/worker | head -2; {\nnpm test > $F/npm-test6.log 2>&1; echo \"NPM_TEST_EXIT $?\";\nnpm run lint:react > $F/lint-react6.log 2>&1; echo \"LINT_REACT_EXIT $?\";\nnpx tsc --noEmit -p tsconfig.web.json > $F/tsc-web-v6.txt 2>&1; echo \"TSC_WEB errors: $(grep -c 'error TS' $F/tsc-web-v6.txt) (head $(grep -c 'error TS' $F/tsc-web-head.txt))\";\nnpx tsc --noEmit -p tsconfig.node.json > $F/tsc-node-v6.txt 2>&1; echo \"TSC_NODE errors: $(grep -c 'error TS' $F/tsc-node-v6.txt) (head $(grep -c 'error TS' $F/tsc-node-head.txt))\";\nxvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $F/e2e6.log 2>&1; echo \"E2E_EXIT $?\";\ngit checkout -- package-lock.json 2>/dev/null; } > $F/checks6.log 2>&1; cat $F/checks6.log; grep -E \"Tests \" $F/npm-test6.log | tail -1; grep -E \"FAIL \" $F/npm-test6.log | sort -u | head -4; grep -E \"^\\s+[0-9]+ (passed|failed|flaky)|✘\" $F/e2e6.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; { npm test > $S/npm-test7.log 2>&1; echo NPM_TEST_EXIT $?; npm run lint:react > $S/lint7.log 2>&1; echo LINT_REACT_EXIT $?; npx tsc --noEmit -p tsconfig.web.json > $S/tsc-web-v7.txt 2>&1; echo TSC_WEB $(grep -c 'error TS' $S/tsc-web-v7.txt); } > $S/checks7.log 2>&1; cat $S/checks7.log; grep -E 'Test Files|Tests ' $S/npm-test7.log | tail -2; grep -E 'FAIL' $S/npm-test7.log | head",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npx oxfmt --check src/renderer/components/workspaces/NewWorkspaceDialog.tsx src/renderer/components/workspaces/WorkspaceList.tsx 2>&1 | tail -1; { npm test > $S/npm-test9.log 2>&1; echo NPM_TEST_EXIT $?; npm run lint:react > $S/lint9.log 2>&1; echo LINT_REACT_EXIT $?; } ; grep -E 'Test Files|Tests ' $S/npm-test9.log | tail -2; grep -E '^ FAIL' $S/npm-test9.log | head",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && (npm run build > $S/build13.log 2>&1; echo BUILD_EXIT $?; git checkout -- package-lock.json; cd $S && xvfb-run -a node shot2.mjs v10 2>&1 | tail -5)",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && npx oxfmt --check src/main/services/customization.service.ts src/renderer/components/layout/settings/TerminalBackgroundColorRow.tsx src/renderer/lib/palette-presets.ts src/renderer/lib/terminal-theme.ts tests/main/services/customization.service.test.ts 2>&1 | tail -2; npm test > $S/npm-test10.log 2>&1; echo NPM_TEST_EXIT $?; npm run lint:react > $S/lint-react10.log 2>&1; echo LINT_REACT_EXIT $?; grep -E \"Test Files|Tests |FAIL\" $S/npm-test10.log | head -8",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && npx oxfmt --check src/main/services/customization.service.ts 2>&1 | tail -1; npm test > $S/npm-test11.log 2>&1; echo NPM_TEST_EXIT $?; npm run lint:react > $S/lint-react11.log 2>&1; echo LINT_REACT_EXIT $?; grep -E \"Test Files|Tests |FAIL\" $S/npm-test11.log | head -8",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && npm test > $S/npm-test13.log 2>&1; echo NPM_TEST_EXIT $?; npm run lint:react > $S/lint-react13.log 2>&1; echo LINT_REACT_EXIT $?; grep -E \"Test Files|Tests |FAIL\" $S/npm-test13.log | head -8",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && [ -L node_modules ] && rm node_modules && ls -la | grep node_modules; GIT_DIR=/nonexistent npx -y npm@10.9.2 ci > $S/npm-ci.log 2>&1; echo CI_EXIT $?; git status --short | head; node -e \"console.log(require('tailwindcss/package.json').version, require('typescript/package.json').version)\"; tail -5 $S/npm-ci.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && cat > $S/verify.sh <<'EOF'\n…\nEOF\nchmod +x $S/verify.sh && $S/verify.sh 2>&1 | tail -20",
+    "hold": true
+  },
+  {
+    "command": "git log -3 --format='%h %cd %s' --date=iso && node -p \"require('./node_modules/typescript/package.json').version\" && (npm --workspace baton-remote-worker run build:web && npx electron-vite build) > /tmp/scratch/scratchpad/build-mock.log 2>&1; echo BUILD_EXIT $?; git status --short",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npmtest2.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npmtest2.log",
+    "hold": true
+  },
+  {
+    "command": "git log --oneline HEAD..main; timeout 1500 npm run test:ssh-workspace > /tmp/scratch/scratchpad/sshint.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/sshint.log",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad && (npm run build:remote-companion > $SP/companion-build.log 2>&1; echo \"build exit $?\" >> $SP/companion-build.log; timeout 1500 npm run test:ssh-workspace > $SP/sshint2.log 2>&1; echo \"exit $?\" >> $SP/sshint2.log)",
+    "hold": true
+  },
+  {
+    "command": "npm run dev > /tmp/scratch/scratchpad/dev.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /work/repo/license-worker && npm run dev > /tmp/scratch/scratchpad/dev.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /work/repo/license-worker && (npm install --no-audit --no-fund > /tmp/scratch/scratchpad/install.log 2>&1; echo exit=$?) ",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\"",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad && git diff package-lock.json | sha1sum > $S/lock-before.sha && npm run build > $S/build.log 2>&1; echo \"exit $?\"",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; (npm test > $S/test.log 2>&1; echo \"TEST_EXIT=$?\" >> $S/test.log) ; (npm run lint > $S/lint.log 2>&1; echo \"LINT_EXIT=$?\" >> $S/lint.log); (npm run lint:react > $S/react.log 2>&1; echo \"REACT_EXIT=$?\" >> $S/react.log); echo done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; (npx vitest run > $S/test2.log 2>&1; echo \"TEST_EXIT=$?\" >> $S/test2.log); (npm run lint > $S/lint2.log 2>&1; echo \"LINT_EXIT=$?\" >> $S/lint2.log); (npm run lint:react > $S/react2.log 2>&1; echo \"REACT_EXIT=$?\" >> $S/react2.log); echo done",
+    "hold": true
+  },
+  {
+    "command": "(npx vitest run 2>&1 | tail -25) ; echo \"=== lint\"; (npm run lint:react 2>&1 | tail -8); echo \"=== rust\"; (npm run test:remote-companion 2>&1 | tail -4)",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/trial; cd $S && npm test > ../npm-test-trial.log 2>&1; echo \"exit $?\" >> ../npm-test-trial.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/trial; cd $S && grep -n \"vitest\" /work/repo/scripts/test.sh | head -3; npx vitest run > ../vitest-trial.log 2>&1; echo \"exit $?\" >> ../vitest-trial.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test3.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npm-test3.log",
+    "hold": true
+  },
+  {
+    "command": "node -e \"console.log('ts', require('./node_modules/typescript/package.json').version, 'tailwind', require('./node_modules/tailwindcss/package.json').version)\"; npm test > /tmp/scratch/scratchpad/npm-test4.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npm-test4.log",
+    "hold": true
+  },
+  {
+    "command": "(npm test > /tmp/scratch/scratchpad/test.log 2>&1; echo \"test exit $?\" >> /tmp/scratch/scratchpad/test.log; npm run lint > /tmp/scratch/scratchpad/lint.log 2>&1; echo \"lint exit $?\" >> /tmp/scratch/scratchpad/lint.log)",
+    "hold": true
+  },
+  {
+    "command": "(npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"npm test exit $?\" >> /tmp/scratch/scratchpad/npm-test.log); (npm run lint:react > /tmp/scratch/scratchpad/lint-react.log 2>&1; echo \"lint:react exit $?\" >> /tmp/scratch/scratchpad/lint-react.log)",
+    "hold": true
+  },
+  {
+    "command": "F=/tmp/scratch/scratchpad/claude-code-theme.json\ncat > \"$F\" <<'EOF'\n…\nEOF\nkomla settings apply appearance --file \"$F\"",
+    "hold": true
+  },
+  {
+    "command": "(npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"npm test exit $?\" >> /tmp/scratch/scratchpad/npm-test.log) ; tail -25 /tmp/scratch/scratchpad/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "(npm test > /tmp/scratch/scratchpad/npm-test2.log 2>&1; echo \"npm test exit $?\" >> /tmp/scratch/scratchpad/npm-test2.log); grep -E \"Test Files|Tests  |FAIL|npm test exit\" /tmp/scratch/scratchpad/npm-test2.log | head",
+    "hold": true
+  },
+  {
+    "command": "xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npm run test:e2e > /tmp/scratch/scratchpad/e2e.log 2>&1; echo \"e2e exit $?\" >> /tmp/scratch/scratchpad/e2e.log; tail -15 /tmp/scratch/scratchpad/e2e.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; (npm test > $S/npm-test.log 2>&1; echo \"exit $?\" >> $S/npm-test.log) & (npx oxlint --type-aware src/main/services/workspace.service.ts src/main/services/managed-remote-terminal-lifecycle/lifecycle.ts tests/main/services/workspace.service.test.ts > $S/oxlint.log 2>&1; npx eslint src/main/services/workspace.service.ts src/main/services/managed-remote-terminal-lifecycle/lifecycle.ts >> $S/oxlint.log 2>&1; echo \"lint exit $?\" >> $S/oxlint.log; npx tsc --noEmit -p tsconfig.node.json 2>&1 | grep -E \"workspace.service|lifecycle.ts|workspace.service.test\" | sed 's/([0-9,]*)//' | sort > $S/tsc-new.txt) ; wait; tail -5 $S/oxlint.log; wc -l < $S/tsc-new.txt",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npmtest3.log 2>&1; echo \"exit $?\" >> /tmp/scratch/scratchpad/npmtest3.log",
+    "hold": true
+  },
+  {
+    "command": "npx vitest run > /tmp/scratch/scratchpad/vitest-c.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/vitest-c.log",
+    "hold": true
+  },
+  {
+    "command": "npx vitest run > /tmp/scratch/scratchpad/vitest-c2.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/vitest-c2.log; npm run test:remote-companion >> /tmp/scratch/scratchpad/vitest-c2.log 2>&1; echo \"rust-exit=$?\" >> /tmp/scratch/scratchpad/vitest-c2.log",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/merged && mkdir -p $S/merged && git archive 1928836e2b11b307022a0c7dc61231b22b545637 | tar -x -C $S/merged && ln -s $(readlink -f node_modules) $S/merged/node_modules && cd $S/merged && npx vitest run > $S/merged-test.txt 2>&1; echo \"exit $?\" >> $S/merged-test.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npm run test:e2e > $S/e2e.txt 2>&1; echo \"exit $?\" >> $S/e2e.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npm run test:e2e:no-build > $S/e2e-branch2.txt 2>&1; echo \"exit $?\" >> $S/e2e-branch2.txt; cd $S/main && xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npm run test:e2e:no-build > $S/e2e-main.txt 2>&1; echo \"exit $?\" >> $S/e2e-main.txt; for f in e2e-branch2 e2e-main; do echo \"== $f\"; grep -E \"^\\s+[0-9]+ (passed|failed|flaky)|✘|exit\" $S/$f.txt | tail -5; done",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; W=/work/repo; for round in 1 2; do for tree in $W $S/main; do name=$([ $tree = $W ] && echo branch || echo main); start=$(date +%s); (cd $tree && xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/*.test.ts > $S/alt-$name-$round.txt 2>&1); echo \"$name round $round: $(grep -E '^\\s+[0-9]+ (passed|failed|flaky)' $S/alt-$name-$round.txt | tr -s ' ' | tr '\\n' ' ') $(grep -E '✘' $S/alt-$name-$round.txt | sed -E 's/.*› //' | tr '\\n' ';') $(( $(date +%s) - start ))s load=$(cut -d' ' -f1 /proc/loadavg)\"; done; done",
+    "hold": true
+  },
+  {
+    "command": "D=/tmp/scratch/scratchpad; git worktree remove --force $D/head && git worktree prune && git worktree list | grep -c scratchpad; npm test > $D/npm-test.log 2>&1; echo \"exit=$?\"; grep -E \"Test Files|Tests |FAIL\" $D/npm-test.log | head -20",
+    "hold": true
+  },
+  {
+    "command": "D=/tmp/scratch/scratchpad; npx electron-vite build > $D/build.log 2>&1; echo \"exit=$?\"; tail -5 $D/build.log; git status --short | grep -v \"^ M src\\|^ M tests\\|^?? src\\|^?? tests\\|^ M docs\"",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; /tmp/scratch/scratchpad/cleanenv.sh npx vitest run > /tmp/scratch/scratchpad/vitest-full.log 2>&1; grep -E \"Test Files|Tests \" /tmp/scratch/scratchpad/vitest-full.log",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; /tmp/scratch/scratchpad/cleanenv.sh npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests |test result\" /tmp/scratch/scratchpad/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad; (npx tsc --noEmit > $SP/tsc.out 2>&1; echo \"tsc exit $?\" >> $SP/tsc.out; npm run lint > $SP/lint.out 2>&1; echo \"lint exit $?\" >> $SP/lint.out; $SP/cleanenv.sh npm test > $SP/test.out 2>&1; echo \"test exit $?\" >> $SP/test.out); tail -1 $SP/tsc.out; grep -E \"Found|errors|lint exit\" $SP/lint.out | tail -3; grep -E \"Test Files|Tests |test result|test exit|FAIL\" $SP/test.out | head -20",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad; npx tsc --noEmit > $SP/tsc.out 2>&1; echo \"tsc exit $?\"; npm run lint > $SP/lint.out 2>&1; echo \"lint exit $?\"; grep \"problems\" $SP/lint.out; npm run lint:react > $SP/react.out 2>&1; echo \"lint:react exit $?\"; grep -iE \"score|/100\" $SP/react.out | tail -2; (cd remote-companion && cargo clippy --all-targets 2>&1 | grep -cE \"^warning|^error\"); $SP/cleanenv.sh npm test > $SP/test.out 2>&1; echo \"test exit $?\"; grep -E \"Test Files|Tests |test result|FAIL\" $SP/test.out | head -12",
+    "hold": true
+  },
+  {
+    "command": "(npm test > /tmp/scratch/scratchpad/test.log 2>&1; echo \"test exit $?\") ; (npm run lint:react > /tmp/scratch/scratchpad/lint.log 2>&1; echo \"lint exit $?\")",
+    "hold": true
+  },
+  {
+    "command": "grep -n '\"build\"' package.json && npm run build > /tmp/scratch/scratchpad/build.log 2>&1; echo exit=$?; tail -5 /tmp/scratch/scratchpad/build.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/test.log 2>&1; echo exit=$?",
+    "hold": true
+  },
+  {
+    "command": "npm run build > /tmp/scratch/scratchpad/build2.log 2>&1; echo exit=$?",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; rm -rf $S/fmt; (npx tsc --noEmit -p tsconfig.web.json > $S/tsc-web.txt 2>&1; echo \"web exit $?\" ; npx tsc --noEmit -p tsconfig.node.json > $S/tsc-node.txt 2>&1; echo \"node exit $?\"; grep -c \"error TS\" $S/tsc-web.txt $S/tsc-node.txt; npm run lint > $S/lint.txt 2>&1; echo \"lint exit $?\"; tail -3 $S/lint.txt; npm test > $S/test.txt 2>&1; echo \"test exit $?\"; grep -E \"Test Files|Tests \" $S/test.txt | tail -2) 2>&1",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npm run lint > $S/lint2.txt 2>&1; echo \"lint exit $?\"; tail -2 $S/lint2.txt; npm run lint:react > $S/react.txt 2>&1; echo \"react exit $?\"; tail -15 $S/react.txt; npm run test:remote-companion > $S/cargo.txt 2>&1; echo \"cargo exit $?\"; grep \"test result\" $S/cargo.txt; npm run build > $S/build.txt 2>&1; echo \"build exit $?\"; xvfb-run -a npx playwright test --config e2e/playwright.config.ts e2e/theme-live-apply.test.ts > $S/e2e.txt 2>&1; echo \"e2e exit $?\"; tail -15 $S/e2e.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; for i in $(seq 1 600); do pgrep -f \"node_modules/playwright/lib/worker\" >/dev/null || break; sleep 3; done; echo \"other e2e idle after ${i} checks\"; xvfb-run -a npx playwright test --config e2e/playwright.config.ts e2e/theme-live-apply.test.ts --repeat-each=3 > $S/e2e-rep.txt 2>&1; echo \"e2e exit $?\"; grep -v \"^\\[\" $S/e2e-rep.txt | grep -E \"passed|failed|flaky|^\\s+[0-9]+\\) |Error:\" | head -20; pgrep -af \"node_modules/playwright/lib/worker\" | grep -v theme-styling | cut -c1-120 | head -2",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npm run build > $S/build4.txt 2>&1; echo \"build exit $?\"; for i in $(seq 1 600); do pgrep -f \"node_modules/playwright/lib/worker\" >/dev/null || break; sleep 3; done; echo \"other e2e idle after ${i} checks\"; xvfb-run -a npx playwright test --config e2e/playwright.config.ts e2e/theme-live-apply.test.ts --repeat-each=3 > $S/e2e-rep.txt 2>&1; echo \"e2e exit $?\"; grep -v \"^\\[\" $S/e2e-rep.txt | grep -E \"passed|failed|flaky|^\\s+[0-9]+\\) |Error:\" | head -20; pgrep -af \"node_modules/playwright/lib/worker\" | cut -c1-120 | head -2",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npm run lint > $S/lint3.txt 2>&1; echo \"lint exit $?\"; tail -1 $S/lint3.txt; grep -A2 -E \"theme-palette|AppearanceTab|ThemeAgentCallout|palette-runtime\" $S/lint3.txt | head; npm run lint:react > $S/react3.txt 2>&1; echo \"react exit $?\"; tail -1 $S/react3.txt; npx vitest run tests/renderer tests/main/services/customization.service.test.ts tests/main/ipc/handlers/customization.handlers.validation.test.ts tests/main/lib/install-skills.test.ts tests/shared/constants > $S/vt.txt 2>&1; echo \"vitest exit $?\"; grep -E \"Test Files|Tests \" $S/vt.txt",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npx tsc --noEmit -p tsconfig.web.json > $S/tsc-web4.txt 2>&1; npx tsc --noEmit -p tsconfig.node.json > $S/tsc-node4.txt 2>&1; norm(){ grep \"error TS\" \"$1\" | sed -E 's/\\([0-9]+,[0-9]+\\)//' | sort; }; echo \"web: $(grep -c 'error TS' $S/tsc-web4.txt) node: $(grep -c 'error TS' $S/tsc-node4.txt)\"; echo \"--- web new vs baseline:\"; comm -13 <(norm $S/head-web.txt) <(norm $S/tsc-web4.txt) | cut -c1-200; echo \"--- node new vs baseline:\"; comm -13 <(norm $S/head-node.txt) <(norm $S/tsc-node4.txt) | grep -v TS6307 | cut -c1-200; npm run lint > $S/lint4.txt 2>&1; echo \"lint exit $?\"; grep -E \"problems\" $S/lint4.txt; grep -B1 -A2 -E \"appearance|settings-management|SettingsApprovalDialog|theme-palette|ThemeAgentCallout\" $S/lint4.txt | grep -i \"warn\\|error\" | head; npm test > $S/test4.txt 2>&1; echo \"test exit $?\"; grep -E \"Test Files|Tests \" $S/test4.txt | tail -2; grep -E \"^ FAIL\" $S/test4.txt | sort -u | head; npm run lint:react > $S/react4.txt 2>&1; echo \"react exit $?\"; tail -1 $S/react4.txt; npm run test:remote-companion > $S/cargo4.txt 2>&1; echo \"cargo exit $?\"; grep \"test result\" $S/cargo4.txt",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo; xvfb-run -a npm run test:e2e > /tmp/scratch/scratchpad/e2e.log 2>&1; echo exit=$?",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/wt5; cd $S && CARGO_TARGET_DIR=/work/repo/remote-companion/target npm run -s build:remote-companion 2>&1 | tail -3 && ls remote-companion/artifacts/*/ && (npm run -s test:ssh-workspace > ../ssh-it.log 2>&1; echo \"exit=$?\" >> ../ssh-it.log)",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad/wt5; cd $S && npx vitest run --config vitest.integration.config.ts tests/integration/ssh-workspace/container-ssh-workspace.test.ts > ../ssh-it.log 2>&1; echo \"exit=$?\" >> ../ssh-it.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npmtest.log 2>&1; echo exit=$?; grep -E \"Test Files|Tests  |FAIL\" /tmp/scratch/scratchpad/npmtest.log | head -20",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/7694680a-eef2-47b9-801e-977fe45518dc; until ! pgrep -f \"voice-settings-tab/node_modules/.bin/vitest run\" >/dev/null; do sleep 3; done; grep -E \"Test Files|Tests  |FAIL|×\" $S/scratchpad/npmtest.log | head -20",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; npm test > $S/npmtest2.log 2>&1; echo exit=$?; grep -E \"Test Files|Tests  |FAIL\" $S/npmtest2.log | head -20",
+    "hold": true
+  },
+  {
+    "command": "until ! kill -0 3874967 2>/dev/null && ! kill -0 3874956 2>/dev/null; do sleep 1; done; ls -la node_modules | head -1; readlink node_modules; ls -la ../_linux_x86_64.lock 2>&1",
+    "hold": true
+  },
+  {
+    "command": "mkdir -p /tmp/scratch/scratchpad; xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npm run test:e2e > /tmp/scratch/scratchpad/e2e-run1.log 2>&1; echo \"exit=$?\"",
+    "hold": true
+  },
+  {
+    "command": "xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npm run test:e2e > /tmp/scratch/scratchpad/e2e-run2.log 2>&1; echo \"exit=$?\" >> /tmp/scratch/scratchpad/e2e-run2.log",
+    "hold": true
+  },
+  {
+    "command": "xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npx playwright test --config e2e/playwright.config.ts e2e/file-viewer-dropdown-dismissal.test.ts --repeat-each=6 --reporter=list > /tmp/scratch/scratchpad/dropdown-repeat.log 2>&1; grep -E \"✓|✘|passed|failed\" /tmp/scratch/scratchpad/dropdown-repeat.log",
+    "hold": true
+  },
+  {
+    "command": "npm run test:remote-companion 2>&1 | grep -E \"test result|FAILED|failed|error\" | head -10",
+    "hold": true
+  },
+  {
+    "command": "npm test 2>&1 | grep -E \"Test Files|Tests |FAIL \" | head -10",
+    "hold": true
+  },
+  {
+    "command": "npm test 2>&1 | grep -E \"Test Files|Tests |FAIL \" ",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\"; tail -15 /tmp/scratch/scratchpad/npm-test.log",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests |FAIL|×\" /tmp/scratch/scratchpad/npm-test.log | head -30",
+    "hold": true
+  },
+  {
+    "command": "SP=/tmp/scratch/scratchpad && npm test > $SP/npm-test2.log 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests |FAIL\" $SP/npm-test2.log | sort -u | head -20",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test-overview.log 2>&1; echo \"exit $?\"; grep -E \"^ +× | FAIL |Test Files|Tests  \" /tmp/scratch/scratchpad/npm-test-overview.log | head -12",
+    "hold": true
+  },
+  {
+    "command": "npm test 2>&1 | grep -E \"^ +× | FAIL |Test Files|Tests  |exit|error\" | head -20",
+    "hold": true
+  },
+  {
+    "command": "xvfb-run -a --server-args=\"-screen 0 1920x1080x24\" npm run test:e2e 2>&1 | grep -vE \"^\\s*$\" | grep -E \"passed|failed|flaky|skipped|✘|×|Error:|error TS|ERR!|did not run|timed out\" | head -40",
+    "hold": true
+  },
+  {
+    "command": "npm test > /tmp/scratch/scratchpad/npm-test.log 2>&1; echo \"exit $?\"; grep -E \"Test Files|Tests |×|FAIL\" /tmp/scratch/scratchpad/npm-test.log | head -30",
+    "hold": true
+  },
+  {
+    "command": "sleep 25 && echo subagent-finished",
+    "hold": true
+  },
+  {
+    "command": "sleep 20 && echo done",
+    "hold": true
+  }
+]

@@ -1,0 +1,89 @@
+/* Brutalist: raw black and white, heavy type, one loud yellow */
+body {
+  background: #fff;
+  color: #000;
+  font-family: Menlo, 'SF Mono', monospace;
+}
+a {
+  color: #000;
+}
+h1 {
+  text-wrap: balance;
+  font-family: 'Helvetica Neue', Helvetica, sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: clamp(30px, 6.4vw, 62px);
+  line-height: 0.92;
+  letter-spacing: -0.04em;
+  max-width: 780px;
+  margin: 12px auto;
+}
+.eyebrow {
+  color: #000;
+  background: #ffe600;
+  display: inline-block;
+  padding: 2px 8px;
+  font-weight: 700;
+}
+.lede {
+  color: #000;
+  font-size: 15px;
+}
+/* @stage */
+.nav {
+  border-bottom: 4px solid #000;
+}
+.plans {
+  gap: 18px;
+}
+.plan {
+  border: 3px solid #000;
+  padding: clamp(12px, 2.2vw, 20px);
+  box-shadow: 8px 8px 0 #000;
+}
+.featured {
+  background: #ffe600;
+}
+.plan h2 {
+  font-family: 'Helvetica Neue', sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: 24px;
+}
+.amount {
+  font-family: 'Helvetica Neue', sans-serif;
+  font-weight: 900;
+  font-size: clamp(28px, 5.6vw, 52px);
+}
+/* @stage */
+.button {
+  border: 3px solid #000;
+  color: #000;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 10px 14px;
+}
+.button.primary {
+  background: #000;
+  color: #ffe600;
+}
+.badge {
+  color: #000;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.logo {
+  font-family: 'Helvetica Neue', sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  text-transform: uppercase;
+}
+.links a {
+  font-weight: 700;
+  color: #000;
+}
+.links a.current {
+  background: #000;
+  color: #fff;
+  padding: 0 6px;
+}

@@ -1,0 +1,224 @@
+{
+  "next": [
+    {
+      "name": "weekdays skip the weekend",
+      "cron": "0 9 * * 1-5",
+      "timeZone": "Europe/Oslo",
+      "after": "2026-10-16T07:00:00Z",
+      "expected": "2026-10-19T07:00:00Z"
+    },
+    {
+      "name": "daily keeps its wall-clock time across the end of daylight saving",
+      "cron": "0 9 * * *",
+      "timeZone": "Europe/Oslo",
+      "after": "2026-10-24T07:00:00Z",
+      "expected": "2026-10-25T08:00:00Z"
+    },
+    {
+      "name": "hourly",
+      "cron": "0 * * * *",
+      "timeZone": "UTC",
+      "after": "2026-10-15T10:30:00Z",
+      "expected": "2026-10-15T11:00:00Z"
+    },
+    {
+      "name": "every fifteen minutes",
+      "cron": "*/15 * * * *",
+      "timeZone": "America/New_York",
+      "after": "2026-10-15T10:31:00Z",
+      "expected": "2026-10-15T10:45:00Z"
+    },
+    {
+      "name": "a time daylight saving skips runs that far after the change",
+      "cron": "30 2 * * *",
+      "timeZone": "America/New_York",
+      "after": "2026-03-07T12:00:00Z",
+      "expected": "2026-03-08T07:30:00Z"
+    },
+    {
+      "name": "a repeated time runs at its first instance",
+      "cron": "30 1 * * *",
+      "timeZone": "America/New_York",
+      "after": "2026-10-31T12:00:00Z",
+      "expected": "2026-11-01T05:30:00Z"
+    },
+    {
+      "name": "a repeated time runs only once",
+      "cron": "30 1 * * *",
+      "timeZone": "America/New_York",
+      "after": "2026-11-01T05:30:00Z",
+      "expected": "2026-11-02T06:30:00Z"
+    },
+    {
+      "name": "two restricted day fields match either one (a Monday)",
+      "cron": "0 12 1 * 1",
+      "timeZone": "UTC",
+      "after": "2026-10-15T00:00:00Z",
+      "expected": "2026-10-19T12:00:00Z"
+    },
+    {
+      "name": "two restricted day fields match either one (the first)",
+      "cron": "0 12 1 * 1",
+      "timeZone": "UTC",
+      "after": "2026-10-26T12:00:00Z",
+      "expected": "2026-11-01T12:00:00Z"
+    },
+    {
+      "name": "weekday 7 is Sunday",
+      "cron": "0 8 * * 7",
+      "timeZone": "UTC",
+      "after": "2026-10-15T00:00:00Z",
+      "expected": "2026-10-18T08:00:00Z"
+    },
+    {
+      "name": "month and weekday names",
+      "cron": "0 6 * jan-MAR Mon",
+      "timeZone": "UTC",
+      "after": "2026-10-15T00:00:00Z",
+      "expected": "2027-01-04T06:00:00Z"
+    },
+    {
+      "name": "February 29",
+      "cron": "0 0 29 2 *",
+      "timeZone": "UTC",
+      "after": "2026-10-15T00:00:00Z",
+      "expected": "2028-02-29T00:00:00Z"
+    },
+    {
+      "name": "half-hour offset zone",
+      "cron": "0 9 * * *",
+      "timeZone": "Asia/Kolkata",
+      "after": "2026-10-15T00:00:00Z",
+      "expected": "2026-10-15T03:30:00Z"
+    },
+    {
+      "name": "stepped range",
+      "cron": "0 9-17/4 * * *",
+      "timeZone": "UTC",
+      "after": "2026-10-15T09:00:00Z",
+      "expected": "2026-10-15T13:00:00Z"
+    },
+    {
+      "name": "lists",
+      "cron": "15,45 8,20 * * *",
+      "timeZone": "UTC",
+      "after": "2026-10-15T08:45:00Z",
+      "expected": "2026-10-15T20:15:00Z"
+    }
+  ],
+  "due": [
+    {
+      "name": "on time",
+      "cron": "0 9 * * 1-5",
+      "timeZone": "Europe/Oslo",
+      "enabled": true,
+      "missedRunGraceMinutes": 720,
+      "updatedAt": "2026-10-01T00:00:00Z",
+      "lastScheduledFor": "2026-10-15T07:00:00Z",
+      "now": "2026-10-16T07:00:30Z",
+      "expected": { "kind": "run", "scheduledFor": "2026-10-16T07:00:00Z" }
+    },
+    {
+      "name": "later than the grace allows",
+      "cron": "0 9 * * 1-5",
+      "timeZone": "Europe/Oslo",
+      "enabled": true,
+      "missedRunGraceMinutes": 720,
+      "updatedAt": "2026-10-01T00:00:00Z",
+      "lastScheduledFor": "2026-10-15T07:00:00Z",
+      "now": "2026-10-16T20:00:00Z",
+      "expected": { "kind": "missed", "scheduledFor": "2026-10-16T07:00:00Z" }
+    },
+    {
+      "name": "already handled",
+      "cron": "0 9 * * 1-5",
+      "timeZone": "Europe/Oslo",
+      "enabled": true,
+      "missedRunGraceMinutes": 720,
+      "updatedAt": "2026-10-01T00:00:00Z",
+      "lastScheduledFor": "2026-10-16T07:00:00Z",
+      "now": "2026-10-16T20:00:00Z",
+      "expected": { "kind": "none" }
+    },
+    {
+      "name": "a time before the last edit never runs",
+      "cron": "0 9 * * 1-5",
+      "timeZone": "Europe/Oslo",
+      "enabled": true,
+      "missedRunGraceMinutes": 720,
+      "updatedAt": "2026-10-16T07:30:00Z",
+      "now": "2026-10-16T08:00:00Z",
+      "expected": { "kind": "none" }
+    },
+    {
+      "name": "disabled",
+      "cron": "0 9 * * 1-5",
+      "timeZone": "Europe/Oslo",
+      "enabled": false,
+      "missedRunGraceMinutes": 720,
+      "updatedAt": "2026-10-01T00:00:00Z",
+      "now": "2026-10-16T07:00:30Z",
+      "expected": { "kind": "none" }
+    },
+    {
+      "name": "after two weeks away only the latest time runs",
+      "cron": "0 9 * * *",
+      "timeZone": "UTC",
+      "enabled": true,
+      "missedRunGraceMinutes": 720,
+      "updatedAt": "2026-09-01T00:00:00Z",
+      "lastScheduledFor": "2026-10-01T09:00:00Z",
+      "now": "2026-10-15T10:00:00Z",
+      "expected": { "kind": "run", "scheduledFor": "2026-10-15T09:00:00Z" }
+    },
+    {
+      "name": "a short daylight-saving day still reaches the latest time",
+      "cron": "0 0 * * *",
+      "timeZone": "Europe/Oslo",
+      "enabled": true,
+      "missedRunGraceMinutes": 720,
+      "updatedAt": "2026-03-28T22:30:00Z",
+      "now": "2026-03-29T22:00:30Z",
+      "expected": { "kind": "run", "scheduledFor": "2026-03-29T22:00:00Z" }
+    },
+    {
+      "name": "no grace still allows a slow tick",
+      "cron": "0 9 * * *",
+      "timeZone": "UTC",
+      "enabled": true,
+      "missedRunGraceMinutes": 0,
+      "updatedAt": "2026-09-01T00:00:00Z",
+      "now": "2026-10-15T09:01:59Z",
+      "expected": { "kind": "run", "scheduledFor": "2026-10-15T09:00:00Z" }
+    },
+    {
+      "name": "no grace",
+      "cron": "0 9 * * *",
+      "timeZone": "UTC",
+      "enabled": true,
+      "missedRunGraceMinutes": 0,
+      "updatedAt": "2026-09-01T00:00:00Z",
+      "now": "2026-10-15T09:02:01Z",
+      "expected": { "kind": "missed", "scheduledFor": "2026-10-15T09:00:00Z" }
+    }
+  ],
+  "invalidCron": [
+    "",
+    "* * * *",
+    "* * * * * *",
+    "60 * * * *",
+    "* 24 * * *",
+    "* * 0 * *",
+    "* * * 13 *",
+    "* * * * 8",
+    "*/0 * * * *",
+    "5-1 * * * *",
+    "1/5 * * * *",
+    "@daily",
+    "* * * * MON-",
+    "a * * * *",
+    "1,,2 * * * *",
+    "-1 * * * *"
+  ],
+  "invalidTimeZone": ["Mars/Olympus", ""]
+}

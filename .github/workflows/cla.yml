@@ -1,0 +1,42 @@
+name: CLA
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+# Every run rewrites the one signatures file, so runs go one at a time.
+concurrency:
+  group: cla
+  cancel-in-progress: false
+
+jobs:
+  cla:
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request &&
+        (github.event.comment.body == 'recheck' ||
+          contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')))
+    runs-on: ubuntu-latest
+    steps:
+      # StepSecurity's maintained fork of contributor-assistant/github-action, which was archived in
+      # March 2026. It never checks out pull request code, so pull_request_target is safe here.
+      - uses: step-security/contributor-assistant-github-action@b9bd60bf1b766fa48dae03427059187137236239 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # A tag, so each signature points at the text that was signed. Tag a new version when CLA.md changes.
+          path-to-document: https://github.com/tordrt/komla/blob/cla-v1.0/CLA.md
+          # The action commits signatures here. The branch must exist and stay unprotected.
+          branch: cla-signatures
+          path-to-signatures: signatures/cla.json
+          allowlist: tordrt,dependabot[bot]
+          # Locking runs on every close, merged or not, and would shut out a contributor whose PR was closed.
+          lock-pullrequest-aftermerge: false

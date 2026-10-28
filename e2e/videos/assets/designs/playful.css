@@ -1,0 +1,88 @@
+/* Playful: warm cream, pastel cards, round friendly type */
+body {
+  background: #fff6ec;
+  color: #2b2350;
+  font-family: ui-rounded, 'SF Pro Rounded', 'Avenir Next', sans-serif;
+}
+a {
+  color: #2b2350;
+}
+h1 {
+  text-wrap: balance;
+  font-size: clamp(30px, 5.8vw, 52px);
+  font-weight: 800;
+  line-height: 1.05;
+  max-width: 700px;
+  margin: 14px auto;
+}
+.eyebrow {
+  color: #ff6b4a;
+  font-weight: 700;
+  font-size: 15px;
+}
+.lede {
+  color: #6b6290;
+  font-size: 18px;
+}
+/* @stage */
+.nav {
+  border-bottom: 0;
+}
+.plans {
+  gap: 18px;
+  align-items: flex-start;
+}
+.plan {
+  border: 0;
+  border-radius: 28px;
+  padding: clamp(12px, 2.6vw, 26px);
+  background: #d8f3e6;
+}
+.featured {
+  background: #e5dcff;
+  transform: translateY(-10px);
+}
+.plan:last-child {
+  background: #d6ebff;
+}
+.amount {
+  font-size: clamp(28px, 5.2vw, 48px);
+  font-weight: 800;
+}
+.plan ul {
+  list-style: none;
+  padding: 0;
+}
+/* @stage */
+.button {
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #2b2350;
+  font-weight: 700;
+  padding: 11px 20px;
+}
+.button.primary {
+  background: #2b2350;
+  color: #fff;
+}
+.badge {
+  display: inline-block;
+  background: #ff6b4a;
+  color: #fff;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 999px;
+  transform: rotate(-3deg);
+}
+.logo {
+  font-size: 22px;
+  font-weight: 800;
+  color: #ff6b4a;
+}
+.links a.current {
+  background: #2b2350;
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 999px;
+}

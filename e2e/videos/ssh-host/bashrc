@@ -1,0 +1,4 @@
+
+# The same short prompt as the local recordings' shells.
+export LC_ALL=C.UTF-8
+PS1='\[\e[34m\]\W\[\e[0m\] \[\e[35m\]❯\[\e[0m\] '

@@ -1,0 +1,96 @@
+appId: com.komla.app
+productName: Komla
+beforePack: scripts/beforePack.cjs
+publish:
+  - provider: generic
+    url: https://downloads.komla.dev/latest/
+releaseInfo:
+  releaseNotesFile: CHANGELOG.md
+directories:
+  buildResources: resources
+  output: dist
+# Allowlist: electron-builder adds package.json and the production node_modules
+# itself. Anything else in the working copy (tests, workers, local .dev.vars)
+# must never reach app.asar.
+files:
+  - out/{main,preload,renderer}/**
+asarUnpack:
+  - '**/*.node'
+  - node_modules/node-pty/**
+  - node_modules/@parcel/watcher/**
+  - node_modules/@vscode/ripgrep/**
+  - node_modules/@vscode/ripgrep-*/**
+  - node_modules/sherpa-onnx-node/**
+  - node_modules/sherpa-onnx-darwin-*/**
+  - node_modules/sherpa-onnx-linux-*/**
+  - node_modules/sherpa-onnx-win-*/**
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # A map: electron-builder merges a list's items into Info.plist as keys "0", "1" and so on.
+  extendInfo:
+    NSMicrophoneUsageDescription: Komla uses the microphone for voice-to-text transcription.
+    NSCameraUsageDescription: Camera access is not required by this application.
+    # Lets a folder be dropped on the Dock icon or opened with Komla from Finder, without
+    # making Komla the default app for folders.
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Folder
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: Alternate
+        LSItemContentTypes:
+          - public.folder
+  artifactName: ${name}-${version}-${arch}.${ext}
+  notarize: true
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  # Signs with jsign when WIN_SIGN_STORETYPE is set and does nothing otherwise
+  # (docs/RELEASING.md). Smart App Control checks every PE image, so the hook also
+  # gets DLLs and native add-ons, not only .exe files.
+  signtoolOptions:
+    sign: ./scripts/windows-sign.cjs
+    signingHashAlgorithms:
+      - sha256
+  signExts:
+    - .dll
+    - .node
+nsis:
+  artifactName: ${name}-${version}-${arch}-setup.${ext}
+  shortcutName: Komla
+  uninstallDisplayName: Komla
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
+  - from: resources/skills/
+    to: skills/
+  - from: remote-web/public/
+    to: remote-app/
+  - from: native/artifacts/
+    to: native/
+  - from: src/renderer/assets/fonts/OFL.txt
+    to: licenses/JetBrainsMono-OFL.txt
+  - from: src/renderer/assets/fonts/Geist-OFL.txt
+    to: licenses/Geist-OFL.txt
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
+  maintainer: komla
+  category: Development
+  icon: resources/icons
+appImage:
+  artifactName: ${name}-${version}-${arch}.${ext}

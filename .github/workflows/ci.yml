@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      # .npmrc's min-release-age needs npm 11.
+      - run: npm install -g npm@11
+      # keyboard-layout's native build needs the X11 and xkbfile headers.
+      - run: sudo apt-get update && sudo apt-get install -y libx11-dev libxkbfile-dev
+        if: runner.os == 'Linux'
+      - run: npm ci
+      - run: npm run format:check
+        if: runner.os == 'Linux'
+      - run: npm run lint
+        if: runner.os == 'Linux'
+      # Typechecks, then runs vitest and the native Rust tests.
+      - run: npm test
+      # The phone web app and the protocol package it shares with the desktop app.
+      - run: npm --workspace komla-remote-web test && npm --workspace @komla/remote-protocol test
+        if: runner.os == 'Linux'

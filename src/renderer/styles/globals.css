@@ -1,0 +1,1308 @@
+@import 'tailwindcss' source('..');
+
+/* Keep Tailwind 3 variant behavior: `dark:` matches inside `.dark` with the same specificity,
+   and `hover:` applies without v4's `(hover: hover)` media query, as Komla is a desktop app. */
+@custom-variant dark (&:is(.dark *));
+@custom-variant hover (&:hover);
+/* `light:` matches inside the `.light` class light themes put on <html>. That includes terminal
+   panes, which carry `.dark` as well for their dark terminal sibling. */
+@custom-variant light (&:is(.light *));
+/* `reduce-effects:` applies while Settings > Appearance > Reduce effects is on. */
+@custom-variant reduce-effects (&:is(:root[data-reduce-effects] *));
+
+@theme {
+  /* JetBrainsMonoNL Nerd Font Mono is bundled below, so Linux and Windows get it without
+     installing it. */
+  --font-mono:
+    'SF Mono', 'JetBrains Mono', 'JetBrainsMonoNL Nerd Font Mono', 'Fira Code', 'Cascadia Code',
+    'Consolas', monospace;
+
+  /* Geist is bundled below; this matches the body font so `font-sans` resets to it. */
+  --font-sans:
+    'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Ubuntu', 'Cantarell',
+    sans-serif;
+
+  /* Status bar items' text, with Nerd Font icons from the bundled font that Geist lacks. */
+  --font-status:
+    'Geist', 'JetBrainsMonoNL Nerd Font Mono', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'Roboto', 'Ubuntu', 'Cantarell', sans-serif;
+
+  /* Dense app chrome: badges and meta text (2xs), labels and panel tabs (ui). */
+  --text-2xs: 10px;
+  --text-2xs--line-height: 14px;
+  --text-ui: 11px;
+  --text-ui--line-height: 16px;
+
+  --shadow-soft: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+  --shadow-soft-lg: 0 2px 8px -2px rgba(0, 0, 0, 0.1), 0 1px 3px -1px rgba(0, 0, 0, 0.06);
+
+  --animate-indeterminate-progress: indeterminate-progress 1.5s ease-in-out infinite;
+  /* The done check draws in from the left, the way a pen would: a clipping window slides in
+     while the check slides the other way inside it, so the check holds still. Transforms, not
+     clip-path, so it keeps moving while the renderer is busy. */
+  --animate-check-reveal: check-reveal 450ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-check-reveal-content: check-reveal-content 450ms cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes check-reveal {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+
+  @keyframes check-reveal-content {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: none;
+    }
+  }
+
+  @keyframes indeterminate-progress {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(400%);
+    }
+  }
+}
+
+/* Palette tokens hold bare OKLCH channels (see the base layer below and palette-runtime.ts),
+   so utilities wrap them where they are used and opacity modifiers keep working. */
+@theme inline {
+  --color-border: oklch(var(--border));
+  --color-input: oklch(var(--input));
+  --color-ring: oklch(var(--ring));
+  --color-background: oklch(var(--background));
+  --color-foreground: oklch(var(--foreground));
+  --color-primary: oklch(var(--primary));
+  --color-primary-foreground: oklch(var(--primary-foreground));
+  --color-brand: oklch(var(--brand));
+  /* The Komla logo: the theme's accent, or Komla blue under a gray one (applyAccent). */
+  --color-komla: oklch(var(--komla, var(--brand)));
+  --color-secondary: oklch(var(--secondary));
+  --color-secondary-foreground: oklch(var(--secondary-foreground));
+  --color-destructive: oklch(var(--destructive));
+  --color-destructive-foreground: oklch(var(--destructive-foreground));
+  --color-muted: oklch(var(--muted));
+  --color-muted-foreground: oklch(var(--muted-foreground));
+  --color-accent: oklch(var(--accent));
+  --color-accent-foreground: oklch(var(--accent-foreground));
+  --color-card: oklch(var(--card));
+  --color-card-foreground: oklch(var(--card-foreground));
+  --color-popover: oklch(var(--popover));
+  --color-popover-foreground: oklch(var(--popover-foreground));
+  --color-success: oklch(var(--success));
+  --color-success-foreground: oklch(var(--success-foreground));
+  --color-warning: oklch(var(--warning));
+  --color-warning-foreground: oklch(var(--warning-foreground));
+  --color-error: oklch(var(--error));
+  --color-error-foreground: oklch(var(--error-foreground));
+  --color-info: oklch(var(--info));
+  --color-info-foreground: oklch(var(--info-foreground));
+  --color-attention: oklch(var(--attention));
+  --color-attention-foreground: oklch(var(--attention-foreground));
+  --color-ahead: oklch(var(--ahead));
+  --color-behind: oklch(var(--behind));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 3px);
+}
+
+/* Overlay animations for the Radix primitives, a local subset of tailwindcss-animate:
+   `animate-in` / `animate-out` plus `fade-*`, `zoom-*` and `slide-in-from-*` /
+   `slide-out-to-*` modifiers that set the variables the `enter` / `exit` keyframes read.
+   Radix Presence waits for the exit animation to end before unmounting, so `animate-out`
+   must always finish. Tailwind's translate utilities set the separate `translate`
+   property, which composes with these transforms, so a Dialog centered with
+   `translate-x-[-50%]` animates in place. */
+@keyframes enter {
+  from {
+    opacity: var(--tw-enter-opacity, 1);
+    transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+      scale(var(--tw-enter-scale, 1));
+  }
+}
+
+@keyframes exit {
+  to {
+    opacity: var(--tw-exit-opacity, 1);
+    transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0)
+      scale(var(--tw-exit-scale, 1));
+  }
+}
+
+@utility animate-in {
+  animation-name: enter;
+  animation-duration: 150ms;
+}
+
+@utility animate-out {
+  animation-name: exit;
+  animation-duration: 150ms;
+}
+
+@utility fade-in-* {
+  --tw-enter-opacity: calc(--value(integer) / 100);
+  --tw-enter-opacity: --value([number], [percentage]);
+}
+
+@utility fade-out-* {
+  --tw-exit-opacity: calc(--value(integer) / 100);
+  --tw-exit-opacity: --value([number], [percentage]);
+}
+
+@utility zoom-in-* {
+  --tw-enter-scale: calc(--value(integer) / 100);
+  --tw-enter-scale: --value([number], [percentage]);
+}
+
+@utility zoom-out-* {
+  --tw-exit-scale: calc(--value(integer) / 100);
+  --tw-exit-scale: --value([number], [percentage]);
+}
+
+@utility slide-in-from-top-* {
+  --tw-enter-translate-y: calc(var(--spacing) * --value(number) * -1);
+  --tw-enter-translate-y: calc(--value(ratio) * -100%);
+  --tw-enter-translate-y: calc(--value([length], [percentage]) * -1);
+}
+
+@utility slide-in-from-bottom-* {
+  --tw-enter-translate-y: calc(var(--spacing) * --value(number));
+  --tw-enter-translate-y: calc(--value(ratio) * 100%);
+  --tw-enter-translate-y: --value([length], [percentage]);
+}
+
+@utility slide-in-from-left-* {
+  --tw-enter-translate-x: calc(var(--spacing) * --value(number) * -1);
+  --tw-enter-translate-x: calc(--value(ratio) * -100%);
+  --tw-enter-translate-x: calc(--value([length], [percentage]) * -1);
+}
+
+@utility slide-in-from-right-* {
+  --tw-enter-translate-x: calc(var(--spacing) * --value(number));
+  --tw-enter-translate-x: calc(--value(ratio) * 100%);
+  --tw-enter-translate-x: --value([length], [percentage]);
+}
+
+@utility slide-out-to-top-* {
+  --tw-exit-translate-y: calc(var(--spacing) * --value(number) * -1);
+  --tw-exit-translate-y: calc(--value(ratio) * -100%);
+  --tw-exit-translate-y: calc(--value([length], [percentage]) * -1);
+}
+
+@utility slide-out-to-bottom-* {
+  --tw-exit-translate-y: calc(var(--spacing) * --value(number));
+  --tw-exit-translate-y: calc(--value(ratio) * 100%);
+  --tw-exit-translate-y: --value([length], [percentage]);
+}
+
+@utility slide-out-to-left-* {
+  --tw-exit-translate-x: calc(var(--spacing) * --value(number) * -1);
+  --tw-exit-translate-x: calc(--value(ratio) * -100%);
+  --tw-exit-translate-x: calc(--value([length], [percentage]) * -1);
+}
+
+@utility slide-out-to-right-* {
+  --tw-exit-translate-x: calc(var(--spacing) * --value(number));
+  --tw-exit-translate-x: calc(--value(ratio) * 100%);
+  --tw-exit-translate-x: --value([length], [percentage]);
+}
+
+/* A scrolling list's bottom fades out while more of it is below, instead of ending in a hard cut,
+   and comes in sharp over its last 3rem of scroll. Without overflow the scroll timeline is
+   inactive, so nothing fades. Goes on the scroll container itself. */
+@property --scroll-fade-bottom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes scroll-fade-bottom {
+  from {
+    --scroll-fade-bottom: 2.5rem;
+  }
+  to {
+    --scroll-fade-bottom: 0px;
+  }
+}
+
+@utility scroll-fade-bottom {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--scroll-fade-bottom)), transparent);
+  animation: scroll-fade-bottom linear both;
+  animation-timeline: scroll(self);
+  animation-range: calc(100% - 3rem) 100%;
+}
+
+/* scroll-fade-bottom, plus the same fade at the top once the list scrolls down: it grows in over
+   the first 3rem of scroll, so the list starts sharp. */
+@property --scroll-fade-top {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes scroll-fade-top {
+  from {
+    --scroll-fade-top: 0px;
+  }
+  to {
+    --scroll-fade-top: 2.5rem;
+  }
+}
+
+@utility scroll-fade-y {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--scroll-fade-top),
+    #000 calc(100% - var(--scroll-fade-bottom)),
+    transparent
+  );
+  animation:
+    scroll-fade-top linear both,
+    scroll-fade-bottom linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range:
+    0 3rem,
+    calc(100% - 3rem) 100%;
+}
+
+/* Geist (SIL OFL 1.1, see assets/fonts/Geist-OFL.txt) is the interface font on every platform. */
+@font-face {
+  font-family: 'Geist';
+  src: url('../assets/fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrainsMonoNL Nerd Font Mono';
+  src: url('../assets/fonts/JetBrainsMonoNLNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrainsMonoNL Nerd Font Mono';
+  src: url('../assets/fonts/JetBrainsMonoNLNerdFontMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Floating UI pinned to the window's bottom edge clears the status bar. */
+:root:has([data-status-bar]) {
+  --status-bar-height: 1.5rem;
+}
+
+@layer base {
+  :root {
+    /* Neutral (zero-chroma) surfaces — OKLCH values (L C H) for Tailwind opacity support.
+       Gray carries the chrome; color is reserved for state (status, git, attention). */
+    --background: 1 0 0;
+    --foreground: 0.145 0 0;
+    --card: 0.985 0 0;
+    --card-foreground: 0.145 0 0;
+    --popover: 1 0 0;
+    --popover-foreground: 0.145 0 0;
+    --primary: 0.205 0 0;
+    --primary-foreground: 0.985 0 0;
+    --secondary: 0.97 0 0;
+    --secondary-foreground: 0.205 0 0;
+    --muted: 0.97 0 0;
+    --muted-foreground: 0.5 0 0;
+    --accent: 0.94 0 0;
+    --accent-foreground: 0.205 0 0;
+    --destructive: 0.5 0.22 25;
+    --destructive-foreground: 0.985 0 0;
+    --border: 0.922 0 0;
+    --input: 0.922 0 0;
+    --ring: 0.205 0 0;
+    /* The workspace sidebar sits a step off the canvas; hover and selection go one step further. */
+    --sidebar: 0.97 0 0;
+    --sidebar-accent: 0.937 0 0;
+    /* Muted fills on the sidebar's surface (dialogs), where --muted matches the surface. */
+    --sidebar-muted: 0.955 0 0;
+    --sidebar-border: 0.922 0 0;
+    /* The workspace sidebar and the window around the work area card, a step under the card. */
+    --chrome: 0.955 0 0;
+    /* Komla blue (#339fee in dark): the logo under a gray accent, and the upgrade dialog. Darker
+       here to read on white. */
+    --brand: 0.54 0.15 245;
+    --radius: 0.5rem;
+    --file-viewer-surface: oklch(var(--card));
+    /* Status colors. The base token is readable as text on every palette surface (WCAG AA)
+       and stays close to Tailwind's green, amber and red; -foreground is text on a solid
+       fill of the base. */
+    --success: 0.48 0.16 150;
+    --success-foreground: 0.985 0 0;
+    --warning: 0.5 0.15 55;
+    --warning-foreground: 0.985 0 0;
+    --error: 0.5 0.21 27;
+    --error-foreground: 0.985 0 0;
+    --info: 0.47 0.13 245;
+    --info-foreground: 0.985 0 0;
+    /* An agent is waiting on the user. */
+    --attention: 0.47 0.17 265;
+    --attention-foreground: 0.985 0 0;
+    /* Commits ahead of (cyan) and behind (blue) another branch; kept far apart in hue. */
+    --ahead: 0.49 0.1 218;
+    --behind: 0.49 0.22 264;
+    /* Git-status filename colors */
+    --git-added: oklch(var(--success));
+    --git-untracked: oklch(var(--success));
+    --git-modified: oklch(var(--warning));
+    --git-deleted: oklch(var(--error));
+    --git-renamed: oklch(0.48 0.2 305);
+    /* Commit graph lines: VS Code's source control graph colors, with the checked-out branch
+       in Komla blue. */
+    --git-graph-ref: oklch(0.54 0.15 245);
+    --git-graph-remote-ref: #b66dff;
+    --git-graph-base-ref: #ea5c00;
+    --git-graph-lane-1: #ffb000;
+    --git-graph-lane-2: #dc267f;
+    --git-graph-lane-3: #994f00;
+    --git-graph-lane-4: #40b0a6;
+    --git-graph-lane-5: #b66dff;
+  }
+
+  .dark {
+    /* Graphite: near-black with a cool blue-gray tint, in crisp steps. The work area card sits well
+       above the terminal (#13171b) and the chrome a step below it, so every layer's edge shows. */
+    --background: 0.14 0.01 250;
+    --foreground: 0.985 0 0;
+    --card: 0.284 0.01 250;
+    --card-foreground: 0.985 0 0;
+    --popover: 0.3 0.01 250;
+    --popover-foreground: 0.985 0 0;
+    --primary: 0.922 0 0;
+    --primary-foreground: 0.205 0 0;
+    --secondary: 0.357 0.01 250;
+    --secondary-foreground: 0.985 0 0;
+    --muted: 0.357 0.01 250;
+    --muted-foreground: 0.75 0 0;
+    --accent: 0.37 0.01 250;
+    --accent-foreground: 0.985 0 0;
+    --destructive: 0.52 0.18 25;
+    --destructive-foreground: 0.985 0 0;
+    --border: 0.381 0.01 250;
+    --input: 0.45 0.01 250;
+    --ring: 0.922 0 0;
+    --sidebar: 0.197 0.01 250;
+    --sidebar-accent: 0.278 0.01 250;
+    /* Under --sidebar-accent, so a selected segment still shows on a muted track. */
+    --sidebar-muted: 0.232 0.01 250;
+    /* A step darker than the sidebar, so its edge shows against the chrome beside it. */
+    --sidebar-border: 0.104 0.01 250;
+    /* The workspace sidebar and the window around the work area card. */
+    --chrome: 0.155 0.01 250;
+    --brand: 0.68 0.15 245;
+    --file-viewer-surface: oklch(var(--card));
+    --success: 0.79 0.2 152;
+    --success-foreground: 0.18 0.03 150;
+    --warning: 0.83 0.18 84;
+    --warning-foreground: 0.2 0.03 70;
+    --error: 0.73 0.185 22;
+    --error-foreground: 0.18 0.03 25;
+    --info: 0.78 0.1 235;
+    --info-foreground: 0.18 0.03 240;
+    --attention: 0.77 0.13 262;
+    --attention-foreground: 0.18 0.03 265;
+    --ahead: 0.79 0.15 212;
+    --behind: 0.71 0.165 256;
+    --git-added: oklch(var(--success));
+    --git-untracked: oklch(var(--success));
+    --git-modified: oklch(var(--warning));
+    --git-deleted: oklch(var(--error));
+    --git-renamed: oklch(0.75 0.15 305);
+    --git-graph-ref: oklch(0.68 0.15 245);
+    --git-graph-remote-ref: #b66dff;
+    --git-graph-base-ref: #ea5c00;
+    --git-graph-lane-1: #ffb000;
+    --git-graph-lane-2: #dc267f;
+    --git-graph-lane-3: #ce9178;
+    --git-graph-lane-4: #40b0a6;
+    --git-graph-lane-5: #b66dff;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family:
+      'Geist',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      Oxygen,
+      Ubuntu,
+      Cantarell,
+      sans-serif;
+    letter-spacing: 0.01em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /* The main window never scrolls, so a dialog or menu's scroll lock has nothing to do here.
+     Starting from the values its body[data-scroll-locked] rules set (react-remove-scroll-bar)
+     keeps each lock and unlock from restyling the whole app. */
+  body.app-window {
+    overflow: hidden;
+    overscroll-behavior: contain;
+    position: relative;
+    --removed-body-scroll-bar-size: 0px;
+    /* Radix blocks the app behind a modal menu or dialog with pointer-events: none here, which
+       restyles every element. OutsidePointerShield blocks those clicks instead. */
+    pointer-events: auto !important;
+  }
+  /* Replace the platform-default focus ring (yellow on macOS w/ yellow accent)
+     with our own ring color so all focusable elements look consistent. */
+  *:focus {
+    outline: none;
+  }
+  *:focus-visible {
+    outline: 2px solid oklch(var(--ring));
+    outline-offset: 2px;
+  }
+  /* Tailwind 3 preflight defaults that v4 dropped. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-gray-400);
+  }
+  /* Radix positions floating content in a wrapper that would still catch the pointer when the
+     content lets it through, as a tooltip laid over a list does. */
+  [data-radix-popper-content-wrapper]:has(> .pointer-events-none) {
+    pointer-events: none;
+  }
+}
+
+@layer components {
+  /* Rendered Markdown in the file viewer. */
+  .markdown-preview {
+    @apply text-sm leading-relaxed text-foreground;
+  }
+  .markdown-preview > * + * {
+    @apply mt-3;
+  }
+  .markdown-preview h1 {
+    @apply mt-6 border-b border-border pb-2 text-2xl font-semibold first:mt-0;
+  }
+  .markdown-preview h2 {
+    @apply mt-6 border-b border-border pb-1.5 text-xl font-semibold first:mt-0;
+  }
+  .markdown-preview h3 {
+    @apply mt-5 text-base font-semibold first:mt-0;
+  }
+  .markdown-preview :is(h4, h5, h6) {
+    @apply mt-4 font-semibold first:mt-0;
+  }
+  .markdown-preview a {
+    @apply text-primary underline underline-offset-2;
+  }
+  .markdown-preview ul {
+    @apply list-disc pl-6;
+  }
+  .markdown-preview ol {
+    @apply list-decimal pl-6;
+  }
+  .markdown-preview li + li {
+    @apply mt-1;
+  }
+  .markdown-preview li > input[type='checkbox'] {
+    @apply mr-1.5 align-middle;
+  }
+  .markdown-preview code {
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .markdown-preview pre {
+    @apply overflow-x-auto rounded-md bg-muted p-3;
+  }
+  .markdown-preview pre code {
+    @apply bg-transparent p-0;
+  }
+  .markdown-preview blockquote {
+    @apply border-l-2 border-border pl-4 text-muted-foreground;
+  }
+  .markdown-preview table {
+    @apply block w-max max-w-full overflow-x-auto;
+  }
+  .markdown-preview :is(th, td) {
+    @apply border border-border px-3 py-1.5 text-left;
+  }
+  .markdown-preview th {
+    @apply bg-muted font-medium;
+  }
+  .markdown-preview hr {
+    @apply border-border;
+  }
+  .markdown-preview img {
+    @apply max-w-full;
+  }
+
+  /* Markdown in a status bar item's popover: the file viewer's, at popover size. */
+  .status-markdown {
+    @apply leading-normal;
+  }
+  .status-markdown > * + * {
+    @apply mt-2;
+  }
+  .status-markdown :is(h1, h2, h3, h4, h5, h6) {
+    @apply mt-3 border-0 pb-0 text-[13px] first:mt-0;
+  }
+  .status-markdown :is(ul, ol) {
+    @apply pl-4;
+  }
+  .status-markdown li + li {
+    @apply mt-0.5;
+  }
+  .status-markdown pre {
+    @apply p-2;
+  }
+  .status-markdown :is(th, td) {
+    @apply px-2 py-1;
+  }
+
+  /* The rich Markdown editor, which also carries .markdown-preview. */
+  .markdown-editor {
+    @apply outline-hidden;
+  }
+  .markdown-editor a {
+    @apply cursor-text;
+  }
+  .markdown-editor[contenteditable='false'] a {
+    @apply cursor-pointer;
+  }
+  .markdown-editor .markdown-soft-break {
+    @apply whitespace-normal;
+  }
+  /* Find bar matches, in the Source view's find colors. */
+  .markdown-editor .markdown-search-match {
+    @apply rounded-xs bg-[#3b82f630];
+  }
+  .markdown-editor .markdown-search-match.current {
+    @apply bg-[#3b82f660] ring-1 ring-[#3b82f6];
+  }
+  .markdown-editor .is-empty::before {
+    @apply pointer-events-none float-left h-0 text-muted-foreground/60;
+    content: attr(data-placeholder);
+  }
+  .markdown-editor ul[data-type='taskList'] {
+    @apply list-none pl-1;
+  }
+  .markdown-editor ul[data-type='taskList'] > li {
+    @apply flex items-start gap-2;
+  }
+  .markdown-editor ul[data-type='taskList'] > li > label {
+    @apply flex h-[1.625em] shrink-0 items-center select-none;
+  }
+  .markdown-editor ul[data-type='taskList'] > li > label input {
+    @apply size-3.5 accent-primary;
+  }
+  .markdown-editor ul[data-type='taskList'] > li > div {
+    @apply min-w-0 flex-1;
+  }
+  .markdown-editor ul[data-type='taskList'] > li[data-checked='true'] > div {
+    @apply text-muted-foreground;
+  }
+  .markdown-editor :is(th, td) {
+    @apply relative min-w-16 align-top;
+  }
+  .markdown-editor .selectedCell::after {
+    @apply pointer-events-none absolute inset-0 bg-primary/15;
+    content: '';
+  }
+  /* Blocks kept as Markdown because rich text would change them. */
+  .markdown-editor pre[data-markdown-source] {
+    @apply rounded-none border-l-2 border-border bg-transparent py-1 pr-0 pl-3 text-xs whitespace-pre-wrap text-muted-foreground;
+  }
+  .markdown-editor img.is-broken {
+    @apply inline-block min-h-6 min-w-6 rounded border border-dashed border-border;
+  }
+  .markdown-editor :is(img, hr).ProseMirror-selectednode {
+    @apply outline-2 outline-offset-2 outline-primary;
+  }
+}
+
+/* Custom scrollbar - thinner for a cleaner look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(var(--muted-foreground) / 0.25);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(var(--primary) / 0.35);
+}
+
+/* Extra-thin scrollbar for file trees */
+.thin-scrollbar ::-webkit-scrollbar,
+.thin-scrollbar::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+.thin-scrollbar ::-webkit-scrollbar-thumb,
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 1.5px;
+}
+
+/* Hide scrollbar entirely (still scrollable via wheel/trackpad) */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+/* xterm 6: The old .xterm-viewport element still exists with overflow-y:scroll in xterm.css,
+   but the screen element was moved into the DomScrollableElement. The empty viewport's native
+   scrollbar gutter shows as a line between the content and the custom scrollbar. */
+.xterm .xterm-viewport {
+  overflow: hidden !important;
+}
+
+/* Slim down the xterm 6 DomScrollableElement scrollbar (default 14px) */
+.xterm .xterm-scrollable-element > .scrollbar.vertical {
+  width: 4px !important;
+}
+.xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  width: 4px !important;
+}
+
+/* Darken bright colors in light mode for better contrast on white backgrounds */
+:root .light-darken {
+  filter: brightness(0.85);
+}
+.dark .light-darken {
+  filter: none;
+}
+
+/* No text selection on UI elements */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Draggable title bar region */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Controls in a draggable row (the workspace tab row) still take clicks and drags. */
+.drag-region
+  :is(button, a, input, select, textarea, [role='button'], [role='tab'], [draggable='true']) {
+  -webkit-app-region: no-drag;
+}
+
+/* Session attention glow - uses project color when available, falls back to primary */
+.attention-glow {
+  --glow-color-dim: oklch(var(--primary) / 0.6);
+  --glow-color-bright: oklch(var(--primary) / 1);
+  border-left: 2px solid var(--glow-color-bright);
+  box-shadow: inset 4px 0 20px -2px var(--glow-color-dim);
+}
+
+/* A pane flashes once in Azure when a jump lands on its agent (PANE_FLASH_MS). The glow
+   stays put and its opacity animates, so the flash keeps moving while the renderer is busy
+   with the jump. */
+@keyframes pane-flash {
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.pane-flash {
+  box-shadow:
+    inset 0 0 0 1.5px oklch(var(--brand) / 0.95),
+    inset 0 0 24px oklch(var(--brand) / 0.35);
+  animation: pane-flash 1.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* The working spinner's styles (components/workspaces/activity-spinners.tsx). */
+@keyframes activity-fade {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@keyframes activity-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes activity-breathe {
+  0%,
+  100% {
+    transform: scale(0.5);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Braille's frames, one timeline per dot, stepping every 80 ms. */
+@keyframes activity-braille-1 {
+  0% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.18;
+  }
+  70% {
+    opacity: 1;
+  }
+}
+
+@keyframes activity-braille-2 {
+  0% {
+    opacity: 1;
+  }
+  10% {
+    opacity: 0.18;
+  }
+  60% {
+    opacity: 1;
+  }
+}
+
+@keyframes activity-braille-3 {
+  0% {
+    opacity: 0.18;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@keyframes activity-braille-4 {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.18;
+  }
+  90% {
+    opacity: 1;
+  }
+}
+
+@keyframes activity-braille-5 {
+  0% {
+    opacity: 0.18;
+  }
+  10% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0.18;
+  }
+}
+
+@keyframes activity-braille-6 {
+  0% {
+    opacity: 0.18;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.18;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-glyph,
+  .activity-glyph * {
+    animation: none !important;
+  }
+}
+
+/* Brief highlight flash when target branch changes */
+@keyframes highlight-once {
+  0% {
+    background-color: transparent;
+  }
+  30% {
+    background-color: oklch(var(--primary) / 0.15);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-highlight-once {
+  animation: highlight-once 0.8s ease-out;
+}
+
+/* The new-workspace dialog's project flashes twice in its color when it isn't the
+   selected workspace's project, so a launch doesn't land somewhere unexpected. The tint
+   sits behind the text and its opacity animates, so the flash keeps moving while the
+   dialog is still mounting. */
+@keyframes project-attention {
+  0%,
+  50%,
+  100% {
+    opacity: 0;
+  }
+  20%,
+  70% {
+    opacity: 1;
+  }
+}
+
+.animate-project-attention {
+  position: relative;
+  isolation: isolate;
+}
+
+.animate-project-attention::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background-color: color-mix(in oklch, var(--project-color) 40%, transparent);
+  opacity: 0;
+  animation: project-attention 1.4s ease-in-out 0.15s;
+}
+
+/* Setup wizard step fade-in */
+@keyframes wizard-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wizard-step-enter {
+  animation: wizard-fade-in 0.25s ease-out;
+}
+
+/* Komlas floating behind the setup wizard and the empty main window (KomlaBackdrop) */
+@keyframes komla-float {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(var(--komla-tilt));
+  }
+  33% {
+    transform: translate(10px, -18px) rotate(calc(var(--komla-tilt) + 10deg));
+  }
+  66% {
+    transform: translate(-8px, -6px) rotate(calc(var(--komla-tilt) - 6deg));
+  }
+}
+
+.komla-float {
+  opacity: 0.22;
+  animation-name: komla-float;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+/* Smoothly expand/collapse the wizard's "Customize commands" panel */
+.wizard-collapsible {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease-out;
+}
+
+.wizard-collapsible[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+
+.wizard-collapsible > div {
+  overflow: hidden;
+}
+
+/* Drop indicator for drag-and-drop reordering. Both positions draw on ::after. */
+.drop-indicator-before::after,
+.drop-indicator-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: oklch(var(--primary));
+  border-radius: 1.5px;
+  box-shadow: 0 0 6px 1px oklch(var(--primary) / 0.4);
+}
+
+.drop-indicator-before::after {
+  top: -2px;
+}
+
+.drop-indicator-after::after {
+  bottom: -2px;
+}
+
+/* Group-level drop indicators for reordering project groups */
+.group-drop-indicator-before::before,
+.group-drop-indicator-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: oklch(var(--primary));
+  border-radius: 1.5px;
+  box-shadow: 0 0 8px 1px oklch(var(--primary) / 0.5);
+}
+
+.group-drop-indicator-before::before {
+  top: -4px;
+}
+
+.group-drop-indicator-after::after {
+  bottom: -4px;
+}
+
+/* Horizontal drop indicators for tab reordering */
+.drop-indicator-left::before,
+.drop-indicator-right::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: oklch(var(--primary));
+  border-radius: 1px;
+}
+
+.drop-indicator-left::before {
+  left: -2px;
+}
+
+.drop-indicator-right::after {
+  right: -2px;
+}
+
+/* Toast animations */
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--toast-slide-offset, 100%));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes toast-slide-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(var(--toast-slide-offset, 100%));
+  }
+}
+
+/* Transform, not width, so the compositor keeps it moving while the renderer is
+   busy, as it is right after a workspace launch. */
+@keyframes toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.toast-enter {
+  animation: toast-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.toast-exit {
+  animation: toast-slide-out 0.2s ease-in forwards;
+}
+
+/* Toasts moved to the bottom-left (clear of a browser preview) slide from the left edge */
+.toast-stack-left {
+  --toast-slide-offset: -100%;
+}
+
+/* Sidebar truncation: use ".." instead of "…" */
+.sidebar-surface .truncate {
+  text-overflow: '..';
+}
+
+/* Sidebar surface - lifted off the chrome; rows inside it hover and select on --sidebar-accent */
+.sidebar-surface {
+  --accent: var(--sidebar-accent);
+  background: oklch(var(--sidebar));
+  border-color: oklch(var(--sidebar-border));
+}
+
+/* The workspace sidebar and the window behind the main column's card, in --chrome: a step off
+   the card so its edge shows. Dialogs keep --sidebar. */
+.window-chrome {
+  background: oklch(var(--chrome));
+}
+
+/* With no workspace open, the main column's card (title bar, empty page or Overview) takes the
+   sidebar's --chrome, as the status bar always does, and drops the lines between them, so it reads
+   as one surface. Opening a workspace brings the card back. Only these surfaces: buttons on
+   bg-card keep their hover. */
+.work-column:has(.empty-work-area),
+.work-column:has(.empty-work-area)
+  :is(.empty-work-area, [data-komla-title-bar], [data-testid='work-area']) {
+  background-color: oklch(var(--chrome));
+}
+
+/* The setup wizard sits on the sidebar's --chrome. It becomes the wizard's card color, so its
+   title bar and card-colored controls (outlined buttons, the text size control) match the page
+   as they do on the card. */
+.setup-wizard-surface {
+  --card: var(--chrome);
+  background-color: oklch(var(--card));
+}
+
+.work-column:has(.empty-work-area) :is([data-komla-title-bar], [data-testid='work-area']) {
+  border-color: transparent;
+}
+
+/* The Overview's card-colored controls match its --chrome page, and its buttons hover on
+   --sidebar-accent, as the sidebar's do. Its rows and project filters use a foreground wash. */
+.overview-surface {
+  --card: var(--chrome);
+  --accent: var(--sidebar-accent);
+}
+
+/* Dialogs (DialogContent unless floating={false}, plus the new-workspace card) - the sidebar's
+   surface so they stand out from the dimmed window, with a crisp edge; rows select on
+   --sidebar-accent. Popover cards, menus and tooltips share it, so everything that floats
+   reads as one family. Lines inside take the input border and fills take --sidebar-muted:
+   Komla's --border and --muted are as light as this surface.
+   In light themes, controls the new-workspace dialog floats outside its card get the same
+   surface: the window behind them mixes dark terminals with light chrome, and no text color
+   reads on both. Dark themes leave them on the dimmed window. */
+.floating-surface,
+.light .floating-controls {
+  --accent: var(--sidebar-accent);
+  --border: var(--input);
+  --muted: var(--sidebar-muted);
+  --secondary: var(--sidebar-muted);
+  background: oklch(var(--sidebar));
+  border-color: oklch(var(--foreground) / 0.15);
+}
+
+/* Komla blue rather than the accent, for the upgrade dialog's button, checks and Unlimited
+   row. */
+.welcome-brand {
+  --primary: var(--brand);
+  --ring: var(--brand);
+}
+
+/* Workspace card hover lift. Only hovering fades the background: a selection change shows at
+   once, so the highlight keeps up with a keyboard switch. */
+.workspace-card-hover {
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    opacity 200ms ease;
+}
+.workspace-card-hover:hover {
+  transform: translateX(1px);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background-color 150ms ease,
+    opacity 200ms ease;
+}
+.workspace-card-hover:active {
+  transform: scale(0.99);
+}
+
+/* Flat tabs: the active tab lifts by a 6% foreground wash (light themes) and carries a 2px
+   foreground bar on its bottom edge. The inset shadow draws the bar without shifting layout. */
+.flat-tab-active {
+  background-color: color-mix(in oklch, oklch(var(--foreground)) 6%, oklch(var(--card)));
+  box-shadow: inset 0 -2px 0 oklch(var(--foreground));
+}
+.dark .flat-tab-active {
+  background-color: oklch(var(--background));
+}
+/* Joined tabs (dark themes): the active tab takes the color of what it shows, `--tab-surface`,
+   and drops the bar. Its strip draws its bottom line as an inset shadow, which the tab covers,
+   so the tab opens into the surface below. A faint line on its top and sides keeps its edges
+   where a theme's surfaces sit close together. */
+.dark .flat-tab-active.joined-tab {
+  background-color: var(--tab-surface);
+  box-shadow:
+    inset 1px 0 0 oklch(var(--border) / 0.7),
+    inset -1px 0 0 oklch(var(--border) / 0.7),
+    inset 0 1px 0 oklch(var(--border) / 0.7);
+}
+/* The active joined tab's outline: its top and sides, open at the bottom into what it shows. */
+.flat-tab-active.joined-tab::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid oklch(var(--border));
+  border-bottom: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* The first tab meets the work area card's edge, so it leaves out its left side. */
+.flat-tab-active.joined-tab.edge-tab::after {
+  border-left: 0;
+}
+
+/* Allotment split pane sash refinements. Allotment puts every split's sashes in a
+   `.sash-container` directly under its `.split-view` root (including the top-level split),
+   and marks orientation with plain `sash-vertical` / `sash-horizontal` classes. */
+.split-view {
+  --separator-border: oklch(var(--border));
+  --focus-border: oklch(var(--primary) / 0.4);
+}
+.split-view > .sash-container > .sash {
+  transition: background-color 150ms ease;
+}
+.split-view > .sash-container > .sash::before {
+  content: '';
+  position: absolute;
+  border-radius: 1px;
+  background: oklch(var(--muted-foreground) / 0.15);
+  transition:
+    background-color 150ms ease,
+    opacity 150ms ease;
+  opacity: 0;
+}
+.split-view > .sash-container > .sash:hover::before,
+.split-view > .sash-container > .sash.sash-active::before {
+  background: var(--focus-border);
+  opacity: 1;
+}
+/* Vertical sash (side-by-side splits) - horizontal grip dots */
+.split-view > .sash-container > .sash.sash-vertical::before {
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+}
+/* Horizontal sash (stacked splits) - vertical grip dots */
+.split-view > .sash-container > .sash.sash-horizontal::before {
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 4px;
+  transform: translate(-50%, -50%);
+}
+
+/* Reduced motion: overlays and toasts fade instead of zooming or sliding, and decorative
+   movement is removed. Redefining a keyframe here replaces the earlier definition while
+   the query matches, so exit animations still end and Radix can unmount overlays.
+   Spinners, pulses and progress bars keep running because they convey state. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes enter {
+    from {
+      opacity: var(--tw-enter-opacity, 1);
+    }
+  }
+  @keyframes exit {
+    to {
+      opacity: var(--tw-exit-opacity, 1);
+    }
+  }
+  @keyframes toast-slide-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes toast-slide-out {
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes wizard-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .workspace-card-hover:hover,
+  .workspace-card-hover:active {
+    transform: none;
+  }
+  .wizard-collapsible {
+    transition: none;
+  }
+  .komla-float {
+    animation: none;
+    transform: rotate(var(--komla-tilt));
+  }
+}
+
+/* Reduce effects (Settings > Appearance), for slower computers: spinners and pulses hold still,
+   still showing what they show, and nothing blurs what is behind it. */
+:root[data-reduce-effects] :is(.animate-spin, .animate-pulse, .activity-glyph, .activity-glyph *) {
+  animation: none !important;
+}
+/* The floating komlas hold still at their tilt, as under reduced motion. */
+:root[data-reduce-effects] .komla-float {
+  animation: none;
+  transform: rotate(var(--komla-tilt));
+}
+:root[data-reduce-effects] * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+/* Surfaces that only stayed readable through the blur get solid ones (reduce-effects: elsewhere).
+   Toasts take the tint on the surface menus use, as the overlay layer's do (toast.tsx). */
+:root[data-reduce-effects] .toast-surface {
+  background-color: color-mix(in oklch, oklch(var(--primary)) 10%, oklch(var(--popover)));
+}
+:root[data-reduce-effects] .toast-surface-error {
+  background-color: color-mix(in oklch, oklch(var(--destructive)) 10%, oklch(var(--popover)));
+}

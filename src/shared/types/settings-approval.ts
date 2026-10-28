@@ -1,0 +1,58 @@
+import type { AppearanceSettings } from './customization';
+
+export type SettingsApprovalOperation = 'add' | 'edit' | 'delete' | 'change';
+
+export type SettingsApprovalChangeKind =
+  | 'action'
+  | 'setup-step'
+  | 'agent-placement'
+  | 'trash-cleanup'
+  | 'theme'
+  | 'custom-theme'
+  | 'accent-color'
+  | 'corner-radius'
+  | 'status-item'
+  | 'hook'
+  | 'shortcut'
+  | 'terminal-setting'
+  | 'agent-preset'
+  | 'automation';
+
+export interface SettingsApprovalDetail {
+  label: string;
+  value: string;
+}
+
+/** A user-facing description of the resulting settings value being proposed. */
+export interface SettingsApprovalChange {
+  operation: SettingsApprovalOperation;
+  kind: SettingsApprovalChangeKind;
+  title: string;
+  contentLabel?: 'Command' | 'Prompt' | 'Script';
+  content?: string;
+  /** Further commands the change runs, each shown in full under its label. */
+  moreContent?: { label: string; content: string }[];
+  details: SettingsApprovalDetail[];
+}
+
+/** Settings files an agent reads and changes whole with `komla settings`. */
+export const SETTINGS_FILE_RESOURCES = [
+  'status-items',
+  'hooks',
+  'shortcuts',
+  'terminal',
+  'agents',
+] as const;
+export type SettingsFileResource = (typeof SETTINGS_FILE_RESOURCES)[number];
+
+export interface SettingsApprovalPrompt {
+  id: string;
+  resource: 'actions' | 'workspace-setup' | 'automations' | 'appearance' | SettingsFileResource;
+  target: string;
+  changes: SettingsApprovalChange[];
+  warning?: string;
+  /** Appearance the window shows while the user decides, and keeps if they apply it. */
+  preview?: AppearanceSettings;
+}
+
+export type SettingsApprovalDecision = 'apply' | 'cancel';

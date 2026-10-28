@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0b1119" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Komla" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="icons/icon-192.png" />
+    <title>Komla</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main class="card" id="pair-card">
+      <h1 id="page-title">Remote control</h1>
+      <p class="subtitle" id="page-subtitle">Connecting...</p>
+
+      <section class="row">
+        <span class="label">Status</span>
+        <span id="status" class="value status status-idle">Loading...</span>
+      </section>
+
+      <section class="row" id="fingerprint-row" hidden>
+        <span class="label">Fingerprint</span>
+        <code id="fingerprint" class="value mono">-</code>
+      </section>
+
+      <!-- Registration form (shown only for a one-time QR enrollment URL). -->
+      <section id="register-form" class="form" hidden>
+        <label class="field">
+          <span class="field-label">Device name</span>
+          <input id="label" type="text" maxlength="120" />
+          <span class="field-hint">How this device shows up in your paired-devices list.</span>
+        </label>
+      </section>
+
+      <section class="actions">
+        <button id="register" type="button" hidden disabled>Pair this device</button>
+        <!-- Signing in: the passkey request runs inside this tap, which Safari needs. -->
+        <button id="unlock" type="button" hidden>Unlock with passkey</button>
+      </section>
+
+      <!-- On an iPhone's Safari page: a Home Screen app keeps its own keys, so it pairs itself. -->
+      <section id="home-screen-handoff" class="handoff" hidden>
+        <p class="handoff-title">Using Komla from your Home Screen?</p>
+        <p class="handoff-text">
+          The Home Screen app keeps its own keys, separate from Safari, so pair it from inside the
+          app instead:
+        </p>
+        <ol class="handoff-text">
+          <li>Tap Copy pairing link.</li>
+          <li>Tap Share, then Add to Home Screen.</li>
+          <li>Open Komla from your Home Screen and tap Paste pairing link.</li>
+        </ol>
+        <button id="copy-pair-link" type="button" class="secondary">Copy pairing link</button>
+      </section>
+
+      <!-- Pairing from a pasted link, for an app the QR code can't open. -->
+      <section id="pair-link-form" class="form" hidden>
+        <label class="field">
+          <span class="field-label">Pairing link</span>
+          <input
+            id="pair-link"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            placeholder="https://…/remote/pair#…"
+          />
+          <span class="field-hint">
+            In Komla › Settings › Remote, pair a device, scan the code with the Camera and tap Copy
+            pairing link on the page it opens. Or copy the link on your computer.
+          </span>
+        </label>
+        <div class="actions">
+          <button id="paste-pair-link" type="button">Paste pairing link</button>
+        </div>
+      </section>
+
+      <p id="error" class="error" hidden></p>
+      <p id="success" class="success" hidden></p>
+      <div id="offline-hosts" class="offline-hosts" hidden></div>
+    </main>
+
+    <main class="remote-shell workspace-view" id="remote-shell" hidden>
+      <div id="remote-notice" class="remote-notice" role="status" aria-live="polite" hidden></div>
+      <aside class="workspace-panel">
+        <header class="workspace-header">
+          <div class="brand">
+            <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+              <rect width="24" height="24" rx="6" />
+              <path d="M7.5 16.5 16.5 7.5" />
+            </svg>
+            <button
+              id="endpoint-switch"
+              type="button"
+              class="endpoint-switch"
+              aria-haspopup="dialog"
+              aria-controls="endpoint-sheet"
+              disabled
+            >
+              <span id="endpoint-name">Komla</span>
+              <svg class="endpoint-caret" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m7 10 5 5 5-5" />
+              </svg>
+            </button>
+          </div>
+          <span id="connection-pill" class="connection-pill" role="status">
+            <i aria-hidden="true"></i><span id="connection-label">Connected</span>
+          </span>
+          <button
+            id="open-settings"
+            type="button"
+            class="header-icon"
+            aria-label="Settings"
+            aria-haspopup="dialog"
+            aria-controls="settings-sheet"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"
+              />
+            </svg>
+          </button>
+        </header>
+        <div class="workspace-search">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <input
+            id="workspace-search"
+            type="search"
+            placeholder="Search workspaces"
+            aria-label="Search workspaces"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            enterkeyhint="search"
+          />
+        </div>
+        <nav id="workspace-filters" class="workspace-filters" aria-label="Filter workspaces"></nav>
+
+        <section id="workspace-list" class="workspace-list"></section>
+
+        <section class="workspace-actions">
+          <button
+            id="voice-create-workspace"
+            type="button"
+            class="voice-create"
+            aria-label="Create workspace from voice prompt"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 15.5a3.5 3.5 0 0 0 3.5-3.5V7a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z"
+              />
+              <path d="M5.75 11.5v.5a6.25 6.25 0 0 0 12.5 0v-.5M12 18.25V22M8.5 22h7" />
+            </svg>
+          </button>
+          <button id="open-create-workspace" type="button" class="new-workspace">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            <span>New workspace</span>
+          </button>
+        </section>
+
+        <section class="workspace-voice" id="workspace-voice" hidden>
+          <span class="workspace-voice-status" id="workspace-voice-status">Recording</span>
+          <span class="workspace-voice-meter" id="workspace-voice-meter" aria-hidden="true">●</span>
+          <button id="workspace-voice-edit" type="button">Edit</button>
+          <button id="workspace-voice-launch" type="button">Launch</button>
+          <button id="workspace-voice-cancel" type="button" aria-label="Cancel voice prompt">
+            ✕
+          </button>
+        </section>
+      </aside>
+
+      <section class="terminal-panel" id="terminal-panel">
+        <header class="terminal-toolbar" id="terminal-toolbar" hidden>
+          <div class="session-header">
+            <button
+              id="back-to-workspaces-header"
+              type="button"
+              class="terminal-home"
+              aria-label="Back to workspaces"
+              title="Back to workspaces"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+            </button>
+            <div class="terminal-context">
+              <span class="terminal-workspace-context">
+                <span id="terminal-workspace-name"></span>
+                <span id="terminal-environment" class="terminal-environment" hidden></span>
+              </span>
+              <span id="terminal-workspace-status" class="terminal-workspace-status"></span>
+            </div>
+            <button
+              id="workspace-actions-trigger"
+              type="button"
+              class="session-actions"
+              aria-label="Workspace actions"
+              aria-haspopup="dialog"
+              aria-controls="workspace-actions-menu"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="5" cy="12" r="1" />
+                <circle cx="12" cy="12" r="1" />
+                <circle cx="19" cy="12" r="1" />
+              </svg>
+            </button>
+          </div>
+          <nav id="terminal-tabs" class="terminal-tabs" aria-label="Terminals"></nav>
+        </header>
+        <div class="terminal-stage">
+          <div class="terminal-status-overlay" id="terminal-status-overlay" hidden>
+            <span class="terminal-status-spinner" aria-hidden="true"></span>
+            <span id="terminal-status-text">Connecting...</span>
+          </div>
+          <button
+            id="terminal-jump-latest"
+            type="button"
+            class="terminal-jump-latest"
+            aria-label="Jump to latest"
+            title="Jump to latest"
+            hidden
+          >
+            ↓
+          </button>
+          <div id="terminal-desktop-size" class="terminal-desktop-size" hidden>
+            Sized for the desktop. Touch to fit.
+          </div>
+          <div id="terminal">
+            <div id="terminal-touch-scroll" class="terminal-touch-scroll" aria-hidden="true">
+              <div id="terminal-touch-scroll-spacer" class="terminal-touch-scroll-spacer"></div>
+            </div>
+            <!-- Press and hold: the buffer as plain text, for the browser's own selection. -->
+            <div id="terminal-selection" class="terminal-select" hidden>
+              <pre id="terminal-selection-text" class="terminal-select-text"></pre>
+            </div>
+            <div
+              id="terminal-scroll-indicator"
+              class="terminal-scroll-indicator"
+              aria-hidden="true"
+              hidden
+            >
+              <div id="terminal-scroll-thumb" class="terminal-scroll-thumb"></div>
+            </div>
+          </div>
+        </div>
+        <!-- After Superset Mobile's quick keys: one panel, the keys scroll inside it, and
+             hairlines split them into groups. -->
+        <nav class="mobile-keyboard-bar" id="mobile-keyboard-bar" aria-label="Terminal shortcuts">
+          <div class="mobile-keys" id="mobile-keys">
+            <button type="button" data-terminal-key="esc" aria-label="Escape">esc</button>
+            <button type="button" data-terminal-key="enter" aria-label="Return">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v7H6M10 8l-4 4 4 4" /></svg>
+            </button>
+            <button type="button" data-terminal-key="tab" aria-label="Tab">tab</button>
+            <button type="button" data-terminal-key="shift-tab" aria-label="Shift Tab">⇧tab</button>
+            <span class="key-divider" aria-hidden="true"></span>
+            <button type="button" data-terminal-key="up" aria-label="Up arrow">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6" /></svg>
+            </button>
+            <button type="button" data-terminal-key="down" aria-label="Down arrow">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" /></svg>
+            </button>
+            <button type="button" data-terminal-key="left" aria-label="Left arrow">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6" /></svg>
+            </button>
+            <button type="button" data-terminal-key="right" aria-label="Right arrow">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+            </button>
+            <span class="key-divider" aria-hidden="true"></span>
+            <button type="button" data-terminal-key="ctrl-c" aria-label="Control C">^C</button>
+            <button type="button" data-terminal-key="ctrl-d" aria-label="Control D">^D</button>
+            <span class="key-divider" aria-hidden="true"></span>
+            <button type="button" data-terminal-modifier="ctrl" aria-pressed="false">ctrl</button>
+            <button type="button" data-terminal-modifier="alt" aria-pressed="false">alt</button>
+          </div>
+          <div class="terminal-selection-actions" id="terminal-selection-actions">
+            <button type="button" id="terminal-copy" class="terminal-copy">Copy</button>
+            <button type="button" id="terminal-select-done">Done</button>
+          </div>
+        </nav>
+        <div class="voice-bar" id="voice-bar" hidden>
+          <span class="voice-status" id="voice-status" hidden></span>
+          <div class="voice-row voice-idle" id="voice-idle">
+            <button
+              id="terminal-keys-toggle"
+              type="button"
+              class="terminal-keys-toggle"
+              aria-label="Hide terminal keys"
+              aria-pressed="true"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="6" width="18" height="12" rx="2" />
+                <path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" />
+              </svg>
+            </button>
+            <div class="composer-field">
+              <input
+                id="terminal-composer"
+                class="terminal-composer"
+                type="text"
+                placeholder="Write a command or prompt"
+                enterkeyhint="send"
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck="false"
+              />
+              <button
+                id="voice-record"
+                type="button"
+                class="voice-record"
+                aria-label="Start voice dictation"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 15.5a3.5 3.5 0 0 0 3.5-3.5V7a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z"
+                  />
+                  <path d="M5.75 11.5v.5a6.25 6.25 0 0 0 12.5 0v-.5M12 18.25V22M8.5 22h7" />
+                </svg>
+              </button>
+            </div>
+            <button id="terminal-send" type="button" class="terminal-send" aria-label="Send">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+            </button>
+          </div>
+          <div class="voice-row voice-live" id="voice-live" hidden>
+            <button
+              id="voice-abort"
+              type="button"
+              class="voice-abort"
+              aria-label="Discard recording"
+            >
+              ✕
+            </button>
+            <span class="voice-meter" id="voice-meter" aria-hidden="true">●</span>
+            <button id="voice-use" type="button" class="voice-use">Transcribe</button>
+            <button id="voice-send" type="button" class="voice-send">Transcribe &amp; send</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="workspace-actions-menu" class="sheet" aria-labelledby="workspace-actions-title">
+      <div class="sheet-body">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <div id="workspace-actions-root">
+          <h2 id="workspace-actions-title" class="sheet-title">New tab</h2>
+          <div class="sheet-group" role="menu" aria-labelledby="workspace-actions-title">
+            <div id="new-tab-agents" class="sheet-group-items"></div>
+            <button type="button" data-workspace-action="shell" role="menuitem">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8" /></svg>
+              <span>Terminal</span>
+            </button>
+          </div>
+          <div class="sheet-group" role="menu" aria-label="More">
+            <button type="button" data-workspace-action="agent" role="menuitem">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3ZM14.5 7.5l3 3" />
+              </svg>
+              <span>Agent with a prompt…</span>
+            </button>
+            <button
+              id="workspace-actions-open"
+              type="button"
+              data-workspace-action="actions"
+              role="menuitem"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M13 2 3 14h9l-1 8 10-12h-9Z" />
+              </svg>
+              <span>Quick Commands</span><span class="sheet-chevron" aria-hidden="true">›</span>
+            </button>
+          </div>
+          <div class="sheet-group" role="menu" aria-label="Current terminal">
+            <button type="button" data-workspace-action="close" role="menuitem" class="danger">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+              <span>Close current terminal</span>
+            </button>
+          </div>
+        </div>
+        <div id="workspace-actions-submenu" role="menu" aria-label="Quick Commands" hidden>
+          <button type="button" data-workspace-action="back" role="menuitem" class="submenu-back">
+            <span aria-hidden="true">‹</span><span>Back</span>
+          </button>
+          <div id="workspace-action-items" class="workspace-action-items"></div>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="settings-sheet" class="sheet" aria-labelledby="settings-title">
+      <div class="sheet-body">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <h2 id="settings-title" class="sheet-title">Settings</h2>
+        <section class="settings-group" aria-labelledby="push-title">
+          <label class="settings-row" for="push-toggle">
+            <span class="settings-text">
+              <strong id="push-title">Notifications</strong>
+              <small id="push-status">When an agent needs you, finishes or fails</small>
+            </span>
+            <input id="push-toggle" type="checkbox" role="switch" class="switch" />
+          </label>
+          <fieldset id="push-when" class="settings-choice">
+            <legend>Notify me</legend>
+            <label>
+              <input type="radio" name="push-when" value="away" checked />
+              <span>When I'm away from the computer</span>
+            </label>
+            <label>
+              <input type="radio" name="push-when" value="always" />
+              <span>Always</span>
+            </label>
+          </fieldset>
+          <button id="push-test" type="button" class="settings-button">
+            Send a test notification
+          </button>
+          <p id="push-hint" class="settings-hint" hidden></p>
+        </section>
+        <section class="settings-group">
+          <div class="settings-row">
+            <span class="settings-text">
+              <strong>This device</strong>
+              <small id="settings-device-label"></small>
+            </span>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="endpoint-sheet" class="sheet" aria-labelledby="endpoint-sheet-title">
+      <div class="sheet-body">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <h2 id="endpoint-sheet-title" class="sheet-title">Open</h2>
+        <div id="endpoint-list" role="menu"></div>
+      </div>
+    </dialog>
+
+    <dialog id="workspace-row-sheet" class="sheet" aria-labelledby="workspace-row-title">
+      <div class="sheet-body">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <h2 id="workspace-row-title" class="sheet-title"></h2>
+        <div id="workspace-row-actions" role="menu"></div>
+      </div>
+    </dialog>
+
+    <dialog
+      id="create-workspace-dialog"
+      class="create-dialog"
+      aria-labelledby="create-workspace-title"
+    >
+      <form method="dialog" class="create-dialog-body">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <header>
+          <h2 id="create-workspace-title">New workspace</h2>
+          <button id="cancel-create-workspace" type="button" class="sheet-close" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </header>
+
+        <div class="picker-group">
+          <div class="picker-field">
+            <select id="project-select" aria-label="Project"></select>
+          </div>
+          <div class="picker-field">
+            <select id="preset-select" aria-label="Agent"></select>
+          </div>
+          <div class="picker-field">
+            <select id="launch-mode-select" aria-label="Mode"></select>
+          </div>
+          <div class="picker-field" id="environment-field" hidden>
+            <select id="environment-select" aria-label="Run on"></select>
+          </div>
+        </div>
+        <div class="prompt-field">
+          <textarea
+            id="initial-prompt"
+            rows="4"
+            aria-label="Prompt"
+            placeholder="What should the agent work on?"
+          ></textarea>
+          <button
+            id="prompt-voice"
+            type="button"
+            class="prompt-voice"
+            aria-label="Dictate workspace prompt"
+            title="Dictate workspace prompt"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 15.5a3.5 3.5 0 0 0 3.5-3.5V7a3.5 3.5 0 0 0-7 0v5a3.5 3.5 0 0 0 3.5 3.5Z"
+              />
+              <path d="M5.75 11.5v.5a6.25 6.25 0 0 0 12.5 0v-.5M12 18.25V22M8.5 22h7" />
+            </svg>
+          </button>
+        </div>
+        <span id="prompt-voice-unavailable" class="field-hint" hidden>
+          Voice input needs a model: Komla → Settings → Voice.
+        </span>
+
+        <p id="create-workspace-error" class="sheet-error" role="alert" hidden></p>
+        <footer>
+          <button id="create-workspace" type="button" class="sheet-primary">
+            Launch workspace
+          </button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog
+      id="terminal-launch-dialog"
+      class="create-dialog terminal-launch-dialog"
+      aria-labelledby="terminal-launch-title"
+    >
+      <form method="dialog" class="create-dialog-body">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <header>
+          <div>
+            <h2 id="terminal-launch-title">New agent</h2>
+            <p id="terminal-launch-description">Launch another agent in this workspace.</p>
+          </div>
+          <button id="cancel-terminal-launch" type="button" class="sheet-close" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </header>
+        <div class="picker-group" id="terminal-agent-pickers">
+          <div class="picker-field" id="terminal-agent-preset-field">
+            <select id="terminal-agent-preset" aria-label="Agent"></select>
+          </div>
+          <div class="picker-field" id="terminal-agent-launch-mode-field">
+            <select id="terminal-agent-launch-mode" aria-label="Mode"></select>
+          </div>
+        </div>
+        <div class="prompt-field" id="terminal-launch-input-field">
+          <textarea
+            id="terminal-launch-input"
+            rows="4"
+            aria-labelledby="terminal-launch-input-label"
+          ></textarea>
+          <span id="terminal-launch-input-label" class="visually-hidden">Prompt</span>
+        </div>
+        <footer>
+          <button id="create-terminal" type="button" class="sheet-primary">Launch agent</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="picker-sheet" class="sheet picker-sheet" aria-labelledby="picker-sheet-title">
+      <div class="sheet-body">
+        <div class="sheet-grab" aria-hidden="true"></div>
+        <h2 id="picker-sheet-title" class="sheet-title"></h2>
+        <div role="menu" aria-labelledby="picker-sheet-title"></div>
+      </div>
+    </dialog>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

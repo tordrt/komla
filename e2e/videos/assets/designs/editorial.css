@@ -1,0 +1,94 @@
+/* Editorial: cream paper, ink type, oxblood accents */
+body {
+  background: #f3ede2;
+  color: #1c1a17;
+  font-family: Georgia, 'Iowan Old Style', serif;
+}
+a {
+  color: #1c1a17;
+}
+h1,
+.plan h2,
+.amount,
+.logo {
+  font-family: Didot, 'Bodoni 72', Georgia, serif;
+  font-weight: 400;
+}
+h1 {
+  text-wrap: balance;
+  font-size: clamp(30px, 6vw, 56px);
+  line-height: 1.04;
+  max-width: 720px;
+  margin: 14px auto;
+}
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 11px;
+  color: #8a2a1b;
+}
+.lede {
+  font-style: italic;
+  font-size: 19px;
+  color: #5b544a;
+}
+/* @stage */
+.nav {
+  border-bottom: 1px solid #1c1a17;
+  padding: 18px 48px;
+}
+.logo {
+  font-size: 26px;
+  font-style: italic;
+}
+.plans {
+  gap: 0;
+  margin-top: clamp(16px, 3vw, 36px);
+  border-top: 1px solid #1c1a17;
+  border-bottom: 1px solid #1c1a17;
+}
+.plan {
+  border: 0;
+  border-right: 1px solid #c9bfae;
+  padding: clamp(12px, 2.6vw, 26px) clamp(12px, 2.8vw, 28px);
+}
+.plan:last-child {
+  border-right: 0;
+}
+.amount {
+  font-size: clamp(30px, 6vw, 58px);
+}
+.plan ul {
+  list-style: none;
+  padding: 10px 0 0;
+  border-top: 1px solid #c9bfae;
+}
+/* @stage */
+.featured {
+  background: #ebe3d4;
+}
+.badge {
+  color: #8a2a1b;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 10px;
+}
+.button {
+  border: 1px solid #1c1a17;
+  color: #1c1a17;
+  padding: 10px 18px;
+  font-style: italic;
+}
+.button.primary {
+  background: #8a2a1b;
+  border-color: #8a2a1b;
+  color: #f3ede2;
+}
+.links a.current {
+  color: #8a2a1b;
+  border-bottom: 1px solid #8a2a1b;
+}
+.footnote {
+  font-style: italic;
+  color: #7a7266;
+}

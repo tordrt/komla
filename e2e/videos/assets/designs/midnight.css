@@ -1,0 +1,92 @@
+/* Midnight: near-black, crisp type, one electric accent */
+body {
+  background: #0b0c0f;
+  color: #e9e7e2;
+  font-family: 'Avenir Next', 'Helvetica Neue', sans-serif;
+}
+a {
+  color: #e9e7e2;
+}
+h1 {
+  text-wrap: balance;
+  font-size: clamp(30px, 6.2vw, 58px);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  max-width: 760px;
+  margin: 14px auto;
+}
+.eyebrow {
+  color: #c8f560;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.lede {
+  color: #8d9099;
+  font-size: 18px;
+}
+.period,
+.blurb,
+.footnote {
+  color: #7c7f88;
+}
+/* @stage */
+.nav {
+  border-bottom: 1px solid #1d2026;
+}
+.plans {
+  gap: 14px;
+}
+.plan {
+  background: #121419;
+  border: 1px solid #23262e;
+  border-radius: 16px;
+  padding: clamp(12px, 2.4vw, 24px);
+}
+.featured {
+  border-color: #c8f560;
+}
+.amount {
+  font-size: clamp(28px, 5vw, 46px);
+  letter-spacing: -0.03em;
+}
+.plan ul {
+  list-style: none;
+  padding: 0;
+  color: #b9bcc4;
+}
+.plan li::before {
+  content: '→ ';
+  color: #c8f560;
+}
+/* @stage */
+.badge {
+  display: inline-block;
+  background: #c8f560;
+  color: #0b0c0f;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.button {
+  border: 1px solid #2c3039;
+  color: #e9e7e2;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+.button.primary {
+  background: #c8f560;
+  border-color: #c8f560;
+  color: #0b0c0f;
+}
+.logo {
+  color: #c8f560;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.signin {
+  color: #8d9099;
+}

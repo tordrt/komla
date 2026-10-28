@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws://localhost:* ws://127.0.0.1:*;"
+    />
+    <title>Komla toasts</title>
+    <!-- Drawn above a browser preview: only the toasts themselves may cover it. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        overflow: hidden;
+        /* Overrides the app background that globals.css, loaded later, gives body. */
+        background: transparent !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./toast-overlay.tsx"></script>
+  </body>
+</html>

@@ -72,7 +72,7 @@ describe('settings files', () => {
       const examples = (guide: string) =>
         [
           ...readFileSync(join('resources', 'skills', guide), 'utf-8').matchAll(
-            /```json\n([\s\S]*?)```/g
+            /```json\r?\n([\s\S]*?)```/g
           ),
         ].map(([, json]) => JSON.parse(json) as Record<string, unknown>);
       const [hooks] = examples('komla-customize-instructions.md');

@@ -1,0 +1,3 @@
+# Every checkout gets LF line endings, Windows included, so code and tests that
+# read the repo's own text files see the same bytes on every OS.
+* text=auto eol=lf

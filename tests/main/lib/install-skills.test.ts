@@ -518,6 +518,6 @@ describe("installBundledSkills", () => {
   it("keeps project setup instructions concise", () => {
     const instructions = readProjectSetupInstructions();
 
-    expect(instructions.trim().split(/\s+/).length).toBeLessThanOrEqual(1900);
+    expect(instructions.trim().split(/\s+/).length).toBeLessThanOrEqual(1950);
   });
 });

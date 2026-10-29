@@ -62,8 +62,8 @@ a directory project: propose Quick Commands only. Preserve existing settings and
 duplicate Quick Commands.
 
 Read `setupCapabilities`. Prioritize `currentEnvironment`, then the `selectedForNewWorkspaces`
-environment. Treat a configured-only SSH environment as optional; mention
-it only when the repository would benefit from it.
+environment. Mention a configured-only SSH environment only when the
+repository would benefit from it.
 `ssh.actionsRunInLocalCopy` means Terminal Commands (Quick Commands with `type: "command"`) use the
 desktop copy in SSH Workspaces. A Terminal Command's `sshExecutionLocation` (`remote` or `local-mirror`) overrides that for the one Quick Command.
 
@@ -89,16 +89,19 @@ Quick Command:
 
 Every recommended development Quick Command must be dependency-ready. Prefer `workspace-creation` setup
 covering each dependency root; otherwise use project bootstrap or a conditional install guard.
-Keep the Quick Command simple when setup covers its dependencies or it bootstraps itself. When
-`ssh.actionsRunInLocalCopy` is true, add `ssh-local-copy` dependency setup for recommended Quick Commands
-and retain remote dependency setup for agents running on the SSH host.
+Keep it simple when setup or bootstrap covers its dependencies. A Local copy syncs only tracked
+files, so it lacks ignored dependencies such as `node_modules` even when the SSH host has them. When
+`ssh.actionsRunInLocalCopy` is true or a Quick Command runs in the Local copy
+(`"sshExecutionLocation": "local-mirror"`), add `ssh-local-copy` dependency setup or, if that's
+quick and safe on every start, install in the command, as in `npm install && npm run dev`. Keep
+remote dependency setup for agents on the SSH host.
 
 For directory projects, omit setup and cleanup. Preserve the current layout unless the user chooses
 a workflow change.
 
 Under **Other useful options**, show one to three unselected shortcuts: at least one secondary
-component when present, plus a useful test, build, or quality command. Show exact commands, not the
-full list; do not print the full component or shortcut inventory. Offer more choices only when the
+component when present, plus a useful test, build, or quality command. Show exact commands; do not
+print the full component or shortcut inventory. Offer more choices only when the
 user asks; show a small relevant subset. Add a line there for each of these that applies:
 
 - **Background:** offer `"background": true` for a Terminal Command that runs for minutes, such as
@@ -111,8 +114,8 @@ user asks; show a small relevant subset. Add a line there for each of these that
   desktop), a manual Quick Command `komla desktop run -- <command>` with
   `"sshExecutionLocation": "remote"` runs the app on a virtual desktop on the host (prerequisite, if
   missing: `sudo apt install -y tigervnc-standalone-server openbox novnc websockify`).
-  Keep the plain development command as the recommendation; many users run apps locally through
-  the Local copy instead.
+  Keep the plain development command as the recommendation; many users run apps in the Local
+  copy.
 
 Choose the recommended setup for its concrete benefit. Mention existing settings only when they
 materially constrain a change. For Git projects, state once:
@@ -147,7 +150,7 @@ Alternatives:
 ```
 
 The final proceed question has no second Recommendation: **Recommended setup** already states it.
-Ask one or two focused questions in a message; prefer one when the recommendation is already clear.
+Ask one or two focused questions in a message; prefer one when the recommendation is clear.
 Resolve choices before asking the explicit proceed question. While waiting, end with the question;
 the proposal is not “awaiting approval.” After the user proceeds, send the changes without another
 chat confirmation.
@@ -161,7 +164,7 @@ Quick Commands:
 - Submit only `{ "actions": [...] }`; omit response-only `scope` and `project`.
 - Preserve remaining Quick Commands and their returned IDs. New Quick Command entries omit `id`, `projectCount`,
   and `projectIds`; Komla generates the Quick Command ID and infers the project association from the
-  request context. Use this minimal entry shape:
+  request context. Minimal entry:
   `{ "title": "Develop", "content": "npm run dev", "type": "command" }`.
 - Round-trip `projectCount` only on existing project Quick Commands.
 - Keep Multi-project Quick Commands and preserve valid preset, launch-mode, SSH execution location,
@@ -183,10 +186,10 @@ or processes Komla should recreate on each start. Use `workspace-stop` for a `ba
 that ends what outlives the terminals, such as `docker compose down` after `docker compose up -d`.
 It runs when a running workspace stops, including at quit, and cannot launch an agent.
 
-Destinations are environment-aware. Prefer `workspace-repository`: it means the local worktree for
+Prefer `workspace-repository`: it means the local worktree for
 a local Workspace and the authoritative remote worktree for SSH. Use
 `local-workspace-repository`, `ssh-workspace-repository`, or the disposable desktop
-`ssh-local-copy` only for genuinely location-specific work. A destination selects the cwd and
+`ssh-local-copy` only for location-specific work. A destination selects the cwd and
 machine; it does not transfer files. If an SSH workflow needs a desktop
 file, ask for its exact desktop source path before creating a copy command; never infer the path or
 expose secret values. Use `{{destinationPath}}` when a command needs its resolved working directory.

@@ -351,6 +351,50 @@ describe('PullRequestStatusService', () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
+  it('reads a pushed branch again, not sharing the read from before the push', async () => {
+    service.observeBranch({ workspaceId: 'ws-1', branch: branch({ unpushedCommits: 1 }) } as never);
+    output = new Error('no pull requests found for branch "feature/search"');
+    await expect(service.get('ws-1')).resolves.toEqual({ kind: 'none' });
+
+    // The push, which the status bar reads again for at once.
+    output = running;
+    service.observeBranch({ workspaceId: 'ws-1', branch: branch({}) } as never);
+    await expect(service.get('ws-1')).resolves.toMatchObject({ kind: 'pull-request' });
+  });
+
+  it('reads a switched branch again, not sharing the read of the one before', async () => {
+    service.observeBranch({ workspaceId: 'ws-1', branch: branch({}) } as never);
+    await expect(service.get('ws-1')).resolves.toMatchObject({ kind: 'pull-request' });
+
+    output = new Error('no pull requests found for branch "feature/other"');
+    service.observeBranch({
+      workspaceId: 'ws-1',
+      branch: branch({ currentBranch: 'feature/other' }),
+    } as never);
+    await expect(service.get('ws-1')).resolves.toEqual({ kind: 'none' });
+  });
+
+  it('leaves a read from before a push from acting on what it found', async () => {
+    tagging = true;
+    service.observeBranch({ workspaceId: 'ws-1', branch: branch({ unpushedCommits: 1 }) } as never);
+    let finish = () => {};
+    run.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          finish = () => reject(new Error('no pull requests found for branch "feature/search"'));
+        })
+    );
+    // Still running when the push lands, and done after the read the push starts.
+    const before = service.get('ws-1');
+    service.observeBranch({ workspaceId: 'ws-1', branch: branch({}) } as never);
+    await service.get('ws-1');
+    expect(workspace.pullRequestState).toBeDefined();
+
+    finish();
+    await before;
+    expect(workspace.pullRequestState).toBeDefined();
+  });
+
   it('watches after a push until its checks finish, even unseen while they run', async () => {
     output = passed;
     await service.get('ws-1');
@@ -480,6 +524,29 @@ describe('PullRequestStatusService', () => {
       await later();
       await service.get('ws-1');
       expect(applyPullRequestTag).toHaveBeenLastCalledWith('ws-1', undefined);
+    });
+
+    it('leaves a read from before a branch switch from tagging the new branch', async () => {
+      service.observeBranch({ workspaceId: 'ws-1', branch: branch({}) } as never);
+      let finish = () => {};
+      run.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = () => resolve(output as string);
+          })
+      );
+      service.startTagging();
+      tagging = true;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(run).toHaveBeenCalledTimes(1);
+
+      service.observeBranch({
+        workspaceId: 'ws-1',
+        branch: branch({ currentBranch: 'feature/other' }),
+      } as never);
+      finish();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(applyPullRequestTag).not.toHaveBeenCalled();
     });
 
     it("leaves the tag alone when gh can't read the pull request", async () => {

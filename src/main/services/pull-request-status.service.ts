@@ -263,6 +263,8 @@ interface Watch {
  */
 export class PullRequestStatusService {
   private readonly reads = new Map<string, { at?: number; status: Promise<PullRequestStatus> }>();
+  /** Counts each workspace's branch changes, so a read from before one doesn't act on its answer. */
+  private readonly branchChanges = new Map<string, number>();
   /** The last checks seen on each workspace's open pull request. */
   private readonly seen = new Map<string, { ci: PullRequestCiState; head?: string }>();
   private readonly watches = new Map<string, Watch>();
@@ -297,6 +299,17 @@ export class PullRequestStatusService {
     this.forgetDeletedWorkspaces();
     const previous = this.branches.get(workspaceId);
     this.branches.set(workspaceId, branch);
+    // The status bar asks again when the branch is switched, committed to or pushed, which a read
+    // from before would answer. Its remote can change too, such as after a force push.
+    if (
+      previous &&
+      (previous.currentBranch !== branch.currentBranch ||
+        previous.hasRemote !== branch.hasRemote ||
+        previous.unpushedCommits !== branch.unpushedCommits)
+    ) {
+      this.reads.delete(workspaceId);
+      this.branchChanges.set(workspaceId, (this.branchChanges.get(workspaceId) ?? 0) + 1);
+    }
     if (!previous || previous.currentBranch !== branch.currentBranch) return;
     const pushed =
       branch.hasRemote &&
@@ -385,7 +398,9 @@ export class PullRequestStatusService {
       await recent.status; // That read tags it.
       return;
     }
+    const branchChanges = this.branchChanges.get(workspace.id);
     const read = await this.readHereOrOnHost(workspace);
+    if (this.branchChanges.get(workspace.id) !== branchChanges) return;
     // Asking again every few minutes, on an SSH host over SSH, would only get the same answer.
     if (read.offGitHub) this.offGitHub.add(workspace.id);
     this.tagFrom(workspace.id, read);
@@ -405,7 +420,14 @@ export class PullRequestStatusService {
   }
 
   private forgetDeletedWorkspaces(): void {
-    for (const map of [this.reads, this.seen, this.branches, this.watches, this.offGitHub]) {
+    for (const map of [
+      this.reads,
+      this.seen,
+      this.branches,
+      this.branchChanges,
+      this.watches,
+      this.offGitHub,
+    ]) {
       for (const workspaceId of map.keys()) {
         if (this.dependencies.getWorkspace(workspaceId)) continue;
         this.unwatch(workspaceId);
@@ -417,7 +439,10 @@ export class PullRequestStatusService {
   private async read(workspaceId: string): Promise<PullRequestStatus> {
     const workspace = this.dependencies.getWorkspace(workspaceId);
     if (!workspace) return { kind: 'none' };
+    const branchChanges = this.branchChanges.get(workspaceId);
     const read = await this.readHereOrOnHost(workspace);
+    // The branch changed while gh ran, and a read since answers for it.
+    if (this.branchChanges.get(workspaceId) !== branchChanges) return read.status;
     if (read.status.kind === 'pull-request') {
       this.follow(workspace, read.status.pullRequest, read.head);
     } else if (read.status.kind === 'none') {

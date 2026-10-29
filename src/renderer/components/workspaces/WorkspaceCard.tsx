@@ -1386,6 +1386,15 @@ function ActivityRow({
   );
 }
 
+/** The nearest ancestor that scrolls `element` vertically, if any. */
+function scrollParentOf(element: Element): Element | null {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const { overflowY } = getComputedStyle(parent);
+    if (overflowY === 'auto' || overflowY === 'scroll') return parent;
+  }
+  return null;
+}
+
 function WorkspaceInfoPopover({
   label,
   content,
@@ -1457,6 +1466,28 @@ function WorkspaceInfoPopover({
     [clearCloseTimer, clearOpenTimer]
   );
 
+  // Scrolling the list carries the card out from under the pointer, so the details close
+  // rather than float beside it, and a hover the scroll interrupts doesn't open them. Only
+  // the user's own scrolling counts, not scroll anchoring or a focused card scrolling into view.
+  const dismissForScroll = useCallback(() => {
+    clearOpenTimer();
+    clearCloseTimer();
+    pointerOnOwnTooltipRef.current = null;
+    setOpen(false);
+  }, [clearCloseTimer, clearOpenTimer]);
+
+  // Open details also close for a scroll with the pointer elsewhere on the list, such as
+  // after a keyboard user opened them. Scrolling the details or a terminal leaves them.
+  useEffect(() => {
+    const scroller = open && triggerRef.current ? scrollParentOf(triggerRef.current) : null;
+    if (!scroller) return;
+    const handleWheel = (event: WheelEvent) => {
+      if (event.target instanceof Node && scroller.contains(event.target)) dismissForScroll();
+    };
+    document.addEventListener('wheel', handleWheel, { capture: true, passive: true });
+    return () => document.removeEventListener('wheel', handleWheel, { capture: true });
+  }, [open, dismissForScroll]);
+
   // The commit counts and a launch's Undo show their own tooltips, so the details wait while
   // the pointer is on one, or on one's portalled tooltip, which isn't inside this element.
   // Only crossing between them and the rest restarts the hover, so a click or a
@@ -1485,6 +1516,7 @@ function WorkspaceInfoPopover({
         onPointerEnter={handlePointerOver}
         onPointerMove={handlePointerOver}
         onPointerLeave={handlePointerLeave}
+        onWheel={dismissForScroll}
       >
         <PopoverTrigger asChild>
           <button

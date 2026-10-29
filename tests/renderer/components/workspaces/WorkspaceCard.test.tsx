@@ -2271,6 +2271,86 @@ describe('WorkspaceCard', () => {
     }
   });
 
+  describe('scrolling while the details are shown', () => {
+    const renderInList = () => {
+      const workspace = createWorktreeWorkspace({ name: 'Scrolled workspace' });
+      render(
+        <>
+          <div data-testid="workspace-list" style={{ overflowY: 'auto' }}>
+            <WorkspaceCard workspace={workspace} />
+            <div data-testid="other-card" />
+          </div>
+          <div data-testid="terminal-viewport" style={{ overflowY: 'auto' }} />
+        </>
+      );
+      return screen.getByRole('button', { name: 'Workspace details for Scrolled workspace' });
+    };
+
+    const hover = (trigger: HTMLElement) => {
+      fireEvent.pointerEnter(trigger);
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+    };
+
+    it('closes the details when the list is scrolled over the card', () => {
+      vi.useFakeTimers();
+      try {
+        const trigger = renderInList();
+        hover(trigger);
+        expect(screen.getByTestId('workspace-info-content')).toBeVisible();
+
+        fireEvent.wheel(trigger, { deltaY: 60 });
+
+        expect(screen.queryByTestId('workspace-info-content')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not open the details a scroll interrupted the hover delay of', () => {
+      vi.useFakeTimers();
+      try {
+        const trigger = renderInList();
+        fireEvent.pointerEnter(trigger);
+        fireEvent.wheel(trigger, { deltaY: 60 });
+        act(() => {
+          vi.advanceTimersByTime(400);
+        });
+
+        expect(screen.queryByTestId('workspace-info-content')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('closes keyboard-opened details when the list is scrolled elsewhere', () => {
+      const trigger = renderInList();
+      act(() => trigger.focus());
+      // Focusing a card scrolls it into view, which isn't the user scrolling.
+      fireEvent.scroll(screen.getByTestId('workspace-list'));
+      expect(screen.getByTestId('workspace-info-content')).toBeVisible();
+
+      fireEvent.wheel(screen.getByTestId('other-card'), { deltaY: 60 });
+
+      expect(screen.queryByTestId('workspace-info-content')).not.toBeInTheDocument();
+    });
+
+    it('keeps the details open while they or a terminal scroll', () => {
+      vi.useFakeTimers();
+      try {
+        hover(renderInList());
+
+        fireEvent.wheel(screen.getByTestId('workspace-info-content'), { deltaY: 60 });
+        fireEvent.wheel(screen.getByTestId('terminal-viewport'), { deltaY: 60 });
+
+        expect(screen.getByTestId('workspace-info-content')).toBeVisible();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('opens the details, notification and all, from a hovered status badge', () => {
     vi.useFakeTimers();
     try {

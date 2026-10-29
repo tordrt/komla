@@ -52,6 +52,7 @@ const manifestSchema = z.object({
   customName: optionalString,
   customDescription: optionalString,
   customNameSource: z.enum(['generated', 'manual']).optional(),
+  agentTitle: optionalString,
   branchName: optionalString,
   baseBranch: optionalString,
   repoName: optionalString,

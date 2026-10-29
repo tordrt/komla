@@ -18,6 +18,11 @@ export interface SshWorkspaceManifest {
   customName?: string;
   customDescription?: string;
   customNameSource?: WorkspaceCustomNameSource;
+  /**
+   * The title the workspace's agent last set, while it has no custom name, for the host's phone
+   * list. It lags the agent by up to a few minutes, and installations never merge it.
+   */
+  agentTitle?: string;
   branchName?: string;
   baseBranch?: string;
   repoName?: string;

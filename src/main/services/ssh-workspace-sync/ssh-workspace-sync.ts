@@ -1,5 +1,6 @@
 import { posix as pathPosix } from 'path';
 
+import { getWorkspaceDynamicTitle } from '../../../shared/lib/workspace-title';
 import {
   isSshWorkspace,
   type SshWorkspaceBackend,
@@ -30,6 +31,11 @@ const logger = createLogger('SshWorkspaceSync');
 // Komla installations
 const SYNC_INTERVAL_MS = 30_000;
 
+// How long a workspace's manifest keeps the agent's title before taking a newer one: agents
+// retitle their terminals often, and only the host's phone list shows it
+const AGENT_TITLE_INTERVAL_MS = 5 * 60_000;
+const MAX_AGENT_TITLE_CHARS = 256;
+
 // How long a host is synced again each interval after another installation last changed its
 // workspaces there, such as one it started, whose tabs' sessions start after the sync adds it
 const FOLLOW_UP_MS = 5 * 60_000;
@@ -37,6 +43,17 @@ const FOLLOW_UP_MS = 5 * 60_000;
 interface FollowUp {
   /** When following up on the last change from another installation ends. */
   until: number;
+  timer?: NodeJS.Timeout;
+}
+
+interface AgentTitle {
+  /** The title the manifest carries, this installation's or another's. */
+  title?: string;
+  /** The agent's title here when the manifest last took it, or when it took another's. */
+  seen?: string;
+  /** When the manifest last took the agent's title. */
+  at: number;
+  /** Writes the newer title once the interval is up. */
   timer?: NodeJS.Timeout;
 }
 
@@ -48,6 +65,11 @@ interface HostSync {
 }
 
 type SshWorkspace = Workspace & { backend: SshWorkspaceBackend };
+
+/** The title the workspace's agent set here, as its manifest carries it. */
+function agentTitleHere(workspace: Workspace): string | undefined {
+  return getWorkspaceDynamicTitle(workspace)?.trim().slice(0, MAX_AGENT_TITLE_CHARS) || undefined;
+}
 
 /** The Workspace manifests, Tombstones and Managed Remote Terminal Sessions on SSH hosts. */
 export interface SshWorkspaceSyncHost {
@@ -174,6 +196,8 @@ export class SshWorkspaceSync {
   private readonly hostSyncs = new Map<string, HostSync>();
   /** The hosts synced again each interval after another installation changed their workspaces. */
   private readonly followUps = new Map<string, FollowUp>();
+  /** The agent's title each workspace's manifest carries. */
+  private readonly agentTitles = new Map<string, AgentTitle>();
   private disposed = false;
   private saving: Promise<void> = Promise.resolve();
   private saveQueued = false;
@@ -187,6 +211,15 @@ export class SshWorkspaceSync {
   restored(workspaces: Iterable<Workspace>): void {
     const saved = this.readSaved();
     for (const workspace of workspaces) {
+      // The host's copy keeps its title until the interval is up, as after any other write, and
+      // until the agent here retitles, as another device may have written it since. One with no
+      // title yet, e.g. written by an older version, takes this installation's then.
+      const title = saved.get(workspace.id)?.agentTitle;
+      this.agentTitles.set(workspace.id, {
+        title,
+        seen: title === undefined ? undefined : agentTitleHere(workspace),
+        at: this.dependencies.now(),
+      });
       const manifest = this.build(workspace, 0);
       if (!manifest) continue;
       this.published.set(workspace.id, sshWorkspaceManifestContentKey(manifest));
@@ -259,6 +292,8 @@ export class SshWorkspaceSync {
     this.disposed = true;
     for (const { timer } of this.followUps.values()) clearTimeout(timer);
     this.followUps.clear();
+    for (const { timer } of this.agentTitles.values()) clearTimeout(timer);
+    this.agentTitles.clear();
   }
 
   /**
@@ -307,6 +342,7 @@ export class SshWorkspaceSync {
 
   private publishChanges(workspaces: Iterable<Workspace>): void {
     for (const workspace of workspaces) {
+      this.takeAgentTitle(workspace);
       const manifest = this.build(workspace, this.dependencies.now());
       const { backend } = workspace;
       if (!manifest || backend?.kind !== 'ssh') continue;
@@ -663,6 +699,7 @@ export class SshWorkspaceSync {
     if (!this.dependencies.syncsWith(hostId) || !remote.syncs) return false;
     const tabsBefore = new Set(this.workspace(workspaceId)?.terminals.map(({ id }) => id));
     const workspace = await this.applyChanges(workspaceId, remote, base);
+    if (workspace) this.takeOthersAgentTitle(workspace, remote);
     this.setOnHost(workspaceId, remote);
     const merged = workspace && this.build(workspace, 0);
     if (merged && sshWorkspaceManifestSyncedFieldsEqual(merged, remote)) {
@@ -767,6 +804,8 @@ export class SshWorkspaceSync {
    */
   async deleted(workspace: Workspace, { leftOnHost }: { leftOnHost: boolean }): Promise<void> {
     this.deletedHere.add(workspace.id);
+    clearTimeout(this.agentTitles.get(workspace.id)?.timer);
+    this.agentTitles.delete(workspace.id);
     if (leftOnHost || !isSshWorkspace(workspace)) this.forget(workspace.id);
     else await this.remove(workspace.id, workspace.backend);
   }
@@ -864,17 +903,70 @@ export class SshWorkspaceSync {
     return manifests;
   }
 
+  /**
+   * Lets the manifest take the agent's current title: a workspace's first at once, a newer one
+   * once the interval since the last is up, when a timer writes it unless a save did first.
+   */
+  private takeAgentTitle(workspace: Workspace): void {
+    if (!isSshWorkspace(workspace) || workspace.customName) return;
+    const title = agentTitleHere(workspace);
+    const taken = this.agentTitles.get(workspace.id);
+    // Only a change here replaces the title, so a stale one can't write over another device's.
+    if (taken ? taken.seen === title : !title) return;
+    const now = this.dependencies.now();
+    if (!taken || now >= taken.at + AGENT_TITLE_INTERVAL_MS) {
+      clearTimeout(taken?.timer);
+      this.agentTitles.set(workspace.id, { title, seen: title, at: now });
+      return;
+    }
+    if (taken.timer) return;
+    taken.timer = setTimeout(
+      () => {
+        taken.timer = undefined;
+        const { store } = this.dependencies;
+        const current = store.get(workspace.id);
+        if (!current) this.agentTitles.delete(workspace.id);
+        else if (!this.disposed && !store.isDeleting(workspace.id)) this.publishChanges([current]);
+      },
+      taken.at + AGENT_TITLE_INTERVAL_MS - now
+    );
+    taken.timer.unref?.();
+  }
+
+  /**
+   * Takes the title another installation wrote, newer than the one here: the title here, and one
+   * waiting to be written, count as seen, so only the agent retitling here replaces it.
+   */
+  private takeOthersAgentTitle(workspace: Workspace, remote: SshWorkspaceManifest): void {
+    if (remote.agentTitle === undefined) return;
+    clearTimeout(this.agentTitles.get(workspace.id)?.timer);
+    this.agentTitles.set(workspace.id, {
+      title: remote.agentTitle,
+      seen: agentTitleHere(workspace),
+      at: this.dependencies.now(),
+    });
+  }
+
   /** Runs on every save, so it never throws and skips non-SSH workspaces before resolving presets. */
   private build(workspace: Workspace, updatedAt: number): SshWorkspaceManifest | undefined {
     if (!isSshWorkspace(workspace)) return undefined;
     try {
-      return buildSshWorkspaceManifest(
+      const manifest = buildSshWorkspaceManifest(
         workspace,
         updatedAt,
         this.dependencies.launch?.(workspace),
         this.dependencies.deviceId(),
         this.dependencies.syncsWith(workspace.backend.hostId)
       );
+      // Without a title of its own here, e.g. while another device runs the agent, the
+      // workspace keeps the one on its host.
+      const taken = this.agentTitles.get(workspace.id);
+      const agentTitle = workspace.customName
+        ? undefined
+        : taken
+          ? taken.title
+          : this.base(workspace.id)?.agentTitle;
+      return manifest && agentTitle ? { ...manifest, agentTitle } : manifest;
     } catch (error) {
       logger.warn('Could not describe SSH workspace for its manifest', {
         workspaceId: workspace.id,

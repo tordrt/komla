@@ -27,6 +27,9 @@ struct Manifest {
     custom_name: Option<String>,
     #[serde(default)]
     custom_description: Option<String>,
+    /// The agent's last title, which the desktop writes only while there is no custom name.
+    #[serde(default)]
+    agent_title: Option<String>,
     #[serde(default)]
     branch_name: Option<String>,
     #[serde(default)]
@@ -165,7 +168,9 @@ impl HostWorkspace {
         let primary_terminal_id = manifest
             .primary_terminal_id
             .filter(|id| terminals.iter().any(|terminal| &terminal.id == id));
+        // The title the desktop's sidebar shows, as far as the manifest has it.
         let name = non_empty(manifest.custom_name)
+            .or_else(|| non_empty(manifest.agent_title))
             .or_else(|| non_empty(Some(manifest.name)))
             .unwrap_or_else(|| manifest.workspace_id.clone());
         Self {
@@ -391,6 +396,31 @@ mod tests {
         assert_eq!(summary["terminals"][0]["environment"]["name"], "devbox");
         assert_eq!(summary["terminals"][1]["status"], "stopped");
         assert!(summary.get("agentActive").is_none());
+    }
+
+    #[test]
+    fn names_a_workspace_by_its_agent_title_only_without_a_custom_name() {
+        let base = tempfile::tempdir().unwrap();
+        write_manifest(
+            base.path(),
+            "ws-1",
+            json!({ "agentTitle": "Stripe webhook retries" }),
+        );
+        write_manifest(
+            base.path(),
+            "ws-2",
+            json!({ "customName": "Fix SSH prompt", "agentTitle": "Stripe webhook retries" }),
+        );
+
+        let names = read_workspaces(base.path())
+            .iter()
+            .map(|workspace| {
+                workspace.summary(&HashMap::new(), &AttentionBoard::default(), "devbox")["name"]
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["Stripe webhook retries", "Fix SSH prompt"]);
     }
 
     #[test]

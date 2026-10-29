@@ -2,6 +2,8 @@ import { getSchema } from '@tiptap/core';
 import { MarkdownManager } from '@tiptap/markdown';
 import { Marked } from 'marked';
 
+import { longestCommonSubsequence } from '@/lib/longest-common-subsequence';
+
 import { createMarkdownExtensions } from './markdown-extensions';
 
 import type { JSONContent } from '@tiptap/core';
@@ -532,31 +534,6 @@ export function alignBlocks(original: string[], edited: string[]): BlockPair[] {
     }
   }
   return pairs;
-}
-
-function longestCommonSubsequence(a: string[], b: string[]): [number, number][] {
-  const lengths = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
-  for (let i = a.length - 1; i >= 0; i--) {
-    for (let j = b.length - 1; j >= 0; j--) {
-      lengths[i][j] =
-        a[i] === b[j] ? lengths[i + 1][j + 1] + 1 : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
-    }
-  }
-  const result: [number, number][] = [];
-  let i = 0;
-  let j = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      result.push([i, j]);
-      i++;
-      j++;
-    } else if (lengths[i + 1][j] >= lengths[i][j + 1]) {
-      i++;
-    } else {
-      j++;
-    }
-  }
-  return result;
 }
 
 /**

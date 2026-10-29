@@ -123,6 +123,17 @@ describe('ConfigService', () => {
           inputRequired: true,
           inputRequiredSound: 'bell',
         },
+        lastUsedProjectId: null,
+        dashboardFilterProject: null,
+        statusBarSize: 'medium',
+        workspaceNamingPrompt: '',
+        commitMessagePrompt: '',
+        workspaceTags: [
+          { name: 'In review', tone: 'info', pullRequestState: 'in-review' },
+          { name: 'Needs changes', tone: 'warning', pullRequestState: 'needs-changes' },
+          { name: 'Blocked', tone: 'error' },
+          { name: 'On hold', tone: 'neutral' },
+        ],
       });
     });
 
@@ -662,6 +673,61 @@ describe('ConfigService', () => {
         'preview.open',
         'agent.launch.tab',
       ]);
+    });
+
+    it('holds after an update what a restart would read back', async () => {
+      mockExistsSync.mockReturnValue(false);
+      const { configService } = await import('../../../src/main/services/config.service');
+
+      const updated = configService.update({
+        // The two ↑N choices are set together, or neither is.
+        gitDefaults: { branchPrefix: 'me/', aheadMainAction: 'pr' },
+        statusBarSize: 'huge' as never,
+        keepAwakeMode: 'sometimes' as never,
+        workspaceNamingPrompt: '  Name it briefly.  ',
+        recentFolders: ['/a', 42 as never],
+        // View choices only the renderer reads
+        remoteBranchesExpanded: true,
+        diffHideUnchangedRegions: false,
+        dashboardFilterProject: 'Komla',
+      });
+
+      expect(updated).toMatchObject({
+        remoteBranchesExpanded: true,
+        diffHideUnchangedRegions: false,
+        dashboardFilterProject: 'Komla',
+      });
+      expect(updated.gitDefaults).toEqual({ branchPrefix: 'me/' });
+      expect(updated.workspaceNamingPrompt).toBe('Name it briefly.');
+      expect(configService.get()).toEqual(updated);
+
+      vi.advanceTimersByTime(600);
+      const savedData = JSON.parse(mockWriteFileSync.mock.calls[0][1] as string);
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(savedData));
+      vi.resetModules();
+      const { configService: reloaded } =
+        await import('../../../src/main/services/config.service');
+
+      expect(reloaded.get()).toEqual(updated);
+    });
+
+    it('holds on a fresh install what a restart would read back', async () => {
+      mockExistsSync.mockReturnValue(false);
+      const { configService } = await import('../../../src/main/services/config.service');
+      const fresh = configService.get();
+
+      configService.getTelemetryDistinctId();
+      vi.advanceTimersByTime(600);
+      const savedData = JSON.parse(mockWriteFileSync.mock.calls[0][1] as string);
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(savedData));
+      vi.resetModules();
+      const { configService: reloaded } =
+        await import('../../../src/main/services/config.service');
+
+      expect(reloaded.get()).toEqual(configService.get());
+      expect({ ...reloaded.get(), telemetryDistinctId: undefined }).toEqual(fresh);
     });
 
     it('should round trip utility config fields', async () => {

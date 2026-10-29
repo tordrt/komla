@@ -1326,5 +1326,97 @@
   {
     "command": "sleep 20 && echo done",
     "hold": true
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad && node node_modules/vite/bin/vite.js --config vite.config.mjs > vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cd $S/h && node_modules/.bin/vite --config vite.config.mjs > vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad/h && npx vite --config vite.config.mjs > vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cd $S/vis && npx vite --config vite.config.mjs > vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "H=/tmp/scratch/scratchpad/harness; cd $H && npx vite --config $H/vite.config.mjs > $H/vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad/harness && ./node_modules/.bin/vite --config vite.config.mjs",
+    "hold": false
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad/harness && ss -ltnp 2>/dev/null | grep 5847; exec npx vite --config vite.config.mjs > vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad/harness && exec npx vite --config vite.config.mjs > vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "npm run dev > /tmp/scratch/scratchpad/site-dev.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cd $S/vite && nohup node node_modules/vite/bin/vite.js --config vite.config.mjs > $S/vite/vite.log 2>&1 &\necho started",
+    "hold": true
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cd $S/eh && KOMLA_W=$S/base PORT=5402 S=$S exec node node_modules/vite/bin/vite.js --config rv.config.mjs > $S/eh/rv-base.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; cd $S/eh && (KOMLA_W=/work/repo PORT=5401 S=$S node node_modules/vite/bin/vite.js --config rv.config.mjs > rv-w.log 2>&1 &) ; KOMLA_W=$S/base PORT=5402 S=$S exec node node_modules/vite/bin/vite.js --config rv.config.mjs > rv-base.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /work/repo; npx electron-vite dev --rendererOnly --port 5391 > /tmp/scratch/scratchpad/dev.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /work/repo; npx electron-vite dev --rendererOnly > /tmp/scratch/scratchpad/dev.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /work/repo; node node_modules/vite/bin/vite.js --config /tmp/scratch/scratchpad/harness/vite.renderer.config.mjs > /tmp/scratch/scratchpad/dev.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "kill 236597; cd /work/repo; node node_modules/vite/bin/vite.js --config /tmp/scratch/scratchpad/harness/vite.renderer.config.mjs > /tmp/scratch/scratchpad/dev.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd ~ && komla desktop run -- env $(env | grep -o '^KOMLA_[A-Z_]*' | sed 's/^/-u /' | tr '\\n' ' ') \"$HOME/.local/bin/komla-staging\" > /tmp/scratch/scratchpad/desktop-run.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad/sb && exec ./node_modules/.bin/vite --config vite.lab.config.mjs > vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "S=/tmp/scratch/scratchpad; H=$S/harness; cd $H && ./node_modules/.bin/vite --config vite.config.mjs > $H/vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /tmp/scratch/scratchpad/vite && exec node /work/repo/node_modules/vite/bin/vite.js --config vite.config.mjs > ../vite.log 2>&1",
+    "hold": false
+  },
+  {
+    "command": "cd /work/repo; pgrep -af \"electron-vite dev\" | grep -v pgrep | grep zoom-levels-setup | head -2; git status --short; npx electron-vite build > /tmp/scratch/scratchpad/build.log 2>&1; echo exit=$?; tail -5 /tmp/scratch/scratchpad/build.log",
+    "hold": true
+  },
+  {
+    "command": "cd /work/repo && npx electron-vite dev --rendererOnly --clearScreen false",
+    "hold": false
+  },
+  {
+    "command": "cd /work/repo && ELECTRON_EXEC_PATH=/tmp/scratch/scratchpad/stub-electron.sh npx electron-vite dev --rendererOnly --clearScreen false",
+    "hold": false
   }
 ]

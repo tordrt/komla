@@ -69,7 +69,17 @@ const SCRIPT_FILE = /\.(?:[cm]?js|ts|py|rb|php)$/;
 const APP_SCRIPT_NAMES = new Set(['app', 'index', 'main']);
 const FOLLOW_FLAG = /^(?:-[a-zA-Z]*[fF]|--follow)$/;
 /** Launchers that run the command after their own flags; `timeout` also takes a duration. */
-const LAUNCHERS = new Set(['bunx', 'exec', 'nice', 'nohup', 'npx', 'time', 'timeout', 'xvfb-run']);
+const LAUNCHERS = new Set([
+  'bunx',
+  'env',
+  'exec',
+  'nice',
+  'nohup',
+  'npx',
+  'time',
+  'timeout',
+  'xvfb-run',
+]);
 /** Launchers that run the command after a subcommand of theirs, as `uv run` does. */
 const SUBCOMMAND_LAUNCHERS = new Map([
   ['bundle', 'exec'],
@@ -83,7 +93,7 @@ const SUBCOMMAND_LAUNCHERS = new Map([
 /** Package managers, and Turborepo, which runs their scripts. */
 const PACKAGE_MANAGERS = new Set(['bun', 'npm', 'pnpm', 'turbo', 'yarn']);
 /** Package manager options that take a value, such as the package `--filter` picks. */
-const PACKAGE_MANAGER_VALUE_OPTIONS = new Set([
+const PACKAGE_MANAGER_VALUE_OPTIONS = [
   '--cwd',
   '--dir',
   '--filter',
@@ -91,11 +101,88 @@ const PACKAGE_MANAGER_VALUE_OPTIONS = new Set([
   '--workspace',
   '-C',
   '-F',
+];
+/**
+ * The options of launchers, package managers and `deno task` that take a value, as
+ * `uv run --with httpx`, `env -u NAME` and `npm -w web` do; pnpm's `-w` takes none.
+ */
+const VALUE_OPTIONS = new Map([
+  ['bun', PACKAGE_MANAGER_VALUE_OPTIONS],
+  ['bunx', ['-p', '--package']],
+  ['deno', ['-c', '-f', '--config', '--cwd', '--filter']],
+  ['env', ['-C', '-u', '--chdir', '--unset']],
+  ['exec', ['-a']],
+  ['nice', ['-n', '--adjustment']],
+  ['npm', [...PACKAGE_MANAGER_VALUE_OPTIONS, '-w', '--package']],
+  ['npx', ['-p', '--package']],
+  ['pnpm', PACKAGE_MANAGER_VALUE_OPTIONS],
+  ['pdm', ['-p', '--project']],
+  ['poetry', ['-C', '-P', '--directory', '--project']],
+  ['time', ['-f', '-o', '--format', '--output']],
+  ['timeout', ['-k', '-s', '--kill-after', '--signal']],
+  ['turbo', PACKAGE_MANAGER_VALUE_OPTIONS],
+  [
+    'uv',
+    [
+      '-p',
+      '--cache-dir',
+      '--default-index',
+      '--directory',
+      '--env-file',
+      '--extra',
+      '--extra-index-url',
+      '--group',
+      '--index',
+      '--index-url',
+      '--package',
+      '--project',
+      '--python',
+      '--with',
+      '--with-editable',
+      '--with-requirements',
+    ],
+  ],
+  [
+    'xvfb-run',
+    [
+      '-e',
+      '-f',
+      '-n',
+      '-p',
+      '-s',
+      '-w',
+      '--auth-file',
+      '--error-file',
+      '--server-args',
+      '--server-num',
+      '--wait',
+    ],
+  ],
+  ['yarn', PACKAGE_MANAGER_VALUE_OPTIONS],
+]);
+/** `docker run` short options that take no value, alone or combined, as in `-it` and `-dit`. */
+const DOCKER_SHORT_FLAGS = /^-[diPqt]+$/;
+/** ssh options whose value follows, alone or last among combined ones: `-p 2222`, `-NL 8080:…`. */
+const SSH_VALUE_OPTION = /^-[a-zA-Z]*[BbcDEeFIiJLlmOoPpQRSWw]$/;
+/** `docker run` options that take no value, so the word after one is the image. */
+const DOCKER_RUN_FLAGS = new Set([
+  '--detach',
+  '--init',
+  '--interactive',
+  '--no-healthcheck',
+  '--oom-kill-disable',
+  '--privileged',
+  '--publish-all',
+  '--quiet',
+  '--read-only',
+  '--rm',
+  '--tty',
 ]);
 const SHELLS = new Set(['bash', 'dash', 'sh', 'zsh']);
 /** `while true; do …; done`, which only a `break` or `exit` in it ends. */
 const ENDLESS_LOOP = /(?:^|[;&|(]|\bdo)\s*(?:while\s+(?:true|:)|until\s+false)\s*[;\n]/;
-const LOOP_EXIT = /\b(?:break|exit|return)\b/;
+// Not an option such as `git diff --exit-code`.
+const LOOP_EXIT = /(?<![-\w])(?:break|exit|return)\b/;
 /** `python3`, `python3.13t`, `pythonw`, `Python` or the Windows launcher `py`. */
 const PYTHON = /^(?:pythonw?(?:\d+(?:\.\d+)*t?)?|pyw?)$/i;
 /** The `py` launcher's own options, which pick a Python: `-3.12-arm64` or `-V:Anaconda3/3.12`. */
@@ -126,6 +213,15 @@ function programName(path: string): string {
     .replace(/\.(?:exe|cmd|bat|ps1)$/i, '');
 }
 
+const takesValue = (program: string, option: string) =>
+  VALUE_OPTIONS.get(program)?.includes(option) ?? false;
+
+/** The index past the options at `index` and the values of those that take one. */
+function skipOptions(program: string, words: string[], index: number): number {
+  while (words[index]?.startsWith('-')) if (takesValue(program, words[index++])) index++;
+  return index;
+}
+
 /** Skips environment assignments and launchers such as `timeout 600` or `xvfb-run -a`. */
 function programIndex(words: string[]): number {
   let index = 0;
@@ -137,10 +233,13 @@ function programIndex(words: string[]): number {
     }
     const launcher = programName(word);
     const subcommand = SUBCOMMAND_LAUNCHERS.get(launcher);
-    if (subcommand && words[index + 1] === subcommand) index++;
-    else if (!LAUNCHERS.has(launcher)) break;
-    index++;
-    while (words[index]?.startsWith('-')) index++;
+    if (subcommand) {
+      // Its own options may come before the subcommand, as in `uv --directory api run`.
+      const at = skipOptions(launcher, words, index + 1);
+      if (words[at] !== subcommand) break;
+      index = at;
+    } else if (!LAUNCHERS.has(launcher)) break;
+    index = skipOptions(launcher, words, index + 1);
     if (launcher === 'timeout') index++;
   }
   return index;
@@ -194,23 +293,21 @@ function runsLongRunningScript(program: string, args: string[]): boolean {
   let index = 0;
   while (args[index]?.startsWith('-')) {
     const option = args[index++];
-    // npm's `-w` names a workspace; pnpm's picks the workspace root and takes no value.
-    if (option === '-w') {
-      if (program === 'npm') index++;
-    } else if (PACKAGE_MANAGER_VALUE_OPTIONS.has(option)) {
-      index++;
-    } else if (LONG_RUNNING_FLAGS.has(option)) {
-      // The package manager's own, as in `bun --hot index.ts`.
-      return true;
-    }
+    if (takesValue(program, option)) index++;
+    // The package manager's own, as in `bun --hot index.ts`; pnpm's `-w` picks the workspace root.
+    else if (option !== '-w' && LONG_RUNNING_FLAGS.has(option)) return true;
   }
   if (program === 'yarn' && args[index] === 'workspace') index += 2;
   if (args[index] === 'run' || args[index] === 'run-script') index++;
   const script = args[index];
   if (!script) return false;
-  // Options after the script are the script's own, as in `npm run test -- --watch`.
+  // Options after the script are the script's own, as in `npm run test -- --watch`, except the
+  // package manager's before a `--`, as npm's `-w` is in `npm run build -w web`.
+  const rest = args.slice(index + 1);
+  const end = rest.includes('--') ? rest.indexOf('--') : rest.length;
   return (
-    hasLongRunningPart(script) || args.slice(index + 1).some((arg) => LONG_RUNNING_FLAGS.has(arg))
+    hasLongRunningPart(script) ||
+    rest.some((arg, at) => LONG_RUNNING_FLAGS.has(arg) && !(at < end && takesValue(program, arg)))
   );
 }
 
@@ -222,41 +319,92 @@ function shellCommand(program: string, args: string[]): string | undefined {
   return command?.replace(/^(["'])(.*)\1$/s, '$2');
 }
 
+/** `deno task dev`, also after the task's own options, as in `deno task --cwd web dev`. */
+function runsLongRunningDenoTask([subcommand, ...args]: string[]): boolean | undefined {
+  if (subcommand !== 'task') return undefined;
+  // Otherwise a watch flag or nothing decides, as for any command.
+  return hasLongRunningPart(args[skipOptions('deno', args, 0)] ?? '') || undefined;
+}
+
 /**
- * Programs whose own arguments say they serve: `php -S`, `php artisan serve`, `deno task dev`,
- * a Celery worker, an ssh tunnel or `less +F`; and GitHub's CLI, whose `--watch` waits for checks,
- * which finish. Undefined for other programs.
+ * `php -S` and `php artisan serve` serve. A script, `php index.php` or `php artisan … --watch`,
+ * is judged as any command is, but PHP's own options, such as `-w`, aren't a watcher's.
  */
-function servesByArguments(program: string, args: string[]): boolean | undefined {
-  const [subcommand = ''] = args;
-  switch (program) {
-    case 'php':
-      return subcommand === '-S' || (subcommand === 'artisan' && args[1] === 'serve');
-    case 'deno':
-      return subcommand === 'task' ? hasLongRunningPart(args[1] ?? '') : undefined;
-    case 'celery':
-      return args.includes('worker') || args.includes('beat');
-    case 'ssh': {
-      // `-N` forwards ports without running a command; `-f` then sends ssh to the background.
-      const options = args.filter((arg) => /^-[a-zA-Z]+$/.test(arg)).join('');
-      return options.includes('N') && !options.includes('f');
-    }
-    case 'less':
-      return args.includes('+F');
-    case 'gh':
-      return false;
-    default:
-      return undefined;
+function servesPhp(args: string[]): boolean | undefined {
+  if (args.includes('-S') || (args[0] === 'artisan' && args[1] === 'serve')) return true;
+  return args[0]?.startsWith('-') ? false : undefined;
+}
+
+/**
+ * `ssh -N` forwards ports without running a command, until `-f` sends it to the background.
+ * Otherwise the command it runs on the host decides, as `npm run dev` does in
+ * `ssh dev "npm run dev"`, and a host's name, such as `dev`, says nothing.
+ */
+function sshServes(args: string[]): boolean {
+  let at = 0;
+  let flags = '';
+  while (args[at]?.startsWith('-')) {
+    const option = args[at++];
+    if (/^-[a-zA-Z]+$/.test(option)) flags += option;
+    if (SSH_VALUE_OPTION.test(option)) at++;
   }
+  if (flags.includes('N')) return !flags.includes('f');
+  const remote = args.slice(at + 1).join(' ');
+  return remote !== '' && isLongRunningCommand(remote.replace(/^(["'])(.*)\1$/s, '$2'));
+}
+
+/**
+ * Programs whose own arguments decide: true when they serve, false when they finish, and
+ * undefined when the rest of the command decides, as for `php index.php`.
+ */
+const DECIDED_BY_ARGUMENTS = new Map<string, (args: string[]) => boolean | undefined>([
+  ['celery', (args) => args.includes('worker') || args.includes('beat')],
+  ['deno', runsLongRunningDenoTask],
+  // Its `--watch` and `gh run watch` wait for checks, which finish.
+  ['gh', () => false],
+  // `desktop run` runs a GUI app until the app exits, and `mcp` serves stdio; the rest finish.
+  [
+    'komla',
+    ([command, subcommand]) => command === 'mcp' || (command === 'desktop' && subcommand === 'run'),
+  ],
+  ['less', (args) => args.includes('+F')],
+  ['php', servesPhp],
+  ['sleep', ([duration]) => duration === 'infinity'],
+  ['ssh', sshServes],
+]);
+
+/**
+ * Whether `docker run` gives its image a command that names finite work, as in
+ * `docker run app migrate`, rather than only an image, as in `docker run ghcr.io/acme/web:release`.
+ * A word after an option is taken as its value, unless it takes none, as `-it` and `--init` do.
+ */
+function runsFiniteContainerCommand(args: string[]): boolean {
+  const options = args.slice(1);
+  const hasValue = (option = '') =>
+    option.startsWith('-') &&
+    !option.includes('=') &&
+    !DOCKER_SHORT_FLAGS.test(option) &&
+    !DOCKER_RUN_FLAGS.has(option);
+  const positional = options.filter(
+    (arg, at) => !arg.startsWith('-') && !hasValue(options[at - 1])
+  );
+  return positional.length > 1 && namesFiniteWork(positional);
 }
 
 /** Apps and containers: `node server.js`, `java -jar app.jar`, `docker compose up`, `vite`. */
 function startsApp(program: string, args: string[]): boolean {
   const [subcommand = ''] = args;
-  const detached = args.includes('-d') || args.includes('--detach');
+  const detached = args.some(
+    (arg) => arg === '--detach' || (DOCKER_SHORT_FLAGS.test(arg) && arg.includes('d'))
+  );
   if (program === 'docker' || program === 'docker-compose') {
     if (args.includes('up')) return !detached;
-    return subcommand === 'run' && !detached && !args.includes('--rm') && !namesFiniteWork(args);
+    return (
+      subcommand === 'run' &&
+      !detached &&
+      !args.includes('--rm') &&
+      !runsFiniteContainerCommand(args)
+    );
   }
   if (program === 'java') return subcommand === '-jar';
   if (program === 'vite') return !subcommand || subcommand.startsWith('-');
@@ -273,6 +421,11 @@ function startsApp(program: string, args: string[]): boolean {
 function programAndArgs(words: string[]): { program: string; args: string[] } {
   const [path = '', ...args] = words.slice(programIndex(words));
   const program = programName(path);
+  // Node given a package's own script, as in `node node_modules/vite/bin/vite.js`, runs it.
+  if (program === 'node' && /(?:^|[\\/])node_modules[\\/]/.test(args[0] ?? '')) {
+    const [script, ...rest] = args;
+    return { program: programName(script).replace(/\.[cm]?js$/, ''), args: rest };
+  }
   if (!PYTHON.test(program)) return { program, args };
   const launcher = /^pyw?$/i.test(program) && PY_LAUNCHER_OPTION.test(args[0] ?? '');
   const { module, rest } = pythonArguments(launcher ? args.slice(1) : args);
@@ -292,8 +445,8 @@ export function isLongRunningCommand(command: string): boolean {
   const shelled = shellCommand(program, args);
   if (shelled !== undefined) return isLongRunningCommand(shelled);
   if (PACKAGE_MANAGERS.has(program)) return runsLongRunningScript(program, args);
-  const serves = servesByArguments(program, args);
-  if (serves !== undefined) return serves;
+  const decided = DECIDED_BY_ARGUMENTS.get(program)?.(args);
+  if (decided !== undefined) return decided;
   if (args.some((arg) => LONG_RUNNING_FLAGS.has(arg))) return true;
   const subcommand = args[0] ?? '';
   if (LONG_RUNNING_PROGRAMS.has(program) || hasLongRunningPart(program)) return true;
@@ -301,6 +454,5 @@ export function isLongRunningCommand(command: string): boolean {
   if (RUN_SUBCOMMANDS.get(program)?.includes(subcommand)) return !namesFiniteWork(args);
   const follows = program === 'tail' || program === 'journalctl' || subcommand === 'logs';
   if (follows && args.some((arg) => FOLLOW_FLAG.test(arg))) return true;
-  if (program === 'sleep') return subcommand === 'infinity';
   return startsApp(program, args);
 }

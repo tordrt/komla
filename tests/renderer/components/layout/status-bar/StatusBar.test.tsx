@@ -3669,6 +3669,20 @@ describe('StatusBar', () => {
       expect(within(panel).queryByRole('region', { name: 'Sidebar' })).not.toBeInTheDocument();
     });
 
+    it('sizes the bar from the customize panel', async () => {
+      const user = userEvent.setup();
+      mockState.config = { statusBarSize: 'medium' };
+      renderStatusBar();
+
+      const panel = await openCustomizePanel(user);
+      const sizes = within(panel).getByRole('radiogroup', { name: 'Status bar size' });
+      expect(within(sizes).getByRole('radio', { name: 'Medium' })).toBeChecked();
+
+      await user.click(within(sizes).getByRole('radio', { name: 'Large' }));
+
+      expect(mockState.updateConfig).toHaveBeenCalledWith({ statusBarSize: 'large' });
+    });
+
     it('drags an item to the other side of the bar', async () => {
       const user = userEvent.setup();
       renderStatusBar();

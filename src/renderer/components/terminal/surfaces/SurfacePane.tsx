@@ -157,7 +157,15 @@ export const SurfacePane = React.memo(function SurfacePane({
 
   const header: SurfaceHeader = (title, options = {}) => (
     <div
-      className="flex h-7 shrink-0 cursor-grab items-center gap-1 border-b border-border bg-card pr-1 pl-2 active:cursor-grabbing"
+      className={cn(
+        'flex h-7 shrink-0 cursor-grab items-center gap-1 bg-card pr-1 active:cursor-grabbing',
+        // Tabs draw the bottom line as an inset shadow, which the active tab covers.
+        options.tabs
+          ? 'shadow-[inset_0_-1px_0_oklch(var(--border))]'
+          : 'border-b border-border pl-2'
+      )}
+      // The active tab opens into the surface below it.
+      style={options.tabs ? ({ '--tab-surface': background } as React.CSSProperties) : undefined}
       {...(isLayoutLocked ? {} : paneDragBarProps(drag))}
     >
       {options.icon && (

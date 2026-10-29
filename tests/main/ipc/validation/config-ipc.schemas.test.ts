@@ -95,6 +95,14 @@ describe('configUpdateArgsSchema', () => {
     expect(() => configUpdateArgsSchema.parse([{ activitySpinner: 'sparkle' }])).toThrow();
   });
 
+  it('preserves a known status bar size and rejects any other', () => {
+    const [updates] = configUpdateArgsSchema.parse([{ statusBarSize: 'large' }]);
+    expect(updates).toEqual({ statusBarSize: 'large' });
+
+    expect(() => configUpdateArgsSchema.parse([{ statusBarSize: 'huge' }])).toThrow();
+    expect(() => configUpdateArgsSchema.parse([{ statusBarSize: 32 }])).toThrow();
+  });
+
   it('preserves direct remote keep-awake updates', () => {
     const [enabled] = configUpdateArgsSchema.parse([{ directRemoteKeepAwake: true }]);
     expect(enabled).toEqual({ directRemoteKeepAwake: true });

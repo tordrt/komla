@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 
 import { isSshForwardedBrowserTab, updatePaneBrowserTabs } from '@/lib/browser-tabs';
 import {
@@ -71,6 +71,7 @@ import { shownTheme } from '../../shared/lib/appearance';
 import { addBrowserTab, getBrowserTabs, recordBrowserTabPage } from '../../shared/lib/browser-tabs';
 import { isLoopbackUrl } from '../../shared/lib/loopback-url';
 import { getPaneSurfaceIdOfTab } from '../../shared/lib/pane-surface-id';
+import { DEFAULT_STATUS_BAR_SIZE } from '../../shared/lib/status-bar-size';
 
 import { awaitUserReturn } from './useAwaitingUserReturn';
 import { useProjectAccent } from './useProjectAccent';
@@ -278,6 +279,16 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
   useEffect(() => {
     applyReduceEffects(config?.reduceEffects === true);
   }, [config?.reduceEffects]);
+
+  // The bottom row's height: the status bar's size, or small while the bar is hidden, so the rows
+  // and buttons that share its height keep the small one. Before paint, so a size change never
+  // shows a frame at the old height.
+  useLayoutEffect(() => {
+    document.documentElement.dataset.statusBarRow =
+      config?.showStatusBar === false
+        ? 'small'
+        : (config?.statusBarSize ?? DEFAULT_STATUS_BAR_SIZE);
+  }, [config?.showStatusBar, config?.statusBarSize]);
 
   useEffect(() => {
     const grouping = config?.workspaceGrouping ?? 'project';

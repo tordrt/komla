@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 
 /** The look of a status bar item, for triggers that render their own button. */
 export const STATUS_BAR_BUTTON_CLASS = cn(
-  'flex h-5 shrink-0 items-center gap-1 rounded-lg px-1.5 whitespace-nowrap text-muted-foreground transition-colors',
+  'flex h-(--status-bar-item-height) shrink-0 items-center gap-1 rounded-lg px-1.5 whitespace-nowrap text-muted-foreground transition-colors',
   'hover:bg-accent/60 hover:text-foreground data-[state=open]:bg-accent/60 data-[state=open]:text-foreground',
   'focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden'
 );

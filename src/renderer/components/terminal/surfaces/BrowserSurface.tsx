@@ -93,7 +93,8 @@ export function BrowserSurface({
             browserId={surfaceId}
             onCloseTab={(tabId) => closePaneBrowserTab(workspaceId, tabId)}
           />
-        </div>
+        </div>,
+        { tabs: true }
       )}
       <div className="min-h-0 flex-1">
         <InlineDevServerPreviewPanel

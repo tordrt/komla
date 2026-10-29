@@ -49,6 +49,7 @@ import {
   type StatusBarPlacedId,
   type StatusBarSide,
 } from './status-bar-items';
+import { StatusBarSizeControl } from './StatusBarSizeControl';
 
 import type { AppConfig } from '@/types';
 import type * as React from 'react';
@@ -297,8 +298,8 @@ function PlacementSections({ customEntries }: { customEntries: CustomStatusItemE
 
 /**
  * Every item with a switch, on each side of the bar in the order it shows them, to drag into
- * place: Komla's and the open workspace's custom items. Then a way to add a custom item, and
- * Reset. Changes show in the bar at once; `onClose` closes the panel.
+ * place: Komla's and the open workspace's custom items. Then the bar's size, a way to add a custom
+ * item, and Reset. Changes show in the bar at once; `onClose` closes the panel.
  */
 export function StatusBarCustomizePanel({ onClose }: { onClose: () => void }) {
   const config = useConfigStore((s) => s.config);
@@ -324,6 +325,10 @@ export function StatusBarCustomizePanel({ onClose }: { onClose: () => void }) {
         </Button>
       </div>
       <PlacementSections customEntries={customEntries} />
+      <div className="flex items-center justify-between border-t border-foreground/10 py-1.5 pr-1.5 pl-3">
+        <span className="font-[450]">Size</span>
+        <StatusBarSizeControl size="xs" />
+      </div>
       <div className="border-t border-foreground/10 p-1">
         <button
           type="button"

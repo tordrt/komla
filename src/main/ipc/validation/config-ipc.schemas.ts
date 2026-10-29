@@ -8,6 +8,7 @@ import {
   PROJECT_ICON_DATA_URL,
 } from '../../../shared/lib/project-icon';
 import { REMOTE_PASSKEY_WINDOW_MINUTES } from '../../../shared/lib/remote-passkey-window';
+import { STATUS_BAR_SIZES } from '../../../shared/lib/status-bar-size';
 import { WORKSPACE_GROUPINGS } from '../../../shared/lib/workspace-grouping';
 import {
   isWorkspaceTagIcon,
@@ -198,6 +199,7 @@ const appConfigUpdateSchema = z
     showEditorInToolbar: z.boolean().optional(),
     showTipsInToolbar: z.boolean().optional(),
     showStatusBar: z.boolean().optional(),
+    statusBarSize: z.enum(STATUS_BAR_SIZES).optional(),
     showAgentsInMenuBar: z.boolean().optional(),
     agentsMenuBarInBackgroundOnly: z.boolean().optional(),
     agentsDoneClearedAt: z.number().int().nonnegative().optional(),

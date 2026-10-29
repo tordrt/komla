@@ -1,5 +1,6 @@
 import { SettingsCard } from '@/components/layout/settings/SettingsCard';
 import { SettingsRow } from '@/components/layout/settings/SettingsRow';
+import { StatusBarSizeControl } from '@/components/layout/status-bar/StatusBarSizeControl';
 import { Switch } from '@/components/ui/switch';
 import { useConfigStore } from '@/stores/config.store';
 
@@ -19,6 +20,9 @@ export function StatusBarSettingsCard() {
           checked={showStatusBar}
           onCheckedChange={(checked) => void updateConfig({ showStatusBar: checked })}
         />
+      </SettingsRow>
+      <SettingsRow label="Status bar size" description="How tall the bar along the bottom is">
+        <StatusBarSizeControl disabled={!showStatusBar} />
       </SettingsRow>
       {window.api.platform === 'darwin' && (
         <SettingsRow

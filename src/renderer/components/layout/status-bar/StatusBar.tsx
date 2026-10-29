@@ -197,7 +197,7 @@ export function StatusBar({ tipsActions }: { tipsActions?: TipsActions }) {
         <footer
           data-status-bar
           data-testid="status-bar"
-          className="window-chrome @container flex h-6 shrink-0 items-center gap-2 px-1.5 text-ui select-none"
+          className="window-chrome @container flex h-(--status-bar-row-height) shrink-0 items-center gap-2 px-1.5 text-ui select-none"
         >
           <StatusBarItems config={config} tipsActions={tipsActions} />
         </footer>

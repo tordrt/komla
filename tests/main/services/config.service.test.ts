@@ -353,6 +353,19 @@ describe('ConfigService', () => {
     });
 
     it.each([
+      ['small', 'small'],
+      ['huge', 'medium'],
+      [32, 'medium'],
+    ])('should load the status bar size %j as %j', async (stored, loaded) => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify({ statusBarSize: stored }));
+
+      const { configService } = await import('../../../src/main/services/config.service');
+
+      expect(configService.get().statusBarSize).toBe(loaded);
+    });
+
+    it.each([
       [undefined, true],
       [false, false],
     ])('should load the status bar usage reset time %j as %j', async (stored, loaded) => {

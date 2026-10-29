@@ -4,6 +4,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAppLifecycle } from '../../../src/renderer/hooks/useAppLifecycle';
+import { useConfigStore } from '../../../src/renderer/stores/config.store';
 import { useWorkspacesStore } from '../../../src/renderer/stores/workspaces.store';
 
 import type { Workspace } from '../../../src/renderer/types';
@@ -63,6 +64,39 @@ describe('useAppLifecycle', () => {
 
     expect(renders).toBe(rendersBefore);
     expect(listeners.get('onTerminalStatusChange')).toBe(subscriptionsBefore);
+  });
+
+  describe('the bottom row on the root', () => {
+    const render = () =>
+      renderHook(() =>
+        useAppLifecycle({
+          sidebarElement: null,
+          mainElement: null,
+          setNewWorkspaceDialogOpen: () => {},
+          setFeedbackOpen: () => {},
+        })
+      );
+
+    afterEach(() => {
+      useConfigStore.setState({ config: null });
+      delete document.documentElement.dataset.statusBarRow;
+    });
+
+    it('follows the status bar size, medium until config says otherwise', () => {
+      render();
+      expect(document.documentElement.dataset.statusBarRow).toBe('medium');
+
+      act(() => useConfigStore.setState({ config: { statusBarSize: 'large' } }));
+
+      expect(document.documentElement.dataset.statusBarRow).toBe('large');
+    });
+
+    it('is small while the bar is hidden, so the rows that share its height keep theirs', () => {
+      useConfigStore.setState({ config: { statusBarSize: 'large', showStatusBar: false } });
+      render();
+
+      expect(document.documentElement.dataset.statusBarRow).toBe('small');
+    });
   });
 
   describe('when the network comes back', () => {

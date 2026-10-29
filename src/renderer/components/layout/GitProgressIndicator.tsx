@@ -54,7 +54,7 @@ export function GitProgressIndicator() {
         <span
           role="status"
           aria-label={label}
-          className="flex h-5 min-w-0 items-center gap-1 px-1.5 whitespace-nowrap text-muted-foreground"
+          className="flex h-(--status-bar-item-height) min-w-0 items-center gap-1 px-1.5 whitespace-nowrap text-muted-foreground"
         >
           <Spinner size="xs" />
           <span className="truncate @max-3xl:hidden">{label}</span>

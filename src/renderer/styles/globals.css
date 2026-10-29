@@ -299,9 +299,30 @@
   font-display: swap;
 }
 
+/* The bottom row's height, which useAppLifecycle puts on the root from the status bar's size: the
+   status bar, its items and the sidebar's bottom row. Medium until config loads; Large also sets
+   the bar's text a step up, over its text-ui. */
+html {
+  --status-bar-row-height: 1.75rem;
+  --status-bar-item-height: calc(var(--status-bar-row-height) - 0.25rem);
+}
+
+html[data-status-bar-row='small'] {
+  --status-bar-row-height: 1.5rem;
+}
+
+html[data-status-bar-row='large'] {
+  --status-bar-row-height: 2rem;
+}
+
+html[data-status-bar-row='large'] [data-status-bar] {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+}
+
 /* Floating UI pinned to the window's bottom edge clears the status bar. */
 :root:has([data-status-bar]) {
-  --status-bar-height: 1.5rem;
+  --status-bar-height: var(--status-bar-row-height);
 }
 
 @layer base {

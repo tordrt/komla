@@ -155,6 +155,12 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
     },
     {
       kind: 'row',
+      label: 'Status bar size',
+      card: 'Status bar',
+      keywords: 'height taller thicker thinner small medium large footer bottom bar',
+    },
+    {
+      kind: 'row',
       label: 'Show agents in the menu bar',
       card: 'Status bar',
       keywords: 'menu bar tray top macos agents activity',

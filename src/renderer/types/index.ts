@@ -2,6 +2,7 @@
 import type { ActivitySpinnerStyle } from '../../shared/lib/activity-spinner';
 import type { DesiredWorkspaceEnvironment } from '../../shared/lib/agent-environment';
 import type { RemotePasskeyWindowMinutes } from '../../shared/lib/remote-passkey-window';
+import type { StatusBarSize } from '../../shared/lib/status-bar-size';
 import type { WorkspaceGrouping } from '../../shared/lib/workspace-grouping';
 import type { WorkspaceTagDefinition } from '../../shared/lib/workspace-tags';
 import type { GitDefaults, UtilityProviderId } from '../../shared/types';
@@ -213,6 +214,7 @@ export interface AppConfig {
   showEditorInToolbar?: boolean; // Show Open in editor in the status bar and title bar; ignored while the status bar is off
   showTipsInToolbar?: boolean; // Show the Tips button in the status bar; Tips moves to the settings menu when off
   showStatusBar?: boolean; // Show the status bar along the bottom of the window
+  statusBarSize?: StatusBarSize; // How tall the status bar is
   showAgentsInMenuBar?: boolean; // macOS: show agent activity in the menu bar
   agentsMenuBarInBackgroundOnly?: boolean; // macOS: hide the menu bar item while a Komla window is in front
   agentsDoneClearedAt?: number; // When the agents overview last cleared its finished agents; those that finish later show again

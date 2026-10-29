@@ -198,7 +198,7 @@ export const Sidebar = memo(function Sidebar({
       {/* Bottom toolbar: Komla's name, which opens Overview, on the left; the filter and
           sort menu, then the settings menu in the sidebar's corner, on the right. The name and the
           settings menu stay put, and have the status bar's right-click menu. */}
-      <div className="flex h-[25px] shrink-0 items-center gap-0.5 px-2">
+      <div className="flex h-[calc(var(--status-bar-row-height)+1px)] shrink-0 items-center gap-0.5 px-2">
         {/* Fills the footer's left, so right-clicking anywhere there opens the status bar's menu. */}
         <StatusBarContextMenu>
           <div

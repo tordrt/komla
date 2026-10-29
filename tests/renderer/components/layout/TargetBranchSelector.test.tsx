@@ -266,7 +266,8 @@ describe('TargetBranchSelector', () => {
 
     const row = (name: string) =>
       screen.getAllByRole('menuitem').find((item) => item.textContent?.startsWith(name))!;
-    expect(within(row('main')).getByText('project')).toBeInTheDocument();
+    // The star alone marks the project's target, so the row doesn't read "target project".
+    expect(within(row('main')).queryByText('project')).toBeNull();
     expect(
       within(row('main')).getByLabelText("main is the project's target branch")
     ).toBeInTheDocument();

@@ -560,9 +560,6 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
                     {isSelected && (
                       <span className="shrink-0 text-xs text-muted-foreground">target</span>
                     )}
-                    {isProjectTarget && (
-                      <span className="shrink-0 text-xs text-muted-foreground">project</span>
-                    )}
                     {isCheckedOut && (
                       <span className="shrink-0 text-xs text-muted-foreground">checked out</span>
                     )}

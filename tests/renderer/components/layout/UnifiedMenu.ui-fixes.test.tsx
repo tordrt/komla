@@ -64,63 +64,73 @@ const state = {
 };
 
 vi.mock('../../../../src/renderer/stores/projects.store', () => ({
-  useProjectsStore: () => ({
-    projects: [{ id: 'project-1', name: 'Project', repositoryPath: '/repo', kind: 'git' }],
-  }),
+  useProjectsStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      projects: [{ id: 'project-1', name: 'Project', repositoryPath: '/repo', kind: 'git' }],
+    }),
 }));
 vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
-  useWorkspacesStore: () => ({
-    selectedWorkspaceId: 'ws',
-    workspaces: [
-      {
-        id: 'ws',
-        branchName: 'feature',
-        workingDirectory: '/worktrees/feature',
-        projectId: state.projectId,
-        backend: state.backend,
-        isWorktree: true,
-      },
-    ],
-    addTerminal: vi.fn(),
-    updateWorkspace: vi.fn(),
-  }),
+  useWorkspacesStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      selectedWorkspaceId: 'ws',
+      workspaces: [
+        {
+          id: 'ws',
+          branchName: 'feature',
+          workingDirectory: '/worktrees/feature',
+          projectId: state.projectId,
+          backend: state.backend,
+          isWorktree: true,
+        },
+      ],
+      addTerminal: vi.fn(),
+      updateWorkspace: vi.fn(),
+    }),
 }));
 vi.mock('../../../../src/renderer/stores/git-status.store', () => ({
-  useGitStatusStore: () => ({
-    getStatus: () => ({
-      status: {
-        behindTargetBranch: state.behindTargetBranch,
-        aheadTargetBranch: state.aheadTargetBranch,
-        mainBranch: 'develop',
-        defaultBranch: 'main',
-        hasRemote: state.hasRemote,
-        hasOriginRemote: state.hasOriginRemote,
-        unpushedCommits: state.unpushedCommits,
-        behindRemote: 0,
-        currentBranch: 'feature',
-        targetBranchHasRemote: false,
-        targetBranchAheadRemote: 0,
-        targetBranchBehindRemote: 0,
+  useGitStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      statusMap: {
+        get: () => ({
+          status: {
+            behindTargetBranch: state.behindTargetBranch,
+            aheadTargetBranch: state.aheadTargetBranch,
+            mainBranch: 'develop',
+            defaultBranch: 'main',
+            hasRemote: state.hasRemote,
+            hasOriginRemote: state.hasOriginRemote,
+            unpushedCommits: state.unpushedCommits,
+            behindRemote: 0,
+            currentBranch: 'feature',
+            targetBranchHasRemote: false,
+            targetBranchAheadRemote: 0,
+            targetBranchBehindRemote: 0,
+          },
+        }),
       },
+      invalidateStatus: vi.fn(),
+      fetchStatus: vi.fn(),
+      fetchStatusIfStale: vi.fn(),
     }),
-    invalidateStatus: vi.fn(),
-    fetchStatus: vi.fn(),
-    fetchStatusIfStale: vi.fn(),
-  }),
 }));
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({
-  useToastStore: () => ({ addToast }),
+  useToastStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ addToast }),
 }));
 vi.mock('../../../../src/renderer/stores/config.store', () => ({
-  useConfigStore: () => ({ config: {}, updateConfig: vi.fn() }),
+  useConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ config: {}, updateConfig: vi.fn() }),
 }));
 vi.mock('../../../../src/renderer/stores/project-sync-status.store', () => ({
-  useProjectSyncStatusStore: () => ({ getStatus: vi.fn(), refreshStatus: vi.fn() }),
+  useProjectSyncStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ statuses: new Map(), refreshStatus: vi.fn() }),
 }));
 vi.mock('../../../../src/renderer/stores/file-viewer.store', () => ({
-  useFileViewerStore: Object.assign(() => ({ requestFileViewerTransition: vi.fn() }), {
-    getState: () => ({ setFileViewerDiffComparisonBranch: vi.fn() }),
-  }),
+  useFileViewerStore: Object.assign(
+    (selector: (state: Record<string, unknown>) => unknown) =>
+      selector({ requestFileViewerTransition: vi.fn() }),
+    { getState: () => ({ setFileViewerDiffComparisonBranch: vi.fn() }) }
+  ),
 }));
 vi.mock('../../../../src/renderer/stores/actions.store', () => ({
   useActionsStore: Object.assign(() => ({}), { getState: () => ({ actions: [] }) }),

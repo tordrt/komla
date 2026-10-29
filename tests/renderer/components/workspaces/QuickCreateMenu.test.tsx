@@ -109,7 +109,11 @@ vi.mock('../../../../src/renderer/stores/workspaces.store', () => {
     selectedWorkspaceId: mockSelectedWorkspaceId,
   });
   return {
-    useWorkspacesStore: Object.assign(getState, { getState }),
+    useWorkspacesStore: Object.assign(
+      (selector?: (state: ReturnType<typeof getState>) => unknown) =>
+        selector ? selector(getState()) : getState(),
+      { getState }
+    ),
   };
 });
 

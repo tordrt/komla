@@ -227,13 +227,18 @@ vi.mock('../../../../src/renderer/components/workspaces/WorkspaceBranchPicker', 
     trigger,
     onSelectBase,
     onOpenBranch,
+    findWorkspaceForBranch,
   }: {
     trigger: React.ReactNode;
     onSelectBase: (branch: string, meta: { isRemoteOnly: boolean; onHost?: true }) => void;
     onOpenBranch: (branch: string, meta: { isRemoteOnly: boolean; onHost?: true }) => void;
+    findWorkspaceForBranch: (branch: string) => { id: string; name: string } | undefined;
   }) => (
     <div>
       <span data-testid="branch-source">{trigger}</span>
+      <span data-testid="komla-open-workspace">
+        {findWorkspaceForBranch('komla/open')?.name ?? ''}
+      </span>
       <button type="button" onClick={() => onSelectBase('main', { isRemoteOnly: false })}>
         Start from main
       </button>
@@ -308,16 +313,26 @@ const mockWorkspaces = vi.hoisted(() => ({
   value: [{ id: 'ws-1', projectId: 'project-komla' }] as Array<Record<string, unknown>>,
 }));
 
-vi.mock('../../../../src/renderer/stores/workspaces.store', () => {
-  const state = () => ({
+vi.mock('../../../../src/renderer/stores/workspaces.store', async () => {
+  const { create } = await vi.importActual<typeof import('zustand')>('zustand');
+  const store = create(() => ({
     createWorkspace: mockCreateWorkspace,
     createWorkspaces: mockCreateWorkspaces,
     deleteWorkspace: mockDeleteWorkspace,
     selectWorkspace: mockSelectWorkspace,
     workspaces: mockWorkspaces.value,
     selectedWorkspaceId: mockSelectedWorkspace.id,
+  }));
+  // Tests assign the holders; the store re-renders what reads them, as the real one does.
+  Object.defineProperty(mockWorkspaces, 'value', {
+    get: () => store.getState().workspaces,
+    set: (workspaces: Array<Record<string, unknown>>) => store.setState({ workspaces }),
   });
-  return { useWorkspacesStore: Object.assign(state, { getState: state }) };
+  Object.defineProperty(mockSelectedWorkspace, 'id', {
+    get: () => store.getState().selectedWorkspaceId,
+    set: (selectedWorkspaceId: string | null) => store.setState({ selectedWorkspaceId }),
+  });
+  return { useWorkspacesStore: store };
 });
 
 const mockVoiceInput = vi.hoisted(() => ({
@@ -369,9 +384,11 @@ const mockVoiceStoreGetState = vi.hoisted(() =>
 );
 
 vi.mock('../../../../src/renderer/stores/voice.store', () => ({
-  useVoiceStore: Object.assign(() => ({ loadModels: vi.fn() }), {
-    getState: mockVoiceStoreGetState,
-  }),
+  useVoiceStore: Object.assign(
+    (selector: (state: { loadModels: () => void }) => unknown) =>
+      selector({ loadModels: vi.fn() }),
+    { getState: mockVoiceStoreGetState }
+  ),
 }));
 
 const mockPresetStore = vi.hoisted(() => ({
@@ -463,20 +480,22 @@ vi.mock('../../../../src/renderer/stores/dialogs.store', () => ({
 
 vi.mock('../../../../src/renderer/stores/project-sync-status.store', () => ({
   useProjectSyncStatusStore: Object.assign(
-    () => ({
-      getStatus: vi.fn(() => mockSyncStatus.value),
-      refreshStatus: mockRefreshSyncStatus,
-      loadAllStatuses: vi.fn().mockResolvedValue(undefined),
-    }),
+    (selector: (state: Record<string, unknown>) => unknown) =>
+      selector({
+        statuses: { get: () => mockSyncStatus.value },
+        refreshStatus: mockRefreshSyncStatus,
+        loadAllStatuses: vi.fn().mockResolvedValue(undefined),
+      }),
     { getState: () => ({ updateFromWorkspaceStatus: vi.fn() }) }
   ),
 }));
 
 vi.mock('../../../../src/renderer/stores/projects.store', () => ({
-  useProjectsStore: () => ({
-    projects: mockProjects,
-    updateProject: mockUpdateProject,
-  }),
+  useProjectsStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      projects: mockProjects,
+      updateProject: mockUpdateProject,
+    }),
 }));
 
 const mockAddToast = vi.hoisted(() => vi.fn());
@@ -557,6 +576,51 @@ describe('NewWorkspaceDialog', () => {
         gitIdentity: { configured: true },
       }),
     } as any;
+  });
+
+  // Agents report status while the user types, so a report the dialog doesn't show mustn't redraw it.
+  it('does not re-render when a workspace changes in a way the dialog does not show', async () => {
+    mockWorkspaces.value = [
+      {
+        id: 'ws-1',
+        projectId: 'project-komla',
+        branchName: 'komla/one',
+        terminals: [{ id: 'term-1', status: 'running' }],
+      },
+    ];
+    let renders = 0;
+    render(
+      <React.Profiler id="dialog" onRender={() => (renders += 1)}>
+        <NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />
+      </React.Profiler>
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+    const settledRenders = renders;
+
+    act(() => {
+      mockWorkspaces.value = mockWorkspaces.value.map((workspace) => ({
+        ...workspace,
+        terminals: [{ id: 'term-1', status: 'stopped' }],
+      }));
+    });
+
+    expect(renders).toBe(settledRenders);
+  });
+
+  it("follows a workspace opened on a listed branch while it's open", async () => {
+    render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+    expect(screen.getByTestId('komla-open-workspace')).toHaveTextContent('');
+
+    act(() => {
+      mockWorkspaces.value = [
+        ...mockWorkspaces.value,
+        { id: 'ws-2', projectId: 'project-komla', branchName: 'komla/open', name: 'Open one' },
+      ];
+    });
+
+    expect(screen.getByTestId('komla-open-workspace')).toHaveTextContent('Open one');
   });
 
   describe('prompt attachments', () => {

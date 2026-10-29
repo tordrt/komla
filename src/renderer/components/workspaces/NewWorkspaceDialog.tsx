@@ -10,6 +10,7 @@ import {
   Keyboard,
 } from '@phosphor-icons/react';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { ProjectCreationForm } from '@/components/projects/ProjectCreationForm';
 import { AgentLaunchPickerMatrix } from '@/components/terminal/AgentLaunchPickerMatrix';
@@ -149,22 +150,22 @@ function resolveReasoningLevelId(
   return isAvailable(remembered) ? remembered : null;
 }
 
-// Workspace that already has `branch` open for this project and location.
-function findBranchWorkspace(
+// Workspaces that have a branch open for this project and location, flattened as
+// [branch, id, name, ...] so that a shallow compare sees only changes to these.
+function branchWorkspaceEntries(
   workspaces: Workspace[],
   projectId: string,
-  branch: string,
   sshHostId: string | null
-): { id: string; name: string } | undefined {
-  const workspace = workspaces.find(
-    (candidate) =>
-      candidate.projectId === projectId &&
-      candidate.branchName === branch &&
-      (sshHostId
-        ? candidate.backend?.kind === 'ssh' && candidate.backend.hostId === sshHostId
-        : candidate.backend?.kind !== 'ssh')
+): string[] {
+  return workspaces.flatMap((candidate) =>
+    candidate.projectId === projectId &&
+    candidate.branchName &&
+    (sshHostId
+      ? candidate.backend?.kind === 'ssh' && candidate.backend.hostId === sshHostId
+      : candidate.backend?.kind !== 'ssh')
+      ? [candidate.branchName, candidate.id, candidate.customName || candidate.name]
+      : []
   );
-  return workspace ? { id: workspace.id, name: workspace.customName || workspace.name } : undefined;
 }
 
 function qualifyRemoteOnlyBranch(branch: string, isRemoteOnly: boolean): string {
@@ -201,22 +202,34 @@ interface NewWorkspaceDialogProps {
 }
 
 export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogProps) {
-  const {
-    createWorkspace,
-    createWorkspaces,
-    deleteWorkspace,
-    workspaces,
-    selectedWorkspaceId,
-    selectWorkspace,
-  } = useWorkspacesStore();
+  // Agents update the workspaces and their git state while the dialog is open, so it reads
+  // only what it shows: a whole store would redraw the dialog on each update, between keystrokes.
+  const createWorkspace = useWorkspacesStore((state) => state.createWorkspace);
+  const createWorkspaces = useWorkspacesStore((state) => state.createWorkspaces);
+  const deleteWorkspace = useWorkspacesStore((state) => state.deleteWorkspace);
+  const selectWorkspace = useWorkspacesStore((state) => state.selectWorkspace);
+  const selectedWorkspaceId = useWorkspacesStore((state) => state.selectedWorkspaceId);
   const retainedPrompt = useDialogsStore((state) => state.newWorkspaceDialogPrompt);
   const stagedPrefill = useDialogsStore((state) => state.newWorkspaceDialogPrefill);
-  const { activePreset, activePresets, presets, setActivePreset } = useAgentPresetsStore();
-  const { actions, loadActions, recordActionUsage } = useActionsStore();
-  const { config, updateConfig } = useConfigStore();
-  const { projects } = useProjectsStore();
-  const { getStatus: getSyncStatus, loadAllStatuses: loadSyncStatuses } =
-    useProjectSyncStatusStore();
+  const { activePreset, activePresets, presets, setActivePreset } = useAgentPresetsStore(
+    useShallow((state) => ({
+      activePreset: state.activePreset,
+      activePresets: state.activePresets,
+      presets: state.presets,
+      setActivePreset: state.setActivePreset,
+    }))
+  );
+  const { actions, loadActions, recordActionUsage } = useActionsStore(
+    useShallow((state) => ({
+      actions: state.actions,
+      loadActions: state.loadActions,
+      recordActionUsage: state.recordActionUsage,
+    }))
+  );
+  const config = useConfigStore((state) => state.config);
+  const updateConfig = useConfigStore((state) => state.updateConfig);
+  const projects = useProjectsStore((state) => state.projects);
+  const loadSyncStatuses = useProjectSyncStatusStore((state) => state.loadAllStatuses);
 
   const [mode, setMode] = useState<Mode>('worktree');
   const [branchMode, setBranchMode] = useState<BranchMode>('new');
@@ -247,7 +260,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   // AI branch naming picked in this dialog (null = the saved setting)
   const [aiBranchNameOverride, setAiBranchNameOverride] = useState<boolean | null>(null);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-  const { loadModels } = useVoiceStore();
+  const loadModels = useVoiceStore((state) => state.loadModels);
   const voiceAutoRecord = config?.voice?.autoRecord === true;
   // True while the recording in progress is the one auto-record started.
   const autoStartedRecordingRef = useRef(false);
@@ -485,11 +498,12 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     return promptActions.filter((a) => a.title.toLowerCase().includes(lower));
   }, [actions, slashFilter]);
 
-  const selectedWorkspace = selectedWorkspaceId
-    ? workspaces.find((workspace) => workspace.id === selectedWorkspaceId)
-    : null;
-  const activeWorkspaceProject = selectedWorkspace?.projectId
-    ? projects.find((p) => p.id === selectedWorkspace.projectId)
+  const selectedWorkspaceProjectId = useWorkspacesStore(
+    (state) =>
+      state.workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId)?.projectId
+  );
+  const activeWorkspaceProject = selectedWorkspaceProjectId
+    ? projects.find((p) => p.id === selectedWorkspaceProjectId)
     : null;
   const pendingPrefill = open ? useDialogsStore.getState().newWorkspaceDialogPrefill : null;
   const initialProjectId = useMemo(() => {
@@ -551,16 +565,20 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const effectiveSshHostId = sshHostId || computedSshHostId || sshHosts[0]?.id || '';
   const selectedSshHost = sshHosts.find((host) => host.id === effectiveSshHostId);
   const isSshLaunch = effectiveLaunchTarget === 'ssh';
-  const effectiveWorktreeBranches = isSshLaunch
-    ? workspaces.flatMap((workspace) =>
-        workspace.projectId === effectiveProjectId &&
-        workspace.backend?.kind === 'ssh' &&
-        workspace.backend.hostId === effectiveSshHostId &&
-        workspace.branchName
-          ? [workspace.branchName]
-          : []
+  const branchWorkspaces = useWorkspacesStore(
+    useShallow((state) =>
+      branchWorkspaceEntries(
+        state.workspaces,
+        effectiveProjectId,
+        isSshLaunch ? effectiveSshHostId : null
       )
-    : worktreeBranches;
+    )
+  );
+  const sshHostBranches = useMemo(
+    () => branchWorkspaces.filter((_, index) => index % 3 === 0),
+    [branchWorkspaces]
+  );
+  const effectiveWorktreeBranches = isSshLaunch ? sshHostBranches : worktreeBranches;
 
   const effectiveBranchName = useMemo(() => {
     if (
@@ -676,11 +694,22 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
 
   // Another machine starts from origin's copy of the source workspace's branch, which the
   // source may not have pushed yet. The source's own host clones from its repository.
-  const sourceWorkspace = sourceWorkspaceId
-    ? workspaces.find((workspace) => workspace.id === sourceWorkspaceId)
-    : undefined;
-  const sourceHostId =
-    sourceWorkspace && isSshWorkspace(sourceWorkspace) ? sourceWorkspace.backend.hostId : null;
+  const sourceWorkspace = useWorkspacesStore(
+    useShallow((state) => {
+      const workspace = sourceWorkspaceId
+        ? state.workspaces.find((candidate) => candidate.id === sourceWorkspaceId)
+        : undefined;
+      return workspace
+        ? {
+            projectId: workspace.projectId,
+            branchName: workspace.branchName,
+            workingDirectory: workspace.workingDirectory,
+            hostId: isSshWorkspace(workspace) ? workspace.backend.hostId : null,
+          }
+        : undefined;
+    })
+  );
+  const sourceHostId = sourceWorkspace?.hostId ?? null;
   const sourceBranch = sourceWorkspace?.branchName;
   const sourceBranchFromOrigin =
     !!sourceWorkspace &&
@@ -753,7 +782,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setError(null);
     setIsPushingSourceBranch(true);
     try {
-      const result = await window.api.pushWorkspace(sourceWorkspace.id);
+      const result = await window.api.pushWorkspace(sourceWorkspaceId);
       if (!result.success) {
         setError(result.message);
         return;
@@ -767,11 +796,20 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   };
 
   // Get sync status for selected project
-  const selectedProjectSyncStatus = effectiveProjectId
-    ? getSyncStatus(effectiveProjectId)
-    : undefined;
-  const projectBehindRemote = selectedProjectSyncStatus?.behindRemote ?? 0;
-  const projectAheadRemote = selectedProjectSyncStatus?.aheadRemote ?? 0;
+  const {
+    behindRemote: projectBehindRemote = 0,
+    aheadRemote: projectAheadRemote = 0,
+    mainBranch: projectMainBranch,
+  } = useProjectSyncStatusStore(
+    useShallow((state) => {
+      const status = state.statuses.get(effectiveProjectId);
+      return {
+        behindRemote: status?.behindRemote,
+        aheadRemote: status?.aheadRemote,
+        mainBranch: status?.mainBranch,
+      };
+    })
+  );
 
   // Load sync statuses and actions shortly after open so first paint is not competing with IPC.
   useEffect(() => {
@@ -829,9 +867,11 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     if (newWorkspaceDialogPrefill.sourceWorkspaceId) {
       setSourceWorkspaceId(newWorkspaceDialogPrefill.sourceWorkspaceId);
       // A workspace from here starts on its source's machine, which has the branch.
-      const source = workspaces.find(
-        (workspace) => workspace.id === newWorkspaceDialogPrefill.sourceWorkspaceId
-      );
+      const source = useWorkspacesStore
+        .getState()
+        .workspaces.find(
+          (workspace) => workspace.id === newWorkspaceDialogPrefill.sourceWorkspaceId
+        );
       if (source && !isSshWorkspace(source)) setLaunchTarget('local');
     }
     if (newWorkspaceDialogPrefill.actionId) {
@@ -1780,13 +1820,14 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     }
   };
 
-  const findWorkspaceForBranch = (branch: string) =>
-    findBranchWorkspace(
-      workspaces,
-      effectiveProjectId,
-      branch,
-      isSshLaunch ? effectiveSshHostId : null
-    );
+  const findWorkspaceForBranch = (branch: string) => {
+    for (let index = 0; index < branchWorkspaces.length; index += 3) {
+      if (branchWorkspaces[index] === branch) {
+        return { id: branchWorkspaces[index + 1], name: branchWorkspaces[index + 2] };
+      }
+    }
+    return undefined;
+  };
 
   const handleGoToWorkspace = (workspaceId: string) => {
     handleOpenChange(false);
@@ -2223,7 +2264,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const contextProject = isSshLaunch && selectedProjectIsDirectory ? undefined : selectedProject;
   // A new branch from the target starts from freshly fetched origin, unless the
   // local target has unpushed commits; only then does it start behind origin.
-  const targetBranch = selectedProjectSyncStatus?.mainBranch;
+  const targetBranch = projectMainBranch;
   const staleTarget =
     targetBranch &&
     branchMode === 'new' &&

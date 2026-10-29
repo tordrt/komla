@@ -59,56 +59,65 @@ const workspacesState = {
   updateWorkspace: vi.fn(),
 };
 vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
-  useWorkspacesStore: (selector: (state: typeof workspacesState) => unknown) =>
-    selector(workspacesState),
+  useWorkspacesStore: Object.assign(
+    (selector: (state: typeof workspacesState) => unknown) => selector(workspacesState),
+    { getState: () => workspacesState }
+  ),
 }));
 vi.mock('../../../../src/renderer/stores/projects.store', () => ({
-  useProjectsStore: () => ({
-    projects: [{ id: 'project-1', name: 'Project', repositoryPath: '/repo', kind: 'git' }],
-    updateProject,
-  }),
+  useProjectsStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      projects: [{ id: 'project-1', name: 'Project', repositoryPath: '/repo', kind: 'git' }],
+      updateProject,
+    }),
 }));
 vi.mock('../../../../src/renderer/stores/git-status.store', () => ({
-  useGitStatusStore: () => ({
-    getStatus: () => ({
-      status: {
-        behindTargetBranch: 0,
-        aheadTargetBranch: 0,
-        mainBranch: 'main',
-        defaultBranch: 'main',
-        hasRemote: true,
-        hasOriginRemote: true,
-        unpushedCommits: 0,
-        behindRemote: 0,
-        currentBranch: 'feature',
-        targetBranchHasRemote: true,
-        targetBranchAheadRemote: 0,
-        targetBranchBehindRemote: 0,
+  useGitStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      statusMap: {
+        get: () => ({
+          status: {
+            behindTargetBranch: 0,
+            aheadTargetBranch: 0,
+            mainBranch: 'main',
+            defaultBranch: 'main',
+            hasRemote: true,
+            hasOriginRemote: true,
+            unpushedCommits: 0,
+            behindRemote: 0,
+            currentBranch: 'feature',
+            targetBranchHasRemote: true,
+            targetBranchAheadRemote: 0,
+            targetBranchBehindRemote: 0,
+          },
+        }),
       },
+      invalidateStatus,
+      fetchStatus,
+      fetchStatusIfStale: vi.fn(),
     }),
-    invalidateStatus,
-    fetchStatus,
-    fetchStatusIfStale: vi.fn(),
-  }),
 }));
 const projectSync = vi.hoisted(() => ({
   status: undefined as { aheadRemote: number; behindRemote: number; hasRemote: boolean } | undefined,
 }));
 vi.mock('../../../../src/renderer/stores/project-sync-status.store', () => ({
-  useProjectSyncStatusStore: () => ({
-    getStatus: () => projectSync.status,
-    refreshStatus: refreshProjectSyncStatus,
-  }),
+  useProjectSyncStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      statuses: { get: () => projectSync.status },
+      refreshStatus: refreshProjectSyncStatus,
+    }),
 }));
 vi.mock('../../../../src/renderer/stores/config.store', () => ({
-  useConfigStore: () => ({ config: { remoteBranchesExpanded: false }, updateConfig: vi.fn() }),
+  useConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ config: { remoteBranchesExpanded: false }, updateConfig: vi.fn() }),
 }));
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({
   useToastStore: (selector: (state: { addToast: typeof addToast }) => unknown) =>
     selector({ addToast }),
 }));
 vi.mock('../../../../src/renderer/stores/git-progress.store', () => ({
-  useGitProgressStore: () => ({ startOperation: vi.fn(), endOperation: vi.fn() }),
+  useGitProgressStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ startOperation: vi.fn(), endOperation: vi.fn() }),
 }));
 
 import { TargetBranchSelector } from '../../../../src/renderer/components/layout/TargetBranchSelector';

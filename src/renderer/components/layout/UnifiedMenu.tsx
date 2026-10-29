@@ -316,16 +316,18 @@ interface UnifiedMenuProps {
 
 export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
   const tooltipSide = branchTooltipSide(inStatusBar);
-  const { projects } = useProjectsStore();
-  const { selectedWorkspaceId, workspaces, updateWorkspace } = useWorkspacesStore();
-  const { getStatus, invalidateStatus, fetchStatus, fetchStatusIfStale } = useGitStatusStore();
-  const { addToast } = useToastStore();
-  const { config, updateConfig } = useConfigStore();
+  const projects = useProjectsStore((s) => s.projects);
+  const updateWorkspace = useWorkspacesStore((s) => s.updateWorkspace);
+  const invalidateStatus = useGitStatusStore((s) => s.invalidateStatus);
+  const fetchStatus = useGitStatusStore((s) => s.fetchStatus);
+  const fetchStatusIfStale = useGitStatusStore((s) => s.fetchStatusIfStale);
+  const addToast = useToastStore((s) => s.addToast);
+  const config = useConfigStore((s) => s.config);
+  const updateConfig = useConfigStore((s) => s.updateConfig);
   const startOperation = useGitProgressStore((s) => s.startOperation);
   const endOperation = useGitProgressStore((s) => s.endOperation);
-  const { getStatus: getProjectSyncStatus, refreshStatus: refreshProjectSyncStatus } =
-    useProjectSyncStatusStore();
-  const { requestFileViewerTransition } = useFileViewerStore();
+  const refreshProjectSyncStatus = useProjectSyncStatusStore((s) => s.refreshStatus);
+  const requestFileViewerTransition = useFileViewerStore((s) => s.requestFileViewerTransition);
 
   // Loading states
   const [isPushing, setIsPushing] = useState(false);
@@ -364,8 +366,11 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
 
   const remoteExpanded = config?.remoteBranchesExpanded ?? false;
 
-  // Get active workspace info
-  const activeWorkspace = workspaces.find((w) => w.id === selectedWorkspaceId);
+  // Get active workspace info. The menu reads only the active workspace and its status, so
+  // updates to other workspaces, as their agents run, don't re-render it.
+  const activeWorkspace = useWorkspacesStore((s) =>
+    s.workspaces.find((w) => w.id === s.selectedWorkspaceId)
+  );
   // Only this workspace's newest operation, so progress elsewhere doesn't re-render the menu.
   const gitOperation = useGitProgressStore((s) =>
     activeWorkspace ? latestGitOperation(s.operations, activeWorkspace.workingDirectory) : undefined
@@ -378,7 +383,9 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
     ? projects.find((p) => p.id === activeWorkspace.projectId)
     : undefined;
   // Get git status for active workspace
-  const gitStatus = activeWorkspace ? getStatus(activeWorkspace.id)?.status : undefined;
+  const gitStatus = useGitStatusStore((s) =>
+    activeWorkspace ? s.statusMap.get(activeWorkspace.id)?.status : undefined
+  );
   const activeProject =
     activeProjectCandidate?.kind === 'directory'
       ? undefined
@@ -428,7 +435,9 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
   });
 
   // Get project sync status (project-level main branch remote status)
-  const projectSyncStatus = activeProject ? getProjectSyncStatus(activeProject.id) : undefined;
+  const projectSyncStatus = useProjectSyncStatusStore((s) =>
+    activeProject ? s.statuses.get(activeProject.id) : undefined
+  );
   const targetBranchAheadRemote = isRemoteWorkspace
     ? (gitStatus?.targetBranchAheadRemote ?? 0)
     : (projectSyncStatus?.aheadRemote ?? 0);

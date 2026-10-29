@@ -59,7 +59,7 @@ interface PendingActionLaunch {
 export function QuickCreateMenu({ className }: { className?: string }) {
   const { projects } = useProjectsStore();
   const { actions, loadActions, recordActionUsage } = useActionsStore();
-  const { createWorkspace } = useWorkspacesStore();
+  const createWorkspace = useWorkspacesStore((state) => state.createWorkspace);
   const [isCreating, setIsCreating] = useState(false);
   const [actionInputDialogOpen, setActionInputDialogOpen] = useState(false);
   const [pendingActionLaunch, setPendingActionLaunch] = useState<PendingActionLaunch | null>(null);

@@ -201,14 +201,20 @@ const mockSyncStatus = vi.hoisted(() => ({
   value: undefined as Record<string, unknown> | undefined,
 }));
 
-vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
-  useWorkspacesStore: () => ({
+vi.mock('../../../../src/renderer/stores/workspaces.store', () => {
+  const state = {
     createWorkspace: mockCreateWorkspace,
     createWorkspaces: mockCreateWorkspaces,
     workspaces: [],
     selectedWorkspaceId: null,
-  }),
-}));
+  };
+  return {
+    useWorkspacesStore: Object.assign(
+      (selector: (value: typeof state) => unknown) => selector(state),
+      { getState: () => state }
+    ),
+  };
+});
 
 vi.mock('../../../../src/renderer/hooks/useVoiceInput', () => ({
   useVoiceInput: () => ({
@@ -228,9 +234,11 @@ vi.mock('../../../../src/renderer/components/workspaces/VoiceRecordingIndicator'
 }));
 
 vi.mock('../../../../src/renderer/stores/voice.store', () => ({
-  useVoiceStore: Object.assign(() => ({ loadModels: vi.fn() }), {
-    getState: () => ({ modelStatus: 'not-downloaded', loadModelStatus: vi.fn() }),
-  }),
+  useVoiceStore: Object.assign(
+    (selector: (state: { loadModels: () => void }) => unknown) =>
+      selector({ loadModels: vi.fn() }),
+    { getState: () => ({ modelStatus: 'not-downloaded', loadModelStatus: vi.fn() }) }
+  ),
 }));
 
 const mockPresetStore = vi.hoisted(() => ({
@@ -267,7 +275,10 @@ vi.mock('../../../../src/renderer/stores/config.store', () => {
     updateConfig: mockUpdateConfig,
   };
   return {
-    useConfigStore: Object.assign(() => state, { getState: () => state }),
+    useConfigStore: Object.assign(
+      (selector?: (value: typeof state) => unknown) => (selector ? selector(state) : state),
+      { getState: () => state }
+    ),
   };
 });
 
@@ -295,20 +306,25 @@ vi.mock('../../../../src/renderer/stores/dialogs.store', () => ({
 }));
 
 vi.mock('../../../../src/renderer/stores/project-sync-status.store', () => ({
-  useProjectSyncStatusStore: () => ({
-    getStatus: () => mockSyncStatus.value,
-    refreshStatus: vi.fn().mockResolvedValue(undefined),
-    loadAllStatuses: vi.fn().mockResolvedValue(undefined),
-  }),
+  useProjectSyncStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      statuses: { get: () => mockSyncStatus.value },
+      refreshStatus: vi.fn().mockResolvedValue(undefined),
+      loadAllStatuses: vi.fn().mockResolvedValue(undefined),
+    }),
 }));
 
 vi.mock('../../../../src/renderer/stores/projects.store', () => ({
-  useProjectsStore: () => ({
-    projects: mockProjects,
-    createProject: vi.fn(),
-    createProjectFromRemote: mockCreateProjectFromRemote,
-    createProjectFromNew: vi.fn(),
-  }),
+  // The inline project form reads the whole store; the dialog selects from it.
+  useProjectsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state = {
+      projects: mockProjects,
+      createProject: vi.fn(),
+      createProjectFromRemote: mockCreateProjectFromRemote,
+      createProjectFromNew: vi.fn(),
+    };
+    return selector ? selector(state) : state;
+  },
 }));
 
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({

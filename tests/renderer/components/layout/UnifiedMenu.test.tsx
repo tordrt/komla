@@ -3,6 +3,7 @@
  */
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { Profiler } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { branchPickerProps, commitComposerProps, requestRebaseAbort, gitState } = vi.hoisted(() => ({
@@ -75,76 +76,90 @@ vi.mock('../../../../src/renderer/components/ui/tooltip', async () => {
 });
 
 vi.mock('../../../../src/renderer/stores/projects.store', () => ({
-  useProjectsStore: () => ({ projects: [] }),
+  useProjectsStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ projects: [] }),
 }));
-vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
-  useWorkspacesStore: () => ({
-    selectedWorkspaceId: 'ws',
-    workspaces: [
-      {
-        id: 'ws',
-        branchName: 'feature',
-        workingDirectory: '/repo',
-        backend: {
-          kind: 'ssh',
-          hostId: 'host-1',
-          remoteDirectory: '/repo',
-          remoteRepoPath: '/repo.git',
-          remoteProjectRoot: '/repo',
-          gitUrl: 'git@example.com:repo.git',
-          baseBranch: 'trunk',
+vi.mock('../../../../src/renderer/stores/workspaces.store', async () => {
+  const { create } = await vi.importActual<typeof import('zustand')>('zustand');
+  return {
+    useWorkspacesStore: create(() => ({
+      selectedWorkspaceId: 'ws',
+      workspaces: [
+        {
+          id: 'ws',
+          branchName: 'feature',
+          workingDirectory: '/repo',
+          backend: {
+            kind: 'ssh',
+            hostId: 'host-1',
+            remoteDirectory: '/repo',
+            remoteRepoPath: '/repo.git',
+            remoteProjectRoot: '/repo',
+            gitUrl: 'git@example.com:repo.git',
+            baseBranch: 'trunk',
+          },
+          projectId: null,
+          isWorktree: true,
         },
-        projectId: null,
-        isWorktree: true,
-      },
-    ],
-    addTerminal: vi.fn(),
-  }),
-}));
+      ],
+      addTerminal: vi.fn(),
+    })),
+  };
+});
 vi.mock('../../../../src/renderer/stores/git-status.store', () => ({
-  useGitStatusStore: () => ({
-    getStatus: () => ({
-      status: {
-        behindTargetBranch: 1,
-        aheadTargetBranch: 0,
-        mainBranch: 'main',
-        defaultBranch: 'main',
-        hasRemote: true,
-        hasOriginRemote: true,
-        unpushedCommits: 0,
-        behindRemote: 0,
-        currentBranch: 'feature',
-        targetBranchHasRemote: true,
-        targetBranchAheadRemote: 0,
-        targetBranchBehindRemote: 0,
-        rebaseInProgress: gitState.rebaseInProgress,
+  useGitStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({
+      statusMap: {
+        get: () => ({
+          status: {
+            behindTargetBranch: 1,
+            aheadTargetBranch: 0,
+            mainBranch: 'main',
+            defaultBranch: 'main',
+            hasRemote: true,
+            hasOriginRemote: true,
+            unpushedCommits: 0,
+            behindRemote: 0,
+            currentBranch: 'feature',
+            targetBranchHasRemote: true,
+            targetBranchAheadRemote: 0,
+            targetBranchBehindRemote: 0,
+            rebaseInProgress: gitState.rebaseInProgress,
+          },
+        }),
       },
+      invalidateStatus: vi.fn(),
+      fetchStatus,
+      fetchStatusIfStale: vi.fn(),
     }),
-    invalidateStatus: vi.fn(),
-    fetchStatus,
-    fetchStatusIfStale: vi.fn(),
-  }),
 }));
 vi.mock('../../../../src/renderer/utils/rebase-abort', () => ({
   requestRebaseAbort,
   addRebaseFailureToast: vi.fn(),
 }));
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({
-  useToastStore: () => ({ addToast: vi.fn() }),
+  useToastStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ addToast: vi.fn() }),
 }));
 vi.mock('../../../../src/renderer/stores/config.store', () => ({
-  useConfigStore: () => ({ config: {}, updateConfig: vi.fn() }),
+  useConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ config: {}, updateConfig: vi.fn() }),
 }));
 vi.mock('../../../../src/renderer/stores/project-sync-status.store', () => ({
-  useProjectSyncStatusStore: () => ({ getStatus: vi.fn(), refreshStatus: vi.fn() }),
+  useProjectSyncStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ statuses: new Map(), refreshStatus: vi.fn() }),
 }));
 vi.mock('../../../../src/renderer/stores/file-viewer.store', () => ({
-  useFileViewerStore: Object.assign(() => ({ requestFileViewerTransition: vi.fn() }), {
-    getState: () => ({
-      fileViewerWorkspaceId: null,
-      setFileViewerDiffComparisonBranch: vi.fn(),
-    }),
-  }),
+  useFileViewerStore: Object.assign(
+    (selector: (state: Record<string, unknown>) => unknown) =>
+      selector({ requestFileViewerTransition: vi.fn() }),
+    {
+      getState: () => ({
+        fileViewerWorkspaceId: null,
+        setFileViewerDiffComparisonBranch: vi.fn(),
+      }),
+    }
+  ),
 }));
 vi.mock('../../../../src/renderer/stores/actions.store', () => ({
   useActionsStore: Object.assign(() => ({}), { getState: () => ({ actions: [] }) }),
@@ -152,6 +167,9 @@ vi.mock('../../../../src/renderer/stores/actions.store', () => ({
 
 import { UnifiedMenu } from '../../../../src/renderer/components/layout/UnifiedMenu';
 import { useGitProgressStore } from '../../../../src/renderer/stores/git-progress.store';
+import { useWorkspacesStore } from '../../../../src/renderer/stores/workspaces.store';
+
+const initialWorkspacesState = useWorkspacesStore.getState();
 
 describe('UnifiedMenu commit entry', () => {
   beforeEach(() => {
@@ -161,9 +179,29 @@ describe('UnifiedMenu commit entry', () => {
     requestRebaseAbort.mockClear();
     gitState.rebaseInProgress = false;
     useGitProgressStore.setState(useGitProgressStore.getInitialState(), true);
+    useWorkspacesStore.setState(initialWorkspacesState, true);
     window.api = {
       rebaseWorkspaceOnBranch,
     } as typeof window.api;
+  });
+
+  // Agents update their workspaces all the time; the menu shows only the active one.
+  it('does not re-render when another workspace changes', () => {
+    let renders = 0;
+    render(
+      <Profiler id="menu" onRender={() => (renders += 1)}>
+        <UnifiedMenu />
+      </Profiler>
+    );
+    const settledRenders = renders;
+
+    act(() => {
+      useWorkspacesStore.setState((state) => ({
+        workspaces: [...state.workspaces, { id: 'other', branchName: 'other', terminals: [] }],
+      }));
+    });
+
+    expect(renders).toBe(settledRenders);
   });
 
   it('opens the commit composer from the Git dropdown', async () => {

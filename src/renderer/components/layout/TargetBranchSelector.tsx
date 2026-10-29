@@ -53,16 +53,26 @@ interface TargetBranchSelectorProps {
 
 export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelectorProps = {}) {
   const tooltipSide = branchTooltipSide(inStatusBar);
-  const selectedWorkspaceId = useWorkspacesStore((s) => s.selectedWorkspaceId);
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  // Reads only the active workspace and its status, so updates to other workspaces, as their
+  // agents run, don't re-render it.
+  const activeWorkspace = useWorkspacesStore((s) =>
+    s.workspaces.find((w) => w.id === s.selectedWorkspaceId)
+  );
   const updateWorkspace = useWorkspacesStore((s) => s.updateWorkspace);
-  const { projects, updateProject } = useProjectsStore();
-  const { getStatus, invalidateStatus, fetchStatus, fetchStatusIfStale } = useGitStatusStore();
-  const { getStatus: getProjectSyncStatus, refreshStatus: refreshProjectSyncStatus } =
-    useProjectSyncStatusStore();
-  const { config, updateConfig } = useConfigStore();
+  const projects = useProjectsStore((s) => s.projects);
+  const updateProject = useProjectsStore((s) => s.updateProject);
+  const invalidateStatus = useGitStatusStore((s) => s.invalidateStatus);
+  const fetchStatus = useGitStatusStore((s) => s.fetchStatus);
+  const fetchStatusIfStale = useGitStatusStore((s) => s.fetchStatusIfStale);
+  const gitStatus = useGitStatusStore((s) =>
+    activeWorkspace ? s.statusMap.get(activeWorkspace.id)?.status : undefined
+  );
+  const refreshProjectSyncStatus = useProjectSyncStatusStore((s) => s.refreshStatus);
+  const config = useConfigStore((s) => s.config);
+  const updateConfig = useConfigStore((s) => s.updateConfig);
   const addToast = useToastStore((s) => s.addToast);
-  const { startOperation, endOperation } = useGitProgressStore();
+  const startOperation = useGitProgressStore((s) => s.startOperation);
+  const endOperation = useGitProgressStore((s) => s.endOperation);
 
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -76,7 +86,6 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
 
   const remoteExpanded = config?.remoteBranchesExpanded ?? false;
 
-  const activeWorkspace = workspaces.find((w) => w.id === selectedWorkspaceId);
   const activeProject = useMemo(() => {
     if (!activeWorkspace?.projectId) return undefined;
     const project = projects.find((p) => p.id === activeWorkspace.projectId);
@@ -86,6 +95,9 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
   const sshBackend =
     activeWorkspace && isSshWorkspace(activeWorkspace) ? activeWorkspace.backend : undefined;
   const isRemoteWorkspace = !!sshBackend;
+  const projectSyncStatus = useProjectSyncStatusStore((s) =>
+    activeProject ? s.statuses.get(activeProject.id) : undefined
+  );
 
   const repoPath = useMemo(() => {
     if (!activeProject) return '';
@@ -155,8 +167,6 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
   // Early return after all hooks
   if (!activeWorkspace || !activeProject || !isGitWorkspace) return null;
 
-  const gitStatus = getStatus(activeWorkspace.id)?.status;
-  const projectSyncStatus = activeProject ? getProjectSyncStatus(activeProject.id) : undefined;
   const currentTarget =
     resolveWorkspaceTargetBranch(
       activeWorkspace,
@@ -229,7 +239,7 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
         updateWorkspace(activeWorkspace.id, { baseBranch: undefined });
       }
       // Refresh status for all workspaces in this project
-      for (const ws of workspaces) {
+      for (const ws of useWorkspacesStore.getState().workspaces) {
         if (ws.projectId === activeProject.id) {
           invalidateStatus(ws.id);
           void fetchStatusIfStale(ws.id, ws.workingDirectory, ws.projectId);

@@ -19,7 +19,7 @@ interface DirectoryGroupContextMenuProps {
 }
 
 export function DirectoryGroupContextMenu({ workspace, children }: DirectoryGroupContextMenuProps) {
-  const { updateWorkspace } = useWorkspacesStore();
+  const updateWorkspace = useWorkspacesStore((state) => state.updateWorkspace);
 
   const handleColorChange = (color: string) => {
     updateWorkspace(workspace.id, { color });

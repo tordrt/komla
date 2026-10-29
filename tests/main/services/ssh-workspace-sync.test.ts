@@ -533,6 +533,22 @@ describe('SshWorkspaceSync', () => {
       )
     );
 
+  it('syncs a host where a workspace is expected now and again shortly after', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { manifests, read, advance } = service();
+
+    manifests.expectWorkspace('host-a');
+    manifests.expectWorkspace('host-a');
+    await flush();
+    expect(read).toHaveBeenCalledTimes(1);
+
+    advance(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flush();
+    expect(read).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it('does not contact hosts for workspaces restored at startup', async () => {
     const { manifests, inspect, write } = service();
     const workspace = sshWorkspace();

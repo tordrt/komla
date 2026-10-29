@@ -36,6 +36,10 @@ const SYNC_INTERVAL_MS = 30_000;
 const AGENT_TITLE_INTERVAL_MS = 5 * 60_000;
 const MAX_AGENT_TITLE_CHARS = 256;
 
+// How long after a workspace is expected on a host, e.g. one a phone started there, it is synced
+// again: the host may start the agent, whose hooks say so, just before it lists the workspace
+const EXPECTED_WORKSPACE_RECHECK_MS = 10_000;
+
 // How long a host is synced again each interval after another installation last changed its
 // workspaces there, such as one it started, whose tabs' sessions start after the sync adds it
 const FOLLOW_UP_MS = 5 * 60_000;
@@ -196,6 +200,8 @@ export class SshWorkspaceSync {
   private readonly hostSyncs = new Map<string, HostSync>();
   /** The hosts synced again each interval after another installation changed their workspaces. */
   private readonly followUps = new Map<string, FollowUp>();
+  /** The hosts synced again shortly, where a workspace is expected. */
+  private readonly expecting = new Map<string, NodeJS.Timeout>();
   /** The agent's title each workspace's manifest carries. */
   private readonly agentTitles = new Map<string, AgentTitle>();
   private disposed = false;
@@ -294,6 +300,23 @@ export class SshWorkspaceSync {
     this.followUps.clear();
     for (const { timer } of this.agentTitles.values()) clearTimeout(timer);
     this.agentTitles.clear();
+    for (const timer of this.expecting.values()) clearTimeout(timer);
+    this.expecting.clear();
+  }
+
+  /**
+   * A workspace this installation lacks may have just started on the host, e.g. a phone started
+   * it there: the host is synced now and once more shortly after. Calls meanwhile share those.
+   */
+  expectWorkspace(hostId: string): void {
+    if (this.disposed || this.expecting.has(hostId)) return;
+    void this.syncSoon(hostId, { now: true });
+    const timer = setTimeout(() => {
+      this.expecting.delete(hostId);
+      if (!this.disposed) void this.syncSoon(hostId, { now: true });
+    }, EXPECTED_WORKSPACE_RECHECK_MS);
+    timer.unref?.();
+    this.expecting.set(hostId, timer);
   }
 
   /**

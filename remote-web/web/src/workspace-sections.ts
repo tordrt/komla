@@ -3,9 +3,10 @@ import uFuzzy from '@leeoniya/ufuzzy';
 import type { RemoteWorkspaceSummary } from '@komla/remote-protocol';
 
 // Groups the phone's workspace list the way Orca Mobile's host screen does: what needs you
-// first, then what is working, then the rest. (UX after stablyai/orca, MIT.)
+// first, then what is working, then the rest, with the Trash last as on the desktop. (UX after
+// stablyai/orca, MIT.)
 
-export type WorkspaceSectionId = 'needs-you' | 'working' | 'idle' | 'stopped';
+export type WorkspaceSectionId = 'needs-you' | 'working' | 'idle' | 'stopped' | 'trash';
 export type WorkspaceFilter = 'all' | 'needs-you' | 'working';
 
 export interface WorkspaceSection {
@@ -19,15 +20,17 @@ const SECTION_LABELS: Record<WorkspaceSectionId, string> = {
   working: 'Working',
   idle: 'Idle',
   stopped: 'Stopped',
+  trash: 'Trash',
 };
 
-const SECTION_ORDER: WorkspaceSectionId[] = ['needs-you', 'working', 'idle', 'stopped'];
+const SECTION_ORDER: WorkspaceSectionId[] = ['needs-you', 'working', 'idle', 'stopped', 'trash'];
 
 export function hasLiveTerminal(workspace: RemoteWorkspaceSummary): boolean {
   return workspace.terminals.some((terminal) => terminal.status !== 'stopped');
 }
 
 export function workspaceSectionId(workspace: RemoteWorkspaceSummary): WorkspaceSectionId {
+  if (workspace.status === 'trashed') return 'trash';
   if (workspace.attention) return 'needs-you';
   if (workspace.provisioning || workspace.agentActive) return 'working';
   return hasLiveTerminal(workspace) ? 'idle' : 'stopped';
@@ -97,6 +100,7 @@ export function workspaceSectionCounts(
     working: 0,
     idle: 0,
     stopped: 0,
+    trash: 0,
   };
   for (const workspace of workspaces) counts[workspaceSectionId(workspace)] += 1;
   return counts;
@@ -131,4 +135,28 @@ export function buildWorkspaceSections(
       },
     ];
   });
+}
+
+/**
+ * The sections collapsed in the saved list, Stopped and the Trash by default. A list saved before
+ * the Trash existed, under the earlier key, keeps its sections with the Trash collapsed.
+ */
+export function parseCollapsedSections(
+  raw: string | null,
+  legacyRaw: string | null
+): Set<WorkspaceSectionId> {
+  const parse = (text: string | null): Set<WorkspaceSectionId> | null => {
+    try {
+      const parsed: unknown = text ? JSON.parse(text) : null;
+      return Array.isArray(parsed)
+        ? new Set(parsed.filter((id): id is WorkspaceSectionId => SECTION_ORDER.includes(id)))
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const saved = parse(raw);
+  if (saved) return saved;
+  const legacy = parse(legacyRaw);
+  return legacy ? legacy.add('trash') : new Set(['stopped', 'trash']);
 }

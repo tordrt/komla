@@ -4,6 +4,7 @@ import type { RemoteWorkspaceSummary } from '@komla/remote-protocol';
 
 import {
   buildWorkspaceSections,
+  parseCollapsedSections,
   searchWorkspaces,
   workspaceSectionCounts,
   workspaceSectionId,
@@ -31,6 +32,15 @@ const attention = (updatedAt: number) => ({
   updatedAt,
 });
 
+describe('parseCollapsedSections', () => {
+  it('starts with Stopped and the Trash collapsed, the Trash too for a list saved before it', () => {
+    expect([...parseCollapsedSections(null, null)]).toEqual(['stopped', 'trash']);
+    expect([...parseCollapsedSections(null, '["idle"]')]).toEqual(['idle', 'trash']);
+    expect([...parseCollapsedSections('["idle"]', '["stopped"]')]).toEqual(['idle']);
+    expect([...parseCollapsedSections('not json', null)]).toEqual(['stopped', 'trash']);
+  });
+});
+
 describe('workspace sections', () => {
   it('puts attention first, then agent work, then idle terminals, then stopped workspaces', () => {
     expect(workspaceSectionId(workspace('a', { attention: attention(1), agentActive: true }))).toBe(
@@ -46,6 +56,25 @@ describe('workspace sections', () => {
         workspace('e', { terminals: [{ id: 'e-t', name: 'shell', status: 'stopped' }] })
       )
     ).toBe('stopped');
+  });
+
+  it('lists trashed workspaces in the Trash, whatever their terminals and attention show', () => {
+    const trashed = workspace('t', {
+      status: 'trashed',
+      attention: attention(1),
+      terminals: [{ id: 't-t', name: 'claude', status: 'stopped' }],
+    });
+
+    expect(workspaceSectionId(trashed)).toBe('trash');
+    expect(
+      buildWorkspaceSections([trashed, workspace('s', { terminals: [] })]).map((section) => [
+        section.id,
+        section.label,
+      ])
+    ).toEqual([
+      ['stopped', 'Stopped'],
+      ['trash', 'Trash'],
+    ]);
   });
 
   it('orders sections by fixed priority and drops empty ones', () => {
@@ -89,6 +118,7 @@ describe('workspace sections', () => {
       working: 2,
       idle: 0,
       stopped: 0,
+      trash: 0,
     });
   });
 
@@ -126,7 +156,10 @@ describe('workspace sections', () => {
 
   it('lists title matches before newer workspaces found only elsewhere', () => {
     const titled = workspace('titled', { name: 'Landing page', lastActivityAt: 1 });
-    const prompted = workspace('prompted', { lastPrompt: 'fix the landing page', lastActivityAt: 2 });
+    const prompted = workspace('prompted', {
+      lastPrompt: 'fix the landing page',
+      lastActivityAt: 2,
+    });
 
     const [idle] = buildWorkspaceSections([prompted, titled], { query: 'landing' });
     expect(idle!.workspaces.map((item) => item.id)).toEqual(['titled', 'prompted']);

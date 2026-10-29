@@ -1,5 +1,5 @@
 /** Common executable locations that GUI-launched apps may not inherit. */
-const COMMON_EXECUTABLE_PATHS = [
+export const COMMON_EXECUTABLE_PATHS = [
   '/opt/homebrew/bin', // Apple Silicon Homebrew
   '/usr/local/bin', // Intel Homebrew
   '/home/linuxbrew/.linuxbrew/bin', // Linuxbrew

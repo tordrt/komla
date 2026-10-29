@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 
 import { createLogger } from '../lib/logger';
+import { tailscaleCommand } from '../lib/tailscale-command';
 
 const logger = createLogger('RemoteControlTailscaleService');
 const execFileAsync = promisify(execFile);
@@ -42,9 +43,11 @@ class RemoteControlTailscaleService {
 
   async stop(publicOrigin: string, timeoutMs = 15_000): Promise<void> {
     const httpsPort = getHttpsPort(publicOrigin);
-    await execFileAsync('tailscale', ['serve', `--https=${httpsPort}`, 'off'], {
+    const tailscale = tailscaleCommand();
+    await execFileAsync(tailscale.file, ['serve', `--https=${httpsPort}`, 'off'], {
       timeout: timeoutMs,
       windowsHide: true,
+      env: tailscale.env,
     });
   }
 }
@@ -52,14 +55,21 @@ class RemoteControlTailscaleService {
 async function applyServe(publicOrigin: string, localPort: number): Promise<string[]> {
   const httpsPort = getHttpsPort(publicOrigin);
   const args = ['serve', '--bg', `--https=${httpsPort}`, `localhost:${localPort}`];
-  await execFileAsync('tailscale', args, { timeout: 15_000, windowsHide: true });
+  const tailscale = tailscaleCommand();
+  await execFileAsync(tailscale.file, args, {
+    timeout: 15_000,
+    windowsHide: true,
+    env: tailscale.env,
+  });
   return args;
 }
 
 async function readServeStatus(): Promise<unknown> {
-  const { stdout } = await execFileText('tailscale', ['serve', 'status', '--json'], {
+  const tailscale = tailscaleCommand();
+  const { stdout } = await execFileText(tailscale.file, ['serve', 'status', '--json'], {
     timeout: 5_000,
     windowsHide: true,
+    env: tailscale.env,
   });
   const trimmed = stdout.trim();
   return trimmed ? (JSON.parse(trimmed) as unknown) : {};

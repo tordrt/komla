@@ -25,6 +25,14 @@ const mockInstallIdentityService = {
   sign: vi.fn(async () => Buffer.alloc(64)),
 };
 
+const mockTailscaleCommand = vi.hoisted(() =>
+  vi.fn(() => ({ file: 'tailscale', env: { TAILSCALE_BE_CLI: '1' }, display: 'tailscale' }))
+);
+
+vi.mock('../../../../src/main/lib/tailscale-command', () => ({
+  tailscaleCommand: mockTailscaleCommand,
+}));
+
 vi.mock('../../../../src/main/services/install-identity.service', () => ({
   installIdentityService: mockInstallIdentityService,
 }));
@@ -290,7 +298,7 @@ describe('registerRemoteControlHandlers', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'tailscale',
       ['serve', '--https=52864', 'off'],
-      { timeout: 15_000, windowsHide: true },
+      { timeout: 15_000, windowsHide: true, env: { TAILSCALE_BE_CLI: '1' } },
       expect.any(Function)
     );
     expect(mockConfigService.update).toHaveBeenCalledWith({
@@ -391,7 +399,7 @@ describe('registerRemoteControlHandlers', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'tailscale',
       ['serve', '--bg', '--https=443', 'localhost:52864'],
-      { timeout: 15_000, windowsHide: true },
+      { timeout: 15_000, windowsHide: true, env: { TAILSCALE_BE_CLI: '1' } },
       expect.any(Function)
     );
   });
@@ -487,7 +495,7 @@ describe('registerRemoteControlHandlers', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'tailscale',
       ['serve', '--bg', '--https=52864', 'localhost:52864'],
-      { timeout: 15_000, windowsHide: true },
+      { timeout: 15_000, windowsHide: true, env: { TAILSCALE_BE_CLI: '1' } },
       expect.any(Function)
     );
   });
@@ -549,9 +557,36 @@ describe('registerRemoteControlHandlers', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'tailscale',
       ['version'],
-      { timeout: 5_000, windowsHide: true },
+      { timeout: 5_000, windowsHide: true, env: { TAILSCALE_BE_CLI: '1' } },
       expect.any(Function)
     );
+  });
+
+  it('runs and shows the Mac app binary when the CLI was never installed', async () => {
+    const appBinary = '/Applications/Tailscale.app/Contents/MacOS/Tailscale';
+    mockTailscaleCommand.mockReturnValueOnce({
+      file: appBinary,
+      env: { TAILSCALE_BE_CLI: '1' },
+      display: appBinary,
+    });
+    const { registerRemoteControlHandlers, ipcMain } = await setup();
+    registerRemoteControlHandlers();
+
+    await expect(ipcMain._invoke('remote-control:direct-get-tailscale-status')).resolves.toEqual(
+      expect.objectContaining({
+        installed: true,
+        rootCommand: `${appBinary} serve --bg localhost:52864`,
+        portCommand: `${appBinary} serve --bg --https=52864 localhost:52864`,
+      })
+    );
+    for (const args of [['version'], ['status', '--json'], ['serve', 'status', '--json']]) {
+      expect(mockExecFile).toHaveBeenCalledWith(
+        appBinary,
+        args,
+        expect.objectContaining({ env: { TAILSCALE_BE_CLI: '1' } }),
+        expect.any(Function)
+      );
+    }
   });
 
   it('reports the stable managed HTTPS port when the local server uses a fallback', async () => {

@@ -5,6 +5,7 @@ import { ipcMain } from 'electron';
 import { z } from 'zod';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
+import { tailscaleCommand, type TailscaleCommand } from '../../lib/tailscale-command';
 import { configService } from '../../services/config.service';
 import { pairedDeviceRegistryService } from '../../services/paired-device-registry.service';
 import { startPersistedDirectRemoteServer } from '../../services/remote-control-direct-autostart.service';
@@ -170,7 +171,7 @@ export function registerRemoteControlHandlers(): void {
         throw new Error(formatTailscaleServeError(err));
       }
       persistDirectServerConfig(server, publicOrigin, publicOrigin);
-      return { server, command: formatCommand('tailscale', commandArgs) };
+      return { server, command: formatCommand(tailscaleCommand().display, commandArgs) };
     }
   );
 
@@ -186,17 +187,26 @@ export function registerRemoteControlHandlers(): void {
         ? Number(new URL(config.directRemoteManagedTailscaleOrigin).port || '443')
         : undefined;
       const publicPort = managedHttpsPort ?? localPort;
-      const rootCommand = formatCommand('tailscale', ['serve', '--bg', `localhost:${localPort}`]);
-      const portCommand = formatCommand('tailscale', [
+      const tailscale = tailscaleCommand();
+      const rootCommand = formatCommand(tailscale.display, [
+        'serve',
+        '--bg',
+        `localhost:${localPort}`,
+      ]);
+      const portCommand = formatCommand(tailscale.display, [
         'serve',
         '--bg',
         `--https=${publicPort}`,
         `localhost:${localPort}`,
       ]);
       try {
-        await execFileAsync('tailscale', ['version'], { timeout: 5_000, windowsHide: true });
-        const hostname = await getTailscaleHostname();
-        const serve = await getTailscaleServeStatus(localPort);
+        await execFileAsync(tailscale.file, ['version'], {
+          timeout: 5_000,
+          windowsHide: true,
+          env: tailscale.env,
+        });
+        const hostname = await getTailscaleHostname(tailscale);
+        const serve = await getTailscaleServeStatus(tailscale, localPort);
         const suggestedRootOrigin =
           hostname && serve.rootAvailable ? `https://${hostname}` : undefined;
         const suggestedPortOrigin = hostname ? `https://${hostname}:${publicPort}` : undefined;
@@ -348,18 +358,19 @@ function normalizeTailscaleServeOrigin(
 function formatTailscaleServeError(err: unknown): string {
   const nodeErr = err as NodeJS.ErrnoException & { stderr?: string };
   if (nodeErr.code === 'ENOENT') {
-    return 'Could not find the tailscale command. Install Tailscale and make sure tailscale is on PATH.';
+    return 'Could not find the tailscale command. Install Tailscale, then try again.';
   }
   const stderr = typeof nodeErr.stderr === 'string' ? nodeErr.stderr.trim() : '';
   if (stderr) return stderr;
   return nodeErr.message || 'Failed to start Tailscale Serve';
 }
 
-async function getTailscaleHostname(): Promise<string | undefined> {
+async function getTailscaleHostname(tailscale: TailscaleCommand): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileText('tailscale', ['status', '--json'], {
+    const { stdout } = await execFileText(tailscale.file, ['status', '--json'], {
       timeout: 5_000,
       windowsHide: true,
+      env: tailscale.env,
     });
     const parsed = JSON.parse(stdout) as { Self?: { DNSName?: unknown } };
     const dnsName = parsed.Self?.DNSName;
@@ -371,6 +382,7 @@ async function getTailscaleHostname(): Promise<string | undefined> {
 }
 
 async function getTailscaleServeStatus(
+  tailscale: TailscaleCommand,
   port: number
 ): Promise<
   Pick<
@@ -379,9 +391,10 @@ async function getTailscaleServeStatus(
   >
 > {
   try {
-    const { stdout } = await execFileText('tailscale', ['serve', 'status', '--json'], {
+    const { stdout } = await execFileText(tailscale.file, ['serve', 'status', '--json'], {
       timeout: 5_000,
       windowsHide: true,
+      env: tailscale.env,
     });
     const trimmed = stdout.trim();
     if (!trimmed) return { rootAvailable: true };

@@ -16,6 +16,13 @@ const mockExecFile = vi.hoisted(() =>
 );
 
 vi.mock('child_process', () => ({ execFile: mockExecFile }));
+vi.mock('../../../src/main/lib/tailscale-command', () => ({
+  tailscaleCommand: () => ({
+    file: 'tailscale',
+    env: { TAILSCALE_BE_CLI: '1' },
+    display: 'tailscale',
+  }),
+}));
 
 describe('remoteControlTailscaleService', () => {
   beforeEach(() => {
@@ -87,7 +94,7 @@ describe('remoteControlTailscaleService', () => {
       2,
       'tailscale',
       ['serve', '--bg', '--https=52864', 'localhost:57948'],
-      { timeout: 15_000, windowsHide: true },
+      { timeout: 15_000, windowsHide: true, env: { TAILSCALE_BE_CLI: '1' } },
       expect.any(Function)
     );
   });
@@ -145,7 +152,7 @@ describe('remoteControlTailscaleService', () => {
     expect(mockExecFile).toHaveBeenLastCalledWith(
       'tailscale',
       ['serve', '--bg', '--https=443', 'localhost:57948'],
-      { timeout: 15_000, windowsHide: true },
+      { timeout: 15_000, windowsHide: true, env: { TAILSCALE_BE_CLI: '1' } },
       expect.any(Function)
     );
   });
@@ -159,7 +166,7 @@ describe('remoteControlTailscaleService', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'tailscale',
       ['serve', '--https=52864', 'off'],
-      { timeout: 15_000, windowsHide: true },
+      { timeout: 15_000, windowsHide: true, env: { TAILSCALE_BE_CLI: '1' } },
       expect.any(Function)
     );
   });

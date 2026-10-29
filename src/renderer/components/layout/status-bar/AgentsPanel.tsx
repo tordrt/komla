@@ -1,4 +1,4 @@
-import { Check, GearSix, GitBranch, Timer } from '@phosphor-icons/react';
+import { Check, GearSix, GitBranch } from '@phosphor-icons/react';
 
 import { ProjectMark } from '@/components/projects/ProjectMark';
 import {
@@ -14,27 +14,21 @@ import {
   AGENT_STATES,
   AGENT_STATES_BY_URGENCY,
   AgentStateIcon,
-  attentionDetail,
-  urgency,
+  byUrgency,
   workspaceAgents,
   type Agent,
   type AgentState,
 } from '@/components/workspaces/agent-state';
+import { AgentDetails, agentName, AgentTime } from '@/components/workspaces/AgentDetails';
 import {
   getWorkspaceDisplayTitle,
   WorkspaceInfoCardContent,
 } from '@/components/workspaces/WorkspaceInfoCard';
-import { useNow } from '@/hooks/useNow';
-import { formatElapsed, formatRelativeTime } from '@/lib/format-time';
 import { getProjectColor } from '@/lib/project-colors';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
 
-import {
-  agentAttention,
-  agentSince,
-  clearedFromOverview,
-} from '../../../../shared/lib/agent-state';
+import { agentSince, clearedFromOverview } from '../../../../shared/lib/agent-state';
 
 import type { AgentsMenuBarProject } from '../../../../shared/types';
 import type { Workspace } from '@/types';
@@ -48,9 +42,7 @@ export function listAgents(workspaces: readonly Workspace[], doneClearedAt?: num
   return workspaces
     .flatMap((workspace) => workspaceAgents(workspace))
     .filter((agent) => !clearedFromOverview(agent, doneClearedAt))
-    .sort(
-      (a, b) => urgency(a.state) - urgency(b.state) || (agentSince(b) ?? 0) - (agentSince(a) ?? 0)
-    );
+    .sort((a, b) => byUrgency(a, b) || (agentSince(b) ?? 0) - (agentSince(a) ?? 0));
 }
 
 /** Each state the agents are in, most urgent first, with how it reads and how many are in it. */
@@ -60,65 +52,6 @@ export function agentStateCounts(agents: readonly Agent[]) {
     ...AGENT_STATES[state],
     count: agents.filter((agent) => agent.state === state).length,
   })).filter(({ count }) => count > 0);
-}
-
-/** How long ago the agent got to its state, or how long it has worked, as its row shows it. */
-function agentWhen(agent: Agent, now: number): string | undefined {
-  const since = agentSince(agent);
-  if (since === undefined) return undefined;
-  return agent.state === 'working' ? formatElapsed(now - since) : formatRelativeTime(since);
-}
-
-/** The row's time, where a stopwatch tells how long it has worked from how long ago it got there. */
-function AgentTime({ agent }: { agent: Agent }) {
-  const when = agentWhen(agent, useNow());
-  if (!when) return null;
-  return (
-    <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
-      {agent.state === 'working' && (
-        <Timer aria-hidden className="mr-0.5 inline size-3 align-[-2px]" />
-      )}
-      {when}
-    </span>
-  );
-}
-
-/** Which agent it is: its terminal's title, or its name where the workspace goes by that title. */
-function agentName({ workspace, terminal }: Agent): string | undefined {
-  const terminalTitle = terminal && (terminal.dynamicTitle || terminal.name);
-  const name =
-    terminalTitle !== getWorkspaceDisplayTitle(workspace) ? terminalTitle : terminal?.name;
-  return name || undefined;
-}
-
-/** The agent's state and since when, its terminal, and what it said, in its workspace's card. */
-function AgentDetails({ agent, said }: { agent: Agent; said?: string }) {
-  const { title, className } = AGENT_STATES[agent.state];
-  const name = agentName(agent);
-  const when = agentWhen(agent, useNow());
-  return (
-    <div className="mt-2.5 space-y-1 rounded-md bg-foreground/[0.04] px-2.5 py-2 text-xs">
-      <div className="flex min-w-0 items-center gap-1.5">
-        <AgentStateIcon state={agent.state} />
-        <span className={cn('shrink-0 font-medium', className)}>{title}</span>
-        {when && (
-          <span className="shrink-0 text-muted-foreground">
-            {agent.state === 'working'
-              ? `for ${when}`
-              : when === 'now'
-                ? 'just now'
-                : `${when} ago`}
-          </span>
-        )}
-        {name && <span className="ml-auto min-w-0 truncate text-muted-foreground">{name}</span>}
-      </div>
-      {said && (
-        <p className="line-clamp-8 leading-relaxed whitespace-pre-wrap text-popover-foreground/90">
-          {said}
-        </p>
-      )}
-    </div>
-  );
 }
 
 interface AgentsPanelProps {
@@ -148,8 +81,7 @@ function AgentCard({
   agent: Agent;
   children: React.ReactElement;
 }) {
-  const { workspace, state } = agent;
-  const said = state === 'working' ? undefined : attentionDetail(agentAttention(agent));
+  const { workspace } = agent;
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
@@ -169,7 +101,7 @@ function AgentCard({
       >
         {/* The row already tells the project and branch. */}
         <WorkspaceInfoCardContent workspace={workspace} sshHost={null} showLocation={false}>
-          <AgentDetails agent={agent} said={said} />
+          <AgentDetails agent={agent} />
         </WorkspaceInfoCardContent>
       </TooltipContent>
     </Tooltip>

@@ -39,7 +39,8 @@ export const AGENT_STATES: Record<
   working: AGENT_STATE_TEXT.working,
 };
 
-function byUrgency(a: Agent, b: Agent): number {
+/** Most urgent first. */
+export function byUrgency(a: Agent, b: Agent): number {
   return urgency(a.state) - urgency(b.state);
 }
 

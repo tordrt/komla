@@ -55,13 +55,15 @@ export function AttentionGlyph({
 interface AttentionCardProps {
   attention: WorkspaceAttention;
   appearance: WorkspaceAttentionAppearance;
+  /** The agent it came from, where others are beside it. */
+  sender?: string;
 }
 
 // Wide enough that a long message reads as a paragraph rather than a column.
 export const ATTENTION_CARD_CLASS_NAME = 'w-max max-w-sm px-3 py-2';
 
 /** What happened, when, and the whole message, wrapped over as many lines as it needs. */
-export function AttentionCard({ attention, appearance }: AttentionCardProps) {
+export function AttentionCard({ attention, appearance, sender }: AttentionCardProps) {
   return (
     <>
       <div className="flex items-start gap-1.5">
@@ -73,6 +75,17 @@ export function AttentionCard({ attention, appearance }: AttentionCardProps) {
           style={{ color: appearance.borderColor }}
         />
         <span className="min-w-0 font-medium text-foreground">{appearance.heading}</span>
+        {/* Up to its share of the row, so a long title or terminal title can't hide the other. */}
+        {sender && (
+          <span
+            data-attention-sender
+            className="max-w-[40%] shrink-0 truncate text-muted-foreground"
+          >
+            <span aria-hidden="true">· </span>
+            <span className="sr-only">from </span>
+            {sender}
+          </span>
+        )}
         <span className="ml-auto shrink-0 pl-3 text-2xs text-muted-foreground tabular-nums">
           {formatRelativeTime(attention.updatedAt)}
         </span>

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   escapeRemoteAttentionCustomTitleSource,
   isRemoteAttentionCustomTitle,
+  MAX_REMOTE_PROJECT_ICON_CHARS,
   parseRemoteAppFrame,
 } from '../../src/app/frames';
 
@@ -14,6 +15,24 @@ describe('remote app frames', () => {
 
     expect(isRemoteAttentionCustomTitle(source)).toBe(false);
     expect(source.length).toBeLessThanOrEqual(128);
+  });
+
+  it("accepts a project's icon only as a small image data URL", () => {
+    const frame = (icon: string) => ({
+      type: 'app:launch-options',
+      requestId: 'r1',
+      projects: [{ id: 'p1', name: 'Komla', repositoryPath: '/repo/komla', icon }],
+      presets: [],
+    });
+
+    expect(parseRemoteAppFrame(frame('data:image/png;base64,iVBORw0KGgo='))).not.toBeNull();
+    for (const icon of [
+      'data:text/html;base64,PGI+',
+      'https://example.com/icon.png',
+      `data:image/png;base64,${'A'.repeat(MAX_REMOTE_PROJECT_ICON_CHARS)}`,
+    ]) {
+      expect(parseRemoteAppFrame(frame(icon))).toBeNull();
+    }
   });
 
   it('parses a workspace list request', () => {

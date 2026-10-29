@@ -47,7 +47,10 @@ vi.mock('../../../src/main/services/window.service', () => ({
   },
 }));
 
-import { RemoteControlSessionService } from '../../../src/main/services/remote-control-session.service';
+import {
+  RemoteControlSessionService,
+  type RemoteSessionDevice,
+} from '../../../src/main/services/remote-control-session.service';
 import { publishRemoteWorkspaceChange } from '../../../src/main/services/remote-workspace-events';
 import {
   parseRemoteAppFrame,
@@ -63,6 +66,7 @@ import {
   encodeBinaryTerminalOutput,
   encodedJsonBytes,
   FrameTooLargeError,
+  REMOTE_CAPABILITIES,
   MAX_BINARY_BODY_BYTES,
   MAX_ENCRYPTED_BODY_BYTES,
   MAX_FRAME_CHARS,
@@ -168,7 +172,7 @@ function makeFixture({
   outputBatchMs?: number;
   outputDrainPollMs?: number;
   sizeLeaseLingerMs?: number;
-  device?: { credentialId: string };
+  device?: RemoteSessionDevice;
 } = {}) {
   const workspace = makeWorkspace();
   const secondWorkspace = makeWorkspace({
@@ -894,6 +898,36 @@ describe('RemoteControlSessionService', () => {
     expect(peer.sent[0]).toMatchObject({
       projects: [{ id: 'p2', color: projectColorHex(getProjectColor('landing'), 'landing') }],
     });
+  });
+
+  it("sends projects' icons only to a page that agreed to them", async () => {
+    const icon = 'data:image/png;base64,iVBORw0KGgo=';
+    const withIcon = [
+      {
+        id: 'p2',
+        name: 'landing',
+        repositoryPath: '/repo/landing',
+        defaultBranchPrefix: '',
+        createdAt: 1,
+        order: 1,
+        managed: true,
+        icon,
+      },
+    ] as never;
+    const agreed = makeFixture({
+      device: { credentialId: 'phone', capabilities: [REMOTE_CAPABILITIES.PROJECT_ICONS] },
+    });
+    const older = makeFixture({ device: { credentialId: 'phone' } });
+    agreed.projects.list.mockReturnValue(withIcon);
+    older.projects.list.mockReturnValue(withIcon);
+
+    agreed.peer.emitJson({ type: 'app:launch-options:get', requestId: 'r1' });
+    older.peer.emitJson({ type: 'app:launch-options:get', requestId: 'r1' });
+    await flush();
+
+    expect(agreed.peer.sent[0]).toMatchObject({ projects: [{ id: 'p2', icon }] });
+    expect(older.peer.sent[0]).toMatchObject({ projects: [{ id: 'p2' }] });
+    expect(older.peer.sent[0]).not.toHaveProperty('projects.0.icon');
   });
 
   it('creates shell, agent, and action terminals and closes the current terminal', async () => {

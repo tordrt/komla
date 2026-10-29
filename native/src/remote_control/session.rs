@@ -42,6 +42,8 @@ pub(crate) struct SessionEnvironment {
     pub(crate) attention: Arc<Mutex<AttentionBoard>>,
     /// The desktop's `launch.json`: what this host may start.
     pub(crate) launch_path: PathBuf,
+    /// The phone agreed to take projects' icons.
+    pub(crate) project_icons: bool,
 }
 
 struct Attached {
@@ -223,6 +225,7 @@ impl AppSession {
                         request_id,
                         &self.environment.base,
                         &self.environment.host_name,
+                        self.environment.project_icons,
                     )],
                     Err(cause) => {
                         eprintln!("phone launch options not read: {cause:#}");
@@ -230,6 +233,7 @@ impl AppSession {
                             request_id,
                             &self.environment.base,
                             &self.environment.host_name,
+                            false,
                         )]
                     }
                 }

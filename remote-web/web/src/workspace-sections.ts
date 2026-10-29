@@ -1,6 +1,6 @@
 import uFuzzy from '@leeoniya/ufuzzy';
 
-import type { RemoteWorkspaceSummary } from '@komla/remote-protocol';
+import type { RemoteProjectSummary, RemoteWorkspaceSummary } from '@komla/remote-protocol';
 
 // Groups the phone's workspace list the way Orca Mobile's host screen does: what needs you
 // first, then what is working, then the rest, with the Trash last as on the desktop. (UX after
@@ -24,6 +24,19 @@ const SECTION_LABELS: Record<WorkspaceSectionId, string> = {
 };
 
 const SECTION_ORDER: WorkspaceSectionId[] = ['needs-you', 'working', 'idle', 'stopped', 'trash'];
+
+/**
+ * A workspace's project among the launch options. An SSH host names it without an id, so there
+ * it is the one project of that name, if any.
+ */
+export function workspaceProject(
+  workspace: RemoteWorkspaceSummary,
+  projects: RemoteProjectSummary[]
+): RemoteProjectSummary | undefined {
+  if (workspace.projectId) return projects.find((project) => project.id === workspace.projectId);
+  const named = projects.filter((project) => project.name === workspace.projectName);
+  return named.length === 1 ? named[0] : undefined;
+}
 
 export function hasLiveTerminal(workspace: RemoteWorkspaceSummary): boolean {
   return workspace.terminals.some((terminal) => terminal.status !== 'stopped');

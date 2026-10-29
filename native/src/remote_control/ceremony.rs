@@ -21,7 +21,8 @@ pub(crate) const AUTH_CEREMONY_TIMEOUT_MS: u64 = 30_000;
 pub(crate) const PASSKEY_TIMEOUT_MS: u64 = 120_000;
 /// `REMOTE_CAPABILITIES` this host supports; a phone lists its own in the hello.
 pub(crate) const BINARY_FRAMES: &str = "binary-frames";
-const HOST_CAPABILITIES: &[&str] = &[BINARY_FRAMES];
+pub(crate) const PROJECT_ICONS: &str = "project-icons";
+const HOST_CAPABILITIES: &[&str] = &[BINARY_FRAMES, PROJECT_ICONS];
 const MAX_CAPABILITIES: usize = 32;
 const MAX_CAPABILITY_CHARS: usize = 64;
 
@@ -44,6 +45,8 @@ pub(crate) enum CeremonyOutcome {
         resume_token: String,
         /// Both sides agreed to binary frames; switch after sending `reply`.
         binary_frames: bool,
+        /// The phone takes projects' icons in launch options.
+        project_icons: bool,
     },
     /// Send this `pair:rejected` frame and close.
     Rejected(Value),
@@ -165,6 +168,7 @@ impl Ceremony {
         if let CeremonyOutcome::Authenticated {
             reply,
             binary_frames,
+            project_icons,
             ..
         } = &mut outcome
         {
@@ -174,6 +178,7 @@ impl Ceremony {
                 .filter(|name| self.capabilities.iter().any(|offered| offered == name))
                 .collect();
             *binary_frames = agreed.contains(&BINARY_FRAMES);
+            *project_icons = agreed.contains(&PROJECT_ICONS);
             if !agreed.is_empty() {
                 reply["capabilities"] = json!(agreed);
             }
@@ -418,6 +423,7 @@ impl Ceremony {
             reply,
             resume_token: grant.token,
             binary_frames: false,
+            project_icons: false,
         }
     }
 }
@@ -527,6 +533,10 @@ mod tests {
                 json!(["binary-frames", "from-the-future"]),
                 Some(json!(["binary-frames"])),
             ),
+            (
+                json!(["project-icons", "binary-frames"]),
+                Some(json!(["binary-frames", "project-icons"])),
+            ),
             (json!(["from-the-future"]), None),
         ] {
             let mut fixture = Fixture::new();
@@ -541,6 +551,7 @@ mod tests {
             let CeremonyOutcome::Authenticated {
                 reply,
                 binary_frames,
+                project_icons,
                 ..
             } = fixture.run(&mut ceremony, response, 20)
             else {
@@ -548,6 +559,10 @@ mod tests {
             };
             assert_eq!(reply.get("capabilities").cloned(), agreed);
             assert_eq!(binary_frames, agreed.is_some());
+            assert_eq!(
+                project_icons,
+                agreed.is_some_and(|agreed| agreed.to_string().contains("project-icons"))
+            );
         }
     }
 

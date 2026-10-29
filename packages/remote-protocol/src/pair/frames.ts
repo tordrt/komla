@@ -68,6 +68,8 @@ const PairHelloRegisterSchema = z
 export const REMOTE_CAPABILITIES = {
   /** Binary envelopes, and binary terminal output and input payloads. */
   BINARY_FRAMES: 'binary-frames',
+  /** Projects' icons in launch options, which an older page's strict schema would reject. */
+  PROJECT_ICONS: 'project-icons',
 } as const;
 
 const CapabilitiesSchema = z.array(z.string().min(1).max(64)).max(32);

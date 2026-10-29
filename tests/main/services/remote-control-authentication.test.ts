@@ -256,7 +256,7 @@ describe('RemoteControlCeremony', () => {
       deviceId,
       credentialId: seed.response.id,
     });
-    expect(completed).toHaveBeenCalledWith('Phone', seed.response.id, undefined);
+    expect(completed).toHaveBeenCalledWith('Phone', seed.response.id, undefined, []);
     expect(paired.records[0]?.signCounter).toBe(1);
   });
 
@@ -343,7 +343,7 @@ describe('RemoteControlCeremony', () => {
     expect(resumption.consume).toHaveBeenCalledWith(deviceId, 'A'.repeat(43));
     // The resumed connection must not extend how long ago the passkey was used.
     expect(resumption.issue).toHaveBeenCalledWith(deviceId, 1_234);
-    expect(completed).toHaveBeenCalledWith('Phone', seed.response.id, 'B'.repeat(43));
+    expect(completed).toHaveBeenCalledWith('Phone', seed.response.id, 'B'.repeat(43), []);
   });
 
   it('rejects an expired resume grant before issuing a device challenge', async () => {

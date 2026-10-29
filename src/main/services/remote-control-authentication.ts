@@ -86,7 +86,13 @@ export interface RemoteControlCeremonyOptions {
   onAuthenticating: () => void;
   onPairCompleted: (deviceLabel: string, credentialId: string) => void;
   /** `resumeToken` is the grant this connection holds until it ends. */
-  onAuthCompleted: (deviceLabel: string, credentialId: string, resumeToken?: string) => void;
+  onAuthCompleted: (
+    deviceLabel: string,
+    credentialId: string,
+    resumeToken?: string,
+    /** The protocol features this endpoint agreed to use. */
+    capabilities?: readonly string[]
+  ) => void;
   onCeremonyFailed: (err: RemoteControlError) => void;
 }
 
@@ -544,7 +550,7 @@ export class RemoteControlCeremony {
     // Both sides now use binary frames; the browser switches when it reads the reply.
     if (capabilities.includes(REMOTE_CAPABILITIES.BINARY_FRAMES)) this.peer.enableBinaryFrames();
     this.complete();
-    this.opts.onAuthCompleted(device.label, device.credentialId, grant?.token);
+    this.opts.onAuthCompleted(device.label, device.credentialId, grant?.token, capabilities);
   }
 
   private complete(): void {

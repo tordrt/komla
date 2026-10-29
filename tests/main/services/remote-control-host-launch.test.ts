@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { encodedJsonBytes, MAX_ENCRYPTED_BODY_BYTES } from '@komla/remote-protocol';
+
 import type { AgentPreset } from '../../../src/shared/types/agent-preset';
 import type { Project } from '../../../src/shared/types/project';
 
@@ -74,6 +76,7 @@ vi.mock('../../../src/main/services/agent-preset.service', () => ({
 import {
   buildHostLaunchFile,
   configureHostLaunch,
+  withProjectIcons,
 } from '../../../src/main/services/remote-control-host-launch';
 
 function project(overrides: Partial<Project>): Project {
@@ -177,5 +180,64 @@ describe('buildHostLaunchFile', () => {
         ],
       },
     ]);
+  });
+
+  it("gives projects their icons while the host's launch options still fit one frame", async () => {
+    const icon = (fill: string) => `data:image/png;base64,${fill.repeat(15_000)}`;
+    const ids = ['p-app', 'p-local', 'p-folder', 'p-broken'];
+    configureHostLaunch({ projectIdsOnHost: () => new Set([...ids, 'p-huge', 'p-html']) });
+    state.projects = [
+      ...ids.map((id, index) =>
+        project({ id, name: id, repositoryPath: `/r/${id}`, icon: icon('ABCD'[index]!) })
+      ),
+      project({
+        id: 'p-huge',
+        name: 'huge',
+        repositoryPath: '/r/p-huge',
+        icon: `data:image/svg+xml;base64,${'A'.repeat(20_000)}`,
+      }),
+      project({
+        id: 'p-html',
+        name: 'html',
+        repositoryPath: '/r/p-html',
+        icon: 'data:text/html;base64,PGI+',
+      }),
+    ];
+    for (const entry of state.projects)
+      state.remotes.set(entry.repositoryPath, `git@x:${entry.id}`);
+    state.presets.set('claude', preset({}));
+
+    const file = JSON.parse(await buildHostLaunchFile('host-1', '/home/me/.komla'));
+
+    expect(
+      file.projects.map((entry: { summary: { id: string; icon?: string } }) => [
+        entry.summary.id,
+        entry.summary.icon?.length,
+      ])
+    ).toEqual([
+      ['p-app', icon('A').length],
+      ['p-local', icon('B').length],
+      ['p-folder', icon('C').length],
+      ['p-broken', undefined],
+      ['p-huge', undefined],
+      ['p-html', undefined],
+    ]);
+  });
+});
+
+describe('withProjectIcons', () => {
+  it('counts what each icon adds to the frame to the byte', () => {
+    const icon = 'data:image/png;base64,iVBORw0KGgo=';
+    const summaries = ['a', 'b'].map((id) => ({ id, name: id, repositoryPath: `/r/${id}` }));
+    const frame = { type: 'app:launch-options', projects: summaries };
+    const added = encodedJsonBytes({
+      ...frame,
+      projects: [{ ...summaries[0]!, icon }, summaries[1]],
+    });
+    const iconBytes = added - encodedJsonBytes(frame);
+
+    const projects = withProjectIcons(summaries, () => icon, MAX_ENCRYPTED_BODY_BYTES - iconBytes);
+
+    expect(projects.map((project) => 'icon' in project)).toEqual([true, false]);
   });
 });

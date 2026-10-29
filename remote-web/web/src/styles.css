@@ -801,6 +801,14 @@ ol.handoff-text {
   background: var(--workspace-accent, var(--brand));
 }
 
+.workspace-project img {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 3px;
+  object-fit: contain;
+}
+
 .workspace-branch {
   min-width: 0;
   overflow: hidden;

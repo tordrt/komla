@@ -6,6 +6,7 @@ import {
   buildWorkspaceSections,
   parseCollapsedSections,
   searchWorkspaces,
+  workspaceProject,
   workspaceSectionCounts,
   workspaceSectionId,
 } from '../workspace-sections';
@@ -38,6 +39,30 @@ describe('parseCollapsedSections', () => {
     expect([...parseCollapsedSections(null, '["idle"]')]).toEqual(['idle', 'trash']);
     expect([...parseCollapsedSections('["idle"]', '["stopped"]')]).toEqual(['idle']);
     expect([...parseCollapsedSections('not json', null)]).toEqual(['stopped', 'trash']);
+  });
+});
+
+describe('workspaceProject', () => {
+  const projects = [
+    { id: 'p1', name: 'komla', repositoryPath: '/r/komla' },
+    { id: 'p2', name: 'landing', repositoryPath: '/r/landing' },
+  ];
+
+  it("finds a workspace's project by id, or by name in an SSH host's list, which has no ids", () => {
+    expect(
+      workspaceProject(workspace('a', { projectId: 'p2', projectName: 'komla' }), projects)?.id
+    ).toBe('p2');
+    expect(workspaceProject(workspace('b', { projectName: 'landing' }), projects)?.id).toBe('p2');
+    expect(
+      workspaceProject(workspace('c', { projectId: 'gone', projectName: 'komla' }), projects)
+    ).toBeUndefined();
+    expect(workspaceProject(workspace('d'), projects)).toBeUndefined();
+  });
+
+  it('finds no project by a name two projects share', () => {
+    const shared = [...projects, { id: 'p3', name: 'landing', repositoryPath: '/r/landing-2' }];
+
+    expect(workspaceProject(workspace('a', { projectName: 'landing' }), shared)).toBeUndefined();
   });
 });
 

@@ -266,7 +266,7 @@ class DirectPeerSession {
       generateChallenge: this.opts.generateChallenge,
       getPairingOffer: this.opts.getPairingOffer,
       claimPairingOffer: this.opts.claimPairingOffer,
-      capabilities: [REMOTE_CAPABILITIES.BINARY_FRAMES],
+      capabilities: [REMOTE_CAPABILITIES.BINARY_FRAMES, REMOTE_CAPABILITIES.PROJECT_ICONS],
       servedBuild: this.opts.servedBuild,
       onPairVerifying: () => {},
       onAuthenticating: () => {},
@@ -274,11 +274,11 @@ class DirectPeerSession {
         this.opts.onPairCompleted(label, credentialId);
         this.dispose();
       },
-      onAuthCompleted: (label, credentialId, resumeToken) => {
+      onAuthCompleted: (label, credentialId, resumeToken, capabilities) => {
         this.resumeToken = resumeToken;
         this.connectedDevice = { credentialId, label, connectedAt: Date.now() };
         this.opts.onAuthCompleted(label, credentialId);
-        this.startAppSession({ credentialId });
+        this.startAppSession({ credentialId, capabilities });
       },
       onCeremonyFailed: (err) => {
         this.opts.onCeremonyFailed(err);

@@ -158,6 +158,8 @@ export {
   RemoteAppFrameSchema,
   RemoteWorkspaceSummarySchema,
   RemoteProjectSummarySchema,
+  RemoteProjectIconSchema,
+  MAX_REMOTE_PROJECT_ICON_CHARS,
   RemoteLaunchModeSummarySchema,
   RemoteAgentPresetSummarySchema,
   RemoteLaunchEnvironmentSummarySchema,

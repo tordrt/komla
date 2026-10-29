@@ -868,6 +868,28 @@ describe('RemoteControlDirectService', () => {
     await phone.service.stop();
   });
 
+  it("agrees on projects' icons and tells the app session", async () => {
+    const phone = await startResumablePhone(webAssetDir);
+    const attempt = await phone.hello(undefined, undefined, ['project-icons']);
+    const proof = await signDeviceProof(
+      phone.deviceKeys.privateKey,
+      buildDeviceProof('resume', String(attempt.reply.challenge), attempt.peer.getChannelBinding())
+    );
+    await attempt.peer.sendEncryptedJson({
+      type: 'pair:resume-response',
+      deviceSignature: encodeBase64(proof),
+    });
+
+    expect(await attempt.nextFrame()).toMatchObject({ capabilities: ['project-icons'] });
+    await vi.waitFor(() =>
+      expect(phone.createAppSession).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ capabilities: ['project-icons'] })
+      )
+    );
+    await phone.service.stop();
+  });
+
   it('names no capabilities to a phone that asks for none', async () => {
     const phone = await startResumablePhone(webAssetDir);
     const attempt = await phone.hello(undefined);

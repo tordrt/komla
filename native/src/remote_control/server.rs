@@ -669,6 +669,7 @@ impl Connection<'_> {
                 reply,
                 resume_token,
                 binary_frames,
+                project_icons,
             } => {
                 self.register_device(&device.device_id);
                 self.device_id = Some(device.device_id);
@@ -685,6 +686,7 @@ impl Connection<'_> {
                         host_name: self.shared.config.host_name.clone(),
                         attention: Arc::clone(&self.shared.attention),
                         launch_path: self.shared.launch_path.clone(),
+                        project_icons,
                     },
                     self.events_tx.clone(),
                     Arc::clone(&self.wake),

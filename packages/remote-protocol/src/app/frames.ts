@@ -88,12 +88,22 @@ export const RemoteWorkspaceSummarySchema = z
   })
   .strict();
 
+// A project's icon as the desktop shows it. Larger ones stay on the desktop, so a project list with
+// icons still fits one frame.
+export const MAX_REMOTE_PROJECT_ICON_CHARS = 16 * 1024;
+export const RemoteProjectIconSchema = z
+  .string()
+  .max(MAX_REMOTE_PROJECT_ICON_CHARS)
+  .regex(/^data:image\/(?:png|jpeg|svg\+xml|x-icon);base64,[A-Za-z0-9+/]+={0,2}$/);
+
 export const RemoteProjectSummarySchema = z
   .object({
     id: IdSchema,
     name: NameSchema,
     repositoryPath: PathSchema,
     color: z.string().max(128).optional(),
+    // Only sent over a session that agreed on REMOTE_CAPABILITIES.PROJECT_ICONS.
+    icon: RemoteProjectIconSchema.optional(),
   })
   .strict();
 

@@ -119,6 +119,7 @@ import {
   buildWorkspaceSections,
   hasLiveTerminal,
   parseCollapsedSections,
+  workspaceProject,
   workspaceSectionCounts,
   type WorkspaceFilter,
   type WorkspaceSectionId,
@@ -186,7 +187,7 @@ interface LiveConnection {
 }
 
 /** Protocol features this page offers in its hello. */
-const PAGE_CAPABILITIES = [REMOTE_CAPABILITIES.BINARY_FRAMES];
+const PAGE_CAPABILITIES = [REMOTE_CAPABILITIES.BINARY_FRAMES, REMOTE_CAPABILITIES.PROJECT_ICONS];
 const RELOADED_FOR_BUILD_KEY = 'komla.remote.reloadedForBuild';
 // A flick leaves with the speed of its last moments, if fast enough to coast.
 const FLING_SAMPLE_MS = 80;
@@ -2423,8 +2424,13 @@ class RemoteAppClient {
   }
 
   private renderWorkspaceMeta(workspace: RemoteWorkspaceSummary): string {
+    // The project's icon, as on the desktop, in place of its color mark.
+    const icon = workspaceProject(workspace, this.projects)?.icon;
+    const mark = icon
+      ? `<img src="${escapeHtml(icon)}" alt="" aria-hidden="true">`
+      : '<i aria-hidden="true"></i>';
     const project = workspace.projectName
-      ? `<span class="workspace-project"><i aria-hidden="true"></i>${escapeHtml(workspace.projectName)}</span>`
+      ? `<span class="workspace-project">${mark}${escapeHtml(workspace.projectName)}</span>`
       : '';
     const place =
       workspace.branchName ?? workspace.workingDirectory.split(/[\\/]/).pop() ?? 'Provisioning';

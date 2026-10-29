@@ -30,6 +30,16 @@ const logger = createLogger('SshWorkspaceSync');
 // Komla installations
 const SYNC_INTERVAL_MS = 30_000;
 
+// How long a host is synced again each interval after another installation last changed its
+// workspaces there, such as one it started, whose tabs' sessions start after the sync adds it
+const FOLLOW_UP_MS = 5 * 60_000;
+
+interface FollowUp {
+  /** When following up on the last change from another installation ends. */
+  until: number;
+  timer?: NodeJS.Timeout;
+}
+
 interface HostSync {
   at: number;
   running?: Promise<void>;
@@ -139,6 +149,8 @@ export interface SshWorkspaceSyncDependencies {
     read: () => string | undefined;
     write: (content: string) => Promise<void>;
   };
+  /** The user is in Komla, e.g. a window is focused. Follow-up syncs wait for it. */
+  inUse?: () => boolean;
 }
 
 /**
@@ -160,6 +172,9 @@ export class SshWorkspaceSync {
   /** Deleted here this session; a listing read before must not add them back. */
   private readonly deletedHere = new Set<string>();
   private readonly hostSyncs = new Map<string, HostSync>();
+  /** The hosts synced again each interval after another installation changed their workspaces. */
+  private readonly followUps = new Map<string, FollowUp>();
+  private disposed = false;
   private saving: Promise<void> = Promise.resolve();
   private saveQueued = false;
 
@@ -220,9 +235,13 @@ export class SshWorkspaceSync {
     if (previous && this.dependencies.now() - previous.at < minIntervalMs) return Promise.resolve();
     const state: HostSync = { at: this.dependencies.now() };
     state.running = this.syncHost(hostId)
-      // The host couldn't be read, so checking its tmux sessions would only time out too.
-      .then((read) => (read ? this.dependencies.store.hostSynced(hostId) : undefined))
+      .then((read) => {
+        this.afterPass(hostId, read);
+        // The host couldn't be read, so checking its tmux sessions would only time out too.
+        return read ? this.dependencies.store.hostSynced(hostId) : undefined;
+      })
       .catch((error) => {
+        this.afterPass(hostId, false);
         logger.warn('Could not sync SSH workspaces with other Komla installations', {
           hostId,
           error: error instanceof Error ? error.message : String(error),
@@ -233,6 +252,57 @@ export class SshWorkspaceSync {
       });
     this.hostSyncs.set(hostId, state);
     return state.running;
+  }
+
+  /** Stops syncing hosts again on its own, as when Komla quits. */
+  dispose(): void {
+    this.disposed = true;
+    for (const { timer } of this.followUps.values()) clearTimeout(timer);
+    this.followUps.clear();
+  }
+
+  /**
+   * Another installation started a workspace on the host, or opened a tab, whose sessions may
+   * start after this installation adds it: the host is synced again each interval for a while.
+   */
+  private startedElsewhere(hostId: string): void {
+    if (this.disposed || !this.dependencies.syncsWith(hostId)) return;
+    const pending = this.followUps.get(hostId) ?? { until: 0 };
+    pending.until = this.dependencies.now() + FOLLOW_UP_MS;
+    this.followUps.set(hostId, pending);
+    // A merge can land after its pass ended.
+    if (!pending.timer) this.scheduleFollowUp(hostId, pending);
+  }
+
+  /**
+   * Schedules the host's next follow-up after a pass, while it has one. One it can't read is left
+   * to the next focus: it would time out, or ask for a password.
+   */
+  private afterPass(hostId: string, read: boolean): void {
+    const pending = this.followUps.get(hostId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pending.timer = undefined;
+    if (!read || this.dependencies.now() >= pending.until) {
+      this.followUps.delete(hostId);
+      return;
+    }
+    this.scheduleFollowUp(hostId, pending);
+  }
+
+  private scheduleFollowUp(hostId: string, pending: FollowUp): void {
+    pending.timer = setTimeout(() => {
+      pending.timer = undefined;
+      if (!this.dependencies.syncsWith(hostId)) {
+        this.followUps.delete(hostId);
+        return;
+      }
+      // Focusing Komla again syncs, and that pass follows up again.
+      if (this.dependencies.inUse?.() === false) return;
+      // A pass still running follows up when it ends.
+      void this.syncSoon(hostId);
+    }, SYNC_INTERVAL_MS);
+    pending.timer.unref?.();
   }
 
   private publishChanges(workspaces: Iterable<Workspace>): void {
@@ -406,6 +476,7 @@ export class SshWorkspaceSync {
     // The save rewrites the manifest from this installation if it differs, which
     // clears a pending adoption so other installations without sync leave it to the user.
     this.adopted(manifest);
+    this.startedElsewhere(hostId);
     return workspace;
   }
 
@@ -590,6 +661,7 @@ export class SshWorkspaceSync {
     // Without sync, a newer copy from another installation is overwritten. So is one from an
     // installation without sync or an older version: it may predate changes made here.
     if (!this.dependencies.syncsWith(hostId) || !remote.syncs) return false;
+    const tabsBefore = new Set(this.workspace(workspaceId)?.terminals.map(({ id }) => id));
     const workspace = await this.applyChanges(workspaceId, remote, base);
     this.setOnHost(workspaceId, remote);
     const merged = workspace && this.build(workspace, 0);
@@ -599,6 +671,7 @@ export class SshWorkspaceSync {
     } else {
       this.published.delete(workspaceId);
     }
+    if (workspace?.terminals.some(({ id }) => !tabsBefore.has(id))) this.startedElsewhere(hostId);
     return true;
   }
 

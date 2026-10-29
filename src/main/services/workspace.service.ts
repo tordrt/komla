@@ -809,6 +809,7 @@ class WorkspaceService {
       deviceId: () => configService.getWorkspaceSyncDeviceId(),
       syncsWith: (hostId) => syncsSshWorkspaces(hostId),
       launch: sshWorkspaceLaunch,
+      inUse: () => BrowserWindow.getFocusedWindow() !== null,
       hostCopies: {
         read: () => {
           const path = sshWorkspaceSyncPath();
@@ -1485,6 +1486,7 @@ class WorkspaceService {
   // Always snapshot last-known SSH session activity before the app quits,
   // even when no other workspace metadata is waiting to be persisted.
   async dispose(): Promise<void> {
+    this.sshSync.dispose();
     for (const workspace of this.workspaces.values()) {
       this.cancelDeferredWorkspaceLaunches(workspace);
       if (isSshWorkspace(workspace)) {

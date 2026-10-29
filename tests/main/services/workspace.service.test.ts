@@ -10656,6 +10656,24 @@ describe('WorkspaceService', () => {
       expect(vfs.getFile('/mock/home/.komla/workspaces.json')).not.toContain('remoteSessionOnHost');
     });
 
+    // Added before its agent's tmux session starts, it showed in the sidebar but counted as
+    // active only once opened.
+    it('shows a workspace another device started running once its session starts, unopened', async () => {
+      mockPtyService.getStatus.mockReturnValue(undefined);
+      onHost(startedElsewhere);
+      const { BrowserWindow } = await import('electron');
+      vi.mocked(BrowserWindow.getFocusedWindow).mockReturnValue({} as never);
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      expect(showsRunning(workspaceService.get('ws-other'))).toBe(false);
+
+      mockSshWorkspaceService.findTerminalSessions.mockResolvedValue(new Set(['t-other']));
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(showsRunning(workspaceService.get('ws-other'))).toBe(true);
+    });
+
     it('does not check the host for tabs attached here', async () => {
       mockPtyService.getStatus.mockReturnValue(undefined);
       persistSshWorkspace();

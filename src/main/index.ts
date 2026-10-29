@@ -82,6 +82,7 @@ import { sshConnectionService } from './services/ssh-connection.service';
 import { sshHostStatusService } from './services/ssh-host-status.service';
 import { sshHostService } from './services/ssh-host.service';
 import { sshPortForwardService } from './services/ssh-port-forward.service';
+import { startSshProjectSync } from './services/ssh-project-sync.service';
 import {
   stopWatchingStatusCommands,
   watchStatusCommands,
@@ -775,6 +776,7 @@ void app.whenReady().then(async () => {
     logger.warn('Could not match SSH workspaces to projects', error);
   });
   workspaceTrash.start();
+  startSshProjectSync();
   void cleanupTmpFilesRecursiveAsync(getKomlaBasePath());
   httpServerService.onStarted(() => {
     installBundledSkills();

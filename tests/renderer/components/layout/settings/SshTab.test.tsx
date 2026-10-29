@@ -10,6 +10,7 @@ import { SshTab } from '../../../../../src/renderer/components/layout/settings/S
 import { SshHostDialogHost } from '../../../../../src/renderer/components/ssh-hosts/SshHostDialogHost';
 import { useSettingsDialogStore } from '../../../../../src/renderer/stores/settings-dialog.store';
 import { useSshHostDialogStore } from '../../../../../src/renderer/stores/ssh-host-dialog.store';
+import { useSshHostProjectsDialogStore } from '../../../../../src/renderer/stores/ssh-host-projects-dialog.store';
 
 import {
   komlaSshRemoteDataPort,
@@ -198,6 +199,7 @@ describe('SshTab', () => {
       getCodexNotificationHookDetails: vi.fn().mockResolvedValue(null),
       getAntigravityNotificationHookDetails: vi.fn().mockResolvedValue(null),
       getOpenCodeNotificationHookDetails: vi.fn().mockResolvedValue(null),
+      listSshHostProjects: vi.fn().mockResolvedValue([]),
       getSshIntegrationStatus: vi.fn().mockResolvedValue({
         claude: { notifications: false, mcp: false },
         codex: { notifications: false, mcp: false },
@@ -1060,6 +1062,39 @@ describe('SshTab', () => {
       await within(dialog).findByRole('list', { name: 'Check results' });
       expect(within(dialog).queryByText('Local copies')).not.toBeInTheDocument();
       expect(within(dialog).queryByText(/rsync/)).not.toBeInTheDocument();
+    });
+
+    it('offers the projects set up on the new host', async () => {
+      mockHosts = [];
+      vi.mocked(window.api.listSshHostProjects).mockResolvedValue([
+        {
+          manifestId: '0123456789abcdef0123456789abcdef',
+          name: 'web',
+          gitUrl: 'git@github.com:acme/web.git',
+          differs: ['appearance', 'workspaceSetup'],
+          setupSteps: [{ name: 'Install', command: 'npm install' }],
+          quickCommands: [],
+          updatedAt: 1,
+        },
+      ]);
+      const user = userEvent.setup();
+      renderSsh();
+
+      const dialog = await startAdding(user, 'first.example.com');
+      await user.click(within(dialog).getByRole('button', { name: 'Check machine' }));
+      await user.click(await within(dialog).findByRole('button', { name: 'Set up machine' }));
+
+      expect(await screen.findByText('Projects on first.example.com')).toBeInTheDocument();
+      expect(screen.getByText(/web is set up there/)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Review' }));
+
+      await waitFor(() => {
+        expect(useSshHostProjectsDialogStore.getState()).toMatchObject({
+          open: true,
+          hostId: expect.stringMatching(/^ssh-/),
+        });
+      });
+      expect(screen.queryByText('first.example.com is ready')).not.toBeInTheDocument();
     });
 
     it('configures agent integrations on the ready step', async () => {

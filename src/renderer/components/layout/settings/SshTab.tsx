@@ -39,6 +39,7 @@ import { formatSshTarget } from '@/lib/workspace-host';
 import { useConfigStore } from '@/stores/config.store';
 import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import { useSshHostDialogStore } from '@/stores/ssh-host-dialog.store';
+import { useSshHostProjectsDialogStore } from '@/stores/ssh-host-projects-dialog.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -472,6 +473,14 @@ function HostRow({
             onClick={onBrowse}
           >
             Workspaces
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Projects on ${host.name}`}
+            onClick={() => useSshHostProjectsDialogStore.getState().openFor(host.id)}
+          >
+            Projects
           </Button>
           <HostActions
             labelSuffix={labelSuffix}

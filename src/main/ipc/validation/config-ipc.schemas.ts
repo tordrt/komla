@@ -29,11 +29,12 @@ import {
   LEVEL_PICKER_ICONS,
   MAX_LEVEL_PICKER_TITLE_LENGTH,
 } from '../../../shared/types/agent-preset';
+import { SSH_PROJECT_SETTINGS_PARTS } from '../../../shared/types/ssh-project-manifest';
 
 import { BRANCH_NAME_PATTERN, idSchema, nonEmptyStringSchema, safePathSchema } from './primitives';
 
 const setupStepPlacementSchema = z.enum(SETUP_STEP_PLACEMENTS);
-const agentPlacementSchema = z.enum(['tab', 'split-right', 'split-bottom']);
+export const agentPlacementSchema = z.enum(['tab', 'split-right', 'split-bottom']);
 const sshAgentSchema = z.enum(['claude', 'codex', 'antigravity', 'opencode']);
 const sshIntegrationTypeSchema = z.enum(['notifications', 'mcp']);
 const sshHostCapabilitiesSchema = z
@@ -287,8 +288,8 @@ const categoryUpdateSchema = z
   })
   .strip();
 
-const simpleAheadActionSchema = z.enum(['merge', 'pr', 'disabled', 'agent-prompt']);
-const aheadTargetActionSchema = z.enum([
+export const simpleAheadActionSchema = z.enum(['merge', 'pr', 'disabled', 'agent-prompt']);
+export const aheadTargetActionSchema = z.enum([
   'auto-default',
   'auto',
   'unconfigured',
@@ -298,9 +299,9 @@ const aheadTargetActionSchema = z.enum([
   'agent-prompt',
 ]);
 
-const behindTargetActionSchema = z.enum(['auto', 'rebase', 'merge']);
+export const behindTargetActionSchema = z.enum(['auto', 'rebase', 'merge']);
 const projectKindSchema = z.enum(['git', 'directory']);
-const projectIconSchema = z
+export const projectIconSchema = z
   .string()
   .max(MAX_PROJECT_ICON_DATA_URL_LENGTH)
   .regex(PROJECT_ICON_DATA_URL);
@@ -658,6 +659,21 @@ export const projectFindForFolderArgsSchema = z.tuple([safePathSchema]);
 export const projectFolderOpenedArgsSchema = z.tuple([safePathSchema]);
 export const projectCreateFromRemoteArgsSchema = z.tuple([createProjectFromRemoteParamsSchema]);
 export const projectCreateFromNewArgsSchema = z.tuple([createProjectFromNewParamsSchema]);
+export const projectListOnSshHostArgsSchema = z.tuple([idSchema]);
+export const projectImportFromSshHostArgsSchema = z.tuple([
+  idSchema,
+  z
+    .array(
+      z
+        .object({
+          manifestId: z.string().regex(/^[0-9a-f]{32}$/),
+          parts: z.array(z.enum(SSH_PROJECT_SETTINGS_PARTS)).max(SSH_PROJECT_SETTINGS_PARTS.length),
+        })
+        .strip()
+    )
+    .min(1)
+    .max(256),
+]);
 export const projectFindIconsArgsSchema = z.tuple([
   z.union([
     z.object({ folder: safePathSchema }).strict(),

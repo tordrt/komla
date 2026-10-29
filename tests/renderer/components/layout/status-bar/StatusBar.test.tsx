@@ -1628,6 +1628,7 @@ describe('StatusBar', () => {
         account: 'dev@example.com',
         readAt: NOW - 2 * 60_000,
         problem: null,
+        retryAt: null,
         ...overrides,
       };
     }
@@ -1853,6 +1854,47 @@ describe('StatusBar', () => {
       expect(button).toHaveClass('opacity-60');
       await user.click(button);
       expect(within(screen.getByRole('dialog')).getByText(message)).toBeInTheDocument();
+    });
+
+    it('keeps the last reading at full strength while reads are rate limited', async () => {
+      mockState.config = { statusBarShownItems: ['claude-code-usage'] };
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      mockUsage({
+        'claude-code': reading({ problem: 'rate-limited', retryAt: NOW + 12 * 60_000 }),
+      });
+
+      renderStatusBar();
+
+      const button = await screen.findByRole('button', {
+        name: 'Claude Code usage: 47% of the weekly limit, resets in 4d 0h',
+      });
+      expect(button).not.toHaveClass('opacity-60');
+      await user.click(button);
+      const dialog = screen.getByRole('dialog');
+      expect(
+        within(dialog).getByText(
+          'Claude Code limits how often its usage can be read, by Komla or any other app. ' +
+            'Komla asks again in 12m.'
+        )
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText('Updated 2m ago')).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Refresh' })).toBeDisabled();
+    });
+
+    it.each([
+      ['before any read worked', { windows: [], readAt: 0 }],
+      ['and two backoffs held back the last reading', { readAt: NOW - 31 * 60_000 }],
+    ])('dims the item while reads are rate limited %s', async (_, overrides) => {
+      mockState.config = { statusBarShownItems: ['claude-code-usage'] };
+      mockUsage({
+        'claude-code': reading({ ...overrides, problem: 'rate-limited', retryAt: NOW + 60_000 }),
+      });
+
+      renderStatusBar();
+
+      expect(await screen.findByRole('button', { name: /^Claude Code usage/ })).toHaveClass(
+        'opacity-60'
+      );
     });
   });
 

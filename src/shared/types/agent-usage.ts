@@ -15,9 +15,10 @@ export interface AgentUsageWindow {
 
 /**
  * Why the latest read failed: the agent isn't signed in with a plan on this computer, its sign-in
- * expired and it renews it on its next run, or the provider couldn't be reached or refused for now.
+ * expired and it renews it on its next run, the provider said its usage was read too often for
+ * now, or the provider couldn't be reached or answered with something Komla can't read.
  */
-export type AgentUsageProblem = 'signed-out' | 'expired' | 'unavailable';
+export type AgentUsageProblem = 'signed-out' | 'expired' | 'rate-limited' | 'unavailable';
 
 /** An agent's plan usage, as of the latest read that worked. */
 export interface AgentUsageReading {
@@ -32,6 +33,8 @@ export interface AgentUsageReading {
   readAt: number;
   /** Set while reads fail; the windows are then the last ones that worked. */
   problem: AgentUsageProblem | null;
+  /** While rate limited, when the provider may be asked again, in epoch milliseconds. */
+  retryAt: number | null;
 }
 
 /** Each agent read so far. */

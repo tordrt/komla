@@ -395,6 +395,13 @@ function setGitStatus(
   });
 }
 
+/** The agents' lines in the open details, each as its state, its terminal, its words and since when. */
+function detailsAgentTexts(): string[] {
+  return within(screen.getByRole('list', { name: 'Agents' }))
+    .getAllByRole('listitem')
+    .map((agent) => agent.textContent ?? '');
+}
+
 function openDeleteDialog(workspaceId: string) {
   act(() => {
     window.dispatchEvent(new CustomEvent('delete-workspace', { detail: workspaceId }));
@@ -1360,11 +1367,11 @@ describe('WorkspaceCard', () => {
       const pill = screen.getByText('2 done').closest('.rounded-full');
       expect(pill).toHaveClass('bg-success/15', 'text-success');
       expect(pill?.querySelector('svg')).not.toBeNull();
-      const agents = within(screen.getByRole('list', { name: 'Agents' })).getAllByRole('listitem');
-      expect(agents.map((agent) => agent.textContent)).toEqual([
-        'Done:CodexTests pass',
-        'Done:Claude',
-      ]);
+      fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+      const agents = detailsAgentTexts();
+      expect(agents).toHaveLength(2);
+      expect(agents[0]).toMatch(/^Done:CodexTests pass\d/);
+      expect(agents[1]).toMatch(/^Done:Claude\d/);
     });
 
     it('shows a done the workspace no longer carries until its pane is seen', () => {
@@ -1423,13 +1430,14 @@ describe('WorkspaceCard', () => {
       expect(
         screen.getByRole('status', { name: '2 agents processing' }).nextSibling
       ).toHaveTextContent('2');
-      const agents = within(screen.getByRole('list', { name: 'Agents' })).getAllByRole('listitem');
-      expect(agents.map((agent) => agent.textContent)).toEqual([
-        'Needs input:OpenCodeAllow git push?',
-        'Done:Gemini',
-        'Working:Claude',
-        'Working:Codex',
-      ]);
+      fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+      const agents = detailsAgentTexts();
+      expect(agents).toHaveLength(4);
+      expect(agents[0]).toMatch(/^Needs input:OpenCodeAllow git push\?\d/);
+      expect(agents[1]).toMatch(/^Done:Gemini\d/);
+      // Working agents show too, as in the agents overview, with nothing said yet.
+      expect(agents[2]).toBe('Working:Claude');
+      expect(agents[3]).toBe('Working:Codex');
     });
 
     it("keeps a working agent's notice as its badge, and its spinner", () => {
@@ -1870,7 +1878,7 @@ describe('WorkspaceCard', () => {
     expect(pill?.querySelector('svg')).not.toBeNull();
   });
 
-  it('puts the whole agent message in a card behind the status badge', () => {
+  it("puts an agent's message on one line in the details, and all of it a hover further", () => {
     const message =
       'Refactored the session store.\n\nTests pass; the staging secret is still missing.';
     const workspace = createWorktreeWorkspace({
@@ -1878,11 +1886,134 @@ describe('WorkspaceCard', () => {
     });
 
     render(<WorkspaceCard workspace={workspace} />);
+    expect(screen.queryByTestId('tooltip-content')).not.toBeInTheDocument();
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
 
-    expect(screen.getByText('Agent finished a turn')).toBeInTheDocument();
-    expect(
-      screen.getByText((_, element) => element?.tagName === 'P' && element.textContent === message)
-    ).toBeInTheDocument();
+    const line = within(screen.getByRole('list', { name: 'Agents' })).getByRole('listitem');
+    expect(within(line).getByText((_, element) => element?.textContent === message)).toHaveClass(
+      'truncate'
+    );
+    const card = screen
+      .getAllByTestId('tooltip-content')
+      .find((tooltip) => tooltip.querySelector('p')?.textContent === message);
+    expect(card).toHaveTextContent('Done');
+  });
+
+  it('shows a working agent in the details, with how long it has worked', () => {
+    vi.useFakeTimers({ now: 10 * 60_000 });
+    try {
+      const workspace = createWorktreeWorkspace({
+        agentActive: true,
+        terminals: [
+          createTerminal({
+            id: 't1',
+            name: 'Claude',
+            agentActive: true,
+            agentActiveSince: 7 * 60_000,
+          }),
+        ],
+      });
+      render(<WorkspaceCard workspace={workspace} />);
+      fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+      expect(detailsAgentTexts()).toEqual(['Working:Claude3m']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows the title an agent gave its notification, over what it said', () => {
+    const workspace = createWorktreeWorkspace({
+      attention: {
+        kind: 'input-required',
+        source: 'claude-code',
+        updatedAt: 1000,
+        title: 'Approve deploy to prod?',
+        message: 'Staging is green.',
+      },
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+    expect(detailsAgentTexts()).toEqual([
+      expect.stringMatching(/^Needs inputApprove deploy to prod\?\d/),
+    ]);
+    const card = screen
+      .getAllByTestId('tooltip-content')
+      .find((tooltip) => tooltip.textContent?.includes('Staging is green.'));
+    expect(card).toHaveTextContent('Approve deploy to prod?Staging is green.');
+  });
+
+  it('says a title once when the message repeats it', () => {
+    const workspace = createWorktreeWorkspace({
+      attention: {
+        kind: 'error',
+        source: 'claude-code',
+        updatedAt: 1000,
+        title: 'Build failed',
+        message: 'Build failed',
+      },
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+    const card = screen
+      .getAllByTestId('tooltip-content')
+      .find((tooltip) => tooltip.textContent?.includes('Build failed'))!;
+    expect(within(card).getAllByText('Build failed')).toHaveLength(1);
+  });
+
+  it("names the workspace's own agent beside its terminals' agents", () => {
+    const workspace = createWorktreeWorkspace({
+      agentActive: true,
+      attention: { kind: 'input-required', source: 'claude-code', updatedAt: 1000 },
+      terminals: [createTerminal({ id: 't1', name: 'Codex', agentActive: true })],
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+    expect(detailsAgentTexts()).toEqual([
+      expect.stringMatching(/^Needs input:This workspace\d/),
+      'Working:Codex',
+    ]);
+  });
+
+  it("keeps a notice that is no agent's as its notification, above the working agents", () => {
+    const workspace = createWorktreeWorkspace({
+      agentActive: true,
+      terminals: [
+        createTerminal({
+          id: 't1',
+          name: 'Claude',
+          agentActive: true,
+          attention: {
+            kind: 'generic',
+            source: 'claude-code',
+            updatedAt: 1000,
+            terminalId: 't1',
+            title: 'Deploy preview ready',
+            message: 'https://preview.example.com',
+          },
+        }),
+      ],
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+    const details = within(screen.getByTestId('workspace-info-content'));
+    expect(details.getByText('Deploy preview ready')).toBeInTheDocument();
+    expect(details.getByText('https://preview.example.com')).toBeInTheDocument();
+    // Beside agents, the notice says whose it is.
+    expect(document.querySelector('[data-attention-sender]')).toHaveTextContent('from Claude');
+    expect(detailsAgentTexts()).toEqual(['Working:Claude']);
+  });
+
+  it('leaves a workspace with no notification without one in its details', () => {
+    render(<WorkspaceCard workspace={createWorktreeWorkspace()} />);
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+    expect(screen.queryByText('Agent finished a turn')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Agents' })).not.toBeInTheDocument();
   });
 
   it('keeps informational status soft, but still marks it with a glyph', () => {
@@ -2140,12 +2271,17 @@ describe('WorkspaceCard', () => {
     }
   });
 
-  it('leaves a hovered status badge to its own card instead of opening the details', () => {
+  it('opens the details, notification and all, from a hovered status badge', () => {
     vi.useFakeTimers();
     try {
       const workspace = createWorktreeWorkspace({
         name: 'Notified workspace',
-        attention: { kind: 'turn-complete', source: 'claude-code', updatedAt: 1000 },
+        attention: {
+          kind: 'turn-complete',
+          source: 'claude-code',
+          updatedAt: 1000,
+          message: 'Refactored the session store.',
+        },
       });
       render(<WorkspaceCard workspace={workspace} />);
       const badge = screen.getByText('Done');
@@ -2155,13 +2291,10 @@ describe('WorkspaceCard', () => {
       act(() => {
         vi.advanceTimersByTime(400);
       });
-      expect(screen.queryByTestId('workspace-info-content')).not.toBeInTheDocument();
 
-      fireEvent.pointerMove(screen.getAllByText('Notified workspace')[0]);
-      act(() => {
-        vi.advanceTimersByTime(400);
-      });
-      expect(screen.getByTestId('workspace-info-content')).toBeInTheDocument();
+      const details = within(screen.getByTestId('workspace-info-content'));
+      expect(details.getByText('Done')).toBeInTheDocument();
+      expect(details.getByText('Refactored the session store.')).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -2186,6 +2319,31 @@ describe('WorkspaceCard', () => {
     }
   });
 
+  it('keeps the details closed while the pointer is on a tooltip portalled out of the card', () => {
+    vi.useFakeTimers();
+    try {
+      const workspace = createWorktreeWorkspace({
+        name: 'Tagged workspace',
+        tag: 'CI running',
+        tagTooltip: 'build 7 of 9',
+      });
+      render(<WorkspaceCard workspace={workspace} />);
+      const tooltip = screen
+        .getAllByTestId('tooltip-content')
+        .find((element) => element.textContent?.includes('build 7 of 9'))!;
+
+      fireEvent.pointerEnter(tooltip);
+      fireEvent.pointerMove(tooltip);
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+
+      expect(screen.queryByTestId('workspace-info-content')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not pop the details open when the pointer moves on after a click', () => {
     vi.useFakeTimers();
     try {
@@ -2200,34 +2358,6 @@ describe('WorkspaceCard', () => {
       act(() => trigger.focus());
       fireEvent.click(trigger);
       fireEvent.pointerMove(trigger);
-      act(() => {
-        vi.advanceTimersByTime(400);
-      });
-
-      expect(screen.queryByTestId('workspace-info-content')).not.toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps the details closed while the pointer is on the notification card', () => {
-    vi.useFakeTimers();
-    try {
-      const workspace = createWorktreeWorkspace({
-        name: 'Long notice workspace',
-        attention: {
-          kind: 'turn-complete',
-          source: 'claude-code',
-          updatedAt: 1000,
-          message: 'Refactored the session store.',
-        },
-      });
-      render(<WorkspaceCard workspace={workspace} />);
-      const badge = screen.getByText('Done');
-
-      fireEvent.pointerEnter(badge);
-      fireEvent.pointerMove(badge);
-      fireEvent.pointerMove(screen.getByText('Refactored the session store.'));
       act(() => {
         vi.advanceTimersByTime(400);
       });

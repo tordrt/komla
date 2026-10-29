@@ -695,6 +695,7 @@ class WorkspaceService {
   private provisioningCancelled: Set<string> = new Set();
   private deletingWorkspaceIds = new Set<string>();
   readonly sshSync: SshWorkspaceSync;
+  private readonly sshHostSyncedListeners = new Set<(hostId: string) => void>();
   // Origin URL per local repository, looked up once per session to match SSH workspaces to projects.
   private readonly gitRemoteUrls = new Map<string, Promise<string | null>>();
   readonly attention: TerminalAttention;
@@ -774,13 +775,15 @@ class WorkspaceService {
           this.addAdoptedSshWorkspace(hostId, manifest, placement),
         deleteHere: (workspaceId) =>
           this.delete(workspaceId, true, false, { skipBackendCleanup: true }),
-        hostSynced: (hostId) =>
-          this.findSshSessionsOnHost(hostId).catch((error) => {
+        hostSynced: (hostId) => {
+          for (const listener of this.sshHostSyncedListeners) listener(hostId);
+          return this.findSshSessionsOnHost(hostId).catch((error) => {
             logger.warn('Could not check which SSH workspace sessions run on their host', {
               hostId,
               error: error instanceof Error ? error.message : String(error),
             });
-          }),
+          });
+        },
         applyMerged: (workspaceId, merged) => this.applyMergedSshWorkspace(workspaceId, merged),
         changeStatus: (workspaceId, status) =>
           this.applySshWorkspaceStatusFromOtherDevice(workspaceId, status),
@@ -809,6 +812,7 @@ class WorkspaceService {
       deviceId: () => configService.getWorkspaceSyncDeviceId(),
       syncsWith: (hostId) => syncsSshWorkspaces(hostId),
       launch: sshWorkspaceLaunch,
+      inUse: () => BrowserWindow.getFocusedWindow() !== null,
       hostCopies: {
         read: () => {
           const path = sshWorkspaceSyncPath();
@@ -1485,6 +1489,7 @@ class WorkspaceService {
   // Always snapshot last-known SSH session activity before the app quits,
   // even when no other workspace metadata is waiting to be persisted.
   async dispose(): Promise<void> {
+    this.sshSync.dispose();
     for (const workspace of this.workspaces.values()) {
       this.cancelDeferredWorkspaceLaunches(workspace);
       if (isSshWorkspace(workspace)) {
@@ -2239,6 +2244,18 @@ class WorkspaceService {
 
   private workspaceProject(workspace: Workspace): Project | undefined {
     return workspace.projectId ? projectService.get(workspace.projectId) : undefined;
+  }
+
+  /** Calls `listener` each time SSH Workspace Sync has read a host. */
+  onSshHostSynced(listener: (hostId: string) => void): () => void {
+    this.sshHostSyncedListeners.add(listener);
+    return () => this.sshHostSyncedListeners.delete(listener);
+  }
+
+  /** Resolves to a lookup of this installation's git project for a repository origin. */
+  async gitRemoteProjectLookup(): Promise<(gitUrl: string) => Project | undefined> {
+    const projectsByRemote = await this.projectsByGitRemote();
+    return (gitUrl) => projectsByRemote.get(gitRemoteIdentity(gitUrl));
   }
 
   /** This installation's git projects by the identity of their origin remote. */

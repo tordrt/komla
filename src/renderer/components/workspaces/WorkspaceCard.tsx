@@ -93,8 +93,7 @@ import {
   AGENT_STATES_BY_URGENCY,
   AgentStateIcon,
   agentStateOf,
-  attentionDetail,
-  urgency,
+  byUrgency,
   workspaceCardStatus,
   WorkingAgentsGlyph,
   workingSince,
@@ -102,7 +101,12 @@ import {
   type AgentState,
   type WorkspaceCardStatus,
 } from './agent-state';
-import { AttentionGlyph, AttentionTooltipContent } from './AttentionTooltipContent';
+import { AgentDetails, agentName, agentSaid, AgentTime } from './AgentDetails';
+import {
+  ATTENTION_CARD_CLASS_NAME,
+  AttentionCard,
+  AttentionGlyph,
+} from './AttentionTooltipContent';
 import { BulkContextMenuContent } from './BulkContextMenu';
 import { ColorPickerSubmenu } from './ColorPickerSubmenu';
 import { CopyWorkspaceSubmenu } from './CopyWorkspaceSubmenu';
@@ -113,7 +117,7 @@ import { CustomSnoozeDialog, SnoozeCountdown, SnoozeSubmenu, useCiRunning } from
 import { getWorkspaceDynamicTitle, WorkspaceInfoCardContent } from './WorkspaceInfoCard';
 import { TagSubmenu, WorkspaceTagPill } from './WorkspaceTagMenu';
 
-import type { GitBranchQuickStatus, Terminal, Workspace, WorkspaceAttention } from '@/types';
+import type { GitBranchQuickStatus, Workspace, WorkspaceAttention } from '@/types';
 
 // Lazy so the file viewer's code loads on first open rather than at startup.
 const FileViewerDialog = lazy(() =>
@@ -258,6 +262,10 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
     : cardStatus.others.filter((agent) => agent.state !== 'working');
   const attentionAppearance =
     unreadBadge?.appearance ?? getWorkspaceAttentionAppearance(displayAttention);
+  // An unread mark isn't an agent's: it stays a badge of its own.
+  const collapsedBadge = unreadBadge
+    ? null
+    : collapseBadge(displayAttention, attentionAppearance, otherAgents);
 
   // Get display title - prefer customName, then primary terminal's dynamic title,
   // fall back to first terminal, then persisted lastDynamicTitle, then workspace name
@@ -440,11 +448,8 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   const titleAdornment = (
     <TitleAdornment
       attention={displayAttention}
-      attentionTerminal={workspace.terminals.find(
-        (terminal) => terminal.id === displayAttention?.terminalId
-      )}
       attentionAppearance={attentionAppearance}
-      unread={!!unreadBadge}
+      collapsed={collapsedBadge}
       otherAgents={otherAgents}
       restarting={isRestarting}
       tag={workspace.tag}
@@ -468,7 +473,13 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
           workspace={workspace}
           sshHost={sshHost}
           showBranch={secondaryLine !== 'branch'}
-        />
+        >
+          <StatusDetails
+            workspace={workspace}
+            {...detailsStatus(workspace, displayAttention, !!unreadBadge, otherAgents)}
+            appearance={attentionAppearance}
+          />
+        </WorkspaceInfoCardContent>
       }
       footer={
         <ActivityRow
@@ -786,96 +797,33 @@ function ProjectBadge({
   );
 }
 
-function agentName(terminal: Terminal | undefined): string {
-  return terminal ? terminal.dynamicTitle || terminal.name : 'This workspace';
-}
-
 /** The badge as a glyph, when it shrinks next to other agents. */
 interface CollapsedBadge {
   attention: WorkspaceAttention;
   appearance: NonNullable<AttentionAppearance>;
-  terminal: Terminal | undefined;
   /** Its agent state; an idle reminder or a notice has none. */
   state: AgentState | undefined;
-}
-
-interface AgentRow {
-  key: string;
-  state: AgentState | undefined;
-  icon: React.ReactNode;
-  title: string;
-  name: string;
-  detail: string | undefined;
-}
-
-/** Each agent on the card, most urgent first; an idle reminder or notice just before working ones. */
-function agentRows(badge: CollapsedBadge | null, otherAgents: Agent[]): AgentRow[] {
-  const rows: AgentRow[] = otherAgents.map((agent) => ({
-    key: agent.terminal?.id ?? 'workspace',
-    state: agent.state,
-    icon: <AgentStateIcon state={agent.state} />,
-    title: AGENT_STATES[agent.state].title,
-    name: agentName(agent.terminal),
-    detail:
-      agent.state === 'working'
-        ? undefined
-        : attentionDetail(agent.terminal ? agent.terminal.attention : agent.workspace.attention),
-  }));
-  if (badge) {
-    rows.unshift({
-      key: 'attention',
-      state: badge.state,
-      icon: badge.state ? (
-        <AgentStateIcon state={badge.state} />
-      ) : (
-        <AttentionGlyph
-          attention={badge.attention}
-          aria-hidden="true"
-          weight="bold"
-          className="size-3 shrink-0"
-        />
-      ),
-      title: badge.state ? AGENT_STATES[badge.state].title : badge.appearance.label,
-      name: agentName(badge.terminal),
-      detail: attentionDetail(badge.attention),
-    });
-  }
-  const rank = (state: AgentState | undefined) =>
-    state ? urgency(state) : urgency('working') - 0.5;
-  return rows.sort((a, b) => rank(a.state) - rank(b.state));
 }
 
 function AttentionBadge({
   attention,
   appearance,
   label = appearance.label,
-  tooltip,
 }: {
   attention: WorkspaceAttention;
   appearance: NonNullable<AttentionAppearance>;
   label?: string;
-  tooltip: React.ReactNode;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge
-          data-attention-badge
-          tone={appearance.tone}
-          className="max-w-32"
-          style={appearance.badgeStyle}
-        >
-          <AttentionGlyph
-            attention={attention}
-            aria-hidden="true"
-            weight="bold"
-            className="size-2.5 shrink-0"
-          />
-          <span className="truncate">{label}</span>
-        </Badge>
-      </TooltipTrigger>
-      {tooltip}
-    </Tooltip>
+    <Badge tone={appearance.tone} className="max-w-32" style={appearance.badgeStyle}>
+      <AttentionGlyph
+        attention={attention}
+        aria-hidden="true"
+        weight="bold"
+        className="size-2.5 shrink-0"
+      />
+      <span className="truncate">{label}</span>
+    </Badge>
   );
 }
 
@@ -903,32 +851,159 @@ function StateGlyph({
   );
 }
 
-function AgentsTooltipContent({ rows }: { rows: AgentRow[] }) {
+/**
+ * What the card's badge and glyphs stand for, for its details: each agent the card shows, in the
+ * agents overview's layout, and the badge's notification when it is no agent's, such as an idle
+ * reminder. An agent working again after a done the user hasn't seen shows both, as the card does.
+ */
+function detailsStatus(
+  workspace: Workspace,
+  attention: WorkspaceAttention | undefined,
+  unread: boolean,
+  otherAgents: Agent[]
+): { notice: WorkspaceAttention | undefined; agents: Agent[] } {
+  const state = unread ? null : agentStateOf(attention, false);
+  if (!attention || !state) return { notice: attention, agents: otherAgents };
+  const terminal = workspace.terminals.find(({ id }) => id === attention.terminalId);
+  // The badge's agent first among equals; a stable sort keeps the rest in their order.
+  const agents: Agent[] = [{ workspace, terminal, state }, ...otherAgents];
+  return { notice: undefined, agents: agents.sort(byUrgency) };
+}
+
+/**
+ * The card's agents and its notice, a line each, as the agents overview lists them; hovering a
+ * line shows what it said in full. The details only tell what waits there: its pane tells the rest.
+ */
+function StatusDetails({
+  workspace,
+  notice,
+  appearance,
+  agents,
+}: {
+  workspace: Workspace;
+  notice: WorkspaceAttention | undefined;
+  appearance: AttentionAppearance;
+  agents: Agent[];
+}) {
+  if (!(notice && appearance) && agents.length === 0) return null;
+  // Beside agents, the notice says whose it is, as their rows do.
+  const noticeTerminal =
+    notice && agents.length > 0
+      ? workspace.terminals.find(({ id }) => id === notice.terminalId)
+      : undefined;
+  // Only beside a terminal's agent does the workspace's own need telling apart.
+  const unnamed = agents.some(({ terminal }) => terminal) ? 'This workspace' : undefined;
   return (
-    <TooltipContent side="top">
-      <ul aria-label="Agents" className="flex max-w-72 flex-col gap-0.5">
-        {rows.map((row) => (
-          <li key={row.key} className="flex min-w-0 items-center gap-1.5">
-            {row.icon}
-            <span className="sr-only">{row.title}:</span>
-            <span className="shrink-0">{row.name}</span>
-            {row.detail && <span className="truncate text-muted-foreground">{row.detail}</span>}
-          </li>
-        ))}
-      </ul>
+    <div className="-mx-1 mt-2 text-xs">
+      {notice && appearance && (
+        <NoticeLine
+          notice={notice}
+          appearance={appearance}
+          sender={noticeTerminal && agentName({ workspace, terminal: noticeTerminal })}
+        />
+      )}
+      {agents.length > 0 && (
+        <ul aria-label="Agents">
+          {agents.map((agent) => (
+            // An agent that works again keeps the done of its last turn, so it can show twice.
+            <AgentLine
+              key={`${agent.terminal?.id ?? 'workspace'}:${agent.state}`}
+              agent={agent}
+              unnamed={unnamed}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const STATUS_LINE_CLASS_NAME =
+  'flex min-w-0 cursor-default items-center gap-1.5 rounded px-1 py-0.5 hover:bg-foreground/5';
+
+/** Beside the details, and close enough that the pointer can cross to it. */
+function StatusLineCard({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <TooltipContent
+      side="right"
+      align="start"
+      sideOffset={14}
+      className={cn('select-text', className)}
+    >
+      {children}
     </TooltipContent>
   );
 }
 
-function AgentsTooltip({ rows, children }: { rows: AgentRow[]; children: React.ReactNode }) {
+function AgentLine({ agent, unnamed }: { agent: Agent; unnamed: string | undefined }) {
+  const { title } = AGENT_STATES[agent.state];
+  const name = agent.terminal ? agentName(agent) : unnamed;
+  const said = agentSaid(agent);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span data-attention-badge className="flex items-center gap-1.5">
-          {children}
-        </span>
+        <li className={STATUS_LINE_CLASS_NAME}>
+          <AgentStateIcon state={agent.state} />
+          {name ? (
+            <>
+              <span className="sr-only">{title}:</span>
+              <span className="max-w-[60%] shrink-0 truncate">{name}</span>
+            </>
+          ) : (
+            <span className={cn('shrink-0', AGENT_STATES[agent.state].className)}>{title}</span>
+          )}
+          {said && <span className="min-w-0 flex-1 truncate text-muted-foreground">{said}</span>}
+          <AgentTime agent={agent} className="ml-auto pl-1" />
+        </li>
       </TooltipTrigger>
-      <AgentsTooltipContent rows={rows} />
+      <StatusLineCard className="w-72 p-0">
+        <AgentDetails agent={agent} unnamed={unnamed} className="mt-0 bg-transparent px-3 py-2.5" />
+      </StatusLineCard>
+    </Tooltip>
+  );
+}
+
+/** A notification that is no agent's, such as an idle reminder, beside the agents' lines. */
+function NoticeLine({
+  notice,
+  appearance,
+  sender,
+}: {
+  notice: WorkspaceAttention;
+  appearance: NonNullable<AttentionAppearance>;
+  sender: string | undefined;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className={STATUS_LINE_CLASS_NAME}>
+          <AttentionGlyph
+            attention={notice}
+            aria-hidden="true"
+            weight="bold"
+            className="size-3 shrink-0"
+            style={{ color: appearance.borderColor }}
+          />
+          <span className="max-w-[60%] shrink-0 truncate">{appearance.heading}</span>
+          {appearance.detail && (
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">
+              {appearance.detail}
+            </span>
+          )}
+          <span className="ml-auto shrink-0 pl-1 text-2xs text-muted-foreground tabular-nums">
+            {formatRelativeTime(notice.updatedAt)}
+          </span>
+        </div>
+      </TooltipTrigger>
+      <StatusLineCard className={ATTENTION_CARD_CLASS_NAME}>
+        <AttentionCard attention={notice} appearance={appearance} sender={sender} />
+      </StatusLineCard>
     </Tooltip>
   );
 }
@@ -940,12 +1015,11 @@ function AgentsTooltip({ rows, children }: { rows: AgentRow[]; children: React.R
 function collapseBadge(
   attention: WorkspaceAttention | undefined,
   appearance: AttentionAppearance,
-  terminal: Terminal | undefined,
   otherAgents: Agent[]
 ): CollapsedBadge | null {
   if (!attention || !appearance) return null;
   if (!otherAgents.some((agent) => agent.terminal?.id !== attention.terminalId)) return null;
-  return { attention, appearance, terminal, state: agentStateOf(attention, false) ?? undefined };
+  return { attention, appearance, state: agentStateOf(attention, false) ?? undefined };
 }
 
 /** How many agents are in each state, most urgent first; a restart shows as working. */
@@ -981,9 +1055,8 @@ function NoticeGlyph({ badge }: { badge: CollapsedBadge }) {
 
 function TitleAdornment({
   attention,
-  attentionTerminal,
   attentionAppearance,
-  unread,
+  collapsed,
   otherAgents,
   restarting,
   tag,
@@ -991,10 +1064,9 @@ function TitleAdornment({
   tagTooltip,
 }: {
   attention: WorkspaceAttention | undefined;
-  attentionTerminal: Terminal | undefined;
   attentionAppearance: AttentionAppearance;
-  /** The badge is an unread mark, not an agent's: it stays a badge of its own. */
-  unread: boolean;
+  /** The badge, when it shrinks next to other agents. */
+  collapsed: CollapsedBadge | null;
   otherAgents: Agent[];
   restarting: boolean;
   /** Shows in the badge's place when no agent has anything to show. */
@@ -1002,11 +1074,7 @@ function TitleAdornment({
   tagFromPullRequest: boolean;
   tagTooltip: string | undefined;
 }) {
-  const collapsed = unread
-    ? null
-    : collapseBadge(attention, attentionAppearance, attentionTerminal, otherAgents);
   const states = stateCounts(collapsed, otherAgents, restarting);
-  const rows = agentRows(collapsed, otherAgents);
   const workingCommands = otherAgents.filter(
     (agent) => agent.state === 'working' && agent.terminal?.commandActive
   ).length;
@@ -1019,17 +1087,12 @@ function TitleAdornment({
           attention={collapsed.attention}
           appearance={collapsed.appearance}
           label={`${count} ${AGENT_STATES[state].label(count)}`}
-          tooltip={<AgentsTooltipContent rows={rows} />}
         />
       </span>
     );
   }
   const badge = !collapsed && attention && attentionAppearance && (
-    <AttentionBadge
-      attention={attention}
-      appearance={attentionAppearance}
-      tooltip={<AttentionTooltipContent attention={attention} appearance={attentionAppearance} />}
-    />
+    <AttentionBadge attention={attention} appearance={attentionAppearance} />
   );
   if (!badge && states.length === 0) {
     // Half the row at most: a tag runs longer than an agent's badge, and the title comes first.
@@ -1043,18 +1106,13 @@ function TitleAdornment({
     ) : null;
   }
 
-  const glyphs = (
-    <>
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-1.5">
+      {badge}
       {collapsed && !collapsed.state && <NoticeGlyph badge={collapsed} />}
       {states.map(({ state, count }) => (
         <StateGlyph key={state} state={state} count={count} commands={workingCommands} />
       ))}
-    </>
-  );
-  return (
-    <span className="ml-auto flex shrink-0 items-center gap-1.5">
-      {badge}
-      {rows.length > 1 ? <AgentsTooltip rows={rows}>{glyphs}</AgentsTooltip> : glyphs}
     </span>
   );
 }
@@ -1347,8 +1405,8 @@ function WorkspaceInfoPopover({
   // details right away and keeps them open after the pointer leaves.
   const pointerFocusRef = useRef(false);
   const keyboardFocusRef = useRef(false);
-  // Whether the pointer was last over the status badge or its card, or null once it left.
-  const pointerOnBadgeRef = useRef<boolean | null>(null);
+  // Whether the pointer was last over something with its own tooltip, or null once it left.
+  const pointerOnOwnTooltipRef = useRef<boolean | null>(null);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1399,26 +1457,24 @@ function WorkspaceInfoPopover({
     [clearCloseTimer, clearOpenTimer]
   );
 
-  // The status badge shows its own notification card, and the commit counts and a launch's
-  // Undo their own tooltips, so the details wait while the pointer is on one. The notification
-  // card is portalled, so it isn't inside this element.
+  // The commit counts and a launch's Undo show their own tooltips, so the details wait while
+  // the pointer is on one, or on one's portalled tooltip, which isn't inside this element.
   // Only crossing between them and the rest restarts the hover, so a click or a
   // dismissal isn't undone by the next mouse move.
   const handlePointerOver = (event: React.PointerEvent) => {
     const target = event.target;
-    const onBadge =
+    const onOwnTooltip =
       !(target instanceof Node) ||
       !event.currentTarget.contains(target) ||
-      (target instanceof Element &&
-        target.closest('[data-attention-badge], [data-own-tooltip]') !== null);
-    if (pointerOnBadgeRef.current === onBadge) return;
-    pointerOnBadgeRef.current = onBadge;
-    if (onBadge) closeAfterDelay();
+      (target instanceof Element && target.closest('[data-own-tooltip]') !== null);
+    if (pointerOnOwnTooltipRef.current === onOwnTooltip) return;
+    pointerOnOwnTooltipRef.current = onOwnTooltip;
+    if (onOwnTooltip) closeAfterDelay();
     else openAfterDelay();
   };
 
   const handlePointerLeave = () => {
-    pointerOnBadgeRef.current = null;
+    pointerOnOwnTooltipRef.current = null;
     closeAfterDelay();
   };
 
@@ -1469,7 +1525,8 @@ function WorkspaceInfoPopover({
         ref={contentRef}
         side="right"
         align="start"
-        className="w-[min(20rem,calc(100vw-2rem))] overflow-hidden p-0 select-text"
+        // Several agents' words can outgrow the window; the card scrolls instead.
+        className="max-h-[var(--radix-popover-content-available-height)] w-[min(20rem,calc(100vw-2rem))] overflow-x-hidden overflow-y-auto p-0 select-text"
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => {
           event.preventDefault();

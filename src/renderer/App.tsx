@@ -25,6 +25,7 @@ import { UsageAnalyticsConsentBanner } from '@/components/layout/UsageAnalyticsC
 import { ProjectIconPromptDialog } from '@/components/projects/ProjectIconPromptDialog';
 import { ShortcutProvider } from '@/components/ShortcutProvider';
 import { SshHostDialogHost } from '@/components/ssh-hosts/SshHostDialogHost';
+import { SshHostProjectsDialogHost } from '@/components/ssh-hosts/SshHostProjectsDialog';
 import { QuickLookDialog } from '@/components/terminal/QuickLookDialog';
 import { PaneCloseConfirmHost } from '@/components/terminal/surfaces/PaneCloseConfirmHost';
 import { TerminalTabs } from '@/components/terminal/TerminalTabs';
@@ -429,6 +430,8 @@ export default function App() {
           <SettingsDialogHost />
 
           <SshHostDialogHost />
+
+          <SshHostProjectsDialogHost />
 
           <PublishRepoDialogHost />
 

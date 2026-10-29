@@ -1,5 +1,9 @@
 import { BrowserWindow, net } from 'electron';
 
+import {
+  AGENT_USAGE_POLL_INTERVAL_MS,
+  AGENT_USAGE_RATE_LIMITED_BACKOFF_MS,
+} from '../../../shared/constants/agent-usage';
 import { IPC } from '../../../shared/constants/ipc-channels';
 import { createLogger } from '../../lib/logger';
 
@@ -19,12 +23,11 @@ import type {
 
 const logger = createLogger('AgentUsageService');
 
-// Reads the bar asks for, on its timer or on focus, at most this often.
-const MIN_READ_INTERVAL_MS = 60_000;
+// Reads the bar asks for, on its timer or on focus, at most this often: a little under its
+// poll. Providers limit reads per sign-in, which other apps and the agent share.
+const MIN_READ_INTERVAL_MS = AGENT_USAGE_POLL_INTERVAL_MS - 60_000;
 // The Refresh button may read sooner.
 const MIN_FORCED_READ_INTERVAL_MS = 10_000;
-// After a provider says too many requests, it isn't asked again for this long.
-const RATE_LIMITED_BACKOFF_MS = 15 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export interface JsonResponse {
@@ -49,15 +52,16 @@ async function fetchJsonWithNet(
 function withProblem(
   source: AgentUsageSource,
   previous: AgentUsageReading | undefined,
-  problem: AgentUsageProblem
+  problem: AgentUsageProblem,
+  retryAt: number | null = null
 ): AgentUsageReading {
   return previous
-    ? { ...previous, problem }
-    : { source, windows: [], plan: null, account: null, readAt: 0, problem };
+    ? { ...previous, problem, retryAt }
+    : { source, windows: [], plan: null, account: null, readAt: 0, problem, retryAt };
 }
 
 function signedOut(source: AgentUsageSource): AgentUsageReading {
-  return { source, windows: [], plan: null, account: null, readAt: 0, problem: 'signed-out' };
+  return withProblem(source, undefined, 'signed-out');
 }
 
 /**
@@ -70,6 +74,7 @@ export class AgentUsageService {
   private usage: AgentUsage = {};
   private lastReadAt: Partial<Record<AgentUsageSource, number>> = {};
   private reading: Partial<Record<AgentUsageSource, Promise<void>>> = {};
+  // Kept apart from the reading, so a sign-out or expiry in between doesn't cut the wait short.
   private retryAt: Partial<Record<AgentUsageSource, number>> = {};
   private claudeEmail: { token: string; email: string | null } | null = null;
 
@@ -79,16 +84,16 @@ export class AgentUsageService {
     return this.usage;
   }
 
-  /** Reads these agents' usage again, each unless that happened in the last minute. */
+  /** Reads these agents' usage again, each unless that happened in the last few minutes. */
   async refresh(options: { sources: AgentUsageSource[]; force?: boolean }): Promise<AgentUsage> {
-    await Promise.all(options.sources.map((source) => this.refreshSource(source, options.force)));
+    const interval = options.force ? MIN_FORCED_READ_INTERVAL_MS : MIN_READ_INTERVAL_MS;
+    await Promise.all(options.sources.map((source) => this.refreshSource(source, interval)));
     return this.usage;
   }
 
-  private refreshSource(source: AgentUsageSource, force = false): Promise<void> {
+  private refreshSource(source: AgentUsageSource, interval: number): Promise<void> {
     const pending = this.reading[source];
     if (pending) return pending;
-    const interval = force ? MIN_FORCED_READ_INTERVAL_MS : MIN_READ_INTERVAL_MS;
     if (Date.now() - (this.lastReadAt[source] ?? 0) < interval) return Promise.resolve();
     this.lastReadAt[source] = Date.now();
     const previous = this.usage[source];
@@ -137,6 +142,7 @@ export class AgentUsageService {
       account: this.claudeEmail.email,
       readAt: Date.now(),
       problem: null,
+      retryAt: null,
     };
   }
 
@@ -154,7 +160,7 @@ export class AgentUsageService {
       parseCodexUsage
     );
     if ('problem' in parsed) return parsed;
-    return { source: 'codex', ...parsed, readAt: Date.now(), problem: null };
+    return { source: 'codex', ...parsed, readAt: Date.now(), problem: null, retryAt: null };
   }
 
   /** The parsed response, or the previous reading marked with why the request failed. */
@@ -165,19 +171,33 @@ export class AgentUsageService {
     headers: Record<string, string>,
     parse: (body: unknown) => ParsedUsage | null
   ): Promise<ParsedUsage | AgentUsageReading> {
-    if ((this.retryAt[source] ?? 0) > Date.now())
-      return withProblem(source, previous, 'unavailable');
+    // The sign-in is read first, so a sign-out or expiry still shows while reads are limited.
+    const retryAt = this.retryAt[source] ?? 0;
+    if (retryAt > Date.now()) return withProblem(source, previous, 'rate-limited', retryAt);
     try {
       const response = await this.fetchJson(url, headers);
       if (response.status === 401 || response.status === 403) {
         return withProblem(source, previous, 'expired');
       }
-      if (response.status === 429) this.retryAt[source] = Date.now() + RATE_LIMITED_BACKOFF_MS;
+      if (response.status === 429) {
+        logger.info('Usage reads rate limited', {
+          source,
+          retryInMinutes: AGENT_USAGE_RATE_LIMITED_BACKOFF_MS / 60_000,
+        });
+        this.retryAt[source] = Date.now() + AGENT_USAGE_RATE_LIMITED_BACKOFF_MS;
+        // Asked again once it may be: the bar's next poll could be minutes later, or too soon
+        // after its last to read.
+        setTimeout(
+          () => void this.refreshSource(source, 0),
+          AGENT_USAGE_RATE_LIMITED_BACKOFF_MS
+        ).unref();
+        return withProblem(source, previous, 'rate-limited', this.retryAt[source]);
+      }
       const parsed = response.status === 200 ? parse(response.body) : null;
       if (parsed) return parsed;
-      logger.debug('Unexpected usage response', { source, status: response.status });
+      logger.info('Unexpected usage response', { source, status: response.status });
     } catch (error) {
-      logger.debug('Could not read usage', { source, error: String(error) });
+      logger.info('Could not read usage', { source, error: String(error) });
     }
     return withProblem(source, previous, 'unavailable');
   }

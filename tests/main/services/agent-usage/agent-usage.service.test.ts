@@ -11,6 +11,9 @@ const credentials = vi.hoisted(() => ({
 }));
 vi.mock('../../../../src/main/services/agent-usage/agent-credentials', () => credentials);
 
+const logger = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock('../../../../src/main/lib/logger', () => ({ createLogger: () => logger }));
+
 import { BrowserWindow } from 'electron';
 
 import { AgentUsageService } from '../../../../src/main/services/agent-usage/agent-usage.service';
@@ -118,11 +121,12 @@ describe('AgentUsageService', () => {
       account: null,
       readAt: 0,
       problem: 'signed-out',
+      retryAt: null,
     });
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
-  it('reads each agent at most once a minute, or every 10 seconds when forced', async () => {
+  it('reads each agent at most every 4 minutes, or every 10 seconds when forced', async () => {
     const fetchJson = respond({
       'api.anthropic.com': { status: 200, body: CLAUDE_BODY },
       'chatgpt.com': { status: 200, body: CODEX_BODY },
@@ -143,9 +147,14 @@ describe('AgentUsageService', () => {
     await service.refresh({ sources: ['claude-code'], force: true });
     expect(fetchJson).toHaveBeenCalledTimes(3);
 
-    vi.advanceTimersByTime(30_000);
+    // Focusing the window asks again, and on its own would read far more often than the poll.
+    vi.advanceTimersByTime(3 * 60_000);
     await service.refresh({ sources: ['claude-code'] });
     expect(fetchJson).toHaveBeenCalledTimes(3);
+
+    vi.advanceTimersByTime(60_000);
+    await service.refresh({ sources: ['claude-code'] });
+    expect(fetchJson).toHaveBeenCalledTimes(4);
   });
 
   it('keeps the last reading, marked, while the sign-in is expired or the provider fails', async () => {
@@ -159,17 +168,31 @@ describe('AgentUsageService', () => {
     const first = (await service.refresh({ sources: ['claude-code'] }))['claude-code']!;
 
     claude = { status: 401 };
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(4 * 60_000);
     expect((await service.refresh({ sources: ['claude-code'] }))['claude-code']).toEqual({
       ...first,
       problem: 'expired',
     });
 
     claude = new Error('offline');
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(4 * 60_000);
     expect((await service.refresh({ sources: ['claude-code'] }))['claude-code']).toEqual({
       ...first,
       problem: 'unavailable',
+    });
+    expect(logger.info).toHaveBeenCalledWith('Could not read usage', {
+      source: 'claude-code',
+      error: 'Error: offline',
+    });
+
+    claude = { status: 500 };
+    vi.advanceTimersByTime(4 * 60_000);
+    expect((await service.refresh({ sources: ['claude-code'] }))['claude-code']?.problem).toBe(
+      'unavailable'
+    );
+    expect(logger.info).toHaveBeenCalledWith('Unexpected usage response', {
+      source: 'claude-code',
+      status: 500,
     });
   });
 
@@ -188,18 +211,41 @@ describe('AgentUsageService', () => {
     expect(usage['claude-code']).toMatchObject({ windows: [], readAt: 0, problem: 'expired' });
   });
 
-  it('waits 15 minutes before asking a provider that said too many requests', async () => {
-    credentials.readClaudeCredentials.mockResolvedValue(null);
-    const fetchJson = respond({ 'chatgpt.com': { status: 429 } });
+  it('says a provider limited the reads, and asks it again itself 15 minutes later', async () => {
+    let codex = { status: 200, body: CODEX_BODY as unknown };
+    const fetchJson = vi.fn(async () => codex);
     const service = new AgentUsageService(fetchJson);
+    const first = (await service.refresh({ sources: ['codex'] })).codex!;
 
-    expect((await service.refresh({ sources: ['codex'] })).codex?.problem).toBe('unavailable');
-    vi.advanceTimersByTime(14 * 60_000);
-    await service.refresh({ sources: ['codex'] });
-    expect(fetchJson).toHaveBeenCalledTimes(1);
-
-    vi.advanceTimersByTime(60_000);
-    await service.refresh({ sources: ['codex'] });
+    codex = { status: 429, body: null };
+    vi.advanceTimersByTime(4 * 60_000);
+    expect((await service.refresh({ sources: ['codex'] })).codex).toEqual({
+      ...first,
+      problem: 'rate-limited',
+      retryAt: NOW + 19 * 60_000,
+    });
+    expect(logger.info).toHaveBeenCalledWith('Usage reads rate limited', {
+      source: 'codex',
+      retryInMinutes: 15,
+    });
     expect(fetchJson).toHaveBeenCalledTimes(2);
+
+    // A sign-out still shows, and signing back in doesn't cut the wait short.
+    credentials.readCodexCredentials.mockResolvedValueOnce(null);
+    vi.advanceTimersByTime(14 * 60_000);
+    expect((await service.refresh({ sources: ['codex'], force: true })).codex?.problem).toBe(
+      'signed-out'
+    );
+    vi.advanceTimersByTime(55_000);
+    expect((await service.refresh({ sources: ['codex'], force: true })).codex?.problem).toBe(
+      'rate-limited'
+    );
+    expect(fetchJson).toHaveBeenCalledTimes(2);
+
+    // Then it asks again on its own, though a read was asked for just before.
+    codex = { status: 200, body: CODEX_BODY };
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fetchJson).toHaveBeenCalledTimes(3);
+    expect(service.get().codex).toEqual({ ...first, readAt: NOW + 19 * 60_000 });
   });
 });

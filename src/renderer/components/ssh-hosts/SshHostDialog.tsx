@@ -2,6 +2,7 @@ import { CaretDown, CheckCircle, Info, Plus, Trash, Warning, XCircle } from '@ph
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Callout } from '@/components/ui/callout';
 import {
   Dialog,
   DialogBody,
@@ -21,6 +22,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { offerAgentLaunchDefaults } from '@/stores/agent-launch-defaults-dialog.store';
 import { useConfigStore } from '@/stores/config.store';
+import { useSshHostProjectsDialogStore } from '@/stores/ssh-host-projects-dialog.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -57,6 +59,7 @@ import {
 } from './SshConfigHostPicker';
 import { SshHostChecklist } from './SshHostChecklist';
 
+import type { SshHostProject } from '../../../shared/types/ssh-project-manifest';
 import type { SshHostDialogRequest } from '@/stores/ssh-host-dialog.store';
 
 type SetupState = 'idle' | 'checking' | 'checked' | 'preparing' | 'error';
@@ -229,20 +232,22 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
     }
   };
 
-  const finishSetup = async () => {
+  /** Resolves to whether setup finished and the dialog closed. */
+  const finishSetup = async (): Promise<boolean> => {
     if (readyHost?.setupPending) {
       setSaving(true);
       try {
         const saved = await saveHost({ ...readyHost, setupPending: false });
         if (!saved.ok) {
           setError(saved.error ?? 'Failed to complete SSH setup.');
-          return;
+          return false;
         }
       } finally {
         setSaving(false);
       }
     }
     onOpenChange(false);
+    return true;
   };
 
   const openConfigPicker = () => {
@@ -310,6 +315,11 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
               else launchDefaultsHeld.current = on;
             }}
             onDone={() => void finishSetup()}
+            onImportProjects={(hostId) => {
+              void finishSetup().then((done) => {
+                if (done) useSshHostProjectsDialogStore.getState().openFor(hostId);
+              });
+            }}
           />
         ) : view === 'config' ? (
           <SshConfigHostPicker
@@ -580,6 +590,7 @@ function ReadyStep({
   saving,
   onLaunchIntegrationChange,
   onDone,
+  onImportProjects,
 }: {
   host: SshHost | undefined;
   status: SshIntegrationStatus | null;
@@ -587,7 +598,9 @@ function ReadyStep({
   saving: boolean;
   onLaunchIntegrationChange: (on: boolean) => void;
   onDone: () => void;
+  onImportProjects: (hostId: string) => void;
 }) {
+  const hostProjects = useHostProjects(host?.id);
   if (!host) return null;
   return (
     <>
@@ -602,6 +615,21 @@ function ReadyStep({
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
+        {hostProjects.length > 0 && (
+          <Callout
+            className="mb-4"
+            title={`Projects on ${host.name}`}
+            action={
+              <Button size="sm" variant="outline" onClick={() => onImportProjects(host.id)}>
+                Review
+              </Button>
+            }
+          >
+            {projectNames(hostProjects)} {hostProjects.length === 1 ? 'is' : 'are'} set up there.
+            Add {hostProjects.length === 1 ? 'it' : 'them'} here with icons, Workspace Setup and
+            Quick Commands.
+          </Callout>
+        )}
         <RemoteAgentIntegrationsPanel
           target={{ kind: 'ssh', host }}
           initialStatus={status}
@@ -618,6 +646,36 @@ function ReadyStep({
       </DialogFooter>
     </>
   );
+}
+
+/**
+ * The projects with settings on a newly set up host that this installation lacks or has with
+ * other settings; none until read, or when reading fails.
+ */
+function useHostProjects(hostId: string | undefined): SshHostProject[] {
+  const [projects, setProjects] = useState<SshHostProject[]>([]);
+  useEffect(() => {
+    if (!hostId) return;
+    let cancelled = false;
+    window.api
+      .listSshHostProjects(hostId)
+      .then((found) => {
+        // Ones removed here are offered in the host's Projects dialog, not pressed on setup.
+        if (!cancelled) setProjects(found.filter((project) => !project.removedHere));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [hostId]);
+  return projects;
+}
+
+/** Up to three names, then how many more. */
+function projectNames(projects: SshHostProject[]): string {
+  const names = projects.map((project) => project.name);
+  if (names.length <= 3) return new Intl.ListFormat('en', { type: 'conjunction' }).format(names);
+  return `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`;
 }
 
 function ConnectionFields({

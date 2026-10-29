@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   SshWorkspaceSync,
@@ -153,6 +153,7 @@ function service(
   const workspaces = new Map<string, Workspace>();
   const store = memoryStore(workspaces);
   const syncsWith = vi.fn((_hostId: string) => true);
+  const inUse = vi.fn(() => true);
   let now = 1_000;
   return {
     inspect,
@@ -165,6 +166,7 @@ function service(
     readyHosts,
     store,
     syncsWith,
+    inUse,
     /** Holds these workspaces here, as workspaceService would. */
     hold: (...held: Workspace[]) =>
       held.forEach((workspace) => workspaces.set(workspace.id, workspace)),
@@ -187,6 +189,7 @@ function service(
       deviceId: () => 'this-device',
       syncsWith,
       hostCopies: saved,
+      inUse,
     }),
   };
 }
@@ -1264,6 +1267,189 @@ describe('SshWorkspaceSync scheduling', () => {
     await Promise.all([first, shared, again]);
 
     expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  describe('after another installation changes workspaces on a host', () => {
+    /** One manifest another installation wrote, as the adoption tests build it. */
+    const theirs = (name = 'add-search') =>
+      JSON.stringify(
+        buildSshWorkspaceManifest(
+          sshWorkspace({
+            id: 'ws-50',
+            name,
+            backend: {
+              ...(sshWorkspace().backend as object),
+              remoteDirectory: '/home/dev/.komla/worktrees/app/add-search',
+            } as Workspace['backend'],
+          }),
+          9_999,
+          undefined,
+          'other-device',
+          true
+        )
+      );
+
+    /** Fake timers that move the service's clock along with them. */
+    function timed() {
+      vi.useFakeTimers();
+      const sync = service();
+      return {
+        ...sync,
+        wait: async (ms: number) => {
+          for (let waited = 0; waited < ms; waited += 1_000) {
+            sync.advance(1_000);
+            await vi.advanceTimersByTimeAsync(1_000);
+          }
+        },
+      };
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // A workspace another installation starts is added before its tabs' sessions run, so the
+    // sync that adds it can't show it running. Nothing else may sync before the user opens it.
+    it('syncs the host again after adding a workspace, so its sessions are found once they run', async () => {
+      const { manifests, read, store, wait } = timed();
+      read.mockResolvedValue([theirs()]);
+
+      await manifests.syncSoon('host-a', { now: true });
+      expect(store.add).toHaveBeenCalledTimes(1);
+      await wait(30_000);
+
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(store.hostSynced).toHaveBeenCalledTimes(2);
+    });
+
+    // Even on the first pass, as after a restart: the tab another installation just opened may
+    // not run yet.
+    it('syncs again after merging a tab another installation opened in a workspace here', async () => {
+      const { manifests, read, inspect, hold, wait } = timed();
+      hold(sshWorkspace({ id: 'ws-50', name: 'add-search', terminals: [terminal('t1')] }));
+      read.mockResolvedValue([theirs()]);
+      inspect.mockResolvedValue({ state: 'present', manifest: theirs() });
+
+      await manifests.syncSoon('host-a', { now: true });
+      await wait(30_000);
+
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+
+    // Switching tabs or renaming there starts no session here to look for.
+    it('leaves the host alone after merging changes that open no tab', async () => {
+      const { manifests, read, inspect, hold, wait } = timed();
+      hold(sshWorkspace({ id: 'ws-50', name: 'add-search' }));
+      const renamed = theirs('renamed elsewhere');
+      read.mockResolvedValue([renamed]);
+      inspect.mockResolvedValue({ state: 'present', manifest: renamed });
+
+      await manifests.syncSoon('host-a', { now: true });
+      await wait(60_000);
+
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it('syncs again after the user adds a workspace from the host', async () => {
+      const { manifests, read, wait } = timed();
+      read.mockResolvedValue([theirs()]);
+
+      await manifests.adopt('host-a', 'ws-50');
+      await wait(30_000);
+
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops once the host has gone a while without changes from elsewhere', async () => {
+      const { manifests, read, wait } = timed();
+      read.mockResolvedValue([theirs()]);
+      await manifests.syncSoon('host-a', { now: true });
+
+      await wait(10 * 60_000);
+      const reads = read.mock.calls.length;
+      await wait(10 * 60_000);
+
+      expect(reads).toBeGreaterThan(2);
+      expect(read).toHaveBeenCalledTimes(reads);
+    });
+
+    it('leaves a host it does not sync with alone', async () => {
+      const { manifests, read, syncsWith, wait } = timed();
+      syncsWith.mockReturnValue(false);
+      read.mockResolvedValue([theirs()]);
+
+      await manifests.adopt('host-a', 'ws-50');
+      await wait(60_000);
+
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops once the user turns sync off for the host', async () => {
+      const { manifests, read, syncsWith, wait } = timed();
+      read.mockResolvedValue([theirs()]);
+      await manifests.syncSoon('host-a', { now: true });
+
+      syncsWith.mockReturnValue(false);
+      await wait(60_000);
+
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    // Away from Komla, a host that lost its connection could ask for a password unasked.
+    it('waits for the user to be back in Komla, whose focus syncs and follows up again', async () => {
+      const { manifests, read, inUse, wait } = timed();
+      read.mockResolvedValue([theirs()]);
+      await manifests.syncSoon('host-a', { now: true });
+      inUse.mockReturnValue(false);
+      await wait(60_000);
+      expect(read).toHaveBeenCalledTimes(1);
+
+      inUse.mockReturnValue(true);
+      await manifests.syncSoon('host-a');
+      await wait(30_000);
+
+      expect(read).toHaveBeenCalledTimes(3);
+    });
+
+    it('leaves a host alone when only this installation changed its workspaces', async () => {
+      const { manifests, read, hold, wait } = timed();
+      hold(sshWorkspace());
+      read.mockResolvedValue([
+        JSON.stringify(
+          buildSshWorkspaceManifest(sshWorkspace(), 5, undefined, 'this-device', true)
+        ),
+      ]);
+
+      await manifests.syncSoon('host-a', { now: true });
+      await wait(60_000);
+
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    // A host gone offline would time out, and one that lost its connection could ask for a
+    // password, each time.
+    it('stops when the host cannot be read', async () => {
+      const { manifests, read, wait } = timed();
+      read.mockResolvedValue([theirs()]);
+      await manifests.syncSoon('host-a', { now: true });
+      read.mockRejectedValue(new Error('offline'));
+
+      await wait(30_000);
+      await wait(5 * 60_000);
+
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+
+    it('syncs no more once disposed, as when Komla quits', async () => {
+      const { manifests, read, wait } = timed();
+      read.mockResolvedValue([theirs()]);
+      await manifests.syncSoon('host-a', { now: true });
+
+      manifests.dispose();
+      await wait(60_000);
+
+      expect(read).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('syncs every host it syncs with when given none', async () => {

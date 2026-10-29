@@ -17,6 +17,7 @@ import {
 } from '../../services/project-icon.service';
 import { projectService, Project } from '../../services/project.service';
 import { recordOpenedFolder, refreshRecentFolders } from '../../services/recent-folders.service';
+import { sshProjectSync } from '../../services/ssh-project-sync.service';
 import { workspaceService } from '../../services/workspace.service';
 import {
   presetAddActiveArgsSchema,
@@ -38,8 +39,10 @@ import {
   projectFindIconsArgsSchema,
   projectFolderOpenedArgsSchema,
   projectGetArgsSchema,
+  projectImportFromSshHostArgsSchema,
   projectListHostBranchesArgsSchema,
   projectListLeftoverBranchesArgsSchema,
+  projectListOnSshHostArgsSchema,
   projectSetSshWorkspaceModeIfUnsetArgsSchema,
   projectTakeIconPromptArgsSchema,
   projectChooseIconFileArgsSchema,
@@ -58,6 +61,10 @@ import type {
   WorkspaceCleanupStatus,
 } from '../../../shared/types';
 import type { ActivePresetEntry } from '../../../shared/types/agent-preset';
+import type {
+  SshHostProject,
+  SshHostProjectImportResult,
+} from '../../../shared/types/ssh-project-manifest';
 
 const logger = createLogger('ProjectHandlers');
 
@@ -241,6 +248,25 @@ export function registerProjectHandlers(): void {
         assignSshWorkspaceProjects();
         return project;
       }
+    )
+  );
+
+  ipcMain.handle(
+    IPC.PROJECT_LIST_ON_SSH_HOST,
+    handleValidated(
+      IPC.PROJECT_LIST_ON_SSH_HOST,
+      projectListOnSshHostArgsSchema,
+      async (_, [hostId]): Promise<SshHostProject[]> => sshProjectSync.listOnHost(hostId)
+    )
+  );
+
+  ipcMain.handle(
+    IPC.PROJECT_IMPORT_FROM_SSH_HOST,
+    handleValidated(
+      IPC.PROJECT_IMPORT_FROM_SSH_HOST,
+      projectImportFromSshHostArgsSchema,
+      async (_, [hostId, imports]): Promise<SshHostProjectImportResult[]> =>
+        sshProjectSync.importFromHost(hostId, imports)
     )
   );
 

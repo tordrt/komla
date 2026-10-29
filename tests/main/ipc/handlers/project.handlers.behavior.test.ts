@@ -103,6 +103,14 @@ vi.mock('../../../../src/main/services/action.service', () => ({
   actionService: mockActionService,
 }));
 
+const mockSshProjectSync = {
+  listOnHost: vi.fn(async () => []),
+  importFromHost: vi.fn(async () => []),
+};
+vi.mock('../../../../src/main/services/ssh-project-sync.service', () => ({
+  sshProjectSync: mockSshProjectSync,
+}));
+
 vi.mock('../../../../src/main/lib/logger', () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(),

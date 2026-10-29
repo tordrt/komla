@@ -76,6 +76,12 @@ The description of one SSH workspace that a Komla installation publishes on its 
 other installations adopt the workspace and merge its changes. A manifest read from a host is
 untrusted.
 
+**Project manifest**:
+A project's icon, color, Workspace Setup, Quick Commands and branch and merge settings, which a Komla
+installation publishes on each SSH host where the project has workspaces. Another installation
+copies them only when the user picks them, adding the project if it lacks one for the repository;
+it never merges them on its own. A manifest read from a host is untrusted.
+
 **Adoption**:
 Adding to a Komla installation an SSH workspace that another installation, or an agent on the host,
 published there. The workspace and its terminals keep their ids, so reconnecting attaches to the

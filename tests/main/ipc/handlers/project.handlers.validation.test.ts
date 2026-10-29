@@ -83,6 +83,14 @@ vi.mock('../../../../src/main/services/action.service', () => ({
   },
 }));
 
+const mockSshProjectSync = {
+  listOnHost: vi.fn(async () => []),
+  importFromHost: vi.fn(async () => []),
+};
+vi.mock('../../../../src/main/services/ssh-project-sync.service', () => ({
+  sshProjectSync: mockSshProjectSync,
+}));
+
 vi.mock('../../../../src/main/lib/logger', () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -117,6 +125,39 @@ describe('project IPC validation', () => {
       repositoryPath: '/tmp/repo',
       color: '#ff0000',
     });
+  });
+
+  it('project:import-from-ssh-host takes manifest ids and known parts only', async () => {
+    const { registerProjectHandlers } =
+      await import('../../../../src/main/ipc/handlers/project.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+
+    registerProjectHandlers();
+    const manifestId = '0123456789abcdef0123456789abcdef';
+
+    await ipcMain._invoke('project:import-from-ssh-host', 'host-1', [
+      { manifestId, parts: ['appearance', 'quickCommands'], injected: true },
+    ]);
+    expect(mockSshProjectSync.importFromHost).toHaveBeenCalledWith('host-1', [
+      { manifestId, parts: ['appearance', 'quickCommands'] },
+    ]);
+
+    for (const imports of [
+      [],
+      [{ manifestId: '../../etc/passwd', parts: [] }],
+      [{ manifestId, parts: ['everything'] }],
+    ]) {
+      await expect(
+        ipcMain._invoke('project:import-from-ssh-host', 'host-1', imports)
+      ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
+    }
+    await expect(ipcMain._invoke('project:list-on-ssh-host', '')).rejects.toMatchObject({
+      code: 'IPC_VALIDATION_ERROR',
+    });
+    expect(mockSshProjectSync.importFromHost).toHaveBeenCalledTimes(1);
+    expect(mockSshProjectSync.listOnHost).not.toHaveBeenCalled();
   });
 
   it('project:get rejects empty id', async () => {

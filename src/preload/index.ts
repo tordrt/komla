@@ -123,6 +123,11 @@ import type { MachineResourceUsage } from '../shared/types/resource-usage';
 import type { SettingsHistoryEntry } from '../shared/types/settings-history';
 import type { SshHostAddedSource } from '../shared/types/ssh';
 import type {
+  SshHostProject,
+  SshHostProjectImport,
+  SshHostProjectImportResult,
+} from '../shared/types/ssh-project-manifest';
+import type {
   RemoteSshWorkspace,
   SshWorkspaceRemovedOnOtherDevice,
   SshWorkspaceLayoutChangedOnOtherDevice,
@@ -442,6 +447,17 @@ const api = {
 
   createProjectFromNew: (params: CreateProjectFromNewParams): Promise<Project> =>
     ipcRenderer.invoke(IPC.PROJECT_CREATE_FROM_NEW, params),
+
+  /** Projects other installations published on an SSH host that this one could copy. */
+  listSshHostProjects: (hostId: string): Promise<SshHostProject[]> =>
+    ipcRenderer.invoke(IPC.PROJECT_LIST_ON_SSH_HOST, hostId),
+
+  /** Copies projects' settings from an SSH host, adding the projects this installation lacks. */
+  importSshHostProjects: (
+    hostId: string,
+    imports: SshHostProjectImport[]
+  ): Promise<SshHostProjectImportResult[]> =>
+    ipcRenderer.invoke(IPC.PROJECT_IMPORT_FROM_SSH_HOST, hostId, imports),
 
   findProjectIcons: (source: ProjectIconSource): Promise<ProjectIconCandidate[]> =>
     ipcRenderer.invoke(IPC.PROJECT_FIND_ICONS, source),

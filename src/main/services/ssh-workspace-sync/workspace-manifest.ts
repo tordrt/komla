@@ -169,7 +169,7 @@ export function sshWorkspaceManifestContentKey(manifest: SshWorkspaceManifest): 
 }
 
 /** Parsing a manifest reorders its keys, so the same content must compare equal in any order. */
-function withSortedKeys(value: unknown): unknown {
+export function withSortedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withSortedKeys);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(

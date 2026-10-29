@@ -459,6 +459,9 @@ and a 404, as for a workspace created on the host that Komla hasn't added yet, e
 for a minute. A command the user turned off is refused instead of queued, with the `CAPABILITY_DISABLED`
 message the desktop wrote to the companion's config as `turnedOffCommands`, which it rewrites when
 the setting changes. See [ADR 0006](adr/0006-queue-agent-commands-on-the-ssh-host-while-komla-is-away.md).
+`komla workspace list` on an SSH host that can't reach Komla lists the workspaces whose manifests
+are on the host, newest first, without the tags, attention and agent state only the desktop knows,
+and says so on stderr.
 
 Komla's HTTP server listens on 127.0.0.1 only and answers only requests whose `Host` header is an
 IP address or `localhost` or a `.localhost` name, on any port, since SSH tunnels arrive through

@@ -107,6 +107,98 @@ fn workspace_commands_still_fail_without_a_companion_to_deliver_them() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("Komla isn't connected"));
 }
 
+fn write_manifest(base: &Path, id: &str, name: &str, status: &str, updated_at: u64) {
+    let directory = base.join("workspaces");
+    fs::create_dir_all(directory.join("deleted")).unwrap();
+    fs::write(
+        directory.join(format!("{id}.json")),
+        serde_json::to_vec(&json!({
+            "schema": 1,
+            "workspaceId": id,
+            "name": "generated-name",
+            "customName": name,
+            "branchName": format!("{id}-branch"),
+            "backend": {
+                "remoteDirectory": base.join("worktrees").join(id),
+                "remoteRepoPath": base.join("repos/web.git"),
+                "remoteProjectRoot": base.join("repos"),
+                "gitUrl": "git@example.com:web.git",
+                "projectName": "web"
+            },
+            "terminals": [],
+            "status": status,
+            "createdAt": 1,
+            "updatedAt": updated_at
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
+
+/// Runs `komla <arguments>` on an SSH host whose Komla data is `base`, with Komla away.
+fn run_on_host(base: &Path, arguments: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_komla"))
+        .args(arguments)
+        .env_clear()
+        .envs(windows_essentials())
+        .env("KOMLA_API_URL", "http://127.0.0.1:1")
+        .env("KOMLA_CLI", base.join("helpers/komla"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn workspace_list_reads_the_hosts_manifests_while_komla_is_away() {
+    let temporary = TempDir::new().unwrap();
+    let base = temporary.path();
+    write_manifest(base, "ws-old", "Fix the cache", "active", 1_000);
+    write_manifest(base, "ws-new", "Add search", "active", 2_000);
+    write_manifest(base, "ws-gone", "Old idea", "trashed", 3_000);
+
+    let listed = run_on_host(base, &["workspace", "list", "--json"]);
+    let all = run_on_host(base, &["workspace", "list", "--all"]);
+
+    assert!(listed.status.success(), "{listed:?}");
+    assert!(String::from_utf8_lossy(&listed.stderr).contains("without their tags"));
+    let result: Value = serde_json::from_slice(&listed.stdout).unwrap();
+    assert_eq!(
+        result["workspaces"],
+        json!([
+            {
+                "id": "ws-new",
+                "name": "Add search",
+                "path": base.join("worktrees/ws-new"),
+                "project": {"name": "web"},
+                "branch": "ws-new-branch"
+            },
+            {
+                "id": "ws-old",
+                "name": "Fix the cache",
+                "path": base.join("worktrees/ws-old"),
+                "project": {"name": "web"},
+                "branch": "ws-old-branch"
+            }
+        ])
+    );
+    assert!(all.status.success(), "{all:?}");
+    assert_eq!(
+        String::from_utf8(all.stdout).unwrap(),
+        "ws-gone  Old idea  [ws-gone-branch]\nws-new  Add search  [ws-new-branch]\n\
+ws-old  Fix the cache  [ws-old-branch]\n"
+    );
+}
+
+#[test]
+fn workspace_list_still_fails_off_an_ssh_host() {
+    let temporary = TempDir::new().unwrap();
+
+    let output = run_on_host(temporary.path(), &["workspace", "list"]);
+
+    assert!(!output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Komla isn't connected"));
+}
+
 #[test]
 fn commands_the_user_turned_off_are_refused_rather_than_queued() {
     let temporary = TempDir::new().unwrap();

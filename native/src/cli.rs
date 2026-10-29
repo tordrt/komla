@@ -553,6 +553,12 @@ trait KomlaApi {
         Ok(false)
     }
 
+    /// The workspaces on this SSH host as their manifests record them, for when Komla is
+    /// unreachable. None off an SSH host.
+    fn list_workspaces_offline(&self, _include_trashed: bool) -> Option<Value> {
+        None
+    }
+
     /// Why a command can't queue: the user turned it off, as the desktop last told this host.
     fn turned_off_offline(&self, _operation_type: &str) -> Option<String> {
         None
@@ -670,6 +676,10 @@ impl KomlaApi for HttpKomlaApi {
         };
         let mut launcher = TmuxSessionLauncher::new(&caller.base);
         offline_workspace::create_workspace(&caller, request, &mut launcher, crate::clock::now_ms())
+    }
+
+    fn list_workspaces_offline(&self, include_trashed: bool) -> Option<Value> {
+        offline_workspace::list_workspaces(&host_data_dir()?, include_trashed)
     }
 
     fn turned_off_offline(&self, operation_type: &str) -> Option<String> {
@@ -1136,7 +1146,7 @@ fn run_command_with_hook_input(
         Some(operation @ ("title" | "snooze" | "wake" | "tag" | "untag" | "trash")) => {
             let mut options = vec![operation.to_owned()];
             options.extend_from_slice(&args[1..]);
-            workspace_command(&options, &environment, api, output)
+            workspace_command(&options, &environment, api, output, errors)
         }
         Some("launch") => {
             let mut options = args[1..].to_vec();
@@ -1167,7 +1177,7 @@ cannot be used with --here"
             }
             agent_command(&options, &environment, api, input, output)
         }
-        Some("workspace") => workspace_command(&args[1..], &environment, api, output),
+        Some("workspace") => workspace_command(&args[1..], &environment, api, output, errors),
         Some("tags") => tags_command(&args[1..], &environment, api, output),
         Some("open") => open_command(&args[1..], &environment, api, output),
         Some("status") => status_command(&args[1..], &environment, api, input, output),
@@ -1289,6 +1299,7 @@ fn workspace_command(
     environment: &CliEnvironment,
     api: &mut dyn KomlaApi,
     output: &mut dyn Write,
+    errors: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let operation = args
         .first()
@@ -1306,7 +1317,20 @@ fn workspace_command(
             } else {
                 json!({"type": "workspace.list"})
             };
-            let result = execute_operation(api, environment, request)?;
+            let result = match execute_operation(api, environment, request) {
+                Err(error) if is_unreachable(&error) => {
+                    let Some(result) = api.list_workspaces_offline(include_trashed) else {
+                        return Err(error);
+                    };
+                    writeln!(
+                        errors,
+                        "Komla couldn't be reached, so this lists the workspaces on this host, \
+without their tags."
+                    )?;
+                    result
+                }
+                result => result?,
+            };
             if json_output {
                 return write_operation_result(&result, true, output);
             }

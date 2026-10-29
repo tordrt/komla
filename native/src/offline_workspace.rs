@@ -427,6 +427,71 @@ fn find_source_manifest(caller: &OfflineCaller) -> anyhow::Result<SourceManifest
     )
 }
 
+/// What `komla workspace list` shows of a manifest: the fields the desktop's list has that a
+/// manifest records.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListedManifest {
+    schema: u32,
+    workspace_id: String,
+    name: String,
+    custom_name: Option<String>,
+    branch_name: Option<String>,
+    status: Option<String>,
+    updated_at: f64,
+    backend: ListedBackend,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListedBackend {
+    remote_directory: PathBuf,
+    project_name: Option<String>,
+}
+
+/// The workspaces on this host as their manifests record them, newest first, in the shape of
+/// the desktop's `workspace.list`. None when this isn't an SSH host's Komla data.
+pub(crate) fn list_workspaces(base: &Path, include_trashed: bool) -> Option<Value> {
+    let entries = fs::read_dir(base.join(MANIFEST_DIRECTORY)).ok()?;
+    let mut manifests: Vec<ListedManifest> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+                && fs::metadata(path).is_ok_and(|metadata| metadata.len() <= MAX_MANIFEST_BYTES)
+        })
+        .filter_map(|path| serde_json::from_slice(&fs::read(path).ok()?).ok())
+        .filter(|manifest: &ListedManifest| {
+            manifest.schema == 1
+                && is_manifest_id(&manifest.workspace_id)
+                && (include_trashed || manifest.status.as_deref() != Some("trashed"))
+        })
+        .collect();
+    manifests.sort_by(|left, right| right.updated_at.total_cmp(&left.updated_at));
+    let workspaces: Vec<Value> = manifests
+        .into_iter()
+        .map(|manifest| {
+            let mut workspace = json!({
+                "id": manifest.workspace_id,
+                "name": manifest.custom_name.filter(|name| !name.is_empty()).unwrap_or(manifest.name),
+                "path": manifest.backend.remote_directory,
+            });
+            if let Some(project) = manifest.backend.project_name {
+                workspace["project"] = json!({"name": project});
+            }
+            if let Some(branch) = manifest.branch_name {
+                workspace["branch"] = json!(branch);
+            }
+            if manifest.status.as_deref() == Some("trashed") {
+                workspace["trashed"] = json!(true);
+            }
+            workspace
+        })
+        .collect();
+    Some(json!({"workspaces": workspaces}))
+}
+
 fn read_manifest(path: &Path) -> Option<SourceManifest> {
     if path.extension()? != "json" || fs::metadata(path).ok()?.len() > MAX_MANIFEST_BYTES {
         return None;

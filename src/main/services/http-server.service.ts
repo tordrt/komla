@@ -11,37 +11,16 @@ import { z } from 'zod';
 import { IPC } from '../../shared/constants/ipc-channels';
 import { isMcpToolEnabled } from '../../shared/constants/mcp-built-in-tools';
 import {
-  agentLaunchWorkspacePlacement,
-  unreadyPinnedHostMessage,
-} from '../../shared/lib/agent-environment';
-import { isBrowserUrl, MAX_BROWSER_URL_LENGTH } from '../../shared/lib/browser-tabs';
-import {
-  MAX_VIRTUAL_DESKTOP_NAME_LENGTH,
-  MAX_VNC_PASSWORD_LENGTH,
-} from '../../shared/lib/virtual-desktops';
-import {
-  MAX_WORKSPACE_TAG_LENGTH,
-  MAX_WORKSPACE_TAG_TOOLTIP,
-  WORKSPACE_TAG_TONES,
-} from '../../shared/lib/workspace-tags';
-import {
   ACTION_SSH_EXECUTION_LOCATIONS,
   isSshWorkspace,
   SETTINGS_FILE_RESOURCES,
   SETUP_DESTINATIONS,
   SETUP_TRIGGERS,
-  VIRTUAL_DESKTOP_VIEWERS,
 } from '../../shared/types';
 import {
   MAX_STATUS_ICON_BYTES,
-  MAX_STATUS_ITEM_ICONS,
-  MAX_STATUS_ITEM_SEGMENTS,
-  MAX_STATUS_ITEM_TEXT,
   MAX_STATUS_ITEM_TOOLTIP,
-  MAX_STATUS_POPOVER_HTML,
-  MAX_STATUS_POPOVER_MARKDOWN,
   isStatusItemColor,
-  STATUS_ITEM_ID_PATTERN,
   STATUS_ITEM_TONES,
 } from '../../shared/types/status-items';
 import { BRANCH_NAME_PATTERN } from '../ipc/validation/primitives';
@@ -50,7 +29,6 @@ import { resolveKomlaRequestRoute } from '../lib/komla-request-route';
 import { isLocalHostHeader } from '../lib/local-host-header';
 import { createLogger } from '../lib/logger';
 import { statusIconDataUrl } from '../lib/status-icon';
-import { visibleStatusText } from '../lib/status-item-text';
 
 import { actionService } from './action.service';
 import { agentPresetService } from './agent-preset.service';
@@ -61,6 +39,23 @@ import {
 } from './automation.service';
 import { configService } from './config.service';
 import { customizationService } from './customization.service';
+import {
+  MAX_BRANCH_LEN,
+  MAX_DESCRIPTION_LEN,
+  MAX_ID_LEN,
+  MAX_NAME_LEN,
+  MAX_PATH_LEN,
+  MAX_PROJECT_NAME_LEN,
+  MAX_PROMPT_LEN,
+  parseKomlaOperation,
+  statusIconSchema,
+  statusItemColorSchema,
+  statusItemIdSchema,
+  statusItemSegmentsSchema,
+  statusItemTextSchema,
+  statusPopoverHtmlSchema,
+  statusPopoverMarkdownSchema,
+} from './komla-operation/schema';
 import { KomlaOperationError, komlaOperationService } from './komla-operation.service';
 import {
   notificationTargetResolutionService,
@@ -86,12 +81,15 @@ import {
   workspaceCwdResolutionService,
   type WorkspaceCwdResolutionContext,
   type WorkspaceCwdResolution,
-  type WorkspaceProjectCwdResolution,
 } from './workspace-cwd-resolution.service';
 import { workspaceStatusService } from './workspace-status.service';
 import { workspaceService } from './workspace.service';
 
-import type { KomlaOperation, KomlaOperationContext } from './komla-operation.service';
+import type {
+  KomlaOperation,
+  KomlaOperationContext,
+  KomlaOperationResult,
+} from './komla-operation.service';
 import type { McpBuiltInToolName } from '../../shared/constants/mcp-built-in-tools';
 import type {
   Project,
@@ -117,19 +115,12 @@ const SKILL_FILE_ALIASES: Readonly<Record<string, string>> = {
 const logger = createLogger('HttpServerService');
 
 // Length caps are generous — they exist to bound abuse, not to constrain real payloads.
-const MAX_PATH_LEN = 4096;
-const MAX_NAME_LEN = 256;
-const MAX_BRANCH_LEN = 256;
-const MAX_DESCRIPTION_LEN = 2048;
-const MAX_PROJECT_NAME_LEN = 256;
 const MAX_SOURCE_LEN = 64;
 const MAX_LEVEL_LEN = 64;
 const MAX_COLOR_LEN = 256;
 // Room for a short label on the sidebar pill; the title carries the rest.
 const MAX_NOTIFICATION_BADGE_LEN = 64;
 const MAX_MESSAGE_LEN = 64 * 1024;
-const MAX_PROMPT_LEN = 64 * 1024;
-const MAX_ID_LEN = 128;
 // The Remote Companion reports more changed paths than this as unknown.
 const MAX_CHANGED_PATHS = 500;
 
@@ -230,181 +221,6 @@ const createWorkspacePayloadSchema = z
     initialPrompt: z.string().max(MAX_PROMPT_LEN).optional(),
   })
   .strip();
-
-const statusItemIdSchema = z
-  .string()
-  .regex(
-    STATUS_ITEM_ID_PATTERN,
-    'Status item ids are up to 40 letters, digits, dots, dashes and underscores.'
-  );
-const statusItemColorSchema = z
-  .string()
-  .trim()
-  .refine(
-    isStatusItemColor,
-    'Status item colors are success, warning, error, info, muted, foreground or a hex color such as #e5c07b.'
-  );
-const statusPopoverMarkdownSchema = z.string().trim().min(1).max(MAX_STATUS_POPOVER_MARKDOWN);
-const statusPopoverHtmlSchema = z.string().trim().min(1).max(MAX_STATUS_POPOVER_HTML);
-// Terminal colors in an item's text don't count toward its length.
-const MAX_STATUS_ITEM_RAW_TEXT = 1_000;
-const fitsStatusItem = (text: string) => {
-  const length = visibleStatusText(text).length;
-  return length > 0 && length <= MAX_STATUS_ITEM_TEXT;
-};
-const statusItemTextSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(MAX_STATUS_ITEM_RAW_TEXT)
-  .refine(
-    fitsStatusItem,
-    `Status item text is 1 to ${MAX_STATUS_ITEM_TEXT} characters, not counting terminal colors.`
-  );
-// Percent-encoded SVG can take three characters a byte.
-const MAX_STATUS_ICON_INPUT = MAX_STATUS_ICON_BYTES * 3;
-const statusIconSchema = z
-  .string()
-  .max(MAX_STATUS_ICON_INPUT)
-  .refine(
-    (icon) => statusIconDataUrl(icon) !== undefined,
-    `Status item icons are SVG markup or an image data URL (SVG, PNG, WebP, GIF or JPEG) of at most ${MAX_STATUS_ICON_BYTES / 1024} KB.`
-  );
-const workspaceTagNameSchema = z.string().trim().min(1).max(MAX_WORKSPACE_TAG_LENGTH);
-const statusItemSegmentsSchema = z
-  .array(
-    z.union([
-      z
-        .object({
-          // The parts' text together, past terminal colors, is checked below.
-          text: z.string().min(1).max(MAX_STATUS_ITEM_RAW_TEXT),
-          color: statusItemColorSchema.optional(),
-          bold: z.boolean().optional(),
-        })
-        .strict(),
-      z.object({ icon: statusIconSchema, color: statusItemColorSchema.optional() }).strict(),
-    ])
-  )
-  .min(1)
-  .max(MAX_STATUS_ITEM_SEGMENTS)
-  .refine(
-    (segments) =>
-      fitsStatusItem(segments.map((segment) => ('text' in segment ? segment.text : '')).join('')),
-    `Status item segments are 1 to ${MAX_STATUS_ITEM_TEXT} characters together.`
-  )
-  .refine(
-    (segments) => segments.filter((segment) => 'icon' in segment).length <= MAX_STATUS_ITEM_ICONS,
-    `A status item shows at most ${MAX_STATUS_ITEM_ICONS} icons.`
-  );
-
-const komlaOperationSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('context.get') }).strict(),
-  z
-    .object({
-      type: z.literal('agent.presets'),
-      includeInactive: z.boolean().optional(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('agent.launch'),
-      destination: z.enum(['tab', 'workspace']),
-      project: z.string().min(1).max(MAX_PROJECT_NAME_LEN).optional(),
-      preset: z.string().min(1).max(MAX_NAME_LEN).optional(),
-      mode: z.string().min(1).max(MAX_NAME_LEN).optional(),
-      prompt: z.string().max(MAX_PROMPT_LEN).optional(),
-      name: z.string().min(1).max(MAX_NAME_LEN).optional(),
-      description: z.string().max(MAX_DESCRIPTION_LEN).optional(),
-      branch: z.string().min(1).max(MAX_BRANCH_LEN).optional(),
-      fromCurrentBranch: z.boolean().optional(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('workspace.title'),
-      title: z.string().trim().min(1).max(MAX_NAME_LEN),
-      description: z.string().max(MAX_DESCRIPTION_LEN).optional(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('workspace.snooze'),
-      until: z.string().trim().min(1).max(40).optional(),
-      untilNotified: z.literal(true).optional(),
-    })
-    .strict()
-    .refine((operation) => operation.until !== undefined || operation.untilNotified, {
-      message: 'A snooze needs until or untilNotified.',
-    }),
-  z.object({ type: z.literal('workspace.wake') }).strict(),
-  z.object({ type: z.literal('workspace.list'), includeTrashed: z.boolean().optional() }).strict(),
-  z.object({ type: z.literal('tag.list') }).strict(),
-  z
-    .object({
-      type: z.literal('workspace.tag'),
-      tag: workspaceTagNameSchema.optional(),
-      tooltip: z.string().trim().min(1).max(MAX_WORKSPACE_TAG_TOOLTIP).optional(),
-      tone: z.enum(WORKSPACE_TAG_TONES).optional(),
-      // Saved with the tag as the base64 data URL a status item's icon is.
-      icon: statusIconSchema.transform((icon) => statusIconDataUrl(icon) as string).optional(),
-      spinner: z.boolean().optional(),
-      ifTag: workspaceTagNameSchema.optional(),
-    })
-    .strict(),
-  z.object({ type: z.literal('workspace.trash') }).strict(),
-  z
-    .object({
-      type: z.enum(['workspace.link', 'workspace.unlink']),
-      workspaceIds: z.array(z.string().min(1).max(MAX_ID_LEN)).min(1).max(100),
-    })
-    .strict(),
-  z.object({ type: z.literal('folder.open'), path: z.string().min(1).max(4096) }).strict(),
-  z
-    .object({
-      type: z.literal('status.set'),
-      id: statusItemIdSchema,
-      text: statusItemTextSchema.optional(),
-      segments: statusItemSegmentsSchema.optional(),
-      icon: statusIconSchema.optional(),
-      iconColor: statusItemColorSchema.optional(),
-      tone: z.enum(STATUS_ITEM_TONES).optional(),
-      color: statusItemColorSchema.optional(),
-      tooltip: z.string().trim().min(1).max(MAX_STATUS_ITEM_TOOLTIP).optional(),
-      link: z.string().min(1).max(MAX_PATH_LEN).optional(),
-      popover: statusPopoverHtmlSchema.optional(),
-      popoverMarkdown: statusPopoverMarkdownSchema.optional(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('status.clear'),
-      id: statusItemIdSchema.optional(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('status.refresh'),
-      id: statusItemIdSchema,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('preview.open'),
-      url: z.string().min(1).max(MAX_PATH_LEN).optional(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('desktop.open'),
-      vncPort: z.number().int().min(1).max(65535),
-      url: z.string().max(MAX_BROWSER_URL_LENGTH).refine(isBrowserUrl).optional(),
-      viewer: z.enum(VIRTUAL_DESKTOP_VIEWERS).optional(),
-      vncPassword: z.string().min(1).max(MAX_VNC_PASSWORD_LENGTH).optional(),
-      vncPorts: z.array(z.number().int().min(1).max(65535)).max(100).optional(),
-      app: z.string().min(1).max(MAX_VIRTUAL_DESKTOP_NAME_LENGTH).optional(),
-    })
-    .strict(),
-]);
 
 type NotificationPayload = z.infer<typeof notificationPayloadSchema>;
 
@@ -544,8 +360,6 @@ const sshWorkspaceStatusPayloadSchema = z.object({
   targetBranchAheadRemote: z.number().int().nonnegative().optional(),
   targetBranchBehindRemote: z.number().int().nonnegative().optional(),
 });
-
-type CreateWorkspacePayload = z.infer<typeof createWorkspacePayloadSchema>;
 
 type SettingsValidationFile = 'projects' | 'actions';
 
@@ -715,22 +529,6 @@ function isValidActionEntry(value: unknown): boolean {
     hasOptionalEnum(action, 'sshExecutionLocation', ACTION_SSH_EXECUTION_LOCATIONS) &&
     hasOptionalBoolean(action, 'background')
   );
-}
-
-interface CreateWorkspaceResult {
-  workspace: {
-    id: string;
-    name: string;
-    branchName?: string;
-    workingDirectory?: string;
-    provisioning: boolean;
-  };
-}
-
-interface CreateWorkspaceError {
-  error: string;
-  statusCode: number;
-  availableProjects?: string[];
 }
 
 /** What a settings approval says it changes. */
@@ -962,13 +760,7 @@ class HttpServerService {
           this.writeKomlaCommandError(res, 400, 'INVALID_JSON', 'Request body must be JSON.');
           return;
         }
-        const parsed = komlaOperationSchema.safeParse(raw);
-        if (!parsed.success) {
-          this.writeKomlaCommandError(res, 400, 'INVALID_OPERATION', 'Invalid Komla operation.', {
-            issues: parsed.error.issues,
-          });
-          return;
-        }
+        const operation = parseKomlaOperation(raw);
         const sshHostId = this.singleHeader(req.headers['x-komla-ssh-host-id']);
         const targetWorkspaceId = this.singleHeader(req.headers['x-komla-target-workspace-id']);
         const requestedAt = this.requestedAt(req);
@@ -983,7 +775,7 @@ class HttpServerService {
                 cwd: url.searchParams.get('cwd') ?? undefined,
                 requestedAt,
               },
-          parsed.data
+          operation
         );
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, result }));
@@ -2061,128 +1853,6 @@ class HttpServerService {
     })();
   }
 
-  private unreadyPinnedHostError(hostId: string): CreateWorkspaceError {
-    return { error: unreadyPinnedHostMessage(sshHostService.get(hostId)), statusCode: 409 };
-  }
-
-  private async createWorkspaceInternal(
-    payload: CreateWorkspacePayload
-  ): Promise<CreateWorkspaceResult | CreateWorkspaceError> {
-    let project: ReturnType<typeof projectService.get> | undefined;
-    let sourceWorkspace: Workspace | undefined;
-    // A cwd may match several synced copies of a workspace, which resolves only its project.
-    let fromWorkspace = false;
-    if (payload.cwd) {
-      // Derive project from workspaces matching the cwd. Unlike tools that
-      // mutate a workspace, spawning a new workspace only needs an unambiguous
-      // project.
-      const resolution = this.findWorkspaceProjectByCwd(payload.cwd);
-      if (resolution.error && resolution.error !== 'No matching workspace found') {
-        return {
-          error: resolution.error,
-          statusCode: 400,
-        };
-      }
-      project = resolution.project;
-      sourceWorkspace = resolution.sourceWorkspace;
-      fromWorkspace = !!project || !!sourceWorkspace;
-    }
-
-    if (!project && payload.project) {
-      // Fallback for REST API: find project by name (case-insensitive)
-      const projects = projectService.list();
-      project = projects.find((p) => p.name.toLowerCase() === payload.project!.toLowerCase());
-      if (!project) {
-        return {
-          error: `Project "${payload.project}" not found`,
-          statusCode: 404,
-          availableProjects: projects.map((p) => p.name),
-        };
-      }
-    }
-
-    const sshSourceBackend =
-      sourceWorkspace && isSshWorkspace(sourceWorkspace) ? sourceWorkspace.backend : undefined;
-    const isSourceSsh = sshSourceBackend !== undefined;
-    if (!project && !isSourceSsh) {
-      const projects = projectService.list();
-      return {
-        error: payload.cwd
-          ? `No matching workspace found for cwd: ${payload.cwd}`
-          : 'Missing required field: cwd',
-        statusCode: 400,
-        availableProjects: projects.map((p) => p.name),
-      };
-    }
-
-    // Create workspace in the same window as the caller when we can identify it
-    // from cwd. Fall back to the main window for project-only REST calls.
-    const targetWindowId = sourceWorkspace?.windowId ?? windowService.getMainWindowId();
-    // Always defer provisioning so the workspace appears instantly in the UI.
-    // Worktree creation (the slow part) happens in the background.
-    const deferBranchNaming = true;
-    const mcpConfig = configService.get();
-    const placement = agentLaunchWorkspacePlacement(
-      mcpConfig,
-      {
-        mode: project?.kind === 'directory' ? 'directory' : 'worktree',
-        sourceIsSsh: isSourceSsh,
-        fromWorkspace,
-      },
-      (hostId) => sshHostService.isReady(hostId)
-    );
-    if ('unreadyHostId' in placement) return this.unreadyPinnedHostError(placement.unreadyHostId);
-    const commonCreateParams = {
-      ...(sshSourceBackend
-        ? {
-            location: {
-              kind: 'ssh' as const,
-              hostId: sshSourceBackend.hostId,
-              gitUrl: sshSourceBackend.gitUrl,
-              sourceBackend: sshSourceBackend,
-            },
-            ...(project ? { projectId: project.id } : {}),
-          }
-        : { projectId: project!.id }),
-      customName: payload.name,
-      customDescription: payload.description,
-      initialPrompt: payload.initialPrompt,
-      windowId: targetWindowId ?? undefined,
-      presetId: mcpConfig.agentLaunchDefaultPresetId ?? undefined,
-      launchModeId: mcpConfig.agentLaunchDefaultLaunchModeId ?? undefined,
-      ...placement,
-      skipRecordUsage: true,
-    };
-    const workspace =
-      project?.kind === 'directory'
-        ? await workspaceService.create({
-            ...commonCreateParams,
-            mode: 'directory',
-          })
-        : await workspaceService.create({
-            ...commonCreateParams,
-            mode: 'worktree',
-            branchName: payload.branchName,
-            deferBranchNaming,
-          });
-
-    // Notify renderers through the readiness-aware queue so provisioning placeholders
-    // are still delivered while a window is mounting or reloading.
-    for (const windowId of windowService.getAllWindowIds()) {
-      windowService.sendWhenReady(windowId, IPC.WORKSPACE_CREATED, workspace);
-    }
-
-    return {
-      workspace: {
-        id: workspace.id,
-        name: workspace.name,
-        ...(workspace.branchName ? { branchName: workspace.branchName } : {}),
-        ...(workspace.workingDirectory ? { workingDirectory: workspace.workingDirectory } : {}),
-        provisioning: workspace.provisioning || false,
-      },
-    };
-  }
-
   private handleCreateWorkspaceRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     // This route takes a bare project name and places the workspace by the
     // launch defaults. Remote agents launch through the CLI or MCP instead,
@@ -2229,23 +1899,49 @@ class HttpServerService {
         return;
       }
 
+      const { cwd, project, branchName, name, description, initialPrompt } = parsed.data;
       try {
-        const result = await this.createWorkspaceInternal(parsed.data);
-
-        if ('error' in result) {
-          res.writeHead(result.statusCode, { 'Content-Type': 'application/json' });
+        const { state, destination } = await komlaOperationService.execute(
+          { cwd },
+          {
+            type: 'agent.launch',
+            destination: 'workspace',
+            project,
+            branch: branchName,
+            name,
+            description,
+            prompt: initialPrompt,
+          }
+        );
+        // A workspace launch always lands in a new workspace.
+        if (destination.kind !== 'workspace') throw new Error('Launched into a tab');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            success: true,
+            workspace: {
+              id: destination.workspaceId,
+              name: workspaceService.get(destination.workspaceId)?.name,
+              ...(destination.branch ? { branchName: destination.branch } : {}),
+              ...(destination.path ? { workingDirectory: destination.path } : {}),
+              provisioning: state === 'provisioning',
+            },
+          })
+        );
+      } catch (error) {
+        if (error instanceof KomlaOperationError && !res.headersSent) {
+          const projects = error.details?.availableProjects;
+          res.writeHead(error.statusCode, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
-              error: result.error,
-              ...(result.availableProjects ? { availableProjects: result.availableProjects } : {}),
+              error: error.message,
+              ...(Array.isArray(projects)
+                ? { availableProjects: projects.map((entry: { name: string }) => entry.name) }
+                : {}),
             })
           );
           return;
         }
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, workspace: result.workspace }));
-      } catch (error) {
         if (!res.headersSent) {
           // Log full detail server-side; return a stable generic body since this
           // endpoint is unauthenticated and callable from any local agent.
@@ -2263,10 +1959,6 @@ class HttpServerService {
       this.getWorkspaceCwdContext(sshHostId),
       { rejectAmbiguousMatches: true }
     );
-  }
-
-  private findWorkspaceProjectByCwd(cwd: string): WorkspaceProjectCwdResolution {
-    return workspaceCwdResolutionService.findProjectByCwd(cwd, this.getWorkspaceCwdContext());
   }
 
   private resolveWorkspaceByCwd(
@@ -2413,22 +2105,17 @@ class HttpServerService {
             prompt: params.initialPrompt,
             ...(params.fromCurrentBranch ? { fromCurrentBranch: true } : {}),
           },
-          (result) => {
-            const destination = result.destination as Record<string, unknown>;
+          ({ state, destination }) => {
+            const { branch, branchedFrom, path } =
+              destination.kind === 'workspace' ? destination : {};
             const lines = [
-              result.state === 'provisioning' && !destination.branch
+              state === 'provisioning' && !branch
                 ? 'Workspace created — generating branch name in the background. The agent will start automatically once ready.'
                 : 'Agent spawned in new workspace.',
             ];
-            if (typeof destination.branch === 'string') {
-              lines.push(`Branch: ${destination.branch}`);
-            }
-            if (typeof destination.branchedFrom === 'string') {
-              lines.push(`Branched from: ${destination.branchedFrom} (committed work only)`);
-            }
-            if (typeof destination.path === 'string') {
-              lines.push(`Path: ${destination.path}`);
-            }
+            if (branch) lines.push(`Branch: ${branch}`);
+            if (branchedFrom) lines.push(`Branched from: ${branchedFrom} (committed work only)`);
+            if (path) lines.push(`Path: ${path}`);
             return lines.join('\n');
           }
         );
@@ -2592,16 +2279,13 @@ class HttpServerService {
     return server;
   }
 
-  private async executeMcpOperation(
+  private async executeMcpOperation<T extends KomlaOperation>(
     context: KomlaOperationContext,
-    operation: KomlaOperation,
-    render: (result: Record<string, unknown>) => string
+    operation: T,
+    render: (result: KomlaOperationResult<T['type']>) => string
   ): Promise<CallToolResult> {
     try {
-      const result = (await komlaOperationService.execute(context, operation)) as Record<
-        string,
-        unknown
-      >;
+      const result = await komlaOperationService.execute(context, operation);
       return { content: [{ type: 'text' as const, text: render(result) }] };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';

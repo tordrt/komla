@@ -6,6 +6,9 @@ import { getWorkspaceCwdIdentity, isSshWorkspace } from '../../shared/types';
 
 import type { Project, Workspace } from '../../shared/types';
 
+/** The error a resolution carries when no workspace matches the cwd at all. */
+export const NO_MATCHING_WORKSPACE = 'No matching workspace found';
+
 export type WorkspaceCwdResolution =
   | { workspace: Workspace; error?: undefined }
   | { workspace?: undefined; error: string };
@@ -27,7 +30,7 @@ class WorkspaceCwdResolutionService {
     context: WorkspaceCwdResolutionContext
   ): WorkspaceProjectCwdResolution {
     const candidates = this.findCandidatesByCwd(cwd, context);
-    if (candidates.length === 0) return { error: 'No matching workspace found' };
+    if (candidates.length === 0) return { error: NO_MATCHING_WORKSPACE };
 
     const projectsById = new Map<string, Project>();
     for (const workspace of candidates) {
@@ -53,7 +56,7 @@ class WorkspaceCwdResolutionService {
             error:
               sshCandidates.length > 1
                 ? `Multiple SSH workspaces match cwd: ${cwd}. This workspace creation request cannot safely choose a source.`
-                : 'No matching workspace found',
+                : NO_MATCHING_WORKSPACE,
           };
     }
 
@@ -75,7 +78,7 @@ class WorkspaceCwdResolutionService {
       project = projectsById.get(Array.from(runningProjectIds)[0]);
     }
 
-    if (!project) return { error: 'No matching workspace found' };
+    if (!project) return { error: NO_MATCHING_WORKSPACE };
 
     const projectCandidates = candidates.filter((workspace) => workspace.projectId === project.id);
     const runningProjectCandidates = projectCandidates.filter((workspace) =>
@@ -142,9 +145,7 @@ class WorkspaceCwdResolutionService {
       matchingWorkspace = this.findWorktreePathMatch(normalizedCwd, context);
     }
 
-    return matchingWorkspace
-      ? { workspace: matchingWorkspace }
-      : { error: 'No matching workspace found' };
+    return matchingWorkspace ? { workspace: matchingWorkspace } : { error: NO_MATCHING_WORKSPACE };
   }
 
   private findDeepestDirectoryMatches(normalizedCwd: string, workspaces: Workspace[]): Workspace[] {
@@ -212,7 +213,7 @@ class WorkspaceCwdResolutionService {
     cwd: string,
     candidates: Workspace[]
   ): WorkspaceCwdResolution {
-    if (candidates.length === 0) return { error: 'No matching workspace found' };
+    if (candidates.length === 0) return { error: NO_MATCHING_WORKSPACE };
     if (candidates.length === 1) return { workspace: candidates[0] };
 
     const runningMatches = candidates.filter((workspace) => this.hasRunningTerminal(workspace));

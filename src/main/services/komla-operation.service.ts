@@ -21,16 +21,21 @@ import { statusCommandsService } from './status-commands.service';
 import { statusItemsService } from './status-items.service';
 import { getVncAppName, openInVncApp } from './virtual-desktop.service';
 import { windowService } from './window.service';
-import { workspaceCwdResolutionService } from './workspace-cwd-resolution.service';
+import {
+  NO_MATCHING_WORKSPACE,
+  workspaceCwdResolutionService,
+} from './workspace-cwd-resolution.service';
 import { workspaceLinksService } from './workspace-links.service';
 import { workspaceService } from './workspace.service';
 
 const logger = createLogger('KomlaOperationService');
 
 export type {
+  AgentLaunchResult,
   KomlaOperation,
   KomlaOperationContext,
   KomlaOperationDependencies,
+  KomlaOperationResult,
 } from './komla-operation/operation';
 export { KomlaOperationError, KomlaOperationService } from './komla-operation/operation';
 
@@ -88,8 +93,8 @@ const productionDependencies: KomlaOperationDependencies = {
       },
       { rejectAmbiguousMatches: true }
     ),
-  resolveProjectByCwd: (cwd, sshHostId) =>
-    workspaceCwdResolutionService.findProjectByCwd(cwd, {
+  resolveProjectByCwd: (cwd, sshHostId) => {
+    const resolution = workspaceCwdResolutionService.findProjectByCwd(cwd, {
       workspaces: workspaceService
         .list()
         .filter(
@@ -99,7 +104,10 @@ const productionDependencies: KomlaOperationDependencies = {
         ),
       getProject: (id) => projectService.get(id),
       komlaBasePath: getKomlaBasePath(),
-    }),
+    });
+    // A cwd outside every workspace isn't ambiguous: the launch names its project instead.
+    return resolution.error === NO_MATCHING_WORKSPACE ? {} : resolution;
+  },
   resolveEnvironment: () =>
     resolveWorkspaceCreationEnvironment({
       ...configService.get(),

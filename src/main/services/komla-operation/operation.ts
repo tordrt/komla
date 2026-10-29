@@ -226,12 +226,16 @@ export interface KomlaOperationDependencies {
     workspace?: KomlaOperationWorkspace;
     error?: string;
   };
+  /**
+   * The project of the workspaces a cwd matches, and the one of them a launch from it sits
+   * beside. `error` says why matching workspaces name no single project.
+   */
   resolveProjectByCwd(
     cwd: string,
     sshHostId?: string
   ): {
     project?: KomlaOperationProject;
-    workspace?: KomlaOperationWorkspace;
+    sourceWorkspace?: KomlaOperationWorkspace;
     error?: string;
   };
   /** Where a new workspace starts when the launch names no environment. */
@@ -380,6 +384,36 @@ export type KomlaOperation =
     };
 
 type AgentLaunchOperation = Extract<KomlaOperation, { type: 'agent.launch' }>;
+
+export interface AgentLaunchResult {
+  /** A new workspace is provisioning while its worktree and branch are made. */
+  state: 'started' | 'provisioning';
+  destination:
+    | { kind: 'tab'; workspaceId: string; terminalId: string }
+    | {
+        kind: 'workspace';
+        workspaceId: string;
+        path?: string;
+        branch?: string;
+        /** The calling workspace's branch, for a launch from the current branch. */
+        branchedFrom?: string;
+      };
+  agent?: AgentLaunchSelection;
+}
+
+interface AgentLaunchSelection {
+  preset: { id: string; name: string };
+  mode?: { id: string; name: string };
+}
+
+/** What `execute` resolves to for each operation; one not listed resolves to `unknown`. */
+export interface KomlaOperationResults {
+  'agent.launch': AgentLaunchResult;
+}
+
+export type KomlaOperationResult<T extends KomlaOperation['type']> =
+  T extends keyof KomlaOperationResults ? KomlaOperationResults[T] : unknown;
+
 type AgentSelection = {
   preset?: AgentPreset;
   mode?: AgentPreset['launchModes'][number];
@@ -403,7 +437,17 @@ export class KomlaOperationService {
 
   constructor(private readonly dependencies: KomlaOperationDependencies) {}
 
-  async execute(context: KomlaOperationContext, operation: KomlaOperation): Promise<unknown> {
+  async execute<T extends KomlaOperation>(
+    context: KomlaOperationContext,
+    operation: T
+  ): Promise<KomlaOperationResult<T['type']>> {
+    return this.dispatch(context, operation) as Promise<KomlaOperationResult<T['type']>>;
+  }
+
+  private async dispatch(
+    context: KomlaOperationContext,
+    operation: KomlaOperation
+  ): Promise<unknown> {
     switch (operation.type) {
       case 'context.get':
         return this.getContext(context);
@@ -1100,8 +1144,8 @@ export class KomlaOperationService {
 
   private async launchAgent(
     context: KomlaOperationContext,
-    operation: Extract<KomlaOperation, { type: 'agent.launch' }>
-  ): Promise<unknown> {
+    operation: AgentLaunchOperation
+  ): Promise<AgentLaunchResult> {
     this.requireCapability(
       operation.destination === 'workspace' ? 'agent.launch.workspace' : 'agent.launch.tab'
     );
@@ -1155,7 +1199,7 @@ export class KomlaOperationService {
     context: KomlaOperationContext,
     workspace: KomlaOperationWorkspace | undefined,
     operation: AgentLaunchOperation
-  ): Promise<unknown> {
+  ): Promise<AgentLaunchResult> {
     const target = this.resolveWorkspaceLaunchTarget(context, workspace, operation.project);
     const placement = this.workspaceLaunchParams(
       target.project,
@@ -1165,7 +1209,7 @@ export class KomlaOperationService {
       context.sshHostId
     );
     const selection = this.resolveAgentSelection(
-      workspace,
+      target.workspace,
       operation.preset,
       operation.mode,
       plannedWorkspaceEnvironment(placement, this.dependencies.resolveEnvironment()),
@@ -1223,10 +1267,10 @@ export class KomlaOperationService {
       !workspace && context.cwd
         ? this.dependencies.resolveProjectByCwd(context.cwd, context.sshHostId)
         : undefined;
-    workspace ??= contextResolution?.workspace;
+    workspace ??= contextResolution?.sourceWorkspace;
     // The cwd may match several synced copies, in which case only the project resolves.
     if (!projectSelector && !workspace && !contextResolution?.project) {
-      throw this.projectRequiredError(context.sshHostId);
+      throw this.projectRequiredError(context.sshHostId, contextResolution?.error);
     }
     const project = projectSelector
       ? this.resolveProjectSelector(projectSelector)
@@ -1248,12 +1292,23 @@ export class KomlaOperationService {
     return { project, workspace, fromWorkspace: !!workspace || !!contextResolution?.project };
   }
 
-  /** A launch from outside every workspace names its project; this lists the ones it may. */
-  private projectRequiredError(sshHostId?: string): KomlaOperationError {
+  /**
+   * A launch from outside every workspace, or from where workspaces of several projects meet
+   * (`ambiguity` says how), names its project; this lists the ones it may.
+   */
+  private projectRequiredError(sshHostId?: string, ambiguity?: string): KomlaOperationError {
     // A request through an SSH host's tunnel places work on that host, where folder projects can't run.
     const projects = this.dependencies
       .listProjects()
       .filter((project) => !sshHostId || project.kind !== 'directory');
+    if (ambiguity) {
+      return new KomlaOperationError(
+        'PROJECT_AMBIGUOUS',
+        `${ambiguity} Name the project with --project.`,
+        409,
+        { availableProjects: projects.map(({ id, name }) => ({ id, name })) }
+      );
+    }
     return new KomlaOperationError(
       'PROJECT_REQUIRED',
       projects.length
@@ -1507,7 +1562,10 @@ export class KomlaOperationService {
     );
   }
 
-  private agentResult(preset: AgentPreset, mode?: AgentPreset['launchModes'][number]): unknown {
+  private agentResult(
+    preset: AgentPreset,
+    mode?: AgentPreset['launchModes'][number]
+  ): AgentLaunchSelection {
     return {
       preset: { id: preset.id, name: preset.name },
       ...(mode ? { mode: { id: mode.id, name: mode.name } } : {}),

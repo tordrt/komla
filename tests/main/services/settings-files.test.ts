@@ -445,21 +445,21 @@ describe('settings files', () => {
             kind: 'agent-preset',
             title: 'Goose',
             moreContent: [
-              { label: 'Open command', content: 'goose --trust "$PWD" session {{launchMode}}' },
-              { label: 'Open command, from', content: 'goose session {{launchMode}}' },
+              {
+                label: 'Open command',
+                content: 'goose --trust "$PWD" session {{launchMode}}',
+                previous: 'goose session {{launchMode}}',
+              },
               {
                 label: 'Continue command',
                 content: 'goose --trust "$PWD" session --resume {{launchMode}}',
-              },
-              {
-                label: 'Continue command, from',
-                content: 'goose session --resume {{launchMode}}',
+                previous: 'goose session --resume {{launchMode}}',
               },
               {
                 label: 'Prompt command',
                 content: 'goose --trust "$PWD" run {{launchMode}} -t {{prompt}}',
+                previous: 'goose run {{launchMode}} -t {{prompt}}',
               },
-              { label: 'Prompt command, from', content: 'goose run {{launchMode}} -t {{prompt}}' },
             ],
             details: [],
           },
@@ -495,8 +495,11 @@ describe('settings files', () => {
         changes: [
           {
             moreContent: [
-              { label: 'Open command', content: 'GOOSE_MODE="a b" goose --trust session' },
-              { label: 'Open command, from', content: 'GOOSE_MODE="a b" goose session' },
+              {
+                label: 'Open command',
+                content: 'GOOSE_MODE="a b" goose --trust session',
+                previous: 'GOOSE_MODE="a b" goose session',
+              },
             ],
           },
         ],
@@ -582,8 +585,8 @@ describe('settings files', () => {
               title: 'Goose',
               moreContent: [],
               details: [
-                { label: 'Picker title', value: 'Thinking, from Effort' },
-                { label: 'Picker icon', value: 'brain, from gauge' },
+                { label: 'Picker title', value: 'Thinking', previous: 'Effort' },
+                { label: 'Picker icon', value: 'brain', previous: 'gauge' },
               ],
             },
           ],
@@ -601,7 +604,7 @@ describe('settings files', () => {
               kind: 'agent-preset',
               title: 'Goose',
               moreContent: [],
-              details: [{ label: 'Picker', value: 'hidden, from shown' }],
+              details: [{ label: 'Picker', value: 'Hidden', previous: 'Shown' }],
             },
           ],
         });
@@ -614,7 +617,7 @@ describe('settings files', () => {
           files.agents.prepare({ presets: [{ id: 'goose-id', levelPicker: { title: 'Model' } }] })
         ).toMatchObject({
           next: [{ id: 'goose-id', updates: { levelPicker: { title: 'Model', hidden: true } } }],
-          changes: [{ details: [{ label: 'Picker title', value: 'Model, from Effort' }] }],
+          changes: [{ details: [{ label: 'Picker title', value: 'Model', previous: 'Effort' }] }],
         });
       });
 
@@ -663,8 +666,8 @@ describe('settings files', () => {
                 {
                   label: 'Levels',
                   content: 'High: --effort high\nLow: --effort minimal\nFast: --model fast',
+                  previous: 'Low: --effort low\nHigh: --effort high',
                 },
-                { label: 'Levels, from', content: 'Low: --effort low\nHigh: --effort high' },
               ],
               details: [],
             }),
@@ -694,7 +697,7 @@ describe('settings files', () => {
           files.agents.prepare({ presets: [{ id: 'goose-id', levelPicker: { levels: [] } }] })
         ).toMatchObject({
           next: [{ id: 'goose-id', updates: { reasoningLevels: [] } }],
-          changes: [{ moreContent: [{ label: 'Levels', content: 'None' }, expect.anything()] }],
+          changes: [{ moreContent: [{ label: 'Levels', content: 'None', previous: 'Not set' }] }],
         });
       });
 

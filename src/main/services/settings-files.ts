@@ -539,8 +539,8 @@ export function createSettingsFiles({
             problems.push(`presets.${index}.program: change it under Settings → Agents`);
           }
           const updates: PresetUpdates = {};
-          const moreContent: { label: string; content: string }[] = [];
-          const details: { label: string; value: string }[] = [];
+          const moreContent: NonNullable<SettingsApprovalChange['moreContent']> = [];
+          const details: SettingsApprovalChange['details'] = [];
           const picker = entry.levelPicker;
           if (picker) {
             const current = levelPickerOf(preset);
@@ -554,17 +554,19 @@ export function createSettingsFiles({
             if (wanted.title !== current.title) {
               details.push({
                 label: 'Picker title',
-                value: `${wanted.title}, from ${current.title}`,
+                value: wanted.title,
+                previous: current.title,
               });
             }
             if (wanted.icon !== current.icon) {
-              details.push({ label: 'Picker icon', value: `${wanted.icon}, from ${current.icon}` });
+              details.push({ label: 'Picker icon', value: wanted.icon, previous: current.icon });
             }
             if (wanted.hidden !== current.hidden) {
-              const shown = (hidden: boolean) => (hidden ? 'hidden' : 'shown');
+              const shown = (hidden: boolean) => (hidden ? 'Hidden' : 'Shown');
               details.push({
                 label: 'Picker',
-                value: `${shown(wanted.hidden)}, from ${shown(current.hidden)}`,
+                value: shown(wanted.hidden),
+                previous: shown(current.hidden),
               });
             }
             // Trimmed as the schema trims what is applied, so unchanged levels compare equal.
@@ -592,10 +594,11 @@ export function createSettingsFiles({
                 levelsKey(wantedLevels) !== levelsKey(levels))
             ) {
               updates.reasoningLevels = wantedLevels;
-              moreContent.push(
-                { label: 'Levels', content: levelLines(wantedLevels) },
-                { label: 'Levels, from', content: levelLines(levels) }
-              );
+              moreContent.push({
+                label: 'Levels',
+                content: levelLines(wantedLevels),
+                previous: preset.reasoningLevels !== undefined ? levelLines(levels) : 'Not set',
+              });
             }
           }
           const args = entry.addArguments;
@@ -610,10 +613,11 @@ export function createSettingsFiles({
               const command = withArguments(preset[key], program, args);
               if (command === undefined) continue;
               updates[key] = command;
-              moreContent.push(
-                { label: PRESET_COMMANDS[key], content: command },
-                { label: `${PRESET_COMMANDS[key]}, from`, content: preset[key] }
-              );
+              moreContent.push({
+                label: PRESET_COMMANDS[key],
+                content: command,
+                previous: preset[key],
+              });
             }
           }
           if (Object.keys(updates).length === 0) return;

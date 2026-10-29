@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -254,6 +254,120 @@ describe('SettingsApprovalDialog', () => {
     expect(screen.getByText('gh pr view')).toBeInTheDocument();
     expect(screen.getByText('Button command rerun')).toBeInTheDocument();
     expect(screen.getByText('gh run rerun --failed')).toBeInTheDocument();
+  });
+
+  it('shows a changed command once, as what it was and what it becomes', () => {
+    render(<SettingsApprovalDialog />);
+
+    act(() => {
+      onRequested?.({
+        id: 'approval-agents',
+        resource: 'agents',
+        target: 'Agents',
+        changes: [
+          {
+            operation: 'edit',
+            kind: 'agent-preset',
+            title: 'Claude Code',
+            moreContent: [
+              {
+                label: 'Open command',
+                content: 'claude --add-dir ~/notes --verbose',
+                previous: 'claude --verbose',
+              },
+              {
+                label: 'Levels',
+                content: 'Low: --effort low\nHigh: --effort max',
+                previous: 'Low: --effort low\nHigh: --effort high',
+              },
+            ],
+            details: [{ label: 'Picker title', value: 'Effort', previous: 'Reasoning' }],
+          },
+        ],
+      });
+    });
+
+    expect(screen.getAllByText('Open command')).toHaveLength(1);
+    const command = screen.getByRole('figure', { name: 'Open command' });
+    expect(within(command).getByRole('deletion')).toHaveTextContent('claude --verbose');
+    const added = within(command).getByRole('insertion');
+    expect(added).toHaveTextContent('claude --add-dir ~/notes --verbose');
+    // The arguments the change adds stand out within the command.
+    expect(added.querySelector('mark')).toHaveTextContent(/^--add-dir ~\/notes\s*$/);
+
+    // A line both versions share shows once, as neither removed nor added.
+    const levels = screen.getByRole('figure', { name: 'Levels' });
+    expect(within(levels).getAllByText('Low: --effort low')).toHaveLength(1);
+    expect(within(levels).getByRole('deletion')).toHaveTextContent('High: --effort high');
+    expect(within(levels).getByRole('insertion')).toHaveTextContent('High: --effort max');
+
+    expect(screen.getByText('Reasoning')).toBeInTheDocument();
+    expect(screen.getByText('Effort')).toBeInTheDocument();
+  });
+
+  it('marks changed words only in a line the edit replaces in place', () => {
+    render(<SettingsApprovalDialog />);
+
+    act(() => {
+      onRequested?.({
+        id: 'approval-levels',
+        resource: 'agents',
+        target: 'Agents',
+        changes: [
+          {
+            operation: 'edit',
+            kind: 'agent-preset',
+            title: 'Claude Code',
+            moreContent: [
+              {
+                label: 'Levels',
+                content: 'High: --effort high\nMax: --effort max',
+                previous: 'Low: --effort low\nHigh: --effort high',
+              },
+            ],
+            details: [],
+          },
+        ],
+      });
+    });
+
+    const levels = screen.getByRole('figure', { name: 'Levels' });
+    expect(within(levels).getByRole('deletion')).toHaveTextContent('Low: --effort low');
+    expect(within(levels).getByRole('insertion')).toHaveTextContent('Max: --effort max');
+    expect(levels.querySelector('mark')).toBeNull();
+  });
+
+  it('marks nothing in a line that changes as a whole', () => {
+    render(<SettingsApprovalDialog />);
+
+    act(() => {
+      onRequested?.({
+        id: 'approval-levels',
+        resource: 'agents',
+        target: 'Agents',
+        changes: [
+          {
+            operation: 'edit',
+            kind: 'agent-preset',
+            title: 'Claude Code',
+            moreContent: [
+              { label: 'Levels', content: 'None', previous: 'Not set' },
+              { label: 'Open command', content: 'codex ', previous: 'claude ' },
+            ],
+            details: [],
+          },
+        ],
+      });
+    });
+
+    const levels = screen.getByRole('figure', { name: 'Levels' });
+    expect(within(levels).getByRole('deletion')).toHaveTextContent('Not set');
+    expect(within(levels).getByRole('insertion')).toHaveTextContent('None');
+    expect(levels.querySelector('mark')).toBeNull();
+    // Sharing only a space still changes the line as a whole.
+    const command = screen.getByRole('figure', { name: 'Open command' });
+    expect(within(command).getByRole('insertion')).toHaveTextContent('codex');
+    expect(command.querySelector('mark')).toBeNull();
   });
 
   it('cancels safely and advances queued proposals', async () => {

@@ -21,6 +21,8 @@ export type SettingsApprovalChangeKind =
 export interface SettingsApprovalDetail {
   label: string;
   value: string;
+  /** What an edit changes the value from. */
+  previous?: string;
 }
 
 /** A user-facing description of the resulting settings value being proposed. */
@@ -30,8 +32,10 @@ export interface SettingsApprovalChange {
   title: string;
   contentLabel?: 'Command' | 'Prompt' | 'Script';
   content?: string;
-  /** Further commands the change runs, each shown in full under its label. */
-  moreContent?: { label: string; content: string }[];
+  /** Further commands the change runs, each shown in full under its label, or with `previous`,
+   * what an edit changes it from (or a placeholder such as "Not set"), shown as the lines it
+   * removes and adds. */
+  moreContent?: { label: string; content: string; previous?: string }[];
   details: SettingsApprovalDetail[];
 }
 

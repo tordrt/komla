@@ -55,7 +55,7 @@ export function BrowserTabList({ browserId, onCloseTab: closeTab }: BrowserTabLi
         tabsKey={tabs.map((tab) => tab.id).join('\n')}
         className="flex h-full min-w-0 items-stretch"
       >
-        {tabs.map((tab) => {
+        {tabs.map((tab, index) => {
           const isActive = tab.id === activeTabId;
           const label = getBrowserTabLabel(tab);
           return (
@@ -63,10 +63,13 @@ export function BrowserTabList({ browserId, onCloseTab: closeTab }: BrowserTabLi
               key={tab.id}
               data-tab-id={tab.id}
               className={cn(
-                'group/tab relative flex w-[180px] max-w-[180px] min-w-[72px] items-center border-r border-border pr-1 text-xs transition-colors',
+                // Half a pixel off the top so the active tab's outline shows there. The first tab
+                // meets the pane's square left edge, without an outline or a rounded corner.
+                'group/tab relative mt-[0.5px] flex w-[180px] max-w-[180px] min-w-[72px] items-center rounded-t-lg pr-1 text-xs transition-colors',
+                index === 0 ? 'edge-tab mr-px rounded-tl-none' : 'mx-px',
                 isActive
-                  ? 'flat-tab-active text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'flat-tab-active joined-tab text-foreground'
+                  : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground'
               )}
             >
               <button

@@ -134,7 +134,7 @@ type WebLinkOpenTarget = NonNullable<AppConfig['webLinkOpenTarget']>;
 const WEB_LINK_OPEN_TARGETS: readonly WebLinkOpenTarget[] = ['auto', 'komla', 'external'];
 
 function normalizeWebLinkOpenTarget(value: unknown): WebLinkOpenTarget {
-  return WEB_LINK_OPEN_TARGETS.find((target) => target === value) ?? 'auto';
+  return WEB_LINK_OPEN_TARGETS.find((target) => target === value) ?? 'external';
 }
 
 // Saved configs keep the default model they were written with. This one is
@@ -354,7 +354,7 @@ const DEFAULT_CONFIG: AppConfig = {
   defaultLiveFollow: false,
   defaultCompareTargetBranch: false,
   defaultDevServerPreviewAutoReload: true,
-  webLinkOpenTarget: 'auto',
+  webLinkOpenTarget: 'external',
   workspaceGrouping: 'project',
   recentFolders: [],
   hideStoppedWorkspaces: false,

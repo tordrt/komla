@@ -105,7 +105,7 @@ describe('TerminalTab', () => {
     expect(updateTerminalConfig).toHaveBeenCalledOnce();
   });
 
-  it('sets where links open, automatically by default', async () => {
+  it('sets where links open, in the default browser by default', async () => {
     const updateConfig = vi
       .spyOn(useConfigStore.getState(), 'updateConfig')
       .mockImplementation(async () => ({ ok: true, error: null }));
@@ -114,10 +114,10 @@ describe('TerminalTab', () => {
     render(<TerminalTab />);
 
     const target = screen.getByRole('radiogroup', { name: 'Open links in' });
-    expect(within(target).getByRole('radio', { name: 'Automatic' })).toBeChecked();
-    await user.click(within(target).getByRole('radio', { name: 'Default browser' }));
+    expect(within(target).getByRole('radio', { name: 'Default browser' })).toBeChecked();
+    await user.click(within(target).getByRole('radio', { name: 'Automatic' }));
 
-    expect(updateConfig).toHaveBeenCalledWith({ webLinkOpenTarget: 'external' });
+    expect(updateConfig).toHaveBeenCalledWith({ webLinkOpenTarget: 'auto' });
   });
 
   it("offers Komla's ConPTY on Windows only, on until turned off", async () => {

@@ -151,7 +151,7 @@ export interface TerminalUrlOpenOptions {
 export function resolveTerminalUrlOpenTarget(
   url: string,
   shiftKey: boolean,
-  { webLinkOpenTarget = 'auto', canOpenInKomla = true }: TerminalUrlOpenOptions = {}
+  { webLinkOpenTarget = 'external', canOpenInKomla = true }: TerminalUrlOpenOptions = {}
 ): 'preview' | 'external' {
   const normalized = normalizeLocalDevServerUrl(url);
   if (!canOpenInKomla || !isBrowserUrl(normalized)) return 'external';

@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: AppConfig = {
   defaultLiveFollow: false,
   defaultCompareTargetBranch: false,
   defaultDevServerPreviewAutoReload: true,
-  webLinkOpenTarget: 'auto',
+  webLinkOpenTarget: 'external',
   directRemoteKeepAwake: false,
   directRemoteLocalAccess: true,
   directRemotePasskeyWindowMinutes: DEFAULT_REMOTE_PASSKEY_WINDOW_MINUTES,

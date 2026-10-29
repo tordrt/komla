@@ -63,7 +63,7 @@ describe('ConfigService', () => {
         defaultLiveFollow: false,
         defaultCompareTargetBranch: false,
         defaultDevServerPreviewAutoReload: true,
-        webLinkOpenTarget: 'auto',
+        webLinkOpenTarget: 'external',
         workspaceGrouping: 'project',
         recentFolders: [],
         hideStoppedWorkspaces: false,
@@ -389,7 +389,7 @@ describe('ConfigService', () => {
       expect(config.defaultDevServerPreviewAutoReload).toBe(false);
     });
 
-    it('should read where website links open, choosing automatically unless set otherwise', async () => {
+    it('should read where website links open, the default browser unless set otherwise', async () => {
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(JSON.stringify({ webLinkOpenTarget: 'external' }));
       const { configService } = await import('../../../src/main/services/config.service');
@@ -403,7 +403,12 @@ describe('ConfigService', () => {
       vi.resetModules();
       mockReadFileSync.mockReturnValue(JSON.stringify({ webLinkOpenTarget: 'elsewhere' }));
       const reloaded = await import('../../../src/main/services/config.service');
-      expect(reloaded.configService.get().webLinkOpenTarget).toBe('auto');
+      expect(reloaded.configService.get().webLinkOpenTarget).toBe('external');
+
+      vi.resetModules();
+      mockReadFileSync.mockReturnValue(JSON.stringify({ webLinkOpenTarget: 'auto' }));
+      const auto = await import('../../../src/main/services/config.service');
+      expect(auto.configService.get().webLinkOpenTarget).toBe('auto');
     });
 
     it('should persist stopped workspace visibility', async () => {

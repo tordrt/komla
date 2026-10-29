@@ -305,6 +305,14 @@ describe('syncTerminalLinkHoverTitle', () => {
       type: 'url',
       url: 'http://localhost:5173',
     });
+    expect(element.title).toBe('Click to open externally · ⇧Click to open in Komla');
+
+    syncTerminalLinkHoverTitle(
+      element,
+      'darwin',
+      { type: 'url', url: 'http://localhost:5173' },
+      { webLinkOpenTarget: 'auto' }
+    );
     expect(element.title).toBe('Click to open in Komla · ⇧Click to open externally');
 
     syncTerminalLinkHoverTitle(element, 'win32', { type: 'url', url: 'https://example.com' });
@@ -374,15 +382,25 @@ describe('syncTerminalLinkHoverTitle', () => {
 });
 
 describe('resolveTerminalUrlOpenTarget', () => {
-  it('opens loopback URLs in Komla on an ordinary click', () => {
-    expect(resolveTerminalUrlOpenTarget('http://localhost:5173', false)).toBe('preview');
-    expect(resolveTerminalUrlOpenTarget('https://127.0.0.1:8443/app', false)).toBe('preview');
-    expect(resolveTerminalUrlOpenTarget('http://0.0.0.0:3000', false)).toBe('preview');
-    expect(resolveTerminalUrlOpenTarget('http://[::]:8000/', false)).toBe('preview');
+  it('opens every web link in the default browser out of the box, and in Komla on Shift-click', () => {
+    expect(resolveTerminalUrlOpenTarget('http://localhost:5173', false)).toBe('external');
+    expect(resolveTerminalUrlOpenTarget('http://localhost:5173', true)).toBe('preview');
+    expect(resolveTerminalUrlOpenTarget('https://example.com/docs', false)).toBe('external');
+    expect(resolveTerminalUrlOpenTarget('https://example.com/docs', true)).toBe('preview');
+  });
+
+  it('opens loopback URLs in Komla on an ordinary click when set to Automatic', () => {
+    const auto = { webLinkOpenTarget: 'auto' } as const;
+    expect(resolveTerminalUrlOpenTarget('http://localhost:5173', false, auto)).toBe('preview');
+    expect(resolveTerminalUrlOpenTarget('https://127.0.0.1:8443/app', false, auto)).toBe('preview');
+    expect(resolveTerminalUrlOpenTarget('http://0.0.0.0:3000', false, auto)).toBe('preview');
+    expect(resolveTerminalUrlOpenTarget('http://[::]:8000/', false, auto)).toBe('preview');
   });
 
   it('opens loopback URLs where the setting says, and the other way on Shift-click', () => {
-    expect(resolveTerminalUrlOpenTarget('http://localhost:5173', true)).toBe('external');
+    expect(
+      resolveTerminalUrlOpenTarget('http://localhost:5173', true, { webLinkOpenTarget: 'auto' })
+    ).toBe('external');
     const external = { webLinkOpenTarget: 'external' } as const;
     expect(resolveTerminalUrlOpenTarget('http://localhost:5173', false, external)).toBe('external');
     expect(resolveTerminalUrlOpenTarget('http://[::1]:5173', false, external)).toBe('external');
@@ -393,17 +411,23 @@ describe('resolveTerminalUrlOpenTarget', () => {
   });
 
   it('counts no page on this computer as a sign-in page', () => {
-    expect(resolveTerminalUrlOpenTarget('http://localhost:3000/login', false)).toBe('preview');
-    expect(resolveTerminalUrlOpenTarget('http://app.localhost:3000/auth', false)).toBe('preview');
+    const auto = { webLinkOpenTarget: 'auto' } as const;
+    expect(resolveTerminalUrlOpenTarget('http://localhost:3000/login', false, auto)).toBe(
+      'preview'
+    );
+    expect(resolveTerminalUrlOpenTarget('http://app.localhost:3000/auth', false, auto)).toBe(
+      'preview'
+    );
     expect(
-      resolveTerminalUrlOpenTarget('http://127.0.0.2:8080/oauth/authorize?client_id=x', false)
+      resolveTerminalUrlOpenTarget('http://127.0.0.2:8080/oauth/authorize?client_id=x', false, auto)
     ).toBe('preview');
   });
 
   it('opens other websites externally unless set otherwise, and the other way on Shift-click', () => {
-    expect(resolveTerminalUrlOpenTarget('https://example.com/docs', false)).toBe('external');
-    expect(resolveTerminalUrlOpenTarget('https://example.com/docs', true)).toBe('preview');
-    expect(resolveTerminalUrlOpenTarget('http://192.168.1.20:3000', false)).toBe('external');
+    const auto = { webLinkOpenTarget: 'auto' } as const;
+    expect(resolveTerminalUrlOpenTarget('https://example.com/docs', false, auto)).toBe('external');
+    expect(resolveTerminalUrlOpenTarget('https://example.com/docs', true, auto)).toBe('preview');
+    expect(resolveTerminalUrlOpenTarget('http://192.168.1.20:3000', false, auto)).toBe('external');
     const komla = { webLinkOpenTarget: 'komla' } as const;
     expect(resolveTerminalUrlOpenTarget('https://example.com/docs', false, komla)).toBe('preview');
     expect(resolveTerminalUrlOpenTarget('https://example.com/docs', true, komla)).toBe('external');

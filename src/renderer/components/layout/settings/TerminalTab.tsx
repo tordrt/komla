@@ -178,7 +178,7 @@ export function TerminalTab() {
           <SegmentedControl
             aria-label="Open links in"
             size="md"
-            value={config?.webLinkOpenTarget ?? 'auto'}
+            value={config?.webLinkOpenTarget ?? 'external'}
             onValueChange={(target) => updateConfig({ webLinkOpenTarget: target })}
             options={[
               { value: 'auto', label: 'Automatic' },

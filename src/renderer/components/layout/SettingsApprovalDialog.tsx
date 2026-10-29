@@ -230,7 +230,7 @@ export function SettingsApprovalDialog() {
         className="max-w-2xl gap-0 overflow-hidden p-0"
         showCloseButton={false}
         // A preview needs the window behind the dialog to stay visible.
-        overlayClassName={preview ? 'bg-black/10 backdrop-blur-none' : undefined}
+        overlayClassName={preview ? 'bg-black/10' : undefined}
         // Clicking the previewed window to look closer shouldn't cancel the change.
         onInteractOutside={preview ? (event) => event.preventDefault() : undefined}
       >

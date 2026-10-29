@@ -43,3 +43,20 @@ describe('DialogBody', () => {
     );
   });
 });
+
+describe('DialogContent', () => {
+  it('dims the window behind it without blurring it', () => {
+    render(
+      <Dialog open>
+        <DialogContent>
+          <DialogTitle>Title</DialogTitle>
+          <DialogDescription>Description</DialogDescription>
+        </DialogContent>
+      </Dialog>
+    );
+
+    const overlay = document.querySelector('[data-native-overlay="dialog"]:not([role="dialog"])');
+    expect(overlay).toHaveClass('bg-black/40');
+    expect(overlay?.className).not.toMatch(/backdrop-blur/);
+  });
+});

@@ -16,8 +16,10 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     data-native-overlay="dialog"
     ref={ref}
+    // Dims without blurring: a backdrop blur redraws the whole window on every frame, so each
+    // keystroke in a dialog, and each line agents print behind it, stalls typing.
     className={cn(
-      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/40 backdrop-blur-md',
+      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/40',
       className
     )}
     {...props}

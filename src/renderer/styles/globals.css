@@ -1145,11 +1145,11 @@ html[data-status-bar-row='large'] [data-status-bar] {
    --sidebar-accent. Popover cards, menus and tooltips share it, so everything that floats
    reads as one family. Lines inside take the input border and fills take --sidebar-muted:
    Komla's --border and --muted are as light as this surface.
-   In light themes, controls the new-workspace dialog floats outside its card get the same
-   surface: the window behind them mixes dark terminals with light chrome, and no text color
-   reads on both. Dark themes leave them on the dimmed window. */
+   Controls the new-workspace dialog floats outside its card get the same surface: the dimmed
+   window shows through sharp behind them, terminal text included, and in light themes it
+   mixes dark terminals with light chrome, so no text color reads on both. */
 .floating-surface,
-.light .floating-controls {
+.floating-controls {
   --accent: var(--sidebar-accent);
   --border: var(--input);
   --muted: var(--sidebar-muted);

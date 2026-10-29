@@ -588,7 +588,7 @@ export function NewWorkspaceContextBar({
 
   return (
     <div
-      className="floating-controls mt-1.5 flex w-fit max-w-full min-w-0 items-center gap-0.5 rounded-lg px-1 py-0.5 light:border light:shadow-soft"
+      className="floating-controls mt-1.5 flex w-fit max-w-full min-w-0 items-center gap-0.5 rounded-lg border px-1 py-0.5 light:shadow-soft"
       data-new-workspace-context-bar
     >
       <EnvironmentSegment

@@ -1139,7 +1139,6 @@ export function CommandCenterDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="top-[12%] flex w-[640px] max-w-[90vw] translate-y-0 flex-col gap-0 overflow-hidden p-0"
-        overlayClassName="bg-black/40 backdrop-blur-xs"
         showCloseButton={false}
         // Escape only closes this, rather than also leaving the overview behind it.
         onEscapeKeyDown={(event) => event.stopPropagation()}

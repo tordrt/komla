@@ -2515,7 +2515,7 @@ function HeaderToolbar({
     window.dispatchEvent(new CustomEvent('open-settings', { detail: 'voice' }));
   };
   return (
-    <div className="floating-controls absolute -top-8 right-0 z-10 flex items-center gap-1.5 rounded-lg light:border light:px-1 light:py-0.5 light:shadow-soft">
+    <div className="floating-controls absolute -top-8 right-0 z-10 flex items-center gap-1.5 rounded-lg border px-1 py-0.5 light:shadow-soft">
       <VoiceRecordingIndicator
         isRecording={isVoiceRecording}
         isStarting={isVoiceStarting}

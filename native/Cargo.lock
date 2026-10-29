@@ -504,6 +504,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "base64",
+ "getrandom",
  "hkdf",
  "ignore",
  "jiff",

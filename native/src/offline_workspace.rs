@@ -7,7 +7,6 @@
 //! connects to add it.
 
 use std::fs;
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -781,9 +780,7 @@ pub(crate) fn write_manifest(
 
 fn random_bytes<const N: usize>() -> anyhow::Result<[u8; N]> {
     let mut bytes = [0_u8; N];
-    fs::File::open("/dev/urandom")
-        .and_then(|mut source| source.read_exact(&mut bytes))
-        .context("could not read random bytes")?;
+    getrandom::getrandom(&mut bytes).context("could not read random bytes")?;
     Ok(bytes)
 }
 

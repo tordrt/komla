@@ -8,6 +8,7 @@ rust-version = "1.85"
 [dependencies]
 anyhow = "=1.0.95"
 base64 = "=0.22.1"
+getrandom = { version = "=0.2.17", features = ["std"] }
 ignore = "=0.4.23"
 jiff = { version = "=0.2.15", default-features = false, features = ["std", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 notify = "=7.0.0"

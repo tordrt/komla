@@ -12,13 +12,17 @@ vi.mock('../../../src/main/services/ssh-host.service', () => ({ sshHostService: 
 vi.mock('../../../src/main/services/ssh-workspace.service', () => ({ sshWorkspaceService: {} }));
 vi.mock('../../../src/main/services/workspace.service', () => ({ workspaceService: {} }));
 vi.mock('../../../src/main/services/file-watcher', () => ({ FileWatcher: class {} }));
-vi.mock('../../../src/main/services/html-preview.service', () => ({ htmlPreviewService: {} }));
+const { mockCreateContentPreviewUrl } = vi.hoisted(() => ({ mockCreateContentPreviewUrl: vi.fn() }));
+vi.mock('../../../src/main/services/html-preview.service', () => ({
+  htmlPreviewService: { createContentPreviewUrl: mockCreateContentPreviewUrl },
+}));
 
 import {
   parseStatusCommandOutput,
   parseStatusCommandsFile,
   parseStatusPopoverOutput,
   resolveStatusIcons,
+  serveStatusPopoverPage,
   StatusCommandsService,
   type StatusCommandsDependencies,
 } from '../../../src/main/services/status-commands.service';
@@ -696,5 +700,18 @@ describe('StatusCommandsService', () => {
     await expect(offline.run('ws-1', 'ci')).resolves.toMatchObject({ content: null });
     await expect(offline.run('ws-1', 'missing')).resolves.toMatchObject({ content: null });
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('serveStatusPopoverPage', () => {
+  it("serves a popover's page in the preview sandbox with Komla's fonts, by its key", async () => {
+    mockCreateContentPreviewUrl.mockResolvedValue('komla-preview://token/popover.html');
+    await expect(serveStatusPopoverPage('status-item-popover:7:ws-1:ci', '<b>4/4</b>')).resolves.toBe(
+      'komla-preview://token/popover.html'
+    );
+    expect(mockCreateContentPreviewUrl).toHaveBeenCalledWith('popover.html', '<b>4/4</b>', {
+      key: 'status-item-popover:7:ws-1:ci',
+      fonts: true,
+    });
   });
 });

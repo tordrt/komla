@@ -38,6 +38,7 @@ import {
   MAX_STATUS_ITEM_SEGMENTS,
   MAX_STATUS_ITEM_TEXT,
   MAX_STATUS_ITEM_TOOLTIP,
+  MAX_STATUS_POPOVER_HTML,
   MAX_STATUS_POPOVER_MARKDOWN,
   isStatusItemColor,
   STATUS_ITEM_ID_PATTERN,
@@ -243,7 +244,8 @@ const statusItemColorSchema = z
     isStatusItemColor,
     'Status item colors are success, warning, error, info, muted, foreground or a hex color such as #e5c07b.'
   );
-const statusPopoverSchema = z.string().trim().min(1).max(MAX_STATUS_POPOVER_MARKDOWN);
+const statusPopoverMarkdownSchema = z.string().trim().min(1).max(MAX_STATUS_POPOVER_MARKDOWN);
+const statusPopoverHtmlSchema = z.string().trim().min(1).max(MAX_STATUS_POPOVER_HTML);
 // Terminal colors in an item's text don't count toward its length.
 const MAX_STATUS_ITEM_RAW_TEXT = 1_000;
 const fitsStatusItem = (text: string) => {
@@ -363,7 +365,8 @@ const komlaOperationSchema = z.discriminatedUnion('type', [
       color: statusItemColorSchema.optional(),
       tooltip: z.string().trim().min(1).max(MAX_STATUS_ITEM_TOOLTIP).optional(),
       link: z.string().min(1).max(MAX_PATH_LEN).optional(),
-      popover: statusPopoverSchema.optional(),
+      popover: statusPopoverHtmlSchema.optional(),
+      popoverMarkdown: statusPopoverMarkdownSchema.optional(),
     })
     .strict(),
   z
@@ -2472,13 +2475,29 @@ class HttpServerService {
           .min(1)
           .optional()
           .describe('HTTP(S) URL the item opens when clicked, such as the pull request.'),
-        popover: statusPopoverSchema
+        popover: statusPopoverHtmlSchema
           .optional()
           .describe(
-            'Markdown shown in a popover when the item is clicked, such as a summary with links; link then shows as a button below it.'
+            "An HTML page shown in a popover when the item is clicked, such as rows of checks with status icons; link then shows as a button below it. It runs sandboxed: inline <style> and <script> work, nothing loads from the web, and links open in the browser on a click. Komla's theme colors are CSS variables, such as var(--success) and var(--muted-foreground); keep the background transparent."
           ),
+        popoverMarkdown: statusPopoverMarkdownSchema
+          .optional()
+          .describe('Plain Markdown in place of popover, for a line or two of text.'),
       },
-      async ({ cwd, id, text, segments, icon, iconColor, tone, color, tooltip, link, popover }) => {
+      async ({
+        cwd,
+        id,
+        text,
+        segments,
+        icon,
+        iconColor,
+        tone,
+        color,
+        tooltip,
+        link,
+        popover,
+        popoverMarkdown,
+      }) => {
         const clear = text === undefined && segments === undefined;
         return this.executeMcpOperation(
           { ...requestContext, cwd },
@@ -2496,6 +2515,7 @@ class HttpServerService {
                 tooltip,
                 link,
                 popover,
+                popoverMarkdown,
               },
           () => (clear ? `Status item ${id} cleared.` : `Status item ${id} set.`)
         );

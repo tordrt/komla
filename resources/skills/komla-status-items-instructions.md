@@ -40,8 +40,8 @@ show.
 
 ## HTML popovers
 
-A popover can show Markdown, but an HTML page looks best for anything more than a few lines: rows
-with status icons, progress bars, small charts. The popover command prints
+Make a popover an HTML page: rows with status icons, progress bars, small charts, in Komla's theme.
+Komla shows Markdown plainly, so keep it for a line or two of plain text. The popover command prints
 `{"html": "<page>", "buttons": [...]}`, such as this `~/.config/komla/nightly.sh`, which lists the
 last runs:
 
@@ -89,3 +89,8 @@ use `komla status set` instead of the file. Its item lasts until Komla quits; `k
 komla status set tests "142/150 passing" --tone warning
 komla status clear tests
 ```
+
+Give it a popover page with `--popover-file -`, made as under **HTML popovers** and shown in the
+same sandbox. The page runs as written, so escape text from elsewhere, such as a pull request title
+or a log line, before putting it in. `--popover-markdown` takes plain Markdown in place of a page,
+for a line or two of text.

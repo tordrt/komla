@@ -31,6 +31,7 @@ export const MAX_STATUS_ICON_BYTES = 32 * 1024;
 export const MAX_STATUS_ITEM_TOOLTIP = 500;
 export const MAX_STATUS_ITEMS_PER_WORKSPACE = 20;
 export const MAX_STATUS_POPOVER_MARKDOWN = 20_000;
+export const MAX_STATUS_POPOVER_HTML = 60_000;
 export const MAX_STATUS_POPOVER_BUTTONS = 6;
 export const MAX_STATUS_BUTTON_LABEL = 40;
 
@@ -63,8 +64,10 @@ export interface StatusItemContent {
   color?: string;
   tooltip?: string;
   link?: string;
-  /** Markdown shown in a popover on click, for an item an agent set. */
+  /** A sandboxed HTML page shown in a popover on click, for an item an agent set. */
   popover?: string;
+  /** Plain Markdown shown in the popover in place of a page, for an item an agent set. */
+  popoverMarkdown?: string;
 }
 
 /**
@@ -127,7 +130,12 @@ export interface AgentStatusItem extends StatusItemContent {
   id: string;
   workspaceId: string;
   updatedAt: number;
+  /** A digest of popover, which changes when the page does; windows get it in the page's place. */
+  popoverPageId?: string;
 }
+
+/** An agent's item as windows get it: without its popover's page, which they fetch when wanted. */
+export type WindowStatusItem = Omit<AgentStatusItem, 'popover'>;
 
 /** An item from status-items.json that runs in a workspace: a command Komla runs on an interval. */
 export interface StatusCommand {

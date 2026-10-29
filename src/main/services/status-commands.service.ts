@@ -116,7 +116,7 @@ const statusCommandSchema = z
       .meta({ description: 'Project names or ids to show it in; every workspace when left out.' }),
     popoverCommand: commandSchema.optional().meta({
       description:
-        'Runs when the item is clicked, and its output shows in a popover: Markdown, or a JSON object it prints, as under What `popoverCommand` prints.',
+        'Runs when the item is clicked, and its output shows in a popover: a JSON object with an `html` page, as under What `popoverCommand` prints, or plain Markdown for a line or two of text.',
     }),
     action: z.string().trim().min(1).max(200).optional().meta({
       description: 'A Quick Command, by title, that clicking the item runs, in place of a popover.',
@@ -360,7 +360,10 @@ const popoverButtonSchema = z.union([
 ]);
 const popoverOutputSchema = z
   .object({
-    markdown: z.string().optional(),
+    markdown: z
+      .string()
+      .optional()
+      .meta({ description: 'Plain Markdown in place of `html`, for a line or two of text.' }),
     html: z.string().optional().meta({
       description:
         "A page shown in a sandbox: inline `<style>` and `<script>` work, but nothing loads from the web and it can't reach Komla. `komla skill status-items` says how to make it match Komla's theme.",
@@ -675,6 +678,11 @@ export class StatusCommandsService {
 const settingsPath = join(getKomlaBasePath(), 'settings');
 const statusCommandsPath = join(settingsPath, 'status-items.json');
 
+/** Serves an HTML popover's page in the preview sandbox, replacing the last one with that key. */
+export function serveStatusPopoverPage(key: string, page: string): Promise<string> {
+  return htmlPreviewService.createContentPreviewUrl('popover.html', page, { key, fonts: true });
+}
+
 export const statusCommandsService = new StatusCommandsService({
   readFile: () => readSettingsFile(statusCommandsPath, DEFAULT_CONTENT),
   getWorkspace: (id) => workspaceService.get(id),
@@ -685,8 +693,7 @@ export const statusCommandsService = new StatusCommandsService({
   runLocal: (command, timeoutMs) =>
     runLocalCommand(homedir(), command, { timeoutMs, maxOutput: MAX_OUTPUT }),
   readIcon: (value) => readStatusIcon(settingsPath, value),
-  servePopoverPage: (key, page) =>
-    htmlPreviewService.createContentPreviewUrl('popover.html', page, { key, fonts: true }),
+  servePopoverPage: serveStatusPopoverPage,
   now: Date.now,
 });
 

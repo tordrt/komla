@@ -3,12 +3,12 @@ import { create } from 'zustand';
 import { statusCommandScope } from '../../shared/types/status-items';
 
 import type {
-  AgentStatusItem,
   StatusCommand,
   StatusCommandList,
   StatusCommandResult,
   StatusItemContent,
   StatusPopoverContent,
+  WindowStatusItem,
 } from '../../shared/types/status-items';
 
 /**
@@ -31,16 +31,18 @@ export interface StatusPopoverState {
   htmlHeight?: number;
   /** The theme an HTML popover's page was made with, as readPopoverTheme read it. */
   theme?: string;
+  /** The page Komla served last for an agent item's HTML, to show again while it's the same. */
+  agentPage?: { url: string; pageId: string; theme: string; servedAt: number };
 }
 
 interface StatusItemsState {
   /** Every workspace's items that agents set with `komla status set`. */
-  agentItems: AgentStatusItem[];
+  agentItems: WindowStatusItem[];
   /** Each workspace's status-items.json items, once listed. */
   commandLists: Record<string, StatusCommandList>;
   /** Each item's output, by statusCommandKey. */
   results: Record<string, StatusCommandState>;
-  /** Each item's last popover, by statusCommandKey. */
+  /** Each item's last popover, by statusCommandKey; an agent item's HTML page height too. */
   popovers: Record<string, StatusPopoverState>;
 }
 
@@ -67,7 +69,7 @@ const listGeneration = new Map<string, number>();
 // earlier command.
 let editedAt = 0;
 
-export function setAgentStatusItems(agentItems: AgentStatusItem[]): void {
+export function setAgentStatusItems(agentItems: WindowStatusItem[]): void {
   useStatusItemsStore.setState({ agentItems });
 }
 

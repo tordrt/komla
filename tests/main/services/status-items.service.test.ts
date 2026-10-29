@@ -24,6 +24,24 @@ describe('StatusItemsService', () => {
     ]);
   });
 
+  it("keeps a digest of an HTML popover's page that changes with the page", () => {
+    const service = new StatusItemsService();
+    const id = (html: string) =>
+      service.set('workspace-1', 'ci', { text: 'CI', popover: html })?.popoverPageId;
+
+    expect(id('<b>2/4</b>')).toMatch(/^[0-9a-f]{16}$/);
+    expect(id('<b>2/4</b>')).toBe(id('<b>2/4</b>'));
+    expect(id('<b>3/4</b>')).not.toBe(id('<b>2/4</b>'));
+    expect(service.set('workspace-1', 'tests', { text: 'x' })).not.toHaveProperty('popoverPageId');
+    // Content that carried one before, switched to Markdown, carries none.
+    const switched = {
+      ...service.get('workspace-1', 'ci')!,
+      popover: undefined,
+      popoverMarkdown: 'x',
+    };
+    expect(service.set('workspace-1', 'ci', switched)).not.toHaveProperty('popoverPageId');
+  });
+
   it('refuses a new item past the limit but still replaces existing ones', () => {
     const service = new StatusItemsService();
     for (let index = 0; index < MAX_STATUS_ITEMS_PER_WORKSPACE; index++) {

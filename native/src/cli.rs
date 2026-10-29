@@ -103,8 +103,8 @@ const SETTINGS_SCHEMA_USAGE: &str =
     "usage: komla settings schema <status-items|hooks|shortcuts|terminal|agents> [--json]";
 const STATUS_USAGE: &str =
     "usage: komla status set <id> <text> [--icon <file|svg>] [--icon-color <color>] [--tone <success|warning|error|info>] \
-[--color <color>] [--tooltip <text>] [--link <url>] [--popover <markdown> | --popover-file <path|->] \
-[--json]\n       komla status set <id> --segments <json> | --segments-file <path|-> [options]\n       \
+[--color <color>] [--tooltip <text>] [--link <url>] [--popover <html> | --popover-file <path|->] \
+[--popover-markdown <markdown> | --popover-markdown-file <path|->] [--json]\n       komla status set <id> --segments <json> | --segments-file <path|-> [options]\n       \
 komla status clear [id] [--json]\n       komla status refresh <id> [--json]";
 const STATUS_TONES: [&str; 4] = ["success", "warning", "error", "info"];
 const STATUS_THEME_COLORS: [&str; 6] =
@@ -118,7 +118,9 @@ const MAX_STATUS_ICON: usize = 32 * 1024;
 // Percent-encoded SVG can take three characters a byte.
 const MAX_STATUS_ICON_INPUT: usize = MAX_STATUS_ICON * 3;
 const MAX_STATUS_TOOLTIP: usize = 500;
-const MAX_STATUS_POPOVER: usize = 20_000;
+// As MAX_STATUS_POPOVER_HTML and MAX_STATUS_POPOVER_MARKDOWN in Komla's shared/types/status-items.ts.
+const MAX_STATUS_POPOVER_HTML: usize = 60_000;
+const MAX_STATUS_POPOVER_MARKDOWN: usize = 20_000;
 const MAX_SNOOZE_UNTIL: usize = 40;
 // As MAX_WORKSPACE_TAG_LENGTH in Komla's shared/lib/workspace-tags.ts.
 const MAX_TAG: usize = 40;
@@ -1055,6 +1057,8 @@ fn option_arguments(args: &[String]) -> impl Iterator<Item = (usize, &str)> {
                     | "--link"
                     | "--popover"
                     | "--popover-file"
+                    | "--popover-markdown"
+                    | "--popover-markdown-file"
                     | "--icon"
                     | "--icon-color"
                     | "--segments"
@@ -1743,18 +1747,28 @@ fn status_command(
             let link = take_option(&mut options, "--link")?;
             let popover_option = take_option(&mut options, "--popover")?;
             let popover_file = take_option(&mut options, "--popover-file")?;
+            let markdown_option = take_option(&mut options, "--popover-markdown")?;
+            let markdown_file = take_option(&mut options, "--popover-markdown-file")?;
             let icon = take_option(&mut options, "--icon")?;
             let icon_color = take_option(&mut options, "--icon-color")?;
             let segments_option = take_option(&mut options, "--segments")?;
             let segments_file = take_option(&mut options, "--segments-file")?;
-            if popover_option.is_some() && popover_file.is_some() {
-                bail!("use only one of --popover or --popover-file");
+            let popovers = [
+                &popover_option,
+                &popover_file,
+                &markdown_option,
+                &markdown_file,
+            ];
+            if popovers.iter().filter(|popover| popover.is_some()).count() > 1 {
+                bail!("use only one of --popover, --popover-file, --popover-markdown or --popover-markdown-file");
             }
             if segments_option.is_some() && segments_file.is_some() {
                 bail!("use only one of --segments or --segments-file");
             }
-            if popover_file.as_deref() == Some("-") && segments_file.as_deref() == Some("-") {
-                bail!("only one of --popover-file and --segments-file can read stdin");
+            let popover_stdin =
+                popover_file.as_deref() == Some("-") || markdown_file.as_deref() == Some("-");
+            if popover_stdin && segments_file.as_deref() == Some("-") {
+                bail!("only one of the popover and --segments-file can read stdin");
             }
             let has_segments = segments_option.is_some() || segments_file.is_some();
             let arguments = if has_segments { 1 } else { 2 };
@@ -1805,10 +1819,24 @@ fn status_command(
                 .map(|tooltip| bounded_status_text("--tooltip", tooltip, MAX_STATUS_TOOLTIP))
                 .transpose()?;
             let popover = match popover_file {
-                Some(path) => Some(read_text_input(&path, input, "popover")?),
+                // UTF-8 takes up to three bytes for each character the limit counts.
+                Some(path) => Some(read_text_input_bounded(
+                    &path,
+                    input,
+                    "popover",
+                    MAX_STATUS_POPOVER_HTML * 3,
+                )?),
                 None => popover_option,
             }
-            .map(|popover| bounded_status_text("popover", popover, MAX_STATUS_POPOVER))
+            .map(|html| bounded_status_text("popover", html, MAX_STATUS_POPOVER_HTML))
+            .transpose()?;
+            let popover_markdown = match markdown_file {
+                Some(path) => Some(read_text_input(&path, input, "popover Markdown")?),
+                None => markdown_option,
+            }
+            .map(|markdown| {
+                bounded_status_text("popover Markdown", markdown, MAX_STATUS_POPOVER_MARKDOWN)
+            })
             .transpose()?;
             if let Some(link) = &link {
                 if !(link.starts_with("http://") || link.starts_with("https://")) {
@@ -1827,6 +1855,7 @@ fn status_command(
             insert_json_optional(&mut operation, "tooltip", tooltip);
             insert_json_optional(&mut operation, "link", link);
             insert_json_optional(&mut operation, "popover", popover);
+            insert_json_optional(&mut operation, "popoverMarkdown", popover_markdown);
             operation
         }
         Some("clear") => {
@@ -3317,11 +3346,20 @@ fn take_flag(args: &mut Vec<String>, name: &str) -> anyhow::Result<bool> {
 }
 
 fn read_text_input(path: &str, input: &mut dyn Read, label: &str) -> anyhow::Result<String> {
+    read_text_input_bounded(path, input, label, 64 * 1024)
+}
+
+fn read_text_input_bounded(
+    path: &str,
+    input: &mut dyn Read,
+    label: &str,
+    max_bytes: usize,
+) -> anyhow::Result<String> {
     let body = if path == "-" {
-        read_bounded(input, 64 * 1024, label)?
+        read_bounded(input, max_bytes, label)?
     } else {
         let mut file = fs::File::open(path).with_context(|| format!("could not read {path}"))?;
-        read_bounded(&mut file, 64 * 1024, label)?
+        read_bounded(&mut file, max_bytes, label)?
     };
     String::from_utf8(body).with_context(|| format!("{label} must be UTF-8"))
 }
@@ -4996,7 +5034,7 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
                     "\u{f407} #812",
                     "--color",
                     "#e5c07b",
-                    "--popover",
+                    "--popover-markdown",
                     "**Review** requested",
                 ],
                 json!({
@@ -5004,7 +5042,7 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
                     "id": "pr",
                     "text": "\u{f407} #812",
                     "color": "#e5c07b",
-                    "popover": "**Review** requested"
+                    "popoverMarkdown": "**Review** requested"
                 }),
             ),
             (
@@ -5101,16 +5139,62 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
     }
 
     #[test]
-    fn status_set_reads_the_popover_from_stdin() {
+    fn status_set_sends_an_html_popover_from_an_option_or_stdin() {
         let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
         run_with(
             &mut api,
-            &["status", "set", "pr", "PR #812", "--popover-file", "-"],
+            &["status", "set", "ci", "CI", "--popover", "<b>4/4</b>"],
+            "",
+        )
+        .unwrap();
+        let first: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+        assert_eq!(first["popover"], "<b>4/4</b>");
+        assert!(first.get("popoverMarkdown").is_none());
+
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+        run_with(
+            &mut api,
+            &["status", "set", "ci", "CI", "--popover-file", "-"],
+            "<style>b { color: var(--success) }</style>\n<b>4/4</b>\n",
+        )
+        .unwrap();
+        let second: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+
+        // The limit counts characters, which a file can hold in three bytes each.
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+        let glyphs = "\u{f058}".repeat(30_000);
+        run_with(
+            &mut api,
+            &["status", "set", "ci", "CI", "--popover-file", "-"],
+            &glyphs,
+        )
+        .unwrap();
+        let third: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+        assert_eq!(third["popover"], glyphs);
+        assert_eq!(
+            second["popover"],
+            "<style>b { color: var(--success) }</style>\n<b>4/4</b>"
+        );
+    }
+
+    #[test]
+    fn status_set_reads_a_markdown_popover_from_stdin() {
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+        run_with(
+            &mut api,
+            &[
+                "status",
+                "set",
+                "pr",
+                "PR #812",
+                "--popover-markdown-file",
+                "-",
+            ],
             "## Checks\n- e2e failed\n",
         )
         .unwrap();
         let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
-        assert_eq!(body["popover"], "## Checks\n- e2e failed");
+        assert_eq!(body["popoverMarkdown"], "## Checks\n- e2e failed");
     }
 
     #[test]
@@ -5291,7 +5375,43 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
                     "--popover-file",
                     "-",
                 ],
-                "only one of --popover or --popover-file",
+                "use only one of --popover, --popover-file, --popover-markdown",
+            ),
+            (
+                vec![
+                    "status",
+                    "set",
+                    "tests",
+                    "x",
+                    "--popover",
+                    "<b>a</b>",
+                    "--popover-markdown",
+                    "a",
+                ],
+                "use only one of --popover, --popover-file, --popover-markdown",
+            ),
+            (
+                vec![
+                    "status",
+                    "set",
+                    "tests",
+                    "--segments-file",
+                    "-",
+                    "--popover-file",
+                    "-",
+                ],
+                "only one of the popover and --segments-file can read stdin",
+            ),
+            (
+                vec![
+                    "status",
+                    "set",
+                    "tests",
+                    "x",
+                    "--popover",
+                    &"x".repeat(60_001),
+                ],
+                "popover must be at most 60000 characters",
             ),
             (
                 vec!["status", "set", "tests", "x", "--bogus"],

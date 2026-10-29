@@ -128,12 +128,12 @@ import type {
   SshWorkspaceLayoutChangedOnOtherDevice,
 } from '../shared/types/ssh-workspace-manifest';
 import type {
-  AgentStatusItem,
   StatusCommandList,
   StatusButtonRunResult,
   StatusCommandResult,
   StatusPopoverResult,
   StatusPopoverTheme,
+  WindowStatusItem,
 } from '../shared/types/status-items';
 import type { ViewerFile, ViewerFileSource, ViewerFolderFile } from '../shared/types/viewer-file';
 import type {
@@ -1718,10 +1718,10 @@ const api = {
   revertSettingsChange: (id: string): Promise<SettingsHistoryEntry> =>
     ipcRenderer.invoke(IPC.SETTINGS_HISTORY_REVERT, id),
 
-  listStatusItems: (): Promise<AgentStatusItem[]> => ipcRenderer.invoke(IPC.STATUS_ITEMS_LIST),
+  listStatusItems: (): Promise<WindowStatusItem[]> => ipcRenderer.invoke(IPC.STATUS_ITEMS_LIST),
 
-  onStatusItemsChange: (callback: (items: AgentStatusItem[]) => void): (() => void) => {
-    const handler = (_: Electron.IpcRendererEvent, items: AgentStatusItem[]): void =>
+  onStatusItemsChange: (callback: (items: WindowStatusItem[]) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, items: WindowStatusItem[]): void =>
       callback(items);
     ipcRenderer.on(IPC.STATUS_ITEMS_CHANGED, handler);
     return () => ipcRenderer.removeListener(IPC.STATUS_ITEMS_CHANGED, handler);
@@ -1739,6 +1739,14 @@ const api = {
     theme?: StatusPopoverTheme
   ): Promise<StatusPopoverResult> =>
     ipcRenderer.invoke(IPC.STATUS_POPOVER_RUN, workspaceId, id, theme),
+
+  /** The sandboxed page of an agent item's HTML popover, or null when it has none. */
+  statusItemPopoverPage: (
+    workspaceId: string,
+    id: string,
+    theme?: StatusPopoverTheme
+  ): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.STATUS_ITEM_POPOVER_PAGE, workspaceId, id, theme),
 
   runStatusButton: (
     workspaceId: string,

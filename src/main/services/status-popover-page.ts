@@ -67,8 +67,8 @@ function themeStyle(theme: StatusPopoverTheme | undefined): string {
 
 /**
  * The page an HTML popover shows: the command's HTML after Komla's theme colors as CSS variables,
- * its fonts, Nerd Font icons included, `data-theme` on the root, and a script that reports the
- * page's height. The page's own styles come later, so they win.
+ * its fonts, Nerd Font icons included, a look for `<code>`, `data-theme` on the root, and a script
+ * that reports the page's height. The page's own styles come later, so they win.
  */
 export function buildStatusPopoverPage(
   html: string,
@@ -82,9 +82,11 @@ export function buildStatusPopoverPage(
 ${themeStyle(theme)}
 @font-face { font-family: 'Geist'; src: url('/__komla/fonts/geist.woff2') format('woff2'); font-weight: 100 900; }
 @font-face { font-family: 'Komla Icons'; src: url('/__komla/fonts/nerd-font.ttf') format('truetype'); unicode-range: U+E000-F8FF, U+F0000-FFFFD; }
+@font-face { font-family: 'Komla Mono'; src: url('/__komla/fonts/nerd-font.ttf') format('truetype'); }
 html, body { margin: 0; background: transparent; }
 body { padding: 10px 12px; font: 12px/1.5 'Geist', 'Komla Icons', system-ui, sans-serif; color: var(--foreground); }
 a { color: var(--primary); }
+code { font: 11px/1.4 'Komla Mono', ui-monospace, monospace; padding: 1px 4px; border-radius: 4px; background: color-mix(in oklch, var(--muted) 80%, transparent); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: color-mix(in oklch, var(--foreground) 25%, transparent); border-radius: 4px; }

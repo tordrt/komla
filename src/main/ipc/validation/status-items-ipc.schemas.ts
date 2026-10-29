@@ -33,6 +33,8 @@ export const statusPopoverRunArgsSchema = z.tuple([
   statusItemIdSchema,
   popoverThemeSchema.optional(),
 ]);
+/** A workspace, an item and the window's theme, as for an agent item's HTML page. */
+export const statusItemPopoverPageArgsSchema = statusPopoverRunArgsSchema;
 export const statusButtonRunArgsSchema = z.tuple([
   idSchema,
   statusItemIdSchema,

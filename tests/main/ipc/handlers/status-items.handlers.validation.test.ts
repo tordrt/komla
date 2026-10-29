@@ -9,6 +9,11 @@ const mockRunStatusCommand = vi.fn();
 const mockListStatusCommands = vi.fn();
 const mockRunPopover = vi.fn();
 const mockRunButton = vi.fn();
+const mockGetStatusItem = vi.fn();
+const mockListStatusItems = vi.fn(() => [] as unknown[]);
+const mockServePopoverPage = vi.fn();
+const mockBroadcast = vi.fn();
+let itemsChanged: () => void = () => {};
 vi.mock('../../../../src/main/services/status-commands.service', () => ({
   statusCommandsService: {
     onChange: vi.fn(),
@@ -18,12 +23,19 @@ vi.mock('../../../../src/main/services/status-commands.service', () => ({
     runPopover: mockRunPopover,
     runButton: mockRunButton,
   },
+  serveStatusPopoverPage: mockServePopoverPage,
 }));
 vi.mock('../../../../src/main/services/status-items.service', () => ({
-  statusItemsService: { onChange: vi.fn(), list: vi.fn(() => []) },
+  statusItemsService: {
+    onChange: (listener: () => void) => {
+      itemsChanged = listener;
+    },
+    list: mockListStatusItems,
+    get: mockGetStatusItem,
+  },
 }));
 vi.mock('../../../../src/main/services/window.service', () => ({
-  windowService: { broadcastToAll: vi.fn() },
+  windowService: { broadcastToAll: mockBroadcast },
 }));
 
 async function handler(channel: string) {
@@ -73,6 +85,49 @@ describe('status items IPC validation', () => {
     )(fromWindow, 'ws-1', 'pr', theme);
     expect(mockRunPopover).toHaveBeenLastCalledWith('ws-1', 'pr', theme, '7');
     expect(mockRunButton).toHaveBeenCalledWith('ws-1', 'pr', 'rerun');
+  });
+
+  it("serves an agent item's HTML popover in the window's theme, one page per window", async () => {
+    mockGetStatusItem.mockImplementation((workspaceId: string, id: string) =>
+      workspaceId === 'ws-1' && id === 'ci'
+        ? { id, workspaceId, text: 'CI', popover: '<b>4/4</b>', updatedAt: 1 }
+        : { id, workspaceId, text: 'Tests', popoverMarkdown: '**4/4**', updatedAt: 1 }
+    );
+    mockServePopoverPage.mockResolvedValue('komla-preview://token/popover.html');
+    const page = await handler('status-items:item-popover-page');
+    const theme = { scheme: 'light', colors: { success: '0.6 0.15 150' } };
+
+    await expect(page({ sender: { id: 7 } }, 'ws-1', 'ci', theme)).resolves.toBe(
+      'komla-preview://token/popover.html'
+    );
+    const [key, content] = mockServePopoverPage.mock.calls[0];
+    expect(key).toBe('status-item-popover:7:ws-1:ci');
+    expect(content).toContain('--success: oklch(0.6 0.15 150);');
+    expect(content).toContain("dataset.theme = 'light'");
+    expect(content.endsWith('<b>4/4</b>')).toBe(true);
+
+    // An item with Markdown, or none, has no page.
+    await expect(page({ sender: { id: 7 } }, 'ws-1', 'tests')).resolves.toBeNull();
+    expect(mockServePopoverPage).toHaveBeenCalledTimes(1);
+    await expect(
+      Promise.resolve().then(() => page({ sender: { id: 7 } }, 'ws-1', 'bad id'))
+    ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
+  });
+
+  it("sends windows an HTML popover's digest without its page", async () => {
+    const ci = { id: 'ci', workspaceId: 'ws-1', text: 'CI', updatedAt: 1, popoverPageId: 'abc' };
+    const tests = {
+      id: 'tests',
+      workspaceId: 'ws-1',
+      text: 'Tests',
+      popoverMarkdown: '**4/4**',
+      updatedAt: 1,
+    };
+    mockListStatusItems.mockReturnValue([{ ...ci, popover: '<b>2/4</b>' }, tests]);
+
+    expect((await handler('status-items:list'))({})).toEqual([ci, tests]);
+    itemsChanged();
+    expect(mockBroadcast).toHaveBeenLastCalledWith('status-items:changed', [ci, tests]);
   });
 
   it('leaves out popover theme colors that are not channels', async () => {

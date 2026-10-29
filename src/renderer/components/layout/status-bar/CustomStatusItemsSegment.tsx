@@ -26,17 +26,23 @@ import { isStatusIconSegment } from '../../../../shared/types/status-items';
 
 import { isStatusBarItemShown } from './status-bar-items';
 import { StatusBarButton } from './StatusBarButton';
-import { AgentItemPopover, CommandItemPopover, linkHost } from './StatusItemPopover';
+import {
+  AgentItemPopover,
+  CommandItemPopover,
+  KeptAgentHtmlPopover,
+  linkHost,
+  STATUS_POPOVER_WIDTH,
+} from './StatusItemPopover';
 
 import type { CustomStatusItemKey } from './status-bar-items';
 import type {
-  AgentStatusItem,
   StatusCommand,
   StatusCommandList,
   StatusIconSegment,
   StatusItemContent,
   StatusItemSegment,
   StatusItemTone,
+  WindowStatusItem,
 } from '../../../../shared/types/status-items';
 
 const TONE_DOT: Record<StatusItemTone, string> = {
@@ -51,7 +57,7 @@ const NO_COMMANDS: StatusCommandList = { items: [] };
 const DUE_CHECK_MS = 1000;
 
 /** Every workspace's items that agents set with `komla status set`, as they change. */
-export function useAgentStatusItems(): AgentStatusItem[] {
+export function useAgentStatusItems(): WindowStatusItem[] {
   const items = useStatusItemsStore((s) => s.agentItems);
   useEffect(() => {
     let cancelled = false;
@@ -218,20 +224,87 @@ StatusItemButton.displayName = 'StatusItemButton';
 /** An item with a popover, which renders only while open. */
 function PopoverItem({
   children,
+  onPointerOver,
+  onPrepare,
+  open: shown,
+  onOpenChange,
   ...item
 }: Pick<StatusItemButtonProps, 'itemKey' | 'content' | 'label' | 'staleReason'> & {
   children: (close: () => void) => React.ReactNode;
+  /** Whether the pointer is over the item, so its popover can get ready. */
+  onPointerOver?: (over: boolean) => void;
+  /** Gets the popover ready as focus comes to the item, which it keeps once the popover closes. */
+  onPrepare?: () => void;
+  /** Whether it's open, for an item that keeps track itself. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = shown ?? ownOpen;
+  const setOpen = onOpenChange ?? setOwnOpen;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <StatusItemButton {...item} hint="shows details" />
+        <StatusItemButton
+          {...item}
+          hint="shows details"
+          {...(onPointerOver && {
+            onPointerEnter: () => onPointerOver(true),
+            onPointerLeave: () => onPointerOver(false),
+          })}
+          onFocus={onPrepare}
+        />
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-[22rem] p-0">
+      <PopoverContent
+        side="top"
+        align="start"
+        className="p-0"
+        style={{ width: STATUS_POPOVER_WIDTH }}
+      >
         {open && children(() => setOpen(false))}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * An agent item with an HTML popover. Its page loads once the pointer comes over the item, or
+ * focus does, and stays loaded, so the popover opens with it drawn. It follows the pages the agent
+ * sets while the pointer is over the item or its popover is open, not in the background.
+ */
+function AgentHtmlItem({ item, itemKey }: { item: WindowStatusItem; itemKey: string }) {
+  const [open, setOpen] = useState(false);
+  const [pointed, setPointed] = useState(false);
+  // The item as it was when it last had the pointer or its popover open.
+  const [kept, setKept] = useState<WindowStatusItem | null>(null);
+  const [container] = useState(() => document.createElement('div'));
+  const shown = open || pointed ? item : kept;
+  // Keeps the item it follows once it stops following.
+  const follow = (change: () => void) => {
+    setKept(item);
+    change();
+  };
+  return (
+    <>
+      <PopoverItem
+        itemKey={itemKey}
+        content={item}
+        open={open}
+        onOpenChange={(next) => follow(() => setOpen(next))}
+        onPointerOver={(over) => follow(() => setPointed(over))}
+        onPrepare={() => setKept(item)}
+      >
+        {() => <AgentItemPopover item={item} htmlContainer={container} />}
+      </PopoverItem>
+      {shown && (
+        <KeptAgentHtmlPopover
+          item={shown}
+          open={open}
+          onClose={() => follow(() => setOpen(false))}
+          container={container}
+        />
+      )}
+    </>
   );
 }
 
@@ -259,7 +332,7 @@ export type CustomStatusItemEntry = {
 /** The open workspace's custom items, shown or hidden: status-items.json's, then its agents'. */
 export function customStatusItemEntries(
   commands: StatusCommand[],
-  agentItems: AgentStatusItem[]
+  agentItems: WindowStatusItem[]
 ): CustomStatusItemEntry[] {
   return [
     ...commands.map((command) => ({
@@ -402,9 +475,12 @@ export function useCustomStatusItems(): {
     const key = `agent:${item.id}`;
     rendered.set(
       key,
-      item.popover ? (
+      item.popoverPageId ? (
+        // Its own in each workspace, as the page it keeps is that workspace's.
+        <AgentHtmlItem key={`${item.workspaceId}:${key}`} item={item} itemKey={key} />
+      ) : item.popoverMarkdown ? (
         <PopoverItem key={key} itemKey={key} content={item}>
-          {() => <AgentItemPopover title={item.text} markdown={item.popover!} link={item.link} />}
+          {() => <AgentItemPopover item={item} />}
         </PopoverItem>
       ) : (
         <LinkItem key={key} itemKey={key} content={item} />

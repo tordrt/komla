@@ -409,14 +409,16 @@ Spawn an AI coding agent in a new isolated Komla workspace. Branches from the pr
 
 Show a short status in Komla's status bar while the calling workspace is open, such as test results, a build or deploy state, or the pull request for the work. `komla status set <id> <text>` and `komla status clear [id]` are the CLI forms. Setting an id again replaces its item. Items live until Komla quits; a workspace shows at most 20.
 
-| Parameter | Required | Description                                                                 |
-| --------- | -------- | --------------------------------------------------------------------------- |
-| `cwd`     | Yes      | Current working directory of the calling agent                              |
-| `id`      | Yes      | Up to 40 letters, digits, dots, dashes and underscores, such as `tests`     |
-| `text`    | No       | What the item shows, up to 60 characters. Omit it to clear the item         |
-| `tone`    | No       | `success`, `warning`, `error` or `info`, shown as a dot in the theme's color |
-| `tooltip` | No       | Longer detail shown on hover, up to 500 characters                          |
-| `link`    | No       | HTTP(S) URL the item opens in the default browser when clicked              |
+| Parameter         | Required | Description                                                                               |
+| ----------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `cwd`             | Yes      | Current working directory of the calling agent                                            |
+| `id`              | Yes      | Up to 40 letters, digits, dots, dashes and underscores, such as `tests`                   |
+| `text`            | No       | What the item shows, up to 60 characters. Omit it to clear the item                       |
+| `tone`            | No       | `success`, `warning`, `error` or `info`, shown as a dot in the theme's color              |
+| `tooltip`         | No       | Longer detail shown on hover, up to 500 characters                                        |
+| `link`            | No       | HTTP(S) URL the item opens in the default browser when clicked                            |
+| `popover`         | No       | A sandboxed HTML page shown in a popover on click; `link` then shows as a button below it |
+| `popoverMarkdown` | No       | Plain Markdown in place of the page, for a line or two of text                            |
 
 #### `spawn_agent_new_tab`
 

@@ -96,6 +96,28 @@ function trashBlocker(
   return undefined;
 }
 
+/** What a status item's click opens: a web page, and one popover at most. */
+function checkStatusItemClick(
+  link: string | undefined,
+  popover: string | undefined,
+  popoverMarkdown: string | undefined
+): void {
+  if (popover !== undefined && popoverMarkdown !== undefined) {
+    throw new KomlaOperationError(
+      'INVALID_STATUS_POPOVER',
+      'A status item takes an HTML popover or a Markdown one, not both.',
+      400
+    );
+  }
+  if (link !== undefined && !isBrowserUrl(link)) {
+    throw new KomlaOperationError(
+      'INVALID_STATUS_LINK',
+      'Status item links must be HTTP or HTTPS URLs.',
+      400
+    );
+  }
+}
+
 /** Where the user lets agents start a launch mode, for an agent to pass on. */
 function letAgentsStartHint(preset: Pick<AgentPreset, 'name'>): string {
   return `To let agents start it, they can edit ${preset.name} in Settings → Agents, pick where agents may start it from the robot button beside the mode and save.`;
@@ -331,7 +353,10 @@ export type KomlaOperation =
       color?: string;
       tooltip?: string;
       link?: string;
+      /** A sandboxed HTML page for the popover. */
       popover?: string;
+      /** Plain Markdown for the popover, in place of a page. */
+      popoverMarkdown?: string;
     }
   | { type: 'status.clear'; id?: string }
   /** Runs a status-items.json item again now. */
@@ -821,6 +846,7 @@ export class KomlaOperationService {
       tooltip,
       link,
       popover,
+      popoverMarkdown,
     }: Extract<KomlaOperation, { type: 'status.set' }>
   ): unknown {
     this.requireCapability('status.set');
@@ -832,13 +858,7 @@ export class KomlaOperationService {
         400
       );
     }
-    if (link !== undefined && !isBrowserUrl(link)) {
-      throw new KomlaOperationError(
-        'INVALID_STATUS_LINK',
-        'Status item links must be HTTP or HTTPS URLs.',
-        400
-      );
-    }
+    checkStatusItemClick(link, popover, popoverMarkdown);
     const iconUrl = (icon: string) => {
       const url = statusIconDataUrl(icon);
       if (url) return url;
@@ -879,6 +899,7 @@ export class KomlaOperationService {
       ...(tooltip !== undefined && { tooltip }),
       ...(link !== undefined && { link }),
       ...(popover !== undefined && { popover }),
+      ...(popoverMarkdown !== undefined && { popoverMarkdown }),
     };
     if (!this.dependencies.setStatusItem(workspace.id, id, content)) {
       throw new KomlaOperationError(
@@ -887,7 +908,9 @@ export class KomlaOperationService {
         409
       );
     }
-    return { status: { workspaceId: workspace.id, id, ...content } };
+    // The item as set, without the popover's HTML, which the caller sent and has.
+    const { popover: _sent, ...shown } = content;
+    return { status: { workspaceId: workspace.id, id, ...shown } };
   }
 
   private clearStatusItems(context: KomlaOperationContext, id?: string): unknown {

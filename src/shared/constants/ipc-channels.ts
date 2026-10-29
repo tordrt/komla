@@ -533,6 +533,7 @@ export const IPC = {
   STATUS_COMMANDS_LIST: 'status-items:commands-list',
   STATUS_COMMAND_RUN: 'status-items:command-run',
   STATUS_POPOVER_RUN: 'status-items:popover-run',
+  STATUS_ITEM_POPOVER_PAGE: 'status-items:item-popover-page',
   STATUS_BUTTON_RUN: 'status-items:button-run',
   // Status bar item events (main → renderer)
   STATUS_ITEMS_CHANGED: 'status-items:changed',

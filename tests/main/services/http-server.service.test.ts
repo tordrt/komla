@@ -1324,7 +1324,9 @@ describe('HttpServerService', () => {
     });
 
     it('lists the tags without a workspace, and refuses options it has none of', async () => {
-      mockConfigService.get.mockReturnValue({ workspaceTags: [{ name: 'Blocked', tone: 'error' }] });
+      mockConfigService.get.mockReturnValue({
+        workspaceTags: [{ name: 'Blocked', tone: 'error' }],
+      });
       httpServerService.start();
       const list = (operation: object) =>
         sendRequest(
@@ -4852,13 +4854,13 @@ describe('HttpServerService', () => {
         id: 'pr',
         text: 'PR #812',
         color: '#e5c07b',
-        popover: '## Review\nRequested from **you**',
+        popoverMarkdown: '## Review\nRequested from **you**',
       });
       expect(statusItemsService.list()).toEqual([
         expect.objectContaining({
           id: 'pr',
           color: '#e5c07b',
-          popover: '## Review\nRequested from **you**',
+          popoverMarkdown: '## Review\nRequested from **you**',
         }),
       ]);
       statusItemsService.clear('ws-1');
@@ -4874,6 +4876,17 @@ describe('HttpServerService', () => {
           text: '\uf00c CI',
           segments: [{ text: '\uf00c', color: 'success' }, { text: ' CI' }],
         }),
+      ]);
+      statusItemsService.clear('ws-1');
+
+      await toolHandler({
+        cwd: '/projects/my-app',
+        id: 'ci',
+        text: 'CI 4/4',
+        popover: '<b>4/4</b>',
+      });
+      expect(statusItemsService.list()).toEqual([
+        expect.objectContaining({ id: 'ci', popover: '<b>4/4</b>' }),
       ]);
       statusItemsService.clear('ws-1');
     });

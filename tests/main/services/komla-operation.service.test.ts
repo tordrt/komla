@@ -963,10 +963,7 @@ describe('KomlaOperationService', () => {
       })
     );
 
-    await service.execute(
-      { cwd: '/repos/a' },
-      { type: 'agent.launch', destination: 'workspace' }
-    );
+    await service.execute({ cwd: '/repos/a' }, { type: 'agent.launch', destination: 'workspace' });
 
     expect(createWorkspace).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'project-a' })
@@ -1496,7 +1493,10 @@ describe('KomlaOperationService', () => {
       { type: 'workspace.tag', tag: 'Blocked', ifTag: 'in review' }
     );
     expect(workspace.tag).toBe('Blocked');
-    await service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.tag', ifTag: 'Blocked' });
+    await service.execute(
+      { terminalId: 'terminal-1' },
+      { type: 'workspace.tag', ifTag: 'Blocked' }
+    );
     expect(workspace.tag).toBeUndefined();
   });
 
@@ -2204,7 +2204,7 @@ describe('KomlaOperationService', () => {
           tone: 'warning',
           color: 'warning',
           link: 'https://github.com/org/repo/pull/1',
-          popover: '- 8 failing in auth',
+          popoverMarkdown: '- 8 failing in auth',
         }
       )
     ).resolves.toEqual({
@@ -2215,7 +2215,7 @@ describe('KomlaOperationService', () => {
         tone: 'warning',
         color: 'warning',
         link: 'https://github.com/org/repo/pull/1',
-        popover: '- 8 failing in auth',
+        popoverMarkdown: '- 8 failing in auth',
       },
     });
     expect(setStatusItem).toHaveBeenCalledWith('workspace-1', 'tests', {
@@ -2223,7 +2223,7 @@ describe('KomlaOperationService', () => {
       tone: 'warning',
       color: 'warning',
       link: 'https://github.com/org/repo/pull/1',
-      popover: '- 8 failing in auth',
+      popoverMarkdown: '- 8 failing in auth',
     });
 
     await expect(
@@ -2387,6 +2387,34 @@ describe('KomlaOperationService', () => {
         { type: 'status.set', id: 'pr', text: 'PR', link: 'file:///etc/passwd' }
       )
     ).rejects.toMatchObject({ code: 'INVALID_STATUS_LINK' });
+    expect(setStatusItem).not.toHaveBeenCalled();
+  });
+
+  it('sets an HTML popover in place of Markdown, but not both', async () => {
+    const setStatusItem = vi.fn(() => true);
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => ({ id: 'workspace-1' }),
+        setStatusItem,
+      })
+    );
+    const popover = '<style>b { color: var(--success) }</style><b>4/4</b>';
+
+    const result = await service.execute(
+      { terminalId: 'terminal-1' },
+      { type: 'status.set', id: 'ci', text: 'CI', popover }
+    );
+    expect(setStatusItem).toHaveBeenCalledWith('workspace-1', 'ci', { text: 'CI', popover });
+    // The caller has the page already.
+    expect(result).toEqual({ status: { workspaceId: 'workspace-1', id: 'ci', text: 'CI' } });
+
+    setStatusItem.mockClear();
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'status.set', id: 'ci', text: 'CI', popover, popoverMarkdown: '**4/4**' }
+      )
+    ).rejects.toMatchObject({ code: 'INVALID_STATUS_POPOVER', statusCode: 400 });
     expect(setStatusItem).not.toHaveBeenCalled();
   });
 

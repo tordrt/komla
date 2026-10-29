@@ -13,6 +13,8 @@ describe('buildStatusPopoverPage', () => {
     );
     expect(page).toContain("document.documentElement.dataset.theme = 'dark';");
     expect(page).toContain("url('/__komla/fonts/geist.woff2')");
+    // Code in Komla's monospace font, from the file the icons load anyway.
+    expect(page).toMatch(/code \{ font: [^}]*'Komla Mono'/);
     expect(page.indexOf('</script>')).toBeLessThan(page.indexOf('<style>body{padding:0}'));
   });
 

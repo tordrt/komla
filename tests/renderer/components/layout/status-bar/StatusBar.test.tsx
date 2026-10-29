@@ -2484,7 +2484,7 @@ describe('StatusBar', () => {
               id: 'pr',
               text: 'PR #812',
               link: 'https://github.com/o/r/pull/812',
-              popover:
+              popoverMarkdown:
                 '## Review\nRequested from **you** <img src=x onerror="alert(1)"><script>alert(2)</script><span class="fixed inset-0">cover</span>',
             }),
           ])
@@ -2500,6 +2500,271 @@ describe('StatusBar', () => {
       expect(dialog.querySelector('script, [onerror], .fixed')).toBeNull();
       await user.click(within(dialog).getByRole('button', { name: 'Open github.com' }));
       expect(openExternal).toHaveBeenCalledWith('https://github.com/o/r/pull/812');
+    });
+
+    it("opens an agent item's HTML in a sandboxed frame, served again when the page changes", async () => {
+      const user = userEvent.setup();
+      let fail = false;
+      const statusItemPopoverPage = vi.fn((_workspaceId: string, _id: string) =>
+        fail
+          ? Promise.reject(new Error('preview stopped'))
+          : Promise.resolve(
+              `komla-preview://token-${statusItemPopoverPage.mock.calls.length}/popover.html`
+            )
+      );
+      const ci = item({
+        id: 'ci',
+        text: 'CI 2/4',
+        link: 'https://ci.example.com/runs/128',
+        popoverPageId: 'page-1',
+      });
+      let changeItems: (items: AgentStatusItem[]) => void = () => {};
+      mockApi({
+        listStatusItems: vi.fn(() => Promise.resolve([ci])),
+        onStatusItemsChange: vi.fn((callback: (items: AgentStatusItem[]) => void) => {
+          changeItems = callback;
+          return () => {};
+        }),
+        statusItemPopoverPage,
+      });
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      renderStatusBar();
+
+      await user.click(await screen.findByRole('button', { name: 'CI 2/4, shows details' }));
+      const frame = (await screen.findByTitle('CI 2/4')) as HTMLIFrameElement;
+      expect(frame).toHaveAttribute('src', 'komla-preview://token-1/popover.html');
+      expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
+      expect(statusItemPopoverPage).toHaveBeenCalledWith('ws-open', 'ci', {
+        scheme: expect.stringMatching(/^(light|dark)$/),
+        colors: expect.any(Object),
+      });
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('button', { name: 'Open ci.example.com' })).toBeVisible();
+
+      // The same page with other text isn't served again.
+      act(() => changeItems([{ ...ci, tooltip: 'Running', updatedAt: 2 }]));
+      act(() => changeItems([{ ...ci, popoverPageId: 'page-2', updatedAt: 3 }]));
+      await vi.waitFor(() => expect(statusItemPopoverPage).toHaveBeenCalledTimes(2));
+      // It takes the old one's place once it reports its height.
+      const next = await vi.waitFor(() => {
+        const frame = screen
+          .getAllByTitle('CI 2/4')
+          .find((candidate) => candidate.getAttribute('src')?.includes('token-2'));
+        if (!frame) throw new Error('The next page has no frame yet.');
+        return frame as HTMLIFrameElement;
+      });
+      expect(next).toHaveAttribute('aria-hidden', 'true');
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { komlaPopoverHeight: 180 },
+            source: next.contentWindow,
+          })
+        );
+      });
+      expect(screen.getByTitle('CI 2/4')).toBe(next);
+
+      // A page that can't be served leaves the last one on screen, saying why.
+      fail = true;
+      act(() => changeItems([{ ...ci, popoverPageId: 'page-3', updatedAt: 4 }]));
+      expect(
+        await within(dialog).findByText("Couldn't show the latest page: preview stopped")
+      ).toBeInTheDocument();
+      expect(screen.getByTitle('CI 2/4')).toHaveAttribute(
+        'src',
+        'komla-preview://token-2/popover.html'
+      );
+
+      // Set again with the same page, it tries again.
+      fail = false;
+      act(() => changeItems([{ ...ci, popoverPageId: 'page-3', updatedAt: 5 }]));
+      await vi.waitFor(() =>
+        expect(
+          within(dialog).queryByText("Couldn't show the latest page: preview stopped")
+        ).not.toBeInTheDocument()
+      );
+      expect(statusItemPopoverPage).toHaveBeenCalledTimes(4);
+
+      // Opened again, it shows the page it kept loaded, at its height.
+      const shown = screen
+        .getAllByTitle('CI 2/4')
+        .find((frame) => !frame.hasAttribute('aria-hidden'));
+      await user.keyboard('{Escape}');
+      await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      await user.click(screen.getByRole('button', { name: 'CI 2/4, shows details' }));
+      const reopened = within(await screen.findByRole('dialog'))
+        .getAllByTitle('CI 2/4')
+        .find((frame) => !frame.hasAttribute('aria-hidden'));
+      expect(reopened).toBe(shown);
+      expect(reopened!.style.height).toBe('180px');
+    });
+
+    it("loads an agent item's HTML page on hover and keeps it loaded while closed", async () => {
+      const user = userEvent.setup();
+      const statusItemPopoverPage = vi.fn(() =>
+        Promise.resolve(
+          `komla-preview://token-${statusItemPopoverPage.mock.calls.length}/popover.html`
+        )
+      );
+      const ci = item({ id: 'ci', text: 'CI 2/4', popoverPageId: 'page-1' });
+      let changeItems: (items: AgentStatusItem[]) => void = () => {};
+      mockApi({
+        listStatusItems: vi.fn(() => Promise.resolve([ci])),
+        onStatusItemsChange: vi.fn((callback: (items: AgentStatusItem[]) => void) => {
+          changeItems = callback;
+          return () => {};
+        }),
+        statusItemPopoverPage,
+      });
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      renderStatusBar();
+
+      const button = await screen.findByRole('button', { name: 'CI 2/4, shows details' });
+      await user.hover(button);
+      // Loaded out of sight before the click.
+      const frame = await screen.findByTitle('CI 2/4');
+      expect(frame).toHaveAttribute('src', 'komla-preview://token-1/popover.html');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      await user.click(button);
+      expect(within(await screen.findByRole('dialog')).getByTitle('CI 2/4')).toBe(frame);
+      await user.keyboard('{Escape}');
+      await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      await user.click(button);
+      expect(within(await screen.findByRole('dialog')).getByTitle('CI 2/4')).toBe(frame);
+      expect(statusItemPopoverPage).toHaveBeenCalledTimes(1);
+
+      // A page set while it's closed loads as the pointer comes over the item again, behind the
+      // one it kept, and shows on opening once it has.
+      await user.keyboard('{Escape}');
+      await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      // Focus stays on the item, which doesn't follow it.
+      await user.unhover(button);
+      expect(button).toHaveFocus();
+      act(() => changeItems([{ ...ci, popoverPageId: 'page-2', updatedAt: 2 }]));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+      expect(statusItemPopoverPage).toHaveBeenCalledTimes(1);
+      await user.hover(button);
+      const next = await vi.waitFor(() => {
+        const loaded = screen
+          .getAllByTitle('CI 2/4')
+          .find((candidate) => candidate.getAttribute('src')?.includes('token-2'));
+        if (!loaded) throw new Error('The next page has no frame yet.');
+        return loaded as HTMLIFrameElement;
+      });
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { komlaPopoverHeight: 120 },
+            source: next.contentWindow,
+          })
+        );
+      });
+      await user.click(button);
+      expect(within(await screen.findByRole('dialog')).getByTitle('CI 2/4')).toBe(next);
+    });
+
+    it("follows an agent item's HTML page while the pointer rests on the item", async () => {
+      const user = userEvent.setup();
+      const statusItemPopoverPage = vi.fn(() =>
+        Promise.resolve(
+          `komla-preview://token-${statusItemPopoverPage.mock.calls.length}/popover.html`
+        )
+      );
+      const ci = item({ id: 'ci', text: 'CI 2/4', popoverPageId: 'page-1' });
+      let changeItems: (items: AgentStatusItem[]) => void = () => {};
+      mockApi({
+        listStatusItems: vi.fn(() => Promise.resolve([ci])),
+        onStatusItemsChange: vi.fn((callback: (items: AgentStatusItem[]) => void) => {
+          changeItems = callback;
+          return () => {};
+        }),
+        statusItemPopoverPage,
+      });
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      renderStatusBar();
+
+      await user.hover(await screen.findByRole('button', { name: 'CI 2/4, shows details' }));
+      await vi.waitFor(() => expect(statusItemPopoverPage).toHaveBeenCalledTimes(1));
+      act(() => changeItems([{ ...ci, popoverPageId: 'page-2', updatedAt: 2 }]));
+      await vi.waitFor(() => expect(statusItemPopoverPage).toHaveBeenCalledTimes(2));
+    });
+
+    it("loads an agent item's HTML page when focus comes to the item", async () => {
+      const user = userEvent.setup();
+      const statusItemPopoverPage = vi.fn(() =>
+        Promise.resolve('komla-preview://token-1/popover.html')
+      );
+      mockApi({
+        listStatusItems: vi.fn(() =>
+          Promise.resolve([item({ id: 'ci', text: 'CI 2/4', popoverPageId: 'page-1' })])
+        ),
+        statusItemPopoverPage,
+      });
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      renderStatusBar();
+
+      const button = await screen.findByRole('button', { name: 'CI 2/4, shows details' });
+      act(() => button.focus());
+      expect(await screen.findByTitle('CI 2/4')).toHaveAttribute(
+        'src',
+        'komla-preview://token-1/popover.html'
+      );
+    });
+
+    // The page renders outside the popover's React tree and moves into it, which React and Radix
+    // count as inside.
+    it("stays open as the pointer or focus goes into an agent item's HTML page", async () => {
+      const user = userEvent.setup();
+      mockApi({
+        listStatusItems: vi.fn(() =>
+          Promise.resolve([item({ id: 'ci', text: 'CI 2/4', popoverPageId: 'page-1' })])
+        ),
+        statusItemPopoverPage: vi.fn(() => Promise.resolve('komla-preview://token-1/popover.html')),
+      });
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      renderStatusBar();
+
+      await user.click(await screen.findByRole('button', { name: 'CI 2/4, shows details' }));
+      const dialog = await screen.findByRole('dialog');
+      const frame = await within(dialog).findByTitle('CI 2/4');
+      await user.click(frame);
+      act(() => frame.focus());
+      await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+      expect(screen.getByRole('dialog')).toBe(dialog);
+      await user.click(document.body);
+      await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+
+    it("keeps each workspace's HTML page apart for items of the same id", async () => {
+      const user = userEvent.setup();
+      const statusItemPopoverPage = vi.fn((workspaceId: string) =>
+        Promise.resolve(`komla-preview://${workspaceId}/popover.html`)
+      );
+      mockApi({
+        listStatusItems: vi.fn(() =>
+          Promise.resolve([
+            item({ id: 'ci', text: 'CI 2/4', popoverPageId: 'page-a' }),
+            item({ id: 'ci', workspaceId: 'ws-other', text: 'CI 2/4', popoverPageId: 'page-b' }),
+          ])
+        ),
+        statusItemPopoverPage,
+      });
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      renderStatusBar();
+
+      await user.hover(await screen.findByRole('button', { name: 'CI 2/4, shows details' }));
+      expect(await screen.findByTitle('CI 2/4')).toHaveAttribute(
+        'src',
+        'komla-preview://ws-open/popover.html'
+      );
+      act(() => useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-other' }));
+      await user.click(await screen.findByRole('button', { name: 'CI 2/4, shows details' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(await within(dialog).findByTitle('CI 2/4')).toHaveAttribute(
+        'src',
+        'komla-preview://ws-other/popover.html'
+      );
+      expect(screen.getAllByTitle('CI 2/4')).toHaveLength(1);
     });
 
     describe('with a popover command', () => {

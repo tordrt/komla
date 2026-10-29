@@ -210,8 +210,7 @@ const PAGES: SettingsPage[] = [
   {
     value: 'remote',
     label: 'Remote',
-    description:
-      'Control Komla from a paired device. Remote control is an unstable alpha, so expect bugs and missing pieces.',
+    description: 'Use Komla from your phone, tablet or another computer. In alpha, so expect bugs.',
     icon: Broadcast,
     alpha: true,
   },

@@ -65,9 +65,9 @@ function normalizePublicOrigin(rawValue: string): string | undefined {
 export function secureStoragePromptNote(platform = window.api?.platform): string | null {
   if (platform === 'win32') return null;
   if (platform === 'darwin') {
-    return 'When you turn it on, macOS may ask for your password to let Komla use "Komla Safe Storage" in your keychain. That is where Komla keeps the key your devices use to recognize this computer. Choose Always Allow so it doesn\'t ask again.';
+    return 'When you turn it on, macOS may ask for your password to use "Komla Safe Storage", where Komla keeps its keys. Choose Always Allow so it doesn\'t ask again.';
   }
-  return 'When you turn it on, your desktop may ask you to unlock its keyring. That is where Komla keeps the key your devices use to recognize this computer.';
+  return 'When you turn it on, your desktop may ask you to unlock its keyring, where Komla keeps its keys.';
 }
 
 export function RemoteTab() {
@@ -366,7 +366,7 @@ export function RemoteTab() {
     <div className="space-y-6">
       <SettingsCard
         title="Remote control"
-        description="Use Komla from your phone, tablet or another computer. Requires Tailscale, signed in to the same account on this computer and on each device; no Komla server sits in between."
+        description="Runs over Tailscale, end-to-end encrypted between your own devices, with no Komla server in between. Sign in to the same Tailscale account on each device."
       >
         <div className="space-y-3">
           <div className="flex items-center gap-4">
@@ -423,8 +423,8 @@ export function RemoteTab() {
           {!server && tailscaleStatus?.installed === false && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2.5">
               <p className="max-w-md text-xs text-muted-foreground">
-                Tailscale isn't installed on this computer. Install it here and on each device
-                first; without it, only this computer can open Komla remotely.
+                Tailscale isn't installed on this computer. Install it here and on each device;
+                until then, only this computer can connect.
               </p>
               <Button
                 size="sm"
@@ -456,8 +456,8 @@ export function RemoteTab() {
               ) : !tailscaleInstalled ? (
                 <>
                   <p className="max-w-md text-xs text-muted-foreground">
-                    Your devices reach this computer through Tailscale, so nothing is exposed to the
-                    internet. Install it and sign in on both.
+                    Install Tailscale here and on each device; until then, only this computer can
+                    connect.
                   </p>
                   <Button
                     size="sm"
@@ -471,8 +471,7 @@ export function RemoteTab() {
               ) : (
                 <>
                   <p className="max-w-md text-xs text-muted-foreground">
-                    Publish Komla on your tailnet so your devices can reach it. Tailscale Serve
-                    shares it with your own devices only.
+                    Publish Komla on your tailnet so your devices can reach it.
                   </p>
                   <Button
                     size="sm"
@@ -492,18 +491,17 @@ export function RemoteTab() {
             tailscaleStatus?.rootAvailable === false &&
             !tailscaleUsePort && (
               <Callout tone="warning" size="sm">
-                Another service already uses your Tailscale HTTPS address. Use a separate port under
-                Network options.
+                Your Tailscale HTTPS address is taken. Pick a port under Network options.
               </Callout>
             )}
           {server && !published && tailscaleStatus?.existingServeSummary && (
             <Callout tone="info" size="sm">
-              Tailscale Serve already has other routes, so Komla gets its own HTTPS port.
+              Tailscale Serve has other routes, so Komla gets its own HTTPS port.
             </Callout>
           )}
           {server && !published && tailscaleStatus?.serveConflict && (
             <Callout tone="warning" size="sm">
-              Another Tailscale Serve route seems to use this port. Check the command under Network
+              Another Tailscale Serve route may use this port. Check its command under Network
               options before you publish.
             </Callout>
           )}
@@ -521,7 +519,7 @@ export function RemoteTab() {
             <div className="min-w-0 flex-1">
               <p className="text-sm text-foreground">Allow access to this computer</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Off: devices open only SSH workspaces, and this computer just pairs them and vouches
+                Off: devices open only SSH workspaces. This computer still pairs them and vouches
                 for your hosts.
               </p>
             </div>
@@ -536,7 +534,7 @@ export function RemoteTab() {
           <div className="min-w-0 flex-1">
             <p className="text-sm text-foreground">Keep computer awake</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Stops idle sleep while remote control is on. Closing a laptop lid can still suspend
+              Prevents idle sleep while remote control is on. A closed laptop lid can still suspend
               it.
             </p>
           </div>
@@ -550,8 +548,8 @@ export function RemoteTab() {
           <div className="min-w-0 flex-1">
             <p className="text-sm text-foreground">Ask for passkey again after</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              How long a device stays signed in once you leave it. Never more than 8 hours after its
-              last passkey.
+              How long a device stays signed in after you leave it, up to 8 hours after its last
+              passkey.
             </p>
           </div>
           <Select
@@ -584,7 +582,7 @@ export function RemoteTab() {
             Pair a device
           </Button>
         }
-        description="Each device signs in with its own passkey and reconnects on its own. Removing one signs it out at once."
+        description="Each device signs in with its own passkey. Removing one signs it out."
       >
         {connectedDevice &&
           !devices.some((device) => device.credentialId === connectedDevice.credentialId) && (

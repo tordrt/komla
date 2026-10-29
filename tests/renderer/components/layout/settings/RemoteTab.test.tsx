@@ -367,7 +367,8 @@ describe('RemoteTab direct remote controls', () => {
 
     installApi({ server: null, pairingOffer: null, portChange: null });
     render(<RemoteTab />);
-    expect(await screen.findByText(/keeps the key your devices use/)).toBeInTheDocument();
+    expect(await screen.findByText(/where Komla keeps its keys/)).toBeInTheDocument();
+    expect(screen.getByText(/end-to-end encrypted between your own devices/)).toBeInTheDocument();
   });
 
   it('says Tailscale is needed before remote control is turned on', async () => {

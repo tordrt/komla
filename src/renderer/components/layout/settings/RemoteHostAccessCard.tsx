@@ -104,7 +104,7 @@ export function RemoteHostAccessCard({ remoteEnabled }: { remoteEnabled: boolean
           <Badge tone="primary">Recommended</Badge>
         ) : undefined
       }
-      description="Your devices open these hosts directly, so their terminals keep working while this computer sleeps or needs a new SSH login. Each host needs Tailscale; Komla publishes it there with Tailscale Serve."
+      description="Devices open these hosts directly, so terminals keep working while this computer sleeps or needs a new SSH login. Komla publishes each host with Tailscale Serve."
     >
       {!remoteEnabled && (
         <p className="text-xs text-muted-foreground">Turn on remote control above first.</p>

@@ -8,6 +8,7 @@ const LONG_RUNNING_WORDS = new Set([
   'server',
   'start',
   'storybook',
+  'studio',
   'ui',
   'watch',
 ]);
@@ -20,21 +21,47 @@ const LONG_RUNNING_FLAGS = new Set([
   '--watchAll',
   '-w',
 ]);
+/**
+ * Name parts that make a script finite despite one above, as `build:server` and `test:ui:ci`
+ * are; `watch` still runs until it is stopped, as in `build:watch`.
+ */
+const FINITE_WORDS = new Set([
+  'build',
+  'check',
+  'ci',
+  'compile',
+  'deploy',
+  'install',
+  'lint',
+  'migrate',
+  'migration',
+  'pr',
+  'release',
+  'typecheck',
+]);
 const LONG_RUNNING_PROGRAMS = new Set([
+  'air',
+  'electron',
   'entr',
   'gunicorn',
+  'mongod',
   'ngrok',
   'nodemon',
+  'postgres',
   'uvicorn',
   'watchexec',
 ]);
 /** Subcommands that run an app or a tunnel until it is stopped. */
 const RUN_SUBCOMMANDS = new Map([
-  ['cargo', 'run'],
-  ['flask', 'run'],
-  ['go', 'run'],
-  ['kubectl', 'port-forward'],
-  ['rails', 's'],
+  ['caddy', ['run']],
+  ['cargo', ['run']],
+  ['dotnet', ['run']],
+  ['flask', ['run']],
+  ['go', ['run']],
+  ['jupyter', ['lab', 'notebook']],
+  ['kubectl', ['port-forward']],
+  ['rails', ['s']],
+  ['streamlit', ['run']],
 ]);
 /** Interpreters given a script file; `node server.js` starts an app, `node build.js` does not. */
 const SCRIPT_RUNNERS = new Set(['bun', 'deno', 'node', 'php', 'python', 'ruby']);
@@ -43,7 +70,32 @@ const APP_SCRIPT_NAMES = new Set(['app', 'index', 'main']);
 const FOLLOW_FLAG = /^(?:-[a-zA-Z]*[fF]|--follow)$/;
 /** Launchers that run the command after their own flags; `timeout` also takes a duration. */
 const LAUNCHERS = new Set(['bunx', 'exec', 'nice', 'nohup', 'npx', 'time', 'timeout', 'xvfb-run']);
-const PACKAGE_MANAGERS = new Set(['bun', 'npm', 'pnpm', 'yarn']);
+/** Launchers that run the command after a subcommand of theirs, as `uv run` does. */
+const SUBCOMMAND_LAUNCHERS = new Map([
+  ['bundle', 'exec'],
+  ['npm', 'exec'],
+  ['pdm', 'run'],
+  ['pipenv', 'run'],
+  ['pnpm', 'exec'],
+  ['poetry', 'run'],
+  ['uv', 'run'],
+]);
+/** Package managers, and Turborepo, which runs their scripts. */
+const PACKAGE_MANAGERS = new Set(['bun', 'npm', 'pnpm', 'turbo', 'yarn']);
+/** Package manager options that take a value, such as the package `--filter` picks. */
+const PACKAGE_MANAGER_VALUE_OPTIONS = new Set([
+  '--cwd',
+  '--dir',
+  '--filter',
+  '--prefix',
+  '--workspace',
+  '-C',
+  '-F',
+]);
+const SHELLS = new Set(['bash', 'dash', 'sh', 'zsh']);
+/** `while true; do …; done`, which only a `break` or `exit` in it ends. */
+const ENDLESS_LOOP = /(?:^|[;&|(]|\bdo)\s*(?:while\s+(?:true|:)|until\s+false)\s*[;\n]/;
+const LOOP_EXIT = /\b(?:break|exit|return)\b/;
 /** `python3`, `python3.13t`, `pythonw`, `Python` or the Windows launcher `py`. */
 const PYTHON = /^(?:pythonw?(?:\d+(?:\.\d+)*t?)?|pyw?)$/i;
 /** The `py` launcher's own options, which pick a Python: `-3.12-arm64` or `-V:Anaconda3/3.12`. */
@@ -84,7 +136,9 @@ function programIndex(words: string[]): number {
       continue;
     }
     const launcher = programName(word);
-    if (!LAUNCHERS.has(launcher)) break;
+    const subcommand = SUBCOMMAND_LAUNCHERS.get(launcher);
+    if (subcommand && words[index + 1] === subcommand) index++;
+    else if (!LAUNCHERS.has(launcher)) break;
     index++;
     while (words[index]?.startsWith('-')) index++;
     if (launcher === 'timeout') index++;
@@ -115,13 +169,85 @@ function pythonArguments(args: string[]): { module?: string; rest: string[] } {
 }
 
 function hasLongRunningPart(name: string): boolean {
-  return name.split(/[-_.:]/).some((part) => LONG_RUNNING_WORDS.has(part));
+  const parts = name.split(/[-_.:]/);
+  if (parts.includes('watch')) return true;
+  return (
+    parts.some((part) => LONG_RUNNING_WORDS.has(part)) &&
+    !parts.some((part) => FINITE_WORDS.has(part))
+  );
 }
 
-/** `npm run dev`, `yarn start`, `pnpm test:watch` and similar package manager scripts. */
-function runsLongRunningScript(args: string[]): boolean {
-  const script = args[0] === 'run' || args[0] === 'run-script' ? args[1] : args[0];
-  return !!script && hasLongRunningPart(script);
+/** Whether the last argument names finite work, as `migrate` does in `cargo run --bin migrate`. */
+function namesFiniteWork(args: string[]): boolean {
+  const last = args[args.length - 1];
+  if (!last || last.startsWith('-')) return false;
+  return programName(last)
+    .split(/[-_.:]/)
+    .some((part) => FINITE_WORDS.has(part));
+}
+
+/**
+ * `npm run dev`, `yarn start`, `pnpm test:watch` and similar package manager scripts, also of
+ * a package that `pnpm --filter web`, `npm -w web` or `yarn workspace web` picks.
+ */
+function runsLongRunningScript(program: string, args: string[]): boolean {
+  let index = 0;
+  while (args[index]?.startsWith('-')) {
+    const option = args[index++];
+    // npm's `-w` names a workspace; pnpm's picks the workspace root and takes no value.
+    if (option === '-w') {
+      if (program === 'npm') index++;
+    } else if (PACKAGE_MANAGER_VALUE_OPTIONS.has(option)) {
+      index++;
+    } else if (LONG_RUNNING_FLAGS.has(option)) {
+      // The package manager's own, as in `bun --hot index.ts`.
+      return true;
+    }
+  }
+  if (program === 'yarn' && args[index] === 'workspace') index += 2;
+  if (args[index] === 'run' || args[index] === 'run-script') index++;
+  const script = args[index];
+  if (!script) return false;
+  // Options after the script are the script's own, as in `npm run test -- --watch`.
+  return (
+    hasLongRunningPart(script) || args.slice(index + 1).some((arg) => LONG_RUNNING_FLAGS.has(arg))
+  );
+}
+
+/** The command `sh -c` or `bash -lc` runs, without its quotes. */
+function shellCommand(program: string, args: string[]): string | undefined {
+  if (!SHELLS.has(program)) return undefined;
+  const option = args.findIndex((arg) => /^-[a-z]*c[a-z]*$/.test(arg));
+  const command = option === -1 ? undefined : args[option + 1];
+  return command?.replace(/^(["'])(.*)\1$/s, '$2');
+}
+
+/**
+ * Programs whose own arguments say they serve: `php -S`, `php artisan serve`, `deno task dev`,
+ * a Celery worker, an ssh tunnel or `less +F`; and GitHub's CLI, whose `--watch` waits for checks,
+ * which finish. Undefined for other programs.
+ */
+function servesByArguments(program: string, args: string[]): boolean | undefined {
+  const [subcommand = ''] = args;
+  switch (program) {
+    case 'php':
+      return subcommand === '-S' || (subcommand === 'artisan' && args[1] === 'serve');
+    case 'deno':
+      return subcommand === 'task' ? hasLongRunningPart(args[1] ?? '') : undefined;
+    case 'celery':
+      return args.includes('worker') || args.includes('beat');
+    case 'ssh': {
+      // `-N` forwards ports without running a command; `-f` then sends ssh to the background.
+      const options = args.filter((arg) => /^-[a-zA-Z]+$/.test(arg)).join('');
+      return options.includes('N') && !options.includes('f');
+    }
+    case 'less':
+      return args.includes('+F');
+    case 'gh':
+      return false;
+    default:
+      return undefined;
+  }
 }
 
 /** Apps and containers: `node server.js`, `java -jar app.jar`, `docker compose up`, `vite`. */
@@ -130,7 +256,7 @@ function startsApp(program: string, args: string[]): boolean {
   const detached = args.includes('-d') || args.includes('--detach');
   if (program === 'docker' || program === 'docker-compose') {
     if (args.includes('up')) return !detached;
-    return subcommand === 'run' && !detached && !args.includes('--rm');
+    return subcommand === 'run' && !detached && !args.includes('--rm') && !namesFiniteWork(args);
   }
   if (program === 'java') return subcommand === '-jar';
   if (program === 'vite') return !subcommand || subcommand.startsWith('-');
@@ -159,15 +285,20 @@ function programAndArgs(words: string[]): { program: string; args: string[] } {
  * decides, so `npm run build && npm start` is long-running and `npm test; echo $?` is not.
  */
 export function isLongRunningCommand(command: string): boolean {
+  if (ENDLESS_LOOP.test(command) && !LOOP_EXIT.test(command)) return true;
   const [words = [], ...piped] = lastCommandStages(command);
   if (piped.some(([program]) => program === 'entr')) return true;
-  if (words.some((word) => LONG_RUNNING_FLAGS.has(word))) return true;
   const { program, args } = programAndArgs(words);
+  const shelled = shellCommand(program, args);
+  if (shelled !== undefined) return isLongRunningCommand(shelled);
+  if (PACKAGE_MANAGERS.has(program)) return runsLongRunningScript(program, args);
+  const serves = servesByArguments(program, args);
+  if (serves !== undefined) return serves;
+  if (args.some((arg) => LONG_RUNNING_FLAGS.has(arg))) return true;
   const subcommand = args[0] ?? '';
-  if (PACKAGE_MANAGERS.has(program)) return runsLongRunningScript(args);
   if (LONG_RUNNING_PROGRAMS.has(program) || hasLongRunningPart(program)) return true;
-  if (LONG_RUNNING_WORDS.has(subcommand) || RUN_SUBCOMMANDS.get(program) === subcommand)
-    return true;
+  if (LONG_RUNNING_WORDS.has(subcommand)) return true;
+  if (RUN_SUBCOMMANDS.get(program)?.includes(subcommand)) return !namesFiniteWork(args);
   const follows = program === 'tail' || program === 'journalctl' || subcommand === 'logs';
   if (follows && args.some((arg) => FOLLOW_FLAG.test(arg))) return true;
   if (program === 'sleep') return subcommand === 'infinity';

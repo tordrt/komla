@@ -96,7 +96,8 @@ export function AgentLaunchDefaultsFields() {
           </div>
         )}
       </SettingsRow>
-      {readySshHosts.length > 0 && (
+      {/* A pin to a host that isn't set up refuses launches, so it stays here to change. */}
+      {(readySshHosts.length > 0 || config?.agentLaunchDefaultSshHostId) && (
         <SettingsRow
           label="Where agents start"
           description={
@@ -105,7 +106,8 @@ export function AgentLaunchDefaultsFields() {
               <InfoTip ariaLabel="About where agents start" className="align-[-1px]">
                 By default, a tab runs where its workspace does, and a new workspace starts where
                 the calling agent runs, or, from this computer, where New Workspace last started
-                one. An SSH host applies to new workspaces only.
+                one. A command run outside every workspace starts it on the computer or SSH host it
+                ran on. An SSH host applies to new workspaces only.
               </InfoTip>
             </>
           }

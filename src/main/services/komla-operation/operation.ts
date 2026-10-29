@@ -9,6 +9,7 @@ import { IPC } from '../../../shared/constants/ipc-channels';
 import {
   agentLaunchWorkspacePlacement,
   plannedWorkspaceEnvironment,
+  unreadyPinnedHostMessage,
   type DesiredWorkspaceEnvironment,
 } from '../../../shared/lib/agent-environment';
 import { canStartWithPrompt } from '../../../shared/lib/agent-preset-prompt';
@@ -211,7 +212,7 @@ export interface KomlaOperationDependencies {
   /** Where a new workspace starts when the launch names no environment. */
   resolveEnvironment(): DesiredWorkspaceEnvironment;
   isSshHostReady(hostId: string): boolean;
-  listSshHosts(): ReadonlyArray<Pick<SshHost, 'id' | 'isolated'>>;
+  listSshHosts(): ReadonlyArray<Pick<SshHost, 'id' | 'name' | 'isolated'>>;
   /** The branch checked out in a workspace; undefined or "HEAD" when its HEAD is detached. */
   getCheckedOutBranch(workspace: KomlaOperationWorkspace): Promise<string | undefined>;
   /** Whether origin has the branch with every local commit on it. */
@@ -984,6 +985,7 @@ export class KomlaOperationService {
     const placement = this.workspaceLaunchParams(
       target.project,
       target.workspace,
+      target.fromWorkspace,
       operation,
       context.sshHostId
     );
@@ -1036,21 +1038,20 @@ export class KomlaOperationService {
     context: KomlaOperationContext,
     workspace: KomlaOperationWorkspace | undefined,
     projectSelector?: string
-  ): { project?: KomlaOperationProject; workspace?: KomlaOperationWorkspace } {
+  ): {
+    project?: KomlaOperationProject;
+    workspace?: KomlaOperationWorkspace;
+    /** The launch came from a workspace, even one whose cwd matches several synced copies. */
+    fromWorkspace: boolean;
+  } {
     const contextResolution =
       !workspace && context.cwd
         ? this.dependencies.resolveProjectByCwd(context.cwd, context.sshHostId)
         : undefined;
     workspace ??= contextResolution?.workspace;
-    // A request that came through an SSH host's tunnel may only place work on
-    // that host, so it must come from one of the host's workspaces. The cwd may
-    // match several synced copies, in which case only the project resolves.
-    if (context.sshHostId && !workspace && !contextResolution?.project) {
-      throw new KomlaOperationError(
-        'SSH_WORKSPACE_CONTEXT_REQUIRED',
-        'Start new workspaces from a Komla workspace on this SSH host.',
-        403
-      );
+    // The cwd may match several synced copies, in which case only the project resolves.
+    if (!projectSelector && !workspace && !contextResolution?.project) {
+      throw this.projectRequiredError(context.sshHostId);
     }
     const project = projectSelector
       ? this.resolveProjectSelector(projectSelector)
@@ -1069,12 +1070,52 @@ export class KomlaOperationService {
         404
       );
     }
-    return { project, workspace };
+    return { project, workspace, fromWorkspace: !!workspace || !!contextResolution?.project };
+  }
+
+  /** A launch from outside every workspace names its project; this lists the ones it may. */
+  private projectRequiredError(sshHostId?: string): KomlaOperationError {
+    // A request through an SSH host's tunnel places work on that host, where folder projects can't run.
+    const projects = this.dependencies
+      .listProjects()
+      .filter((project) => !sshHostId || project.kind !== 'directory');
+    return new KomlaOperationError(
+      'PROJECT_REQUIRED',
+      projects.length
+        ? `This is not a Komla workspace, so name the project with --project. Projects: ${projects.map(({ name }) => name).join(', ')}.`
+        : `This is not a Komla workspace, and Komla has no ${sshHostId ? 'Git ' : ''}projects to start one in. Add one in Komla first.`,
+      400,
+      { availableProjects: projects.map(({ id, name }) => ({ id, name })) }
+    );
+  }
+
+  /** Where a launch from this computer puts its workspace: the pinned SSH host, else the caller's. */
+  private localLaunchPlacement(
+    config: ReturnType<KomlaOperationDependencies['getConfig']>,
+    mode: 'worktree' | 'directory',
+    fromWorkspace: boolean,
+    sourceWorkspace: KomlaOperationWorkspace | undefined
+  ): Pick<CreateWorkspaceParams, 'environment'> {
+    const placement = agentLaunchWorkspacePlacement(
+      config,
+      { mode, sourceIsSsh: sourceWorkspace?.backend?.kind === 'ssh', fromWorkspace },
+      (hostId) => this.dependencies.isSshHostReady(hostId)
+    );
+    if (!('unreadyHostId' in placement)) return placement;
+    const { unreadyHostId } = placement;
+    throw new KomlaOperationError(
+      'SSH_HOST_NOT_READY',
+      unreadyPinnedHostMessage(
+        this.dependencies.listSshHosts().find(({ id }) => id === unreadyHostId)
+      ),
+      409
+    );
   }
 
   private workspaceLaunchParams(
     project: KomlaOperationProject | undefined,
     workspace: KomlaOperationWorkspace | undefined,
+    fromWorkspace: boolean,
     operation: AgentLaunchOperation,
     sshHostId?: string
   ): CreateWorkspaceParams {
@@ -1102,14 +1143,7 @@ export class KomlaOperationService {
       windowId: workspace?.windowId ?? this.dependencies.getMainWindowId() ?? undefined,
       ...(tunnelHostId
         ? { environment: { kind: 'ssh' as const, hostId: tunnelHostId } }
-        : agentLaunchWorkspacePlacement(
-            config,
-            {
-              mode,
-              sourceIsSsh: sourceWorkspace?.backend?.kind === 'ssh',
-            },
-            (hostId) => this.dependencies.isSshHostReady(hostId)
-          )),
+        : this.localLaunchPlacement(config, mode, fromWorkspace, sourceWorkspace)),
       deferBranchNaming: true,
       skipRecordUsage: true,
       ...(sourceWorkspace?.backend?.kind === 'ssh'

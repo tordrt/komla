@@ -231,6 +231,240 @@ fn notify_discovers_the_matching_managed_companion_route() {
     assert!(request.contains("X-Komla-Workspace-Id: workspace-1\r\n"));
 }
 
+/// A desktop's route on this SSH host, written `age` ago, as its companion writes it.
+fn write_companion_route(
+    data: &std::path::Path,
+    installation: &str,
+    address: std::net::SocketAddr,
+    age: Duration,
+) {
+    let directory = data.join("helpers/companion").join(installation);
+    fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("config.json");
+    fs::write(
+        &path,
+        serde_json::to_vec(&json!({
+            "endpoint": format!("http://{address}/api/v1/ssh-workspace-status"),
+            "installationId": installation,
+            "hookInbox": data.join("inbox"),
+            "workspaces": [{
+                "workspaceId": format!("{installation}-workspace"),
+                "workingTree": data.join("worktree"),
+                "targetBranch": "main"
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - age)
+        .unwrap();
+}
+
+/// A port nothing listens on, as a desktop that quit leaves its route's. A port freed by
+/// another listener could be bound again by a parallel test.
+fn closed_port() -> std::net::SocketAddr {
+    "127.0.0.1:1".parse().unwrap()
+}
+
+/// Answers one request as a launch, past connections that only check the port is open.
+fn serve_launch(listener: TcpListener) -> thread::JoinHandle<String> {
+    thread::spawn(move || loop {
+        let (mut stream, _) = listener.accept().unwrap();
+        if stream.peek(&mut [0_u8; 1]).unwrap() == 0 {
+            continue;
+        }
+        let request = read_http_request(&mut stream);
+        let body = br#"{"ok":true,"result":{"state":"started","destination":{"kind":"workspace","workspaceId":"workspace-new"}}}"#;
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.write_all(body).unwrap();
+        return String::from_utf8(request).unwrap();
+    })
+}
+
+/// Runs `komla <arguments>` from outside every workspace on a host whose data is `data`.
+fn run_outside_workspaces(data: &std::path::Path, arguments: &[&str]) -> std::process::Output {
+    let home = data.join("home");
+    fs::create_dir_all(&home).unwrap();
+    Command::new(env!("CARGO_BIN_EXE_komla"))
+        .args(arguments)
+        .current_dir(&home)
+        .env_clear()
+        .envs(windows_essentials())
+        .env("KOMLA_DATA_DIR", data)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+const LAUNCH_PROJECT: [&str; 6] = [
+    "agent",
+    "launch",
+    "Investigate the cache",
+    "--new-workspace",
+    "--project",
+    "Project A",
+];
+
+// Outside every workspace, as in `ssh host komla agent launch --project ...`, the desktop that
+// last connected to the host takes the request, skipping one that has since quit.
+#[test]
+fn launch_outside_a_workspace_reaches_the_hosts_connected_desktop() {
+    let temporary = TempDir::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    write_companion_route(
+        temporary.path(),
+        "connected",
+        listener.local_addr().unwrap(),
+        Duration::from_secs(60),
+    );
+    write_companion_route(temporary.path(), "quit", closed_port(), Duration::ZERO);
+    let server = serve_launch(listener);
+
+    let output = run_outside_workspaces(temporary.path(), &LAUNCH_PROJECT);
+
+    // A CLI that never reaches Komla leaves the server waiting, so check it first.
+    assert!(output.status.success(), "{output:?}");
+    let request = server.join().unwrap();
+    assert!(request.starts_with("POST /api/v1/commands?"), "{request}");
+    assert!(!request.contains("X-Komla-Workspace-Id"), "{request}");
+    assert!(request.contains(r#""project":"Project A""#), "{request}");
+}
+
+#[test]
+fn launch_outside_a_workspace_prefers_komla_running_on_the_host() {
+    let temporary = TempDir::new().unwrap();
+    let remote = TcpListener::bind("127.0.0.1:0").unwrap();
+    write_companion_route(
+        temporary.path(),
+        "remote",
+        remote.local_addr().unwrap(),
+        Duration::ZERO,
+    );
+    let local = TcpListener::bind("127.0.0.1:0").unwrap();
+    fs::write(
+        temporary.path().join("port"),
+        local.local_addr().unwrap().port().to_string(),
+    )
+    .unwrap();
+    let server = serve_launch(local);
+
+    let output = run_outside_workspaces(temporary.path(), &LAUNCH_PROJECT);
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(server.join().unwrap().contains(r#""project":"Project A""#));
+}
+
+// Komla that crashed leaves its port file behind.
+#[test]
+fn launch_outside_a_workspace_passes_a_port_file_komla_left_behind() {
+    let temporary = TempDir::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    write_companion_route(
+        temporary.path(),
+        "connected",
+        listener.local_addr().unwrap(),
+        Duration::ZERO,
+    );
+    fs::write(
+        temporary.path().join("port"),
+        closed_port().port().to_string(),
+    )
+    .unwrap();
+    let server = serve_launch(listener);
+
+    let output = run_outside_workspaces(temporary.path(), &LAUNCH_PROJECT);
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(server.join().unwrap().contains(r#""project":"Project A""#));
+}
+
+// With no desktop connected either, the launch is left to the host's own Komla.
+#[test]
+fn launch_outside_a_workspace_leaves_a_crashed_komla_to_start_offline() {
+    let temporary = TempDir::new().unwrap();
+    write_companion_route(temporary.path(), "quit", closed_port(), Duration::ZERO);
+    fs::write(
+        temporary.path().join("port"),
+        closed_port().port().to_string(),
+    )
+    .unwrap();
+
+    let output = run_outside_workspaces(temporary.path(), &LAUNCH_PROJECT);
+
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("--preset, --mode, and --project are unavailable"),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn launch_outside_a_workspace_says_to_open_komla_when_no_desktop_is_connected() {
+    let temporary = TempDir::new().unwrap();
+    write_companion_route(temporary.path(), "quit", closed_port(), Duration::ZERO);
+
+    let output = run_outside_workspaces(temporary.path(), &LAUNCH_PROJECT);
+
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("Komla isn't connected. Open Komla on a device that uses this host"),
+        "{output:?}"
+    );
+}
+
+#[test]
+fn workspace_list_outside_a_workspace_reaches_the_hosts_desktop() {
+    let temporary = TempDir::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    write_companion_route(
+        temporary.path(),
+        "connected",
+        listener.local_addr().unwrap(),
+        Duration::ZERO,
+    );
+    let server = serve_launch(listener);
+
+    run_outside_workspaces(temporary.path(), &["workspace", "list", "--json"]);
+
+    let request = server.join().unwrap();
+    assert!(request.contains(r#""type":"workspace.list""#), "{request}");
+}
+
+// An agent's hooks in a plain SSH session stay off the desktops that use the host.
+#[test]
+fn hooks_outside_a_workspace_leave_the_hosts_desktops_alone() {
+    let temporary = TempDir::new().unwrap();
+    let remote = TcpListener::bind("127.0.0.1:0").unwrap();
+    remote.set_nonblocking(true).unwrap();
+    write_companion_route(
+        temporary.path(),
+        "remote",
+        remote.local_addr().unwrap(),
+        Duration::ZERO,
+    );
+
+    let output = run_outside_workspaces(
+        temporary.path(),
+        &["notify", "--source", "codex", "--event", "Stop"],
+    );
+
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Komla is not running"));
+    assert_eq!(
+        remote.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
 #[test]
 fn notify_hooks_exit_cleanly_when_komla_is_not_running() {
     let temporary = TempDir::new().unwrap();

@@ -363,7 +363,7 @@ describe('KomlaOperationService', () => {
           ...workspace,
           backend: { kind: 'ssh' as const, hostId: 'box' },
         }),
-        listSshHosts: () => [{ id: 'box', isolated: true }],
+        listSshHosts: () => [{ id: 'box', name: 'Box', isolated: true }],
       });
 
       await service.execute(
@@ -379,7 +379,7 @@ describe('KomlaOperationService', () => {
           ...workspace,
           backend: { kind: 'ssh' as const, hostId: 'box' },
         }),
-        listSshHosts: () => [{ id: 'box' }],
+        listSshHosts: () => [{ id: 'box', name: 'Box' }],
       });
 
       await expect(
@@ -409,7 +409,7 @@ describe('KomlaOperationService', () => {
           findWorkspaceByTerminalId: () => calling,
           getProject: () => ({ id: 'project-1', name: 'Komla', kind: 'git' }),
           getConfig: () => config,
-          listSshHosts: () => [{ id: 'box', isolated: true }],
+          listSshHosts: () => [{ id: 'box', name: 'Box', isolated: true }],
           resolveEnvironment: () =>
             environment === 'ssh' ? { kind: 'ssh', hostId: 'box' } : { kind: 'local' },
           createWorkspace,
@@ -437,7 +437,7 @@ describe('KomlaOperationService', () => {
           ...workspace,
           backend: { kind: 'ssh' as const, hostId: 'box' },
         }),
-        listSshHosts: () => [{ id: 'box', isolated: true }],
+        listSshHosts: () => [{ id: 'box', name: 'Box', isolated: true }],
         getProject: () => ({ id: 'project-1', name: 'Komla', kind: 'git' }),
         createWorkspace,
       });
@@ -777,10 +777,12 @@ describe('KomlaOperationService', () => {
     const createWorkspace = vi.fn().mockResolvedValue({ id: 'workspace-new' });
     const sourceBackend = { kind: 'ssh' as const, hostId: 'ssh-b', gitUrl: 'git@example/a.git' };
     let hostReady = true;
+    let pinnedHostId = 'ssh-a';
     let source: { id: string; projectId: string | null; backend: typeof sourceBackend } | undefined;
     const service = new KomlaOperationService(
       createDependencies({
-        getConfig: () => ({ agentLaunchDefaultSshHostId: 'ssh-a' }),
+        getConfig: () => ({ agentLaunchDefaultSshHostId: pinnedHostId }),
+        listSshHosts: () => [{ id: 'ssh-a', name: 'Box' }],
         listProjects: () => [
           { id: 'git-project', name: 'Git', kind: 'git' },
           { id: 'dir-project', name: 'Dir', kind: 'directory' },
@@ -794,8 +796,7 @@ describe('KomlaOperationService', () => {
 
     // Directory projects cannot live on SSH hosts.
     await service.execute({}, { type: 'agent.launch', destination: 'workspace', project: 'Dir' });
-    expect(lastParams()).toMatchObject({ mode: 'directory' });
-    expect(lastParams()).not.toHaveProperty('environment');
+    expect(lastParams()).toMatchObject({ mode: 'directory', environment: { kind: 'local' } });
 
     // A sibling of an SSH workspace stays on its source host.
     source = { id: 'source', projectId: null, backend: sourceBackend };
@@ -808,11 +809,28 @@ describe('KomlaOperationService', () => {
     });
     expect(lastParams()).not.toHaveProperty('environment');
 
-    // A pinned host that was removed or is still in setup falls back to the rules.
+    // A pinned host still in setup refuses rather than starting the worktree on this computer.
     source = undefined;
     hostReady = false;
-    await service.execute({}, { type: 'agent.launch', destination: 'workspace', project: 'Git' });
-    expect(lastParams()).not.toHaveProperty('environment');
+    createWorkspace.mockClear();
+    await expect(
+      service.execute({}, { type: 'agent.launch', destination: 'workspace', project: 'Git' })
+    ).rejects.toMatchObject({
+      code: 'SSH_HOST_NOT_READY',
+      statusCode: 409,
+      message:
+        "Agents start new workspaces on Box, which isn't set up yet. Finish setting it up, or change Where agents start in Settings → Integrations & MCP.",
+    });
+    // A pin to a host this computer doesn't have can't be finished, only changed.
+    pinnedHostId = 'gone';
+    await expect(
+      service.execute({}, { type: 'agent.launch', destination: 'workspace', project: 'Git' })
+    ).rejects.toMatchObject({
+      code: 'SSH_HOST_NOT_READY',
+      message:
+        "Agents start new workspaces on an SSH host that isn't in Komla any more. Change Where agents start in Settings → Integrations & MCP.",
+    });
+    expect(createWorkspace).not.toHaveBeenCalled();
   });
 
   it('places a different project from an SSH workspace on the same host', async () => {
@@ -870,20 +888,6 @@ describe('KomlaOperationService', () => {
       })
     );
 
-    // The caller has to be in one of the host's workspaces.
-    await expect(
-      service.execute(
-        { sshHostId: 'ssh-dev' },
-        { type: 'agent.launch', destination: 'workspace', project: 'Project A' }
-      )
-    ).rejects.toMatchObject({ code: 'SSH_WORKSPACE_CONTEXT_REQUIRED', statusCode: 403 });
-    await expect(
-      service.execute(
-        { terminalId: 'unknown-terminal', cwd: '/elsewhere', sshHostId: 'ssh-dev' },
-        { type: 'agent.launch', destination: 'workspace', project: 'Project A' }
-      )
-    ).rejects.toMatchObject({ code: 'SSH_WORKSPACE_CONTEXT_REQUIRED', statusCode: 403 });
-
     // Folder projects can't live on an SSH host.
     await expect(
       service.execute(
@@ -893,6 +897,142 @@ describe('KomlaOperationService', () => {
     ).rejects.toMatchObject({ code: 'SSH_HOST_PROJECT_UNSUPPORTED', statusCode: 400 });
 
     expect(createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('starts a named project on the SSH host a launch from outside its workspaces came from', async () => {
+    const createWorkspace = vi.fn().mockResolvedValue({ id: 'workspace-new' });
+    const service = new KomlaOperationService(
+      createDependencies({
+        listProjects: () => [{ id: 'project-a', name: 'Project A', kind: 'git' }],
+        createWorkspace,
+      })
+    );
+
+    await service.execute(
+      { cwd: '/home/dev', sshHostId: 'ssh-dev' },
+      { type: 'agent.launch', destination: 'workspace', project: 'project a' }
+    );
+
+    expect(createWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'project-a',
+        environment: { kind: 'ssh', hostId: 'ssh-dev' },
+      })
+    );
+    expect(createWorkspace.mock.calls[0][0]).not.toHaveProperty('sourceWorkspaceId');
+  });
+
+  it('starts a launch from outside every workspace on this computer unless an SSH host is pinned', async () => {
+    const createWorkspace = vi.fn().mockResolvedValue({ id: 'workspace-new' });
+    let config: { agentLaunchDefaultSshHostId?: string } = {};
+    const service = new KomlaOperationService(
+      createDependencies({
+        getConfig: () => config,
+        listProjects: () => [{ id: 'project-a', name: 'Project A', kind: 'git' }],
+        // New Workspace last started one on an SSH host.
+        resolveEnvironment: () => ({ kind: 'ssh', hostId: 'box' }),
+        createWorkspace,
+      })
+    );
+    const launch = () =>
+      service.execute(
+        { cwd: '/home/dev' },
+        { type: 'agent.launch', destination: 'workspace', project: 'Project A' }
+      );
+
+    await launch();
+    expect(createWorkspace).toHaveBeenLastCalledWith(
+      expect.objectContaining({ projectId: 'project-a', environment: { kind: 'local' } })
+    );
+
+    config = { agentLaunchDefaultSshHostId: 'ssh-pinned' };
+    await launch();
+    expect(createWorkspace).toHaveBeenLastCalledWith(
+      expect.objectContaining({ environment: { kind: 'ssh', hostId: 'ssh-pinned' } })
+    );
+  });
+
+  it('starts a launch from a cwd several synced copies share where New Workspace would', async () => {
+    const createWorkspace = vi.fn().mockResolvedValue({ id: 'workspace-new' });
+    const project = { id: 'project-a', name: 'Project A', kind: 'git' as const };
+    const service = new KomlaOperationService(
+      createDependencies({
+        getProject: () => project,
+        resolveProjectByCwd: () => ({ project }),
+        createWorkspace,
+      })
+    );
+
+    await service.execute(
+      { cwd: '/repos/a' },
+      { type: 'agent.launch', destination: 'workspace' }
+    );
+
+    expect(createWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'project-a' })
+    );
+    expect(createWorkspace.mock.calls[0][0]).not.toHaveProperty('environment');
+  });
+
+  it('lists the projects to pass to --project when a launch comes from outside any workspace', async () => {
+    const createWorkspace = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({
+        listProjects: () => [
+          { id: 'project-a', name: 'Project A', kind: 'git' },
+          { id: 'folder', name: 'Notes', kind: 'directory' },
+        ],
+        createWorkspace,
+      })
+    );
+
+    await expect(
+      service.execute({ cwd: '/home/dev' }, { type: 'agent.launch', destination: 'workspace' })
+    ).rejects.toMatchObject({
+      code: 'PROJECT_REQUIRED',
+      statusCode: 400,
+      message:
+        'This is not a Komla workspace, so name the project with --project. Projects: Project A, Notes.',
+      details: {
+        availableProjects: [
+          { id: 'project-a', name: 'Project A' },
+          { id: 'folder', name: 'Notes' },
+        ],
+      },
+    });
+    // Folder projects can't run on an SSH host, so a launch through its tunnel leaves them out.
+    await expect(
+      service.execute(
+        { cwd: '/home/dev', sshHostId: 'ssh-dev' },
+        { type: 'agent.launch', destination: 'workspace' }
+      )
+    ).rejects.toMatchObject({
+      code: 'PROJECT_REQUIRED',
+      message:
+        'This is not a Komla workspace, so name the project with --project. Projects: Project A.',
+      details: { availableProjects: [{ id: 'project-a', name: 'Project A' }] },
+    });
+    expect(createWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('says to add a project when there is none to pass to --project', async () => {
+    const service = new KomlaOperationService(
+      createDependencies({
+        listProjects: () => [{ id: 'folder', name: 'Notes', kind: 'directory' }],
+      })
+    );
+
+    await expect(
+      service.execute(
+        { cwd: '/home/dev', sshHostId: 'ssh-dev' },
+        { type: 'agent.launch', destination: 'workspace' }
+      )
+    ).rejects.toMatchObject({
+      code: 'PROJECT_REQUIRED',
+      message:
+        'This is not a Komla workspace, and Komla has no Git projects to start one in. Add one in Komla first.',
+      details: { availableProjects: [] },
+    });
   });
 
   it('explains when a project needs a Git remote to start on an SSH host', async () => {

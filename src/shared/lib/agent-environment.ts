@@ -17,21 +17,42 @@ interface AgentLaunchDefaultsConfig {
   agentLaunchDefaultSshHostId?: string;
 }
 
+export type AgentLaunchPlacement =
+  | { environment?: DesiredWorkspaceEnvironment }
+  /** The pinned host isn't set up yet; the launch must not start anywhere else. */
+  | { unreadyHostId: string };
+
 /**
  * Placement for a workspace an agent launches. The SSH host pin applies only to
- * worktree launches from a non-SSH source onto a ready host; otherwise the
- * source workspace's SSH location decides.
+ * worktree launches from a non-SSH source; otherwise the source workspace's SSH
+ * location decides. A pinned mode may start anywhere, so a pinned host that isn't
+ * ready is reported rather than skipped, which could start that mode on this computer.
+ * A launch from outside every workspace, as from a script, starts on this computer,
+ * not wherever New Workspace last started one.
  */
 export function agentLaunchWorkspacePlacement(
   config: AgentLaunchDefaultsConfig,
-  target: { mode: 'worktree' | 'directory'; sourceIsSsh: boolean },
+  target: { mode: 'worktree' | 'directory'; sourceIsSsh: boolean; fromWorkspace: boolean },
   isSshHostReady: (hostId: string) => boolean
-): { environment?: { kind: 'ssh'; hostId: string } } {
+): AgentLaunchPlacement {
   const hostId = config.agentLaunchDefaultSshHostId;
-  if (hostId && target.mode === 'worktree' && !target.sourceIsSsh && isSshHostReady(hostId)) {
-    return { environment: { kind: 'ssh', hostId } };
+  if (hostId && target.mode === 'worktree' && !target.sourceIsSsh) {
+    return isSshHostReady(hostId)
+      ? { environment: { kind: 'ssh', hostId } }
+      : { unreadyHostId: hostId };
   }
-  return {};
+  return target.fromWorkspace ? {} : { environment: { kind: 'local' } };
+}
+
+/**
+ * Why a launch the pinned SSH host refused didn't start, naming the host as Settings does,
+ * or saying it's gone when the pin names a host this computer doesn't have.
+ */
+export function unreadyPinnedHostMessage(host: { name: string } | undefined): string {
+  const where = 'Where agents start in Settings → Integrations & MCP';
+  return host
+    ? `Agents start new workspaces on ${host.name}, which isn't set up yet. Finish setting it up, or change ${where}.`
+    : `Agents start new workspaces on an SSH host that isn't in Komla any more. Change ${where}.`;
 }
 
 interface WorkspacePlacementParams {

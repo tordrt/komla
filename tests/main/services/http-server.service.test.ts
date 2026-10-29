@@ -167,6 +167,7 @@ vi.mock('../../../src/main/services/shortcuts.service', () => ({ shortcutsServic
 const mockSshHostService = {
   list: vi.fn((): unknown[] => []),
   get: vi.fn((): unknown => undefined),
+  isReady: vi.fn(() => true),
 };
 vi.mock('../../../src/main/services/ssh-host.service', () => ({
   sshHostService: mockSshHostService,
@@ -408,6 +409,10 @@ describe('HttpServerService', () => {
     mockAgentPresetService.getActivePresets.mockReturnValue([]);
     mockSshHostService.list.mockReset();
     mockSshHostService.list.mockReturnValue([]);
+    mockSshHostService.get.mockReset();
+    mockSshHostService.get.mockReturnValue(undefined);
+    mockSshHostService.isReady.mockReset();
+    mockSshHostService.isReady.mockReturnValue(true);
     mockConfigService.get.mockReset();
     mockConfigService.get.mockReturnValue({});
     mockConfigService.update.mockReset();
@@ -3759,6 +3764,66 @@ describe('HttpServerService', () => {
       expect(mockWorkspaceService.create).not.toHaveBeenCalled();
     });
 
+    it('refuses rather than starting elsewhere while the pinned SSH host is not set up', async () => {
+      mockConfigService.get.mockReturnValue({ agentLaunchDefaultSshHostId: 'box' });
+      mockSshHostService.get.mockReturnValue({ id: 'box', name: 'Box' });
+      mockSshHostService.isReady.mockReturnValue(false);
+
+      const { res } = await sendJsonRequest(
+        'POST',
+        '/api/v1/workspace',
+        JSON.stringify({ project: 'My Project' })
+      );
+
+      expect(res.writeHead).toHaveBeenCalledWith(409, { 'Content-Type': 'application/json' });
+      expect(parseJsonResponse(res)).toMatchObject({
+        error:
+          "Agents start new workspaces on Box, which isn't set up yet. Finish setting it up, or change Where agents start in Settings → Integrations & MCP.",
+      });
+      expect(mockWorkspaceService.create).not.toHaveBeenCalled();
+    });
+
+    it('says so when the pinned SSH host is no longer in Komla', async () => {
+      mockConfigService.get.mockReturnValue({ agentLaunchDefaultSshHostId: 'gone' });
+      mockSshHostService.isReady.mockReturnValue(false);
+
+      const { res } = await sendJsonRequest(
+        'POST',
+        '/api/v1/workspace',
+        JSON.stringify({ project: 'My Project' })
+      );
+
+      expect(res.writeHead).toHaveBeenCalledWith(409, { 'Content-Type': 'application/json' });
+      expect(parseJsonResponse(res)).toMatchObject({
+        error:
+          "Agents start new workspaces on an SSH host that isn't in Komla any more. Change Where agents start in Settings → Integrations & MCP.",
+      });
+    });
+
+    it('starts a launch from a cwd several workspaces share where New Workspace would', async () => {
+      mockProjectService.get.mockReturnValue(project);
+      mockWorkspaceService.list.mockReturnValue([
+        createWorktreeWorkspace({ id: 'ws-a', projectId: 'proj-1', workingDirectory: '/repos/a' }),
+        createWorktreeWorkspace({ id: 'ws-b', projectId: 'proj-1', workingDirectory: '/repos/a' }),
+      ]);
+
+      await sendJsonRequest('POST', '/api/v1/workspace', JSON.stringify({ cwd: '/repos/a' }));
+
+      expect(mockWorkspaceService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId: 'proj-1' })
+      );
+      expect(mockWorkspaceService.create.mock.calls[0][0]).not.toHaveProperty('environment');
+    });
+
+    // Not wherever New Workspace last started one, which may be an SSH host.
+    it('starts a project named from outside every workspace on this computer', async () => {
+      await sendJsonRequest('POST', '/api/v1/workspace', JSON.stringify({ project: 'My Project' }));
+
+      expect(mockWorkspaceService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId: 'proj-1', environment: { kind: 'local' } })
+      );
+    });
+
     it('requires a JSON request body', async () => {
       const { res } = await sendRequest(
         'POST',
@@ -4135,6 +4200,7 @@ describe('HttpServerService', () => {
         windowId: 'main-window-id',
         presetId: undefined,
         launchModeId: undefined,
+        environment: { kind: 'local' },
         skipRecordUsage: true,
         deferBranchNaming: true,
       });
@@ -4176,6 +4242,7 @@ describe('HttpServerService', () => {
         windowId: 'main-window-id',
         presetId: undefined,
         launchModeId: undefined,
+        environment: { kind: 'local' },
         skipRecordUsage: true,
       });
     });

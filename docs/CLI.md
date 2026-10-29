@@ -76,8 +76,19 @@ created. Agents may always start the launch mode pinned in Komla CLI launch defa
 stays pinned. A mode agents may not start there is refused (`AGENT_MODE_REQUIRES_USER`, or
 `AGENT_MODE_REQUIRES_ISOLATION` for one allowed only isolated). Without `--mode`, the pinned agent
 starts in its pinned mode and any other agent in its Default mode, never in the calling workspace's
-mode or the one it last started in. Workspace launches may select `--project <id-or-name>`
-explicitly; `-C <path>` supplies context outside a managed terminal. `--from-current-branch` starts
+mode or the one it last started in. A workspace launch goes in the calling workspace's project,
+or the one `--project <id-or-name>` names; outside every workspace `--project` is required, and
+leaving it out lists the projects (`PROJECT_REQUIRED`). Such a launch starts the workspace on the
+device it ran on: this computer, unless Where agents start pins an SSH host, or the SSH host. A
+pinned host that isn't set up yet, or no longer exists, refuses worktree launches from this
+computer (`SSH_HOST_NOT_READY`) rather than starting them here, since agents may start the pinned
+mode anywhere. On an SSH host, a launch from outside its workspaces, such as `ssh host
+'~/.komla/helpers/komla agent launch "…" --new-workspace --project web'`, reaches Komla on the host
+itself if it runs there, else the desktop whose companion route was written last and whose port
+still accepts connections, and always starts the workspace on that host. Other commands outside a
+workspace reach a desktop the same way, which acts only on that host's workspaces; agent hooks
+(`komla notify`) and `komla mcp` reach only the host's own Komla.
+`-C <path>` supplies context outside a managed terminal. `--from-current-branch` starts
 the new worktree from the branch checked out in the calling workspace instead of the project's base
 branch; uncommitted changes are not copied.
 

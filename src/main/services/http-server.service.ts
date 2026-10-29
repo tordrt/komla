@@ -10,7 +10,10 @@ import { z } from 'zod';
 
 import { IPC } from '../../shared/constants/ipc-channels';
 import { isMcpToolEnabled } from '../../shared/constants/mcp-built-in-tools';
-import { agentLaunchWorkspacePlacement } from '../../shared/lib/agent-environment';
+import {
+  agentLaunchWorkspacePlacement,
+  unreadyPinnedHostMessage,
+} from '../../shared/lib/agent-environment';
 import { isBrowserUrl, MAX_BROWSER_URL_LENGTH } from '../../shared/lib/browser-tabs';
 import {
   MAX_VIRTUAL_DESKTOP_NAME_LENGTH,
@@ -1968,11 +1971,17 @@ class HttpServerService {
     })();
   }
 
+  private unreadyPinnedHostError(hostId: string): CreateWorkspaceError {
+    return { error: unreadyPinnedHostMessage(sshHostService.get(hostId)), statusCode: 409 };
+  }
+
   private async createWorkspaceInternal(
     payload: CreateWorkspacePayload
   ): Promise<CreateWorkspaceResult | CreateWorkspaceError> {
     let project: ReturnType<typeof projectService.get> | undefined;
     let sourceWorkspace: Workspace | undefined;
+    // A cwd may match several synced copies of a workspace, which resolves only its project.
+    let fromWorkspace = false;
     if (payload.cwd) {
       // Derive project from workspaces matching the cwd. Unlike tools that
       // mutate a workspace, spawning a new workspace only needs an unambiguous
@@ -1986,6 +1995,7 @@ class HttpServerService {
       }
       project = resolution.project;
       sourceWorkspace = resolution.sourceWorkspace;
+      fromWorkspace = !!project || !!sourceWorkspace;
     }
 
     if (!project && payload.project) {
@@ -2022,6 +2032,16 @@ class HttpServerService {
     // Worktree creation (the slow part) happens in the background.
     const deferBranchNaming = true;
     const mcpConfig = configService.get();
+    const placement = agentLaunchWorkspacePlacement(
+      mcpConfig,
+      {
+        mode: project?.kind === 'directory' ? 'directory' : 'worktree',
+        sourceIsSsh: isSourceSsh,
+        fromWorkspace,
+      },
+      (hostId) => sshHostService.isReady(hostId)
+    );
+    if ('unreadyHostId' in placement) return this.unreadyPinnedHostError(placement.unreadyHostId);
     const commonCreateParams = {
       ...(sshSourceBackend
         ? {
@@ -2040,14 +2060,7 @@ class HttpServerService {
       windowId: targetWindowId ?? undefined,
       presetId: mcpConfig.agentLaunchDefaultPresetId ?? undefined,
       launchModeId: mcpConfig.agentLaunchDefaultLaunchModeId ?? undefined,
-      ...agentLaunchWorkspacePlacement(
-        mcpConfig,
-        {
-          mode: project?.kind === 'directory' ? 'directory' : 'worktree',
-          sourceIsSsh: isSourceSsh,
-        },
-        (hostId) => sshHostService.isReady(hostId)
-      ),
+      ...placement,
       skipRecordUsage: true,
     };
     const workspace =

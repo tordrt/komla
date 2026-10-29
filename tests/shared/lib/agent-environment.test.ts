@@ -36,7 +36,7 @@ describe('workspace creation environment', () => {
 
 describe('agent launch placement', () => {
   const pinned = { agentLaunchDefaultSshHostId: 'box' };
-  const worktree = { mode: 'worktree' as const, sourceIsSsh: false };
+  const worktree = { mode: 'worktree' as const, sourceIsSsh: false, fromWorkspace: true };
 
   it('starts a worktree from this computer on the pinned SSH host once it is ready', () => {
     expect(agentLaunchWorkspacePlacement(pinned, worktree, () => true)).toEqual({
@@ -44,15 +44,31 @@ describe('agent launch placement', () => {
     });
   });
 
+  // A pinned mode may start anywhere, so starting it elsewhere could run it unprotected here.
+  it('names a pinned SSH host that is not ready rather than starting the worktree elsewhere', () => {
+    expect(agentLaunchWorkspacePlacement(pinned, worktree, () => false)).toEqual({
+      unreadyHostId: 'box',
+    });
+  });
+
   it('leaves placement to the calling workspace everywhere else', () => {
     expect(agentLaunchWorkspacePlacement({}, worktree, () => true)).toEqual({});
-    expect(agentLaunchWorkspacePlacement(pinned, worktree, () => false)).toEqual({});
     expect(
       agentLaunchWorkspacePlacement(pinned, { ...worktree, sourceIsSsh: true }, () => true)
     ).toEqual({});
     expect(
       agentLaunchWorkspacePlacement(pinned, { ...worktree, mode: 'directory' }, () => true)
     ).toEqual({});
+  });
+
+  it('starts a launch from outside every workspace on this computer unless an SSH host is pinned', () => {
+    const outside = { ...worktree, fromWorkspace: false };
+    expect(agentLaunchWorkspacePlacement({}, outside, () => true)).toEqual({
+      environment: { kind: 'local' },
+    });
+    expect(agentLaunchWorkspacePlacement(pinned, outside, () => true)).toEqual({
+      environment: { kind: 'ssh', hostId: 'box' },
+    });
   });
 });
 

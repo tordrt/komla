@@ -176,6 +176,8 @@ struct CliEnvironment {
     /// (`claude --bg`), which kept the environment of the Terminal that started it, or print
     /// and SDK mode, such as a `claude -p` another agent runs in its Terminal.
     run_by_detached_claude: bool,
+    /// Run outside every workspace on an SSH host, this reaches a desktop that uses the host.
+    reached_host_desktop: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -229,6 +231,12 @@ impl KomlaEnvironmentValues {
 
 impl CliEnvironment {
     fn current() -> anyhow::Result<Self> {
+        Self::discover(false)
+    }
+
+    /// `reach_host_desktop`: outside every workspace, with no Komla running here, reach a
+    /// desktop that uses this SSH host, as `ssh host komla agent launch --project ...` needs.
+    fn discover(reach_host_desktop: bool) -> anyhow::Result<Self> {
         let cwd = env::current_dir()
             .context("could not determine the current directory")?
             .to_string_lossy()
@@ -243,12 +251,16 @@ impl CliEnvironment {
             KomlaEnvironmentValues::default()
         };
         let mut values = resolve_route_values(process_values, tmux_values, managed_session);
+        let mut reached_host_desktop = false;
         if values.api_url.is_none() {
-            if let Some(data_dir) = komla_data_dir() {
-                values = values.with_missing_from(discover_managed_companion_route(
-                    &data_dir,
-                    Path::new(&cwd),
-                ));
+            let routes = komla_data_dir()
+                .map(|data_dir| managed_companion_routes(&data_dir))
+                .unwrap_or_default();
+            values = values
+                .with_missing_from(discover_managed_companion_route(&routes, Path::new(&cwd)));
+            if values.api_url.is_none() && reach_host_desktop {
+                values.api_url = discover_host_desktop_api_url(&routes);
+                reached_host_desktop = values.api_url.is_some();
             }
         }
         let api_url = match values.api_url {
@@ -273,6 +285,7 @@ impl CliEnvironment {
             run_by_detached_claude: non_empty_env("CLAUDE_JOB_DIR").is_some()
                 || non_empty_env("CLAUDE_CODE_ENTRYPOINT")
                     .is_some_and(|entrypoint| entrypoint.starts_with("sdk")),
+            reached_host_desktop,
         })
     }
 }
@@ -376,12 +389,13 @@ fn komla_data_dir() -> Option<PathBuf> {
         })
 }
 
-fn discover_managed_companion_route(data_dir: &Path, cwd: &Path) -> KomlaEnvironmentValues {
+/// Each desktop's route on this SSH host, with when it was last written.
+fn managed_companion_routes(data_dir: &Path) -> Vec<(SystemTime, String, ManagedCompanionRoute)> {
     let companion_root = data_dir.join("helpers").join("companion");
     let Ok(installations) = fs::read_dir(companion_root) else {
-        return KomlaEnvironmentValues::default();
+        return Vec::new();
     };
-    let mut best: Option<(usize, SystemTime, String, String)> = None;
+    let mut routes = Vec::new();
     for installation in installations.filter_map(Result::ok) {
         let Ok(configs) = fs::read_dir(installation.path()) else {
             continue;
@@ -403,38 +417,84 @@ fn discover_managed_companion_route(data_dir: &Path, cwd: &Path) -> KomlaEnviron
                 .metadata()
                 .and_then(|metadata| metadata.modified())
                 .unwrap_or(SystemTime::UNIX_EPOCH);
-            for workspace in route.workspaces {
-                if workspace.workspace_id.trim().is_empty()
-                    || !cwd.starts_with(&workspace.working_tree)
-                {
-                    continue;
-                }
-                let specificity = workspace.working_tree.components().count();
-                if best
-                    .as_ref()
-                    .is_some_and(|(best_specificity, best_modified, _, _)| {
-                        (*best_specificity, *best_modified) >= (specificity, modified)
-                    })
-                {
-                    continue;
-                }
-                best = Some((
-                    specificity,
-                    modified,
-                    api_url.to_owned(),
-                    workspace.workspace_id,
-                ));
+            routes.push((modified, api_url.to_owned(), route));
+        }
+    }
+    routes
+}
+
+fn discover_managed_companion_route(
+    routes: &[(SystemTime, String, ManagedCompanionRoute)],
+    cwd: &Path,
+) -> KomlaEnvironmentValues {
+    let mut best: Option<(usize, SystemTime, &str, &str)> = None;
+    for (modified, api_url, route) in routes {
+        for workspace in &route.workspaces {
+            if workspace.workspace_id.trim().is_empty() || !cwd.starts_with(&workspace.working_tree)
+            {
+                continue;
             }
+            let specificity = workspace.working_tree.components().count();
+            if best
+                .as_ref()
+                .is_some_and(|(best_specificity, best_modified, _, _)| {
+                    (*best_specificity, *best_modified) >= (specificity, *modified)
+                })
+            {
+                continue;
+            }
+            best = Some((specificity, *modified, api_url, &workspace.workspace_id));
         }
     }
     let Some((_, _, api_url, workspace_id)) = best else {
         return KomlaEnvironmentValues::default();
     };
     KomlaEnvironmentValues {
-        api_url: Some(api_url),
-        workspace_id: Some(workspace_id),
+        api_url: Some(api_url.to_owned()),
+        workspace_id: Some(workspace_id.to_owned()),
         ..KomlaEnvironmentValues::default()
     }
+}
+
+/// The desktop that last wrote its route on this SSH host and is still connected, unless Komla
+/// runs on the host itself, which its port file names. A desktop's port is forwarded here only
+/// while it is connected, so a route of one that quit refuses connections. With none
+/// connected, the newest route, unless a port file Komla left behind when it crashed leaves
+/// the launch to start offline.
+fn discover_host_desktop_api_url(
+    routes: &[(SystemTime, String, ManagedCompanionRoute)],
+) -> Option<String> {
+    let local = discover_local_api_url().ok();
+    if local.as_deref().is_some_and(accepts_connections) {
+        return None;
+    }
+    let mut newest_first: Vec<_> = routes
+        .iter()
+        .map(|(modified, api_url, _)| (modified, api_url))
+        .collect();
+    newest_first.sort_by(|(left, _), (right, _)| right.cmp(left));
+    newest_first
+        .iter()
+        .find(|(_, api_url)| accepts_connections(api_url))
+        .or(newest_first.first().filter(|_| local.is_none()))
+        .map(|(_, api_url)| (*api_url).clone())
+}
+
+fn accepts_connections(api_url: &str) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    let authority = api_url
+        .strip_prefix("http://")
+        .unwrap_or(api_url)
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    authority
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut addresses| addresses.next())
+        .is_some_and(|address| {
+            TcpStream::connect_timeout(&address, Duration::from_millis(500)).is_ok()
+        })
 }
 
 fn installed_komla_data_dir(executable: Option<&Path>) -> Option<PathBuf> {
@@ -715,7 +775,7 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
     ) {
         bail!(USAGE);
     }
-    let environment = CliEnvironment::current()?;
+    let environment = CliEnvironment::discover(reaches_host_desktop(args))?;
     let mut api = HttpKomlaApi {
         environment: environment.clone(),
     };
@@ -760,6 +820,13 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
         return Err(error);
     }
     Ok(())
+}
+
+/// Whether a desktop that uses this SSH host takes the command from outside every workspace.
+/// Agent hooks there would only add requests about nothing Komla shows, and `komla mcp` would
+/// keep a remote desktop's tools for good.
+fn reaches_host_desktop(args: &[String]) -> bool {
+    !matches!(args.first().map(String::as_str), Some("notify" | "mcp"))
 }
 
 fn show_desktop(view: &DesktopView) -> anyhow::Result<Shown> {
@@ -1730,6 +1797,12 @@ require --new-workspace"
             }
             let result = match execute_operation(api, environment, operation) {
                 Err(error) if destination == "workspace" && is_unreachable(&error) => {
+                    if environment.reached_host_desktop {
+                        bail!(
+                            "Komla isn't connected. Open Komla on a device that uses this host, \
+then try again."
+                        );
+                    }
                     if offline_unsupported {
                         bail!(
                             "Komla isn't connected, so --preset, --mode, and --project are unavailable. \
@@ -3469,7 +3542,22 @@ browser preview.";
             run_by_cursor: false,
             run_by_devin: false,
             run_by_detached_claude: false,
+            reached_host_desktop: false,
         }
+    }
+
+    #[test]
+    fn commands_but_hooks_and_mcp_reach_a_desktop_that_uses_the_host() {
+        let reaches = |args: &[&str]| {
+            reaches_host_desktop(&args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>())
+        };
+        assert!(reaches(&["agent", "launch", "--new-workspace"]));
+        assert!(reaches(&["workspace", "list"]));
+        assert!(reaches(&["tag", "--workspace", "workspace-1", "review"]));
+        assert!(!reaches(&[
+            "notify", "--source", "codex", "--event", "Stop"
+        ]));
+        assert!(!reaches(&["mcp"]));
     }
 
     #[test]

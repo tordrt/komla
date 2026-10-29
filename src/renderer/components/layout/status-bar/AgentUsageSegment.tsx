@@ -15,6 +15,11 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
 
+import {
+  AGENT_USAGE_POLL_INTERVAL_MS,
+  AGENT_USAGE_RATE_LIMITED_BACKOFF_MS,
+} from '../../../../shared/constants/agent-usage';
+
 import { StatusBarButton } from './StatusBarButton';
 
 import type {
@@ -32,8 +37,8 @@ const AGENT_NAMES: Record<AgentUsageSource, string> = {
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-// Usage moves slowly and the providers limit how often they're asked.
-const POLL_INTERVAL_MS = 5 * MINUTE;
+// A rate-limited reading at most this old isn't dimmed: one backoff held it back, not two.
+const RATE_LIMITED_FRESH_MS = 2 * AGENT_USAGE_RATE_LIMITED_BACKOFF_MS;
 // From here a limit turns amber.
 const NEARLY_FULL_PERCENT = 75;
 // From here the bar's automatic choice shows the 5-hour limit beside the weekly.
@@ -112,15 +117,35 @@ function formatAgo(ms: number): string {
   return `${Math.floor(ms / DAY)}d ago`;
 }
 
-function problemText(reading: AgentUsageReading, name: string): string | null {
+/** How long until a rate-limited provider is asked again; 0 once it is being asked. */
+function retryWait(reading: AgentUsageReading, now: number): number {
+  if (reading.problem !== 'rate-limited' || reading.retryAt === null) return 0;
+  // The minute clock can be a minute behind a reading that just came.
+  return Math.max(0, reading.retryAt - Math.max(now, Date.now()));
+}
+
+function problemText(reading: AgentUsageReading, name: string, now: number): string | null {
   if (reading.problem === 'signed-out') {
     return `Sign in to ${name} with a plan on this computer to see its usage.`;
   }
   if (reading.problem === 'expired') {
     return `${name}'s sign-in has expired. It renews when you next run ${name}.`;
   }
+  if (reading.problem === 'rate-limited') {
+    const wait = retryWait(reading, now);
+    return (
+      `${name} limits how often its usage can be read, by Komla or any other app. ` +
+      (wait > 0 ? `Komla asks again in ${formatDuration(wait)}.` : 'Komla is asking again.')
+    );
+  }
   if (reading.problem === 'unavailable') return 'Could not read the latest usage.';
   return null;
+}
+
+/** Dimmed while reads fail, except while rate limited with a reading that's still recent. */
+function isDimmed(reading: AgentUsageReading, now: number): boolean {
+  if (reading.problem !== 'rate-limited') return reading.problem !== null;
+  return reading.readAt === 0 || now - reading.readAt > RATE_LIMITED_FRESH_MS;
 }
 
 function UsageBar({ percent, className }: { percent: number; className?: string }) {
@@ -147,13 +172,13 @@ function useAgentUsage(source: AgentUsageSource): AgentUsageReading | undefined 
     };
     const unsubscribe = window.api.onAgentUsageChange(apply);
     window.api.getAgentUsage().then(apply, () => {});
-    // The main process skips reads asked for within a minute of the last.
+    // The main process skips reads asked for within a few minutes of the last.
     const refresh = () => {
       if (!document.hidden)
         window.api.refreshAgentUsage({ sources: [source] }).then(apply, () => {});
     };
     refresh();
-    const interval = setInterval(refresh, POLL_INTERVAL_MS);
+    const interval = setInterval(refresh, AGENT_USAGE_POLL_INTERVAL_MS);
     window.addEventListener('focus', refresh);
     return () => {
       cancelled = true;
@@ -262,7 +287,7 @@ function UsagePopover({
       .catch(() => {})
       .finally(() => setRefreshing(false));
   };
-  const problem = problemText(reading, name);
+  const problem = problemText(reading, name, now);
   const plan = reading.plan && `${reading.plan[0].toUpperCase()}${reading.plan.slice(1)} plan`;
   const detail = [plan, reading.account].filter(Boolean).join(' · ');
 
@@ -276,7 +301,7 @@ function UsagePopover({
           size="xs"
           variant="ghost"
           className="ml-auto"
-          disabled={refreshing}
+          disabled={refreshing || retryWait(reading, now) > 0}
           onClick={refresh}
         >
           <ArrowClockwise className={refreshing ? 'animate-spin' : undefined} />
@@ -341,15 +366,15 @@ function AgentUsageItem({
               (window.untilReset ? `, resets in ${window.untilReset}` : '')
           )
           .join('; ')
-      : (problemText(reading, name) ?? 'no limits reported');
+      : (problemText(reading, name, now) ?? 'no limits reported');
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <StatusBarButton
           aria-label={`${name} usage: ${summary}`}
-          tooltip={reading.problem ? problemText(reading, name) : `${name} plan usage`}
-          className={cn('gap-1.5 tabular-nums', reading.problem && 'opacity-60')}
+          tooltip={reading.problem ? problemText(reading, name, now) : `${name} plan usage`}
+          className={cn('gap-1.5 tabular-nums', isDimmed(reading, now) && 'opacity-60')}
         >
           <AgentPresetIcon preset={{ name }} className="size-3" />
           {inBar.length === 0 && <span>–</span>}

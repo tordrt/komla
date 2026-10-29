@@ -37,6 +37,12 @@ export const AGENT_CAPABILITIES = [
     description: `Move the current workspace to the Trash once the agent’s turn ends, stopping its terminals. The user can restore it for ${TRASH_RETENTION_DAYS} days.`,
   },
   {
+    id: 'workspace.link',
+    command: 'komla workspace link',
+    description:
+      'Link the current workspace to other workspaces, so agents can read and edit their files through its linked-workspaces folder, or unlink them.',
+  },
+  {
     id: 'folder.open',
     command: 'komla open',
     description: 'Open a folder on this computer in Komla, as its own workspace.',

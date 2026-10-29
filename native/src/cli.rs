@@ -1349,9 +1349,9 @@ fn workspace_command(
     output: &mut dyn Write,
     errors: &mut dyn Write,
 ) -> anyhow::Result<()> {
-    let operation = args
-        .first()
-        .context("usage: komla workspace <list|title|snooze|wake|tag|untag|trash> [arguments]")?;
+    let operation = args.first().context(
+        "usage: komla workspace <list|title|snooze|wake|tag|untag|trash|link|unlink> [arguments]",
+    )?;
     let mut options = args[1..].to_vec();
     match operation.as_str() {
         "list" => {
@@ -1373,7 +1373,7 @@ fn workspace_command(
                     writeln!(
                         errors,
                         "Komla couldn't be reached, so this lists the workspaces on this host, \
-without their tags."
+without their tags or links."
                     )?;
                     result
                 }
@@ -1496,7 +1496,21 @@ without their tags."
                 output,
             )
         }
-        _ => bail!("workspace operation must be title, snooze, wake, tag, untag or trash"),
+        "link" | "unlink" => {
+            let json_output = take_flag(&mut options, "--json")?;
+            if options.is_empty() || options.iter().any(|id| id.starts_with('-')) {
+                bail!(
+                    "usage: komla workspace {operation} <workspace-id>... [--json]; \
+`komla workspace list` shows the ids"
+                );
+            }
+            let request = json!({"type": format!("workspace.{operation}"), "workspaceIds": options});
+            let result = execute_operation(api, environment, request)?;
+            write_operation_result(&result, json_output, output)
+        }
+        _ => bail!(
+            "workspace operation must be list, title, snooze, wake, tag, untag, trash, link or unlink"
+        ),
     }
 }
 
@@ -3272,6 +3286,25 @@ fn write_operation_result(
         }
         return Ok(());
     }
+    if let Some(links) = result.get("links") {
+        let ids: Vec<&str> = links
+            .get("linkedWorkspaceIds")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        if ids.is_empty() {
+            writeln!(output, "The workspace is linked to no others.")?;
+        } else {
+            writeln!(
+                output,
+                "The workspace is linked to {}; their files are under linked-workspaces/ in it.",
+                ids.join(", ")
+            )?;
+        }
+        return Ok(());
+    }
     if result.get("workspace").is_some() {
         writeln!(output, "Workspace updated.")?;
         return Ok(());
@@ -4915,6 +4948,50 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
         let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
         assert!(run_with(&mut api, &["trash", "now"], "").is_err());
         assert!(api.requests.is_empty());
+    }
+
+    #[test]
+    fn link_and_unlink_send_the_workspace_ids() {
+        for (args, expected) in [
+            (
+                vec!["workspace", "link", "a1", "b2"],
+                json!({"type": "workspace.link", "workspaceIds": ["a1", "b2"]}),
+            ),
+            (
+                vec!["workspace", "unlink", "a1", "--json"],
+                json!({"type": "workspace.unlink", "workspaceIds": ["a1"]}),
+            ),
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+            run_with(&mut api, &args, "").unwrap_or_else(|error| panic!("{args:?}: {error}"));
+            let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+            assert_eq!(body, expected, "{args:?}");
+        }
+        for args in [
+            vec!["workspace", "link"],
+            vec!["workspace", "unlink", "--all"],
+            vec!["workspace", "link", "a1", "--here"],
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+            assert!(run_with(&mut api, &args, "").is_err(), "{args:?}");
+            assert!(api.requests.is_empty(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn link_results_say_what_the_workspace_is_linked_to() {
+        for (ids, expected) in [
+            (
+                json!(["a1", "b2"]),
+                "The workspace is linked to a1, b2; their files are under linked-workspaces/ in it.\n",
+            ),
+            (json!([]), "The workspace is linked to no others.\n"),
+        ] {
+            let result = json!({"links": {"workspaceId": "w", "linkedWorkspaceIds": ids}});
+            let mut output = Vec::new();
+            write_operation_result(&result, false, &mut output).unwrap();
+            assert_eq!(String::from_utf8(output).unwrap(), expected);
+        }
     }
 
     #[test]

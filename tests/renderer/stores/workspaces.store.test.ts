@@ -778,7 +778,9 @@ describe('workspaces.store', () => {
     await flushTimersAndMicrotasks();
 
     const toast = useToastStore.getState().toasts.find((t) => t.type === 'error');
-    expect(toast?.message).toBe(`Failed to delete workspace "Test Workspace": opencode's background service may still be using D:/wt. opencode sessions open in other workspaces can load it again; close them, then retry.`);
+    expect(toast?.message).toBe(
+      `Failed to delete workspace "Test Workspace": opencode's background service may still be using D:/wt. opencode sessions open in other workspaces can load it again; close them, then retry.`
+    );
     expect(toast?.action?.label).toBe('Retry');
     expect(toast?.dismissOnTimeout).toBe(false);
 
@@ -3194,6 +3196,38 @@ describe('workspaces.store', () => {
     expect(api.unlinkWorkspace).toHaveBeenCalledWith('ws-1', 'ws-2');
     expect(api.listFiles).toHaveBeenCalledWith('/tmp/ws-1', false);
     expect(api.listFiles).toHaveBeenCalledWith('/tmp/ws-2', false);
+  });
+
+  it('refreshes the file lists of workspaces linked elsewhere, such as by the CLI', async () => {
+    const origin = createWorkspace({ id: 'ws-1', workingDirectory: '/tmp/ws-1' });
+    const target = createWorkspace({ id: 'ws-2', workingDirectory: '/tmp/ws-2' });
+    const other = createWorkspace({ id: 'ws-3', workingDirectory: '/tmp/ws-3' });
+    const api = createApiMock({
+      getWorkspaces: vi
+        .fn()
+        .mockResolvedValue([
+          { ...origin, linkedWorkspaceIds: ['ws-2'] },
+          { ...target, linkedWorkspaceIds: ['ws-1'] },
+          other,
+        ]),
+      listFiles: vi
+        .fn()
+        .mockResolvedValue({ files: ['src/index.ts'], gitIgnoredFiles: [], emptyDirs: [] }),
+    });
+    (globalThis as { window: { api: ApiMock } }).window = { api };
+    useWorkspacesStore.setState({ workspaces: [origin, target, other] });
+    const listed = { files: [], gitIgnoredFiles: [], emptyDirs: [], isLoading: false };
+    // ws-2's list isn't loaded here, and ws-3's links are the same.
+    useFileListStore.setState({
+      cache: new Map([
+        ['/tmp/ws-1', listed],
+        ['/tmp/ws-3', listed],
+      ]),
+    });
+
+    await useWorkspacesStore.getState().loadWorkspaces();
+
+    expect(api.listFiles.mock.calls).toEqual([['/tmp/ws-1', false]]);
   });
 
   it('assigns restarted workspace to current window when assigned to a different window', async () => {

@@ -37,12 +37,21 @@ and keep only when and how to use them.
 
 `komla workspace list [--all] [--json]` lists the workspaces, with those in the Trash under
 `--all`: each one's `id`, `name`, `project`, `branch`, `path`, `environment`, `agentActive`, the
-`attention` it shows and its `tag`. Through an SSH host's tunnel it lists that host's
+`attention` it shows, its `tag` and the `linkedWorkspaceIds` it's linked to. Through an SSH host's tunnel it lists that host's
 workspaces only. `--workspace <id>` makes any command that acts on a workspace (`tag`, `title`,
 `snooze`, `status set`, `notify`, `agent launch`, `context` and the rest) act on that one in
 place of the calling terminal's, so one script can keep every workspace current. It never
 reaches past the SSH host a request came from. `trash` refuses it, as does `notify -- <command>`,
 which shows the terminal it runs in working.
+
+`komla workspace link <id>...` links the workspace to each of the others, both ways, as Link
+Workspaces on a workspace's card does: each gets a symlink to the other in its `linked-workspaces/`
+folder, which Git ignores, so an agent can read and edit both for a task that spans repositories.
+Komla links local workspaces to local ones and SSH workspaces to others on the same host
+(`WORKSPACE_LINK_UNSUPPORTED`), once each is ready and out of the Trash (`WORKSPACE_NOT_ACTIVE`).
+`komla workspace unlink <id>...` removes those links, including one to a workspace that's gone.
+Both print the ids the workspace is linked to afterward, and the user can turn them off with
+`workspace.link` in Settings → Integrations & MCP.
 
 `komla tag <tag>` gives the workspace its one tag, shown on its card while no agent is busy there
 until it's taken off or replaced, so scripts use tags for what stays, such as CI under way:
@@ -478,7 +487,7 @@ for a minute. A command the user turned off is refused instead of queued, with t
 message the desktop wrote to the companion's config as `turnedOffCommands`, which it rewrites when
 the setting changes. See [ADR 0006](adr/0006-queue-agent-commands-on-the-ssh-host-while-komla-is-away.md).
 `komla workspace list` on an SSH host that can't reach Komla lists the workspaces whose manifests
-are on the host, newest first, without the tags, attention and agent state only the desktop knows,
+are on the host, newest first, without the tags, links, attention and agent state only the desktop knows,
 and says so on stderr.
 
 Komla's HTTP server listens on 127.0.0.1 only and answers only requests whose `Host` header is an

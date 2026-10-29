@@ -9,6 +9,7 @@ import {
   type KomlaOperationDependencies,
   type KomlaOperationWorkspace,
 } from '../../../src/main/services/komla-operation/operation';
+import { IPC } from '../../../src/shared/constants/ipc-channels';
 import {
   DEFAULT_WORKSPACE_TAGS,
   MAX_WORKSPACE_TAGS,
@@ -51,6 +52,8 @@ function createDependencies(
     requestTrash: vi.fn(),
     requestOpenFolder: vi.fn(() => true),
     openInVncApp: vi.fn(),
+    linkWorkspaces: vi.fn(async () => {}),
+    unlinkWorkspace: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -2117,6 +2120,216 @@ describe('KomlaOperationService', () => {
       await expect(
         service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.trash' })
       ).rejects.toMatchObject({ code: 'CAPABILITY_DISABLED', statusCode: 403 });
+    });
+  });
+
+  describe('workspace.link', () => {
+    function linkSetup(others: Partial<KomlaOperationWorkspace>[] = []) {
+      const workspaces = new Map<string, KomlaOperationWorkspace>(
+        [
+          { id: 'workspace-1' },
+          { id: 'workspace-2' },
+          { id: 'workspace-3' },
+          { id: 'ssh-1', backend: { kind: 'ssh' as const, hostId: 'host-1' } },
+          ...others,
+        ].map((workspace) => [
+          workspace.id!,
+          {
+            status: 'active' as const,
+            workingDirectory: `/work/${workspace.id}`,
+            backend: { kind: 'local' as const },
+            ...workspace,
+            id: workspace.id!,
+          },
+        ])
+      );
+      const link = (id: string, other: string) => {
+        const workspace = workspaces.get(id);
+        if (workspace)
+          workspace.linkedWorkspaceIds = [
+            ...new Set([...(workspace.linkedWorkspaceIds ?? []), other]),
+          ];
+      };
+      const unlink = (id: string, other: string) => {
+        const workspace = workspaces.get(id);
+        if (workspace)
+          workspace.linkedWorkspaceIds = workspace.linkedWorkspaceIds?.filter(
+            (linked) => linked !== other
+          );
+      };
+      const linkWorkspaces = vi.fn(async (originId: string, targetIds: string[]) => {
+        for (const targetId of targetIds) {
+          link(originId, targetId);
+          link(targetId, originId);
+        }
+      });
+      const unlinkWorkspace = vi.fn(async (originId: string, targetId: string) => {
+        unlink(originId, targetId);
+        unlink(targetId, originId);
+      });
+      const publish = vi.fn();
+      const service = new KomlaOperationService(
+        createDependencies({
+          getWorkspace: (id) => workspaces.get(id),
+          findWorkspaceByTerminalId: (id) =>
+            id === 'terminal-ssh' ? workspaces.get('ssh-1') : workspaces.get('workspace-1'),
+          linkWorkspaces,
+          unlinkWorkspace,
+          publish,
+        })
+      );
+      return {
+        service,
+        linkWorkspaces,
+        unlinkWorkspace,
+        publish,
+        run: (
+          type: 'workspace.link' | 'workspace.unlink',
+          workspaceIds: string[],
+          terminalId = 'terminal-1'
+        ) => service.execute({ terminalId }, { type, workspaceIds }),
+      };
+    }
+
+    it('links the current workspace to others and has windows show it', async () => {
+      const setup = linkSetup();
+
+      await expect(
+        setup.run('workspace.link', ['workspace-2', 'workspace-3', 'workspace-2'])
+      ).resolves.toEqual({
+        links: { workspaceId: 'workspace-1', linkedWorkspaceIds: ['workspace-2', 'workspace-3'] },
+      });
+      expect(setup.linkWorkspaces).toHaveBeenCalledExactlyOnceWith('workspace-1', [
+        'workspace-2',
+        'workspace-3',
+      ]);
+      expect(setup.publish).toHaveBeenCalledWith(IPC.WORKSPACES_CHANGED, undefined);
+    });
+
+    it('unlinks the workspaces it names, and keeps the rest', async () => {
+      const setup = linkSetup();
+      await setup.run('workspace.link', ['workspace-2', 'workspace-3']);
+
+      // An SSH workspace linked on neither side is left alone.
+      await expect(setup.run('workspace.unlink', ['workspace-2', 'ssh-1'])).resolves.toEqual({
+        links: { workspaceId: 'workspace-1', linkedWorkspaceIds: ['workspace-3'] },
+      });
+      expect(setup.unlinkWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-1', 'workspace-2');
+    });
+
+    it('unlinks a workspace that records the link on its side only', async () => {
+      const setup = linkSetup([{ id: 'workspace-2', linkedWorkspaceIds: ['workspace-1'] }]);
+
+      await setup.run('workspace.unlink', ['workspace-2']);
+
+      expect(setup.unlinkWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-1', 'workspace-2');
+    });
+
+    it('unlinks a local workspace linked on neither side, for symlinks left behind', async () => {
+      const setup = linkSetup();
+
+      await setup.run('workspace.unlink', ['workspace-2']);
+
+      expect(setup.unlinkWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-1', 'workspace-2');
+    });
+
+    it('unlinks a linked workspace that is gone', async () => {
+      const setup = linkSetup([{ id: 'workspace-1', linkedWorkspaceIds: ['deleted'] }]);
+
+      await setup.run('workspace.unlink', ['deleted']);
+
+      expect(setup.unlinkWorkspace).toHaveBeenCalledExactlyOnceWith('workspace-1', 'deleted');
+    });
+
+    it.each([
+      [['workspace-1'], 'INVALID_LINK', 400],
+      [['missing'], 'WORKSPACE_NOT_FOUND', 404],
+      [['trashed'], 'WORKSPACE_NOT_ACTIVE', 409],
+      [['creating'], 'WORKSPACE_NOT_ACTIVE', 409],
+      [['workspace-2', 'ssh-1'], 'WORKSPACE_LINK_UNSUPPORTED', 400],
+      [['ssh-2'], 'WORKSPACE_LINK_UNSUPPORTED', 400],
+    ])('refuses to link %j, linking none of them', async (ids, code, statusCode) => {
+      const setup = linkSetup([
+        { id: 'trashed', status: 'trashed' },
+        { id: 'creating', provisioning: true },
+        { id: 'ssh-2', backend: { kind: 'ssh', hostId: 'host-2' } },
+      ]);
+      const terminal = ids.includes('ssh-2') ? 'terminal-ssh' : 'terminal-1';
+
+      await expect(setup.run('workspace.link', ids, terminal)).rejects.toMatchObject({
+        code,
+        statusCode,
+      });
+      expect(setup.linkWorkspaces).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['missing', 'WORKSPACE_NOT_FOUND'],
+      ['workspace-1', 'INVALID_LINK'],
+    ])('refuses to unlink %s', async (id, code) => {
+      // Even should the workspace record a link to itself.
+      const setup = linkSetup([{ id: 'workspace-1', linkedWorkspaceIds: ['workspace-1'] }]);
+
+      await expect(setup.run('workspace.unlink', [id])).rejects.toMatchObject({ code });
+      expect(setup.unlinkWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('reaches only workspaces on the SSH host it was called from', async () => {
+      const setup = linkSetup([{ id: 'ssh-2', backend: { kind: 'ssh', hostId: 'host-1' } }]);
+      const fromHost = (workspaceIds: string[]) =>
+        setup.service.execute(
+          { workspaceId: 'ssh-1', sshHostId: 'host-1' },
+          { type: 'workspace.link', workspaceIds }
+        );
+
+      await expect(fromHost(['workspace-2'])).rejects.toMatchObject({
+        code: 'WORKSPACE_NOT_FOUND',
+      });
+      await expect(fromHost(['ssh-2'])).resolves.toEqual({
+        links: { workspaceId: 'ssh-1', linkedWorkspaceIds: ['ssh-2'] },
+      });
+    });
+
+    it.each([
+      ['Is the host reachable?', 'Is the host reachable? The workspace is linked to no others.'],
+      ['', 'The workspace is linked to no others.'],
+    ])('reads %j as a sentence before the links', async (reason, message) => {
+      const setup = linkSetup();
+      setup.linkWorkspaces.mockRejectedValueOnce(new Error(reason));
+
+      await expect(setup.run('workspace.link', ['workspace-2'])).rejects.toMatchObject({ message });
+    });
+
+    it('says why linking failed and still has windows show what changed', async () => {
+      const setup = linkSetup();
+      const link = setup.linkWorkspaces.getMockImplementation()!;
+      // As the service does, linking stops at the first workspace it can't link.
+      setup.linkWorkspaces.mockImplementation(async (originId, targetIds) => {
+        await link(originId, targetIds.slice(0, 1));
+        throw new Error("EACCES: permission denied, symlink '/work/workspace-3'");
+      });
+
+      await expect(
+        setup.run('workspace.link', ['workspace-2', 'workspace-3'])
+      ).rejects.toMatchObject({
+        code: 'WORKSPACE_LINK_FAILED',
+        message:
+          "EACCES: permission denied, symlink '/work/workspace-3'. The workspace is linked to workspace-2.",
+        details: { workspaceId: 'workspace-1', linkedWorkspaceIds: ['workspace-2'] },
+      });
+      expect(setup.publish).toHaveBeenCalledWith(IPC.WORKSPACES_CHANGED, undefined);
+    });
+
+    it('is off when the user turned it off', async () => {
+      const service = new KomlaOperationService(
+        createDependencies({
+          getConfig: () => ({ agentDisabledCapabilities: ['workspace.link'] }),
+        })
+      );
+
+      await expect(
+        service.execute({}, { type: 'workspace.unlink', workspaceIds: ['workspace-2'] })
+      ).rejects.toMatchObject({ code: 'CAPABILITY_DISABLED' });
     });
   });
 

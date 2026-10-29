@@ -769,6 +769,18 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
             ? preferredWorkspaceId
             : null;
       const workspaces = clearAttentionForSelected(availableWorkspaces, selectedWorkspaceId);
+      // Links can change outside this window, as from `komla workspace link`; file lists this
+      // window holds then list linked-workspaces/ again.
+      const links = (w: Workspace) => [...(w.linkedWorkspaceIds ?? [])].sort().join();
+      const linksBefore = new Map(get().workspaces.map((w) => [w.id, links(w)]));
+      const { cache: fileLists, statusCache } = useFileListStore.getState();
+      const relinkedIds = workspaces
+        .filter((w) => {
+          const before = linksBefore.get(w.id);
+          const held = fileLists.has(w.workingDirectory) || statusCache.has(w.workingDirectory);
+          return before !== undefined && before !== links(w) && held;
+        })
+        .map((w) => w.id);
       if (currentSelectedWorkspaceId && currentSelectedWorkspaceId !== selectedWorkspaceId) {
         useLayoutStore.getState().clearWorkspaceLayout(currentSelectedWorkspaceId);
         useLayoutStore.getState().setCurrentWorkspace(null);
@@ -829,6 +841,7 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         set({ workspaces, selectedWorkspaceId, isLoading: false, hasLoaded: true });
       }
 
+      refreshLinkedWorkspaceFileLists(workspaces, relinkedIds);
       refreshWorkspaceQuota();
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false, hasLoaded: true });

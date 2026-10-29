@@ -352,6 +352,12 @@ const komlaOperationSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('workspace.trash') }).strict(),
+  z
+    .object({
+      type: z.enum(['workspace.link', 'workspace.unlink']),
+      workspaceIds: z.array(z.string().min(1).max(MAX_ID_LEN)).min(1).max(100),
+    })
+    .strict(),
   z.object({ type: z.literal('folder.open'), path: z.string().min(1).max(4096) }).strict(),
   z
     .object({

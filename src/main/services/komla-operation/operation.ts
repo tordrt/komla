@@ -190,6 +190,7 @@ export interface KomlaOperationWorkspace {
   agentActive?: boolean;
   terminals?: Array<{ id: string; agentActive?: boolean; attention?: WorkspaceAttention }>;
   virtualDesktops?: WorkspaceVirtualDesktop[];
+  linkedWorkspaceIds?: string[];
 }
 
 export interface KomlaOperationProject {
@@ -253,6 +254,9 @@ export interface KomlaOperationDependencies {
     id: string,
     updates: Record<string, unknown>
   ): KomlaOperationWorkspace | undefined;
+  /** Links the workspaces both ways, with a symlink to each in the other's linked-workspaces folder. */
+  linkWorkspaces(originId: string, targetIds: string[]): Promise<void>;
+  unlinkWorkspace(originId: string, targetId: string): Promise<void>;
   /** Sets a workspace's status bar item; false when the workspace has as many as it may. */
   setStatusItem(workspaceId: string, id: string, content: StatusItemContent): boolean;
   /** Clears one status bar item, or all of a workspace's; returns how many it cleared. */
@@ -337,6 +341,8 @@ export type KomlaOperation =
       ifTag?: string;
     }
   | { type: 'workspace.trash' }
+  /** Links or unlinks the workspace and each of `workspaceIds`, as Link Workspaces does. */
+  | { type: 'workspace.link' | 'workspace.unlink'; workspaceIds: string[] }
   /** `path` is absolute, on this computer. */
   | { type: 'folder.open'; path: string }
   | {
@@ -419,6 +425,10 @@ export class KomlaOperationService {
         return this.tagWorkspace(context, operation);
       case 'workspace.trash':
         return this.trashWorkspace(context);
+      case 'workspace.link':
+        return this.linkWorkspaces(context, operation.workspaceIds);
+      case 'workspace.unlink':
+        return this.unlinkWorkspaces(context, operation.workspaceIds);
       case 'folder.open':
         return this.openFolder(context, operation.path);
       case 'status.set':
@@ -764,6 +774,144 @@ export class KomlaOperationService {
       }
     }
     return { trash: { workspaceId: workspace.id, afterTurn } };
+  }
+
+  /**
+   * Links the workspace to each of the others as Link Workspaces does: each gets a symlink to the
+   * other in its linked-workspaces folder. Komla links local workspaces to local ones and SSH
+   * workspaces to others on the same host, once they're ready and out of the Trash.
+   */
+  private async linkWorkspaces(
+    context: KomlaOperationContext,
+    workspaceIds: string[]
+  ): Promise<unknown> {
+    this.requireCapability('workspace.link');
+    const workspace = this.requireWorkspace(context);
+    const targets = [...new Set(workspaceIds)].map((id) =>
+      this.requireLinkTarget(context, workspace, id)
+    );
+    for (const linked of [workspace, ...targets]) {
+      if (
+        (linked.status !== undefined && linked.status !== 'active') ||
+        linked.provisioning ||
+        !linked.workingDirectory
+      ) {
+        throw new KomlaOperationError(
+          'WORKSPACE_NOT_ACTIVE',
+          `${linked.id} is in the Trash or still being created, so Komla can’t link it.`,
+          409
+        );
+      }
+    }
+    const origin = this.workspaceEnvironment(workspace);
+    for (const target of targets) {
+      const environment = this.workspaceEnvironment(target);
+      if (
+        environment.kind !== origin.kind ||
+        (environment.kind === 'ssh' &&
+          origin.kind === 'ssh' &&
+          environment.hostId !== origin.hostId)
+      ) {
+        throw new KomlaOperationError(
+          'WORKSPACE_LINK_UNSUPPORTED',
+          `${target.id} runs elsewhere: Komla links local workspaces to local ones, and SSH workspaces to others on the same host.`,
+          400
+        );
+      }
+    }
+    await this.changeLinks(workspace.id, () =>
+      this.dependencies.linkWorkspaces(
+        workspace.id,
+        targets.map((target) => target.id)
+      )
+    );
+    return { links: this.links(workspace.id) };
+  }
+
+  /**
+   * Unlinks the workspace from each of the others, both ways, even where only one side still
+   * records the link. An SSH workspace linked on neither side is left alone, as unlinking it
+   * reaches the host; a local one is unlinked anyway, which removes any symlinks left behind.
+   */
+  private async unlinkWorkspaces(
+    context: KomlaOperationContext,
+    workspaceIds: string[]
+  ): Promise<unknown> {
+    this.requireCapability('workspace.link');
+    const workspace = this.requireWorkspace(context);
+    const linked = new Set(workspace.linkedWorkspaceIds);
+    const ids = [...new Set(workspaceIds)];
+    // A linked workspace may be gone already; any other id has to name a workspace.
+    const targets = new Map(
+      ids
+        .filter((id) => !linked.has(id) || id === workspace.id)
+        .map((id) => [id, this.requireLinkTarget(context, workspace, id)])
+    );
+    const unlinked = ids.filter((id) => {
+      const target = targets.get(id);
+      return (
+        !target ||
+        target.backend?.kind !== 'ssh' ||
+        target.linkedWorkspaceIds?.includes(workspace.id) === true
+      );
+    });
+    await this.changeLinks(workspace.id, async () => {
+      for (const id of unlinked) await this.dependencies.unlinkWorkspace(workspace.id, id);
+    });
+    return { links: this.links(workspace.id) };
+  }
+
+  private requireLinkTarget(
+    context: KomlaOperationContext,
+    workspace: KomlaOperationWorkspace,
+    id: string
+  ): KomlaOperationWorkspace {
+    if (id === workspace.id) {
+      throw new KomlaOperationError('INVALID_LINK', 'A workspace can’t be linked to itself.', 400);
+    }
+    const target = this.dependencies.getWorkspace(id);
+    if (
+      !target ||
+      (context.sshHostId &&
+        (target.backend?.kind !== 'ssh' || target.backend.hostId !== context.sshHostId))
+    ) {
+      throw new KomlaOperationError(
+        'WORKSPACE_NOT_FOUND',
+        `No workspace has the id ${id}; \`komla workspace list\` lists them.`,
+        404
+      );
+    }
+    return target;
+  }
+
+  /**
+   * Changes links, then has windows show it, as they do after Link Workspaces. Links change one
+   * workspace at a time, so a failure says what the workspace is linked to by then.
+   */
+  private async changeLinks(workspaceId: string, change: () => Promise<void>): Promise<void> {
+    try {
+      await change();
+    } catch (error) {
+      const links = this.links(workspaceId);
+      const reason = (error instanceof Error ? error.message : String(error)).trimEnd();
+      const linkedTo = links.linkedWorkspaceIds.length
+        ? `The workspace is linked to ${links.linkedWorkspaceIds.join(', ')}.`
+        : 'The workspace is linked to no others.';
+      throw new KomlaOperationError(
+        'WORKSPACE_LINK_FAILED',
+        !reason ? linkedTo : `${reason}${/[.!?]$/.test(reason) ? '' : '.'} ${linkedTo}`,
+        500,
+        links
+      );
+    } finally {
+      this.dependencies.publish(IPC.WORKSPACES_CHANGED, undefined);
+    }
+  }
+
+  private links(workspaceId: string) {
+    const linkedWorkspaceIds =
+      this.dependencies.getWorkspace(workspaceId)?.linkedWorkspaceIds ?? [];
+    return { workspaceId, linkedWorkspaceIds };
   }
 
   /** Opens a folder on this computer as Open Folder does, in the caller's window when it has one. */
@@ -1535,6 +1683,9 @@ export class KomlaOperationService {
           agentActive: workspace.agentActive === true,
           ...(workspace.attention && { attention: workspace.attention.kind }),
           ...(workspace.tag && { tag: workspace.tag }),
+          ...(workspace.linkedWorkspaceIds?.length && {
+            linkedWorkspaceIds: workspace.linkedWorkspaceIds,
+          }),
         };
       });
     return { workspaces };

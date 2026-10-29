@@ -22,6 +22,7 @@ import { statusItemsService } from './status-items.service';
 import { getVncAppName, openInVncApp } from './virtual-desktop.service';
 import { windowService } from './window.service';
 import { workspaceCwdResolutionService } from './workspace-cwd-resolution.service';
+import { workspaceLinksService } from './workspace-links.service';
 import { workspaceService } from './workspace.service';
 
 const logger = createLogger('KomlaOperationService');
@@ -124,6 +125,8 @@ const productionDependencies: KomlaOperationDependencies = {
   createWorkspace: (params) => workspaceService.create(params),
   addAgentTab: (...args) => workspaceService.addAgentTab(...args),
   updateWorkspace: (id, updates) => workspaceService.update(id, updates),
+  linkWorkspaces: (originId, targetIds) => workspaceLinksService.link(originId, targetIds),
+  unlinkWorkspace: (originId, targetId) => workspaceLinksService.unlink(originId, targetId),
   setStatusItem: (workspaceId, id, content) =>
     statusItemsService.set(workspaceId, id, content) !== undefined,
   clearStatusItems: (workspaceId, id) => statusItemsService.clear(workspaceId, id),

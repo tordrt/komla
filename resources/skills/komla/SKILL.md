@@ -1,6 +1,6 @@
 ---
 name: komla
-description: Komla's `komla` CLI for day-to-day work, for when the user asks Komla to start an agent in a new workspace or tab, preview a page or open a folder, or to title, tag, snooze or trash this workspace, and for work that shows better in Komla, such as a preview of a dev server the agent started. Also points to the guide for setting up this project in Komla or changing its settings, such as Quick Commands, hooks, status bar items, the theme or agents it runs on a schedule. Not for the project's own setup, scripts or schedules outside Komla.
+description: Komla's `komla` CLI for day-to-day work, for when the user asks Komla to start an agent in a new workspace or tab, preview a page or open a folder, or to title, tag, snooze, link or trash this workspace, and for work that shows better in Komla, such as a preview of a dev server the agent started. Also points to the guide for setting up this project in Komla or changing its settings, such as Quick Commands, hooks, status bar items, the theme or agents it runs on a schedule. Not for the project's own setup, scripts or schedules outside Komla.
 ---
 
 # Use Komla
@@ -19,6 +19,7 @@ komla snooze 2h                           # hides this workspace until then; kom
 komla snooze --until-notified             # until its next notification, such as your turn's end
 komla workspace list --json               # every workspace's id, branch and tag, dont do unless user wants this
 komla trash                               # moves this workspace to the Trash when your turn ends
+komla workspace link <id>                 # links another workspace, by its id, under linked-workspaces/
 komla open ~/notes                        # opens a folder on this computer in Komla; no agent
 komla title "Login fix" --description "Fix the flaky login test"
 komla desktop run -- <app command>        # on an SSH host, shows the app on a virtual desktop
@@ -34,6 +35,9 @@ Rules:
   as "Blocked", before you make one.
 - Komla already notifies the user about your turns. `komla notify` is for the Quick Commands,
   hooks and status bar items the guides set up, or if you want to add some custom notification to a process you run for them.
+- A `linked-workspaces/` folder in the workspace holds other workspaces linked to it, such as the
+  repository an API lives in; read and edit them there when a task spans them. Link or unlink one
+  with `komla workspace link` or `unlink` when the user asks to work across workspaces.
 - Run `komla desktop run` only when the user asks to see a GUI app, such as an Electron app, that
   runs on a Komla SSH host. Elsewhere the app opens as usual and needs no `komla`.
 

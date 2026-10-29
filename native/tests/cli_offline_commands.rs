@@ -168,14 +168,14 @@ fn workspace_list_reads_the_hosts_manifests_while_komla_is_away() {
             {
                 "id": "ws-new",
                 "name": "Add search",
-                "path": base.join("worktrees/ws-new"),
+                "path": base.join("worktrees").join("ws-new"),
                 "project": {"name": "web"},
                 "branch": "ws-new-branch"
             },
             {
                 "id": "ws-old",
                 "name": "Fix the cache",
-                "path": base.join("worktrees/ws-old"),
+                "path": base.join("worktrees").join("ws-old"),
                 "project": {"name": "web"},
                 "branch": "ws-old-branch"
             }

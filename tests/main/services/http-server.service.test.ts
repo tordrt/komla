@@ -799,6 +799,55 @@ describe('HttpServerService', () => {
       await vi.waitFor(() => expect(pending.res.end).toHaveBeenCalled());
     });
 
+    it('leaves a background approval waiting in the window without bringing it forward', async () => {
+      const window = createMockBrowserWindow({ isMinimized: vi.fn(() => true) });
+      vi.mocked(electronMock.BrowserWindow.getAllWindows).mockReturnValue([window]);
+
+      const approved = httpServerService.approveSettingsChange({
+        resource: 'project-settings',
+        project: { id: 'project-1', name: 'web' },
+        changes: [],
+        description: 'Another computer changed web’s settings on Devbox.',
+        background: true,
+      });
+
+      const prompt = window.webContents.send.mock.calls.find(
+        ([channel]) => channel === IPC.SETTINGS_APPROVAL_REQUESTED
+      )?.[1] as { id: string; target: string; description: string };
+      expect(prompt).toMatchObject({
+        target: 'web settings',
+        description: 'Another computer changed web’s settings on Devbox.',
+      });
+      expect(window.show).not.toHaveBeenCalled();
+      expect(window.focus).not.toHaveBeenCalled();
+      expect(electronMock.app.focus).not.toHaveBeenCalled();
+      httpServerService.resolveSettingsApproval(prompt.id, 'apply', window.webContents.id);
+      await expect(approved).resolves.toBe(true);
+    });
+
+    it('tells an approval that ended without the user’s answer from one they cancelled', async () => {
+      const window = createMockBrowserWindow();
+      vi.mocked(electronMock.BrowserWindow.getAllWindows).mockReturnValue([window]);
+      const request = {
+        resource: 'project-settings' as const,
+        project: { id: 'project-1', name: 'web' },
+        changes: [],
+        background: true,
+      };
+      const controller = new AbortController();
+
+      const abandoned = httpServerService.decideSettingsChange(request, controller.signal);
+      controller.abort();
+      await expect(abandoned).resolves.toBe('unanswered');
+
+      const cancelled = httpServerService.decideSettingsChange(request);
+      const prompt = window.webContents.send.mock.calls.findLast(
+        ([channel]) => channel === IPC.SETTINGS_APPROVAL_REQUESTED
+      )?.[1] as { id: string };
+      httpServerService.resolveSettingsApproval(prompt.id, 'cancel', window.webContents.id);
+      await expect(cancelled).resolves.toBe('cancel');
+    });
+
     it('reads appearance with the built-in themes and applies a change the user keeps', async () => {
       const window = createMockBrowserWindow();
       vi.mocked(electronMock.BrowserWindow.getAllWindows).mockReturnValue([window]);

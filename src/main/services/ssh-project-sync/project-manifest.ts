@@ -105,7 +105,8 @@ const manifestSchema = z.object({
       autoOtherBranchAction: simpleAheadActionSchema.optional(),
       autoMainActionId: idSchema.optional(),
       autoOtherActionId: idSchema.optional(),
-      sshWorkspaceMode: z.enum(['remote', 'local-mirror-actions']).optional(),
+      // Where Terminal Commands run, here or on the host, is this computer's own choice, so
+      // `sshWorkspaceMode` isn't copied; older manifests' is dropped.
     })
     .strip(),
   updatedAt: z.number().finite(),
@@ -135,7 +136,10 @@ function agentByName(
   const mode = launchModeId
     ? preset.launchModes.find((candidate) => candidate.id === launchModeId)
     : undefined;
-  return { agentName: preset.name, ...(mode ? { launchModeName: mode.name } : {}) };
+  return {
+    agentName: preset.name,
+    ...(mode ? { launchModeName: mode.name } : {}),
+  };
 }
 
 /** This installation's ids for an agent named in a manifest; none when it has no such agent. */
@@ -155,16 +159,24 @@ export function agentIds(
 
 /** The Quick Commands a project's manifest carries: its own, and others its settings start. */
 function projectQuickCommands(project: Project, actions: readonly Action[]): Action[] {
-  const referenced = new Set(
-    [
-      ...(project.setupSteps ?? []).map((step) => step.actionId),
-      project.aheadTargetActionId,
-      project.autoMainActionId,
-      project.autoOtherActionId,
-    ].filter((id): id is string => !!id)
-  );
+  const referenced = startedQuickCommandIds(project.setupSteps ?? [], project);
   return actions.filter(
     (action) => action.projectIds?.includes(project.id) || referenced.has(action.id)
+  );
+}
+
+/** The Quick Commands a project's setup steps and branch settings start. */
+function startedQuickCommandIds(
+  setupSteps: ReadonlyArray<{ actionId?: string }>,
+  settings: Pick<Project, 'aheadTargetActionId' | 'autoMainActionId' | 'autoOtherActionId'>
+): Set<string> {
+  return new Set(
+    [
+      ...setupSteps.map((step) => step.actionId),
+      settings.aheadTargetActionId,
+      settings.autoMainActionId,
+      settings.autoOtherActionId,
+    ].filter((id): id is string => !!id)
   );
 }
 
@@ -228,7 +240,6 @@ export function buildSshProjectManifest(
       autoOtherBranchAction: project.autoOtherBranchAction,
       autoMainActionId: project.autoMainActionId || undefined,
       autoOtherActionId: project.autoOtherActionId || undefined,
-      sshWorkspaceMode: project.sshWorkspaceMode,
     },
     updatedAt,
     writtenBy,
@@ -250,6 +261,64 @@ export function sshProjectManifestContentKey(manifest: SshProjectManifest): stri
   );
 }
 
+/** Identifies each part of a manifest's content. A project's name goes with its appearance. */
+export function sshProjectManifestPartKeys(
+  manifest: SshProjectManifest
+): Record<SshProjectSettingsPart, string> {
+  const key = (value: unknown) =>
+    createHash('sha256')
+      .update(JSON.stringify(withSortedKeys(value)))
+      .digest('hex');
+  return {
+    appearance: key({
+      name: manifest.name,
+      color: manifest.color,
+      icon: manifest.icon,
+    }),
+    workspaceSetup: key(manifest.workspaceSetup),
+    quickCommands: key(manifest.quickCommands),
+    settings: key(manifest.settings),
+  };
+}
+
+/**
+ * `base` with the chosen parts, and who wrote it and when, taken from `from`.
+ * A Quick Command its setup steps or settings start that its Quick Commands
+ * lack comes from either side, so the manifest has each it refers to, unless
+ * `removedFromBase`: one removed from `base` stays removed.
+ */
+export function withSshProjectManifestParts(
+  base: SshProjectManifest,
+  from: SshProjectManifest,
+  parts: readonly SshProjectSettingsPart[],
+  removedFromBase: readonly string[] = []
+): SshProjectManifest {
+  const merged: SshProjectManifest = {
+    ...base,
+    gitUrl: from.gitUrl,
+    updatedAt: from.updatedAt,
+    writtenBy: from.writtenBy,
+  };
+  for (const part of parts) {
+    if (part === 'appearance') {
+      Object.assign(merged, { name: from.name, color: from.color, icon: from.icon });
+    } else {
+      Object.assign(merged, { [part]: from[part] });
+    }
+  }
+  const started = startedQuickCommandIds(merged.workspaceSetup.setupSteps, merged.settings);
+  const included = new Set(merged.quickCommands.map((entry) => entry.id));
+  const removed = new Set(removedFromBase);
+  const additions: SshProjectManifestQuickCommand[] = [];
+  for (const entry of [...from.quickCommands, ...base.quickCommands]) {
+    if (!started.has(entry.id) || included.has(entry.id) || removed.has(entry.id)) continue;
+    included.add(entry.id);
+    additions.push(entry);
+  }
+  if (additions.length > 0) merged.quickCommands = [...merged.quickCommands, ...additions];
+  return withoutUndefined(merged);
+}
+
 /**
  * A manifest as another installation would read it, with its text, or no
  * text when it would be rejected, e.g. for being too large to publish.
@@ -269,11 +338,13 @@ export function publishableSshProjectManifest(manifest: SshProjectManifest): {
 /**
  * The parts of `host` that copying would change in this installation's
  * project, described by `local`; every part a new project would take without one.
- * A host without an icon leaves the one here alone.
+ * A host without an icon leaves the one here alone. `removedCommands` are
+ * Quick Commands here that copying would remove.
  */
 export function differingParts(
   host: SshProjectManifest,
-  local: SshProjectManifest | undefined
+  local: SshProjectManifest | undefined,
+  removedCommands: readonly string[] = []
 ): SshProjectSettingsPart[] {
   const same = (a: unknown, b: unknown) =>
     JSON.stringify(withSortedKeys(a)) === JSON.stringify(withSortedKeys(b));
@@ -290,14 +361,18 @@ export function differingParts(
   if (local ? !same(host.workspaceSetup, local.workspaceSetup) : hasSetup) {
     parts.push('workspaceSetup');
   }
-  if (local ? !commandsContained(host, local) : host.quickCommands.length > 0) {
+  if (
+    local
+      ? !commandsContained(host, local) || removedCommands.length > 0
+      : host.quickCommands.length > 0
+  ) {
     parts.push('quickCommands');
   }
   if (!local || !same(host.settings, local.settings)) parts.push('settings');
   return parts;
 }
 
-/** Copying adds and updates Quick Commands but never removes one, so extra ones here are fine. */
+/** Copying adds and updates Quick Commands, and removes only ones removed on the host. */
 function commandsContained(host: SshProjectManifest, local: SshProjectManifest): boolean {
   const here = new Map(local.quickCommands.map((entry) => [entry.id, entry]));
   return host.quickCommands.every(

@@ -6,7 +6,6 @@ import type {
   SetupStep,
   SimpleAheadAction,
 } from './project';
-import type { SshWorkspaceMode } from '../lib/ssh-workspace-mode';
 
 /**
  * An agent by name rather than id: agent presets and their launch modes get new ids on each
@@ -43,7 +42,6 @@ export interface SshProjectManifestSettings {
   autoOtherBranchAction?: SimpleAheadAction;
   autoMainActionId?: string;
   autoOtherActionId?: string;
-  sshWorkspaceMode?: SshWorkspaceMode;
 }
 
 /**
@@ -94,24 +92,24 @@ export interface SshHostProject {
   removedHere?: boolean;
   /** The parts that differ from this installation's project, or that a new one would take. */
   differs: SshProjectSettingsPart[];
-  /** Commands it would bring here, for the user to review before they can run on this computer. */
-  setupSteps: Array<
-    Pick<SetupStep, 'name' | 'command' | 'trigger'> & {
-      agentName?: string;
-      /** The Quick Command a step starts, which copying its Workspace Setup brings along. */
-      quickCommand?: Pick<SshProjectManifestQuickCommand, 'title' | 'content' | 'type'>;
-    }
-  >;
-  trashCleanupScript?: string;
-  quickCommands: Array<Pick<SshProjectManifestQuickCommand, 'title' | 'content' | 'type'>>;
+  /** This installation's project takes the host's settings as they change. */
+  keepsInSync?: boolean;
   updatedAt: number;
 }
 
 export interface SshHostProjectImport {
   manifestId: string;
   parts: SshProjectSettingsPart[];
+  /** Turns keeping the project in sync on or off; unset leaves it as it is. */
+  keepInSync?: boolean;
 }
 
 export type SshHostProjectImportResult =
   | { manifestId: string; ok: true; projectId: string; added: boolean }
-  | { manifestId: string; ok: false; error: string };
+  | {
+      manifestId: string;
+      ok: false;
+      error: string;
+      /** The user didn't apply the changes. */
+      cancelled?: boolean;
+    };

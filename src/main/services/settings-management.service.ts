@@ -23,6 +23,13 @@ import {
 } from '../../shared/types/automation';
 import { describeSettingsSchema, settingsJsonSchema } from '../lib/settings-schema';
 
+import {
+  actionConfig,
+  describeActionChanges,
+  describeSetupChanges,
+  workspaceSetup,
+} from './settings-approval-changes';
+
 import type { WorkspaceSetupState } from './project.service';
 import type { DesiredWorkspaceEnvironment } from '../../shared/lib/agent-environment';
 import type {
@@ -33,6 +40,7 @@ import type {
   LaunchMode,
   Project,
   SettingsApprovalChange,
+  SettingsApprovalPrompt,
   SettingsFileResource,
   SetupStep,
   ThemeConfig,
@@ -157,7 +165,7 @@ export interface SettingsFileAdapter {
 }
 
 export interface SettingsApprovalRequest {
-  resource: 'actions' | 'workspace-setup' | 'automations' | 'appearance' | SettingsFileResource;
+  resource: SettingsApprovalPrompt['resource'];
   scope?: SettingsActionScope;
   project?: { id: string; name: string };
   workspace?: Workspace;
@@ -166,6 +174,9 @@ export interface SettingsApprovalRequest {
   warning?: string;
   /** Shown live while the user decides. */
   preview?: AppearanceSettings;
+  description?: string;
+  /** Nobody is waiting on it, so it waits in the window rather than bringing Komla forward. */
+  background?: boolean;
 }
 
 type StorageRevisionState =
@@ -331,20 +342,6 @@ function themeName(settings: AppearanceSettings): string {
   return BUILT_IN_THEMES.find((theme) => theme.id === settings.palette)?.name ?? settings.palette;
 }
 
-function actionConfig(action: Action): Action {
-  return {
-    id: action.id,
-    title: action.title,
-    content: action.content,
-    ...(action.type && action.type !== 'prompt' ? { type: action.type } : {}),
-    ...(action.projectIds?.length ? { projectIds: [...action.projectIds] } : {}),
-    ...(action.presetId ? { presetId: action.presetId } : {}),
-    ...(action.launchModeId ? { launchModeId: action.launchModeId } : {}),
-    ...(action.sshExecutionLocation ? { sshExecutionLocation: action.sshExecutionLocation } : {}),
-    ...(action.background ? { background: true } : {}),
-  };
-}
-
 function assertCommandOnlyFields(input: SettingsAction): void {
   if (input.type === 'command') return;
   if (input.sshExecutionLocation) {
@@ -405,18 +402,6 @@ function automationsWarning(skipPrompts: string[]): string {
   return skipPrompts.length === 1
     ? `${warning} ${names} skips permission prompts, so its agent acts without asking for permission.`
     : `${warning} ${names} skip permission prompts, so their agents act without asking for permission.`;
-}
-
-function workspaceSetup(project: Project): WorkspaceSetupState {
-  return {
-    setupSteps: (project.setupSteps ?? []).map((step) => ({
-      ...step,
-      ...(step.agent ? { agent: { ...step.agent } } : {}),
-    })),
-    agentPlacement: project.agentPlacement ?? 'tab',
-    agentLayoutOrder: project.agentLayoutOrder ?? 0,
-    trashCleanupScript: project.trashCleanupScript ?? '',
-  };
 }
 
 export class SettingsManagementService {
@@ -1642,158 +1627,14 @@ export class SettingsManagementService {
   }
 
   private describeActionChanges(before: Action[], after: Action[]): SettingsApprovalChange[] {
-    const beforeMap = new Map(before.map((action) => [action.id, action]));
-    const afterMap = new Map(after.map((action) => [action.id, action]));
-    const changes: SettingsApprovalChange[] = [];
-    for (const action of after) {
-      const previous = beforeMap.get(action.id);
-      if (!previous) changes.push(this.describeAction('add', action));
-      else if (JSON.stringify(actionConfig(previous)) !== JSON.stringify(actionConfig(action))) {
-        changes.push(this.describeAction('edit', action));
-      }
-    }
-    for (const action of before)
-      if (!afterMap.has(action.id)) changes.push(this.describeAction('delete', action));
-    return changes;
-  }
-
-  private describeAction(
-    operation: 'add' | 'edit' | 'delete',
-    action: Action
-  ): SettingsApprovalChange {
-    const preset = action.presetId
-      ? this.deps.presets.list().find((candidate) => candidate.id === action.presetId)
-      : undefined;
-    const launchMode = action.launchModeId
-      ? preset?.launchModes.find((candidate) => candidate.id === action.launchModeId)
-      : undefined;
-    const details: SettingsApprovalChange['details'] = [
-      { label: 'Type', value: action.type === 'command' ? 'Command' : 'Prompt' },
-    ];
-    if (preset) details.push({ label: 'Preset', value: preset.name });
-    if (launchMode) details.push({ label: 'Launch mode', value: launchMode.name });
-    if (action.sshExecutionLocation) {
-      details.push({
-        label: 'SSH workspaces',
-        value:
-          action.sshExecutionLocation === 'remote'
-            ? 'Runs on the remote machine'
-            : 'Runs in the Local copy on this computer',
-      });
-    }
-    if (action.background) {
-      details.push({ label: 'Runs', value: 'In the background, with a notification when done' });
-    }
-    return {
-      operation,
-      kind: 'action',
-      title: action.title,
-      contentLabel: action.type === 'command' ? 'Command' : 'Prompt',
-      content: action.content,
-      details,
-    };
+    return describeActionChanges(before, after, this.deps.presets.list());
   }
 
   private describeSetupChanges(
     before: WorkspaceSetupState,
     after: WorkspaceSetupState
   ): SettingsApprovalChange[] {
-    const changes: SettingsApprovalChange[] = [];
-    const beforeSteps = new Map(before.setupSteps.map((step) => [step.id, step]));
-    const afterSteps = new Map(after.setupSteps.map((step) => [step.id, step]));
-    for (const step of after.setupSteps) {
-      const previous = beforeSteps.get(step.id);
-      if (!previous) changes.push(this.describeSetupStep('add', step));
-      else if (JSON.stringify(previous) !== JSON.stringify(step)) {
-        changes.push(this.describeSetupStep('edit', step));
-      }
-    }
-    for (const step of before.setupSteps) {
-      if (!afterSteps.has(step.id)) changes.push(this.describeSetupStep('delete', step));
-    }
-    if (
-      before.agentPlacement !== after.agentPlacement ||
-      before.agentLayoutOrder !== after.agentLayoutOrder
-    )
-      changes.push({
-        operation: 'change',
-        kind: 'agent-placement',
-        title: 'Agent placement',
-        details: [
-          { label: 'Placement', value: this.setupPlacementLabel(after.agentPlacement) },
-          { label: 'Layout order', value: String(after.agentLayoutOrder) },
-        ],
-      });
-    if (before.trashCleanupScript !== after.trashCleanupScript)
-      changes.push({
-        operation: 'change',
-        kind: 'trash-cleanup',
-        title: 'Trash cleanup',
-        contentLabel: 'Script',
-        content: after.trashCleanupScript || 'Disabled',
-        details: [],
-      });
-    return changes;
-  }
-
-  private describeSetupStep(
-    operation: 'add' | 'edit' | 'delete',
-    step: SetupStep
-  ): SettingsApprovalChange {
-    const action = step.actionId
-      ? this.deps.actions.list().find((candidate) => candidate.id === step.actionId)
-      : undefined;
-    const details: SettingsApprovalChange['details'] = [
-      { label: 'Show in', value: this.setupPlacementLabel(step.placement) },
-      { label: 'Run in', value: this.setupDestinationLabel(step.destination) },
-      { label: 'Run on', value: this.setupTriggerLabel(step.trigger) },
-    ];
-    if (step.actionId)
-      details.push({ label: 'Quick command', value: action?.title ?? step.actionId });
-    if (step.agent?.presetId) details.push({ label: 'Preset', value: step.agent.presetId });
-    if (step.agent?.launchModeId)
-      details.push({ label: 'Launch mode', value: step.agent.launchModeId });
-    return {
-      operation,
-      kind: 'setup-step',
-      title: step.name,
-      contentLabel: action?.type === 'command' ? 'Command' : action ? 'Prompt' : 'Command',
-      content: action ? action.content : step.command || undefined,
-      details,
-    };
-  }
-
-  private setupPlacementLabel(
-    placement: SetupStep['placement'] | WorkspaceSetupState['agentPlacement']
-  ): string {
-    switch (placement) {
-      case 'background':
-        return 'Background';
-      case 'split-right':
-        return 'Split right';
-      case 'split-bottom':
-        return 'Split bottom';
-      default:
-        return 'Tab';
-    }
-  }
-
-  private setupDestinationLabel(destination: SetupStep['destination']): string {
-    switch (destination) {
-      case 'local-workspace-repository':
-        return 'Local workspace repository';
-      case 'ssh-workspace-repository':
-        return 'SSH workspace repository';
-      case 'ssh-local-copy':
-        return 'SSH Local copy';
-      default:
-        return 'Workspace repository';
-    }
-  }
-
-  private setupTriggerLabel(trigger: SetupStep['trigger']): string {
-    if (trigger === 'workspace-creation') return 'Workspace creation';
-    return trigger === 'workspace-stop' ? 'Workspace stop' : 'Every workspace start';
+    return describeSetupChanges(before, after, this.deps.actions.list());
   }
 
   private setupCapabilities(

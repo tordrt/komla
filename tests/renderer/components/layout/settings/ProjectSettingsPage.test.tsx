@@ -184,6 +184,19 @@ describe('ProjectSettingsPage', () => {
     );
   });
 
+  it('turns keeping the project in sync with its SSH hosts on and off', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('switch', { name: 'Keep in sync' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(mocks.updateProject).toHaveBeenCalledWith(
+      project.id,
+      expect.objectContaining({ keepSshSettingsInSync: true })
+    );
+  });
+
   it('leaves out the SSH settings when there are no SSH hosts', () => {
     useSshHostsStore.setState({ hasLoaded: true, hosts: [] });
     renderPage();

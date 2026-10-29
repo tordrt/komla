@@ -29,6 +29,7 @@ export interface ProjectDraft {
   autoOtherActionId: string;
   behindAction: BehindTargetAction | 'default';
   sshWorkspaceMode: SshWorkspaceMode | 'inherit';
+  keepSshSettingsInSync: boolean;
   setupSteps: SetupStep[];
   agentPlacement: AgentPlacement;
   agentLayoutOrder: number;
@@ -50,6 +51,7 @@ const GIT_FIELDS = [
   'autoPushAfterMerge',
   'behindAction',
   'sshWorkspaceMode',
+  'keepSshSettingsInSync',
 ] as const;
 const SETUP_FIELDS = [
   'setupSteps',
@@ -138,6 +140,7 @@ export function projectToDraft(project: Project): ProjectDraft {
     ...aheadToDraft(project),
     behindAction: project.behindTargetAction ?? 'default',
     sshWorkspaceMode: project.sshWorkspaceMode ?? 'inherit',
+    keepSshSettingsInSync: !!project.keepSshSettingsInSync,
     setupSteps: project.setupSteps ? project.setupSteps.map((step) => ({ ...step })) : [],
     agentPlacement: normalizeAgentPlacement(project.agentPlacement),
     agentLayoutOrder: project.agentLayoutOrder ?? 0,
@@ -167,6 +170,7 @@ function gitUpdates(draft: ProjectDraft): Partial<Project> {
     baseBranch: draft.baseBranch.trim() || undefined,
     autoPushAfterMerge: draft.autoPushAfterMerge,
     sshWorkspaceMode: draft.sshWorkspaceMode === 'inherit' ? undefined : draft.sshWorkspaceMode,
+    keepSshSettingsInSync: draft.keepSshSettingsInSync || undefined,
     behindTargetAction: draft.behindAction === 'default' ? undefined : draft.behindAction,
   };
 }

@@ -384,6 +384,7 @@ const projectUpdateSchema = z
     aheadTargetActionId: z.string().optional(),
     behindTargetAction: behindTargetActionSchema.optional(),
     sshWorkspaceMode: z.enum(['remote', 'local-mirror-actions']).optional(),
+    keepSshSettingsInSync: z.boolean().optional(),
     ...autoModeFields,
   })
   .strip();
@@ -668,6 +669,7 @@ export const projectImportFromSshHostArgsSchema = z.tuple([
         .object({
           manifestId: z.string().regex(/^[0-9a-f]{32}$/),
           parts: z.array(z.enum(SSH_PROJECT_SETTINGS_PARTS)).max(SSH_PROJECT_SETTINGS_PARTS.length),
+          keepInSync: z.boolean().optional(),
         })
         .strip()
     )

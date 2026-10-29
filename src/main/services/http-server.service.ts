@@ -733,6 +733,26 @@ interface CreateWorkspaceError {
   availableProjects?: string[];
 }
 
+/** What a settings approval says it changes. */
+function settingsApprovalTarget(request: SettingsApprovalRequest): string {
+  if (request.resource in SETTINGS_FILE_TARGETS) {
+    return SETTINGS_FILE_TARGETS[request.resource as SettingsFileResource];
+  }
+  const project = request.project?.name ?? 'Project';
+  switch (request.resource) {
+    case 'appearance':
+      return 'Appearance';
+    case 'workspace-setup':
+      return `${project} Workspace Setup`;
+    case 'automations':
+      return `${project} Automations`;
+    case 'project-settings':
+      return `${project} settings`;
+    default:
+      return request.project ? `${request.project.name} Quick Commands` : 'Global Quick Commands';
+  }
+}
+
 class HttpServerService {
   private server: http.Server | null = null;
   private preferredPort = 52863;
@@ -759,7 +779,7 @@ class HttpServerService {
       senderId: number;
       window: BrowserWindow;
       prompt: SettingsApprovalPrompt;
-      finish: (decision: SettingsApprovalDecision) => void;
+      finish: (decision: SettingsApprovalDecision | 'unanswered') => void;
     }
   >();
 
@@ -1095,10 +1115,23 @@ class HttpServerService {
     return workspaceWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   }
 
-  private async approveSettingsChange(
+  /** Asks the user in a Komla window to apply the changes; true once they do. */
+  async approveSettingsChange(
     request: SettingsApprovalRequest,
     signal?: AbortSignal
   ): Promise<boolean> {
+    return (await this.decideSettingsChange(request, signal)) === 'apply';
+  }
+
+  /**
+   * Asks the user in a Komla window whether to apply the changes. `unanswered`
+   * when the prompt ended without their choice, e.g. as the window closed or
+   * reloaded.
+   */
+  async decideSettingsChange(
+    request: SettingsApprovalRequest,
+    signal?: AbortSignal
+  ): Promise<SettingsApprovalDecision | 'unanswered'> {
     const window = this.selectSettingsWindow(request);
     if (!window) {
       throw new SettingsManagementError(
@@ -1110,27 +1143,17 @@ class HttpServerService {
     const prompt: SettingsApprovalPrompt = {
       id: randomUUID(),
       resource: request.resource,
-      target:
-        request.resource in SETTINGS_FILE_TARGETS
-          ? SETTINGS_FILE_TARGETS[request.resource as SettingsFileResource]
-          : request.resource === 'appearance'
-            ? 'Appearance'
-            : request.resource === 'workspace-setup'
-              ? `${request.project?.name ?? 'Project'} Workspace Setup`
-              : request.resource === 'automations'
-                ? `${request.project?.name ?? 'Project'} Automations`
-                : request.project
-                  ? `${request.project.name} Quick Commands`
-                  : 'Global Quick Commands',
+      target: settingsApprovalTarget(request),
       changes: request.changes,
       ...((request.multiProjectWarning ?? request.warning)
         ? { warning: request.multiProjectWarning ?? request.warning }
         : {}),
       ...(request.preview ? { preview: request.preview } : {}),
+      ...(request.description ? { description: request.description } : {}),
     };
-    return new Promise<boolean>((resolve) => {
+    return new Promise<SettingsApprovalDecision | 'unanswered'>((resolve) => {
       let settled = false;
-      const finish = (decision: SettingsApprovalDecision): void => {
+      const finish = (decision: SettingsApprovalDecision | 'unanswered'): void => {
         if (settled) return;
         settled = true;
         this.pendingSettingsApprovals.delete(prompt.id);
@@ -1141,14 +1164,14 @@ class HttpServerService {
         if (!window.webContents.isDestroyed()) {
           this.sendToSettingsWindow(window, IPC.SETTINGS_APPROVAL_DISMISSED, prompt.id);
         }
-        resolve(decision === 'apply');
+        resolve(decision);
       };
-      const onAbort = (): void => finish('cancel');
-      const onDestroyed = (): void => finish('cancel');
+      const onAbort = (): void => finish('unanswered');
+      const onDestroyed = (): void => finish('unanswered');
       const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }): void => {
-        if (details.isMainFrame && !details.isSameDocument) finish('cancel');
+        if (details.isMainFrame && !details.isSameDocument) finish('unanswered');
       };
-      const onRendererGone = (): void => finish('cancel');
+      const onRendererGone = (): void => finish('unanswered');
       this.pendingSettingsApprovals.set(prompt.id, {
         senderId: window.webContents.id,
         window,
@@ -1160,13 +1183,14 @@ class HttpServerService {
       window.webContents.on('did-start-navigation', onNavigation);
       window.webContents.once('render-process-gone', onRendererGone);
       if (signal?.aborted) {
-        finish('cancel');
+        finish('unanswered');
         return;
       }
       if (!this.sendToSettingsWindow(window, IPC.SETTINGS_APPROVAL_REQUESTED, prompt)) {
-        finish('cancel');
+        finish('unanswered');
         return;
       }
+      if (request.background) return;
       if (window.isMinimized()) window.restore();
       window.show();
       if (process.platform === 'darwin') {
@@ -1599,7 +1623,7 @@ class HttpServerService {
 
   stop(): void {
     for (const approval of Array.from(this.pendingSettingsApprovals.values())) {
-      approval.finish('cancel');
+      approval.finish('unanswered');
     }
     workspaceService.attention.hooksStopped();
     const error = new Error('HTTP server stopped before a port became available');

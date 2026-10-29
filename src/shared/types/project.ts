@@ -105,6 +105,11 @@ export interface Project {
   behindTargetAction?: BehindTargetAction; // 'auto': rebase for local branches, merge for pushed branches
   /** Undefined prompts for a choice before the first eligible SSH Terminal Command. */
   sshWorkspaceMode?: SshWorkspaceMode;
+  /**
+   * Follows the project's settings on its SSH hosts as other Komla installations change them:
+   * a new icon or color at once, and anything else only once the user approves it.
+   */
+  keepSshSettingsInSync?: boolean;
 }
 
 /** What a folder picked with Open Folder already is to Komla. */

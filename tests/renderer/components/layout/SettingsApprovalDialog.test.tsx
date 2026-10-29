@@ -229,6 +229,33 @@ describe('SettingsApprovalDialog', () => {
     expect(resolveSettingsApproval).toHaveBeenCalledWith('approval-1', 'apply');
   });
 
+  it('says who proposes a change that no agent asked for', () => {
+    render(<SettingsApprovalDialog />);
+
+    act(() => {
+      onRequested?.({
+        id: 'approval-1',
+        resource: 'project-settings',
+        target: 'web settings',
+        description: 'Another computer changed web’s settings on Devbox.',
+        changes: [
+          {
+            operation: 'change',
+            kind: 'project-setting',
+            title: 'Branch and merge settings',
+            details: [{ label: 'Push after merging', previous: 'Default', value: 'Yes' }],
+          },
+        ],
+      });
+    });
+
+    expect(
+      screen.getByText('Another computer changed web’s settings on Devbox.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/An agent wants/)).not.toBeInTheDocument();
+    expect(screen.getByText('Push after merging:')).toBeInTheDocument();
+  });
+
   it('shows every command a change runs in full', () => {
     render(<SettingsApprovalDialog />);
 

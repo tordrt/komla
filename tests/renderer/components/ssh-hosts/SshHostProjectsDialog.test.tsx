@@ -33,9 +33,6 @@ const PROJECTS: SshHostProject[] = [
     name: 'web',
     gitUrl: 'git@github.com:acme/web.git',
     differs: ['appearance', 'workspaceSetup', 'quickCommands', 'settings'],
-    setupSteps: [{ name: 'Install', command: 'npm install' }],
-    trashCleanupScript: 'docker compose down',
-    quickCommands: [{ title: 'Deploy', content: './deploy.sh', type: 'command' }],
     updatedAt: 1,
   },
   {
@@ -44,8 +41,6 @@ const PROJECTS: SshHostProject[] = [
     gitUrl: 'git@github.com:acme/api.git',
     projectId: 'project-api',
     differs: ['appearance'],
-    setupSteps: [],
-    quickCommands: [],
     updatedAt: 1,
   },
 ];
@@ -72,7 +67,7 @@ describe('SshHostProjectsDialog', () => {
     };
   });
 
-  it('lists projects to add apart from ones whose settings differ, with commands to review', async () => {
+  it('lists projects to add apart from ones whose settings differ', async () => {
     renderDialog();
 
     const toAdd = await screen.findByRole('region', { name: 'Not here yet' });
@@ -81,12 +76,6 @@ describe('SshHostProjectsDialog', () => {
     const changed = screen.getByRole('region', { name: 'Different settings on the host' });
     expect(within(changed).getByText('api')).toBeInTheDocument();
     expect(within(changed).queryByLabelText('Workspace Setup')).not.toBeInTheDocument();
-
-    expect(screen.getByText('Review the commands first')).toBeInTheDocument();
-    await userEvent.click(within(toAdd).getByText('Review commands'));
-    expect(within(toAdd).getByText('npm install')).toBeVisible();
-    expect(within(toAdd).getByText('docker compose down')).toBeVisible();
-    expect(within(toAdd).getByText('./deploy.sh')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Import 2 projects' })).toBeEnabled();
   });
 
@@ -105,7 +94,7 @@ describe('SshHostProjectsDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Add 1 project' }));
 
     expect(window.api.importSshHostProjects).toHaveBeenCalledWith('host-1', [
-      { manifestId: WEB, parts: ['appearance', 'workspaceSetup', 'settings'] },
+      { manifestId: WEB, parts: ['appearance', 'workspaceSetup', 'settings'], keepInSync: true },
     ]);
     expect(loadProjects).toHaveBeenCalled();
     expect(addToast).toHaveBeenCalledWith('Added 1 project from Build box', 'success');
@@ -151,5 +140,38 @@ describe('SshHostProjectsDialog', () => {
       await screen.findByText('Every project on this host is here already, with the same settings.')
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Copy settings' })).toBeDisabled();
+  });
+
+  it('keeps a new project in sync unless unticked, and an existing one as it is', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    const toAdd = await screen.findByRole('region', { name: 'Not here yet' });
+    expect(within(toAdd).getByRole('checkbox', { name: /Keep in sync/ })).toBeChecked();
+    const changed = screen.getByRole('region', { name: 'Different settings on the host' });
+    await user.click(within(changed).getByRole('checkbox', { name: /Keep in sync/ }));
+    await user.click(within(changed).getByLabelText('Icon and color'));
+    await user.click(screen.getByRole('button', { name: 'Import 2 projects' }));
+
+    expect(window.api.importSshHostProjects).toHaveBeenCalledWith('host-1', [
+      { manifestId: WEB, parts: PROJECTS[0].differs, keepInSync: true },
+      // Turning it on is enough to save, without copying anything.
+      { manifestId: API, parts: [], keepInSync: true },
+    ]);
+  });
+
+  it('stays open, without an error, on a project whose changes weren’t applied', async () => {
+    vi.mocked(window.api.importSshHostProjects).mockResolvedValueOnce([
+      { manifestId: WEB, ok: false, cancelled: true, error: 'The changes weren’t applied.' },
+      { manifestId: API, ok: true, projectId: 'project-api', added: false },
+    ]);
+    const user = userEvent.setup();
+    const { onOpenChange } = renderDialog();
+
+    await user.click(await screen.findByRole('button', { name: 'Import 2 projects' }));
+
+    expect(await screen.findByRole('button', { name: 'Add 1 project' })).toBeEnabled();
+    expect(screen.queryByText(/weren’t applied/)).not.toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 });

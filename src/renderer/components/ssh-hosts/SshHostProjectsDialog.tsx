@@ -37,8 +37,11 @@ type ListState =
   | { kind: 'loaded'; projects: SshHostProject[] }
   | { kind: 'failed'; message: string };
 
-/** What the user picked for each project: whether to take it, and which parts. */
-type Picks = Record<string, { included: boolean; parts: ReadonlySet<SshProjectSettingsPart> }>;
+/** What the user picked for each project: whether to take it, which parts, and to keep it in sync. */
+type Picks = Record<
+  string,
+  { included: boolean; parts: ReadonlySet<SshProjectSettingsPart>; keepInSync: boolean }
+>;
 
 function pluralizeProjects(count: number): string {
   return `${count} ${count === 1 ? 'project' : 'projects'}`;
@@ -97,8 +100,12 @@ export function SshHostProjectsDialog({
           Object.fromEntries(
             projects.map((project) => [
               project.manifestId,
-              // One removed here was likely removed on purpose.
-              { included: !project.removedHere, parts: new Set(project.differs) },
+              {
+                // One removed here was likely removed on purpose.
+                included: !project.removedHere,
+                parts: new Set(project.differs),
+                keepInSync: project.projectId ? !!project.keepsInSync : true,
+              },
             ])
           )
         );
@@ -113,22 +120,14 @@ export function SshHostProjectsDialog({
 
   const projects = state.kind === 'loaded' ? state.projects : [];
   const picked = projects.filter((project) => picks[project.manifestId]?.included);
-  const adding = picked.filter((project) => !project.projectId).length;
-  const copying = picked.filter(
-    (project) => project.projectId && picks[project.manifestId].parts.size > 0
-  ).length;
   const toImport = picked.filter(
-    (project) => !project.projectId || picks[project.manifestId].parts.size > 0
+    (project) =>
+      !project.projectId ||
+      picks[project.manifestId].parts.size > 0 ||
+      picks[project.manifestId].keepInSync !== !!project.keepsInSync
   );
-  const bringsCommands = toImport.some((project) => {
-    const parts = picks[project.manifestId].parts;
-    return (
-      (parts.has('workspaceSetup') &&
-        (project.setupSteps.length > 0 || !!project.trashCleanupScript)) ||
-      (parts.has('quickCommands') &&
-        project.quickCommands.some((command) => command.type === 'command'))
-    );
-  });
+  const adding = toImport.filter((project) => !project.projectId).length;
+  const copying = toImport.length - adding;
 
   const pick = (manifestId: string, change: Partial<Picks[string]>) =>
     setPicks((current) => ({ ...current, [manifestId]: { ...current[manifestId], ...change } }));
@@ -142,13 +141,18 @@ export function SshHostProjectsDialog({
         toImport.map((project) => ({
           manifestId: project.manifestId,
           parts: [...picks[project.manifestId].parts],
+          keepInSync: picks[project.manifestId].keepInSync,
         }))
       );
       await loadProjects();
       const names = new Map(projects.map((project) => [project.manifestId, project.name]));
+      // One the user didn't apply stays offered, without an error.
       const failed = results.flatMap((result) =>
-        result.ok ? [] : [{ name: names.get(result.manifestId) ?? '', error: result.error }]
+        result.ok || result.cancelled
+          ? []
+          : [{ name: names.get(result.manifestId) ?? '', error: result.error }]
       );
+      const cancelled = results.some((result) => !result.ok && result.cancelled);
       const added = results.filter((result) => result.ok && result.added).length;
       const updated = results.filter((result) => result.ok && !result.added).length;
       if (added > 0 || updated > 0) {
@@ -161,7 +165,7 @@ export function SshHostProjectsDialog({
           'success'
         );
       }
-      if (failed.length === 0) {
+      if (failed.length === 0 && !cancelled) {
         onOpenChange(false);
         return;
       }
@@ -189,6 +193,7 @@ export function SshHostProjectsDialog({
           <DialogTitle>Projects on {hostName ?? 'this SSH host'}</DialogTitle>
           <DialogDescription>
             Projects set up there, with their settings. Adding one clones its repository here too.
+            You review the changes before they apply.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
@@ -237,12 +242,6 @@ export function SshHostProjectsDialog({
                 />
               )}
             </div>
-          )}
-          {bringsCommands && (
-            <Callout tone="warning" size="sm" title="Review the commands first">
-              Setup steps and Terminal Commands run in your workspaces, and in Local copies on this
-              computer. Copy only ones you trust.
-            </Callout>
           )}
         </DialogBody>
         <DialogFooter>
@@ -313,8 +312,6 @@ function ProjectRow({
     else next.delete(part);
     onPick({ parts: next });
   };
-  const reviewSetup = parts.has('workspaceSetup') && project.differs.includes('workspaceSetup');
-  const reviewCommands = parts.has('quickCommands') && project.differs.includes('quickCommands');
 
   return (
     <li className="space-y-2 px-3 py-2.5">
@@ -357,75 +354,19 @@ function ProjectRow({
               </label>
             ))}
           </div>
-          {(reviewSetup || reviewCommands) && (
-            <details className="group text-xs">
-              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                Review commands
-              </summary>
-              <div className="mt-1.5 space-y-2">
-                {reviewSetup && <SetupReview project={project} />}
-                {reviewCommands && <QuickCommandsReview project={project} />}
-              </div>
-            </details>
-          )}
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+            <Checkbox
+              checked={pick?.keepInSync ?? false}
+              disabled={disabled}
+              onChange={(event) => onPick({ keepInSync: event.target.checked })}
+            />
+            <span className="whitespace-nowrap">Keep in sync</span>
+            <span className="truncate text-muted-foreground">
+              · Takes a new icon or color, and asks about other changes
+            </span>
+          </label>
         </div>
       )}
     </li>
-  );
-}
-
-function SetupReview({ project }: { project: SshHostProject }) {
-  return (
-    <ul className="space-y-1.5">
-      {project.setupSteps.map((step, index) => (
-        <li key={index}>
-          <span className="font-medium">{step.name || 'Setup step'}</span>
-          {step.agentName && <span className="text-muted-foreground"> · {step.agentName}</span>}
-          {step.trigger === 'workspace-stop' && (
-            <span className="text-muted-foreground"> · Stop step</span>
-          )}
-          {step.quickCommand && (
-            <span className="text-muted-foreground">
-              {' '}
-              · {step.quickCommand.type === 'command' ? 'Terminal Command' : 'Saved Prompt'}{' '}
-              {step.quickCommand.title}
-            </span>
-          )}
-          {step.command && <CommandText text={step.command} />}
-          {step.quickCommand && <CommandText text={step.quickCommand.content} />}
-        </li>
-      ))}
-      {project.trashCleanupScript && (
-        <li>
-          <span className="font-medium">Trash cleanup</span>
-          <CommandText text={project.trashCleanupScript} />
-        </li>
-      )}
-    </ul>
-  );
-}
-
-function QuickCommandsReview({ project }: { project: SshHostProject }) {
-  return (
-    <ul className="space-y-1.5">
-      {project.quickCommands.map((command, index) => (
-        <li key={index}>
-          <span className="font-medium">{command.title}</span>
-          <span className="text-muted-foreground">
-            {' '}
-            · {command.type === 'command' ? 'Terminal Command' : 'Saved Prompt'}
-          </span>
-          <CommandText text={command.content} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function CommandText({ text }: { text: string }) {
-  return (
-    <pre className="mt-0.5 max-h-32 overflow-auto rounded-md bg-muted/60 px-2 py-1 font-mono text-xs whitespace-pre-wrap">
-      {text}
-    </pre>
   );
 }

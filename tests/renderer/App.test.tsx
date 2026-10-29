@@ -80,6 +80,9 @@ vi.mock('../../src/renderer/components/layout/settings/SettingsDialogHost', () =
 vi.mock('../../src/renderer/components/ssh-hosts/SshHostDialogHost', () => ({
   SshHostDialogHost: Null,
 }));
+vi.mock('../../src/renderer/components/ssh-hosts/SshHostProjectsDialog', () => ({
+  SshHostProjectsDialogHost: Null,
+}));
 vi.mock('../../src/renderer/components/ui/toast', () => ({ ToastContainer: Null }));
 vi.mock('../../src/renderer/components/workspaces/SshCommandExecutionLocationDialogHost', () => ({
   SshCommandExecutionLocationDialogHost: Null,

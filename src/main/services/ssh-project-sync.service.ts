@@ -7,8 +7,10 @@ import { writeFileAtomic } from '../lib/atomic-write';
 import { actionService } from './action.service';
 import { agentPresetService } from './agent-preset.service';
 import { configService } from './config.service';
+import { httpServerService } from './http-server.service';
 import { getKomlaBasePath } from './paths';
 import { projectService } from './project.service';
+import { sshHostService } from './ssh-host.service';
 import { sshProjectSyncHost } from './ssh-project-sync/host';
 import { SshProjectSync } from './ssh-project-sync/ssh-project-sync';
 import { workspaceService } from './workspace.service';
@@ -23,6 +25,7 @@ export const sshProjectSync = new SshProjectSync({
   host: sshProjectSyncHost,
   projects: {
     get: (id) => projectService.get(id),
+    list: () => projectService.list(),
     onHost: (hostId) => {
       const found = new Map<string, { project: Project; gitUrl: string }>();
       for (const workspace of workspaceService.list()) {
@@ -62,9 +65,25 @@ export const sshProjectSync = new SshProjectSync({
     },
     write: (content) => writeFileAtomic(agreementsPath(), content),
   },
+  approve: ({ hostId, project, changes, background }) => {
+    const hostName = sshHostService.get(hostId)?.name ?? 'the SSH host';
+    return httpServerService.decideSettingsChange({
+      resource: 'project-settings',
+      // A project copying adds has no id yet.
+      project: { id: project.id ?? '', name: project.name },
+      changes,
+      description: background
+        ? `Another computer changed ${project.name}’s settings on ${hostName}.`
+        : project.id
+          ? `Copying ${project.name}’s settings from ${hostName} makes these changes.`
+          : `Adding ${project.name} from ${hostName} brings these settings.`,
+      warning: `Anything that can write files on ${hostName}, such as an agent running there, could have published these. Apply only changes you expect.`,
+      background,
+    });
+  },
 });
 
-/** Publishes project settings each time SSH Workspace Sync reads a host. */
+/** Syncs project settings each time SSH Workspace Sync reads a host. */
 export function startSshProjectSync(): void {
   workspaceService.onSshHostSynced((hostId) => {
     void sshProjectSync.syncHost(hostId);

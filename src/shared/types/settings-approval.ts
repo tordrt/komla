@@ -16,7 +16,8 @@ export type SettingsApprovalChangeKind =
   | 'shortcut'
   | 'terminal-setting'
   | 'agent-preset'
-  | 'automation';
+  | 'automation'
+  | 'project-setting';
 
 export interface SettingsApprovalDetail {
   label: string;
@@ -51,8 +52,16 @@ export type SettingsFileResource = (typeof SETTINGS_FILE_RESOURCES)[number];
 
 export interface SettingsApprovalPrompt {
   id: string;
-  resource: 'actions' | 'workspace-setup' | 'automations' | 'appearance' | SettingsFileResource;
+  resource:
+    | 'actions'
+    | 'workspace-setup'
+    | 'automations'
+    | 'appearance'
+    | 'project-settings'
+    | SettingsFileResource;
   target: string;
+  /** Who proposes the change and why, in place of saying an agent wants it. */
+  description?: string;
   changes: SettingsApprovalChange[];
   warning?: string;
   /** Appearance the window shows while the user decides, and keeps if they apply it. */

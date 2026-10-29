@@ -138,16 +138,17 @@ describe('project IPC validation', () => {
     const manifestId = '0123456789abcdef0123456789abcdef';
 
     await ipcMain._invoke('project:import-from-ssh-host', 'host-1', [
-      { manifestId, parts: ['appearance', 'quickCommands'], injected: true },
+      { manifestId, parts: ['appearance', 'quickCommands'], keepInSync: true, injected: true },
     ]);
     expect(mockSshProjectSync.importFromHost).toHaveBeenCalledWith('host-1', [
-      { manifestId, parts: ['appearance', 'quickCommands'] },
+      { manifestId, parts: ['appearance', 'quickCommands'], keepInSync: true },
     ]);
 
     for (const imports of [
       [],
       [{ manifestId: '../../etc/passwd', parts: [] }],
       [{ manifestId, parts: ['everything'] }],
+      [{ manifestId, parts: [], keepInSync: 'yes' }],
     ]) {
       await expect(
         ipcMain._invoke('project:import-from-ssh-host', 'host-1', imports)

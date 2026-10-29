@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { SegmentedControl } from '@/components/ui/segmented-control';
+import { Switch } from '@/components/ui/switch';
 import { useDetectedMainBranch } from '@/hooks/useDetectedMainBranch';
 import { useIconColors } from '@/hooks/useIconColors';
 import { useProjectIconCandidates } from '@/hooks/useProjectIconCandidates';
@@ -84,9 +85,13 @@ const SSH_MODE_DESCRIPTIONS: Record<SshWorkspaceMode | 'inherit', string> = {
 function SshCommandsCard({
   mode,
   onChange,
+  keepInSync,
+  onKeepInSyncChange,
 }: {
   mode: SshWorkspaceMode | 'inherit';
   onChange: (mode: SshWorkspaceMode) => void;
+  keepInSync: boolean;
+  onKeepInSyncChange: (keepInSync: boolean) => void;
 }) {
   return (
     <SettingsCard
@@ -117,6 +122,16 @@ function SshCommandsCard({
           </Callout>
         </div>
       )}
+      <SettingsRow
+        label="Keep in sync"
+        description="Follows changes other computers make to this project on its SSH hosts: a new icon or color at once, and other settings once you approve them."
+      >
+        <Switch
+          aria-label="Keep in sync"
+          checked={keepInSync}
+          onCheckedChange={onKeepInSyncChange}
+        />
+      </SettingsRow>
     </SettingsCard>
   );
 }
@@ -318,10 +333,14 @@ export function ProjectSettingsPage({
         <>
           <div hidden={section !== 'general'} className="space-y-8">
             {generalCard}
-            {(hasSshHosts || saved.sshWorkspaceMode !== 'inherit') && (
+            {(hasSshHosts ||
+              saved.sshWorkspaceMode !== 'inherit' ||
+              saved.keepSshSettingsInSync) && (
               <SshCommandsCard
                 mode={draft.sshWorkspaceMode}
                 onChange={(sshWorkspaceMode) => update({ sshWorkspaceMode })}
+                keepInSync={draft.keepSshSettingsInSync}
+                onKeepInSyncChange={(keepSshSettingsInSync) => update({ keepSshSettingsInSync })}
               />
             )}
             {dangerZone}

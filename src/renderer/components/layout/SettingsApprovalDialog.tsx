@@ -244,8 +244,12 @@ export function SettingsApprovalDialog() {
                 <div className="min-w-0 space-y-1">
                   <DialogTitle>Review settings changes</DialogTitle>
                   <DialogDescription>
-                    An agent wants Komla to update{' '}
-                    <span className="font-medium text-foreground">{active.target}</span>.
+                    {active.description ?? (
+                      <>
+                        An agent wants Komla to update{' '}
+                        <span className="font-medium text-foreground">{active.target}</span>.
+                      </>
+                    )}
                     {preview && ' Komla is previewing it; nothing is saved until you apply it.'}
                   </DialogDescription>
                 </div>

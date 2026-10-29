@@ -20,7 +20,7 @@
  * `agent-status/` turn counts specs wait on, and `cues/` the director writes
  * to release `waitFor` events.
  */
-import { execFileSync, execSync, spawn } from 'node:child_process';
+import { exec, execFileSync, execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -556,6 +556,25 @@ function callMcp(tool, toolArgs) {
   );
 }
 
+/**
+ * Runs a shell command in the workspace for real, as Claude Code's Bash tool does, so a
+ * `komla` command reaches Komla the way an agent's would. Resolves with what it printed; one that
+ * fails stops the scene, as a failed `run` does, rather than carry on as if it worked.
+ */
+function runBash(command) {
+  return new Promise((resolve, reject) => {
+    exec(
+      command,
+      { env: { ...process.env, ...GIT_IDENTITY }, timeout: 120000 },
+      (error, stdout, stderr) => {
+        const output = `${stdout}${stderr}`.trimEnd();
+        if (error) reject(new Error(`${command} failed: ${output || error.message}`));
+        else resolve(output ? output.split('\n') : ['(No content)']);
+      }
+    );
+  });
+}
+
 function mcpHeader(tool, shown) {
   const argText = Object.entries(shown)
     .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
@@ -641,6 +660,10 @@ async function runTurn(turn, promptText) {
         ]),
         '',
       ]);
+    } else if (event.bash) {
+      void notify('PreToolUse', 'activity');
+      const output = await runBash(event.bash);
+      print([...toolLines('Bash', event.bash, output), '']);
     } else if (event.mcp) {
       void notify('PreToolUse', 'activity');
       await callMcp(event.mcp, event.args ?? {});
@@ -649,13 +672,16 @@ async function runTurn(turn, promptText) {
         ...resultLines(event.result ?? []),
         '',
       ]);
-    } else if (event.appearance) {
-      // Like `komla settings apply appearance`: Komla previews the theme until
-      // the user keeps or reverts it, so this waits on them.
+    } else if (event.appearance || event.settings) {
+      // Like `komla settings apply`: Komla shows the change until the user
+      // applies or cancels it (a theme, previewed, until they keep or revert
+      // it), so this waits on them.
       void notify('PreToolUse', 'activity');
-      const settings = JSON.parse(fs.readFileSync(path.join(process.cwd(), event.appearance)));
+      const resource = event.settings ?? 'appearance';
+      const file = event.file ?? event.appearance;
+      const settings = JSON.parse(fs.readFileSync(path.join(process.cwd(), file)));
       const reply = await postToKomla(
-        '/settings/appearance',
+        `/settings/${resource}`,
         settings,
         { 'x-komla-terminal-id': process.env.KOMLA_TERMINAL_ID ?? '' },
         { method: 'PUT', timeout: 120000 }
@@ -667,11 +693,15 @@ async function runTurn(turn, promptText) {
         // Komla couldn't be reached.
       }
       print([
-        ...toolLines('Bash', `komla settings apply appearance --file ${event.appearance}`, [
+        ...toolLines('Bash', `komla settings apply ${resource} --file ${file}`, [
           `"status": "${status}"`,
         ]),
         '',
       ]);
+      // Komla turned it down or couldn't be reached: stop the scene, as a failed command does.
+      if (!['applied', 'cancelled', 'unchanged'].includes(status)) {
+        throw new Error(`komla settings apply ${resource} failed: ${reply}`);
+      }
     } else if (event.waitFor) {
       await waitForCue(event.waitFor);
     } else if (event.tool) {

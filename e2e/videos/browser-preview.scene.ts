@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import type { VideoWorkspace, VideoWorld } from './video-fixtures';
+import type { VideoProject, VideoWorkspace, VideoWorld } from './video-fixtures';
 import { ACME_WEB, BACKGROUND_WORKSPACES, DEVBOX } from './worlds';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -120,25 +120,32 @@ export const ANNUAL: VideoWorkspace = {
         doneVerb: 'Baked',
         events: [
           { append: 'site/billing.css', content: STAND_OUT_CSS, delay: 500 },
-          { say: 'The Pro plan now sits higher, with a blue outline and a soft shadow.', delay: 400 },
+          {
+            say: 'The Pro plan now sits higher, with a blue outline and a soft shadow.',
+            delay: 400,
+          },
         ],
       },
     ],
   },
 };
 
+/** The demo project with the pricing site the yearly billing edits. */
+export const PRICING_WEB: VideoProject = {
+  ...ACME_WEB,
+  files: {
+    ...ACME_WEB.files,
+    'site/index.html': read('pricing-site/index.html'),
+    'site/styles.css': read('pricing-site/styles.css'),
+  },
+};
+
+/** The yearly billing edits and the dev server, without the summary. */
+export const YEARLY_EVENTS = ANNUAL.agent!.turns![0].events.filter((event) => !('say' in event));
+
 export const BROWSER_WORLD: VideoWorld = {
   sshHost: DEVBOX,
-  projects: [
-    {
-      ...ACME_WEB,
-      files: {
-        ...ACME_WEB.files,
-        'site/index.html': read('pricing-site/index.html'),
-        'site/styles.css': read('pricing-site/styles.css'),
-      },
-    },
-  ],
+  projects: [PRICING_WEB],
   workspaces: [ANNUAL, ...BACKGROUND_WORKSPACES],
   // Pages open beside the terminal instead of over it.
   config: { defaultInlinePreviewLayout: 'side-by-side' },

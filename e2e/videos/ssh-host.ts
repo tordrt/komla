@@ -46,6 +46,8 @@ export function startSshHost(options: {
   sandboxDir: string;
   hostname: string;
   name: string;
+  /** Commands in the sandbox to put on the host's PATH, such as the stand-in `gh`. */
+  commands?: string[];
 }): VideoSshHost {
   stopSshHost();
   docker(['build', '--tag', IMAGE, path.join(__dirname, 'ssh-host')], 10 * 60_000);
@@ -84,6 +86,10 @@ export function startSshHost(options: {
     '/tmp/authorized-key',
     `${REMOTE_HOME}/.ssh/authorized_keys`,
   ]);
+  for (const command of options.commands ?? []) {
+    const target = fs.realpathSync(command);
+    docker(['exec', CONTAINER, 'ln', '-s', target, `/usr/local/bin/${path.basename(target)}`]);
+  }
 
   const port = Number(docker(['port', CONTAINER, '22/tcp']).trim().split(':').at(-1));
   const host: VideoSshHost = {

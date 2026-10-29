@@ -2,34 +2,14 @@
  * The agent-status video's world: six agents across two projects, each
  * holding at a cue so the spec decides when a card turns to Input or Done.
  */
-import type { AgentScene, VideoProject, VideoWorkspace, VideoWorld } from './video-fixtures';
-import { ACME_WEB, DEVBOX } from './worlds';
+import type { AgentScene, VideoWorkspace, VideoWorld } from './video-fixtures';
+import { ACME_API, ACME_WEB, DEVBOX } from './worlds';
 
 /** Cues the agents wait on; `HOLD` is never sent, so those agents keep working. */
 export const GO = 'go';
 export const ASK = 'ask';
 export const FINISH = 'finish';
 export const HOLD = 'hold';
-
-const ACME_API: VideoProject = {
-  id: 'proj-acme-api',
-  name: 'acme-api',
-  color: 'hsl(340, 75%, 62%)',
-  icon: 'acme-api.svg',
-  files: {
-    'README.md': '# Acme API\n\nBilling, search and accounts for Acme.\n',
-    'package.json': JSON.stringify(
-      { name: 'acme-api', private: true, scripts: { dev: 'tsx watch src/server.ts' } },
-      null,
-      2
-    ),
-    'src/routes/webhooks.ts':
-      "import { Router } from 'express';\n\nexport const webhooks = Router();\n",
-    'src/routes/search.ts':
-      "import { Router } from 'express';\n\nexport const search = Router();\n",
-    'src/db.ts': "import { Pool } from 'pg';\n\nexport const db = new Pool();\n",
-  },
-};
 
 const PASSWORD_TS = `import bcrypt from 'bcrypt';
 
@@ -99,7 +79,7 @@ export const AUTH: VideoWorkspace = {
   },
 };
 
-/** Stops for permission to install a package; the spec answers it from the top pane. */
+/** Stops for permission to install a package, alone in its workspace. */
 export const DARK_MODE: VideoWorkspace = {
   id: 'ws-dark',
   projectId: ACME_WEB.id,
@@ -153,42 +133,10 @@ export const DARK_MODE: VideoWorkspace = {
   },
 };
 
-/** A second agent in Dark Mode, in a pane split below the first. */
-export const DARK_MODE_TESTS = `${DARK_MODE.branch}:tests`;
-
-const darkModeTestsAgent: AgentScene = {
-  title: '✳ Theme toggle tests',
-  turns: [
-    {
-      auto: true,
-      afterMs: 200,
-      prompt: 'Write tests for the theme toggle',
-      verb: 'Testing',
-      events: [
-        {
-          write: 'src/components/ThemeToggle.test.tsx',
-          content:
-            "import { render } from '@testing-library/react';\nimport { ThemeToggle } from './ThemeToggle';\n\ntest('remembers the theme', () => {\n  render(<ThemeToggle label=\"Theme\" />);\n});\n",
-          delay: 500,
-        },
-        { waitFor: GO },
-        {
-          tool: 'Bash',
-          arg: 'npm test -- ThemeToggle',
-          result: ['Tests  3 passed (3)'],
-          delay: 900,
-        },
-        {
-          edit: 'src/components/ThemeToggle.test.tsx',
-          find: '});\n',
-          replace: "});\n\ntest('follows the system', () => {\n  matchMedia.dark = true;\n});\n",
-          verb: 'Covering',
-          delay: 1400,
-        },
-        { waitFor: HOLD },
-      ],
-    },
-  ],
+/** Dark Mode among agents that skip permissions; it doesn't, so it stops to ask. */
+export const DARK_MODE_ACCEPT_EDITS: VideoWorkspace = {
+  ...DARK_MODE,
+  agent: { ...DARK_MODE.agent, mode: 'acceptEdits' },
 };
 
 export const NAV: VideoWorkspace = {
@@ -217,6 +165,30 @@ export const NAV: VideoWorkspace = {
       },
     ],
   },
+};
+
+/** A second agent in Fix Nav Overflow, in a pane split below the first, so its card counts two. */
+export const NAV_TESTS = `${NAV.branch}:tests`;
+
+const navTestsAgent: AgentScene = {
+  title: '✳ Nav overflow tests',
+  turns: [
+    {
+      auto: true,
+      afterMs: 200,
+      prompt: 'Add a visual test for the nav at 320px',
+      verb: 'Testing',
+      events: [
+        {
+          write: 'src/components/Header.test.tsx',
+          content:
+            "import { render } from '@testing-library/react';\nimport { Header } from './Header';\n\ntest('nav fits at 320px', () => {\n  render(<Header />, { width: 320 });\n});\n",
+          delay: 500,
+        },
+        { waitFor: HOLD },
+      ],
+    },
+  ],
 };
 
 export const STRIPE: VideoWorkspace = {
@@ -319,7 +291,7 @@ export const STATUS_WORLD: VideoWorld = {
   sshHost: DEVBOX,
   projects: [ACME_WEB, ACME_API],
   workspaces: STATUS_WORKSPACES,
-  spawnedAgents: { [DARK_MODE_TESTS]: darkModeTestsAgent },
+  spawnedAgents: { [NAV_TESTS]: navTestsAgent },
   // A narrow window, so the terminal trades a little size for columns.
   terminal: { font: { size: 12 } },
 };

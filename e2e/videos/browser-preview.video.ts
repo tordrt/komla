@@ -12,7 +12,7 @@ import {
   PREVIEW_PORT,
   YEARLY_PROMPT,
 } from './browser-preview.scene';
-import { videoTest as test, expect, waitForAgentTurn } from './video-fixtures';
+import { videoTest as test, expect, waitForAgentTurn, waitForPageLoaded } from './video-fixtures';
 
 // Wide enough for the terminal and the page side by side; renders to the 1280×736 slot.
 test.use({ world: BROWSER_WORLD, windowSize: { width: 1440, height: 828 } });
@@ -21,21 +21,7 @@ test('browser preview', async ({ appWindow: page, electronApp, director }) => {
   test.setTimeout(180_000);
   const terminal = page.getByRole('textbox', { name: 'Terminal input' }).filter({ visible: true });
   const links = page.getByRole('dialog').filter({ hasText: 'opens in Komla' });
-  const previewShowing = () =>
-    expect
-      .poll(
-        () =>
-          electronApp.evaluate(({ BrowserWindow }) => {
-            const [win] = BrowserWindow.getAllWindows();
-            return win.contentView.children.some((view) => {
-              if (!('webContents' in view) || !view.getVisible()) return false;
-              const { webContents } = view as Electron.WebContentsView;
-              return webContents.getURL().startsWith('http') && !webContents.isLoading();
-            });
-          }),
-        { intervals: [50], timeout: 30_000 }
-      )
-      .toBe(true);
+  const previewShowing = () => waitForPageLoaded(electronApp);
 
   await page.getByRole('button', { name: `Workspace details for ${ANNUAL.title}` }).click();
   // The terminal and the page share the width.

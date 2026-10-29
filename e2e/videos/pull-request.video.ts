@@ -13,21 +13,32 @@ import {
   PULL_REQUEST_WORLD,
   writeCiHook,
 } from './pull-request.scene';
-import { videoTest as test, expect, setPullRequest, waitForAgentTurn } from './video-fixtures';
+import {
+  videoTest as test,
+  expect,
+  setFilePanel,
+  setPullRequest,
+  waitForAgentTurn,
+} from './video-fixtures';
 
-test.use({ world: PULL_REQUEST_WORLD });
+// Same aspect as the 900×1050 slot on the landing page.
+test.use({ world: PULL_REQUEST_WORLD, windowSize: { width: 772, height: 900 } });
 
 test('pull request', async ({ appWindow: page, director }) => {
   test.setTimeout(240_000);
   const card = (title: string) =>
     page.getByRole('button', { name: `Workspace details for ${title}` });
   const billing = card(BILLING.title);
+  // The terminal gets the width in this narrow window.
+  const open = async (title: string) => {
+    await card(title).click();
+    await setFilePanel(page, false);
+    await page.waitForTimeout(2500); // agent banner
+  };
 
   // Its agent starts when it's first opened.
-  await card(CHECKOUT.title).click();
-  await page.waitForTimeout(2500); // agent banner
-  await billing.click();
-  await page.waitForTimeout(2500); // agent banner
+  await open(CHECKOUT.title);
+  await open(BILLING.title);
   writeCiHook();
   // GitHub has the pull request once the agent pushes; see setPullRequest().
   setPullRequest(BILLING.branch, PULL_REQUEST_RUNNING);
@@ -44,7 +55,8 @@ test('pull request', async ({ appWindow: page, director }) => {
   writeCiHook();
   const running = billing.getByText('CI running', { exact: true });
   await expect(running).toBeVisible({ timeout: 20_000 });
-  await director.hold(1.2);
+  // Long enough for Komla to count the agent's finish as seen, or its Done badge would show.
+  await director.hold(2.2);
 
   // They pass while we're elsewhere.
   await director.click(card(CHECKOUT.title), { duration: 0.8 });
@@ -64,8 +76,8 @@ test('pull request', async ({ appWindow: page, director }) => {
 
   await director.finish({
     name: 'landing-pull-request-demo-cropped-dark',
-    width: 1280,
-    height: 736,
+    width: 900,
+    height: 1050,
     loopFade: 0.5,
   });
 });

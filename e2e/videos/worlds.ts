@@ -3,7 +3,7 @@
  * handful of workspaces in different states, so every video shows a lived-in
  * sidebar.
  */
-import type { VideoWorkspace, VideoWorld } from './video-fixtures';
+import type { VideoProject, VideoWorkspace, VideoWorld } from './video-fixtures';
 
 const TOKENS_CSS = `:root {
   --bg: #ffffff;
@@ -67,6 +67,27 @@ export const ACME_WEB = {
     'src/lib/checkout.ts':
       'export async function startCheckout(plan: string) {\n  return plan;\n}\n',
     'src/api/search.ts': 'export function search(query: string) {\n  return [];\n}\n',
+  },
+};
+
+/** A second project, for videos whose sidebar spans more than one. */
+export const ACME_API: VideoProject = {
+  id: 'proj-acme-api',
+  name: 'acme-api',
+  color: 'hsl(340, 75%, 62%)',
+  icon: 'acme-api.svg',
+  files: {
+    'README.md': '# Acme API\n\nBilling, search and accounts for Acme.\n',
+    'package.json': JSON.stringify(
+      { name: 'acme-api', private: true, scripts: { dev: 'tsx watch src/server.ts' } },
+      null,
+      2
+    ),
+    'src/routes/webhooks.ts':
+      "import { Router } from 'express';\n\nexport const webhooks = Router();\n",
+    'src/routes/search.ts':
+      "import { Router } from 'express';\n\nexport const search = Router();\n",
+    'src/db.ts': "import { Pool } from 'pg';\n\nexport const db = new Pool();\n",
   },
 };
 

@@ -1,152 +1,164 @@
 /**
- * The hero video's world: one agent on the SSH host fans a pricing-page
- * redesign out to four new workspaces, each restyling the page live in a
- * browser beside its agent.
+ * The hero video's world: a working session across two projects. Agents work
+ * in workspaces laid out their own way: Claude Code and Codex with their plan
+ * open beside them, an agent with its diff beside it, a shipped one with its
+ * page in a browser beside it and its checks running, and one in the
+ * background. One stops for permission, one finishes, and the checks pass.
  */
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { CODEX_TESTS, GO, HOLD, RETRIES, codexTestsAgent } from './agent-panes.scene';
+import { ASK, DARK_MODE_ACCEPT_EDITS, RATE_LIMIT as STATUS_RATE_LIMIT } from './agent-status.scene';
+import { PREVIEW_PORT, PREVIEW_URL, PRICING_WEB, YEARLY_EVENTS } from './browser-preview.scene';
+import { BILLING, PULL_REQUEST_PASSED } from './pull-request.scene';
+import type { VideoPullRequest, VideoWorkspace, VideoWorld } from './video-fixtures';
+import { ACME_API, DEVBOX } from './worlds';
 
-import { DEFAULT_AGENT, type AgentEvent, type AgentScene, type VideoWorld } from './video-fixtures';
-import { ACME_WEB, DEVBOX } from './worlds';
+export { ASK, CODEX_TESTS, GO, HOLD, PREVIEW_PORT };
+export { PROMPT as SHIP_PROMPT, PULL_REQUEST_RUNNING } from './pull-request.scene';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ASSETS = path.join(__dirname, 'assets');
-const read = (relativePath: string) => fs.readFileSync(path.join(ASSETS, relativePath), 'utf8');
+/** The cue the billing agent waits on before opening its page, once a browser is beside it. */
+export const PREVIEW = 'preview';
+/** The cue Rate Limiting's agent waits on before it wraps up, so its card turns Done on camera. */
+export const FINISH = 'finish';
 
-/** The lead workspace comes from the new workspace dialog, so it plays the default scene. */
-export const LEAD_AGENT = DEFAULT_AGENT;
-export const LEAD_TITLE = 'Pricing Redesign';
-export const LEAD_PROMPT =
-  'Redesign the pricing page. Explore 4 directions in parallel, one workspace each.';
+/** Asks to install a package; unlike the others, it doesn't skip permissions. */
+export const DARK_MODE: VideoWorkspace = { ...DARK_MODE_ACCEPT_EDITS, minutesAgo: 6 };
 
-export const DESIGNS = [
-  {
-    name: 'Editorial',
-    file: 'editorial',
-    port: 4301,
-    brief: 'a print magazine: cream paper, Didot headlines, oxblood accents',
-  },
-  {
-    name: 'Midnight',
-    file: 'midnight',
-    port: 4302,
-    brief: 'a dark product page: near-black, tight sans type, one lime accent',
-  },
-  {
-    name: 'Brutalist',
-    file: 'brutalist',
-    port: 4303,
-    brief: 'brutalism: heavy black borders, monospace, one loud yellow',
-  },
-  {
-    name: 'Playful',
-    file: 'playful',
-    port: 4304,
-    brief: 'something playful: pastel cards, rounded type, coral accents',
-  },
-].map((design) => ({ ...design, branch: `pricing-${design.file}` }));
+/**
+ * Its checks pass, and a reviewer has approved it, so the hooks guide's CI script just drops its
+ * CI running tag: no review tag, which Komla doesn't apply unless the user asks it to.
+ */
+export const PULL_REQUEST_APPROVED: VideoPullRequest = {
+  ...PULL_REQUEST_PASSED,
+  reviewDecision: 'APPROVED',
+};
 
-/** The cue a design agent waits on before opening its preview, once a browser is beside it. */
-export const PREVIEW_CUE = 'preview';
-/** The cue a design agent waits on before restyling, so it happens on camera. */
-export const RESTYLE_CUE = 'restyle';
-
-function designAgent(design: (typeof DESIGNS)[number]): AgentScene {
-  const stages = read(`designs/${design.file}.css`).split('/* @stage */');
-  const url = `http://localhost:${design.port}`;
-  const restyle: AgentEvent[] = stages.map((content, i) => ({
-    append: 'site/styles.css',
-    content,
-    delay: i === 0 ? 250 : 1100,
-  }));
-  return {
-    title: `✳ ${design.name} pricing page`,
+/** Adds yearly billing with its page open beside it, then ships it, all before the video starts. */
+export const YEARLY_BILLING: VideoWorkspace = {
+  ...BILLING,
+  minutesAgo: 3,
+  agent: {
+    title: '✳ Yearly billing',
     turns: [
       {
-        verb: 'Sketching',
-        doneVerb: 'Crafted',
+        auto: true,
+        afterMs: 200,
+        prompt: 'Let people pay yearly on the pricing page',
+        verb: 'Pricing',
+        doneVerb: 'Baked',
         events: [
-          { tool: 'Read', arg: 'site/index.html', result: ['Read 68 lines'], delay: 400 },
-          { serve: 'site', port: design.port, delay: 400 },
-          { waitFor: PREVIEW_CUE },
+          ...YEARLY_EVENTS,
+          { waitFor: PREVIEW },
+          { bash: `komla preview --open ${PREVIEW_URL}`, delay: 500 },
           {
-            mcp: 'open_browser_preview',
-            args: { url, open: true },
-            result: [`Browser preview opened at ${url}`],
-            delay: 500,
-          },
-          { waitFor: RESTYLE_CUE, verb: 'Restyling' },
-          ...restyle,
-          {
-            say: `Restyled the pricing page as ${design.brief}. CSS only, markup untouched.`,
-            delay: 700,
+            say: 'Added a Monthly / Yearly switch. Yearly plans are 20% off, and the page is open beside me.',
+            delay: 300,
           },
         ],
       },
+      BILLING.agent!.turns![0],
     ],
-  };
-}
+  },
+};
 
-const leadAgent: AgentScene = {
-  title: '✳ Pricing redesign',
-  turns: [
-    {
-      verb: 'Planning',
-      doneVerb: 'Orchestrated',
-      events: [
+/** The plan Claude Code keeps beside it, ticking steps off as it goes. */
+export const PLAN = 'PLAN.md';
+
+const PLAN_MD = `# Card retries
+
+Retry a charge when the decline is temporary, so a network blip doesn't cost the sale.
+
+## Steps
+
+- [x] Read how charges reach the gateway
+- [ ] Retry timeouts and \`try_again\`, up to 3 tries
+- [ ] Time out gateway calls after 10s
+- [ ] Tests for retries and hard declines (Codex)
+
+## Never retry
+
+- \`card_declined\`
+- \`insufficient_funds\`
+`;
+
+const tick = (step: string) => ({
+  edit: PLAN,
+  find: `- [ ] ${step}`,
+  replace: `- [x] ${step}`,
+  delay: 900,
+});
+
+const retriesEvents = RETRIES.agent!.turns![0].events;
+const acmeApiPackage = JSON.parse(ACME_API.files['package.json']);
+
+/** Claude Code, with Codex below it and the plan beside them both. */
+export const CARD_RETRIES: VideoWorkspace = {
+  ...RETRIES,
+  projectId: ACME_API.id,
+  // In acme-api, so its package.json stays acme-api's, with the test runner the video uses.
+  commits: RETRIES.commits!.map((commit) => ({
+    ...commit,
+    files: {
+      ...commit.files,
+      'package.json': JSON.stringify(
         {
-          mcp: 'set_workspace_title',
-          args: { title: LEAD_TITLE },
-          result: [`Workspace title set to "${LEAD_TITLE}"`],
-          delay: 500,
+          ...acmeApiPackage,
+          type: 'module',
+          scripts: { ...acmeApiPackage.scripts, test: 'node --test' },
         },
-        { tool: 'Read', arg: 'site/index.html', result: ['Read 68 lines'], delay: 400 },
-        {
-          say: "I'll explore four directions in parallel, each in its own workspace with a live preview.",
-          delay: 500,
-        },
-        ...DESIGNS.map((design): AgentEvent => ({
-          mcp: 'spawn_agent_in_new_workspace',
-          args: {
-            name: design.name,
-            branchName: design.branch,
-            initialPrompt: `Restyle site/ as ${design.brief}. CSS only. Start the dev server and open a browser preview.`,
-          },
-          show: { name: design.name, branchName: design.branch },
-          result: [`Started Claude Code in "${design.name}"`],
-          delay: 450,
-        })),
-        {
-          say: 'All four are running. Switch between the workspaces to compare them as they build.',
-          delay: 500,
-        },
-      ],
+        null,
+        2
+      ),
     },
-  ],
+  })),
+  minutesAgo: 1,
+  // Not committed, so the file panel lists it among the changes.
+  changes: { [PLAN]: PLAN_MD },
+  agent: {
+    ...RETRIES.agent,
+    turns: [
+      {
+        ...RETRIES.agent!.turns![0],
+        events: [
+          // Up to the charge's retries, then the gateway's timeout, each ticked off as it lands.
+          ...retriesEvents.slice(0, 3),
+          tick('Retry timeouts and `try_again`, up to 3 tries'),
+          ...retriesEvents.slice(3, 5),
+          tick('Time out gateway calls after 10s'),
+          { waitFor: HOLD },
+        ],
+      },
+    ],
+  },
+};
+
+const rateLimitTurn = STATUS_RATE_LIMIT.agent!.turns![0];
+
+/** Works in the background until it's cued to finish. */
+export const RATE_LIMIT: VideoWorkspace = {
+  ...STATUS_RATE_LIMIT,
+  agent: {
+    ...STATUS_RATE_LIMIT.agent,
+    turns: [
+      {
+        ...rateLimitTurn,
+        doneVerb: 'Brewed',
+        events: [
+          ...rateLimitTurn.events.filter((event) => !('waitFor' in event)),
+          { waitFor: FINISH },
+          { say: 'Each API key gets 100 requests a minute; the next one gets a 429.', delay: 200 },
+        ],
+      },
+    ],
+  },
 };
 
 export const HERO_WORLD: VideoWorld = {
   sshHost: DEVBOX,
-  projects: [
-    {
-      ...ACME_WEB,
-      files: {
-        'README.md': '# Acme Web\n\nMarketing site for Acme.\n',
-        'package.json': JSON.stringify(
-          { name: 'acme-web', private: true, scripts: { dev: 'node dev-server.mjs site' } },
-          null,
-          2
-        ),
-        'site/index.html': read('pricing-site/index.html'),
-        'site/styles.css': read('pricing-site/styles.css'),
-      },
-    },
-  ],
-  // Komla starts empty; the lead workspace is created in the new workspace dialog.
-  workspaces: [],
-  spawnedAgents: {
-    [LEAD_AGENT]: leadAgent,
-    ...Object.fromEntries(DESIGNS.map((design) => [design.branch, designAgent(design)])),
-  },
+  projects: [PRICING_WEB, ACME_API],
+  workspaces: [CARD_RETRIES, YEARLY_BILLING, DARK_MODE, RATE_LIMIT],
+  spawnedAgents: { [CODEX_TESTS]: codexTestsAgent },
+  // Pages open beside the terminal instead of over it.
+  config: { defaultInlinePreviewLayout: 'side-by-side' },
+  // Half-width panes keep about 64 columns.
+  terminal: { font: { size: 13 } },
 };

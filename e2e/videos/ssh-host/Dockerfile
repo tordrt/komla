@@ -1,21 +1,28 @@
 # SSH host for the landing videos: the SSH integration-test host plus Node,
 # which runs the scripted agent and the demo dev servers on the host, and npm,
-# which runs their tests.
+# which runs their tests, and what `komla desktop` needs for a virtual desktop,
+# with Firefox to run on it, and jq for the stand-in `gh`.
 FROM debian:13-slim
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
+      firefox-esr \
       git \
       iproute2 \
+      jq \
       nodejs \
+      novnc \
       npm \
+      openbox \
       openssh-server \
       procps \
       python3 \
       rsync \
+      tigervnc-standalone-server \
       tmux \
+      websockify \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --shell /bin/bash komla \
     && passwd --delete komla \

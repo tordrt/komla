@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pricing page audit</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f7f9;
+        color: #111827;
+        font-family: Inter, system-ui, sans-serif;
+      }
+
+      main {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 56px 48px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 44px;
+        letter-spacing: -0.02em;
+      }
+
+      .meta {
+        margin: 10px 0 40px;
+        font-size: 20px;
+        color: #6b7280;
+      }
+
+      .scores {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 24px;
+      }
+
+      .score {
+        padding: 28px 20px;
+        border-radius: 18px;
+        background: #fff;
+        text-align: center;
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+      }
+
+      .ring {
+        display: grid;
+        place-items: center;
+        width: 132px;
+        height: 132px;
+        margin: 0 auto 16px;
+        border-radius: 50%;
+        background: conic-gradient(var(--tone) calc(var(--value) * 1%), #e5e7eb 0);
+      }
+
+      .ring span {
+        display: grid;
+        place-items: center;
+        width: 104px;
+        height: 104px;
+        border-radius: 50%;
+        background: #fff;
+        font-size: 40px;
+        font-weight: 700;
+        color: var(--tone);
+      }
+
+      .score p {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      h2 {
+        margin: 48px 0 16px;
+        font-size: 26px;
+      }
+
+      .findings {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        border-radius: 18px;
+        background: #fff;
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+      }
+
+      .findings li {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 20px 24px;
+        font-size: 20px;
+      }
+
+      .findings li + li {
+        border-top: 1px solid #eef0f3;
+      }
+
+      .tag {
+        padding: 4px 12px;
+        border-radius: 999px;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .tag--fixed {
+        background: #dcfce7;
+        color: #15803d;
+      }
+
+      .tag--pass {
+        background: #e0e7ff;
+        color: #4338ca;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Pricing page audit</h1>
+      <p class="meta">localhost:4310 · Yearly billing · desktop and mobile</p>
+
+      <section class="scores">
+        <div class="score" style="--value: 98; --tone: #16a34a">
+          <div class="ring"><span>98</span></div>
+          <p>Performance</p>
+        </div>
+        <div class="score" style="--value: 100; --tone: #16a34a">
+          <div class="ring"><span>100</span></div>
+          <p>Accessibility</p>
+        </div>
+        <div class="score" style="--value: 100; --tone: #16a34a">
+          <div class="ring"><span>100</span></div>
+          <p>Best practices</p>
+        </div>
+        <div class="score" style="--value: 92; --tone: #16a34a">
+          <div class="ring"><span>92</span></div>
+          <p>SEO</p>
+        </div>
+      </section>
+
+      <h2>Findings</h2>
+      <ul class="findings">
+        <li><span class="tag tag--fixed">Fixed</span>“Save 20%” badge contrast was 3.1:1, now 4.8:1</li>
+        <li><span class="tag tag--fixed">Fixed</span>Billing switch buttons had no pressed state</li>
+        <li><span class="tag tag--pass">Pass</span>Yearly prices match the Stripe Prices</li>
+        <li><span class="tag tag--pass">Pass</span>No layout shift when switching billing</li>
+      </ul>
+    </main>
+  </body>
+</html>

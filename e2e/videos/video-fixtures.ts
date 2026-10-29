@@ -69,6 +69,8 @@ export type AgentEvent = { delay?: number; verb?: string } & (
   | { append: string; content: string }
   | { write: string; content: string }
   | { serve: string; port: number; command?: string }
+  /** A command it really runs in the workspace, shown as a Bash call with its output. */
+  | { bash: string }
   | {
       mcp: string;
       args?: Record<string, unknown>;
@@ -78,6 +80,8 @@ export type AgentEvent = { delay?: number; verb?: string } & (
   | { waitFor: string }
   /** Applies the appearance settings in this workspace file, waiting while the user keeps or reverts them. */
   | { appearance: string }
+  /** Applies a settings resource from this workspace file, waiting while the user reviews it. */
+  | { settings: string; file: string }
   | { permission: { title: string; detail: string; message?: string } }
 );
 
@@ -134,6 +138,11 @@ export interface VideoWorkspace {
   /** Uncommitted changes present at launch. */
   changes?: FileMap;
   minutesAgo?: number;
+  /**
+   * What the workspace is for, as the user would write it; the command center searches it. Local
+   * worlds only: workspace updates over IPC don't take it.
+   */
+  description?: string;
   agent?: AgentScene;
   /** Stopped once Komla creates it on the SSH host, so its card is greyed out and ⌘↓ skips it. */
   stopped?: boolean;
@@ -280,6 +289,45 @@ export async function openBrowserBeside(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'Browser', exact: true }).click();
 }
 
+/** Waits until a browser view on screen has finished loading a page whose URL contains `url`. */
+export async function waitForPageLoaded(
+  electronApp: ElectronApplication,
+  url = 'http'
+): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        electronApp.evaluate(({ BrowserWindow }, url) => {
+          const [win] = BrowserWindow.getAllWindows();
+          return win.contentView.children.some((view) => {
+            if (!('webContents' in view) || !view.getVisible()) return false;
+            const { webContents } = view as Electron.WebContentsView;
+            return webContents.getURL().includes(url) && !webContents.isLoading();
+          });
+        }, url),
+      { intervals: [50], timeout: 30_000 }
+    )
+    .toBe(true);
+}
+
+/**
+ * Opens or closes the workspace on screen's file panel. Whether it shows at first depends on when
+ * the workspace's saved layout loads, so a blind toggle can do the opposite.
+ */
+export async function setFilePanel(page: Page, open: boolean): Promise<void> {
+  // On the panel's chrome only while it's open, and zero wide while closed. The header above it has
+  // the same scope.
+  const panel = page
+    .locator('[data-inline-file-preview-scope].file-panel-chrome')
+    .filter({ visible: true });
+  await page.waitForTimeout(500);
+  const shown = (await panel.count()) > 0;
+  if (shown !== open) {
+    await page.getByRole('button', { name: 'Toggle file panel' }).click();
+  }
+  await expect(panel).toHaveCount(open ? 1 : 0);
+}
+
 /**
  * The command line that starts the scripted agent, playing the scene for its
  * branch, or `scene` from the world's spawnedAgents.
@@ -318,7 +366,7 @@ export interface VideoPullRequest {
 }
 
 /**
- * Writes `bin/gh`, which stands in for the GitHub CLI in a local world: `gh pr view` prints the
+ * Writes `bin/gh`, which stands in for the GitHub CLI, here and on the SSH host: `gh pr view` prints the
  * branch's pull request from setPullRequest() once the branch is pushed, as GitHub has one only
  * then, through its `--jq` filter, and other commands, such as `gh pr create`, do nothing.
  */
@@ -379,6 +427,8 @@ function agentLaunchPin(preset: VideoPreset) {
 
 /** Seeds the sandbox, starting the SSH host when the world has one. */
 function seedWorld(world: VideoWorld): VideoSshHost | null {
+  const described = world.sshHost && world.workspaces.find((workspace) => workspace.description);
+  if (described) throw new Error(`${described.branch}: SSH workspaces can't seed a description`);
   stopSshHost();
   // Emptied rather than removed: Docker Desktop goes on showing the SSH host a removed folder,
   // empty, in place of a new one at the same path.
@@ -516,6 +566,7 @@ function seedWorld(world: VideoWorld): VideoSshHost | null {
           id: workspace.id,
           name: workspace.title,
           customName: workspace.title,
+          ...(workspace.description ? { customDescription: workspace.description } : {}),
           workingDirectory: dir,
           branchName: workspace.branch,
           isWorktree: true,
@@ -575,7 +626,11 @@ function seedWorld(world: VideoWorld): VideoSshHost | null {
   );
 
   if (!world.sshHost) return null;
-  const host = startSshHost({ sandboxDir: SANDBOX_DIR, ...world.sshHost });
+  const host = startSshHost({
+    sandboxDir: SANDBOX_DIR,
+    ...world.sshHost,
+    commands: [path.join(BIN_DIR, 'gh')],
+  });
   world.projects.forEach((project) => publishOrigin(repoDirs.get(project.id)!, project.name));
   return host;
 }

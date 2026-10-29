@@ -26,8 +26,10 @@ import {
   agentCommand,
   expect,
   openBrowserBeside,
+  setFilePanel,
   waitForAgentAt,
   type VideoWorkspace,
+  waitForPageLoaded,
 } from './video-fixtures';
 
 // Same aspect as the 1280×736 slot on the landing page.
@@ -38,7 +40,6 @@ test('workspace switching', async ({ appWindow: page, electronApp, director }) =
   const card = (workspace: VideoWorkspace) =>
     page.getByRole('button', { name: `Workspace details for ${workspace.title}` });
   const terminal = page.getByRole('textbox', { name: 'Terminal input' }).filter({ visible: true });
-  const toggleFilePanel = () => page.getByRole('button', { name: 'Toggle file panel' }).click();
   const run = async (command: string) => {
     await page.keyboard.type(command);
     await page.keyboard.press('Enter');
@@ -46,7 +47,7 @@ test('workspace switching', async ({ appWindow: page, electronApp, director }) =
 
   // Card Retries: Claude Code, with Codex beside it and the tests below.
   await card(RETRIES).click();
-  await toggleFilePanel();
+  await setFilePanel(page, false);
   await waitForAgentAt(RETRIES.branch, GO);
   // Its retries land before the tests run.
   director.cue(RETRIES.branch, GO);
@@ -69,10 +70,12 @@ test('workspace switching', async ({ appWindow: page, electronApp, director }) =
   await run(agentCommand(SWITCH_WORLD, RATE_LIMIT_REVIEW));
   await waitForAgentAt(RATE_LIMIT_REVIEW, GO);
   // The file tree rather than the changes, next to the tabs.
+  await setFilePanel(page, true);
   await page.getByRole('button', { name: 'Files', exact: true }).last().click();
 
   // Dark Mode: the diff of the file its agent is editing.
   await card(DARK_MODE).click();
+  await setFilePanel(page, true);
   await waitForAgentAt(DARK_MODE.branch, GO);
   await page.getByRole('treeitem', { name: 'Header.tsx' }).click();
   await expect(page.locator('.monaco-diff-editor .view-line').first()).toBeVisible({
@@ -87,22 +90,9 @@ test('workspace switching', async ({ appWindow: page, electronApp, director }) =
   await openBrowserBeside(page);
   director.cue(PRICING.branch, PREVIEW);
   await waitForAgentAt(PRICING.branch, GO);
-  await expect
-    .poll(
-      () =>
-        electronApp.evaluate(({ BrowserWindow }, port) => {
-          const [win] = BrowserWindow.getAllWindows();
-          return win.contentView.children.some((view) => {
-            if (!('webContents' in view) || !view.getVisible()) return false;
-            const { webContents } = view as Electron.WebContentsView;
-            return webContents.getURL().includes(`:${port}/`) && !webContents.isLoading();
-          });
-        }, PRICING_PORT),
-      { intervals: [100], timeout: 30_000 }
-    )
-    .toBe(true);
+  await waitForPageLoaded(electronApp, `:${PRICING_PORT}/`);
   // The page gets the width.
-  await toggleFilePanel();
+  await setFilePanel(page, false);
   // Show each workspace once more, so none is shown again for the first time on camera.
   const running = SWITCH_WORLD.workspaces.filter((workspace) => !workspace.stopped);
   for (let i = 0; i < running.length; i++) {

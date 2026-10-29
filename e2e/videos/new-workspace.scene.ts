@@ -1,9 +1,9 @@
 /**
  * The new-workspace video's world: Claude Code adds retries to card charges
  * while a dictated task starts a second Claude Code in a fresh workspace of
- * its own.
+ * its own, and an agent in another workspace finishes.
  */
-import { GO, RETRIES as PANES_RETRIES } from './agent-panes.scene';
+import { GO, HOLD, RETRIES as PANES_RETRIES } from './agent-panes.scene';
 import {
   DEFAULT_AGENT,
   type AgentScene,
@@ -15,6 +15,8 @@ import { ACME_WEB, BACKGROUND_WORKSPACES, DEVBOX } from './worlds';
 export { GO };
 /** Sent as the task launches, so Claude Code's next edit lands once the dialog has closed. */
 export const LAUNCHED = 'launched';
+/** The cue the checkout agent waits on before it wraps up, so its card turns Done on camera. */
+export const FINISH = 'finish';
 
 const retriesTurn = PANES_RETRIES.agent!.turns![0];
 
@@ -53,7 +55,7 @@ export async function sendReceipt(charge: { id: string; email: string; cents: nu
 }
 `;
 
-/** Names its workspace and writes the receipts, then finishes once cued. */
+/** Names its workspace and writes the receipts, still at work when the video ends. */
 const receiptsAgent: AgentScene = {
   title: '✳ Receipt emails',
   turns: [
@@ -67,17 +69,42 @@ const receiptsAgent: AgentScene = {
         },
         { tool: 'Read', arg: 'src/lib/checkout.ts', delay: 500 },
         { write: 'src/lib/receipts.ts', content: RECEIPTS_TS, delay: 800 },
-        { waitFor: GO },
-        { say: 'Customers now get a receipt email after each successful charge.', delay: 200 },
+        { waitFor: HOLD },
       ],
     },
   ],
 };
 
+const [CHECKOUT_BASE, ...OTHER_WORKSPACES] = BACKGROUND_WORKSPACES;
+
+/** Works in the background and finishes once the new task is under way. */
+export const CHECKOUT: VideoWorkspace = {
+  ...CHECKOUT_BASE,
+  agent: {
+    title: '✳ Stripe checkout',
+    turns: [
+      {
+        auto: true,
+        afterMs: 200,
+        prompt: 'Move checkout to Stripe Checkout sessions',
+        verb: 'Wiring',
+        events: [
+          { tool: 'Read', arg: 'src/lib/checkout.ts', result: ['Read 5 lines'], delay: 400 },
+          { waitFor: FINISH },
+          {
+            say: 'Checkout now creates a Stripe Checkout session for the chosen plan.',
+            delay: 200,
+          },
+        ],
+      },
+    ],
+  },
+};
+
 export const NEW_WORKSPACE_WORLD: VideoWorld = {
   sshHost: DEVBOX,
   projects: [ACME_WEB],
-  workspaces: [RETRIES, ...BACKGROUND_WORKSPACES],
+  workspaces: [RETRIES, CHECKOUT, ...OTHER_WORKSPACES],
   // Just Claude Code, already set to skip permissions: it runs on the devbox.
   spawnedAgents: { [RECEIPTS_AGENT]: receiptsAgent },
   dictation: { speech: RECEIPTS_PROMPT, model: 'parakeet-tdt-0.6b-v2-int8' },

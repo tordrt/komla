@@ -1,18 +1,18 @@
 /**
  * Landing video: "Every agent's status at a glance". Agents work across two
- * projects; one finishes, one stops for permission. Its card leads to its
- * workspace, where the pane that asked is outlined next to a second agent; we
- * answer it, then hop back as the first agent finishes.
+ * projects, two of them in one workspace; one finishes, one stops for
+ * permission. Its card leads to its workspace, where we answer it, then hop
+ * back as the first agent finishes.
  */
 import {
   ASK,
   AUTH,
   DARK_MODE,
-  DARK_MODE_TESTS,
   FINISH,
   GO,
   HOLD,
   NAV,
+  NAV_TESTS,
   RATE_LIMIT,
   SEARCH,
   STATUS_WORLD,
@@ -22,6 +22,7 @@ import {
   videoTest as test,
   agentCommand,
   expect,
+  setFilePanel,
   waitForAgentAt,
   waitForAgentTurn,
   type VideoWorkspace,
@@ -45,7 +46,7 @@ test('agent status', async ({ appWindow: page, director }) => {
   // The file panel would squeeze the terminal in this narrow window.
   const open = async (workspace: VideoWorkspace) => {
     await card(workspace).click();
-    await page.getByRole('button', { name: 'Toggle file panel' }).click();
+    await setFilePanel(page, false);
   };
   await open(SEARCH);
   await open(STRIPE);
@@ -54,19 +55,18 @@ test('agent status', async ({ appWindow: page, director }) => {
   await waitForAgentAt(STRIPE.branch, FINISH);
   await open(NAV);
   await waitForAgentAt(NAV.branch, HOLD);
-  await open(RATE_LIMIT);
-  await waitForAgentAt(RATE_LIMIT.branch, HOLD);
-  await open(DARK_MODE);
-  await waitForAgentAt(DARK_MODE.branch, ASK);
-  // A second agent writes tests in a pane below, which keeps focus, so the pane
-  // above is outlined when it asks for input.
+  // A second agent writes tests in a pane below, so the card counts two at work.
   await terminal.first().focus();
   await page.keyboard.press('Meta+Shift+d');
   await expect(terminal).toHaveCount(2);
   await terminal.last().focus();
-  await page.keyboard.type(agentCommand(STATUS_WORLD, DARK_MODE_TESTS));
+  await page.keyboard.type(agentCommand(STATUS_WORLD, NAV_TESTS));
   await page.keyboard.press('Enter');
-  await waitForAgentAt(DARK_MODE_TESTS, GO);
+  await waitForAgentAt(NAV_TESTS, HOLD);
+  await open(RATE_LIMIT);
+  await waitForAgentAt(RATE_LIMIT.branch, HOLD);
+  await open(DARK_MODE);
+  await waitForAgentAt(DARK_MODE.branch, ASK);
   await open(AUTH);
   await waitForAgentAt(AUTH.branch, GO);
   await waitForAgentTurn(SEARCH.branch);
@@ -82,15 +82,12 @@ test('agent status', async ({ appWindow: page, director }) => {
   await director.hold(1.0);
 
   director.cue(DARK_MODE.branch, ASK);
-  // With two agents, the card shows each one's state as an icon.
-  await expect(card(DARK_MODE)).toContainText('needs input');
+  await expect(card(DARK_MODE)).toContainText(/input/i);
   await director.hold(1.1);
   await director.click(card(DARK_MODE), { duration: 0.7 });
-  director.cue(DARK_MODE_TESTS, GO);
-  await expect(terminal).toHaveCount(2);
-  // The pane that asked stays outlined until it's focused.
-  await director.hold(1.2);
-  // A blank spot inside the frame, clear of the prompt's options.
+  await expect(terminal).toHaveCount(1);
+  await director.hold(1.0);
+  // A blank spot in the terminal, clear of the prompt's options.
   const [asking] = await panes();
   await director.click(
     { x: asking.x + asking.width * 0.55, y: asking.y + asking.height * 0.1 },

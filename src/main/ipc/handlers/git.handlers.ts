@@ -408,7 +408,6 @@ export function registerGitHandlers(): void {
         files: string[];
         gitIgnoredFiles: string[];
         emptyDirs: string[];
-        managedLinkPaths?: string[];
         fileListHash?: string;
       }> => workspaceFileService.listFiles(workspaceId, includeGitIgnored)
     )

@@ -235,6 +235,17 @@ describe("the globe's Files section", () => {
     expect(shownFiles()).toEqual(['node_modules/foo/index.js', 'src/app.ts']);
   });
 
+  it('lists printed files in linked workspaces, which the file list leaves out', () => {
+    print(
+      ['Edited linked-workspaces/api/src/server.ts:42', 'Edited src/app.ts'],
+      [NOW, NOW - 1_000]
+    );
+    renderButton();
+    openList();
+
+    expect(shownFiles()).toEqual(['linked-workspaces/api/src/server.ts', 'src/app.ts']);
+  });
+
   it('keeps its lists while terminals change only their state', () => {
     print(['Saved /tmp/out.log'], [NOW]);
     renderButton();

@@ -218,7 +218,7 @@ describe('workspaceFileService', () => {
   });
 
   it.runIf(process.platform !== 'win32')(
-    'returns and protects only verified managed links for local workspaces',
+    'protects only verified managed links for local workspaces',
     async () => {
       const workspaceDirectory = await mkdtemp(join(tmpdir(), 'komla-local-link-list-test-'));
       const peerDirectory = await mkdtemp(join(tmpdir(), 'komla-local-link-peer-test-'));
@@ -239,18 +239,9 @@ describe('workspaceFileService', () => {
       workspaceServiceMock.get.mockImplementation((id) =>
         id === origin.id ? origin : id === peer.id ? peer : undefined
       );
-      gitServiceMock.listFiles.mockResolvedValue({
-        files: ['linked-workspaces/peer/file.ts', 'linked-workspaces/notes.txt'],
-        gitIgnoredFiles: [],
-        emptyDirs: [],
-      });
-
       const { workspaceFileService } =
         await import('../../../src/main/services/workspace-file.service');
 
-      await expect(workspaceFileService.listFiles(origin.id)).resolves.toMatchObject({
-        managedLinkPaths: ['linked-workspaces/peer'],
-      });
       await expect(
         workspaceFileService.deletePath(origin.id, 'linked-workspaces/peer')
       ).rejects.toThrow('linked workspace');
@@ -261,51 +252,14 @@ describe('workspaceFileService', () => {
     }
   );
 
-  it.runIf(process.platform !== 'win32')(
-    'preserves a verified empty local workspace link as a directory',
-    async () => {
-      const workspaceDirectory = await mkdtemp(join(tmpdir(), 'komla-empty-local-link-test-'));
-      const peerDirectory = await mkdtemp(join(tmpdir(), 'komla-empty-local-peer-test-'));
-      tempDirectories.push(workspaceDirectory, peerDirectory);
-      await mkdir(join(workspaceDirectory, 'linked-workspaces'));
-      await symlink(peerDirectory, join(workspaceDirectory, 'linked-workspaces', 'empty-peer'));
-      const origin = {
-        ...localWorkspace,
-        workingDirectory: workspaceDirectory,
-        linkedWorkspaceIds: ['ws-local-peer'],
-      };
-      const peer = {
-        ...localWorkspace,
-        id: 'ws-local-peer',
-        workingDirectory: peerDirectory,
-      };
-      workspaceServiceMock.get.mockImplementation((id) =>
-        id === origin.id ? origin : id === peer.id ? peer : undefined
-      );
-      gitServiceMock.listFiles.mockResolvedValue({
-        files: [],
-        gitIgnoredFiles: [],
-        emptyDirs: [],
-      });
-
-      const { workspaceFileService } =
-        await import('../../../src/main/services/workspace-file.service');
-
-      await expect(workspaceFileService.listFiles(origin.id)).resolves.toEqual({
-        files: [],
-        gitIgnoredFiles: [],
-        emptyDirs: ['linked-workspaces/empty-peer'],
-        managedLinkPaths: ['linked-workspaces/empty-peer'],
-      });
-    }
-  );
-
   it('delegates local deletion to gitService', async () => {
     workspaceServiceMock.get.mockReturnValue(localWorkspace);
 
     const { workspaceFileService } =
       await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.deletePath('ws-local', 'src/app.ts')).resolves.toBeUndefined();
+    await expect(
+      workspaceFileService.deletePath('ws-local', 'src/app.ts')
+    ).resolves.toBeUndefined();
 
     expect(gitServiceMock.deleteFile).toHaveBeenCalledWith(
       '/repo/worktree',
@@ -449,76 +403,93 @@ describe('workspaceFileService', () => {
     return { folderPath, gitStatus, workspaceFileService };
   }
 
-  itWithPosixShell('runs the SSH import script so git ignores imports in a repo subfolder', async () => {
-    const sourcePath = await createSourceFile('shot.png');
-    const { folderPath, gitStatus, workspaceFileService } = await setupRealSshImport();
+  itWithPosixShell(
+    'runs the SSH import script so git ignores imports in a repo subfolder',
+    async () => {
+      const sourcePath = await createSourceFile('shot.png');
+      const { folderPath, gitStatus, workspaceFileService } = await setupRealSshImport();
 
-    await expect(workspaceFileService.importExternalFile('ws-ssh', sourcePath)).resolves.toBe(
-      '.komla-files/shot.png'
-    );
+      await expect(workspaceFileService.importExternalFile('ws-ssh', sourcePath)).resolves.toBe(
+        '.komla-files/shot.png'
+      );
 
-    expect(await readFile(join(folderPath, '.komla-files', 'shot.png'), 'utf8')).toBe('contents');
-    expect(gitStatus()).toBe('');
-  });
+      expect(await readFile(join(folderPath, '.komla-files', 'shot.png'), 'utf8')).toBe('contents');
+      expect(gitStatus()).toBe('');
+    }
+  );
 
-  itWithPosixShell('lists SSH imports without the folder’s own ignore file but with an imported one', async () => {
-    const { execFileSync } = await vi.importActual<typeof import('child_process')>('child_process');
-    const { folderPath } = await setupRealSshImport();
-    sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
-      execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' })
-    );
-    await mkdir(join(folderPath, '.komla-files'));
-    await writeFile(join(folderPath, '.komla-files', 'shot.png'), 'png');
-    await writeFile(join(folderPath, '.komla-files', '.gitignore'), '*\n');
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
+  itWithPosixShell(
+    'lists SSH imports without the folder’s own ignore file but with an imported one',
+    async () => {
+      const { execFileSync } =
+        await vi.importActual<typeof import('child_process')>('child_process');
+      const { folderPath } = await setupRealSshImport();
+      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
+        execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' })
+      );
+      await mkdir(join(folderPath, '.komla-files'));
+      await writeFile(join(folderPath, '.komla-files', 'shot.png'), 'png');
+      await writeFile(join(folderPath, '.komla-files', '.gitignore'), '*\n');
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
 
-    expect((await workspaceFileService.listFiles('ws-ssh', false)).files).toEqual([
-      '.komla-files/shot.png',
-    ]);
+      expect((await workspaceFileService.listFiles('ws-ssh', false)).files).toEqual([
+        '.komla-files/shot.png',
+      ]);
 
-    await writeFile(join(folderPath, '.komla-files', '.gitignore'), 'dist/\n');
-    expect((await workspaceFileService.listFiles('ws-ssh', false)).files.sort()).toEqual([
-      '.komla-files/.gitignore',
-      '.komla-files/shot.png',
-    ]);
-  });
+      await writeFile(join(folderPath, '.komla-files', '.gitignore'), 'dist/\n');
+      expect((await workspaceFileService.listFiles('ws-ssh', false)).files.sort()).toEqual([
+        '.komla-files/.gitignore',
+        '.komla-files/shot.png',
+      ]);
+    }
+  );
 
-  itWithPosixShell('moves an earlier SSH import named .gitignore aside for the folder’s own', async () => {
-    const sourcePath = await createSourceFile('shot.png');
-    const { folderPath, gitStatus, workspaceFileService } = await setupRealSshImport();
-    await mkdir(join(folderPath, '.komla-files'));
-    await writeFile(join(folderPath, '.komla-files', '.gitignore'), 'dist/\n');
+  itWithPosixShell(
+    'moves an earlier SSH import named .gitignore aside for the folder’s own',
+    async () => {
+      const sourcePath = await createSourceFile('shot.png');
+      const { folderPath, gitStatus, workspaceFileService } = await setupRealSshImport();
+      await mkdir(join(folderPath, '.komla-files'));
+      await writeFile(join(folderPath, '.komla-files', '.gitignore'), 'dist/\n');
 
-    await workspaceFileService.importExternalFile('ws-ssh', sourcePath);
+      await workspaceFileService.importExternalFile('ws-ssh', sourcePath);
 
-    expect(await readFile(join(folderPath, '.komla-files', '.gitignore'), 'utf8')).toBe('*\n');
-    expect(await readFile(join(folderPath, '.komla-files', '.gitignore-2'), 'utf8')).toBe(
-      'dist/\n'
-    );
-    expect(gitStatus()).toBe('');
-  });
+      expect(await readFile(join(folderPath, '.komla-files', '.gitignore'), 'utf8')).toBe('*\n');
+      expect(await readFile(join(folderPath, '.komla-files', '.gitignore-2'), 'utf8')).toBe(
+        'dist/\n'
+      );
+      expect(gitStatus()).toBe('');
+    }
+  );
 
   const terminalFile = (fullPath: string) => ({ kind: 'terminal' as const, fullPath });
   const workspaceFile = (filePath: string) => ({ kind: 'workspace' as const, filePath });
 
-  itWithTerminalFiles('lists a local terminal folder here, whatever host its shell reports', async () => {
-    const directory = await createViewerFolder();
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    ptyServiceMock.getBuffer.mockReturnValue({
-      buffer: '',
-      seq: 0,
-      hostInfo: { hostname: 'ssh:ssh-dev', isLocal: false },
-    });
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
+  itWithTerminalFiles(
+    'lists a local terminal folder here, whatever host its shell reports',
+    async () => {
+      const directory = await createViewerFolder();
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      ptyServiceMock.getBuffer.mockReturnValue({
+        buffer: '',
+        seq: 0,
+        hostInfo: { hostname: 'ssh:ssh-dev', isLocal: false },
+      });
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
 
-    await expect(
-      workspaceFileService.listViewerFolder('ws-local', 'term-local', terminalFile(`${directory}/`))
-    ).resolves.toEqual(VIEWER_FOLDER_FILES);
-    expect(execFileMock).not.toHaveBeenCalled();
-    expect(ptyServiceMock.getBuffer).not.toHaveBeenCalled();
-  });
+      await expect(
+        workspaceFileService.listViewerFolder(
+          'ws-local',
+          'term-local',
+          terminalFile(`${directory}/`)
+        )
+      ).resolves.toEqual(VIEWER_FOLDER_FILES);
+      expect(execFileMock).not.toHaveBeenCalled();
+      expect(ptyServiceMock.getBuffer).not.toHaveBeenCalled();
+    }
+  );
 
   it('rejects unknown terminals and non-absolute terminal paths', async () => {
     const { workspaceFileService } =
@@ -546,21 +517,24 @@ describe('workspaceFileService', () => {
     ).rejects.toThrow('absolute POSIX path');
   });
 
-  itWithTerminalFiles('reads a host terminal image in place instead of snapshotting it', async () => {
-    const sourcePath = await createSourceFile('shot.png');
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
+  itWithTerminalFiles(
+    'reads a host terminal image in place instead of snapshotting it',
+    async () => {
+      const sourcePath = await createSourceFile('shot.png');
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
 
-    await expect(
-      workspaceFileService.readViewerFile('ws-local', 'term-local', terminalFile(sourcePath))
-    ).resolves.toEqual({
-      data: Buffer.from('contents').toString('base64'),
-      mimeType: 'image/png',
-    });
-    expect(gitServiceMock.importExternalFile).not.toHaveBeenCalled();
-    expect(execFileMock).not.toHaveBeenCalled();
-  });
+      await expect(
+        workspaceFileService.readViewerFile('ws-local', 'term-local', terminalFile(sourcePath))
+      ).resolves.toEqual({
+        data: Buffer.from('contents').toString('base64'),
+        mimeType: 'image/png',
+      });
+      expect(gitServiceMock.importExternalFile).not.toHaveBeenCalled();
+      expect(execFileMock).not.toHaveBeenCalled();
+    }
+  );
 
   itWithTerminalFiles('reads a local-mirror terminal file from this computer', async () => {
     const sourcePath = await createSourceFile('shot.webp');
@@ -577,27 +551,30 @@ describe('workspaceFileService', () => {
     expect(sshWorkspaceServiceMock.run).not.toHaveBeenCalled();
   });
 
-  itWithTerminalFiles('refuses host terminal files that are symlinks or too large for their type', async () => {
-    const sourcePath = await createSourceFile('target.png');
-    const directory = join(sourcePath, '..');
-    const linkPath = join(directory, 'link.png');
-    await symlink(sourcePath, linkPath);
-    await writeFile(join(directory, 'large.png'), Buffer.alloc(10 * 1024 * 1024 + 1));
-    await writeFile(join(directory, 'large.log'), Buffer.alloc(5 * 1024 * 1024 + 1));
-    await writeFile(join(directory, 'clip.mp4'), Buffer.alloc(5 * 1024 * 1024 + 1));
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    const read = (path: string) =>
-      workspaceFileService.readViewerFile('ws-local', 'term-local', terminalFile(path));
+  itWithTerminalFiles(
+    'refuses host terminal files that are symlinks or too large for their type',
+    async () => {
+      const sourcePath = await createSourceFile('target.png');
+      const directory = join(sourcePath, '..');
+      const linkPath = join(directory, 'link.png');
+      await symlink(sourcePath, linkPath);
+      await writeFile(join(directory, 'large.png'), Buffer.alloc(10 * 1024 * 1024 + 1));
+      await writeFile(join(directory, 'large.log'), Buffer.alloc(5 * 1024 * 1024 + 1));
+      await writeFile(join(directory, 'clip.mp4'), Buffer.alloc(5 * 1024 * 1024 + 1));
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      const read = (path: string) =>
+        workspaceFileService.readViewerFile('ws-local', 'term-local', terminalFile(path));
 
-    await expect(read(linkPath)).rejects.toThrow('symlink');
-    await expect(read(join(directory, 'large.png'))).rejects.toThrow('too large');
-    await expect(read(join(directory, 'large.log'))).rejects.toThrow('too large');
-    await expect(read(join(directory, 'clip.mp4'))).resolves.toMatchObject({
-      mimeType: 'video/mp4',
-    });
-  });
+      await expect(read(linkPath)).rejects.toThrow('symlink');
+      await expect(read(join(directory, 'large.png'))).rejects.toThrow('too large');
+      await expect(read(join(directory, 'large.log'))).rejects.toThrow('too large');
+      await expect(read(join(directory, 'clip.mp4'))).resolves.toMatchObject({
+        mimeType: 'video/mp4',
+      });
+    }
+  );
 
   it('reads a remote terminal file over SSH without copying it', async () => {
     workspaceServiceMock.get.mockReturnValue(sshWorkspace);
@@ -996,94 +973,110 @@ describe('workspaceFileService', () => {
     return url === 'komla-preview://folder/index.html' ? 'folder' : 'content';
   }
 
-  itWithTerminalFiles('serves a terminal page two levels into a temp folder, not one or a hidden or home one', async () => {
-    const temp = await createTempFolder();
-    await placeTempFolderAt(temp);
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    const preview = (page: string) => previewTerminalPage('ws-local', 'term-local', page);
+  itWithTerminalFiles(
+    'serves a terminal page two levels into a temp folder, not one or a hidden or home one',
+    async () => {
+      const temp = await createTempFolder();
+      await placeTempFolderAt(temp);
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      const preview = (page: string) => previewTerminalPage('ws-local', 'term-local', page);
 
-    await expect(preview(await writePage(join(temp, 'app', 'site')))).resolves.toBe('folder');
-    expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
-      join(temp, 'app', 'site'),
-      'index.html'
-    );
-    await expect(preview(await writePage(join(temp, 'app')))).resolves.toBe('content');
-    await expect(preview(await writePage(join(temp, 'app', '.cache', 'site')))).resolves.toBe(
-      'content'
-    );
-    vi.stubEnv('HOME', join(temp, 'app', 'site'));
-    await expect(preview(join(temp, 'app', 'site', 'index.html'))).resolves.toBe('content');
-    expect(htmlPreviewServiceMock.createContentPreviewUrl).toHaveBeenCalledWith(
-      'index.html',
-      'contents',
-      expect.objectContaining({ web: true })
-    );
-  });
+      await expect(preview(await writePage(join(temp, 'app', 'site')))).resolves.toBe('folder');
+      expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
+        join(temp, 'app', 'site'),
+        'index.html'
+      );
+      await expect(preview(await writePage(join(temp, 'app')))).resolves.toBe('content');
+      await expect(preview(await writePage(join(temp, 'app', '.cache', 'site')))).resolves.toBe(
+        'content'
+      );
+      vi.stubEnv('HOME', join(temp, 'app', 'site'));
+      await expect(preview(join(temp, 'app', 'site', 'index.html'))).resolves.toBe('content');
+      expect(htmlPreviewServiceMock.createContentPreviewUrl).toHaveBeenCalledWith(
+        'index.html',
+        'contents',
+        expect.objectContaining({ web: true })
+      );
+    }
+  );
 
-  itWithTerminalFiles('serves a terminal page in its workspace or two levels into the worktrees folder', async () => {
-    await placeTempFolderAt(await createTempFolder());
-    const workspaceFolder = await createTempFolder();
-    const komlaFolder = await createTempFolder();
-    vi.stubEnv('KOMLA_DATA_DIR', komlaFolder);
-    workspaceServiceMock.get.mockReturnValue({
-      ...localWorkspace,
-      workingDirectory: workspaceFolder,
-    });
-    const preview = (page: string) => previewTerminalPage('ws-local', 'term-local', page);
+  itWithTerminalFiles(
+    'serves a terminal page in its workspace or two levels into the worktrees folder',
+    async () => {
+      await placeTempFolderAt(await createTempFolder());
+      const workspaceFolder = await createTempFolder();
+      const komlaFolder = await createTempFolder();
+      vi.stubEnv('KOMLA_DATA_DIR', komlaFolder);
+      workspaceServiceMock.get.mockReturnValue({
+        ...localWorkspace,
+        workingDirectory: workspaceFolder,
+      });
+      const preview = (page: string) => previewTerminalPage('ws-local', 'term-local', page);
 
-    await expect(preview(await writePage(workspaceFolder))).resolves.toBe('folder');
-    expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
-      workspaceFolder,
-      'index.html'
-    );
-    await expect(preview(await writePage(join(workspaceFolder, '.git')))).resolves.toBe('content');
-    const worktrees = join(komlaFolder, 'worktrees');
-    await expect(preview(await writePage(join(worktrees, 'project', 'branch')))).resolves.toBe(
-      'folder'
-    );
-    await expect(preview(await writePage(join(worktrees, 'project')))).resolves.toBe('content');
-    await expect(preview(await writePage(join(komlaFolder, 'a', 'b')))).resolves.toBe('content');
-  });
+      await expect(preview(await writePage(workspaceFolder))).resolves.toBe('folder');
+      expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
+        workspaceFolder,
+        'index.html'
+      );
+      await expect(preview(await writePage(join(workspaceFolder, '.git')))).resolves.toBe(
+        'content'
+      );
+      const worktrees = join(komlaFolder, 'worktrees');
+      await expect(preview(await writePage(join(worktrees, 'project', 'branch')))).resolves.toBe(
+        'folder'
+      );
+      await expect(preview(await writePage(join(worktrees, 'project')))).resolves.toBe('content');
+      await expect(preview(await writePage(join(komlaFolder, 'a', 'b')))).resolves.toBe('content');
+    }
+  );
 
-  itWithTerminalFiles("serves a Local copy terminal's page from the workspace's mirror", async () => {
-    await placeTempFolderAt(await createTempFolder());
-    const mirror = await createTempFolder();
-    localMirrorServiceMock.getMirrorPath.mockReturnValue(mirror);
-    workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+  itWithTerminalFiles(
+    "serves a Local copy terminal's page from the workspace's mirror",
+    async () => {
+      await placeTempFolderAt(await createTempFolder());
+      const mirror = await createTempFolder();
+      localMirrorServiceMock.getMirrorPath.mockReturnValue(mirror);
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
 
-    await expect(
-      previewTerminalPage('ws-ssh', 'term-mirror', await writePage(join(mirror, 'dist')))
-    ).resolves.toBe('folder');
-    expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
-      join(mirror, 'dist'),
-      'index.html'
-    );
-  });
+      await expect(
+        previewTerminalPage('ws-ssh', 'term-mirror', await writePage(join(mirror, 'dist')))
+      ).resolves.toBe('folder');
+      expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
+        join(mirror, 'dist'),
+        'index.html'
+      );
+    }
+  );
 
-  itWithTerminalFiles("serves a page's folder by its real path, so a symlink can't point it elsewhere", async () => {
-    await placeTempFolderAt(await createTempFolder());
-    const workspaceFolder = await createTempFolder();
-    const outside = await createTempFolder();
-    await writePage(join(workspaceFolder, 'site'));
-    await writePage(outside);
-    await symlink(join(workspaceFolder, 'site'), join(workspaceFolder, 'site-link'));
-    await symlink(outside, join(workspaceFolder, 'outside-link'));
-    workspaceServiceMock.get.mockReturnValue({
-      ...localWorkspace,
-      workingDirectory: workspaceFolder,
-    });
-    const preview = (page: string) => previewTerminalPage('ws-local', 'term-local', page);
+  itWithTerminalFiles(
+    "serves a page's folder by its real path, so a symlink can't point it elsewhere",
+    async () => {
+      await placeTempFolderAt(await createTempFolder());
+      const workspaceFolder = await createTempFolder();
+      const outside = await createTempFolder();
+      await writePage(join(workspaceFolder, 'site'));
+      await writePage(outside);
+      await symlink(join(workspaceFolder, 'site'), join(workspaceFolder, 'site-link'));
+      await symlink(outside, join(workspaceFolder, 'outside-link'));
+      workspaceServiceMock.get.mockReturnValue({
+        ...localWorkspace,
+        workingDirectory: workspaceFolder,
+      });
+      const preview = (page: string) => previewTerminalPage('ws-local', 'term-local', page);
 
-    await expect(preview(join(workspaceFolder, 'site-link', 'index.html'))).resolves.toBe('folder');
-    expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
-      join(workspaceFolder, 'site'),
-      'index.html'
-    );
-    await expect(preview(join(workspaceFolder, 'outside-link', 'index.html'))).resolves.toBe(
-      'content'
-    );
-    expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledTimes(1);
-  });
+      await expect(preview(join(workspaceFolder, 'site-link', 'index.html'))).resolves.toBe(
+        'folder'
+      );
+      expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
+        join(workspaceFolder, 'site'),
+        'index.html'
+      );
+      await expect(preview(join(workspaceFolder, 'outside-link', 'index.html'))).resolves.toBe(
+        'content'
+      );
+      expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('shows a remote terminal PDF from its bytes', async () => {
     workspaceServiceMock.get.mockReturnValue(sshWorkspace);
@@ -1155,134 +1148,148 @@ describe('workspaceFileService', () => {
     { name: 'option-a.png', modifiedMs: Date.UTC(2020, 0, 1, 12, 0) },
   ];
 
-  itWithTerminalFiles("lists a host terminal file's folder: viewable files, newest first", async () => {
-    const directory = await createViewerFolder();
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
+  itWithTerminalFiles(
+    "lists a host terminal file's folder: viewable files, newest first",
+    async () => {
+      const directory = await createViewerFolder();
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
 
-    await expect(
-      workspaceFileService.listViewerFolder(
+      await expect(
+        workspaceFileService.listViewerFolder(
+          'ws-local',
+          'term-local',
+          terminalFile(join(directory, 'option-a.png'))
+        )
+      ).resolves.toEqual(VIEWER_FOLDER_FILES);
+      expect(execFileMock).not.toHaveBeenCalled();
+    }
+  );
+
+  itWithTerminalFiles(
+    "lists a folder's files however many subfolders it has, here and by script",
+    async () => {
+      const { execFileSync } =
+        await vi.importActual<typeof import('child_process')>('child_process');
+      const directory = await createViewerFolder();
+      // Folders newer than the files, past the 200 a listing keeps of each.
+      const newer = new Date(Date.UTC(2030, 0, 1));
+      for (let index = 0; index < 205; index++) {
+        await mkdir(join(directory, `run-${index}`));
+        await utimes(join(directory, `run-${index}`), newer, newer);
+      }
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      const files = VIEWER_FOLDER_FILES.slice(1).map(({ name }) => name);
+
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      const local = await workspaceFileService.listViewerFolder(
         'ws-local',
         'term-local',
-        terminalFile(join(directory, 'option-a.png'))
-      )
-    ).resolves.toEqual(VIEWER_FOLDER_FILES);
-    expect(execFileMock).not.toHaveBeenCalled();
-  });
-
-  itWithTerminalFiles("lists a folder's files however many subfolders it has, here and by script", async () => {
-    const { execFileSync } = await vi.importActual<typeof import('child_process')>('child_process');
-    const directory = await createViewerFolder();
-    // Folders newer than the files, past the 200 a listing keeps of each.
-    const newer = new Date(Date.UTC(2030, 0, 1));
-    for (let index = 0; index < 205; index++) {
-      await mkdir(join(directory, `run-${index}`));
-      await utimes(join(directory, `run-${index}`), newer, newer);
-    }
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    const files = VIEWER_FOLDER_FILES.slice(1).map(({ name }) => name);
-
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    const local = await workspaceFileService.listViewerFolder(
-      'ws-local',
-      'term-local',
-      terminalFile(`${directory}/`)
-    );
-    workspaceServiceMock.get.mockReturnValue(sshWorkspace);
-    sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
-      execFileSync('/bin/sh', ['-c', command.replace(/^cd '[^']*' \|\| exit 1; /, '')], {
-        encoding: 'utf8',
-      })
-    );
-    const remote = await workspaceFileService.listViewerFolder(
-      'ws-ssh',
-      'term-ssh',
-      terminalFile(`${directory}/`)
-    );
-
-    for (const listing of [local, remote]) {
-      expect(listing.filter(({ name }) => name.endsWith('/'))).toHaveLength(200);
-      expect(listing.slice(200).map(({ name }) => name)).toEqual(files);
-    }
-  });
-
-  itWithTerminalFiles('reads and lists paths in the home folder of where the terminal runs', async () => {
-    const { execFileSync } = await vi.importActual<typeof import('child_process')>('child_process');
-    const home = await createViewerFolder();
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    const notes = expect.objectContaining({ data: Buffer.from('contents').toString('base64') });
-
-    // On this computer, Komla's own home folder.
-    vi.stubEnv('HOME', home);
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    await expect(
-      workspaceFileService.readViewerFile('ws-local', 'term-local', terminalFile('~/notes.md'))
-    ).resolves.toEqual(notes);
-    await expect(
-      workspaceFileService.listViewerFolder('ws-local', 'term-local', terminalFile('~/notes.md'))
-    ).resolves.toEqual(VIEWER_FOLDER_FILES);
-    await expect(
-      workspaceFileService.listViewerFolder('ws-local', 'term-local', terminalFile('~/'))
-    ).resolves.toEqual(VIEWER_FOLDER_FILES);
-
-    // Over SSH, the SSH user's, which the script reads from its own HOME.
-    vi.stubEnv('HOME', '/nonexistent');
-    workspaceServiceMock.get.mockReturnValue(sshWorkspace);
-    sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
-      execFileSync('/bin/sh', ['-c', command.replace(/^cd '[^']*' \|\| exit 1; /, '')], {
-        encoding: 'utf8',
-        env: { ...process.env, HOME: home },
-      })
-    );
-    await expect(
-      workspaceFileService.readViewerFile('ws-ssh', 'term-ssh', terminalFile('~/notes.md'))
-    ).resolves.toEqual(notes);
-    await expect(
-      workspaceFileService.listViewerFolder('ws-ssh', 'term-ssh', terminalFile('~/notes.md'))
-    ).resolves.toEqual(VIEWER_FOLDER_FILES);
-    await expect(
-      workspaceFileService.listViewerFolder('ws-ssh', 'term-ssh', terminalFile('~/'))
-    ).resolves.toEqual(VIEWER_FOLDER_FILES);
-
-    // .. after a symlinked folder leaves where the link points, as the shell resolves it.
-    await mkdir(join(home, 'nested.png', 'inner'));
-    await writeFile(join(home, 'nested.png', 'notes.md'), 'elsewhere');
-    await symlink(join(home, 'nested.png', 'inner'), join(home, 'linked'));
-    const elsewhere = expect.objectContaining({
-      data: Buffer.from('elsewhere').toString('base64'),
-    });
-    await expect(
-      workspaceFileService.readViewerFile(
+        terminalFile(`${directory}/`)
+      );
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
+        execFileSync('/bin/sh', ['-c', command.replace(/^cd '[^']*' \|\| exit 1; /, '')], {
+          encoding: 'utf8',
+        })
+      );
+      const remote = await workspaceFileService.listViewerFolder(
         'ws-ssh',
         'term-ssh',
-        terminalFile('~/linked/../notes.md')
-      )
-    ).resolves.toEqual(elsewhere);
-    vi.stubEnv('HOME', home);
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    await expect(
-      workspaceFileService.readViewerFile(
-        'ws-local',
-        'term-local',
-        terminalFile('~/linked/../notes.md')
-      )
-    ).resolves.toEqual(elsewhere);
-  });
+        terminalFile(`${directory}/`)
+      );
 
-  itWithTerminalFiles('lists a host terminal folder itself when its path ends in a slash', async () => {
-    const directory = await createViewerFolder();
-    workspaceServiceMock.get.mockReturnValue(localWorkspace);
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    const list = (path: string) =>
-      workspaceFileService.listViewerFolder('ws-local', 'term-local', terminalFile(path));
+      for (const listing of [local, remote]) {
+        expect(listing.filter(({ name }) => name.endsWith('/'))).toHaveLength(200);
+        expect(listing.slice(200).map(({ name }) => name)).toEqual(files);
+      }
+    }
+  );
 
-    await expect(list(`${directory}/`)).resolves.toEqual(VIEWER_FOLDER_FILES);
-    await expect(list(join(directory, 'nested.png/'))).resolves.toEqual([]);
-  });
+  itWithTerminalFiles(
+    'reads and lists paths in the home folder of where the terminal runs',
+    async () => {
+      const { execFileSync } =
+        await vi.importActual<typeof import('child_process')>('child_process');
+      const home = await createViewerFolder();
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      const notes = expect.objectContaining({ data: Buffer.from('contents').toString('base64') });
+
+      // On this computer, Komla's own home folder.
+      vi.stubEnv('HOME', home);
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      await expect(
+        workspaceFileService.readViewerFile('ws-local', 'term-local', terminalFile('~/notes.md'))
+      ).resolves.toEqual(notes);
+      await expect(
+        workspaceFileService.listViewerFolder('ws-local', 'term-local', terminalFile('~/notes.md'))
+      ).resolves.toEqual(VIEWER_FOLDER_FILES);
+      await expect(
+        workspaceFileService.listViewerFolder('ws-local', 'term-local', terminalFile('~/'))
+      ).resolves.toEqual(VIEWER_FOLDER_FILES);
+
+      // Over SSH, the SSH user's, which the script reads from its own HOME.
+      vi.stubEnv('HOME', '/nonexistent');
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
+        execFileSync('/bin/sh', ['-c', command.replace(/^cd '[^']*' \|\| exit 1; /, '')], {
+          encoding: 'utf8',
+          env: { ...process.env, HOME: home },
+        })
+      );
+      await expect(
+        workspaceFileService.readViewerFile('ws-ssh', 'term-ssh', terminalFile('~/notes.md'))
+      ).resolves.toEqual(notes);
+      await expect(
+        workspaceFileService.listViewerFolder('ws-ssh', 'term-ssh', terminalFile('~/notes.md'))
+      ).resolves.toEqual(VIEWER_FOLDER_FILES);
+      await expect(
+        workspaceFileService.listViewerFolder('ws-ssh', 'term-ssh', terminalFile('~/'))
+      ).resolves.toEqual(VIEWER_FOLDER_FILES);
+
+      // .. after a symlinked folder leaves where the link points, as the shell resolves it.
+      await mkdir(join(home, 'nested.png', 'inner'));
+      await writeFile(join(home, 'nested.png', 'notes.md'), 'elsewhere');
+      await symlink(join(home, 'nested.png', 'inner'), join(home, 'linked'));
+      const elsewhere = expect.objectContaining({
+        data: Buffer.from('elsewhere').toString('base64'),
+      });
+      await expect(
+        workspaceFileService.readViewerFile(
+          'ws-ssh',
+          'term-ssh',
+          terminalFile('~/linked/../notes.md')
+        )
+      ).resolves.toEqual(elsewhere);
+      vi.stubEnv('HOME', home);
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      await expect(
+        workspaceFileService.readViewerFile(
+          'ws-local',
+          'term-local',
+          terminalFile('~/linked/../notes.md')
+        )
+      ).resolves.toEqual(elsewhere);
+    }
+  );
+
+  itWithTerminalFiles(
+    'lists a host terminal folder itself when its path ends in a slash',
+    async () => {
+      const directory = await createViewerFolder();
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      const list = (path: string) =>
+        workspaceFileService.listViewerFolder('ws-local', 'term-local', terminalFile(path));
+
+      await expect(list(`${directory}/`)).resolves.toEqual(VIEWER_FOLDER_FILES);
+      await expect(list(join(directory, 'nested.png/'))).resolves.toEqual([]);
+    }
+  );
 
   itWithTerminalFiles('runs the remote folder listing script against a real folder', async () => {
     const { execFileSync } = await vi.importActual<typeof import('child_process')>('child_process');
@@ -1303,68 +1310,78 @@ describe('workspaceFileService', () => {
     await expect(list(join(directory, 'missing', 'a.png'))).rejects.toThrow('ENOENT');
   });
 
-  itWithPosixShell('still lists a remote folder, without times, on a host without xargs', async () => {
-    const { execFileSync } = await vi.importActual<typeof import('child_process')>('child_process');
-    const directory = await createViewerFolder();
-    // Only the commands the listing needs besides xargs, as in a minimal container image.
-    const bin = await mkdtemp(join(tmpdir(), 'komla-workspace-file-bin-'));
-    tempDirectories.push(bin);
-    for (const command of ['ls', 'base64', 'tr', 'stat']) {
-      const target = execFileSync('/bin/sh', ['-c', `command -v ${command}`], { encoding: 'utf8' });
-      await symlink(target.trim(), join(bin, command));
+  itWithPosixShell(
+    'still lists a remote folder, without times, on a host without xargs',
+    async () => {
+      const { execFileSync } =
+        await vi.importActual<typeof import('child_process')>('child_process');
+      const directory = await createViewerFolder();
+      // Only the commands the listing needs besides xargs, as in a minimal container image.
+      const bin = await mkdtemp(join(tmpdir(), 'komla-workspace-file-bin-'));
+      tempDirectories.push(bin);
+      for (const command of ['ls', 'base64', 'tr', 'stat']) {
+        const target = execFileSync('/bin/sh', ['-c', `command -v ${command}`], {
+          encoding: 'utf8',
+        });
+        await symlink(target.trim(), join(bin, command));
+      }
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
+        execFileSync('/bin/sh', ['-c', command.replace(/^cd '[^']*' \|\| exit 1; /, '')], {
+          encoding: 'utf8',
+          env: { PATH: bin },
+        })
+      );
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+
+      await expect(
+        workspaceFileService.listViewerFolder(
+          'ws-ssh',
+          'term-ssh',
+          terminalFile(join(directory, 'notes.md'))
+        )
+      ).resolves.toEqual(VIEWER_FOLDER_FILES.map(({ name }) => ({ name })));
     }
-    workspaceServiceMock.get.mockReturnValue(sshWorkspace);
-    sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
-      execFileSync('/bin/sh', ['-c', command.replace(/^cd '[^']*' \|\| exit 1; /, '')], {
-        encoding: 'utf8',
-        env: { PATH: bin },
-      })
-    );
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
+  );
 
-    await expect(
-      workspaceFileService.listViewerFolder(
-        'ws-ssh',
-        'term-ssh',
-        terminalFile(join(directory, 'notes.md'))
-      )
-    ).resolves.toEqual(VIEWER_FOLDER_FILES.map(({ name }) => ({ name })));
-  });
+  itWithPosixShell(
+    'lists an SSH workspace folder only while it stays inside the workspace',
+    async () => {
+      const { execFileSync } =
+        await vi.importActual<typeof import('child_process')>('child_process');
+      const outside = await createViewerFolder();
+      const remoteDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-file-test-'));
+      tempDirectories.push(remoteDirectory);
+      await mkdir(join(remoteDirectory, 'out'));
+      await writeFile(join(remoteDirectory, 'out', 'shot.png'), 'contents');
+      // A name `stat` could take for an option.
+      const older = new Date(Date.UTC(2020, 0, 1));
+      await writeFile(join(remoteDirectory, 'out', '-L.png'), 'contents');
+      await utimes(join(remoteDirectory, 'out', '-L.png'), older, older);
+      await symlink(outside, join(remoteDirectory, 'escape'));
+      workspaceServiceMock.get.mockReturnValue({
+        ...sshWorkspace,
+        backend: { ...sshWorkspace.backend, remoteDirectory },
+      });
+      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
+        execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' })
+      );
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      const list = (filePath: string) =>
+        workspaceFileService.listViewerFolder('ws-ssh', 'term-ssh', workspaceFile(filePath));
 
-  itWithPosixShell('lists an SSH workspace folder only while it stays inside the workspace', async () => {
-    const { execFileSync } = await vi.importActual<typeof import('child_process')>('child_process');
-    const outside = await createViewerFolder();
-    const remoteDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-file-test-'));
-    tempDirectories.push(remoteDirectory);
-    await mkdir(join(remoteDirectory, 'out'));
-    await writeFile(join(remoteDirectory, 'out', 'shot.png'), 'contents');
-    // A name `stat` could take for an option.
-    const older = new Date(Date.UTC(2020, 0, 1));
-    await writeFile(join(remoteDirectory, 'out', '-L.png'), 'contents');
-    await utimes(join(remoteDirectory, 'out', '-L.png'), older, older);
-    await symlink(outside, join(remoteDirectory, 'escape'));
-    workspaceServiceMock.get.mockReturnValue({
-      ...sshWorkspace,
-      backend: { ...sshWorkspace.backend, remoteDirectory },
-    });
-    sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
-      execFileSync('/bin/sh', ['-c', command], { encoding: 'utf8' })
-    );
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    const list = (filePath: string) =>
-      workspaceFileService.listViewerFolder('ws-ssh', 'term-ssh', workspaceFile(filePath));
-
-    await expect(list('out/shot.png')).resolves.toEqual([
-      { name: 'shot.png', modifiedMs: expect.any(Number) },
-      { name: '-L.png', modifiedMs: older.getTime() },
-    ]);
-    await expect(list('out/')).resolves.toHaveLength(2);
-    await expect(list('escape/notes.md')).rejects.toThrow('outside the workspace');
-    await expect(list('escape/')).rejects.toThrow('outside the workspace');
-    await expect(list('../notes.md')).rejects.toThrow();
-  });
+      await expect(list('out/shot.png')).resolves.toEqual([
+        { name: 'shot.png', modifiedMs: expect.any(Number) },
+        { name: '-L.png', modifiedMs: older.getTime() },
+      ]);
+      await expect(list('out/')).resolves.toHaveLength(2);
+      await expect(list('escape/notes.md')).rejects.toThrow('outside the workspace');
+      await expect(list('escape/')).rejects.toThrow('outside the workspace');
+      await expect(list('../notes.md')).rejects.toThrow();
+    }
+  );
 
   it('lists a local workspace folder and refuses paths outside it', async () => {
     const workingDirectory = await createViewerFolder();
@@ -1545,239 +1562,6 @@ describe('workspaceFileService', () => {
     );
   });
 
-  it('lists linked SSH workspace files without enabling ignored files', async () => {
-    const origin = mockLinkedSshPair();
-    const files = Buffer.from('src/app.ts\0').toString('base64');
-    const peers = Buffer.from('peer\0').toString('base64');
-    const peerFiles = Buffer.from('src/index.ts\0').toString('base64');
-    sshWorkspaceServiceMock.run
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=${files}\nPEERS=${peers}\nIGNORED=\nDELETED=\n`)
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=${peerFiles}\nIGNORED=\nDELETED=\n`);
-
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.listFiles(origin.id)).resolves.toEqual({
-      files: ['src/app.ts', 'linked-workspaces/peer/src/index.ts'],
-      gitIgnoredFiles: [],
-      emptyDirs: [],
-      managedLinkPaths: ['linked-workspaces/peer'],
-      fileListHash: expect.any(String),
-    });
-    const command = sshWorkspaceServiceMock.run.mock.calls[0][1];
-    expect(command).toContain("linked_workspaces_dir='linked-workspaces'");
-    expect(command).not.toContain('git -C "$peer" ls-files');
-    expect(sshWorkspaceServiceMock.run.mock.calls[1][1]).toContain('git -C "$peer_root" ls-files');
-  });
-
-  it('lists each linked SSH peer in a separate bounded response', async () => {
-    const secondPeer = {
-      ...linkedSshWorkspace,
-      id: 'ws-peer-2',
-      backend: { ...linkedSshWorkspace.backend, remoteDirectory: '/home/dev/peer-2' },
-    };
-    const origin = { ...sshWorkspace, linkedWorkspaceIds: ['ws-peer', 'ws-peer-2'] };
-    workspaceServiceMock.get.mockImplementation((id) => {
-      if (id === origin.id) return origin;
-      if (id === linkedSshWorkspace.id) return linkedSshWorkspace;
-      return id === secondPeer.id ? secondPeer : undefined;
-    });
-    const peers = Buffer.from('peer\0peer-2\0').toString('base64');
-    const firstPeerFiles = Buffer.from('src/index.ts\0').toString('base64');
-    const secondPeerFiles = Buffer.from('README.md\0').toString('base64');
-    sshWorkspaceServiceMock.run
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=\nPEERS=${peers}\nIGNORED=\nDELETED=\n`)
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=${firstPeerFiles}\nIGNORED=\nDELETED=\n`)
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=${secondPeerFiles}\nIGNORED=\nDELETED=\n`);
-
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.listFiles(origin.id)).resolves.toEqual({
-      files: ['linked-workspaces/peer/src/index.ts', 'linked-workspaces/peer-2/README.md'],
-      gitIgnoredFiles: [],
-      emptyDirs: [],
-      managedLinkPaths: ['linked-workspaces/peer', 'linked-workspaces/peer-2'],
-      fileListHash: expect.any(String),
-    });
-
-    expect(sshWorkspaceServiceMock.run).toHaveBeenCalledTimes(3);
-    expect(sshWorkspaceServiceMock.run.mock.calls[0][1]).not.toContain('git -C "$peer" ls-files');
-    expect(sshWorkspaceServiceMock.run.mock.calls[1][1]).toContain('git -C "$peer_root" ls-files');
-    expect(sshWorkspaceServiceMock.run.mock.calls[2][1]).toContain('git -C "$peer_root" ls-files');
-  });
-
-  it('preserves raw non-ASCII and newline paths from linked SSH workspaces', async () => {
-    const origin = mockLinkedSshPair();
-    const files = Buffer.from('src/app.ts\0').toString('base64');
-    const peers = Buffer.from('peer\0').toString('base64');
-    const peerFiles = Buffer.from('src/café.ts\0notes/line\nbreak.md\0').toString('base64');
-    sshWorkspaceServiceMock.run
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=${files}\nPEERS=${peers}\nIGNORED=\nDELETED=\n`)
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=${peerFiles}\nIGNORED=\nDELETED=\n`);
-
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.listFiles(origin.id)).resolves.toEqual({
-      files: [
-        'src/app.ts',
-        'linked-workspaces/peer/src/café.ts',
-        'linked-workspaces/peer/notes/line\nbreak.md',
-      ],
-      gitIgnoredFiles: [],
-      emptyDirs: [],
-      managedLinkPaths: ['linked-workspaces/peer'],
-      fileListHash: expect.any(String),
-    });
-    const command = sshWorkspaceServiceMock.run.mock.calls[1][1];
-    expect(command).toContain(
-      'git -C "$peer_root" ls-files --cached --others --exclude-standard -z'
-    );
-  });
-
-  it('filters deleted files from linked SSH workspaces', async () => {
-    const origin = mockLinkedSshPair();
-    const peers = Buffer.from('peer\0').toString('base64');
-    const peerFiles = Buffer.from('src/deleted.ts\0src/kept.ts\0').toString('base64');
-    const peerDeleted = Buffer.from('src/deleted.ts\0').toString('base64');
-    sshWorkspaceServiceMock.run
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=\nPEERS=${peers}\nIGNORED=\nDELETED=\n`)
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=${peerFiles}\nIGNORED=\nDELETED=${peerDeleted}\n`);
-
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.listFiles(origin.id)).resolves.toEqual({
-      files: ['linked-workspaces/peer/src/kept.ts'],
-      gitIgnoredFiles: [],
-      emptyDirs: [],
-      managedLinkPaths: ['linked-workspaces/peer'],
-      fileListHash: expect.any(String),
-    });
-  });
-
-  it('preserves linked SSH peers without visible files', async () => {
-    const origin = mockLinkedSshPair();
-    const peers = Buffer.from('empty-peer\0').toString('base64');
-    sshWorkspaceServiceMock.run
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=\nPEERS=${peers}\nIGNORED=\nDELETED=\n`)
-      .mockResolvedValueOnce('STATUS=OK\nFILES=\nIGNORED=\nDELETED=\n');
-
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.listFiles(origin.id)).resolves.toEqual({
-      files: [],
-      gitIgnoredFiles: [],
-      emptyDirs: ['linked-workspaces/empty-peer'],
-      managedLinkPaths: ['linked-workspaces/empty-peer'],
-      fileListHash: expect.any(String),
-    });
-  });
-
-  it('includes ignored files from linked SSH peers when requested', async () => {
-    const origin = mockLinkedSshPair();
-    const peers = Buffer.from('peer\0').toString('base64');
-    const peerFiles = Buffer.from('src/index.ts\0').toString('base64');
-    const peerIgnored = Buffer.from('.env\0cache/output.js\0').toString('base64');
-    sshWorkspaceServiceMock.run
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=\nPEERS=${peers}\nIGNORED=\nDELETED=\n`)
-      .mockResolvedValueOnce(`STATUS=OK\nFILES=${peerFiles}\nIGNORED=${peerIgnored}\nDELETED=\n`);
-
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.listFiles(origin.id, true)).resolves.toEqual({
-      files: ['linked-workspaces/peer/src/index.ts'],
-      gitIgnoredFiles: ['linked-workspaces/peer/.env', 'linked-workspaces/peer/cache/output.js'],
-      emptyDirs: [],
-      managedLinkPaths: ['linked-workspaces/peer'],
-      fileListHash: expect.any(String),
-    });
-
-    const command = sshWorkspaceServiceMock.run.mock.calls[1][1];
-    expect(command).toContain(
-      'git -C "$peer_root" ls-files --others --ignored --exclude-standard -z'
-    );
-  });
-
-  it.runIf(process.platform !== 'win32')(
-    'lists only recorded SSH peers and round-trips their raw filenames',
-    async () => {
-      const workspaceDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-list-test-'));
-      const peerDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-peer-test-'));
-      const unrelatedDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-unrelated-test-'));
-      tempDirectories.push(workspaceDirectory, peerDirectory, unrelatedDirectory);
-      await execFileAsync('git', ['init', '-q', workspaceDirectory]);
-      await execFileAsync('git', ['init', '-q', peerDirectory]);
-      await execFileAsync('git', ['init', '-q', unrelatedDirectory]);
-      await mkdir(join(workspaceDirectory, 'linked-workspaces'));
-      await symlink(peerDirectory, join(workspaceDirectory, 'linked-workspaces', 'peer'));
-      await symlink(
-        unrelatedDirectory,
-        join(workspaceDirectory, 'linked-workspaces', 'unrelated')
-      );
-      await writeFile(
-        join(workspaceDirectory, '.git', 'info', 'exclude'),
-        '/linked-workspaces/*\n'
-      );
-      await mkdir(join(peerDirectory, 'notes'));
-      await writeFile(join(peerDirectory, 'café.ts'), 'unicode');
-      await writeFile(join(peerDirectory, 'notes', 'line\nbreak.md'), 'newline');
-      await writeFile(join(peerDirectory, '.git', 'info', 'exclude'), '/private.env\n');
-      await writeFile(join(peerDirectory, 'private.env'), 'ignored');
-      await writeFile(join(peerDirectory, 'deleted.ts'), 'deleted');
-      await writeFile(join(unrelatedDirectory, 'secret.txt'), 'secret');
-      await execFileAsync('git', ['-C', peerDirectory, 'add', 'deleted.ts']);
-      await rm(join(peerDirectory, 'deleted.ts'));
-      const origin = {
-        ...sshWorkspace,
-        linkedWorkspaceIds: ['ws-peer'],
-        backend: { ...sshWorkspace.backend, remoteDirectory: workspaceDirectory },
-      };
-      const peer = {
-        ...linkedSshWorkspace,
-        backend: { ...linkedSshWorkspace.backend, remoteDirectory: peerDirectory },
-      };
-      workspaceServiceMock.get.mockImplementation((id) =>
-        id === origin.id ? origin : id === peer.id ? peer : undefined
-      );
-      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command) => {
-        const result = await execFileAsync('/bin/sh', ['-c', command]);
-        return result.stdout;
-      });
-
-      const { workspaceFileService } =
-        await import('../../../src/main/services/workspace-file.service');
-      const result = await workspaceFileService.listFiles('ws-ssh', true);
-
-      expect(result.files).toHaveLength(2);
-      expect(result.files).toEqual(
-        expect.arrayContaining([
-          'linked-workspaces/peer/café.ts',
-          'linked-workspaces/peer/notes/line\nbreak.md',
-        ])
-      );
-      expect(result.files).not.toContain('linked-workspaces/unrelated/secret.txt');
-      expect(result.gitIgnoredFiles).toContain('linked-workspaces/peer/private.env');
-    }
-  );
-
-  it('does not mark linked SSH workspace files as ignored', async () => {
-    workspaceServiceMock.get.mockReturnValue(sshWorkspace);
-    const files = Buffer.from('linked-workspaces/peer/src/index.ts\0').toString('base64');
-    const ignored = Buffer.from('linked-workspaces/peer/src/index.ts\0build/output.js\0').toString(
-      'base64'
-    );
-    sshWorkspaceServiceMock.run.mockResolvedValue(
-      `STATUS=OK\nFILES=${files}\nIGNORED=${ignored}\n`
-    );
-
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.listFiles('ws-ssh', true)).resolves.toEqual({
-      files: ['linked-workspaces/peer/src/index.ts'],
-      gitIgnoredFiles: ['build/output.js'],
-      emptyDirs: [],
-      fileListHash: expect.any(String),
-    });
-  });
-
   it('does not list SSH files while the remote workspace is provisioning', async () => {
     workspaceServiceMock.get.mockReturnValue({ ...sshWorkspace, provisioning: true });
 
@@ -1790,6 +1574,34 @@ describe('workspaceFileService', () => {
       emptyDirs: [],
     });
     expect(sshWorkspaceServiceMock.run).not.toHaveBeenCalled();
+  });
+
+  it('leaves linked workspaces out of an SSH listing, which the file panel shows apart', async () => {
+    workspaceServiceMock.get.mockReturnValue({ ...sshWorkspace, linkedWorkspaceIds: ['ws-peer'] });
+    const list = (paths: string[]) =>
+      Buffer.from(paths.map((path) => `${path}\0`).join('')).toString('base64');
+    sshWorkspaceServiceMock.run.mockResolvedValue(
+      [
+        'STATUS=OK',
+        'ENCODING=plain',
+        `FILES=${list(['README.md', 'linked-workspaces/NOTES.md'])}`,
+        'KOMLA_FILES=',
+        `IGNORED=${list(['linked-workspaces/peer', 'linked-workspaces/NOTES.local', 'dist/out.js'])}`,
+        'DELETED=',
+        '',
+      ].join('\n')
+    );
+
+    const { workspaceFileService } =
+      await import('../../../src/main/services/workspace-file.service');
+    await expect(workspaceFileService.listFiles('ws-ssh', true)).resolves.toMatchObject({
+      // A project's own file there stays; the links are ignored files.
+      files: ['README.md', 'linked-workspaces/NOTES.md'],
+      gitIgnoredFiles: ['dist/out.js'],
+      emptyDirs: [],
+    });
+    expect(sshWorkspaceServiceMock.run).toHaveBeenCalledOnce();
+    expect(sshWorkspaceServiceMock.run.mock.calls[0][1]).not.toContain('linked-workspaces');
   });
 
   it('reads SSH text and image files', async () => {
@@ -1837,7 +1649,9 @@ describe('workspaceFileService', () => {
 
     const { workspaceFileService } =
       await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.deletePath('ws-ssh', 'src/generated')).resolves.toBeUndefined();
+    await expect(
+      workspaceFileService.deletePath('ws-ssh', 'src/generated')
+    ).resolves.toBeUndefined();
 
     const command = sshWorkspaceServiceMock.run.mock.calls[0][1];
     expect(command).toContain("cd '/home/dev/repo'");
@@ -1933,10 +1747,7 @@ describe('workspaceFileService', () => {
       tempDirectories.push(workspaceDirectory, peerDirectory, unrelatedDirectory);
       await mkdir(join(workspaceDirectory, 'linked-workspaces'));
       await symlink(peerDirectory, join(workspaceDirectory, 'linked-workspaces', 'peer'));
-      await symlink(
-        unrelatedDirectory,
-        join(workspaceDirectory, 'linked-workspaces', 'unrelated')
-      );
+      await symlink(unrelatedDirectory, join(workspaceDirectory, 'linked-workspaces', 'unrelated'));
       await symlink(unrelatedDirectory, join(peerDirectory, 'escape'));
       await mkdir(join(peerDirectory, 'configs'));
       await writeFile(join(peerDirectory, 'configs', 'default.json'), 'safe symlink');
@@ -2065,7 +1876,9 @@ describe('workspaceFileService', () => {
 
     const { workspaceFileService } =
       await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.deletePath('ws-ssh', 'src/generated')).resolves.toBeUndefined();
+    await expect(
+      workspaceFileService.deletePath('ws-ssh', 'src/generated')
+    ).resolves.toBeUndefined();
 
     await expect(access(join(outsideDirectory, 'generated'))).resolves.toBeUndefined();
     await expect(access(join(workspaceDirectory, 'src-original', 'generated'))).rejects.toThrow();
@@ -2150,7 +1963,11 @@ describe('workspaceFileService', () => {
       workspaceFileService.writeFile('ws-local', 'src/app.ts', 'content')
     ).resolves.toBeUndefined();
 
-    expect(gitServiceMock.writeFile).toHaveBeenCalledWith('/repo/worktree', 'src/app.ts', 'content');
+    expect(gitServiceMock.writeFile).toHaveBeenCalledWith(
+      '/repo/worktree',
+      'src/app.ts',
+      'content'
+    );
 
     await expect(
       workspaceFileService.writeFile('ws-local', '../outside', 'content')
@@ -2191,60 +2008,63 @@ describe('workspaceFileService', () => {
     });
   });
 
-  itWithPosixShell('writes through SSH symlinks only when they stay inside the workspace', async () => {
-    const workspaceDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-write-test-'));
-    const outsideDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-write-outside-'));
-    tempDirectories.push(workspaceDirectory, outsideDirectory);
-    await mkdir(join(workspaceDirectory, 'configs'));
-    await writeFile(join(workspaceDirectory, 'configs', 'default.json'), 'old');
-    await symlink('configs/default.json', join(workspaceDirectory, 'current.json'));
-    await writeFile(join(outsideDirectory, 'keep.txt'), 'keep');
-    await symlink(join(outsideDirectory, 'keep.txt'), join(workspaceDirectory, 'leak.txt'));
-    await symlink(outsideDirectory, join(workspaceDirectory, 'escape'));
-    await writeFile(join(workspaceDirectory, 'komla-root-probe.txt'), 'keep');
-    await symlink('/komla-root-probe.txt', join(workspaceDirectory, 'root-alias.txt'));
-    workspaceServiceMock.get.mockReturnValue({
-      ...sshWorkspace,
-      backend: { ...sshWorkspace.backend, remoteDirectory: workspaceDirectory },
-    });
-    sshWorkspaceServiceMock.runWithInput.mockImplementation(async (_host, command, input) =>
-      execShWithInput(command, input)
-    );
-    sshWorkspaceServiceMock.run.mockImplementation(async (_host, command) => {
-      const result = await execFileAsync('/bin/sh', ['-c', command]);
-      return result.stdout;
-    });
+  itWithPosixShell(
+    'writes through SSH symlinks only when they stay inside the workspace',
+    async () => {
+      const workspaceDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-write-test-'));
+      const outsideDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-write-outside-'));
+      tempDirectories.push(workspaceDirectory, outsideDirectory);
+      await mkdir(join(workspaceDirectory, 'configs'));
+      await writeFile(join(workspaceDirectory, 'configs', 'default.json'), 'old');
+      await symlink('configs/default.json', join(workspaceDirectory, 'current.json'));
+      await writeFile(join(outsideDirectory, 'keep.txt'), 'keep');
+      await symlink(join(outsideDirectory, 'keep.txt'), join(workspaceDirectory, 'leak.txt'));
+      await symlink(outsideDirectory, join(workspaceDirectory, 'escape'));
+      await writeFile(join(workspaceDirectory, 'komla-root-probe.txt'), 'keep');
+      await symlink('/komla-root-probe.txt', join(workspaceDirectory, 'root-alias.txt'));
+      workspaceServiceMock.get.mockReturnValue({
+        ...sshWorkspace,
+        backend: { ...sshWorkspace.backend, remoteDirectory: workspaceDirectory },
+      });
+      sshWorkspaceServiceMock.runWithInput.mockImplementation(async (_host, command, input) =>
+        execShWithInput(command, input)
+      );
+      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command) => {
+        const result = await execFileAsync('/bin/sh', ['-c', command]);
+        return result.stdout;
+      });
 
-    const { workspaceFileService } =
-      await import('../../../src/main/services/workspace-file.service');
-    await expect(
-      workspaceFileService.writeFile('ws-ssh', 'current.json', 'new')
-    ).resolves.toBeUndefined();
-    await expect(
-      workspaceFileService.writeFile('ws-ssh', 'leak.txt', 'overwritten')
-    ).rejects.toThrow('outside the workspace');
-    await expect(
-      workspaceFileService.writeFile('ws-ssh', 'escape/keep.txt', 'overwritten')
-    ).rejects.toThrow('outside the workspace');
-    await expect(
-      workspaceFileService.writeFile('ws-ssh', 'root-alias.txt', 'overwritten')
-    ).rejects.toThrow('outside the workspace');
-    await expect(workspaceFileService.readFile('ws-ssh', 'root-alias.txt')).rejects.toThrow(
-      'outside the workspace'
-    );
-    await expect(workspaceFileService.writeFile('ws-ssh', 'configs', 'new')).rejects.toThrow(
-      'not a regular file'
-    );
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      await expect(
+        workspaceFileService.writeFile('ws-ssh', 'current.json', 'new')
+      ).resolves.toBeUndefined();
+      await expect(
+        workspaceFileService.writeFile('ws-ssh', 'leak.txt', 'overwritten')
+      ).rejects.toThrow('outside the workspace');
+      await expect(
+        workspaceFileService.writeFile('ws-ssh', 'escape/keep.txt', 'overwritten')
+      ).rejects.toThrow('outside the workspace');
+      await expect(
+        workspaceFileService.writeFile('ws-ssh', 'root-alias.txt', 'overwritten')
+      ).rejects.toThrow('outside the workspace');
+      await expect(workspaceFileService.readFile('ws-ssh', 'root-alias.txt')).rejects.toThrow(
+        'outside the workspace'
+      );
+      await expect(workspaceFileService.writeFile('ws-ssh', 'configs', 'new')).rejects.toThrow(
+        'not a regular file'
+      );
 
-    await expect(
-      readFile(join(workspaceDirectory, 'configs', 'default.json'), 'utf8')
-    ).resolves.toBe('new');
-    expect((await lstat(join(workspaceDirectory, 'current.json'))).isSymbolicLink()).toBe(true);
-    await expect(readFile(join(outsideDirectory, 'keep.txt'), 'utf8')).resolves.toBe('keep');
-    await expect(
-      readFile(join(workspaceDirectory, 'komla-root-probe.txt'), 'utf8')
-    ).resolves.toBe('keep');
-  });
+      await expect(
+        readFile(join(workspaceDirectory, 'configs', 'default.json'), 'utf8')
+      ).resolves.toBe('new');
+      expect((await lstat(join(workspaceDirectory, 'current.json'))).isSymbolicLink()).toBe(true);
+      await expect(readFile(join(outsideDirectory, 'keep.txt'), 'utf8')).resolves.toBe('keep');
+      await expect(
+        readFile(join(workspaceDirectory, 'komla-root-probe.txt'), 'utf8')
+      ).resolves.toBe('keep');
+    }
+  );
 
   itWithPosixShell('keeps the SSH file unchanged when the upload is truncated', async () => {
     const workspaceDirectory = await mkdtemp(join(tmpdir(), 'komla-workspace-write-test-'));
@@ -2260,9 +2080,9 @@ describe('workspaceFileService', () => {
 
     const { workspaceFileService } =
       await import('../../../src/main/services/workspace-file.service');
-    await expect(workspaceFileService.writeFile('ws-ssh', 'notes.txt', 'new notes')).rejects.toThrow(
-      'Incomplete upload'
-    );
+    await expect(
+      workspaceFileService.writeFile('ws-ssh', 'notes.txt', 'new notes')
+    ).rejects.toThrow('Incomplete upload');
 
     await expect(readFile(join(workspaceDirectory, 'notes.txt'), 'utf8')).resolves.toBe('old');
   });

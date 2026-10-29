@@ -32,6 +32,7 @@ import { getAncestorPaths } from '../workspaces/file-viewer/file-viewer-utils';
 import { setHtmlViewMode } from '../workspaces/file-viewer/html-view-mode';
 
 import { computeInitDefaults } from './inline-file-tree-defaults';
+import { LinkedWorkspacesSection } from './LinkedWorkspacesSection';
 import { pickBestLiveFollowFile } from './live-follow-picker';
 import { useConfirmDialog } from './useConfirmDialog';
 
@@ -789,48 +790,55 @@ export function InlineFileTreePanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <Suspense fallback={null}>
-        <SidebarFileTree
-          workspaceId={workspaceId}
-          workingDirectory={workingDirectory}
-          isVisible={isDataActive}
-          currentFile={currentFile}
-          focusAlignmentSignal={focusAlignmentSignal}
-          reveal={reveal}
-          onFileSelect={handleFileSelect}
-          isRemoteWorkspace={isRemoteWorkspace}
-          onDeleteFile={handleDeleteFile}
-          onRestoreFile={comparisonBranch ? undefined : handleRestoreFile}
-          onRenameComplete={isRemoteWorkspace ? undefined : handleRenameComplete}
-          onCreateFile={isRemoteWorkspace ? undefined : handleCreateFile}
-          onCreateDirectory={isRemoteWorkspace ? undefined : handleCreateDirectory}
-          onMoveNodes={isRemoteWorkspace ? undefined : handleMoveNodes}
-          onAddToGitignore={isGitWorkspace && !isRemoteWorkspace ? handleAddToGitignore : undefined}
-          onRollbackAll={isGitWorkspace && !comparisonBranch ? handleRollbackAll : undefined}
-          onCopyNode={isRemoteWorkspace ? undefined : handleCopyNode}
-          onCutNode={isRemoteWorkspace ? undefined : handleCutNode}
-          onPasteInto={isRemoteWorkspace ? undefined : handlePasteInto}
-          hasCopiedFile={copiedPath !== null}
-          changedFilesOnly={effectiveMode === 'diff'}
-          changedFiles={effectiveMode === 'diff' ? changedFiles : undefined}
-          diffFileStatuses={effectiveMode === 'diff' ? diffFileStatuses : undefined}
-          diffSummary={isGitWorkspace ? diffSummary : undefined}
-          liveFollow={liveFollow}
-          onToggleLiveFollow={
-            isGitWorkspace && effectiveMode === 'diff' ? handleToggleLiveFollow : undefined
-          }
-          comparisonBranch={comparisonBranch}
-          useMergeBase={useMergeBase}
-          targetBranchName={targetBranch}
-          diffLoading={comparisonLoading || (cached?.isLoading ?? false)}
-          onToggleBranchComparison={isGitWorkspace ? handleToggleBranchComparison : undefined}
-          onShowFileHistory={isGitWorkspace ? handleShowFileHistory : undefined}
-          onOpenHtmlInBrowser={isRemoteWorkspace ? undefined : handleOpenHtmlInBrowser}
-          onOpenInPane={handleOpenInPane}
-          side="right"
-          embedded
-        />
-      </Suspense>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <Suspense fallback={null}>
+          <SidebarFileTree
+            workspaceId={workspaceId}
+            workingDirectory={workingDirectory}
+            isVisible={isDataActive}
+            currentFile={currentFile}
+            focusAlignmentSignal={focusAlignmentSignal}
+            reveal={reveal}
+            onFileSelect={handleFileSelect}
+            isRemoteWorkspace={isRemoteWorkspace}
+            onDeleteFile={handleDeleteFile}
+            onRestoreFile={comparisonBranch ? undefined : handleRestoreFile}
+            onRenameComplete={isRemoteWorkspace ? undefined : handleRenameComplete}
+            onCreateFile={isRemoteWorkspace ? undefined : handleCreateFile}
+            onCreateDirectory={isRemoteWorkspace ? undefined : handleCreateDirectory}
+            onMoveNodes={isRemoteWorkspace ? undefined : handleMoveNodes}
+            onAddToGitignore={
+              isGitWorkspace && !isRemoteWorkspace ? handleAddToGitignore : undefined
+            }
+            onRollbackAll={isGitWorkspace && !comparisonBranch ? handleRollbackAll : undefined}
+            onCopyNode={isRemoteWorkspace ? undefined : handleCopyNode}
+            onCutNode={isRemoteWorkspace ? undefined : handleCutNode}
+            onPasteInto={isRemoteWorkspace ? undefined : handlePasteInto}
+            hasCopiedFile={copiedPath !== null}
+            changedFilesOnly={effectiveMode === 'diff'}
+            changedFiles={effectiveMode === 'diff' ? changedFiles : undefined}
+            diffFileStatuses={effectiveMode === 'diff' ? diffFileStatuses : undefined}
+            diffSummary={isGitWorkspace ? diffSummary : undefined}
+            liveFollow={liveFollow}
+            onToggleLiveFollow={
+              isGitWorkspace && effectiveMode === 'diff' ? handleToggleLiveFollow : undefined
+            }
+            comparisonBranch={comparisonBranch}
+            useMergeBase={useMergeBase}
+            targetBranchName={targetBranch}
+            diffLoading={comparisonLoading || (cached?.isLoading ?? false)}
+            onToggleBranchComparison={isGitWorkspace ? handleToggleBranchComparison : undefined}
+            onShowFileHistory={isGitWorkspace ? handleShowFileHistory : undefined}
+            onOpenHtmlInBrowser={isRemoteWorkspace ? undefined : handleOpenHtmlInBrowser}
+            onOpenInPane={handleOpenInPane}
+            side="right"
+            embedded
+          />
+        </Suspense>
+      </div>
+      {workspace && (
+        <LinkedWorkspacesSection workspace={workspace} showChanges={effectiveMode === 'diff'} />
+      )}
 
       {/* Create file/folder dialog */}
       <Dialog

@@ -32,6 +32,7 @@ export const IPC = {
   WORKSPACE_NOTIFY_CHANGED: 'workspace:notify-changed',
   WORKSPACE_LINK: 'workspace:link',
   WORKSPACE_UNLINK: 'workspace:unlink',
+  WORKSPACE_LINK_PATHS: 'workspace:link-paths',
   WORKSPACE_SET_MANUAL_SPINNER: 'workspace:set-manual-spinner',
   WORKSPACE_CLEAR_TERMINAL_ATTENTION: 'workspace:clear-terminal-attention',
   WORKSPACE_TERMINAL_ATTENTION_SEEN: 'workspace:terminal-attention-seen',

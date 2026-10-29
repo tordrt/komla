@@ -233,7 +233,6 @@ describe('file-list.store', () => {
         files: ['src/remote.ts'],
         gitIgnoredFiles: ['dist/bundle.js'],
         emptyDirs: [],
-        managedLinkPaths: ['linked-workspaces/peer'],
       }),
     });
     (globalThis as { window: { api: ApiMock } }).window = { api };
@@ -244,9 +243,6 @@ describe('file-list.store', () => {
     expect(api.listFiles).not.toHaveBeenCalled();
     expect(useFileListStore.getState().getFileList('ssh://dev/repo')?.files).toEqual([
       'src/remote.ts',
-    ]);
-    expect(useFileListStore.getState().getFileList('ssh://dev/repo')?.managedLinkPaths).toEqual([
-      'linked-workspaces/peer',
     ]);
   });
 
@@ -328,33 +324,6 @@ describe('file-list.store', () => {
     expect(useFileListStore.getState().getFileList(dirPath)?.isStale).toBeFalsy();
   });
 
-  it('marks a list with linked workspaces stale whatever the report’s fingerprint', () => {
-    const dirPath = 'ssh://dev/repo';
-    useFileListStore.setState({
-      cache: new Map([
-        [
-          dirPath,
-          {
-            files: ['src/old.ts', 'linked-workspaces/peer/src/app.ts'],
-            gitIgnoredFiles: [],
-            emptyDirs: [],
-            managedLinkPaths: ['linked-workspaces/peer'],
-            isLoading: false,
-            fileListHash: 'listed',
-          },
-        ],
-      ]),
-    });
-
-    // The fingerprint covers this workspace's files, not its peers'.
-    useFileListStore.getState().markFileListStale(dirPath, 'listed');
-
-    expect(useFileListStore.getState().getFileList(dirPath)).toMatchObject({
-      isStale: true,
-      staleFileListHash: undefined,
-    });
-  });
-
   it.each([
     { listed: 'latest', staysStale: false },
     { listed: 'earlier', staysStale: true },
@@ -416,7 +385,7 @@ describe('file-list.store', () => {
       listWorkspaceFiles: vi.fn().mockResolvedValue({
         files: [],
         gitIgnoredFiles: [],
-        emptyDirs: ['linked-workspaces/empty-peer'],
+        emptyDirs: ['docs/empty'],
       }),
     });
     (globalThis as { window: { api: ApiMock } }).window = { api };
@@ -424,7 +393,7 @@ describe('file-list.store', () => {
     await useFileListStore.getState().fetchFileList('ssh://dev/repo', false, 'ws-ssh');
 
     expect(useFileListStore.getState().getFileList('ssh://dev/repo')?.emptyDirs).toEqual([
-      'linked-workspaces/empty-peer',
+      'docs/empty',
     ]);
   });
 
@@ -433,7 +402,6 @@ describe('file-list.store', () => {
       files: ['src/a.ts', 'src/b.ts'],
       gitIgnoredFiles: ['dist/out.js'],
       emptyDirs: ['notes'],
-      managedLinkPaths: ['linked-workspaces/peer'],
     });
     const api = createApiMock({
       listWorkspaceFiles: vi.fn().mockResolvedValueOnce(listing()).mockResolvedValueOnce(listing()),
@@ -448,7 +416,6 @@ describe('file-list.store', () => {
     expect(second.files).toBe(first.files);
     expect(second.gitIgnoredFiles).toBe(first.gitIgnoredFiles);
     expect(second.emptyDirs).toBe(first.emptyDirs);
-    expect(second.managedLinkPaths).toBe(first.managedLinkPaths);
   });
 
   it('fetchDiffIfNeeded returns cached data, skips stale loading requests, and fetches when absent', async () => {

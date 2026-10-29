@@ -13,6 +13,8 @@ import {
 } from '@/stores/terminal-files.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
+import { isInLinkedWorkspaces } from '../../../shared/lib/linked-workspaces';
+
 import {
   openTerminalFileLink,
   resolveTerminalFileLink,
@@ -147,7 +149,11 @@ export function useTerminalFiles(workspaceId: string): TerminalFileGroups {
         .filter(
           (file) =>
             file.openedAt === undefined &&
-            (file.target.type !== 'workspace' || !listed || listed.has(file.target.filePath))
+            (file.target.type !== 'workspace' ||
+              !listed ||
+              listed.has(file.target.filePath) ||
+              // The list leaves out linked workspaces' files, which agents name through here.
+              isInLinkedWorkspaces(file.target.filePath))
         )
         .sort(byPrinted),
     };

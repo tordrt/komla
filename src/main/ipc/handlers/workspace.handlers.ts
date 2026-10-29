@@ -25,7 +25,10 @@ import { localMirrorService } from '../../services/local-mirror.service';
 import { projectService } from '../../services/project.service';
 import { sshPortForwardService } from '../../services/ssh-port-forward.service';
 import { sshWorkspaceService } from '../../services/ssh-workspace.service';
-import { workspaceLinksService } from '../../services/workspace-links.service';
+import {
+  workspaceLinksService,
+  type WorkspaceLinkPath,
+} from '../../services/workspace-links.service';
 import { workspaceService, Workspace, Terminal } from '../../services/workspace.service';
 import { worktreeWatcherService } from '../../services/worktree-watcher.service';
 import { handleValidated } from '../validation/ipc-validators';
@@ -48,6 +51,7 @@ import {
   workspaceRecoverSshSessionsArgsSchema,
   workspaceListRemoteSshArgsSchema,
   workspaceAdoptRemoteSshArgsSchema,
+  workspaceLinkPathsArgsSchema,
   workspaceLinkSshProjectArgsSchema,
   workspaceRemoveMissingSshArgsSchema,
   workspaceSyncSshHostArgsSchema,
@@ -742,6 +746,16 @@ export function registerWorkspaceHandlers(): void {
       async (_, [originId, targetId]): Promise<void> => {
         await workspaceLinksService.unlink(originId, targetId);
       }
+    )
+  );
+
+  ipcMain.handle(
+    IPC.WORKSPACE_LINK_PATHS,
+    handleValidated(
+      IPC.WORKSPACE_LINK_PATHS,
+      workspaceLinkPathsArgsSchema,
+      (_, [workspaceId]): Promise<WorkspaceLinkPath[]> =>
+        workspaceLinksService.listLinkPaths(workspaceId)
     )
   );
 

@@ -1308,6 +1308,37 @@ describe('WorkspaceLinksService', () => {
     expect(workspacesMap.get('a')?.linkedWorkspaceIds).toEqual(['b']);
   });
 
+  it('lists where each linked workspace is, by the symlink that points at it', async () => {
+    makeWorkspace('a', 'workspace-a', '/work/a');
+    makeWorkspace('b', 'workspace-b', '/work/b', { repoName: 'shared', branchName: 'feat' });
+    makeWorkspace('c', 'workspace-c', '/work/c', { repoName: 'shared', branchName: 'feat' });
+    await service.workspaceLinksService.link('a', ['b', 'c']);
+
+    const paths = await service.workspaceLinksService.listLinkPaths('a');
+
+    expect(paths).toEqual([
+      { workspaceId: 'b', path: 'linked-workspaces/shared-feat' },
+      { workspaceId: 'c', path: expect.stringMatching(/^linked-workspaces\/shared-feat-/) },
+    ]);
+    expect(await service.workspaceLinksService.listLinkPaths('b')).toEqual([
+      { workspaceId: 'a', path: 'linked-workspaces/a' },
+    ]);
+  });
+
+  it("lists an SSH workspace's links from the symlinks on its host", async () => {
+    makeSshWorkspace('a', 'workspace-a', 'host-1', '/work/a');
+    makeSshWorkspace('b', 'workspace-b', 'host-1', '/work/b', { linkedWorkspaceIds: ['a'] });
+    makeSshWorkspace('c', 'workspace-c', 'host-1', '/work/c', { linkedWorkspaceIds: ['a'] });
+    workspacesMap.get('a')!.linkedWorkspaceIds = ['b', 'c'];
+    mockSshRun.mockResolvedValueOnce('komla-b\t/work/b\nstray\t/elsewhere\n');
+
+    const paths = await service.workspaceLinksService.listLinkPaths('a');
+
+    expect(mockSshRun.mock.calls[0][1]).toContain("folder='/work/a/linked-workspaces'");
+    // c has no symlink, as after a link that failed on the host.
+    expect(paths).toEqual([{ workspaceId: 'b', path: 'linked-workspaces/komla-b' }]);
+  });
+
   it('re-linking the same peer is idempotent and does not duplicate symlinks', async () => {
     // Calling link a→b twice (e.g. user retries after a partial failure) must
     // not leave both `foo` and `foo-<id>` pointing at the same peer.

@@ -156,36 +156,6 @@ function prefetchWorkspaceFileList(workspace: Workspace): void {
   fetchFileStatusesIfNeeded(workingDirectory).catch(() => {});
 }
 
-function refreshLinkedWorkspaceFileLists(workspaces: Workspace[], workspaceIds: string[]): void {
-  const ids = new Set(workspaceIds);
-  if (ids.size === 0) return;
-
-  const fileListStore = useFileListStore.getState();
-  const showGitIgnoredByWorkspace = useFileViewerStore.getState().showGitIgnoredByWorkspace;
-  for (const workspace of workspaces) {
-    if (!ids.has(workspace.id)) continue;
-    const isRemoteWorkspace = isSshWorkspace(workspace);
-    useFileListStore.setState((state) => {
-      const cache = new Map(state.cache);
-      cache.delete(workspace.workingDirectory);
-      if (isRemoteWorkspace) return { cache };
-      const statusCache = new Map(state.statusCache);
-      statusCache.delete(workspace.workingDirectory);
-      return { cache, statusCache };
-    });
-    fileListStore
-      .fetchFileList(
-        workspace.workingDirectory,
-        !!showGitIgnoredByWorkspace[workspace.id],
-        isRemoteWorkspace ? workspace.id : undefined
-      )
-      .catch(() => {});
-    if (!isRemoteWorkspace) {
-      fileListStore.fetchFileStatuses(workspace.workingDirectory).catch(() => {});
-    }
-  }
-}
-
 interface WorkspacesState {
   workspaces: Workspace[];
   selectedWorkspaceId: string | null;
@@ -769,18 +739,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
             ? preferredWorkspaceId
             : null;
       const workspaces = clearAttentionForSelected(availableWorkspaces, selectedWorkspaceId);
-      // Links can change outside this window, as from `komla workspace link`; file lists this
-      // window holds then list linked-workspaces/ again.
-      const links = (w: Workspace) => [...(w.linkedWorkspaceIds ?? [])].sort().join();
-      const linksBefore = new Map(get().workspaces.map((w) => [w.id, links(w)]));
-      const { cache: fileLists, statusCache } = useFileListStore.getState();
-      const relinkedIds = workspaces
-        .filter((w) => {
-          const before = linksBefore.get(w.id);
-          const held = fileLists.has(w.workingDirectory) || statusCache.has(w.workingDirectory);
-          return before !== undefined && before !== links(w) && held;
-        })
-        .map((w) => w.id);
       if (currentSelectedWorkspaceId && currentSelectedWorkspaceId !== selectedWorkspaceId) {
         useLayoutStore.getState().clearWorkspaceLayout(currentSelectedWorkspaceId);
         useLayoutStore.getState().setCurrentWorkspace(null);
@@ -841,7 +799,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         set({ workspaces, selectedWorkspaceId, isLoading: false, hasLoaded: true });
       }
 
-      refreshLinkedWorkspaceFileLists(workspaces, relinkedIds);
       refreshWorkspaceQuota();
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false, hasLoaded: true });
@@ -1228,7 +1185,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
 
   deleteWorkspace: async (workspaceId, force = false, deleteBranch = false, onSettled) => {
     const workspace = get().workspaces.find((w) => w.id === workspaceId);
-    const linkedWorkspaceIds = workspace?.linkedWorkspaceIds ?? [];
     const toastStore = useToastStore.getState();
 
     // Optimistic UI update - remove workspace immediately for instant feedback. The row
@@ -1250,7 +1206,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
             get().selectedWorkspaceId
           );
           set({ workspaces });
-          refreshLinkedWorkspaceFileLists(workspaces, linkedWorkspaceIds);
           await window.api.notifyWorkspacesChanged();
         } catch (error) {
           set({ error: (error as Error).message });
@@ -2335,10 +2290,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
       get().selectedWorkspaceId
     );
     set({ workspaces });
-    refreshLinkedWorkspaceFileLists(
-      workspaces,
-      change.pairs.flat().map((w) => w.id)
-    );
     await window.api.notifyWorkspacesChanged();
   },
 
@@ -2508,7 +2459,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces });
-      refreshLinkedWorkspaceFileLists(workspaces, [originId, ...targetIds]);
       await window.api.notifyWorkspacesChanged();
     } catch (error) {
       const message = (error as Error).message;
@@ -2518,7 +2468,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
           get().selectedWorkspaceId
         );
         set({ workspaces, error: message });
-        refreshLinkedWorkspaceFileLists(workspaces, [originId, ...targetIds]);
         await window.api.notifyWorkspacesChanged();
       } catch {
         set({ error: message });
@@ -2535,7 +2484,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces });
-      refreshLinkedWorkspaceFileLists(workspaces, [originId, targetId]);
       await window.api.notifyWorkspacesChanged();
     } catch (error) {
       set({ error: (error as Error).message });

@@ -6,6 +6,11 @@ import { promisify } from 'util';
 import { gunzip } from 'zlib';
 
 import { getMimeType, getViewableFileKind, isImageFile } from '../../shared/image-utils';
+import {
+  isInLinkedWorkspaces,
+  isLinkedWorkspacesEntry,
+  LINKED_WORKSPACES_DIR,
+} from '../../shared/lib/linked-workspaces';
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import {
   isLocalTerminalExecutionLocation,
@@ -55,7 +60,6 @@ const VIEWER_FOLDER_FILE_LIMIT = 200;
 // Folders like /tmp can hold thousands of entries, so a listing looks up when at most this
 // many folders and this many files were modified.
 const VIEWER_FOLDER_NAME_LIMIT = 5_000;
-const LINKED_WORKSPACES_DIR = 'linked-workspaces';
 // As much output as the git commands behind a local listing may print.
 const SSH_FILE_LIST_MAX_BYTES = 50 * 1024 * 1024;
 
@@ -65,7 +69,6 @@ export interface WorkspaceFileList {
   files: string[];
   gitIgnoredFiles: string[];
   emptyDirs: string[];
-  managedLinkPaths?: string[];
   /** An SSH listing's fingerprint, comparable with the Remote Companion's. */
   fileListHash?: string;
 }
@@ -298,10 +301,6 @@ function fileListFingerprint(listed: Buffer, deleted: Buffer): string {
   return createHash('sha256').update(listed).update('\0').update(deleted).digest('hex');
 }
 
-function prefixLinkedWorkspaceFiles(peerDirectory: string, list: Buffer): string[] {
-  return splitNullSeparated(list).map((filePath) => `${peerDirectory}/${filePath}`);
-}
-
 class WorkspaceFileService {
   // Each SSH workspace's running content search, stopped when a newer one starts.
   private readonly contentSearches = new Map<string, AbortController>();
@@ -309,23 +308,7 @@ class WorkspaceFileService {
   async listFiles(workspaceId: string, includeGitIgnored = false): Promise<WorkspaceFileList> {
     const workspace = this.getWorkspace(workspaceId);
     if (!isSshWorkspace(workspace)) {
-      const [fileList, managedLinkPaths] = await Promise.all([
-        gitService.listFiles(workspace.workingDirectory, includeGitIgnored),
-        this.getManagedLocalLinkPaths(workspace),
-      ]);
-      const visiblePaths = [...fileList.files, ...fileList.gitIgnoredFiles];
-      const emptyManagedLinks = managedLinkPaths.filter(
-        (linkPath) =>
-          !visiblePaths.some((filePath) => filePath.startsWith(`${linkPath}/`)) &&
-          !fileList.emptyDirs.some(
-            (directory) => directory === linkPath || directory.startsWith(`${linkPath}/`)
-          )
-      );
-      return {
-        ...fileList,
-        emptyDirs: [...new Set([...fileList.emptyDirs, ...emptyManagedLinks])],
-        ...(managedLinkPaths.length > 0 ? { managedLinkPaths } : {}),
-      };
+      return gitService.listFiles(workspace.workingDirectory, includeGitIgnored);
     }
     if (workspace.provisioning || workspace.provisionError) {
       return { files: [], gitIgnoredFiles: [], emptyDirs: [] };
@@ -336,9 +319,7 @@ class WorkspaceFileService {
       this.remoteBase64Function(),
       this.remoteBase64AvailabilityCheck(),
       this.remoteFileListFunction(),
-      this.remoteRecordedPeerFunction(workspace),
       `komla_files_dir=${shellQuotePosix(KOMLA_FILES_DIR)}`,
-      `linked_workspaces_dir=${shellQuotePosix(LINKED_WORKSPACES_DIR)}`,
       'files_b64=$(git ls-files --cached --others --exclude-standard -z | komla_list_b64)',
       'komla_files_b64=$({',
       '  if [ -d "$komla_files_dir" ] && [ ! -L "$komla_files_dir" ]; then',
@@ -351,100 +332,28 @@ class WorkspaceFileService {
       '    fi',
       '  fi',
       '} | komla_list_b64)',
-      'peers_b64=$({',
-      '  if [ -d "$linked_workspaces_dir" ] && [ ! -L "$linked_workspaces_dir" ]; then',
-      '    for peer in "$linked_workspaces_dir"/*; do',
-      '      komla_recorded_peer_root "$peer" >/dev/null || continue',
-      '      peer_name=${peer#"$linked_workspaces_dir"/}',
-      '      printf \'%s\\000\' "$peer_name"',
-      '    done',
-      '  fi',
-      '} | komla_list_b64)',
       'deleted_b64=$(git ls-files --deleted -z | komla_list_b64)',
       includeGitIgnored
         ? 'ignored_b64=$(git ls-files --others --ignored --exclude-standard -z | komla_list_b64)'
         : 'ignored_b64=',
-      'printf "STATUS=OK\\nENCODING=%s\\nFILES=%s\\nKOMLA_FILES=%s\\nPEERS=%s\\nIGNORED=%s\\nDELETED=%s\\n" "$komla_list_encoding" "$files_b64" "$komla_files_b64" "$peers_b64" "$ignored_b64" "$deleted_b64"',
+      'printf "STATUS=OK\\nENCODING=%s\\nFILES=%s\\nKOMLA_FILES=%s\\nIGNORED=%s\\nDELETED=%s\\n" "$komla_list_encoding" "$files_b64" "$komla_files_b64" "$ignored_b64" "$deleted_b64"',
     ].join('\n');
     const values = this.parseKeyValueOutput(await this.runSsh(workspace, script));
     this.assertRemoteEncodingAvailable(values);
-    const lists = await decodeFileLists(values, [
-      'FILES',
-      'KOMLA_FILES',
-      'PEERS',
-      'IGNORED',
-      'DELETED',
-    ]);
-    const peerNames = [
-      ...new Set(
-        splitNullSeparated(lists.PEERS).filter(
-          (peerName) =>
-            peerName !== '.' &&
-            peerName !== '..' &&
-            !peerName.includes('/') &&
-            !peerName.includes('\0')
-        )
-      ),
-    ];
-    const linkedFiles: string[] = [];
-    const linkedDeletedFiles: string[] = [];
-    const linkedIgnoredFiles: string[] = [];
-    const peerDirectories: string[] = [];
-    for (const peerName of peerNames) {
-      const peerDirectory = `${LINKED_WORKSPACES_DIR}/${peerName}`;
-      const peerScript = [
-        this.remoteBase64Function(),
-        this.remoteBase64AvailabilityCheck(),
-        this.remoteFileListFunction(),
-        this.remoteRecordedPeerFunction(workspace),
-        `peer=${shellQuotePosix(peerDirectory)}`,
-        'peer_root=$(komla_recorded_peer_root "$peer") || { printf "STATUS=STALE\\n"; exit 0; }',
-        'files_b64=$(git -C "$peer_root" ls-files --cached --others --exclude-standard -z | komla_list_b64)',
-        'deleted_b64=$(git -C "$peer_root" ls-files --deleted -z | komla_list_b64)',
-        includeGitIgnored
-          ? 'ignored_b64=$(git -C "$peer_root" ls-files --others --ignored --exclude-standard -z | komla_list_b64)'
-          : 'ignored_b64=',
-        'printf "STATUS=OK\\nENCODING=%s\\nFILES=%s\\nIGNORED=%s\\nDELETED=%s\\n" "$komla_list_encoding" "$files_b64" "$ignored_b64" "$deleted_b64"',
-      ].join('\n');
-      const peerValues = this.parseKeyValueOutput(await this.runSsh(workspace, peerScript));
-      this.assertRemoteEncodingAvailable(peerValues);
-      if (peerValues.get('STATUS') === 'STALE') continue;
-      if (peerValues.get('STATUS') !== 'OK')
-        throw new Error('Failed to list linked workspace files');
-      const peerLists = await decodeFileLists(peerValues, ['FILES', 'IGNORED', 'DELETED']);
-      peerDirectories.push(peerDirectory);
-      linkedFiles.push(...prefixLinkedWorkspaceFiles(peerDirectory, peerLists.FILES));
-      linkedDeletedFiles.push(...prefixLinkedWorkspaceFiles(peerDirectory, peerLists.DELETED));
-      linkedIgnoredFiles.push(...prefixLinkedWorkspaceFiles(peerDirectory, peerLists.IGNORED));
-    }
-    const deletedFiles = new Set([...splitNullSeparated(lists.DELETED), ...linkedDeletedFiles]);
+    const lists = await decodeFileLists(values, ['FILES', 'KOMLA_FILES', 'IGNORED', 'DELETED']);
+    const deletedFiles = new Set(splitNullSeparated(lists.DELETED));
     const files = [
       ...splitNullSeparated(lists.FILES),
       ...splitNullSeparated(lists.KOMLA_FILES),
-      ...linkedFiles,
     ].filter((filePath) => !deletedFiles.has(filePath));
-    const gitIgnoredFiles = [
-      ...splitNullSeparated(lists.IGNORED).filter(
-        (file) =>
-          !file.startsWith(`${KOMLA_FILES_DIR}/`) && !file.startsWith(`${LINKED_WORKSPACES_DIR}/`)
-      ),
-      ...linkedIgnoredFiles.filter((file) => {
-        const peerRelativePath = file.split('/').slice(2).join('/');
-        return (
-          !peerRelativePath.startsWith(`${KOMLA_FILES_DIR}/`) &&
-          !peerRelativePath.startsWith(`${LINKED_WORKSPACES_DIR}/`)
-        );
-      }),
-    ];
-    const visibleFiles = includeGitIgnored ? [...files, ...gitIgnoredFiles] : files;
-    const emptyDirs = peerDirectories.filter(
-      (directory) => !visibleFiles.some((filePath) => filePath.startsWith(`${directory}/`))
+    // All of the folder is ignored, as git's exclude file lists it.
+    const gitIgnoredFiles = splitNullSeparated(lists.IGNORED).filter(
+      (file) => !file.startsWith(`${KOMLA_FILES_DIR}/`) && !isInLinkedWorkspaces(file)
     );
     return {
       files: [...new Set(files)],
       gitIgnoredFiles,
-      emptyDirs,
-      ...(peerDirectories.length > 0 ? { managedLinkPaths: peerDirectories } : {}),
+      emptyDirs: [],
       fileListHash: fileListFingerprint(lists.FILES, lists.DELETED),
     };
   }
@@ -1261,8 +1170,7 @@ class WorkspaceFileService {
   }
 
   private getDirectLinkedWorkspaceEntry(filePath: string): string | undefined {
-    const segments = filePath.split('/');
-    return segments[0] === LINKED_WORKSPACES_DIR && segments.length === 2 ? filePath : undefined;
+    return isLinkedWorkspacesEntry(filePath) ? filePath : undefined;
   }
 
   private async getManagedLocalLinkPaths(workspace: Workspace): Promise<string[]> {

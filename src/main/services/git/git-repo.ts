@@ -18,6 +18,10 @@ import { extname, isAbsolute, join, basename, dirname, relative, sep } from 'pat
 import { shell } from 'electron';
 
 import { isImageFile, isMediaFile, getMediaKind, getMimeType } from '../../../shared/image-utils';
+import {
+  isInLinkedWorkspaces,
+  isLinkedWorkspacesEntry,
+} from '../../../shared/lib/linked-workspaces';
 import { applySshAskpassEnv } from '../../lib/ssh-client';
 import { askpassService } from '../askpass.service';
 
@@ -45,6 +49,27 @@ export function getImportedFileNameParts(
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
   return { baseName: stem || 'file', extension };
+}
+
+/**
+ * The files without Komla's links to linked workspaces, which the file panel shows in a
+ * section of their own: a symlink in the linked-workspaces folder lists as a file. A project's
+ * own files there stay.
+ */
+async function withoutWorkspaceLinks(rootPath: string, files: string[]): Promise<string[]> {
+  const entries = files.filter(isLinkedWorkspacesEntry);
+  if (entries.length === 0) return files;
+  const links = new Set<string>();
+  await Promise.all(
+    entries.map(async (entry) => {
+      try {
+        if ((await lstat(join(rootPath, entry))).isSymbolicLink()) links.add(entry);
+      } catch {
+        // Gone since it was listed.
+      }
+    })
+  );
+  return links.size === 0 ? files : files.filter((file) => !links.has(file));
 }
 
 /** A file's path under a listed folder, with forward slashes as `git ls-files` prints them. */
@@ -463,58 +488,27 @@ class GitRepoService {
         }
       }
 
-      files = await this.seedLinkedWorkspaceSymlinkEntries(dirPath, files);
-      files = await this.seedKomlaFileEntries(dirPath, files);
-
-      // Replace any `linked-workspaces/<peer>` symlink entries with the peer's
-      // own listing so those subtrees are browsable instead of appearing as a
-      // single unopenable file.
-      files = await this.expandLinkedWorkspaceSymlinks(dirPath, files);
-      gitIgnoredFiles = gitIgnoredFiles.filter((file) => !file.startsWith('linked-workspaces/'));
-      gitIgnoredFiles = gitIgnoredFiles.filter((file) => !file.startsWith(`${KOMLA_FILES_DIR}/`));
+      files = await this.seedKomlaFileEntries(dirPath, await withoutWorkspaceLinks(dirPath, files));
+      // All of the folder is ignored, as git's exclude file lists it; a Windows junction may list
+      // a linked workspace's files there.
+      gitIgnoredFiles = gitIgnoredFiles.filter(
+        (file) => !isInLinkedWorkspaces(file) && !file.startsWith(`${KOMLA_FILES_DIR}/`)
+      );
 
       // Empty dirs are tracked client-side (injected on user create) rather than
       // scanning the entire directory tree on every file change.
       return { files, gitIgnoredFiles, emptyDirs: [] };
     }
     // Fallback: async recursive readdir for non-git dirs
-    let files = await listFolderFiles(dirPath);
-    files = await this.seedLinkedWorkspaceSymlinkEntries(dirPath, files);
-    files = await this.seedKomlaFileEntries(dirPath, files);
-    files = await this.expandLinkedWorkspaceSymlinks(dirPath, files);
+    const files = await this.seedKomlaFileEntries(
+      dirPath,
+      await withoutWorkspaceLinks(dirPath, await listFolderFiles(dirPath))
+    );
     return {
       files,
       gitIgnoredFiles: [],
       emptyDirs: [],
     };
-  }
-
-  private async seedLinkedWorkspaceSymlinkEntries(
-    rootPath: string,
-    files: string[]
-  ): Promise<string[]> {
-    const linkedDir = 'linked-workspaces';
-    const linkedPath = join(rootPath, linkedDir);
-    if (!existsSync(linkedPath)) return files;
-
-    const seeded = new Set(files);
-    let entries: string[];
-    try {
-      entries = await readdir(linkedPath);
-    } catch {
-      return files;
-    }
-
-    for (const entry of entries) {
-      const linkPath = join(linkedPath, entry);
-      try {
-        const stats = await lstat(linkPath);
-        if (stats.isSymbolicLink()) seeded.add(`${linkedDir}/${entry}`);
-      } catch {
-        // Ignore entries that disappear during the scan.
-      }
-    }
-    return [...seeded];
   }
 
   private async seedKomlaFileEntries(rootPath: string, files: string[]): Promise<string[]> {
@@ -560,80 +554,12 @@ class GitRepoService {
   }
 
   /**
-   * `git ls-files` reports a directory symlink as a single path entry rather
-   * than recursing into it. For our `linked-workspaces/<peer>` symlinks, that
-   * makes the peer appear as an unreadable file in the file tree. Walk each
-   * such entry into the linked working tree (via git ls-files there if it's a
-   * repo, or shallow readdir otherwise) and emit `linked-workspaces/<peer>/...`
-   * paths so the tree shows real, openable files.
-   */
-  private async expandLinkedWorkspaceSymlinks(
-    rootPath: string,
-    files: string[]
-  ): Promise<string[]> {
-    const linkedDir = 'linked-workspaces/';
-    const peers = new Set<string>();
-    const others: string[] = [];
-    for (const f of files) {
-      if (!f.startsWith(linkedDir)) {
-        others.push(f);
-        continue;
-      }
-      const peer = f.slice(linkedDir.length).split('/')[0];
-      if (peer) peers.add(peer);
-    }
-    if (peers.size === 0) return files;
-
-    const expanded: string[] = [...others];
-    for (const peer of peers) {
-      const peerPath = join(rootPath, 'linked-workspaces', peer);
-      let isDir = false;
-      try {
-        // stat() follows symlinks, so this resolves to the link target's type.
-        isDir = (await stat(peerPath)).isDirectory();
-      } catch {
-        // Broken or missing symlink target. Drop the bare entry so the file
-        // tree does not try to open a dead linked-workspace symlink as a file.
-        continue;
-      }
-      if (!isDir) {
-        expanded.push(`${linkedDir}${peer}`);
-        continue;
-      }
-      const peerFiles = await this.listPeerFiles(peerPath);
-      // Drop the peer's own linked-workspaces children to avoid surfacing
-      // sibling links recursively. They're still reachable on disk; we just
-      // don't enumerate them in the host tree.
-      for (const pf of peerFiles) {
-        if (pf.startsWith('linked-workspaces/')) continue;
-        expanded.push(`${linkedDir}${peer}/${pf}`);
-      }
-    }
-    return expanded;
-  }
-
-  /**
    * The paths `git ls-files` lists, NUL-separated so git neither quotes unusual names
    * nor loses their leading spaces to output trimming.
    */
   private async lsFiles(dirPath: string, args: string[]): Promise<string[]> {
     const output = await gitExec.execGitAsyncRaw(dirPath, ['ls-files', '-z', ...args]);
     return output.split('\0').filter(Boolean);
-  }
-
-  private async listPeerFiles(peerPath: string): Promise<string[]> {
-    try {
-      if (await gitExec.isGitRepo(peerPath)) {
-        return await this.lsFiles(peerPath, ['--cached', '--others', '--exclude-standard']);
-      }
-    } catch {
-      // fall through to readdir
-    }
-    try {
-      return await listFolderFiles(peerPath);
-    } catch {
-      return [];
-    }
   }
 
   async readFileContent(dirPath: string, filePath: string): Promise<string> {

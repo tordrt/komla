@@ -284,11 +284,6 @@ function isManagedFilePath(path: string): boolean {
   );
 }
 
-function isManagedWorkspaceLinkEntry(path: string, managedLinkPaths: ReadonlySet<string>): boolean {
-  const normalized = normalizeDirectoryRoot(path);
-  return normalized === 'linked-workspaces' || managedLinkPaths.has(normalized);
-}
-
 function isManagedFileRoot(segment: string): boolean {
   return MANAGED_FILE_ROOTS.some((root) => root === segment);
 }
@@ -353,14 +348,10 @@ interface DirectoryExpansionBatchModel {
   batch: (operation: (store: DirectoryExpansionStore) => void) => void;
 }
 
-// Phosphor's regular Paperclip, Link and GitBranch, painted as CSS masks
+// Phosphor's regular Paperclip, painted as a CSS mask
 // because folder rows have no icon slot of their own (it holds the chevron).
 const PAPERCLIP_ICON_PATH =
   'M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z';
-const LINK_ICON_PATH =
-  'M240,88.23a54.43,54.43,0,0,1-16,37L189.25,160a54.27,54.27,0,0,1-38.63,16h-.05A54.63,54.63,0,0,1,96,119.84a8,8,0,0,1,16,.45A38.62,38.62,0,0,0,150.58,160h0a38.39,38.39,0,0,0,27.31-11.31l34.75-34.75a38.63,38.63,0,0,0-54.63-54.63l-11,11A8,8,0,0,1,135.7,59l11-11A54.65,54.65,0,0,1,224,48,54.86,54.86,0,0,1,240,88.23ZM109,185.66l-11,11A38.41,38.41,0,0,1,70.6,208h0a38.63,38.63,0,0,1-27.29-65.94L78,107.31A38.63,38.63,0,0,1,144,135.71a8,8,0,0,0,16,.45A54.86,54.86,0,0,0,144,96a54.65,54.65,0,0,0-77.27,0L32,130.75A54.62,54.62,0,0,0,70.56,224h0a54.28,54.28,0,0,0,38.64-16l11-11A8,8,0,0,0,109,185.66Z';
-const GIT_BRANCH_ICON_PATH =
-  'M232,64a32,32,0,1,0-40,31v17a8,8,0,0,1-8,8H96a23.84,23.84,0,0,0-8,1.38V95a32,32,0,1,0-16,0v66a32,32,0,1,0,16,0V144a8,8,0,0,1,8-8h88a24,24,0,0,0,24-24V95A32.06,32.06,0,0,0,232,64ZM64,64A16,16,0,1,1,80,80,16,16,0,0,1,64,64ZM96,192a16,16,0,1,1-16-16A16,16,0,0,1,96,192ZM200,80a16,16,0,1,1,16-16A16,16,0,0,1,200,80Z';
 
 function iconMask(path: string): string {
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'><path d='${path}'/></svg>`;
@@ -416,24 +407,14 @@ const TREE_UNSAFE_CSS = `
     padding-right: 0;
     margin-inline-end: 2px;
   }
-  /* Komla-owned paths remain real tree entries. Their root folders get an
-     accent icon (a paperclip for attachments, a link for linked workspaces),
-     each linked workspace a branch icon, and a hairline separates them from
-     the project files. A root folder holding a single folder is flattened
+  /* Komla-owned attachments remain real tree entries. Their root folder gets
+     an accent paperclip icon, and a hairline separates it from the project
+     files. A root folder holding a single folder is flattened
      into one row, hence the parentless prefix match. A row opts in through
      these variables; rows without --komla-icon-content get no ::before. */
   [data-type='item']:not([data-item-parent-path])[data-item-path^='.komla-files/'] {
     --komla-icon-content: '';
     --komla-icon: ${iconMask(PAPERCLIP_ICON_PATH)};
-  }
-  [data-type='item']:not([data-item-parent-path])[data-item-path^='linked-workspaces/'] {
-    --komla-icon-content: '';
-    --komla-icon: ${iconMask(LINK_ICON_PATH)};
-  }
-  [data-type='item'][data-item-type='folder'][data-item-parent-path='linked-workspaces/'] {
-    --komla-icon-content: '';
-    --komla-icon: ${iconMask(GIT_BRANCH_ICON_PATH)};
-    --komla-icon-color: oklch(var(--muted-foreground));
   }
   [data-item-section='content']::before {
     content: var(--komla-icon-content, none);
@@ -451,10 +432,9 @@ const TREE_UNSAFE_CSS = `
   }
   /* Inset past the rounded corners so the line stays straight. A selected
      file's card drops it. */
-  :is([data-item-path^='.komla-files/'], [data-item-path^='linked-workspaces/'])
+  [data-item-path^='.komla-files/']
     + [data-type='item']:not(
       [data-item-path^='.komla-files/'],
-      [data-item-path^='linked-workspaces/'],
       [data-item-type='file'][data-item-focused='true'],
       [data-item-type='file'][data-item-selected='true']
     ) {
@@ -653,10 +633,6 @@ export function SidebarFileTree({
   const files = cached?.files ?? emptyArray;
   const gitIgnoredFiles = cached?.gitIgnoredFiles ?? emptyArray;
   const emptyDirs = cached?.emptyDirs ?? emptyArray;
-  const managedLinkPaths = useMemo(
-    () => new Set(cached?.managedLinkPaths ?? emptyArray),
-    [cached?.managedLinkPaths, emptyArray]
-  );
   const fileStatuses = cachedStatuses?.statuses;
   const deletedPaths = useDeletedPaths(fileStatuses);
 
@@ -754,11 +730,7 @@ export function SidebarFileTree({
   // themselves, and only the slow poll sees other files land there.
   // Refresh only while a remote browse tree is mounted and visible, and never
   // overlap SSH calls.
-  const companionWatchesTree =
-    monitoredByCompanion &&
-    companionConfirmed &&
-    !includeGitIgnored &&
-    !cached?.managedLinkPaths?.length;
+  const companionWatchesTree = monitoredByCompanion && companionConfirmed && !includeGitIgnored;
   useEffect(() => {
     if (!isRemoteWorkspace || changedFilesOnly || !isVisible) return;
     let refreshInFlight = false;
@@ -824,19 +796,10 @@ export function SidebarFileTree({
     const projectFiles = (includeGitIgnored ? [...files, ...gitIgnoredFiles] : files).filter(
       (path) => !isManagedFilePath(path)
     );
-    const managedEmptyDirectories = [...managedLinkPaths].filter(
-      (linkPath) => !managedFiles.some((path) => path.startsWith(`${linkPath}/`))
-    );
     const base = [...managedFiles, ...projectFiles];
     const filtered = deletedPaths.size > 0 ? base.filter((p) => !deletedPaths.has(p)) : base;
     const visiblePaths =
-      emptyDirs.length > 0 || managedEmptyDirectories.length > 0
-        ? [
-            ...filtered,
-            ...emptyDirs.map((p) => `${p}/`),
-            ...managedEmptyDirectories.map((p) => `${p}/`),
-          ]
-        : filtered;
+      emptyDirs.length > 0 ? [...filtered, ...emptyDirs.map((p) => `${p}/`)] : filtered;
     const uniquePaths = [
       ...new Set([
         ...visiblePaths.filter(isManagedFilePath),
@@ -852,7 +815,6 @@ export function SidebarFileTree({
     emptyDirs,
     includeGitIgnored,
     deletedPaths,
-    managedLinkPaths,
   ]);
 
   const ignoredPathSet = useMemo(
@@ -1373,12 +1335,7 @@ export function SidebarFileTree({
 
     const handleDelete = (focusedPath: string | null) => {
       if (!focusedPath || !onDeleteFile) return false;
-      if (
-        isPathDeleted(focusedPath) ||
-        isManagedWorkspaceLinkEntry(focusedPath, managedLinkPaths)
-      ) {
-        return false;
-      }
+      if (isPathDeleted(focusedPath)) return false;
       const item = model.getItem(focusedPath);
       if (!item) return false;
       if (item.isDirectory()) onDeleteFile(focusedPath, true);
@@ -1468,7 +1425,6 @@ export function SidebarFileTree({
     hasCopiedFile,
     isPathDeleted,
     isRemoteWorkspace,
-    managedLinkPaths,
   ]);
 
   // Pierre opens its search on any letter or digit typed on a row. The changes
@@ -1530,9 +1486,7 @@ export function SidebarFileTree({
           onCreateFile={onCreateFile}
           onCreateDirectory={onCreateDirectory}
           onStartRename={startRenaming}
-          onDeleteFile={
-            isManagedWorkspaceLinkEntry(item.path, managedLinkPaths) ? undefined : onDeleteFile
-          }
+          onDeleteFile={onDeleteFile}
           onRestoreFile={onRestoreFile}
           onCopyNode={onCopyNode}
           onCutNode={onCutNode}
@@ -1572,7 +1526,6 @@ export function SidebarFileTree({
       onOpenInPane,
       expandAll,
       collapseAll,
-      managedLinkPaths,
     ]
   );
 

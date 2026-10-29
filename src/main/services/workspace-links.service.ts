@@ -2,6 +2,7 @@ import { existsSync } from 'fs';
 import { lstat, mkdir, readdir, readlink, rmdir, symlink, unlink } from 'fs/promises';
 import { basename, dirname, join, posix as pathPosix, resolve } from 'path';
 
+import { LINKED_WORKSPACES_DIR } from '../../shared/lib/linked-workspaces';
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import { isSshWorkspace, type Workspace } from '../../shared/types';
 import { createLogger } from '../lib/logger';
@@ -12,12 +13,16 @@ import { workspaceService } from './workspace.service';
 
 const logger = createLogger('WorkspaceLinksService');
 
-export const LINKED_WORKSPACES_DIR = 'linked-workspaces';
-
 const GIT_EXCLUDE_LINE = `/${LINKED_WORKSPACES_DIR}/*`;
 const GIT_EXCLUDE_HEADER =
   '# Added by Komla: linked-workspaces folder contains symlinks to sibling workspaces';
 const REMOTE_LINK_RESULT_PREFIX = 'KOMLA_LINK_CREATED';
+
+/** A linked workspace and its symlink's path, relative to the workspace that links to it. */
+export interface WorkspaceLinkPath {
+  workspaceId: string;
+  path: string;
+}
 
 interface RemoteLinkCreation {
   createdAB: boolean;
@@ -291,6 +296,62 @@ class WorkspaceLinksService {
         }
       }
     }
+  }
+
+  /**
+   * Where each workspace linked to `workspaceId` is, relative to it: its symlink in the
+   * linked-workspaces folder. One with no symlink there, as after a failed link, is left out.
+   */
+  async listLinkPaths(workspaceId: string): Promise<WorkspaceLinkPath[]> {
+    const workspace = workspaceService.get(workspaceId);
+    const peers = (workspace?.linkedWorkspaceIds ?? [])
+      .map((id) => workspaceService.get(id))
+      .filter((peer): peer is Workspace => peer !== undefined);
+    if (!workspace || peers.length === 0) return [];
+    const targets = isSshWorkspace(workspace)
+      ? await this.readRemoteLinkTargets(workspace)
+      : await this.readLocalLinkTargets(workspace);
+    return peers.flatMap((peer) => {
+      const peerPath = isSshWorkspace(peer)
+        ? peer.backend.remoteDirectory
+        : resolve(peer.workingDirectory);
+      const entry = [...targets].find(([, target]) => target === peerPath)?.[0];
+      return entry ? [{ workspaceId: peer.id, path: `${LINKED_WORKSPACES_DIR}/${entry}` }] : [];
+    });
+  }
+
+  /** Each symlink in the workspace's linked-workspaces folder, by name, and where it points. */
+  private async readLocalLinkTargets(workspace: Workspace): Promise<Map<string, string>> {
+    const folder = this.getFolderPath(workspace);
+    const entries = await readdir(folder).catch(() => []);
+    const targets = await Promise.all(
+      entries.map(
+        async (entry) => [entry, await this.readSymlinkTarget(join(folder, entry))] as const
+      )
+    );
+    return new Map(targets.filter((target): target is [string, string] => target[1] !== null));
+  }
+
+  private async readRemoteLinkTargets(
+    workspace: Workspace & { backend: Extract<Workspace['backend'], { kind: 'ssh' }> }
+  ): Promise<Map<string, string>> {
+    const folder = pathPosix.join(workspace.backend.remoteDirectory, LINKED_WORKSPACES_DIR);
+    const command = [
+      `folder=${shellQuotePosix(folder)}`,
+      '[ -d "$folder" ] && [ ! -L "$folder" ] || exit 0',
+      'for candidate in "$folder"/*; do',
+      '  [ -L "$candidate" ] || continue',
+      '  printf "%s\t%s\n" "${candidate##*/}" "$(readlink "$candidate")"',
+      'done',
+    ].join('\n');
+    const host = sshWorkspaceService.getHost(workspace.backend.hostId);
+    const output = await sshWorkspaceService.run(host, command);
+    return new Map(
+      output
+        .split('\n')
+        .map((line) => line.split('\t'))
+        .filter((parts): parts is [string, string] => parts.length === 2 && !!parts[0])
+    );
   }
 
   /**

@@ -620,7 +620,7 @@ describe('workspaces.store', () => {
     expect(settled.mock.calls).toEqual(expect.arrayContaining([['ws-1'], ['ws-2']]));
   });
 
-  it('refreshes linked peer state after deleting a linked workspace', async () => {
+  it("refreshes linked peers' records after deleting a linked workspace", async () => {
     vi.useFakeTimers();
     const ws1 = createWorkspace({
       id: 'ws-1',
@@ -635,9 +635,6 @@ describe('workspaces.store', () => {
     const unlinkedWs2 = { ...ws2, linkedWorkspaceIds: [] };
     const api = createApiMock({
       getWorkspaces: vi.fn().mockResolvedValue([unlinkedWs2]),
-      listFiles: vi
-        .fn()
-        .mockResolvedValue({ files: ['src/index.ts'], gitIgnoredFiles: [], emptyDirs: [] }),
     });
     (globalThis as { window: { api: ApiMock } }).window = { api };
     useWorkspacesStore.setState({ workspaces: [ws1, ws2] });
@@ -647,7 +644,6 @@ describe('workspaces.store', () => {
 
     expect(useWorkspacesStore.getState().workspaces).toEqual([unlinkedWs2]);
     expect(api.getWorkspaces).toHaveBeenCalled();
-    expect(api.listFiles).toHaveBeenCalledWith('/tmp/ws-2', false);
     expect(api.notifyWorkspacesChanged).toHaveBeenCalled();
   });
 
@@ -3073,161 +3069,6 @@ describe('workspaces.store', () => {
     expect(api.notifyWorkspacesChanged).toHaveBeenCalled();
     expect(useWorkspacesStore.getState().workspaces).toEqual([linkedWorkspace]);
     expect(useWorkspacesStore.getState().error).toBe('link failed');
-  });
-
-  it('refreshes linked workspace file lists after linking succeeds', async () => {
-    const origin = createWorkspace({ id: 'ws-1', workingDirectory: '/tmp/ws-1' });
-    const target = createWorkspace({ id: 'ws-2', workingDirectory: '/tmp/ws-2' });
-    const linkedOrigin = { ...origin, linkedWorkspaceIds: ['ws-2'] };
-    const linkedTarget = { ...target, linkedWorkspaceIds: ['ws-1'] };
-    const api = createApiMock({
-      getWorkspaces: vi.fn().mockResolvedValue([linkedOrigin, linkedTarget]),
-      listFiles: vi.fn().mockResolvedValue({
-        files: ['linked-workspaces/ws-2/src/index.ts'],
-        gitIgnoredFiles: [],
-        emptyDirs: [],
-      }),
-    });
-    (globalThis as { window: { api: ApiMock } }).window = { api };
-    useWorkspacesStore.setState({ workspaces: [origin, target] });
-    useFileListStore.setState((state) => {
-      const cache = new Map(state.cache);
-      cache.set('/tmp/ws-1', {
-        files: ['src/old.ts'],
-        gitIgnoredFiles: [],
-        emptyDirs: [],
-        isLoading: false,
-      });
-      cache.set('/tmp/ws-2', {
-        files: ['src/target-old.ts'],
-        gitIgnoredFiles: [],
-        emptyDirs: [],
-        isLoading: false,
-      });
-      const diffCache = new Map(state.diffCache);
-      diffCache.set('/tmp/ws-1:main', {
-        data: {
-          files: [{ path: 'src/compared.ts', status: 'modified' }],
-          summary: { additions: 1, deletions: 0, filesChanged: 1 },
-        },
-        isLoading: false,
-        hasFullDiff: true,
-      });
-      return { cache, diffCache };
-    });
-
-    await useWorkspacesStore.getState().linkWorkspaces('ws-1', ['ws-2']);
-
-    expect(api.listFiles).toHaveBeenCalledWith('/tmp/ws-1', false);
-    expect(api.listFiles).toHaveBeenCalledWith('/tmp/ws-2', false);
-    expect(api.getChangedFilesWithSummary).toHaveBeenCalledWith('/tmp/ws-1');
-    expect(api.getChangedFilesWithSummary).toHaveBeenCalledWith('/tmp/ws-2');
-    expect(useFileListStore.getState().diffCache.get('/tmp/ws-1:main')).toMatchObject({
-      hasFullDiff: true,
-      data: { files: [{ path: 'src/compared.ts', status: 'modified' }] },
-    });
-  });
-
-  it('refreshes SSH workspace file lists through workspace-aware IPC after linking', async () => {
-    const backend = {
-      kind: 'ssh' as const,
-      hostId: 'ssh-dev',
-      remoteDirectory: '/home/dev/worktree',
-      remoteRepoPath: '/home/dev/repo.git',
-      remoteProjectRoot: '/home/dev',
-      gitUrl: 'git@example.com:repo.git',
-      projectName: 'Repo',
-    };
-    const origin = createWorkspace({
-      id: 'ws-1',
-      workingDirectory: 'ssh://ssh-dev/home/dev/worktree-one',
-      backend: { ...backend, remoteDirectory: '/home/dev/worktree-one' },
-    });
-    const target = createWorkspace({
-      id: 'ws-2',
-      workingDirectory: 'ssh://ssh-dev/home/dev/worktree-two',
-      backend: { ...backend, remoteDirectory: '/home/dev/worktree-two' },
-    });
-    const linkedOrigin = { ...origin, linkedWorkspaceIds: ['ws-2'] };
-    const linkedTarget = { ...target, linkedWorkspaceIds: ['ws-1'] };
-    const api = createApiMock({
-      getWorkspaces: vi.fn().mockResolvedValue([linkedOrigin, linkedTarget]),
-      listWorkspaceFiles: vi.fn().mockResolvedValue({
-        files: ['linked-workspaces/worktree-two/src/index.ts'],
-        gitIgnoredFiles: [],
-        emptyDirs: [],
-      }),
-    });
-    (globalThis as { window: { api: ApiMock } }).window = { api };
-    useWorkspacesStore.setState({ workspaces: [origin, target] });
-
-    await useWorkspacesStore.getState().linkWorkspaces('ws-1', ['ws-2']);
-
-    expect(api.listWorkspaceFiles).toHaveBeenCalledWith('ws-1', false);
-    expect(api.listWorkspaceFiles).toHaveBeenCalledWith('ws-2', false);
-    expect(api.listFiles).not.toHaveBeenCalled();
-    expect(api.getChangedFilesWithSummary).not.toHaveBeenCalled();
-  });
-
-  it('refreshes linked workspace file lists after unlinking succeeds', async () => {
-    const origin = createWorkspace({
-      id: 'ws-1',
-      workingDirectory: '/tmp/ws-1',
-      linkedWorkspaceIds: ['ws-2'],
-    });
-    const target = createWorkspace({
-      id: 'ws-2',
-      workingDirectory: '/tmp/ws-2',
-      linkedWorkspaceIds: ['ws-1'],
-    });
-    const unlinkedOrigin = { ...origin, linkedWorkspaceIds: [] };
-    const unlinkedTarget = { ...target, linkedWorkspaceIds: [] };
-    const api = createApiMock({
-      getWorkspaces: vi.fn().mockResolvedValue([unlinkedOrigin, unlinkedTarget]),
-      listFiles: vi
-        .fn()
-        .mockResolvedValue({ files: ['src/index.ts'], gitIgnoredFiles: [], emptyDirs: [] }),
-    });
-    (globalThis as { window: { api: ApiMock } }).window = { api };
-    useWorkspacesStore.setState({ workspaces: [origin, target] });
-
-    await useWorkspacesStore.getState().unlinkWorkspace('ws-1', 'ws-2');
-
-    expect(api.unlinkWorkspace).toHaveBeenCalledWith('ws-1', 'ws-2');
-    expect(api.listFiles).toHaveBeenCalledWith('/tmp/ws-1', false);
-    expect(api.listFiles).toHaveBeenCalledWith('/tmp/ws-2', false);
-  });
-
-  it('refreshes the file lists of workspaces linked elsewhere, such as by the CLI', async () => {
-    const origin = createWorkspace({ id: 'ws-1', workingDirectory: '/tmp/ws-1' });
-    const target = createWorkspace({ id: 'ws-2', workingDirectory: '/tmp/ws-2' });
-    const other = createWorkspace({ id: 'ws-3', workingDirectory: '/tmp/ws-3' });
-    const api = createApiMock({
-      getWorkspaces: vi
-        .fn()
-        .mockResolvedValue([
-          { ...origin, linkedWorkspaceIds: ['ws-2'] },
-          { ...target, linkedWorkspaceIds: ['ws-1'] },
-          other,
-        ]),
-      listFiles: vi
-        .fn()
-        .mockResolvedValue({ files: ['src/index.ts'], gitIgnoredFiles: [], emptyDirs: [] }),
-    });
-    (globalThis as { window: { api: ApiMock } }).window = { api };
-    useWorkspacesStore.setState({ workspaces: [origin, target, other] });
-    const listed = { files: [], gitIgnoredFiles: [], emptyDirs: [], isLoading: false };
-    // ws-2's list isn't loaded here, and ws-3's links are the same.
-    useFileListStore.setState({
-      cache: new Map([
-        ['/tmp/ws-1', listed],
-        ['/tmp/ws-3', listed],
-      ]),
-    });
-
-    await useWorkspacesStore.getState().loadWorkspaces();
-
-    expect(api.listFiles.mock.calls).toEqual([['/tmp/ws-1', false]]);
   });
 
   it('assigns restarted workspace to current window when assigned to a different window', async () => {

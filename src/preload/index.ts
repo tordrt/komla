@@ -312,6 +312,12 @@ const api = {
   unlinkWorkspace: (originId: string, targetId: string): Promise<void> =>
     ipcRenderer.invoke(IPC.WORKSPACE_UNLINK, originId, targetId),
 
+  /** Each linked workspace's symlink path, relative to this workspace. */
+  getWorkspaceLinkPaths: (
+    workspaceId: string
+  ): Promise<Array<{ workspaceId: string; path: string }>> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_LINK_PATHS, workspaceId),
+
   setManualSpinner: (workspaceId: string, active: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC.WORKSPACE_SET_MANUAL_SPINNER, workspaceId, active),
 
@@ -740,7 +746,6 @@ const api = {
     files: string[];
     gitIgnoredFiles: string[];
     emptyDirs: string[];
-    managedLinkPaths?: string[];
     fileListHash?: string;
   }> => ipcRenderer.invoke(IPC.WORKSPACE_LIST_FILES, workspaceId, includeGitIgnored),
 

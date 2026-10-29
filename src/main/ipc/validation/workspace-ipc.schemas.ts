@@ -287,6 +287,7 @@ export const generateBranchNameArgsSchema = z.tuple([z.string()]);
 export const regenerateWorkspaceNameArgsSchema = z.tuple([idSchema]);
 export const workspaceLinkArgsSchema = z.tuple([idSchema, z.array(idSchema)]);
 export const workspaceUnlinkArgsSchema = z.tuple([idSchema, idSchema]);
+export const workspaceLinkPathsArgsSchema = z.tuple([idSchema]);
 export const workspaceSetManualSpinnerArgsSchema = z.tuple([idSchema, z.boolean()]);
 // Each of a workspace's browser tabs has its own forward: [workspaceId, tabId, ...].
 export const workspaceStartSshPreviewForwardArgsSchema = z.tuple([

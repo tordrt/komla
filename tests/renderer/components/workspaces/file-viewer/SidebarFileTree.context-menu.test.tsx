@@ -509,17 +509,14 @@ describe('SidebarFileTree context menu actions', () => {
     function prepareRemoteWorkspace({
       terminalStatus = 'running',
       confirmation = { kind: 'current', confirmedAt: 1 },
-      managedLinkPaths,
     }: {
       terminalStatus?: TerminalStatus;
       confirmation?: WorkspaceObservationConfirmation;
-      managedLinkPaths?: string[];
     } = {}) {
       vi.mocked(window.api.listWorkspaceFiles).mockResolvedValue({
         files: ['src/index.ts'],
         gitIgnoredFiles: [],
         emptyDirs: [],
-        ...(managedLinkPaths ? { managedLinkPaths } : {}),
       });
       useFileListStore.setState({
         cache: new Map([
@@ -529,7 +526,6 @@ describe('SidebarFileTree context menu actions', () => {
               files: ['src/index.ts'],
               gitIgnoredFiles: [],
               emptyDirs: [],
-              ...(managedLinkPaths ? { managedLinkPaths } : {}),
               isLoading: false,
             },
           ],
@@ -626,12 +622,6 @@ describe('SidebarFileTree context menu actions', () => {
       useFileViewerStore.setState({ showGitIgnoredByWorkspace: { 'workspace-1': true } });
 
       expect(await listingsDuring(5_000)).toContainEqual(['workspace-1', true]);
-    });
-
-    it('polls when the tree includes linked workspaces, which the companion does not watch', async () => {
-      prepareRemoteWorkspace({ managedLinkPaths: ['linked-workspaces/other'] });
-
-      expect(await listingsDuring(5_000)).toContainEqual(['workspace-1', false]);
     });
   });
 
@@ -774,41 +764,6 @@ describe('SidebarFileTree context menu actions', () => {
 
     expect(onDeleteFile).toHaveBeenCalledWith('src', true);
   });
-
-  it.each(['linked-workspaces/', 'linked-workspaces/peer/'])(
-    'does not offer direct deletion for the managed link path %s',
-    (path) => {
-      renderMockRowMenu = true;
-      mockDirectoryMenuPath = path;
-      useFileListStore.setState({
-        cache: new Map([
-          [
-            'ssh://ssh-dev/home/dev/repo',
-            {
-              files: ['linked-workspaces/peer/file.ts'],
-              gitIgnoredFiles: [],
-              emptyDirs: [],
-              managedLinkPaths: ['linked-workspaces/peer'],
-              isLoading: false,
-            },
-          ],
-        ]),
-      });
-
-      render(
-        <SidebarFileTree
-          workspaceId="workspace-1"
-          workingDirectory="ssh://ssh-dev/home/dev/repo"
-          isRemoteWorkspace
-          currentFile={null}
-          onFileSelect={vi.fn()}
-          onDeleteFile={vi.fn()}
-        />
-      );
-
-      expect(screen.queryByRole('menuitem', { name: /^delete$/i })).not.toBeInTheDocument();
-    }
-  );
 
   it('offers deletion for ordinary content directly under linked-workspaces', () => {
     renderMockFileRowMenu = true;
@@ -1291,39 +1246,6 @@ describe('SidebarFileTree context menu actions', () => {
     );
 
     expect(latestPaths).toEqual(['.komla-files/design.png', 'src/app.ts']);
-  });
-
-  it('re-hides cached ignored linked files while retaining their managed directory', () => {
-    useFileListStore.setState({
-      cache: new Map([
-        [
-          '/repo',
-          {
-            files: [],
-            gitIgnoredFiles: ['linked-workspaces/peer/.env'],
-            emptyDirs: [],
-            managedLinkPaths: ['linked-workspaces/peer'],
-            isLoading: false,
-          },
-        ],
-      ]),
-    });
-    useFileViewerStore.setState({ showGitIgnoredByWorkspace: { 'workspace-1': true } });
-
-    render(
-      <SidebarFileTree
-        workspaceId="workspace-1"
-        workingDirectory="/repo"
-        currentFile={null}
-        onFileSelect={vi.fn()}
-      />
-    );
-
-    expect(latestPaths).toContain('linked-workspaces/peer/.env');
-
-    act(() => useFileViewerStore.getState().toggleShowGitIgnored('workspace-1'));
-
-    expect(latestPaths).toEqual(['linked-workspaces/peer/']);
   });
 
   it('opens files by their real workspace paths from the managed section', () => {

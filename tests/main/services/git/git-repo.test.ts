@@ -396,137 +396,41 @@ describe('GitRepoService', () => {
       expect(result.gitIgnoredFiles).toEqual(['node_modules/x.js']);
     });
 
-    it('does not mark linked workspace peer files as ignored', async () => {
+    it('leaves the linked-workspaces folder out of the ignored files', async () => {
       const { gitRepoService, isGitRepoSpy, rawExecSpy, existsSync } = await setup();
       existsSync.mockReturnValue(true);
       isGitRepoSpy.mockResolvedValue(true);
       rawExecSpy
         .mockResolvedValueOnce('src/main.ts\0')
-        .mockResolvedValueOnce('node_modules/x.js\0linked-workspaces/peer\0');
+        // A Windows junction may list the linked workspace's files.
+        .mockResolvedValueOnce(
+          'node_modules/x.js\0linked-workspaces/peer\0linked-workspaces/peer/a.ts\0'
+        );
 
       const result = await gitRepoService.listFiles('/repo', true);
 
       expect(result.gitIgnoredFiles).toEqual(['node_modules/x.js']);
-      expect(result.gitIgnoredFiles).not.toContain('linked-workspaces/peer/peer/src/index.ts');
     });
 
-    it('expands linked-workspaces/<peer> symlink entries into peer contents', async () => {
-      const { gitRepoService, isGitRepoSpy, rawExecSpy, existsSync } = await setup();
+    it("leaves Komla's links to linked workspaces out, and keeps a project's own files there", async () => {
+      const { gitRepoService, isGitRepoSpy, rawExecSpy, existsSync, lstat } = await setup();
       existsSync.mockReturnValue(true);
       isGitRepoSpy.mockResolvedValue(true);
-      rawExecSpy
-        // host's ls-files: contains a single entry for the linked peer symlink
-        .mockResolvedValueOnce('src/main.ts\0linked-workspaces/peer\0')
-        // peer's isGitRepo + ls-files: peer is also a git repo with two files
-        .mockResolvedValueOnce('peer/src/index.ts\0peer/README.md\0');
-      const result = await gitRepoService.listFiles('/repo');
-      expect(result.files).toContain('src/main.ts');
-      expect(result.files).toContain('linked-workspaces/peer/peer/src/index.ts');
-      expect(result.files).toContain('linked-workspaces/peer/peer/README.md');
-      // Bare peer entry should be replaced, not retained as a file
-      expect(result.files).not.toContain('linked-workspaces/peer');
-    });
-
-    it('expands ignored linked-workspaces symlinks discovered from disk', async () => {
-      const { gitRepoService, isGitRepoSpy, rawExecSpy, existsSync } = await setup();
-      const fsPromises = (await import('fs/promises')) as unknown as {
-        readdir: ReturnType<typeof vi.fn>;
-        lstat: ReturnType<typeof vi.fn>;
-      };
-      existsSync.mockImplementation(
-        (path: string) => path === '/repo' || path === join('/repo', 'linked-workspaces')
+      // Each entry right in the folder, in order: the link, then the project's notes.
+      lstat
+        .mockResolvedValueOnce({ isSymbolicLink: () => true })
+        .mockResolvedValueOnce({ isSymbolicLink: () => false });
+      rawExecSpy.mockResolvedValueOnce(
+        'src/main.ts\0linked-workspaces/peer\0linked-workspaces/NOTES.md\0'
       );
-      fsPromises.readdir.mockResolvedValueOnce(['peer', 'notes.md']);
-      fsPromises.lstat.mockImplementation(async (path: string) => ({
-        isDirectory: () => true,
-        isFile: () => false,
-        isSymbolicLink: () => path === join('/repo', 'linked-workspaces', 'peer'),
-      }));
-      isGitRepoSpy.mockResolvedValue(true);
-      rawExecSpy
-        // Host ls-files does not include linked-workspaces because it is
-        // ignored in .git/info/exclude.
-        .mockResolvedValueOnce('src/main.ts\0')
-        .mockResolvedValueOnce('peer/src/index.ts\0');
 
       const result = await gitRepoService.listFiles('/repo');
 
-      expect(result.files).toContain('src/main.ts');
-      expect(result.files).toContain('linked-workspaces/peer/peer/src/index.ts');
-      expect(result.files).not.toContain('linked-workspaces/peer');
-      expect(result.files).not.toContain('linked-workspaces/notes.md');
-    });
-
-    it("skips a peer's own linked-workspaces children to avoid recursion", async () => {
-      const { gitRepoService, isGitRepoSpy, rawExecSpy, existsSync } = await setup();
-      existsSync.mockReturnValue(true);
-      isGitRepoSpy.mockResolvedValue(true);
-      rawExecSpy
-        .mockResolvedValueOnce('linked-workspaces/peer\0')
-        .mockResolvedValueOnce('a.ts\0linked-workspaces/other\0');
-      const result = await gitRepoService.listFiles('/repo');
-      expect(result.files).toEqual(['linked-workspaces/peer/a.ts']);
-    });
-
-    it('drops broken linked-workspaces symlink entries', async () => {
-      const { gitRepoService, isGitRepoSpy, rawExecSpy, existsSync } = await setup();
-      const fsPromises = (await import('fs/promises')) as unknown as {
-        stat: ReturnType<typeof vi.fn>;
-      };
-      existsSync.mockReturnValue(true);
-      isGitRepoSpy.mockResolvedValue(true);
-      rawExecSpy.mockResolvedValueOnce('src/main.ts\0linked-workspaces/missing-peer\0');
-      fsPromises.stat.mockRejectedValueOnce(new Error('ENOENT'));
-
-      const result = await gitRepoService.listFiles('/repo');
-
-      expect(result.files).toEqual(['src/main.ts']);
-    });
-
-    it('expands linked-workspaces symlinks for non-git directories', async () => {
-      const { gitRepoService, isGitRepoSpy, existsSync } = await setup();
-      const fsPromises = (await import('fs/promises')) as unknown as {
-        readdir: ReturnType<typeof vi.fn>;
-        lstat: ReturnType<typeof vi.fn>;
-      };
-      existsSync.mockImplementation(
-        (path: string) => path === '/repo' || path === join('/repo', 'linked-workspaces')
-      );
-      isGitRepoSpy.mockResolvedValue(false);
-      fsPromises.readdir.mockImplementation(
-        async (path: string, options?: { withFileTypes?: boolean }) => {
-          if (options?.withFileTypes) {
-            if (path === '/repo') {
-              return [
-                { name: 'src', isDirectory: () => true },
-                { name: 'linked-workspaces', isDirectory: () => true },
-              ];
-            }
-            if (path === join('/repo', 'src')) {
-              return [{ name: 'main.ts', isDirectory: () => false }];
-            }
-            if (path === join('/repo', 'linked-workspaces')) {
-              return [{ name: 'peer', isDirectory: () => false }];
-            }
-            if (path === join('/repo', 'linked-workspaces', 'peer')) {
-              return [{ name: 'README.md', isDirectory: () => false }];
-            }
-          }
-          if (path === join('/repo', 'linked-workspaces')) return ['peer'];
-          return [];
-        }
-      );
-      fsPromises.lstat.mockResolvedValue({
-        isDirectory: () => true,
-        isFile: () => false,
-        isSymbolicLink: () => true,
-      });
-
-      const result = await gitRepoService.listFiles('/repo');
-
-      expect(result.files).toContain('src/main.ts');
-      expect(result.files).toContain('linked-workspaces/peer/README.md');
-      expect(result.files).not.toContain('linked-workspaces/peer');
+      expect(result.files).toEqual(['src/main.ts', 'linked-workspaces/NOTES.md']);
+      expect(lstat.mock.calls.map(([path]) => path)).toEqual([
+        join('/repo', 'linked-workspaces', 'peer'),
+        join('/repo', 'linked-workspaces', 'NOTES.md'),
+      ]);
     });
 
     it('skips unreadable directories when listing non-git directories', async () => {

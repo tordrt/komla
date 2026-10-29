@@ -8,7 +8,6 @@ interface CachedFileList {
   files: string[];
   gitIgnoredFiles: string[];
   emptyDirs: string[];
-  managedLinkPaths?: string[];
   isLoading: boolean;
   /** When true, files may have changed since this list was fetched. A shown tree re-lists it,
    *  and anything else re-fetches it the next time it needs it. */
@@ -287,7 +286,6 @@ export const useFileListStore = create<FileListState>((set, get) => ({
           files: existing?.files ?? [],
           gitIgnoredFiles: existing?.gitIgnoredFiles ?? [],
           emptyDirs: existing?.emptyDirs ?? [],
-          managedLinkPaths: existing?.managedLinkPaths,
           fileListHash: existing?.fileListHash,
           isLoading: true,
         });
@@ -350,7 +348,6 @@ export const useFileListStore = create<FileListState>((set, get) => ({
                 ? keepIfSame(existing?.gitIgnoredFiles, result.gitIgnoredFiles)
                 : (existing?.gitIgnoredFiles ?? []),
             emptyDirs: keepIfSame(existing?.emptyDirs, emptyDirs),
-            managedLinkPaths: keepIfSame(existing?.managedLinkPaths, result.managedLinkPaths),
             fileListHash,
             isLoading: false,
             ...(staysStale ? { isStale: true, staleFileListHash: existing.staleFileListHash } : {}),
@@ -418,12 +415,10 @@ export const useFileListStore = create<FileListState>((set, get) => ({
     await state.fetchFileList(dirPath, false, workspaceId);
   },
 
-  markFileListStale: (dirPath, reportedFileListHash) => {
+  markFileListStale: (dirPath, fileListHash) => {
     set((state) => {
       const existing = state.cache.get(dirPath);
       if (!existing) return state;
-      // A fingerprint covers the workspace's own files, not those of its linked workspaces.
-      const fileListHash = existing.managedLinkPaths?.length ? undefined : reportedFileListHash;
       // A list still loading may predate the report, whatever its fingerprint.
       const listsSameFiles =
         !!fileListHash && !existing.isLoading && existing.fileListHash === fileListHash;

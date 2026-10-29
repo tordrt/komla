@@ -37,8 +37,12 @@ jobs:
       - run: npm ci
       - run: npm run format:check
         if: runner.os == 'Linux'
+      - run: npm run format:native:check
+        if: runner.os == 'Linux'
       - run: npm run lint
         if: runner.os == 'Linux'
+      # On every OS: parts of the native crate compile only on Unix or Windows.
+      - run: npm run lint:native
       # Typechecks, then runs vitest and the native Rust tests.
       - run: npm test
       # The phone web app and the protocol package it shares with the desktop app.

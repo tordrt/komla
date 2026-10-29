@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -10,7 +11,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, parse, resolve } from 'node:path';
+import { delimiter, join, parse, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -26,6 +27,50 @@ const { formatEditedFile } = require('../../../scripts/format-edited-file.cjs') 
 
 const FORMATTED = "export const a = 'a';\n";
 const UNFORMATTED = 'export const a = "a"\n';
+// Parsing `async fn` needs native/rustfmt.toml's edition, and the hooks must not
+// follow `mod b;` to a file that isn't there.
+const FORMATTED_RS = 'mod b;\n\nasync fn a() {}\n';
+const UNFORMATTED_RS = 'mod b;\n\nasync fn a(){}\n';
+
+// Without the pinned Rust toolchain, as `npm test` allows, the Rust cases are
+// skipped. The hooks never install it.
+const hasRustfmt =
+  spawnSync('rustfmt', ['--version'], {
+    cwd: resolve('native'),
+    env: { ...process.env, RUSTUP_AUTO_INSTALL: '0' },
+  }).status === 0;
+const rustfmtName = process.platform === 'win32' ? 'rustfmt.exe' : 'rustfmt';
+const pathWithoutRustfmt = (process.env.PATH ?? '')
+  .split(delimiter)
+  .filter((dir) => !existsSync(join(dir, rustfmtName)))
+  .join(delimiter);
+const MISSING_TOOLCHAIN = 'komla-missing-toolchain';
+// rustup never downloads a custom toolchain name, so this one stays missing.
+function pinMissingToolchain(dir: string): void {
+  writeFileSync(
+    join(dir, 'rust-toolchain.toml'),
+    `[toolchain]\nchannel = "${MISSING_TOOLCHAIN}"\n`
+  );
+}
+// The rustfmt on PATH is rustup's, which reads rust-toolchain.toml.
+const honorsToolchainFile = (() => {
+  const dir = mkdtempSync(join(tmpdir(), 'komla-toolchain-'));
+  try {
+    pinMissingToolchain(dir);
+    const result = spawnSync('rustfmt', ['--version'], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: { ...process.env, RUSTUP_AUTO_INSTALL: '0', RUSTUP_TOOLCHAIN: undefined },
+    });
+    return result.status !== 0 && result.stderr.includes(MISSING_TOOLCHAIN);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+})();
+// A rustfmt installed beside git or sh, as a distro package is, can't be hidden.
+const canHideRustfmt =
+  spawnSync('sh', ['-c', 'git --version'], { env: { ...process.env, PATH: pathWithoutRustfmt } })
+    .status === 0;
 
 let repo: string;
 const savedEnv = {
@@ -50,6 +95,13 @@ function linkOxfmt(root = repo): void {
   symlinkSync(resolve('node_modules/oxfmt'), join(root, 'node_modules/oxfmt'));
 }
 
+function copyRustConfig(): void {
+  mkdirSync(join(repo, 'native'), { recursive: true });
+  for (const name of ['rustfmt.toml', 'rust-toolchain.toml']) {
+    copyFileSync(resolve('native', name), join(repo, 'native', name));
+  }
+}
+
 function read(path: string): string {
   return readFileSync(join(repo, path), 'utf8');
 }
@@ -58,8 +110,12 @@ function edited(filePath: string): { tool_input: { file_path: string } } {
   return { tool_input: { file_path: filePath } };
 }
 
-function runPreCommit(): { status: number | null; output: string } {
-  const result = spawnSync('sh', [preCommit], { cwd: repo, encoding: 'utf8', env: gitEnv });
+function runPreCommit(env: NodeJS.ProcessEnv = {}): { status: number | null; output: string } {
+  const result = spawnSync('sh', [preCommit], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: { ...gitEnv, ...env },
+  });
   return { status: result.status, output: result.stdout + result.stderr };
 }
 
@@ -176,6 +232,137 @@ describe('pre-commit hook', () => {
     expect(status).toBe(0);
     expect(output).toContain('skipped the format check');
   });
+
+  it.skipIf(!hasRustfmt)('rejects a staged native/ Rust file that is not formatted', () => {
+    copyRustConfig();
+    write('native/src/a.rs', UNFORMATTED_RS);
+    git('add', 'native');
+
+    const { status, output } = runPreCommit();
+
+    expect(status).toBe(1);
+    expect(output).toContain('native/src/a.rs');
+    expect(output).toContain('npm run format:native');
+  });
+
+  it.skipIf(!hasRustfmt)('accepts staged native/ Rust files that are formatted', () => {
+    copyRustConfig();
+    write('native/src/a.rs', FORMATTED_RS);
+    write('native/tests/é and space.rs', FORMATTED_RS);
+    git('add', 'native');
+
+    expect(runPreCommit().status).toBe(0);
+  });
+
+  it.skipIf(!hasRustfmt)('checks the staged Rust contents, not the file on disk', () => {
+    copyRustConfig();
+    write('native/src/a.rs', UNFORMATTED_RS);
+    git('add', 'native');
+    write('native/src/a.rs', FORMATTED_RS);
+
+    expect(runPreCommit().status).toBe(1);
+  });
+
+  it.skipIf(!hasRustfmt || process.platform === 'win32')(
+    'handles Rust paths git would quote',
+    () => {
+      copyRustConfig();
+      write('native/tests/a"b\tc.rs', UNFORMATTED_RS);
+      git('add', 'native');
+
+      const { status, output } = runPreCommit();
+
+      expect(status).toBe(1);
+      expect(output).toContain('native/tests/a"b\tc.rs is not formatted');
+    }
+  );
+
+  it.skipIf(!hasRustfmt)(
+    "rejects a staged Rust file that does not parse, with rustfmt's error",
+    () => {
+      copyRustConfig();
+      write('native/src/a.rs', 'fn a( {}\n');
+      git('add', 'native');
+
+      const { status, output } = runPreCommit();
+
+      expect(status).toBe(1);
+      expect(output).toContain('rustfmt could not check native/src/a.rs');
+      expect(output).toContain('error');
+    }
+  );
+
+  it.skipIf(!hasRustfmt)('checks Rust files when dependencies are not installed', () => {
+    copyRustConfig();
+    write('src/a.ts', FORMATTED);
+    write('native/src/a.rs', UNFORMATTED_RS);
+    git('add', '.');
+
+    const { status, output } = runPreCommit();
+
+    expect(status).toBe(1);
+    expect(output).toContain('skipped the format check');
+    expect(output).toContain('native/src/a.rs');
+  });
+
+  it.skipIf(!hasRustfmt)('rejects when either src/ or native/ is not formatted', () => {
+    linkOxfmt();
+    copyRustConfig();
+    write('src/a.ts', UNFORMATTED);
+    write('native/src/a.rs', FORMATTED_RS);
+    git('add', '.');
+
+    const { status, output } = runPreCommit();
+
+    expect(status).toBe(1);
+    expect(output).toContain('npm run format`');
+    expect(output).not.toContain('npm run format:native');
+  });
+
+  it.skipIf(!honorsToolchainFile)(
+    'allows the commit when the pinned toolchain is not installed, and says so',
+    () => {
+      copyRustConfig();
+      pinMissingToolchain(join(repo, 'native'));
+      write('native/src/a.rs', UNFORMATTED_RS);
+      write('native/src/b.rs', UNFORMATTED_RS);
+      git('add', 'native');
+
+      const { status, output } = runPreCommit();
+
+      expect(status).toBe(0);
+      expect(output.match(/skipped the Rust format check/g)).toHaveLength(1);
+      expect(output).toContain(MISSING_TOOLCHAIN);
+    }
+  );
+
+  it.skipIf(!hasRustfmt)('skips staged Rust symlinks', () => {
+    copyRustConfig();
+    write('native/src/a.rs', FORMATTED_RS);
+    // As on Windows, the checkout writes the symlink as a file holding its target.
+    git('config', 'core.symlinks', 'false');
+    // Staged without a symlink on disk, so it runs where symlinks need privileges.
+    const target = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+      cwd: repo,
+      input: 'missing.rs',
+      encoding: 'utf8',
+      env: gitEnv,
+    }).trim();
+    git('add', 'native');
+    git('update-index', '--add', '--cacheinfo', `120000,${target},native/src/link.rs`);
+
+    expect(runPreCommit().status).toBe(0);
+  });
+
+  it.skipIf(!canHideRustfmt)('allows the commit when rustfmt is not installed, and says so', () => {
+    write('native/src/a.rs', UNFORMATTED_RS);
+    git('add', 'native');
+
+    const { status, output } = runPreCommit({ PATH: pathWithoutRustfmt });
+
+    expect(status).toBe(0);
+    expect(output).toContain('skipped the Rust format check');
+  });
 });
 
 describe('installGitHooks', () => {
@@ -285,6 +472,60 @@ describe('Claude Code format hook', () => {
     write('src/a.ts', UNFORMATTED);
 
     expect(formatEditedFile(edited(join(repo, 'src/a.ts')), repo)).toContain('npm run format');
+  });
+
+  it.skipIf(!hasRustfmt)('formats an edited native/ Rust file', () => {
+    copyRustConfig();
+    write('native/src/a.rs', UNFORMATTED_RS);
+
+    expect(formatEditedFile(edited(join(repo, 'native/src/a.rs')), repo)).toBeNull();
+    expect(read('native/src/a.rs')).toBe(FORMATTED_RS);
+  });
+
+  it('leaves Rust files outside native/ alone', () => {
+    write('src/a.rs', UNFORMATTED_RS);
+
+    expect(formatEditedFile(edited(join(repo, 'src/a.rs')), repo)).toBeNull();
+    expect(read('src/a.rs')).toBe(UNFORMATTED_RS);
+  });
+
+  it.skipIf(!hasRustfmt)("tells the agent when rustfmt can't parse the file", () => {
+    copyRustConfig();
+    write('native/src/a.rs', 'fn a( {}\n');
+
+    expect(formatEditedFile(edited(join(repo, 'native/src/a.rs')), repo)).toContain(
+      `rustfmt couldn't format ${join('native', 'src', 'a.rs')}`
+    );
+    expect(read('native/src/a.rs')).toBe('fn a( {}\n');
+  });
+
+  it.skipIf(!honorsToolchainFile)(
+    'tells the agent when the pinned toolchain is not installed',
+    () => {
+      copyRustConfig();
+      pinMissingToolchain(join(repo, 'native'));
+      write('native/src/a.rs', UNFORMATTED_RS);
+
+      const problem = formatEditedFile(edited(join(repo, 'native/src/a.rs')), repo);
+
+      expect(problem).toContain("rustup can't run rustfmt in native/");
+      expect(problem).toContain(MISSING_TOOLCHAIN);
+      expect(read('native/src/a.rs')).toBe(UNFORMATTED_RS);
+    }
+  );
+
+  it.skipIf(!canHideRustfmt)('tells the agent when rustfmt is not installed', () => {
+    write('native/src/a.rs', UNFORMATTED_RS);
+
+    const result = spawnSync(process.execPath, [formatHook], {
+      input: JSON.stringify(edited('native/src/a.rs')),
+      encoding: 'utf8',
+      env: { ...process.env, CLAUDE_PROJECT_DIR: repo, PATH: pathWithoutRustfmt },
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("rustfmt isn't installed");
+    expect(read('native/src/a.rs')).toBe(UNFORMATTED_RS);
   });
 
   it("tells the agent when the formatter can't parse the file", () => {

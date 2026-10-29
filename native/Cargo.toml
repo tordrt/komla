@@ -29,6 +29,15 @@ tungstenite = { version = "=0.24.0", default-features = false, features = ["hand
 [dev-dependencies]
 tempfile = "=3.14.0"
 
+# On top of clippy's defaults. `npm run lint:native` fails on any warning.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
 # Six of these binaries ship in every installer and upload to SSH hosts.
 [profile.release]
 strip = true

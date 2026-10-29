@@ -724,7 +724,10 @@ fn tags_reaches_komla_from_the_installed_cli() {
         .unwrap();
     // A CLI that never reaches Komla leaves the server waiting, so check it first.
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "Blocked  (error)\n");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "Blocked  (error)\n"
+    );
     let request = String::from_utf8(server.join().unwrap()).unwrap();
     assert!(request.ends_with(r#"{"type":"tag.list"}"#), "{request}");
 }

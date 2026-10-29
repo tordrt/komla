@@ -4800,7 +4800,7 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
         for (args, path) in [
             (vec!["open"], cwd.join(".")),
             (vec!["open", "notes", "--json"], cwd.join("notes")),
-            (vec!["open", "/tmp/notes"], cwd.join("/tmp/notes")),
+            (vec!["open", "/tmp/notes"], PathBuf::from("/tmp/notes")),
         ] {
             let path = path.to_string_lossy();
             let mut api =

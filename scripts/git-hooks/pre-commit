@@ -1,7 +1,7 @@
 #!/bin/sh
-# Rejects a commit whose staged src/ files aren't formatted, as CI would.
-# Lint and tests stay in CI and AGENTS.md: they are too slow for every commit.
-# It checks the staged contents, not the files on disk, and
+# Rejects a commit whose staged src/ or native/ files aren't formatted, as CI
+# would. Lint and tests stay in CI and AGENTS.md: they are too slow for every
+# commit. It checks the staged contents, not the files on disk, and
 # `git commit --no-verify` skips it. scripts/install-git-hooks.cjs turns it on
 # during `npm install`.
 
@@ -9,20 +9,68 @@ root=$(pwd)
 staged=$(mktemp -d) || exit 1
 trap 'rm -rf "$staged"' EXIT
 trap 'exit 1' INT TERM HUP
+status=0
 
 git diff --cached --name-only --diff-filter=ACMR -z -- \
   'src/*.ts' 'src/*.tsx' 'src/*.css' 'src/*.json' >"$staged/.files" || exit 1
-[ -s "$staged/.files" ] || exit 0
-
 oxfmt="$root/node_modules/.bin/oxfmt"
-if [ ! -x "$oxfmt" ]; then
+if [ ! -s "$staged/.files" ]; then
+  :
+elif [ ! -x "$oxfmt" ]; then
   echo 'pre-commit: skipped the format check, as dependencies are not installed here.' >&2
-  exit 0
+else
+  # Without line-ending conversion, the copies match the blobs CI checks.
+  git -c core.autocrlf=false -c core.eol=lf checkout-index -z --stdin --prefix="$staged/" \
+    <"$staged/.files" || exit 1
+  if ! (cd "$staged" && "$oxfmt" --check -c "$root/.oxfmtrc.json" src); then
+    echo 'pre-commit: these staged files are not formatted. Run `npm run format`, stage the result, and commit again.' >&2
+    status=1
+  fi
 fi
 
-# Without line-ending conversion, the copies match the blobs CI checks.
-git -c core.autocrlf=false -c core.eol=lf checkout-index -z --stdin --prefix="$staged/" \
-  <"$staged/.files" || exit 1
-(cd "$staged" && "$oxfmt" --check -c "$root/.oxfmtrc.json" src) && exit 0
-echo 'pre-commit: these staged files are not formatted. Run `npm run format`, stage the result, and commit again.' >&2
-exit 1
+git diff --cached --name-only --diff-filter=ACMR -z -- 'native/*.rs' >"$staged/.rust" || exit 1
+# Runs rustfmt on each staged copy, on stdin, so it doesn't follow `mod`
+# declarations to files that aren't staged. It skips staged symlinks, which a
+# checkout without symlink support writes as plain files. $1 is the staging
+# directory and $2 the repository.
+check_rust='
+  out=$1
+  repo=$2
+  shift 2
+  status=0
+  for file; do
+    name=${file#"$out/rust/"}
+    mode=$(git -C "$repo" ls-files -s -- ":(literal)$name" | cut -c1-6)
+    if [ "$mode" = 120000 ]; then
+      continue
+    elif ! rustfmt <"$file" >"$out/.formatted" 2>"$out/.errors"; then
+      printf "pre-commit: rustfmt could not check %s:\n" "$name" >&2
+      cat "$out/.errors" >&2
+      status=1
+    elif ! cmp -s "$file" "$out/.formatted"; then
+      printf "pre-commit: %s is not formatted.\n" "$name" >&2
+      status=1
+    fi
+  done
+  exit "$status"'
+# From native/, rustup picks the pinned toolchain and rustfmt reads
+# native/rustfmt.toml. RUSTUP_AUTO_INSTALL=0 keeps rustup 1.28.1 and later
+# from installing the toolchain mid-commit.
+export RUSTUP_AUTO_INSTALL=0
+if [ ! -s "$staged/.rust" ]; then
+  :
+elif ! command -v rustfmt >/dev/null 2>&1; then
+  echo 'pre-commit: skipped the Rust format check, as rustfmt is not installed.' >&2
+elif ! probe=$(cd "$root/native" && rustfmt --version 2>&1); then
+  printf "pre-commit: skipped the Rust format check, as rustfmt can't run in native/:\n%s\n" "$probe" >&2
+else
+  git -c core.autocrlf=false -c core.eol=lf checkout-index -z --stdin --prefix="$staged/rust/" \
+    <"$staged/.rust" || exit 1
+  if ! (cd "$root/native" && find "$staged/rust" -name '*.rs' \
+    -exec sh -c "$check_rust" sh "$staged" "$root" {} +); then
+    echo 'pre-commit: Run `npm run format:native`, stage the result, and commit again.' >&2
+    status=1
+  fi
+fi
+
+exit "$status"

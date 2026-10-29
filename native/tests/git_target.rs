@@ -127,6 +127,7 @@ impl Repo {
         }
         assert!(!self.bare.join("komla-target-operation.lock").exists());
     }
+    #[cfg(unix)]
     fn run_with_path(&self, action: &str, path: &str) -> Value {
         let output = Command::new(env!("CARGO_BIN_EXE_komla"))
             .args([
@@ -262,6 +263,7 @@ impl Repo {
             std::env::var("PATH").unwrap_or_default()
         )
     }
+    #[cfg(unix)]
     fn sync_command(&self, path: &str) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_komla"));
         command

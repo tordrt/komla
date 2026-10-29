@@ -833,6 +833,7 @@ pub(crate) fn shell_quote(value: &str) -> String {
 }
 
 /// What a plain shell tab runs inside the login flow: the user's interactive shell.
+#[cfg(unix)]
 pub(crate) const SHELL_COMMAND: &str =
     r#"if [ -x "${SHELL:-/bin/bash}" ]; then exec "${SHELL:-/bin/bash}" -i; fi; exec /bin/sh -i"#;
 

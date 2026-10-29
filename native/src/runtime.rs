@@ -756,10 +756,11 @@ mod tests {
     #[cfg(unix)]
     use std::time::{Duration, Instant};
 
+    #[cfg(unix)]
+    use komla::FileListFingerprint;
     use komla::{
-        BranchObservation, CompanionSnapshotPayload, FileListFingerprint, RepositoryEventFilter,
-        RepositorySnapshot, RepositoryWatchPaths, SnapshotDebounce, MAX_CHANGED_PATHS,
-        NAMES_CHANGED_PATHS,
+        BranchObservation, CompanionSnapshotPayload, RepositoryEventFilter, RepositorySnapshot,
+        RepositoryWatchPaths, SnapshotDebounce, MAX_CHANGED_PATHS, NAMES_CHANGED_PATHS,
     };
     use tempfile::tempdir;
 

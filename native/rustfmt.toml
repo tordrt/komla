@@ -1,0 +1,3 @@
+# rustfmt reads the edition from Cargo.toml only under `cargo fmt`. The format
+# hooks and editors run it on its own, where it would default to Rust 2015.
+edition = "2021"

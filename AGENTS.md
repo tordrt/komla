@@ -15,6 +15,7 @@ Before finishing, run every check the changed scopes require. Run commands from 
 
 - Desktop, shared, or root tooling changes: run `npm test`. It type-checks `src/` first; `npm run typecheck` runs only that step.
 - Changes under `src/`: also run `npm run format` and `npm run lint`. CI fails on unformatted code and on lint errors. Claude Code formats each `src/` file it edits through a hook in `.claude/settings.json`, and a pre-commit hook in `scripts/git-hooks/` rejects unformatted staged `src/` files.
+- Changes under `native/`: also run `npm run format:native` and `npm run lint:native`. CI fails on unformatted Rust and on any clippy warning. The same Claude Code hook formats each `native/` Rust file it edits, and the pre-commit hook rejects unformatted staged ones.
 - Changes under `packages/` or `remote-web/`: also run that workspace's own `npm test`.
 - End-to-end behavior: follow `e2e/AGENTS.md`; `npm run test:e2e` builds before running Playwright.
 - Release validation or a broad cross-process change: run `npm run smoke-test`.

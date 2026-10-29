@@ -316,7 +316,7 @@ pub(crate) fn create_workspace_from(
         );
     }
 
-    let workspace_id = random_uuid()?;
+    let workspace_id = random_workspace_id()?;
     let terminal_id = random_uuid()?;
     let name = request
         .name
@@ -714,11 +714,42 @@ pub(crate) fn write_manifest(
         .context("could not publish the workspace manifest")
 }
 
-pub(crate) fn random_uuid() -> anyhow::Result<String> {
-    let mut bytes = [0_u8; 16];
+fn random_bytes<const N: usize>() -> anyhow::Result<[u8; N]> {
+    let mut bytes = [0_u8; N];
     fs::File::open("/dev/urandom")
         .and_then(|mut source| source.read_exact(&mut bytes))
         .context("could not read random bytes")?;
+    Ok(bytes)
+}
+
+/// As createWorkspaceId in Komla's main/lib/workspace-id.ts.
+pub(crate) fn random_workspace_id() -> anyhow::Result<String> {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    const LETTERS: usize = 26;
+    const LENGTH: usize = 10;
+    let mut id = String::with_capacity(LENGTH);
+    loop {
+        for byte in random_bytes::<32>()? {
+            let choices = if id.is_empty() {
+                LETTERS
+            } else {
+                ALPHABET.len()
+            };
+            let byte = usize::from(byte);
+            // Bytes past the last whole multiple of the choices are dropped, so every
+            // character is as likely.
+            if byte < 256 - 256 % choices {
+                id.push(char::from(ALPHABET[byte % choices]));
+                if id.len() == LENGTH {
+                    return Ok(id);
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn random_uuid() -> anyhow::Result<String> {
+    let mut bytes = random_bytes::<16>()?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -1083,6 +1114,20 @@ pub(crate) mod tests {
 
     // Offline workspaces live on Linux and macOS hosts, so a source must be a POSIX path.
 
+    #[test]
+    fn makes_workspace_ids_of_ten_lowercase_letters_and_digits_starting_with_a_letter() {
+        for _ in 0..1000 {
+            let id = random_workspace_id().unwrap();
+            assert_eq!(id.len(), 10, "{id}");
+            assert!(id.as_bytes()[0].is_ascii_lowercase(), "{id}");
+            assert!(
+                id.bytes()
+                    .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase()),
+                "{id}"
+            );
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn creates_a_sibling_workspace_and_asks_the_next_device_to_add_it() {
@@ -1097,6 +1142,12 @@ pub(crate) mod tests {
         )
         .unwrap();
 
+        assert_eq!(created.workspace_id.len(), 10);
+        assert!(created.workspace_id.as_bytes()[0].is_ascii_lowercase());
+        assert!(created
+            .workspace_id
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte.is_ascii_lowercase()));
         assert_eq!(created.branch, "fix-the-login-redirect-it");
         assert_eq!(created.name, "Fix The Login Redirect It");
         assert!(created.path.join("README.md").exists());

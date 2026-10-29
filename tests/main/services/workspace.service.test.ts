@@ -2142,6 +2142,18 @@ describe('WorkspaceService', () => {
       order: 0,
     };
 
+    it('gives a new workspace a short id', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const created = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir1',
+      });
+
+      expect(created.id).toMatch(/^[a-z][0-9a-z]{9}$/);
+    });
+
     it('drops browser tabs that are not web pages in update()', async () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
 

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'crypto';
+import { randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { realpath, stat } from 'fs/promises';
 import { join, basename, dirname, posix as pathPosix, resolve, sep } from 'path';
@@ -83,6 +83,7 @@ import {
   onTerminalProgramStatus,
   onTerminalTitle,
 } from '../lib/terminal-notification-events';
+import { createWorkspaceId } from '../lib/workspace-id';
 
 import { actionService } from './action.service';
 import { agentPresetService } from './agent-preset.service';
@@ -2810,7 +2811,7 @@ class WorkspaceService {
     } = args;
     const appConfig = configService.get();
     return {
-      id: randomUUID(),
+      id: createWorkspaceId(),
       name: params.name || 'Workspace',
       customName: params.customName,
       customDescription: params.customDescription,
@@ -2895,7 +2896,7 @@ class WorkspaceService {
 
     const placeholderBranchedFrom = computeBranchedFrom(params, project);
     const workspace: Workspace = {
-      id: randomUUID(),
+      id: createWorkspaceId(),
       name: params.name || 'Workspace',
       customName: params.customName,
       customDescription: params.customDescription,
@@ -3029,7 +3030,7 @@ class WorkspaceService {
     }
 
     const workspace: Workspace = {
-      id: randomUUID(),
+      id: createWorkspaceId(),
       name:
         params.name || (providedBranch ? branchSuffixToName(initialPlan.branchName) : 'Workspace'),
       customName: params.customName,

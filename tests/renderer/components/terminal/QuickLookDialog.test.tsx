@@ -6,10 +6,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const editor = vi.hoisted(() => ({ revealLineInCenter: vi.fn(), setPosition: vi.fn() }));
-// The files the files dropdown lists, which the sidebar lists first.
-const terminalFiles = vi.hoisted(() => ({
-  listed: { opened: [] as unknown[], mentioned: [] as unknown[] },
-}));
+// The files from terminals, the latest opened or printed first, which the sidebar lists first.
+const terminalFiles = vi.hoisted(() => ({ listed: [] as unknown[] }));
 
 vi.mock('../../../../src/renderer/components/terminal/terminal-files', () => ({
   rememberTerminalFiles: () => {},
@@ -87,19 +85,20 @@ function renderViewer() {
   );
 }
 
-/** Lists the files as opened from terminals, the latest first, and shows the first. */
+/** Lists the files as from terminals, the latest first, and shows the first. */
 function openViewer(items: QuickLookItem[]) {
-  terminalFiles.listed = { opened: items, mentioned: [] };
+  terminalFiles.listed = items;
   act(() => useQuickLookStore.getState().open('ws-1', items[0]));
 }
 
 const sidebarList = (name: string) =>
   within(screen.getByRole('navigation', { name: 'Files' })).getByRole('region', { name });
 
-/** A sidebar folder's rows, top to bottom: a file's name, and when it was modified if listed. */
+/** A sidebar section's rows, top to bottom: a file's name, and when it was modified if listed. */
 const sidebarRows = (name: string) =>
-  within(within(sidebarList(name)).getByRole('list'))
-    .getAllByRole('button')
+  within(sidebarList(name))
+    .getAllByRole('list')
+    .flatMap((list) => within(list).getAllByRole('button'))
     .map((button) => [...button.children].map((child) => child.textContent).filter(Boolean));
 
 describe('QuickLookDialog', () => {
@@ -107,7 +106,7 @@ describe('QuickLookDialog', () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     useQuickLookStore.setState(useQuickLookStore.getInitialState(), true);
-    terminalFiles.listed = { opened: [], mentioned: [] };
+    terminalFiles.listed = [];
     api.readViewerFile.mockImplementation(
       async (_workspaceId: string, _terminalId: string, source: QuickLookItem['source']) => ({
         data: base64(source.kind === 'workspace' ? source.filePath : source.fullPath),
@@ -157,7 +156,7 @@ describe('QuickLookDialog', () => {
     expect(screen.getByRole('dialog')).toHaveFocus();
   });
 
-  it('lists the opened files, then the rest of the folder on screen', async () => {
+  it('lists the recent files, then the rest of the folder on screen', async () => {
     api.listViewerFolder.mockResolvedValue(listing('c.png', 'a.png', 'notes.md'));
     renderViewer();
     openViewer(images);
@@ -171,9 +170,9 @@ describe('QuickLookDialog', () => {
       within(nav)
         .getAllByRole('region')
         .map((region) => region.ariaLabel)
-    ).toEqual(['Opened', 'shots']);
-    // Each opened file with its folder, the latest first.
-    expect(sidebarRows('Opened')).toEqual([
+    ).toEqual(['Recent', 'shots']);
+    // Each recent file with its folder, the latest first.
+    expect(sidebarRows('Recent')).toEqual([
       ['a.png', '/tmp/shots/'],
       ['b.png', 'out/'],
     ]);
@@ -188,7 +187,7 @@ describe('QuickLookDialog', () => {
     ]);
   });
 
-  it('steps down the opened files, then the folder of the file on screen', async () => {
+  it('steps down the recent files, then the folder of the file on screen', async () => {
     api.listViewerFolder.mockImplementation(
       async (_workspaceId: string, _terminalId: string, source: QuickLookItem['source']) =>
         source.kind === 'workspace' ? listing('d.png', 'b.png') : listing('c.png', 'a.png')
@@ -200,7 +199,7 @@ describe('QuickLookDialog', () => {
     await within(sidebarList('shots')).findByRole('button', { name: 'c.png' });
     expect(screen.queryByRole('button', { name: 'Previous file' })).not.toBeInTheDocument();
 
-    // Into the next opened file, whose folder then lists its other files.
+    // Into the next recent file, whose folder then lists its other files.
     await user.keyboard('{ArrowRight}');
     expect(await screen.findByRole('img', { name: 'b.png' })).toBeInTheDocument();
     expect(api.readViewerFile).toHaveBeenCalledWith('ws-1', 'term-1', images[1].source);
@@ -309,10 +308,10 @@ describe('QuickLookDialog', () => {
     await user.keyboard('{ArrowUp}');
     expect(row('c.png')).toHaveFocus();
 
-    // Up into the opened files, and on into another folder, which no longer lists the file left.
+    // Up into the recent files, and on into another folder, which no longer lists the file left.
     await user.keyboard('{ArrowUp}');
     expect(await screen.findByRole('img', { name: 'b.png' })).toBeInTheDocument();
-    expect(within(sidebarList('Opened')).getByRole('button', { name: 'b.png' })).toHaveFocus();
+    expect(within(sidebarList('Recent')).getByRole('button', { name: 'b.png' })).toHaveFocus();
   });
 
   it('shows 8 of a long folder, and more to reach the file on screen', async () => {
@@ -337,6 +336,29 @@ describe('QuickLookDialog', () => {
 
     await user.click(within(sidebarList('shots')).getByRole('button', { name: 'Show 2 more…' }));
     expect(sidebarRows('shots')).toHaveLength(11);
+  });
+
+  it('keeps a folder with many subfolders from hiding its files', async () => {
+    const folders = Array.from({ length: 10 }, (_, index) => `d${index}/`);
+    const files = Array.from({ length: 11 }, (_, index) => `f${index}.png`);
+    api.listViewerFolder.mockResolvedValue(listing(...folders, ...files));
+    const user = userEvent.setup();
+    renderViewer();
+    openViewer([terminalItem('/tmp/shots/f10.png')]);
+    await within(sidebarList('shots')).findByRole('button', { name: 'f0.png' });
+    const names = () => sidebarRows('shots').map(([name]) => name);
+
+    // 8 of its files, then 8 of its subfolders, each list with its own way to show the rest.
+    expect(names()).toEqual([
+      ...files.slice(0, 8),
+      ...folders.slice(0, 8).map((folder) => folder.slice(0, -1)),
+    ]);
+    await user.click(within(sidebarList('shots')).getByRole('button', { name: 'Show 2 more…' }));
+    expect(names()).toHaveLength(10 + 8);
+    await user.click(
+      within(sidebarList('shots')).getByRole('button', { name: 'Show 2 more folders…' })
+    );
+    expect(names()).toHaveLength(10 + 10);
   });
 
   it('hides the sidebar with its button or Cmd+B, and remembers that', async () => {
@@ -412,18 +434,15 @@ describe('QuickLookDialog', () => {
     expect(
       (await within(contents).findAllByRole('button')).map((button) => button.textContent)
     ).toEqual(['beforenow', 'grid.png1m']);
-    // The folder heads its section in the sidebar, which lists its files, its folders folded.
-    expect(sidebarRows('shots')).toEqual([['grid.png', '1m']]);
+    // The folder heads its section in the sidebar, which lists its files, then its folders.
+    expect(sidebarRows('shots')).toEqual([
+      ['grid.png', '1m'],
+      ['before', 'now'],
+    ]);
     expect(screen.getByRole('button', { name: 'Show shots' })).toHaveAttribute(
       'aria-current',
       'true'
     );
-    await user.click(within(sidebarList('shots')).getByRole('button', { name: '1 folder' }));
-    expect(
-      within(screen.getByRole('list', { name: 'Folders in shots' })).getByRole('button', {
-        name: 'before',
-      })
-    ).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Open in file panel' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Show in File Manager' }));
     expect(api.showItemInFolder).toHaveBeenCalledWith('/tmp/shots/');
@@ -440,10 +459,32 @@ describe('QuickLookDialog', () => {
     });
 
     // The folder opened from the link stays in the sidebar, to go back to.
-    await user.click(within(sidebarList('Opened')).getByRole('button', { name: 'shots' }));
+    await user.click(within(sidebarList('Recent')).getByRole('button', { name: 'shots' }));
     expect(await screen.findByRole('list', { name: 'Contents of shots' })).toBeVisible();
     await user.keyboard('{ArrowRight}');
     expect(await screen.findByRole('img', { name: 'grid.png' })).toBeInTheDocument();
+  });
+
+  it('goes up to the folder a folder is in, but not above the workspace', async () => {
+    api.listViewerFolder.mockImplementation(
+      async (_workspaceId: string, _terminalId: string, source: QuickLookItem['source']) =>
+        source.kind === 'workspace' && source.filePath === 'src/'
+          ? listing('app/', 'main.ts')
+          : listing('index.ts')
+    );
+    const user = userEvent.setup();
+    renderViewer();
+    openViewer([workspaceItem('src/app/index.ts')]);
+
+    await user.click(await screen.findByRole('button', { name: 'Up to src' }));
+
+    expect(await screen.findByRole('list', { name: 'Contents of src' })).toBeVisible();
+    expect(api.listViewerFolder).toHaveBeenLastCalledWith('ws-1', 'term-1', {
+      kind: 'workspace',
+      filePath: 'src/',
+    });
+    // The workspace itself is no folder to show.
+    expect(screen.queryByRole('button', { name: /^Up to/ })).not.toBeInTheDocument();
   });
 
   it('says when a folder has nothing the viewer can show', async () => {

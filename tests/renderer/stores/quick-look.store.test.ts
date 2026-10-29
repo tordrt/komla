@@ -37,16 +37,13 @@ describe('quick-look.store', () => {
     useQuickLookStore.setState(useQuickLookStore.getInitialState(), true);
   });
 
-  it('lists the opened files, then the rest of the folder on screen', async () => {
+  it('lists the recent files, then the rest of the folder on screen', async () => {
     listViewerFolder.mockResolvedValue(listing('b.png', 'a.png'));
-    const listed = {
-      opened: [
-        terminalItem('/tmp/out/a.png'),
-        terminalItem('/tmp/out/build.zip'),
-        terminalItem('/tmp/other/x.png'),
-      ],
-      mentioned: [],
-    };
+    const listed = [
+      terminalItem('/tmp/out/a.png'),
+      terminalItem('/tmp/out/build.zip'),
+      terminalItem('/tmp/other/x.png'),
+    ];
     const { open } = useQuickLookStore.getState();
     open('ws-1', terminalItem('/tmp/out/a.png'));
     await vi.waitFor(() => expect(useQuickLookStore.getState().folder?.status).toBe('loaded'));
@@ -54,13 +51,13 @@ describe('quick-look.store', () => {
     const paths = () => {
       const sections = quickLookSidebar(useQuickLookStore.getState(), listed);
       return {
-        opened: sections?.opened.map((item) => item.path),
+        recent: sections?.recent.map((item) => item.path),
         folder: sections?.folder.files.map((item) => item.path),
       };
     };
     // The folder lists what the sections above don't.
     expect(paths()).toEqual({
-      opened: ['/tmp/out/a.png', '/tmp/out/build.zip', '/tmp/other/x.png'],
+      recent: ['/tmp/out/a.png', '/tmp/out/build.zip', '/tmp/other/x.png'],
       folder: ['/tmp/out/b.png'],
     });
 
@@ -69,19 +66,21 @@ describe('quick-look.store', () => {
     expect(paths().folder).toEqual(['/tmp/out/build.tar', '/tmp/out/b.png']);
   });
 
-  it('lists the files from terminals as the files dropdown does, each once', () => {
+  it('lists the files from terminals each once', () => {
     useQuickLookStore.getState().open('ws-1', terminalItem('/tmp/other/x.png'));
 
-    const sections = quickLookSidebar(useQuickLookStore.getState(), {
-      opened: [terminalItem('/tmp/out/a.png'), terminalItem('/tmp/other/x.png')],
-      mentioned: [terminalItem('/tmp/other/x.png'), terminalItem('/tmp/out/b.png')],
-    });
+    const sections = quickLookSidebar(useQuickLookStore.getState(), [
+      terminalItem('/tmp/out/a.png'),
+      terminalItem('/tmp/other/x.png'),
+      terminalItem('/tmp/other/x.png'),
+      terminalItem('/tmp/out/b.png'),
+    ]);
 
-    expect(sections?.opened.map((item) => item.path)).toEqual([
+    expect(sections?.recent.map((item) => item.path)).toEqual([
       '/tmp/out/a.png',
       '/tmp/other/x.png',
+      '/tmp/out/b.png',
     ]);
-    expect(sections?.mentioned.map((item) => item.path)).toEqual(['/tmp/out/b.png']);
     // The file on screen is listed above, so its folder doesn't list it again.
     expect(sections?.folder.files).toEqual([]);
   });
@@ -152,13 +151,41 @@ describe('quick-look.store', () => {
       expect(useQuickLookStore.getState().folder?.items[0]?.path).toBe('/tmp/shots/before/a.png')
     );
 
-    const sections = quickLookSidebar(useQuickLookStore.getState(), {
-      opened: [terminalItem('/tmp/shots/')],
-      mentioned: [],
-    });
-    expect(sections?.opened.map((item) => item.path)).toEqual(['/tmp/shots/']);
+    const sections = quickLookSidebar(useQuickLookStore.getState(), [terminalItem('/tmp/shots/')]);
+    expect(sections?.recent.map((item) => item.path)).toEqual(['/tmp/shots/']);
     expect(sections?.folder.folder.path).toBe('/tmp/shots/before/');
     expect(sections?.folder.files.map((item) => item.path)).toEqual(['/tmp/shots/before/a.png']);
+  });
+
+  it('goes up from a folder as its path was printed, and stops at the top', () => {
+    const { open } = useQuickLookStore.getState();
+    const parentOf = (item: QuickLookItem) => {
+      open('ws-1', item);
+      return quickLookSidebar(useQuickLookStore.getState())?.folder.parent;
+    };
+    const workspaceItem = (path: string, filePath: string): QuickLookItem => ({
+      path,
+      terminalId: 'term-1',
+      source: { kind: 'workspace', filePath },
+    });
+
+    expect(parentOf({ ...terminalItem('/tmp/out/a.png'), path: '~/out/a.png' })).toEqual({
+      path: '~/',
+      terminalId: 'term-1',
+      source: { kind: 'terminal', fullPath: '/tmp/' },
+      hostPath: '/tmp/',
+    });
+    // A relative path that runs out of folders goes on with the full one.
+    expect(parentOf({ ...terminalItem('/tmp/out/a.png'), path: 'out/a.png' })?.path).toBe('/tmp/');
+    expect(parentOf(terminalItem('/a.png'))).toBeNull();
+    // A terminal keeps ~/ as printed, so the home folder is as far up as it goes.
+    expect(parentOf({ ...terminalItem('~/a.png'), path: '~/a.png' })).toBeNull();
+    // A printed Windows path goes up by its own separators.
+    expect(parentOf(workspaceItem('src\\app\\a.ts', 'src/app/a.ts'))).toEqual(
+      workspaceItem('src\\', 'src/')
+    );
+    // The workspace is no folder path, so a top-level folder has nowhere to go up to.
+    expect(parentOf(workspaceItem('src/a.ts', 'src/a.ts'))).toBeNull();
   });
 
   it('steps through the files only, from a folder on screen to its first file', async () => {

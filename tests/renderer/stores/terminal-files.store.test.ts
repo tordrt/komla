@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  latestFirst,
   queuePrintedFileHyperlink,
   takeQueuedFileHyperlinks,
   useTerminalFilesStore,
@@ -19,6 +20,35 @@ afterEach(() => {
 });
 
 describe('terminal-files.store', () => {
+  it('orders files by when they were last opened or printed, untimed ones last', () => {
+    const file = (fullPath: string, times: { printedAt?: number; openedAt?: number }) => ({
+      ...printed(fullPath, times.printedAt),
+      openedAt: times.openedAt,
+    });
+    const files = [
+      // Opened a while ago, inside and outside the workspace.
+      file('/tmp/old.md', { printedAt: 5, openedAt: 10 }),
+      {
+        ...file('src/older.ts', { openedAt: 8 }),
+        target: { type: 'workspace' as const, filePath: 'src/older.ts' },
+      },
+      file('/tmp/untimed.md', {}),
+      // Printed together just now, and the one of them just opened.
+      file('/tmp/b.md', { printedAt: 50 }),
+      file('/tmp/c.md', { printedAt: 50 }),
+      file('/tmp/a.md', { printedAt: 50, openedAt: 60 }),
+    ];
+
+    expect(latestFirst(files).map((f) => f.path)).toEqual([
+      '/tmp/a.md',
+      '/tmp/b.md',
+      '/tmp/c.md',
+      '/tmp/old.md',
+      'src/older.ts',
+      '/tmp/untimed.md',
+    ]);
+  });
+
   it('keeps each file once, at the latest time it was printed', () => {
     const { notePrinted } = useTerminalFilesStore.getState();
     notePrinted('ws-1', [printed('/tmp/a.png', 20), printed('/tmp/a.png', 10)]);

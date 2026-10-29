@@ -1,6 +1,6 @@
 import {
   ArrowLeft,
-  CaretDown,
+  ArrowUp,
   CaretLeft,
   CaretRight,
   Code,
@@ -325,12 +325,12 @@ function useViewMode(item: QuickLookItem) {
   return [viewMode, choose] as const;
 }
 
-// Rows each sidebar section shows before "Show more", as in the files dropdown.
+// Rows each list in the sidebar shows before "Show more", as in the files dropdown.
 const SECTION_ROWS = 8;
 
 /**
- * The files from terminals, opened then printed, as the files dropdown lists them, then the rest
- * of the folder on screen, or of the file on screen.
+ * The files from terminals, the latest opened or printed first, then the rest of the folder on
+ * screen, or of the file on screen.
  */
 function QuickLookSidebar({
   session,
@@ -375,23 +375,20 @@ function QuickLookSidebar({
       aria-label="Files"
       className="flex w-60 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border p-1.5"
     >
-      {sections.opened.length > 0 && (
-        <TerminalSection title="Opened" items={sections.opened} onScreen={onScreen} />
-      )}
-      {sections.mentioned.length > 0 && (
-        <TerminalSection title="Mentioned" items={sections.mentioned} onScreen={onScreen} />
+      {sections.recent.length > 0 && (
+        <TerminalSection title="Recent" items={sections.recent} onScreen={onScreen} />
       )}
       <FolderSection
         key={sections.folder.key}
         section={sections.folder}
         onScreen={onScreen}
-        separated={sections.opened.length + sections.mentioned.length > 0}
+        separated={sections.recent.length > 0}
       />
     </nav>
   );
 }
 
-/** How many of a section's rows show: SECTION_ROWS, or more to reach the file on screen. */
+/** How many of a list's rows show: SECTION_ROWS, or more to reach the file on screen. */
 function useShownRows(items: QuickLookItem[], onScreen: string) {
   const [expanded, setExpanded] = useState(false);
   const index = items.findIndex((item) => quickLookItemKey(item) === onScreen);
@@ -403,7 +400,16 @@ function useShownRows(items: QuickLookItem[], onScreen: string) {
   };
 }
 
-function ShowMore({ count, onClick }: { count: number; onClick: () => void }) {
+function ShowMore({
+  count,
+  noun,
+  onClick,
+}: {
+  count: number;
+  /** What the rows are, when the section has another list of other rows. */
+  noun?: string;
+  onClick: () => void;
+}) {
   if (count <= 0) return null;
   return (
     <button
@@ -412,7 +418,7 @@ function ShowMore({ count, onClick }: { count: number; onClick: () => void }) {
       onClick={onClick}
       className="rounded-lg px-2 py-1 text-left text-2xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
     >
-      Show {count} more…
+      Show {count} more{noun && ` ${noun}`}…
     </button>
   );
 }
@@ -427,29 +433,19 @@ function TerminalSection({
   items: QuickLookItem[];
   onScreen: string;
 }) {
-  const { rows, hidden, expand } = useShownRows(items, onScreen);
   return (
     <section aria-label={title} className="flex flex-col gap-0.5">
       <h3 className="px-2 pb-0.5 text-ui font-medium text-muted-foreground/60">{title}</h3>
-      <ul className="flex flex-col gap-0.5">
-        {rows.map((item) => {
-          const key = quickLookItemKey(item);
-          return (
-            <SidebarFile
-              key={key}
-              item={item}
-              isCurrent={key === onScreen}
-              folderHint={parentPath(item.path)}
-            />
-          );
-        })}
-      </ul>
-      <ShowMore count={hidden} onClick={expand} />
+      <SidebarRows items={items} onScreen={onScreen} folderHints />
     </section>
   );
 }
 
-/** The folder on screen, or of the file on screen: its other files, then its subfolders, folded. */
+/**
+ * The folder on screen, or of the file on screen, as a tree: its other files, in the order the
+ * arrows step through them, then its subfolders, under its name, with a way up to the folder it
+ * is in. Each shows SECTION_ROWS, so many subfolders can't push its files out of sight.
+ */
 function FolderSection({
   section,
   onScreen,
@@ -461,9 +457,7 @@ function FolderSection({
   separated: boolean;
 }) {
   const show = useQuickLookStore((s) => s.show);
-  const { folder, files, folders, status } = section;
-  const { rows, hidden, expand } = useShownRows(files, onScreen);
-  const [foldersOpen, setFoldersOpen] = useState(false);
+  const { folder, parent, files, folders, status } = section;
   const { title, path } = folderLabel(folder);
   const isOnScreen = quickLookItemKey(folder) === onScreen;
   const heading = (
@@ -477,63 +471,86 @@ function FolderSection({
       aria-label={title}
       className={cn('flex flex-col gap-0.5', separated && 'border-t border-border pt-3')}
     >
-      <h3 className="flex text-ui font-medium text-muted-foreground/60" title={path}>
-        {/* The workspace root is no folder path, so it can't be shown. */}
-        {isQuickLookFolder(folder) ? (
-          <button
-            type="button"
-            aria-label={`Show ${title}`}
-            aria-current={isOnScreen || undefined}
-            onMouseDown={focusViewer}
-            onClick={() => show(folder)}
-            className={cn(
-              'flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-0.5 text-left transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
-              isOnScreen && 'bg-accent text-foreground'
-            )}
-          >
-            {heading}
-          </button>
-        ) : (
-          <span className="flex min-w-0 items-center gap-1.5 px-2 pb-0.5">{heading}</span>
-        )}
-      </h3>
-      <ul className="flex flex-col gap-0.5">
-        {rows.map((item) => {
-          const key = quickLookItemKey(item);
-          return <SidebarFile key={key} item={item} isCurrent={key === onScreen} />;
-        })}
-      </ul>
-      <ShowMore count={hidden} onClick={expand} />
-      {folders.length > 0 && (
-        <>
-          <button
-            type="button"
-            aria-expanded={foldersOpen}
-            onMouseDown={focusViewer}
-            onClick={() => setFoldersOpen((open) => !open)}
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui text-muted-foreground/70 transition-colors duration-150 hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
-          >
-            {foldersOpen ? (
-              <CaretDown className="size-3 shrink-0" />
-            ) : (
-              <CaretRight className="size-3 shrink-0" />
-            )}
-            {folders.length === 1 ? '1 folder' : `${folders.length} folders`}
-          </button>
-          {foldersOpen && (
-            <ul aria-label={`Folders in ${title}`} className="flex flex-col gap-0.5">
-              {folders.map((item) => (
-                <SidebarFile key={quickLookItemKey(item)} item={item} isCurrent={false} />
-              ))}
-            </ul>
+      <div className="flex items-center gap-1">
+        <h3 className="flex min-w-0 flex-1 text-ui font-medium text-muted-foreground" title={path}>
+          {/* The workspace root is no folder path, so it can't be shown. */}
+          {isQuickLookFolder(folder) ? (
+            <button
+              type="button"
+              aria-label={`Show ${title}`}
+              aria-current={isOnScreen || undefined}
+              onMouseDown={focusViewer}
+              onClick={() => show(folder)}
+              className={cn(
+                'flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
+                isOnScreen && 'bg-accent text-foreground'
+              )}
+            >
+              {heading}
+            </button>
+          ) : (
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1">{heading}</span>
           )}
-        </>
+        </h3>
+        {parent && (
+          <IconButton
+            label={`Up to ${folderLabel(parent).title}`}
+            size="xs"
+            className="text-muted-foreground"
+            onMouseDown={focusViewer}
+            onClick={() => show(parent)}
+          >
+            <ArrowUp className="size-3.5" />
+          </IconButton>
+        )}
+      </div>
+      {/* Indented under the folder, along a guide line, as a file tree nests them. */}
+      {files.length + folders.length > 0 && (
+        <div className="ml-[15px] flex flex-col gap-0.5 border-l border-border pl-1.5">
+          <SidebarRows items={files} onScreen={onScreen} />
+          <SidebarRows items={folders} onScreen={onScreen} noun="folders" />
+        </div>
       )}
       {status === 'loading' && <Spinner size="sm" className="mx-2 my-1 text-muted-foreground" />}
       {status === 'error' && (
         <p className="px-2 text-ui text-muted-foreground">Couldn&apos;t list this folder</p>
       )}
     </section>
+  );
+}
+
+/** A list of the sidebar's files or folders, SECTION_ROWS of them, or more to reach the file on screen. */
+function SidebarRows({
+  items,
+  onScreen,
+  folderHints = false,
+  noun,
+}: {
+  items: QuickLookItem[];
+  onScreen: string;
+  /** Whether each row names the folder its file is in, for files listed away from their folder. */
+  folderHints?: boolean;
+  noun?: string;
+}) {
+  const { rows, hidden, expand } = useShownRows(items, onScreen);
+  if (rows.length === 0) return null;
+  return (
+    <>
+      <ul className="flex flex-col gap-0.5">
+        {rows.map((item) => {
+          const key = quickLookItemKey(item);
+          return (
+            <SidebarFile
+              key={key}
+              item={item}
+              isCurrent={key === onScreen}
+              folderHint={folderHints ? parentPath(item.path) : undefined}
+            />
+          );
+        })}
+      </ul>
+      <ShowMore count={hidden} noun={noun} onClick={expand} />
+    </>
   );
 }
 
@@ -675,7 +692,7 @@ function SidebarFile({
           <span
             aria-hidden
             dir="rtl"
-            className="min-w-0 truncate font-mono text-2xs text-muted-foreground/60"
+            className="min-w-0 truncate text-2xs text-muted-foreground/50"
           >
             <bdi>{folderHint}</bdi>
           </span>

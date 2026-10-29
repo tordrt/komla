@@ -4,6 +4,7 @@ import { scanWorkspaceTerminalsForFiles } from '@/lib/scan-terminal-files';
 import { useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import {
+  latestFirst,
   takeQueuedFileHyperlinks,
   terminalFileLinkContext,
   useTerminalFilesStore,
@@ -168,14 +169,15 @@ export function terminalFileViewerItem(file: TerminalFile): QuickLookItem {
   );
 }
 
-/** The workspace's files from terminals as the file viewer's sidebar lists them. */
+/**
+ * The workspace's files from terminals as the file viewer's sidebar lists them: the files the
+ * files dropdown lists, but by time alone, the latest opened or printed first, so stepping on from
+ * a file just opened goes through the others printed with it rather than files opened before.
+ */
 export function useTerminalFileViewerItems(workspaceId: string): QuickLookListed {
   const { opened, mentioned } = useTerminalFiles(workspaceId);
   return useMemo(
-    () => ({
-      opened: opened.map(terminalFileViewerItem),
-      mentioned: mentioned.map(terminalFileViewerItem),
-    }),
+    () => latestFirst([...opened, ...mentioned]).map(terminalFileViewerItem),
     [opened, mentioned]
   );
 }

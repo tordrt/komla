@@ -53,6 +53,14 @@ function lastSeen(file: TerminalFile): number {
 }
 
 /**
+ * The files, the one a terminal last printed or opened first, so a file just opened from a link
+ * sits by the others printed with it. Untimed ones stay last, in their order.
+ */
+export function latestFirst(files: TerminalFile[]): TerminalFile[] {
+  return [...files].sort((a, b) => lastSeen(b) - lastSeen(a));
+}
+
+/**
  * The newest MAX_FILES_PER_WORKSPACE files, opened ones first, so a burst of printed paths, most
  * of which the list never shows, can't push them out. Untimed ones count as the oldest.
  */

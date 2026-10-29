@@ -1,5 +1,8 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 
+import { turnedOffQueuedCommands } from '../../../shared/constants/agent-capabilities';
 import { IPC } from '../../../shared/constants/ipc-channels';
 import {
   CustomEndpointTestResult,
@@ -21,6 +24,7 @@ import { metricsCollectorService } from '../../services/metrics-collector.servic
 import { remoteControlHostAccessService } from '../../services/remote-control-host-access.service';
 import { remoteControlKeepAwakeService } from '../../services/remote-control-keep-awake.service';
 import { publishRemoteWorkspaceChange } from '../../services/remote-workspace-events';
+import { remoteWorkspaceObservationService } from '../../services/remote-workspace-observation.service';
 import { listSshConfigHosts } from '../../services/ssh-config-hosts';
 import { sshConnectionService } from '../../services/ssh-connection.service';
 import { sshHostStatusService } from '../../services/ssh-host-status.service';
@@ -96,6 +100,10 @@ export function registerConfigHandlers(): void {
       IPC.CONFIG_UPDATE,
       configUpdateArgsSchema,
       async (event, [updates]): Promise<AppConfig> => {
+        const turnedOffBefore =
+          updates.agentDisabledCapabilities === undefined
+            ? undefined
+            : turnedOffQueuedCommands(configService.get());
         const config = configService.update(
           updates.usageTelemetryEnabled === undefined
             ? updates
@@ -114,6 +122,13 @@ export function registerConfigHandlers(): void {
           updates.directRemoteKeepAwake !== undefined
         ) {
           await syncRemoteControlKeepAwake(config);
+        }
+        // SSH hosts' companions tell the CLI what is off while Komla is away (ADR 0006).
+        if (
+          turnedOffBefore &&
+          !isDeepStrictEqual(turnedOffQueuedCommands(config), turnedOffBefore)
+        ) {
+          void remoteWorkspaceObservationService.reconcile();
         }
         if (updates.keepAwakeMode !== undefined) {
           keepAwakeService.setMode(config.keepAwakeMode);

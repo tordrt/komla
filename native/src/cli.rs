@@ -21,6 +21,7 @@ use crate::mailbox;
 use crate::offline_workspace::{
     self, CreatedWorkspace, OfflineCaller, OfflineLaunchRequest, TmuxSessionLauncher,
 };
+use crate::outbox::{self, QueuedCommand};
 use crate::transport::{request_http, HttpResponse};
 
 const MAX_CLI_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -545,7 +546,32 @@ trait KomlaApi {
     fn installed_guide(&self, _filename: &str) -> Option<String> {
         None
     }
+
+    /// Queues a command for the companion to deliver once Komla answers (ADR 0006). False when
+    /// this doesn't run in a Komla terminal on an SSH host, so there is no companion to.
+    fn queue_offline(&mut self, _operation: &Value) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
+    /// Why a command can't queue: the user turned it off, as the desktop last told this host.
+    fn turned_off_offline(&self, _operation_type: &str) -> Option<String> {
+        None
+    }
+
+    /// Whether commands queued earlier still wait on this host for Komla.
+    fn has_queued_offline(&self) -> bool {
+        false
+    }
+
+    /// Whether a command must queue behind the ones waiting, after giving the companion a
+    /// moment to deliver them, and the hooks written before it, while its desktop answers.
+    fn wait_for_queued_offline(&self) -> bool {
+        false
+    }
 }
+
+/// How long a command waits for the companion to deliver earlier ones before queuing behind them.
+const QUEUED_COMMANDS_DRAIN_WAIT: Duration = Duration::from_secs(5);
 
 struct HttpKomlaApi {
     environment: CliEnvironment,
@@ -644,6 +670,65 @@ impl KomlaApi for HttpKomlaApi {
         };
         let mut launcher = TmuxSessionLauncher::new(&caller.base);
         offline_workspace::create_workspace(&caller, request, &mut launcher, crate::clock::now_ms())
+    }
+
+    fn turned_off_offline(&self, operation_type: &str) -> Option<String> {
+        outbox::turned_off_message(self.environment.companion_inbox.as_deref()?, operation_type)
+    }
+
+    fn has_queued_offline(&self) -> bool {
+        self.environment
+            .companion_inbox
+            .as_deref()
+            .and_then(outbox::directory_for)
+            .is_some_and(|directory| outbox::has_queued(&directory))
+    }
+
+    fn wait_for_queued_offline(&self) -> bool {
+        let Some(inbox) = self.environment.companion_inbox.as_deref() else {
+            return false;
+        };
+        let (Some(companion), Some(directory)) = (inbox.parent(), outbox::directory_for(inbox))
+        else {
+            return false;
+        };
+        // Its desktop doesn't answer, or not yet that the companion knows of.
+        if !mailbox::is_receiving(companion) {
+            return true;
+        }
+        // The companion delivers them within moments, and the hooks written before this
+        // command with them; it can then go straight to Komla, which reports its errors.
+        let deadline = Instant::now() + QUEUED_COMMANDS_DRAIN_WAIT;
+        while Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(100));
+            if !outbox::has_queued(&directory) && !mailbox::has_pending(inbox) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn queue_offline(&mut self, operation: &Value) -> anyhow::Result<bool> {
+        let environment = &self.environment;
+        let Some(directory) = environment
+            .companion_inbox
+            .as_deref()
+            .and_then(outbox::directory_for)
+        else {
+            return Ok(false);
+        };
+        outbox::queue(
+            &directory,
+            &QueuedCommand {
+                path: command_path(environment),
+                terminal_id: environment.terminal_id.clone(),
+                workspace_id: environment.workspace_id.clone(),
+                target_workspace_id: environment.target_workspace_id.clone(),
+                requested_at: crate::clock::now_ms(),
+                operation: operation.clone(),
+            },
+        )?;
+        Ok(true)
     }
 }
 
@@ -1255,8 +1340,7 @@ fn workspace_command(
             }
             let mut operation = json!({"type": "workspace.title", "title": options.remove(0)});
             insert_json_optional(&mut operation, "description", description);
-            let result = execute_operation(api, environment, operation)?;
-            write_operation_result(&result, json_output, output)
+            execute_or_queue(api, environment, operation, json_output, output)
         }
         "snooze" | "wake" => {
             let json_output = take_flag(&mut options, "--json")?;
@@ -1285,8 +1369,7 @@ fn workspace_command(
                 }
                 json!({"type": "workspace.wake"})
             };
-            let result = execute_operation(api, environment, request)?;
-            write_operation_result(&result, json_output, output)
+            execute_or_queue(api, environment, request, json_output, output)
         }
         "tag" | "untag" => {
             let json_output = take_flag(&mut options, "--json")?;
@@ -1326,16 +1409,20 @@ fn workspace_command(
                 }
                 request
             };
-            let result = execute_operation(api, environment, request)?;
-            write_operation_result(&result, json_output, output)
+            execute_or_queue(api, environment, request, json_output, output)
         }
         "trash" => {
             let json_output = take_flag(&mut options, "--json")?;
             if !options.is_empty() {
                 bail!("usage: komla trash [--json]");
             }
-            let result = execute_operation(api, environment, json!({"type": "workspace.trash"}))?;
-            write_operation_result(&result, json_output, output)
+            execute_or_queue(
+                api,
+                environment,
+                json!({"type": "workspace.trash"}),
+                json_output,
+                output,
+            )
         }
         _ => bail!("workspace operation must be title, snooze, wake, tag, untag or trash"),
     }
@@ -2796,15 +2883,89 @@ fn parse_mcp_response(body: &str) -> anyhow::Result<Vec<Value>> {
     Ok(messages)
 }
 
+fn command_path(environment: &CliEnvironment) -> String {
+    let mut path = "/api/v1/commands".to_owned();
+    if !environment.scoped_url && environment.terminal_id.is_none() {
+        append_query(&mut path, "cwd", &environment.cwd);
+    }
+    path
+}
+
+/// Runs a command that changes the workspace, or queues it on this SSH host while Komla can't
+/// be reached: it is away, or a sandbox blocks the connection, which the companion's isn't.
+fn execute_or_queue(
+    api: &mut dyn KomlaApi,
+    environment: &CliEnvironment,
+    operation: Value,
+    json_output: bool,
+    output: &mut dyn Write,
+) -> anyhow::Result<()> {
+    // Commands still waiting on the host go first, so a new one never overtakes them.
+    let waiting = api.has_queued_offline();
+    if waiting {
+        refuse_if_turned_off(api, &operation)?;
+    }
+    let behind = waiting && api.wait_for_queued_offline();
+    let error = if behind {
+        None
+    } else {
+        match execute_operation(api, environment, operation.clone()) {
+            Ok(result) => return write_operation_result(&result, json_output, output),
+            Err(error) if !is_unreachable(&error) => return Err(error),
+            Err(error) => Some(error),
+        }
+    };
+    refuse_if_turned_off(api, &operation)?;
+    // A sandbox that blocks the connection may block writing the queue too.
+    if !api.queue_offline(&operation).unwrap_or(false) {
+        return match error {
+            Some(error) => Err(error),
+            None => {
+                let result = execute_operation(api, environment, operation)?;
+                write_operation_result(&result, json_output, output)
+            }
+        };
+    }
+    if json_output {
+        writeln!(output, "{}", json!({"queued": true}))?;
+    } else if behind {
+        writeln!(
+            output,
+            "Komla hasn't received earlier commands from this host yet, so this waits behind them."
+        )?;
+    } else {
+        writeln!(
+            output,
+            "Komla couldn't be reached, so this waits on the host until it can."
+        )?;
+    }
+    Ok(())
+}
+
+/// Refuses a command the user turned off, as the desktop last told this host, rather than
+/// queue what Komla would reject.
+fn refuse_if_turned_off(api: &dyn KomlaApi, operation: &Value) -> anyhow::Result<()> {
+    let Some(message) = operation
+        .get("type")
+        .and_then(Value::as_str)
+        .and_then(|operation_type| api.turned_off_offline(operation_type))
+    else {
+        return Ok(());
+    };
+    Err(OperationFailure {
+        code: "CAPABILITY_DISABLED".to_owned(),
+        message,
+        details: None,
+    }
+    .into())
+}
+
 fn execute_operation(
     api: &mut dyn KomlaApi,
     environment: &CliEnvironment,
     operation: Value,
 ) -> anyhow::Result<Value> {
-    let mut path = "/api/v1/commands".to_owned();
-    if !environment.scoped_url && environment.terminal_id.is_none() {
-        append_query(&mut path, "cwd", &environment.cwd);
-    }
+    let path = command_path(environment);
     let may_have_side_effects = !matches!(
         operation.get("type").and_then(Value::as_str),
         Some("context.get" | "agent.presets" | "workspace.list" | "tag.list")

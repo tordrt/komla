@@ -17,6 +17,7 @@ use serde::Deserialize;
 use crate::clock::now_ms;
 use crate::lifecycle::ManagedSessionMonitor;
 use crate::mailbox::HookMailbox;
+use crate::outbox::CommandOutbox;
 use crate::scanner::{SnapshotScan, SnapshotScanner};
 use crate::transport::{KomlaClient, OutboundRequest, OutboundResult, OutboundTransport};
 
@@ -391,6 +392,7 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
             .saturating_add(2),
     );
 
+    let mut outbox = CommandOutbox::open(config.hook_inbox.as_deref());
     let mut mailbox = HookMailbox::open(config.hook_inbox, now_ms())?;
     let mut scanner = SnapshotScanner::new();
     let mut session_monitor = ManagedSessionMonitor::new(
@@ -404,7 +406,7 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
     loop {
         receive_events(&receiver, &mut workspaces);
         receive_scan_results(&mut scanner, &mut workspaces);
-        receive_outbound_results(&transport, &mut workspaces, &mut mailbox);
+        receive_outbound_results(&transport, &mut workspaces, &mut mailbox, &mut outbox);
         let now = now_ms();
         if let Some(reloaded) = reload.poll(now) {
             SYNC_DIAGNOSTICS.store(reloaded.diagnostics, Ordering::Relaxed);
@@ -428,7 +430,13 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
             return Ok(());
         }
         mailbox.set_receiving(session_monitor.desktop_connected(now), now);
-        mailbox.poll(now, &transport);
+        outbox.poll(
+            now,
+            &transport,
+            || mailbox.oldest_pending_at(),
+            session_monitor.desktop_connected(now),
+        );
+        mailbox.poll(now, &transport, || outbox.oldest_queued_at());
     }
 }
 
@@ -590,6 +598,7 @@ fn receive_outbound_results(
     transport: &OutboundTransport,
     workspaces: &mut [WorkspaceRuntime],
     mailbox: &mut HookMailbox,
+    outbox: &mut CommandOutbox,
 ) {
     while let Some(result) = transport.try_recv() {
         match result {
@@ -621,6 +630,10 @@ fn receive_outbound_results(
                 request_id,
                 delivery,
             } => mailbox.complete_delivery(request_id, delivery, now_ms()),
+            OutboundResult::Command {
+                request_id,
+                delivery,
+            } => outbox.complete_delivery(request_id, delivery, now_ms()),
         }
     }
 }

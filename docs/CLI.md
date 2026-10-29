@@ -441,6 +441,25 @@ commands and their MCP equivalents.
 The HTTP MCP server runs inline in Komla's HTTP server on port 52863 using Streamable HTTP. The
 installed executable exposes the same adapter over stdio with `komla mcp`.
 
+In a managed terminal on an SSH host, `komla title`, `snooze`, `wake`, `tag`, `untag` and `trash`
+queue when Komla can't be reached, because it is away or a sandbox blocks the connection, and
+answer `Komla couldn't be reached, so this waits on the host until it can.` (`{"queued":true}` with
+`--json`). A command run while earlier ones still wait queues behind them, answering `Komla hasn't
+received earlier commands from this host yet, so this waits behind them.`, except that while the
+companion's desktop answers it first gives the companion up to 5 seconds to deliver them and the
+hooks written before it, then goes to Komla directly. The CLI writes the request it would have sent, with the terminal's context and the time,
+to `outbox/` beside the companion's hook inbox, readable only by the user. The companion posts the
+outbox to `/api/v1/commands` in order once its desktop answers, interleaved with hooks in the order
+both were written; on a tie the command goes first, and a command waits for older hooks for at
+most 30 seconds of the desktop answering. It sends `X-Komla-Queued-Ms`, how long the
+command waited by the host's clock, from which Komla counts a relative snooze by its own. Komla
+runs each as any other operation. The companion drops a command Komla rejects, such as a snooze
+that ran out. It retries a server error, backing off to a minute and giving up after ten tries,
+and a 404, as for a workspace created on the host that Komla hasn't added yet, every 10 seconds
+for a minute. A command the user turned off is refused instead of queued, with the `CAPABILITY_DISABLED`
+message the desktop wrote to the companion's config as `turnedOffCommands`, which it rewrites when
+the setting changes. See [ADR 0006](adr/0006-queue-agent-commands-on-the-ssh-host-while-komla-is-away.md).
+
 Komla's HTTP server listens on 127.0.0.1 only and answers only requests whose `Host` header is an
 IP address or `localhost` or a `.localhost` name, on any port, since SSH tunnels arrive through
 other ports. Others get 403, so

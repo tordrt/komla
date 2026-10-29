@@ -87,7 +87,39 @@ impl HookMailbox {
         })
     }
 
-    pub(crate) fn poll(&mut self, now_ms: u64, transport: &OutboundTransport) {
+    /// When the oldest hook still waiting for the desktop was written. A command queued after it
+    /// waits for it, so the desktop sees them in the order the agent ran them.
+    pub(crate) fn oldest_pending_at(&self) -> Option<SystemTime> {
+        let inbox = self.inbox.as_deref()?;
+        fs::read_dir(inbox)
+            .ok()?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                matches!(
+                    path.extension().and_then(OsStr::to_str),
+                    Some("json" | "claim")
+                )
+            })
+            // It goes after its terminal's prompt, which counts in its place.
+            .filter(|path| !path.with_extension("prompt.json").exists())
+            .filter_map(|path| {
+                fs::metadata(path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+            })
+            .min()
+    }
+
+    /// Delivers the next pending hook, but none written since `held_from`: the agent ran a
+    /// command queued then, which the desktop must see first. It is asked only when a hook is
+    /// due.
+    pub(crate) fn poll(
+        &mut self,
+        now_ms: u64,
+        transport: &OutboundTransport,
+        held_from: impl FnOnce() -> Option<SystemTime>,
+    ) {
         while self.receiver.try_recv().is_ok() {
             self.dirty = true;
             self.next_delivery_at_ms = now_ms;
@@ -108,12 +140,19 @@ impl HookMailbox {
             self.next_delivery_at_ms = now_ms.saturating_add(1_000);
             return;
         }
+        let held_from = held_from();
         let claim = match claim_pending_hook(
             inbox,
             self.next_request_id,
             self.last_claimed_target.as_deref(),
+            held_from,
         ) {
             Ok(Some(claim)) => claim,
+            // Held hooks wait for the command to be delivered; with none, nothing waits.
+            Ok(None) if held_from.is_some() && self.oldest_pending_at().is_some() => {
+                self.next_delivery_at_ms = now_ms.saturating_add(250);
+                return;
+            }
             Ok(None) => {
                 self.dirty = false;
                 return;
@@ -228,7 +267,19 @@ fn mark_receiving(companion: &Path) {
     }
 }
 
-fn is_receiving(companion: &Path) -> bool {
+/// Whether hooks still wait in `inbox` for the desktop.
+pub(crate) fn has_pending(inbox: &Path) -> bool {
+    fs::read_dir(inbox).is_ok_and(|entries| {
+        entries.filter_map(Result::ok).any(|entry| {
+            matches!(
+                entry.path().extension().and_then(OsStr::to_str),
+                Some("json" | "claim")
+            )
+        })
+    })
+}
+
+pub(crate) fn is_receiving(companion: &Path) -> bool {
     fs::metadata(companion.join(RECEIVING_FILE))
         .and_then(|metadata| metadata.modified())
         .is_ok_and(|modified| match modified.elapsed() {
@@ -242,6 +293,7 @@ fn claim_pending_hook(
     inbox: &Path,
     request_id: u64,
     after: Option<&Path>,
+    held_from: Option<SystemTime>,
 ) -> anyhow::Result<Option<HookClaim>> {
     let mut paths = fs::read_dir(inbox)?
         .filter_map(Result::ok)
@@ -257,6 +309,13 @@ fn claim_pending_hook(
         // A start event establishes identity before any coalesced event for the
         // same terminal/source, including after reconnect or round-robin wrap.
         if target.with_extension("prompt.json").exists() {
+            continue;
+        }
+        if held_from.is_some_and(|held_from| {
+            fs::metadata(&target)
+                .and_then(|metadata| metadata.modified())
+                .is_ok_and(|written| written >= held_from)
+        }) {
             continue;
         }
         let claim = target.with_extension("claim");
@@ -657,14 +716,14 @@ mod tests {
         }
         // Even if round-robin previously visited this terminal, its prompt goes first.
         let previous = inbox.join("0.json");
-        let first = super::claim_pending_hook(inbox, 1, Some(&previous))
+        let first = super::claim_pending_hook(inbox, 1, Some(&previous), None)
             .unwrap()
             .unwrap();
         let payload: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&first.claim).unwrap()).unwrap();
         assert_eq!(payload["kind"], "prompt-submit");
         std::fs::remove_file(&first.claim).unwrap();
-        let second = super::claim_pending_hook(inbox, 2, Some(&first.target))
+        let second = super::claim_pending_hook(inbox, 2, Some(&first.target), None)
             .unwrap()
             .unwrap();
         let payload: serde_json::Value =
@@ -697,11 +756,11 @@ mod tests {
         });
         let transport = OutboundTransport::new(client(format!("http://{address}")), 2);
         let mut mailbox = HookMailbox::open(Some(inbox), 0).unwrap();
-        mailbox.poll(0, &transport);
+        mailbox.poll(0, &transport, || None);
         complete_hook_delivery(&mut mailbox, &transport, 10);
         assert!(hook.exists(), "202 is not a durable acknowledgement");
         std::fs::write(&hook, br#"{"kind":"activity"}"#).unwrap();
-        mailbox.poll(100, &transport);
+        mailbox.poll(100, &transport, || None);
         assert!(
             !hook.exists(),
             "new activity must be delivered within the completion grace period"
@@ -709,6 +768,72 @@ mod tests {
         complete_hook_delivery(&mut mailbox, &transport, 110);
         server.join().unwrap();
         assert!(!hook.with_extension("claim").exists());
+    }
+
+    #[test]
+    fn holds_hooks_written_after_a_queued_command() {
+        let temp = tempdir().unwrap();
+        let inbox = temp.path().join("inbox");
+        std::fs::create_dir(&inbox).unwrap();
+        let hook = inbox.join("terminal.json");
+        std::fs::write(&hook, br#"{"kind":"turn-complete"}"#).unwrap();
+        let written = std::fs::metadata(&hook).unwrap().modified().unwrap();
+        let second = std::time::Duration::from_secs(1);
+
+        let queued_before = super::claim_pending_hook(&inbox, 1, None, Some(written - second));
+        assert!(
+            queued_before.unwrap().is_none(),
+            "a hook written after the command waits for it"
+        );
+        let queued_after = super::claim_pending_hook(&inbox, 2, None, Some(written + second));
+        assert!(
+            queued_after.unwrap().is_some(),
+            "a hook written before the command goes first"
+        );
+    }
+
+    // The older hook can't go before its prompt, so counting it would hold a command queued
+    // between them, and the command would hold the prompt: neither would ever be delivered.
+    #[test]
+    fn a_hook_waiting_behind_its_prompt_does_not_hold_commands() {
+        let temp = tempdir().unwrap();
+        let inbox = temp.path().join("inbox");
+        std::fs::create_dir(&inbox).unwrap();
+        let activity = inbox.join("terminal.json");
+        std::fs::write(&activity, br#"{"kind":"activity"}"#).unwrap();
+        let prompt = inbox.join("terminal.prompt.json");
+        std::fs::write(&prompt, br#"{"kind":"prompt"}"#).unwrap();
+        let second = std::time::Duration::from_secs(1);
+        let now = std::time::SystemTime::now();
+        std::fs::File::options()
+            .write(true)
+            .open(&activity)
+            .unwrap()
+            .set_modified(now - second)
+            .unwrap();
+
+        let mailbox = HookMailbox::open(Some(inbox), 0).unwrap();
+
+        assert_eq!(
+            mailbox.oldest_pending_at(),
+            std::fs::metadata(&prompt).unwrap().modified().ok()
+        );
+    }
+
+    #[test]
+    fn rests_while_commands_wait_but_no_hook_does() {
+        let temp = tempdir().unwrap();
+        let inbox = temp.path().join("inbox");
+        std::fs::create_dir(&inbox).unwrap();
+        let transport = OutboundTransport::new(client("http://127.0.0.1:1".to_owned()), 2);
+        let mut mailbox = HookMailbox::open(Some(inbox), 0).unwrap();
+
+        mailbox.poll(0, &transport, || Some(std::time::SystemTime::now()));
+
+        assert!(
+            !mailbox.dirty,
+            "nothing is held, so nothing to check again soon"
+        );
     }
 
     #[test]
@@ -722,7 +847,7 @@ mod tests {
         let transport = OutboundTransport::new(client(serve_once(503, "retry")), 2);
         let mut mailbox = HookMailbox::open(Some(inbox), 0).unwrap();
 
-        mailbox.poll(0, &transport);
+        mailbox.poll(0, &transport, || None);
         complete_hook_delivery(&mut mailbox, &transport, 1_000);
 
         assert!(hook.exists());
@@ -740,11 +865,11 @@ mod tests {
 
         let transport = OutboundTransport::new(client(serve_once(503, "retry")), 2);
         let mut mailbox = HookMailbox::open(Some(inbox), 0).unwrap();
-        mailbox.poll(0, &transport);
+        mailbox.poll(0, &transport, || None);
         complete_hook_delivery(&mut mailbox, &transport, 1_000);
 
         // Poll after the retry backoff rather than relying on watcher events to bypass it.
-        mailbox.poll(2_000, &transport);
+        mailbox.poll(2_000, &transport, || None);
 
         assert!(first.exists(), "the failed hook should remain pending");
         assert!(
@@ -781,7 +906,7 @@ mod tests {
             2,
         );
         let mut mailbox = HookMailbox::open(Some(inbox.clone()), 0).unwrap();
-        mailbox.poll(0, &transport);
+        mailbox.poll(0, &transport, || None);
 
         request_seen_receiver.recv().unwrap();
         let claimed_before_acceptance = !hook.exists();
@@ -822,7 +947,7 @@ mod tests {
         let mut mailbox = super::HookMailbox::open(Some(inbox), 0).unwrap();
 
         let started = std::time::Instant::now();
-        mailbox.poll(0, &transport);
+        mailbox.poll(0, &transport, || None);
 
         accepted_receiver
             .recv_timeout(std::time::Duration::from_secs(1))

@@ -1709,6 +1709,41 @@ describe('KomlaOperationService', () => {
     ).resolves.toEqual({ snooze: { workspaceId: 'workspace-1', woke: true } });
   });
 
+  it('counts a snooze queued on an SSH host from when the agent asked', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 20, 17, 0));
+    const updateWorkspace = vi.fn((id: string, updates: Record<string, unknown>) => ({
+      id,
+      ...updates,
+    }));
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => ({ id: 'workspace-1' }),
+        updateWorkspace,
+      })
+    );
+    const snooze = (requestedAt: Date, until: string) =>
+      service.execute(
+        { terminalId: 'terminal-1', requestedAt: requestedAt.getTime() },
+        { type: 'workspace.snooze', until }
+      );
+
+    await snooze(new Date(2026, 9, 20, 15, 30), '2h');
+    expect(updateWorkspace).toHaveBeenLastCalledWith('workspace-1', {
+      snoozedUntil: new Date(2026, 9, 20, 17, 30).getTime(),
+      unread: undefined,
+    });
+    // A clock ahead of the desktop's counts from now.
+    await snooze(new Date(2026, 9, 20, 18, 0), '1h');
+    expect(updateWorkspace).toHaveBeenLastCalledWith('workspace-1', {
+      snoozedUntil: new Date(2026, 9, 20, 18, 0).getTime(),
+      unread: undefined,
+    });
+    await expect(snooze(new Date(2026, 9, 20, 14, 0), '30m')).rejects.toMatchObject({
+      code: 'INVALID_SNOOZE_TIME',
+    });
+  });
+
   it('snoozes until the next notification, or a time if that comes first', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 9, 20, 15, 30));

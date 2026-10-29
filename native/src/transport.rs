@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use komla::CompanionSnapshotPayload;
 
+use crate::outbox::QueuedCommand;
+
 const MAX_HTTP_RESPONSE_BYTES: usize = 64 * 1024;
 
 pub(crate) struct HttpResponse {
@@ -50,6 +52,7 @@ impl std::fmt::Display for HttpError {
 pub(crate) struct KomlaClient {
     snapshot_endpoint: String,
     notify_endpoint: Option<String>,
+    api_base: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +60,20 @@ pub(crate) enum HookDelivery {
     Accepted,
     Pending,
     PermanentlyRejected(u16),
+    Retry,
+}
+
+/// How the desktop answered a queued command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CommandDelivery {
+    Accepted,
+    /// Komla refused it, e.g. the snooze ran out meanwhile; trying again would not change that.
+    Rejected(String),
+    /// Komla failed on it, or timed out; it may succeed later.
+    Failed(String),
+    /// Komla doesn't have its workspace, which it may add soon if the host created it.
+    Missing(String),
+    /// Komla couldn't be reached.
     Retry,
 }
 
@@ -69,6 +86,10 @@ pub(crate) enum OutboundRequest {
         request_id: u64,
         body: Vec<u8>,
     },
+    Command {
+        request_id: u64,
+        command: Box<QueuedCommand>,
+    },
 }
 
 pub(crate) enum OutboundResult {
@@ -80,6 +101,10 @@ pub(crate) enum OutboundResult {
     Hook {
         request_id: u64,
         delivery: HookDelivery,
+    },
+    Command {
+        request_id: u64,
+        delivery: CommandDelivery,
     },
 }
 
@@ -131,6 +156,16 @@ impl OutboundTransport {
                             delivery,
                         }
                     }
+                    OutboundRequest::Command {
+                        request_id,
+                        command,
+                    } => {
+                        let delivery = client.deliver_command(&command);
+                        OutboundResult::Command {
+                            request_id,
+                            delivery,
+                        }
+                    }
                 };
                 if results.send(result).is_err() {
                     return;
@@ -160,6 +195,7 @@ impl KomlaClient {
         let base = snapshot_endpoint.strip_suffix("/api/v1/ssh-workspace-status");
         Self {
             notify_endpoint: base.map(|base| format!("{base}/api/v1/notify")),
+            api_base: base.map(str::to_owned),
             snapshot_endpoint,
         }
     }
@@ -172,7 +208,7 @@ impl KomlaClient {
                 return false;
             }
         };
-        match post_json(&self.snapshot_endpoint, body.as_bytes(), false) {
+        match post_json(&self.snapshot_endpoint, body.as_bytes(), Vec::new()) {
             Ok(_) => true,
             Err(error) => {
                 eprintln!("repository snapshot delivery failed: {error}");
@@ -185,7 +221,11 @@ impl KomlaClient {
         let Some(endpoint) = &self.notify_endpoint else {
             return HookDelivery::Retry;
         };
-        match post_json(endpoint, body, true) {
+        match post_json(
+            endpoint,
+            body,
+            vec![("X-Komla-Hook-Pending", "retry".to_owned())],
+        ) {
             Ok(response) if response.status == 202 => HookDelivery::Pending,
             Ok(_) => HookDelivery::Accepted,
             Err(PostError::Status(status))
@@ -199,10 +239,39 @@ impl KomlaClient {
             }
         }
     }
+
+    pub(crate) fn deliver_command(&self, command: &QueuedCommand) -> CommandDelivery {
+        let Some(base) = &self.api_base else {
+            return CommandDelivery::Retry;
+        };
+        let body = match serde_json::to_vec(&command.operation) {
+            Ok(body) => body,
+            Err(error) => return CommandDelivery::Rejected(error.to_string()),
+        };
+        let headers = command.headers(crate::clock::now_ms());
+        match post_json(&format!("{base}{}", command.path), &body, headers) {
+            Ok(_) => CommandDelivery::Accepted,
+            // A workspace created on the host while Komla was away is missing until Komla adds it.
+            Err(PostError::Status(404)) => CommandDelivery::Missing("HTTP 404".to_owned()),
+            Err(PostError::Status(status)) if status >= 500 => {
+                CommandDelivery::Failed(format!("HTTP {status}"))
+            }
+            Err(PostError::Status(status))
+                if (400..500).contains(&status) && status != 408 && status != 429 =>
+            {
+                CommandDelivery::Rejected(format!("HTTP {status}"))
+            }
+            Err(PostError::Unreachable(_)) => CommandDelivery::Retry,
+            // Komla answered too slowly, which may happen every time.
+            Err(error) => CommandDelivery::Failed(error.to_string()),
+        }
+    }
 }
 
 enum PostError {
     Status(u16),
+    /// Komla couldn't be reached at all, so it can't have received the request.
+    Unreachable(String),
     Transport(String),
 }
 
@@ -210,28 +279,38 @@ impl std::fmt::Display for PostError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Status(status) => write!(formatter, "HTTP {status}"),
-            Self::Transport(message) => write!(formatter, "{message}"),
+            Self::Unreachable(message) | Self::Transport(message) => write!(formatter, "{message}"),
         }
     }
 }
 
-fn post_json(url: &str, body: &[u8], retry_pending: bool) -> Result<HttpResponse, PostError> {
+fn post_json(
+    url: &str,
+    body: &[u8],
+    headers: Vec<(&'static str, String)>,
+) -> Result<HttpResponse, PostError> {
     let url = url.to_owned();
     let body = body.to_vec();
     let (sender, receiver) = mpsc::channel();
     std::thread::spawn(move || {
-        let _ = sender.send(post_json_inner(&url, &body, retry_pending));
+        let _ = sender.send(post_json_inner(&url, &body, &headers));
     });
     receiver
         .recv_timeout(Duration::from_secs(5))
         .map_err(|_| PostError::Transport("timed out posting to Komla".to_owned()))?
 }
 
-fn post_json_inner(url: &str, body: &[u8], retry_pending: bool) -> Result<HttpResponse, PostError> {
+fn post_json_inner(
+    url: &str,
+    body: &[u8],
+    extra_headers: &[(&'static str, String)],
+) -> Result<HttpResponse, PostError> {
     let mut headers = vec![("Content-Type", "application/json")];
-    if retry_pending {
-        headers.push(("X-Komla-Hook-Pending", "retry"));
-    }
+    headers.extend(
+        extra_headers
+            .iter()
+            .map(|(name, value)| (*name, value.as_str())),
+    );
     let response = request_http_inner(
         "POST",
         url,
@@ -240,7 +319,13 @@ fn post_json_inner(url: &str, body: &[u8], retry_pending: bool) -> Result<HttpRe
         MAX_HTTP_RESPONSE_BYTES,
         Some(Duration::from_secs(5)),
     )
-    .map_err(|error| PostError::Transport(error.to_string()))?;
+    .map_err(|error| {
+        if error.is_unreachable() {
+            PostError::Unreachable(error.to_string())
+        } else {
+            PostError::Transport(error.to_string())
+        }
+    })?;
     if !(200..300).contains(&response.status) {
         return Err(PostError::Status(response.status));
     }

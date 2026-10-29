@@ -175,6 +175,11 @@ vi.mock('../../../../src/main/services/agents-menu-bar.service', () => ({
   agentsMenuBarService: mockAgentsMenuBarService,
 }));
 
+const mockRemoteWorkspaceObservationService = vi.hoisted(() => ({ reconcile: vi.fn() }));
+vi.mock('../../../../src/main/services/remote-workspace-observation.service', () => ({
+  remoteWorkspaceObservationService: mockRemoteWorkspaceObservationService,
+}));
+
 vi.mock('../../../../src/main/services/ssh-workspace.service', () => ({
   sshWorkspaceService: mockSshWorkspaceService,
 }));
@@ -535,6 +540,21 @@ describe('config IPC handlers', () => {
       'ssh-devbox': { claude: 'hooks' },
     });
     expect(destroyedWindow.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('tells SSH hosts which agent commands are turned off', async () => {
+    const { registerConfigHandlers } =
+      await import('../../../../src/main/ipc/handlers/config.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+
+    registerConfigHandlers();
+    await ipcMain._invoke('config:update', { agentDisabledCapabilities: ['preview.open'] });
+    expect(mockRemoteWorkspaceObservationService.reconcile).not.toHaveBeenCalled();
+    await ipcMain._invoke('config:update', { agentDisabledCapabilities: ['workspace.tag'] });
+
+    expect(mockRemoteWorkspaceObservationService.reconcile).toHaveBeenCalledTimes(1);
   });
 
   it('applies a new keep-awake mode', async () => {

@@ -934,15 +934,17 @@ class HttpServerService {
         }
         const sshHostId = this.singleHeader(req.headers['x-komla-ssh-host-id']);
         const targetWorkspaceId = this.singleHeader(req.headers['x-komla-target-workspace-id']);
+        const requestedAt = this.requestedAt(req);
         // `--workspace` names the workspace to act on, in place of the calling terminal's.
         const result = await komlaOperationService.execute(
           targetWorkspaceId
-            ? { workspaceId: targetWorkspaceId, sshHostId, targeted: true }
+            ? { workspaceId: targetWorkspaceId, sshHostId, targeted: true, requestedAt }
             : {
                 terminalId: scopedTerminalId ?? headerTerminalId,
                 workspaceId: this.singleHeader(req.headers['x-komla-workspace-id']),
                 sshHostId,
                 cwd: url.searchParams.get('cwd') ?? undefined,
+                requestedAt,
               },
           parsed.data
         );
@@ -1450,6 +1452,15 @@ class HttpServerService {
 
   private singleHeader(value: string | string[] | undefined): string | undefined {
     return Array.isArray(value) ? value[0] : value;
+  }
+
+  /**
+   * When an agent ran a command its SSH host queued while Komla was away (ADR 0006), by this
+   * computer's clock: the host says how long it waited, so a host clock that is off doesn't count.
+   */
+  private requestedAt(req: http.IncomingMessage): number | undefined {
+    const value = this.singleHeader(req.headers['x-komla-queued-ms']);
+    return value && /^\d{1,16}$/.test(value) ? Date.now() - Number(value) : undefined;
   }
 
   private writeSettingsError(

@@ -1,8 +1,8 @@
 import { isAbsolute, resolve } from 'path';
 
 import {
-  getAgentCapability,
   isAgentCapabilityEnabled,
+  turnedOffCapabilityMessage,
   type AgentCapabilityId,
 } from '../../../shared/constants/agent-capabilities';
 import { IPC } from '../../../shared/constants/ipc-channels';
@@ -144,6 +144,8 @@ export interface KomlaOperationContext {
   sshHostId?: string;
   /** `workspaceId` is one `--workspace` named, not where the command runs. */
   targeted?: boolean;
+  /** When an agent ran a command an SSH host queued while Komla was away, in epoch ms. */
+  requestedAt?: number;
 }
 
 export interface KomlaOperationWorkspace {
@@ -584,6 +586,8 @@ export class KomlaOperationService {
       );
     }
     const now = new Date();
+    // A relative snooze queued on an SSH host counts from when the agent asked.
+    const asked = new Date(Math.min(context.requestedAt ?? now.getTime(), now.getTime()));
     if (input === undefined) {
       if (!untilNotified) {
         throw new KomlaOperationError('INVALID_SNOOZE_TIME', 'Say when the snooze ends.', 400);
@@ -595,7 +599,7 @@ export class KomlaOperationService {
       });
       return { snooze: { workspaceId: workspace.id, untilNotified: true } };
     }
-    const until = parseSnoozeUntil(input, now);
+    const until = parseSnoozeUntil(input, asked);
     if (until === undefined) {
       throw new KomlaOperationError(
         'INVALID_SNOOZE_TIME',
@@ -1590,8 +1594,7 @@ export class KomlaOperationService {
     if (isAgentCapabilityEnabled(capability, this.dependencies.getConfig())) return;
     throw new KomlaOperationError(
       'CAPABILITY_DISABLED',
-      // Named as the settings toggle is, by its command, so the user can find it.
-      `\`${getAgentCapability(capability)?.command ?? capability}\` is turned off in Komla. Ask the user to turn it on in Settings → Integrations & MCP → MCP and CLI access.`,
+      turnedOffCapabilityMessage(capability),
       403,
       { capability }
     );

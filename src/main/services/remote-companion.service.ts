@@ -58,6 +58,8 @@ export interface StartRemoteCompanionOptions {
   endpoint: string;
   installationId: string;
   workspaces: MonitoredRemoteWorkspace[];
+  /** Commands the CLI refuses while Komla is away, by operation type, with its answer. */
+  turnedOffCommands?: Record<string, string>;
 }
 
 export interface RemoteCompanionRuntime {
@@ -298,6 +300,7 @@ export class RemoteCompanionService {
       workspaces: [...options.workspaces].sort((left, right) =>
         left.workspaceId.localeCompare(right.workspaceId)
       ),
+      turnedOffCommands: options.turnedOffCommands ?? {},
     };
     const configJson = `${JSON.stringify(config, null, 2)}\n`;
     const configHash = createHash('sha256')
@@ -307,7 +310,13 @@ export class RemoteCompanionService {
       .digest('hex');
     // A running companion with the same runtime reloads its workspace list in place, so
     // opening or closing a terminal does not resend every workspace as changed.
-    const { workspaces: _workspaces, diagnostics: _diagnostics, ...runtimeConfig } = config;
+    // Nor does the CLI's list of commands turned off, which only the CLI reads.
+    const {
+      workspaces: _workspaces,
+      diagnostics: _diagnostics,
+      turnedOffCommands: _turnedOffCommands,
+      ...runtimeConfig
+    } = config;
     const runtimeHash = createHash('sha256')
       .update(binaryPath)
       .update('\0')

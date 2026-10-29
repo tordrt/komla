@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'util';
 
 import { BrowserWindow } from 'electron';
 
+import { turnedOffQueuedCommands } from '../../shared/constants/agent-capabilities';
 import { IPC } from '../../shared/constants/ipc-channels';
 import {
   buildProjectSetupPrompt,
@@ -940,7 +941,11 @@ class WorkspaceService {
       getHost: (hostId) => sshWorkspaceService.getHost(hostId),
       ensureRemoteNotificationScript: (backend) =>
         sshWorkspaceService.ensureRemoteNotificationScript(backend),
-      ensureRemoteCompanion: (host, options) => remoteCompanionService.ensureRunning(host, options),
+      ensureRemoteCompanion: (host, options) =>
+        remoteCompanionService.ensureRunning(host, {
+          ...options,
+          turnedOffCommands: turnedOffQueuedCommands(configService.get()),
+        }),
       invalidateRemoteCompanion: (hostId) => remoteCompanionService.invalidateHost(hostId),
       companionInstallationId: (hostId) => sshCompanionInstallationId(hostId),
       resolveCompanionRuntime: (remoteBasePath, installationId) =>

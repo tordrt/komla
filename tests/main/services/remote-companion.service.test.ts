@@ -323,6 +323,53 @@ describe('RemoteCompanionService', () => {
     }
   });
 
+  it('tells the CLI what is turned off without restarting the companion', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'komla-companion-turned-off-'));
+    const artifact = join(root, 'x86_64-unknown-linux-musl', 'komla');
+    mkdirSync(join(artifact, '..'), { recursive: true });
+    writeFileSync(artifact, 'binary');
+    const writes: Array<{ config: string; runtime: string; turnedOff: unknown }> = [];
+    const run = vi.fn(async (_host: SshHost, command: string) => {
+      if (command.includes('uname -s')) return 'Linux\nx86_64\n';
+      if (command.includes(' version || true')) return 'installed\n';
+      return '';
+    });
+    const upload = vi.fn(async (_host: SshHost, command: string, localPath?: string) => {
+      const config = command.match(/config_hash='([^']+)'/);
+      const runtime = command.match(/runtime_hash='([^']+)'/);
+      if (config && runtime && localPath) {
+        const { turnedOffCommands } = JSON.parse(readFileSync(localPath, 'utf8'));
+        writes.push({ config: config[1], runtime: runtime[1], turnedOff: turnedOffCommands });
+      }
+      return '';
+    });
+    const options = {
+      remoteBasePath: '/home/dev/.komla',
+      installationId: 'installation',
+      endpoint: 'http://127.0.0.1:62000/api/v1/ssh-workspace-status',
+      workspaces: [{ workspaceId: 'workspace-1', workingTree: '/repo', targetBranch: 'main' }],
+    };
+    try {
+      const service = new RemoteCompanionService({ resourceRoot: () => root, run, upload });
+      await service.ensureRunning(host, options);
+      await service.ensureRunning(host, {
+        ...options,
+        turnedOffCommands: { 'workspace.tag': '`komla tag` is turned off in Komla.' },
+      });
+
+      expect(writes).toEqual([
+        { config: expect.any(String), runtime: expect.any(String), turnedOff: {} },
+        {
+          config: expect.not.stringMatching(writes[0].config),
+          runtime: writes[0].runtime,
+          turnedOff: { 'workspace.tag': '`komla tag` is turned off in Komla.' },
+        },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('reuses an unchanged running companion configuration without probing the host again', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-companion-session-identity-'));
     const artifact = join(root, 'x86_64-unknown-linux-musl', 'komla');

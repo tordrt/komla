@@ -1221,6 +1221,33 @@ describe('HttpServerService', () => {
       ).not.toHaveProperty('terminalId');
     });
 
+    it('counts a command an SSH host queued from when the agent ran it', async () => {
+      mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(
+        createWorkspace({ id: 'workspace-1', workingDirectory: '/projects/komla' })
+      );
+      mockWorkspaceService.update.mockImplementation((id: string, updates: object) => ({
+        id,
+        ...updates,
+      }));
+      httpServerService.start();
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const now = Date.now();
+
+      // The host's clock may be off, so it says how long the command waited, not when.
+      await sendRequest(
+        'POST',
+        '/terminals/terminal-1/api/v1/commands',
+        JSON.stringify({ type: 'workspace.snooze', until: '2h' }),
+        { 'content-type': 'application/json', 'x-komla-queued-ms': String(60 * 60 * 1000) }
+      );
+      vi.useRealTimers();
+
+      expect(mockWorkspaceService.update).toHaveBeenCalledWith(
+        'workspace-1',
+        expect.objectContaining({ snoozedUntil: now + 60 * 60 * 1000 })
+      );
+    });
+
     it("adds a script's new tag to the list with its icon as an image, and refuses a bad look", async () => {
       mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(
         createWorkspace({ id: 'workspace-1', workingDirectory: '/projects/komla' })

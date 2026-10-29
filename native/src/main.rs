@@ -10,6 +10,7 @@ mod exec_channel;
 mod lifecycle;
 mod mailbox;
 mod offline_workspace;
+mod outbox;
 #[cfg(unix)]
 mod pty_proxy;
 #[cfg(unix)]

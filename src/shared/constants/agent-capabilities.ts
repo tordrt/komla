@@ -89,6 +89,32 @@ export function isAgentCapabilityEnabled(
   return !(config.agentDisabledCapabilities ?? []).includes(id);
 }
 
+/** Why a command the user turned off didn't run, naming it as its Settings toggle does. */
+export function turnedOffCapabilityMessage(id: AgentCapabilityId): string {
+  return `\`${getAgentCapability(id)?.command ?? id}\` is turned off in Komla. Ask the user to turn it on in Settings → Integrations & MCP → MCP and CLI access.`;
+}
+
+/** Capabilities of the commands an SSH host queues while Komla is away (ADR 0006). */
+const QUEUED_COMMAND_CAPABILITIES = [
+  'workspace.title',
+  'workspace.snooze',
+  'workspace.tag',
+  'workspace.trash',
+] as const satisfies readonly AgentCapabilityId[];
+
+/**
+ * The queued commands the user turned off, by operation type, with what the CLI answers in
+ * their place. Their capability ids are their operation types.
+ */
+export function turnedOffQueuedCommands(config: AgentCapabilityConfig): Record<string, string> {
+  return Object.fromEntries(
+    QUEUED_COMMAND_CAPABILITIES.filter((id) => !isAgentCapabilityEnabled(id, config)).map((id) => [
+      id,
+      turnedOffCapabilityMessage(id),
+    ])
+  );
+}
+
 /** The config change that turns these capabilities on or off, for the CLI and MCP alike. */
 export function agentCapabilitiesUpdate(
   config: AgentCapabilityConfig,

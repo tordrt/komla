@@ -37,13 +37,17 @@ const RUN_SUBCOMMANDS = new Map([
   ['rails', 's'],
 ]);
 /** Interpreters given a script file; `node server.js` starts an app, `node build.js` does not. */
-const SCRIPT_RUNNERS = new Set(['bun', 'deno', 'node', 'php', 'python', 'python3', 'ruby']);
+const SCRIPT_RUNNERS = new Set(['bun', 'deno', 'node', 'php', 'python', 'ruby']);
 const SCRIPT_FILE = /\.(?:[cm]?js|ts|py|rb|php)$/;
 const APP_SCRIPT_NAMES = new Set(['app', 'index', 'main']);
 const FOLLOW_FLAG = /^(?:-[a-zA-Z]*[fF]|--follow)$/;
 /** Launchers that run the command after their own flags; `timeout` also takes a duration. */
 const LAUNCHERS = new Set(['bunx', 'exec', 'nice', 'nohup', 'npx', 'time', 'timeout', 'xvfb-run']);
 const PACKAGE_MANAGERS = new Set(['bun', 'npm', 'pnpm', 'yarn']);
+/** `python3`, `python3.13t`, `pythonw`, `Python` or the Windows launcher `py`. */
+const PYTHON = /^(?:pythonw?(?:\d+(?:\.\d+)*t?)?|pyw?)$/i;
+/** The `py` launcher's own options, which pick a Python: `-3.12-arm64` or `-V:Anaconda3/3.12`. */
+const PY_LAUNCHER_OPTION = /^-(?:\d|V:)/;
 /** A shell word, keeping quoted parts such as `--server-args="-screen 0"` together. */
 const WORD = /(?:[^\s"'<>()]|"[^"]*"|'[^']*')+/g;
 
@@ -56,6 +60,20 @@ function lastCommandStages(command: string): string[][] {
   return (chain[chain.length - 1] ?? '').split('|').map((stage) => stage.match(WORD) ?? []);
 }
 
+const unquote = (word: string) => word.replace(/["']/g, '');
+
+/**
+ * A program's name, without its quotes, its path or a Windows `.exe`, `.cmd`, `.bat` or `.ps1`:
+ * `".venv\Scripts\python.exe"` is Python. Arguments keep their quotes, as a quoted one is text,
+ * such as the pattern in `rg "serve" src`, not a subcommand.
+ */
+function programName(path: string): string {
+  return unquote(path)
+    .split(/[\\/]/)
+    .pop()!
+    .replace(/\.(?:exe|cmd|bat|ps1)$/i, '');
+}
+
 /** Skips environment assignments and launchers such as `timeout 600` or `xvfb-run -a`. */
 function programIndex(words: string[]): number {
   let index = 0;
@@ -65,12 +83,35 @@ function programIndex(words: string[]): number {
       index++;
       continue;
     }
-    if (!LAUNCHERS.has(word)) break;
+    const launcher = programName(word);
+    if (!LAUNCHERS.has(launcher)) break;
     index++;
     while (words[index]?.startsWith('-')) index++;
-    if (word === 'timeout') index++;
+    if (launcher === 'timeout') index++;
   }
-  return /^python3?$/.test(words[index] ?? '') && words[index + 1] === '-m' ? index + 2 : index;
+  return index;
+}
+
+/**
+ * Python's arguments after its own options, such as `-I`, `-u` or `-X utf8`, and the module that
+ * `-m` runs: `python3 -Im http.server` runs the module, and `python3 -c` only a command.
+ */
+function pythonArguments(args: string[]): { module?: string; rest: string[] } {
+  let index = 0;
+  while (index < args.length && /^-./.test(args[index])) {
+    const word = args[index++];
+    if (word === '--') break;
+    // The one long option that takes a value.
+    if (word === '--check-hash-based-pycs') index++;
+    if (word.startsWith('--')) continue;
+    // Options combine, as in `-Iu`; the first that takes a value ends the word.
+    const at = word.slice(1).search(/[mcXW]/) + 1;
+    if (at === 0) continue;
+    const value = word.slice(at + 1) || args[index++];
+    if (word[at] === 'm') return { module: value, rest: args.slice(index) };
+    if (word[at] === 'c') return { rest: [] };
+  }
+  return { rest: args.slice(index) };
 }
 
 function hasLongRunningPart(name: string): boolean {
@@ -94,12 +135,22 @@ function startsApp(program: string, args: string[]): boolean {
   if (program === 'java') return subcommand === '-jar';
   if (program === 'vite') return !subcommand || subcommand.startsWith('-');
   if (!SCRIPT_RUNNERS.has(program) || !SCRIPT_FILE.test(subcommand)) return false;
-  const script = subcommand.split('/').pop() ?? '';
+  const script = subcommand.split(/[\\/]/).pop() ?? '';
   return (
     APP_SCRIPT_NAMES.has(script.split('.')[0]) ||
     hasLongRunningPart(script) ||
     args.some((arg) => LONG_RUNNING_WORDS.has(arg))
   );
+}
+
+/** The program a command runs and its arguments; for Python, the module `-m` runs, if any. */
+function programAndArgs(words: string[]): { program: string; args: string[] } {
+  const [path = '', ...args] = words.slice(programIndex(words));
+  const program = programName(path);
+  if (!PYTHON.test(program)) return { program, args };
+  const launcher = /^pyw?$/i.test(program) && PY_LAUNCHER_OPTION.test(args[0] ?? '');
+  const { module, rest } = pythonArguments(launcher ? args.slice(1) : args);
+  return { program: module ? unquote(module) : 'python', args: rest };
 }
 
 /**
@@ -111,8 +162,7 @@ export function isLongRunningCommand(command: string): boolean {
   const [words = [], ...piped] = lastCommandStages(command);
   if (piped.some(([program]) => program === 'entr')) return true;
   if (words.some((word) => LONG_RUNNING_FLAGS.has(word))) return true;
-  const [path = '', ...args] = words.slice(programIndex(words));
-  const program = path.split('/').pop() ?? '';
+  const { program, args } = programAndArgs(words);
   const subcommand = args[0] ?? '';
   if (PACKAGE_MANAGERS.has(program)) return runsLongRunningScript(args);
   if (LONG_RUNNING_PROGRAMS.has(program) || hasLongRunningPart(program)) return true;

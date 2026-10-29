@@ -78,19 +78,18 @@ export function isQuickLookFolder({ source }: QuickLookItem): boolean {
   return (source.kind === 'workspace' ? source.filePath : source.fullPath).endsWith('/');
 }
 
-/** The workspace's files from terminals, as the files dropdown lists them. */
-export interface QuickLookListed {
-  opened: QuickLookItem[];
-  mentioned: QuickLookItem[];
-}
+/** The workspace's files from terminals, the latest opened or printed first. */
+export type QuickLookListed = QuickLookItem[];
 
-const NOTHING_LISTED: QuickLookListed = { opened: [], mentioned: [] };
+const NOTHING_LISTED: QuickLookListed = [];
 
 /** The folder on screen, or of the file on screen, in the viewer's sidebar. */
 export interface QuickLookFolderSection {
   key: string;
   /** The folder itself, to show it. */
   folder: QuickLookItem;
+  /** The folder it is in, to go up to, unless it is the top: the workspace, root or ~/. */
+  parent: QuickLookItem | null;
   /**
    * The files the viewer can show in it, newest first, but those listed above. The file on screen
    * comes first when the listing leaves it out, such as a type it skips.
@@ -101,12 +100,11 @@ export interface QuickLookFolderSection {
 }
 
 /**
- * The viewer's sidebar: the files opened from terminals, then the ones they printed, as the files
- * dropdown lists them, then the rest of the folder on screen, or of the file on screen.
+ * The viewer's sidebar: the files from terminals, the latest opened or printed first, then the
+ * rest of the folder on screen, or of the file on screen.
  */
 export interface QuickLookSidebarSections {
-  opened: QuickLookItem[];
-  mentioned: QuickLookItem[];
+  recent: QuickLookItem[];
   folder: QuickLookFolderSection;
 }
 
@@ -127,8 +125,7 @@ export function quickLookSidebar(
   if (!session) return null;
   const { workspaceId, item: onScreen } = session;
   const seen = new Set<string>();
-  const opened = withoutRepeats(listed.opened, seen);
-  const mentioned = withoutRepeats(listed.mentioned, seen);
+  const recent = withoutRepeats(listed, seen);
 
   const key = folderKey(workspaceId, onScreen);
   const loaded = folder?.key === key && folder.status === 'loaded' ? folder.items : [];
@@ -139,12 +136,13 @@ export function quickLookSidebar(
   if (!isQuickLookFolder(onScreen) && !seen.has(quickLookItemKey(onScreen))) {
     files.unshift(onScreen);
   }
+  const folderOnScreen = containingFolder(onScreen);
   return {
-    opened,
-    mentioned,
+    recent,
     folder: {
       key,
-      folder: containingFolder(onScreen),
+      folder: folderOnScreen,
+      parent: parentFolder(folderOnScreen),
       files,
       folders: loaded.filter(isQuickLookFolder),
       status: folder?.key === key ? folder.status : undefined,
@@ -176,6 +174,28 @@ function folderItem(item: QuickLookItem, { name, modifiedMs }: ViewerFolderFile)
   };
 }
 
+/**
+ * The folder a folder is in, as an item, or null at the top: the workspace, which is no folder
+ * path, the root, or the home folder a terminal printed as ~/.
+ */
+function parentFolder(folder: QuickLookItem): QuickLookItem | null {
+  const { source } = folder;
+  const sourcePath = source.kind === 'workspace' ? source.filePath : source.fullPath;
+  const parentPath = sourcePath.replace(/[^/]+\/$/, '');
+  if (parentPath === sourcePath || parentPath === '') return null;
+  // The printed path loses its folders too, until it has none left to lose.
+  const printed = folder.path.replace(/[^/\\]+[/\\]$/, '');
+  return {
+    path: printed && printed !== folder.path && printed !== './' ? printed : parentPath,
+    terminalId: folder.terminalId,
+    source:
+      source.kind === 'workspace'
+        ? { kind: 'workspace', filePath: parentPath }
+        : { kind: 'terminal', fullPath: parentPath },
+    hostPath: folder.hostPath && folder.hostPath.replace(/[^/\\]+[/\\]?$/, ''),
+  };
+}
+
 /** The folder an item lists, as an item: itself for a folder. */
 function containingFolder(item: QuickLookItem): QuickLookItem {
   return isQuickLookFolder(item) ? item : folderItem(item, { name: '' });
@@ -193,7 +213,7 @@ function stepTarget(
   const sections = quickLookSidebar(state, listed);
   if (!state.session || !sections) return undefined;
   const onScreen = quickLookItemKey(state.session.item);
-  const above = [...sections.opened, ...sections.mentioned];
+  const above = sections.recent;
   const folderOnScreen =
     isQuickLookFolder(state.session.item) &&
     !above.some((item) => quickLookItemKey(item) === onScreen)

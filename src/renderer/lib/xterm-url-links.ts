@@ -31,6 +31,10 @@ const FILE_EXTENSION_AT_END_REGEX = /[^\\/.]\.([A-Za-z0-9_+-]+)$/;
 const FILE_PATH_START_REGEX = /^(?:\.{1,2}|~|[A-Za-z]:)[\\/]/;
 // Two characters after a dot, so abbreviations such as "e.g." do not read as file names.
 const FILE_PATH_STRUCTURE_REGEX = /[\\/]|\.[A-Za-z0-9]{2}|:\d/;
+// A number with an optional unit, such as 1.0M, -3.4 or 4.17.21, and not a file's name
+// such as 2024.10.29.log.
+const NUMBER_NAME_REGEX = /^[+-]?\d+(?:\.\d[A-Za-z0-9]*)+$/;
+const NUMBER_START_REGEX = /^[+-]?\d/;
 const MAX_FILE_EXTENSION_LENGTH = 4;
 const MAX_WINDOW_CHARS = 2048;
 // TUIs such as Claude Code pad their content, so wrapped rows can stop short of the edge.
@@ -574,8 +578,22 @@ function isPlausibleFilePath(value: string, lineNumber: number | undefined): boo
   if (!value || value.includes('..')) return false;
   if (/^https?:\/\//i.test(value)) return false;
   if (!value.includes('.') || /\s/.test(value)) return false;
+  if (!Number.isFinite(lineNumber) && !/[\\/]/.test(value)) return false;
 
-  return Number.isFinite(lineNumber) || /[\\/]/.test(value);
+  return !isNumberPath(value);
+}
+
+/**
+ * Numbers over numbers, as in a status line's 96k/1.0M or 1.2s/3.4s. A path with a folder
+ * such as releases/ or /opt/ before the number, as in releases/1.0.0, is a path.
+ */
+function isNumberPath(value: string): boolean {
+  const segments = value.split(/[\\/]/);
+  const name = segments.pop() ?? '';
+  return (
+    NUMBER_NAME_REGEX.test(name) &&
+    segments.every((segment) => !segment || NUMBER_START_REGEX.test(segment))
+  );
 }
 
 /**

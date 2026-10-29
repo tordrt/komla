@@ -476,6 +476,58 @@ describe('xterm file links', () => {
     expect(links).toEqual([]);
   });
 
+  it.each([
+    '96k/1.0M 10%',
+    'used 1.2GB/2.5GB of disk',
+    'ratio 3/4.5 so far',
+    'up 2.1k/3.0K',
+    'sent 12k/1.5kB',
+    'took 1.2s/3.4s',
+    'zoom 1.5x/2.0x',
+    'down 1.2Mbps/3.4Mbps',
+    'bump 4.17.20/4.17.21',
+    'drift -1.2/3.4',
+    'delta 1.2/-3.4',
+    'eta /2.5s',
+    'aspect 1.5:1',
+    '96k/1.0M:3',
+  ])(
+    'does not link a number as a file name: %s',
+    (line) => {
+      const { terminal } = terminalFromLines([new MockLine(line)]);
+
+      expect(computeWrappedFileLinks(terminal, 0, vi.fn())).toEqual([]);
+    }
+  );
+
+  it.each([
+    'releases/1.0.0.tgz',
+    'dist/v1.2/app.js',
+    'logs/2024.10.29.log',
+    '/opt/homebrew/Cellar/git/2.45.0',
+    '~/.nvm/versions/node/22.11.0',
+    './out/1.0.0',
+    '.nvm/versions/node/22.11.0',
+    'releases/1.0.0',
+    'releases/1.0.0-beta',
+    'dist/1.2.3:14',
+    'backups/2024.7z',
+    'C:\\tools\\1.0.0',
+    'src\\1.0.0',
+    'archive/backup.7z',
+    'man/man1/ls.1',
+    'src/main.ts:12',
+  ])(
+    'still links a file named with numbers: %s',
+    (path) => {
+      const { terminal } = terminalFromLines([new MockLine(path)]);
+
+      expect(computeWrappedFileLinks(terminal, 0, vi.fn()).map((link) => link.text)).toEqual([
+        path,
+      ]);
+    }
+  );
+
   it('still links bare filenames with a line number', () => {
     const { terminal } = terminalFromLines([new MockLine('at package.json:12')]);
 

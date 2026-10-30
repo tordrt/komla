@@ -106,6 +106,7 @@ describe('ConfigService', () => {
         notificationsNudgePending: false,
         selfSetupNudgePending: false,
         tipsIntroPending: false,
+        aiHelpersOffDismissed: false,
         agentDisabledCapabilities: [],
         defaultSshWorkspaceMode: 'remote',
         voice: {

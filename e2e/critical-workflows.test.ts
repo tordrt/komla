@@ -28,6 +28,7 @@ const test = base.extend<CriticalFixtures>({
         JSON.stringify({
           agentSetupComplete: true,
           usageTelemetryConsentAnswered: true,
+          aiHelpersOffDismissed: true,
         })
       );
 

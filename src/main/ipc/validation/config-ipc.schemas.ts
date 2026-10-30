@@ -240,6 +240,7 @@ const appConfigUpdateSchema = z
     notificationsNudgePending: z.boolean().optional(),
     selfSetupNudgePending: z.boolean().optional(),
     tipsIntroPending: z.boolean().optional(),
+    aiHelpersOffDismissed: z.boolean().optional(),
     lastWorkspaceEnvironment: workspaceEnvironmentSchema.optional(),
     defaultSshWorkspaceMode: z.enum(['remote', 'local-mirror-actions']).optional(),
     gitDefaults: z

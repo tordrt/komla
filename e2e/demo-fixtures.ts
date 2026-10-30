@@ -211,6 +211,7 @@ function seedDemoSandbox() {
     JSON.stringify({
       agentSetupComplete: true,
       usageTelemetryConsentAnswered: true,
+      aiHelpersOffDismissed: true,
       notificationPort: 52864,
       notificationsEnabled: true,
       autoNameBranches: false,

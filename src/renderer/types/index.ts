@@ -255,6 +255,7 @@ export interface AppConfig {
   notificationsNudgePending?: boolean; // Set by onboarding; cleared once launching a one-click agent without notifications shows the nudge
   selfSetupNudgePending?: boolean; // Set by onboarding; cleared once launching an agent without one-click setup shows the nudge, or a self-integration skill launches
   tipsIntroPending?: boolean; // Set by onboarding; cleared once the pointer at Tips after it is dismissed or Tips first opens
+  aiHelpersOffDismissed?: boolean; // User dismissed the notice that a build has no managed AI helpers
   defaultSshWorkspaceMode?: import('../../shared/lib/ssh-workspace-mode').SshWorkspaceMode;
   gitDefaults?: GitDefaults; // Git settings projects follow while they have none of their own
   gitBackgroundFetch?: boolean; // Fetch origin for projects with workspaces when Komla comes to the front; unset fetches

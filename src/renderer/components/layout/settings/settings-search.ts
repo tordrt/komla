@@ -1,5 +1,7 @@
 import { shortcutEntries } from '@/constants/shortcut-entries';
 
+export const AI_UTILITIES_CARD = 'AI utilities';
+
 /** The DOM id a `SettingsCard` gets from its title, so search results can scroll to it. */
 export function settingsCardId(title: string): string {
   const slug = title
@@ -34,9 +36,9 @@ const rows = (cardTitle: string | undefined, ...labels: string[]): SettingsSearc
 // DOM. Keep it in step when cards or rows are added, renamed, or removed.
 const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
   general: [
-    card('AI utilities', 'llm provider openai anthropic ollama'),
+    card(AI_UTILITIES_CARD, 'llm provider openai anthropic ollama'),
     ...rows(
-      'AI utilities',
+      AI_UTILITIES_CARD,
       'Auto-name workspaces',
       'Auto-name branches',
       'Provider',

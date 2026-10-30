@@ -95,6 +95,7 @@ export const freshTest = base.extend<ScreenshotFixtures>({
         JSON.stringify({
           notificationPort: 52864,
           showTipsInToolbar: false,
+          aiHelpersOffDismissed: true,
         })
       );
       seedTheme(SANDBOX_DIR);
@@ -142,6 +143,7 @@ export const configuredTest = base.extend<ScreenshotFixtures>({
         JSON.stringify({
           agentSetupComplete: true,
           usageTelemetryConsentAnswered: true,
+          aiHelpersOffDismissed: true,
           showTipsInToolbar: false,
           notificationPort: 52864,
         })
@@ -237,6 +239,7 @@ export const fileViewerTest = base.extend<ScreenshotFixtures>({
         JSON.stringify({
           agentSetupComplete: true,
           usageTelemetryConsentAnswered: true,
+          aiHelpersOffDismissed: true,
           showTipsInToolbar: false,
           notificationPort: 52864,
         })

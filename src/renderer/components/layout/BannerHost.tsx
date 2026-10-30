@@ -19,6 +19,7 @@ export const BANNER_PRIORITY = {
   integrationUpdate: 2,
   usageConsent: 3,
   announcement: 4,
+  aiHelpersOff: 5,
 } as const;
 
 interface BannerSlot {

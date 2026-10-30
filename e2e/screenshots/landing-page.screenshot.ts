@@ -410,6 +410,7 @@ const landingTest = base.extend<ScreenshotFixtures>({
         JSON.stringify({
           agentSetupComplete: true,
           usageTelemetryConsentAnswered: true,
+          aiHelpersOffDismissed: true,
           showTipsInToolbar: false,
           notificationPort: 52864,
         })

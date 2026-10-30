@@ -61,6 +61,21 @@ describe('GeneralTab AI helper provider', () => {
     expect(screen.getByRole('option', { name: 'Komla managed' })).toBeDisabled();
     expect(screen.getByText(/only in official builds/)).toBeInTheDocument();
   });
+
+  it('marks the provider to change in a build without them', () => {
+    window.api.managedAiHelpers = false;
+    renderGeneralTab();
+
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveClass('border-warning');
+    expect(screen.getByText(/only in official builds/)).toHaveClass('text-warning');
+  });
+
+  it('leaves the provider unmarked in a build with them', () => {
+    renderGeneralTab();
+
+    expect(screen.getByRole('combobox', { name: 'Provider' })).not.toHaveClass('border-warning');
+    expect(screen.getByText(/Free, on us/)).not.toHaveClass('text-warning');
+  });
 });
 
 describe('GeneralTab custom endpoint prompts', () => {
@@ -82,6 +97,13 @@ describe('GeneralTab custom endpoint prompts', () => {
   }
 
   const editor = (name: string) => within(screen.getByRole('group', { name }));
+
+  it('leaves the provider unmarked once chosen in a build without the managed AI helpers', () => {
+    window.api.managedAiHelpers = false;
+    renderCustom();
+
+    expect(screen.getByRole('combobox', { name: 'Provider' })).not.toHaveClass('border-warning');
+  });
 
   afterEach(() => {
     updateConfig.mockReset();

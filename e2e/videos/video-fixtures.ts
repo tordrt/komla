@@ -395,6 +395,7 @@ function seedWorld(world: VideoWorld): VideoSshHost | null {
     JSON.stringify({
       agentSetupComplete: true,
       usageTelemetryConsentAnswered: true,
+      aiHelpersOffDismissed: true,
       showTipsInToolbar: false,
       notificationPort: NOTIFY_PORT,
       notificationsEnabled: true,

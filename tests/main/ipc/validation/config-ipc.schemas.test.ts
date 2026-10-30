@@ -90,6 +90,13 @@ describe('configUpdateArgsSchema', () => {
     expect(() => configUpdateArgsSchema.parse([{ holdToQuit: 1 }])).toThrow();
   });
 
+  it('preserves aiHelpersOffDismissed updates and rejects non-booleans', () => {
+    expect(configUpdateArgsSchema.parse([{ aiHelpersOffDismissed: true }])).toEqual([
+      { aiHelpersOffDismissed: true },
+    ]);
+    expect(() => configUpdateArgsSchema.parse([{ aiHelpersOffDismissed: 1 }])).toThrow();
+  });
+
   it('preserves a known spinner style and rejects any other', () => {
     const [updates] = configUpdateArgsSchema.parse([{ activitySpinner: 'braille' }]);
     expect(updates).toEqual({ activitySpinner: 'braille' });

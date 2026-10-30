@@ -69,7 +69,11 @@ export function seedDefaultProject(
 
   fs.writeFileSync(
     path.join(SANDBOX_DIR, 'config.json'),
-    JSON.stringify({ agentSetupComplete: true, usageTelemetryConsentAnswered: true })
+    JSON.stringify({
+      agentSetupComplete: true,
+      usageTelemetryConsentAnswered: true,
+      aiHelpersOffDismissed: true,
+    })
   );
 
   const repoDir = path.join(SANDBOX_DIR, projectName);

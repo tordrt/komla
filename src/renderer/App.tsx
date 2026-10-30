@@ -5,6 +5,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AgentIntegrationUpdateBanner } from '@/components/layout/AgentIntegrationUpdateBanner';
 import { AgentLaunchDefaultsDialog } from '@/components/layout/AgentLaunchDefaultsDialog';
 import { AgentSetupNudgeDialog } from '@/components/layout/AgentSetupNudgeDialog';
+import { AiHelpersOffBanner } from '@/components/layout/AiHelpersOffBanner';
 import { AnnouncementBanner } from '@/components/layout/AnnouncementBanner';
 import { AnnouncementDialog } from '@/components/layout/AnnouncementDialog';
 import { AppMenu } from '@/components/layout/AppMenu';
@@ -127,6 +128,7 @@ function AppBanners({ onOpenIntegrationsSettings }: { onOpenIntegrationsSettings
       <AgentIntegrationUpdateBanner />
       <UsageAnalyticsConsentBanner />
       <AnnouncementBanner />
+      <AiHelpersOffBanner />
     </BannerHost>
   );
 }

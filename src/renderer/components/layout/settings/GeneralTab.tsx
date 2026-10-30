@@ -1,6 +1,7 @@
 import { Warning, CaretDown, CaretUp } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 
+import { AI_UTILITIES_CARD } from '@/components/layout/settings/settings-search';
 import { SettingsCard } from '@/components/layout/settings/SettingsCard';
 import { SettingsHistoryCard } from '@/components/layout/settings/SettingsHistoryCard';
 import { SettingsRow } from '@/components/layout/settings/SettingsRow';
@@ -290,7 +291,7 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
     <div className="space-y-6">
       {/* AI Utilities */}
       <SettingsCard
-        title="AI utilities"
+        title={AI_UTILITIES_CARD}
         description="Komla's AI helpers name workspaces and branches and write commit messages from your diff."
       >
         <SettingsRow
@@ -316,11 +317,16 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
         <SettingsRow
           label="Provider"
           description={
-            isCustomProvider
-              ? 'Any OpenAI-compatible endpoint, with your own model and API key.'
-              : managedUnavailable
-                ? 'Komla managed is only in official builds. Choose Custom endpoint to use AI helpers in this build.'
-                : "Free, on us. Prompts and diffs are relayed through OpenRouter to providers that don't train on your data, and never stored."
+            isCustomProvider ? (
+              'Any OpenAI-compatible endpoint, with your own model and API key.'
+            ) : managedUnavailable ? (
+              <span className="text-warning">
+                Komla managed is only in official builds. Choose Custom endpoint to use AI helpers
+                in this build.
+              </span>
+            ) : (
+              "Free, on us. Prompts and diffs are relayed through OpenRouter to providers that don't train on your data, and never stored."
+            )
           }
         >
           <Select
@@ -330,7 +336,7 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
                 utilityProvider: e.target.value as 'komla-managed' | 'custom',
               })
             }
-            className="w-56"
+            className={managedUnavailable && !isCustomProvider ? 'w-56 border-warning' : 'w-56'}
           >
             <option value="komla-managed" disabled={managedUnavailable}>
               Komla managed

@@ -64,6 +64,7 @@ const DEFAULT_CONFIG: AppConfig = {
   notificationsNudgePending: false,
   selfSetupNudgePending: false,
   tipsIntroPending: false,
+  aiHelpersOffDismissed: false,
 };
 
 export const useConfigStore = create<ConfigState>((set, get) => ({

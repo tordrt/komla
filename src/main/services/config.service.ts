@@ -313,6 +313,7 @@ export interface AppConfig {
   notificationsNudgePending?: boolean; // Set by onboarding; cleared once launching a one-click agent without notifications shows the nudge
   selfSetupNudgePending?: boolean; // Set by onboarding; cleared once launching an agent without one-click setup shows the nudge, or a self-integration skill launches
   tipsIntroPending?: boolean; // Set by onboarding; cleared once the pointer at Tips after it is dismissed or Tips first opens
+  aiHelpersOffDismissed?: boolean; // User dismissed the notice that a build has no managed AI helpers
   lastWorkspaceEnvironment?: DesiredWorkspaceEnvironment; // Where new workspaces start: last picked or newest added
   defaultSshWorkspaceMode?: SshWorkspaceMode;
   gitDefaults?: GitDefaults; // Git settings projects follow while they have none of their own
@@ -403,6 +404,7 @@ const DEFAULT_CONFIG: AppConfig = {
   notificationsNudgePending: false,
   selfSetupNudgePending: false,
   tipsIntroPending: false,
+  aiHelpersOffDismissed: false,
   agentDisabledCapabilities: [],
   defaultSshWorkspaceMode: 'remote',
   voice: {
@@ -569,6 +571,7 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     notificationsNudgePending: pickWithDefault(rawConfig, 'notificationsNudgePending'),
     selfSetupNudgePending: pickWithDefault(rawConfig, 'selfSetupNudgePending'),
     tipsIntroPending: pickWithDefault(rawConfig, 'tipsIntroPending'),
+    aiHelpersOffDismissed: pickWithDefault(rawConfig, 'aiHelpersOffDismissed'),
     lastWorkspaceEnvironment: workspaceEnvironment(rawConfig.lastWorkspaceEnvironment),
     defaultSshWorkspaceMode:
       rawConfig.defaultSshWorkspaceMode === 'local-mirror-actions'

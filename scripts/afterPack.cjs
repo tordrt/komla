@@ -7,7 +7,7 @@ const ARCH_MAP = { 1: 'x64', 3: 'arm64' };
 /**
  * electron-builder afterPack hook.
  *
- * Windows: verify the per-arch ripgrep platform package was bundled.
+ * macOS and Windows: verify the per-arch ripgrep platform package was bundled.
  * macOS (parallel mode): swap pre-cached per-arch keyboard-layout native module
  *   (cache populated by release script).
  * macOS (all builds): remove stale build/ dirs from native modules that ship
@@ -19,7 +19,7 @@ module.exports = async function afterPack(context) {
     throw new Error(`afterPack: unsupported arch ${context.arch}`);
   }
 
-  if (context.electronPlatformName === 'win32') {
+  if (context.electronPlatformName === 'win32' || context.electronPlatformName === 'darwin') {
     verifyRipgrep(context, arch);
   }
 
@@ -34,16 +34,30 @@ module.exports = async function afterPack(context) {
   }
 };
 
+// On macOS, appOutDir is the dir *containing* the .app bundle (e.g. dist/mac-arm64).
+// Native modules live inside the .app at Contents/Resources/app.asar.unpacked/,
+// NOT at appOutDir/resources/ (which is a staging area with only some modules).
+function getResourcesBase(context) {
+  if (context.electronPlatformName === 'darwin') {
+    const appName = context.packager.appInfo.productFilename + '.app';
+    return path.join(context.appOutDir, appName, 'Contents', 'Resources');
+  }
+  return path.join(context.appOutDir, 'resources');
+}
+
+/**
+ * The main process imports @vscode/ripgrep at startup and it throws without its
+ * platform package, so an app missing that package does not launch at all.
+ */
 function verifyRipgrep(context, arch) {
   const rgBinary = path.join(
-    context.appOutDir,
-    'resources',
+    getResourcesBase(context),
     'app.asar.unpacked',
     'node_modules',
     '@vscode',
-    `ripgrep-win32-${arch}`,
+    `ripgrep-${context.electronPlatformName}-${arch}`,
     'bin',
-    'rg.exe'
+    context.electronPlatformName === 'win32' ? 'rg.exe' : 'rg'
   );
 
   if (!fs.existsSync(rgBinary)) {
@@ -61,17 +75,8 @@ function swapKeyboardLayout(context, arch) {
     throw new Error(`afterPack: cached keyboard-layout binary not found: ${cached}`);
   }
 
-  // On macOS, native modules are inside the .app bundle, not at appOutDir/resources/
-  let resourcesBase;
-  if (context.electronPlatformName === 'darwin') {
-    const appName = context.packager.appInfo.productFilename + '.app';
-    resourcesBase = path.join(context.appOutDir, appName, 'Contents', 'Resources');
-  } else {
-    resourcesBase = path.join(context.appOutDir, 'resources');
-  }
-
   const target = path.join(
-    resourcesBase,
+    getResourcesBase(context),
     'app.asar.unpacked',
     'node_modules',
     'keyboard-layout',
@@ -99,17 +104,7 @@ function swapKeyboardLayout(context, arch) {
  * so a stale build/ causes wrong-arch crashes at runtime.
  */
 function removeStaleBuildDirs(context, arch) {
-  // On macOS, appOutDir is the dir *containing* the .app bundle (e.g. dist/mac-arm64).
-  // Native modules live inside the .app at Contents/Resources/app.asar.unpacked/,
-  // NOT at appOutDir/resources/ (which is a staging area with only some modules).
-  let resourcesBase;
-  if (context.electronPlatformName === 'darwin') {
-    const appName = context.packager.appInfo.productFilename + '.app';
-    resourcesBase = path.join(context.appOutDir, appName, 'Contents', 'Resources');
-  } else {
-    resourcesBase = path.join(context.appOutDir, 'resources');
-  }
-  const unpackedModules = path.join(resourcesBase, 'app.asar.unpacked', 'node_modules');
+  const unpackedModules = path.join(getResourcesBase(context), 'app.asar.unpacked', 'node_modules');
 
   // node-pty: has prebuilds/darwin-{arch}/pty.node, but loads build/Release first
   const ptyDir = path.join(unpackedModules, 'node-pty');

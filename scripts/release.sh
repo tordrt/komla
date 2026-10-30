@@ -859,8 +859,9 @@ phase_build_mac() {
   [[ "$build_arm64" == "true" ]] && builder_args+=(--arm64)
   [[ "$build_x64" == "true" ]] && builder_args+=(--x64)
 
-  # afterPack removes stale build/ dirs from native modules (node-pty,
-  # @parcel/watcher) so the correct per-arch prebuild is always used.
+  # afterPack fails the build if the app is missing its ripgrep binary, and
+  # removes stale build/ dirs from native modules (node-pty, @parcel/watcher)
+  # so the correct per-arch prebuild is always used.
   # In parallel mode it also swaps pre-cached keyboard-layout binaries
   # and disables npmRebuild to keep node_modules/ stable across jobs.
   builder_args+=(--config.afterPack=./scripts/afterPack.cjs)
@@ -1413,13 +1414,15 @@ build_all_platforms() {
   npm run build:native:matrix
   npm run build
 
-  # Pre-install @parcel/watcher platform packages for all target platforms.
-  # npm only installs the host platform's optional dep by default. afterPack
-  # asserts these exist before removing build/ dirs, and in parallel mode
-  # npmRebuild=false means electron-builder won't install cross-arch variants.
+  # Pre-install @parcel/watcher and @vscode/ripgrep platform packages for all
+  # target platforms. npm only installs the host platform's optional dep by
+  # default, and electron-builder ships only what is on disk. afterPack asserts
+  # these exist, and in parallel mode npmRebuild=false means electron-builder
+  # won't install cross-arch variants.
   local watcher_pkgs=()
   if should_build "mac"; then
     watcher_pkgs+=("@parcel/watcher-darwin-arm64:darwin:arm64" "@parcel/watcher-darwin-x64:darwin:x64")
+    watcher_pkgs+=("@vscode/ripgrep-darwin-arm64:darwin:arm64" "@vscode/ripgrep-darwin-x64:darwin:x64")
   fi
   if should_build "windows"; then
     watcher_pkgs+=("@parcel/watcher-win32-x64:win32:x64" "@parcel/watcher-win32-arm64:win32:arm64")
@@ -1428,7 +1431,7 @@ build_all_platforms() {
     watcher_pkgs+=("@vscode/ripgrep-win32-x64:win32:x64" "@vscode/ripgrep-win32-arm64:win32:arm64")
   fi
   if [[ ${#watcher_pkgs[@]} -gt 0 ]]; then
-    info "Pre-installing @parcel/watcher platform packages..."
+    info "Pre-installing @parcel/watcher and @vscode/ripgrep platform packages..."
     local watcher_install_args=()
     for watcher_spec in "${watcher_pkgs[@]}"; do
       local watcher_pkg="${watcher_spec%%:*}"

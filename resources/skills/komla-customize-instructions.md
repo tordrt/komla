@@ -87,10 +87,11 @@ off together. Make one when the user wants an integration to share or to keep ap
 settings; otherwise change `status-items` and `hooks`. `komla settings schema plugins` shows what
 the manifest takes.
 
-Komla runs a plugin only once the user turns it on, and stops it when any of its files change until
-they turn it on again, so writing the folder runs nothing. Write it on this computer, then turn it on
-with `komla settings apply plugins` and `{"plugins": [{"id": "<plugin id>", "enabled": true}]}`.
-Each item and hook gets the id `<plugin id>.<id>`. Commands that run on this computer get
+Make or change a plugin with `komla settings apply plugins` and `{"plugins": [{"id": "<plugin
+id>", "enabled": true, "manifest": {...}}]}`, from any computer: Komla writes the manifest into the
+plugin's folder once the user applies it. `"enabled": false` makes it without running it. Komla runs
+a plugin only once the user turns it on, and stops it when any of its files change until they turn
+it on again. Each item and hook gets the id `<plugin id>.<id>`. Commands that run on this computer get
 `KOMLA_PLUGIN_DIR`, the plugin's folder, for scripts it ships; an SSH workspace's commands run on
 its host, without that folder. Keep a plugin's state, such as an `interval` hook's last result,
 outside its folder, since any change there stops it. Its links must lead to files in its folder, and

@@ -283,6 +283,17 @@ describe('PluginsService', () => {
     expect(service.list()[0].state).toBe('on');
   });
 
+  it("lists a folder that isn't a plugin as one, whatever else is wrong with it", async () => {
+    mkdirSync(join(pluginsPath, 'notes'));
+    symlinkSync(join(root, 'nowhere'), join(pluginsPath, 'notes', 'broken'));
+    await service.scan();
+
+    expect(service.list()[0]).toMatchObject({
+      state: 'invalid',
+      problem: 'has no komla-plugin.json',
+    });
+  });
+
   it('hashes the manifest it reads, so what runs is what the digest covers', async () => {
     const dir = writePlugin('prs', prManifest);
 

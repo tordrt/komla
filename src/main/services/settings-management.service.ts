@@ -161,7 +161,7 @@ export interface SettingsFileAdapter {
   ):
     | { next: unknown; changes: SettingsApprovalChange[]; warning?: string }
     | { problems: string[] };
-  write(next: unknown): void;
+  write(next: unknown): void | Promise<void>;
 }
 
 export interface SettingsApprovalRequest {
@@ -1232,7 +1232,7 @@ export class SettingsManagementService {
       if (file.revision() !== revision) {
         throw new SettingsManagementError('STALE_VERSION', `${file.name} has changed.`, 412);
       }
-      file.write(prepared.next);
+      await file.write(prepared.next);
       return { status: 'applied', applied: true, value: file.read() };
     } finally {
       this.pending.delete(resource);

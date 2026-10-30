@@ -320,7 +320,9 @@ results and errors rather than MCP response envelopes.
 `state` (`on`, `off` or `changed`) and the status bar items and hooks it adds, and under `invalid`
 the ones Komla can't read, with why, so each id is listed once. Apply takes
 only the plugins to change, as `{"plugins": [{"id": "github-prs", "enabled": true}]}`, and the
-confirmation lists every command a plugin turned on runs. Turning one on records a digest of its
+confirmation lists every command a plugin turned on runs. An entry with a `manifest` writes it as
+the plugin's `komla-plugin.json`, in a new folder `<id>` for a new plugin, so an agent on an SSH
+host can make a plugin too; scripts a plugin ships still have to be copied to this computer. Turning one on records a digest of its
 files, so a plugin whose files change shows as `changed` and stops until it is turned on again (ADR
 0007). `komla settings schema plugins` also prints the manifest's fields.
 

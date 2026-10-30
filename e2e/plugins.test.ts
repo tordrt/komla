@@ -35,6 +35,18 @@ const test = base.extend({
   },
 });
 
+async function readServerPort(): Promise<number> {
+  const portFile = path.join(SANDBOX_DIR, 'port');
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (fs.existsSync(portFile)) {
+      const port = Number(fs.readFileSync(portFile, 'utf8').trim());
+      if (Number.isFinite(port) && port > 0) return port;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error('HTTP server port file never appeared');
+}
+
 async function openIntegrations(window: Page): Promise<void> {
   // Settings loads lazily on first open; re-dispatch until it renders.
   await expect(async () => {
@@ -103,5 +115,47 @@ test.describe('Plugins', () => {
     await appWindow.getByRole('switch', { name: 'Turn on Hello' }).click();
     await appWindow.keyboard.press('Escape');
     await expect(appWindow.getByText('Something else')).toBeVisible({ timeout: 20_000 });
+  });
+
+  test('makes a plugin from a manifest, as an agent on an SSH host does', async ({ appWindow }) => {
+    await expect(appWindow.getByRole('button', { name: 'New Workspace' }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    const port = await readServerPort();
+    const manifest = {
+      id: 'usage',
+      name: 'Usage',
+      contributes: {
+        statusItems: [{ id: 'today', command: 'echo "12 runs today"', runOn: 'local' }],
+      },
+    };
+    // What `komla settings apply plugins` sends, from any computer.
+    const applied = fetch(`http://127.0.0.1:${port}/settings/plugins`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ plugins: [{ id: 'usage', enabled: true, manifest }] }),
+    }).then((response) => response.json());
+
+    const dialog = appWindow.getByRole('dialog').filter({ hasText: 'Review settings changes' });
+    await expect(dialog.getByText('echo "12 runs today"')).toBeVisible({ timeout: 15_000 });
+    await expect(dialog.getByText('plugins/usage')).toBeVisible();
+    if (SCREENSHOTS) {
+      await dialog.screenshot({ path: path.join(SCREENSHOTS, 'plugin-apply-approval.png') });
+    }
+    await dialog.getByRole('button', { name: 'Apply changes' }).click();
+
+    expect(await applied).toMatchObject({
+      status: 'applied',
+      plugins: expect.arrayContaining([
+        expect.objectContaining({ id: 'usage', enabled: true, state: 'on' }),
+      ]),
+    });
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(SANDBOX_DIR, 'plugins', 'usage', 'komla-plugin.json'), 'utf8')
+      )
+    ).toEqual(manifest);
+    await openIntegrations(appWindow);
+    await expect(appWindow.getByRole('switch', { name: 'Turn off Usage' })).toBeChecked();
   });
 });

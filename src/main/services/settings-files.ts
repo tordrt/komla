@@ -17,7 +17,16 @@ import { writeFileAtomicSync } from '../lib/atomic-write';
 import { parseSettingsFile } from '../lib/settings-file';
 
 import { hooksFileSchema } from './hooks.service';
-import { PLUGIN_MANIFEST, pluginManifestSchema, type PluginsService } from './plugins.service';
+import {
+  contributionEntries,
+  MAX_PLUGINS,
+  NO_OTHER_FILES,
+  PLUGIN_MANIFEST,
+  pluginManifestSchema,
+  type PluginFolder,
+  type PluginManifest,
+  type PluginsService,
+} from './plugins.service';
 import {
   commandOutputSchema,
   popoverOutputDescription,
@@ -30,7 +39,7 @@ import type {
   SettingsFileResource,
   TerminalConfig,
 } from '../../shared/types';
-import type { PluginContributionInfo, PluginInfo, PluginState } from '../../shared/types/plugins';
+import type { PluginContributionInfo, PluginState } from '../../shared/types/plugins';
 import type { SettingsSchemaSection } from '../lib/settings-schema';
 
 const FILE_VERSION = 1;
@@ -46,6 +55,30 @@ function problemsOf(error: z.ZodError): string[] {
   return error.issues.map((issue) =>
     issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
   );
+}
+
+/** What changes from one list to the next, by id: entries added, changed and removed. */
+function listChanges<Entry>(
+  before: Entry[],
+  after: Entry[],
+  idOf: (entry: Entry) => string,
+  contentOf: (entry: Entry) => unknown,
+  describe: (entry: Entry) => Omit<SettingsApprovalChange, 'operation'>
+): SettingsApprovalChange[] {
+  const previous = new Map(before.map((entry) => [idOf(entry), entry]));
+  const changes: SettingsApprovalChange[] = [];
+  for (const entry of after) {
+    const old = previous.get(idOf(entry));
+    if (!old) changes.push({ operation: 'add', ...describe(entry) });
+    else if (hashOf(contentOf(old)) !== hashOf(contentOf(entry))) {
+      changes.push({ operation: 'edit', ...describe(entry) });
+    }
+  }
+  const kept = new Set(after.map(idOf));
+  for (const entry of before) {
+    if (!kept.has(idOf(entry))) changes.push({ operation: 'delete', ...describe(entry) });
+  }
+  return changes;
 }
 
 interface CommandEntry {
@@ -104,21 +137,15 @@ function commandFile<Entry extends CommandEntry>({
     prepare(desired) {
       const parsed = schema.safeParse(desired);
       if (!parsed.success) return { problems: problemsOf(parsed.error) };
-      const before = new Map(entries().map((entry) => [entry.id, entry]));
       // Both sides with the defaults filled in, so leaving out a default changes nothing.
       const after = (parsed.data as Record<string, unknown>)[listKey] as Entry[];
-      const changes: SettingsApprovalChange[] = [];
-      for (const entry of after) {
-        const previous = before.get(entry.id);
-        if (!previous) changes.push({ operation: 'add', ...describe(entry) });
-        else if (hashOf(previous) !== hashOf(entry)) {
-          changes.push({ operation: 'edit', ...describe(entry) });
-        }
-      }
-      const kept = new Set(after.map((entry) => entry.id));
-      for (const [id, entry] of before) {
-        if (!kept.has(id)) changes.push({ operation: 'delete', ...describe(entry) });
-      }
+      const changes = listChanges(
+        entries(),
+        after,
+        (entry) => entry.id,
+        (entry) => entry,
+        describe
+      );
       return {
         next: { _version: FILE_VERSION, ...desired },
         changes,
@@ -337,6 +364,9 @@ const pluginsSchema = z
             description:
               "`true` turns it on as its files are now, also after they changed; `false` turns it off. `get` shows the rest, such as each plugin's `state` and what it adds, which apply leaves as they are.",
           }),
+          manifest: pluginManifestSchema.optional().meta({
+            description: `The plugin's \`${PLUGIN_MANIFEST}\`, which apply writes into its folder, making the folder \`<id>\` for a new plugin, so a plugin can be made from any computer. Leave it out, or as \`get\` lists it, to keep it as it is. ${pluginManifestSchema.meta()?.description ?? ''}`,
+          }),
         })
       )
       .max(100),
@@ -347,8 +377,27 @@ const pluginsSchema = z
   })
   .strict()
   .meta({
-    description: `The plugins in Komla's plugins folder, \`~/.komla/plugins/\`: folders with a \`${PLUGIN_MANIFEST}\` that add status bar items and hooks. Apply only the plugins to change. A plugin runs only while it's turned on and its files are as they were then; a \`changed\` plugin's files changed since, so it doesn't run until it's turned on again.`,
+    description: `The plugins in Komla's plugins folder, \`~/.komla/plugins/\`: folders with a \`${PLUGIN_MANIFEST}\` that add status bar items and hooks. Apply only the plugins to change or add. A plugin runs only while it's turned on and its files are as they were then; a \`changed\` plugin's files changed since, so it doesn't run until it's turned on again.`,
   });
+
+type PluginEntry = z.infer<typeof pluginsSchema>['plugins'][number];
+
+/** What applying plugins writes: the manifests, then which plugins are on. */
+interface PluginsNext {
+  /** Each plugin to turn on, with the digest of the files the approval showed, or off. */
+  enable: Record<string, string | false>;
+  /** Manifests to write, as the agent wrote them; each is turned on once Komla reads it back. */
+  manifests: {
+    id: string;
+    folder: string;
+    manifest: unknown;
+    enabled: boolean;
+    /** The folder's other files as the approval saw them, which must be so still. */
+    otherFiles: string;
+    /** Whether the folder is new, so it mustn't appear before Komla writes it. */
+    isNew: boolean;
+  }[];
+}
 
 const PLUGINS_WARNING =
   "Komla runs these commands, and the plugin's files they use, without asking again: on this computer for local workspaces, and on the SSH host for SSH workspaces. A plugin stops when its files change, until it's turned on again.";
@@ -379,17 +428,52 @@ function describeContribution(
   };
 }
 
-/** Why a plugin can't be turned on or off as asked. */
+/** What deciding whether a plugin can be changed as asked looks at. */
+interface PluginsContext {
+  folders: PluginFolder[];
+  /** The ids already in the list. */
+  seen: ReadonlySet<string>;
+  /** How many new plugins the list makes before this one. */
+  newPlugins: number;
+  takenName: (name: string) => string | undefined;
+}
+
+/** Why a plugin can't be turned on or off, or written, as asked. */
 function pluginProblem(
-  id: string,
-  enabled: boolean,
-  plugin: PluginInfo | undefined,
-  seen: ReadonlySet<string>
+  { id, enabled, manifest }: PluginEntry,
+  plugin: PluginFolder | undefined,
+  context: PluginsContext
 ): string | undefined {
+  if (context.seen.has(id)) return `${id} is in the list more than once`;
+  if (manifest) return manifestProblem(id, manifest, plugin, context);
   if (!plugin) return `There is no plugin ${id}; \`komla settings get plugins\` lists them`;
-  if (seen.has(id)) return `${id} is in the list more than once`;
   if (enabled && (plugin.state === 'invalid' || !plugin.digest)) {
     return `Plugin ${id} can't be turned on: ${plugin.problem ?? "Komla can't read it"}`;
+  }
+  return undefined;
+}
+
+/** Why Komla can't write this manifest for the plugin. */
+function manifestProblem(
+  id: string,
+  manifest: PluginManifest,
+  plugin: PluginFolder | undefined,
+  { folders, newPlugins, takenName }: PluginsContext
+): string | undefined {
+  if (manifest.id !== id) return `${id}: its manifest's id is ${manifest.id}`;
+  if (plugin) {
+    if (plugin.folderProblem) return `Plugin ${id} ${plugin.folderProblem}`;
+    return undefined;
+  }
+  const taken = takenName(id);
+  if (taken !== undefined) {
+    const other = folders.find((each) => each.folder === taken);
+    return other
+      ? `${id}: the plugins folder has a folder ${taken} already, for ${other.id}`
+      : `${id}: the plugins folder has ${taken} already, which isn't a plugin's folder`;
+  }
+  if (folders.length + newPlugins >= MAX_PLUGINS) {
+    return `${id}: Komla reads only ${MAX_PLUGINS} plugins, and this would be one more`;
   }
   return undefined;
 }
@@ -400,6 +484,84 @@ function pluginProblem(
  */
 function changesPlugin(state: PluginState, enabled: boolean): boolean {
   return enabled ? state !== 'on' : state === 'on' || state === 'changed';
+}
+
+/** What changes in what runs, from a plugin's items and hooks before to after. */
+function contributionChanges(
+  name: string,
+  before: ReturnType<typeof contributionEntries>,
+  after: ReturnType<typeof contributionEntries>
+): SettingsApprovalChange[] {
+  return listChanges(
+    before,
+    after,
+    // An item and a hook may share an id.
+    ({ info }) => `${info.kind}:${info.id}`,
+    ({ entry }) => entry,
+    ({ info }) => describeContribution(name, info)
+  );
+}
+
+/**
+ * What writing a plugin's manifest changes: the plugin itself, then what runs, from what ran before
+ * to what runs once it's turned on, or nothing while it's off.
+ */
+function manifestChanges(
+  { id, enabled, manifest }: PluginEntry,
+  plugin: PluginFolder | undefined
+): SettingsApprovalChange[] {
+  const written = manifest!;
+  const before =
+    plugin?.state === 'on' && plugin.manifest ? contributionEntries(plugin.manifest) : [];
+  const after = enabled ? contributionEntries(written) : [];
+  const counts = [
+    [written.contributes.statusItems?.length ?? 0, 'status bar item'],
+    [written.contributes.hooks?.length ?? 0, 'hook'],
+  ] as const;
+  return [
+    {
+      operation: plugin?.hasManifest ? 'edit' : 'add',
+      kind: 'plugin',
+      title: written.name,
+      details: [
+        { label: 'Folder', value: `plugins/${plugin?.folder ?? id}` },
+        {
+          label: 'Adds',
+          value: counts
+            .filter(([count]) => count > 0)
+            .map(([count, noun]) => `${count} ${noun}${count === 1 ? '' : 's'}`)
+            .join(', '),
+        },
+        ...(enabled ? [] : [{ label: 'Runs', value: 'Only once turned on' }]),
+      ],
+    },
+    ...contributionChanges(written.name, before, after),
+  ];
+}
+
+/**
+ * Writes the manifests once every plugin's folder is as the approval saw it, so none is written
+ * when one has changed, then reads the plugins again.
+ */
+async function writeManifests(
+  plugins: Pick<PluginsService, 'takenName' | 'otherFilesOf' | 'writeManifest' | 'scan'>,
+  manifests: PluginsNext['manifests']
+): Promise<void> {
+  const unchanged = await Promise.all(
+    manifests.map(async ({ folder, otherFiles, isNew }) =>
+      isNew
+        ? plugins.takenName(folder) === undefined
+        : (await plugins.otherFilesOf(folder).catch(() => undefined)) === otherFiles
+    )
+  );
+  const changed = manifests.find((_, index) => !unchanged[index]);
+  if (changed) {
+    throw new Error(
+      `Plugin ${changed.id}'s files changed since the approval listed them. Apply it again.`
+    );
+  }
+  for (const { folder, manifest } of manifests) plugins.writeManifest(folder, manifest);
+  await plugins.scan();
 }
 
 export interface SettingsFilesDependencies {
@@ -417,7 +579,10 @@ export interface SettingsFilesDependencies {
     list(): AgentPreset[];
     update(id: string, updates: PresetUpdates): void;
   };
-  plugins: Pick<PluginsService, 'list' | 'revision' | 'setEnabled'>;
+  plugins: Pick<
+    PluginsService,
+    'folders' | 'revision' | 'setEnabled' | 'takenName' | 'otherFilesOf' | 'writeManifest' | 'scan'
+  >;
 }
 
 /** The settings files `komla settings get|apply` reads and changes, beside the theme and Actions. */
@@ -431,15 +596,31 @@ export function createSettingsFiles({
   return {
     plugins: {
       name: 'Plugins',
-      schema: [{ schema: pluginsSchema }, { title: PLUGIN_MANIFEST, schema: pluginManifestSchema }],
+      schema: [
+        { schema: pluginsSchema },
+        { title: 'What `command` prints', schema: commandOutputSchema },
+        { title: 'What `popoverCommand` prints', schema: popoverOutputDescription },
+      ],
       read: () => {
         // Each id once, so `get`'s entries apply back; one Komla can't read may share an id.
-        const listed = plugins.list().map(({ digest: _digest, ...plugin }) => plugin);
-        const invalid = listed.filter((plugin) => plugin.state === 'invalid');
+        const folders = plugins.folders();
+        const invalid = folders.filter((plugin) => plugin.state === 'invalid');
         return {
-          plugins: listed
+          plugins: folders
             .filter((plugin) => plugin.state !== 'invalid')
-            .map(({ id, state, ...plugin }) => ({ id, enabled: state === 'on', state, ...plugin })),
+            .map(
+              ({
+                id,
+                state,
+                written,
+                digest: _digest,
+                folderProblem: _folderProblem,
+                hasManifest: _hasManifest,
+                manifest: _manifest,
+                otherFiles: _otherFiles,
+                ...plugin
+              }) => ({ id, enabled: state === 'on', state, ...plugin, manifest: written })
+            ),
           ...(invalid.length > 0 && {
             invalid: invalid.map(({ id, name, folder, problem }) => ({
               id,
@@ -454,41 +635,88 @@ export function createSettingsFiles({
       prepare(desired) {
         const parsed = pluginsSchema.safeParse(desired);
         if (!parsed.success) return { problems: problemsOf(parsed.error) };
-        const listed = plugins.list();
+        const folders = plugins.folders();
         // Of plugins with one id, the one that can run, if any.
         const find = (id: string) =>
-          listed.find((plugin) => plugin.id === id && plugin.state !== 'invalid') ??
-          listed.find((plugin) => plugin.id === id);
+          folders.find((plugin) => plugin.id === id && plugin.state !== 'invalid') ??
+          folders.find((plugin) => plugin.id === id);
         const problems: string[] = [];
         const seen = new Set<string>();
-        // The digest of the files the approval shows, so files that change after it don't run.
-        const next: Record<string, string | false> = {};
+        const next: PluginsNext = { enable: {}, manifests: [] };
         const changes: SettingsApprovalChange[] = [];
-        for (const { id, enabled } of parsed.data.plugins) {
-          const plugin = find(id);
-          const problem = pluginProblem(id, enabled, plugin, seen);
-          seen.add(id);
-          if (problem) problems.push(problem);
-          if (problem || !plugin || !changesPlugin(plugin.state, enabled)) continue;
-          next[id] = enabled ? plugin.digest! : false;
+        parsed.data.plugins.forEach((entry, index) => {
+          const plugin = find(entry.id);
+          const problem = pluginProblem(entry, plugin, {
+            folders,
+            seen,
+            newPlugins: next.manifests.filter((each) => each.isNew).length,
+            takenName: (name) => plugins.takenName(name),
+          });
+          seen.add(entry.id);
+          if (problem) {
+            problems.push(problem);
+            return;
+          }
+          const current = plugin?.state !== 'invalid' ? plugin?.manifest : undefined;
+          if (entry.manifest && (!current || hashOf(current) !== hashOf(entry.manifest))) {
+            changes.push(...manifestChanges(entry, plugin));
+            next.manifests.push({
+              id: entry.id,
+              folder: plugin?.folder ?? entry.id,
+              // As the agent wrote it, without the defaults Komla fills in.
+              manifest: (desired.plugins as { manifest: unknown }[])[index].manifest,
+              enabled: entry.enabled,
+              otherFiles: plugin?.otherFiles ?? NO_OTHER_FILES,
+              isNew: !plugin,
+            });
+            return;
+          }
+          if (!plugin || !changesPlugin(plugin.state, entry.enabled)) return;
+          // The digest of the files the approval shows, so files that change after it don't run.
+          next.enable[entry.id] = entry.enabled ? plugin.digest! : false;
           for (const contribution of plugin.contributions) {
             changes.push({
-              operation: enabled ? 'add' : 'delete',
+              operation: entry.enabled ? 'add' : 'delete',
               ...describeContribution(plugin.name, contribution),
             });
           }
-        }
+        });
         if (problems.length > 0) return { problems };
         return {
           next,
           changes,
-          ...(changes.some((change) => change.operation === 'add') && {
+          ...(changes.some(
+            (change) => change.kind !== 'plugin' && change.operation !== 'delete'
+          ) && {
             warning: PLUGINS_WARNING,
           }),
         };
       },
-      write(next) {
-        plugins.setEnabled(next as Record<string, string | false>);
+      async write(next) {
+        const { enable, manifests } = next as PluginsNext;
+        if (manifests.length > 0) await writeManifests(plugins, manifests);
+        const changes = { ...enable };
+        for (const { id, folder, manifest, enabled, otherFiles } of manifests) {
+          if (!enabled) {
+            changes[id] = false;
+            continue;
+          }
+          // Read back as written, with the other files the approval saw, or it doesn't run.
+          const written = plugins.folders().find((each) => each.folder === folder);
+          if (written?.state === 'invalid') {
+            throw new Error(`Plugin ${id} ${written.problem ?? "can't be read"}`);
+          }
+          if (
+            !written?.digest ||
+            written.id !== id ||
+            written.otherFiles !== otherFiles ||
+            hashOf(written.manifest) !== hashOf(pluginManifestSchema.parse(manifest))
+          ) {
+            throw new Error(`Plugin ${id}'s files changed as Komla wrote them. Apply it again.`);
+          }
+          changes[id] = written.digest;
+        }
+        if (Object.keys(changes).length > 0) plugins.setEnabled(changes);
       },
     },
     'status-items': commandFile<StatusItemEntry>({

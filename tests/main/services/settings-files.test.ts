@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -102,7 +102,7 @@ describe('settings files', () => {
       expect(read).toMatchObject({
         plugins: [{ id: 'github-prs', enabled: false, state: 'off', name: 'GitHub PRs' }],
       });
-      expect(files.plugins.prepare(read)).toEqual({ next: {}, changes: [] });
+      expect(files.plugins.prepare(read)).toEqual({ next: { enable: {}, manifests: [] }, changes: [] });
     });
 
     it('turns a plugin on, listing every command it runs', async () => {
@@ -112,7 +112,7 @@ describe('settings files', () => {
       const prepared = files.plugins.prepare({ plugins: [{ id: 'github-prs', enabled: true }] });
 
       expect(prepared).toEqual({
-        next: { 'github-prs': plugins.list()[0].digest },
+        next: { enable: { 'github-prs': plugins.list()[0].digest }, manifests: [] },
         changes: [
           {
             operation: 'add',
@@ -145,7 +145,7 @@ describe('settings files', () => {
         warning: expect.stringContaining('A plugin stops when its files change'),
       });
       if ('problems' in prepared) throw new Error('unexpected problems');
-      files.plugins.write(prepared.next);
+      await files.plugins.write(prepared.next);
       expect(files.plugins.read()).toMatchObject({
         plugins: [{ id: 'github-prs', enabled: true, state: 'on' }],
       });
@@ -160,7 +160,7 @@ describe('settings files', () => {
       writePlugin({ ...manifest, name: 'Something else' });
       await plugins.scan();
 
-      expect(() => files.plugins.write(prepared.next)).toThrow(/github-prs's files changed/);
+      await expect(async () => files.plugins.write(prepared.next)).rejects.toThrow(/github-prs's files changed/);
       expect(plugins.list()[0].state).toBe('off');
     });
 
@@ -172,7 +172,7 @@ describe('settings files', () => {
       const prepared = files.plugins.prepare({ plugins: [{ id: 'github-prs', enabled: false }] });
 
       expect(prepared).toMatchObject({
-        next: { 'github-prs': false },
+        next: { enable: { 'github-prs': false }, manifests: [] },
         changes: [{ operation: 'delete' }, { operation: 'delete' }],
       });
       expect(prepared).not.toHaveProperty('warning');
@@ -188,7 +188,7 @@ describe('settings files', () => {
       const prepared = files.plugins.prepare({ plugins: [{ id: 'github-prs', enabled: false }] });
 
       expect(prepared).toMatchObject({
-        next: { 'github-prs': false },
+        next: { enable: { 'github-prs': false }, manifests: [] },
         changes: [{ operation: 'delete' }, { operation: 'delete' }],
       });
     });
@@ -217,10 +217,10 @@ describe('settings files', () => {
           },
         ],
       });
-      expect(files.plugins.prepare(read)).toEqual({ next: {}, changes: [] });
+      expect(files.plugins.prepare(read)).toEqual({ next: { enable: {}, manifests: [] }, changes: [] });
       const prepared = files.plugins.prepare({ plugins: [{ id: 'github-prs', enabled: true }] });
       if ('problems' in prepared) throw new Error(prepared.problems.join('\n'));
-      files.plugins.write(prepared.next);
+      await files.plugins.write(prepared.next);
       expect(plugins.list().map((plugin) => plugin.state)).toEqual(['invalid', 'on', 'invalid']);
     });
 
@@ -262,6 +262,276 @@ describe('settings files', () => {
 
       expect(files.plugins.prepare({ plugins: [{ id: 'prs', enabled: true }] })).toEqual({
         problems: ["Plugin prs can't be turned on: komla-plugin.json contributes: adds nothing"],
+      });
+    });
+
+    describe('with a manifest, as from an SSH host', () => {
+      const apply = async (desired: Record<string, unknown>) => {
+        const prepared = files.plugins.prepare(desired);
+        if ('problems' in prepared) throw new Error(prepared.problems.join('\n'));
+        await files.plugins.write(prepared.next);
+        return prepared;
+      };
+
+      it('makes a plugin and turns it on, listing every command it runs', async () => {
+        await plugins.scan();
+
+        const prepared = await apply({ plugins: [{ id: 'github-prs', enabled: true, manifest }] });
+
+        expect(prepared.changes.map(({ operation, kind, title }) => [operation, kind, title])).toEqual([
+          ['add', 'plugin', 'GitHub PRs'],
+          ['add', 'status-item', 'GitHub PRs: pr'],
+          ['add', 'hook', 'GitHub PRs: ping'],
+        ]);
+        expect(prepared.changes[0].details).toEqual([
+          { label: 'Folder', value: 'plugins/github-prs' },
+          { label: 'Adds', value: '1 status bar item, 1 hook' },
+        ]);
+        expect(prepared).toHaveProperty('warning');
+        expect(
+          JSON.parse(
+            readFileSync(join(settingsPath, 'plugins', 'github-prs', 'komla-plugin.json'), 'utf-8')
+          )
+        ).toEqual(manifest);
+        expect(plugins.list()).toEqual([
+          expect.objectContaining({ id: 'github-prs', folder: 'github-prs', state: 'on' }),
+        ]);
+        const read = files.plugins.read();
+        expect(read).toMatchObject({ plugins: [{ manifest: { id: 'github-prs' } }] });
+        expect(files.plugins.prepare(read)).toEqual({
+          next: { enable: {}, manifests: [] },
+          changes: [],
+        });
+      });
+
+      it('changes a running plugin, listing only what changes in what runs', async () => {
+        writePlugin(manifest);
+        await plugins.scan();
+        plugins.setEnabled({ 'github-prs': plugins.list()[0].digest! });
+
+        const prepared = await apply({
+          plugins: [
+            {
+              id: 'github-prs',
+              enabled: true,
+              manifest: {
+                ...manifest,
+                contributes: {
+                  statusItems: [{ ...manifest.contributes.statusItems[0], command: 'gh pr checks' }],
+                },
+              },
+            },
+          ],
+        });
+
+        expect(prepared.changes.map(({ operation, kind, title }) => [operation, kind, title])).toEqual([
+          ['edit', 'plugin', 'GitHub PRs'],
+          ['edit', 'status-item', 'GitHub PRs: pr'],
+          ['delete', 'hook', 'GitHub PRs: ping'],
+        ]);
+        expect(plugins.list()).toEqual([
+          expect.objectContaining({ folder: 'prs', state: 'on', contributions: [expect.anything()] }),
+        ]);
+      });
+
+      it('makes a plugin that stays off until turned on', async () => {
+        await plugins.scan();
+
+        const prepared = await apply({ plugins: [{ id: 'github-prs', enabled: false, manifest }] });
+
+        expect(prepared.changes).toEqual([
+          expect.objectContaining({
+            operation: 'add',
+            kind: 'plugin',
+            details: expect.arrayContaining([{ label: 'Runs', value: 'Only once turned on' }]),
+          }),
+        ]);
+        expect(prepared).not.toHaveProperty('warning');
+        expect(plugins.list()[0].state).toBe('off');
+      });
+
+      it("fixes a plugin Komla couldn't read", async () => {
+        writePlugin({ ...manifest, contributes: {} });
+        await plugins.scan();
+
+        await apply({ plugins: [{ id: 'prs', enabled: true, manifest: { ...manifest, id: 'prs' } }] });
+
+        expect(plugins.list()).toEqual([expect.objectContaining({ id: 'prs', state: 'on' })]);
+      });
+
+      it.each([
+        [{ ...manifest, id: 'other' }, 'github-prs', "github-prs: its manifest's id is other"],
+        [
+          { ...manifest, id: 'prs' },
+          'prs',
+          'prs: the plugins folder has a folder prs already, for github-prs',
+        ],
+        [
+          { ...manifest, id: 'p' },
+          'p',
+          'p: the plugins folder has a folder P already, for github-prs',
+        ],
+      ])('refuses a manifest that %#', async (written, id, problem) => {
+        writePlugin(manifest);
+        writePlugin(manifest, 'P');
+        await plugins.scan();
+
+        expect(files.plugins.prepare({ plugins: [{ id, enabled: true, manifest: written }] })).toEqual(
+          { problems: [problem] }
+        );
+      });
+
+      it("doesn't turn on a script that changed while the approval was open", async () => {
+        writePlugin(manifest);
+        writeFileSync(join(settingsPath, 'plugins', 'prs', 'run.sh'), 'echo one');
+        await plugins.scan();
+        const prepared = files.plugins.prepare({
+          plugins: [{ id: 'github-prs', enabled: true, manifest: { ...manifest, version: '2' } }],
+        });
+        if ('problems' in prepared) throw new Error(prepared.problems.join('\n'));
+
+        writeFileSync(join(settingsPath, 'plugins', 'prs', 'run.sh'), 'echo two');
+
+        await expect(async () => files.plugins.write(prepared.next)).rejects.toThrow(
+          "Plugin github-prs's files changed since the approval listed them. Apply it again."
+        );
+        expect(
+          JSON.parse(readFileSync(join(settingsPath, 'plugins', 'prs', 'komla-plugin.json'), 'utf-8'))
+        ).toEqual(manifest);
+        expect(plugins.list()[0].state).toBe('off');
+      });
+
+      it("doesn't make a plugin in a folder that appeared while the approval was open", async () => {
+        await plugins.scan();
+        const prepared = files.plugins.prepare({
+          plugins: [{ id: 'github-prs', enabled: true, manifest }],
+        });
+        if ('problems' in prepared) throw new Error(prepared.problems.join('\n'));
+
+        writePlugin({ ...manifest, name: 'Theirs' }, 'github-prs');
+
+        await expect(async () => files.plugins.write(prepared.next)).rejects.toThrow(
+          /changed since the approval listed them/
+        );
+        await plugins.scan();
+        expect(plugins.list()[0]).toMatchObject({ name: 'Theirs', state: 'off' });
+      });
+
+      it('lists the manifest as its file has it, without the defaults Komla fills in', async () => {
+        writePlugin(manifest);
+        await plugins.scan();
+
+        expect(files.plugins.read()).toMatchObject({ plugins: [{ manifest }] });
+      });
+
+      it("refuses to write into a folder Komla can't run whatever it says", async () => {
+        const elsewhere = join(settingsPath, 'elsewhere');
+        mkdirSync(elsewhere);
+        mkdirSync(join(settingsPath, 'plugins'), { recursive: true });
+        symlinkSync(elsewhere, join(settingsPath, 'plugins', 'github-prs'));
+        await plugins.scan();
+
+        expect(
+          files.plugins.prepare({ plugins: [{ id: 'github-prs', enabled: true, manifest }] })
+        ).toEqual({
+          problems: [
+            'Plugin github-prs is a link. Copy or clone the plugin into the plugins folder',
+          ],
+        });
+      });
+
+      it('refuses new plugins past as many as Komla reads, counting the ones applied', async () => {
+        for (let index = 0; index < 99; index++) {
+          writePlugin({ ...manifest, id: `p${index}` }, `p${String(index).padStart(3, '0')}`);
+        }
+        await plugins.scan();
+
+        expect(
+          files.plugins.prepare({
+            plugins: [
+              { id: 'a', enabled: true, manifest: { ...manifest, id: 'a' } },
+              { id: 'b', enabled: true, manifest: { ...manifest, id: 'b' } },
+            ],
+          })
+        ).toEqual({
+          problems: [
+            'b: Komla reads only 100 plugins, and this would be one more',
+          ],
+        });
+      });
+
+      it('writes a manifest into a folder that has only its scripts so far', async () => {
+        const dir = join(settingsPath, 'plugins', 'github-prs');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, 'run.sh'), 'echo one');
+        await plugins.scan();
+
+        const prepared = await apply({ plugins: [{ id: 'github-prs', enabled: true, manifest }] });
+
+        expect(prepared.changes[0]).toMatchObject({ operation: 'add', kind: 'plugin' });
+        expect(plugins.list()).toEqual([
+          expect.objectContaining({ id: 'github-prs', folder: 'github-prs', state: 'on' }),
+        ]);
+      });
+
+      it("refuses a new plugin whose name is a file's in the plugins folder", async () => {
+        mkdirSync(join(settingsPath, 'plugins'), { recursive: true });
+        writeFileSync(join(settingsPath, 'plugins', 'GitHub-PRs'), 'notes');
+        await plugins.scan();
+
+        expect(
+          files.plugins.prepare({ plugins: [{ id: 'github-prs', enabled: true, manifest }] })
+        ).toEqual({
+          problems: [
+            "github-prs: the plugins folder has GitHub-PRs already, which isn't a plugin's folder",
+          ],
+        });
+      });
+
+      it('lists a status item and a hook with one id as changes of their own', async () => {
+        const both = {
+          ...manifest,
+          contributes: {
+            statusItems: [{ id: 'x', command: 'echo item' }],
+            hooks: [{ id: 'x', event: 'agent.done', command: 'echo hook' }],
+          },
+        };
+        writePlugin(both);
+        await plugins.scan();
+        plugins.setEnabled({ 'github-prs': plugins.list()[0].digest! });
+
+        const prepared = files.plugins.prepare({
+          plugins: [
+            {
+              id: 'github-prs',
+              enabled: true,
+              manifest: {
+                ...both,
+                contributes: {
+                  ...both.contributes,
+                  hooks: [{ ...both.contributes.hooks[0], command: 'echo new' }],
+                },
+              },
+            },
+          ],
+        });
+
+        expect(
+          'changes' in prepared && prepared.changes.map(({ operation, kind }) => [operation, kind])
+        ).toEqual([
+          ['edit', 'plugin'],
+          ['edit', 'hook'],
+        ]);
+      });
+
+      it('refuses a manifest Komla could not read', async () => {
+        await plugins.scan();
+
+        const prepared = files.plugins.prepare({
+          plugins: [{ id: 'github-prs', enabled: true, manifest: { ...manifest, contributes: {} } }],
+        });
+
+        expect(prepared).toEqual({ problems: ['plugins.0.manifest.contributes: adds nothing'] });
       });
     });
   });

@@ -15,12 +15,15 @@ export function readSettingsFile(path: string, emptyContent: string): string {
   return readFileSync(path, 'utf-8');
 }
 
-/** Reads a settings file's JSON against its schema; a problem names what is wrong with it. */
+/**
+ * Reads a settings file's JSON against its schema, with `raw`, the JSON as the file has it; a
+ * problem names what is wrong with it.
+ */
 export function parseSettingsFile<Schema extends z.ZodType>(
   fileName: string,
   content: string,
   schema: Schema
-): { value: z.infer<Schema> } | { problem: string } {
+): { value: z.infer<Schema>; raw: unknown } | { problem: string } {
   let raw: unknown;
   try {
     raw = JSON.parse(content.replace(/^﻿/, ''));
@@ -35,5 +38,5 @@ export function parseSettingsFile<Schema extends z.ZodType>(
     const path = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
     return { problem: `${fileName} ${path}${issue.message}` };
   }
-  return { value: parsed.data };
+  return { value: parsed.data, raw };
 }

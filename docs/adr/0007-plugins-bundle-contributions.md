@@ -31,9 +31,11 @@ the phone, as Komla draws them; arbitrary plugin UI would not.
   project's own plugins would need trusting per project, and are not part of this decision.
 - **Ids.** A contribution's id is the plugin's id and its own, `<plugin>.<id>`, so `komla status
   refresh`, hidden status items and failure messages name it the same way everywhere.
-- **Files.** A command run on this computer gets `KOMLA_PLUGIN_DIR`, the plugin's folder, so a
-  plugin can ship its scripts. An SSH workspace's commands run on the host, where that folder is
-  not; such a plugin's items run with `runOn: local`.
+- **Files.** `komla settings apply plugins` can write a plugin's manifest, so an agent anywhere,
+  such as on an SSH host, can make one, and the approval shows what it runs. A command run on this
+  computer gets `KOMLA_PLUGIN_DIR`, the plugin's folder, so a plugin can ship its scripts. An SSH
+  workspace's commands run on the host, where that folder is not; such a plugin's items run with
+  `runOn: local`.
 - **Later.** Code that keeps state or follows more events than hooks offer would run in a separate
   plugin host, an Electron utility process with a typed API (`komla.on`, `statusItem().set`,
   `exec` routed through the execution-location adapters), behind the same trust rule. Quick

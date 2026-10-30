@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from 'fs';
 import { lstat, readdir, readFile, realpath, stat } from 'fs/promises';
 import { join, relative, sep } from 'path';
 
@@ -30,9 +30,10 @@ import {
 const logger = createLogger('PluginsService');
 
 export const PLUGIN_MANIFEST = 'komla-plugin.json';
+const NO_MANIFEST = `has no ${PLUGIN_MANIFEST}`;
 const PLUGINS_FILE = 'plugins.json';
 const FILE_VERSION = 1;
-const MAX_PLUGINS = 100;
+export const MAX_PLUGINS = 100;
 const MAX_STATUS_ITEMS = 10;
 const MAX_HOOKS = 20;
 /** A plugin's files Komla reads to tell when they change; past these, it doesn't run it. */
@@ -123,9 +124,28 @@ interface ScannedPlugin {
   folder: string;
   dir: string;
   manifest?: PluginManifest;
+  /** The manifest's JSON as the file has it, without the defaults Komla fills in. */
+  written?: unknown;
   /** A digest of every file in the folder but `.git`'s, which changes when any of them does. */
   digest?: string;
+  /** The same of every file but the manifest, which an approval of a new manifest pins. */
+  otherFiles?: string;
   problem?: string;
+  /** Why the folder can't run whatever its manifest says, such as it being a link. */
+  folderProblem?: string;
+}
+
+/** `otherFiles` of a folder with only a manifest, as a new plugin's is. */
+export const NO_OTHER_FILES = createHash('sha256').digest('hex');
+
+/** A plugin as `list()` has it, with what writing its manifest needs. */
+export interface PluginFolder extends PluginInfo {
+  folderProblem?: string;
+  /** Whether it has a komla-plugin.json Komla could read, so writing one changes a plugin. */
+  hasManifest: boolean;
+  manifest?: PluginManifest;
+  written?: unknown;
+  otherFiles?: string;
 }
 
 class PluginFolderError extends Error {}
@@ -158,8 +178,14 @@ async function linkTarget(root: string, path: string, relativePath: string): Pro
 export async function digestFolder(
   dir: string,
   keep?: string
-): Promise<{ digest: string; kept?: Buffer }> {
+): Promise<{ digest: string; kept?: Buffer; others: string }> {
   const hash = createHash('sha256');
+  // Every file but `keep`, so a change to `keep` alone can be told apart from the rest.
+  const others = createHash('sha256');
+  const update = (relativePath: string, data: string | Buffer) => {
+    hash.update(data);
+    if (relativePath !== keep) others.update(data);
+  };
   const root = await realpath(dir);
   let kept: Buffer | undefined;
   let files = 0;
@@ -175,13 +201,13 @@ export async function digestFolder(
         throw new PluginFolderError(`has more than ${MAX_PLUGIN_FILES} files and folders`);
       }
       if (entry.isDirectory()) {
-        hash.update(`d\0${relativePath}\0`);
+        update(relativePath, `d\0${relativePath}\0`);
         await walk(relativePath);
         continue;
       }
       if (entry.isSymbolicLink()) {
         const target = await linkTarget(root, path, relativePath);
-        hash.update(`l\0${relativePath}\0${target}\0`);
+        update(relativePath, `l\0${relativePath}\0${target}\0`);
         // Its target is one of the folder's own files, which the digest has as well.
         if (relativePath === keep) kept = await readFile(join(root, target));
         continue;
@@ -194,17 +220,24 @@ export async function digestFolder(
       }
       const content = await readFile(path);
       if (relativePath === keep) kept = content;
-      hash.update(`f\0${relativePath}\0${content.length}\0`);
-      hash.update(content);
+      update(relativePath, `f\0${relativePath}\0${content.length}\0`);
+      update(relativePath, content);
     }
   };
   await walk('');
-  return { digest: hash.digest('hex'), ...(kept && { kept }) };
+  return { digest: hash.digest('hex'), ...(kept && { kept }), others: others.digest('hex') };
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** Whether there's a file or link by that name, without following the link. */
+const isFile = (path: string) =>
+  lstat(path).then(
+    (stats) => !stats.isDirectory(),
+    () => false
+  );
 
 const parseManifest = (content: string) =>
   parseSettingsFile(PLUGIN_MANIFEST, content, pluginManifestSchema);
@@ -212,27 +245,24 @@ const parseManifest = (content: string) =>
 async function scanPlugin(folder: string, dir: string, isLink: boolean): Promise<ScannedPlugin> {
   if (isLink) {
     // Komla follows changes only to the plugins folder, so it can't tell when one elsewhere does.
-    return { folder, dir, problem: 'is a link. Copy or clone the plugin into the plugins folder' };
+    const problem = 'is a link. Copy or clone the plugin into the plugins folder';
+    return { folder, dir, problem, folderProblem: problem };
   }
-  let content: string;
-  try {
-    content = await readFile(join(dir, PLUGIN_MANIFEST), 'utf-8');
-  } catch {
-    return { folder, dir, problem: `has no ${PLUGIN_MANIFEST}` };
-  }
-  const parsed = parseManifest(content);
-  if ('problem' in parsed) return { folder, dir, problem: parsed.problem };
   let hashed;
   try {
     hashed = await digestFolder(dir, PLUGIN_MANIFEST);
   } catch (error) {
-    return { folder, dir, manifest: parsed.value, problem: errorMessage(error) };
+    const folderProblem = errorMessage(error);
+    const problem = (await isFile(join(dir, PLUGIN_MANIFEST))) ? folderProblem : NO_MANIFEST;
+    return { folder, dir, problem, folderProblem };
   }
-  // The manifest as the digest has it, so what runs is what the user turned on.
-  if (!hashed.kept) return { folder, dir, problem: `has no ${PLUGIN_MANIFEST}` };
-  const hashedManifest = parseManifest(hashed.kept.toString('utf-8'));
-  if ('problem' in hashedManifest) return { folder, dir, problem: hashedManifest.problem };
-  return { folder, dir, manifest: hashedManifest.value, digest: hashed.digest };
+  // The manifest as the digest has it, so what runs is what the user turned on. A folder with
+  // only scripts so far has its files read too, so a manifest written into it pins them.
+  const files = { folder, dir, otherFiles: hashed.others };
+  if (!hashed.kept) return { ...files, problem: NO_MANIFEST };
+  const parsed = parseManifest(hashed.kept.toString('utf-8'));
+  if ('problem' in parsed) return { ...files, problem: parsed.problem };
+  return { ...files, manifest: parsed.value, written: parsed.raw, digest: hashed.digest };
 }
 
 function statusItemInfo(pluginId: string, item: ConfiguredStatusCommand): PluginContributionInfo {
@@ -270,11 +300,24 @@ function hookInfo(pluginId: string, hook: Hook): PluginContributionInfo {
   };
 }
 
-function contributionsOf(manifest: PluginManifest): PluginContributionInfo[] {
+/** A plugin's items and hooks, each as Settings lists it and as the manifest has it. */
+export function contributionEntries(
+  manifest: PluginManifest
+): { info: PluginContributionInfo; entry: ConfiguredStatusCommand | Hook }[] {
   return [
-    ...(manifest.contributes.statusItems ?? []).map((item) => statusItemInfo(manifest.id, item)),
-    ...(manifest.contributes.hooks ?? []).map((hook) => hookInfo(manifest.id, hook)),
+    ...(manifest.contributes.statusItems ?? []).map((item) => ({
+      info: statusItemInfo(manifest.id, item),
+      entry: item,
+    })),
+    ...(manifest.contributes.hooks ?? []).map((hook) => ({
+      info: hookInfo(manifest.id, hook),
+      entry: hook,
+    })),
   ];
+}
+
+function contributionsOf(manifest: PluginManifest): PluginContributionInfo[] {
+  return contributionEntries(manifest).map(({ info }) => info);
 }
 
 /**
@@ -328,6 +371,20 @@ export class PluginsService {
   }
 
   list(): PluginInfo[] {
+    return this.folders().map(
+      ({
+        folderProblem: _p,
+        hasManifest: _h,
+        manifest: _m,
+        written: _w,
+        otherFiles: _o,
+        ...info
+      }) => info
+    );
+  }
+
+  /** Every plugin, as `list()` has them, with what writing its manifest needs. */
+  folders(): PluginFolder[] {
     return this.plugins().map(({ scanned, state, problem }) => ({
       id: scanned.manifest?.id ?? scanned.folder,
       name: scanned.manifest?.name ?? scanned.folder,
@@ -338,6 +395,10 @@ export class PluginsService {
       ...(problem && { problem }),
       ...(scanned.digest && { digest: scanned.digest }),
       contributions: scanned.manifest ? contributionsOf(scanned.manifest) : [],
+      ...(scanned.folderProblem && { folderProblem: scanned.folderProblem }),
+      hasManifest: scanned.problem !== NO_MANIFEST,
+      ...(scanned.manifest && { manifest: scanned.manifest, written: scanned.written }),
+      ...(scanned.otherFiles && { otherFiles: scanned.otherFiles }),
     }));
   }
 
@@ -361,6 +422,38 @@ export class PluginsService {
         plugin: source,
       }))
     );
+  }
+
+  /**
+   * What the plugins folder has by this name, told apart regardless of case as some file systems
+   * don't: a folder, a file or a link.
+   */
+  takenName(name: string): string | undefined {
+    try {
+      return readdirSync(this.pluginsPath).find(
+        (each) => each.toLowerCase() === name.toLowerCase()
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** The digest of a plugin folder's files but its manifest, as they are now. */
+  async otherFilesOf(folder: string): Promise<string> {
+    return (await digestFolder(join(this.pluginsPath, folder), PLUGIN_MANIFEST)).others;
+  }
+
+  /**
+   * Writes a plugin's komla-plugin.json into its folder in the plugins folder, making the folder
+   * if it's new. The plugin's state follows once Komla reads the folder again.
+   */
+  writeManifest(folder: string, manifest: unknown): void {
+    const dir = join(this.pluginsPath, folder);
+    if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) {
+      throw new Error(`The plugin folder ${folder} is a link, so Komla doesn't write into it`);
+    }
+    mkdirSync(dir, { recursive: true });
+    writeFileAtomicSync(join(dir, PLUGIN_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
   }
 
   /** Changes whenever plugins.json or a plugin's files do, as Komla last read them. */

@@ -13,6 +13,7 @@ export type SettingsApprovalChangeKind =
   | 'corner-radius'
   | 'status-item'
   | 'hook'
+  | 'plugin'
   | 'shortcut'
   | 'terminal-setting'
   | 'agent-preset'

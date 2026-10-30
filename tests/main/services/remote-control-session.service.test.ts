@@ -930,6 +930,31 @@ describe('RemoteControlSessionService', () => {
     expect(older.peer.sent[0]).not.toHaveProperty('projects.0.icon');
   });
 
+  it("sends workspaces' tags, as the tag list shows them, only to a page that agreed to them", async () => {
+    const agreed = makeFixture({
+      device: { credentialId: 'phone', capabilities: [REMOTE_CAPABILITIES.WORKSPACE_TAGS] },
+    });
+    const older = makeFixture({ device: { credentialId: 'phone' } });
+    for (const { workspace, config } of [agreed, older]) {
+      workspace.tag = 'ci running';
+      config.get.mockReturnValue({
+        defaultLaunchModeId: 'mode-1',
+        workspaceTags: [{ name: 'CI running', tone: 'warning', spinner: true }],
+      } as never);
+    }
+
+    agreed.peer.emitJson({ type: 'app:workspaces:list', requestId: 'r1' });
+    older.peer.emitJson({ type: 'app:workspaces:list', requestId: 'r1' });
+    await flush();
+
+    expect(agreed.peer.sent[0]).toHaveProperty('workspaces.0.tag', {
+      name: 'CI running',
+      tone: 'warning',
+      spinner: true,
+    });
+    expect(older.peer.sent[0]).not.toHaveProperty('workspaces.0.tag');
+  });
+
   it('creates shell, agent, and action terminals and closes the current terminal', async () => {
     const { peer, workspaces, actions } = makeFixture();
 

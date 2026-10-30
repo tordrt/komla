@@ -4,6 +4,7 @@ import {
   escapeRemoteAttentionCustomTitleSource,
   isRemoteAttentionCustomTitle,
   MAX_REMOTE_PROJECT_ICON_CHARS,
+  MAX_REMOTE_WORKSPACE_TAG_CHARS,
   parseRemoteAppFrame,
 } from '../../src/app/frames';
 
@@ -32,6 +33,38 @@ describe('remote app frames', () => {
       `data:image/png;base64,${'A'.repeat(MAX_REMOTE_PROJECT_ICON_CHARS)}`,
     ]) {
       expect(parseRemoteAppFrame(frame(icon))).toBeNull();
+    }
+  });
+
+  it("accepts a workspace's tag only with a short name and a known tone", () => {
+    const frame = (tag: unknown) => ({
+      type: 'app:workspaces',
+      requestId: 'r1',
+      workspaces: [
+        {
+          id: 'w1',
+          name: 'Fix login',
+          workingDirectory: '/repo/w1',
+          status: 'active',
+          provisioning: false,
+          tag,
+          terminals: [],
+        },
+      ],
+    });
+
+    expect(parseRemoteAppFrame(frame({ name: 'In review', tone: 'info' }))).not.toBeNull();
+    expect(
+      parseRemoteAppFrame(frame({ name: 'CI running', tone: 'neutral', spinner: true }))
+    ).not.toBeNull();
+    for (const tag of [
+      { name: '', tone: 'info' },
+      { name: 'x'.repeat(MAX_REMOTE_WORKSPACE_TAG_CHARS + 1), tone: 'info' },
+      { name: 'In review', tone: 'purple' },
+      { name: 'In review', tone: 'info', spinner: false },
+      { name: 'In review', tone: 'info', icon: 'data:image/png;base64,iVBORw0KGgo=' },
+    ]) {
+      expect(parseRemoteAppFrame(frame(tag))).toBeNull();
     }
   });
 

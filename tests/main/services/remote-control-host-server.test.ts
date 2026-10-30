@@ -288,6 +288,7 @@ describe.skipIf(process.platform === 'win32' || !hasTmux)('phone server on an SS
         workspaceId: 'ws-1',
         name: 'fix-ssh',
         customName: 'Fix SSH prompt',
+        tag: { name: 'In review', tone: 'info' },
         branchName: 'ssh-passphrase',
         backend: { remoteDirectory: join(root, 'work'), projectName: 'komla' },
         terminals: [{ id: 'term-a', name: 'Claude Code', createdAt: 1 }],
@@ -425,6 +426,20 @@ describe.skipIf(process.platform === 'win32' || !hasTmux)('phone server on an SS
       }),
     ]);
     connection.close();
+  });
+
+  it("lists workspaces' tags only for a phone that agreed to them", async () => {
+    const tagsOf = async (capabilities?: string[]) => {
+      const { connection } = await signIn(capabilities);
+      await connection.send({ type: 'app:workspaces:list', requestId: 'r1' });
+      const list = await connection.next((frame) => frame.type === 'app:workspaces');
+      connection.close();
+      expect(parseRemoteAppFrame(list)).not.toBeNull();
+      return (list.workspaces as Array<{ tag?: unknown }>).map((workspace) => workspace.tag);
+    };
+
+    expect(await tagsOf(['workspace-tags'])).toEqual([{ name: 'In review', tone: 'info' }]);
+    expect(await tagsOf()).toEqual([undefined]);
   });
 
   it('attaches to the running tmux session and types into it', async () => {

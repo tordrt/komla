@@ -44,6 +44,8 @@ pub(crate) struct SessionEnvironment {
     pub(crate) launch_path: PathBuf,
     /// The phone agreed to take projects' icons.
     pub(crate) project_icons: bool,
+    /// The phone agreed to take workspaces' tags.
+    pub(crate) workspace_tags: bool,
 }
 
 struct Attached {
@@ -204,7 +206,14 @@ impl AppSession {
             read_workspaces(&self.environment.base)
                 .iter()
                 .map(|workspace| {
-                    workspace.summary(&sessions, &attention, &self.environment.host_name)
+                    let mut summary =
+                        workspace.summary(&sessions, &attention, &self.environment.host_name);
+                    if !self.environment.workspace_tags {
+                        if let Some(summary) = summary.as_object_mut() {
+                            summary.remove("tag");
+                        }
+                    }
+                    summary
                 })
                 .collect(),
         )

@@ -19,6 +19,7 @@ import {
   type SshWorkspaceOnHost,
 } from './workspace-manifest';
 
+import type { WorkspaceTagAppearance } from '../../../shared/lib/workspace-tags';
 import type {
   RemoteSshWorkspace,
   SshWorkspaceLaunch,
@@ -170,6 +171,8 @@ export interface SshWorkspaceSyncDependencies {
   syncsWith: (hostId: string) => boolean;
   /** Agent launch commands the host's CLI uses to start workspaces while Komla is disconnected. */
   launch?: (workspace: Workspace) => SshWorkspaceLaunch | undefined;
+  /** How the workspace's tag looks here, which the host's phone list shows. */
+  tag?: (workspace: Workspace) => WorkspaceTagAppearance | undefined;
   /** Keeps the Host copies across restarts, so merges after one start from them. */
   hostCopies?: {
     read: () => string | undefined;
@@ -228,8 +231,12 @@ export class SshWorkspaceSync {
       });
       const manifest = this.build(workspace, 0);
       if (!manifest) continue;
-      this.published.set(workspace.id, sshWorkspaceManifestContentKey(manifest));
       const copy = saved.get(workspace.id);
+      // A tag the host's copy lacks, e.g. set before this version, goes out with the next save.
+      // One that differs may be another installation's, so it's left until a save here changes it.
+      if (!manifest.tag || copy?.tag) {
+        this.published.set(workspace.id, sshWorkspaceManifestContentKey(manifest));
+      }
       // Without a saved copy, e.g. on the first run of this version, this installation's own
       // stands in. Status and tabs may have differed before sync: merges settle status on
       // active and combine tabs rather than take the other installation's as changes. A
@@ -989,7 +996,10 @@ export class SshWorkspaceSync {
         : taken
           ? taken.title
           : this.base(workspace.id)?.agentTitle;
-      return manifest && agentTitle ? { ...manifest, agentTitle } : manifest;
+      const tag = this.dependencies.tag?.(workspace);
+      return manifest && (agentTitle || tag)
+        ? { ...manifest, ...(agentTitle ? { agentTitle } : {}), ...(tag ? { tag } : {}) }
+        : manifest;
     } catch (error) {
       logger.warn('Could not describe SSH workspace for its manifest', {
         workspaceId: workspace.id,

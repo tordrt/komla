@@ -22,7 +22,8 @@ pub(crate) const PASSKEY_TIMEOUT_MS: u64 = 120_000;
 /// `REMOTE_CAPABILITIES` this host supports; a phone lists its own in the hello.
 pub(crate) const BINARY_FRAMES: &str = "binary-frames";
 pub(crate) const PROJECT_ICONS: &str = "project-icons";
-const HOST_CAPABILITIES: &[&str] = &[BINARY_FRAMES, PROJECT_ICONS];
+pub(crate) const WORKSPACE_TAGS: &str = "workspace-tags";
+const HOST_CAPABILITIES: &[&str] = &[BINARY_FRAMES, PROJECT_ICONS, WORKSPACE_TAGS];
 const MAX_CAPABILITIES: usize = 32;
 const MAX_CAPABILITY_CHARS: usize = 64;
 
@@ -47,6 +48,8 @@ pub(crate) enum CeremonyOutcome {
         binary_frames: bool,
         /// The phone takes projects' icons in launch options.
         project_icons: bool,
+        /// The phone takes workspaces' tags in workspace summaries.
+        workspace_tags: bool,
     },
     /// Send this `pair:rejected` frame and close.
     Rejected(Value),
@@ -169,6 +172,7 @@ impl Ceremony {
             reply,
             binary_frames,
             project_icons,
+            workspace_tags,
             ..
         } = &mut outcome
         {
@@ -179,6 +183,7 @@ impl Ceremony {
                 .collect();
             *binary_frames = agreed.contains(&BINARY_FRAMES);
             *project_icons = agreed.contains(&PROJECT_ICONS);
+            *workspace_tags = agreed.contains(&WORKSPACE_TAGS);
             if !agreed.is_empty() {
                 reply["capabilities"] = json!(agreed);
             }
@@ -424,6 +429,7 @@ impl Ceremony {
             resume_token: grant.token,
             binary_frames: false,
             project_icons: false,
+            workspace_tags: false,
         }
     }
 }
@@ -537,6 +543,10 @@ mod tests {
                 json!(["project-icons", "binary-frames"]),
                 Some(json!(["binary-frames", "project-icons"])),
             ),
+            (
+                json!(["workspace-tags", "binary-frames"]),
+                Some(json!(["binary-frames", "workspace-tags"])),
+            ),
             (json!(["from-the-future"]), None),
         ] {
             let mut fixture = Fixture::new();
@@ -552,6 +562,7 @@ mod tests {
                 reply,
                 binary_frames,
                 project_icons,
+                workspace_tags,
                 ..
             } = fixture.run(&mut ceremony, response, 20)
             else {
@@ -561,7 +572,13 @@ mod tests {
             assert_eq!(binary_frames, agreed.is_some());
             assert_eq!(
                 project_icons,
-                agreed.is_some_and(|agreed| agreed.to_string().contains("project-icons"))
+                agreed
+                    .as_ref()
+                    .is_some_and(|agreed| agreed.to_string().contains("project-icons"))
+            );
+            assert_eq!(
+                workspace_tags,
+                agreed.is_some_and(|agreed| agreed.to_string().contains("workspace-tags"))
             );
         }
     }

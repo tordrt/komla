@@ -188,6 +188,8 @@ function service(
       now: () => now,
       deviceId: () => 'this-device',
       syncsWith,
+      tag: (workspace) =>
+        workspace.tag ? { name: workspace.tag, tone: 'info', spinner: true } : undefined,
       hostCopies: saved,
       inUse,
     }),
@@ -234,6 +236,12 @@ describe('SSH workspace manifest', () => {
       JSON.parse(JSON.stringify(manifest))
     );
     expect(parseSshWorkspaceManifest('{not json')).toBe(undefined);
+    // Tags are only for show: one this version can't read costs the tag, not the workspace.
+    expect(
+      parseSshWorkspaceManifest(
+        JSON.stringify({ ...manifest, tag: { name: 'Later', tone: 'a-new-tone' } })
+      )
+    ).toEqual(JSON.parse(JSON.stringify(manifest)));
     expect(
       parseSshWorkspaceManifest(JSON.stringify({ ...manifest, workspaceId: '../escape' }))
     ).toBe(undefined);
@@ -578,6 +586,56 @@ describe('SshWorkspaceSync', () => {
       name: 'renamed',
       writtenBy: 'this-device',
     });
+  });
+
+  it("writes the workspace's tag as it looks here, for the host's phone list", async () => {
+    const { manifests, write, tick } = service();
+    const workspace = sshWorkspace();
+
+    manifests.saved([workspace]);
+    tick();
+    manifests.saved([{ ...workspace, tag: 'In review' }]);
+    await flush();
+
+    expect(write.mock.calls.map((call) => JSON.parse(String(call[2])).tag)).toEqual([
+      undefined,
+      { name: 'In review', tone: 'info', spinner: true },
+    ]);
+  });
+
+  it('writes a tag the saved host copy lacks with the next save, and leaves others alone', async () => {
+    const tagged = sshWorkspace({ tag: 'In review' });
+    const appearance = { name: 'In review', tone: 'info', spinner: true };
+    const copy = buildSshWorkspaceManifest(tagged, 1)!;
+    const saved = (onHost: object) => ({
+      read: () => JSON.stringify({ [tagged.id]: onHost }),
+      write: vi.fn(async (_content: string) => undefined),
+    });
+
+    const withoutTag = vi.fn(async (): Promise<boolean> => true);
+    const stale = service(withoutTag, saved(copy));
+    stale.manifests.restored([tagged]);
+    await flush();
+    expect(withoutTag).not.toHaveBeenCalled();
+    stale.manifests.saved([tagged]);
+    await flush();
+    expect(JSON.parse(String(withoutTag.mock.calls.at(-1)?.at(2))).tag).toEqual(appearance);
+
+    const withTag = vi.fn(async (): Promise<boolean> => true);
+    const current = service(withTag, saved({ ...copy, tag: appearance }));
+    current.manifests.restored([tagged]);
+    current.manifests.saved([tagged]);
+    await flush();
+    expect(withTag).not.toHaveBeenCalled();
+
+    // Another installation's tag stays until a save here changes something.
+    const untagged = sshWorkspace();
+    const other = vi.fn(async (): Promise<boolean> => true);
+    const sharing = service(other, saved({ ...copy, tag: { ...appearance, name: 'Theirs' } }));
+    sharing.manifests.restored([untagged]);
+    sharing.manifests.saved([untagged]);
+    await flush();
+    expect(other).not.toHaveBeenCalled();
   });
 
   describe("the agent's title", () => {

@@ -27,6 +27,10 @@ import {
 } from '../../../packages/remote-protocol/src/app/frames';
 import { IPC } from '../../shared/constants/ipc-channels';
 import { projectColorHex } from '../../shared/lib/project-color';
+import {
+  workspaceTagAppearance,
+  type WorkspaceTagDefinition,
+} from '../../shared/lib/workspace-tags';
 import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
 import { needsAttention, pickWorkspaceAttention } from '../../shared/types/workspace';
 import { createLogger } from '../lib/logger';
@@ -185,6 +189,7 @@ interface ConfigServiceLike {
     defaultLaunchModeId?: string;
     directRemoteLocalAccess?: boolean;
     defaultSshWorkspaceMode?: SshWorkspaceMode;
+    workspaceTags?: readonly WorkspaceTagDefinition[];
   };
 }
 
@@ -1645,6 +1650,19 @@ class RemoteControlAppSession implements RemoteControlSession {
     return color ? ({ [key]: color } as Partial<Record<K, string>>) : {};
   }
 
+  /** The workspace's tag as the tag list shows it, for a page that agreed to tags. */
+  private tagField(workspace: Workspace): Pick<RemoteWorkspaceSummary, 'tag'> {
+    if (
+      !workspace.tag ||
+      !this.device?.capabilities?.includes(REMOTE_CAPABILITIES.WORKSPACE_TAGS)
+    ) {
+      return {};
+    }
+    return {
+      tag: workspaceTagAppearance(this.deps.config.get().workspaceTags ?? [], workspace.tag),
+    };
+  }
+
   private async summarizeWorkspace(workspace: Workspace): Promise<RemoteWorkspaceSummary> {
     const project = workspace.projectId ? this.deps.projects.get(workspace.projectId) : undefined;
     const git = await this.summarizeGit(workspace);
@@ -1669,6 +1687,7 @@ class RemoteControlAppSession implements RemoteControlSession {
       ...(project?.name ? { projectName: project.name } : {}),
       ...(project ? this.projectColorField('projectColor', project) : {}),
       ...(workspace.branchName ? { branchName: workspace.branchName } : {}),
+      ...this.tagField(workspace),
       status: workspace.status,
       provisioning: workspace.provisioning === true,
       ...(workspace.agentActive ? { agentActive: true } : {}),

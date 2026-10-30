@@ -70,6 +70,8 @@ export const REMOTE_CAPABILITIES = {
   BINARY_FRAMES: 'binary-frames',
   /** Projects' icons in launch options, which an older page's strict schema would reject. */
   PROJECT_ICONS: 'project-icons',
+  /** Workspaces' tags in workspace summaries, which an older page's strict schema would reject. */
+  WORKSPACE_TAGS: 'workspace-tags',
 } as const;
 
 const CapabilitiesSchema = z.array(z.string().min(1).max(64)).max(32);

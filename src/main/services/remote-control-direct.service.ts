@@ -266,7 +266,11 @@ class DirectPeerSession {
       generateChallenge: this.opts.generateChallenge,
       getPairingOffer: this.opts.getPairingOffer,
       claimPairingOffer: this.opts.claimPairingOffer,
-      capabilities: [REMOTE_CAPABILITIES.BINARY_FRAMES, REMOTE_CAPABILITIES.PROJECT_ICONS],
+      capabilities: [
+        REMOTE_CAPABILITIES.BINARY_FRAMES,
+        REMOTE_CAPABILITIES.PROJECT_ICONS,
+        REMOTE_CAPABILITIES.WORKSPACE_TAGS,
+      ],
       servedBuild: this.opts.servedBuild,
       onPairVerifying: () => {},
       onAuthenticating: () => {},

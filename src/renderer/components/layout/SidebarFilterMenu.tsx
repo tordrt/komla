@@ -1,4 +1,4 @@
-import { Cloud, DesktopTower, DotsSixVertical, Funnel } from '@phosphor-icons/react';
+import { Cloud, DesktopTower, DotsSixVertical, Funnel, GearSix } from '@phosphor-icons/react';
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -13,6 +13,9 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuSegmentItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuSwitchItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -29,6 +32,7 @@ import {
   LOCAL_WORKSPACE_HOST_ID,
 } from '@/lib/workspace-host';
 import { useWorkspaceTags } from '@/lib/workspace-tags';
+import { useConfigStore } from '@/stores/config.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useWindowStore } from '@/stores/window.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -163,9 +167,9 @@ function useTagFilterOptions(windowWorkspaces: Workspace[]) {
 }
 
 /**
- * The sidebar's filter and grouping menu: how the list is grouped, which projects, hosts and tags
- * it lists, and what folds away at the bottom. The trigger counts the workspaces the filters hide in
- * this window.
+ * The sidebar's filter and grouping menu: how the list is grouped and its cards look, which
+ * projects, hosts and tags it lists, and what folds away at the bottom. The trigger counts the
+ * workspaces the filters hide in this window.
  */
 export function SidebarFilterMenu() {
   const { workspaces, grouping, hiddenProjectIds, hiddenWorkspaceHostIds } = useWorkspacesStore(
@@ -207,7 +211,10 @@ export function SidebarFilterMenu() {
     <DropdownMenu>
       <FilterTrigger hiddenCount={hiddenCount} tagsFiltered={tagsFiltered} />
       <DropdownMenuContent align="end" side="top" className="max-w-72 min-w-60">
-        <GroupingRow />
+        <div className="flex items-center">
+          <GroupingRow />
+          <CardOptionsSubmenu />
+        </div>
         {(showProjects || showHosts || showTags) && <DropdownMenuSeparator />}
         {showProjects && (
           <ProjectFilterItems
@@ -292,9 +299,9 @@ function GroupingRow() {
       aria-label="Group workspaces"
       value={grouping}
       onValueChange={(v) => setGrouping(v as WorkspaceGrouping)}
-      className="flex items-center py-1 pr-1 pl-2 text-[12px] leading-[17px] font-[450]"
+      className="flex min-w-0 flex-1 items-center py-1 pr-1 pl-2 text-[12px] leading-[17px] font-[450]"
     >
-      <span className="mr-auto pr-4">Group</span>
+      <span className="pr-2.5">Group</span>
       <span className="flex gap-0.5 rounded-md bg-foreground/6 p-0.5">
         <DropdownMenuSegmentItem value="project" onSelect={(event) => event.preventDefault()}>
           By project
@@ -304,6 +311,48 @@ function GroupingRow() {
         </DropdownMenuSegmentItem>
       </span>
     </DropdownMenuRadioGroup>
+  );
+}
+
+/**
+ * How workspace cards look, as in Settings, so it's found while looking at the list. Behind a gear
+ * on the Group row, so it costs the menu no height.
+ */
+function CardOptionsSubmenu() {
+  const alwaysShowBranch = useConfigStore(
+    (s) => s.config?.alwaysShowBranchNameInWorkspaceCards !== false
+  );
+  const compact = useConfigStore((s) => s.config?.compactWorkspaceList === true);
+  const updateConfig = useConfigStore((s) => s.updateConfig);
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger
+        hideCaret
+        aria-label="Workspace card options"
+        title="Workspace card options"
+        className="mr-1 shrink-0 p-1 text-muted-foreground"
+      >
+        <GearSix className="size-3.5" />
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <DropdownMenuSwitchItem
+          checked={alwaysShowBranch}
+          onSelect={(event) => event.preventDefault()}
+          onCheckedChange={(checked) =>
+            void updateConfig({ alwaysShowBranchNameInWorkspaceCards: checked })
+          }
+        >
+          <span className="truncate">Always show branch names</span>
+        </DropdownMenuSwitchItem>
+        <DropdownMenuSwitchItem
+          checked={compact}
+          onSelect={(event) => event.preventDefault()}
+          onCheckedChange={(checked) => void updateConfig({ compactWorkspaceList: checked })}
+        >
+          <span className="truncate">Compact list</span>
+        </DropdownMenuSwitchItem>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 

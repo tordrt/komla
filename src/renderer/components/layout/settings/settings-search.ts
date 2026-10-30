@@ -135,7 +135,7 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
     ...rows(
       'Interface',
       'Zoom level',
-      'Hide branch names on workspace cards',
+      'Always show branch names on workspace cards',
       'Compact workspace list',
       'Activity spinner style'
     ),

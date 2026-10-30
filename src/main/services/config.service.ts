@@ -55,6 +55,12 @@ function stringList(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : undefined;
 }
 
+/** A stored choice, or off for someone who hid branch names with the setting this replaced. */
+function alwaysShowBranchName(raw: Record<string, unknown>): boolean {
+  const stored = raw.alwaysShowBranchNameInWorkspaceCards;
+  return typeof stored === 'boolean' ? stored : raw.hideBranchNameInWorkspaceCards !== true;
+}
+
 function normalizeUtilityProvider(value: unknown): UtilityProviderId {
   if (value === 'komla-managed' || value === 'custom') return value;
   return DEFAULT_CONFIG.utilityProvider;
@@ -256,7 +262,7 @@ export interface AppConfig {
   preferredCloneProtocol?: 'https' | 'ssh'; // Preferred protocol when cloning repos
   autoNameWorkspaces?: AutoNameWorkspacesMode; // When to use AI to generate workspace names from prompts
   autoNameBranches?: boolean; // Use AI to generate descriptive branch names from initial prompts
-  hideBranchNameInWorkspaceCards?: boolean; // Hide branch names in workspace cards and show them in tooltip only
+  alwaysShowBranchNameInWorkspaceCards?: boolean; // Off: a card shows its branch only when its activity row has room
   compactWorkspaceList?: boolean; // Tighter workspace cards in the sidebar
   defaultSearchOpenMode?: 'viewer' | 'preview' | 'current'; // Default target when opening search results ('current' = match the active view)
   hiddenProjectIds?: string[]; // Project IDs hidden from the sidebar workspace list
@@ -380,7 +386,7 @@ const DEFAULT_CONFIG: AppConfig = {
   zoomLevel: 0,
   autoNameWorkspaces: 'first-prompt',
   autoNameBranches: false,
-  hideBranchNameInWorkspaceCards: false,
+  alwaysShowBranchNameInWorkspaceCards: true,
   compactWorkspaceList: false,
   defaultSearchOpenMode: 'current',
   hiddenProjectIds: [],
@@ -507,7 +513,7 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     preferredCloneProtocol: pickWithDefault(rawConfig, 'preferredCloneProtocol'),
     autoNameWorkspaces: normalizeAutoNameWorkspaces(rawConfig.autoNameWorkspaces),
     autoNameBranches: pickWithDefault(rawConfig, 'autoNameBranches'),
-    hideBranchNameInWorkspaceCards: pickWithDefault(rawConfig, 'hideBranchNameInWorkspaceCards'),
+    alwaysShowBranchNameInWorkspaceCards: alwaysShowBranchName(rawConfig),
     compactWorkspaceList: pickWithDefault(rawConfig, 'compactWorkspaceList'),
     defaultSearchOpenMode: pickWithDefault(rawConfig, 'defaultSearchOpenMode'),
     hiddenProjectIds: pickWithDefault(rawConfig, 'hiddenProjectIds'),

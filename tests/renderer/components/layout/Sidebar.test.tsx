@@ -1,9 +1,9 @@
 /**
  * @vitest-environment jsdom
  */
-import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { Sidebar } from '../../../../src/renderer/components/layout/Sidebar';
 import { useConfigStore } from '../../../../src/renderer/stores/config.store';
@@ -172,6 +172,15 @@ vi.mock('../../../../src/renderer/components/ui/dropdown-menu', () => ({
     </div>
   ),
   DropdownMenuSeparator: () => null,
+  DropdownMenuSub: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  DropdownMenuSubTrigger: ({
+    'aria-label': ariaLabel,
+  }: React.PropsWithChildren<{ 'aria-label'?: string }>) => (
+    <button type="button" role="menuitem" aria-label={ariaLabel} />
+  ),
+  DropdownMenuSubContent: ({ children }: React.PropsWithChildren) => (
+    <div data-testid="submenu">{children}</div>
+  ),
   DropdownMenuRadioGroup: ({
     children,
     value,
@@ -272,6 +281,43 @@ describe('Sidebar', () => {
   }
 
   const filterButton = () => screen.getByRole('button', { name: /^Filter workspaces/ });
+
+  it('keeps how workspace cards look in a submenu of the filter menu', () => {
+    renderSidebar();
+
+    expect(screen.getByRole('menuitem', { name: 'Workspace card options' })).toBeTruthy();
+    const submenu = within(screen.getByTestId('submenu'));
+    expect(submenu.getByRole('menuitemcheckbox', { name: 'Always show branch names' })).toBeTruthy();
+    expect(submenu.getByRole('menuitemcheckbox', { name: 'Compact list' })).toBeTruthy();
+  });
+
+  it('sets how workspace cards look from the filter menu', async () => {
+    let stored = {} as AppConfig;
+    const updateConfig = vi.fn(async (updates: Partial<AppConfig>) => {
+      stored = { ...stored, ...updates };
+      return stored;
+    });
+    window.api = { platform: 'linux', updateConfig } as unknown as typeof window.api;
+    useConfigStore.setState({ config: {} as AppConfig });
+    onTestFinished(() => useConfigStore.setState({ config: null }));
+
+    renderSidebar();
+
+    const alwaysShow = screen.getByRole('menuitemcheckbox', { name: 'Always show branch names' });
+    expect(alwaysShow).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(alwaysShow);
+    expect(updateConfig).toHaveBeenLastCalledWith({ alwaysShowBranchNameInWorkspaceCards: false });
+
+    const compact = screen.getByRole('menuitemcheckbox', { name: 'Compact list' });
+    expect(compact).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(compact);
+    expect(updateConfig).toHaveBeenLastCalledWith({ compactWorkspaceList: true });
+
+    await waitFor(() => {
+      expect(compact).toHaveAttribute('aria-checked', 'true');
+      expect(alwaysShow).toHaveAttribute('aria-checked', 'false');
+    });
+  });
 
   it('lists only projects with workspaces in the current window, in project order', () => {
     workspaceState.hiddenProjectIds = new Set();

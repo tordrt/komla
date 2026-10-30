@@ -86,7 +86,7 @@ describe('ConfigService', () => {
         zoomLevel: 0,
         autoNameWorkspaces: 'first-prompt',
         autoNameBranches: false,
-        hideBranchNameInWorkspaceCards: false,
+        alwaysShowBranchNameInWorkspaceCards: true,
         compactWorkspaceList: false,
         defaultSearchOpenMode: 'current',
         hiddenProjectIds: [],
@@ -180,7 +180,7 @@ describe('ConfigService', () => {
       expect(config.hideStoppedWorkspaces).toBe(false); // default
       expect(config.usageTelemetryEnabled).toBe(false); // default: opt-in
       expect(config.usageTelemetryConsentAnswered).toBe(false); // default
-      expect(config.hideBranchNameInWorkspaceCards).toBe(false); // default
+      expect(config.alwaysShowBranchNameInWorkspaceCards).toBe(true); // default
       expect(config.compactWorkspaceList).toBe(false); // default
       expect(config.activitySpinner).toBe('arc'); // default
       expect(config.utilityProvider).toBe('komla-managed'); // default
@@ -442,6 +442,20 @@ describe('ConfigService', () => {
       mockReadFileSync.mockReturnValue(JSON.stringify({ workspaceGrouping: 'host' }));
       const { configService: reloaded } = await import('../../../src/main/services/config.service');
       expect(reloaded.get().workspaceGrouping).toBe('project');
+    });
+
+    it.each([
+      [{ hideBranchNameInWorkspaceCards: true }, false],
+      [{ hideBranchNameInWorkspaceCards: false }, true],
+      [{ hideBranchNameInWorkspaceCards: true, alwaysShowBranchNameInWorkspaceCards: true }, true],
+      [{ alwaysShowBranchNameInWorkspaceCards: false }, false],
+    ])('should carry over the old hide branch names choice: %j', async (stored, expected) => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(stored));
+
+      const { configService } = await import('../../../src/main/services/config.service');
+
+      expect(configService.get().alwaysShowBranchNameInWorkspaceCards).toBe(expected);
     });
 
     it('should fall back to defaults for invalid persisted utility config', async () => {

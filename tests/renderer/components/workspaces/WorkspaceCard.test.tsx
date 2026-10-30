@@ -38,7 +38,7 @@ vi.mock('@phosphor-icons/react', async (importOriginal) => {
 
 const configState = {
   config: {
-    hideBranchNameInWorkspaceCards: false,
+    alwaysShowBranchNameInWorkspaceCards: true,
     compactWorkspaceList: false,
     showAgentSpinner: true,
     statusBarHiddenItems: [] as string[],
@@ -159,7 +159,14 @@ const fileListState = {
     files: [],
     summary: { additions: 0, deletions: 0, filesChanged: 0 },
   }),
-  getDiff: vi.fn<(...args: unknown[]) => { data: { files: unknown[] } } | undefined>(),
+  getDiff:
+    vi.fn<
+      (
+        ...args: unknown[]
+      ) =>
+        | { data: { files: unknown[]; summary: { additions: number; deletions: number } } }
+        | undefined
+    >(),
 };
 
 vi.mock('../../../../src/renderer/stores/file-list.store', () => ({
@@ -372,7 +379,13 @@ vi.mock('../../../../src/renderer/components/ui/tooltip', () => ({
 
 function setGitStatus(
   workspaceId: string,
-  status: { hasRemote?: boolean; unpushedCommits?: number; aheadTargetBranch?: number }
+  status: {
+    hasRemote?: boolean;
+    unpushedCommits?: number;
+    aheadTargetBranch?: number;
+    behindTargetBranch?: number;
+    rebaseInProgress?: boolean;
+  }
 ) {
   gitStatusState.statusMap.set(workspaceId, {
     status: {
@@ -412,7 +425,7 @@ function openDeleteDialog(workspaceId: string) {
 describe('WorkspaceCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    configState.config.hideBranchNameInWorkspaceCards = false;
+    configState.config.alwaysShowBranchNameInWorkspaceCards = true;
     configState.config.compactWorkspaceList = false;
     configState.config.workspaceTags = undefined;
     configState.config.showAgentSpinner = true;
@@ -496,23 +509,208 @@ describe('WorkspaceCard', () => {
     expect(screen.getByTestId('link-workspaces-dialog')).toHaveAttribute('data-open', 'true');
   });
 
-  it('hides the branch row on the card when compact branch display is enabled, but keeps it in the tooltip', () => {
-    configState.config.hideBranchNameInWorkspaceCards = true;
-    const workspace = createWorktreeWorkspace({
-      name: 'Feature Workspace',
-      branchName: 'agent/compact-card-test',
+  describe('branch name, always shown', () => {
+    const branchName = 'agent/card-test';
+    const cardText = () => screen.getByRole('button', { name: /^Workspace details for / });
+
+    it('has a line under the title, even beside git status and links', () => {
+      const workspace = createWorktreeWorkspace({ branchName, linkedWorkspaceIds: ['other'] });
+      setGitStatus(workspace.id, { aheadTargetBranch: 2 });
+      fileListState.getDiff.mockReturnValue({
+        data: { files: [], summary: { additions: 3, deletions: 1 } },
+      });
+
+      render(<WorkspaceCard workspace={workspace} />);
+
+      expect(within(cardText()).getByText(branchName)).toBeInTheDocument();
+      fireEvent.focus(cardText());
+      expect(screen.getAllByText(branchName)).toHaveLength(1);
     });
 
-    render(<WorkspaceCard workspace={workspace} />);
+    it.each([
+      ['Setting up...', { provisioning: true }],
+      ['Setup failed', { provisionError: 'It broke' }],
+    ])('gives its line to "%s"', (status, overrides) => {
+      render(<WorkspaceCard workspace={createWorktreeWorkspace({ branchName, ...overrides })} />);
 
-    fireEvent.focus(
-      screen.getByRole('button', { name: 'Workspace details for Feature Workspace' })
-    );
-    const tooltip = screen.getByTestId('workspace-info-content');
-    expect(tooltip).toHaveTextContent('agent/compact-card-test');
-    expect(screen.getAllByText('Feature Workspace')).toHaveLength(2);
-    expect(screen.getByRole('button', { name: 'Git status action' })).toBeInTheDocument();
-    expect(screen.getAllByText('agent/compact-card-test')).toHaveLength(1);
+      expect(within(cardText()).getByText(status)).toBeInTheDocument();
+      expect(screen.queryByText(branchName)).toBeNull();
+    });
+
+    it('keeps a setup failure beside a notification body, which takes the line', () => {
+      render(
+        <WorkspaceCard
+          workspace={createWorktreeWorkspace({
+            branchName,
+            provisionError: 'It broke',
+            attention: {
+              kind: 'generic',
+              source: 'custom-hook',
+              updatedAt: 1000,
+              title: 'Review ready',
+              body: 'Authentication changes are waiting.',
+            },
+          })}
+        />
+      );
+
+      expect(within(cardText()).getByText('Authentication changes are waiting.')).toBeVisible();
+      expect(within(cardText()).queryByText('Setup failed')).toBeNull();
+      expect(screen.getByText('Setup failed')).toBeInTheDocument();
+    });
+  });
+
+  describe('branch name, shown when there is room', () => {
+    const branchName = 'agent/card-test';
+
+    beforeEach(() => {
+      configState.config.alwaysShowBranchNameInWorkspaceCards = false;
+    });
+
+    /** How many times the branch shows: on the card, and in the details once they're opened. */
+    function branchShownOn(workspace: Workspace) {
+      render(<WorkspaceCard workspace={workspace} />);
+      const onCard = screen.queryAllByText(branchName).length;
+      fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for / }));
+      return { onCard, inDetails: screen.getAllByText(branchName).length - onCard };
+    }
+
+    it('fills the activity row of a clean workspace, leaving it out of the details', () => {
+      const workspace = createWorktreeWorkspace({ branchName, lastActivityAt: Date.now() });
+      setGitStatus(workspace.id, {});
+
+      expect(branchShownOn(workspace)).toEqual({ onCard: 1, inDetails: 0 });
+    });
+
+    it('shows while the git status has yet to load', () => {
+      expect(branchShownOn(createWorktreeWorkspace({ branchName }))).toEqual({
+        onCard: 1,
+        inDetails: 0,
+      });
+    });
+
+    it.each([
+      ['commits ahead', { aheadTargetBranch: 2 }],
+      ['commits behind', { behindTargetBranch: 1 }],
+      ['a paused rebase', { rebaseInProgress: true }],
+    ])('moves to the details beside %s', (_label, status) => {
+      const workspace = createWorktreeWorkspace({ branchName });
+      setGitStatus(workspace.id, status);
+
+      expect(branchShownOn(workspace)).toEqual({ onCard: 0, inDetails: 1 });
+    });
+
+    it('moves to the details beside diff stats', () => {
+      const workspace = createWorktreeWorkspace({ branchName });
+      setGitStatus(workspace.id, {});
+      fileListState.getDiff.mockReturnValue({
+        data: { files: [], summary: { additions: 3, deletions: 1 } },
+      });
+
+      expect(branchShownOn(workspace)).toEqual({ onCard: 0, inDetails: 1 });
+    });
+
+    it('moves to the details beside a linked workspaces count', () => {
+      const workspace = createWorktreeWorkspace({ branchName, linkedWorkspaceIds: ['other'] });
+
+      expect(branchShownOn(workspace)).toEqual({ onCard: 0, inDetails: 1 });
+    });
+
+    it('takes the row beside a notification body, as nothing else wants it', () => {
+      const workspace = createWorktreeWorkspace({
+        branchName,
+        attention: {
+          kind: 'generic',
+          source: 'custom-hook',
+          updatedAt: 1000,
+          title: 'Review ready',
+          body: 'Authentication changes are waiting.',
+        },
+      });
+      setGitStatus(workspace.id, {});
+
+      expect(branchShownOn(workspace)).toEqual({ onCard: 1, inDetails: 0 });
+    });
+
+    it('gives way beside a notification body when the row is in use', () => {
+      const workspace = createWorktreeWorkspace({
+        branchName,
+        attention: {
+          kind: 'generic',
+          source: 'custom-hook',
+          updatedAt: 1000,
+          title: 'Review ready',
+          body: 'Authentication changes are waiting.',
+        },
+      });
+      setGitStatus(workspace.id, { aheadTargetBranch: 2 });
+
+      expect(branchShownOn(workspace)).toEqual({ onCard: 0, inDetails: 1 });
+    });
+
+    it('takes the row of a workspace in the Trash, which shows no git status', () => {
+      const workspace = createWorktreeWorkspace({ branchName, status: 'trashed' });
+      setGitStatus(workspace.id, { aheadTargetBranch: 2 });
+
+      expect(branchShownOn(workspace)).toEqual({ onCard: 1, inDetails: 0 });
+    });
+
+    // Under the title it would take a row of its own, and the card would shrink as setup finished.
+    it.each([
+      ['Setting up...', { provisioning: true }],
+      ['Setup failed', { provisionError: 'It broke' }],
+    ])('gives the row to "%s"', (status, overrides) => {
+      render(<WorkspaceCard workspace={createWorktreeWorkspace({ branchName, ...overrides })} />);
+
+      expect(screen.queryByText(branchName)).toBeNull();
+      expect(screen.getByText(status)).toBeInTheDocument();
+      expect(
+        within(screen.getByRole('button', { name: /^Workspace details for / })).queryByText(status)
+      ).toBeNull();
+    });
+
+    it.each([
+      ['Setting up...', { provisioning: true }],
+      ['Setup failed', { provisionError: 'It broke' }],
+    ])('keeps "%s" in the row beside a notification body', (status, overrides) => {
+      render(
+        <WorkspaceCard
+          workspace={createWorktreeWorkspace({
+            branchName,
+            ...overrides,
+            attention: {
+              kind: 'generic',
+              source: 'custom-hook',
+              updatedAt: 1000,
+              title: 'Review ready',
+              body: 'Authentication changes are waiting.',
+            },
+          })}
+        />
+      );
+
+      const trigger = screen.getByRole('button', { name: /^Workspace details for / });
+      expect(within(trigger).getByText('Authentication changes are waiting.')).toBeInTheDocument();
+      expect(within(trigger).queryByText(status)).toBeNull();
+      expect(screen.getByText(status)).toBeInTheDocument();
+    });
+
+    it('reads an SSH workspace diff by its workspace, as the git status indicator does', () => {
+      const workspace = createSshWorkspace({ branchName, isWorktree: true });
+      setGitStatus(workspace.id, {});
+      const diff = { data: { files: [], summary: { additions: 3, deletions: 1 } } };
+
+      fileListState.getDiff.mockImplementation((...args) => (args[3] ? undefined : diff));
+      const { unmount } = render(<WorkspaceCard workspace={workspace} />);
+      expect(screen.getByText(branchName)).toBeInTheDocument();
+      unmount();
+
+      fileListState.getDiff.mockImplementation((...args) =>
+        args[3] === workspace.id ? diff : undefined
+      );
+      render(<WorkspaceCard workspace={workspace} />);
+      expect(screen.queryByText(branchName)).toBeNull();
+    });
   });
 
   it('gives cards room by default and tightens them in the compact workspace list', () => {
@@ -540,7 +738,7 @@ describe('WorkspaceCard', () => {
   });
 
   it('uses a branch icon for an SSH workspace branch in the tooltip', () => {
-    configState.config.hideBranchNameInWorkspaceCards = true;
+    configState.config.alwaysShowBranchNameInWorkspaceCards = false;
     useSshHostsStore.setState({
       hosts: [
         {
@@ -554,6 +752,7 @@ describe('WorkspaceCard', () => {
     });
     const workspace = createWorktreeWorkspace({
       branchName: 'agent/remote-card-test',
+      linkedWorkspaceIds: ['other'],
       backend: {
         kind: 'ssh',
         hostId: 'ssh-dev',
@@ -1822,7 +2021,9 @@ describe('WorkspaceCard', () => {
 
     it('warns but still focuses Delete when the worktree has uncommitted changes', () => {
       const workspace = createWorktreeWorkspace({ branchName: 'feature/login' });
-      fileListState.getDiff.mockReturnValue({ data: { files: [{}, {}] } });
+      fileListState.getDiff.mockReturnValue({
+        data: { files: [{}, {}], summary: { additions: 0, deletions: 0 } },
+      });
 
       render(<WorkspaceCard workspace={workspace} />);
       const dialog = openDeleteDialog(workspace.id);

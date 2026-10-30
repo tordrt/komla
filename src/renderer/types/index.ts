@@ -205,7 +205,7 @@ export interface AppConfig {
   preferredCloneProtocol?: 'https' | 'ssh'; // Preferred protocol when cloning repos
   autoNameWorkspaces?: 'off' | 'first-prompt'; // Whether AI auto-naming runs from initial prompts
   autoNameBranches?: boolean; // Use AI to generate descriptive branch names from initial prompts
-  hideBranchNameInWorkspaceCards?: boolean; // Hide branch names in workspace cards and show them in the tooltip instead
+  alwaysShowBranchNameInWorkspaceCards?: boolean; // Off: a card shows its branch only when its activity row has room
   compactWorkspaceList?: boolean; // Tighter workspace cards in the sidebar
   defaultSearchOpenMode?: 'viewer' | 'preview' | 'current'; // Default target when opening search results ('current' = match the active view)
   hiddenProjectIds?: string[]; // Project IDs hidden from the sidebar workspace list

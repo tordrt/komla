@@ -86,7 +86,7 @@ import {
 } from '@/types';
 
 import { countUnpushedBranchCommits } from '../../../shared/lib/workspace-branch-status';
-import { canDeleteWorkspaceBranch } from '../../../shared/types/workspace';
+import { canDeleteWorkspaceBranch, hasWorkspaceFiles } from '../../../shared/types/workspace';
 
 import {
   AGENT_STATES,
@@ -110,6 +110,7 @@ import {
 import { BulkContextMenuContent } from './BulkContextMenu';
 import { ColorPickerSubmenu } from './ColorPickerSubmenu';
 import { CopyWorkspaceSubmenu } from './CopyWorkspaceSubmenu';
+import { buildDiffChangePills, hasGitStatusToShow } from './git-status-summary';
 import { GitStatusIndicator } from './GitStatusIndicator';
 import { LinkWorkspacesDialog } from './LinkWorkspacesDialog';
 import { MoveToWindowMenuItems } from './MoveToWindowMenu';
@@ -196,8 +197,8 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
 
   const currentWindowId = useWindowStore((s) => s.windowId);
   const availableWindows = useWindowStore((s) => s.availableWindows);
-  const hideBranchNameInWorkspaceCards =
-    useConfigStore((state) => state.config?.hideBranchNameInWorkspaceCards) === true;
+  const alwaysShowBranch =
+    useConfigStore((state) => state.config?.alwaysShowBranchNameInWorkspaceCards) !== false;
   const compact = useConfigStore((state) => state.config?.compactWorkspaceList) === true;
   const sshHosts = useSshHostsStore((state) => state.hosts);
   const automationName = useAutomationsStore(
@@ -205,6 +206,20 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   );
   const showAgentSpinner = useConfigStore((state) => state.config?.showAgentSpinner) !== false;
   const gitStatus = useGitStatusStore((state) => state.statusMap.get(workspace.id)?.status);
+  const showGitStatus = showsGitStatus(workspace);
+  const hasChangePills = useFileListStore(
+    (state) =>
+      showGitStatus &&
+      !alwaysShowBranch &&
+      buildDiffChangePills(
+        state.getDiff(
+          workspace.workingDirectory,
+          undefined,
+          false,
+          isSshWorkspace(workspace) ? workspace.id : undefined
+        )?.data
+      ).length > 0
+  );
   const projectBaseBranch = useProjectsStore((state) =>
     workspace.projectId
       ? state.projects.find((project) => project.id === workspace.projectId)?.baseBranch
@@ -460,9 +475,24 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
 
   const secondaryLine = getSecondaryLineKind(workspace, {
     attentionBody: attentionAppearance?.body,
-    hideBranchNameInWorkspaceCards,
     hideDirectoryPath,
   });
+  const provisioningOrFailed = isProvisioningOrFailed(workspace);
+  // Always shown, the branch has the line under the title, unless something else there, such as a
+  // notification's body, stands in for it. Otherwise it takes the activity row when that has room.
+  const branchLineUnderTitle = alwaysShowBranch && secondaryLine === null;
+  const branchHasRoom = alwaysShowBranch
+    ? branchLineUnderTitle
+    : !activityRowInUse(workspace, showGitStatus && hasGitStatusToShow(gitStatus, hasChangePills));
+  const branchOnCard =
+    workspace.isWorktree && !!workspace.branchName && !provisioningOrFailed && branchHasRoom;
+  const branchOrProvisionLine = provisioningOrFailed ? (
+    <ProvisionLine workspace={workspace} />
+  ) : (
+    branchOnCard && <BranchLine workspace={workspace} />
+  );
+  // Always showing the branch gives it a line of its own, shared with provisioning's status so the
+  // card doesn't change height when that finishes. Otherwise they share the activity row.
 
   // Shared card content
   const cardContent = (
@@ -472,7 +502,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
         <WorkspaceInfoCardContent
           workspace={workspace}
           sshHost={sshHost}
-          showBranch={secondaryLine !== 'branch'}
+          showBranch={!branchOnCard}
         >
           <StatusDetails
             workspace={workspace}
@@ -485,6 +515,8 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
         <ActivityRow
           workspace={workspace}
           shownRunning={shownRunning}
+          showGitStatus={showGitStatus}
+          lead={!branchLineUnderTitle && branchOrProvisionLine}
           showWorkingClock={showAgentSpinner}
           launchUndo={
             launchUndoCount > 0 && <LaunchUndoLink count={launchUndoCount} cardRef={cardRef} />
@@ -543,6 +575,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
           workspace={workspace}
           attentionBody={attentionAppearance?.body}
         />
+        {branchLineUnderTitle && branchOrProvisionLine}
       </div>
     </WorkspaceInfoPopover>
   );
@@ -1196,29 +1229,21 @@ function provisionFailureLabel(workspace: Workspace): string {
   return workspace.removedFromHost ? 'Missing from host' : 'Setup failed';
 }
 
-type SecondaryLineKind = 'attention' | 'path' | 'provisioning' | 'setup-failed' | 'branch';
+type SecondaryLineKind = 'attention' | 'path';
 
-/** What the card's second line shows, so its details card can leave out a branch it shows. */
+/** What the card shows between its title and its activity row, if anything. */
 function getSecondaryLineKind(
   workspace: Workspace,
   {
     attentionBody,
-    hideBranchNameInWorkspaceCards,
     hideDirectoryPath,
   }: {
     attentionBody?: string;
-    hideBranchNameInWorkspaceCards: boolean;
     hideDirectoryPath?: boolean;
   }
 ): SecondaryLineKind | null {
   if (attentionBody) return 'attention';
-  if (!workspace.isWorktree) {
-    return workspace.workingDirectory && !hideDirectoryPath ? 'path' : null;
-  }
-  if (workspace.provisioning) return 'provisioning';
-  if (workspace.provisionError) return 'setup-failed';
-  if (workspace.branchName && !hideBranchNameInWorkspaceCards) return 'branch';
-  return null;
+  return !workspace.isWorktree && workspace.workingDirectory && !hideDirectoryPath ? 'path' : null;
 }
 
 function SecondaryLine({
@@ -1243,26 +1268,31 @@ function SecondaryLine({
           </span>
         </div>
       );
-    case 'provisioning':
-      return (
-        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground/60">
-          <GitBranch className="mr-1 inline size-3" />
-          <span className="animate-pulse truncate">
-            {workspace.provisionStatus ?? 'Setting up...'}
-          </span>
-        </div>
-      );
-    case 'setup-failed':
-      return (
-        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-error">
-          <span className="truncate">{provisionFailureLabel(workspace)}</span>
-        </div>
-      );
-    case 'branch':
-      return <BranchLine workspace={workspace} />;
     default:
       return null;
   }
+}
+
+function isProvisioningOrFailed(workspace: Workspace): boolean {
+  return workspace.isWorktree && !hasWorkspaceFiles(workspace);
+}
+
+function ProvisionLine({ workspace }: { workspace: Workspace }) {
+  if (workspace.provisioning) {
+    return (
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground/60">
+        <GitBranch className="mr-1 inline size-3" />
+        <span className="animate-pulse truncate">
+          {workspace.provisionStatus ?? 'Setting up...'}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-error">
+      <span className="truncate">{provisionFailureLabel(workspace)}</span>
+    </div>
+  );
 }
 
 function BranchLine({ workspace }: { workspace: Workspace }) {
@@ -1335,14 +1365,35 @@ function ActivityTime({
   );
 }
 
+/** Whether the activity row shows anything ahead of the time, other than what fills free space. */
+function activityRowInUse(workspace: Workspace, gitStatusShown: boolean): boolean {
+  return gitStatusShown || !!workspace.linkedWorkspaceIds?.length;
+}
+
+/** Whether the activity row keeps a git status indicator, which hides itself while clean. */
+function showsGitStatus(workspace: Workspace): boolean {
+  return (
+    !!workspace.workingDirectory &&
+    workspace.status === 'active' &&
+    hasWorkspaceFiles(workspace) &&
+    workspace.isWorktree &&
+    !!workspace.branchName
+  );
+}
+
 function ActivityRow({
   workspace,
   shownRunning,
+  showGitStatus,
+  lead,
   showWorkingClock,
   launchUndo,
 }: {
   workspace: Workspace;
   shownRunning: boolean;
+  showGitStatus: boolean;
+  /** What fills the row's free space ahead of the time, such as the branch. */
+  lead: React.ReactNode;
   showWorkingClock: boolean;
   /**
    * The launch's Undo stands in the time's place, under the agent's spinner, so the spinner
@@ -1351,18 +1402,12 @@ function ActivityRow({
   launchUndo: React.ReactNode;
 }) {
   const linkedCount = workspace.linkedWorkspaceIds?.length ?? 0;
-  const showGitStatus =
-    !!workspace.workingDirectory &&
-    workspace.status === 'active' &&
-    !workspace.provisioning &&
-    !workspace.provisionError &&
-    workspace.isWorktree &&
-    !!workspace.branchName;
-  if (!showGitStatus && linkedCount === 0 && !workspace.lastActivityAt) return null;
+  if (!showGitStatus && !lead && linkedCount === 0 && !workspace.lastActivityAt) return null;
   return (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
       {showGitStatus && workspace.workingDirectory && (
-        <div className="shrink-0">
+        // Hidden while the indicator shows nothing, so its gap doesn't indent the branch.
+        <div className="shrink-0 empty:hidden">
           <GitStatusIndicator
             workspaceId={workspace.id}
             workingDirectory={workspace.workingDirectory}
@@ -1372,6 +1417,7 @@ function ActivityRow({
           />
         </div>
       )}
+      {lead}
       {linkedCount > 0 && (
         <span
           className="hidden shrink-0 items-center gap-0.5 text-2xs font-medium text-muted-foreground/70 min-[360px]:inline-flex"

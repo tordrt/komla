@@ -34,10 +34,12 @@ describe('configUpdateArgsSchema', () => {
     expect(() => configUpdateArgsSchema.parse([{ zoomLevel: 3.5 }])).toThrow();
   });
 
-  it('preserves hideBranchNameInWorkspaceCards updates', () => {
-    const [updates] = configUpdateArgsSchema.parse([{ hideBranchNameInWorkspaceCards: true }]);
+  it('preserves alwaysShowBranchNameInWorkspaceCards updates', () => {
+    const [updates] = configUpdateArgsSchema.parse([
+      { alwaysShowBranchNameInWorkspaceCards: false },
+    ]);
 
-    expect(updates).toEqual({ hideBranchNameInWorkspaceCards: true });
+    expect(updates).toEqual({ alwaysShowBranchNameInWorkspaceCards: false });
   });
 
   it('preserves compactWorkspaceList updates', () => {

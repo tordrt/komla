@@ -36,15 +36,17 @@ const DropdownMenuSubTrigger = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & {
     inset?: boolean;
+    /** Leaves out the caret, for an icon that says it opens more on its own. */
+    hideCaret?: boolean;
   }
->(({ className, inset, children, ...props }, ref) => (
+>(({ className, inset, hideCaret, children, ...props }, ref) => (
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(menuSubTriggerClass, inset && 'pl-7', className)}
     {...props}
   >
     {children}
-    <CaretRight className="ml-auto" />
+    {!hideCaret && <CaretRight className="ml-auto" />}
   </DropdownMenuPrimitive.SubTrigger>
 ));
 DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName;

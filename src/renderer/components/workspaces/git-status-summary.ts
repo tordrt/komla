@@ -1,4 +1,4 @@
-import type { FileChange } from '@/types';
+import type { FileChange, GitBranchQuickStatus, WorktreeDiff } from '@/types';
 
 export type WorkspaceChangePillKind =
   | 'additions'
@@ -68,4 +68,26 @@ export function buildWorkspaceChangePills(params: {
   ]
     .filter((pill) => pill !== null)
     .slice(0, 2);
+}
+
+export function buildDiffChangePills(diff: WorktreeDiff | undefined): WorkspaceChangePill[] {
+  return buildWorkspaceChangePills({
+    additions: diff?.summary.additions ?? 0,
+    deletions: diff?.summary.deletions ?? 0,
+    files: diff?.files,
+  });
+}
+
+/** Whether the git status indicator shows anything, as it hides while clean and up to date. */
+export function hasGitStatusToShow(
+  status: GitBranchQuickStatus | undefined,
+  hasChangePills: boolean
+): boolean {
+  if (!status) return false;
+  return (
+    hasChangePills ||
+    status.behindTargetBranch > 0 ||
+    status.aheadTargetBranch > 0 ||
+    !!status.rebaseInProgress
+  );
 }

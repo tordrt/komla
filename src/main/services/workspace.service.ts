@@ -243,7 +243,9 @@ const MAX_STORED_PROMPT_CHARS = 32_000;
 // Final replies are mostly a short summary; their start and end say what the turn was about.
 const MAX_STORED_AGENT_REPLY_CHARS = 2_000;
 const MAX_STORED_PROMPT_HISTORY_CHARS = 256_000;
-const MAX_RENAME_PROMPT_CONTEXT_CHARS = 256_000;
+// Each prompt gets a limit so a long paste can't crowd out the turns around it.
+const MAX_RENAME_PROMPT_CHARS = 8_000;
+const MAX_RENAME_PROMPT_CONTEXT_CHARS = 100_000;
 
 /**
  * The base branch as the workspace's target, absent a project target. A branch only the
@@ -600,14 +602,22 @@ function wrapRenameReply(reply: string): string {
   return `<agent_reply>\n${reply}\n</agent_reply>`;
 }
 
+function dropLoneHighSurrogate(value: string): string {
+  return value.replace(/[\uD800-\uDBFF]$/, '');
+}
+
 function truncateMiddle(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
-  if (maxChars <= PROMPT_TRUNCATED_MARKER.length) return value.slice(0, maxChars);
+  // Dropping half of a split emoji keeps the text valid for strict JSON parsers.
+  if (maxChars <= PROMPT_TRUNCATED_MARKER.length)
+    return dropLoneHighSurrogate(value.slice(0, maxChars));
 
   const remaining = maxChars - PROMPT_TRUNCATED_MARKER.length;
   const headLength = Math.ceil(remaining / 2);
   const tailLength = Math.floor(remaining / 2);
-  return `${value.slice(0, headLength)}${PROMPT_TRUNCATED_MARKER}${value.slice(-tailLength)}`;
+  const head = dropLoneHighSurrogate(value.slice(0, headLength));
+  const tail = value.slice(value.length - tailLength).replace(/^[\uDC00-\uDFFF]/, '');
+  return `${head}${PROMPT_TRUNCATED_MARKER}${tail}`;
 }
 
 function truncatePromptForStorage(prompt: string): string {
@@ -4260,7 +4270,6 @@ class WorkspaceService {
       text.replace(/<\/(prompts?|agent_reply)\b/gi, '<\\/$1');
 
     const takeBlock = (entry: (typeof promptSubmits)[number]): string | null => {
-      const prompt = neutralize(entry.prompt);
       const separatorLength =
         pinnedChunks.length + latestChunks.length > 0 ? RENAME_PROMPT_CONTEXT_SEPARATOR.length : 0;
       const available =
@@ -4270,8 +4279,9 @@ class WorkspaceService {
         wrapRenamePrompt('').length;
       if (available <= 0) return null;
 
+      // The last prompt to fit gets what room is left, still with its start and end.
       let block = wrapRenamePrompt(
-        prompt.length > available ? prompt.slice(0, available).trimEnd() : prompt
+        truncateMiddle(neutralize(entry.prompt), Math.min(MAX_RENAME_PROMPT_CHARS, available))
       );
       if (entry.reply) {
         const reply = RENAME_PROMPT_CONTEXT_SEPARATOR + wrapRenameReply(neutralize(entry.reply));

@@ -19,7 +19,7 @@ describe('Komla packaging preflight', () => {
     );
   });
 
-  it('accepts packaging when every bundled CLI artifact exists', async () => {
+  async function writeArtifacts(): Promise<void> {
     const artifacts = [
       ['x86_64-unknown-linux-musl', 'komla'],
       ['aarch64-unknown-linux-musl', 'komla'],
@@ -35,6 +35,23 @@ describe('Komla packaging preflight', () => {
         await writeFile(join(directory, executable), 'binary');
       })
     );
+  }
+
+  it('rejects packaging a development build of the bundled CLI', async () => {
+    await writeArtifacts();
+    await writeFile(
+      join(temporaryRoot, 'native', 'artifacts', 'x86_64-unknown-linux-musl', '.dev-build'),
+      ''
+    );
+    const { default: beforePack } = await import('../../../scripts/beforePack.cjs');
+
+    await expect(beforePack({ packager: { projectDir: temporaryRoot } })).rejects.toThrow(
+      /development builds[\s\S]*x86_64-unknown-linux-musl[\s\S]*Run npm run build:native:matrix/
+    );
+  });
+
+  it('accepts packaging when every bundled CLI artifact exists', async () => {
+    await writeArtifacts();
     const { default: beforePack } = await import('../../../scripts/beforePack.cjs');
 
     await expect(beforePack({ packager: { projectDir: temporaryRoot } })).resolves.toBeUndefined();

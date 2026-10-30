@@ -23,4 +23,15 @@ module.exports = async function beforePack(context) {
         'Run npm run build:native:matrix before electron-builder.'
     );
   }
+
+  const devBuilds = REQUIRED_KOMLA_ARTIFACTS.map(([target]) =>
+    path.join(projectDir, 'native', 'artifacts', target)
+  ).filter((directory) => fs.existsSync(path.join(directory, '.dev-build')));
+
+  if (devBuilds.length > 0) {
+    throw new Error(
+      `beforePack: these Komla CLI artifacts are development builds:\n${devBuilds.join('\n')}\n` +
+        'Run npm run build:native:matrix before electron-builder.'
+    );
+  }
 };

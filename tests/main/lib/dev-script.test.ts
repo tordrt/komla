@@ -103,13 +103,43 @@ describe('shared development companion cache', () => {
   beforeEach(() => {
     sandbox = mkdtempSync(join(tmpdir(), 'komla-companion-cache-'));
     mkdirSync(join(sandbox, 'bin'));
-    writeFileSync(join(sandbox, 'bin/docker'), '#!/bin/sh\nexit 0\n');
-    chmodSync(join(sandbox, 'bin/docker'), 0o755);
+    writeExecutable('docker', '#!/bin/sh\nexit 1\n');
+    writeExecutable('rustup', '#!/bin/sh\nexit 0\n');
+    writeExecutable(
+      'cargo',
+      [
+        '#!/bin/sh',
+        'set -eu',
+        'target=',
+        'previous=',
+        'for argument in "$@"; do',
+        '  if [ "$previous" = --target ]; then target=$argument; fi',
+        '  previous=$argument',
+        'done',
+        'if [ -n "$target" ] && [ "$target" = "${FAIL_TARGET:-}" ]; then exit 1; fi',
+        'printf "%s\\n" "$target" >> "$BUILD_LOG"',
+        'printf "%s x64=%s arm64=%s\\n" "$*" \\',
+        '  "${CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER:-}" \\',
+        '  "${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER:-}" >> "$CARGO_LOG"',
+        'case "$target" in *-windows-msvc) executable=komla.exe ;; *) executable=komla ;; esac',
+        'mkdir -p "$CARGO_TARGET_DIR/$target/companion-dev"',
+        'cat src/main.rs > "$CARGO_TARGET_DIR/$target/companion-dev/$executable"',
+        'if [ -n "${EDIT_DURING_BUILD:-}" ]; then',
+        '  printf "// edited\\n" >> src/main.rs',
+        'fi',
+        '',
+      ].join('\n')
+    );
   });
 
   afterEach(() => {
     rmSync(sandbox, { recursive: true, force: true });
   });
+
+  function writeExecutable(name: string, contents: string): void {
+    writeFileSync(join(sandbox, 'bin', name), contents);
+    chmodSync(join(sandbox, 'bin', name), 0o755);
+  }
 
   function createCheckout(name: string, source = 'fn main() {}\n'): string {
     const root = join(sandbox, name);
@@ -118,22 +148,6 @@ describe('shared development companion cache', () => {
     }
     execFileSync('git', ['init', '-q'], { cwd: root });
     copyFileSync(companionScript, join(root, 'scripts/ensure-dev-companion.sh'));
-    writeFileSync(
-      join(root, 'scripts/build-native-matrix.sh'),
-      [
-        'set -eu',
-        'root=$(cd "$(dirname "$0")/.." && pwd -P)',
-        'if [ -n "${EDIT_DURING_BUILD:-}" ]; then',
-        '  printf "// edited\\n" >> "$root/native/src/main.rs"',
-        'fi',
-        'for target in "$@"; do',
-        '  printf "%s\\n" "$target" >> "$BUILD_LOG"',
-        '  mkdir -p "$root/native/artifacts/$target"',
-        '  cat "$root/native/src/main.rs" > "$root/native/artifacts/$target/komla"',
-        'done',
-        '',
-      ].join('\n')
-    );
     for (const input of [
       'native/Cargo.toml',
       'native/Cargo.lock',
@@ -160,6 +174,8 @@ describe('shared development companion cache', () => {
         KOMLA_DEV_HOST_ARCH: 'x86_64',
         KOMLA_DEV_DRY_RUN: undefined,
         BUILD_LOG: join(sandbox, 'builds.log'),
+        CARGO_LOG: join(sandbox, 'cargo.log'),
+        CARGO_TARGET_DIR: undefined,
         ...env,
       },
     });
@@ -170,6 +186,10 @@ describe('shared development companion cache', () => {
     return existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
   }
 
+  function cargoCalls(): string[] {
+    return readFileSync(join(sandbox, 'cargo.log'), 'utf8').split('\n').filter(Boolean);
+  }
+
   function artifact(checkout: string, target: string): string {
     return join(checkout, 'native/artifacts', target, 'komla');
   }
@@ -178,6 +198,171 @@ describe('shared development companion cache', () => {
     mkdirSync(join(checkout, 'native/artifacts', target), { recursive: true });
     writeFileSync(artifact(checkout, target), contents);
   }
+
+  it('builds Linux artifacts with the dev profile and rust-lld, without Docker', () => {
+    const checkout = createCheckout('first');
+
+    ensure(checkout);
+
+    expect(cargoCalls()).toEqual([
+      'build --profile companion-dev --locked --target x86_64-unknown-linux-musl x64=rust-lld arm64=',
+      'build --profile companion-dev --locked --target aarch64-unknown-linux-musl x64= arm64=rust-lld',
+    ]);
+    for (const target of linuxTargets) {
+      expect(readFileSync(artifact(checkout, target), 'utf8')).toBe('fn main() {}\n');
+    }
+  });
+
+  it('links macOS artifacts with the default linker', () => {
+    ensure(createCheckout('first'), [], {
+      KOMLA_DEV_HOST_OS: 'Darwin',
+      KOMLA_DEV_HOST_ARCH: 'arm64',
+    });
+
+    expect(cargoCalls()).toContain(
+      'build --profile companion-dev --locked --target aarch64-apple-darwin x64= arm64='
+    );
+  });
+
+  it('builds Windows artifacts with cargo-xwin', () => {
+    const checkout = createCheckout('first');
+
+    ensure(checkout, [], { KOMLA_DEV_HOST_OS: 'Windows_NT', KOMLA_DEV_HOST_ARCH: 'x86_64' });
+
+    expect(cargoCalls()).toContain(
+      'xwin build --profile companion-dev --locked --target x86_64-pc-windows-msvc x64= arm64='
+    );
+    expect(
+      readFileSync(join(checkout, 'native/artifacts/x86_64-pc-windows-msvc/komla.exe'), 'utf8')
+    ).toBe('fn main() {}\n');
+  });
+
+  it('keeps build output in the checkout when CARGO_TARGET_DIR points elsewhere', () => {
+    const checkout = createCheckout('first');
+
+    ensure(checkout, [], { CARGO_TARGET_DIR: join(sandbox, 'shared-target') });
+
+    expect(existsSync(join(sandbox, 'shared-target'))).toBe(false);
+    expect(readFileSync(artifact(checkout, linuxTargets[0]), 'utf8')).toBe('fn main() {}\n');
+  });
+
+  it('marks built and restored artifacts as development builds', () => {
+    const built = createCheckout('built');
+    ensure(built);
+    const restored = createCheckout('restored');
+    ensure(restored, ['--restore-only']);
+
+    for (const checkout of [built, restored]) {
+      for (const target of linuxTargets) {
+        expect(existsSync(join(checkout, 'native/artifacts', target, '.dev-build'))).toBe(true);
+      }
+    }
+  });
+
+  it('does not mark a current local build it kept', () => {
+    const checkout = createCheckout('local');
+    for (const target of linuxTargets) writeArtifact(checkout, target, 'local build');
+
+    ensure(checkout);
+
+    expect(existsSync(join(checkout, 'native/artifacts', linuxTargets[0], '.dev-build'))).toBe(
+      false
+    );
+  });
+
+  it('marks an artifact when the sources changed during the build', () => {
+    const checkout = createCheckout('first');
+
+    ensure(checkout, [], { EDIT_DURING_BUILD: '1' });
+
+    expect(existsSync(join(checkout, 'native/artifacts', linuxTargets[0], '.dev-build'))).toBe(
+      true
+    );
+  });
+
+  it('marks an artifact before putting it in place, so an interrupted install stays marked', () => {
+    writeExecutable('mv', '#!/bin/sh\nexit 1\n');
+    const checkout = createCheckout('first');
+
+    expect(() => ensure(checkout)).toThrow();
+
+    expect(existsSync(join(checkout, 'native/artifacts', linuxTargets[0], '.dev-build'))).toBe(
+      true
+    );
+  });
+
+  it('rebuilds an artifact whose sources changed during its build', () => {
+    const checkout = createCheckout('first');
+    ensure(checkout, [], { EDIT_DURING_BUILD: '1' });
+
+    const output = ensure(checkout);
+
+    expect(output).toContain('Building');
+    const source = readFileSync(join(checkout, 'native/src/main.rs'), 'utf8');
+    for (const target of linuxTargets) {
+      expect(readFileSync(artifact(checkout, target), 'utf8')).toBe(source);
+    }
+  });
+
+  it('rebuilds an artifact when a later target failed after its sources changed', () => {
+    const checkout = createCheckout('first');
+    expect(() =>
+      ensure(checkout, [], { EDIT_DURING_BUILD: '1', FAIL_TARGET: linuxTargets[1] })
+    ).toThrow();
+
+    ensure(checkout);
+
+    expect(readFileSync(artifact(checkout, linuxTargets[0]), 'utf8')).toBe(
+      readFileSync(join(checkout, 'native/src/main.rs'), 'utf8')
+    );
+  });
+
+  it('rebuilds when a build input is deleted, which leaves no newer file', () => {
+    const checkout = createCheckout('first');
+    writeFileSync(join(checkout, 'native/build.rs'), 'fn main() {}\n');
+    ensure(checkout);
+
+    rmSync(join(checkout, 'native/build.rs'));
+    ensure(checkout);
+
+    expect(builds()).toEqual([...linuxTargets, ...linuxTargets]);
+  });
+
+  it('replaces a development build when the sources move to another version', () => {
+    const checkout = createCheckout('first');
+    ensure(checkout);
+    const original = join(checkout, 'native/src/main.rs');
+    writeFileSync(original, 'fn main() { println!("other"); }\n');
+    utimesSync(original, new Date(2000, 0), new Date(2000, 0));
+
+    ensure(checkout);
+
+    expect(readFileSync(artifact(checkout, linuxTargets[0]), 'utf8')).toContain('other');
+  });
+
+  it('caches a target that a failed run built, once a later run succeeds', () => {
+    const checkout = createCheckout('first');
+    expect(() => ensure(checkout, [], { FAIL_TARGET: linuxTargets[1] })).toThrow();
+    ensure(checkout);
+
+    ensure(createCheckout('second'), ['--restore-only']);
+
+    expect(builds()).toEqual(linuxTargets);
+    expect(readFileSync(artifact(join(sandbox, 'second'), linuxTargets[0]), 'utf8')).toBe(
+      'fn main() {}\n'
+    );
+  });
+
+  it('treats an interrupted install as out of date', () => {
+    const checkout = createCheckout('first');
+    ensure(checkout);
+    writeArtifact(checkout, linuxTargets[0], 'old binary');
+    writeFileSync(join(checkout, 'native/artifacts', linuxTargets[0], '.dev-build'), '');
+
+    ensure(checkout, ['--restore-only']);
+
+    expect(readFileSync(artifact(checkout, linuxTargets[0]), 'utf8')).toBe('fn main() {}\n');
+  });
 
   it('reuses artifacts built in another checkout with the same companion sources', () => {
     const first = createCheckout('first');
@@ -295,7 +480,9 @@ describe('shared development companion cache', () => {
 
     ensure(createCheckout('second'));
 
-    expect(output).toContain('not caching');
+    expect(output).toContain('not cached');
+    expect(output).toContain('out of date');
+    expect(output).toContain('npm run dev -- --companion');
     expect(builds()).toEqual([...linuxTargets, ...linuxTargets]);
   });
 

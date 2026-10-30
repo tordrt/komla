@@ -44,3 +44,10 @@ unimplemented = "warn"
 strip = true
 lto = true
 codegen-units = 1
+
+# `npm run dev -- --companion`: rebuilds in seconds, for a binary about 20% larger.
+[profile.companion-dev]
+inherits = "release"
+lto = "off"
+codegen-units = 256
+incremental = true

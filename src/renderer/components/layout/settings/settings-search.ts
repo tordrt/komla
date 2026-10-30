@@ -234,7 +234,7 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
   ],
   shortcuts: shortcutEntries.flatMap((entry) => rows(entry.group, entry.label)),
   remote: [
-    card('Remote control', 'phone mobile tablet tailscale serve publish'),
+    card('Remote control', 'phone mobile tablet tailscale serve publish port address'),
     ...rows('Remote control', 'Allow access to this computer', 'Keep computer awake'),
     card('SSH hosts', 'ssh tailscale phone direct access only'),
     card('Devices', 'pair paired phone tablet qr code passkey'),

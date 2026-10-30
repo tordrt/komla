@@ -11,7 +11,14 @@ import { pairedDeviceRegistryService } from '../../services/paired-device-regist
 import { startPersistedDirectRemoteServer } from '../../services/remote-control-direct-autostart.service';
 import { remoteControlHostAccessService } from '../../services/remote-control-host-access.service';
 import { remoteControlKeepAwakeService } from '../../services/remote-control-keep-awake.service';
-import { remoteControlTailscaleService } from '../../services/remote-control-tailscale.service';
+import {
+  DEFAULT_HTTPS_PORT,
+  getHttpsPort,
+  hasHttpsRoute,
+  isHttpsPortTaken,
+  readServeStatus,
+  remoteControlTailscaleService,
+} from '../../services/remote-control-tailscale.service';
 import { windowService } from '../../services/window.service';
 
 import type { PairedDeviceRecord } from '../../../shared/types/paired-device';
@@ -47,7 +54,6 @@ const HostAccessPayloadSchema = z
 const DirectStartOptionsSchema = z
   .object({
     publicOrigin: z.string().trim().min(1).max(2048).optional(),
-    tailscaleServeMode: z.enum(['root', 'port']).optional(),
   })
   .strict()
   .optional();
@@ -140,23 +146,21 @@ export function registerRemoteControlHandlers(): void {
         await import('../../services/remote-control-direct.service');
       const config = configService.get();
       const preferredPort = config.directRemotePort ?? 52864;
-      const serveMode = options.tailscaleServeMode ?? 'root';
-      const publicPort =
-        serveMode === 'port' ? (getExplicitHttpsPort(options.publicOrigin) ?? preferredPort) : 443;
       const existingServer = remoteControlDirectService.getInfo();
-      const initialPublicOrigin = normalizeTailscaleServeOrigin(
-        options.publicOrigin,
-        publicPort,
-        serveMode
-      );
+      const initialPublicOrigin = normalizeTailscaleServeOrigin(options.publicOrigin);
       const server = await remoteControlDirectService.start({
         port: preferredPort,
         publicOrigin: initialPublicOrigin,
       });
       const publicOrigin = initialPublicOrigin;
+      const managedOrigin = config.directRemoteManagedTailscaleOrigin;
       let commandArgs: string[];
       try {
-        commandArgs = await remoteControlTailscaleService.configure(publicOrigin, server.port);
+        commandArgs = await remoteControlTailscaleService.configure(
+          publicOrigin,
+          server.port,
+          managedOrigin
+        );
       } catch (err) {
         if (existingServer) {
           remoteControlDirectService.setPublicOrigin(
@@ -183,22 +187,12 @@ export function registerRemoteControlHandlers(): void {
       const config = configService.get();
       const localPort =
         remoteControlDirectService.getInfo()?.port ?? config.directRemotePort ?? 52864;
-      const managedHttpsPort = config.directRemoteManagedTailscaleOrigin
-        ? Number(new URL(config.directRemoteManagedTailscaleOrigin).port || '443')
-        : undefined;
-      const publicPort = managedHttpsPort ?? localPort;
+      const managedHttpsPort = readHttpsPort(config.directRemoteManagedTailscaleOrigin);
+      const savedHttpsPort = readHttpsPort(config.directRemotePublicOrigin);
       const tailscale = tailscaleCommand();
-      const rootCommand = formatCommand(tailscale.display, [
-        'serve',
-        '--bg',
-        `localhost:${localPort}`,
-      ]);
-      const portCommand = formatCommand(tailscale.display, [
-        'serve',
-        '--bg',
-        `--https=${publicPort}`,
-        `localhost:${localPort}`,
-      ]);
+      const target = `localhost:${localPort}`;
+      const serveCommand = (httpsPort: string) =>
+        formatCommand(tailscale.display, ['serve', '--bg', `--https=${httpsPort}`, target]);
       try {
         await execFileAsync(tailscale.file, ['version'], {
           timeout: 5_000,
@@ -206,27 +200,25 @@ export function registerRemoteControlHandlers(): void {
           env: tailscale.env,
         });
         const hostname = await getTailscaleHostname(tailscale);
-        const serve = await getTailscaleServeStatus(tailscale, localPort);
-        const suggestedRootOrigin =
-          hostname && serve.rootAvailable ? `https://${hostname}` : undefined;
-        const suggestedPortOrigin = hostname ? `https://${hostname}:${publicPort}` : undefined;
+        const serveStatus = await readServeStatus(tailscale).catch(() => ({}));
+        const suggestedHttpsPort =
+          managedHttpsPort ??
+          (isHttpsPortTaken(serveStatus, DEFAULT_HTTPS_PORT, target)
+            ? String(localPort)
+            : DEFAULT_HTTPS_PORT);
+        const httpsPort = savedHttpsPort ?? suggestedHttpsPort;
         return {
           installed: true,
-          command: serve.rootAvailable ? rootCommand : portCommand,
-          rootCommand,
-          portCommand,
+          command: serveCommand(httpsPort),
           hostname,
-          suggestedOrigin: suggestedRootOrigin ?? suggestedPortOrigin,
-          suggestedRootOrigin,
-          suggestedPortOrigin,
-          ...serve,
+          suggestedOrigin: hostname ? formatHttpsOrigin(hostname, suggestedHttpsPort) : undefined,
+          httpsPortTaken: isHttpsPortTaken(serveStatus, httpsPort, target),
+          serveConfigured: hasHttpsRoute(serveStatus, httpsPort, target),
         };
       } catch (err) {
         return {
           installed: false,
-          command: rootCommand,
-          rootCommand,
-          portCommand,
+          command: serveCommand(savedHttpsPort ?? managedHttpsPort ?? DEFAULT_HTTPS_PORT),
           error: formatTailscaleServeError(err),
         };
       }
@@ -322,20 +314,22 @@ function syncKeepAwake(config: ReturnType<typeof configService.get>): void {
   );
 }
 
-function getExplicitHttpsPort(rawOrigin: string): number | undefined {
+function readHttpsPort(origin: string | undefined): string | undefined {
+  if (!origin) return undefined;
   try {
-    const port = new URL(rawOrigin).port;
-    return port ? Number(port) : undefined;
+    return getHttpsPort(origin);
   } catch {
     return undefined;
   }
 }
 
-function normalizeTailscaleServeOrigin(
-  rawOrigin: string,
-  port: number,
-  mode: 'root' | 'port'
-): string {
+function formatHttpsOrigin(hostname: string, httpsPort: string): string {
+  return httpsPort === DEFAULT_HTTPS_PORT
+    ? `https://${hostname}`
+    : `https://${hostname}:${httpsPort}`;
+}
+
+function normalizeTailscaleServeOrigin(rawOrigin: string): string {
   let parsed: URL;
   try {
     parsed = new URL(rawOrigin);
@@ -351,7 +345,6 @@ function normalizeTailscaleServeOrigin(
   if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
     throw new Error('Tailscale origin must be an origin only, without a path, query, or fragment');
   }
-  parsed.port = mode === 'port' ? String(port) : '';
   return parsed.origin;
 }
 
@@ -376,79 +369,6 @@ async function getTailscaleHostname(tailscale: TailscaleCommand): Promise<string
     const dnsName = parsed.Self?.DNSName;
     if (typeof dnsName !== 'string' || dnsName.trim().length === 0) return undefined;
     return dnsName.trim().replace(/\.$/, '');
-  } catch {
-    return undefined;
-  }
-}
-
-async function getTailscaleServeStatus(
-  tailscale: TailscaleCommand,
-  port: number
-): Promise<
-  Pick<
-    RemoteControlDirectTailscaleStatus,
-    'rootAvailable' | 'serveConfigured' | 'serveConflict' | 'existingServeSummary'
-  >
-> {
-  try {
-    const { stdout } = await execFileText(tailscale.file, ['serve', 'status', '--json'], {
-      timeout: 5_000,
-      windowsHide: true,
-      env: tailscale.env,
-    });
-    const trimmed = stdout.trim();
-    if (!trimmed) return { rootAvailable: true };
-    const status = JSON.parse(trimmed) as unknown;
-    const strings = collectStrings(status);
-    const target = `localhost:${port}`;
-    const serveConfigured = strings.some((value) => value.includes(target));
-    const hasServeConfig = hasMeaningfulServeConfig(status);
-    const portMentioned = strings.some((value) => value.includes(String(port)));
-    const rootAvailable = !hasServePortConfig(status, 443);
-    const serveConflict = hasServeConfig && !serveConfigured && portMentioned;
-    return {
-      rootAvailable,
-      serveConfigured,
-      serveConflict,
-      existingServeSummary:
-        hasServeConfig && !serveConfigured ? summarizeServeStatus(status) : undefined,
-    };
-  } catch {
-    return { rootAvailable: true };
-  }
-}
-
-function hasServePortConfig(value: unknown, port: number): boolean {
-  const portKey = String(port);
-  if (typeof value === 'string') return value.includes(`:${portKey}`);
-  if (Array.isArray(value)) return value.some((item) => hasServePortConfig(item, port));
-  if (!value || typeof value !== 'object') return false;
-  return Object.entries(value).some(
-    ([key, item]) => key === portKey || hasServePortConfig(item, port)
-  );
-}
-
-function collectStrings(value: unknown): string[] {
-  if (typeof value === 'string') return [value];
-  if (Array.isArray(value)) return value.flatMap((item) => collectStrings(item));
-  if (!value || typeof value !== 'object') return [];
-  return Object.values(value).flatMap((item) => collectStrings(item));
-}
-
-function hasMeaningfulServeConfig(value: unknown): boolean {
-  if (typeof value === 'string') return value.trim().length > 0;
-  if (typeof value === 'number' || typeof value === 'boolean') return true;
-  if (Array.isArray(value)) return value.some((item) => hasMeaningfulServeConfig(item));
-  if (!value || typeof value !== 'object') return false;
-  return Object.values(value).some((item) => hasMeaningfulServeConfig(item));
-}
-
-function summarizeServeStatus(value: unknown): string | undefined {
-  const strings = collectStrings(value).filter((entry) => entry.trim().length > 0);
-  const summary = strings.slice(0, 3).join(', ');
-  if (summary) return summary;
-  try {
-    return JSON.stringify(value).slice(0, 160);
   } catch {
     return undefined;
   }

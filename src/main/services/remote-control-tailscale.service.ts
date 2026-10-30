@@ -7,6 +7,8 @@ import { tailscaleCommand } from '../lib/tailscale-command';
 const logger = createLogger('RemoteControlTailscaleService');
 const execFileAsync = promisify(execFile);
 
+export const DEFAULT_HTTPS_PORT = '443';
+
 /** Tailscale Funnel would put the remote shell's login page on the public internet. */
 export class TailscaleFunnelEnabledError extends Error {
   constructor(httpsPort: string) {
@@ -17,10 +19,49 @@ export class TailscaleFunnelEnabledError extends Error {
   }
 }
 
+/** Publishing here would replace another program's route, and turning off would remove it. */
+export class TailscaleHttpsPortTakenError extends Error {
+  constructor(httpsPort: string) {
+    super(
+      `Another Tailscale Serve route uses HTTPS port ${httpsPort}. Turn remote control off to pick another port, or remove that route with "tailscale serve --https=${httpsPort} off" and try again.`
+    );
+    this.name = 'TailscaleHttpsPortTakenError';
+  }
+}
+
 class RemoteControlTailscaleService {
-  async configure(publicOrigin: string, localPort: number): Promise<string[]> {
-    await this.assertFunnelOff(publicOrigin);
-    return applyServe(publicOrigin, localPort);
+  /**
+   * `managedOrigin` is the route Komla last published. Once the new route is up, Komla's route on
+   * any other port comes off, so it isn't left on the tailnet untracked. If that fails the new
+   * route comes back off, which leaves `managedOrigin` true for a later retry.
+   */
+  async configure(
+    publicOrigin: string,
+    localPort: number,
+    managedOrigin?: string
+  ): Promise<string[]> {
+    const httpsPort = getHttpsPort(publicOrigin);
+    const target = `localhost:${localPort}`;
+    const status = await readServeStatus();
+    assertNoFunnel(status, httpsPort);
+    if (isHttpsPortTaken(status, httpsPort, target)) {
+      throw new TailscaleHttpsPortTakenError(httpsPort);
+    }
+    const args = await applyServe(publicOrigin, localPort);
+    if (managedOrigin) {
+      const managedPort = getHttpsPort(managedOrigin);
+      if (managedPort !== httpsPort && hasHttpsRoute(status, managedPort, target)) {
+        try {
+          await this.stop(managedOrigin);
+        } catch (err) {
+          await this.stop(publicOrigin).catch((undoErr: unknown) => {
+            logger.warn('could not remove the new Tailscale Serve listener', { undoErr });
+          });
+          throw err;
+        }
+      }
+    }
+    return args;
   }
 
   async assertFunnelOff(publicOrigin: string): Promise<void> {
@@ -64,8 +105,7 @@ async function applyServe(publicOrigin: string, localPort: number): Promise<stri
   return args;
 }
 
-async function readServeStatus(): Promise<unknown> {
-  const tailscale = tailscaleCommand();
+export async function readServeStatus(tailscale = tailscaleCommand()): Promise<unknown> {
   const { stdout } = await execFileText(tailscale.file, ['serve', 'status', '--json'], {
     timeout: 5_000,
     windowsHide: true,
@@ -100,8 +140,30 @@ export function hasFunnel(value: unknown, httpsPort: string): boolean {
   );
 }
 
-function getHttpsPort(publicOrigin: string): string {
-  return new URL(publicOrigin).port || '443';
+export function getHttpsPort(publicOrigin: string): string {
+  return new URL(publicOrigin).port || DEFAULT_HTTPS_PORT;
+}
+
+/** Another route holds the port: one that isn't already pointing at `target`. */
+export function isHttpsPortTaken(status: unknown, httpsPort: string, target: string): boolean {
+  return holdsHttpsPort(status, httpsPort) && !hasHttpsRoute(status, httpsPort, target);
+}
+
+// `TCP` is keyed by port and `Web` by "host:port". A foreground `tailscale serve` session keeps its
+// own serve config under `Foreground`. Tailscale Services have addresses of their own, so their
+// routes don't hold this computer's port.
+function holdsHttpsPort(value: unknown, httpsPort: string): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const { TCP, Web, Foreground } = value as { TCP?: unknown; Web?: unknown; Foreground?: unknown };
+  return (
+    (!!TCP && typeof TCP === 'object' && httpsPort in TCP) ||
+    (!!Web &&
+      typeof Web === 'object' &&
+      Object.keys(Web).some((hostPort) => hostPort.endsWith(`:${httpsPort}`))) ||
+    (!!Foreground &&
+      typeof Foreground === 'object' &&
+      Object.values(Foreground).some((config) => holdsHttpsPort(config, httpsPort)))
+  );
 }
 
 export function hasHttpsRoute(value: unknown, httpsPort: string, target: string): boolean {

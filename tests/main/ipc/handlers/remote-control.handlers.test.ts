@@ -468,33 +468,32 @@ describe('registerRemoteControlHandlers', () => {
     );
   });
 
-  it('starts Tailscale Serve on an explicit HTTPS port when requested', async () => {
+  it('starts Tailscale Serve on the HTTPS port its origin names', async () => {
     const { registerRemoteControlHandlers, ipcMain } = await setup();
     registerRemoteControlHandlers();
 
     await expect(
       ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
-        publicOrigin: 'https://mac.tailnet.ts.net',
-        tailscaleServeMode: 'port',
+        publicOrigin: 'https://mac.tailnet.ts.net:444',
       })
     ).resolves.toMatchObject({
       server: { port: 52864 },
-      command: 'tailscale serve --bg --https=52864 localhost:52864',
+      command: 'tailscale serve --bg --https=444 localhost:52864',
     });
 
     expect(mockRemoteControlDirectService.start).toHaveBeenCalledWith({
       port: 52864,
-      publicOrigin: 'https://mac.tailnet.ts.net:52864',
+      publicOrigin: 'https://mac.tailnet.ts.net:444',
     });
     expect(mockConfigService.update).toHaveBeenCalledWith({
       directRemoteEnabled: true,
       directRemotePort: 52864,
-      directRemotePublicOrigin: 'https://mac.tailnet.ts.net:52864',
-      directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net:52864',
+      directRemotePublicOrigin: 'https://mac.tailnet.ts.net:444',
+      directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net:444',
     });
     expect(mockExecFile).toHaveBeenCalledWith(
       'tailscale',
-      ['serve', '--bg', '--https=52864', 'localhost:52864'],
+      ['serve', '--bg', '--https=444', 'localhost:52864'],
       { timeout: 15_000, windowsHide: true, env: { TAILSCALE_BE_CLI: '1' } },
       expect.any(Function)
     );
@@ -516,8 +515,7 @@ describe('registerRemoteControlHandlers', () => {
 
     await expect(
       ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
-        publicOrigin: 'https://mac.tailnet.ts.net',
-        tailscaleServeMode: 'port',
+        publicOrigin: 'https://mac.tailnet.ts.net:52864',
       })
     ).resolves.toMatchObject({
       server: {
@@ -547,10 +545,8 @@ describe('registerRemoteControlHandlers', () => {
     await expect(ipcMain._invoke('remote-control:direct-get-tailscale-status')).resolves.toEqual(
       expect.objectContaining({
         installed: true,
-        command: 'tailscale serve --bg localhost:52864',
-        rootCommand: 'tailscale serve --bg localhost:52864',
-        portCommand: 'tailscale serve --bg --https=52864 localhost:52864',
-        rootAvailable: true,
+        command: 'tailscale serve --bg --https=443 localhost:52864',
+        httpsPortTaken: false,
       })
     );
 
@@ -575,8 +571,7 @@ describe('registerRemoteControlHandlers', () => {
     await expect(ipcMain._invoke('remote-control:direct-get-tailscale-status')).resolves.toEqual(
       expect.objectContaining({
         installed: true,
-        rootCommand: `${appBinary} serve --bg localhost:52864`,
-        portCommand: `${appBinary} serve --bg --https=52864 localhost:52864`,
+        command: `${appBinary} serve --bg --https=443 localhost:52864`,
       })
     );
     for (const args of [['version'], ['status', '--json'], ['serve', 'status', '--json']]) {
@@ -604,7 +599,7 @@ describe('registerRemoteControlHandlers', () => {
 
     await expect(ipcMain._invoke('remote-control:direct-get-tailscale-status')).resolves.toEqual(
       expect.objectContaining({
-        portCommand: 'tailscale serve --bg --https=52864 localhost:57948',
+        command: 'tailscale serve --bg --https=52864 localhost:57948',
       })
     );
   });
@@ -633,58 +628,354 @@ describe('registerRemoteControlHandlers', () => {
 
     await expect(ipcMain._invoke('remote-control:direct-get-tailscale-status')).resolves.toEqual({
       installed: true,
-      command: 'tailscale serve --bg localhost:52864',
-      rootCommand: 'tailscale serve --bg localhost:52864',
-      portCommand: 'tailscale serve --bg --https=52864 localhost:52864',
+      command: 'tailscale serve --bg --https=443 localhost:52864',
       hostname: 'mac.tailnet.ts.net',
       suggestedOrigin: 'https://mac.tailnet.ts.net',
-      suggestedRootOrigin: 'https://mac.tailnet.ts.net',
-      suggestedPortOrigin: 'https://mac.tailnet.ts.net:52864',
-      rootAvailable: true,
+      httpsPortTaken: false,
       serveConfigured: false,
-      serveConflict: false,
-      existingServeSummary: undefined,
     });
   });
 
-  it('defaults to the explicit port origin when Tailscale root HTTPS is occupied', async () => {
-    mockExecFile.mockImplementation(
-      (
-        _command: string,
-        args: string[],
-        _options: Record<string, unknown>,
-        cb: (err: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        if (args.join(' ') === 'status --json') {
-          cb(null, JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }), '');
-          return;
+  describe('with routes already on Tailscale Serve', () => {
+    const mockServeStatus = (status: unknown) =>
+      mockExecFile.mockImplementation(
+        (
+          _command: string,
+          args: string[],
+          _options: Record<string, unknown>,
+          cb: (err: Error | null, stdout: string, stderr: string) => void
+        ) => {
+          if (args.join(' ') === 'status --json') {
+            cb(null, JSON.stringify({ Self: { DNSName: 'mac.tailnet.ts.net.' } }), '');
+            return;
+          }
+          if (args.join(' ') === 'serve status --json') {
+            cb(null, JSON.stringify(status), '');
+            return;
+          }
+          cb(null, '', '');
         }
-        if (args.join(' ') === 'serve status --json') {
+      );
+    const route = (httpsPort: number, proxy: string) => ({
+      TCP: { [httpsPort]: { HTTPS: true } },
+      Web: {
+        [`mac.tailnet.ts.net:${httpsPort}`]: { Handlers: { '/': { Proxy: proxy } } },
+      },
+    });
+    const getStatus = async () => {
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+      return ipcMain._invoke('remote-control:direct-get-tailscale-status');
+    };
+
+    it('suggests the local port when 443 is taken', async () => {
+      mockServeStatus(route(443, 'http://localhost:3000'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({
+          command: 'tailscale serve --bg --https=52864 localhost:52864',
+          suggestedOrigin: 'https://mac.tailnet.ts.net:52864',
+          httpsPortTaken: false,
+        })
+      );
+    });
+
+    it('suggests the plain address when only other HTTPS ports are taken', async () => {
+      mockServeStatus(route(48348, 'http://127.0.0.1:48348'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({
+          command: 'tailscale serve --bg --https=443 localhost:52864',
+          suggestedOrigin: 'https://mac.tailnet.ts.net',
+          httpsPortTaken: false,
+        })
+      );
+    });
+
+    it('does not take 443 for a route that only proxies to a port starting with it', async () => {
+      mockServeStatus(route(8443, 'http://127.0.0.1:4430'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({ suggestedOrigin: 'https://mac.tailnet.ts.net' })
+      );
+    });
+
+    it('does not count its own route on 443 as taken', async () => {
+      mockServeStatus(route(443, 'http://localhost:52864'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({
+          suggestedOrigin: 'https://mac.tailnet.ts.net',
+          httpsPortTaken: false,
+          serveConfigured: true,
+        })
+      );
+    });
+
+    it('reports a saved origin on a taken port and keeps that port in the command', async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemotePublicOrigin: 'https://mac.tailnet.ts.net',
+      });
+      mockServeStatus(route(443, 'http://localhost:3000'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({
+          command: 'tailscale serve --bg --https=443 localhost:52864',
+          suggestedOrigin: 'https://mac.tailnet.ts.net:52864',
+          httpsPortTaken: true,
+        })
+      );
+    });
+
+    it('does not count a Tailscale Service or a mount path as holding the port', async () => {
+      mockServeStatus({
+        Services: { 'svc:docs': { TCP: { '443': { HTTPS: true } } } },
+        ...route(8443, 'http://localhost:3000'),
+        Web: {
+          'mac.tailnet.ts.net:8443': {
+            Handlers: { '/x:443': { Proxy: 'http://localhost:3000' } },
+          },
+        },
+      });
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({ suggestedOrigin: 'https://mac.tailnet.ts.net' })
+      );
+    });
+
+    it('is not published by a route to Komla on another HTTPS port', async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemotePublicOrigin: 'https://mac.tailnet.ts.net',
+      });
+      mockServeStatus(route(52864, 'http://localhost:52864'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({ serveConfigured: false })
+      );
+    });
+
+    it('refuses to publish on a port another route holds', async () => {
+      mockServeStatus(route(443, 'http://localhost:3000'));
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+
+      await expect(
+        ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
+          publicOrigin: 'https://mac.tailnet.ts.net',
+        })
+      ).rejects.toThrow(/HTTPS port 443/);
+
+      expect(mockExecFile).not.toHaveBeenCalledWith(
+        'tailscale',
+        expect.arrayContaining(['--bg']),
+        expect.anything(),
+        expect.any(Function)
+      );
+    });
+
+    it('does not take a saved origin as proof that a port is still its own', async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemotePublicOrigin: 'https://mac.tailnet.ts.net',
+        directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net',
+      });
+      mockServeStatus(route(443, 'http://localhost:3000'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({ httpsPortTaken: true })
+      );
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+      await expect(
+        ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
+          publicOrigin: 'https://mac.tailnet.ts.net',
+        })
+      ).rejects.toThrow(/HTTPS port 443/);
+    });
+
+    it('leaves another program alone on the port it last published on', async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net',
+      });
+      mockServeStatus(route(443, 'http://localhost:3000'));
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+
+      await expect(
+        ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
+          publicOrigin: 'https://mac.tailnet.ts.net:8443',
+        })
+      ).resolves.toMatchObject({ command: 'tailscale serve --bg --https=8443 localhost:52864' });
+
+      expect(mockExecFile).not.toHaveBeenCalledWith(
+        'tailscale',
+        expect.arrayContaining(['off']),
+        expect.anything(),
+        expect.any(Function)
+      );
+    });
+
+    it('removes its route on the old port once the new one is up', async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net',
+      });
+      mockServeStatus(route(443, 'http://localhost:52864'));
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+
+      await ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
+        publicOrigin: 'https://mac.tailnet.ts.net:8443',
+      });
+
+      const serveCalls = mockExecFile.mock.calls
+        .map(([, args]) => (args as string[]).join(' '))
+        .filter((args) => args.includes('--https='));
+      expect(serveCalls).toEqual([
+        'serve --bg --https=8443 localhost:52864',
+        'serve --https=443 off',
+      ]);
+      expect(mockConfigService.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net:8443',
+        })
+      );
+    });
+
+    it('keeps its route on the old port when the new port is refused', async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net',
+      });
+      const live = route(443, 'http://localhost:52864');
+      const taken = route(8443, 'http://localhost:3000');
+      mockServeStatus({ TCP: { ...live.TCP, ...taken.TCP }, Web: { ...live.Web, ...taken.Web } });
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+
+      await expect(
+        ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
+          publicOrigin: 'https://mac.tailnet.ts.net:8443',
+        })
+      ).rejects.toThrow(/HTTPS port 8443/);
+
+      expect(mockExecFile).not.toHaveBeenCalledWith(
+        'tailscale',
+        expect.arrayContaining(['off']),
+        expect.anything(),
+        expect.any(Function)
+      );
+    });
+
+    it('publishes on a new port when its old route is already gone', async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net',
+      });
+      mockServeStatus({});
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+
+      await expect(
+        ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
+          publicOrigin: 'https://mac.tailnet.ts.net:8443',
+        })
+      ).resolves.toMatchObject({ command: 'tailscale serve --bg --https=8443 localhost:52864' });
+
+      expect(mockExecFile).not.toHaveBeenCalledWith(
+        'tailscale',
+        expect.arrayContaining(['off']),
+        expect.anything(),
+        expect.any(Function)
+      );
+    });
+
+    const mockServeCommands = (fails: (args: string) => boolean) =>
+      mockExecFile.mockImplementation(
+        (
+          _command: string,
+          args: string[],
+          _options: Record<string, unknown>,
+          cb: (err: Error | null, stdout: string, stderr: string) => void
+        ) => {
+          const joined = args.join(' ');
+          if (fails(joined)) {
+            cb(new Error('serve failed'), '', 'serve failed');
+            return;
+          }
           cb(
             null,
-            JSON.stringify({ HTTPS: { '443': { Handlers: { '/': 'localhost:3000' } } } }),
+            joined === 'serve status --json'
+              ? JSON.stringify(route(443, 'http://localhost:52864'))
+              : '',
             ''
           );
-          return;
         }
-        cb(null, '', '');
-      }
-    );
-    const { registerRemoteControlHandlers, ipcMain } = await setup();
-    registerRemoteControlHandlers();
+      );
+    const publishOnNewPort = async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net',
+      });
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+      await expect(
+        ipcMain._invoke('remote-control:direct-start-tailscale-serve', {
+          publicOrigin: 'https://mac.tailnet.ts.net:8443',
+        })
+      ).rejects.toThrow(/serve failed/);
+      expect(mockConfigService.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          directRemoteManagedTailscaleOrigin: 'https://mac.tailnet.ts.net:8443',
+        })
+      );
+      return mockExecFile.mock.calls
+        .map(([, args]) => (args as string[]).join(' '))
+        .filter((args) => args.includes('--https='));
+    };
 
-    await expect(ipcMain._invoke('remote-control:direct-get-tailscale-status')).resolves.toEqual(
-      expect.objectContaining({
-        command: 'tailscale serve --bg --https=52864 localhost:52864',
-        suggestedOrigin: 'https://mac.tailnet.ts.net:52864',
-        suggestedRootOrigin: undefined,
-        suggestedPortOrigin: 'https://mac.tailnet.ts.net:52864',
-        rootAvailable: false,
-      })
-    );
+    it('takes the new route back off when its old route will not come off', async () => {
+      mockServeCommands((args) => args === 'serve --https=443 off');
+
+      await expect(publishOnNewPort()).resolves.toEqual([
+        'serve --bg --https=8443 localhost:52864',
+        'serve --https=443 off',
+        'serve --https=8443 off',
+      ]);
+    });
+
+    it('keeps its old route when the new one fails to publish', async () => {
+      mockServeCommands((args) => args.includes('--bg'));
+
+      await expect(publishOnNewPort()).resolves.toEqual([
+        'serve --bg --https=8443 localhost:52864',
+      ]);
+    });
+
+    it('offers the plain address over a saved origin on another port', async () => {
+      mockConfigService.get.mockReturnValue({
+        directRemotePort: 52864,
+        directRemotePublicOrigin: 'https://mac.tailnet.ts.net:52864',
+      });
+      mockServeStatus(route(48348, 'http://127.0.0.1:48348'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({
+          command: 'tailscale serve --bg --https=52864 localhost:52864',
+          suggestedOrigin: 'https://mac.tailnet.ts.net',
+        })
+      );
+    });
   });
 
   it('reports when Tailscale Serve already points at Komla', async () => {
+    mockConfigService.get.mockReturnValue({
+      directRemotePort: 52864,
+      directRemotePublicOrigin: 'https://mac.tailnet.ts.net:52864',
+    });
     mockExecFile.mockImplementation(
       (
         _command: string,
@@ -705,7 +996,6 @@ describe('registerRemoteControlHandlers', () => {
     await expect(ipcMain._invoke('remote-control:direct-get-tailscale-status')).resolves.toEqual(
       expect.objectContaining({
         serveConfigured: true,
-        serveConflict: false,
       })
     );
   });

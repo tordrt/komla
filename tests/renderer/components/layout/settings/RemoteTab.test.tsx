@@ -93,10 +93,7 @@ function installApi(directState: RemoteControlDirectState) {
     }),
     remoteControlDirectGetTailscaleStatus: vi.fn().mockResolvedValue({
       installed: true,
-      command: 'tailscale serve --bg localhost:52864',
-      rootCommand: 'tailscale serve --bg localhost:52864',
-      portCommand: 'tailscale serve --bg --https=52864 localhost:52864',
-      rootAvailable: true,
+      command: 'tailscale serve --bg --https=443 localhost:52864',
     }),
     remoteControlDirectCancelPairing: vi.fn().mockResolvedValue(undefined),
     pairedDevicesRename: vi.fn().mockResolvedValue(undefined),
@@ -275,14 +272,9 @@ describe('RemoteTab direct remote controls', () => {
     const api = installApi({ server: directServer, pairingOffer: null, portChange: null });
     api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
       installed: true,
-      command: 'tailscale serve --bg localhost:52864',
-      rootCommand: 'tailscale serve --bg localhost:52864',
-      portCommand: 'tailscale serve --bg --https=52864 localhost:52864',
+      command: 'tailscale serve --bg --https=443 localhost:52864',
       hostname: 'mac.tailnet.ts.net',
       suggestedOrigin: 'https://mac.tailnet.ts.net',
-      suggestedRootOrigin: 'https://mac.tailnet.ts.net',
-      suggestedPortOrigin: 'https://mac.tailnet.ts.net:52864',
-      rootAvailable: true,
     });
     const user = userEvent.setup();
     render(<RemoteTab />);
@@ -294,9 +286,152 @@ describe('RemoteTab direct remote controls', () => {
     await waitFor(() =>
       expect(api.remoteControlDirectStartTailscaleServe).toHaveBeenCalledWith({
         publicOrigin: 'https://mac.tailnet.ts.net',
-        tailscaleServeMode: 'root',
       })
     );
+  });
+
+  it('warns when another Tailscale Serve route has the HTTPS port', async () => {
+    const api = installApi({ server: directServer, pairingOffer: null, portChange: null });
+    api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
+      installed: true,
+      command: 'tailscale serve --bg --https=443 localhost:52864',
+      hostname: 'mac.tailnet.ts.net',
+      suggestedOrigin: 'https://mac.tailnet.ts.net:52864',
+      httpsPortTaken: true,
+    });
+
+    render(<RemoteTab />);
+
+    expect(
+      await screen.findByText(/Another Tailscale Serve route uses this HTTPS port/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Turn remote control off to pick another/)).toBeInTheDocument();
+    // Publishing checks the port again, so freeing it elsewhere needs no refresh here.
+    expect(screen.getByRole('button', { name: 'Publish with Tailscale Serve' })).toBeEnabled();
+  });
+
+  it('warns about a taken port while the address can still be changed', async () => {
+    const api = installApi({ server: null, pairingOffer: null, portChange: null });
+    api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
+      installed: true,
+      command: 'tailscale serve --bg --https=443 localhost:52864',
+      suggestedOrigin: 'https://mac.tailnet.ts.net',
+      httpsPortTaken: true,
+    });
+
+    render(<RemoteTab />);
+
+    expect(
+      await screen.findByText(/Another Tailscale Serve route uses this HTTPS port/)
+    ).toBeInTheDocument();
+  });
+
+  it('locks the address while remote control is on', async () => {
+    const api = installApi({ server: directServer, pairingOffer: null, portChange: null });
+    api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
+      installed: true,
+      command: 'tailscale serve --bg --https=443 localhost:52864',
+    });
+
+    render(<RemoteTab />);
+
+    expect(await screen.findByLabelText('Tailscale HTTPS origin')).toBeDisabled();
+    expect(screen.getByText(/Turn remote control off to change these/)).toBeInTheDocument();
+  });
+
+  it('rechecks Tailscale after a refused publish', async () => {
+    const api = installApi({ server: directServer, pairingOffer: null, portChange: null });
+    api.remoteControlDirectStartTailscaleServe.mockRejectedValueOnce(new Error('port taken'));
+    api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
+      installed: true,
+      command: 'tailscale serve --bg --https=443 localhost:52864',
+      suggestedOrigin: 'https://mac.tailnet.ts.net',
+    });
+    const user = userEvent.setup();
+    render(<RemoteTab />);
+
+    await user.click(await screen.findByRole('button', { name: 'Publish with Tailscale Serve' }));
+
+    await waitFor(() => expect(api.remoteControlDirectGetTailscaleStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it('rechecks Tailscale even when turning remote control off fails', async () => {
+    const api = installApi({ server: directServer, pairingOffer: null, portChange: null });
+    const user = userEvent.setup();
+    render(<RemoteTab />);
+
+    const toggle = await screen.findByRole('switch', { name: /remote control/i });
+    await waitFor(() => expect(api.remoteControlDirectGetTailscaleStatus).toHaveBeenCalledOnce());
+    api.remoteControlDirectStop.mockRejectedValueOnce(new Error('off failed'));
+    await user.click(toggle);
+
+    await waitFor(() => expect(api.remoteControlDirectStop).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.remoteControlDirectGetTailscaleStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it('says when the Tailscale origin could not be saved', async () => {
+    mockUpdateConfig.mockResolvedValueOnce({ ok: false, error: 'disk full' });
+    installApi({ server: null, pairingOffer: null, portChange: null });
+    const user = userEvent.setup();
+    render(<RemoteTab />);
+
+    await user.type(await screen.findByLabelText('Tailscale HTTPS origin'), 'mac.tailnet.ts.net');
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mockAddToast).toHaveBeenCalledWith(
+        'Could not save Tailscale origin: disk full',
+        'error'
+      )
+    );
+  });
+
+  it('says the connection port can be chosen while the network options are folded', async () => {
+    const api = installApi({ server: null, pairingOffer: null, portChange: null });
+    api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
+      installed: true,
+      command: 'tailscale serve --bg --https=443 localhost:52864',
+      suggestedOrigin: 'https://mac.tailnet.ts.net',
+    });
+
+    render(<RemoteTab />);
+
+    expect(await screen.findByText(/Tailscale address and port/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Tailscale HTTPS origin')).not.toBeInTheDocument();
+  });
+
+  it('keeps a typed HTTPS port and saves the detected origin it is swapped for', async () => {
+    const api = installApi({ server: null, pairingOffer: null, portChange: null });
+    api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
+      installed: true,
+      command: 'tailscale serve --bg --https=443 localhost:52864',
+      suggestedOrigin: 'https://mac.tailnet.ts.net',
+    });
+    const user = userEvent.setup();
+    render(<RemoteTab />);
+
+    await user.click(await screen.findByRole('button', { name: 'Network options' }));
+    const input = screen.getByLabelText('Tailscale HTTPS origin');
+    await waitFor(() => expect(input).toHaveValue('https://mac.tailnet.ts.net'));
+    await user.clear(input);
+    await user.type(input, 'mac.tailnet.ts.net:8444');
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mockUpdateConfig).toHaveBeenCalledWith({
+        directRemotePublicOrigin: 'https://mac.tailnet.ts.net:8444',
+      })
+    );
+    expect(input).toHaveValue('https://mac.tailnet.ts.net:8444');
+
+    await user.click(screen.getByRole('button', { name: 'Use detected' }));
+
+    await waitFor(() =>
+      expect(mockUpdateConfig).toHaveBeenCalledWith({
+        directRemotePublicOrigin: 'https://mac.tailnet.ts.net',
+      })
+    );
+    expect(input).toHaveValue('https://mac.tailnet.ts.net');
   });
 
   it('shows Tailscale Serve as ready instead of offering to start it again', async () => {
@@ -306,8 +441,6 @@ describe('RemoteTab direct remote controls', () => {
       command: 'tailscale serve --bg localhost:52864',
       hostname: 'mac.tailnet.ts.net',
       suggestedOrigin: 'https://mac.tailnet.ts.net',
-      suggestedRootOrigin: 'https://mac.tailnet.ts.net',
-      rootAvailable: true,
       serveConfigured: true,
     });
 

@@ -85,7 +85,6 @@ export function RemoteTab() {
   const [tailscaleStatus, setTailscaleStatus] = useState<RemoteControlDirectTailscaleStatus | null>(
     null
   );
-  const [tailscaleUsePort, setTailscaleUsePort] = useState(false);
   const [devices, setDevices] = useState<PairedDeviceRecord[]>([]);
   const [networkOptionsOpen, setNetworkOptionsOpen] = useState(false);
   // When the pair dialog opened; a device paired after that is the one it paired.
@@ -103,7 +102,6 @@ export function RemoteTab() {
     void window.api.remoteControlDirectGetTailscaleStatus().then((status) => {
       if (cancelled) return;
       setTailscaleStatus(status);
-      setTailscaleUsePort(status.rootAvailable === false);
       setDirectPublicOrigin((current) => {
         if (current || !status.suggestedOrigin) return current;
         return status.suggestedOrigin;
@@ -203,6 +201,7 @@ export function RemoteTab() {
     } catch (err) {
       addToast(`Could not stop direct remote: ${(err as Error).message}`, 'error');
     } finally {
+      void window.api.remoteControlDirectGetTailscaleStatus().then(setTailscaleStatus);
       setDirectBusy(false);
     }
   };
@@ -236,14 +235,13 @@ export function RemoteTab() {
       setDirectPublicOrigin(publicOrigin);
       const result = await window.api.remoteControlDirectStartTailscaleServe({
         publicOrigin,
-        tailscaleServeMode: tailscaleUsePort ? 'port' : 'root',
       });
       setDirectState((s) => ({ ...s, server: result.server }));
-      void window.api.remoteControlDirectGetTailscaleStatus().then(setTailscaleStatus);
       addToast('Tailscale Serve started', 'success');
     } catch (err) {
       addToast(`Could not start Tailscale Serve: ${(err as Error).message}`, 'error');
     } finally {
+      void window.api.remoteControlDirectGetTailscaleStatus().then(setTailscaleStatus);
       setTailscaleBusy(false);
     }
   };
@@ -277,11 +275,15 @@ export function RemoteTab() {
     }
   };
 
-  const handleDirectOriginBlur = async () => {
+  const handleDirectOriginCommit = async (origin: string) => {
     try {
-      const value = normalizePublicOrigin(directPublicOrigin) ?? '';
+      const value = normalizePublicOrigin(origin) ?? '';
       setDirectPublicOrigin(value);
-      await updateConfig({ directRemotePublicOrigin: value || undefined });
+      const { ok, error } = await updateConfig({ directRemotePublicOrigin: value || undefined });
+      if (!ok) {
+        addToast(`Could not save Tailscale origin: ${error}`, 'error');
+        return;
+      }
       void window.api.remoteControlDirectGetTailscaleStatus().then(setTailscaleStatus);
     } catch (err) {
       addToast(`Could not save Tailscale origin: ${(err as Error).message}`, 'error');
@@ -486,23 +488,12 @@ export function RemoteTab() {
             </div>
           )}
 
-          {server &&
-            !published &&
-            tailscaleStatus?.rootAvailable === false &&
-            !tailscaleUsePort && (
-              <Callout tone="warning" size="sm">
-                Your Tailscale HTTPS address is taken. Pick a port under Network options.
-              </Callout>
-            )}
-          {server && !published && tailscaleStatus?.existingServeSummary && (
-            <Callout tone="info" size="sm">
-              Tailscale Serve has other routes, so Komla gets its own HTTPS port.
-            </Callout>
-          )}
-          {server && !published && tailscaleStatus?.serveConflict && (
+          {!published && tailscaleStatus?.httpsPortTaken && (
             <Callout tone="warning" size="sm">
-              Another Tailscale Serve route may use this port. Check its command under Network
-              options before you publish.
+              Another Tailscale Serve route uses this HTTPS port.{' '}
+              {server
+                ? 'Turn remote control off to pick another under Network options.'
+                : 'Pick another under Network options.'}
             </Callout>
           )}
           {directState.portChange && (
@@ -630,20 +621,15 @@ export function RemoteTab() {
               className={cn('size-3 transition-transform', networkOptionsOpen && 'rotate-180')}
             />
           </button>
+          <p className="mt-0.5 text-ui text-muted-foreground">
+            Choose the Tailscale address and port your devices connect to.
+          </p>
           {networkOptionsOpen && (
             <NetworkOptions
               origin={directPublicOrigin}
               onOriginChange={setDirectPublicOrigin}
-              onOriginBlur={() => void handleDirectOriginBlur()}
+              onOriginCommit={(origin) => void handleDirectOriginCommit(origin)}
               status={tailscaleStatus}
-              usePort={tailscaleUsePort}
-              onUsePortChange={(checked) => {
-                setTailscaleUsePort(checked);
-                const nextOrigin = checked
-                  ? tailscaleStatus?.suggestedPortOrigin
-                  : tailscaleStatus?.suggestedRootOrigin;
-                if (nextOrigin) setDirectPublicOrigin(nextOrigin);
-              }}
               locked={networkLocked}
               localOrigin={server?.localOrigin}
             />

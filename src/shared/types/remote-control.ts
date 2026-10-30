@@ -23,7 +23,6 @@ export interface RemoteControlDirectServerInfo {
 
 export interface RemoteControlDirectStartOptions {
   publicOrigin?: string;
-  tailscaleServeMode?: 'root' | 'port';
 }
 
 export interface RemoteControlDirectTailscaleServeResult {
@@ -33,17 +32,13 @@ export interface RemoteControlDirectTailscaleServeResult {
 
 export interface RemoteControlDirectTailscaleStatus {
   installed: boolean;
+  /** What publishing runs, on the HTTPS port of the saved origin or else the suggested one. */
   command: string;
-  rootCommand?: string;
-  portCommand?: string;
   hostname?: string;
   suggestedOrigin?: string;
-  suggestedRootOrigin?: string;
-  suggestedPortOrigin?: string;
-  rootAvailable?: boolean;
+  /** Another Tailscale Serve route already has the HTTPS port `command` publishes on. */
+  httpsPortTaken?: boolean;
   serveConfigured?: boolean;
-  serveConflict?: boolean;
-  existingServeSummary?: string;
   error?: string;
 }
 

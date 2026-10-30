@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 import type { PairedDeviceRecord, RemoteControlDirectTailscaleStatus } from '@/types';
@@ -28,32 +27,25 @@ export function RemoteStatusDot({ tone }: { tone: RemoteStatusTone }) {
   );
 }
 
-/** The Tailscale origin and port choice, folded away unless Komla could not detect them. */
+/** The Tailscale origin, folded away unless Komla could not detect it. */
 export function NetworkOptions({
   origin,
   onOriginChange,
-  onOriginBlur,
+  onOriginCommit,
   status,
-  usePort,
-  onUsePortChange,
   locked,
   localOrigin,
 }: {
   origin: string;
   onOriginChange: (origin: string) => void;
-  onOriginBlur: () => void;
+  onOriginCommit: (origin: string) => void;
   status: RemoteControlDirectTailscaleStatus | null;
-  usePort: boolean;
-  onUsePortChange: (usePort: boolean) => void;
   locked: boolean;
   /** Where Komla listens while remote control is on; the options are locked then. */
   localOrigin: string | undefined;
 }) {
-  const command =
-    (usePort ? status?.portCommand : status?.rootCommand) ??
-    status?.command ??
-    'tailscale serve --bg localhost:52864';
-  const suggestedOrigin = usePort ? status?.suggestedPortOrigin : status?.suggestedRootOrigin;
+  const command = status?.command ?? 'tailscale serve --bg --https=443 localhost:52864';
+  const suggestedOrigin = status?.suggestedOrigin;
   return (
     <div className="mt-2 space-y-3 rounded-lg border border-border/50 bg-card/70 p-4">
       <div className="space-y-1.5">
@@ -68,7 +60,7 @@ export function NetworkOptions({
             id="direct-tailscale-origin"
             value={origin}
             onChange={(e) => onOriginChange(e.target.value)}
-            onBlur={onOriginBlur}
+            onBlur={() => onOriginCommit(origin)}
             placeholder="https://your-mac.your-tailnet.ts.net"
             disabled={locked}
             className="h-8 font-mono text-xs"
@@ -78,32 +70,17 @@ export function NetworkOptions({
               size="sm"
               variant="ghost"
               className="shrink-0"
-              onClick={() => onOriginChange(suggestedOrigin)}
+              onClick={() => onOriginCommit(suggestedOrigin)}
               disabled={locked}
             >
               Use detected
             </Button>
           )}
         </div>
-        {status?.hostname && (
-          <p className="text-ui text-muted-foreground">
-            This computer is {status.hostname} on your tailnet.
-          </p>
-        )}
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-foreground">Use a separate port</p>
-          <p className="mt-0.5 text-ui text-muted-foreground">
-            For when your tailnet address already serves something else.
-          </p>
-        </div>
-        <Switch
-          checked={usePort}
-          onCheckedChange={onUsePortChange}
-          disabled={locked}
-          aria-label="Use explicit Tailscale HTTPS port"
-        />
+        <p className="text-ui text-muted-foreground">
+          {status?.hostname && `This computer is ${status.hostname} on your tailnet. `}
+          Devices connect on the port in this address, or 443 if it has none.
+        </p>
       </div>
       <p className="text-ui text-muted-foreground">
         Publishing runs <code className="font-mono">{command}</code>

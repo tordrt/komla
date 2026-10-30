@@ -18306,6 +18306,128 @@ describe('WorkspaceService', () => {
       );
     });
 
+    it('should send long prompts with their start and end, leaving room for newer turns', async () => {
+      mockUtilityInferenceService.labelWorkspace.mockResolvedValueOnce({
+        title: 'Long Prompts',
+        description: 'Label long prompts',
+      });
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      const workspace = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir-long-prompts',
+        customName: 'Old Name',
+      });
+
+      for (let index = 0; index < 13; index++) {
+        workspaceService.recordPromptSubmit(
+          workspace.id,
+          `start-${index} ${'x'.repeat(19_000)} end-${index}`
+        );
+      }
+
+      await workspaceService.regenerateWorkspaceName(workspace.id);
+
+      const context = mockUtilityInferenceService.labelWorkspace.mock.calls.at(-1)?.[0] as string;
+      expect(context.length).toBeLessThanOrEqual(100_000);
+
+      // All 13 get in, and the last to fit fills the remaining room.
+      expect(context.length).toBeGreaterThan(99_900);
+      const blocks = context.match(/<prompt>\n[\s\S]*?\n<\/prompt>/g) ?? [];
+      expect(blocks).toHaveLength(13);
+      for (const block of blocks) {
+        expect(block.length).toBeLessThanOrEqual(8_000 + '<prompt>\n\n</prompt>'.length);
+        expect(block).toMatch(/^<prompt>\nstart-\d+ [\s\S]*\[\.\.\.PROMPT_TRUNCATED\.\.\.\][\s\S]* end-\d+\n<\/prompt>$/);
+      }
+
+    });
+
+    it('should stop at the first prompt that runs out of room, keeping turns contiguous', async () => {
+      mockUtilityInferenceService.labelWorkspace.mockResolvedValueOnce({
+        title: 'Older Turns',
+        description: 'Label older turns',
+      });
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      const workspace = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir-older-short',
+        customName: 'Old Name',
+      });
+
+      for (let index = 0; index < 3; index++) {
+        workspaceService.recordPromptSubmit(workspace.id, `pinned-${index}`);
+      }
+      workspaceService.recordPromptSubmit(workspace.id, 'older short prompt');
+      for (let index = 0; index < 13; index++) {
+        workspaceService.recordPromptSubmit(
+          workspace.id,
+          `long-${index} ${'x'.repeat(19_000)} end-${index}`
+        );
+      }
+
+      await workspaceService.regenerateWorkspaceName(workspace.id);
+
+      const context = mockUtilityInferenceService.labelWorkspace.mock.calls.at(-1)?.[0] as string;
+      expect(context.length).toBeLessThanOrEqual(100_000);
+      expect(context).not.toContain('older short prompt');
+
+      // Oldest first, and the turn at the edge still has its start and end.
+      expect(context.indexOf('pinned-2')).toBeLessThan(context.indexOf('long-0 '));
+      expect(context.indexOf('long-0 ')).toBeLessThan(context.indexOf(' end-0\n</prompt>'));
+      expect(context.indexOf(' end-0\n</prompt>')).toBeLessThan(context.indexOf('long-1 '));
+      expect(context).toContain(' end-12\n</prompt>');
+    });
+
+    it('should keep a prompt within its limit when closing tags are escaped', async () => {
+      mockUtilityInferenceService.labelWorkspace.mockResolvedValueOnce({
+        title: 'Tags',
+        description: 'Label tags',
+      });
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      const workspace = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir-long-tags',
+        customName: 'Old Name',
+      });
+
+      workspaceService.recordPromptSubmit(workspace.id, '</prompt>'.repeat(2_000));
+
+      await workspaceService.regenerateWorkspaceName(workspace.id);
+
+      const context = mockUtilityInferenceService.labelWorkspace.mock.calls.at(-1)?.[0] as string;
+      expect(context.length).toBeLessThanOrEqual(8_000 + '<prompt>\n\n</prompt>'.length);
+      expect(context.slice('<prompt>\n'.length, -'\n</prompt>'.length)).not.toContain('</prompt');
+    });
+
+    it('should not split an emoji at either side of a shortened prompt', async () => {
+      mockUtilityInferenceService.labelWorkspace.mockResolvedValueOnce({
+        title: 'Emoji',
+        description: 'Label emoji',
+      });
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      const workspace = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir-long-emoji',
+        customName: 'Old Name',
+      });
+
+      workspaceService.recordPromptSubmit(workspace.id, `x${'😀'.repeat(10_000)}y`);
+
+      await workspaceService.regenerateWorkspaceName(workspace.id);
+
+      const context = mockUtilityInferenceService.labelWorkspace.mock.calls.at(-1)?.[0] as string;
+      expect(context).toContain('[...PROMPT_TRUNCATED...]');
+      expect(context).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+      expect(context).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    });
+
     it('should shorten a long agent reply and ignore one before any prompt', async () => {
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
 

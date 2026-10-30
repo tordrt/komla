@@ -43,7 +43,7 @@ const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const UTILITY_INFERENCE_TIMEOUT_MS = 30000;
 const UTILITY_INFERENCE_TIMEOUT_REASON = 'utility-inference-timeout';
 // Local context cap for all utility inference providers. Komla-managed enforces
-// the same prompt length in the worker; custom endpoints can still reject
+// this length or lower in the worker; custom endpoints can still reject
 // unbounded prompts.
 const MAX_UTILITY_INFERENCE_PROMPT_CHARS = 350_000;
 const PROMPT_TRUNCATED_MARKER = '\n\n[...PROMPT_TRUNCATED...]\n\n';

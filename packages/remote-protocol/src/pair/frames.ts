@@ -99,10 +99,26 @@ const PairHelloResumeSchema = z
   })
   .strict();
 
+/**
+ * A browser that isn't paired signs in with any passkey the endpoint trusts. Its own key, made
+ * for this sign-in, signs the session, so the resume grants it receives work only with that key.
+ */
+const PairHelloPasskeySchema = z
+  .object({
+    type: z.literal('pair:hello'),
+    protocolVersion: z.literal(PAIR_PROTOCOL_VERSION),
+    mode: z.literal('passkey'),
+    /** SPKI-DER P-256 public key of this browser's sign-in key, standard base64. */
+    devicePublicKey: StandardBase64Schema,
+    capabilities: CapabilitiesSchema.optional(),
+  })
+  .strict();
+
 export const PairHelloSchema = z.discriminatedUnion('mode', [
   PairHelloRegisterSchema,
   PairHelloAuthenticateSchema,
   PairHelloResumeSchema,
+  PairHelloPasskeySchema,
 ]);
 
 export const PairRegistrationChallengeSchema = z
@@ -210,8 +226,11 @@ export const PairAuthChallengeSchema = z
     rpId: z.string().min(1).max(253),
     /** Exact origin the desktop will accept in `clientDataJSON.origin`. */
     origin: z.string().min(1).max(2048),
-    /** Credential bound to the trusted browser installation. */
-    credentialId: z.string().min(1).max(1024),
+    /**
+     * Credential bound to the trusted browser installation. Absent for a passkey sign-in, which
+     * any passkey the endpoint trusts may answer.
+     */
+    credentialId: z.string().min(1).max(1024).optional(),
   })
   .strict();
 

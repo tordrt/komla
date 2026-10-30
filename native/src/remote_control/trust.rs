@@ -94,6 +94,27 @@ impl Trust {
             .find(|device| device.device_id == device_id)
     }
 
+    /// The trusted phone whose passkey this is, which any browser may sign in with.
+    pub(crate) fn credential(&self, credential_id: &str, now_ms: u64) -> Option<&TrustedDevice> {
+        if now_ms >= self.expires_at {
+            return None;
+        }
+        self.devices
+            .iter()
+            .find(|device| device.credential_id == credential_id)
+    }
+
+    /// The RP ID of the passkeys trusted for pages on `origin`.
+    pub(crate) fn rp_id_for(&self, origin: &str, now_ms: u64) -> Option<&str> {
+        if now_ms >= self.expires_at {
+            return None;
+        }
+        self.devices
+            .iter()
+            .find(|device| device.origin == origin)
+            .map(|device| device.rp_id.as_str())
+    }
+
     /// Browser origins a WebSocket upgrade may come from: those of the trusted phones.
     pub(crate) fn allows_origin(&self, origin: &str, now_ms: u64) -> bool {
         now_ms < self.expires_at && self.devices.iter().any(|device| device.origin == origin)

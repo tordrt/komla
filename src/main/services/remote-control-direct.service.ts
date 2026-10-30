@@ -531,8 +531,7 @@ export class RemoteControlDirectService {
   }
 
   private revokeResumeGrants(credentialId: string): void {
-    const device = this.deps.pairedDeviceRegistry.getByCredentialId(credentialId);
-    if (device) this.deps.resumption.revokeDevice(device.deviceId);
+    this.deps.resumption.revokeCredential(credentialId);
   }
 
   setPublicOrigin(publicOrigin: string | undefined): RemoteControlDirectServerInfo | null {

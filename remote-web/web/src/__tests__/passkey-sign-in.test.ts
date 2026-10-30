@@ -31,6 +31,23 @@ describe('passkeyErrorMessage', () => {
 });
 
 describe('signInRejection', () => {
+  it('points at updating a host that may not understand this sign-in yet', () => {
+    for (const [reason, message] of [
+      ['signature-failed', 'challenge does not match'],
+      ['internal', 'malformed pair:hello'],
+    ] as const) {
+      expect(signInRejection(reason, message, 'devbox')).toEqual({
+        message:
+          "Komla couldn't verify this sign-in. If devbox hasn't been updated yet, open Komla on your computer to update it.",
+        retry: true,
+      });
+    }
+    expect(signInRejection('signature-failed', 'bad')).toEqual({
+      message: "Komla couldn't verify this sign-in.",
+      retry: true,
+    });
+  });
+
   it('offers another try unless the device must pair again', () => {
     expect(signInRejection('internal', 'ceremony timeout')).toEqual({
       message: 'Komla stopped waiting for your passkey.',

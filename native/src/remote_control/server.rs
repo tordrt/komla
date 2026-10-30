@@ -143,6 +143,8 @@ const CLOSE_REPLACED: u8 = 2;
 
 struct SessionHandle {
     device_id: String,
+    /// The passkey it signed in with, which the desktop must still trust.
+    credential_id: String,
     close: CloseRequest,
     wake: Arc<dyn Fn() + Send + Sync>,
 }
@@ -177,14 +179,14 @@ impl Shared {
         self.resume
             .lock()
             .expect("resume lock poisoned")
-            .revoke_others(|device| trust.device(device, now).is_some());
+            .revoke_others(|passkey| trust.credential(passkey, now).is_some());
         for handle in self
             .sessions
             .lock()
             .expect("sessions lock poisoned")
             .values()
         {
-            if trust.device(&handle.device_id, now).is_none() {
+            if trust.credential(&handle.credential_id, now).is_none() {
                 handle.close.store(CLOSE_REMOVED, Ordering::SeqCst);
                 (handle.wake)();
             }
@@ -330,7 +332,8 @@ fn drain_pipe(fd: &OwnedFd) {
     while unsafe { libc::read(fd.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) } > 0 {}
 }
 
-fn check_upgrade(shared: &Shared, request: &Request) -> Result<(), &'static str> {
+/// The upgrade's page origin, once it is one the trusted phones use.
+fn check_upgrade(shared: &Shared, request: &Request) -> Result<String, &'static str> {
     if request.uri().path() != SOCKET_PATH {
         return Err("not found");
     }
@@ -342,7 +345,7 @@ fn check_upgrade(shared: &Shared, request: &Request) -> Result<(), &'static str>
     if !shared.trust().allows_origin(origin, now_ms()) {
         return Err("origin not allowed");
     }
-    Ok(())
+    Ok(origin.to_owned())
 }
 
 struct Connection<'a> {
@@ -353,6 +356,8 @@ struct Connection<'a> {
     peer: HostPeer,
     ceremony: Ceremony,
     session: Option<AppSession>,
+    /// The page origin the upgrade came from.
+    origin: String,
     device_id: Option<String>,
     resume_token: Option<String>,
     events: Receiver<TerminalEvent>,
@@ -381,10 +386,14 @@ fn serve_connection(stream: TcpStream, shared: &Shared) -> anyhow::Result<()> {
         max_write_buffer_size: MAX_WRITE_BUFFER_BYTES,
         ..WebSocketConfig::default()
     };
+    let mut origin = String::new();
     let socket = tungstenite::accept_hdr_with_config(
         stream,
         |request: &Request, response: Response| match check_upgrade(shared, request) {
-            Ok(()) => Ok(response),
+            Ok(checked) => {
+                origin = checked;
+                Ok(response)
+            }
             Err(reason) => {
                 let mut rejection = ErrorResponse::new(Some(reason.to_owned()));
                 *rejection.status_mut() = if reason == "not found" {
@@ -420,6 +429,7 @@ fn serve_connection(stream: TcpStream, shared: &Shared) -> anyhow::Result<()> {
             now + HANDSHAKE_TIMEOUT_MS + AUTH_CEREMONY_TIMEOUT_MS,
         ),
         session: None,
+        origin,
         device_id: None,
         resume_token: None,
         events,
@@ -649,6 +659,7 @@ impl Connection<'_> {
                     resume: &mut resume,
                     counters: &mut counters,
                     channel_binding,
+                    origin: &self.origin,
                     now: now_ms(),
                 },
             )
@@ -672,7 +683,7 @@ impl Connection<'_> {
                 project_icons,
                 workspace_tags,
             } => {
-                self.register_device(&device.device_id);
+                self.register_device(&device.device_id, &device.credential_id);
                 self.device_id = Some(device.device_id);
                 self.resume_token = Some(resume_token);
                 self.queue_encrypted(&reply);
@@ -699,7 +710,7 @@ impl Connection<'_> {
     }
 
     /// One session per phone: a newer sign-in of the same phone replaces the older one.
-    fn register_device(&self, device_id: &str) {
+    fn register_device(&self, device_id: &str, credential_id: &str) {
         let mut sessions = self.shared.sessions.lock().expect("sessions lock poisoned");
         for handle in sessions.values() {
             if handle.device_id == device_id {
@@ -711,6 +722,7 @@ impl Connection<'_> {
             self.id,
             SessionHandle {
                 device_id: device_id.to_owned(),
+                credential_id: credential_id.to_owned(),
                 close: Arc::clone(&self.close_requested),
                 wake: Arc::clone(&self.wake),
             },

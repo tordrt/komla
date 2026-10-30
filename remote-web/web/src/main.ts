@@ -12,6 +12,7 @@
 
 import {
   buildDeviceProof,
+  buildPasskeyChallenge,
   classifyRelayFrame,
   decodeBinaryAppFrame,
   encodeBase64,
@@ -53,10 +54,12 @@ import { attentionLabel, attentionMessageIsLabel } from './attention';
 import { ConnectionWatchdog, reconnectDelayMs } from './connection-watchdog';
 import { ReconnectLoop, type ReconnectOutcome } from './reconnect-loop';
 import {
+  createPendingDeviceIdentity,
   discardRejectedEnrollmentIdentity,
   loadOrCreateEnrollmentDeviceIdentity,
   loadDeviceIdentity,
   removeDeviceIdentity,
+  saveDeviceIdentity,
   stageEnrollmentDeviceIdentity,
   type PendingDeviceIdentity,
   type StoredDeviceIdentity,
@@ -667,6 +670,9 @@ function offerHomeScreenHandoff(els: UI): void {
 /** Pairs this page from a pasted link: the way in for a Home Screen app the QR code can't open. */
 function showPairLinkForm(els: UI): void {
   els.pairLinkForm.hidden = false;
+  // A sign-in that starts over shows it again.
+  if (els.pairLinkForm.dataset.bound) return;
+  els.pairLinkForm.dataset.bound = 'true';
   const open = (text: string, reportError: boolean) => {
     try {
       location.assign(pastedPairUrl(text, location.origin));
@@ -4694,6 +4700,17 @@ function writeResumeGrant(grant: StoredResumeGrant): void {
   }
 }
 
+/**
+ * After the endpoint refused `token`: true if it's still the grant stored here. If not, another
+ * tab redeemed it first and the next one, stored by that tab, still works.
+ */
+function clearRefusedResumeGrant(fingerprint: string, deviceId: string, token: string): boolean {
+  const current = readResumeGrant(fingerprint, deviceId);
+  if (current && current.token !== token) return false;
+  clearResumeGrant(fingerprint);
+  return true;
+}
+
 function clearResumeGrant(fingerprint: string): void {
   try {
     localStorage.removeItem(resumeGrantKey(fingerprint));
@@ -5119,7 +5136,11 @@ function promptEnvironment(): PromptEnvironment {
   };
 }
 
-async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void> {
+async function runAuthFlow(
+  els: UI,
+  hostId: string | null = null,
+  notice: string | null = null
+): Promise<void> {
   els.title.textContent = 'Komla';
   els.subtitle.textContent = 'Signing in…';
   els.fingerprintRow.hidden = true;
@@ -5127,6 +5148,7 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
   els.form.hidden = true;
   els.unlock.hidden = true;
   els.error.hidden = true;
+  if (notice) showError(els, notice);
 
   if (typeof window.PublicKeyCredential === 'undefined' || !navigator.credentials?.get) {
     setStatus(els.status, 'error', 'WebAuthn not available');
@@ -5156,24 +5178,28 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
   if (host) showOfflineHosts(els, host.id);
   // The endpoint's own key, pinned like the desktop's.
   const fingerprint = host?.fingerprint ?? desktopFingerprint;
-  let device: StoredDeviceIdentity | null;
+  let device: StoredDeviceIdentity | null = null;
+  // A private window may have no store at all; a passkey doesn't need one.
+  let storeOpens = true;
   try {
     device = await loadDeviceIdentity(desktopFingerprint);
-  } catch (err) {
-    setStatus(els.status, 'error', 'Could not open device key store');
-    showError(els, (err as Error).message);
-    return;
+  } catch {
+    storeOpens = false;
   }
   if (!device) {
-    const app = currentPushEnvironment().standalone;
-    setStatus(els.status, 'error', app ? 'This app is not paired' : 'This browser is not paired');
-    els.title.textContent = app ? 'Komla — pair this app' : 'Komla — pair this browser';
-    els.fingerprintRow.hidden = true;
-    els.subtitle.textContent = app
-      ? 'This Home Screen app keeps its own keys, separate from the browser, so it pairs from a pasted link.'
-      : 'Scan the pairing code in Komla › Settings › Remote with this device, or paste the pairing link.';
-    showPairLinkForm(els);
-    return;
+    // Not paired here, e.g. a private window: any passkey this computer trusts signs in, with a
+    // key made for it that keeps reconnects silent. Pairing still makes the passkey to use.
+    try {
+      device = {
+        ...(await createPendingDeviceIdentity(desktopFingerprint)),
+        credentialId: '',
+        signedIn: true,
+      };
+    } catch (err) {
+      setStatus(els.status, 'error', 'Could not make a sign-in key');
+      showError(els, (err as Error).message);
+      return;
+    }
   }
   const trustedDevice = device;
   const resumeGrant = readResumeGrant(fingerprint, trustedDevice.deviceId);
@@ -5210,8 +5236,8 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
     setStatus(els.status, 'error', 'Not signed in');
     offerButton(els, 'Try again', message, restart);
   };
-  const usePasskey = (challenge: PairAuthChallenge) => {
-    respondToAuthChallenge(peer, challenge, els, trustedDevice).catch((err: unknown) => {
+  const usePasskey = (challenge: PairAuthChallenge, signedChallenge: Uint8Array) => {
+    respondToAuthChallenge(peer, challenge, signedChallenge, els, trustedDevice).catch((err: unknown) => {
       if (abandoned || terminalFrameProcessed) return;
       if (peer.state !== 'established') {
         offerRetry(passkeyErrorMessage(err));
@@ -5219,20 +5245,26 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
       }
       // The desktop still waits, so the same challenge can be answered again.
       setStatus(els.status, 'idle', 'Locked');
-      offerButton(els, 'Try again', passkeyErrorMessage(err), () => usePasskey(challenge));
+      offerButton(els, 'Try again', passkeyErrorMessage(err), () =>
+        usePasskey(challenge, signedChallenge)
+      );
     });
   };
-  const offerPasskey = (challenge: PairAuthChallenge) => {
+  const offerPasskey = (challenge: PairAuthChallenge, signedChallenge: Uint8Array) => {
     passkeyRequested = true;
     if (mayPromptWithoutTap(promptEnvironment())) {
-      usePasskey(challenge);
+      usePasskey(challenge, signedChallenge);
       return;
     }
     setStatus(els.status, 'idle', 'Locked');
+    // Without a passkey for Komla here, pairing makes one.
+    if (trustedDevice.signedIn && !host) showPairLinkForm(els);
     els.subtitle.textContent = host
       ? `Unlock to open ${host.name}.`
-      : 'Unlock to open your workspaces.';
-    offerButton(els, 'Unlock with passkey', null, () => usePasskey(challenge));
+      : trustedDevice.signedIn
+        ? 'Unlock with a passkey you use for Komla, or pair this browser with a link.'
+        : 'Unlock to open your workspaces.';
+    offerButton(els, 'Unlock with passkey', notice, () => usePasskey(challenge, signedChallenge));
   };
 
   peer.onMessage((msg) => {
@@ -5262,7 +5294,8 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
       return;
     }
     if (frame.type === 'pair:auth-challenge') {
-      offerPasskey(frame);
+      // Worked out here: the Unlock tap can't wait for anything before asking for the passkey.
+      offerPasskey(frame, await buildPasskeyChallenge(frame.challenge, peer.getChannelBinding()));
       return;
     }
     if (frame.type === 'pair:authenticated') {
@@ -5271,6 +5304,11 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
         showError(els, 'Desktop authenticated a different browser installation.');
         ws.close(1000, 'device-id-mismatch');
         return;
+      }
+      if (storeOpens && trustedDevice.signedIn && trustedDevice.credentialId !== frame.credentialId) {
+        // Kept, so this browser resumes with the key its grants are tied to.
+        trustedDevice.credentialId = frame.credentialId;
+        await saveDeviceIdentity(trustedDevice).catch(() => undefined);
       }
       if (frame.resumeToken && frame.resumeExpiresAt) {
         writeResumeGrant({
@@ -5298,11 +5336,11 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
       terminalFrameProcessed = true;
       if (resumeGrant && frame.reason === 'resume-invalid') {
         // Without a reload, which would lose the passkey sheet on Safari.
-        clearResumeGrant(fingerprint);
+        clearRefusedResumeGrant(fingerprint, trustedDevice.deviceId, resumeGrant.token);
         restart();
         return;
       }
-      const failure = signInRejection(frame.reason, frame.message);
+      const failure = signInRejection(frame.reason, frame.message, host?.name);
       // A host that turns this phone away stops being where the app opens.
       if (host) rememberLastEndpoint(localStorage, null);
       ws.close(1000, 'ceremony-complete');
@@ -5314,9 +5352,14 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
       showError(els, failure.message);
       // Only the desktop decides that this phone is no longer paired; a host may just be out of date.
       if (!host) {
-        await removeDeviceIdentity(desktopFingerprint);
-        await runAuthFlow(els);
-        showError(els, `${failure.message} Pair it again to use Komla here.`);
+        await removeDeviceIdentity(desktopFingerprint).catch(() => undefined);
+        await runAuthFlow(
+          els,
+          null,
+          trustedDevice.signedIn
+            ? `${failure.message} Use another passkey, or pair this browser.`
+            : `${failure.message} Pair it again to use Komla here.`
+        );
       }
       return;
     }
@@ -5355,9 +5398,14 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
         type: 'pair:hello',
         protocolVersion: PAIR_PROTOCOL_VERSION,
         ...(resumeGrant
-          ? { mode: 'resume' as const, resumeToken: resumeGrant.token }
-          : { mode: 'authenticate' as const }),
-        deviceId: trustedDevice.deviceId,
+          ? {
+              mode: 'resume' as const,
+              resumeToken: resumeGrant.token,
+              deviceId: trustedDevice.deviceId,
+            }
+          : trustedDevice.signedIn
+            ? { mode: 'passkey' as const, devicePublicKey: trustedDevice.devicePublicKey }
+            : { mode: 'authenticate' as const, deviceId: trustedDevice.deviceId }),
         capabilities: PAGE_CAPABILITIES,
       })
       .catch((err) => {
@@ -5422,8 +5470,10 @@ function resumeSession(
         }
         finish(adoptAuthenticated(peer, frame, fromDesktop) ? { ws, peer } : 'reload');
       } else if (frame?.type === 'pair:rejected') {
-        if (frame.reason === 'resume-invalid') clearResumeGrant(target.fingerprint);
-        finish('reload');
+        const refused =
+          frame.reason !== 'resume-invalid' ||
+          clearRefusedResumeGrant(target.fingerprint, target.device.deviceId, grant.token);
+        finish(refused ? 'reload' : 'retry');
       }
     });
     peer.onEstablished(() => {
@@ -5490,6 +5540,7 @@ async function openListLink(
 async function respondToAuthChallenge(
   peer: Peer,
   challenge: PairAuthChallenge,
+  signedChallenge: Uint8Array,
   els: UI,
   device: StoredDeviceIdentity
 ): Promise<void> {
@@ -5502,20 +5553,26 @@ async function respondToAuthChallenge(
   setStatus(els.status, 'verifying', 'Waiting for your passkey…');
   const cred = (await navigator.credentials.get({
     publicKey: {
-      challenge: base64UrlToBytes(challenge.challenge),
+      challenge: signedChallenge as BufferSource,
       rpId: challenge.rpId,
-      allowCredentials: [
-        {
-          type: 'public-key',
-          id: base64UrlToBytes(challenge.credentialId),
-        },
-      ],
+      // Without one, the system offers every passkey this device has for the site.
+      ...(challenge.credentialId
+        ? {
+            allowCredentials: [
+              { type: 'public-key' as const, id: base64UrlToBytes(challenge.credentialId) },
+            ],
+          }
+        : {}),
       userVerification: 'required',
       timeout: 60_000,
     },
   })) as PublicKeyCredential | null;
   if (!cred) throw new Error('Authenticator returned no credential.');
-  if (cred.id !== challenge.credentialId || cred.id !== device.credentialId) {
+  // A passkey sign-in names no passkey: the desktop checks the one picked is trusted.
+  if (
+    challenge.credentialId &&
+    (cred.id !== challenge.credentialId || cred.id !== device.credentialId)
+  ) {
     throw new Error('Authenticator returned a passkey for a different trusted device.');
   }
   const deviceSignature = await signDeviceProof(

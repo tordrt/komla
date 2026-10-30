@@ -39,10 +39,18 @@ Enrollment only creates a trusted-device record. It deliberately closes that con
 
 The browser loads its device key from IndexedDB and identifies the matching registry record. The desktop returns only that record's passkey credential ID. The browser must:
 
-- complete WebAuthn authentication with user verification required; and
+- complete WebAuthn authentication with user verification required, over a hash of the challenge and current channel binding; and
 - sign a separate device proof over the authentication challenge and current channel binding.
 
 Only after both checks succeed does Komla attach the authenticated Peer to the remote shell session.
+
+A browser that isn't paired, such as a private window or another browser on a phone whose passkey
+syncs, signs in with a passkey alone (ADR 0007). It makes a non-exportable P-256 key of its own and
+sends its public key in the hello. The desktop asks for any passkey without naming one, accepts an
+assertion only from a passkey in its registry for this RP ID and origin, and requires a proof by the
+browser's new key over the authentication challenge and channel binding. The browser keeps that key
+in IndexedDB; the desktop doesn't store it, so the browser signs in that way again whenever no
+resume grant is left. Removing the passkey's record ends every browser signed in with it.
 
 After successful user verification, the desktop may issue a rotating resumption grant. The grant
 works for the window set in Settings → Remote → "Ask for passkey again after" (5 minutes, 15 by
@@ -54,7 +62,8 @@ session. The browser keeps the grant in its origin's `localStorage`, so a Home S
 system closed, a reload or a new tab resumes too; the desktop keeps it in memory. It must be combined
 with a fresh installation-key signature over a new challenge and encrypted-channel binding, and it
 is used up only once that signature verifies: an attempt that drops before then leaves it for the
-next one, and of two attempts with the same grant only the first to verify signs in. This lets the
+next one. A grant names the browser key that must sign and the passkey it descends from, so it
+resumes only that browser, and only while that passkey is still trusted, and of two attempts with the same grant only the first to verify signs in. This lets the
 app come back after a phone sleeps or a network drops without invoking the passkey again. Expiry,
 replay, a desktop restart, device removal, disconnecting the device from the desktop, or turning
 remote access off falls back to fresh passkey verification. SSH hosts apply the same window, which
@@ -117,13 +126,13 @@ A phone can also open an SSH host directly, through the Remote Companion on that
 - The host server listens on `127.0.0.1` only and is published with Tailscale Serve on the host. Before publishing it, the desktop checks Tailscale Funnel for that port on the host and stops the server if Funnel is on.
 - It speaks the same protocol. The host signs the handshake with its own key, kept in `identity.json` with mode 600; anyone who can read that file can already run the host user's shells. The phone pins the key's fingerprint, which the desktop gave it over an authenticated session.
 - Only the desktop decides trust. Over an SSH connection it already has open (it never logs in just for this), it writes `trust.json` with each trusted phone's installation key, exact passkey credential (as SPKI, ES256 only), RP ID and origin, under a seven-day lease that every connection renews. Hosts never enroll devices.
-- A phone signs in to a host as it does to the desktop: a user-verified passkey assertion for the desktop's RP ID and origin, which the host verifies itself, plus an installation-key proof over the host's channel binding, or a host-issued resume grant under the same rules. WebSocket upgrades must come from a trusted phone's origin.
+- A phone signs in to a host as it does to the desktop: a user-verified passkey assertion for the desktop's RP ID and origin, which the host verifies itself, plus an installation-key proof over the host's channel binding, or a host-issued resume grant under the same rules. A browser that isn't paired signs in with any passkey in `trust.json` for the upgrade's origin and a proof by its own key, as on the desktop. WebSocket upgrades must come from a trusted phone's origin.
 - A signed-in phone can list the host's workspaces and attach a tmux client to an existing `komla-<terminal>` session. It can also create workspaces, start and stop them, and open and close tabs, but it only names what to start: projects, agents and launch modes come from `launch.json`, which the desktop writes next to `trust.json` over the same connection, and a workspace starts again with the agent commands Komla saved in its manifest. Its prompt reaches the agent command shell-quoted, and every path stays inside Komla's data directory on the host. A shell tab adds nothing a signed-in phone couldn't already type into an agent's terminal.
 - Removing a phone, or turning remote control off, reaches a host the next time the desktop connects to it; the lease bounds how long an unreachable host keeps honoring a removed phone. A host ends a phone's session as soon as it reads a trust file without that phone.
 
 ## Transcript and key binding
 
-Handshake signatures and the session-key derivation use a domain-separated, length-prefixed transcript. Both peers hash the same transcript to obtain the channel binding. Device proofs include that binding, preventing a valid passkey or device signature from being replayed into another encrypted session.
+Handshake signatures and the session-key derivation use a domain-separated, length-prefixed transcript. Both peers hash the same transcript to obtain the channel binding. Device proofs include that binding, and so does what a passkey signs: the page asks for a signature over a hash of the endpoint's challenge and the binding, never over a challenge as sent. That prevents a valid passkey or device signature from being replayed into another encrypted session, including an SSH host passing on to the desktop a signature it asked a phone for.
 
 ## Protocol features
 
@@ -149,9 +158,10 @@ behind a capability first.
 - Pairing secrets are single-offer, high-entropy values and expire. Each offer enrolls at most one device.
 - Encrypted frames carry consecutive per-direction sequence numbers; any gap or repeat ends the session.
 - Registration and authentication require WebAuthn user verification.
-- A passkey alone is insufficient without the browser installation key.
-- A browser installation key alone is insufficient without the exact registered passkey or a
-  still-valid grant created by its recent verification.
+- A trusted passkey signs in, with user verification, from any browser of its origin. The
+  browser's key, its installation key or one it made to sign in, signs the session.
+- A browser key alone is insufficient without a trusted passkey or a still-valid grant created by
+  its recent verification, and a grant resumes only the browser whose key it names.
 - Silent resumption requires both a recent single-use grant and a fresh transcript-bound device-key
   signature; the grant alone cannot authorize terminal access.
 - Removing a trusted device disconnects its active session before deleting its registry record.

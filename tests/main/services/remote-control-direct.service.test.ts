@@ -308,7 +308,11 @@ async function startResumablePhone(webAssetDir: string) {
   async function hello(token: string | undefined, device = phone, capabilities?: string[]) {
     let resumeToken = token;
     if (!resumeToken) {
-      resumeToken = resumption.issue(device.deviceId).token;
+      resumeToken = resumption.issue({
+        deviceId: device.deviceId,
+        devicePublicKey: encodeBase64(device.publicKey),
+        credentialId: device.credentialId,
+      }).token;
       resumption.release(resumeToken);
     }
     // Browsers send Origin themselves; Node's WebSocket takes it as a header.

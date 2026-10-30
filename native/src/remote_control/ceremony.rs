@@ -1,7 +1,8 @@
 //! The reconnect half of the desktop's pairing ceremony (`remote-control-authentication.ts`):
 //! a trusted phone proves its passkey and its installation key over this session's channel
-//! binding, or redeems a recent resume grant with a fresh installation-key signature. Enrollment
-//! happens only with the desktop.
+//! binding, a browser that isn't paired proves any trusted passkey and the key it made to sign in,
+//! or either redeems a recent resume grant with a fresh signature by its key. Enrollment happens
+//! only with the desktop.
 
 use std::collections::HashMap;
 
@@ -9,9 +10,11 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde_json::{json, Value};
 
-use super::crypto::{device_proof, random_bytes, verify_p1363};
+use super::crypto::{
+    device_proof, fingerprint, passkey_challenge, public_key_from_spki, random_bytes, verify_p1363,
+};
 use super::peer::decode_base64;
-use super::resume::ResumeStore;
+use super::resume::{ResumeHolder, ResumeStore};
 use super::trust::{Trust, TrustedDevice};
 use super::webauthn::{verify_assertion, ExpectedAssertion};
 
@@ -30,8 +33,11 @@ const MAX_CAPABILITY_CHARS: usize = 64;
 pub(crate) struct CeremonyContext<'a> {
     pub(crate) trust: &'a Trust,
     pub(crate) resume: &'a mut ResumeStore,
+    /// Sign counters by passkey.
     pub(crate) counters: &'a mut HashMap<String, u32>,
     pub(crate) channel_binding: [u8; 32],
+    /// The page origin the WebSocket upgrade came from, which the server checked is trusted.
+    pub(crate) origin: &'a str,
     pub(crate) now: u64,
 }
 
@@ -59,6 +65,12 @@ enum Stage {
     AwaitingHello,
     AwaitingAuthResponse {
         device: TrustedDevice,
+        challenge: String,
+    },
+    /// A browser that isn't paired, signing in with any passkey trusted for its origin.
+    AwaitingPasskeyResponse {
+        device_id: String,
+        device_public_key: Vec<u8>,
         challenge: String,
     },
     AwaitingResumeResponse {
@@ -156,6 +168,11 @@ impl Ceremony {
             Stage::AwaitingAuthResponse { device, challenge } => {
                 Self::auth_response(frame, context, device, &challenge)
             }
+            Stage::AwaitingPasskeyResponse {
+                device_id,
+                device_public_key,
+                challenge,
+            } => Self::passkey_response(frame, context, device_id, device_public_key, &challenge),
             Stage::AwaitingResumeResponse {
                 device,
                 challenge,
@@ -253,27 +270,32 @@ impl Ceremony {
                         ],
                     ) =>
             {
-                let Some(device) = context.trust.device(device_id, context.now).cloned() else {
+                let token = frame["resumeToken"].as_str().unwrap_or_default();
+                let Some(used) = context.resume.peek(
+                    device_id,
+                    token,
+                    context.now,
+                    context.trust.resume_window_ms(),
+                ) else {
+                    return rejected(
+                        "resume-invalid",
+                        "the recent session grant expired or was already used",
+                    );
+                };
+                // The passkey the browser signed in with must still be trusted.
+                let Some(trusted) = context
+                    .trust
+                    .credential(&used.holder.credential_id, context.now)
+                else {
                     return rejected(
                         "unknown-device",
                         "this phone may not open this host; open Komla on your computer to renew access",
                     );
                 };
-                let token = frame["resumeToken"].as_str().unwrap_or_default();
-                if context
-                    .resume
-                    .peek(
-                        device_id,
-                        token,
-                        context.now,
-                        context.trust.resume_window_ms(),
-                    )
-                    .is_none()
-                {
-                    return rejected(
-                        "resume-invalid",
-                        "the recent session grant expired or was already used",
-                    );
+                let device = TrustedDevice {
+                    device_id: used.holder.device_id,
+                    device_public_key: used.holder.device_public_key,
+                    ..trusted.clone()
                 };
                 let challenge = URL_SAFE_NO_PAD.encode(random_bytes::<32>());
                 let reply = json!({ "type": "pair:resume-challenge", "challenge": challenge });
@@ -283,6 +305,49 @@ impl Ceremony {
                     token: token.to_owned(),
                 };
                 self.deadline = Some(context.now + AUTH_CEREMONY_TIMEOUT_MS);
+                CeremonyOutcome::Reply(reply)
+            }
+            Some("passkey")
+                if only_keys(
+                    frame,
+                    &[
+                        "type",
+                        "protocolVersion",
+                        "mode",
+                        "devicePublicKey",
+                        "capabilities",
+                    ],
+                ) =>
+            {
+                let Some(device_public_key) = frame["devicePublicKey"]
+                    .as_str()
+                    .and_then(decode_base64)
+                    .filter(|key| public_key_from_spki(key).is_ok())
+                else {
+                    return rejected(
+                        "device-signature-failed",
+                        "the browser's sign-in key is malformed",
+                    );
+                };
+                let Some(rp_id) = context.trust.rp_id_for(context.origin, context.now) else {
+                    return rejected(
+                        "unknown-device",
+                        "this phone may not open this host; open Komla on your computer to renew access",
+                    );
+                };
+                let challenge = URL_SAFE_NO_PAD.encode(random_bytes::<32>());
+                let reply = json!({
+                    "type": "pair:auth-challenge",
+                    "challenge": challenge,
+                    "rpId": rp_id,
+                    "origin": context.origin,
+                });
+                self.stage = Stage::AwaitingPasskeyResponse {
+                    device_id: fingerprint(&device_public_key),
+                    device_public_key,
+                    challenge,
+                };
+                self.deadline = Some(context.now + PASSKEY_TIMEOUT_MS);
                 CeremonyOutcome::Reply(reply)
             }
             Some("register") => rejected(
@@ -310,6 +375,33 @@ impl Ceremony {
         )
     }
 
+    /// The passkey a browser that isn't paired answered with: any trusted for its origin, with the
+    /// browser's own key signing the session in place of an installation key.
+    fn passkey_response(
+        frame: &Value,
+        context: CeremonyContext<'_>,
+        device_id: String,
+        device_public_key: Vec<u8>,
+        challenge: &str,
+    ) -> CeremonyOutcome {
+        let credential_id = frame["authenticationResponse"]["id"]
+            .as_str()
+            .unwrap_or_default();
+        let Some(trusted) = context
+            .trust
+            .credential(credential_id, context.now)
+            .filter(|trusted| trusted.origin == context.origin)
+        else {
+            return rejected("unknown-credential", "this passkey is not trusted here");
+        };
+        let device = TrustedDevice {
+            device_id,
+            device_public_key,
+            ..trusted.clone()
+        };
+        Self::auth_response(frame, context, device, challenge)
+    }
+
     fn auth_response(
         frame: &Value,
         context: CeremonyContext<'_>,
@@ -324,10 +416,12 @@ impl Ceremony {
         {
             return rejected("internal", "expected pair:auth-response");
         }
+        let signed_challenge =
+            URL_SAFE_NO_PAD.encode(passkey_challenge(challenge, &context.channel_binding));
         let counter = match verify_assertion(
             &frame["authenticationResponse"],
             &ExpectedAssertion {
-                challenge,
+                challenge: &signed_challenge,
                 origin: &device.origin,
                 rp_id: &device.rp_id,
                 credential_id: &device.credential_id,
@@ -339,7 +433,7 @@ impl Ceremony {
         };
         let stored = context
             .counters
-            .get(&device.device_id)
+            .get(&device.credential_id)
             .copied()
             .unwrap_or(0);
         if (stored != 0 || counter != 0) && counter <= stored {
@@ -360,7 +454,9 @@ impl Ceremony {
                 "the browser installation key did not sign this session",
             );
         }
-        context.counters.insert(device.device_id.clone(), counter);
+        context
+            .counters
+            .insert(device.credential_id.clone(), counter);
         let verified_at = context.now;
         Self::authenticated(context, device, verified_at)
     }
@@ -390,12 +486,16 @@ impl Ceremony {
             );
         }
         // Another connection may have redeemed it meanwhile; a grant yields one session.
-        let Some(verified_at) = context.resume.consume(
-            &device.device_id,
-            token,
-            context.now,
-            context.trust.resume_window_ms(),
-        ) else {
+        let Some(verified_at) = context
+            .resume
+            .consume(
+                &device.device_id,
+                token,
+                context.now,
+                context.trust.resume_window_ms(),
+            )
+            .map(|used| used.verified_at)
+        else {
             return rejected(
                 "resume-invalid",
                 "the recent session grant expired or was already used",
@@ -410,7 +510,7 @@ impl Ceremony {
         verified_at: u64,
     ) -> CeremonyOutcome {
         let grant = context.resume.issue(
-            &device.device_id,
+            ResumeHolder::of(&device),
             verified_at,
             context.now,
             context.trust.resume_window_ms(),
@@ -478,6 +578,7 @@ mod tests {
                     resume: &mut self.resume,
                     counters: &mut self.counters,
                     channel_binding: self.binding,
+                    origin: ORIGIN,
                     now,
                 },
             )
@@ -503,8 +604,13 @@ mod tests {
         fn auth_response(&self, challenge: &str, counter: u32, binding: &[u8; 32]) -> Value {
             json!({
                 "type": "pair:auth-response",
-                "authenticationResponse":
-                    self.passkey.assert(challenge, ORIGIN, "mac.tail1.ts.net", 0x05, counter),
+                "authenticationResponse": self.passkey.assert(
+                    &URL_SAFE_NO_PAD.encode(passkey_challenge(challenge, binding)),
+                    ORIGIN,
+                    "mac.tail1.ts.net",
+                    0x05,
+                    counter,
+                ),
                 "deviceSignature": self.sign("authenticate", challenge, binding),
             })
         }
@@ -649,12 +755,47 @@ mod tests {
         };
         let challenge = challenge["challenge"].as_str().unwrap().to_owned();
 
-        let replayed_binding = fixture.auth_response(&challenge, 0, &[9; 32]);
+        let mut replayed_binding = fixture.auth_response(&challenge, 0, &fixture.binding.clone());
+        replayed_binding["deviceSignature"] =
+            json!(fixture.sign("authenticate", &challenge, &[9; 32]));
 
         assert_eq!(
             reason(fixture.run(&mut ceremony, replayed_binding, 20)),
             "device-signature-failed"
         );
+    }
+
+    #[test]
+    fn a_passkey_signature_made_for_another_session_is_rejected() {
+        let mut fixture = Fixture::new();
+        for signed in [
+            // Over the challenge itself, as another endpoint could ask a page for.
+            None,
+            // Over this challenge, for another endpoint's session.
+            Some([9; 32]),
+        ] {
+            let mut ceremony = Ceremony::new();
+            let CeremonyOutcome::Reply(challenge) = fixture.run(&mut ceremony, fixture.hello(), 10)
+            else {
+                panic!("expected a challenge");
+            };
+            let challenge = challenge["challenge"].as_str().unwrap().to_owned();
+            let mut relayed = fixture.auth_response(&challenge, 0, &fixture.binding.clone());
+            relayed["authenticationResponse"] = fixture.passkey.assert(
+                &signed.map_or(challenge.clone(), |binding| {
+                    URL_SAFE_NO_PAD.encode(passkey_challenge(&challenge, &binding))
+                }),
+                ORIGIN,
+                "mac.tail1.ts.net",
+                0x05,
+                0,
+            );
+
+            assert_eq!(
+                reason(fixture.run(&mut ceremony, relayed, 20)),
+                "signature-failed"
+            );
+        }
     }
 
     #[test]
@@ -700,6 +841,147 @@ mod tests {
         assert_eq!(
             reason(fixture.run(&mut ceremony, response, 40)),
             "counter-regression"
+        );
+    }
+
+    /// A browser that isn't paired signs in with the trusted passkey and the key it made.
+    fn passkey_sign_in(
+        fixture: &mut Fixture,
+        browser: &HostIdentity,
+        passkey: &TestPasskey,
+    ) -> (Value, CeremonyOutcome) {
+        let mut ceremony = Ceremony::new();
+        let hello = json!({
+            "type": "pair:hello",
+            "protocolVersion": 2,
+            "mode": "passkey",
+            "devicePublicKey": encode_base64(browser.spki_der()),
+        });
+        let CeremonyOutcome::Reply(challenge) = fixture.run(&mut ceremony, hello, 10) else {
+            panic!("expected a challenge");
+        };
+        let text = challenge["challenge"].as_str().unwrap().to_owned();
+        let binding = fixture.binding;
+        let response = json!({
+            "type": "pair:auth-response",
+            "authenticationResponse": passkey.assert(
+                &URL_SAFE_NO_PAD.encode(passkey_challenge(&text, &binding)),
+                ORIGIN,
+                "mac.tail1.ts.net",
+                0x05,
+                0,
+            ),
+            "deviceSignature": encode_base64(
+                &browser.sign_p1363(&device_proof("authenticate", &text, &binding))
+            ),
+        });
+        let outcome = fixture.run(&mut ceremony, response, 20);
+        (challenge, outcome)
+    }
+
+    #[test]
+    fn signs_in_a_browser_that_is_not_paired_with_a_trusted_passkey_and_its_own_key() {
+        let mut fixture = Fixture::new();
+        let browser = HostIdentity::generate();
+        let passkey = TestPasskey {
+            key: fixture.passkey.key.clone(),
+            credential_id: fixture.passkey.credential_id.clone(),
+        };
+
+        let (challenge, outcome) = passkey_sign_in(&mut fixture, &browser, &passkey);
+
+        assert_eq!(challenge["type"], "pair:auth-challenge");
+        assert_eq!(challenge["rpId"], "mac.tail1.ts.net");
+        assert!(challenge.get("credentialId").is_none());
+        let CeremonyOutcome::Authenticated {
+            device,
+            reply,
+            resume_token,
+            ..
+        } = outcome
+        else {
+            panic!("expected sign-in, got {outcome:?}");
+        };
+        assert_eq!(device.device_id, browser.fingerprint());
+        assert_eq!(reply["deviceId"], browser.fingerprint());
+        assert_eq!(reply["credentialId"], passkey.credential_id);
+
+        // Its grant resumes with the browser's own key, not the paired phone's.
+        fixture.resume.release(&resume_token, 50);
+        let mut ceremony = Ceremony::new();
+        let resume = json!({
+            "type": "pair:hello",
+            "protocolVersion": 2,
+            "mode": "resume",
+            "deviceId": browser.fingerprint(),
+            "resumeToken": resume_token,
+        });
+        let CeremonyOutcome::Reply(challenge) = fixture.run(&mut ceremony, resume, 60) else {
+            panic!("expected a resume challenge");
+        };
+        let text = challenge["challenge"].as_str().unwrap().to_owned();
+        let response = json!({
+            "type": "pair:resume-response",
+            "deviceSignature": fixture.sign("resume", &text, &fixture.binding.clone()),
+        });
+        assert_eq!(
+            reason(fixture.run(&mut ceremony, response, 70)),
+            "device-signature-failed"
+        );
+
+        let mut ceremony = Ceremony::new();
+        let resume = json!({
+            "type": "pair:hello",
+            "protocolVersion": 2,
+            "mode": "resume",
+            "deviceId": browser.fingerprint(),
+            "resumeToken": resume_token,
+        });
+        let CeremonyOutcome::Reply(challenge) = fixture.run(&mut ceremony, resume, 80) else {
+            panic!("expected a resume challenge");
+        };
+        let text = challenge["challenge"].as_str().unwrap().to_owned();
+        let binding = fixture.binding;
+        let response = json!({
+            "type": "pair:resume-response",
+            "deviceSignature": encode_base64(
+                &browser.sign_p1363(&device_proof("resume", &text, &binding))
+            ),
+        });
+        assert!(matches!(
+            fixture.run(&mut ceremony, response, 90),
+            CeremonyOutcome::Authenticated { .. }
+        ));
+    }
+
+    #[test]
+    fn refuses_a_passkey_sign_in_with_a_passkey_the_desktop_does_not_trust() {
+        let mut fixture = Fixture::new();
+        let mut stranger = TestPasskey::new();
+        stranger.credential_id = "c3RyYW5nZXI".to_owned();
+
+        let (_, outcome) = passkey_sign_in(&mut fixture, &HostIdentity::generate(), &stranger);
+
+        assert_eq!(reason(outcome), "unknown-credential");
+    }
+
+    #[test]
+    fn a_grant_stops_resuming_once_its_passkey_is_no_longer_trusted() {
+        let mut fixture = Fixture::new();
+        let token = fixture.sign_in(0);
+        fixture.resume.release(&token, 50);
+        fixture.trust = Trust::parse(&trust_json(vec![], 1e12 as u64)).unwrap();
+
+        let resume = json!({
+            "type": "pair:hello",
+            "protocolVersion": 2,
+            "mode": "resume",
+            "deviceId": fixture.device.fingerprint(),
+            "resumeToken": token,
+        });
+        assert_eq!(
+            reason(fixture.run(&mut Ceremony::new(), resume, 60)),
+            "unknown-device"
         );
     }
 

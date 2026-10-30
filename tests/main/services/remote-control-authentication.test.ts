@@ -3,6 +3,7 @@ import { generateKeyPairSync, sign as nodeSign } from 'crypto';
 import {
   Peer,
   buildDeviceProof,
+  buildPasskeyChallenge,
   deviceIdFromPublicKey,
   encodeBase64,
   exportDevicePublicKey,
@@ -25,6 +26,12 @@ import { verifyRegistration } from '../../../src/main/lib/webauthn-verify';
 import { fakeAuthenticate, fakeRegister } from '../../helpers/fake-authenticator';
 
 import type { PairedDeviceRecord } from '../../../src/shared/types/paired-device';
+
+/** What the page asks a passkey to sign for a challenge, on this connection. */
+async function signedChallenge(challenge: string, browser: Peer): Promise<string> {
+  const bytes = await buildPasskeyChallenge(challenge, browser.getChannelBinding());
+  return Buffer.from(bytes).toString('base64url');
+}
 
 const RP_ID = 'mac.tailnet.ts.net';
 const ORIGIN = 'https://mac.tailnet.ts.net';
@@ -236,7 +243,7 @@ describe('RemoteControlCeremony', () => {
     const auth = fakeAuthenticate({
       rpId: RP_ID,
       origin: ORIGIN,
-      challenge: challenge.challenge,
+      challenge: await signedChallenge(challenge.challenge, browser),
       signCount: 1,
       credentialId: seed.credentialIdBytes,
       privateKey: seed.privateKey,
@@ -288,9 +295,14 @@ describe('RemoteControlCeremony', () => {
       origin: ORIGIN,
     });
     const { desktop, browser } = await peers();
+    const holder = {
+      deviceId,
+      devicePublicKey: encodeBase64(devicePublicKey),
+      credentialId: seed.response.id,
+    };
     const resumption = {
-      peek: vi.fn(() => 1_234),
-      consume: vi.fn(() => 1_234),
+      peek: vi.fn(() => ({ holder, verifiedAt: 1_234 })),
+      consume: vi.fn(() => ({ holder, verifiedAt: 1_234 })),
       issue: vi.fn(() => ({ token: 'B'.repeat(43), expiresAt: Date.now() + 120_000 })),
     };
     const completed = vi.fn();
@@ -342,7 +354,7 @@ describe('RemoteControlCeremony', () => {
     });
     expect(resumption.consume).toHaveBeenCalledWith(deviceId, 'A'.repeat(43));
     // The resumed connection must not extend how long ago the passkey was used.
-    expect(resumption.issue).toHaveBeenCalledWith(deviceId, 1_234);
+    expect(resumption.issue).toHaveBeenCalledWith(holder, 1_234);
     expect(completed).toHaveBeenCalledWith('Phone', seed.response.id, 'B'.repeat(43), []);
   });
 
@@ -421,7 +433,16 @@ describe('RemoteControlCeremony', () => {
       origin: ORIGIN,
     });
     const { desktop, browser } = await peers();
-    const resumption = { peek: vi.fn(() => 1_234), consume: vi.fn(() => null), issue: vi.fn() };
+    const holder = {
+      deviceId,
+      devicePublicKey: encodeBase64(devicePublicKey),
+      credentialId: 'credential',
+    };
+    const resumption = {
+      peek: vi.fn(() => ({ holder, verifiedAt: 1_234 })),
+      consume: vi.fn(() => null),
+      issue: vi.fn(),
+    };
     const completed = vi.fn();
     new RemoteControlCeremony({
       peer: desktop,
@@ -490,9 +511,14 @@ describe('RemoteControlCeremony', () => {
       origin: ORIGIN,
     });
     const { desktop, browser } = await peers();
+    const holder = {
+      deviceId,
+      devicePublicKey: encodeBase64(devicePublicKey),
+      credentialId: 'credential',
+    };
     const resumption = {
-      peek: vi.fn(() => 1_234),
-      consume: vi.fn(() => 1_234),
+      peek: vi.fn(() => ({ holder, verifiedAt: 1_234 })),
+      consume: vi.fn(() => ({ holder, verifiedAt: 1_234 })),
       issue: vi.fn(() => ({ token: 'B'.repeat(43), expiresAt: Date.now() + 120_000 })),
     };
     const completed = vi.fn();
@@ -663,5 +689,235 @@ describe('RemoteControlCeremony', () => {
     });
     await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce());
     expect(paired.records).toHaveLength(0);
+  });
+
+  describe("a browser that isn't paired, signing in with a passkey", () => {
+    /** A paired phone's passkey, which another browser may sign in with. */
+    async function pairedPasskey() {
+      const paired = registry();
+      const phoneKeys = await generateDeviceKeyPair();
+      const phonePublicKey = await exportDevicePublicKey(phoneKeys.publicKey);
+      const seed = fakeRegister({ rpId: RP_ID, origin: ORIGIN, challenge: 'seed' });
+      const verifiedSeed = await verifyRegistration({
+        attestationResponse: seed.response,
+        expectedChallenge: 'seed',
+        expectedOrigin: ORIGIN,
+        expectedRPID: RP_ID,
+      });
+      if (!verifiedSeed.ok) throw new Error(verifiedSeed.message);
+      paired.add({
+        deviceId: await deviceIdFromPublicKey(phonePublicKey),
+        devicePublicKey: encodeBase64(phonePublicKey),
+        credentialId: seed.response.id,
+        publicKey: verifiedSeed.credential.publicKey,
+        signCounter: 0,
+        aaguid: null,
+        label: 'Phone',
+        createdAt: new Date().toISOString(),
+        lastUsedAt: null,
+        transports: ['internal'],
+        rpId: RP_ID,
+        origin: ORIGIN,
+      });
+      return { paired, seed };
+    }
+
+    async function signIn(options: {
+      paired: ReturnType<typeof registry>;
+      passkey: ReturnType<typeof fakeRegister>;
+      signWith?: CryptoKey;
+      relayedChallenge?: string;
+    }) {
+      const browserKeys = await generateDeviceKeyPair();
+      const browserPublicKey = await exportDevicePublicKey(browserKeys.publicKey);
+      const { desktop, browser } = await peers();
+      const resumption = {
+        peek: vi.fn(),
+        consume: vi.fn(),
+        issue: vi.fn(() => ({ token: 'B'.repeat(43), expiresAt: Date.now() + 120_000 })),
+      };
+      const completed = vi.fn();
+      new RemoteControlCeremony({
+        peer: desktop,
+        endpoint: { httpOrigin: ORIGIN, rpId: RP_ID },
+        fingerprint: 'f'.repeat(64),
+        registerCeremonyTimeoutMs: 5_000,
+        authCeremonyTimeoutMs: 5_000,
+        passkeyTimeoutMs: 5_000,
+        registry: options.paired,
+        resumption,
+        generateChallenge: () => CHALLENGE,
+        getPairingOffer: () => null,
+        claimPairingOffer: () => false,
+        onPairVerifying: vi.fn(),
+        onAuthenticating: vi.fn(),
+        onPairCompleted: vi.fn(),
+        onAuthCompleted: completed,
+        onCeremonyFailed: vi.fn(),
+      });
+      const challengePromise = nextJson(browser);
+      await browser.sendEncryptedJson({
+        type: 'pair:hello',
+        protocolVersion: 2,
+        mode: 'passkey',
+        devicePublicKey: encodeBase64(browserPublicKey),
+      });
+      const challenge = (await challengePromise) as Record<string, string>;
+      const auth = fakeAuthenticate({
+        rpId: RP_ID,
+        origin: ORIGIN,
+        challenge: options.relayedChallenge ?? (await signedChallenge(challenge.challenge!, browser)),
+        signCount: 0,
+        credentialId: options.passkey.credentialIdBytes,
+        privateKey: options.passkey.privateKey,
+      });
+      const proof = await signDeviceProof(
+        options.signWith ?? browserKeys.privateKey,
+        buildDeviceProof('authenticate', challenge.challenge!, browser.getChannelBinding())
+      );
+      const replyPromise = nextJson(browser);
+      await browser.sendEncryptedJson({
+        type: 'pair:auth-response',
+        authenticationResponse: auth.response,
+        deviceSignature: encodeBase64(proof),
+      });
+      return {
+        challenge,
+        reply: (await replyPromise) as Record<string, unknown>,
+        browserId: await deviceIdFromPublicKey(browserPublicKey),
+        browserPublicKey,
+        resumption,
+        completed,
+      };
+    }
+
+    it('refuses a passkey signature an SSH host could have passed on from its own session', async () => {
+      const { paired, seed } = await pairedPasskey();
+      // A host asks a phone to sign this desktop's challenge, as it stands or bound to the host's
+      // own session, then answers the desktop with a key of its own.
+      for (const relayedChallenge of [
+        Buffer.from(CHALLENGE).toString('base64url'),
+        Buffer.from(
+          await buildPasskeyChallenge(
+            Buffer.from(CHALLENGE).toString('base64url'),
+            new Uint8Array(32).fill(9)
+          )
+        ).toString('base64url'),
+      ]) {
+        const { reply, completed } = await signIn({ paired, passkey: seed, relayedChallenge });
+
+        expect(reply).toMatchObject({ type: 'pair:rejected', reason: 'signature-failed' });
+        expect(completed).not.toHaveBeenCalled();
+      }
+    });
+
+    it("accepts any trusted passkey and ties the browser's grants to its own key", async () => {
+      const { paired, seed } = await pairedPasskey();
+
+      const { challenge, reply, browserId, browserPublicKey, resumption, completed } =
+        await signIn({ paired, passkey: seed });
+
+      expect(challenge).not.toHaveProperty('credentialId');
+      expect(reply).toMatchObject({
+        type: 'pair:authenticated',
+        deviceId: browserId,
+        credentialId: seed.response.id,
+        resumeToken: 'B'.repeat(43),
+      });
+      expect(resumption.issue).toHaveBeenCalledWith(
+        {
+          deviceId: browserId,
+          devicePublicKey: encodeBase64(browserPublicKey),
+          credentialId: seed.response.id,
+        },
+        undefined
+      );
+      expect(completed).toHaveBeenCalledWith('Phone', seed.response.id, 'B'.repeat(43), []);
+    });
+
+    it('refuses a passkey this desktop does not trust', async () => {
+      const { paired } = await pairedPasskey();
+      const stranger = fakeRegister({ rpId: RP_ID, origin: ORIGIN, challenge: 'other' });
+
+      const { reply, completed } = await signIn({ paired, passkey: stranger });
+
+      expect(reply).toMatchObject({ type: 'pair:rejected', reason: 'unknown-credential' });
+      expect(completed).not.toHaveBeenCalled();
+    });
+
+    it("refuses a session the browser's key didn't sign", async () => {
+      const { paired, seed } = await pairedPasskey();
+      const other = await generateDeviceKeyPair();
+
+      const { reply, completed } = await signIn({
+        paired,
+        passkey: seed,
+        signWith: other.privateKey,
+      });
+
+      expect(reply).toMatchObject({ type: 'pair:rejected', reason: 'device-signature-failed' });
+      expect(completed).not.toHaveBeenCalled();
+    });
+
+    it("resumes with the browser's own key, and not once its passkey is removed", async () => {
+      const { paired, seed } = await pairedPasskey();
+      const browserKeys = await generateDeviceKeyPair();
+      const browserPublicKey = await exportDevicePublicKey(browserKeys.publicKey);
+      const browserId = await deviceIdFromPublicKey(browserPublicKey);
+      const holder = {
+        deviceId: browserId,
+        devicePublicKey: encodeBase64(browserPublicKey),
+        credentialId: seed.response.id,
+      };
+      const resume = async () => {
+        const { desktop, browser } = await peers();
+        new RemoteControlCeremony({
+          peer: desktop,
+          endpoint: { httpOrigin: ORIGIN, rpId: RP_ID },
+          fingerprint: 'f'.repeat(64),
+          registerCeremonyTimeoutMs: 5_000,
+          authCeremonyTimeoutMs: 5_000,
+          passkeyTimeoutMs: 5_000,
+          registry: paired,
+          resumption: {
+            peek: vi.fn(() => ({ holder, verifiedAt: 1_234 })),
+            consume: vi.fn(() => ({ holder, verifiedAt: 1_234 })),
+            issue: vi.fn(() => ({ token: 'C'.repeat(43), expiresAt: Date.now() + 120_000 })),
+          },
+          generateChallenge: () => CHALLENGE,
+          getPairingOffer: () => null,
+          claimPairingOffer: () => false,
+          onPairVerifying: vi.fn(),
+          onAuthenticating: vi.fn(),
+          onPairCompleted: vi.fn(),
+          onAuthCompleted: vi.fn(),
+          onCeremonyFailed: vi.fn(),
+        });
+        const challengePromise = nextJson(browser);
+        await browser.sendEncryptedJson({
+          type: 'pair:hello',
+          protocolVersion: 2,
+          mode: 'resume',
+          deviceId: browserId,
+          resumeToken: 'A'.repeat(43),
+        });
+        const challenge = (await challengePromise) as Record<string, string>;
+        if (challenge.type !== 'pair:resume-challenge') return challenge;
+        const proof = await signDeviceProof(
+          browserKeys.privateKey,
+          buildDeviceProof('resume', challenge.challenge!, browser.getChannelBinding())
+        );
+        const replyPromise = nextJson(browser);
+        await browser.sendEncryptedJson({
+          type: 'pair:resume-response',
+          deviceSignature: encodeBase64(proof),
+        });
+        return (await replyPromise) as Record<string, string>;
+      };
+
+      expect(await resume()).toMatchObject({ type: 'pair:authenticated', deviceId: browserId });
+      paired.records.length = 0;
+      expect(await resume()).toMatchObject({ type: 'pair:rejected', reason: 'unknown-device' });
+    });
   });
 });

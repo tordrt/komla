@@ -11,6 +11,7 @@ import { join, resolve } from 'path';
 import {
   Peer,
   buildDeviceProof,
+  buildPasskeyChallenge,
   decodeBinaryAppFrame,
   deviceIdFromPublicKey,
   encodeBinaryTerminalInput,
@@ -35,6 +36,13 @@ const hasTmux = spawnSync('tmux', ['-V']).status === 0;
 
 function base64url(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url');
+}
+
+/** What the page asks a passkey to sign for a challenge, on this connection. */
+async function signedChallenge(challenge: string, connection: { binding(): Uint8Array }) {
+  return Buffer.from(await buildPasskeyChallenge(challenge, connection.binding())).toString(
+    'base64url'
+  );
 }
 
 async function freePort(): Promise<number> {
@@ -253,7 +261,7 @@ describe.skipIf(process.platform === 'win32' || !hasTmux)('phone server on an SS
     const { response } = fakeAuthenticate({
       rpId: RP_ID,
       origin: ORIGIN,
-      challenge: challenge.challenge as string,
+      challenge: await signedChallenge(challenge.challenge as string, connection),
       signCount,
       credentialId: CREDENTIAL_ID,
       privateKey: phone.passkey,
@@ -637,6 +645,69 @@ describe.skipIf(process.platform === 'win32' || !hasTmux)('phone server on an SS
     resumed.close();
   });
 
+  it("signs in a browser that isn't paired with the phone's passkey, then resumes with its own key", async () => {
+    const browserKeys = await generateDeviceKeyPair();
+    const browserPublicKey = await exportDevicePublicKey(browserKeys.publicKey);
+    const browserId = await deviceIdFromPublicKey(browserPublicKey);
+    const connection = new PhoneConnection(url, fingerprint);
+    await connection.open();
+    await connection.send({
+      type: 'pair:hello',
+      protocolVersion: 2,
+      mode: 'passkey',
+      devicePublicKey: encodeBase64(browserPublicKey),
+    });
+    const challenge = await connection.next((frame) => frame.type === 'pair:auth-challenge');
+    expect(challenge).toMatchObject({ rpId: RP_ID, origin: ORIGIN });
+    expect(challenge).not.toHaveProperty('credentialId');
+    signCount += 1;
+    const { response } = fakeAuthenticate({
+      rpId: RP_ID,
+      origin: ORIGIN,
+      challenge: await signedChallenge(challenge.challenge as string, connection),
+      signCount,
+      credentialId: CREDENTIAL_ID,
+      privateKey: phone.passkey,
+    });
+    const proof = buildDeviceProof('authenticate', challenge.challenge as string, connection.binding());
+    await connection.send({
+      type: 'pair:auth-response',
+      authenticationResponse: response,
+      deviceSignature: encodeBase64(await signDeviceProof(browserKeys.privateKey, proof)),
+    });
+    const authenticated = await connection.next((frame) => frame.type === 'pair:authenticated');
+    expect(authenticated).toMatchObject({ deviceId: browserId, label: 'iPhone' });
+    await connection.send({ type: 'app:workspaces:list', requestId: 'r1' });
+    await connection.next((frame) => frame.type === 'app:workspaces');
+    connection.close();
+    await connection.waitClosed();
+    await new Promise((done) => setTimeout(done, 200));
+
+    const resumed = new PhoneConnection(url, fingerprint);
+    await resumed.open();
+    await resumed.send({
+      type: 'pair:hello',
+      protocolVersion: 2,
+      mode: 'resume',
+      deviceId: browserId,
+      resumeToken: authenticated.resumeToken,
+    });
+    const resumeChallenge = await resumed.next((frame) => frame.type === 'pair:resume-challenge');
+    const resumeProof = buildDeviceProof(
+      'resume',
+      resumeChallenge.challenge as string,
+      resumed.binding()
+    );
+    await resumed.send({
+      type: 'pair:resume-response',
+      deviceSignature: encodeBase64(await signDeviceProof(browserKeys.privateKey, resumeProof)),
+    });
+    expect(await resumed.next((frame) => frame.type === 'pair:authenticated')).toMatchObject({
+      deviceId: browserId,
+    });
+    resumed.close();
+  });
+
   it('refuses another origin, a wrong passkey and a pinned fingerprint mismatch', async () => {
     await expect(
       new PhoneConnection(url, fingerprint, 'https://evil.ts.net').open()
@@ -656,7 +727,7 @@ describe.skipIf(process.platform === 'win32' || !hasTmux)('phone server on an SS
     const { response } = fakeAuthenticate({
       rpId: RP_ID,
       origin: ORIGIN,
-      challenge: challenge.challenge as string,
+      challenge: await signedChallenge(challenge.challenge as string, connection),
       signCount: 1_000,
       credentialId: CREDENTIAL_ID,
       privateKey: impostor,

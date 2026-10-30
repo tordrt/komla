@@ -30,6 +30,7 @@ export {
 export { verifySignature } from './crypto/signature';
 export {
   buildDeviceProof,
+  buildPasskeyChallenge,
   deviceIdFromPublicKey,
   exportDevicePublicKey,
   generateDeviceKeyPair,

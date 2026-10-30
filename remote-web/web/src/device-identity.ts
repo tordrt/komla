@@ -17,7 +17,13 @@ export interface PendingDeviceIdentity {
 }
 
 export interface StoredDeviceIdentity extends PendingDeviceIdentity {
+  /** The passkey it signed in with; empty while a browser that isn't paired signs in. */
   credentialId: string;
+  /**
+   * Made by a browser that isn't paired, to sign in with any passkey the desktop trusts: the
+   * desktop doesn't know this key, so it signs in again with a passkey, never as a paired one.
+   */
+  signedIn?: true;
 }
 
 export interface EnrollmentDeviceIdentity {
@@ -64,7 +70,9 @@ export async function stageEnrollmentDeviceIdentity(
   onStaged: (identity: StoredDeviceIdentity) => void,
   persist: (identity: StoredDeviceIdentity) => Promise<void> = saveDeviceIdentity
 ): Promise<StoredDeviceIdentity> {
-  const storedIdentity = { ...identity, credentialId };
+  // Paired now: the desktop knows this key, whatever it was made for.
+  const { signedIn: _, ...pending } = identity as StoredDeviceIdentity;
+  const storedIdentity = { ...pending, credentialId };
   await persist(storedIdentity);
   onStaged(storedIdentity);
   return storedIdentity;

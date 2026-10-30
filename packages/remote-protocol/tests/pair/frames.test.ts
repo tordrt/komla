@@ -60,6 +60,30 @@ describe('parsePairFrame — pair:hello', () => {
     ).toBeNull();
   });
 
+  it("accepts a passkey hello only with the browser's sign-in key and no device id", () => {
+    const hello = {
+      type: 'pair:hello',
+      protocolVersion: PAIR_PROTOCOL_VERSION,
+      mode: 'passkey',
+      devicePublicKey: 'AAAA',
+      capabilities: ['binary-frames'],
+    };
+    expect(parsePairFrame(hello)).toMatchObject({ mode: 'passkey' });
+    expect(parsePairFrame({ ...hello, devicePublicKey: undefined })).toBeNull();
+    expect(parsePairFrame({ ...hello, deviceId: 'a'.repeat(64) })).toBeNull();
+  });
+
+  it('accepts an auth challenge that names no passkey, for a passkey sign-in', () => {
+    expect(
+      parsePairFrame({
+        type: 'pair:auth-challenge',
+        challenge: 'c',
+        rpId: 'mac.tail1.ts.net',
+        origin: 'https://mac.tail1.ts.net',
+      })
+    ).toMatchObject({ type: 'pair:auth-challenge' });
+  });
+
   it('rejects a register hello missing pairingSecret', () => {
     expect(
       parsePairFrame({

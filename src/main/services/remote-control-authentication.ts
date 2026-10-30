@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'crypto';
 
 import {
   buildDeviceProof,
+  buildPasskeyChallenge,
   decodeBase64,
   deviceIdFromPublicKey,
   encodeBase64,
@@ -24,6 +25,10 @@ import { verifyAuthentication } from '../lib/webauthn-verify-auth';
 
 import type { PairedDeviceRecord } from '../../shared/types/paired-device';
 import type { RemoteControlError } from '../../shared/types/remote-control';
+import type {
+  RemoteSessionResumeHolder,
+  RemoteSessionResumeUse,
+} from '../lib/remote-session-resumption';
 
 const logger = createLogger('RemoteControlAuthentication');
 
@@ -78,9 +83,12 @@ export interface RemoteControlCeremonyOptions {
   /** The phone app build this desktop serves, so a page running another one reloads. */
   servedBuild?: () => string | undefined;
   resumption?: {
-    issue(deviceId: string, verifiedAt?: number): { token: string; expiresAt: number };
-    peek(deviceId: string, token: string): number | null;
-    consume(deviceId: string, token: string): number | null;
+    issue(
+      holder: RemoteSessionResumeHolder,
+      verifiedAt?: number
+    ): { token: string; expiresAt: number };
+    peek(deviceId: string, token: string): RemoteSessionResumeUse | null;
+    consume(deviceId: string, token: string): RemoteSessionResumeUse | null;
   };
   onPairVerifying: (deviceLabel: string) => void;
   onAuthenticating: () => void;
@@ -100,12 +108,15 @@ export class RemoteControlCeremony {
   private readonly peer: Peer;
   private readonly opts: RemoteControlCeremonyOptions;
   private stage: CeremonyStage = 'awaiting-hello';
-  private mode: 'register' | 'authenticate' | 'resume' | null = null;
+  private mode: 'register' | 'authenticate' | 'resume' | 'passkey' | null = null;
   private deviceLabel: string | null = null;
   private challenge: string | null = null;
   private registeringDevicePublicKey: Uint8Array | null = null;
   private registeringDeviceId: string | null = null;
   private authenticatingDevice: PairedDeviceRecord | null = null;
+  // The key that signs this session: a paired browser's installation key, or the key an unpaired
+  // browser made to sign in with a passkey. Its resume grants work only with it.
+  private signingKey: { deviceId: string; devicePublicKey: Uint8Array } | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private cancelled = false;
   // For register-mode only: the one-time secret we matched against at hello.
@@ -223,31 +234,87 @@ export class RemoteControlCeremony {
       this.armTimer(this.opts.registerCeremonyTimeoutMs);
       return;
     }
-    const stored = this.reconnectingDevice(frame.deviceId);
-    if (!stored) return;
     this.requestedCapabilities = frame.capabilities ?? [];
-    if (frame.mode === 'resume') {
-      // Checked here, used up only once the proof verifies, so a dropped attempt keeps it.
-      if ((this.opts.resumption?.peek(frame.deviceId, frame.resumeToken) ?? null) === null) {
-        this.fail('resume-invalid', 'the recent session grant expired or was already used');
-        return;
-      }
-      this.resumeToken = frame.resumeToken;
-      this.mode = 'resume';
-      this.authenticatingDevice = stored;
-      this.opts.onAuthenticating();
-      await this.sendResumeChallenge();
-      this.stage = 'awaiting-resume-response';
-      this.armTimer(this.opts.authCeremonyTimeoutMs);
+    if (frame.mode === 'passkey') await this.startPasskeySignIn(frame.devicePublicKey);
+    else if (frame.mode === 'resume') await this.startResume(frame.deviceId, frame.resumeToken);
+    else await this.startAuthentication(frame.deviceId);
+  }
+
+  /** A browser that isn't paired: any trusted passkey, with the key it sent signing the session. */
+  private async startPasskeySignIn(encodedKey: string): Promise<void> {
+    const devicePublicKey = decodeBase64(encodedKey);
+    if (!devicePublicKey) {
+      this.fail('device-signature-failed', 'browser sign-in key was malformed');
       return;
     }
-    // mode === 'authenticate'
+    const deviceId = await deviceIdFromPublicKey(devicePublicKey);
+    if (this.cancelled) return;
+    this.mode = 'passkey';
+    this.signingKey = { deviceId, devicePublicKey };
+    this.opts.onAuthenticating();
+    await this.sendAuthChallenge(null);
+    this.stage = 'awaiting-auth-response';
+    this.armTimer(this.opts.passkeyTimeoutMs);
+  }
+
+  /** A grant, which the browser key it names must redeem while its passkey is still trusted. */
+  private async startResume(deviceId: string, resumeToken: string): Promise<void> {
+    // Checked here, used up only once the proof verifies, so a dropped attempt keeps it.
+    const use = this.opts.resumption?.peek(deviceId, resumeToken) ?? null;
+    if (!use) {
+      this.fail('resume-invalid', 'the recent session grant expired or was already used');
+      return;
+    }
+    const stored = this.trustedPasskey(use.holder.credentialId, 'unknown-device');
+    if (!stored) return;
+    const devicePublicKey = decodeBase64(use.holder.devicePublicKey);
+    if (!devicePublicKey) {
+      this.fail('internal', 'the grant holds a malformed browser key');
+      return;
+    }
+    this.resumeToken = resumeToken;
+    this.mode = 'resume';
+    this.authenticatingDevice = stored;
+    this.signingKey = { deviceId, devicePublicKey };
+    this.opts.onAuthenticating();
+    await this.sendResumeChallenge();
+    this.stage = 'awaiting-resume-response';
+    this.armTimer(this.opts.authCeremonyTimeoutMs);
+  }
+
+  /** A paired browser, with the passkey it paired with. */
+  private async startAuthentication(deviceId: string): Promise<void> {
+    const stored = this.reconnectingDevice(deviceId);
+    if (!stored) return;
+    const devicePublicKey = decodeBase64(stored.devicePublicKey);
+    if (!devicePublicKey) {
+      this.fail('internal', 'the paired browser installation key is malformed');
+      return;
+    }
     this.mode = 'authenticate';
     this.authenticatingDevice = stored;
+    this.signingKey = { deviceId: stored.deviceId, devicePublicKey };
     this.opts.onAuthenticating();
     await this.sendAuthChallenge(stored);
     this.stage = 'awaiting-auth-response';
     this.armTimer(this.opts.passkeyTimeoutMs);
+  }
+
+  /** The trusted passkey a browser signs in with, or null once the ceremony has failed. */
+  private trustedPasskey(
+    credentialId: string,
+    reason: 'unknown-device' | 'unknown-credential'
+  ): PairedDeviceRecord | null {
+    const stored = this.opts.registry.getByCredentialId(credentialId);
+    if (
+      !stored ||
+      stored.rpId !== this.opts.endpoint.rpId ||
+      stored.origin !== this.opts.endpoint.httpOrigin
+    ) {
+      this.fail(reason, 'this passkey is not trusted here');
+      return null;
+    }
+    return stored;
   }
 
   /** The paired record of a device signing in again, or null once the ceremony has failed. */
@@ -293,7 +360,8 @@ export class RemoteControlCeremony {
     await this.send(challengeFrame);
   }
 
-  private async sendAuthChallenge(device: PairedDeviceRecord): Promise<void> {
+  /** Asks for the paired device's passkey, or with null for any passkey this desktop trusts. */
+  private async sendAuthChallenge(device: PairedDeviceRecord | null): Promise<void> {
     const challengeBytes = this.opts.generateChallenge();
     const challenge = encodeBase64Url(challengeBytes);
     this.challenge = challenge;
@@ -302,7 +370,7 @@ export class RemoteControlCeremony {
       challenge,
       rpId: this.opts.endpoint.rpId,
       origin: this.opts.endpoint.httpOrigin,
-      credentialId: device.credentialId,
+      ...(device ? { credentialId: device.credentialId } : {}),
     };
     await this.send(challengeFrame);
   }
@@ -410,24 +478,30 @@ export class RemoteControlCeremony {
       return;
     }
     this.stage = 'verifying';
-    if (!this.challenge || !this.authenticatingDevice) {
+    if (!this.challenge || !this.signingKey) {
       this.fail('internal', 'auth response arrived without challenge in flight');
       return;
     }
 
     const credentialId = frame.authenticationResponse.id;
-    const stored = this.authenticatingDevice;
+    // A passkey sign-in takes any passkey this desktop trusts; a paired browser, its own.
+    const stored =
+      this.mode === 'passkey'
+        ? this.trustedPasskey(credentialId, 'unknown-credential')
+        : this.authenticatingDevice;
+    if (!stored) {
+      if (this.mode !== 'passkey') this.fail('internal', 'auth response without a paired device');
+      return;
+    }
     if (credentialId !== stored.credentialId) {
       this.fail('unknown-credential', 'passkey does not belong to this browser installation');
       return;
     }
-    const devicePublicKey = decodeBase64(stored.devicePublicKey);
     const deviceSignature = decodeBase64(frame.deviceSignature);
     if (
-      !devicePublicKey ||
       !deviceSignature ||
       !(await verifyDeviceProof(
-        devicePublicKey,
+        this.signingKey.devicePublicKey,
         buildDeviceProof('authenticate', this.challenge, this.peer.getChannelBinding()),
         deviceSignature
       ))
@@ -437,7 +511,9 @@ export class RemoteControlCeremony {
     }
     const result = await verifyAuthentication({
       authenticationResponse: frame.authenticationResponse,
-      expectedChallenge: this.challenge,
+      expectedChallenge: encodeBase64Url(
+        await buildPasskeyChallenge(this.challenge, this.peer.getChannelBinding())
+      ),
       expectedOrigin: this.opts.endpoint.httpOrigin,
       expectedRPID: this.opts.endpoint.rpId,
       storedCredential: {
@@ -474,18 +550,17 @@ export class RemoteControlCeremony {
       return;
     }
     this.stage = 'verifying';
-    if (!this.challenge || !this.authenticatingDevice) {
+    if (!this.challenge || !this.authenticatingDevice || !this.signingKey) {
       this.fail('internal', 'resume response arrived without challenge in flight');
       return;
     }
     const stored = this.authenticatingDevice;
-    const devicePublicKey = decodeBase64(stored.devicePublicKey);
+    const signingKey = this.signingKey;
     const deviceSignature = decodeBase64(frame.deviceSignature);
     if (
-      !devicePublicKey ||
       !deviceSignature ||
       !(await verifyDeviceProof(
-        devicePublicKey,
+        signingKey.devicePublicKey,
         buildDeviceProof('resume', this.challenge, this.peer.getChannelBinding()),
         deviceSignature
       ))
@@ -499,7 +574,8 @@ export class RemoteControlCeremony {
     const verifiedAt =
       this.resumeToken === null
         ? null
-        : (this.opts.resumption?.consume(stored.deviceId, this.resumeToken) ?? null);
+        : (this.opts.resumption?.consume(signingKey.deviceId, this.resumeToken)?.verifiedAt ??
+          null);
     if (verifiedAt === null) {
       this.fail('resume-invalid', 'the recent session grant expired or was already used');
       return;
@@ -520,9 +596,17 @@ export class RemoteControlCeremony {
   }
 
   private async finishAuthenticated(device: PairedDeviceRecord): Promise<void> {
+    // The browser that signed in: a paired one's installation key, or an unpaired one's own.
+    const deviceId = this.signingKey?.deviceId ?? device.deviceId;
+    const devicePublicKey = this.signingKey
+      ? encodeBase64(this.signingKey.devicePublicKey)
+      : device.devicePublicKey;
     let grant: { token: string; expiresAt: number } | undefined;
     try {
-      grant = this.opts.resumption?.issue(device.deviceId, this.resumedVerifiedAt);
+      grant = this.opts.resumption?.issue(
+        { deviceId, devicePublicKey, credentialId: device.credentialId },
+        this.resumedVerifiedAt
+      );
     } catch (err) {
       logger.warn('failed to issue remote session resumption grant', err);
     }
@@ -532,7 +616,7 @@ export class RemoteControlCeremony {
     const build = this.opts.servedBuild?.();
     const authenticated: PairAuthenticated = {
       type: 'pair:authenticated',
-      deviceId: device.deviceId,
+      deviceId,
       credentialId: device.credentialId,
       label: device.label,
       ...(grant ? { resumeToken: grant.token, resumeExpiresAt: grant.expiresAt } : {}),

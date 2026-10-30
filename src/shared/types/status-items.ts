@@ -137,7 +137,10 @@ export interface AgentStatusItem extends StatusItemContent {
 /** An agent's item as windows get it: without its popover's page, which they fetch when wanted. */
 export type WindowStatusItem = Omit<AgentStatusItem, 'popover'>;
 
-/** An item from status-items.json that runs in a workspace: a command Komla runs on an interval. */
+/**
+ * An item from status-items.json or a plugin that runs in a workspace: a command Komla runs on an
+ * interval.
+ */
 export interface StatusCommand {
   id: string;
   intervalSeconds: number;
@@ -149,6 +152,8 @@ export interface StatusCommand {
   popover?: boolean;
   /** One of the project's Actions, by title or id, that clicking the item runs. */
   action?: string;
+  /** The name of the plugin the item comes from, when it isn't status-items.json's. */
+  plugin?: string;
 }
 
 export interface StatusCommandList {

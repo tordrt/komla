@@ -167,6 +167,7 @@ settings/
 ├── actions.json        # Your quick commands (Saved Prompts and Terminal Commands)
 ├── status-items.json   # Your custom status bar items (commands run on an interval)
 ├── hooks.json          # Commands run on agent and workspace events, or on a timer
+├── plugins.json        # Which plugins in ../plugins/ run, as their files were when turned on
 ├── README.md           # This documentation
 ├── AGENTS.md           # AI context (open standard)
 ├── GEMINI.md           # AI context for Gemini CLI

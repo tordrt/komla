@@ -316,6 +316,14 @@ app, restores and shows the resolved workspace window, and focuses it when dispa
 The input is the complete desired state for that resource. JSON CLI output uses stable domain
 results and errors rather than MCP response envelopes.
 
+`plugins` lists the folders in `~/.komla/plugins/` with a `komla-plugin.json`, each with its
+`state` (`on`, `off` or `changed`) and the status bar items and hooks it adds, and under `invalid`
+the ones Komla can't read, with why, so each id is listed once. Apply takes
+only the plugins to change, as `{"plugins": [{"id": "github-prs", "enabled": true}]}`, and the
+confirmation lists every command a plugin turned on runs. Turning one on records a digest of its
+files, so a plugin whose files change shows as `changed` and stops until it is turned on again (ADR
+0007). `komla settings schema plugins` also prints the manifest's fields.
+
 Appearance covers the theme, a custom theme's colors, the accent color and the corner radius, and
 it is the same in every project. GET responses include the read-only built-in `themes` and any
 `problems` with the current custom theme; callers omit both from PUT bodies. Komla rejects

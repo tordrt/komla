@@ -118,6 +118,7 @@ import type { GitIdentityStatus } from '../shared/types/git-identity';
 import type { KomlaSkillStatus } from '../shared/types/komla-skill';
 import type { NoteSummary } from '../shared/types/notes';
 import type { NotificationIntegrationUpdate } from '../shared/types/notification-integration';
+import type { PluginInfo } from '../shared/types/plugins';
 import type { PullRequestStatus } from '../shared/types/pull-request';
 import type { MachineResourceUsage } from '../shared/types/resource-usage';
 import type { SettingsHistoryEntry } from '../shared/types/settings-history';
@@ -1788,6 +1789,25 @@ const api = {
       callback(result);
     ipcRenderer.on(IPC.STATUS_COMMAND_RESULT, handler);
     return () => ipcRenderer.removeListener(IPC.STATUS_COMMAND_RESULT, handler);
+  },
+
+  /** The plugins in the plugins folder, read again first. */
+  listPlugins: (): Promise<PluginInfo[]> => ipcRenderer.invoke(IPC.PLUGINS_LIST),
+
+  /**
+   * Turns a plugin on with the digest of the files the user saw, which fails once they've changed,
+   * or off with `false`; resolves with every plugin.
+   */
+  setPluginEnabled: (id: string, digest: string | false): Promise<PluginInfo[]> =>
+    ipcRenderer.invoke(IPC.PLUGINS_SET_ENABLED, id, digest),
+
+  openPluginsFolder: (): Promise<void> => ipcRenderer.invoke(IPC.PLUGINS_OPEN_FOLDER),
+
+  onPluginsChange: (callback: (plugins: PluginInfo[]) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, plugins: PluginInfo[]): void =>
+      callback(plugins);
+    ipcRenderer.on(IPC.PLUGINS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC.PLUGINS_CHANGED, handler);
   },
 
   onSettingsHistoryChange: (callback: () => void): (() => void) => {

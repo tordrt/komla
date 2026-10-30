@@ -546,6 +546,13 @@ export const IPC = {
   // Hooks (main → renderer): a hook failed, or hooks.json can't be read
   HOOK_NOTICE: 'hooks:notice',
 
+  // Plugins
+  PLUGINS_LIST: 'plugins:list',
+  PLUGINS_SET_ENABLED: 'plugins:set-enabled',
+  PLUGINS_OPEN_FOLDER: 'plugins:open-folder',
+  // Plugin events (main → renderer)
+  PLUGINS_CHANGED: 'plugins:changed',
+
   // Notes
   NOTES_LIST: 'notes:list',
   NOTES_CREATE: 'notes:create',

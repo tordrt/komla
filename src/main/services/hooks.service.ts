@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 import { HOOK_EVENTS, type HookEventDetails } from '../../shared/types/hooks';
 import { STATUS_ITEM_ID_PATTERN } from '../../shared/types/status-items';
-import { hasWorkspaceFiles } from '../../shared/types/workspace';
+import { hasWorkspaceFiles, isSshWorkspace } from '../../shared/types/workspace';
 import { onHookEvent } from '../lib/hook-events';
 import { createLogger } from '../lib/logger';
 import { parseSettingsFile, readSettingsFile } from '../lib/settings-file';
@@ -21,6 +21,7 @@ import {
 } from './workspace-command';
 import { workspaceService } from './workspace.service';
 
+import type { PluginHook, PluginSource } from './plugins.service';
 import type { Workspace } from '../../shared/types/workspace';
 
 const logger = createLogger('HooksService');
@@ -37,7 +38,7 @@ export const INTERVAL_TICK_MS = 5000;
 export const MAX_PARALLEL_INTERVAL_RUNS = 4;
 
 // The descriptions are what `komla settings schema hooks` tells agents.
-const hookSchema = z
+export const hookSchema = z
   .object({
     id: z
       .string()
@@ -95,7 +96,7 @@ export const hooksFileSchema = z
       "Commands Komla runs when something happens in a workspace, or on a timer. Apply the whole file: keep every hook the user didn't ask to change. While a hook still runs for a terminal, that terminal's next event doesn't start it again; when one fails in a workspace, Komla says why once, until it succeeds there again.",
   });
 
-type Hook = z.infer<typeof hookSchema>;
+export type Hook = z.infer<typeof hookSchema>;
 
 /** Reads hooks.json; a problem names what is wrong with the file instead. */
 export function parseHooksFile(content: string): { hooks: Hook[]; problem?: string } {
@@ -129,6 +130,9 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
+/** A hook from hooks.json, or from a plugin that runs. */
+type HookEntry = Hook & { plugin?: PluginSource };
+
 /** What a hook runs for: an event, or its interval coming round. */
 type HookRun = Omit<HookEventDetails, 'workspaceId' | 'event'> & { event: Hook['event'] };
 
@@ -138,7 +142,9 @@ type HookRun = Omit<HookEventDetails, 'workspaceId' | 'event'> & { event: Hook['
  * computer. A failing hook is reported once until it succeeds again.
  */
 export class HooksService {
-  private hooks: Hook[] = [];
+  private hooks: HookEntry[] = [];
+  private fileHooks: Hook[] = [];
+  private pluginHooks: PluginHook[] = [];
   private reportedProblem: string | undefined;
   private readonly running = new Set<string>();
   private readonly failing = new Set<string>();
@@ -171,12 +177,29 @@ export class HooksService {
       content = undefined;
     }
     const parsed = content === undefined ? { hooks: [] } : parseHooksFile(content);
-    this.hooks = parsed.hooks;
+    this.fileHooks = parsed.hooks;
     if (parsed.problem) logger.warn(parsed.problem);
     if (parsed.problem && parsed.problem !== this.reportedProblem) {
       this.dependencies.notify(`${parsed.problem}. Its hooks don't run until it's fixed.`);
     }
     this.reportedProblem = parsed.problem;
+    this.merge();
+  }
+
+  /** The hooks of the plugins that run, after hooks.json's, which win on an id. */
+  setPluginHooks(hooks: PluginHook[]): void {
+    this.pluginHooks = hooks;
+    this.merge();
+  }
+
+  private merge(): void {
+    const ids = new Set(this.fileHooks.map((hook) => hook.id));
+    const pluginHooks = this.pluginHooks.filter((hook) => {
+      if (!ids.has(hook.id)) return true;
+      logger.warn(`Leaving out ${hook.id} from plugin ${hook.plugin.name}: hooks.json has it`);
+      return false;
+    });
+    this.hooks = [...this.fileHooks, ...pluginHooks];
     this.failing.clear();
     // Edited hooks run again soon, as status items do.
     this.intervalStarts.clear();
@@ -204,7 +227,7 @@ export class HooksService {
     }
   }
 
-  private intervalWorkspaces(hook: Hook): Workspace[] {
+  private intervalWorkspaces(hook: HookEntry): Workspace[] {
     return this.dependencies.listWorkspaces().filter(
       (workspace) =>
         workspace.status !== 'trashed' &&
@@ -215,7 +238,7 @@ export class HooksService {
     );
   }
 
-  private matchesProjects(hook: Hook, workspace: Workspace): boolean {
+  private matchesProjects(hook: HookEntry, workspace: Workspace): boolean {
     if (!hook.projects) return true;
     const keys = this.dependencies.getProjectKeys(workspace);
     return hook.projects.some((name) => keys.includes(name));
@@ -235,12 +258,12 @@ export class HooksService {
     await Promise.all(hooks.map((hook) => this.runHook(hook, workspace, details)));
   }
 
-  private runKey(hook: Hook, workspace: Workspace | undefined, terminalId?: string): string {
+  private runKey(hook: HookEntry, workspace: Workspace | undefined, terminalId?: string): string {
     return `${hook.id}\0${workspace?.id ?? ''}\0${terminalId ?? ''}`;
   }
 
   private async runHook(
-    hook: Hook,
+    hook: HookEntry,
     workspace: Workspace | undefined,
     details: HookRun
   ): Promise<void> {
@@ -275,7 +298,8 @@ export class HooksService {
           [...this.failing].some((other) => other.startsWith(`${hook.id}\0`)));
       this.failing.add(failingKey);
       if (!reported) {
-        this.dependencies.notify(`Hook "${hook.id}" in hooks.json failed: ${reason}`);
+        const source = hook.plugin ? `from plugin ${hook.plugin.name}` : 'in hooks.json';
+        this.dependencies.notify(`Hook "${hook.id}" ${source} failed: ${reason}`);
       }
     } finally {
       this.running.delete(key);
@@ -283,12 +307,18 @@ export class HooksService {
   }
 
   private environment(
-    hook: Hook,
+    hook: HookEntry,
     workspace: Workspace | undefined,
     details: HookRun
   ): Record<string, string> {
+    // A plugin's commands on this computer get its folder, which an SSH host doesn't have.
+    const onThisComputer = hook.runOn === 'local' || !workspace || !isSshWorkspace(workspace);
     // `komla notify` sends a hook's notifications as the hook's, which run no hooks.
-    const own = { KOMLA_EVENT: details.event, KOMLA_HOOK_ID: hook.id };
+    const own = {
+      KOMLA_EVENT: details.event,
+      KOMLA_HOOK_ID: hook.id,
+      ...(hook.plugin && onThisComputer && { KOMLA_PLUGIN_DIR: hook.plugin.dir }),
+    };
     if (!workspace) return own;
     const project = this.dependencies
       .getProjectKeys(workspace)

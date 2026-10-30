@@ -102,6 +102,7 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
     ...rows('Agent integrations', 'Claude Code', 'Codex CLI', 'Antigravity CLI', 'OpenCode'),
     card('Notifications'),
     ...rows('Notifications', 'Hooks endpoint', 'Activity spinner', 'Notification sounds'),
+    card('Plugins', 'plugin extensions extension add-ons status bar items hooks'),
     card('MCP and CLI access', 'capabilities'),
     ...rows('MCP and CLI access', 'Komla CLI', 'MCP server'),
     {
@@ -285,7 +286,7 @@ const PROJECT_SEARCH_INDEX: readonly ProjectSearchEntry[] = [
 const PAGE_KEYWORDS: Record<string, string> = {
   general: 'preferences',
   agent: 'agent cli presets',
-  integrations: 'mcp hooks',
+  integrations: 'mcp hooks plugins extensions',
   projects: 'repository repositories folders target branch workspace setup commands scripts',
   git: 'defaults pull request fast-forward push rebase merge',
   actions: 'actions prompts templates',

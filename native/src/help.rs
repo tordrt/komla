@@ -281,7 +281,7 @@ const COMMANDS: &[Command] = &[
         usages: &["get <resource> [--scope <scope>]", "apply <resource> [--scope <scope>] [--file <path>]"],
         summary: "Read settings, or change them once confirmed",
         description: &[
-            "Reads or replaces Quick Commands (actions), Workspace Setup (workspace-setup), the project's automations, the theme (appearance), status bar items (status-items), hooks, keyboard shortcuts (shortcuts), terminal settings (terminal), or agent presets' arguments and level pickers (agents).",
+            "Reads or replaces Quick Commands (actions), Workspace Setup (workspace-setup), the project's automations, the theme (appearance), status bar items (status-items), hooks, which plugins run (plugins), keyboard shortcuts (shortcuts), terminal settings (terminal), or agent presets' arguments and level pickers (agents).",
             "apply takes JSON on stdin or from --file and waits while Komla shows the change and the user applies or cancels it.",
         ],
         options: &[
@@ -299,7 +299,7 @@ const COMMANDS: &[Command] = &[
         index: "<resource>",
         usages: &["<resource> [--json]"],
         summary: "List the fields a settings file takes",
-        description: &["Prints the fields status-items, hooks, shortcuts, terminal or agents take, with their limits, defaults and what they do."],
+        description: &["Prints the fields status-items, hooks, plugins, shortcuts, terminal or agents take, with their limits, defaults and what they do. For plugins, it also prints what a plugin's komla-plugin.json takes."],
         options: &[("--json", "Print it as JSON Schema.")],
         examples: &["komla settings schema hooks"],
     },

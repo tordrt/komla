@@ -104,6 +104,18 @@ prompt, and a Terminal Command runs a shell command in a terminal. Code, `action
 `komla settings actions` call these Actions (prompt and terminal actions, action launch); user-facing
 copy says Quick Command, Saved Prompt, and Terminal Command.
 
+## Plugins
+
+**Plugin**:
+A folder in `~/.komla/plugins/` whose `komla-plugin.json` names it and lists its Contributions, so
+an integration installs, updates and turns off as one. Komla runs it only while it is turned on and
+its files are as they were when the user turned it on.
+_Avoid_: Extension, add-on
+
+**Contribution**:
+One status bar item or hook a Plugin adds, in the format of the user's own `status-items.json` or
+`hooks.json`, with the id `<plugin>.<id>`.
+
 ## Workspace Status
 
 Say which of these you mean rather than "git status":

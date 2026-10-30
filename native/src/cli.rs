@@ -97,10 +97,10 @@ const NOTIFY_USAGE: &str =
     "usage: komla notify <title> [--body <text>] [--kind <kind>] [--color <color>] [--badge <text>] \
 [--icon <file|svg>] [--icon-color <color>]\n       komla notify [<title>] -- <command> [arguments]";
 const SETTINGS_USAGE: &str = "usage: komla settings <get|apply> \
-<actions|workspace-setup|automations|appearance|status-items|hooks|shortcuts|terminal|agents> \
+<actions|workspace-setup|automations|appearance|status-items|hooks|plugins|shortcuts|terminal|agents> \
 [--scope <scope>] [--file <path>]";
 const SETTINGS_SCHEMA_USAGE: &str =
-    "usage: komla settings schema <status-items|hooks|shortcuts|terminal|agents> [--json]";
+    "usage: komla settings schema <status-items|hooks|plugins|shortcuts|terminal|agents> [--json]";
 const STATUS_USAGE: &str =
     "usage: komla status set <id> <text> [--icon <file|svg>] [--icon-color <color>] [--tone <success|warning|error|info>] \
 [--color <color>] [--tooltip <text>] [--link <url>] [--popover <html> | --popover-file <path|->] \
@@ -1236,7 +1236,7 @@ fn settings_command(
             }
             format!("/settings/actions?scope={scope}")
         }
-        "workspace-setup" | "automations" | "appearance" | "status-items" | "hooks"
+        "workspace-setup" | "automations" | "appearance" | "status-items" | "hooks" | "plugins"
         | "shortcuts" | "terminal" | "agents" => {
             if scope.is_some() {
                 bail!("{resource} does not accept --scope");
@@ -1245,7 +1245,7 @@ fn settings_command(
         }
         _ => bail!(
             "settings resource must be actions, workspace-setup, automations, appearance, \
-             status-items, hooks, shortcuts, terminal or agents"
+             status-items, hooks, plugins, shortcuts, terminal or agents"
         ),
     };
     if !environment.scoped_url && environment.terminal_id.is_none() {
@@ -4389,6 +4389,7 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
             "automations",
             "status-items",
             "hooks",
+            "plugins",
             "shortcuts",
             "terminal",
             "agents",

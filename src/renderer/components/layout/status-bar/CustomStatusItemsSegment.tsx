@@ -391,7 +391,8 @@ export function useCustomStatusItems(): {
   const { runAction, actionInputDialog } = useActionLauncher(workspaceId ?? '');
 
   // Actions load with the tab bar; reading them again finds one added since.
-  const runNamedAction = async (name: string) => {
+  // `plugin` names the plugin the item comes from, when it isn't status-items.json's.
+  const runNamedAction = async (name: string, plugin?: string) => {
     const store = useActionsStore.getState();
     let action = findStatusItemAction(store.actions, name, projectId);
     if (!action) {
@@ -403,7 +404,7 @@ export function useCustomStatusItems(): {
       useToastStore
         .getState()
         .addToast(
-          `This project has no quick command named “${name}”. Check status-items.json.`,
+          `This project has no quick command named “${name}”. Check ${plugin ? `the plugin ${plugin}` : 'status-items.json'}.`,
           'error'
         );
     }
@@ -420,7 +421,7 @@ export function useCustomStatusItems(): {
         ? {
             text: name,
             tone: 'error',
-            tooltip: `${name} failed in status-items.json: ${result.error}`,
+            tooltip: `${name} failed in ${command.plugin ? `the plugin ${command.plugin}` : 'status-items.json'}: ${result.error}`,
           }
         : null;
     const staleReason = !result.content
@@ -449,7 +450,7 @@ export function useCustomStatusItems(): {
               onClose={close}
               onRunAction={(action) => {
                 close();
-                void runNamedAction(action);
+                void runNamedAction(action, command.plugin);
               }}
               onCommandDone={() => void runStatusCommand(workspaceId, command)}
             />
@@ -464,7 +465,7 @@ export function useCustomStatusItems(): {
           key={key}
           {...item}
           hint={`runs ${action}`}
-          onClick={() => void runNamedAction(action)}
+          onClick={() => void runNamedAction(action, command.plugin)}
         />
       );
     } else {

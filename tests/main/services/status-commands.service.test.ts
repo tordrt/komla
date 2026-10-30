@@ -384,7 +384,7 @@ describe('StatusCommandsService', () => {
       content: { text: 'All green' },
       ranAt: 42,
     });
-    expect(run).toHaveBeenCalledWith(workspace, 'gh pr checks', 15_000);
+    expect(run).toHaveBeenCalledWith(workspace, 'gh pr checks', 15_000, undefined);
   });
 
   it("runs an item's popover command and keeps the buttons it names", async () => {
@@ -416,7 +416,7 @@ describe('StatusCommandsService', () => {
       workspaceId: 'ws-1',
       content: { markdown: 'Checks', buttons: [{ label: 'Rerun', run: 'rerun' }] },
     });
-    expect(run).toHaveBeenCalledWith(workspace, 'gh pr view', 15_000);
+    expect(run).toHaveBeenCalledWith(workspace, 'gh pr view', 15_000, undefined);
     await expect(service.runPopover('ws-1', 'missing')).resolves.toMatchObject({ content: null });
   });
 
@@ -465,7 +465,7 @@ describe('StatusCommandsService', () => {
     );
 
     await expect(service.runButton('ws-1', 'pr', 'rerun')).resolves.toEqual({});
-    expect(run).toHaveBeenCalledWith(workspace, 'gh run rerun', 60_000);
+    expect(run).toHaveBeenCalledWith(workspace, 'gh run rerun', 60_000, undefined);
     for (const name of ['deploy', 'toString', '__proto__']) {
       await expect(service.runButton('ws-1', 'pr', name)).resolves.toEqual({
         error: `status-items.json has no command ${name} for pr`,
@@ -576,13 +576,13 @@ describe('StatusCommandsService', () => {
     await expect(first).resolves.toMatchObject({ content: { text: '7d 12%' }, runOn: 'local' });
     await expect(second).resolves.toMatchObject({ content: { text: '7d 12%' } });
     expect(runLocal).toHaveBeenCalledOnce();
-    expect(runLocal).toHaveBeenCalledWith('usage', 15_000);
+    expect(runLocal).toHaveBeenCalledWith('usage', 15_000, undefined);
 
     runLocal.mockImplementation(async () => '{"html": "<p>usage</p>"}');
     await service.runPopover('ws-1', 'usage');
     expect(servePopoverPage).toHaveBeenCalledWith('status-popover:::usage', expect.any(String));
     await expect(service.runButton('ws-1', 'usage', 'reset')).resolves.toEqual({});
-    expect(runLocal).toHaveBeenLastCalledWith('reset', 60_000);
+    expect(runLocal).toHaveBeenLastCalledWith('reset', 60_000, undefined);
     expect(run).not.toHaveBeenCalled();
   });
 
@@ -713,5 +713,81 @@ describe('serveStatusPopoverPage', () => {
       key: 'status-item-popover:7:ws-1:ci',
       fonts: true,
     });
+  });
+});
+
+describe('StatusCommandsService with plugins', () => {
+  const plugin = { id: 'github-prs', name: 'GitHub PRs', dir: '/plugins/prs' };
+  const pluginItem = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    command: 'node "$KOMLA_PLUGIN_DIR/pr.js"',
+    intervalSeconds: 60,
+    plugin,
+    ...extra,
+  });
+
+  it("lists a plugin's items after the file's, naming the plugin", () => {
+    const service = createService({ items: [{ id: 'ci', command: 'gh pr checks' }] });
+    service.setPluginItems([pluginItem('github-prs.pr')]);
+
+    expect(service.list('ws-1').items).toEqual([
+      { id: 'ci', intervalSeconds: 60 },
+      { id: 'github-prs.pr', intervalSeconds: 60, plugin: 'GitHub PRs' },
+    ]);
+  });
+
+  it("leaves out a plugin's item when status-items.json has its id", () => {
+    const service = createService({ items: [{ id: 'github-prs.pr', command: 'mine' }] });
+    service.setPluginItems([pluginItem('github-prs.pr')]);
+
+    expect(service.list('ws-1').items).toEqual([{ id: 'github-prs.pr', intervalSeconds: 60 }]);
+  });
+
+  it("gives a plugin's commands its folder where they run on this computer", async () => {
+    const run = vi.fn(async () => 'ok');
+    const runLocal = vi.fn(async () => 'ok');
+    const sshWorkspace = { ...workspace, id: 'ws-ssh', backend: { kind: 'ssh' } } as Workspace;
+    const service = createService(
+      { items: [] },
+      {
+        run,
+        runLocal,
+        getWorkspace: (id) => [workspace, sshWorkspace].find((candidate) => candidate.id === id),
+      }
+    );
+    service.setPluginItems([
+      pluginItem('github-prs.pr'),
+      pluginItem('github-prs.usage', { runOn: 'local' }),
+    ]);
+
+    await service.run('ws-1', 'github-prs.pr');
+    await service.run('ws-ssh', 'github-prs.pr');
+    await service.run('ws-1', 'github-prs.usage');
+
+    const env = { KOMLA_PLUGIN_DIR: '/plugins/prs' };
+    expect(run).toHaveBeenNthCalledWith(1, workspace, expect.any(String), 15_000, env);
+    // The SSH host doesn't have the plugin's folder.
+    expect(run).toHaveBeenNthCalledWith(2, sshWorkspace, expect.any(String), 15_000, undefined);
+    expect(runLocal).toHaveBeenCalledWith(expect.any(String), 15_000, env);
+  });
+
+  it("reads a plugin's icon files from its folder", async () => {
+    const readIcon = vi.fn(async () => 'data:image/svg+xml;base64,x');
+    const service = createService({ items: [] }, { readIcon });
+    service.setPluginItems([pluginItem('github-prs.pr', { icon: 'icons/pr.svg' })]);
+
+    await service.run('ws-1', 'github-prs.pr');
+
+    expect(readIcon).toHaveBeenCalledWith('icons/pr.svg', '/plugins/prs');
+  });
+
+  it('tells the listeners when the plugin items change', () => {
+    const service = createService({ items: [] });
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    service.setPluginItems([pluginItem('github-prs.pr')]);
+
+    expect(listener).toHaveBeenCalledOnce();
   });
 });

@@ -24,6 +24,7 @@ vi.mock('../../../src/main/services/ssh-workspace.service', () => ({
 import {
   remoteWorkspaceScript,
   runLocalWorkspaceCommand,
+  wslEnv,
 } from '../../../src/main/services/workspace-command';
 
 import type { SshWorkspaceBackend, Workspace } from '../../../src/shared/types';
@@ -167,5 +168,14 @@ describe.skipIf(process.platform === 'win32')('workspace commands', () => {
       expect(Date.now() - started).toBeLessThan(10_000);
       await waitUntilStopped(Number(readFileSync(join(directory, 'child.pid'), 'utf8')));
     });
+  });
+});
+
+describe('wslEnv', () => {
+  it('names the variables for WSL, translating the ones that hold a path', () => {
+    expect(wslEnv('USERPROFILE/p', ['KOMLA_EVENT', 'KOMLA_PLUGIN_DIR'])).toBe(
+      'USERPROFILE/p:KOMLA_EVENT:KOMLA_PLUGIN_DIR/p'
+    );
+    expect(wslEnv(undefined, ['KOMLA_EVENT'])).toBe('KOMLA_EVENT');
   });
 });

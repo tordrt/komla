@@ -2,8 +2,8 @@
 
 Change Komla's settings through the `komla` CLI, from this computer, an SSH host or a VM. Komla
 shows each change and saves it only if the user applies it. Settings → General → Settings history
-records every change except automations, so the user can undo it there later; tell them that after
-you change something.
+records every change except automations and plugins, so the user can undo it there later; tell them
+that after you change something.
 
 ## What goes where
 
@@ -15,6 +15,7 @@ you change something.
 | An agent Komla starts with a prompt on a schedule    | `komla skill automations`   | `automations`                    |
 | A hook, a shortcut, or the terminal's font or cursor | this guide                  | `hooks`, `shortcuts`, `terminal` |
 | An agent preset's arguments or level picker          | this guide                  | `agents`                         |
+| Status items and hooks to share or turn off as one   | this guide                  | `plugins`                        |
 
 For anything else, such as notification settings or SSH hosts, point the user to Komla's Settings.
 
@@ -25,7 +26,8 @@ SSH host or in a VM can belong to another Komla.
 ## Change settings
 
 1. `komla settings get <resource>` reads the current settings. For `status-items`, `hooks`,
-   `shortcuts`, `terminal` and `agents`, `komla settings schema <resource>` lists every field.
+   `plugins`, `shortcuts`, `terminal` and `agents`, `komla settings schema <resource>` lists every
+   field.
    When `get` returns a `problem` for `status-items` or `hooks`, Komla can't read that file, and
    `content` shows what it holds: apply corrected settings without `problem` and `content`.
 2. If the user hasn't said what they want, ask them and wait.
@@ -76,6 +78,23 @@ ended.
 
 An `interval` hook runs again and again, so keep its last state in a file and notify only when it
 changes. Tags a hook sets count as the user's, so Komla's Tag from pull requests stops moving them.
+
+## Plugins
+
+A plugin is a folder in `{{komlaDir}}/plugins/` whose `komla-plugin.json` bundles status bar items
+and hooks, in the formats `status-items` and `hooks` take, so they can be shared and turned on or
+off together. Make one when the user wants an integration to share or to keep apart from their own
+settings; otherwise change `status-items` and `hooks`. `komla settings schema plugins` shows what
+the manifest takes.
+
+Komla runs a plugin only once the user turns it on, and stops it when any of its files change until
+they turn it on again, so writing the folder runs nothing. Write it on this computer, then turn it on
+with `komla settings apply plugins` and `{"plugins": [{"id": "<plugin id>", "enabled": true}]}`.
+Each item and hook gets the id `<plugin id>.<id>`. Commands that run on this computer get
+`KOMLA_PLUGIN_DIR`, the plugin's folder, for scripts it ships; an SSH workspace's commands run on
+its host, without that folder. Keep a plugin's state, such as an `interval` hook's last result,
+outside its folder, since any change there stops it. Its links must lead to files in its folder, and
+the folder itself can't be a link.
 
 ## Shortcuts, agents and the terminal
 

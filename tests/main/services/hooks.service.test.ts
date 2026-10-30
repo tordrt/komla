@@ -395,6 +395,63 @@ describe('HooksService', () => {
   });
 });
 
+describe('HooksService with plugins', () => {
+  const plugin = { id: 'github-prs', name: 'GitHub PRs', dir: '/plugins/prs' };
+  const pluginHook = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    event: 'agent.done' as const,
+    command: 'node "$KOMLA_PLUGIN_DIR/done.js"',
+    timeoutSeconds: 60,
+    plugin,
+    ...extra,
+  });
+
+  it("runs a plugin's hooks with its folder where they run on this computer", async () => {
+    const sshWorkspace = { ...workspace, id: 'ws-ssh', backend: { kind: 'ssh' } } as Workspace;
+    const { service, dependencies } = createService(
+      { hooks: [] },
+      { getWorkspace: (id) => [workspace, sshWorkspace].find((candidate) => candidate.id === id) }
+    );
+    service.setPluginHooks([pluginHook('github-prs.done')]);
+
+    await service.fire(done);
+    await service.fire({ ...done, workspaceId: 'ws-ssh' });
+
+    const envs = vi.mocked(dependencies.run).mock.calls.map((call) => call[2]);
+    expect(envs[0]).toMatchObject({
+      KOMLA_HOOK_ID: 'github-prs.done',
+      KOMLA_PLUGIN_DIR: '/plugins/prs',
+    });
+    // The SSH host doesn't have the plugin's folder.
+    expect(envs[1]).not.toHaveProperty('KOMLA_PLUGIN_DIR');
+  });
+
+  it("leaves out a plugin's hook when hooks.json has its id", async () => {
+    const { service, dependencies } = createService({
+      hooks: [{ id: 'github-prs.done', event: 'agent.done', command: 'mine' }],
+    });
+    service.setPluginHooks([pluginHook('github-prs.done')]);
+
+    await service.fire(done);
+
+    expect(vi.mocked(dependencies.run).mock.calls.map((call) => call[1])).toEqual(['mine']);
+  });
+
+  it('names the plugin when its hook fails', async () => {
+    const { service, dependencies } = createService(
+      { hooks: [] },
+      { run: vi.fn(async () => Promise.reject(new Error('exit 1'))) }
+    );
+    service.setPluginHooks([pluginHook('github-prs.done')]);
+
+    await service.fire(done);
+
+    expect(dependencies.notify).toHaveBeenCalledWith(
+      'Hook "github-prs.done" from plugin GitHub PRs failed: exit 1'
+    );
+  });
+});
+
 describe('publishAttentionHookEvent', () => {
   it.each([
     ['turn-complete', 'agent.done'],

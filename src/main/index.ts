@@ -58,6 +58,7 @@ import {
   setFolderWindowOpener,
 } from './services/open-folder-request';
 import { getKomlaBasePath } from './services/paths';
+import { stopWatchingPlugins, watchPlugins } from './services/plugins.service';
 import { projectService } from './services/project.service';
 import { ptyService } from './services/pty.service';
 import { pullRequestStatusService } from './services/pull-request-status.service';
@@ -756,6 +757,7 @@ void app.whenReady().then(async () => {
     settingsHistoryService.start(),
     watchStatusCommands(),
     watchHooks(),
+    watchPlugins(),
   ]).then((results) => {
     for (const result of results) {
       if (result.status === 'rejected') {
@@ -889,6 +891,7 @@ function finishQuit(): void {
     settingsHistoryService.dispose(),
     stopWatchingStatusCommands(),
     stopWatchingHooks(),
+    stopWatchingPlugins(),
   ])
     .catch((err) => {
       logger.error('Error stopping watchers during quit', { error: String(err) });

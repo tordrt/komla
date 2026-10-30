@@ -43,6 +43,7 @@ export interface SettingsApprovalChange {
 /** Settings files an agent reads and changes whole with `komla settings`. */
 export const SETTINGS_FILE_RESOURCES = [
   'status-items',
+  'plugins',
   'hooks',
   'shortcuts',
   'terminal',

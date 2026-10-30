@@ -69,6 +69,7 @@ import {
 } from './notification-target-resolution.service';
 import { generateNotifyScript } from './notify-script';
 import { getKomlaBasePath } from './paths';
+import { pluginsService } from './plugins.service';
 import { projectService } from './project.service';
 import { createSettingsFiles } from './settings-files';
 import {
@@ -467,6 +468,7 @@ const SETTINGS_SCHEMA_GUIDES: Record<string, string> = {
 /** What the confirmation names for each settings file. */
 const SETTINGS_FILE_TARGETS: Record<SettingsFileResource, string> = {
   'status-items': 'Status bar items',
+  plugins: 'Plugins',
   hooks: 'Hooks',
   shortcuts: 'Keyboard shortcuts',
   terminal: 'Terminal settings',
@@ -1089,6 +1091,7 @@ class HttpServerService {
           update: (updates) => customizationService.updateTerminal(updates),
         },
         presets: agentPresetService,
+        plugins: pluginsService,
       }),
       automations: {
         list: () => automationService.list(),
@@ -1385,6 +1388,8 @@ class HttpServerService {
               : 'appearance');
       const settingsScope = isActions ? (scope as 'global' | 'current-project') : undefined;
       try {
+        // A plugin just copied into the plugins folder may not have been read yet.
+        if (fileResource === 'plugins') await pluginsService.scan();
         if (req.method === 'GET') {
           const read = fileResource
             ? service.readSettingsFile(fileResource)

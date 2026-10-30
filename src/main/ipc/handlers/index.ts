@@ -10,6 +10,7 @@ import { registerGitHandlers } from './git.handlers';
 import { registerHooksHandlers } from './hooks.handlers';
 import { registerLicenseHandlers } from './license.handlers';
 import { registerNotesHandlers } from './notes.handlers';
+import { registerPluginsHandlers } from './plugins.handlers';
 import { registerProjectHandlers } from './project.handlers';
 import { registerRemoteControlHandlers } from './remote-control.handlers';
 import { registerSettingsHandlers } from './settings.handlers';
@@ -48,6 +49,7 @@ export function registerIpcHandlers(): void {
   registerAutomationHandlers();
   registerStatusItemsHandlers();
   registerHooksHandlers();
+  registerPluginsHandlers();
 }
 
 // Re-export individual handler registration functions for testing or selective use
@@ -76,4 +78,5 @@ export {
   registerSettingsHandlers,
   registerStatusItemsHandlers,
   registerHooksHandlers,
+  registerPluginsHandlers,
 };

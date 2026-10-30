@@ -28,6 +28,7 @@ import {
   type StatusPopoverResult,
   type StatusPopoverTheme,
 } from '../../shared/types/status-items';
+import { isSshWorkspace } from '../../shared/types/workspace';
 import { createLogger } from '../lib/logger';
 import { parseSettingsFile, readSettingsFile } from '../lib/settings-file';
 import { isSettingsIconPath, readStatusIcon, statusIconDataUrl } from '../lib/status-icon';
@@ -53,6 +54,7 @@ import {
 } from './workspace-command';
 import { workspaceService } from './workspace.service';
 
+import type { PluginSource, PluginStatusCommand } from './plugins.service';
 import type { Workspace } from '../../shared/types/workspace';
 
 const logger = createLogger('StatusCommandsService');
@@ -78,7 +80,7 @@ const COLOR_DESCRIPTION =
   '`success`, `warning`, `error`, `info`, `muted`, `foreground` or a hex color such as `#e5c07b`';
 
 // The descriptions are what `komla settings schema status-items` tells agents.
-const statusCommandSchema = z
+export const statusCommandSchema = z
   .object({
     id: z
       .string()
@@ -176,7 +178,7 @@ export const statusCommandsFileSchema = z
       "Status bar items whose text comes from a command. Apply the whole file: keep every item the user didn't ask to change. If Komla can't read the file, a warning item in the status bar says what's wrong.",
   });
 
-type ConfiguredStatusCommand = z.infer<typeof statusCommandSchema>;
+export type ConfiguredStatusCommand = z.infer<typeof statusCommandSchema>;
 
 /** Reads status-items.json; a problem names what is wrong with the file instead. */
 export function parseStatusCommandsFile(content: string): {
@@ -422,7 +424,7 @@ export function parseStatusPopoverOutput(
   return { markdown: truncate(markdown, MAX_STATUS_POPOVER_MARKDOWN), buttons };
 }
 
-function itemTimeoutMs(item: ConfiguredStatusCommand): number {
+function itemTimeoutMs(item: StatusCommandItem): number {
   return item.timeoutSeconds === undefined ? STATUS_COMMAND_TIMEOUT_MS : item.timeoutSeconds * 1000;
 }
 
@@ -442,11 +444,19 @@ export interface StatusCommandsDependencies {
   /** False while the workspace can't run commands, as when its SSH host is not connected. */
   canRun(workspace: Workspace): boolean;
   /** Runs the command where the workspace's files are and returns its standard output. */
-  run(workspace: Workspace, command: string, timeoutMs: number): Promise<string>;
+  run(
+    workspace: Workspace,
+    command: string,
+    timeoutMs: number,
+    env?: Record<string, string>
+  ): Promise<string>;
   /** Runs the command on this computer, in the user's home folder, for a `runOn: local` item. */
-  runLocal(command: string, timeoutMs: number): Promise<string>;
-  /** An icon an item or its output names, as an image; undefined when it isn't one. */
-  readIcon(value: string): Promise<string | undefined>;
+  runLocal(command: string, timeoutMs: number, env?: Record<string, string>): Promise<string>;
+  /**
+   * An icon an item or its output names, as an image; undefined when it isn't one. A plugin's
+   * icon files are in its folder, the user's in the settings folder.
+   */
+  readIcon(value: string, pluginDir?: string): Promise<string | undefined>;
   /**
    * Serves an HTML popover's page in Komla's sandbox. Of the pages before it with this key, only
    * the last stays, as it may be on screen while this one loads.
@@ -457,13 +467,18 @@ export interface StatusCommandsDependencies {
 
 type RunCommand = (command: string, timeoutMs: number) => Promise<string>;
 
+/** An item from status-items.json, or from a plugin that runs. */
+type StatusCommandItem = ConfiguredStatusCommand & { plugin?: PluginSource };
+
 /**
  * The status bar items users and agents define in status-items.json: commands Komla runs on an
  * interval in the open workspace, or on this computer for an item that runs there, whose output
  * becomes the item.
  */
 export class StatusCommandsService {
-  private items: ConfiguredStatusCommand[] = [];
+  private items: StatusCommandItem[] = [];
+  private fileItems: ConfiguredStatusCommand[] = [];
+  private pluginItems: PluginStatusCommand[] = [];
   private problem: string | undefined;
   private changedAt = 0;
   private readonly inFlight = new Map<string, Promise<StatusCommandResult>>();
@@ -495,12 +510,31 @@ export class StatusCommandsService {
       content = undefined;
     }
     const parsed = content === undefined ? { items: [] } : parseStatusCommandsFile(content);
-    this.items = parsed.items;
+    this.fileItems = parsed.items;
     this.problem = parsed.problem;
+    if (parsed.problem) logger.warn(parsed.problem);
+    this.merge();
+  }
+
+  /** The items of the plugins that run, after status-items.json's, which win on an id. */
+  setPluginItems(items: PluginStatusCommand[]): void {
+    this.pluginItems = items;
+    this.merge();
+  }
+
+  private merge(): void {
+    const ids = new Set(this.fileItems.map((item) => item.id));
+    const pluginItems = this.pluginItems.filter((item) => {
+      if (!ids.has(item.id)) return true;
+      logger.warn(
+        `Leaving out ${item.id} from plugin ${item.plugin.name}: status-items.json has it`
+      );
+      return false;
+    });
+    this.items = [...this.fileItems, ...pluginItems];
     this.changedAt = this.dependencies.now();
     // Runs under way may run an earlier command, so the next asked for doesn't share them.
     this.inFlight.clear();
-    if (parsed.problem) logger.warn(parsed.problem);
     for (const listener of this.listeners) listener();
   }
 
@@ -511,13 +545,14 @@ export class StatusCommandsService {
     const items: StatusCommand[] = workspace
       ? this.items
           .filter((item) => !item.projects || item.projects.some((name) => keys.includes(name)))
-          .map(({ id, intervalSeconds, runOn, label, popoverCommand, action }) => ({
+          .map(({ id, intervalSeconds, runOn, label, popoverCommand, action, plugin }) => ({
             id,
             intervalSeconds,
             ...(runOn === 'local' && { runOn }),
             ...(label && { label }),
             ...(popoverCommand && { popover: true }),
             ...(action && { action }),
+            ...(plugin && { plugin: plugin.name }),
           }))
       : [];
     return { items, ...(this.problem && { problem: this.problem }), changedAt: this.changedAt };
@@ -563,14 +598,19 @@ export class StatusCommandsService {
     return `${statusCommandScope(workspaceId, item ?? {})}\0${id}`;
   }
 
-  /** Where an item's commands run, unless they can't run now, as while an SSH host is down. */
-  private runner(workspaceId: string, item: ConfiguredStatusCommand): RunCommand | undefined {
+  /**
+   * Where an item's commands run, unless they can't run now, as while an SSH host is down. A
+   * plugin's commands on this computer get its folder, which an SSH host doesn't have.
+   */
+  private runner(workspaceId: string, item: StatusCommandItem): RunCommand | undefined {
+    const pluginEnv = item.plugin && { KOMLA_PLUGIN_DIR: item.plugin.dir };
     if (item.runOn === 'local') {
-      return (command, timeoutMs) => this.dependencies.runLocal(command, timeoutMs);
+      return (command, timeoutMs) => this.dependencies.runLocal(command, timeoutMs, pluginEnv);
     }
     const workspace = this.runnableWorkspace(workspaceId);
     if (!workspace) return undefined;
-    return (command, timeoutMs) => this.dependencies.run(workspace, command, timeoutMs);
+    const env = isSshWorkspace(workspace) ? undefined : pluginEnv;
+    return (command, timeoutMs) => this.dependencies.run(workspace, command, timeoutMs, env);
   }
 
   /** Starts a run, after `after` when one under way started too early to show what changed. */
@@ -606,7 +646,7 @@ export class StatusCommandsService {
             stdout,
             item.icon ? { icon: item.icon, color: item.iconColor } : undefined
           ),
-          (value) => this.dependencies.readIcon(value)
+          (value) => this.dependencies.readIcon(value, item.plugin?.dir)
         ),
         ranAt: this.dependencies.now(),
       };
@@ -655,7 +695,10 @@ export class StatusCommandsService {
     const item = this.items.find((candidate) => candidate.id === id);
     const command =
       item?.commands && Object.hasOwn(item.commands, name) ? item.commands[name] : undefined;
-    if (!item || !command) return { error: `status-items.json has no command ${name} for ${id}` };
+    if (!item || !command) {
+      const source = item?.plugin ? `Plugin ${item.plugin.name}` : 'status-items.json';
+      return { error: `${source} has no command ${name} for ${id}` };
+    }
     const run = this.runner(workspaceId, item);
     if (!run) return { error: "This workspace can't run commands right now" };
     try {
@@ -688,11 +731,11 @@ export const statusCommandsService = new StatusCommandsService({
   getWorkspace: (id) => workspaceService.get(id),
   getProjectKeys: workspaceProjectKeys,
   canRun: canRunWorkspaceCommands,
-  run: (workspace, command, timeoutMs) =>
-    runWorkspaceCommand(workspace, command, { timeoutMs, maxOutput: MAX_OUTPUT }),
-  runLocal: (command, timeoutMs) =>
-    runLocalCommand(homedir(), command, { timeoutMs, maxOutput: MAX_OUTPUT }),
-  readIcon: (value) => readStatusIcon(settingsPath, value),
+  run: (workspace, command, timeoutMs, env) =>
+    runWorkspaceCommand(workspace, command, { env, timeoutMs, maxOutput: MAX_OUTPUT }),
+  runLocal: (command, timeoutMs, env) =>
+    runLocalCommand(homedir(), command, { env, timeoutMs, maxOutput: MAX_OUTPUT }),
+  readIcon: (value, pluginDir) => readStatusIcon(pluginDir ?? settingsPath, value),
   servePopoverPage: serveStatusPopoverPage,
   now: Date.now,
 });

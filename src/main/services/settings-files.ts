@@ -11,11 +11,13 @@ import {
   type AgentPreset,
   type ReasoningLevel,
 } from '../../shared/types/agent-preset';
+import { HOOK_EVENT_LABELS, type HookEvent } from '../../shared/types/hooks';
 import { levelPickerFields, terminalUpdateSchema } from '../ipc/validation/config-ipc.schemas';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { parseSettingsFile } from '../lib/settings-file';
 
 import { hooksFileSchema } from './hooks.service';
+import { PLUGIN_MANIFEST, pluginManifestSchema, type PluginsService } from './plugins.service';
 import {
   commandOutputSchema,
   popoverOutputDescription,
@@ -28,19 +30,10 @@ import type {
   SettingsFileResource,
   TerminalConfig,
 } from '../../shared/types';
-import type { HookEvent } from '../../shared/types/hooks';
+import type { PluginContributionInfo, PluginInfo, PluginState } from '../../shared/types/plugins';
 import type { SettingsSchemaSection } from '../lib/settings-schema';
 
 const FILE_VERSION = 1;
-
-const HOOK_EVENT_LABELS: Record<Exclude<HookEvent, 'interval'>, string> = {
-  'agent.done': 'An agent finishes',
-  'agent.needs-input': 'An agent needs input',
-  'agent.error': 'An agent reports an error',
-  'agent.prompt': 'A prompt is sent to an agent',
-  'workspace.created': 'A workspace is created',
-  'workspace.trashed': 'A workspace is moved to the Trash',
-};
 
 const COMMANDS_WARNING =
   'Komla runs these commands without asking again: on this computer for local workspaces, and on the SSH host for SSH workspaces.';
@@ -333,6 +326,82 @@ function withArguments(command: unknown, program: string, args: string): string 
   return `${start[0]} ${args}${command.slice(start[0].length)}`;
 }
 
+// The descriptions here are what `komla settings schema plugins` tells agents.
+const pluginsSchema = z
+  .object({
+    plugins: z
+      .array(
+        z.looseObject({
+          id: z.string().meta({ description: 'The plugin, as `get` lists it.' }),
+          enabled: z.boolean().meta({
+            description:
+              "`true` turns it on as its files are now, also after they changed; `false` turns it off. `get` shows the rest, such as each plugin's `state` and what it adds, which apply leaves as they are.",
+          }),
+        })
+      )
+      .max(100),
+    invalid: z.array(z.unknown()).optional().meta({
+      description:
+        "The plugins Komla can't read, with why, which can't be turned on until they're fixed. `get` lists them, and apply leaves them out.",
+    }),
+  })
+  .strict()
+  .meta({
+    description: `The plugins in Komla's plugins folder, \`~/.komla/plugins/\`: folders with a \`${PLUGIN_MANIFEST}\` that add status bar items and hooks. Apply only the plugins to change. A plugin runs only while it's turned on and its files are as they were then; a \`changed\` plugin's files changed since, so it doesn't run until it's turned on again.`,
+  });
+
+const PLUGINS_WARNING =
+  "Komla runs these commands, and the plugin's files they use, without asking again: on this computer for local workspaces, and on the SSH host for SSH workspaces. A plugin stops when its files change, until it's turned on again.";
+
+/** A plugin's item or hook as a settings change, with every command it runs. */
+function describeContribution(
+  pluginName: string,
+  contribution: PluginContributionInfo
+): Omit<SettingsApprovalChange, 'operation'> {
+  return {
+    kind: contribution.kind,
+    title: `${pluginName}: ${contribution.title}`,
+    contentLabel: 'Command',
+    content: contribution.command,
+    ...(contribution.moreCommands && {
+      moreContent: contribution.moreCommands.map(({ label, command }) => ({
+        label,
+        content: command,
+      })),
+    }),
+    details: [
+      { label: 'When', value: contribution.when },
+      ...(contribution.runOn === 'local'
+        ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
+        : []),
+      { label: 'Id', value: contribution.id },
+    ],
+  };
+}
+
+/** Why a plugin can't be turned on or off as asked. */
+function pluginProblem(
+  id: string,
+  enabled: boolean,
+  plugin: PluginInfo | undefined,
+  seen: ReadonlySet<string>
+): string | undefined {
+  if (!plugin) return `There is no plugin ${id}; \`komla settings get plugins\` lists them`;
+  if (seen.has(id)) return `${id} is in the list more than once`;
+  if (enabled && (plugin.state === 'invalid' || !plugin.digest)) {
+    return `Plugin ${id} can't be turned on: ${plugin.problem ?? "Komla can't read it"}`;
+  }
+  return undefined;
+}
+
+/**
+ * Whether turning a plugin on or off changes it. A changed plugin no longer runs, but turning it
+ * off forgets the files it was turned on with, so they don't run again if they come back.
+ */
+function changesPlugin(state: PluginState, enabled: boolean): boolean {
+  return enabled ? state !== 'on' : state === 'on' || state === 'changed';
+}
+
 export interface SettingsFilesDependencies {
   settingsPath: string;
   shortcuts: {
@@ -348,6 +417,7 @@ export interface SettingsFilesDependencies {
     list(): AgentPreset[];
     update(id: string, updates: PresetUpdates): void;
   };
+  plugins: Pick<PluginsService, 'list' | 'revision' | 'setEnabled'>;
 }
 
 /** The settings files `komla settings get|apply` reads and changes, beside the theme and Actions. */
@@ -356,8 +426,71 @@ export function createSettingsFiles({
   shortcuts,
   terminal,
   presets,
+  plugins,
 }: SettingsFilesDependencies): Record<SettingsFileResource, SettingsFileAdapter> {
   return {
+    plugins: {
+      name: 'Plugins',
+      schema: [{ schema: pluginsSchema }, { title: PLUGIN_MANIFEST, schema: pluginManifestSchema }],
+      read: () => {
+        // Each id once, so `get`'s entries apply back; one Komla can't read may share an id.
+        const listed = plugins.list().map(({ digest: _digest, ...plugin }) => plugin);
+        const invalid = listed.filter((plugin) => plugin.state === 'invalid');
+        return {
+          plugins: listed
+            .filter((plugin) => plugin.state !== 'invalid')
+            .map(({ id, state, ...plugin }) => ({ id, enabled: state === 'on', state, ...plugin })),
+          ...(invalid.length > 0 && {
+            invalid: invalid.map(({ id, name, folder, problem }) => ({
+              id,
+              name,
+              folder,
+              problem,
+            })),
+          }),
+        };
+      },
+      revision: () => plugins.revision(),
+      prepare(desired) {
+        const parsed = pluginsSchema.safeParse(desired);
+        if (!parsed.success) return { problems: problemsOf(parsed.error) };
+        const listed = plugins.list();
+        // Of plugins with one id, the one that can run, if any.
+        const find = (id: string) =>
+          listed.find((plugin) => plugin.id === id && plugin.state !== 'invalid') ??
+          listed.find((plugin) => plugin.id === id);
+        const problems: string[] = [];
+        const seen = new Set<string>();
+        // The digest of the files the approval shows, so files that change after it don't run.
+        const next: Record<string, string | false> = {};
+        const changes: SettingsApprovalChange[] = [];
+        for (const { id, enabled } of parsed.data.plugins) {
+          const plugin = find(id);
+          const problem = pluginProblem(id, enabled, plugin, seen);
+          seen.add(id);
+          if (problem) problems.push(problem);
+          if (problem || !plugin || !changesPlugin(plugin.state, enabled)) continue;
+          next[id] = enabled ? plugin.digest! : false;
+          for (const contribution of plugin.contributions) {
+            changes.push({
+              operation: enabled ? 'add' : 'delete',
+              ...describeContribution(plugin.name, contribution),
+            });
+          }
+        }
+        if (problems.length > 0) return { problems };
+        return {
+          next,
+          changes,
+          ...(changes.some((change) => change.operation === 'add') && {
+            warning: PLUGINS_WARNING,
+          }),
+        };
+      },
+      write(next) {
+        plugins.setEnabled(next as Record<string, string | false>);
+      },
+    },
     'status-items': commandFile<StatusItemEntry>({
       path: join(settingsPath, 'status-items.json'),
       fileName: 'status-items.json',

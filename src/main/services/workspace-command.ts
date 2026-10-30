@@ -99,6 +99,15 @@ export function runLocalWorkspaceCommand(
   return runLocalCommand(workspace.workingDirectory, command, options);
 }
 
+// Variables that hold a path on this computer, which WSL translates to its own.
+const WSL_PATH_VARIABLES = new Set(['KOMLA_PLUGIN_DIR']);
+
+/** WSLENV naming these variables too, as Windows passes only the ones it names into WSL. */
+export function wslEnv(current: string | undefined, names: string[]): string {
+  const added = names.map((name) => (WSL_PATH_VARIABLES.has(name) ? `${name}/p` : name));
+  return [current, ...added].filter(Boolean).join(':');
+}
+
 /** Runs a command in a folder on this computer and returns what it printed. */
 export function runLocalCommand(
   cwd: string,
@@ -108,8 +117,7 @@ export function runLocalCommand(
   const fullEnv: NodeJS.ProcessEnv = { ...buildTerminalEnv(), ...env };
   const shellName = pathPosix.basename(getShell().replace(/\\/g, '/')).toLowerCase();
   if (shellName === 'wsl' || shellName === 'wsl.exe') {
-    // Windows passes only the variables WSLENV names into WSL.
-    fullEnv.WSLENV = [fullEnv.WSLENV, ...Object.keys(env)].filter(Boolean).join(':');
+    fullEnv.WSLENV = wslEnv(fullEnv.WSLENV, Object.keys(env));
   }
   const script =
     fullEnv.KOMLA_CLI && POSIX_SHELLS.has(shellName)

@@ -78,6 +78,9 @@ An item is one part of what Komla can show; combine it with the rest:
   popover shows. An item's command runs again and again, so tag or notify only when what it sees
   changes, keeping the last state in a file. `komla skill customize` says how to keep tags and
   notifications short.
+- **A plugin** bundles items with the hooks and scripts they need, so the user can share them or
+  turn them off as one. Make one when an item comes with a hook or a script of its own, or the
+  user wants to share it; `komla skill customize` says how.
 
 ## While you work
 

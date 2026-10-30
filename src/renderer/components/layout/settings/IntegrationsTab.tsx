@@ -10,6 +10,7 @@ import { AgentCapabilitiesBlock } from './AgentCapabilitiesBlock';
 import { AgentIntegrationsPanel } from './AgentIntegrations';
 import { AgentLaunchDefaultsCard } from './AgentLaunchDefaultsCard';
 import { AgentNotificationsCard } from './AgentNotificationsCard';
+import { PluginsCard } from './PluginsCard';
 import { SettingsCard } from './SettingsCard';
 
 export function IntegrationsTab() {
@@ -31,6 +32,8 @@ export function IntegrationsTab() {
       />
 
       <AgentNotificationsCard />
+
+      <PluginsCard />
 
       <SettingsCard
         title="MCP and CLI access"

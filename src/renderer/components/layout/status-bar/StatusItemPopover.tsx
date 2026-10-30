@@ -244,11 +244,14 @@ function PopoverFrame({
   );
 }
 
-/** What a button does, as the popover's output can label it as anything. */
-function buttonHint(button: StatusPopoverButton): string {
+/**
+ * What a button does, as the popover's output can label it as anything. `plugin` names the plugin
+ * the item comes from, when it isn't status-items.json's.
+ */
+function buttonHint(button: StatusPopoverButton, plugin?: string): string {
   if ('link' in button) return `Opens ${linkHost(button.link)}`;
   if ('action' in button) return `Runs the quick command “${button.action}”`;
-  return `Runs “${button.run}” from status-items.json`;
+  return `Runs “${button.run}” from ${plugin ? `the plugin ${plugin}` : 'status-items.json'}`;
 }
 
 /**
@@ -260,11 +263,13 @@ function PopoverButtons({
   onPress,
   busy,
   waiting = false,
+  plugin,
 }: {
   buttons: StatusPopoverButton[];
   onPress: (button: StatusPopoverButton) => void;
   busy: string | null;
   waiting?: boolean;
+  plugin?: string;
 }) {
   if (buttons.length === 0) return null;
   return (
@@ -276,7 +281,7 @@ function PopoverButtons({
           variant="outline"
           className="h-7 gap-1.5 px-2.5 text-xs"
           disabled={busy !== null || waiting}
-          title={buttonHint(button)}
+          title={buttonHint(button, plugin)}
           onClick={() => onPress(button)}
         >
           {busy === button.label && <Spinner size="xs" />}
@@ -530,7 +535,7 @@ function cachedPopover(key: string, theme: string): StatusPopoverContent | null 
 }
 
 /**
- * The popover of a status-items.json item: its popover command runs each time it opens, showing
+ * The popover of a status-items.json or plugin item: its popover command runs each time it opens, showing
  * what it showed last time until then, and its buttons open links, run Actions or run the
  * commands the item names.
  */
@@ -662,7 +667,13 @@ export function CommandItemPopover({
         )}
       </PopoverFrame>
       {content && (
-        <PopoverButtons buttons={content.buttons} onPress={press} busy={busy} waiting={loading} />
+        <PopoverButtons
+          buttons={content.buttons}
+          onPress={press}
+          busy={busy}
+          waiting={loading}
+          plugin={command.plugin}
+        />
       )}
     </>
   );

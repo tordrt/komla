@@ -10,6 +10,16 @@ export const HOOK_EVENTS = [
 ] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
+/** What each event is, as a settings change and a plugin's hooks say when they run. */
+export const HOOK_EVENT_LABELS: Record<Exclude<HookEvent, 'interval'>, string> = {
+  'agent.done': 'An agent finishes',
+  'agent.needs-input': 'An agent needs input',
+  'agent.error': 'An agent reports an error',
+  'agent.prompt': 'A prompt is sent to an agent',
+  'workspace.created': 'A workspace is created',
+  'workspace.trashed': 'A workspace is moved to the Trash',
+};
+
 /** Something that happened in a workspace, which the hooks for its event run on. */
 export interface HookEventDetails {
   event: Exclude<HookEvent, 'interval'>;

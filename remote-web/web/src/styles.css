@@ -21,6 +21,7 @@
   --error: #f0746a;
   --ok: #4fd38a;
   --warn: #f2c14e;
+  --violet: #a78bfa;
   --terminal-bg: #0a0c0f;
   --radius-card: 14px;
   --radius-row: 10px;
@@ -633,7 +634,7 @@ ol.handoff-text {
   width: 100%;
   padding: 11px 44px 11px 10px;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   grid-template-areas:
     'status title time'
     '. meta meta'
@@ -646,6 +647,19 @@ ol.handoff-text {
   border-radius: var(--radius-row);
   font-weight: 400;
   text-align: left;
+  /* Holding a row opens its details, not the system's text callout. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.workspace.holding .workspace-open {
+  background: var(--raised);
+  transform: scale(0.985);
+  transition-duration: 400ms;
 }
 
 .workspace-open:hover:not(:disabled) {
@@ -663,35 +677,34 @@ ol.handoff-text {
   place-items: center;
 }
 
-.workspace-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--quiet);
+.workspace-mark {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  object-fit: contain;
 }
 
-.workspace.stopped .workspace-dot {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--quiet);
+i.workspace-mark {
+  color: var(--workspace-accent, var(--brand));
+  background: color-mix(in srgb, var(--workspace-accent, var(--brand)) 20%, transparent);
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.workspace-dot.attention-input {
-  background: var(--warn);
-}
-.workspace-dot.attention-done {
-  background: var(--ok);
-}
-.workspace-dot.attention-error {
-  background: var(--error);
-}
-.workspace-dot.attention-idle,
-.workspace-dot.attention-generic {
-  background: var(--brand);
+.workspace.stopped .workspace-status .workspace-mark {
+  opacity: 0.45;
+  filter: grayscale(0.5);
 }
 
 .workspace-spinner {
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
+  flex: none;
   border: 2px solid var(--brand-subtle);
   border-top-color: var(--brand);
   border-radius: 999px;
@@ -764,8 +777,210 @@ ol.handoff-text {
   font-weight: 550;
 }
 
+/* A workspace's tag, colored as on the desktop. */
+.workspace-tag {
+  --tag-tone: var(--muted);
+  flex: none;
+  max-width: 128px;
+  height: 19px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--tag-tone);
+  background: color-mix(in srgb, var(--tag-tone) 15%, transparent);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-tag.tone-info {
+  --tag-tone: var(--brand);
+}
+.workspace-tag.tone-attention {
+  --tag-tone: var(--violet);
+}
+.workspace-tag.tone-success {
+  --tag-tone: var(--ok);
+}
+.workspace-tag.tone-warning {
+  --tag-tone: var(--warn);
+}
+.workspace-tag.tone-error {
+  --tag-tone: var(--error);
+}
+
+.workspace-tag-spinner {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border: 1.5px solid color-mix(in srgb, var(--tag-tone) 30%, transparent);
+  border-top-color: var(--tag-tone);
+  border-radius: 999px;
+  animation: spin 800ms linear infinite;
+}
+
+.workspace-signed-out {
+  margin: 20px 10px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.workspace-signed-out p {
+  width: 100%;
+  margin: 0;
+}
+
+.workspace-signed-out button {
+  height: 30px;
+  padding: 0 12px;
+  color: var(--text);
+  background: var(--raised);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+/* The long-press sheet: what the workspace is, above what can be done with it. */
+#workspace-row-title {
+  padding-bottom: 4px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.workspace-details {
+  max-height: 46vh;
+  margin-bottom: 12px;
+  padding: 0 4px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+
+.workspace-detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-detail-chip,
+.workspace-detail-state {
+  height: 22px;
+  padding: 0 8px 0 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  background: var(--raised);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.workspace-detail-state {
+  padding-left: 8px;
+}
+
+.workspace-detail-chip .workspace-mark {
+  width: 16px;
+  height: 16px;
+  font-size: 9.5px;
+}
+
+.workspace-detail h3 {
+  margin: 0 0 3px;
+  color: var(--quiet);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workspace-detail p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.workspace-detail.attention p {
+  color: var(--text);
+}
+
+.workspace-detail-place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-detail-place code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.workspace-detail-place .workspace-stats {
+  margin-left: auto;
+}
+
+.workspace-detail-tabs {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+}
+
+.workspace-detail-tabs li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-detail-tabs i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.workspace-detail-tabs i.working {
+  background: var(--brand);
+}
+
+.workspace-detail-tabs i.stopped {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--quiet);
+}
+
+.workspace-detail-times {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 12px;
+}
+
 .workspace-time {
   grid-area: time;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--quiet);
   font-size: 12px;
   line-height: 21px;
@@ -791,22 +1006,6 @@ ol.handoff-text {
   color: var(--text-2);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.workspace-project i {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: 2px;
-  background: var(--workspace-accent, var(--brand));
-}
-
-.workspace-project img {
-  width: 13px;
-  height: 13px;
-  flex: none;
-  border-radius: 3px;
-  object-fit: contain;
 }
 
 .workspace-branch {

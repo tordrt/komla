@@ -46,6 +46,24 @@ its last copy. The host offers only the projects whose repository it already has
 one needs the credentials the desktop forwards. Voice, push, Quick Commands, generated titles and setup
 steps stay desktop-only.
 
+## Amendment: one list of every endpoint's workspaces
+
+A phone that opened one endpoint saw only that endpoint's workspaces, and had to switch to see the
+rest. The page now signs in to every other endpoint in the background, with that endpoint's resume
+grant and a fresh installation-key proof as a reconnect does, never with the passkey, only to list
+its workspaces and projects. It shows one list: its own endpoint's workspaces, then those only
+another endpoint lists, a host's before the desktop's. Tapping one of those opens that endpoint's
+page with the workspace open. An endpoint whose grant has lapsed is named below the list until the
+phone signs in there again.
+
+Each background session is an ordinary session, so a phone still holds one per endpoint, and the
+desktop still serves one device at a time: a phone listing the desktop from a host's page replaces
+another device's desktop session, as opening the desktop would. A replaced background session
+doesn't sign in again on its own; the list names its endpoint until the user taps it.
+
+The desktop also writes each SSH workspace's tag into its manifest as it shows it (name, color and
+spinner), which the host lists for phones that agreed to tags.
+
 ## Considered Options
 
 - Keep the desktop as the only endpoint and hold SSH connections open longer: rejected as the

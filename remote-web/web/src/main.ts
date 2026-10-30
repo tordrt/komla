@@ -35,6 +35,7 @@ import {
   type RemoteLaunchEnvironmentSummary,
   type RemoteProjectSummary,
   type RemoteWorkspaceSummary,
+  type RemoteWorkspaceTag,
   type PairAuthChallenge,
   type PairAuthenticated,
   type PairFrame,
@@ -121,9 +122,17 @@ import {
   parseCollapsedSections,
   workspaceProject,
   workspaceSectionCounts,
+  workspaceSectionLabel,
   type WorkspaceFilter,
   type WorkspaceSectionId,
 } from './workspace-sections';
+import {
+  combineWorkspaces,
+  EndpointLists,
+  type EndpointWorkspaces,
+  type ListLink,
+  type ListLinkHandlers,
+} from './endpoint-lists';
 import {
   endpointHref,
   hasLastEndpoint,
@@ -187,7 +196,11 @@ interface LiveConnection {
 }
 
 /** Protocol features this page offers in its hello. */
-const PAGE_CAPABILITIES = [REMOTE_CAPABILITIES.BINARY_FRAMES, REMOTE_CAPABILITIES.PROJECT_ICONS];
+const PAGE_CAPABILITIES = [
+  REMOTE_CAPABILITIES.BINARY_FRAMES,
+  REMOTE_CAPABILITIES.PROJECT_ICONS,
+  REMOTE_CAPABILITIES.WORKSPACE_TAGS,
+];
 const RELOADED_FOR_BUILD_KEY = 'komla.remote.reloadedForBuild';
 // A flick leaves with the speed of its last moments, if fast enough to coast.
 const FLING_SAMPLE_MS = 80;
@@ -196,6 +209,8 @@ const FLING_START_VELOCITY = 0.3;
 const USER_SCROLL_SETTLE_MS = 150;
 // A finger held this long without moving selects text instead of tapping or scrolling.
 const LONG_PRESS_MS = 450;
+// How far a held finger may drift before it counts as scrolling.
+const LONG_PRESS_SLOP_PX = 10;
 const TAP_SLOP_PX = 10;
 // Holding one of these alone, e.g. on the way to a shortcut, doesn't use the terminal.
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
@@ -289,6 +304,7 @@ interface RemoteUI {
   workspaceActionItems: HTMLElement;
   workspaceRowSheet: HTMLDialogElement;
   workspaceRowTitle: HTMLElement;
+  workspaceRowDetails: HTMLElement;
   workspaceRowActions: HTMLElement;
   terminalLaunchDialog: HTMLDialogElement;
   cancelTerminalLaunch: HTMLButtonElement;
@@ -427,6 +443,7 @@ function remoteUi(): RemoteUI {
     workspaceActionItems: byId('workspace-action-items'),
     workspaceRowSheet: byId('workspace-row-sheet') as HTMLDialogElement,
     workspaceRowTitle: byId('workspace-row-title'),
+    workspaceRowDetails: byId('workspace-row-details'),
     workspaceRowActions: byId('workspace-row-actions'),
     terminalLaunchDialog: byId('terminal-launch-dialog') as HTMLDialogElement,
     cancelTerminalLaunch: byId('cancel-terminal-launch') as HTMLButtonElement,
@@ -782,6 +799,13 @@ class RemoteAppClient {
   private readonly terminalMutations = new TerminalMutationQueue();
   private workspaces: RemoteWorkspaceSummary[] = [];
   private projects: RemoteProjectSummary[] = [];
+  /** Workspaces only other endpoints list, by id, as last shown. */
+  private elsewhere = new Map<string, EndpointWorkspaces>();
+  private readonly endpointLists = new EndpointLists({
+    open: (hostId, signal, handlers) => this.openEndpointList(hostId, signal, handlers),
+    changed: () => this.renderWorkspaces(),
+    isVisible: () => document.visibilityState === 'visible',
+  });
   private presets: RemoteAgentPresetSummary[] = [];
   private environments: RemoteLaunchEnvironmentSummary[] = [];
   private launchOptionsLoaded = false;
@@ -1087,6 +1111,7 @@ class RemoteAppClient {
       if (document.visibilityState !== 'visible') return;
       if (this.disconnected) this.reconnectLoop.wake();
       else this.watchdog?.probe();
+      this.endpointLists.wake();
     };
     document.addEventListener('visibilitychange', wake);
     window.addEventListener('online', wake);
@@ -1164,7 +1189,36 @@ class RemoteAppClient {
     this.renderEndpoint();
     this.els.settingsDeviceLabel.textContent = label;
     this.bootstrap();
+    this.listOtherEndpoints();
     this.fitAfterLayout();
+  }
+
+  /** The workspaces of every endpoint but this page's are listed here too. */
+  private listOtherEndpoints(): void {
+    const own = this.endpoint.host?.id ?? null;
+    this.endpointLists.setEndpoints(
+      [null, ...this.hosts().map((host) => host.id)].filter((hostId) => hostId !== own)
+    );
+  }
+
+  /** Signs in to another endpoint in the background, with its resume grant, to list it. */
+  private async openEndpointList(
+    hostId: string | null,
+    signal: AbortSignal,
+    handlers: ListLinkHandlers
+  ): Promise<ListLink | 'retry' | 'reload'> {
+    const host = hostId ? this.hosts().find((candidate) => candidate.id === hostId) : null;
+    if (hostId && !host) return 'retry';
+    // A host page may have opened while the desktop slept.
+    if (!host && !readDirectRemoteConfig()) await loadDirectRemoteConfig();
+    const fingerprint = host?.fingerprint ?? this.endpoint.desktopFingerprint;
+    let url: string;
+    try {
+      url = host ? host.url : socketUrlForFingerprint(fingerprint);
+    } catch {
+      return 'retry';
+    }
+    return openListLink({ url, fingerprint, device: this.target.device }, signal, handlers);
   }
 
   /** What a new connection asks for first. */
@@ -1361,6 +1415,7 @@ class RemoteAppClient {
         if (!this.endpoint.host) {
           rememberHosts(localStorage, this.endpoint.desktopFingerprint, frame.hosts);
           this.renderEndpoint();
+          this.listOtherEndpoints();
           this.openPreferredHost();
         }
         return;
@@ -2219,9 +2274,14 @@ class RemoteAppClient {
   }
 
   private renderWorkspaces(): void {
-    this.renderWorkspaceFilters();
+    const { workspaces, elsewhere } = combineWorkspaces(
+      this.workspaces,
+      this.endpointLists.lists()
+    );
+    this.elsewhere = elsewhere;
+    this.renderWorkspaceFilters(workspaces);
     const searching = this.workspaceQuery.trim().length > 0;
-    const sections = buildWorkspaceSections(this.workspaces, {
+    const sections = buildWorkspaceSections(workspaces, {
       query: this.workspaceQuery,
       filter: this.workspaceFilter,
     });
@@ -2237,7 +2297,7 @@ class RemoteAppClient {
       const empty = document.createElement('p');
       empty.className = 'workspace-empty';
       empty.textContent =
-        this.workspaces.length > 0
+        workspaces.length > 0
           ? 'No matches.'
           : this.desktopWithheld()
             ? this.hosts().length > 0
@@ -2246,13 +2306,44 @@ class RemoteAppClient {
             : 'No workspaces yet.';
       nodes.push(empty);
     }
+    const signedOut = this.renderSignedOutEndpoints();
+    if (signedOut) nodes.push(signedOut);
     this.els.workspaceList.replaceChildren(...nodes);
   }
 
-  private renderWorkspaceFilters(): void {
-    const counts = workspaceSectionCounts(this.workspaces);
+  /** Endpoints whose workspaces are missing until the user asks for them again. */
+  private renderSignedOutEndpoints(): HTMLElement | null {
+    const paused = this.endpointLists.paused();
+    if (paused.length === 0) return null;
+    const note = document.createElement('div');
+    note.className = 'workspace-signed-out';
+    const text = document.createElement('p');
+    text.textContent = paused.some(({ reason }) => reason === 'signed-out')
+      ? 'Not listed here until you sign in to them again:'
+      : 'Not listed here while another device has them open:';
+    note.append(
+      text,
+      ...paused.map(({ hostId, reason }) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        const name = this.endpointName(hostId);
+        button.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+        // Signing in takes the passkey, which only that endpoint's page asks for.
+        button.addEventListener('click', () =>
+          reason === 'signed-out'
+            ? location.assign(endpointHref(location.href, hostId))
+            : this.endpointLists.retry(hostId)
+        );
+        return button;
+      })
+    );
+    return note;
+  }
+
+  private renderWorkspaceFilters(workspaces: RemoteWorkspaceSummary[]): void {
+    const counts = workspaceSectionCounts(workspaces);
     const filters: Array<{ id: WorkspaceFilter; label: string; count: number }> = [
-      { id: 'all', label: 'All', count: this.workspaces.length },
+      { id: 'all', label: 'All', count: workspaces.length },
       { id: 'needs-you', label: 'Needs you', count: counts['needs-you'] },
       { id: 'working', label: 'Working', count: counts.working },
     ];
@@ -2304,12 +2395,14 @@ class RemoteAppClient {
 
   private renderWorkspaceCard(workspace: RemoteWorkspaceSummary): HTMLElement {
     const row = document.createElement('article');
+    const away = this.elsewhere.get(workspace.id);
     const isSelected =
+      !away &&
       workspace.id === this.selectedWorkspaceId &&
       (this.attachedTerminalId !== null || this.pendingAttachWorkspaceId === workspace.id);
     const isRunnable = Boolean(this.terminalIdForWorkspace(workspace));
     const isStopped = !isRunnable && !workspace.provisioning;
-    const pendingMessage = this.pendingMessageForWorkspace(workspace);
+    const pendingMessage = away ? '' : this.pendingMessageForWorkspace(workspace);
     row.className = [
       'workspace',
       isSelected ? 'active' : '',
@@ -2318,26 +2411,30 @@ class RemoteAppClient {
     ]
       .filter(Boolean)
       .join(' ');
-    if (workspace.projectColor) {
-      row.style.setProperty('--workspace-accent', workspace.projectColor);
-    }
+    // A host names the project without its color; its launch options have it.
+    const accent = workspace.projectColor ?? this.workspaceProjectOf(workspace)?.color;
+    if (accent) row.style.setProperty('--workspace-accent', accent);
 
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'workspace-open';
     button.disabled = workspace.id === this.pendingCreateWorkspace?.id;
     const attentionTooltip = this.workspaceAttentionTooltip(workspace);
-    button.title = attentionTooltip || (isStopped ? 'Tap to start this workspace' : '');
+    button.title = attentionTooltip || (isStopped && !away ? 'Tap to start this workspace' : '');
     const activity = workspace.lastActivityAt ? formatRelativeTime(workspace.lastActivityAt) : '';
-    button.innerHTML = `<span class="workspace-status">${this.renderWorkspaceStatus(workspace, Boolean(pendingMessage))}</span><span class="workspace-title"><span class="workspace-name">${escapeHtml(workspace.name)}</span>${this.renderWorkspaceEnvironment(workspace)}${this.renderWorkspaceAdornment(workspace)}</span><small class="workspace-time">${escapeHtml(activity)}</small><span class="workspace-meta">${this.renderWorkspaceMeta(workspace)}</span>${this.renderWorkspacePreview(workspace, pendingMessage)}`;
+    const working =
+      workspace.agentActive || workspace.provisioning || pendingMessage
+        ? '<i class="workspace-spinner" aria-label="Agent processing"></i>'
+        : '';
+    button.innerHTML = `<span class="workspace-status">${this.renderProjectMark(workspace)}</span><span class="workspace-title"><span class="workspace-name">${escapeHtml(workspace.name)}</span>${this.renderWorkspaceEnvironment(workspace)}${this.renderWorkspaceAdornment(workspace)}</span><small class="workspace-time">${working}${escapeHtml(activity)}</small><span class="workspace-meta">${this.renderWorkspaceMeta(workspace)}</span>${this.renderWorkspacePreview(workspace, pendingMessage)}`;
 
     let suppressNextClick = false;
-    let longPressTimer: number | null = null;
+    let longPress: { timer: number; x: number; y: number } | null = null;
     const clearLongPress = () => {
-      if (longPressTimer) {
-        window.clearTimeout(longPressTimer);
-        longPressTimer = null;
-      }
+      if (!longPress) return;
+      window.clearTimeout(longPress.timer);
+      longPress = null;
+      row.classList.remove('holding');
     };
     button.addEventListener('click', (event) => {
       if (suppressNextClick) {
@@ -2345,7 +2442,8 @@ class RemoteAppClient {
         suppressNextClick = false;
         return;
       }
-      this.openWorkspace(workspace.id);
+      if (away) this.openElsewhere(workspace, away);
+      else this.openWorkspace(workspace.id);
     });
     row.addEventListener('contextmenu', (event) => {
       event.preventDefault();
@@ -2354,11 +2452,27 @@ class RemoteAppClient {
     row.addEventListener('pointerdown', (event) => {
       if (event.pointerType === 'mouse') return;
       clearLongPress();
-      longPressTimer = window.setTimeout(() => {
-        longPressTimer = null;
-        suppressNextClick = true;
-        this.openWorkspaceRowSheet(workspace, isRunnable);
-      }, 520);
+      row.classList.add('holding');
+      longPress = {
+        x: event.clientX,
+        y: event.clientY,
+        timer: window.setTimeout(() => {
+          longPress = null;
+          row.classList.remove('holding');
+          suppressNextClick = true;
+          navigator.vibrate?.(10);
+          this.openWorkspaceRowSheet(workspace, isRunnable);
+        }, LONG_PRESS_MS),
+      };
+    });
+    // A finger that moves is scrolling the list, not holding the row.
+    row.addEventListener('pointermove', (event) => {
+      if (
+        longPress &&
+        Math.hypot(event.clientX - longPress.x, event.clientY - longPress.y) > LONG_PRESS_SLOP_PX
+      ) {
+        clearLongPress();
+      }
     });
     row.addEventListener('pointerup', clearLongPress);
     row.addEventListener('pointerleave', clearLongPress);
@@ -2367,7 +2481,7 @@ class RemoteAppClient {
     const menuButton = document.createElement('button');
     menuButton.type = 'button';
     menuButton.className = 'workspace-menu-trigger';
-    menuButton.setAttribute('aria-label', `${workspace.name} actions`);
+    menuButton.setAttribute('aria-label', `${workspace.name} details`);
     menuButton.setAttribute('aria-haspopup', 'dialog');
     menuButton.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>';
@@ -2376,14 +2490,23 @@ class RemoteAppClient {
       event.stopPropagation();
       this.openWorkspaceRowSheet(workspace, isRunnable);
     });
-    // A host can only restart or stop a workspace, so a stopped one there has nothing to offer.
-    menuButton.hidden = Boolean(this.endpoint.host) && !isRunnable;
     row.append(button, menuButton);
     return row;
   }
 
+  /** Opens a workspace only another endpoint lists on that endpoint's page. */
+  private openElsewhere(workspace: RemoteWorkspaceSummary, away: EndpointWorkspaces): void {
+    location.assign(endpointHref(location.href, away.hostId, workspace.id));
+  }
+
+  private endpointName(hostId: string | null): string {
+    return hostId
+      ? (this.hosts().find((host) => host.id === hostId)?.name ?? 'SSH host')
+      : 'this computer';
+  }
+
   private openWorkspaceRowSheet(workspace: RemoteWorkspaceSummary, isRunnable: boolean): void {
-    if (this.endpoint.host && !isRunnable) return;
+    const away = this.elsewhere.get(workspace.id);
     const action = (label: string, run: () => void, options: { danger?: boolean } = {}) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -2398,39 +2521,98 @@ class RemoteAppClient {
       return button;
     };
     this.els.workspaceRowTitle.textContent = workspace.name;
+    this.els.workspaceRowDetails.innerHTML = this.renderWorkspaceDetails(workspace);
+    const accent = workspace.projectColor ?? this.workspaceProjectOf(workspace)?.color;
+    if (accent) this.els.workspaceRowDetails.style.setProperty('--workspace-accent', accent);
+    else this.els.workspaceRowDetails.style.removeProperty('--workspace-accent');
+    // Tapping the row opens or starts it, so the sheet doesn't repeat that.
+    const own = !away;
     this.els.workspaceRowActions.replaceChildren(
-      ...(isRunnable
+      ...(own && isRunnable
         ? [
             action('Restart', () => this.restartWorkspace(workspace.id)),
             action('Stop', () => this.stopWorkspace(workspace.id), { danger: true }),
           ]
         : []),
       // Titles come from the desktop's naming model.
-      ...(this.endpoint.host
-        ? []
-        : [action('Regenerate title', () => this.regenerateWorkspaceTitle(workspace.id))])
+      ...(own && !this.endpoint.host
+        ? [action('Regenerate title', () => this.regenerateWorkspaceTitle(workspace.id))]
+        : [])
     );
+    this.els.workspaceRowActions.hidden = this.els.workspaceRowActions.childElementCount === 0;
     if (!this.els.workspaceRowSheet.open) this.els.workspaceRowSheet.showModal();
   }
 
-  private renderWorkspaceStatus(workspace: RemoteWorkspaceSummary, pending: boolean): string {
-    if (workspace.attention) {
-      return `<i class="workspace-dot ${attentionClassName(workspace.attention.kind)}" aria-hidden="true"></i>`;
+  /** What the long-press sheet says about a workspace, above its actions. */
+  private renderWorkspaceDetails(workspace: RemoteWorkspaceSummary): string {
+    const away = this.elsewhere.get(workspace.id);
+    const chips = [
+      workspace.projectName
+        ? `<span class="workspace-detail-chip">${this.renderProjectMark(workspace)}${escapeHtml(workspace.projectName)}</span>`
+        : '',
+      this.renderWorkspaceEnvironment(workspace),
+      workspace.attention
+        ? this.renderWorkspaceAdornment(workspace)
+        : `<b class="workspace-detail-state">${escapeHtml(workspaceSectionLabel(workspace))}</b>`,
+      workspace.tag && workspace.attention ? this.renderWorkspaceTag(workspace.tag) : '',
+    ].join('');
+    const block = (label: string, text: string | undefined, className = '') =>
+      text?.trim()
+        ? `<section class="workspace-detail ${className}"><h3>${escapeHtml(label)}</h3><p>${escapeHtml(text.trim())}</p></section>`
+        : '';
+    const attention = workspace.attention?.message?.trim();
+    const place = workspace.branchName ?? workspace.workingDirectory;
+    const terminals = workspace.terminals.map(
+      (terminal, index) =>
+        `<li><i class="${terminal.status === 'stopped' ? 'stopped' : terminal.agentActive ? 'working' : 'running'}" aria-hidden="true"></i>${escapeHtml(terminal.name || `Terminal ${index + 1}`)}</li>`
+    );
+    const times = [
+      workspace.lastActivityAt
+        ? `Active ${formatRelativeTime(workspace.lastActivityAt)} ago`
+        : '',
+      workspace.createdAt ? `created ${formatRelativeTime(workspace.createdAt)} ago` : '',
+    ]
+      .filter(Boolean)
+      .join(', ')
+      .replace('now ago', 'just now');
+    return [
+      `<div class="workspace-detail-chips">${chips}</div>`,
+      attention && workspace.attention && !attentionMessageIsLabel(workspace.attention)
+        ? block(attentionLabel(workspace.attention), attention, 'attention')
+        : '',
+      block('Description', workspace.description),
+      block('Last prompt', workspace.lastPrompt),
+      place
+        ? `<section class="workspace-detail"><h3>${workspace.branchName ? 'Branch' : 'Folder'}</h3><p class="workspace-detail-place"><code>${escapeHtml(place)}</code>${this.renderWorkspaceStats(workspace)}</p></section>`
+        : '',
+      terminals.length
+        ? `<section class="workspace-detail"><h3>Tabs</h3><ul class="workspace-detail-tabs">${terminals.join('')}</ul></section>`
+        : '',
+      times ? `<p class="workspace-detail-times">${escapeHtml(times)}</p>` : '',
+      away
+        ? `<p class="workspace-detail-times">On ${escapeHtml(this.endpointName(away.hostId))}: tapping it opens it there.</p>`
+        : '',
+    ].join('');
+  }
+
+  /** The workspace's project in the launch options of the endpoint that lists it. */
+  private workspaceProjectOf(workspace: RemoteWorkspaceSummary): RemoteProjectSummary | undefined {
+    return workspaceProject(workspace, this.elsewhere.get(workspace.id)?.projects ?? this.projects);
+  }
+
+  /** The project's icon, as on the desktop, or its color with its initial. */
+  private renderProjectMark(workspace: RemoteWorkspaceSummary): string {
+    const icon = this.workspaceProjectOf(workspace)?.icon;
+    if (icon) {
+      return `<img class="workspace-mark" src="${escapeHtml(icon)}" alt="" aria-hidden="true">`;
     }
-    if (workspace.agentActive || workspace.provisioning || pending) {
-      return '<i class="workspace-spinner" aria-label="Agent processing"></i>';
-    }
-    return '<i class="workspace-dot" aria-hidden="true"></i>';
+    const initial = (workspace.projectName ?? workspace.name).trim().charAt(0).toUpperCase();
+    return `<i class="workspace-mark" aria-hidden="true">${escapeHtml(initial)}</i>`;
   }
 
   private renderWorkspaceMeta(workspace: RemoteWorkspaceSummary): string {
-    // The project's icon, as on the desktop, in place of its color mark.
-    const icon = workspaceProject(workspace, this.projects)?.icon;
-    const mark = icon
-      ? `<img src="${escapeHtml(icon)}" alt="" aria-hidden="true">`
-      : '<i aria-hidden="true"></i>';
     const project = workspace.projectName
-      ? `<span class="workspace-project">${mark}${escapeHtml(workspace.projectName)}</span>`
+      ? `<span class="workspace-project">${escapeHtml(workspace.projectName)}</span>`
       : '';
     const place =
       workspace.branchName ?? workspace.workingDirectory.split(/[\\/]/).pop() ?? 'Provisioning';
@@ -2469,10 +2651,18 @@ class RemoteAppClient {
     return `<small class="workspace-preview">${escapeHtml([count, names.join(', ')].join(' · '))}</small>`;
   }
 
+  /** What needs the user, or else the workspace's tag while no agent is busy, as on the desktop. */
   private renderWorkspaceAdornment(workspace: RemoteWorkspaceSummary): string {
-    if (!workspace.attention) return '';
-    const label = attentionLabel(workspace.attention);
-    return `<b class="workspace-badge ${attentionClassName(workspace.attention.kind)}">${escapeHtml(label)}</b>`;
+    if (workspace.attention) {
+      const label = attentionLabel(workspace.attention);
+      return `<b class="workspace-badge ${attentionClassName(workspace.attention.kind)}">${escapeHtml(label)}</b>`;
+    }
+    return workspace.tag && !workspace.agentActive ? this.renderWorkspaceTag(workspace.tag) : '';
+  }
+
+  private renderWorkspaceTag(tag: RemoteWorkspaceTag): string {
+    const spinner = tag.spinner ? '<i class="workspace-tag-spinner" aria-hidden="true"></i>' : '';
+    return `<b class="workspace-tag tone-${tag.tone}">${spinner}${escapeHtml(tag.name)}</b>`;
   }
 
   private renderWorkspaceEnvironment(workspace: RemoteWorkspaceSummary): string {
@@ -4401,7 +4591,8 @@ function takeOpenTargetFromUrl(): OpenTarget | null {
     terminalId: params.get('terminal') ?? undefined,
   });
   if (params.has('workspace') || params.has('terminal')) {
-    history.replaceState(null, '', location.pathname);
+    // The host it opened on stays, so a reload signs in there again.
+    history.replaceState(null, '', endpointHref(location.href, selectedHostId(location.href)));
   }
   return target;
 }
@@ -5256,6 +5447,44 @@ function resumeSession(
       peer.connect().catch(() => finish('retry'));
     });
   });
+}
+
+/**
+ * Signs in to another endpoint only to list its workspaces: with its resume grant and a fresh
+ * installation-key proof, as a reconnect does, so never with the passkey.
+ */
+async function openListLink(
+  target: SessionTarget,
+  signal: AbortSignal,
+  handlers: ListLinkHandlers
+): Promise<ListLink | 'retry' | 'reload'> {
+  let watchdog: ConnectionWatchdog | null = null;
+  const result = await resumeSession(target, false, signal, () => watchdog?.noteInbound());
+  if (typeof result === 'string') return result;
+  const { ws, peer } = result;
+  if (peer.state === 'closed') return 'retry';
+  peer.onMessage((msg) => {
+    if (msg.kind !== 'json') return;
+    const frame = parseRemoteAppFrame(msg.data);
+    if (frame) handlers.frame(frame);
+  });
+  peer.onClose((evt) => {
+    watchdog?.stop();
+    handlers.closed(evt.code === SESSION_CLOSE.REPLACED.code);
+  });
+  watchdog = new ConnectionWatchdog({
+    sendPing: () => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(RELAY_PING_FRAME);
+    },
+    onDead: () => ws.close(1000, 'liveness-timeout'),
+  });
+  return {
+    send: (frame) => void peer.sendEncryptedJson(frame).catch(() => undefined),
+    close: () => {
+      watchdog?.stop();
+      ws.close(1000, 'list-closed');
+    },
+  };
 }
 
 async function respondToAuthChallenge(

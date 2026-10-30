@@ -9,6 +9,7 @@ import {
   workspaceProject,
   workspaceSectionCounts,
   workspaceSectionId,
+  workspaceSectionLabel,
 } from '../workspace-sections';
 
 function workspace(
@@ -39,6 +40,15 @@ describe('parseCollapsedSections', () => {
     expect([...parseCollapsedSections(null, '["idle"]')]).toEqual(['idle', 'trash']);
     expect([...parseCollapsedSections('["idle"]', '["stopped"]')]).toEqual(['idle']);
     expect([...parseCollapsedSections('not json', null)]).toEqual(['stopped', 'trash']);
+  });
+});
+
+describe('workspaceSectionLabel', () => {
+  it('names where a workspace stands as its section does', () => {
+    expect(workspaceSectionLabel(workspace('a', { attention: attention(1) }))).toBe('Needs you');
+    expect(workspaceSectionLabel(workspace('b', { agentActive: true }))).toBe('Working');
+    expect(workspaceSectionLabel(workspace('c', { terminals: [] }))).toBe('Stopped');
+    expect(workspaceSectionLabel(workspace('d', { status: 'trashed' }))).toBe('Trash');
   });
 });
 

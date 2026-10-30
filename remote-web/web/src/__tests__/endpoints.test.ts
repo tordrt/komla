@@ -72,6 +72,9 @@ describe('phone endpoints', () => {
     expect(endpointHref('https://mac.tail1.ts.net/remote/?host=host-1#x', null)).toBe(
       'https://mac.tail1.ts.net/remote/'
     );
+    expect(endpointHref(page, 'host-1', 'ws-1')).toBe(
+      'https://mac.tail1.ts.net/remote/?host=host-1&workspace=ws-1'
+    );
   });
 
   it('starts on a host until the desktop is picked', () => {

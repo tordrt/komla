@@ -49,6 +49,11 @@ export function workspaceSectionId(workspace: RemoteWorkspaceSummary): Workspace
   return hasLiveTerminal(workspace) ? 'idle' : 'stopped';
 }
 
+/** Where the workspace stands, as its section names it. */
+export function workspaceSectionLabel(workspace: RemoteWorkspaceSummary): string {
+  return SECTION_LABELS[workspaceSectionId(workspace)];
+}
+
 function activityTime(workspace: RemoteWorkspaceSummary): number {
   return workspace.lastActivityAt ?? workspace.createdAt ?? 0;
 }

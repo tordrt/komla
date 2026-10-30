@@ -31,6 +31,8 @@ import type {
   RemoteControlHostAccessStatus,
 } from '../../../shared/types/remote-control';
 
+const CONNECTED_BACKEND_STATES = new Set(['Running', 'Starting']);
+
 const RenamePayloadSchema = z
   .object({
     credentialId: z.string().min(1).max(1024),
@@ -199,7 +201,7 @@ export function registerRemoteControlHandlers(): void {
           windowsHide: true,
           env: tailscale.env,
         });
-        const hostname = await getTailscaleHostname(tailscale);
+        const { hostname, needsSignIn } = await readTailscaleSelf(tailscale);
         const serveStatus = await readServeStatus(tailscale).catch(() => ({}));
         const suggestedHttpsPort =
           managedHttpsPort ??
@@ -211,6 +213,7 @@ export function registerRemoteControlHandlers(): void {
           installed: true,
           command: serveCommand(httpsPort),
           hostname,
+          needsSignIn,
           suggestedOrigin: hostname ? formatHttpsOrigin(hostname, suggestedHttpsPort) : undefined,
           httpsPortTaken: isHttpsPortTaken(serveStatus, httpsPort, target),
           serveConfigured: hasHttpsRoute(serveStatus, httpsPort, target),
@@ -358,19 +361,28 @@ function formatTailscaleServeError(err: unknown): string {
   return nodeErr.message || 'Failed to start Tailscale Serve';
 }
 
-async function getTailscaleHostname(tailscale: TailscaleCommand): Promise<string | undefined> {
+async function readTailscaleSelf(
+  tailscale: TailscaleCommand
+): Promise<{ hostname?: string; needsSignIn: boolean }> {
   try {
     const { stdout } = await execFileText(tailscale.file, ['status', '--json'], {
       timeout: 5_000,
       windowsHide: true,
       env: tailscale.env,
     });
-    const parsed = JSON.parse(stdout) as { Self?: { DNSName?: unknown } };
+    const parsed = JSON.parse(stdout) as { BackendState?: unknown; Self?: { DNSName?: unknown } };
     const dnsName = parsed.Self?.DNSName;
-    if (typeof dnsName !== 'string' || dnsName.trim().length === 0) return undefined;
-    return dnsName.trim().replace(/\.$/, '');
+    const state = parsed.BackendState;
+    return {
+      hostname:
+        typeof dnsName === 'string' && dnsName.trim().length > 0
+          ? dnsName.trim().replace(/\.$/, '')
+          : undefined,
+      needsSignIn: typeof state === 'string' && !CONNECTED_BACKEND_STATES.has(state),
+    };
   } catch {
-    return undefined;
+    // On a Mac with the app closed, or anywhere the service is down, status can't answer at all.
+    return { needsSignIn: true };
   }
 }
 

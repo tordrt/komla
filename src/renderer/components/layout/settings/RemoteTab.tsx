@@ -21,7 +21,12 @@ import {
 
 import { RemoteHostAccessCard, useHostAccess } from './RemoteHostAccessCard';
 import { RemotePairDialog } from './RemotePairDialog';
-import { NetworkOptions, PairedDeviceRow, RemoteStatusDot } from './RemoteTabParts';
+import {
+  NetworkOptions,
+  PairedDeviceRow,
+  RemoteStatusDot,
+  TailscaleSignInPrompt,
+} from './RemoteTabParts';
 import { SettingsCard } from './SettingsCard';
 
 import type {
@@ -99,20 +104,30 @@ export function RemoteTab() {
     void window.api.pairedDevicesList().then((d) => {
       if (!cancelled) setDevices(d);
     });
-    void window.api.remoteControlDirectGetTailscaleStatus().then((status) => {
+    const applyTailscaleStatus = (status: RemoteControlDirectTailscaleStatus) => {
       if (cancelled) return;
       setTailscaleStatus(status);
       setDirectPublicOrigin((current) => {
         if (current || !status.suggestedOrigin) return current;
         return status.suggestedOrigin;
       });
+    };
+    void window.api.remoteControlDirectGetTailscaleStatus().then((status) => {
+      applyTailscaleStatus(status);
       // Nothing detected to publish: open the options so the origin can be typed in.
-      if (status.installed && !status.suggestedOrigin) setNetworkOptionsOpen(true);
+      if (!cancelled && status.installed && !status.needsSignIn && !status.suggestedOrigin) {
+        setNetworkOptionsOpen(true);
+      }
     });
+    // Installing or signing in to Tailscale happens outside Komla, so look again on the way back.
+    const onWindowFocus = () =>
+      void window.api.remoteControlDirectGetTailscaleStatus().then(applyTailscaleStatus);
+    window.addEventListener('focus', onWindowFocus);
     const offDirectState = window.api.onRemoteControlDirectStateChanged((s) => setDirectState(s));
     const offDevices = window.api.onPairedDevicesChanged((d) => setDevices(d));
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', onWindowFocus);
       offDirectState();
       offDevices();
     };
@@ -354,7 +369,8 @@ export function RemoteTab() {
   const storagePromptNote = secureStoragePromptNote();
   const tailscaleInstalled = tailscaleStatus?.installed === true;
   const tailscaleServeConfigured = tailscaleStatus?.serveConfigured === true;
-  const published = tailscaleServeConfigured && Boolean(server);
+  const needsSignIn = tailscaleInstalled && tailscaleStatus?.needsSignIn === true;
+  const published = tailscaleServeConfigured && Boolean(server) && !needsSignIn;
   const connectedDevice = directState.connectedDevice;
   const networkLocked = directBusy || tailscaleBusy || Boolean(server);
   const publishedOrigin = directPublicOrigin || server?.httpOrigin;
@@ -439,6 +455,8 @@ export function RemoteTab() {
             </div>
           )}
 
+          {needsSignIn && <TailscaleSignInPrompt />}
+
           {showBrowserOriginQr && published && (
             <div className="flex size-28 items-center justify-center rounded-md border border-border bg-white p-2">
               {browserOriginQrUrl ? (
@@ -449,7 +467,7 @@ export function RemoteTab() {
             </div>
           )}
 
-          {server && !published && (
+          {server && !published && !needsSignIn && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2.5">
               {tailscaleStatus === null ? (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -488,7 +506,7 @@ export function RemoteTab() {
             </div>
           )}
 
-          {!published && tailscaleStatus?.httpsPortTaken && (
+          {!published && !needsSignIn && tailscaleStatus?.httpsPortTaken && (
             <Callout tone="warning" size="sm">
               Another Tailscale Serve route uses this HTTPS port.{' '}
               {server
@@ -608,7 +626,7 @@ export function RemoteTab() {
         )}
       </SettingsCard>
 
-      {tailscaleInstalled && (
+      {tailscaleInstalled && !needsSignIn && (
         <div>
           <button
             type="button"

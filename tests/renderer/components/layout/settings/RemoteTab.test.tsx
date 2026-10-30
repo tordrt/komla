@@ -386,6 +386,91 @@ describe('RemoteTab direct remote controls', () => {
     );
   });
 
+  describe('when Tailscale is not signed in', () => {
+    const signedOut = {
+      installed: true,
+      command: 'tailscale serve --bg --https=443 localhost:52864',
+      needsSignIn: true,
+    };
+
+    it('says so and offers an account instead of asking for an address', async () => {
+      const api = installApi({ server: null, pairingOffer: null, portChange: null });
+      api.remoteControlDirectGetTailscaleStatus.mockResolvedValue(signedOut);
+      const user = userEvent.setup();
+      render(<RemoteTab />);
+
+      expect(await screen.findByText(/Tailscale isn't connected on this computer/)).toBeVisible();
+      expect(screen.queryByLabelText('Tailscale HTTPS origin')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Network options' })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: /Create a Tailscale account/ }));
+
+      expect(api.openExternal).toHaveBeenCalledWith('https://login.tailscale.com/start');
+    });
+
+    it('replaces Publish while remote control is on', async () => {
+      const api = installApi({ server: directServer, pairingOffer: null, portChange: null });
+      api.remoteControlDirectGetTailscaleStatus.mockResolvedValue(signedOut);
+      render(<RemoteTab />);
+
+      expect(await screen.findByText(/Tailscale isn't connected on this computer/)).toBeVisible();
+      expect(
+        screen.queryByRole('button', { name: 'Publish with Tailscale Serve' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('does not claim to be published while Tailscale is down', async () => {
+      const api = installApi({ server: directServer, pairingOffer: null, portChange: null });
+      api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
+        ...signedOut,
+        serveConfigured: true,
+      });
+      render(<RemoteTab />);
+
+      expect(await screen.findByText(/only this computer can reach it/)).toBeVisible();
+    });
+
+    it('tells Linux users to run the command, since there is no app to open', async () => {
+      const api = installApi({ server: null, pairingOffer: null, portChange: null });
+      (api as unknown as { platform: string }).platform = 'linux';
+      api.remoteControlDirectGetTailscaleStatus.mockResolvedValue(signedOut);
+      render(<RemoteTab />);
+
+      expect(await screen.findByText('sudo tailscale up')).toBeVisible();
+    });
+
+    it('tells Mac and Windows users to open the app', async () => {
+      const api = installApi({ server: null, pairingOffer: null, portChange: null });
+      (api as unknown as { platform: string }).platform = 'darwin';
+      api.remoteControlDirectGetTailscaleStatus.mockResolvedValue(signedOut);
+      render(<RemoteTab />);
+
+      expect(await screen.findByText(/Open the Tailscale app and sign in/)).toBeVisible();
+    });
+
+    it('picks up the sign-in and the detected address when the window regains focus', async () => {
+      const api = installApi({ server: directServer, pairingOffer: null, portChange: null });
+      api.remoteControlDirectGetTailscaleStatus.mockResolvedValue(signedOut);
+      render(<RemoteTab />);
+      await screen.findByText(/Tailscale isn't connected on this computer/);
+
+      api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({
+        installed: true,
+        command: 'tailscale serve --bg --https=443 localhost:52864',
+        needsSignIn: false,
+        suggestedOrigin: 'https://mac.tailnet.ts.net',
+      });
+      window.dispatchEvent(new Event('focus'));
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Publish with Tailscale Serve' })).toBeEnabled()
+      );
+      expect(
+        screen.queryByText(/Tailscale isn't connected on this computer/)
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('says the connection port can be chosen while the network options are folded', async () => {
     const api = installApi({ server: null, pairingOffer: null, portChange: null });
     api.remoteControlDirectGetTailscaleStatus.mockResolvedValue({

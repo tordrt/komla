@@ -630,6 +630,7 @@ describe('registerRemoteControlHandlers', () => {
       installed: true,
       command: 'tailscale serve --bg --https=443 localhost:52864',
       hostname: 'mac.tailnet.ts.net',
+      needsSignIn: false,
       suggestedOrigin: 'https://mac.tailnet.ts.net',
       httpsPortTaken: false,
       serveConfigured: false,
@@ -967,6 +968,71 @@ describe('registerRemoteControlHandlers', () => {
           command: 'tailscale serve --bg --https=52864 localhost:52864',
           suggestedOrigin: 'https://mac.tailnet.ts.net',
         })
+      );
+    });
+  });
+
+  describe('when Tailscale is not connected', () => {
+    const mockTailscaleStatus = (status: string | Error) =>
+      mockExecFile.mockImplementation(
+        (
+          _command: string,
+          args: string[],
+          _options: Record<string, unknown>,
+          cb: (err: Error | null, stdout: string, stderr: string) => void
+        ) => {
+          if (args.join(' ') === 'status --json' && status instanceof Error) {
+            cb(status, '', status.message);
+            return;
+          }
+          cb(null, args.join(' ') === 'status --json' ? (status as string) : '', '');
+        }
+      );
+    const getStatus = async () => {
+      const { registerRemoteControlHandlers, ipcMain } = await setup();
+      registerRemoteControlHandlers();
+      return ipcMain._invoke('remote-control:direct-get-tailscale-status');
+    };
+
+    it.each(['NeedsLogin', 'NeedsMachineAuth', 'Stopped', 'NoState'])(
+      'asks for sign-in in the %s state',
+      async (backendState) => {
+        mockTailscaleStatus(
+          JSON.stringify({ BackendState: backendState, Self: { DNSName: 'mac.tailnet.ts.net.' } })
+        );
+
+        await expect(getStatus()).resolves.toEqual(
+          expect.objectContaining({ installed: true, needsSignIn: true })
+        );
+      }
+    );
+
+    it.each(['Running', 'Starting'])('does not ask in the %s state', async (backendState) => {
+      mockTailscaleStatus(
+        JSON.stringify({ BackendState: backendState, Self: { DNSName: 'mac.tailnet.ts.net.' } })
+      );
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({
+          needsSignIn: false,
+          hostname: 'mac.tailnet.ts.net',
+        })
+      );
+    });
+
+    it('asks for sign-in when the Tailscale service does not answer', async () => {
+      mockTailscaleStatus(new Error('failed to connect to local tailscaled'));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({ installed: true, needsSignIn: true, hostname: undefined })
+      );
+    });
+
+    it('has no hostname to suggest when signed out', async () => {
+      mockTailscaleStatus(JSON.stringify({ BackendState: 'NeedsLogin', Self: { DNSName: '' } }));
+
+      await expect(getStatus()).resolves.toEqual(
+        expect.objectContaining({ hostname: undefined, suggestedOrigin: undefined })
       );
     });
   });

@@ -35,6 +35,8 @@ export interface RemoteControlDirectTailscaleStatus {
   /** What publishing runs, on the HTTPS port of the saved origin or else the suggested one. */
   command: string;
   hostname?: string;
+  /** Installed, but this computer isn't on the tailnet: signed out, not approved, or stopped. */
+  needsSignIn?: boolean;
   suggestedOrigin?: string;
   /** Another Tailscale Serve route already has the HTTPS port `command` publishes on. */
   httpsPortTaken?: boolean;

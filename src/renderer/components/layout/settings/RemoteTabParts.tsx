@@ -27,6 +27,33 @@ export function RemoteStatusDot({ tone }: { tone: RemoteStatusTone }) {
   );
 }
 
+/** Tailscale is installed, but nothing can reach this computer until it's on the tailnet. */
+export function TailscaleSignInPrompt() {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-2.5">
+      <p className="max-w-md text-xs text-muted-foreground">
+        Tailscale isn't connected on this computer.{' '}
+        {window.api?.platform === 'linux' ? (
+          <>
+            Run <code className="font-mono">sudo tailscale up</code> and sign in
+          </>
+        ) : (
+          'Open the Tailscale app and sign in'
+        )}
+        ; until then, only this computer can connect.
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => void window.api.openExternal('https://login.tailscale.com/start')}
+      >
+        Create a Tailscale account
+        <ArrowSquareOut className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
+
 /** The Tailscale origin, folded away unless Komla could not detect it. */
 export function NetworkOptions({
   origin,

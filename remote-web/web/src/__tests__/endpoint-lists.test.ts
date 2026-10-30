@@ -66,19 +66,30 @@ function setup() {
   let visible = true;
   let changes = 0;
   const sent: Array<{ hostId: string | null; type: string }> = [];
-  const links: Array<{ hostId: string | null; handlers: ListLinkHandlers; closed: boolean }> = [];
-  const outcomes = new Map<string | null, Array<'link' | 'retry' | 'reload'>>();
+  const links: Array<{
+    hostId: string | null;
+    handlers: ListLinkHandlers;
+    closed: boolean;
+    probes: number;
+    takeOver: boolean;
+  }> = [];
+  const outcomes = new Map<string | null, Array<'link' | 'retry' | 'reload' | 'closes-replaced'>>();
   const lists = new EndpointLists({
     timers,
     isVisible: () => visible,
     changed: () => (changes += 1),
-    open: async (hostId, _signal, handlers) => {
+    open: async (hostId, _signal, handlers, takeOver) => {
       const outcome = outcomes.get(hostId)?.shift() ?? 'link';
+      if (outcome === 'closes-replaced') {
+        handlers.closed(true);
+        return 'retry';
+      }
       if (outcome !== 'link') return outcome;
-      const record = { hostId, handlers, closed: false };
+      const record = { hostId, handlers, closed: false, probes: 0, takeOver };
       links.push(record);
       const link: ListLink = {
         send: (frame) => sent.push({ hostId, type: frame.type }),
+        probe: () => (record.probes += 1),
         close: () => (record.closed = true),
       };
       return link;
@@ -144,7 +155,7 @@ describe('EndpointLists', () => {
     expect(links).toHaveLength(2);
   });
 
-  it('stays off after a newer sign-in took over, even on screen, until asked again', async () => {
+  it('stays off while another session has the endpoint, and tries again when looked at', async () => {
     const { lists, links, timers } = setup();
     lists.setEndpoints([null]);
     await settle();
@@ -152,16 +163,142 @@ describe('EndpointLists', () => {
 
     links[0]!.handlers.closed(true);
     timers.advance(120_000);
-    lists.wake();
     await settle();
 
     expect(lists.lists()).toEqual([]);
-    expect(lists.paused()).toEqual([{ hostId: null, reason: 'replaced' }]);
+    expect(lists.paused()).toEqual([{ hostId: null, reason: 'replaced', takingOver: false }]);
     expect(links).toHaveLength(1);
-    lists.retry(null);
+
+    lists.wake();
     await settle();
     expect(links).toHaveLength(2);
+    expect(links[1]!.takeOver).toBe(false);
+    // Still named until it lists something: a session that yields closes without doing so.
+    expect(lists.paused()).toHaveLength(1);
+    links[1]!.handlers.closed(true);
+    expect(lists.paused()).toHaveLength(1);
+
+    lists.wake();
+    await settle();
+    links[2]!.handlers.frame(listFrame('a'));
     expect(lists.paused()).toEqual([]);
+    expect(lists.lists()).toHaveLength(1);
+  });
+
+  it('takes the endpoint over only for what the user tapped', async () => {
+    const { lists, links } = setup();
+    lists.setEndpoints([null]);
+    await settle();
+    expect(links[0]!.takeOver).toBe(false);
+    links[0]!.handlers.closed(true);
+
+    lists.retry(null);
+    expect(lists.paused()).toEqual([{ hostId: null, reason: 'replaced', takingOver: true }]);
+    await settle();
+    expect(links[1]!.takeOver).toBe(true);
+    links[1]!.handlers.frame(listFrame('a'));
+    expect(lists.paused()).toEqual([]);
+
+    links[1]!.handlers.closed(true);
+    lists.wake();
+    await settle();
+    expect(links[2]!.takeOver).toBe(false);
+  });
+
+  it('honours a tap made during an attempt that then yields, however the close arrives', async () => {
+    const { lists, links, outcomes, timers } = setup();
+    lists.setEndpoints([null]);
+    await settle();
+    links[0]!.handlers.closed(true);
+
+    // The session closes after the link was handed over.
+    lists.wake();
+    await settle();
+    lists.retry(null);
+    links[1]!.handlers.closed(true);
+    timers.advance(120_000);
+    await settle();
+    expect(links[2]!.takeOver).toBe(true);
+    links[2]!.handlers.closed(true);
+
+    // The session closes before it was.
+    outcomes.set(null, ['closes-replaced']);
+    lists.wake();
+    lists.retry(null);
+    await settle();
+    timers.advance(120_000);
+    await settle();
+    expect(links[3]!.takeOver).toBe(true);
+  });
+
+  it('keeps asking after a tap whose attempt failed, but no longer calls it open elsewhere', async () => {
+    const { lists, links, outcomes, timers } = setup();
+    lists.setEndpoints([null]);
+    await settle();
+    links[0]!.handlers.closed(true);
+
+    outcomes.set(null, ['retry']);
+    lists.retry(null);
+    await settle();
+    expect(lists.paused()).toEqual([]);
+    timers.advance(120_000);
+    await settle();
+    expect(links[1]!.takeOver).toBe(true);
+  });
+
+  it('forgets a tap once the page has been away', async () => {
+    const { lists, links, outcomes, timers } = setup();
+    lists.setEndpoints([null]);
+    await settle();
+    links[0]!.handlers.closed(true);
+    outcomes.set(null, ['retry']);
+    lists.retry(null);
+    await settle();
+
+    lists.wake();
+    await settle();
+    timers.advance(120_000);
+    await settle();
+
+    expect(links[1]!.takeOver).toBe(false);
+  });
+
+  it('leaves an attempt given up on without effect, and keeps the lists after disposing', async () => {
+    const { lists, links, sent } = setup();
+    lists.setEndpoints([null]);
+    await settle();
+    links[0]!.handlers.frame(listFrame('a'));
+
+    lists.dispose();
+    await settle();
+
+    expect(links[0]!.closed).toBe(true);
+    expect(lists.lists()).toHaveLength(1);
+    expect(lists.paused()).toEqual([]);
+    expect(sent).toHaveLength(2);
+  });
+
+  it('names an endpoint whose session closed the moment it signed in, as another has it', async () => {
+    const { lists, links, outcomes } = setup();
+    outcomes.set(null, ['closes-replaced']);
+
+    lists.setEndpoints([null]);
+    await settle();
+
+    expect(lists.paused()).toEqual([{ hostId: null, reason: 'replaced', takingOver: false }]);
+    expect(links).toHaveLength(0);
+  });
+
+  it('checks a live link when looked at, since a half-open one reports nothing', async () => {
+    const { lists, links } = setup();
+    lists.setEndpoints([null]);
+    await settle();
+
+    lists.wake();
+    await settle();
+
+    expect(links).toHaveLength(1);
+    expect(links[0]!.probes).toBe(1);
   });
 
   it('names an endpoint that needs the passkey without trying it again', async () => {
@@ -174,7 +311,9 @@ describe('EndpointLists', () => {
     lists.wake();
     await settle();
 
-    expect(lists.paused()).toEqual([{ hostId: 'devbox', reason: 'signed-out' }]);
+    expect(lists.paused()).toEqual([
+      { hostId: 'devbox', reason: 'signed-out', takingOver: false },
+    ]);
     expect(links).toHaveLength(0);
   });
 

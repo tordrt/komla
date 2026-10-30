@@ -61,21 +61,27 @@ export function combineWorkspaces(
 /** A background session that lists one endpoint's workspaces. */
 export interface ListLink {
   send(frame: { type: string; requestId: string }): void;
+  /** The page is on screen again: check the connection is still alive. */
+  probe(): void;
   close(): void;
 }
 
 export interface ListLinkHandlers {
   frame(frame: RemoteAppFrame): void;
-  /** The session ended; `replaced` when a newer sign-in of this phone took it over. */
+  /** The session ended; `replaced` when another session has the endpoint. */
   closed(replaced: boolean): void;
 }
 
 export interface EndpointListsOptions {
-  /** Signs in with the endpoint's resume grant; 'reload' when only the passkey can. */
+  /**
+   * Signs in with the endpoint's resume grant; 'reload' when only the passkey can. The session
+   * leaves one someone is using alone, unless `takeOver`.
+   */
   open(
     hostId: string | null,
     signal: AbortSignal,
-    handlers: ListLinkHandlers
+    handlers: ListLinkHandlers,
+    takeOver: boolean
   ): Promise<ListLink | 'retry' | 'reload'>;
   changed(): void;
   isVisible(): boolean;
@@ -89,13 +95,20 @@ interface Endpoint {
   pages: WorkspacePages<RemoteWorkspaceSummary>;
   workspaces: RemoteWorkspaceSummary[] | null;
   projects: RemoteProjectSummary[];
-  /** Off until asked again: signed out, or taken over by a newer sign-in it mustn't undo. */
+  /** Off for now: signed out, or another session has the endpoint. */
   paused: EndpointPause | null;
+  /** The user asked for this endpoint's list, over a session using it. */
+  takeOver: boolean;
 }
 
 export type EndpointPause = 'signed-out' | 'replaced';
 
 const MAX_RETRY_DELAY_MS = 60_000;
+
+/** The user tapped to take over during an attempt that was leaving the session alone. */
+function tappedSince(endpoint: Endpoint, attemptTookOver: boolean): boolean {
+  return endpoint.takeOver && !attemptTookOver;
+}
 
 export class EndpointLists {
   private readonly endpoints = new Map<string | null, Endpoint>();
@@ -120,6 +133,7 @@ export class EndpointLists {
         workspaces: null,
         projects: [],
         paused: null,
+        takeOver: false,
         loop: new ReconnectLoop({
           attempt: (signal) => this.attempt(endpoint, signal),
           reload: () => this.pause(endpoint, 'signed-out'),
@@ -133,16 +147,26 @@ export class EndpointLists {
     }
   }
 
-  /** The page is on screen again: retry every endpoint waiting to, at once. */
+  /**
+   * The page is on screen again: check live links, and retry every endpoint waiting to at once. One
+   * another session had may be free now, and trying takes nothing from a session in use. Named as
+   * held until it answers, so its note doesn't come and go. A tap made before the page left
+   * doesn't count any more: the session it would close may be someone's by now.
+   */
   wake(): void {
-    for (const endpoint of this.endpoints.values()) endpoint.loop.wake();
+    for (const endpoint of this.endpoints.values()) {
+      endpoint.takeOver = false;
+      endpoint.link?.probe();
+      if (endpoint.paused === 'replaced') this.connect(endpoint);
+      else endpoint.loop.wake();
+    }
   }
 
-  /** The user asked to list a paused endpoint again. */
+  /** The user asked to list a paused endpoint, even if that takes it from a session using it. */
   retry(hostId: string | null): void {
     const endpoint = this.endpoints.get(hostId);
     if (!endpoint?.paused) return;
-    endpoint.paused = null;
+    endpoint.takeOver = true;
     this.options.changed();
     this.connect(endpoint);
   }
@@ -154,18 +178,22 @@ export class EndpointLists {
   }
 
   /**
-   * Endpoints that list nothing until asked again: signed out, needing the passkey, or replaced by
-   * a sign-in elsewhere, such as another device opening the desktop.
+   * Endpoints that list nothing for now: signed out, needing the passkey, or held by another
+   * session, such as another device with the desktop open.
    */
-  paused(): Array<{ hostId: string | null; reason: EndpointPause }> {
-    return [...this.endpoints.values()].flatMap(({ hostId, paused }) =>
-      paused ? [{ hostId, reason: paused }] : []
+  paused(): Array<{ hostId: string | null; reason: EndpointPause; takingOver: boolean }> {
+    return [...this.endpoints.values()].flatMap(({ hostId, paused, takeOver }) =>
+      paused ? [{ hostId, reason: paused, takingOver: takeOver }] : []
     );
   }
 
+  /** Ends every session for good. What they last listed stays, for a page that stays on screen. */
   dispose(): void {
-    for (const endpoint of this.endpoints.values()) this.stop(endpoint);
-    this.endpoints.clear();
+    for (const endpoint of this.endpoints.values()) {
+      this.stop(endpoint);
+      endpoint.paused = null;
+      endpoint.takeOver = false;
+    }
   }
 
   private connect(endpoint: Endpoint): void {
@@ -178,22 +206,37 @@ export class EndpointLists {
     signal: AbortSignal
   ): Promise<'connected' | 'retry' | 'reload'> {
     let opened: ListLink | null = null;
-    const link = await this.options.open(endpoint.hostId, signal, {
-      frame: (frame) => {
-        if (opened && endpoint.link === opened) this.receive(endpoint, frame);
+    // Another session having the endpoint closes this one the moment it signs in.
+    let closedOpening = null as { replaced: boolean } | null;
+    const takeOver = endpoint.takeOver;
+    const link = await this.options.open(
+      endpoint.hostId,
+      signal,
+      {
+        frame: (frame) => {
+          if (opened && endpoint.link === opened) this.receive(endpoint, frame);
+        },
+        closed: (replaced) => {
+          if (!opened) closedOpening = { replaced };
+          else if (endpoint.link === opened) this.closed(endpoint, replaced, takeOver);
+        },
       },
-      closed: (replaced) => {
-        if (opened && endpoint.link === opened) this.closed(endpoint, replaced);
-      },
-    });
+      takeOver
+    );
+    if (signal.aborted || this.endpoints.get(endpoint.hostId) !== endpoint) {
+      if (typeof link !== 'string') link.close();
+      return 'retry';
+    }
+    if (closedOpening) {
+      if (typeof link !== 'string') link.close();
+      if (!closedOpening.replaced || tappedSince(endpoint, takeOver)) return 'retry';
+      this.pause(endpoint, 'replaced');
+      return 'connected';
+    }
     if (typeof link === 'string') {
       // Gone until it answers again, rather than shown as it was.
       this.forget(endpoint);
       return link;
-    }
-    if (signal.aborted || this.endpoints.get(endpoint.hostId) !== endpoint) {
-      link.close();
-      return 'retry';
     }
     opened = link;
     endpoint.link = link;
@@ -208,6 +251,9 @@ export class EndpointLists {
       const workspaces = endpoint.pages.add(frame);
       if (!workspaces) return;
       endpoint.workspaces = workspaces;
+      // Only now is this session staying: one that yields closes without listing anything.
+      endpoint.paused = null;
+      endpoint.takeOver = false;
       this.options.changed();
     } else if (frame.type === 'app:launch-options') {
       endpoint.projects = frame.projects;
@@ -215,9 +261,9 @@ export class EndpointLists {
     }
   }
 
-  private closed(endpoint: Endpoint, replaced: boolean): void {
+  private closed(endpoint: Endpoint, replaced: boolean, tookOver: boolean): void {
     endpoint.link = null;
-    if (replaced) {
+    if (replaced && !tappedSince(endpoint, tookOver)) {
       this.pause(endpoint, 'replaced');
       return;
     }
@@ -227,14 +273,17 @@ export class EndpointLists {
 
   private pause(endpoint: Endpoint, reason: EndpointPause): void {
     endpoint.paused = reason;
+    endpoint.takeOver = false;
     endpoint.loop.stop();
     endpoint.workspaces = null;
     this.options.changed();
   }
 
   private forget(endpoint: Endpoint): void {
-    if (!endpoint.workspaces) return;
+    if (!endpoint.workspaces && !endpoint.paused) return;
     endpoint.workspaces = null;
+    // Out of reach, so no longer known to be open elsewhere.
+    endpoint.paused = null;
     this.options.changed();
   }
 

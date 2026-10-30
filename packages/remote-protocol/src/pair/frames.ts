@@ -72,6 +72,8 @@ export const REMOTE_CAPABILITIES = {
   PROJECT_ICONS: 'project-icons',
   /** Workspaces' tags in workspace summaries, which an older page's strict schema would reject. */
   WORKSPACE_TAGS: 'workspace-tags',
+  /** This session only lists workspaces, so it never takes over from one someone is using. */
+  BACKGROUND_SESSION: 'background-session',
 } as const;
 
 const CapabilitiesSchema = z.array(z.string().min(1).max(64)).max(32);

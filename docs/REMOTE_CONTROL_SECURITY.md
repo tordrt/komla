@@ -76,7 +76,9 @@ challenge while they wait.
 
 One trusted device uses remote control at a time. A newer completed sign-in, of the same device or
 another, replaces the older connection, which is closed with a code telling it not to reconnect.
-Another device's connection lets go of its size leases at once.
+Another device's connection lets go of its size leases at once. A session that only lists workspaces
+for another endpoint's page says so in its hello and never replaces one in use: it closes as soon as
+it signs in, with the same code, and keeps its next grant.
 
 Each browser installation pairs with its own passkey, so registration excludes no existing
 credential: an iPhone's Safari and its Home Screen app share synced passkeys but not storage, and

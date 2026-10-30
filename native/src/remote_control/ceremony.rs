@@ -26,7 +26,13 @@ pub(crate) const PASSKEY_TIMEOUT_MS: u64 = 120_000;
 pub(crate) const BINARY_FRAMES: &str = "binary-frames";
 pub(crate) const PROJECT_ICONS: &str = "project-icons";
 pub(crate) const WORKSPACE_TAGS: &str = "workspace-tags";
-const HOST_CAPABILITIES: &[&str] = &[BINARY_FRAMES, PROJECT_ICONS, WORKSPACE_TAGS];
+pub(crate) const BACKGROUND_SESSION: &str = "background-session";
+const HOST_CAPABILITIES: &[&str] = &[
+    BINARY_FRAMES,
+    PROJECT_ICONS,
+    WORKSPACE_TAGS,
+    BACKGROUND_SESSION,
+];
 const MAX_CAPABILITIES: usize = 32;
 const MAX_CAPABILITY_CHARS: usize = 64;
 
@@ -56,6 +62,8 @@ pub(crate) enum CeremonyOutcome {
         project_icons: bool,
         /// The phone takes workspaces' tags in workspace summaries.
         workspace_tags: bool,
+        /// This session only lists workspaces, so it leaves one someone is using alone.
+        background: bool,
     },
     /// Send this `pair:rejected` frame and close.
     Rejected(Value),
@@ -190,6 +198,7 @@ impl Ceremony {
             binary_frames,
             project_icons,
             workspace_tags,
+            background,
             ..
         } = &mut outcome
         {
@@ -201,6 +210,7 @@ impl Ceremony {
             *binary_frames = agreed.contains(&BINARY_FRAMES);
             *project_icons = agreed.contains(&PROJECT_ICONS);
             *workspace_tags = agreed.contains(&WORKSPACE_TAGS);
+            *background = agreed.contains(&BACKGROUND_SESSION);
             if !agreed.is_empty() {
                 reply["capabilities"] = json!(agreed);
             }
@@ -530,6 +540,7 @@ impl Ceremony {
             binary_frames: false,
             project_icons: false,
             workspace_tags: false,
+            background: false,
         }
     }
 }

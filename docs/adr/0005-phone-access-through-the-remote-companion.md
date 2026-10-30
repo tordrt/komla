@@ -56,10 +56,12 @@ another endpoint lists, a host's before the desktop's. Tapping one of those open
 page with the workspace open. An endpoint whose grant has lapsed is named below the list until the
 phone signs in there again.
 
-Each background session is an ordinary session, so a phone still holds one per endpoint, and the
-desktop still serves one device at a time: a phone listing the desktop from a host's page replaces
-another device's desktop session, as opening the desktop would. A replaced background session
-doesn't sign in again on its own; the list names its endpoint until the user taps it.
+A phone still holds one session per endpoint, and the desktop still serves one device at a time.
+A background session says so in its hello, so it never takes over from a session someone is using:
+it closes as soon as it signs in, with the code for a replaced session, and keeps the next grant.
+A session in use replaces a background one, and a background one replaces another. The list names an
+endpoint held this way and tries it again when the page next comes on screen; tapping the name
+takes the endpoint over, as opening it would.
 
 The desktop also writes each SSH workspace's tag into its manifest as it shows it (name, color and
 spinner), which the host lists for phones that agreed to tags.

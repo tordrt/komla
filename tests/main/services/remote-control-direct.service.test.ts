@@ -283,9 +283,10 @@ async function startResumablePhone(webAssetDir: string) {
    */
   async function resume(
     token?: string,
-    device = phone
+    device = phone,
+    capabilities?: string[]
   ): Promise<{ resumeToken: string; close: () => void; closed: Promise<number> }> {
-    const attempt = await hello(token, device);
+    const attempt = await hello(token, device, capabilities);
     const challenge = attempt.reply;
     const proof = await signDeviceProof(
       device.keys.privateKey,
@@ -850,6 +851,46 @@ describe('RemoteControlDirectService', () => {
     expect(await first.closed).toBe(4409);
     expect(phoneSession.dispose).toHaveBeenCalledWith({ connectionDropped: false });
     expect(phone.service.getState().connectedDevice).toMatchObject({ label: 'Tablet' });
+    await phone.service.stop();
+  });
+
+  it('leaves a session someone is using alone when another only wants to list workspaces', async () => {
+    const phone = await startResumablePhone(webAssetDir);
+    const inUse = await phone.resume();
+    await vi.waitFor(() => expect(phone.createAppSession).toHaveBeenCalledTimes(1));
+    const inUseSession = phone.createAppSession.mock.results[0]!.value as {
+      dispose: ReturnType<typeof vi.fn>;
+    };
+
+    // It still gets the next grant, so it can list the desktop once the phone is done.
+    const listing = await phone.resume(undefined, phone.tablet, ['background-session']);
+
+    expect(await listing.closed).toBe(4409);
+    expect(listing.resumeToken).toHaveLength(43);
+    expect(phone.createAppSession).toHaveBeenCalledTimes(1);
+    expect(inUseSession.dispose).not.toHaveBeenCalled();
+    expect(phone.service.getState().connectedDevice).toMatchObject({ label: 'Phone' });
+    inUse.close();
+    await phone.service.stop();
+  });
+
+  it('lets a session that only lists workspaces be replaced, by one in use or another like it', async () => {
+    const phone = await startResumablePhone(webAssetDir);
+    const listing = await phone.resume(undefined, phone.tablet, ['background-session']);
+    await vi.waitFor(() => expect(phone.createAppSession).toHaveBeenCalledTimes(1));
+
+    // Its own reconnect, while the desktop still holds a connection that dropped.
+    const reconnected = await phone.resume(listing.resumeToken, phone.tablet, [
+      'background-session',
+    ]);
+    expect(await listing.closed).toBe(4409);
+    await vi.waitFor(() => expect(phone.createAppSession).toHaveBeenCalledTimes(2));
+
+    const inUse = await phone.resume();
+    expect(await reconnected.closed).toBe(4409);
+    await vi.waitFor(() => expect(phone.createAppSession).toHaveBeenCalledTimes(3));
+    expect(phone.service.getState().connectedDevice).toMatchObject({ label: 'Phone' });
+    inUse.close();
     await phone.service.stop();
   });
 

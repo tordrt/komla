@@ -116,6 +116,8 @@ class DirectPeerSession {
   private lastInboundMs = Date.now();
   private lastPingSentMs = 0;
   private connectedDevice: RemoteControlConnectedDevice | null = null;
+  // It only lists workspaces, so it leaves a session someone is using alone.
+  private background = false;
   private resumeToken: string | undefined;
   private disposed = false;
 
@@ -140,7 +142,7 @@ class DirectPeerSession {
       heartbeatPingMs: number;
       heartbeatTimeoutMs: number;
       onPairCompleted: (label: string, credentialId: string) => void;
-      onAuthCompleted: (label: string, credentialId: string) => void;
+      onAuthCompleted: (label: string, credentialId: string, background: boolean) => void;
       onCeremonyFailed: (err: { message: string }) => void;
       onClose: () => void;
     }
@@ -199,6 +201,10 @@ class DirectPeerSession {
     this.peer.handleClose({ code, reason });
     this.conn.close(code, reason);
     this.opts.onClose();
+  }
+
+  isBackground(): boolean {
+    return this.background;
   }
 
   getConnectedDevice(): RemoteControlConnectedDevice | null {
@@ -270,6 +276,7 @@ class DirectPeerSession {
         REMOTE_CAPABILITIES.BINARY_FRAMES,
         REMOTE_CAPABILITIES.PROJECT_ICONS,
         REMOTE_CAPABILITIES.WORKSPACE_TAGS,
+        REMOTE_CAPABILITIES.BACKGROUND_SESSION,
       ],
       servedBuild: this.opts.servedBuild,
       onPairVerifying: () => {},
@@ -281,7 +288,8 @@ class DirectPeerSession {
       onAuthCompleted: (label, credentialId, resumeToken, capabilities) => {
         this.resumeToken = resumeToken;
         this.connectedDevice = { credentialId, label, connectedAt: Date.now() };
-        this.opts.onAuthCompleted(label, credentialId);
+        this.background = capabilities?.includes(REMOTE_CAPABILITIES.BACKGROUND_SESSION) ?? false;
+        this.opts.onAuthCompleted(label, credentialId, this.background);
         this.startAppSession({ credentialId, capabilities });
       },
       onCeremonyFailed: (err) => {
@@ -751,7 +759,7 @@ export class RemoteControlDirectService {
         this.clearPairingOffer();
         this.emitStateChange();
       },
-      onAuthCompleted: (_label, credentialId) => {
+      onAuthCompleted: (_label, credentialId, background) => {
         // The device may have been removed while its ceremony was finishing.
         if (
           !this.pendingSessions.has(session) ||
@@ -761,9 +769,17 @@ export class RemoteControlDirectService {
           return;
         }
         this.pendingSessions.delete(session);
-        // The newest sign-in wins: it replaces the connection this device left behind, or the one
-        // another device has open.
         const replaced = this.activeSession;
+        // A session that only lists workspaces leaves one someone is using alone.
+        if (background && replaced && !replaced.isBackground()) {
+          session.dispose({
+            code: SESSION_CLOSE.REPLACED.code,
+            reason: SESSION_CLOSE.REPLACED.reason,
+          });
+          return;
+        }
+        // Otherwise the newest sign-in wins: it replaces the connection this device left behind, or
+        // the one another device has open.
         replaced?.dispose({
           code: SESSION_CLOSE.REPLACED.code,
           reason: SESSION_CLOSE.REPLACED.reason,

@@ -132,6 +132,7 @@ import {
 import {
   combineWorkspaces,
   EndpointLists,
+  type EndpointPause,
   type EndpointWorkspaces,
   type ListLink,
   type ListLinkHandlers,
@@ -196,6 +197,8 @@ interface SessionTarget {
 interface LiveConnection {
   ws: WebSocket;
   peer: Peer;
+  /** How the socket closed, if it has. */
+  closeCode?: () => number | undefined;
 }
 
 /** Protocol features this page offers in its hello. */
@@ -808,7 +811,8 @@ class RemoteAppClient {
   /** Workspaces only other endpoints list, by id, as last shown. */
   private elsewhere = new Map<string, EndpointWorkspaces>();
   private readonly endpointLists = new EndpointLists({
-    open: (hostId, signal, handlers) => this.openEndpointList(hostId, signal, handlers),
+    open: (hostId, signal, handlers, takeOver) =>
+      this.openEndpointList(hostId, signal, handlers, takeOver),
     changed: () => this.renderWorkspaces(),
     isVisible: () => document.visibilityState === 'visible',
   });
@@ -1211,7 +1215,8 @@ class RemoteAppClient {
   private async openEndpointList(
     hostId: string | null,
     signal: AbortSignal,
-    handlers: ListLinkHandlers
+    handlers: ListLinkHandlers,
+    takeOver: boolean
   ): Promise<ListLink | 'retry' | 'reload'> {
     const host = hostId ? this.hosts().find((candidate) => candidate.id === hostId) : null;
     if (hostId && !host) return 'retry';
@@ -1224,7 +1229,12 @@ class RemoteAppClient {
     } catch {
       return 'retry';
     }
-    return openListLink({ url, fingerprint, device: this.target.device }, signal, handlers);
+    return openListLink(
+      { url, fingerprint, device: this.target.device },
+      signal,
+      handlers,
+      takeOver
+    );
   }
 
   /** What a new connection asks for first. */
@@ -2323,25 +2333,32 @@ class RemoteAppClient {
     if (paused.length === 0) return null;
     const note = document.createElement('div');
     note.className = 'workspace-signed-out';
-    const text = document.createElement('p');
-    text.textContent = paused.some(({ reason }) => reason === 'signed-out')
-      ? 'Not listed here until you sign in to them again:'
-      : 'Not listed here while another device has them open:';
-    note.append(
-      text,
-      ...paused.map(({ hostId, reason }) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        const name = this.endpointName(hostId);
-        button.textContent = name.charAt(0).toUpperCase() + name.slice(1);
-        // Signing in takes the passkey, which only that endpoint's page asks for.
-        button.addEventListener('click', () =>
-          reason === 'signed-out'
-            ? location.assign(endpointHref(location.href, hostId))
-            : this.endpointLists.retry(hostId)
-        );
-        return button;
-      })
+    const group = (reason: EndpointPause, explanation: string, tapped: (id: string | null) => void) => {
+      const endpoints = paused.filter((item) => item.reason === reason);
+      if (endpoints.length === 0) return;
+      const text = document.createElement('p');
+      text.textContent = explanation;
+      note.append(
+        text,
+        ...endpoints.map(({ hostId, takingOver }) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          const name = this.endpointName(hostId);
+          button.textContent = `${name.charAt(0).toUpperCase()}${name.slice(1)}${takingOver ? '…' : ''}`;
+          button.disabled = takingOver;
+          button.addEventListener('click', () => tapped(hostId));
+          return button;
+        })
+      );
+    };
+    // Signing in takes the passkey, which only that endpoint's page asks for.
+    group('signed-out', 'Not listed here until you sign in to them again:', (hostId) =>
+      location.assign(endpointHref(location.href, hostId))
+    );
+    group(
+      'replaced',
+      'Open on another device or tab. Tap one to list it here, which closes it there:',
+      (hostId) => this.endpointLists.retry(hostId)
     );
     return note;
   }
@@ -4521,6 +4538,8 @@ class RemoteAppClient {
     this.workspacePages.clear();
     this.setCreateWorkspacePending(false);
     this.clearTerminalLoading();
+    // Its background sessions must not keep holding, or take, the slots of newer sign-ins.
+    if (replaced) this.endpointLists.dispose();
     this.renderWorkspaces();
     this.renderTerminalToolbar();
     if (replaced) {
@@ -5429,8 +5448,10 @@ function resumeSession(
   target: SessionTarget,
   fromDesktop: boolean,
   signal: AbortSignal,
-  onInbound: (ws: WebSocket) => void
+  onInbound: (ws: WebSocket) => void,
+  capabilities: readonly string[] = PAGE_CAPABILITIES
 ): Promise<LiveConnection | 'retry' | 'reload'> {
+  if (signal.aborted) return Promise.resolve('retry');
   const grant = readResumeGrant(target.fingerprint, target.device.deviceId);
   if (!grant) return Promise.resolve('reload');
   return new Promise((resolve) => {
@@ -5445,6 +5466,7 @@ function resumeSession(
       resolve(outcome);
     };
     const abandon = () => finish('retry');
+    let closeCode: number | undefined;
     const timer = window.setTimeout(abandon, RECONNECT_ATTEMPT_TIMEOUT_MS);
     signal.addEventListener('abort', abandon);
 
@@ -5468,7 +5490,11 @@ function resumeSession(
         } else {
           clearResumeGrant(target.fingerprint);
         }
-        finish(adoptAuthenticated(peer, frame, fromDesktop) ? { ws, peer } : 'reload');
+        finish(
+          adoptAuthenticated(peer, frame, fromDesktop)
+            ? { ws, peer, closeCode: () => closeCode }
+            : 'reload'
+        );
       } else if (frame?.type === 'pair:rejected') {
         const refused =
           frame.reason !== 'resume-invalid' ||
@@ -5484,14 +5510,17 @@ function resumeSession(
           mode: 'resume',
           resumeToken: grant.token,
           deviceId: target.device.deviceId,
-          capabilities: PAGE_CAPABILITIES,
+          capabilities: [...capabilities],
         })
         .catch(() => finish('retry'));
     });
     ws.addEventListener('message', (evt) =>
       handleSocketMessage(evt, ws, peer, () => onInbound(ws))
     );
-    ws.addEventListener('close', (evt) => afterPeerClosed(peer, evt, () => finish('retry')));
+    ws.addEventListener('close', (evt) => {
+      closeCode = evt.code;
+      afterPeerClosed(peer, evt, () => finish('retry'));
+    });
     ws.addEventListener('error', () => peer.handleError(new Error('socket error')));
     ws.addEventListener('open', () => {
       peer.connect().catch(() => finish('retry'));
@@ -5501,18 +5530,29 @@ function resumeSession(
 
 /**
  * Signs in to another endpoint only to list its workspaces: with its resume grant and a fresh
- * installation-key proof, as a reconnect does, so never with the passkey.
+ * installation-key proof, as a reconnect does, so never with the passkey. It leaves a session
+ * someone is using alone, unless `takeOver`.
  */
 async function openListLink(
   target: SessionTarget,
   signal: AbortSignal,
-  handlers: ListLinkHandlers
+  handlers: ListLinkHandlers,
+  takeOver: boolean
 ): Promise<ListLink | 'retry' | 'reload'> {
   let watchdog: ConnectionWatchdog | null = null;
-  const result = await resumeSession(target, false, signal, () => watchdog?.noteInbound());
+  const result = await resumeSession(
+    target,
+    false,
+    signal,
+    () => watchdog?.noteInbound(),
+    takeOver ? PAGE_CAPABILITIES : [...PAGE_CAPABILITIES, REMOTE_CAPABILITIES.BACKGROUND_SESSION]
+  );
   if (typeof result === 'string') return result;
   const { ws, peer } = result;
-  if (peer.state === 'closed') return 'retry';
+  if (peer.state === 'closed') {
+    handlers.closed(result.closeCode?.() === SESSION_CLOSE.REPLACED.code);
+    return 'retry';
+  }
   peer.onMessage((msg) => {
     if (msg.kind !== 'json') return;
     const frame = parseRemoteAppFrame(msg.data);
@@ -5526,10 +5566,16 @@ async function openListLink(
     sendPing: () => {
       if (ws.readyState === WebSocket.OPEN) ws.send(RELAY_PING_FRAME);
     },
-    onDead: () => ws.close(1000, 'liveness-timeout'),
+    // A half-open socket may not report closing for minutes.
+    onDead: () => {
+      watchdog?.stop();
+      handlers.closed(false);
+      ws.close(1000, 'liveness-timeout');
+    },
   });
   return {
     send: (frame) => void peer.sendEncryptedJson(frame).catch(() => undefined),
+    probe: () => watchdog?.probe(),
     close: () => {
       watchdog?.stop();
       ws.close(1000, 'list-closed');

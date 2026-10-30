@@ -145,6 +145,8 @@ struct SessionHandle {
     device_id: String,
     /// The passkey it signed in with, which the desktop must still trust.
     credential_id: String,
+    /// It only lists workspaces, so a sign-in someone uses replaces it, not the other way round.
+    background: bool,
     close: CloseRequest,
     wake: Arc<dyn Fn() + Send + Sync>,
 }
@@ -682,8 +684,9 @@ impl Connection<'_> {
                 binary_frames,
                 project_icons,
                 workspace_tags,
+                background,
             } => {
-                self.register_device(&device.device_id, &device.credential_id);
+                self.register_device(&device.device_id, &device.credential_id, background);
                 self.device_id = Some(device.device_id);
                 self.resume_token = Some(resume_token);
                 self.queue_encrypted(&reply);
@@ -709,13 +712,23 @@ impl Connection<'_> {
         }
     }
 
-    /// One session per phone: a newer sign-in of the same phone replaces the older one.
-    fn register_device(&self, device_id: &str, credential_id: &str) {
+    /// One session per phone: a newer sign-in of the same phone replaces the older one, unless it
+    /// only lists workspaces and the older one is in use, which it leaves alone.
+    fn register_device(&self, device_id: &str, credential_id: &str, background: bool) {
         let mut sessions = self.shared.sessions.lock().expect("sessions lock poisoned");
-        for handle in sessions.values() {
-            if handle.device_id == device_id {
-                handle.close.store(CLOSE_REPLACED, Ordering::SeqCst);
-                (handle.wake)();
+        let yields = background
+            && sessions
+                .values()
+                .any(|handle| handle.device_id == device_id && !handle.background);
+        if yields {
+            self.close_requested.store(CLOSE_REPLACED, Ordering::SeqCst);
+            (self.wake)();
+        } else {
+            for handle in sessions.values() {
+                if handle.device_id == device_id {
+                    handle.close.store(CLOSE_REPLACED, Ordering::SeqCst);
+                    (handle.wake)();
+                }
             }
         }
         sessions.insert(
@@ -723,6 +736,7 @@ impl Connection<'_> {
             SessionHandle {
                 device_id: device_id.to_owned(),
                 credential_id: credential_id.to_owned(),
+                background,
                 close: Arc::clone(&self.close_requested),
                 wake: Arc::clone(&self.wake),
             },

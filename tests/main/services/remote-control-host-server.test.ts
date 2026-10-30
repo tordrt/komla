@@ -129,10 +129,18 @@ class PhoneConnection {
       this.binaryReceived += 1;
       this.peer.handleBinaryMessage(new Uint8Array(data as Buffer));
     });
-    this.socket.on('close', (code, reason) => {
-      this.closed = { code, reason: String(reason) };
-      this.peer.handleClose({ code, reason: String(reason) });
+    // Frames received before the close are still being decrypted when the socket reports it.
+    this.peer.onClose((event) => {
+      this.closed = { code: event.code ?? 0, reason: event.reason ?? '' };
       this.notify();
+    });
+    this.socket.on('close', (code, reason) => {
+      if (this.peer.state === 'closed') {
+        this.closed = { code, reason: String(reason) };
+        this.notify();
+      } else {
+        this.peer.handleClose({ code, reason: String(reason) });
+      }
     });
   }
 
@@ -755,6 +763,35 @@ describe.skipIf(process.platform === 'win32' || !hasTmux)('phone server on an SS
     await second.connection.send({ type: 'app:workspaces:list', requestId: 'r2' });
     await second.connection.next((frame) => frame.type === 'app:workspaces');
     second.connection.close();
+  });
+
+  it('leaves a session in use alone when the same phone only wants to list workspaces', async () => {
+    const inUse = await signIn();
+
+    const listing = new PhoneConnection(url, fingerprint);
+    await listing.open();
+    await listing.send({
+      type: 'pair:hello',
+      protocolVersion: 2,
+      mode: 'resume',
+      deviceId: phone.deviceId,
+      resumeToken: inUse.resumeToken,
+      capabilities: ['background-session'],
+    });
+    const challenge = await listing.next((frame) => frame.type === 'pair:resume-challenge');
+    const proof = buildDeviceProof('resume', challenge.challenge as string, listing.binding());
+    await listing.send({
+      type: 'pair:resume-response',
+      deviceSignature: encodeBase64(await signDeviceProof(phone.privateKey, proof)),
+    });
+    const authenticated = await listing.next((frame) => frame.type === 'pair:authenticated');
+
+    // It keeps the next grant, for when the phone is done with the session in use.
+    expect(authenticated.resumeToken).toEqual(expect.any(String));
+    expect(await listing.waitClosed()).toMatchObject({ code: 4409, reason: 'replaced' });
+    await inUse.connection.send({ type: 'app:workspaces:list', requestId: 'r3' });
+    await inUse.connection.next((frame) => frame.type === 'app:workspaces');
+    inUse.connection.close();
   });
 
   it('ends the session of a phone the desktop stops trusting', async () => {

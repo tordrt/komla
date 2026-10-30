@@ -885,7 +885,7 @@ export function registerGitHandlers(): void {
       async (event, [repoPath]): Promise<{ success: boolean; message: string }> => {
         assertLocalGitPath(repoPath);
         const window = BrowserWindow.fromWebContents(event.sender);
-        return gitService.fetchFromRemote(repoPath, (percent, stage) => {
+        return workspaceGitService.fetchPath(repoPath, (percent, stage) => {
           if (window && !window.isDestroyed()) {
             window.webContents.send(IPC.GIT_PROGRESS, {
               operation: 'fetch',
@@ -1526,17 +1526,8 @@ export function registerGitHandlers(): void {
     handleValidated(
       IPC.MANAGED_REPO_FETCH,
       managedRepoFetchArgsSchema,
-      async (_, [projectId]): Promise<{ success: boolean; message: string }> => {
-        const project = projectService.get(projectId);
-        if (!project) {
-          return { success: false, message: 'Project not found' };
-        }
-        if (!project.managed || !project.managedRepoPath) {
-          // For non-managed projects, fall back to regular fetch
-          return gitService.fetchFromRemote(project.repositoryPath);
-        }
-        return managedRepoService.fetch(project.managedRepoPath);
-      }
+      async (_, [projectId]): Promise<{ success: boolean; message: string }> =>
+        workspaceGitService.fetchProject(projectId)
     )
   );
 

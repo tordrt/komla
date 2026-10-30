@@ -12,6 +12,10 @@ const mockGitService = {
   getCommitFileDiff: vi.fn(),
   commitChanges: vi.fn(),
   rebaseOnBranch: vi.fn(),
+  fetchFromRemote: vi.fn(),
+  getTargetBranch: vi.fn(),
+  fastForwardBranchToRemoteIfSafe: vi.fn(),
+  getRemoteUrl: vi.fn(),
 };
 
 const mockSshWorkspaceService = {
@@ -19,16 +23,18 @@ const mockSshWorkspaceService = {
   listBranches: vi.fn(),
   getCommitGraph: vi.fn(),
   commitChanges: vi.fn(),
+  pushTargetBranch: vi.fn(),
 };
 
 const mockSshWorkspaceDiff = { getCommitDiff: vi.fn() };
 
 const mockWorkspaceService = {
   get: vi.fn(),
+  list: vi.fn(() => [] as Array<Record<string, unknown>>),
 };
 
-const mockProjectService = { get: vi.fn() };
-const mockManagedRepoService = { getRemoteStatus: vi.fn() };
+const mockProjectService = { get: vi.fn(), list: vi.fn(() => [] as Array<Record<string, unknown>>) };
+const mockManagedRepoService = { getRemoteStatus: vi.fn(), fetch: vi.fn() };
 const mockWorkspaceStatusService = { read: vi.fn(), change: vi.fn() };
 
 vi.mock('../../../src/main/services/git.service', () => ({ gitService: mockGitService }));
@@ -336,5 +342,201 @@ describe('workspaceGitService', () => {
     });
 
     expect(mockWorkspaceStatusService.change).not.toHaveBeenCalled();
+  });
+
+  describe('fetching', () => {
+    const managed = {
+      id: 'managed',
+      managed: true,
+      repositoryPath: '/p/m',
+      managedRepoPath: '/p/m.git',
+    };
+    const own = { id: 'own', managed: false, repositoryPath: '/p/own' };
+    const workspaces = [
+      { id: 'w1', projectId: 'managed', workingDirectory: '/wt/w1', backend: { kind: 'local' } },
+      {
+        id: 'w2',
+        projectId: 'managed',
+        workingDirectory: '/wt/w2',
+        backend: { kind: 'local' },
+        baseBranch: 'release',
+      },
+      { id: 'w3', projectId: 'managed', workingDirectory: '/wt/w3', backend: { kind: 'local' } },
+      { id: 'w4', projectId: 'managed', workingDirectory: 'ssh://h/r', backend: { kind: 'ssh' } },
+      { id: 'w5', projectId: 'own', workingDirectory: '/wt/w5', backend: { kind: 'local' } },
+    ];
+
+    beforeEach(() => {
+      mockProjectService.list.mockReturnValue([managed, own]);
+      mockProjectService.get.mockImplementation((id: string) =>
+        [managed, own].find((project) => project.id === id)
+      );
+      mockWorkspaceService.list.mockReturnValue(workspaces);
+      mockWorkspaceService.get.mockImplementation((id: string) =>
+        workspaces.find((workspace) => workspace.id === id)
+      );
+      mockGitService.getTargetBranch.mockResolvedValue('main');
+      mockGitService.fastForwardBranchToRemoteIfSafe.mockImplementation(
+        async (_repoPath: string, branch: string) => branch === 'main'
+      );
+      mockGitService.fetchFromRemote.mockResolvedValue({
+        success: true,
+        message: 'Already up to date',
+      });
+      mockManagedRepoService.fetch.mockResolvedValue({
+        success: true,
+        message: 'Fetched from remote',
+      });
+    });
+
+    it("fast-forwards the project's target branches after a workspace Fetch", async () => {
+      const { workspaceGitService } =
+        await import('../../../src/main/services/workspace-git.service');
+
+      await expect(workspaceGitService.fetchFromRemote('w1')).resolves.toEqual({
+        success: true,
+        message: 'Already up to date. Local main caught up with origin',
+      });
+
+      expect(mockGitService.fetchFromRemote).toHaveBeenCalledWith('/wt/w1');
+      expect(mockGitService.getTargetBranch.mock.calls).toEqual([['/p/m.git']]);
+      expect(mockGitService.fastForwardBranchToRemoteIfSafe.mock.calls).toEqual([
+        ['/p/m.git', 'main'],
+        ['/p/m.git', 'release'],
+      ]);
+    });
+
+    it('fetches a managed project in its bare clone, and any other in its folder', async () => {
+      const { workspaceGitService } =
+        await import('../../../src/main/services/workspace-git.service');
+
+      await expect(workspaceGitService.fetchProject('managed')).resolves.toEqual({
+        success: true,
+        message: 'Fetched from remote. Local main caught up with origin',
+      });
+      await workspaceGitService.fetchProject('own');
+
+      expect(mockManagedRepoService.fetch).toHaveBeenCalledWith('/p/m.git');
+      expect(mockGitService.fetchFromRemote).toHaveBeenCalledWith('/p/own');
+      expect(mockGitService.fastForwardBranchToRemoteIfSafe.mock.calls.at(-1)).toEqual([
+        '/p/own',
+        'main',
+      ]);
+      await expect(workspaceGitService.fetchProject('missing')).resolves.toEqual({
+        success: false,
+        message: 'Project not found',
+      });
+    });
+
+    it.each([
+      ['a project folder', '/p/own', [['/p/own', 'main']]],
+      ['a bare clone', '/p/m.git', [['/p/m.git', 'main'], ['/p/m.git', 'release']]],
+      ['a workspace', '/wt/w5', [['/p/own', 'main']]],
+      ['a folder of no project', '/elsewhere', []],
+      // A managed project's folder is not the bare clone its workspaces compare against.
+      ['a managed project folder', '/p/m', []],
+    ])('finds the project to fast-forward from %s', async (_name, repoPath, calls) => {
+      const { workspaceGitService } =
+        await import('../../../src/main/services/workspace-git.service');
+
+      await workspaceGitService.fetchPath(repoPath);
+
+      expect(mockGitService.fetchFromRemote).toHaveBeenCalledWith(repoPath, undefined);
+      expect(mockGitService.fastForwardBranchToRemoteIfSafe.mock.calls).toEqual(calls);
+    });
+
+    it("syncs the project's own target branch, even without local workspaces", async () => {
+      mockProjectService.get.mockReturnValue({ ...own, baseBranch: 'develop' });
+      mockWorkspaceService.list.mockReturnValue([]);
+      mockGitService.fastForwardBranchToRemoteIfSafe.mockResolvedValue(true);
+      const { workspaceGitService } =
+        await import('../../../src/main/services/workspace-git.service');
+
+      await expect(workspaceGitService.fetchProject('own')).resolves.toEqual({
+        success: true,
+        message: 'Already up to date. Local develop caught up with origin',
+      });
+      expect(mockGitService.fastForwardBranchToRemoteIfSafe.mock.calls).toEqual([
+        ['/p/own', 'develop'],
+      ]);
+    });
+
+    it('keeps going when the default branch cannot be read or a branch cannot move', async () => {
+      mockGitService.getTargetBranch.mockRejectedValue(new Error('not a git repository'));
+      mockGitService.fastForwardBranchToRemoteIfSafe.mockImplementation(
+        async (_repoPath: string, branch: string) => {
+          if (branch === 'release') throw new Error('cannot lock ref');
+          return true;
+        }
+      );
+      const { workspaceGitService } =
+        await import('../../../src/main/services/workspace-git.service');
+
+      await expect(workspaceGitService.fastForwardProjectTargets('managed')).resolves.toEqual([]);
+      expect(mockGitService.fastForwardBranchToRemoteIfSafe.mock.calls).toEqual([
+        ['/p/m.git', 'release'],
+      ]);
+    });
+
+    it.each([
+      ['managed', '/p/m.git', [['/p/m.git', 'main']]],
+      ['own', '/p/own', []],
+    ])(
+      'after an SSH push, syncs the %s project and fast-forwards only a clone Komla owns',
+      async (projectId, fetchedPath, calls) => {
+        const sshWorkspace = {
+          id: 's1',
+          projectId,
+          workingDirectory: 'ssh://h/r',
+          backend: { kind: 'ssh', hostId: 'h', gitUrl: 'git@example.com:app.git' },
+        };
+        mockWorkspaceService.get.mockReturnValue(sshWorkspace);
+        mockWorkspaceService.list.mockReturnValue([sshWorkspace]);
+        mockSshWorkspaceService.pushTargetBranch.mockResolvedValue({
+          success: true,
+          message: 'Pushed',
+        });
+        mockGitService.getRemoteUrl.mockResolvedValue('git@example.com:app.git');
+        const { workspaceGitService } =
+          await import('../../../src/main/services/workspace-git.service');
+
+        await workspaceGitService.pushTargetBranch('s1');
+
+        const fetched = [
+          ...mockManagedRepoService.fetch.mock.calls,
+          ...mockGitService.fetchFromRemote.mock.calls,
+        ].map(([path]) => path);
+        expect(fetched).toEqual([fetchedPath]);
+        expect(mockGitService.fastForwardBranchToRemoteIfSafe.mock.calls).toEqual(calls);
+      }
+    );
+
+    it('leaves target branches alone after a failed fetch', async () => {
+      mockGitService.fetchFromRemote.mockResolvedValue({ success: false, message: 'Fetch failed' });
+      const { workspaceGitService } =
+        await import('../../../src/main/services/workspace-git.service');
+
+      await expect(workspaceGitService.fetchFromRemote('w1')).resolves.toEqual({
+        success: false,
+        message: 'Fetch failed',
+      });
+      await workspaceGitService.fetchPath('/p/own');
+      expect(mockGitService.fastForwardBranchToRemoteIfSafe).not.toHaveBeenCalled();
+    });
+
+    it('stops between branches once background work should give way', async () => {
+      const { workspaceGitService } =
+        await import('../../../src/main/services/workspace-git.service');
+      let proceed = true;
+      mockGitService.fastForwardBranchToRemoteIfSafe.mockImplementation(async () => {
+        proceed = false;
+        return true;
+      });
+
+      await expect(
+        workspaceGitService.fastForwardProjectTargets('managed', () => proceed)
+      ).resolves.toEqual(['main']);
+      expect(mockGitService.fastForwardBranchToRemoteIfSafe).toHaveBeenCalledTimes(1);
+    });
   });
 });

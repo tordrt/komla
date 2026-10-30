@@ -8,6 +8,8 @@ vi.mock('electron', () => electronMock);
 
 const mockGitService = {
   fetchFromRemote: vi.fn(),
+  getTargetBranch: vi.fn(async () => 'main'),
+  fastForwardBranchToRemoteIfSafe: vi.fn(async () => false),
   getRemoteUrl: vi.fn(),
   push: vi.fn(),
   pull: vi.fn(),
@@ -34,7 +36,7 @@ const mockManagedRepoService = {
 
 const mockProjectService = {
   get: vi.fn(),
-  list: vi.fn(),
+  list: vi.fn(() => []),
 };
 
 const mockWorkspaceService = {

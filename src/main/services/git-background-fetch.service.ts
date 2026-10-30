@@ -10,6 +10,7 @@ import { projectService } from './project.service';
 import { remoteWorkspaceObservationService } from './remote-workspace-observation.service';
 import { isSshConnectionFailure, sshHostStatusService } from './ssh-host-status.service';
 import { sshWorkspaceGit } from './workspace-git/ssh-git';
+import { workspaceGitService } from './workspace-git.service';
 import { workspaceStatusService } from './workspace-status.service';
 import { workspaceService } from './workspace.service';
 
@@ -79,17 +80,21 @@ class GitBackgroundFetchService {
     for (const project of projectService.list()) {
       if (project.kind === 'directory' || !projectIds.has(project.id)) continue;
       const repoPath = projectRepoPath(project);
+      const managed = Boolean(project.managed && project.managedRepoPath);
       if (!this.claim(repoPath)) continue;
       // Creating a workspace stops this fetch, also in the checks before it.
       const mark = gitService.backgroundMark(repoPath);
       try {
         if (!(await gitService.hasRemote(repoPath, 'origin'))) continue;
-        await gitService.fetchOriginWithoutPrompts(
-          repoPath,
-          Boolean(project.managed && project.managedRepoPath),
-          FETCH_TIMEOUT_MS,
-          mark
-        );
+        await gitService.fetchOriginWithoutPrompts(repoPath, managed, FETCH_TIMEOUT_MS, mark);
+        // Only in Komla's own clone: a user's branches move when they ask. A workspace creation
+        // stops background work; leave its start point alone.
+        if (managed) {
+          await workspaceGitService.fastForwardProjectTargets(
+            project.id,
+            () => gitService.backgroundMark(repoPath) === mark
+          );
+        }
       } catch (error) {
         logger.debug('Background fetch skipped', {
           projectId: project.id,

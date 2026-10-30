@@ -1,4 +1,6 @@
+import { projectRepoPath } from '../../shared/lib/project-repo-path';
 import { toGitBranchQuickStatus } from '../../shared/lib/workspace-branch-status';
+import { isSshWorkspace, resolveWorkspaceTargetBranch } from '../../shared/types/workspace';
 import { createLogger } from '../lib/logger';
 
 import { gitService } from './git.service';
@@ -14,6 +16,7 @@ import type {
   CommitDiff,
   FileDiffContent,
   GitBranchQuickStatus,
+  GitProgressCallback,
   WorktreeDiff,
 } from './git.service';
 import type {
@@ -130,9 +133,97 @@ class WorkspaceGitService {
     );
   }
 
-  fetchFromRemote(workspaceId: string): Promise<WorkspaceGitResult> {
+  async fetchFromRemote(workspaceId: string): Promise<WorkspaceGitResult> {
     const workspace = this.getWorkspace(workspaceId);
-    return this.getAdapter(workspace).fetchFromRemote(workspace);
+    const result = await this.getAdapter(workspace).fetchFromRemote(workspace);
+    if (isSshWorkspace(workspace) || !workspace.projectId) return result;
+    return this.withProjectTargetsFastForwarded(result, workspace.projectId);
+  }
+
+  /** Fetches a project's repository: a managed project's bare clone, or the project folder. */
+  async fetchProject(projectId: string): Promise<WorkspaceGitResult> {
+    const project = projectService.get(projectId);
+    if (!project) return { success: false, message: 'Project not found' };
+    const result =
+      project.managed && project.managedRepoPath
+        ? await managedRepoService.fetch(project.managedRepoPath)
+        : await gitService.fetchFromRemote(project.repositoryPath);
+    return this.withProjectTargetsFastForwarded(result, projectId);
+  }
+
+  /** Fetches the repository at `repoPath`: a project's folder or bare clone, or a workspace's. */
+  async fetchPath(repoPath: string, onProgress?: GitProgressCallback): Promise<WorkspaceGitResult> {
+    const result = await gitService.fetchFromRemote(repoPath, onProgress);
+    if (!result.success) return result;
+    const projectId =
+      projectService.list().find((project) => projectRepoPath(project) === repoPath)?.id ??
+      workspaceService
+        .list()
+        .find((workspace) => !isSshWorkspace(workspace) && workspace.workingDirectory === repoPath)
+        ?.projectId;
+    return projectId ? this.withProjectTargetsFastForwarded(result, projectId) : result;
+  }
+
+  /**
+   * Fast-forwards the project's target branch, and each of its local workspaces', that a fetch
+   * left strictly behind origin's, so their ↓N counts and the target branch agree without a
+   * Pull. A branch checked out in a worktree, or with commits of its own, stays where it is.
+   * `proceed` lets background work give way before each branch. Returns the branches moved.
+   */
+  async fastForwardProjectTargets(
+    projectId: string,
+    proceed: () => boolean = () => true
+  ): Promise<string[]> {
+    const project = projectService.get(projectId);
+    if (!project || project.kind === 'directory') return [];
+    const repoPath = projectRepoPath(project);
+    // Without a target of their own or the project's, workspaces follow the default branch.
+    const defaultBranch = await gitService.getTargetBranch(repoPath).catch((error: unknown) => {
+      logger.debug('could not read default branch to fast-forward', {
+        projectId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return '';
+    });
+    const targets = [
+      project.baseBranch || defaultBranch,
+      ...workspaceService
+        .list()
+        .filter((workspace) => workspace.projectId === projectId && !isSshWorkspace(workspace))
+        .map(
+          (workspace) =>
+            resolveWorkspaceTargetBranch(workspace, project.baseBranch) || defaultBranch
+        ),
+    ];
+    const moved: string[] = [];
+    for (const branch of new Set(targets)) {
+      if (!branch || !proceed()) continue;
+      const fastForwarded = await gitService
+        .fastForwardBranchToRemoteIfSafe(repoPath, branch)
+        .catch((error: unknown) => {
+          logger.debug('could not fast-forward target branch', {
+            projectId,
+            branch,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return false;
+        });
+      if (fastForwarded) moved.push(branch);
+    }
+    return moved;
+  }
+
+  private async withProjectTargetsFastForwarded(
+    result: WorkspaceGitResult,
+    projectId: string
+  ): Promise<WorkspaceGitResult> {
+    if (!result.success) return result;
+    const moved = await this.fastForwardProjectTargets(projectId);
+    if (moved.length === 0) return result;
+    return {
+      ...result,
+      message: `${result.message}. Local ${moved.join(', ')} caught up with origin`,
+    };
   }
 
   inspectCommitScope(workspaceId: string): Promise<CommitScopeResult> {
@@ -293,10 +384,7 @@ class WorkspaceGitService {
     }
 
     const project = projectService.get(workspace.projectId);
-    const repoPath =
-      project?.managed && project.managedRepoPath
-        ? project.managedRepoPath
-        : project?.repositoryPath;
+    const repoPath = project && projectRepoPath(project);
     if (!project || !repoPath) return pushResult;
 
     const localRemoteUrl = await gitService.getRemoteUrl(repoPath).catch(() => null);
@@ -313,10 +401,11 @@ class WorkspaceGitService {
 
     onLocalProjectSync?.(workspace.workingDirectory);
     try {
-      const syncResult =
-        project.managed && project.managedRepoPath
-          ? await managedRepoService.fetch(project.managedRepoPath)
-          : await gitService.fetchFromRemote(project.repositoryPath);
+      const managed = Boolean(project.managed && project.managedRepoPath);
+      const syncResult = managed
+        ? await this.fetchProject(project.id)
+        : // A user's own branches move only when they fetch.
+          await gitService.fetchFromRemote(project.repositoryPath);
       if (!syncResult.success) {
         logger.warn('SSH push succeeded but local Git state could not be synced', {
           workspaceId: workspace.id,

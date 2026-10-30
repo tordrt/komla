@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   workspaces: [] as Array<Record<string, unknown>>,
   hasRemote: vi.fn(),
   fetch: vi.fn(),
+  fastForwardTargets: vi.fn(),
   // Marks are taken before the origin check, which a workspace creation can then stop.
   backgroundMark: vi.fn((repoPath: string) => (repoPath === '/p/own' ? 2 : 1)),
   hostStates: new Map<string, 'connected' | 'unreachable'>(),
@@ -36,6 +37,9 @@ vi.mock('../../../src/main/services/git.service', () => ({
     fetchOriginWithoutPrompts: mocks.fetch,
     backgroundMark: mocks.backgroundMark,
   },
+}));
+vi.mock('../../../src/main/services/workspace-git.service', () => ({
+  workspaceGitService: { fastForwardProjectTargets: mocks.fastForwardTargets },
 }));
 vi.mock('../../../src/main/services/remote-workspace-observation.service', () => ({
   remoteWorkspaceObservationService: {
@@ -89,6 +93,7 @@ describe('gitBackgroundFetchService', () => {
     ];
     mocks.hasRemote.mockReset().mockResolvedValue(true);
     mocks.fetch.mockReset().mockResolvedValue(undefined);
+    mocks.fastForwardTargets.mockReset().mockResolvedValue([]);
     mocks.hostStates = new Map();
     mocks.sshFetch.mockReset().mockResolvedValue(false);
     mocks.statusChange.mockReset().mockResolvedValue(undefined);
@@ -124,6 +129,32 @@ describe('gitBackgroundFetchService', () => {
     vi.advanceTimersByTime(BACKGROUND_FETCH_INTERVAL_MS);
     await gitBackgroundFetchService.fetchStale();
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("fast-forwards target branches after fetching Komla's own clone, not a user's", async () => {
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchStale();
+
+    expect(mocks.fastForwardTargets.mock.calls.map(([projectId]) => projectId)).toEqual([
+      'managed',
+    ]);
+    // It gives way once a workspace creation stops background work.
+    const proceed = mocks.fastForwardTargets.mock.calls[0][1] as () => boolean;
+    expect(proceed()).toBe(true);
+    mocks.backgroundMark.mockReturnValueOnce(3);
+    expect(proceed()).toBe(false);
+  });
+
+  it('leaves target branches alone when the fetch fails', async () => {
+    mocks.fetch.mockRejectedValueOnce(new Error('Permission denied (publickey)'));
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchStale();
+
+    expect(mocks.fastForwardTargets).not.toHaveBeenCalled();
   });
 
   it('keeps going after a fetch fails', async () => {

@@ -283,9 +283,10 @@ async function startResumablePhone(webAssetDir: string) {
    */
   async function resume(
     token?: string,
-    device = phone
+    device = phone,
+    capabilities?: string[]
   ): Promise<{ resumeToken: string; close: () => void; closed: Promise<number> }> {
-    const attempt = await hello(token, device);
+    const attempt = await hello(token, device, capabilities);
     const challenge = attempt.reply;
     const proof = await signDeviceProof(
       device.keys.privateKey,
@@ -308,7 +309,11 @@ async function startResumablePhone(webAssetDir: string) {
   async function hello(token: string | undefined, device = phone, capabilities?: string[]) {
     let resumeToken = token;
     if (!resumeToken) {
-      resumeToken = resumption.issue(device.deviceId).token;
+      resumeToken = resumption.issue({
+        deviceId: device.deviceId,
+        devicePublicKey: encodeBase64(device.publicKey),
+        credentialId: device.credentialId,
+      }).token;
       resumption.release(resumeToken);
     }
     // Browsers send Origin themselves; Node's WebSocket takes it as a header.
@@ -849,6 +854,46 @@ describe('RemoteControlDirectService', () => {
     await phone.service.stop();
   });
 
+  it('leaves a session someone is using alone when another only wants to list workspaces', async () => {
+    const phone = await startResumablePhone(webAssetDir);
+    const inUse = await phone.resume();
+    await vi.waitFor(() => expect(phone.createAppSession).toHaveBeenCalledTimes(1));
+    const inUseSession = phone.createAppSession.mock.results[0]!.value as {
+      dispose: ReturnType<typeof vi.fn>;
+    };
+
+    // It still gets the next grant, so it can list the desktop once the phone is done.
+    const listing = await phone.resume(undefined, phone.tablet, ['background-session']);
+
+    expect(await listing.closed).toBe(4409);
+    expect(listing.resumeToken).toHaveLength(43);
+    expect(phone.createAppSession).toHaveBeenCalledTimes(1);
+    expect(inUseSession.dispose).not.toHaveBeenCalled();
+    expect(phone.service.getState().connectedDevice).toMatchObject({ label: 'Phone' });
+    inUse.close();
+    await phone.service.stop();
+  });
+
+  it('lets a session that only lists workspaces be replaced, by one in use or another like it', async () => {
+    const phone = await startResumablePhone(webAssetDir);
+    const listing = await phone.resume(undefined, phone.tablet, ['background-session']);
+    await vi.waitFor(() => expect(phone.createAppSession).toHaveBeenCalledTimes(1));
+
+    // Its own reconnect, while the desktop still holds a connection that dropped.
+    const reconnected = await phone.resume(listing.resumeToken, phone.tablet, [
+      'background-session',
+    ]);
+    expect(await listing.closed).toBe(4409);
+    await vi.waitFor(() => expect(phone.createAppSession).toHaveBeenCalledTimes(2));
+
+    const inUse = await phone.resume();
+    expect(await reconnected.closed).toBe(4409);
+    await vi.waitFor(() => expect(phone.createAppSession).toHaveBeenCalledTimes(3));
+    expect(phone.service.getState().connectedDevice).toMatchObject({ label: 'Phone' });
+    inUse.close();
+    await phone.service.stop();
+  });
+
   it('agrees on binary frames with a phone that asks, and names the app build it serves', async () => {
     await writeFile(join(webAssetDir, 'build.json'), JSON.stringify({ build: 'build-42' }));
     const phone = await startResumablePhone(webAssetDir);
@@ -865,6 +910,30 @@ describe('RemoteControlDirectService', () => {
     const authenticated = await attempt.nextFrame();
     expect(authenticated).toMatchObject({ capabilities: ['binary-frames'], build: 'build-42' });
     expect(attempt.binaryFrames).toEqual([]);
+    await phone.service.stop();
+  });
+
+  it("agrees on projects' icons and workspaces' tags and tells the app session", async () => {
+    const phone = await startResumablePhone(webAssetDir);
+    const attempt = await phone.hello(undefined, undefined, ['project-icons', 'workspace-tags']);
+    const proof = await signDeviceProof(
+      phone.deviceKeys.privateKey,
+      buildDeviceProof('resume', String(attempt.reply.challenge), attempt.peer.getChannelBinding())
+    );
+    await attempt.peer.sendEncryptedJson({
+      type: 'pair:resume-response',
+      deviceSignature: encodeBase64(proof),
+    });
+
+    expect(await attempt.nextFrame()).toMatchObject({
+      capabilities: ['project-icons', 'workspace-tags'],
+    });
+    await vi.waitFor(() =>
+      expect(phone.createAppSession).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ capabilities: ['project-icons', 'workspace-tags'] })
+      )
+    );
     await phone.service.stop();
   });
 

@@ -4,6 +4,7 @@ import type {
   WorkspaceStatus,
   WorkspaceTerminalLayout,
 } from './workspace';
+import type { WorkspaceTagAppearance } from '../lib/workspace-tags';
 
 /**
  * Portable description of an SSH workspace, written to
@@ -18,6 +19,16 @@ export interface SshWorkspaceManifest {
   customName?: string;
   customDescription?: string;
   customNameSource?: WorkspaceCustomNameSource;
+  /**
+   * The title the workspace's agent last set, while it has no custom name, for the host's phone
+   * list. It lags the agent by up to a few minutes, and installations never merge it.
+   */
+  agentTitle?: string;
+  /**
+   * The workspace's tag as the writing installation shows it, for the host's phone list.
+   * Installations never merge it.
+   */
+  tag?: WorkspaceTagAppearance;
   branchName?: string;
   baseBranch?: string;
   repoName?: string;

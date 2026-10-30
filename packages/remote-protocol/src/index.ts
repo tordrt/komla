@@ -30,6 +30,7 @@ export {
 export { verifySignature } from './crypto/signature';
 export {
   buildDeviceProof,
+  buildPasskeyChallenge,
   deviceIdFromPublicKey,
   exportDevicePublicKey,
   generateDeviceKeyPair,
@@ -158,6 +159,11 @@ export {
   RemoteAppFrameSchema,
   RemoteWorkspaceSummarySchema,
   RemoteProjectSummarySchema,
+  RemoteProjectIconSchema,
+  MAX_REMOTE_PROJECT_ICON_CHARS,
+  RemoteWorkspaceTagSchema,
+  MAX_REMOTE_WORKSPACE_TAG_CHARS,
+  REMOTE_WORKSPACE_TAG_TONES,
   RemoteLaunchModeSummarySchema,
   RemoteAgentPresetSummarySchema,
   RemoteLaunchEnvironmentSummarySchema,
@@ -169,6 +175,7 @@ export {
   parseRemoteAppFrame,
   type RemoteAppFrame,
   type RemoteWorkspaceSummary,
+  type RemoteWorkspaceTag,
   type RemoteProjectSummary,
   type RemoteLaunchModeSummary,
   type RemoteAgentPresetSummary,

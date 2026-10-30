@@ -223,7 +223,7 @@ describe('workspace actions', () => {
     expect(remoteShellSource).toContain(
       "action('Restart', () => this.restartWorkspace(workspace.id))"
     );
-    expect(remoteShellSource).toContain('buildWorkspaceSections(this.workspaces, {');
+    expect(remoteShellSource).toContain('buildWorkspaceSections(workspaces, {');
   });
 
   it('opens workspace and row actions as modal sheets', () => {

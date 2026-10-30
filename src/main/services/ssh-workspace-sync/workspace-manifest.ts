@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 
 import { isResumable } from '../../../shared/lib/terminal-execution-state';
+import { MAX_WORKSPACE_TAG_LENGTH, WORKSPACE_TAG_TONES } from '../../../shared/lib/workspace-tags';
 import {
   isSshWorkspace,
   type Workspace,
@@ -52,6 +53,16 @@ const manifestSchema = z.object({
   customName: optionalString,
   customDescription: optionalString,
   customNameSource: z.enum(['generated', 'manual']).optional(),
+  agentTitle: optionalString,
+  tag: z
+    .object({
+      name: z.string().min(1).max(MAX_WORKSPACE_TAG_LENGTH),
+      tone: z.enum(WORKSPACE_TAG_TONES),
+      spinner: z.literal(true).optional(),
+    })
+    .optional()
+    // Only for show, so a tag this version can't read loses the tag, not the workspace.
+    .catch(undefined),
   branchName: optionalString,
   baseBranch: optionalString,
   repoName: optionalString,

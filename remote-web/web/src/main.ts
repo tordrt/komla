@@ -12,6 +12,7 @@
 
 import {
   buildDeviceProof,
+  buildPasskeyChallenge,
   classifyRelayFrame,
   decodeBinaryAppFrame,
   encodeBase64,
@@ -35,6 +36,7 @@ import {
   type RemoteLaunchEnvironmentSummary,
   type RemoteProjectSummary,
   type RemoteWorkspaceSummary,
+  type RemoteWorkspaceTag,
   type PairAuthChallenge,
   type PairAuthenticated,
   type PairFrame,
@@ -52,10 +54,12 @@ import { attentionLabel, attentionMessageIsLabel } from './attention';
 import { ConnectionWatchdog, reconnectDelayMs } from './connection-watchdog';
 import { ReconnectLoop, type ReconnectOutcome } from './reconnect-loop';
 import {
+  createPendingDeviceIdentity,
   discardRejectedEnrollmentIdentity,
   loadOrCreateEnrollmentDeviceIdentity,
   loadDeviceIdentity,
   removeDeviceIdentity,
+  saveDeviceIdentity,
   stageEnrollmentDeviceIdentity,
   type PendingDeviceIdentity,
   type StoredDeviceIdentity,
@@ -118,10 +122,21 @@ import { splitTerminalInput, TerminalStreamCursor, WorkspacePages } from './term
 import {
   buildWorkspaceSections,
   hasLiveTerminal,
+  parseCollapsedSections,
+  workspaceProject,
   workspaceSectionCounts,
+  workspaceSectionLabel,
   type WorkspaceFilter,
   type WorkspaceSectionId,
 } from './workspace-sections';
+import {
+  combineWorkspaces,
+  EndpointLists,
+  type EndpointPause,
+  type EndpointWorkspaces,
+  type ListLink,
+  type ListLinkHandlers,
+} from './endpoint-lists';
 import {
   endpointHref,
   hasLastEndpoint,
@@ -138,7 +153,9 @@ import {
 const REMOTE_LAUNCH_PREFERENCES_KEY = 'komla.remote.launchPreferences';
 const REMOTE_RECONNECT_ATTEMPT_KEY = 'komla.remote.reconnectAttempt';
 const REMOTE_RESUME_GRANT_KEY = 'komla.remote.resumeGrant';
-const REMOTE_COLLAPSED_SECTIONS_KEY = 'komla.remote.collapsedSections';
+const REMOTE_COLLAPSED_SECTIONS_KEY = 'komla.remote.collapsedSections.v2';
+// Saved before the Trash section; read once for a page that has no list under the key above.
+const REMOTE_LEGACY_COLLAPSED_SECTIONS_KEY = 'komla.remote.collapsedSections';
 const REMOTE_REQUEST_TIMEOUT_MS = 15_000;
 const TERMINAL_ENTER = '\r';
 const PHONE_LAYOUT_QUERY = '(max-width: 760px)';
@@ -180,10 +197,16 @@ interface SessionTarget {
 interface LiveConnection {
   ws: WebSocket;
   peer: Peer;
+  /** How the socket closed, if it has. */
+  closeCode?: () => number | undefined;
 }
 
 /** Protocol features this page offers in its hello. */
-const PAGE_CAPABILITIES = [REMOTE_CAPABILITIES.BINARY_FRAMES];
+const PAGE_CAPABILITIES = [
+  REMOTE_CAPABILITIES.BINARY_FRAMES,
+  REMOTE_CAPABILITIES.PROJECT_ICONS,
+  REMOTE_CAPABILITIES.WORKSPACE_TAGS,
+];
 const RELOADED_FOR_BUILD_KEY = 'komla.remote.reloadedForBuild';
 // A flick leaves with the speed of its last moments, if fast enough to coast.
 const FLING_SAMPLE_MS = 80;
@@ -192,6 +215,8 @@ const FLING_START_VELOCITY = 0.3;
 const USER_SCROLL_SETTLE_MS = 150;
 // A finger held this long without moving selects text instead of tapping or scrolling.
 const LONG_PRESS_MS = 450;
+// How far a held finger may drift before it counts as scrolling.
+const LONG_PRESS_SLOP_PX = 10;
 const TAP_SLOP_PX = 10;
 // Holding one of these alone, e.g. on the way to a shortcut, doesn't use the terminal.
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
@@ -285,6 +310,7 @@ interface RemoteUI {
   workspaceActionItems: HTMLElement;
   workspaceRowSheet: HTMLDialogElement;
   workspaceRowTitle: HTMLElement;
+  workspaceRowDetails: HTMLElement;
   workspaceRowActions: HTMLElement;
   terminalLaunchDialog: HTMLDialogElement;
   cancelTerminalLaunch: HTMLButtonElement;
@@ -423,6 +449,7 @@ function remoteUi(): RemoteUI {
     workspaceActionItems: byId('workspace-action-items'),
     workspaceRowSheet: byId('workspace-row-sheet') as HTMLDialogElement,
     workspaceRowTitle: byId('workspace-row-title'),
+    workspaceRowDetails: byId('workspace-row-details'),
     workspaceRowActions: byId('workspace-row-actions'),
     terminalLaunchDialog: byId('terminal-launch-dialog') as HTMLDialogElement,
     cancelTerminalLaunch: byId('cancel-terminal-launch') as HTMLButtonElement,
@@ -646,6 +673,9 @@ function offerHomeScreenHandoff(els: UI): void {
 /** Pairs this page from a pasted link: the way in for a Home Screen app the QR code can't open. */
 function showPairLinkForm(els: UI): void {
   els.pairLinkForm.hidden = false;
+  // A sign-in that starts over shows it again.
+  if (els.pairLinkForm.dataset.bound) return;
+  els.pairLinkForm.dataset.bound = 'true';
   const open = (text: string, reportError: boolean) => {
     try {
       location.assign(pastedPairUrl(text, location.origin));
@@ -778,6 +808,14 @@ class RemoteAppClient {
   private readonly terminalMutations = new TerminalMutationQueue();
   private workspaces: RemoteWorkspaceSummary[] = [];
   private projects: RemoteProjectSummary[] = [];
+  /** Workspaces only other endpoints list, by id, as last shown. */
+  private elsewhere = new Map<string, EndpointWorkspaces>();
+  private readonly endpointLists = new EndpointLists({
+    open: (hostId, signal, handlers, takeOver) =>
+      this.openEndpointList(hostId, signal, handlers, takeOver),
+    changed: () => this.renderWorkspaces(),
+    isVisible: () => document.visibilityState === 'visible',
+  });
   private presets: RemoteAgentPresetSummary[] = [];
   private environments: RemoteLaunchEnvironmentSummary[] = [];
   private launchOptionsLoaded = false;
@@ -1083,6 +1121,7 @@ class RemoteAppClient {
       if (document.visibilityState !== 'visible') return;
       if (this.disconnected) this.reconnectLoop.wake();
       else this.watchdog?.probe();
+      this.endpointLists.wake();
     };
     document.addEventListener('visibilitychange', wake);
     window.addEventListener('online', wake);
@@ -1160,7 +1199,42 @@ class RemoteAppClient {
     this.renderEndpoint();
     this.els.settingsDeviceLabel.textContent = label;
     this.bootstrap();
+    this.listOtherEndpoints();
     this.fitAfterLayout();
+  }
+
+  /** The workspaces of every endpoint but this page's are listed here too. */
+  private listOtherEndpoints(): void {
+    const own = this.endpoint.host?.id ?? null;
+    this.endpointLists.setEndpoints(
+      [null, ...this.hosts().map((host) => host.id)].filter((hostId) => hostId !== own)
+    );
+  }
+
+  /** Signs in to another endpoint in the background, with its resume grant, to list it. */
+  private async openEndpointList(
+    hostId: string | null,
+    signal: AbortSignal,
+    handlers: ListLinkHandlers,
+    takeOver: boolean
+  ): Promise<ListLink | 'retry' | 'reload'> {
+    const host = hostId ? this.hosts().find((candidate) => candidate.id === hostId) : null;
+    if (hostId && !host) return 'retry';
+    // A host page may have opened while the desktop slept.
+    if (!host && !readDirectRemoteConfig()) await loadDirectRemoteConfig();
+    const fingerprint = host?.fingerprint ?? this.endpoint.desktopFingerprint;
+    let url: string;
+    try {
+      url = host ? host.url : socketUrlForFingerprint(fingerprint);
+    } catch {
+      return 'retry';
+    }
+    return openListLink(
+      { url, fingerprint, device: this.target.device },
+      signal,
+      handlers,
+      takeOver
+    );
   }
 
   /** What a new connection asks for first. */
@@ -1357,6 +1431,7 @@ class RemoteAppClient {
         if (!this.endpoint.host) {
           rememberHosts(localStorage, this.endpoint.desktopFingerprint, frame.hosts);
           this.renderEndpoint();
+          this.listOtherEndpoints();
           this.openPreferredHost();
         }
         return;
@@ -2215,9 +2290,14 @@ class RemoteAppClient {
   }
 
   private renderWorkspaces(): void {
-    this.renderWorkspaceFilters();
+    const { workspaces, elsewhere } = combineWorkspaces(
+      this.workspaces,
+      this.endpointLists.lists()
+    );
+    this.elsewhere = elsewhere;
+    this.renderWorkspaceFilters(workspaces);
     const searching = this.workspaceQuery.trim().length > 0;
-    const sections = buildWorkspaceSections(this.workspaces, {
+    const sections = buildWorkspaceSections(workspaces, {
       query: this.workspaceQuery,
       filter: this.workspaceFilter,
     });
@@ -2233,7 +2313,7 @@ class RemoteAppClient {
       const empty = document.createElement('p');
       empty.className = 'workspace-empty';
       empty.textContent =
-        this.workspaces.length > 0
+        workspaces.length > 0
           ? 'No matches.'
           : this.desktopWithheld()
             ? this.hosts().length > 0
@@ -2242,13 +2322,51 @@ class RemoteAppClient {
             : 'No workspaces yet.';
       nodes.push(empty);
     }
+    const signedOut = this.renderSignedOutEndpoints();
+    if (signedOut) nodes.push(signedOut);
     this.els.workspaceList.replaceChildren(...nodes);
   }
 
-  private renderWorkspaceFilters(): void {
-    const counts = workspaceSectionCounts(this.workspaces);
+  /** Endpoints whose workspaces are missing until the user asks for them again. */
+  private renderSignedOutEndpoints(): HTMLElement | null {
+    const paused = this.endpointLists.paused();
+    if (paused.length === 0) return null;
+    const note = document.createElement('div');
+    note.className = 'workspace-signed-out';
+    const group = (reason: EndpointPause, explanation: string, tapped: (id: string | null) => void) => {
+      const endpoints = paused.filter((item) => item.reason === reason);
+      if (endpoints.length === 0) return;
+      const text = document.createElement('p');
+      text.textContent = explanation;
+      note.append(
+        text,
+        ...endpoints.map(({ hostId, takingOver }) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          const name = this.endpointName(hostId);
+          button.textContent = `${name.charAt(0).toUpperCase()}${name.slice(1)}${takingOver ? '…' : ''}`;
+          button.disabled = takingOver;
+          button.addEventListener('click', () => tapped(hostId));
+          return button;
+        })
+      );
+    };
+    // Signing in takes the passkey, which only that endpoint's page asks for.
+    group('signed-out', 'Not listed here until you sign in to them again:', (hostId) =>
+      location.assign(endpointHref(location.href, hostId))
+    );
+    group(
+      'replaced',
+      'Open on another device or tab. Tap one to list it here, which closes it there:',
+      (hostId) => this.endpointLists.retry(hostId)
+    );
+    return note;
+  }
+
+  private renderWorkspaceFilters(workspaces: RemoteWorkspaceSummary[]): void {
+    const counts = workspaceSectionCounts(workspaces);
     const filters: Array<{ id: WorkspaceFilter; label: string; count: number }> = [
-      { id: 'all', label: 'All', count: this.workspaces.length },
+      { id: 'all', label: 'All', count: workspaces.length },
       { id: 'needs-you', label: 'Needs you', count: counts['needs-you'] },
       { id: 'working', label: 'Working', count: counts.working },
     ];
@@ -2300,12 +2418,14 @@ class RemoteAppClient {
 
   private renderWorkspaceCard(workspace: RemoteWorkspaceSummary): HTMLElement {
     const row = document.createElement('article');
+    const away = this.elsewhere.get(workspace.id);
     const isSelected =
+      !away &&
       workspace.id === this.selectedWorkspaceId &&
       (this.attachedTerminalId !== null || this.pendingAttachWorkspaceId === workspace.id);
     const isRunnable = Boolean(this.terminalIdForWorkspace(workspace));
     const isStopped = !isRunnable && !workspace.provisioning;
-    const pendingMessage = this.pendingMessageForWorkspace(workspace);
+    const pendingMessage = away ? '' : this.pendingMessageForWorkspace(workspace);
     row.className = [
       'workspace',
       isSelected ? 'active' : '',
@@ -2314,26 +2434,30 @@ class RemoteAppClient {
     ]
       .filter(Boolean)
       .join(' ');
-    if (workspace.projectColor) {
-      row.style.setProperty('--workspace-accent', workspace.projectColor);
-    }
+    // A host names the project without its color; its launch options have it.
+    const accent = workspace.projectColor ?? this.workspaceProjectOf(workspace)?.color;
+    if (accent) row.style.setProperty('--workspace-accent', accent);
 
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'workspace-open';
     button.disabled = workspace.id === this.pendingCreateWorkspace?.id;
     const attentionTooltip = this.workspaceAttentionTooltip(workspace);
-    button.title = attentionTooltip || (isStopped ? 'Tap to start this workspace' : '');
+    button.title = attentionTooltip || (isStopped && !away ? 'Tap to start this workspace' : '');
     const activity = workspace.lastActivityAt ? formatRelativeTime(workspace.lastActivityAt) : '';
-    button.innerHTML = `<span class="workspace-status">${this.renderWorkspaceStatus(workspace, Boolean(pendingMessage))}</span><span class="workspace-title"><span class="workspace-name">${escapeHtml(workspace.name)}</span>${this.renderWorkspaceEnvironment(workspace)}${this.renderWorkspaceAdornment(workspace)}</span><small class="workspace-time">${escapeHtml(activity)}</small><span class="workspace-meta">${this.renderWorkspaceMeta(workspace)}</span>${this.renderWorkspacePreview(workspace, pendingMessage)}`;
+    const working =
+      workspace.agentActive || workspace.provisioning || pendingMessage
+        ? '<i class="workspace-spinner" aria-label="Agent processing"></i>'
+        : '';
+    button.innerHTML = `<span class="workspace-status">${this.renderProjectMark(workspace)}</span><span class="workspace-title"><span class="workspace-name">${escapeHtml(workspace.name)}</span>${this.renderWorkspaceEnvironment(workspace)}${this.renderWorkspaceAdornment(workspace)}</span><small class="workspace-time">${working}${escapeHtml(activity)}</small><span class="workspace-meta">${this.renderWorkspaceMeta(workspace)}</span>${this.renderWorkspacePreview(workspace, pendingMessage)}`;
 
     let suppressNextClick = false;
-    let longPressTimer: number | null = null;
+    let longPress: { timer: number; x: number; y: number } | null = null;
     const clearLongPress = () => {
-      if (longPressTimer) {
-        window.clearTimeout(longPressTimer);
-        longPressTimer = null;
-      }
+      if (!longPress) return;
+      window.clearTimeout(longPress.timer);
+      longPress = null;
+      row.classList.remove('holding');
     };
     button.addEventListener('click', (event) => {
       if (suppressNextClick) {
@@ -2341,7 +2465,8 @@ class RemoteAppClient {
         suppressNextClick = false;
         return;
       }
-      this.openWorkspace(workspace.id);
+      if (away) this.openElsewhere(workspace, away);
+      else this.openWorkspace(workspace.id);
     });
     row.addEventListener('contextmenu', (event) => {
       event.preventDefault();
@@ -2350,11 +2475,27 @@ class RemoteAppClient {
     row.addEventListener('pointerdown', (event) => {
       if (event.pointerType === 'mouse') return;
       clearLongPress();
-      longPressTimer = window.setTimeout(() => {
-        longPressTimer = null;
-        suppressNextClick = true;
-        this.openWorkspaceRowSheet(workspace, isRunnable);
-      }, 520);
+      row.classList.add('holding');
+      longPress = {
+        x: event.clientX,
+        y: event.clientY,
+        timer: window.setTimeout(() => {
+          longPress = null;
+          row.classList.remove('holding');
+          suppressNextClick = true;
+          navigator.vibrate?.(10);
+          this.openWorkspaceRowSheet(workspace, isRunnable);
+        }, LONG_PRESS_MS),
+      };
+    });
+    // A finger that moves is scrolling the list, not holding the row.
+    row.addEventListener('pointermove', (event) => {
+      if (
+        longPress &&
+        Math.hypot(event.clientX - longPress.x, event.clientY - longPress.y) > LONG_PRESS_SLOP_PX
+      ) {
+        clearLongPress();
+      }
     });
     row.addEventListener('pointerup', clearLongPress);
     row.addEventListener('pointerleave', clearLongPress);
@@ -2363,7 +2504,7 @@ class RemoteAppClient {
     const menuButton = document.createElement('button');
     menuButton.type = 'button';
     menuButton.className = 'workspace-menu-trigger';
-    menuButton.setAttribute('aria-label', `${workspace.name} actions`);
+    menuButton.setAttribute('aria-label', `${workspace.name} details`);
     menuButton.setAttribute('aria-haspopup', 'dialog');
     menuButton.innerHTML =
       '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>';
@@ -2372,14 +2513,23 @@ class RemoteAppClient {
       event.stopPropagation();
       this.openWorkspaceRowSheet(workspace, isRunnable);
     });
-    // A host can only restart or stop a workspace, so a stopped one there has nothing to offer.
-    menuButton.hidden = Boolean(this.endpoint.host) && !isRunnable;
     row.append(button, menuButton);
     return row;
   }
 
+  /** Opens a workspace only another endpoint lists on that endpoint's page. */
+  private openElsewhere(workspace: RemoteWorkspaceSummary, away: EndpointWorkspaces): void {
+    location.assign(endpointHref(location.href, away.hostId, workspace.id));
+  }
+
+  private endpointName(hostId: string | null): string {
+    return hostId
+      ? (this.hosts().find((host) => host.id === hostId)?.name ?? 'SSH host')
+      : 'this computer';
+  }
+
   private openWorkspaceRowSheet(workspace: RemoteWorkspaceSummary, isRunnable: boolean): void {
-    if (this.endpoint.host && !isRunnable) return;
+    const away = this.elsewhere.get(workspace.id);
     const action = (label: string, run: () => void, options: { danger?: boolean } = {}) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -2394,34 +2544,98 @@ class RemoteAppClient {
       return button;
     };
     this.els.workspaceRowTitle.textContent = workspace.name;
+    this.els.workspaceRowDetails.innerHTML = this.renderWorkspaceDetails(workspace);
+    const accent = workspace.projectColor ?? this.workspaceProjectOf(workspace)?.color;
+    if (accent) this.els.workspaceRowDetails.style.setProperty('--workspace-accent', accent);
+    else this.els.workspaceRowDetails.style.removeProperty('--workspace-accent');
+    // Tapping the row opens or starts it, so the sheet doesn't repeat that.
+    const own = !away;
     this.els.workspaceRowActions.replaceChildren(
-      ...(isRunnable
+      ...(own && isRunnable
         ? [
             action('Restart', () => this.restartWorkspace(workspace.id)),
             action('Stop', () => this.stopWorkspace(workspace.id), { danger: true }),
           ]
         : []),
       // Titles come from the desktop's naming model.
-      ...(this.endpoint.host
-        ? []
-        : [action('Regenerate title', () => this.regenerateWorkspaceTitle(workspace.id))])
+      ...(own && !this.endpoint.host
+        ? [action('Regenerate title', () => this.regenerateWorkspaceTitle(workspace.id))]
+        : [])
     );
+    this.els.workspaceRowActions.hidden = this.els.workspaceRowActions.childElementCount === 0;
     if (!this.els.workspaceRowSheet.open) this.els.workspaceRowSheet.showModal();
   }
 
-  private renderWorkspaceStatus(workspace: RemoteWorkspaceSummary, pending: boolean): string {
-    if (workspace.attention) {
-      return `<i class="workspace-dot ${attentionClassName(workspace.attention.kind)}" aria-hidden="true"></i>`;
+  /** What the long-press sheet says about a workspace, above its actions. */
+  private renderWorkspaceDetails(workspace: RemoteWorkspaceSummary): string {
+    const away = this.elsewhere.get(workspace.id);
+    const chips = [
+      workspace.projectName
+        ? `<span class="workspace-detail-chip">${this.renderProjectMark(workspace)}${escapeHtml(workspace.projectName)}</span>`
+        : '',
+      this.renderWorkspaceEnvironment(workspace),
+      workspace.attention
+        ? this.renderWorkspaceAdornment(workspace)
+        : `<b class="workspace-detail-state">${escapeHtml(workspaceSectionLabel(workspace))}</b>`,
+      workspace.tag && workspace.attention ? this.renderWorkspaceTag(workspace.tag) : '',
+    ].join('');
+    const block = (label: string, text: string | undefined, className = '') =>
+      text?.trim()
+        ? `<section class="workspace-detail ${className}"><h3>${escapeHtml(label)}</h3><p>${escapeHtml(text.trim())}</p></section>`
+        : '';
+    const attention = workspace.attention?.message?.trim();
+    const place = workspace.branchName ?? workspace.workingDirectory;
+    const terminals = workspace.terminals.map(
+      (terminal, index) =>
+        `<li><i class="${terminal.status === 'stopped' ? 'stopped' : terminal.agentActive ? 'working' : 'running'}" aria-hidden="true"></i>${escapeHtml(terminal.name || `Terminal ${index + 1}`)}</li>`
+    );
+    const times = [
+      workspace.lastActivityAt
+        ? `Active ${formatRelativeTime(workspace.lastActivityAt)} ago`
+        : '',
+      workspace.createdAt ? `created ${formatRelativeTime(workspace.createdAt)} ago` : '',
+    ]
+      .filter(Boolean)
+      .join(', ')
+      .replace('now ago', 'just now');
+    return [
+      `<div class="workspace-detail-chips">${chips}</div>`,
+      attention && workspace.attention && !attentionMessageIsLabel(workspace.attention)
+        ? block(attentionLabel(workspace.attention), attention, 'attention')
+        : '',
+      block('Description', workspace.description),
+      block('Last prompt', workspace.lastPrompt),
+      place
+        ? `<section class="workspace-detail"><h3>${workspace.branchName ? 'Branch' : 'Folder'}</h3><p class="workspace-detail-place"><code>${escapeHtml(place)}</code>${this.renderWorkspaceStats(workspace)}</p></section>`
+        : '',
+      terminals.length
+        ? `<section class="workspace-detail"><h3>Tabs</h3><ul class="workspace-detail-tabs">${terminals.join('')}</ul></section>`
+        : '',
+      times ? `<p class="workspace-detail-times">${escapeHtml(times)}</p>` : '',
+      away
+        ? `<p class="workspace-detail-times">On ${escapeHtml(this.endpointName(away.hostId))}: tapping it opens it there.</p>`
+        : '',
+    ].join('');
+  }
+
+  /** The workspace's project in the launch options of the endpoint that lists it. */
+  private workspaceProjectOf(workspace: RemoteWorkspaceSummary): RemoteProjectSummary | undefined {
+    return workspaceProject(workspace, this.elsewhere.get(workspace.id)?.projects ?? this.projects);
+  }
+
+  /** The project's icon, as on the desktop, or its color with its initial. */
+  private renderProjectMark(workspace: RemoteWorkspaceSummary): string {
+    const icon = this.workspaceProjectOf(workspace)?.icon;
+    if (icon) {
+      return `<img class="workspace-mark" src="${escapeHtml(icon)}" alt="" aria-hidden="true">`;
     }
-    if (workspace.agentActive || workspace.provisioning || pending) {
-      return '<i class="workspace-spinner" aria-label="Agent processing"></i>';
-    }
-    return '<i class="workspace-dot" aria-hidden="true"></i>';
+    const initial = (workspace.projectName ?? workspace.name).trim().charAt(0).toUpperCase();
+    return `<i class="workspace-mark" aria-hidden="true">${escapeHtml(initial)}</i>`;
   }
 
   private renderWorkspaceMeta(workspace: RemoteWorkspaceSummary): string {
     const project = workspace.projectName
-      ? `<span class="workspace-project"><i aria-hidden="true"></i>${escapeHtml(workspace.projectName)}</span>`
+      ? `<span class="workspace-project">${escapeHtml(workspace.projectName)}</span>`
       : '';
     const place =
       workspace.branchName ?? workspace.workingDirectory.split(/[\\/]/).pop() ?? 'Provisioning';
@@ -2460,10 +2674,18 @@ class RemoteAppClient {
     return `<small class="workspace-preview">${escapeHtml([count, names.join(', ')].join(' · '))}</small>`;
   }
 
+  /** What needs the user, or else the workspace's tag while no agent is busy, as on the desktop. */
   private renderWorkspaceAdornment(workspace: RemoteWorkspaceSummary): string {
-    if (!workspace.attention) return '';
-    const label = attentionLabel(workspace.attention);
-    return `<b class="workspace-badge ${attentionClassName(workspace.attention.kind)}">${escapeHtml(label)}</b>`;
+    if (workspace.attention) {
+      const label = attentionLabel(workspace.attention);
+      return `<b class="workspace-badge ${attentionClassName(workspace.attention.kind)}">${escapeHtml(label)}</b>`;
+    }
+    return workspace.tag && !workspace.agentActive ? this.renderWorkspaceTag(workspace.tag) : '';
+  }
+
+  private renderWorkspaceTag(tag: RemoteWorkspaceTag): string {
+    const spinner = tag.spinner ? '<i class="workspace-tag-spinner" aria-hidden="true"></i>' : '';
+    return `<b class="workspace-tag tone-${tag.tone}">${spinner}${escapeHtml(tag.name)}</b>`;
   }
 
   private renderWorkspaceEnvironment(workspace: RemoteWorkspaceSummary): string {
@@ -4316,6 +4538,8 @@ class RemoteAppClient {
     this.workspacePages.clear();
     this.setCreateWorkspacePending(false);
     this.clearTerminalLoading();
+    // Its background sessions must not keep holding, or take, the slots of newer sign-ins.
+    if (replaced) this.endpointLists.dispose();
     this.renderWorkspaces();
     this.renderTerminalToolbar();
     if (replaced) {
@@ -4392,7 +4616,8 @@ function takeOpenTargetFromUrl(): OpenTarget | null {
     terminalId: params.get('terminal') ?? undefined,
   });
   if (params.has('workspace') || params.has('terminal')) {
-    history.replaceState(null, '', location.pathname);
+    // The host it opened on stays, so a reload signs in there again.
+    history.replaceState(null, '', endpointHref(location.href, selectedHostId(location.href)));
   }
   return target;
 }
@@ -4412,21 +4637,14 @@ function pushTestNote(outcome: 'delivered' | 'gone' | 'failed' | 'not-subscribed
 
 function readCollapsedSections(): Set<WorkspaceSectionId> {
   try {
-    const raw = localStorage.getItem(REMOTE_COLLAPSED_SECTIONS_KEY);
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return new Set(
-          parsed.filter((id): id is WorkspaceSectionId =>
-            ['needs-you', 'working', 'idle', 'stopped'].includes(id)
-          )
-        );
-      }
-    }
+    return parseCollapsedSections(
+      localStorage.getItem(REMOTE_COLLAPSED_SECTIONS_KEY),
+      localStorage.getItem(REMOTE_LEGACY_COLLAPSED_SECTIONS_KEY)
+    );
   } catch {
-    // Unreadable storage falls back to the default below.
+    // Unreadable storage falls back to the default.
+    return parseCollapsedSections(null, null);
   }
-  return new Set(['stopped']);
 }
 
 function writeCollapsedSections(sections: Set<WorkspaceSectionId>): void {
@@ -4499,6 +4717,17 @@ function writeResumeGrant(grant: StoredResumeGrant): void {
   } catch {
     // A missing resumption grant falls back to the full passkey ceremony.
   }
+}
+
+/**
+ * After the endpoint refused `token`: true if it's still the grant stored here. If not, another
+ * tab redeemed it first and the next one, stored by that tab, still works.
+ */
+function clearRefusedResumeGrant(fingerprint: string, deviceId: string, token: string): boolean {
+  const current = readResumeGrant(fingerprint, deviceId);
+  if (current && current.token !== token) return false;
+  clearResumeGrant(fingerprint);
+  return true;
 }
 
 function clearResumeGrant(fingerprint: string): void {
@@ -4926,7 +5155,11 @@ function promptEnvironment(): PromptEnvironment {
   };
 }
 
-async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void> {
+async function runAuthFlow(
+  els: UI,
+  hostId: string | null = null,
+  notice: string | null = null
+): Promise<void> {
   els.title.textContent = 'Komla';
   els.subtitle.textContent = 'Signing in…';
   els.fingerprintRow.hidden = true;
@@ -4934,6 +5167,7 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
   els.form.hidden = true;
   els.unlock.hidden = true;
   els.error.hidden = true;
+  if (notice) showError(els, notice);
 
   if (typeof window.PublicKeyCredential === 'undefined' || !navigator.credentials?.get) {
     setStatus(els.status, 'error', 'WebAuthn not available');
@@ -4963,24 +5197,28 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
   if (host) showOfflineHosts(els, host.id);
   // The endpoint's own key, pinned like the desktop's.
   const fingerprint = host?.fingerprint ?? desktopFingerprint;
-  let device: StoredDeviceIdentity | null;
+  let device: StoredDeviceIdentity | null = null;
+  // A private window may have no store at all; a passkey doesn't need one.
+  let storeOpens = true;
   try {
     device = await loadDeviceIdentity(desktopFingerprint);
-  } catch (err) {
-    setStatus(els.status, 'error', 'Could not open device key store');
-    showError(els, (err as Error).message);
-    return;
+  } catch {
+    storeOpens = false;
   }
   if (!device) {
-    const app = currentPushEnvironment().standalone;
-    setStatus(els.status, 'error', app ? 'This app is not paired' : 'This browser is not paired');
-    els.title.textContent = app ? 'Komla — pair this app' : 'Komla — pair this browser';
-    els.fingerprintRow.hidden = true;
-    els.subtitle.textContent = app
-      ? 'This Home Screen app keeps its own keys, separate from the browser, so it pairs from a pasted link.'
-      : 'Scan the pairing code in Komla › Settings › Remote with this device, or paste the pairing link.';
-    showPairLinkForm(els);
-    return;
+    // Not paired here, e.g. a private window: any passkey this computer trusts signs in, with a
+    // key made for it that keeps reconnects silent. Pairing still makes the passkey to use.
+    try {
+      device = {
+        ...(await createPendingDeviceIdentity(desktopFingerprint)),
+        credentialId: '',
+        signedIn: true,
+      };
+    } catch (err) {
+      setStatus(els.status, 'error', 'Could not make a sign-in key');
+      showError(els, (err as Error).message);
+      return;
+    }
   }
   const trustedDevice = device;
   const resumeGrant = readResumeGrant(fingerprint, trustedDevice.deviceId);
@@ -5017,8 +5255,8 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
     setStatus(els.status, 'error', 'Not signed in');
     offerButton(els, 'Try again', message, restart);
   };
-  const usePasskey = (challenge: PairAuthChallenge) => {
-    respondToAuthChallenge(peer, challenge, els, trustedDevice).catch((err: unknown) => {
+  const usePasskey = (challenge: PairAuthChallenge, signedChallenge: Uint8Array) => {
+    respondToAuthChallenge(peer, challenge, signedChallenge, els, trustedDevice).catch((err: unknown) => {
       if (abandoned || terminalFrameProcessed) return;
       if (peer.state !== 'established') {
         offerRetry(passkeyErrorMessage(err));
@@ -5026,20 +5264,26 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
       }
       // The desktop still waits, so the same challenge can be answered again.
       setStatus(els.status, 'idle', 'Locked');
-      offerButton(els, 'Try again', passkeyErrorMessage(err), () => usePasskey(challenge));
+      offerButton(els, 'Try again', passkeyErrorMessage(err), () =>
+        usePasskey(challenge, signedChallenge)
+      );
     });
   };
-  const offerPasskey = (challenge: PairAuthChallenge) => {
+  const offerPasskey = (challenge: PairAuthChallenge, signedChallenge: Uint8Array) => {
     passkeyRequested = true;
     if (mayPromptWithoutTap(promptEnvironment())) {
-      usePasskey(challenge);
+      usePasskey(challenge, signedChallenge);
       return;
     }
     setStatus(els.status, 'idle', 'Locked');
+    // Without a passkey for Komla here, pairing makes one.
+    if (trustedDevice.signedIn && !host) showPairLinkForm(els);
     els.subtitle.textContent = host
       ? `Unlock to open ${host.name}.`
-      : 'Unlock to open your workspaces.';
-    offerButton(els, 'Unlock with passkey', null, () => usePasskey(challenge));
+      : trustedDevice.signedIn
+        ? 'Unlock with a passkey you use for Komla, or pair this browser with a link.'
+        : 'Unlock to open your workspaces.';
+    offerButton(els, 'Unlock with passkey', notice, () => usePasskey(challenge, signedChallenge));
   };
 
   peer.onMessage((msg) => {
@@ -5069,7 +5313,8 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
       return;
     }
     if (frame.type === 'pair:auth-challenge') {
-      offerPasskey(frame);
+      // Worked out here: the Unlock tap can't wait for anything before asking for the passkey.
+      offerPasskey(frame, await buildPasskeyChallenge(frame.challenge, peer.getChannelBinding()));
       return;
     }
     if (frame.type === 'pair:authenticated') {
@@ -5078,6 +5323,11 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
         showError(els, 'Desktop authenticated a different browser installation.');
         ws.close(1000, 'device-id-mismatch');
         return;
+      }
+      if (storeOpens && trustedDevice.signedIn && trustedDevice.credentialId !== frame.credentialId) {
+        // Kept, so this browser resumes with the key its grants are tied to.
+        trustedDevice.credentialId = frame.credentialId;
+        await saveDeviceIdentity(trustedDevice).catch(() => undefined);
       }
       if (frame.resumeToken && frame.resumeExpiresAt) {
         writeResumeGrant({
@@ -5105,11 +5355,11 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
       terminalFrameProcessed = true;
       if (resumeGrant && frame.reason === 'resume-invalid') {
         // Without a reload, which would lose the passkey sheet on Safari.
-        clearResumeGrant(fingerprint);
+        clearRefusedResumeGrant(fingerprint, trustedDevice.deviceId, resumeGrant.token);
         restart();
         return;
       }
-      const failure = signInRejection(frame.reason, frame.message);
+      const failure = signInRejection(frame.reason, frame.message, host?.name);
       // A host that turns this phone away stops being where the app opens.
       if (host) rememberLastEndpoint(localStorage, null);
       ws.close(1000, 'ceremony-complete');
@@ -5121,9 +5371,14 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
       showError(els, failure.message);
       // Only the desktop decides that this phone is no longer paired; a host may just be out of date.
       if (!host) {
-        await removeDeviceIdentity(desktopFingerprint);
-        await runAuthFlow(els);
-        showError(els, `${failure.message} Pair it again to use Komla here.`);
+        await removeDeviceIdentity(desktopFingerprint).catch(() => undefined);
+        await runAuthFlow(
+          els,
+          null,
+          trustedDevice.signedIn
+            ? `${failure.message} Use another passkey, or pair this browser.`
+            : `${failure.message} Pair it again to use Komla here.`
+        );
       }
       return;
     }
@@ -5162,9 +5417,14 @@ async function runAuthFlow(els: UI, hostId: string | null = null): Promise<void>
         type: 'pair:hello',
         protocolVersion: PAIR_PROTOCOL_VERSION,
         ...(resumeGrant
-          ? { mode: 'resume' as const, resumeToken: resumeGrant.token }
-          : { mode: 'authenticate' as const }),
-        deviceId: trustedDevice.deviceId,
+          ? {
+              mode: 'resume' as const,
+              resumeToken: resumeGrant.token,
+              deviceId: trustedDevice.deviceId,
+            }
+          : trustedDevice.signedIn
+            ? { mode: 'passkey' as const, devicePublicKey: trustedDevice.devicePublicKey }
+            : { mode: 'authenticate' as const, deviceId: trustedDevice.deviceId }),
         capabilities: PAGE_CAPABILITIES,
       })
       .catch((err) => {
@@ -5188,8 +5448,10 @@ function resumeSession(
   target: SessionTarget,
   fromDesktop: boolean,
   signal: AbortSignal,
-  onInbound: (ws: WebSocket) => void
+  onInbound: (ws: WebSocket) => void,
+  capabilities: readonly string[] = PAGE_CAPABILITIES
 ): Promise<LiveConnection | 'retry' | 'reload'> {
+  if (signal.aborted) return Promise.resolve('retry');
   const grant = readResumeGrant(target.fingerprint, target.device.deviceId);
   if (!grant) return Promise.resolve('reload');
   return new Promise((resolve) => {
@@ -5204,6 +5466,7 @@ function resumeSession(
       resolve(outcome);
     };
     const abandon = () => finish('retry');
+    let closeCode: number | undefined;
     const timer = window.setTimeout(abandon, RECONNECT_ATTEMPT_TIMEOUT_MS);
     signal.addEventListener('abort', abandon);
 
@@ -5227,10 +5490,16 @@ function resumeSession(
         } else {
           clearResumeGrant(target.fingerprint);
         }
-        finish(adoptAuthenticated(peer, frame, fromDesktop) ? { ws, peer } : 'reload');
+        finish(
+          adoptAuthenticated(peer, frame, fromDesktop)
+            ? { ws, peer, closeCode: () => closeCode }
+            : 'reload'
+        );
       } else if (frame?.type === 'pair:rejected') {
-        if (frame.reason === 'resume-invalid') clearResumeGrant(target.fingerprint);
-        finish('reload');
+        const refused =
+          frame.reason !== 'resume-invalid' ||
+          clearRefusedResumeGrant(target.fingerprint, target.device.deviceId, grant.token);
+        finish(refused ? 'reload' : 'retry');
       }
     });
     peer.onEstablished(() => {
@@ -5241,14 +5510,17 @@ function resumeSession(
           mode: 'resume',
           resumeToken: grant.token,
           deviceId: target.device.deviceId,
-          capabilities: PAGE_CAPABILITIES,
+          capabilities: [...capabilities],
         })
         .catch(() => finish('retry'));
     });
     ws.addEventListener('message', (evt) =>
       handleSocketMessage(evt, ws, peer, () => onInbound(ws))
     );
-    ws.addEventListener('close', (evt) => afterPeerClosed(peer, evt, () => finish('retry')));
+    ws.addEventListener('close', (evt) => {
+      closeCode = evt.code;
+      afterPeerClosed(peer, evt, () => finish('retry'));
+    });
     ws.addEventListener('error', () => peer.handleError(new Error('socket error')));
     ws.addEventListener('open', () => {
       peer.connect().catch(() => finish('retry'));
@@ -5256,9 +5528,65 @@ function resumeSession(
   });
 }
 
+/**
+ * Signs in to another endpoint only to list its workspaces: with its resume grant and a fresh
+ * installation-key proof, as a reconnect does, so never with the passkey. It leaves a session
+ * someone is using alone, unless `takeOver`.
+ */
+async function openListLink(
+  target: SessionTarget,
+  signal: AbortSignal,
+  handlers: ListLinkHandlers,
+  takeOver: boolean
+): Promise<ListLink | 'retry' | 'reload'> {
+  let watchdog: ConnectionWatchdog | null = null;
+  const result = await resumeSession(
+    target,
+    false,
+    signal,
+    () => watchdog?.noteInbound(),
+    takeOver ? PAGE_CAPABILITIES : [...PAGE_CAPABILITIES, REMOTE_CAPABILITIES.BACKGROUND_SESSION]
+  );
+  if (typeof result === 'string') return result;
+  const { ws, peer } = result;
+  if (peer.state === 'closed') {
+    handlers.closed(result.closeCode?.() === SESSION_CLOSE.REPLACED.code);
+    return 'retry';
+  }
+  peer.onMessage((msg) => {
+    if (msg.kind !== 'json') return;
+    const frame = parseRemoteAppFrame(msg.data);
+    if (frame) handlers.frame(frame);
+  });
+  peer.onClose((evt) => {
+    watchdog?.stop();
+    handlers.closed(evt.code === SESSION_CLOSE.REPLACED.code);
+  });
+  watchdog = new ConnectionWatchdog({
+    sendPing: () => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(RELAY_PING_FRAME);
+    },
+    // A half-open socket may not report closing for minutes.
+    onDead: () => {
+      watchdog?.stop();
+      handlers.closed(false);
+      ws.close(1000, 'liveness-timeout');
+    },
+  });
+  return {
+    send: (frame) => void peer.sendEncryptedJson(frame).catch(() => undefined),
+    probe: () => watchdog?.probe(),
+    close: () => {
+      watchdog?.stop();
+      ws.close(1000, 'list-closed');
+    },
+  };
+}
+
 async function respondToAuthChallenge(
   peer: Peer,
   challenge: PairAuthChallenge,
+  signedChallenge: Uint8Array,
   els: UI,
   device: StoredDeviceIdentity
 ): Promise<void> {
@@ -5271,20 +5599,26 @@ async function respondToAuthChallenge(
   setStatus(els.status, 'verifying', 'Waiting for your passkey…');
   const cred = (await navigator.credentials.get({
     publicKey: {
-      challenge: base64UrlToBytes(challenge.challenge),
+      challenge: signedChallenge as BufferSource,
       rpId: challenge.rpId,
-      allowCredentials: [
-        {
-          type: 'public-key',
-          id: base64UrlToBytes(challenge.credentialId),
-        },
-      ],
+      // Without one, the system offers every passkey this device has for the site.
+      ...(challenge.credentialId
+        ? {
+            allowCredentials: [
+              { type: 'public-key' as const, id: base64UrlToBytes(challenge.credentialId) },
+            ],
+          }
+        : {}),
       userVerification: 'required',
       timeout: 60_000,
     },
   })) as PublicKeyCredential | null;
   if (!cred) throw new Error('Authenticator returned no credential.');
-  if (cred.id !== challenge.credentialId || cred.id !== device.credentialId) {
+  // A passkey sign-in names no passkey: the desktop checks the one picked is trusted.
+  if (
+    challenge.credentialId &&
+    (cred.id !== challenge.credentialId || cred.id !== device.credentialId)
+  ) {
     throw new Error('Authenticator returned a passkey for a different trusted device.');
   }
   const deviceSignature = await signDeviceProof(

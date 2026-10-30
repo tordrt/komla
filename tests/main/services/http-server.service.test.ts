@@ -67,6 +67,7 @@ const mockWorkspaceService = {
   persistSshAttention: vi.fn(),
   hasAcceptedTerminalHook: vi.fn(() => false),
   recordCopiedHookDelivery: vi.fn(),
+  sshSync: { expectWorkspace: vi.fn() },
   attention: {
     hook: vi.fn((): Promise<string> => Promise.resolve('taken')),
     hooksStopped: vi.fn(),
@@ -2499,6 +2500,29 @@ describe('HttpServerService', () => {
         expect(res.writeHead).toHaveBeenCalledWith(404, { 'Content-Type': 'application/json' });
         expect(parseJsonResponse(res)).toEqual({ error: 'No matching terminal found' });
         expect(hook).not.toHaveBeenCalled();
+      });
+
+      it('checks the host for a workspace started there when it has no such terminal here', async () => {
+        const workspace = sshWorkspace([]);
+        mockWorkspaceService.list.mockReturnValue([workspace]);
+        mockWorkspaceService.get.mockReturnValue(workspace);
+
+        await copied({ terminalId: 'term-elsewhere', kind: 'prompt-submit' });
+        await copied({ terminalId: 'term-elsewhere', kind: 'turn-complete' });
+
+        // Once per terminal: its host syncs again by itself in case the workspace came later.
+        expect(mockWorkspaceService.sshSync.expectWorkspace.mock.calls).toEqual([['ssh-dev']]);
+      });
+
+      it('does not check the host for a hook whose terminal it has', async () => {
+        const workspace = sshWorkspace([createTerminal({ id: 'term-1' })]);
+        mockWorkspaceService.list.mockReturnValue([workspace]);
+        mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(workspace);
+        mockWorkspaceService.get.mockReturnValue(workspace);
+
+        await copied({ terminalId: 'term-1', kind: 'prompt-submit' });
+
+        expect(mockWorkspaceService.sshSync.expectWorkspace).not.toHaveBeenCalled();
       });
 
       it('drops a copied subagent hook for a terminal this device does not have', async () => {

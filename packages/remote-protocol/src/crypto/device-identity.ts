@@ -4,6 +4,7 @@ import { concatLengthPrefixed } from './transcript';
 
 const DEVICE_KEY_PARAMS = { name: 'ECDSA', namedCurve: 'P-256' } as const;
 const DEVICE_PROOF_CONTEXT = new TextEncoder().encode('komla/trusted-remote-device/v2');
+const PASSKEY_CHALLENGE_CONTEXT = new TextEncoder().encode('komla/passkey-challenge/v1');
 
 export type DeviceProofPurpose = 'register' | 'authenticate' | 'resume';
 
@@ -33,6 +34,28 @@ export function buildDeviceProof(
     new TextEncoder().encode(challenge),
     channelBinding,
   ]);
+}
+
+/**
+ * What a passkey signs for an endpoint's challenge: tied to this encrypted session, and so to the
+ * endpoint's key, so an endpoint can't pass a signature it was given on to another one.
+ */
+export async function buildPasskeyChallenge(
+  challenge: string,
+  channelBinding: Uint8Array
+): Promise<Uint8Array> {
+  if (channelBinding.length !== 32) {
+    throw new RangeError(`channel binding must be 32 bytes, got ${channelBinding.length}`);
+  }
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    concatLengthPrefixed([
+      PASSKEY_CHALLENGE_CONTEXT,
+      new TextEncoder().encode(challenge),
+      channelBinding,
+    ]) as BufferSource
+  );
+  return new Uint8Array(digest);
 }
 
 export async function signDeviceProof(

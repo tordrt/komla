@@ -45,7 +45,7 @@ Komla runs on macOS, Windows, and Linux. Treat filesystem paths, shell execution
 ## Context Pointers
 
 - **Domain language:** `GLOSSARY.md` defines Komla's terms and the names to avoid. Use them in code, UI copy, and conversation; read it before naming a concept or writing user-facing copy.
-- **Decisions:** `docs/adr/` records why the remote companion, execution locations, SSH exec channel, settings management API, phone access, and agent commands queued on an SSH host are designed as they are. Read the relevant ADR before changing one of them.
+- **Decisions:** `docs/adr/` records why the remote companion, execution locations, SSH exec channel, settings management API, phone access, agent commands queued on an SSH host, and passkey sign-in are designed as they are. Read the relevant ADR before changing one of them.
 - **Feature list:** `docs/FEATURES.md` is a short, user-facing summary, not a spec. Edit it only when asked.
 - **CLI and MCP:** read `docs/CLI.md` before changing `komla` CLI commands, MCP tools, HTTP routes, discovery, or notification-port behavior.
 - **Analytics:** read `docs/ANALYTICS.md` before adding, removing, or renaming app telemetry events.

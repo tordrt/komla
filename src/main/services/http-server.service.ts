@@ -115,6 +115,8 @@ const SKILL_FILE_ALIASES: Readonly<Record<string, string>> = {
 };
 const logger = createLogger('HttpServerService');
 
+// Unknown terminals whose hooks already had their host synced, before the oldest is forgotten.
+const MAX_UNKNOWN_TERMINALS_TRACKED = 1024;
 // Length caps are generous — they exist to bound abuse, not to constrain real payloads.
 const MAX_SOURCE_LEN = 64;
 const MAX_LEVEL_LEN = 64;
@@ -569,6 +571,8 @@ class HttpServerService {
   private startError: Error | null = null;
   private portChangeEvent: { oldPort: number; newPort: number } | null = null;
   private pendingTerminalHookAcceptances = new Map<string, Promise<Workspace | undefined>>();
+  /** Unknown terminals whose hooks had their host synced; see syncHostOfUnknownTerminal. */
+  private readonly hostSyncedForTerminals = new Set<string>();
   private settingsService: SettingsManagementService | null = null;
   // Refused hosts already logged, so a page retrying in a loop logs each host once.
   private readonly refusedHosts = new Set<string>();
@@ -1661,6 +1665,7 @@ class HttpServerService {
         // A copy is a hook for a terminal another device is attached to. It can't be matched by
         // folder.
         if (payload.copy && (!target.workspace || !target.terminalId)) {
+          this.syncHostOfUnknownTerminal(payload, sshHostId);
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'No matching terminal found' }));
           return;
@@ -1689,6 +1694,7 @@ class HttpServerService {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true }));
         } else {
+          this.syncHostOfUnknownTerminal(payload, sshHostId);
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'No matching workspace found', cwd: payload.cwd }));
         }
@@ -1702,6 +1708,23 @@ class HttpServerService {
         }
       }
     })();
+  }
+
+  /**
+   * A hook from an SSH host for a terminal this installation lacks may come from a workspace
+   * started there, e.g. from a phone: the host is synced to add it. Once per terminal, as one
+   * still unknown after that is one this installation won't add, e.g. another device keeps it.
+   */
+  private syncHostOfUnknownTerminal(payload: NotificationPayload, sshHostId?: string): void {
+    if (!sshHostId || !payload.terminalId) return;
+    if (workspaceService.findWorkspaceByTerminalId(payload.terminalId)) return;
+    if (this.hostSyncedForTerminals.has(payload.terminalId)) return;
+    if (this.hostSyncedForTerminals.size >= MAX_UNKNOWN_TERMINALS_TRACKED) {
+      const [oldest] = this.hostSyncedForTerminals;
+      this.hostSyncedForTerminals.delete(oldest!);
+    }
+    this.hostSyncedForTerminals.add(payload.terminalId);
+    workspaceService.sshSync.expectWorkspace(sshHostId);
   }
 
   private async acceptNotificationDurably(

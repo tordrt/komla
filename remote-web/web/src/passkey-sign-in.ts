@@ -40,8 +40,21 @@ export interface SignInFailure {
   retry: boolean;
 }
 
-/** A `pair:rejected` during sign-in, for the person. */
-export function signInRejection(reason: string, message: string): SignInFailure {
+/**
+ * A `pair:rejected` during sign-in, for the person. `hostName` when an SSH host sent it, which may
+ * run an older companion than the desktop that served this page.
+ */
+export function signInRejection(
+  reason: string,
+  message: string,
+  hostName?: string
+): SignInFailure {
+  if (hostName && (reason === 'signature-failed' || message === 'malformed pair:hello')) {
+    return {
+      message: `Komla couldn't verify this sign-in. If ${hostName} hasn't been updated yet, open Komla on your computer to update it.`,
+      retry: true,
+    };
+  }
   switch (reason) {
     case 'unknown-device':
     case 'not-paired':
@@ -52,8 +65,9 @@ export function signInRejection(reason: string, message: string): SignInFailure 
         : { message: capitalize(message), retry: true };
     case 'signature-failed':
     case 'device-signature-failed':
-    case 'unknown-credential':
       return { message: "Komla couldn't verify this sign-in.", retry: true };
+    case 'unknown-credential':
+      return { message: "Komla doesn't trust that passkey.", retry: true };
     case 'counter-regression':
       return {
         message:

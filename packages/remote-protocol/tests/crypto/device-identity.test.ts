@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildDeviceProof,
+  buildPasskeyChallenge,
   deviceIdFromPublicKey,
   exportDevicePublicKey,
   generateDeviceKeyPair,
@@ -17,6 +18,17 @@ describe('trusted remote device identity', () => {
     expect(pair.privateKey.extractable).toBe(false);
     expect(await deviceIdFromPublicKey(publicKey)).toMatch(/^[0-9a-f]{64}$/);
     expect(await deviceIdFromPublicKey(publicKey)).toBe(await deviceIdFromPublicKey(publicKey));
+  });
+
+  it('makes a passkey challenge bound to the challenge and encrypted channel', async () => {
+    const binding = new Uint8Array(32).fill(7);
+    const signed = await buildPasskeyChallenge('challenge', binding);
+
+    expect(signed).toHaveLength(32);
+    expect(signed).toEqual(await buildPasskeyChallenge('challenge', binding));
+    expect(signed).not.toEqual(await buildPasskeyChallenge('other', binding));
+    expect(signed).not.toEqual(await buildPasskeyChallenge('challenge', new Uint8Array(32)));
+    await expect(buildPasskeyChallenge('challenge', new Uint8Array(31))).rejects.toThrow(RangeError);
   });
 
   it('signs a proof bound to purpose, challenge, and encrypted channel', async () => {

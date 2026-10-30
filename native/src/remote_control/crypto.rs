@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 const HANDSHAKE_CONTEXT: &[u8] = b"komla/remote-secure-channel/v2";
 const SESSION_KEY_INFO: &[u8] = b"komla-remote-protocol/v1/session-key";
 const DEVICE_PROOF_CONTEXT: &[u8] = b"komla/trusted-remote-device/v2";
+const PASSKEY_CHALLENGE_CONTEXT: &[u8] = b"komla/passkey-challenge/v1";
 
 pub(crate) const NONCE_BYTES: usize = 12;
 pub(crate) const DIRECTION_DESKTOP_TO_CLIENT: u8 = 0x01;
@@ -64,6 +65,16 @@ pub(crate) fn device_proof(purpose: &str, challenge: &str, channel_binding: &[u8
         challenge.as_bytes(),
         channel_binding,
     ])
+}
+
+/// What a passkey signs for a challenge: tied to this encrypted session, and so to this host's key,
+/// so another endpoint can't pass a signature it was given on to this one.
+pub(crate) fn passkey_challenge(challenge: &str, channel_binding: &[u8; 32]) -> [u8; 32] {
+    sha256(&length_prefixed(&[
+        PASSKEY_CHALLENGE_CONTEXT,
+        challenge.as_bytes(),
+        channel_binding,
+    ]))
 }
 
 pub(crate) fn public_key_from_spki(spki_der: &[u8]) -> anyhow::Result<PublicKey> {

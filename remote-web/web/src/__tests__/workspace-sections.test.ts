@@ -4,9 +4,12 @@ import type { RemoteWorkspaceSummary } from '@komla/remote-protocol';
 
 import {
   buildWorkspaceSections,
+  parseCollapsedSections,
   searchWorkspaces,
+  workspaceProject,
   workspaceSectionCounts,
   workspaceSectionId,
+  workspaceSectionLabel,
 } from '../workspace-sections';
 
 function workspace(
@@ -31,6 +34,48 @@ const attention = (updatedAt: number) => ({
   updatedAt,
 });
 
+describe('parseCollapsedSections', () => {
+  it('starts with Stopped and the Trash collapsed, the Trash too for a list saved before it', () => {
+    expect([...parseCollapsedSections(null, null)]).toEqual(['stopped', 'trash']);
+    expect([...parseCollapsedSections(null, '["idle"]')]).toEqual(['idle', 'trash']);
+    expect([...parseCollapsedSections('["idle"]', '["stopped"]')]).toEqual(['idle']);
+    expect([...parseCollapsedSections('not json', null)]).toEqual(['stopped', 'trash']);
+  });
+});
+
+describe('workspaceSectionLabel', () => {
+  it('names where a workspace stands as its section does', () => {
+    expect(workspaceSectionLabel(workspace('a', { attention: attention(1) }))).toBe('Needs you');
+    expect(workspaceSectionLabel(workspace('b', { agentActive: true }))).toBe('Working');
+    expect(workspaceSectionLabel(workspace('c', { terminals: [] }))).toBe('Stopped');
+    expect(workspaceSectionLabel(workspace('d', { status: 'trashed' }))).toBe('Trash');
+  });
+});
+
+describe('workspaceProject', () => {
+  const projects = [
+    { id: 'p1', name: 'komla', repositoryPath: '/r/komla' },
+    { id: 'p2', name: 'landing', repositoryPath: '/r/landing' },
+  ];
+
+  it("finds a workspace's project by id, or by name in an SSH host's list, which has no ids", () => {
+    expect(
+      workspaceProject(workspace('a', { projectId: 'p2', projectName: 'komla' }), projects)?.id
+    ).toBe('p2');
+    expect(workspaceProject(workspace('b', { projectName: 'landing' }), projects)?.id).toBe('p2');
+    expect(
+      workspaceProject(workspace('c', { projectId: 'gone', projectName: 'komla' }), projects)
+    ).toBeUndefined();
+    expect(workspaceProject(workspace('d'), projects)).toBeUndefined();
+  });
+
+  it('finds no project by a name two projects share', () => {
+    const shared = [...projects, { id: 'p3', name: 'landing', repositoryPath: '/r/landing-2' }];
+
+    expect(workspaceProject(workspace('a', { projectName: 'landing' }), shared)).toBeUndefined();
+  });
+});
+
 describe('workspace sections', () => {
   it('puts attention first, then agent work, then idle terminals, then stopped workspaces', () => {
     expect(workspaceSectionId(workspace('a', { attention: attention(1), agentActive: true }))).toBe(
@@ -46,6 +91,25 @@ describe('workspace sections', () => {
         workspace('e', { terminals: [{ id: 'e-t', name: 'shell', status: 'stopped' }] })
       )
     ).toBe('stopped');
+  });
+
+  it('lists trashed workspaces in the Trash, whatever their terminals and attention show', () => {
+    const trashed = workspace('t', {
+      status: 'trashed',
+      attention: attention(1),
+      terminals: [{ id: 't-t', name: 'claude', status: 'stopped' }],
+    });
+
+    expect(workspaceSectionId(trashed)).toBe('trash');
+    expect(
+      buildWorkspaceSections([trashed, workspace('s', { terminals: [] })]).map((section) => [
+        section.id,
+        section.label,
+      ])
+    ).toEqual([
+      ['stopped', 'Stopped'],
+      ['trash', 'Trash'],
+    ]);
   });
 
   it('orders sections by fixed priority and drops empty ones', () => {
@@ -89,6 +153,7 @@ describe('workspace sections', () => {
       working: 2,
       idle: 0,
       stopped: 0,
+      trash: 0,
     });
   });
 
@@ -126,7 +191,10 @@ describe('workspace sections', () => {
 
   it('lists title matches before newer workspaces found only elsewhere', () => {
     const titled = workspace('titled', { name: 'Landing page', lastActivityAt: 1 });
-    const prompted = workspace('prompted', { lastPrompt: 'fix the landing page', lastActivityAt: 2 });
+    const prompted = workspace('prompted', {
+      lastPrompt: 'fix the landing page',
+      lastActivityAt: 2,
+    });
 
     const [idle] = buildWorkspaceSections([prompted, titled], { query: 'landing' });
     expect(idle!.workspaces.map((item) => item.id)).toEqual(['titled', 'prompted']);

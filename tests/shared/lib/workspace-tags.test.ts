@@ -10,6 +10,7 @@ import {
   pullRequestTagState,
   pullRequestTagUpdate,
   withWorkspaceTag,
+  workspaceTagAppearance,
   workspaceTagKey,
 } from '../../../src/shared/lib/workspace-tags';
 
@@ -85,6 +86,22 @@ describe('withWorkspaceTag', () => {
       name: 'Waiting for QA',
       tone: 'info',
     });
+  });
+});
+
+describe('workspaceTagAppearance', () => {
+  it("takes the listed tag's name, color and spinner, and shows an unlisted one gray", () => {
+    const tags = [
+      { name: 'In review', tone: 'info' as const },
+      { name: 'CI running', tone: 'warning' as const, spinner: true },
+    ];
+    expect(workspaceTagAppearance(tags, 'in REVIEW')).toEqual({ name: 'In review', tone: 'info' });
+    expect(workspaceTagAppearance(tags, 'CI running')).toEqual({
+      name: 'CI running',
+      tone: 'warning',
+      spinner: true,
+    });
+    expect(workspaceTagAppearance(tags, 'Gone')).toEqual({ name: 'Gone', tone: 'neutral' });
   });
 });
 

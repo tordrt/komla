@@ -64,6 +64,18 @@ describe('enrollment device identity', () => {
     expect(result.credentialId).toBe('new-credential');
   });
 
+  it('makes a browser that signed in with a passkey alone a paired one', async () => {
+    const result = await stageEnrollmentDeviceIdentity(
+      { ...pendingIdentity, credentialId: 'old', signedIn: true } as StoredDeviceIdentity,
+      'new-credential',
+      vi.fn(),
+      async () => {}
+    );
+
+    expect(result.credentialId).toBe('new-credential');
+    expect(result).not.toHaveProperty('signedIn');
+  });
+
   it('does not expose a staged identity when persistence fails', async () => {
     const onStaged = vi.fn();
 

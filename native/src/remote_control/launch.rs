@@ -114,12 +114,27 @@ impl HostLaunch {
     }
 
     /// The `app:launch-options` reply: nothing to start until a project's repository is here.
-    pub(crate) fn options_frame(&self, request_id: &str, base: &Path, host_name: &str) -> Value {
+    /// Projects keep the icons the desktop fitted in one frame only for a phone that takes them.
+    pub(crate) fn options_frame(
+        &self,
+        request_id: &str,
+        base: &Path,
+        host_name: &str,
+        project_icons: bool,
+    ) -> Value {
         let projects: Vec<Value> = self
             .projects
             .iter()
             .filter(|entry| entry.usable(base))
-            .map(|entry| entry.summary.clone())
+            .map(|entry| {
+                let mut summary = entry.summary.clone();
+                if !project_icons {
+                    if let Some(fields) = summary.as_object_mut() {
+                        fields.remove("icon");
+                    }
+                }
+                summary
+            })
             .collect();
         let presets: Vec<Value> = if projects.is_empty() {
             Vec::new()
@@ -265,7 +280,7 @@ pub(crate) mod tests {
         fs::create_dir_all(base.path().join("repos/app/repo.git")).unwrap();
         let launch = HostLaunch::parse(launch_json(base.path()).to_string().as_bytes()).unwrap();
 
-        let frame = launch.options_frame("r1", base.path(), "devbox");
+        let frame = launch.options_frame("r1", base.path(), "devbox", false);
 
         assert_eq!(frame["projects"][0]["id"], "p-app");
         assert_eq!(frame["projects"].as_array().unwrap().len(), 1);
@@ -281,13 +296,31 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn sends_projects_icons_only_to_a_phone_that_agreed_to_them() {
+        let base = tempfile::tempdir().unwrap();
+        fs::create_dir_all(base.path().join("repos/app/repo.git")).unwrap();
+        let mut file = launch_json(base.path());
+        file["projects"][0]["summary"]["icon"] = json!("data:image/png;base64,iVBORw0KGgo=");
+        let launch = HostLaunch::parse(file.to_string().as_bytes()).unwrap();
+
+        let agreed = launch.options_frame("r1", base.path(), "devbox", true);
+        let older = launch.options_frame("r1", base.path(), "devbox", false);
+
+        assert_eq!(
+            agreed["projects"][0]["icon"],
+            "data:image/png;base64,iVBORw0KGgo="
+        );
+        assert!(older["projects"][0].get("icon").is_none());
+    }
+
+    #[test]
     fn offers_nothing_without_a_project_here_or_a_file() {
         let base = tempfile::tempdir().unwrap();
         let launch = HostLaunch::parse(launch_json(base.path()).to_string().as_bytes()).unwrap();
         let missing = HostLaunch::load(&base.path().join("launch.json")).unwrap();
 
         for launch in [launch, missing] {
-            let frame = launch.options_frame("r1", base.path(), "devbox");
+            let frame = launch.options_frame("r1", base.path(), "devbox", false);
             assert_eq!(frame["projects"], json!([]));
             assert_eq!(frame["presets"], json!([]));
             assert_eq!(frame["environments"], json!([]));

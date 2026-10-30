@@ -16,6 +16,15 @@ const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 const MAX_NAME_CHARS: usize = 256;
 const MAX_SEARCH_TEXT_CHARS: usize = 512;
 const MAX_PATH_CHARS: usize = 4096;
+const MAX_TAG_CHARS: usize = 40;
+const TAG_TONES: &[&str] = &[
+    "neutral",
+    "info",
+    "attention",
+    "success",
+    "warning",
+    "error",
+];
 pub(crate) const MANAGED_SESSION_PREFIX: &str = "komla-";
 
 #[derive(Debug, Deserialize)]
@@ -27,6 +36,12 @@ struct Manifest {
     custom_name: Option<String>,
     #[serde(default)]
     custom_description: Option<String>,
+    /// The agent's last title, which the desktop writes only while there is no custom name.
+    #[serde(default)]
+    agent_title: Option<String>,
+    /// The tag as the desktop shows it. Read loosely: a bad one drops the tag, not the workspace.
+    #[serde(default)]
+    tag: Option<Value>,
     #[serde(default)]
     branch_name: Option<String>,
     #[serde(default)]
@@ -73,6 +88,7 @@ pub(crate) struct HostWorkspace {
     working_directory: String,
     project_name: Option<String>,
     branch_name: Option<String>,
+    tag: Option<Value>,
     status: &'static str,
     created_at: Option<u64>,
     updated_at: Option<u64>,
@@ -89,6 +105,20 @@ fn is_id(value: &str) -> bool {
 
 fn clip(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
+}
+
+/// A manifest's tag as the phone's schema takes it: a short name, a known tone and maybe a spinner.
+fn tag_summary(tag: &Value) -> Option<Value> {
+    let name = tag["name"].as_str()?.trim();
+    let tone = tag["tone"].as_str()?;
+    if name.is_empty() || name.chars().count() > MAX_TAG_CHARS || !TAG_TONES.contains(&tone) {
+        return None;
+    }
+    let mut summary = json!({ "name": name, "tone": tone });
+    if tag["spinner"] == Value::Bool(true) {
+        summary["spinner"] = Value::Bool(true);
+    }
+    Some(summary)
 }
 
 fn non_empty(value: Option<String>) -> Option<String> {
@@ -165,7 +195,9 @@ impl HostWorkspace {
         let primary_terminal_id = manifest
             .primary_terminal_id
             .filter(|id| terminals.iter().any(|terminal| &terminal.id == id));
+        // The title the desktop's sidebar shows, as far as the manifest has it.
         let name = non_empty(manifest.custom_name)
+            .or_else(|| non_empty(manifest.agent_title))
             .or_else(|| non_empty(Some(manifest.name)))
             .unwrap_or_else(|| manifest.workspace_id.clone());
         Self {
@@ -183,6 +215,7 @@ impl HostWorkspace {
                 .or_else(|| non_empty(manifest.repo_name))
                 .map(|name| clip(&name, MAX_NAME_CHARS)),
             branch_name: non_empty(manifest.branch_name).map(|name| clip(&name, MAX_NAME_CHARS)),
+            tag: manifest.tag.as_ref().and_then(tag_summary),
             status: match manifest.status.as_deref() {
                 Some("stashed") => "stashed",
                 Some("archived") => "archived",
@@ -255,6 +288,9 @@ impl HostWorkspace {
         }
         if let Some(branch) = &self.branch_name {
             summary["branchName"] = Value::String(branch.clone());
+        }
+        if let Some(tag) = &self.tag {
+            summary["tag"] = tag.clone();
         }
         if let Some(created) = self.created_at {
             summary["createdAt"] = json!(created);
@@ -391,6 +427,66 @@ mod tests {
         assert_eq!(summary["terminals"][0]["environment"]["name"], "devbox");
         assert_eq!(summary["terminals"][1]["status"], "stopped");
         assert!(summary.get("agentActive").is_none());
+    }
+
+    #[test]
+    fn names_a_workspace_by_its_agent_title_only_without_a_custom_name() {
+        let base = tempfile::tempdir().unwrap();
+        write_manifest(
+            base.path(),
+            "ws-1",
+            json!({ "agentTitle": "Stripe webhook retries" }),
+        );
+        write_manifest(
+            base.path(),
+            "ws-2",
+            json!({ "customName": "Fix SSH prompt", "agentTitle": "Stripe webhook retries" }),
+        );
+
+        let names = read_workspaces(base.path())
+            .iter()
+            .map(|workspace| {
+                workspace.summary(&HashMap::new(), &AttentionBoard::default(), "devbox")["name"]
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["Stripe webhook retries", "Fix SSH prompt"]);
+    }
+
+    #[test]
+    fn shows_a_valid_tag_and_keeps_a_workspace_whose_tag_is_not() {
+        let base = tempfile::tempdir().unwrap();
+        write_manifest(
+            base.path(),
+            "ws-1",
+            json!({ "tag": { "name": " CI running ", "tone": "warning", "spinner": true } }),
+        );
+        write_manifest(
+            base.path(),
+            "ws-2",
+            json!({ "tag": { "name": "In review", "tone": "purple" } }),
+        );
+        write_manifest(base.path(), "ws-3", json!({ "tag": "In review" }));
+
+        let tags = read_workspaces(base.path())
+            .iter()
+            .map(|workspace| {
+                workspace
+                    .summary(&HashMap::new(), &AttentionBoard::default(), "devbox")
+                    .get("tag")
+                    .cloned()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            tags,
+            [
+                Some(json!({ "name": "CI running", "tone": "warning", "spinner": true })),
+                None,
+                None
+            ]
+        );
     }
 
     #[test]

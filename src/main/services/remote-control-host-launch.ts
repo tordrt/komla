@@ -3,6 +3,15 @@
 // writes it to the host as `launch.json` next to the phone trust file. Only projects with a workspace
 // on that host go there, and the host offers only those whose repository it already has.
 
+import {
+  encodedJsonBytes,
+  MAX_ENCRYPTED_BODY_BYTES,
+  RemoteProjectIconSchema,
+  type RemoteAgentPresetSummary,
+  type RemoteProjectSummary,
+} from '@komla/remote-protocol';
+
+import { MAX_NAME_CHARS } from '../../../packages/remote-protocol/src/app/frames';
 import { projectColorHex } from '../../shared/lib/project-color';
 import { resolveBranchPrefix } from '../../shared/lib/project-git-defaults';
 import { projectRepoPath } from '../../shared/lib/project-repo-path';
@@ -17,7 +26,6 @@ import { sshWorkspaceService } from './ssh-workspace.service';
 
 import type { AgentPreset, ActivePresetEntry } from '../../shared/types/agent-preset';
 import type { Project } from '../../shared/types/project';
-import type { RemoteAgentPresetSummary, RemoteProjectSummary } from '@komla/remote-protocol';
 
 const logger = createLogger('RemoteControlHostLaunch');
 
@@ -29,6 +37,27 @@ export function remoteProjectSummary(project: Project): RemoteProjectSummary {
     repositoryPath: project.repositoryPath,
     ...(color ? { color } : {}),
   };
+}
+
+/**
+ * Gives the projects, in order, the icons the desktop shows for them while launch options of
+ * `frameBytes` without icons still fit one frame. Icons too large for a phone stay on the desktop.
+ */
+export function withProjectIcons(
+  summaries: RemoteProjectSummary[],
+  iconOf: (projectId: string) => string | undefined,
+  frameBytes: number
+): RemoteProjectSummary[] {
+  let bytes = frameBytes;
+  return summaries.map((summary) => {
+    const icon = iconOf(summary.id);
+    if (!icon || !RemoteProjectIconSchema.safeParse(icon).success) return summary;
+    // `,"icon":"…"` after the summary's other fields.
+    const iconBytes = encodedJsonBytes({ icon }) - 1;
+    if (bytes + iconBytes > MAX_ENCRYPTED_BODY_BYTES) return summary;
+    bytes += iconBytes;
+    return { ...summary, icon };
+  });
 }
 
 export function remotePresetSummary(
@@ -156,13 +185,11 @@ async function skipFailed<T>(kind: string, id: string, build: () => Promise<T | 
 /** `launch.json` for the host whose Komla data directory is `basePath`. */
 export async function buildHostLaunchFile(hostId: string, basePath: string): Promise<string> {
   const onHost = workspaces.projectIdsOnHost(hostId);
+  const projectsOnHost = projectService.list().filter((project) => onHost.has(project.id));
   const projects = await Promise.all(
-    projectService
-      .list()
-      .filter((project) => onHost.has(project.id))
-      .map((project) =>
-        skipFailed('project', project.id, () => hostProject(hostId, basePath, project))
-      )
+    projectsOnHost.map((project) =>
+      skipFailed('project', project.id, () => hostProject(hostId, basePath, project))
+    )
   );
   const presets = await Promise.all(
     agentPresetService
@@ -170,12 +197,31 @@ export async function buildHostLaunchFile(hostId: string, basePath: string): Pro
       .map((entry) => skipFailed('agent', entry.presetId, async () => hostPreset(entry)))
   );
   const defaultLaunchModeId = configService.get().defaultLaunchModeId;
+  const hostProjects = projects.filter((project): project is HostLaunchProject => project !== null);
+  const hostPresets = presets.filter((preset): preset is HostLaunchPreset => preset !== null);
+  // The host replies with these summaries, so their icons must fit its frame at its longest.
+  const icons = new Map(projectsOnHost.map((project) => [project.id, project.icon]));
+  const summaries = withProjectIcons(
+    hostProjects.map((project) => project.summary),
+    (projectId) => icons.get(projectId),
+    encodedJsonBytes({
+      type: 'app:launch-options',
+      // The phone's request id and the host's name at their longest encodings: 6 bytes per
+      // UTF-16 unit, as a JSON `\u` escape takes.
+      requestId: 'r'.repeat(128 * 6),
+      projects: hostProjects.map((project) => project.summary),
+      presets: hostPresets.map((preset) => preset.summary),
+      environments: [{ kind: 'ssh', id: hostId, name: 'n'.repeat(MAX_NAME_CHARS * 6) }],
+      actions: [],
+      ...(defaultLaunchModeId ? { defaultLaunchModeId } : {}),
+    })
+  );
   const file: HostLaunchFile = {
     version: 1,
     hostId,
     ...(defaultLaunchModeId ? { defaultLaunchModeId } : {}),
-    projects: projects.filter((project): project is HostLaunchProject => project !== null),
-    presets: presets.filter((preset): preset is HostLaunchPreset => preset !== null),
+    projects: hostProjects.map((project, index) => ({ ...project, summary: summaries[index]! })),
+    presets: hostPresets,
   };
   return JSON.stringify(file);
 }

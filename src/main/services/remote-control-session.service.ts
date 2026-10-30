@@ -8,6 +8,7 @@ import {
   encodedJsonBytes,
   jsonStringBytes,
   MAX_ENCRYPTED_BODY_BYTES,
+  REMOTE_CAPABILITIES,
   splitJsonString,
   type DecodedMessage,
   type RemoteTerminalSize,
@@ -26,6 +27,10 @@ import {
 } from '../../../packages/remote-protocol/src/app/frames';
 import { IPC } from '../../shared/constants/ipc-channels';
 import { projectColorHex } from '../../shared/lib/project-color';
+import {
+  workspaceTagAppearance,
+  type WorkspaceTagDefinition,
+} from '../../shared/lib/workspace-tags';
 import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
 import { needsAttention, pickWorkspaceAttention } from '../../shared/types/workspace';
 import { createLogger } from '../lib/logger';
@@ -40,7 +45,11 @@ import {
   remoteControlHostAccessService,
   type RemoteControlHostAccessService,
 } from './remote-control-host-access.service';
-import { remotePresetSummary, remoteProjectSummary } from './remote-control-host-launch';
+import {
+  remotePresetSummary,
+  remoteProjectSummary,
+  withProjectIcons,
+} from './remote-control-host-launch';
 import {
   remoteLocalAccessAllowed,
   remoteMayOpenAttention,
@@ -180,6 +189,7 @@ interface ConfigServiceLike {
     defaultLaunchModeId?: string;
     directRemoteLocalAccess?: boolean;
     defaultSshWorkspaceMode?: SshWorkspaceMode;
+    workspaceTags?: readonly WorkspaceTagDefinition[];
   };
 }
 
@@ -258,6 +268,8 @@ type HostAccessLike = Pick<RemoteControlHostAccessService, 'phoneHosts' | 'onCha
 /** The trusted device an authenticated session belongs to. */
 export interface RemoteSessionDevice {
   credentialId: string;
+  /** The protocol features the page and this endpoint agreed on (`REMOTE_CAPABILITIES`). */
+  capabilities?: readonly string[];
 }
 
 export interface RemoteControlSessionServiceDeps {
@@ -551,35 +563,7 @@ class RemoteControlAppSession implements RemoteControlSession {
         await this.sendWorkspaceList(frame.requestId);
         return;
       case 'app:launch-options:get':
-        const config = this.deps.config.get();
-        const defaultLaunchModeId = config.defaultLaunchModeId;
-        await this.peer.sendEncryptedJson({
-          type: 'app:launch-options',
-          requestId: frame.requestId,
-          ...(defaultLaunchModeId ? { defaultLaunchModeId } : {}),
-          projects: this.deps.projects.list().map(remoteProjectSummary),
-          presets: this.deps.agentPresets.getActivePresets().flatMap((entry) => {
-            const preset = this.deps.agentPresets.get(entry.presetId);
-            return preset ? [remotePresetSummary(preset, entry)] : [];
-          }),
-          environments: [
-            ...(remoteLocalAccessAllowed(config)
-              ? [{ kind: 'local' as const, name: 'This computer' }]
-              : []),
-            ...this.deps.sshHosts.list().map((host) => ({
-              kind: 'ssh' as const,
-              id: host.id,
-              name: host.name,
-            })),
-          ],
-          actions: this.deps.actions.list().map((action) => ({
-            id: action.id,
-            title: action.title,
-            type: action.type === 'command' ? ('command' as const) : ('prompt' as const),
-            ...(action.projectIds?.length ? { projectIds: action.projectIds } : {}),
-            ...(action.content.includes('{{user_input}}') ? { requiresInput: true } : {}),
-          })),
-        });
+        await this.sendLaunchOptions(frame.requestId);
         return;
       case 'app:workspace:create': {
         if (!frame.projectId) {
@@ -1596,6 +1580,48 @@ class RemoteControlAppSession implements RemoteControlSession {
     });
   }
 
+  private async sendLaunchOptions(requestId: string): Promise<void> {
+    const config = this.deps.config.get();
+    const defaultLaunchModeId = config.defaultLaunchModeId;
+    const projects = this.deps.projects.list();
+    const options = {
+      type: 'app:launch-options' as const,
+      requestId,
+      ...(defaultLaunchModeId ? { defaultLaunchModeId } : {}),
+      projects: projects.map(remoteProjectSummary),
+      presets: this.deps.agentPresets.getActivePresets().flatMap((entry) => {
+        const preset = this.deps.agentPresets.get(entry.presetId);
+        return preset ? [remotePresetSummary(preset, entry)] : [];
+      }),
+      environments: [
+        ...(remoteLocalAccessAllowed(config)
+          ? [{ kind: 'local' as const, name: 'This computer' }]
+          : []),
+        ...this.deps.sshHosts.list().map((host) => ({
+          kind: 'ssh' as const,
+          id: host.id,
+          name: host.name,
+        })),
+      ],
+      actions: this.deps.actions.list().map((action) => ({
+        id: action.id,
+        title: action.title,
+        type: action.type === 'command' ? ('command' as const) : ('prompt' as const),
+        ...(action.projectIds?.length ? { projectIds: action.projectIds } : {}),
+        ...(action.content.includes('{{user_input}}') ? { requiresInput: true } : {}),
+      })),
+    };
+    if (this.device?.capabilities?.includes(REMOTE_CAPABILITIES.PROJECT_ICONS)) {
+      const icons = new Map(projects.map((project) => [project.id, project.icon]));
+      options.projects = withProjectIcons(
+        options.projects,
+        (projectId) => icons.get(projectId),
+        encodedJsonBytes(options)
+      );
+    }
+    await this.peer.sendEncryptedJson(options);
+  }
+
   private async sendHosts(requestId: string): Promise<void> {
     await this.peer.sendEncryptedJson({
       type: 'app:hosts',
@@ -1624,6 +1650,19 @@ class RemoteControlAppSession implements RemoteControlSession {
     return color ? ({ [key]: color } as Partial<Record<K, string>>) : {};
   }
 
+  /** The workspace's tag as the tag list shows it, for a page that agreed to tags. */
+  private tagField(workspace: Workspace): Pick<RemoteWorkspaceSummary, 'tag'> {
+    if (
+      !workspace.tag ||
+      !this.device?.capabilities?.includes(REMOTE_CAPABILITIES.WORKSPACE_TAGS)
+    ) {
+      return {};
+    }
+    return {
+      tag: workspaceTagAppearance(this.deps.config.get().workspaceTags ?? [], workspace.tag),
+    };
+  }
+
   private async summarizeWorkspace(workspace: Workspace): Promise<RemoteWorkspaceSummary> {
     const project = workspace.projectId ? this.deps.projects.get(workspace.projectId) : undefined;
     const git = await this.summarizeGit(workspace);
@@ -1648,6 +1687,7 @@ class RemoteControlAppSession implements RemoteControlSession {
       ...(project?.name ? { projectName: project.name } : {}),
       ...(project ? this.projectColorField('projectColor', project) : {}),
       ...(workspace.branchName ? { branchName: workspace.branchName } : {}),
+      ...this.tagField(workspace),
       status: workspace.status,
       provisioning: workspace.provisioning === true,
       ...(workspace.agentActive ? { agentActive: true } : {}),

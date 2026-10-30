@@ -6,6 +6,7 @@ const DESKTOP_KEY = 'komla.remote.desktop';
 const HOSTS_KEY = 'komla.remote.hosts';
 const LAST_ENDPOINT_KEY = 'komla.remote.lastEndpoint';
 const HOST_PARAM = 'host';
+const WORKSPACE_PARAM = 'workspace';
 const FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 /** Hosts are reached over Tailscale Serve's TLS; plain `ws:` only to localhost while developing. */
@@ -121,11 +122,15 @@ export function selectedHostId(href: string): string | null {
   return id && ID_PATTERN.test(id) ? id : null;
 }
 
-/** The page for an endpoint: the desktop for null. Keeps the app's own path. */
-export function endpointHref(href: string, hostId: string | null): string {
+/**
+ * The page for an endpoint, the desktop for null, opening `workspaceId` if given. Keeps the app's
+ * own path.
+ */
+export function endpointHref(href: string, hostId: string | null, workspaceId?: string): string {
   const url = new URL(href);
   url.search = '';
   url.hash = '';
   if (hostId) url.searchParams.set(HOST_PARAM, hostId);
+  if (workspaceId) url.searchParams.set(WORKSPACE_PARAM, workspaceId);
   return url.toString();
 }

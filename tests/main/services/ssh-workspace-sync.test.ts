@@ -188,6 +188,8 @@ function service(
       now: () => now,
       deviceId: () => 'this-device',
       syncsWith,
+      tag: (workspace) =>
+        workspace.tag ? { name: workspace.tag, tone: 'info', spinner: true } : undefined,
       hostCopies: saved,
       inUse,
     }),
@@ -234,6 +236,12 @@ describe('SSH workspace manifest', () => {
       JSON.parse(JSON.stringify(manifest))
     );
     expect(parseSshWorkspaceManifest('{not json')).toBe(undefined);
+    // Tags are only for show: one this version can't read costs the tag, not the workspace.
+    expect(
+      parseSshWorkspaceManifest(
+        JSON.stringify({ ...manifest, tag: { name: 'Later', tone: 'a-new-tone' } })
+      )
+    ).toEqual(JSON.parse(JSON.stringify(manifest)));
     expect(
       parseSshWorkspaceManifest(JSON.stringify({ ...manifest, workspaceId: '../escape' }))
     ).toBe(undefined);
@@ -533,6 +541,22 @@ describe('SshWorkspaceSync', () => {
       )
     );
 
+  it('syncs a host where a workspace is expected now and again shortly after', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { manifests, read, advance } = service();
+
+    manifests.expectWorkspace('host-a');
+    manifests.expectWorkspace('host-a');
+    await flush();
+    expect(read).toHaveBeenCalledTimes(1);
+
+    advance(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flush();
+    expect(read).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it('does not contact hosts for workspaces restored at startup', async () => {
     const { manifests, inspect, write } = service();
     const workspace = sshWorkspace();
@@ -561,6 +585,199 @@ describe('SshWorkspaceSync', () => {
     expect(JSON.parse(String(write.mock.calls[1]?.[2]))).toMatchObject({
       name: 'renamed',
       writtenBy: 'this-device',
+    });
+  });
+
+  it("writes the workspace's tag as it looks here, for the host's phone list", async () => {
+    const { manifests, write, tick } = service();
+    const workspace = sshWorkspace();
+
+    manifests.saved([workspace]);
+    tick();
+    manifests.saved([{ ...workspace, tag: 'In review' }]);
+    await flush();
+
+    expect(write.mock.calls.map((call) => JSON.parse(String(call[2])).tag)).toEqual([
+      undefined,
+      { name: 'In review', tone: 'info', spinner: true },
+    ]);
+  });
+
+  it('writes a tag the saved host copy lacks with the next save, and leaves others alone', async () => {
+    const tagged = sshWorkspace({ tag: 'In review' });
+    const appearance = { name: 'In review', tone: 'info', spinner: true };
+    const copy = buildSshWorkspaceManifest(tagged, 1)!;
+    const saved = (onHost: object) => ({
+      read: () => JSON.stringify({ [tagged.id]: onHost }),
+      write: vi.fn(async (_content: string) => undefined),
+    });
+
+    const withoutTag = vi.fn(async (): Promise<boolean> => true);
+    const stale = service(withoutTag, saved(copy));
+    stale.manifests.restored([tagged]);
+    await flush();
+    expect(withoutTag).not.toHaveBeenCalled();
+    stale.manifests.saved([tagged]);
+    await flush();
+    expect(JSON.parse(String(withoutTag.mock.calls.at(-1)?.at(2))).tag).toEqual(appearance);
+
+    const withTag = vi.fn(async (): Promise<boolean> => true);
+    const current = service(withTag, saved({ ...copy, tag: appearance }));
+    current.manifests.restored([tagged]);
+    current.manifests.saved([tagged]);
+    await flush();
+    expect(withTag).not.toHaveBeenCalled();
+
+    // Another installation's tag stays until a save here changes something.
+    const untagged = sshWorkspace();
+    const other = vi.fn(async (): Promise<boolean> => true);
+    const sharing = service(other, saved({ ...copy, tag: { ...appearance, name: 'Theirs' } }));
+    sharing.manifests.restored([untagged]);
+    sharing.manifests.saved([untagged]);
+    await flush();
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  describe("the agent's title", () => {
+    const titled = (title: string, overrides: Partial<Workspace> = {}) =>
+      sshWorkspace({
+        terminals: [terminal('t1', { dynamicTitle: title }), terminal('t2')],
+        ...overrides,
+      });
+    const written = (write: ReturnType<typeof vi.fn>) =>
+      write.mock.calls.map((call) => JSON.parse(String(call[2])).agentTitle);
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('is written at once the first time, then at most every few minutes', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { manifests, write, advance, hold } = service();
+      manifests.saved([titled('Login redirect')]);
+      await flush();
+      advance(60_000);
+      const renamed = titled('Login redirect loop');
+      hold(renamed);
+      manifests.saved([renamed]);
+      await flush();
+
+      expect(written(write)).toEqual(['Login redirect']);
+
+      advance(4 * 60_000);
+      await vi.advanceTimersByTimeAsync(4 * 60_000);
+      await flush();
+
+      expect(written(write)).toEqual(['Login redirect', 'Login redirect loop']);
+    });
+
+    it("keeps another device's title when this one has none", async () => {
+      const { manifests, inspect, write, hold } = service();
+      const workspace = sshWorkspace();
+      const theirs = JSON.parse(fromOtherDevice(workspace, { customDescription: 'There' }));
+      inspect.mockResolvedValue({
+        state: 'present',
+        manifest: JSON.stringify({ ...theirs, agentTitle: 'Stripe webhook retries' }),
+      });
+      hold(workspace);
+
+      manifests.saved([workspace]);
+      await flush();
+      // Renamed here after taking the other device's copy, so this device writes next.
+      manifests.saved([{ ...workspace, name: 'renamed-here' }]);
+      await flush();
+
+      expect(written(write)).toEqual(['Stripe webhook retries']);
+    });
+
+    it('leaves the manifest once the agent no longer sets one', async () => {
+      const { manifests, write, advance } = service();
+      manifests.saved([titled('Login redirect')]);
+      await flush();
+      advance(5 * 60_000);
+      manifests.saved([sshWorkspace()]);
+      await flush();
+
+      expect(written(write)).toEqual(['Login redirect', undefined]);
+    });
+
+    it("takes another device's newer title over its own older one", async () => {
+      const { manifests, inspect, write, hold } = service();
+      const workspace = titled('Login redirect');
+      manifests.saved([workspace]);
+      await flush();
+      const theirs = JSON.parse(fromOtherDevice(workspace, { customDescription: 'There' }));
+      inspect.mockResolvedValue({
+        state: 'present',
+        manifest: JSON.stringify({ ...theirs, agentTitle: 'Stripe webhook retries' }),
+      });
+      const renamed = { ...workspace, name: 'renamed-here' };
+      hold(renamed);
+
+      manifests.saved([renamed]);
+      await flush();
+      manifests.saved([renamed]);
+      await flush();
+
+      expect(written(write)).toEqual(['Login redirect', 'Stripe webhook retries']);
+    });
+
+    it("keeps another device's title after a restart until the agent here retitles", async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { manifests, inspect, write, hold, advance } = service();
+      const workspace = titled('Login redirect');
+      manifests.restored([workspace]);
+      manifests.saved([workspace]);
+      const theirs = JSON.parse(fromOtherDevice(workspace, { customDescription: 'There' }));
+      inspect.mockResolvedValue({
+        state: 'present',
+        manifest: JSON.stringify({ ...theirs, agentTitle: 'Stripe webhook retries' }),
+      });
+      const renamed = { ...workspace, name: 'renamed-here' };
+      hold(renamed);
+      manifests.saved([renamed]);
+      await flush();
+
+      advance(5 * 60_000);
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      manifests.saved([renamed]);
+      await flush();
+
+      expect(written(write)).toEqual(['Stripe webhook retries']);
+    });
+
+    it('is not written for a workspace deleted while a newer one waited', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const { manifests, write, advance, hold } = service();
+      manifests.saved([titled('Login redirect')]);
+      await flush();
+      const renamed = titled('Login redirect loop');
+      hold(renamed);
+      manifests.saved([renamed]);
+      await manifests.deleted(renamed, { leftOnHost: true });
+
+      advance(5 * 60_000);
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await flush();
+
+      expect(written(write)).toEqual(['Login redirect']);
+    });
+
+    it('is left out while the workspace has a custom name', async () => {
+      const { manifests, write } = service();
+      manifests.saved([titled('Login redirect', { customName: 'Fix login' })]);
+      await flush();
+
+      expect(written(write)).toEqual([undefined]);
+    });
+
+    it('waits after a restart, so startup does not contact hosts', async () => {
+      const { manifests, inspect } = service();
+      manifests.restored([sshWorkspace()]);
+      manifests.saved([titled('Login redirect')]);
+      await flush();
+
+      expect(inspect).not.toHaveBeenCalled();
     });
   });
 

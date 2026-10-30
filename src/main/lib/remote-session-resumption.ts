@@ -4,6 +4,23 @@ export interface RemoteSessionResumeGrant {
   expiresAt: number;
 }
 
+/**
+ * Who may redeem a grant: the browser whose key must sign the resume, and the passkey it signed
+ * in with, which removing from the trusted devices revokes.
+ */
+export interface RemoteSessionResumeHolder {
+  deviceId: string;
+  /** SPKI-DER of the browser's key, standard base64. */
+  devicePublicKey: string;
+  credentialId: string;
+}
+
+/** A grant still usable: its holder, and when that browser last passed passkey verification. */
+export interface RemoteSessionResumeUse {
+  holder: RemoteSessionResumeHolder;
+  verifiedAt: number;
+}
+
 interface RemoteSessionResumptionOptions {
   generateToken: () => Uint8Array;
   now: () => number;
@@ -14,7 +31,7 @@ interface RemoteSessionResumptionOptions {
 }
 
 interface StoredGrant {
-  deviceId: string;
+  holder: RemoteSessionResumeHolder;
   token: string;
   verifiedAt: number;
   /** When the connection holding the grant ended; null while it is open. */
@@ -32,14 +49,17 @@ export class RemoteSessionResumptionStore {
    * when the device last passed passkey verification: now for a passkey
    * login, or carried over from the grant a silent resume consumed.
    */
-  issue(deviceId: string, verifiedAt = this.options.now()): RemoteSessionResumeGrant {
+  issue(
+    holder: RemoteSessionResumeHolder,
+    verifiedAt = this.options.now()
+  ): RemoteSessionResumeGrant {
     this.pruneExpired();
     const bytes = this.options.generateToken();
     if (bytes.length !== 32) {
       throw new RangeError(`resume token must be 32 bytes, got ${bytes.length}`);
     }
     const token = Buffer.from(bytes).toString('base64url');
-    this.grants.set(token, { deviceId, token, verifiedAt, releasedAt: null });
+    this.grants.set(token, { holder, token, verifiedAt, releasedAt: null });
     return { token, expiresAt: verifiedAt + this.options.maxAgeMs };
   }
 
@@ -50,18 +70,20 @@ export class RemoteSessionResumptionStore {
   }
 
   /**
-   * When the device last passed passkey verification, if the grant is still
-   * usable, without using it up: a sign-in that drops before it finishes
-   * leaves the grant for the next attempt.
+   * The grant's holder and when it last passed passkey verification, if the
+   * grant is still usable by `deviceId`, without using it up: a sign-in that
+   * drops before it finishes leaves the grant for the next attempt.
    */
-  peek(deviceId: string, token: string): number | null {
+  peek(deviceId: string, token: string): RemoteSessionResumeUse | null {
     const grant = this.grants.get(token);
     if (!grant) return null;
     if (this.deadline(grant) <= this.options.now()) {
       this.grants.delete(token);
       return null;
     }
-    return grant.deviceId === deviceId ? grant.verifiedAt : null;
+    return grant.holder.deviceId === deviceId
+      ? { holder: grant.holder, verifiedAt: grant.verifiedAt }
+      : null;
   }
 
   /**
@@ -70,15 +92,16 @@ export class RemoteSessionResumptionStore {
    * the phone's network dropped silently; the desktop ends that connection
    * once the redeeming one signs in.
    */
-  consume(deviceId: string, token: string): number | null {
-    const verifiedAt = this.peek(deviceId, token);
-    if (verifiedAt !== null) this.grants.delete(token);
-    return verifiedAt;
+  consume(deviceId: string, token: string): RemoteSessionResumeUse | null {
+    const use = this.peek(deviceId, token);
+    if (use) this.grants.delete(token);
+    return use;
   }
 
-  revokeDevice(deviceId: string): void {
+  /** Revokes the grants of every browser signed in with this passkey. */
+  revokeCredential(credentialId: string): void {
     for (const [token, grant] of this.grants) {
-      if (grant.deviceId === deviceId) this.grants.delete(token);
+      if (grant.holder.credentialId === credentialId) this.grants.delete(token);
     }
   }
 

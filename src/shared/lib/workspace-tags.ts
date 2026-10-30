@@ -81,6 +81,26 @@ export function findWorkspaceTag(
   return tags.find((tag) => workspaceTagKey(tag.name) === key);
 }
 
+/** A workspace's tag as its card shows it, for a device without the tag list. */
+export interface WorkspaceTagAppearance {
+  name: string;
+  tone: WorkspaceTagTone;
+  spinner?: true;
+}
+
+/** How a tag of this name looks: as the tag list has it, or gray when the list lacks it. */
+export function workspaceTagAppearance(
+  tags: readonly WorkspaceTagDefinition[],
+  name: string
+): WorkspaceTagAppearance {
+  const tag = findWorkspaceTag(tags, name);
+  return {
+    name: tag?.name ?? name,
+    tone: tag?.tone ?? 'neutral',
+    ...(tag?.spinner ? { spinner: true as const } : {}),
+  };
+}
+
 /** A tag on some of the workspaces, as a filter offers it. */
 export interface WorkspaceTagOption {
   key: string;

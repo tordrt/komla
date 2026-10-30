@@ -39,6 +39,24 @@ const WorkspaceAttentionSchema = z
   })
   .strict();
 
+// A workspace's tag as the desktop shows it, e.g. "In review": its name, color and whether it spins.
+export const MAX_REMOTE_WORKSPACE_TAG_CHARS = 40;
+export const REMOTE_WORKSPACE_TAG_TONES = [
+  'neutral',
+  'info',
+  'attention',
+  'success',
+  'warning',
+  'error',
+] as const;
+export const RemoteWorkspaceTagSchema = z
+  .object({
+    name: z.string().min(1).max(MAX_REMOTE_WORKSPACE_TAG_CHARS),
+    tone: z.enum(REMOTE_WORKSPACE_TAG_TONES),
+    spinner: z.literal(true).optional(),
+  })
+  .strict();
+
 const RemoteTerminalEnvironmentSchema = z
   .object({
     kind: z.literal('ssh'),
@@ -58,6 +76,7 @@ export const RemoteWorkspaceSummarySchema = z
     projectName: NameSchema.optional(),
     projectColor: z.string().max(128).optional(),
     branchName: z.string().max(256).optional(),
+    tag: RemoteWorkspaceTagSchema.optional(),
     status: z.enum(['active', 'stashed', 'archived', 'trashed']),
     provisioning: z.boolean(),
     agentActive: z.boolean().optional(),
@@ -88,12 +107,22 @@ export const RemoteWorkspaceSummarySchema = z
   })
   .strict();
 
+// A project's icon as the desktop shows it. Larger ones stay on the desktop, so a project list with
+// icons still fits one frame.
+export const MAX_REMOTE_PROJECT_ICON_CHARS = 16 * 1024;
+export const RemoteProjectIconSchema = z
+  .string()
+  .max(MAX_REMOTE_PROJECT_ICON_CHARS)
+  .regex(/^data:image\/(?:png|jpeg|svg\+xml|x-icon);base64,[A-Za-z0-9+/]+={0,2}$/);
+
 export const RemoteProjectSummarySchema = z
   .object({
     id: IdSchema,
     name: NameSchema,
     repositoryPath: PathSchema,
     color: z.string().max(128).optional(),
+    // Only sent over a session that agreed on REMOTE_CAPABILITIES.PROJECT_ICONS.
+    icon: RemoteProjectIconSchema.optional(),
   })
   .strict();
 
@@ -647,6 +676,7 @@ export const RemoteAppFrameSchema = z.discriminatedUnion('type', [
 ]);
 
 export type RemoteWorkspaceSummary = z.infer<typeof RemoteWorkspaceSummarySchema>;
+export type RemoteWorkspaceTag = z.infer<typeof RemoteWorkspaceTagSchema>;
 export type RemoteProjectSummary = z.infer<typeof RemoteProjectSummarySchema>;
 export type RemoteLaunchModeSummary = z.infer<typeof RemoteLaunchModeSummarySchema>;
 export type RemoteAgentPresetSummary = z.infer<typeof RemoteAgentPresetSummarySchema>;

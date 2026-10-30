@@ -51,6 +51,7 @@ import {
   normalizeWorkspaceTags,
   PULL_REQUEST_TAG_STATES,
   pullRequestTagUpdate,
+  workspaceTagAppearance,
   type PullRequestTagState,
 } from '../../shared/lib/workspace-tags';
 import { normalizeSshBasePath, type SshHost } from '../../shared/types/ssh';
@@ -822,6 +823,13 @@ class WorkspaceService {
       deviceId: () => configService.getWorkspaceSyncDeviceId(),
       syncsWith: (hostId) => syncsSshWorkspaces(hostId),
       launch: sshWorkspaceLaunch,
+      tag: (workspace) =>
+        workspace.tag
+          ? workspaceTagAppearance(
+              normalizeWorkspaceTags(configService.get().workspaceTags),
+              workspace.tag
+            )
+          : undefined,
       inUse: () => BrowserWindow.getFocusedWindow() !== null,
       hostCopies: {
         read: () => {

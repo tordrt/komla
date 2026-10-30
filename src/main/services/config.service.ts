@@ -260,6 +260,9 @@ export interface AppConfig {
   compactWorkspaceList?: boolean; // Tighter workspace cards in the sidebar
   defaultSearchOpenMode?: 'viewer' | 'preview' | 'current'; // Default target when opening search results ('current' = match the active view)
   hiddenProjectIds?: string[]; // Project IDs hidden from the sidebar workspace list
+  dashboardFilterProject?: string | null; // Last selected project filter in dashboard
+  remoteBranchesExpanded?: boolean; // Branch pickers list remote branches too
+  diffHideUnchangedRegions?: boolean; // Collapse unchanged regions in diff viewer
   defaultEditor?: string; // Editor ID to use for "Open in Editor" (e.g. 'vscode', 'cursor')
   showEditorInToolbar?: boolean; // Show Open in editor in the status bar and title bar; ignored while the status bar is off
   showTipsInToolbar?: boolean; // Show the Tips button in the status bar; Tips moves to the settings menu when off
@@ -413,6 +416,170 @@ const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
+/**
+ * Every key the config holds, so a key `normalizeConfig` leaves out fails to
+ * compile instead of being dropped by each update.
+ */
+type NormalizedConfig = { [K in keyof Required<Omit<AppConfig, '_version'>>]: AppConfig[K] };
+
+/**
+ * The config a raw record holds: what load reads from disk and what update
+ * keeps, so a value Komla holds in memory is the one a restart reads back.
+ */
+function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
+  // Narrow nested records so downstream access is typed. Missing fields
+  // fall back to defaults via `??`; wrong-typed values flow through
+  // unchanged (no runtime schema validation here).
+  const rawVoice = rawConfig.voice as Partial<NonNullable<AppConfig['voice']>> | undefined;
+  const rawSounds = rawConfig.notificationSounds as
+    | Partial<NonNullable<AppConfig['notificationSounds']>>
+    | undefined;
+
+  return {
+    agentSetupComplete: pickWithDefault(rawConfig, 'agentSetupComplete'),
+    scrollbackLines: pickWithDefault(rawConfig, 'scrollbackLines'),
+    // `||` (not `??`) so an empty-string theme also falls back.
+    theme: (rawConfig.theme as AppConfig['theme']) || DEFAULT_CONFIG.theme,
+    defaultProjectId: pickWithDefault(rawConfig, 'defaultProjectId'),
+    // DEFAULT_CONFIG omits this key, so pickWithDefault would yield
+    // undefined; preserve the historical `?? null` here.
+    lastUsedProjectId: (rawConfig.lastUsedProjectId as string | null | undefined) ?? null,
+    notificationsEnabled: pickWithDefault(rawConfig, 'notificationsEnabled'),
+    notificationPort: pickWithDefault(rawConfig, 'notificationPort'),
+    directRemoteEnabled: pickWithDefault(rawConfig, 'directRemoteEnabled'),
+    directRemotePort: pickWithDefault(rawConfig, 'directRemotePort'),
+    directRemotePublicOrigin: pickWithDefault(rawConfig, 'directRemotePublicOrigin'),
+    directRemoteManagedTailscaleOrigin: pickWithDefault(
+      rawConfig,
+      'directRemoteManagedTailscaleOrigin'
+    ),
+    directRemoteKeepAwake: pickWithDefault(rawConfig, 'directRemoteKeepAwake'),
+    directRemoteLocalAccess: pickWithDefault(rawConfig, 'directRemoteLocalAccess'),
+    directRemotePasskeyWindowMinutes: normalizeRemotePasskeyWindow(
+      rawConfig.directRemotePasskeyWindowMinutes
+    ),
+    utilityProvider: normalizeUtilityProvider(rawConfig.utilityProvider),
+    openRouterModel: normalizeOpenRouterModel(rawConfig.openRouterModel),
+    openRouterBaseUrl: normalizeOpenRouterBaseUrl(rawConfig.openRouterBaseUrl),
+    workspaceNamingPrompt: normalizeUtilityPrompt(rawConfig.workspaceNamingPrompt),
+    commitMessagePrompt: normalizeUtilityPrompt(rawConfig.commitMessagePrompt),
+    defaultFileTreeOpen: pickWithDefault(rawConfig, 'defaultFileTreeOpen'),
+    defaultFileTreeMode: pickWithDefault(rawConfig, 'defaultFileTreeMode'),
+    defaultLiveFollow: pickWithDefault(rawConfig, 'defaultLiveFollow'),
+    defaultCompareTargetBranch: pickWithDefault(rawConfig, 'defaultCompareTargetBranch'),
+    defaultDevServerPreviewAutoReload: pickWithDefault(
+      rawConfig,
+      'defaultDevServerPreviewAutoReload'
+    ),
+    defaultInlinePreviewLayout:
+      rawConfig.defaultInlinePreviewLayout === 'side-by-side' ||
+      rawConfig.defaultInlinePreviewLayout === 'full'
+        ? rawConfig.defaultInlinePreviewLayout
+        : undefined,
+    webLinkOpenTarget: normalizeWebLinkOpenTarget(rawConfig.webLinkOpenTarget),
+    workspaceGrouping: rawConfig.workspaceGrouping === 'none' ? 'none' : 'project',
+    recentFolders: Array.isArray(rawConfig.recentFolders)
+      ? rawConfig.recentFolders.filter((folder): folder is string => typeof folder === 'string')
+      : [],
+    hideStoppedWorkspaces: pickWithDefault(rawConfig, 'hideStoppedWorkspaces'),
+    hideWorkingWorkspaces: pickWithDefault(rawConfig, 'hideWorkingWorkspaces'),
+    hiddenWorkspaceHostIds: pickWithDefault(rawConfig, 'hiddenWorkspaceHostIds'),
+    workspaceTags: normalizeWorkspaceTags(rawConfig.workspaceTags),
+    hiddenWorkspaceTags: pickWithDefault(rawConfig, 'hiddenWorkspaceTags'),
+    tagsFromPullRequests: pickWithDefault(rawConfig, 'tagsFromPullRequests'),
+    dashboardHiddenWorkspaceHostIds: pickWithDefault(rawConfig, 'dashboardHiddenWorkspaceHostIds'),
+    telemetryPingSent: pickWithDefault(rawConfig, 'telemetryPingSent'),
+    lastHeartbeatDate: pickWithDefault(rawConfig, 'lastHeartbeatDate'),
+    telemetryDistinctId: pickWithDefault(rawConfig, 'telemetryDistinctId'),
+    workspaceSyncDeviceId: pickWithDefault(rawConfig, 'workspaceSyncDeviceId'),
+    workspaceSyncDisabledHostIds: pickWithDefault(rawConfig, 'workspaceSyncDisabledHostIds'),
+    anonymousTelemetryEnabled: pickWithDefault(rawConfig, 'anonymousTelemetryEnabled'),
+    // Usage analytics is opt-in, and only an answer to the consent question turns it on.
+    usageTelemetryEnabled:
+      rawConfig.usageTelemetryConsentAnswered === true && rawConfig.usageTelemetryEnabled === true,
+    usageTelemetryConsentAnswered: rawConfig.usageTelemetryConsentAnswered === true,
+    reportedTelemetryMilestones: pickWithDefault(rawConfig, 'reportedTelemetryMilestones'),
+    errorReportingEnabled: pickWithDefault(rawConfig, 'errorReportingEnabled'),
+    dismissedAnnouncementIds: pickWithDefault(rawConfig, 'dismissedAnnouncementIds'),
+    zoomLevel: pickWithDefault(rawConfig, 'zoomLevel'),
+    shellMode: pickWithDefault(rawConfig, 'shellMode'),
+    wslDistro: pickWithDefault(rawConfig, 'wslDistro'),
+    preferredCloneProtocol: pickWithDefault(rawConfig, 'preferredCloneProtocol'),
+    autoNameWorkspaces: normalizeAutoNameWorkspaces(rawConfig.autoNameWorkspaces),
+    autoNameBranches: pickWithDefault(rawConfig, 'autoNameBranches'),
+    hideBranchNameInWorkspaceCards: pickWithDefault(rawConfig, 'hideBranchNameInWorkspaceCards'),
+    compactWorkspaceList: pickWithDefault(rawConfig, 'compactWorkspaceList'),
+    defaultSearchOpenMode: pickWithDefault(rawConfig, 'defaultSearchOpenMode'),
+    hiddenProjectIds: pickWithDefault(rawConfig, 'hiddenProjectIds'),
+    dashboardFilterProject: (rawConfig.dashboardFilterProject as string | null | undefined) ?? null,
+    remoteBranchesExpanded: pickWithDefault(rawConfig, 'remoteBranchesExpanded'),
+    diffHideUnchangedRegions: pickWithDefault(rawConfig, 'diffHideUnchangedRegions'),
+    defaultEditor: pickWithDefault(rawConfig, 'defaultEditor'),
+    showEditorInToolbar: pickWithDefault(rawConfig, 'showEditorInToolbar'),
+    showTipsInToolbar: pickWithDefault(rawConfig, 'showTipsInToolbar'),
+    showStatusBar: pickWithDefault(rawConfig, 'showStatusBar'),
+    statusBarSize:
+      STATUS_BAR_SIZES.find((size) => size === rawConfig.statusBarSize) ?? DEFAULT_STATUS_BAR_SIZE,
+    showAgentsInMenuBar: pickWithDefault(rawConfig, 'showAgentsInMenuBar'),
+    agentsMenuBarInBackgroundOnly: pickWithDefault(rawConfig, 'agentsMenuBarInBackgroundOnly'),
+    agentsDoneClearedAt: pickWithDefault(rawConfig, 'agentsDoneClearedAt'),
+    keepAwakeMode: normalizeKeepAwakeMode(rawConfig.keepAwakeMode),
+    statusBarHiddenItems: stringList(rawConfig.statusBarHiddenItems),
+    statusBarShownItems: stringList(rawConfig.statusBarShownItems),
+    statusBarLeftItems: stringList(rawConfig.statusBarLeftItems),
+    statusBarRightItems: stringList(rawConfig.statusBarRightItems),
+    // Direct assignment (not pickWithDefault) so a persisted `null`
+    // round-trips as `null` instead of being normalized to `undefined`.
+    agentLaunchDefaultPresetId: rawConfig.agentLaunchDefaultPresetId as string | null | undefined,
+    // A mode pinned to run in the sandbox must not start on the host instead.
+    agentLaunchDefaultLaunchModeId: pinnedForRemovedSandbox(rawConfig)
+      ? undefined
+      : (rawConfig.agentLaunchDefaultLaunchModeId as string | null | undefined),
+    agentLaunchDefaultSshHostId: pickWithDefault(rawConfig, 'agentLaunchDefaultSshHostId'),
+    agentDisabledCapabilities: stringList(rawConfig.agentDisabledCapabilities) ?? [],
+    disableMcpServer: pickWithDefault(rawConfig, 'disableMcpServer'),
+    disableNotificationEndpoint: pickWithDefault(rawConfig, 'disableNotificationEndpoint'),
+    defaultLaunchModeId: rawConfig.defaultLaunchModeId as string | undefined,
+    vimModeEnabled: pickWithDefault(rawConfig, 'vimModeEnabled'),
+    windowsUseConptyDll: pickWithDefault(rawConfig, 'windowsUseConptyDll'),
+    showSystemMetrics: pickWithDefault(rawConfig, 'showSystemMetrics'),
+    statusBarResourceUsage: normalizeStatusBarResourceUsage(rawConfig.statusBarResourceUsage),
+    statusBarResourceUsageHostId: pickWithDefault(rawConfig, 'statusBarResourceUsageHostId'),
+    statusBarUsageLimits: STATUS_BAR_USAGE_LIMITS.find(
+      (limits) => limits === rawConfig.statusBarUsageLimits
+    ),
+    statusBarUsageResetTime: pickWithDefault(rawConfig, 'statusBarUsageResetTime'),
+    showAgentSpinner: pickWithDefault(rawConfig, 'showAgentSpinner'),
+    activitySpinner:
+      ACTIVITY_SPINNER_STYLES.find((style) => style === rawConfig.activitySpinner) ??
+      DEFAULT_ACTIVITY_SPINNER,
+    reduceEffects: pickWithDefault(rawConfig, 'reduceEffects'),
+    holdToQuit: pickWithDefault(rawConfig, 'holdToQuit'),
+    onboardingTipsDismissed: pickWithDefault(rawConfig, 'onboardingTipsDismissed'),
+    agentLaunchDefaultsShown: pickWithDefault(rawConfig, 'agentLaunchDefaultsShown'),
+    onboardingTipsViewed: pickWithDefault(rawConfig, 'onboardingTipsViewed'),
+    selfIntegrationTipCreated: pickWithDefault(rawConfig, 'selfIntegrationTipCreated'),
+    selfIntegrationTipCompleted: pickWithDefault(rawConfig, 'selfIntegrationTipCompleted'),
+    notificationsNudgePending: pickWithDefault(rawConfig, 'notificationsNudgePending'),
+    selfSetupNudgePending: pickWithDefault(rawConfig, 'selfSetupNudgePending'),
+    tipsIntroPending: pickWithDefault(rawConfig, 'tipsIntroPending'),
+    lastWorkspaceEnvironment: workspaceEnvironment(rawConfig.lastWorkspaceEnvironment),
+    defaultSshWorkspaceMode:
+      rawConfig.defaultSshWorkspaceMode === 'local-mirror-actions'
+        ? 'local-mirror-actions'
+        : 'remote',
+    gitDefaults: normalizeGitDefaults(rawConfig.gitDefaults),
+    gitBackgroundFetch:
+      typeof rawConfig.gitBackgroundFetch === 'boolean' ? rawConfig.gitBackgroundFetch : undefined,
+    pullRequestCiNotifications:
+      typeof rawConfig.pullRequestCiNotifications === 'boolean'
+        ? rawConfig.pullRequestCiNotifications
+        : undefined,
+    voice: normalizeVoice(rawVoice),
+    notificationSounds: normalizeNotificationSounds(rawSounds),
+  };
+}
+
 class ConfigService {
   private configPath: string;
   private config: AppConfig;
@@ -432,174 +599,7 @@ class ConfigService {
       if (existsSync(this.configPath)) {
         const data = readFileSync(this.configPath, 'utf-8');
         const rawConfig = migrate(JSON.parse(data), CONFIG_VERSION, CONFIG_MIGRATIONS);
-
-        // Narrow nested records so downstream access is typed. Missing fields
-        // fall back to defaults via `??`; wrong-typed values flow through
-        // unchanged (no runtime schema validation here).
-        const rawVoice = rawConfig.voice as Partial<NonNullable<AppConfig['voice']>> | undefined;
-        const rawSounds = rawConfig.notificationSounds as
-          | Partial<NonNullable<AppConfig['notificationSounds']>>
-          | undefined;
-
-        const normalized: AppConfig = {
-          agentSetupComplete: pickWithDefault(rawConfig, 'agentSetupComplete'),
-          scrollbackLines: pickWithDefault(rawConfig, 'scrollbackLines'),
-          // `||` (not `??`) so an empty-string theme also falls back.
-          theme: (rawConfig.theme as AppConfig['theme']) || DEFAULT_CONFIG.theme,
-          defaultProjectId: pickWithDefault(rawConfig, 'defaultProjectId'),
-          // DEFAULT_CONFIG omits this key, so pickWithDefault would yield
-          // undefined; preserve the historical `?? null` here.
-          lastUsedProjectId: (rawConfig.lastUsedProjectId as string | null | undefined) ?? null,
-          notificationsEnabled: pickWithDefault(rawConfig, 'notificationsEnabled'),
-          notificationPort: pickWithDefault(rawConfig, 'notificationPort'),
-          directRemoteEnabled: pickWithDefault(rawConfig, 'directRemoteEnabled'),
-          directRemotePort: pickWithDefault(rawConfig, 'directRemotePort'),
-          directRemotePublicOrigin: pickWithDefault(rawConfig, 'directRemotePublicOrigin'),
-          directRemoteManagedTailscaleOrigin: pickWithDefault(
-            rawConfig,
-            'directRemoteManagedTailscaleOrigin'
-          ),
-          directRemoteKeepAwake: pickWithDefault(rawConfig, 'directRemoteKeepAwake'),
-          directRemoteLocalAccess: pickWithDefault(rawConfig, 'directRemoteLocalAccess'),
-          directRemotePasskeyWindowMinutes: normalizeRemotePasskeyWindow(
-            rawConfig.directRemotePasskeyWindowMinutes
-          ),
-          utilityProvider: normalizeUtilityProvider(rawConfig.utilityProvider),
-          openRouterModel: normalizeOpenRouterModel(rawConfig.openRouterModel),
-          openRouterBaseUrl: normalizeOpenRouterBaseUrl(rawConfig.openRouterBaseUrl),
-          workspaceNamingPrompt: normalizeUtilityPrompt(rawConfig.workspaceNamingPrompt),
-          commitMessagePrompt: normalizeUtilityPrompt(rawConfig.commitMessagePrompt),
-          defaultFileTreeOpen: pickWithDefault(rawConfig, 'defaultFileTreeOpen'),
-          defaultFileTreeMode: pickWithDefault(rawConfig, 'defaultFileTreeMode'),
-          defaultLiveFollow: pickWithDefault(rawConfig, 'defaultLiveFollow'),
-          defaultCompareTargetBranch: pickWithDefault(rawConfig, 'defaultCompareTargetBranch'),
-          defaultDevServerPreviewAutoReload: pickWithDefault(
-            rawConfig,
-            'defaultDevServerPreviewAutoReload'
-          ),
-          defaultInlinePreviewLayout:
-            rawConfig.defaultInlinePreviewLayout === 'side-by-side' ||
-            rawConfig.defaultInlinePreviewLayout === 'full'
-              ? rawConfig.defaultInlinePreviewLayout
-              : undefined,
-          webLinkOpenTarget: normalizeWebLinkOpenTarget(rawConfig.webLinkOpenTarget),
-          workspaceGrouping: rawConfig.workspaceGrouping === 'none' ? 'none' : 'project',
-          recentFolders: Array.isArray(rawConfig.recentFolders)
-            ? rawConfig.recentFolders.filter(
-                (folder): folder is string => typeof folder === 'string'
-              )
-            : [],
-          hideStoppedWorkspaces: pickWithDefault(rawConfig, 'hideStoppedWorkspaces'),
-          hideWorkingWorkspaces: pickWithDefault(rawConfig, 'hideWorkingWorkspaces'),
-          hiddenWorkspaceHostIds: pickWithDefault(rawConfig, 'hiddenWorkspaceHostIds'),
-          workspaceTags: normalizeWorkspaceTags(rawConfig.workspaceTags),
-          hiddenWorkspaceTags: pickWithDefault(rawConfig, 'hiddenWorkspaceTags'),
-          tagsFromPullRequests: pickWithDefault(rawConfig, 'tagsFromPullRequests'),
-          dashboardHiddenWorkspaceHostIds: pickWithDefault(
-            rawConfig,
-            'dashboardHiddenWorkspaceHostIds'
-          ),
-          telemetryPingSent: pickWithDefault(rawConfig, 'telemetryPingSent'),
-          lastHeartbeatDate: pickWithDefault(rawConfig, 'lastHeartbeatDate'),
-          telemetryDistinctId: pickWithDefault(rawConfig, 'telemetryDistinctId'),
-          workspaceSyncDeviceId: pickWithDefault(rawConfig, 'workspaceSyncDeviceId'),
-          workspaceSyncDisabledHostIds: pickWithDefault(rawConfig, 'workspaceSyncDisabledHostIds'),
-          anonymousTelemetryEnabled: pickWithDefault(rawConfig, 'anonymousTelemetryEnabled'),
-          // Usage analytics is opt-in, and only an answer to the consent question turns it on.
-          usageTelemetryEnabled:
-            rawConfig.usageTelemetryConsentAnswered === true &&
-            rawConfig.usageTelemetryEnabled === true,
-          usageTelemetryConsentAnswered: rawConfig.usageTelemetryConsentAnswered === true,
-          reportedTelemetryMilestones: pickWithDefault(rawConfig, 'reportedTelemetryMilestones'),
-          errorReportingEnabled: pickWithDefault(rawConfig, 'errorReportingEnabled'),
-          dismissedAnnouncementIds: pickWithDefault(rawConfig, 'dismissedAnnouncementIds'),
-          zoomLevel: pickWithDefault(rawConfig, 'zoomLevel'),
-          shellMode: pickWithDefault(rawConfig, 'shellMode'),
-          wslDistro: pickWithDefault(rawConfig, 'wslDistro'),
-          preferredCloneProtocol: pickWithDefault(rawConfig, 'preferredCloneProtocol'),
-          autoNameWorkspaces: normalizeAutoNameWorkspaces(rawConfig.autoNameWorkspaces),
-          autoNameBranches: pickWithDefault(rawConfig, 'autoNameBranches'),
-          hideBranchNameInWorkspaceCards: pickWithDefault(
-            rawConfig,
-            'hideBranchNameInWorkspaceCards'
-          ),
-          compactWorkspaceList: pickWithDefault(rawConfig, 'compactWorkspaceList'),
-          defaultSearchOpenMode: pickWithDefault(rawConfig, 'defaultSearchOpenMode'),
-          hiddenProjectIds: pickWithDefault(rawConfig, 'hiddenProjectIds'),
-          defaultEditor: pickWithDefault(rawConfig, 'defaultEditor'),
-          showEditorInToolbar: pickWithDefault(rawConfig, 'showEditorInToolbar'),
-          showTipsInToolbar: pickWithDefault(rawConfig, 'showTipsInToolbar'),
-          showStatusBar: pickWithDefault(rawConfig, 'showStatusBar'),
-          statusBarSize:
-            STATUS_BAR_SIZES.find((size) => size === rawConfig.statusBarSize) ??
-            DEFAULT_STATUS_BAR_SIZE,
-          showAgentsInMenuBar: pickWithDefault(rawConfig, 'showAgentsInMenuBar'),
-          agentsMenuBarInBackgroundOnly: pickWithDefault(
-            rawConfig,
-            'agentsMenuBarInBackgroundOnly'
-          ),
-          agentsDoneClearedAt: pickWithDefault(rawConfig, 'agentsDoneClearedAt'),
-          keepAwakeMode: normalizeKeepAwakeMode(rawConfig.keepAwakeMode),
-          statusBarHiddenItems: stringList(rawConfig.statusBarHiddenItems),
-          statusBarShownItems: stringList(rawConfig.statusBarShownItems),
-          statusBarLeftItems: stringList(rawConfig.statusBarLeftItems),
-          statusBarRightItems: stringList(rawConfig.statusBarRightItems),
-          // Direct assignment (not pickWithDefault) so a persisted `null`
-          // round-trips as `null` instead of being normalized to `undefined`.
-          agentLaunchDefaultPresetId: rawConfig.agentLaunchDefaultPresetId as
-            | string
-            | null
-            | undefined,
-          // A mode pinned to run in the sandbox must not start on the host instead.
-          agentLaunchDefaultLaunchModeId: pinnedForRemovedSandbox(rawConfig)
-            ? undefined
-            : (rawConfig.agentLaunchDefaultLaunchModeId as string | null | undefined),
-          agentLaunchDefaultSshHostId: pickWithDefault(rawConfig, 'agentLaunchDefaultSshHostId'),
-          agentDisabledCapabilities: stringList(rawConfig.agentDisabledCapabilities) ?? [],
-          disableMcpServer: pickWithDefault(rawConfig, 'disableMcpServer'),
-          disableNotificationEndpoint: pickWithDefault(rawConfig, 'disableNotificationEndpoint'),
-          defaultLaunchModeId: rawConfig.defaultLaunchModeId as string | undefined,
-          vimModeEnabled: pickWithDefault(rawConfig, 'vimModeEnabled'),
-          windowsUseConptyDll: pickWithDefault(rawConfig, 'windowsUseConptyDll'),
-          showSystemMetrics: pickWithDefault(rawConfig, 'showSystemMetrics'),
-          statusBarResourceUsage: normalizeStatusBarResourceUsage(rawConfig.statusBarResourceUsage),
-          statusBarResourceUsageHostId: pickWithDefault(rawConfig, 'statusBarResourceUsageHostId'),
-          statusBarUsageLimits: STATUS_BAR_USAGE_LIMITS.find(
-            (limits) => limits === rawConfig.statusBarUsageLimits
-          ),
-          statusBarUsageResetTime: pickWithDefault(rawConfig, 'statusBarUsageResetTime'),
-          showAgentSpinner: pickWithDefault(rawConfig, 'showAgentSpinner'),
-          activitySpinner:
-            ACTIVITY_SPINNER_STYLES.find((style) => style === rawConfig.activitySpinner) ??
-            DEFAULT_ACTIVITY_SPINNER,
-          reduceEffects: pickWithDefault(rawConfig, 'reduceEffects'),
-          holdToQuit: pickWithDefault(rawConfig, 'holdToQuit'),
-          onboardingTipsDismissed: pickWithDefault(rawConfig, 'onboardingTipsDismissed'),
-          agentLaunchDefaultsShown: pickWithDefault(rawConfig, 'agentLaunchDefaultsShown'),
-          onboardingTipsViewed: pickWithDefault(rawConfig, 'onboardingTipsViewed'),
-          selfIntegrationTipCreated: pickWithDefault(rawConfig, 'selfIntegrationTipCreated'),
-          selfIntegrationTipCompleted: pickWithDefault(rawConfig, 'selfIntegrationTipCompleted'),
-          notificationsNudgePending: pickWithDefault(rawConfig, 'notificationsNudgePending'),
-          selfSetupNudgePending: pickWithDefault(rawConfig, 'selfSetupNudgePending'),
-          tipsIntroPending: pickWithDefault(rawConfig, 'tipsIntroPending'),
-          lastWorkspaceEnvironment: workspaceEnvironment(rawConfig.lastWorkspaceEnvironment),
-          defaultSshWorkspaceMode:
-            rawConfig.defaultSshWorkspaceMode === 'local-mirror-actions'
-              ? 'local-mirror-actions'
-              : 'remote',
-          gitDefaults: normalizeGitDefaults(rawConfig.gitDefaults),
-          gitBackgroundFetch:
-            typeof rawConfig.gitBackgroundFetch === 'boolean'
-              ? rawConfig.gitBackgroundFetch
-              : undefined,
-          pullRequestCiNotifications:
-            typeof rawConfig.pullRequestCiNotifications === 'boolean'
-              ? rawConfig.pullRequestCiNotifications
-              : undefined,
-          voice: normalizeVoice(rawVoice),
-          notificationSounds: normalizeNotificationSounds(rawSounds),
-        };
-
+        const normalized = normalizeConfig(rawConfig);
         this.configFileExistedAtLoad = true;
         return normalized;
       }
@@ -609,7 +609,7 @@ class ConfigService {
 
     // Fresh install (or unreadable/corrupt config) — use defaults. Flag stays
     // false so we treat this boot as having no prior known port.
-    return { ...DEFAULT_CONFIG };
+    return normalizeConfig({});
   }
 
   private save(): void {
@@ -635,7 +635,7 @@ class ConfigService {
 
   // True iff config.json was loaded successfully when this service first ran.
   // False on fresh installs (no file) AND on corrupt/unparseable configs —
-  // both cases yield DEFAULT_CONFIG and have no usable prior port to compare
+  // both cases yield the defaults and have no usable prior port to compare
   // against. Used to suppress the "port changed" banner when the port we end
   // up on is just our initial assignment, not a deviation from a known value.
   wasLoadedFromDisk(): boolean {
@@ -670,7 +670,7 @@ class ConfigService {
 
   update(updates: Partial<AppConfig>): AppConfig {
     const branchPrefix = this.config.gitDefaults?.branchPrefix;
-    const merged = { ...this.config, ...updates };
+    const merged = normalizeConfig({ ...this.config, ...updates });
     this.config = merged;
     this.save();
     if (merged.gitDefaults?.branchPrefix !== branchPrefix) {

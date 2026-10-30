@@ -3879,7 +3879,7 @@ describe('HttpServerService', () => {
 
     it('refuses rather than starting elsewhere while the pinned SSH host is not set up', async () => {
       mockConfigService.get.mockReturnValue({ agentLaunchDefaultSshHostId: 'box' });
-      mockSshHostService.get.mockReturnValue({ id: 'box', name: 'Box' });
+      mockSshHostService.list.mockReturnValue([{ id: 'box', name: 'Box' }]);
       mockSshHostService.isReady.mockReturnValue(false);
 
       const { res } = await sendJsonRequest(
@@ -3957,6 +3957,7 @@ describe('HttpServerService', () => {
         workingDirectory: '/mock/worktree',
       });
       mockWorkspaceService.create.mockResolvedValue(workspace);
+      mockWorkspaceService.get.mockReturnValue(workspace);
 
       const { res } = await sendJsonRequest(
         'POST',
@@ -4217,10 +4218,11 @@ describe('HttpServerService', () => {
         JSON.stringify({ cwd: '/projects/shared/src' })
       );
 
-      expect(res.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
+      expect(res.writeHead).toHaveBeenCalledWith(409, { 'Content-Type': 'application/json' });
       expect(parseJsonResponse(res)).toEqual({
         error:
-          'Multiple projects match cwd: /projects/shared/src. This workspace creation request cannot safely choose a project.',
+          'Multiple projects match cwd: /projects/shared/src. This workspace creation request cannot safely choose a project. Name the project with --project.',
+        availableProjects: ['My Project'],
       });
       expect(mockWorkspaceService.create).not.toHaveBeenCalled();
     });
@@ -4230,7 +4232,8 @@ describe('HttpServerService', () => {
 
       expect(res.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
       expect(parseJsonResponse(res)).toEqual({
-        error: 'Missing required field: cwd',
+        error:
+          'This is not a Komla workspace, so name the project with --project. Projects: My Project.',
         availableProjects: ['My Project'],
       });
     });
@@ -4349,6 +4352,8 @@ describe('HttpServerService', () => {
       expect(mockWorkspaceService.create).toHaveBeenCalledWith({
         mode: 'directory',
         projectId: 'dir-proj',
+        branchName: undefined,
+        deferBranchNaming: true,
         customName: 'Directory Workspace',
         customDescription: undefined,
         initialPrompt: 'work in this folder',

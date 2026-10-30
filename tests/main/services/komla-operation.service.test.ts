@@ -974,6 +974,67 @@ describe('KomlaOperationService', () => {
     expect(createWorkspace.mock.calls[0][0]).not.toHaveProperty('environment');
   });
 
+  it('starts a launch beside the one workspace of its project a shared cwd resolves to', async () => {
+    const createWorkspace = vi.fn().mockResolvedValue({ id: 'workspace-new' });
+    const project = { id: 'project-a', name: 'Project A', kind: 'git' as const };
+    const sourceWorkspace = {
+      id: 'workspace-a',
+      projectId: 'project-a',
+      windowId: 'window-2',
+      presetId: 'codex',
+    };
+    const agent = (id: string, name: string) => ({
+      id,
+      name,
+      openCommand: id,
+      continueCommand: `${id} resume`,
+      promptCommand: `${id} {{prompt}}`,
+      launchModes: [],
+      isBuiltin: true,
+    });
+    const service = new KomlaOperationService(
+      createDependencies({
+        getProject: () => project,
+        resolveProjectByCwd: () => ({ project, sourceWorkspace }),
+        listPresets: () => [agent('claude', 'Claude'), agent('codex', 'Codex')],
+        getActivePresets: () => [
+          { presetId: 'claude', lastUsedAt: 100 },
+          { presetId: 'codex', lastUsedAt: 50 },
+        ],
+        createWorkspace,
+      })
+    );
+
+    await service.execute({ cwd: '/repos/a' }, { type: 'agent.launch', destination: 'workspace' });
+
+    expect(createWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'project-a', windowId: 'window-2', presetId: 'codex' })
+    );
+  });
+
+  it('says so when a cwd matches workspaces of different projects', async () => {
+    const createWorkspace = vi.fn();
+    const error =
+      'Multiple projects match cwd: /repos/a. This workspace creation request cannot safely choose a project.';
+    const service = new KomlaOperationService(
+      createDependencies({
+        listProjects: () => [{ id: 'project-a', name: 'Project A', kind: 'git' }],
+        resolveProjectByCwd: () => ({ error }),
+        createWorkspace,
+      })
+    );
+
+    await expect(
+      service.execute({ cwd: '/repos/a' }, { type: 'agent.launch', destination: 'workspace' })
+    ).rejects.toMatchObject({
+      code: 'PROJECT_AMBIGUOUS',
+      statusCode: 409,
+      message: `${error} Name the project with --project.`,
+      details: { availableProjects: [{ id: 'project-a', name: 'Project A' }] },
+    });
+    expect(createWorkspace).not.toHaveBeenCalled();
+  });
+
   it('lists the projects to pass to --project when a launch comes from outside any workspace', async () => {
     const createWorkspace = vi.fn();
     const service = new KomlaOperationService(

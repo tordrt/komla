@@ -95,7 +95,9 @@ stays pinned. A mode agents may not start there is refused (`AGENT_MODE_REQUIRES
 starts in its pinned mode and any other agent in its Default mode, never in the calling workspace's
 mode or the one it last started in. A workspace launch goes in the calling workspace's project,
 or the one `--project <id-or-name>` names; outside every workspace `--project` is required, and
-leaving it out lists the projects (`PROJECT_REQUIRED`). Such a launch starts the workspace on the
+leaving it out lists the projects (`PROJECT_REQUIRED`). So does a directory that workspaces of
+different projects share, unless only one of those projects has a terminal running there, or that
+several SSH workspaces without a project share, unless only one of them does (`PROJECT_AMBIGUOUS`). Such a launch starts the workspace on the
 device it ran on: this computer, unless Where agents start pins an SSH host, or the SSH host. A
 pinned host that isn't set up yet, or no longer exists, refuses worktree launches from this
 computer (`SSH_HOST_NOT_READY`) rather than starting them here, since agents may start the pinned

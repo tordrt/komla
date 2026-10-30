@@ -746,6 +746,7 @@ fn trace_sync(workspace: &WorkspaceRuntime, details: std::fmt::Arguments<'_>) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     #[cfg(unix)]
     use std::fs;
     #[cfg(unix)]
@@ -1181,6 +1182,88 @@ mod tests {
         super::start_scan_if_due(&mut workspaces[0], 0, &mut scanner, u64::MAX);
         complete(&mut workspaces);
         assert!(workspaces[0].pending.take().unwrap().working_tree_changed);
+    }
+
+    #[test]
+    fn komla_files_changes_are_reported_without_syncing_local_copies() {
+        let temp = tempdir().unwrap();
+        assert!(Command::new("git")
+            .arg("init")
+            .current_dir(temp.path())
+            .output()
+            .unwrap()
+            .status
+            .success());
+        let working_tree = temp.path().canonicalize().unwrap();
+        let folder = working_tree.join(".komla-files");
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(1024);
+        let mut workspaces = [WorkspaceRuntime::initialize(
+            WorkspaceConfig {
+                workspace_id: "workspace-1".to_owned(),
+                working_tree: working_tree.clone(),
+                target_branch: "main".to_owned(),
+            },
+            0,
+            sender.clone(),
+            1_000,
+        )];
+        let send_event = |path: std::path::PathBuf, workspaces: &mut [WorkspaceRuntime]| {
+            super::apply_event(
+                WatchEvent {
+                    workspace_key: 0,
+                    event: Ok(notify::Event::new(notify::EventKind::Create(
+                        notify::event::CreateKind::Any,
+                    ))
+                    .add_path(path)),
+                },
+                workspaces,
+            );
+        };
+        workspaces[0].working_tree_dirty = false;
+
+        // The first import creates the folder before the .gitignore that ignores its files.
+        std::fs::create_dir(&folder).unwrap();
+        send_event(folder.clone(), &mut workspaces);
+        std::fs::write(folder.join(".gitignore"), "*\n").unwrap();
+        send_event(folder.join(".gitignore"), &mut workspaces);
+        workspaces[0].load_repository(0, sender, 2_000).unwrap();
+        assert!(!workspaces[0].working_tree_dirty);
+
+        // A file viewer showing an imported file updates from these reports.
+        let filter = workspaces[0].filter.as_ref().unwrap();
+        assert!(filter.watch_directories().unwrap().contains(&folder));
+        workspaces[0].debounce = SnapshotDebounce::default();
+        workspaces[0].file_list_dirty = false;
+        workspaces[0].changed_paths = Some(BTreeSet::new());
+        std::fs::create_dir(folder.join("nested")).unwrap();
+        for name in ["a.png", "nested/report.pdf"] {
+            send_event(folder.join(name), &mut workspaces);
+        }
+
+        assert!(!workspaces[0].working_tree_dirty);
+        assert!(workspaces[0].file_list_dirty);
+        assert!(workspaces[0].debounce.next_due_at_ms().is_some());
+        if NAMES_CHANGED_PATHS {
+            assert_eq!(
+                workspaces[0].changed_paths,
+                Some(BTreeSet::from(
+                    [".komla-files/a.png", ".komla-files/nested/report.pdf"].map(str::to_owned)
+                ))
+            );
+        }
+
+        // Only the workspace's own folder is set apart.
+        send_event(
+            working_tree.join(".komla-files-backup/notes.txt"),
+            &mut workspaces,
+        );
+        assert!(workspaces[0].working_tree_dirty);
+        workspaces[0].working_tree_dirty = false;
+        send_event(
+            working_tree.join("src/.komla-files/notes.txt"),
+            &mut workspaces,
+        );
+        assert!(workspaces[0].working_tree_dirty);
     }
 
     #[test]

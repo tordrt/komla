@@ -22,6 +22,9 @@ const INITIAL_GIT_TIMEOUT: Duration = Duration::from_secs(5);
 const INITIAL_GIT_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_GIT_PATH_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_GIT_ADMIN_PATH_BYTES: usize = 64 * 1024;
+/// Where Komla puts imported files, as `KOMLA_FILES_DIR` in `git-status.ts`. Local copies leave it
+/// out, so a change in it updates anything showing the file but needs no sync.
+const KOMLA_FILES_DIR: &str = ".komla-files";
 /// Whether reports name the paths that changed. macOS file systems match names regardless of case
 /// and Unicode normalization, so an event can spell a file differently than Git lists it.
 pub const NAMES_CHANGED_PATHS: bool = !cfg!(target_os = "macos");
@@ -130,6 +133,7 @@ impl IgnoreRules {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RepositoryEventKind {
     WorkingTree,
+    KomlaFiles,
     GitHead,
     GitRefs,
 }
@@ -329,17 +333,22 @@ impl RepositoryEventClassifier {
                 || is_git_info_exclude(paths, &path);
             reload_ignore_rules |= changes_ignore_rules;
             if let Some(kind) = Self::classify(paths, filter, &path) {
+                let in_working_tree = matches!(
+                    kind,
+                    RepositoryEventKind::WorkingTree | RepositoryEventKind::KomlaFiles
+                );
                 reload_ignore_rules |= kind == RepositoryEventKind::GitHead
-                    || kind == RepositoryEventKind::WorkingTree && filter.is_link(&path);
+                    || in_working_tree && filter.is_link(&path);
                 file_list_may_change |= match kind {
-                    RepositoryEventKind::WorkingTree => !edits_only || changes_ignore_rules,
+                    RepositoryEventKind::WorkingTree | RepositoryEventKind::KomlaFiles => {
+                        !edits_only || changes_ignore_rules
+                    }
                     RepositoryEventKind::GitHead => true,
                     RepositoryEventKind::GitRefs => false,
                 };
-                let names = (kind == RepositoryEventKind::WorkingTree
-                    && !changes_other_files(paths, &path))
-                .then(|| filter.changed_names(&path))
-                .flatten();
+                let names = (in_working_tree && !changes_other_files(paths, &path))
+                    .then(|| filter.changed_names(&path))
+                    .flatten();
                 match (names, changed_paths.as_mut()) {
                     (Some(names), Some(changed)) => changed.extend(names),
                     (None, _) => changed_paths = None,
@@ -370,9 +379,13 @@ impl RepositoryEventClassifier {
                 return Some(kind);
             }
         }
-        filter
-            .is_relevant(path)
-            .then_some(RepositoryEventKind::WorkingTree)
+        filter.is_relevant(path).then(|| {
+            if filter.is_komla_file(path) {
+                RepositoryEventKind::KomlaFiles
+            } else {
+                RepositoryEventKind::WorkingTree
+            }
+        })
     }
 }
 
@@ -596,6 +609,11 @@ impl RepositoryEventFilter {
             return true;
         }
         !self.ignore_rules.is_ignored(&self.working_tree, path, true)
+    }
+
+    fn is_komla_file(&self, path: &Path) -> bool {
+        path.strip_prefix(&self.working_tree)
+            .is_ok_and(|relative| relative.starts_with(KOMLA_FILES_DIR))
     }
 
     pub fn is_relevant(&self, path: &Path) -> bool {

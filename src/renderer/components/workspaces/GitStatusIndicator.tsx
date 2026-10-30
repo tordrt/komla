@@ -39,7 +39,11 @@ import {
 import { withGitDefaults } from '../../../shared/lib/project-git-defaults';
 
 import { CommitsAheadConfigDialog } from './CommitsAheadConfigDialog';
-import { buildWorkspaceChangePills, type WorkspaceChangePill } from './git-status-summary';
+import {
+  buildDiffChangePills,
+  hasGitStatusToShow,
+  type WorkspaceChangePill,
+} from './git-status-summary';
 
 function getSshCreatePrUrl(
   backend: SshWorkspaceBackend,
@@ -452,29 +456,14 @@ export function GitStatusIndicator({
     else if (action === 'agent-prompt') runQuickCommand(actionId);
   };
 
+  const changePills = buildDiffChangePills(diffSummary);
+
   // Don't render if no status yet or if clean and up-to-date
-  if (!cached?.status) {
+  if (!cached?.status || !hasGitStatusToShow(cached.status, changePills.length > 0)) {
     return null;
   }
 
   const { behindTargetBranch, aheadTargetBranch, mainBranch, rebaseInProgress } = cached.status;
-  const additions = diffSummary?.summary.additions ?? 0;
-  const deletions = diffSummary?.summary.deletions ?? 0;
-  const changePills = buildWorkspaceChangePills({
-    additions,
-    deletions,
-    files: diffSummary?.files,
-  });
-
-  // Hide if clean and up-to-date with main
-  if (
-    changePills.length === 0 &&
-    behindTargetBranch === 0 &&
-    aheadTargetBranch === 0 &&
-    !rebaseInProgress
-  ) {
-    return null;
-  }
 
   return (
     <>

@@ -191,7 +191,7 @@ const appConfigUpdateSchema = z
     preferredCloneProtocol: z.enum(['https', 'ssh']).optional(),
     autoNameWorkspaces: z.enum(['off', 'first-prompt']).optional(),
     autoNameBranches: z.boolean().optional(),
-    hideBranchNameInWorkspaceCards: z.boolean().optional(),
+    alwaysShowBranchNameInWorkspaceCards: z.boolean().optional(),
     compactWorkspaceList: z.boolean().optional(),
     defaultSearchOpenMode: z.enum(['viewer', 'preview', 'current']).optional(),
     hiddenProjectIds: z.array(idSchema).optional(),

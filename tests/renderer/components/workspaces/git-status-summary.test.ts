@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildWorkspaceChangePills } from '@/components/workspaces/git-status-summary';
+import {
+  buildDiffChangePills,
+  buildWorkspaceChangePills,
+  hasGitStatusToShow,
+} from '@/components/workspaces/git-status-summary';
 
-import type { FileChange } from '@/types';
+import type { FileChange, GitBranchQuickStatus } from '@/types';
 
 function file(status: FileChange['status']): FileChange {
   return {
@@ -64,4 +68,38 @@ it('labels partial totals when an untracked line count is unavailable', () => {
   });
   expect(pills[0]).toMatchObject({ label: '+12*', title: expect.stringContaining('unavailable') });
   expect(pills[1]).toMatchObject({ label: '-3' });
+});
+
+describe('buildDiffChangePills', () => {
+  it('has no pills for a diff that has yet to load', () => {
+    expect(buildDiffChangePills(undefined)).toEqual([]);
+  });
+
+  it('builds pills from the diff summary and files', () => {
+    const summary = { additions: 0, deletions: 0, filesChanged: 1 };
+    expect(buildDiffChangePills({ files: [file('modified')], summary })).toEqual([
+      { kind: 'modified-files', label: '1', count: 1 },
+    ]);
+  });
+});
+
+describe('hasGitStatusToShow', () => {
+  const clean = { behindTargetBranch: 0, aheadTargetBranch: 0 } as GitBranchQuickStatus;
+
+  it('has nothing to show until the status loads, even with change pills', () => {
+    expect(hasGitStatusToShow(undefined, true)).toBe(false);
+  });
+
+  it('has nothing to show while clean and up to date', () => {
+    expect(hasGitStatusToShow(clean, false)).toBe(false);
+  });
+
+  it.each([
+    ['change pills', clean, true],
+    ['commits ahead', { ...clean, aheadTargetBranch: 1 }, false],
+    ['commits behind', { ...clean, behindTargetBranch: 1 }, false],
+    ['a paused rebase', { ...clean, rebaseInProgress: true }, false],
+  ])('shows %s', (_label, status, hasChangePills) => {
+    expect(hasGitStatusToShow(status, hasChangePills)).toBe(true);
+  });
 });

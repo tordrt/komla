@@ -314,13 +314,13 @@ export function AppearanceTab() {
         </SettingsRow>
 
         <SettingsRow
-          label="Hide branch names on workspace cards"
-          description="Show branch names in the card tooltip instead of directly in the left workspace list"
+          label="Always show branch names on workspace cards"
+          description="Turn off for shorter cards that show the branch only when there's nothing else to show beside the time"
         >
           <Switch
-            checked={config?.hideBranchNameInWorkspaceCards === true}
+            checked={config?.alwaysShowBranchNameInWorkspaceCards !== false}
             onCheckedChange={(checked) =>
-              void updateConfig({ hideBranchNameInWorkspaceCards: checked })
+              void updateConfig({ alwaysShowBranchNameInWorkspaceCards: checked })
             }
           />
         </SettingsRow>

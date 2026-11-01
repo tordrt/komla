@@ -1200,6 +1200,8 @@ describe('HttpServerService', () => {
       ['POST', '/api/workspace'],
       ['GET', '/api/v1/settings/actions?scope=global'],
       ['GET', '/terminals/terminal-1/api/v1/settings/workspace-setup'],
+      ['GET', '/validate-settings'],
+      ['POST', '/validate-settings'],
     ])('does not answer the retired route %s %s', async (method, url) => {
       httpServerService.start();
 
@@ -3107,337 +3109,6 @@ describe('HttpServerService', () => {
     });
   });
 
-  // --------------------------------------------------------------------------
-  // GET /validate-settings
-  // --------------------------------------------------------------------------
-
-  describe('GET /validate-settings', () => {
-    const projectsJsonPath = join('/mock/home/.komla/settings/projects.json');
-    const actionsJsonPath = join('/mock/home/.komla/settings/actions.json');
-
-    beforeEach(() => {
-      httpServerService.start();
-    });
-
-    it('returns ok when projects.json and actions.json are valid', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) {
-          return JSON.stringify({
-            _version: 1,
-            projects: [
-              {
-                id: 'project-1',
-                name: 'Project',
-                repositoryPath: '/repo/project',
-                defaultBranchPrefix: '',
-                createdAt: 1234567890,
-                order: 0,
-                managed: false,
-              },
-            ],
-          });
-        }
-        if (path === actionsJsonPath) {
-          return JSON.stringify({
-            _version: 1,
-            actions: [
-              {
-                id: 'action-1',
-                title: 'Action',
-                content: '# Prompt',
-                type: 'prompt',
-              },
-            ],
-          });
-        }
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-
-      expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
-      expect(parseJsonResponse(res)).toEqual({
-        ok: true,
-        files: {
-          projects: { ok: true, count: 1 },
-          actions: { ok: true, count: 1 },
-        },
-      });
-    });
-
-    it('reports parse errors without exposing file contents', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) return '{';
-        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-      const body = parseJsonResponse(res) as {
-        ok: boolean;
-        files: { projects: { ok: boolean; error: string }; actions: { ok: boolean } };
-      };
-
-      expect(res.writeHead).toHaveBeenCalledWith(422, { 'Content-Type': 'application/json' });
-      expect(body.ok).toBe(false);
-      expect(body.files.projects.ok).toBe(false);
-      expect(body.files.projects.error).toContain('JSON');
-      expect(body.files.actions).toEqual({ ok: true, count: 0 });
-    });
-
-    it('accepts but warns about a leading UTF-8 BOM', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) return '\ufeff{"projects":[]}';
-        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('POST', '/validate-settings');
-      const body = parseJsonResponse(res) as {
-        ok: boolean;
-        files: { projects: { ok: boolean; warning?: string } };
-      };
-
-      expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
-      expect(body.ok).toBe(true);
-      expect(body.files.projects).toMatchObject({
-        ok: true,
-        warning: expect.stringContaining('UTF-8 BOM'),
-      });
-    });
-
-    it('reports schema-compatible errors for invalid entries', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) {
-          return JSON.stringify({ projects: [{ id: 'missing-required-fields' }] });
-        }
-        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-      const body = parseJsonResponse(res) as {
-        files: { projects: { ok: boolean; error: string } };
-      };
-
-      expect(res.writeHead).toHaveBeenCalledWith(422, { 'Content-Type': 'application/json' });
-      expect(body.files.projects.ok).toBe(false);
-      expect(body.files.projects.error).toBe(
-        'projects.json has an invalid project entry at index 0'
-      );
-    });
-
-    it('rejects project entries with malformed optional setup fields', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) {
-          return JSON.stringify({
-            projects: [
-              {
-                id: 'project-1',
-                name: 'Project',
-                repositoryPath: '/repo/project',
-                defaultBranchPrefix: '',
-                createdAt: 1234567890,
-                order: 0,
-                managed: false,
-                setupSteps: {},
-              },
-            ],
-          });
-        }
-        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-      const body = parseJsonResponse(res) as {
-        files: { projects: { ok: boolean; error: string } };
-      };
-
-      expect(res.writeHead).toHaveBeenCalledWith(422, { 'Content-Type': 'application/json' });
-      expect(body.files.projects.ok).toBe(false);
-      expect(body.files.projects.error).toBe(
-        'projects.json has an invalid project entry at index 0'
-      );
-    });
-
-    it('rejects setup steps with an array-shaped agent target', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) {
-          return JSON.stringify({
-            projects: [
-              {
-                id: 'project-1',
-                name: 'Project',
-                repositoryPath: '/repo/project',
-                defaultBranchPrefix: '',
-                createdAt: 1234567890,
-                order: 0,
-                managed: false,
-                setupSteps: [
-                  {
-                    id: 'step-1',
-                    name: 'Agent',
-                    command: '',
-                    placement: 'tab',
-                    agent: [],
-                  },
-                ],
-              },
-            ],
-          });
-        }
-        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-      const body = parseJsonResponse(res) as {
-        files: { projects: { ok: boolean; error: string } };
-      };
-
-      expect(res.writeHead).toHaveBeenCalledWith(422, { 'Content-Type': 'application/json' });
-      expect(body.files.projects.ok).toBe(false);
-      expect(body.files.projects.error).toBe(
-        'projects.json has an invalid project entry at index 0'
-      );
-    });
-
-    it('rejects project entries with duplicate ids', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) {
-          return JSON.stringify({
-            projects: [
-              {
-                id: 'project-1',
-                name: 'Project',
-                repositoryPath: '/repo/project',
-                defaultBranchPrefix: '',
-                createdAt: 1234567890,
-                order: 0,
-                managed: false,
-              },
-              {
-                id: 'project-1',
-                name: 'Duplicate Project',
-                repositoryPath: '/repo/duplicate',
-                defaultBranchPrefix: '',
-                createdAt: 1234567891,
-                order: 1,
-                managed: false,
-              },
-            ],
-          });
-        }
-        if (path === actionsJsonPath) return JSON.stringify({ actions: [] });
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-      const body = parseJsonResponse(res) as {
-        files: { projects: { ok: boolean; error: string } };
-      };
-
-      expect(res.writeHead).toHaveBeenCalledWith(422, { 'Content-Type': 'application/json' });
-      expect(body.files.projects.ok).toBe(false);
-      expect(body.files.projects.error).toBe('projects.json has a duplicate project id at index 1');
-    });
-
-    it('rejects action entries with malformed optional fields', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) return JSON.stringify({ projects: [] });
-        if (path === actionsJsonPath) {
-          return JSON.stringify({
-            actions: [
-              {
-                id: 'action-1',
-                title: 'Action',
-                content: '# Prompt',
-                type: 'prompt',
-                projectIds: 'project-1',
-              },
-            ],
-          });
-        }
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-      const body = parseJsonResponse(res) as {
-        files: { actions: { ok: boolean; error: string } };
-      };
-
-      expect(res.writeHead).toHaveBeenCalledWith(422, { 'Content-Type': 'application/json' });
-      expect(body.files.actions.ok).toBe(false);
-      expect(body.files.actions.error).toBe('actions.json has an invalid action entry at index 0');
-    });
-
-    it('rejects action entries with duplicate ids', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) return JSON.stringify({ projects: [] });
-        if (path === actionsJsonPath) {
-          return JSON.stringify({
-            actions: [
-              {
-                id: 'action-1',
-                title: 'Action',
-                content: '# Prompt',
-                type: 'prompt',
-              },
-              {
-                id: 'action-1',
-                title: 'Duplicate Action',
-                content: '# Duplicate Prompt',
-                type: 'prompt',
-              },
-            ],
-          });
-        }
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-      const body = parseJsonResponse(res) as {
-        files: { actions: { ok: boolean; error: string } };
-      };
-
-      expect(res.writeHead).toHaveBeenCalledWith(422, { 'Content-Type': 'application/json' });
-      expect(body.files.actions.ok).toBe(false);
-      expect(body.files.actions.error).toBe('actions.json has a duplicate action id at index 1');
-    });
-
-    it('accepts action entries with nullable lastUsedAt', async () => {
-      mockReadFileSync.mockImplementation((path: string) => {
-        if (path === projectsJsonPath) return JSON.stringify({ projects: [] });
-        if (path === actionsJsonPath) {
-          return JSON.stringify({
-            actions: [
-              {
-                id: 'action-1',
-                title: 'Action',
-                content: '# Prompt',
-                type: 'prompt',
-                lastUsedAt: null,
-              },
-            ],
-          });
-        }
-        throw new Error('Unexpected file');
-      });
-
-      const { res } = await sendRequest('GET', '/validate-settings');
-
-      expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
-      expect(parseJsonResponse(res)).toEqual({
-        ok: true,
-        files: {
-          projects: { ok: true, count: 0 },
-          actions: { ok: true, count: 1 },
-        },
-      });
-    });
-  });
-
   describe('POST /api/v1/ssh-workspace-status', () => {
     beforeEach(() => {
       httpServerService.start();
@@ -4559,6 +4230,20 @@ describe('HttpServerService', () => {
 
   describe('MCP spawn_agent_in_new_workspace tool', () => {
     let toolHandler: (params: Record<string, unknown>) => Promise<unknown>;
+    const CALLER_CWD = '/projects/my-app';
+
+    /** The tool finds its project from the calling workspace's cwd. */
+    function callFromWorkspaceIn(project: ReturnType<typeof createProject>): void {
+      mockProjectService.list.mockReturnValue([project]);
+      mockProjectService.get.mockReturnValue(project);
+      mockWorkspaceService.list.mockReturnValue([
+        createWorktreeWorkspace({
+          id: 'ws-caller',
+          projectId: project.id,
+          workingDirectory: CALLER_CWD,
+        }),
+      ]);
+    }
 
     beforeEach(() => {
       httpServerService.start();
@@ -4591,10 +4276,10 @@ describe('HttpServerService', () => {
         branchName: 'agent/feat',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
 
-      const result = (await toolHandler({ project: 'My Project' })) as {
+      const result = (await toolHandler({ cwd: CALLER_CWD })) as {
         content: { type: string; text: string }[];
         isError?: boolean;
       };
@@ -4613,10 +4298,10 @@ describe('HttpServerService', () => {
         workingDirectory: '',
         provisioning: true,
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
 
-      await toolHandler({ project: 'My Project' });
+      await toolHandler({ cwd: CALLER_CWD });
 
       expect(mockWindowService.sendWhenReady).toHaveBeenCalledWith(
         'main-window-id',
@@ -4661,10 +4346,10 @@ describe('HttpServerService', () => {
         branchName: 'agent/feat',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
 
-      await toolHandler({ project: 'My Project', description: 'Refactoring auth to use OAuth2' });
+      await toolHandler({ cwd: CALLER_CWD, description: 'Refactoring auth to use OAuth2' });
 
       expect(mockWorkspaceService.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -4673,26 +4358,26 @@ describe('HttpServerService', () => {
       );
     });
 
-    it('should return error when project is not found', async () => {
+    it('should return error when the cwd is in no Komla workspace', async () => {
       const project = createProject({ name: 'Existing' });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
 
-      const result = (await toolHandler({ project: 'Missing' })) as {
+      const result = (await toolHandler({ cwd: '/elsewhere' })) as {
         content: { type: string; text: string }[];
         isError: boolean;
       };
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('not found');
+      expect(result.content[0].text).toContain('not a Komla workspace');
       expect(result.content[0].text).toContain('Existing');
     });
 
     it('should return error when workspace creation fails', async () => {
       const project = createProject({ id: 'proj-1', name: 'My Project' });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockRejectedValue(new Error('git worktree failed'));
 
-      const result = (await toolHandler({ project: 'My Project' })) as {
+      const result = (await toolHandler({ cwd: CALLER_CWD })) as {
         content: { type: string; text: string }[];
         isError: boolean;
       };
@@ -4713,11 +4398,11 @@ describe('HttpServerService', () => {
         workingDirectory: '/plain/folder',
         projectId: 'dir-proj',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
 
       const result = (await toolHandler({
-        project: 'Directory Project',
+        cwd: CALLER_CWD,
         branchName: 'ignored-branch',
         initialPrompt: 'work in this folder',
       })) as {
@@ -4744,10 +4429,10 @@ describe('HttpServerService', () => {
 
     it('should handle non-Error throws', async () => {
       const project = createProject({ id: 'proj-1', name: 'My Project' });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockRejectedValue(42);
 
-      const result = (await toolHandler({ project: 'My Project' })) as {
+      const result = (await toolHandler({ cwd: CALLER_CWD })) as {
         content: { type: string; text: string }[];
         isError: boolean;
       };
@@ -4763,12 +4448,12 @@ describe('HttpServerService', () => {
         branchName: 'agent/feat',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
       mockConfigService.get.mockReturnValue({ autoNameBranches: true });
 
       await toolHandler({
-        project: 'My Project',
+        cwd: CALLER_CWD,
         initialPrompt: 'Fix the login bug',
       });
 
@@ -4787,12 +4472,12 @@ describe('HttpServerService', () => {
         branchName: 'agent/my-branch',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
       mockConfigService.get.mockReturnValue({ autoNameBranches: true });
 
       await toolHandler({
-        project: 'My Project',
+        cwd: CALLER_CWD,
         initialPrompt: 'Fix the login bug',
         branchName: 'my-branch',
       });
@@ -4812,12 +4497,12 @@ describe('HttpServerService', () => {
         branchName: 'agent/feat',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
       mockConfigService.get.mockReturnValue({ autoNameBranches: false });
 
       await toolHandler({
-        project: 'My Project',
+        cwd: CALLER_CWD,
         initialPrompt: 'Fix the login bug',
       });
 
@@ -4835,11 +4520,11 @@ describe('HttpServerService', () => {
         branchName: 'agent/feat',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
       mockConfigService.get.mockReturnValue({ autoNameBranches: true });
 
-      await toolHandler({ project: 'My Project' });
+      await toolHandler({ cwd: CALLER_CWD });
 
       expect(mockWorkspaceService.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -4855,11 +4540,11 @@ describe('HttpServerService', () => {
         branchName: 'agent/feat',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
       mockConfigService.get.mockReturnValue({ agentLaunchDefaultPresetId: 'preset-123' });
 
-      await toolHandler({ project: 'My Project' });
+      await toolHandler({ cwd: CALLER_CWD });
 
       expect(mockWorkspaceService.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -4875,14 +4560,14 @@ describe('HttpServerService', () => {
         branchName: 'agent/feat',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
       mockConfigService.get.mockReturnValue({
         agentLaunchDefaultPresetId: 'preset-123',
         agentLaunchDefaultLaunchModeId: 'mode-456',
       });
 
-      await toolHandler({ project: 'My Project' });
+      await toolHandler({ cwd: CALLER_CWD });
 
       expect(mockWorkspaceService.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -4899,11 +4584,11 @@ describe('HttpServerService', () => {
         branchName: 'agent/feat',
         workingDirectory: '/mock/worktree',
       });
-      mockProjectService.list.mockReturnValue([project]);
+      callFromWorkspaceIn(project);
       mockWorkspaceService.create.mockResolvedValue(workspace);
       mockConfigService.get.mockReturnValue({});
 
-      await toolHandler({ project: 'My Project' });
+      await toolHandler({ cwd: CALLER_CWD });
 
       const createCall = mockWorkspaceService.create.mock.calls[0][0];
       expect(createCall.presetId).toBeUndefined();
@@ -5929,8 +5614,6 @@ describe('HttpServerService', () => {
     it.each([
       ['GET', '/api/v1/health?x=1'],
       ['POST', '/api/v1/health'],
-      ['GET', '/validate-settings?x=1'],
-      ['PUT', '/validate-settings'],
       ['POST', '/api/v1/notify?x=1'],
       ['POST', '/api/v1/ssh-workspace-status?x=1'],
       ['GET', '/api/v1/ssh-workspace-status'],
@@ -5945,14 +5628,6 @@ describe('HttpServerService', () => {
       expect(res.writeHead).toHaveBeenCalledWith(404);
       expect(res.end).toHaveBeenCalledWith('Not found');
       expect(mockMcpConnect).not.toHaveBeenCalled();
-    });
-
-    it.each(['GET', 'POST'])('validates settings on %s', async (method) => {
-      mockReadFileSync.mockReturnValue('{"projects":[],"actions":[]}');
-
-      const { res } = await sendRequest(method, '/validate-settings');
-
-      expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
     });
 
     it('routes every method of the MCP paths to the MCP transport', async () => {

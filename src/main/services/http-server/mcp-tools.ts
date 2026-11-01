@@ -92,13 +92,11 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
         ),
     },
     async (params) => {
-      const compatibilityProject = (params as typeof params & { project?: string }).project;
       return executeMcpOperation(
         { ...requestContext, cwd: params.cwd },
         {
           type: 'agent.launch',
           destination: 'workspace',
-          ...(compatibilityProject ? { project: compatibilityProject } : {}),
           name: params.name,
           description: params.description,
           branch: params.branchName,

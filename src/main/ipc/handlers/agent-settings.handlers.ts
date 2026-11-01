@@ -15,7 +15,7 @@ import { httpServerService } from '../../services/http-server.service';
 import { komlaSkillService } from '../../services/komla-skill.service';
 import { opencodeSettingsService } from '../../services/opencode-settings.service';
 import { getKomlaBasePath } from '../../services/paths';
-import { remoteKomlaDataPort, sshWorkspaceService } from '../../services/ssh-workspace.service';
+import { sshWorkspaceService } from '../../services/ssh-workspace.service';
 import { komlaSkillArgsSchema } from '../validation/config-ipc.schemas';
 import { handleValidated } from '../validation/ipc-validators';
 
@@ -207,9 +207,7 @@ export function registerAgentSettingsHandlers(): void {
     IPC.MCP_GET_STATUS,
     async (_event, agent?: string, sshHostId?: string): Promise<McpStatus> => {
       if (sshHostId) sshWorkspaceService.getHost(sshHostId);
-      const port = sshHostId ? remoteKomlaDataPort(sshHostId) : httpServerService.getPort();
-      const loopbackHost = sshHostId ? '127.0.0.1' : 'localhost';
-      const mcpServerUrl = `http://${loopbackHost}:${port}/api/v1/mcp`;
+      const port = httpServerService.getPort();
 
       // SSH agents run their own CLI, which Windows doesn't police.
       const cliBlocked = !sshHostId && isKomlaCliBlocked();
@@ -253,7 +251,6 @@ It walks through wiring up Komla's notification hook and the Komla skill, and st
       if (sshHostId || (agent && !AGENTS_WITH_AUTO_INTEGRATIONS.includes(agent))) {
         return {
           isConfigured: false,
-          mcpServerUrl,
           cliCommand: '',
           configJson: '',
           ...genericFields,
@@ -263,7 +260,6 @@ It walks through wiring up Komla's notification hook and the Komla skill, and st
       // Base fields without reading Claude's config (used by per-agent paths)
       const baseFields = {
         isConfigured: false,
-        mcpServerUrl,
         cliCommand: '',
         configJson: '',
       };

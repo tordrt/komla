@@ -18,14 +18,6 @@ export function resolveOpenSettingsTarget(detail: OpenSettingsDetail): OpenSetti
   return { tab: undefined, generalSection: undefined };
 }
 
-// Page ids that were merged or split; old ids keep working for deep links,
-// menu items, and external callers.
-const PAGE_ALIASES: Record<string, string> = {
-  'ssh-sandbox': 'ssh',
-  sandbox: 'ssh',
-  'lima-vm': 'ssh',
-};
-
 export function resolveSettingsPage(
   tab: string | undefined,
   generalSection: string | undefined
@@ -33,6 +25,5 @@ export function resolveSettingsPage(
   if (generalSection === 'terminal') return 'terminal';
   if (generalSection === 'voice') return 'voice';
   if (generalSection) return 'general';
-  if (!tab) return undefined;
-  return PAGE_ALIASES[tab] ?? tab;
+  return tab;
 }

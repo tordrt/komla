@@ -2752,7 +2752,6 @@ describe('sshPortForwardService', () => {
         '/api/v1/settings/actions',
         '/terminals/terminal-1/api/v1/settings/workspace-setup',
         '/terminals/terminal-1/api/v1/workspace',
-        '/validate-settings',
         '/skills/../api/v1/workspace',
         '/terminals/%E0%A4%A/api/v1/notify',
       ];

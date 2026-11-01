@@ -26,7 +26,6 @@ const mockClaudeSettingsService = {
   isNotificationHookEnabled: vi.fn(() => true),
   getMcpStatus: vi.fn(async () => ({
     isConfigured: true,
-    mcpServerUrl: 'http://localhost:52863/api/v1/mcp',
     cliCommand:
       'claude mcp add --scope user --transport http komla http://localhost:52863/api/v1/mcp',
     configJson:
@@ -120,7 +119,6 @@ vi.mock('../../../../src/main/services/http-server.service', () => ({
   httpServerService: mockHttpServerService,
 }));
 vi.mock('../../../../src/main/services/ssh-workspace.service', () => ({
-  remoteKomlaDataPort: vi.fn(() => 63123),
   sshWorkspaceService: {
     getHost: vi.fn(() => ({ id: 'ssh-dev', name: 'Devbox', hostname: 'dev.example.com' })),
   },
@@ -402,7 +400,6 @@ describe('agent-settings IPC behavior', () => {
     registerAgentSettingsHandlers();
     const result = (await ipcMain._invoke('mcp:get-status')) as {
       isConfigured: boolean;
-      mcpServerUrl: string;
       cliCommand: string;
       configJson: string;
       codex: {
@@ -433,7 +430,6 @@ describe('agent-settings IPC behavior', () => {
 
     expect(mockClaudeSettingsService.getMcpStatus).toHaveBeenCalledWith(52863);
     expect(result.isConfigured).toBe(true);
-    expect(result.mcpServerUrl).toBe('http://localhost:52863/api/v1/mcp');
     expect(result.codex.isConfigured).toBe(false);
     expect(result.codex.cliCommand).toBe(
       'codex mcp add komla --url http://localhost:52863/api/v1/mcp'
@@ -469,7 +465,6 @@ describe('agent-settings IPC behavior', () => {
     registerAgentSettingsHandlers();
     const result = (await ipcMain._invoke('mcp:get-status', 'Claude Code')) as {
       isConfigured: boolean;
-      mcpServerUrl: string;
       generic: { cliCommand: string };
     };
 
@@ -554,7 +549,6 @@ describe('agent-settings IPC behavior', () => {
     registerAgentSettingsHandlers();
     const result = (await ipcMain._invoke('mcp:get-status', 'Amp')) as {
       isConfigured: boolean;
-      mcpServerUrl: string;
       generic: { cliCommand: string; notifyCommand: string };
     };
 
@@ -576,18 +570,16 @@ describe('agent-settings IPC behavior', () => {
 
     registerAgentSettingsHandlers();
     const result = (await ipcMain._invoke('mcp:get-status', undefined, 'ssh-dev')) as {
-      mcpServerUrl: string;
       generic: {
         integrationPrompt: string;
         notifyCommand: string;
       };
     };
 
-    expect(result.mcpServerUrl).toBe('http://127.0.0.1:63123/api/v1/mcp');
     expect(result.generic.integrationPrompt).toContain(
       'komla skill self-integration'
     );
-    expect(result.generic.integrationPrompt).not.toContain('127.0.0.1:63123/skills');
+    expect(result.generic.integrationPrompt).not.toContain('127.0.0.1');
     expect(result.generic.integrationPrompt).not.toContain('Authorization');
     expect(result.generic.notifyCommand).toBe('komla notify --source my-agent --event Stop');
     expect(mockClaudeSettingsService.getMcpStatus).not.toHaveBeenCalled();

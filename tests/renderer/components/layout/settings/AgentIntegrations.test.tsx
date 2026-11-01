@@ -61,7 +61,6 @@ const baseNotification = {
 
 const baseMcpStatus: McpStatus = {
   isConfigured: false,
-  mcpServerUrl: 'http://localhost:52863/mcp',
   cliCommand: 'claude mcp add komla ...',
   configJson: '{"mcp":{}}',
   codex: {

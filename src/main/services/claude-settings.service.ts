@@ -408,7 +408,6 @@ class ClaudeSettingsService {
   async getMcpStatus(port: number): Promise<ClaudeMcpStatus> {
     return {
       isConfigured: await this.isMcpServerConfigured(),
-      mcpServerUrl: this.getMcpServerUrl(port),
       cliCommand: this.getMcpCliCommand(port),
       configJson: this.getMcpConfigJson(port),
     };

@@ -1,7 +1,6 @@
 // MCP configuration status
 export interface McpStatus {
   isConfigured: boolean;
-  mcpServerUrl: string;
   cliCommand: string;
   configJson: string;
   codex?: {
@@ -32,7 +31,4 @@ export interface McpStatus {
 }
 
 /** The Claude Code part of {@link McpStatus}. */
-export type ClaudeMcpStatus = Pick<
-  McpStatus,
-  'isConfigured' | 'mcpServerUrl' | 'cliCommand' | 'configJson'
->;
+export type ClaudeMcpStatus = Pick<McpStatus, 'isConfigured' | 'cliCommand' | 'configJson'>;

@@ -41,15 +41,6 @@ describe('resolveSettingsPage', () => {
     expect(resolveSettingsPage('ssh', undefined)).toBe('ssh');
   });
 
-  it('maps the retired combined SSH & sandboxing page to SSH hosts', () => {
-    expect(resolveSettingsPage('ssh-sandbox', undefined)).toBe('ssh');
-  });
-
-  it('maps the removed sandbox and Lima VM pages to SSH hosts', () => {
-    expect(resolveSettingsPage('sandbox', undefined)).toBe('ssh');
-    expect(resolveSettingsPage('lima-vm', undefined)).toBe('ssh');
-  });
-
   it('routes the terminal section to the terminal page', () => {
     expect(resolveSettingsPage('general', 'terminal')).toBe('terminal');
   });

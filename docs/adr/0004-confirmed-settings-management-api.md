@@ -15,7 +15,7 @@ require no project context.
 This contract was chosen over raw settings-file access and fine-grained CRUD routes because it keeps
 storage formats private, supports sandboxed and remote callers, and concentrates validation,
 approval, confirmation-time revalidation, and future MCP reuse behind one settings-management
-module. Existing direct file editing and validation remain available for compatibility, but the
+module. Existing direct file editing remains available for compatibility, but the
 project-setup skill will use the confirmed HTTP resources and will not fall back to writing files.
 Keeping identity in the injected URL was chosen over making agents coordinate an origin, terminal
 header, and encoded cwd; unscoped routes remain for callers outside a managed terminal.

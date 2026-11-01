@@ -3,7 +3,6 @@ import { resolveKomlaRequestRoute } from '../../lib/komla-request-route';
 import { isLocalHostHeader } from '../../lib/local-host-header';
 import { createLogger } from '../../lib/logger';
 import { configService } from '../config.service';
-import { validateSettingsFiles } from '../settings-file-validation';
 
 import { parseRequestUrl, singleHeader, writeNotFound } from './http-io';
 import { handleKomlaCommandRequest } from './routes/commands';
@@ -59,14 +58,6 @@ const ROUTES: readonly Route[] = [
     handle: ({ res }) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
-    },
-  },
-  {
-    matches: target(['GET', 'POST'], '/validate-settings'),
-    handle: ({ res }) => {
-      const result = validateSettingsFiles();
-      res.writeHead(result.ok ? 200 : 422, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(result));
     },
   },
   {

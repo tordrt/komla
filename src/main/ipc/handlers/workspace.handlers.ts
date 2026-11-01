@@ -3,51 +3,9 @@ import { realpath } from 'fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'path';
 import { promisify } from 'util';
 
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  clearAttentionArgsSchema,
-  clearTerminalAttentionArgsSchema,
-  generateBranchNameArgsSchema,
-  regenerateWorkspaceNameArgsSchema,
-  terminalAttentionSeenArgsSchema,
-  workspaceAddAgentTabArgsSchema,
-  workspaceAddTerminalArgsSchema,
-  workspaceCreateBatchArgsSchema,
-  workspaceCreateArgsSchema,
-  workspaceDeleteArgsSchema,
-  workspaceGetArgsSchema,
-  workspaceLinkArgsSchema,
-  workspaceRemoveTerminalArgsSchema,
-  workspaceReconnectSshTerminalArgsSchema,
-  workspaceFindInSshTerminalArgsSchema,
-  workspaceRecoverSshSessionsArgsSchema,
-  workspaceListRemoteSshArgsSchema,
-  workspaceAdoptRemoteSshArgsSchema,
-  workspaceLinkPathsArgsSchema,
-  workspaceLinkSshProjectArgsSchema,
-  workspaceRemoveMissingSshArgsSchema,
-  workspaceSyncSshHostArgsSchema,
-  workspaceRetryLocalCopySyncArgsSchema,
-  workspaceRetrySetupStepArgsSchema,
-  workspaceDismissSetupActivityArgsSchema,
-  workspaceRunBackgroundActionArgsSchema,
-  workspaceStopBackgroundActionRunArgsSchema,
-  workspaceReorderArgsSchema,
-  workspaceRestartArgsSchema,
-  workspaceRestartTerminalArgsSchema,
-  workspaceSetManualSpinnerArgsSchema,
-  workspaceStartSshLinkForwardArgsSchema,
-  workspaceStartSshPreviewForwardArgsSchema,
-  workspaceStopArgsSchema,
-  workspaceStopSshLinkForwardArgsSchema,
-  workspaceStopSshPreviewForwardArgsSchema,
-  workspaceStopTerminalArgsSchema,
-  workspaceUnlinkArgsSchema,
-  workspaceUpdateArgsSchema,
-  workspaceUpdateTerminalArgsSchema,
-} from '../../../shared/ipc/schemas/workspace-ipc.schemas';
 import {
   WORKSPACE_LIMIT_ERROR_PREFIX,
   DUPLICATE_WORKSPACE_ERROR_PREFIX,
@@ -73,7 +31,7 @@ import {
 } from '../../services/workspace-links.service';
 import { workspaceService, Workspace, Terminal } from '../../services/workspace.service';
 import { worktreeWatcherService } from '../../services/worktree-watcher.service';
-import { handleValidated } from '../validation/ipc-validators';
+import { handleIpc } from '../validation/ipc-validators';
 
 import type { ManagedTmuxFindResult } from '../../../shared/lib/ssh-tmux-attach';
 import type { SshLinkForward, SshPreviewForward, SshWorkspaceBackend } from '../../../shared/types';
@@ -232,391 +190,259 @@ async function runWorkspaceTrashScript(workspace: Workspace): Promise<void> {
 }
 
 export function registerWorkspaceHandlers(): void {
-  ipcMain.handle(
-    IPC.WORKSPACE_CREATE,
-    handleValidated(
-      IPC.WORKSPACE_CREATE,
-      workspaceCreateArgsSchema,
-      async (_, [params]): Promise<WorkspaceCreateResult> => {
-        try {
-          return await workspaceService.create(params);
-        } catch (error) {
-          const value = workspaceCreateErrorValue(error);
-          if (value) return value;
-          throw error;
-        }
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_CREATE, async (_, [params]): Promise<WorkspaceCreateResult> => {
+    try {
+      return await workspaceService.create(params);
+    } catch (error) {
+      const value = workspaceCreateErrorValue(error);
+      if (value) return value;
+      throw error;
+    }
+  });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_CREATE_BATCH,
-    handleValidated(
-      IPC.WORKSPACE_CREATE_BATCH,
-      workspaceCreateBatchArgsSchema,
-      async (_, [params]): Promise<WorkspaceCreateBatchResult> => {
-        try {
-          return await workspaceService.createBatch(params);
-        } catch (error) {
-          const value = workspaceCreateErrorValue(error);
-          if (value) return value;
-          throw error;
-        }
+    async (_, [params]): Promise<WorkspaceCreateBatchResult> => {
+      try {
+        return await workspaceService.createBatch(params);
+      } catch (error) {
+        const value = workspaceCreateErrorValue(error);
+        if (value) return value;
+        throw error;
       }
-    )
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_ADD_TERMINAL,
-    handleValidated(
-      IPC.WORKSPACE_ADD_TERMINAL,
-      workspaceAddTerminalArgsSchema,
-      async (
-        _,
-        [workspaceId, name, command, layoutHint, commandKind, executionLocation]
-      ): Promise<Terminal> => {
-        return workspaceService.addTerminalWithPreparation(
-          workspaceId,
-          name,
-          command,
-          layoutHint,
-          commandKind,
-          executionLocation
-        );
-      }
-    )
+    async (
+      _,
+      [workspaceId, name, command, layoutHint, commandKind, executionLocation]
+    ): Promise<Terminal> => {
+      return workspaceService.addTerminalWithPreparation(
+        workspaceId,
+        name,
+        command,
+        layoutHint,
+        commandKind,
+        executionLocation
+      );
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_ADD_AGENT_TAB,
-    handleValidated(
-      IPC.WORKSPACE_ADD_AGENT_TAB,
-      workspaceAddAgentTabArgsSchema,
-      async (_, [workspaceId, prompt, launchModeId, presetId, options]): Promise<Terminal> => {
-        return workspaceService.addAgentTab(workspaceId, prompt, launchModeId, presetId, options);
-      }
-    )
+    async (_, [workspaceId, prompt, launchModeId, presetId, options]): Promise<Terminal> => {
+      return workspaceService.addAgentTab(workspaceId, prompt, launchModeId, presetId, options);
+    }
   );
 
-  ipcMain.handle(
-    IPC.WORKSPACE_REMOVE_TERMINAL,
-    handleValidated(
-      IPC.WORKSPACE_REMOVE_TERMINAL,
-      workspaceRemoveTerminalArgsSchema,
-      async (_, [workspaceId, terminalId]): Promise<void> => {
-        return workspaceService.removeTerminal(workspaceId, terminalId);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_REMOVE_TERMINAL, async (_, [workspaceId, terminalId]): Promise<void> => {
+    return workspaceService.removeTerminal(workspaceId, terminalId);
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_STOP,
-    handleValidated(
-      IPC.WORKSPACE_STOP,
-      workspaceStopArgsSchema,
-      async (_, [workspaceId]): Promise<void> => {
-        return workspaceService.stop(workspaceId);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_STOP, async (_, [workspaceId]): Promise<void> => {
+    return workspaceService.stop(workspaceId);
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_STOP_TERMINAL,
-    handleValidated(
-      IPC.WORKSPACE_STOP_TERMINAL,
-      workspaceStopTerminalArgsSchema,
-      async (_, [terminalId]): Promise<void> => {
-        return workspaceService.stopTerminal(terminalId);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_STOP_TERMINAL, async (_, [terminalId]): Promise<void> => {
+    return workspaceService.stopTerminal(terminalId);
+  });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_RESTART_TERMINAL,
-    handleValidated(
-      IPC.WORKSPACE_RESTART_TERMINAL,
-      workspaceRestartTerminalArgsSchema,
-      async (_, [terminalId, presetId, launchModeId, cols, rows, options]): Promise<Terminal> => {
-        if (!options) {
-          return workspaceService.restartTerminal(
-            terminalId,
-            presetId,
-            launchModeId ?? undefined,
-            cols,
-            rows
-          );
-        }
-        const { replaceSession, ...restartOptions } = options;
+    async (_, [terminalId, presetId, launchModeId, cols, rows, options]): Promise<Terminal> => {
+      if (!options) {
         return workspaceService.restartTerminal(
           terminalId,
           presetId,
           launchModeId ?? undefined,
           cols,
-          rows,
-          {
-            ...restartOptions,
-            sshAction: replaceSession ? 'replace' : undefined,
-          }
+          rows
         );
       }
-    )
+      const { replaceSession, ...restartOptions } = options;
+      return workspaceService.restartTerminal(
+        terminalId,
+        presetId,
+        launchModeId ?? undefined,
+        cols,
+        rows,
+        {
+          ...restartOptions,
+          sshAction: replaceSession ? 'replace' : undefined,
+        }
+      );
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_RECONNECT_SSH_TERMINAL,
-    handleValidated(
-      IPC.WORKSPACE_RECONNECT_SSH_TERMINAL,
-      workspaceReconnectSshTerminalArgsSchema,
-      async (_, [terminalId, cols, rows]): Promise<Terminal> => {
-        return workspaceService.reconnectSshTerminal(terminalId, cols, rows);
-      }
-    )
+    async (_, [terminalId, cols, rows]): Promise<Terminal> => {
+      return workspaceService.reconnectSshTerminal(terminalId, cols, rows);
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_FIND_IN_SSH_TERMINAL,
-    handleValidated(
-      IPC.WORKSPACE_FIND_IN_SSH_TERMINAL,
-      workspaceFindInSshTerminalArgsSchema,
-      async (_, [terminalId, query]): Promise<ManagedTmuxFindResult> => {
-        return workspaceService.findInSshTerminal(terminalId, query);
-      }
-    )
+    async (_, [terminalId, query]): Promise<ManagedTmuxFindResult> => {
+      return workspaceService.findInSshTerminal(terminalId, query);
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_RECOVER_SSH_SESSIONS,
-    handleValidated(
-      IPC.WORKSPACE_RECOVER_SSH_SESSIONS,
-      workspaceRecoverSshSessionsArgsSchema,
-      async (_, [workspaceId]): Promise<Workspace | undefined> => {
-        return workspaceService.recoverSshSessions(workspaceId);
-      }
-    )
+    async (_, [workspaceId]): Promise<Workspace | undefined> => {
+      return workspaceService.recoverSshSessions(workspaceId);
+    }
   );
 
-  ipcMain.handle(
-    IPC.WORKSPACE_LIST_REMOTE_SSH,
-    handleValidated(
-      IPC.WORKSPACE_LIST_REMOTE_SSH,
-      workspaceListRemoteSshArgsSchema,
-      async (_, [hostId]): Promise<RemoteSshWorkspace[]> =>
-        workspaceService.sshSync.listOnHost(hostId)
-    )
+  handleIpc(IPC.WORKSPACE_LIST_REMOTE_SSH, async (_, [hostId]): Promise<RemoteSshWorkspace[]> =>
+    workspaceService.sshSync.listOnHost(hostId)
   );
 
-  ipcMain.handle(
-    IPC.WORKSPACE_ADOPT_REMOTE_SSH,
-    handleValidated(
-      IPC.WORKSPACE_ADOPT_REMOTE_SSH,
-      workspaceAdoptRemoteSshArgsSchema,
-      async (_, [hostId, workspaceId]): Promise<Workspace> =>
-        workspaceService.sshSync.adopt(hostId, workspaceId)
-    )
+  handleIpc(IPC.WORKSPACE_ADOPT_REMOTE_SSH, async (_, [hostId, workspaceId]): Promise<Workspace> =>
+    workspaceService.sshSync.adopt(hostId, workspaceId)
   );
 
-  ipcMain.handle(
-    IPC.WORKSPACE_LINK_SSH_PROJECT,
-    handleValidated(
-      IPC.WORKSPACE_LINK_SSH_PROJECT,
-      workspaceLinkSshProjectArgsSchema,
-      async (_, [workspaceId, projectId]): Promise<void> =>
-        workspaceService.linkSshWorkspaceToProject(workspaceId, projectId)
-    )
+  handleIpc(IPC.WORKSPACE_LINK_SSH_PROJECT, async (_, [workspaceId, projectId]): Promise<void> =>
+    workspaceService.linkSshWorkspaceToProject(workspaceId, projectId)
   );
 
-  ipcMain.handle(
-    IPC.WORKSPACE_REMOVE_MISSING_SSH,
-    handleValidated(
-      IPC.WORKSPACE_REMOVE_MISSING_SSH,
-      workspaceRemoveMissingSshArgsSchema,
-      async (_, [workspaceId]): Promise<void> => workspaceService.sshSync.removeMissing(workspaceId)
-    )
+  handleIpc(IPC.WORKSPACE_REMOVE_MISSING_SSH, async (_, [workspaceId]): Promise<void> =>
+    workspaceService.sshSync.removeMissing(workspaceId)
   );
 
-  ipcMain.handle(
-    IPC.WORKSPACE_SYNC_SSH_HOST,
-    handleValidated(
-      IPC.WORKSPACE_SYNC_SSH_HOST,
-      workspaceSyncSshHostArgsSchema,
-      async (_, [hostId]): Promise<void> => {
-        sshWorkspaceService.getHost(hostId);
-        await workspaceService.sshSync.syncSoon(hostId, { now: true });
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_SYNC_SSH_HOST, async (_, [hostId]): Promise<void> => {
+    sshWorkspaceService.getHost(hostId);
+    await workspaceService.sshSync.syncSoon(hostId, { now: true });
+  });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_RETRY_SETUP_STEP,
-    handleValidated(
-      IPC.WORKSPACE_RETRY_SETUP_STEP,
-      workspaceRetrySetupStepArgsSchema,
-      async (_, [workspaceId, stepId]): Promise<Workspace> => {
-        return workspaceService.retrySetupStep(workspaceId, stepId);
-      }
-    )
+    async (_, [workspaceId, stepId]): Promise<Workspace> => {
+      return workspaceService.retrySetupStep(workspaceId, stepId);
+    }
   );
 
-  ipcMain.handle(
-    IPC.WORKSPACE_RETRY_LOCAL_COPY_SYNC,
-    handleValidated(
-      IPC.WORKSPACE_RETRY_LOCAL_COPY_SYNC,
-      workspaceRetryLocalCopySyncArgsSchema,
-      async (_, [workspaceId]): Promise<void> => {
-        workspaceService.retryLocalCopySync(workspaceId);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_RETRY_LOCAL_COPY_SYNC, async (_, [workspaceId]): Promise<void> => {
+    workspaceService.retryLocalCopySync(workspaceId);
+  });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_DISMISS_SETUP_ACTIVITY,
-    handleValidated(
-      IPC.WORKSPACE_DISMISS_SETUP_ACTIVITY,
-      workspaceDismissSetupActivityArgsSchema,
-      async (_, [workspaceId, activityId]): Promise<Workspace> => {
-        return workspaceService.dismissSetupActivity(workspaceId, activityId);
-      }
-    )
+    async (_, [workspaceId, activityId]): Promise<Workspace> => {
+      return workspaceService.dismissSetupActivity(workspaceId, activityId);
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_RUN_BACKGROUND_ACTION,
-    handleValidated(
-      IPC.WORKSPACE_RUN_BACKGROUND_ACTION,
-      workspaceRunBackgroundActionArgsSchema,
-      async (_, [workspaceId, actionId, launch]): Promise<Workspace> => {
-        return workspaceService.runBackgroundAction(workspaceId, actionId, launch);
-      }
-    )
+    async (_, [workspaceId, actionId, launch]): Promise<Workspace> => {
+      return workspaceService.runBackgroundAction(workspaceId, actionId, launch);
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_STOP_BACKGROUND_ACTION_RUN,
-    handleValidated(
-      IPC.WORKSPACE_STOP_BACKGROUND_ACTION_RUN,
-      workspaceStopBackgroundActionRunArgsSchema,
-      async (_, [workspaceId, activityId]): Promise<void> => {
-        return workspaceService.stopBackgroundActionRun(workspaceId, activityId);
-      }
-    )
+    async (_, [workspaceId, activityId]): Promise<void> => {
+      return workspaceService.stopBackgroundActionRun(workspaceId, activityId);
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_DELETE,
-    handleValidated(
-      IPC.WORKSPACE_DELETE,
-      workspaceDeleteArgsSchema,
-      async (_, [workspaceId, force = false, deleteBranch = false]): Promise<void> => {
-        return workspaceService.delete(workspaceId, force, deleteBranch);
-      }
-    )
+    async (_, [workspaceId, force = false, deleteBranch = false]): Promise<void> => {
+      return workspaceService.delete(workspaceId, force, deleteBranch);
+    }
   );
 
-  ipcMain.handle(IPC.WORKSPACE_LIST, async (): Promise<Workspace[]> => {
+  handleIpc(IPC.WORKSPACE_LIST, async (): Promise<Workspace[]> => {
     return workspaceService.list();
   });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_GET,
-    handleValidated(
-      IPC.WORKSPACE_GET,
-      workspaceGetArgsSchema,
-      async (_, [workspaceId]): Promise<Workspace | undefined> => {
-        return workspaceService.get(workspaceId);
+  handleIpc(IPC.WORKSPACE_GET, async (_, [workspaceId]): Promise<Workspace | undefined> => {
+    return workspaceService.get(workspaceId);
+  });
+
+  handleIpc(IPC.WORKSPACE_UPDATE, async (event, [workspaceId, updates]): Promise<Workspace> => {
+    // Get current workspace state to detect dormancy transitions
+    const currentWorkspace = workspaceService.get(workspaceId);
+    const wasDormant = currentWorkspace?.status !== 'active';
+
+    const isTrashing =
+      currentWorkspace !== undefined &&
+      currentWorkspace.status !== 'trashed' &&
+      updates.status === 'trashed';
+
+    if (
+      currentWorkspace &&
+      isSshWorkspace(currentWorkspace) &&
+      currentWorkspace.status === 'active' &&
+      updates.status === 'trashed'
+    ) {
+      // Enforce remote cleanup in main even if a renderer's best-effort
+      // pre-stop failed. Never hide a workspace while its agent may run.
+      await workspaceService.stop(workspaceId);
+    }
+
+    if (isTrashing && currentWorkspace) {
+      // The stop's steps, such as `docker compose down`, end before the Trash cleans up.
+      await workspaceService.stopStepsSettled(workspaceId);
+      // Suspend the worktree watcher across cleanup so deleting node_modules /
+      // build outputs doesn't fire a flood of change events. The renderer
+      // trash flow stops PTYs (which stops the watcher) before this IPC
+      // call, so trust the actual watcher state, not workspace.status.
+      const watcherWasActive =
+        !isSshWorkspace(currentWorkspace) && worktreeWatcherService.isWatching(workspaceId);
+      if (watcherWasActive) {
+        await worktreeWatcherService.stopWatching(workspaceId).catch(() => {});
       }
-    )
-  );
-
-  ipcMain.handle(
-    IPC.WORKSPACE_UPDATE,
-    handleValidated(
-      IPC.WORKSPACE_UPDATE,
-      workspaceUpdateArgsSchema,
-      async (event, [workspaceId, updates]): Promise<Workspace> => {
-        // Get current workspace state to detect dormancy transitions
-        const currentWorkspace = workspaceService.get(workspaceId);
-        const wasDormant = currentWorkspace?.status !== 'active';
-
-        const isTrashing =
-          currentWorkspace !== undefined &&
-          currentWorkspace.status !== 'trashed' &&
-          updates.status === 'trashed';
-
-        if (
-          currentWorkspace &&
-          isSshWorkspace(currentWorkspace) &&
-          currentWorkspace.status === 'active' &&
-          updates.status === 'trashed'
-        ) {
-          // Enforce remote cleanup in main even if a renderer's best-effort
-          // pre-stop failed. Never hide a workspace while its agent may run.
-          await workspaceService.stop(workspaceId);
-        }
-
-        if (isTrashing && currentWorkspace) {
-          // The stop's steps, such as `docker compose down`, end before the Trash cleans up.
-          await workspaceService.stopStepsSettled(workspaceId);
-          // Suspend the worktree watcher across cleanup so deleting node_modules /
-          // build outputs doesn't fire a flood of change events. The renderer
-          // trash flow stops PTYs (which stops the watcher) before this IPC
-          // call, so trust the actual watcher state, not workspace.status.
-          const watcherWasActive =
-            !isSshWorkspace(currentWorkspace) && worktreeWatcherService.isWatching(workspaceId);
-          if (watcherWasActive) {
-            await worktreeWatcherService.stopWatching(workspaceId).catch(() => {});
-          }
-          try {
-            await runWorkspaceTrashScript(currentWorkspace);
-          } catch (error) {
-            if (watcherWasActive) {
-              worktreeWatcherService
-                .startWatching(workspaceId, currentWorkspace.workingDirectory)
-                .catch((err) => {
-                  console.error(
-                    `Failed to restart watcher after trash cleanup failure for ${workspaceId}:`,
-                    err
-                  );
-                });
-            }
-            throw error;
-          }
-        }
-
-        if (isTrashing && currentWorkspace) {
-          if (isSshWorkspace(currentWorkspace)) {
-            await localCopyService.remove(workspaceId, currentWorkspace.backend);
-          }
-          currentWorkspace.setupActivities = undefined;
-        }
-
-        const result = workspaceService.update(workspaceId, updates);
-
-        const isDormant = result.status !== 'active';
-
-        if (wasDormant !== isDormant) {
-          if (isDormant) {
-            worktreeWatcherService.stopWatching(workspaceId).catch((err) => {
-              console.error(`Failed to stop watcher for dormant workspace ${workspaceId}:`, err);
+      try {
+        await runWorkspaceTrashScript(currentWorkspace);
+      } catch (error) {
+        if (watcherWasActive) {
+          worktreeWatcherService
+            .startWatching(workspaceId, currentWorkspace.workingDirectory)
+            .catch((err) => {
+              console.error(
+                `Failed to restart watcher after trash cleanup failure for ${workspaceId}:`,
+                err
+              );
             });
-          } else {
-            worktreeWatcherService
-              .startWatching(workspaceId, result.workingDirectory)
-              .catch((err) => {
-                console.error(
-                  `Failed to start watcher for activated workspace ${workspaceId}:`,
-                  err
-                );
-              });
-          }
         }
-
-        return result;
+        throw error;
       }
-    )
-  );
+    }
+
+    if (isTrashing && currentWorkspace) {
+      if (isSshWorkspace(currentWorkspace)) {
+        await localCopyService.remove(workspaceId, currentWorkspace.backend);
+      }
+      currentWorkspace.setupActivities = undefined;
+    }
+
+    const result = workspaceService.update(workspaceId, updates);
+
+    const isDormant = result.status !== 'active';
+
+    if (wasDormant !== isDormant) {
+      if (isDormant) {
+        worktreeWatcherService.stopWatching(workspaceId).catch((err) => {
+          console.error(`Failed to stop watcher for dormant workspace ${workspaceId}:`, err);
+        });
+      } else {
+        worktreeWatcherService.startWatching(workspaceId, result.workingDirectory).catch((err) => {
+          console.error(`Failed to start watcher for activated workspace ${workspaceId}:`, err);
+        });
+      }
+    }
+
+    return result;
+  });
 
   // Notify all other windows that workspace data has changed (used after bulk operations)
-  ipcMain.handle(IPC.WORKSPACE_NOTIFY_CHANGED, (event) => {
+  handleIpc(IPC.WORKSPACE_NOTIFY_CHANGED, (event) => {
     const senderId = event.sender?.id;
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed() && win.webContents.id !== senderId) {
@@ -625,203 +451,104 @@ export function registerWorkspaceHandlers(): void {
     }
   });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_UPDATE_TERMINAL,
-    handleValidated(
-      IPC.WORKSPACE_UPDATE_TERMINAL,
-      workspaceUpdateTerminalArgsSchema,
-      async (_, [terminalId, updates]): Promise<Terminal> => {
-        return workspaceService.updateTerminal(terminalId, updates);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_UPDATE_TERMINAL, async (_, [terminalId, updates]): Promise<Terminal> => {
+    return workspaceService.updateTerminal(terminalId, updates);
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_RESTART,
-    handleValidated(
-      IPC.WORKSPACE_RESTART,
-      workspaceRestartArgsSchema,
-      async (_, [workspaceId]): Promise<WorkspaceRestartResult> => {
-        try {
-          return await workspaceService.restartWithCleanup(workspaceId);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          // Expected user-facing errors: return as values instead of throwing
-          // so Electron doesn't log them as IPC errors.
-          if (message.includes(WORKSPACE_LIMIT_ERROR_PREFIX)) {
-            return { __workspaceRestartError: true, message };
-          }
-          throw error;
-        }
+  handleIpc(IPC.WORKSPACE_RESTART, async (_, [workspaceId]): Promise<WorkspaceRestartResult> => {
+    try {
+      return await workspaceService.restartWithCleanup(workspaceId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Expected user-facing errors: return as values instead of throwing
+      // so Electron doesn't log them as IPC errors.
+      if (message.includes(WORKSPACE_LIMIT_ERROR_PREFIX)) {
+        return { __workspaceRestartError: true, message };
       }
-    )
-  );
+      throw error;
+    }
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_REORDER,
-    handleValidated(
-      IPC.WORKSPACE_REORDER,
-      workspaceReorderArgsSchema,
-      async (_, [workspaceId, newOrder]): Promise<void> => {
-        return workspaceService.reorderWorkspace(workspaceId, newOrder);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_REORDER, async (_, [workspaceId, newOrder]): Promise<void> => {
+    return workspaceService.reorderWorkspace(workspaceId, newOrder);
+  });
 
-  ipcMain.handle(
-    IPC.NOTIFICATIONS_CLEAR_ATTENTION,
-    handleValidated(
-      IPC.NOTIFICATIONS_CLEAR_ATTENTION,
-      clearAttentionArgsSchema,
-      (_, [workspaceId]) => {
-        workspaceService.attention.workspaceSeen(workspaceId);
-      }
-    )
-  );
+  handleIpc(IPC.NOTIFICATIONS_CLEAR_ATTENTION, (_, [workspaceId]) => {
+    workspaceService.attention.workspaceSeen(workspaceId);
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_CLEAR_TERMINAL_ATTENTION,
-    handleValidated(
-      IPC.WORKSPACE_CLEAR_TERMINAL_ATTENTION,
-      clearTerminalAttentionArgsSchema,
-      (_, [terminalId]): void => {
-        workspaceService.attention.dismissed(terminalId);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_CLEAR_TERMINAL_ATTENTION, (_, [terminalId]): void => {
+    workspaceService.attention.dismissed(terminalId);
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_TERMINAL_ATTENTION_SEEN,
-    handleValidated(
-      IPC.WORKSPACE_TERMINAL_ATTENTION_SEEN,
-      terminalAttentionSeenArgsSchema,
-      (_, [terminalId]): void => {
-        workspaceService.attention.terminalSeen(terminalId);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_TERMINAL_ATTENTION_SEEN, (_, [terminalId]): void => {
+    workspaceService.attention.terminalSeen(terminalId);
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_GENERATE_BRANCH_NAME,
-    handleValidated(
-      IPC.WORKSPACE_GENERATE_BRANCH_NAME,
-      generateBranchNameArgsSchema,
-      async (_, [promptText]): Promise<string | null> => {
-        return workspaceService.generateBranchName(promptText);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_GENERATE_BRANCH_NAME, async (_, [promptText]): Promise<string | null> => {
+    return workspaceService.generateBranchName(promptText);
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_REGENERATE_NAME,
-    handleValidated(
-      IPC.WORKSPACE_REGENERATE_NAME,
-      regenerateWorkspaceNameArgsSchema,
-      async (_, [workspaceId]): Promise<Workspace> => {
-        return workspaceService.regenerateWorkspaceName(workspaceId);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_REGENERATE_NAME, async (_, [workspaceId]): Promise<Workspace> => {
+    return workspaceService.regenerateWorkspaceName(workspaceId);
+  });
 
-  ipcMain.handle(IPC.WORKSPACE_CANCEL_BRANCH_NAMING, async (): Promise<void> => {
+  handleIpc(IPC.WORKSPACE_CANCEL_BRANCH_NAMING, async (): Promise<void> => {
     workspaceService.cancelBranchNaming();
   });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_LINK,
-    handleValidated(
-      IPC.WORKSPACE_LINK,
-      workspaceLinkArgsSchema,
-      async (_, [originId, targetIds]): Promise<void> => {
-        await workspaceLinksService.link(originId, targetIds);
-      }
-    )
+  handleIpc(IPC.WORKSPACE_LINK, async (_, [originId, targetIds]): Promise<void> => {
+    await workspaceLinksService.link(originId, targetIds);
+  });
+
+  handleIpc(IPC.WORKSPACE_UNLINK, async (_, [originId, targetId]): Promise<void> => {
+    await workspaceLinksService.unlink(originId, targetId);
+  });
+
+  handleIpc(IPC.WORKSPACE_LINK_PATHS, (_, [workspaceId]): Promise<WorkspaceLinkPath[]> =>
+    workspaceLinksService.listLinkPaths(workspaceId)
   );
 
-  ipcMain.handle(
-    IPC.WORKSPACE_UNLINK,
-    handleValidated(
-      IPC.WORKSPACE_UNLINK,
-      workspaceUnlinkArgsSchema,
-      async (_, [originId, targetId]): Promise<void> => {
-        await workspaceLinksService.unlink(originId, targetId);
-      }
-    )
-  );
+  handleIpc(IPC.WORKSPACE_SET_MANUAL_SPINNER, (_, [workspaceId, active]): void => {
+    workspaceService.attention.spinnerToggled(workspaceId, active);
+  });
 
-  ipcMain.handle(
-    IPC.WORKSPACE_LINK_PATHS,
-    handleValidated(
-      IPC.WORKSPACE_LINK_PATHS,
-      workspaceLinkPathsArgsSchema,
-      (_, [workspaceId]): Promise<WorkspaceLinkPath[]> =>
-        workspaceLinksService.listLinkPaths(workspaceId)
-    )
-  );
-
-  ipcMain.handle(
-    IPC.WORKSPACE_SET_MANUAL_SPINNER,
-    handleValidated(
-      IPC.WORKSPACE_SET_MANUAL_SPINNER,
-      workspaceSetManualSpinnerArgsSchema,
-      (_, [workspaceId, active]): void => {
-        workspaceService.attention.spinnerToggled(workspaceId, active);
-      }
-    )
-  );
-
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_START_SSH_PREVIEW_FORWARD,
-    handleValidated(
-      IPC.WORKSPACE_START_SSH_PREVIEW_FORWARD,
-      workspaceStartSshPreviewForwardArgsSchema,
-      async (_, [workspaceId, tabId, remotePort, scheme]): Promise<SshPreviewForward> => {
-        return sshPortForwardService.startPreviewForward({
-          workspaceId,
-          tabId,
-          backend: sshWorkspaceBackend(workspaceId),
-          remotePort,
-          scheme,
-        });
-      }
-    )
+    async (_, [workspaceId, tabId, remotePort, scheme]): Promise<SshPreviewForward> => {
+      return sshPortForwardService.startPreviewForward({
+        workspaceId,
+        tabId,
+        backend: sshWorkspaceBackend(workspaceId),
+        remotePort,
+        scheme,
+      });
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_STOP_SSH_PREVIEW_FORWARD,
-    handleValidated(
-      IPC.WORKSPACE_STOP_SSH_PREVIEW_FORWARD,
-      workspaceStopSshPreviewForwardArgsSchema,
-      async (_, [workspaceId, tabId]): Promise<void> => {
-        await sshPortForwardService.stopPreviewForward(workspaceId, tabId);
-      }
-    )
+    async (_, [workspaceId, tabId]): Promise<void> => {
+      await sshPortForwardService.stopPreviewForward(workspaceId, tabId);
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_START_SSH_LINK_FORWARD,
-    handleValidated(
-      IPC.WORKSPACE_START_SSH_LINK_FORWARD,
-      workspaceStartSshLinkForwardArgsSchema,
-      async (_, [workspaceId, remotePort, scheme]): Promise<SshLinkForward> => {
-        return sshPortForwardService.startLinkForward({
-          workspaceId,
-          backend: sshWorkspaceBackend(workspaceId),
-          remotePort,
-          scheme,
-        });
-      }
-    )
+    async (_, [workspaceId, remotePort, scheme]): Promise<SshLinkForward> => {
+      return sshPortForwardService.startLinkForward({
+        workspaceId,
+        backend: sshWorkspaceBackend(workspaceId),
+        remotePort,
+        scheme,
+      });
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.WORKSPACE_STOP_SSH_LINK_FORWARD,
-    handleValidated(
-      IPC.WORKSPACE_STOP_SSH_LINK_FORWARD,
-      workspaceStopSshLinkForwardArgsSchema,
-      async (_, [workspaceId, forwardId]): Promise<void> => {
-        await sshPortForwardService.stopLinkForward(workspaceId, forwardId);
-      }
-    )
+    async (_, [workspaceId, forwardId]): Promise<void> => {
+      await sshPortForwardService.stopLinkForward(workspaceId, forwardId);
+    }
   );
 }

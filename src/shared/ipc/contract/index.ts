@@ -21,6 +21,7 @@ import { terminalContract } from './terminal.contract';
 import { toastOverlayContract } from './toast-overlay.contract';
 import { voiceContract } from './voice.contract';
 import { windowContract } from './window.contract';
+import { workspaceContract } from './workspace.contract';
 
 import type { IpcInvokeDefinition } from './define';
 import type { IpcChannel } from '../../constants/ipc-channels';
@@ -35,6 +36,7 @@ import type { z } from 'zod';
  * it, so importing a schema at runtime would stop the preload loading at all.
  */
 export const ipcContract = {
+  ...workspaceContract,
   ...projectContract,
   ...configContract,
   ...windowContract,

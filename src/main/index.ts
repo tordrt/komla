@@ -7,7 +7,6 @@ import {
   app,
   BrowserWindow,
   dialog,
-  ipcMain,
   Menu,
   nativeImage,
   powerMonitor,
@@ -21,6 +20,7 @@ import { getWorkspaceDisplayTitle } from '../shared/lib/workspace-title';
 
 import { registerIpcHandlers } from './ipc/handlers';
 import { moveWorkspaceToWindow } from './ipc/handlers/window.handlers';
+import { onIpcSync } from './ipc/validation/ipc-validators';
 import { cleanupTmpFilesRecursiveAsync } from './lib/atomic-write';
 import { checkGitInstalled } from './lib/git-requirement';
 import { createHoldToQuit } from './lib/hold-to-quit';
@@ -611,10 +611,9 @@ void app.whenReady().then(async () => {
 
   // Keep the latest renderer layout snapshot for window reassignment and durable SSH restoration.
   const pendingCloseLayouts = new Map<string, Record<string, unknown>>();
-  ipcMain.on(IPC.WORKSPACE_SAVE_LAYOUTS_ON_CLOSE, (event, windowId, layouts) => {
-    pendingCloseLayouts.set(windowId as string, layouts as Record<string, unknown>);
-    workspaceService.saveSshTerminalLayouts(layouts as Record<string, unknown>);
-    event.returnValue = true;
+  onIpcSync(IPC.WORKSPACE_SAVE_LAYOUTS_ON_CLOSE, (_, [windowId, layouts]) => {
+    pendingCloseLayouts.set(windowId, layouts);
+    workspaceService.saveSshTerminalLayouts(layouts);
   });
 
   // Reassign orphaned workspaces when a window closes and notify remaining windows

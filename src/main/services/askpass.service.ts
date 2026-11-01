@@ -9,8 +9,7 @@ import { promisify } from 'util';
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
-import { askpassResponseArgsSchema } from '../../shared/ipc/schemas/askpass-ipc.schemas';
-import { onValidated } from '../ipc/validation/ipc-validators';
+import { ipcListener } from '../ipc/validation/ipc-validators';
 import { createLogger } from '../lib/logger';
 import { opensshMarksServerPrompts, sshKeyPathFromPrompt } from '../lib/ssh-askpass-prompt';
 import { sshAskpassVars } from '../lib/ssh-client';
@@ -84,9 +83,8 @@ class AskpassService {
   private verifications = new Map<string, string>();
   private sshMarksServerPrompts: Promise<boolean> | null = null;
   private isStarted = false;
-  private askpassResponseListener = onValidated(
+  private askpassResponseListener = ipcListener(
     IPC.ASKPASS_RESPONSE,
-    askpassResponseArgsSchema,
     this.handleAskpassResponse.bind(this)
   );
 

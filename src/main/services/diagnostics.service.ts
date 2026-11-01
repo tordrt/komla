@@ -4,8 +4,7 @@ import { getHeapStatistics } from 'v8';
 import { app, ipcMain } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
-import { diagnosticsRendererStatsArgsSchema } from '../../shared/ipc/schemas/diagnostics-ipc.schemas';
-import { onValidated } from '../ipc/validation/ipc-validators';
+import { ipcListener } from '../ipc/validation/ipc-validators';
 import { createLogger } from '../lib/logger';
 
 import { backgroundProcessService } from './background-process.service';
@@ -54,9 +53,8 @@ class DiagnosticsService {
   private readonly eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
   private lastMainMemory: MainMemorySample | null = null;
   private readonly rendererStatsByWebContents = new Map<number, RendererStats>();
-  private readonly rendererStatsHandler = onValidated(
+  private readonly rendererStatsHandler = ipcListener(
     IPC.DIAGNOSTICS_RENDERER_STATS,
-    diagnosticsRendererStatsArgsSchema,
     (event, [stats]) => {
       this.rendererStatsByWebContents.set(event.sender.id, stats);
     }

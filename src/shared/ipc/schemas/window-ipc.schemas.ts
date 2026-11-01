@@ -40,3 +40,9 @@ export const showMessageBoxArgsSchema = z.tuple([
     cancelId: z.number().int().optional(),
   }),
 ]);
+
+// Each window's layout snapshot. Sent on close, and kept as given for the window that takes over.
+export const saveWorkspaceLayoutsArgsSchema = z.tuple([
+  idSchema,
+  z.record(z.string(), z.unknown()),
+]);

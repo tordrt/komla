@@ -1,8 +1,6 @@
-import { execFile } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { mkdir, readdir, readFile, rmdir, writeFile } from 'fs/promises';
 import { basename, join, resolve, sep } from 'path';
-import { promisify } from 'util';
 
 import { sanitizeWorktreeProjectSegment } from '../../shared/lib/random-names';
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
@@ -11,16 +9,15 @@ import { removePath } from '../lib/remove-path';
 
 import { KOMLA_FILES_DIR } from './git/git-status';
 import { collectGitignoreProtectRules } from './local-mirror-protect';
+import { syncWithSupportedOptions } from './local-mirror-rsync';
 import { getKomlaBasePath } from './paths';
 import { sshWorkspaceService } from './ssh-workspace.service';
 
 import type { SshWorkspaceBackend } from '../../shared/types';
 import type { LocalMirrorSyncStatus } from '../../shared/types/local-mirror';
 
-const execFileAsync = promisify(execFile);
 const logger = createLogger('LocalMirrorService');
 const SYNC_TIMEOUT_MS = 5 * 60_000;
-const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 const MIRROR_OWNER_FILE = '.komla-local-mirror';
 const MIRROR_PATH_MAX_ATTEMPTS = 25;
 const MIRROR_REMOVE_OPTIONS = { recursive: true, force: true, maxRetries: 3, retryDelay: 100 };
@@ -331,31 +328,17 @@ class LocalMirrorService {
       '-e',
       transport.remoteShell,
     ];
-    const options = { timeout: SYNC_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES };
     try {
-      try {
-        await execFileAsync(
-          'rsync',
-          ['-a', '-s', ...commonArgs, remotePath, `${mirrorPath}${sep}`],
-          options
-        );
-      } catch (error) {
-        if (
-          !/(?:invalid option -- s|-s: unknown option)/i.test(
-            error instanceof Error ? error.message : String(error)
-          )
-        ) {
-          throw error;
-        }
-        await execFileAsync(
-          'rsync',
-          ['-a', ...commonArgs, legacyRemotePath, `${mirrorPath}${sep}`],
-          {
-            ...options,
-            env: { ...process.env, RSYNC_OLD_ARGS: '1', RSYNC_PROTECT_ARGS: '0' },
-          }
-        );
-      }
+      await syncWithSupportedOptions(
+        {
+          commonArgs,
+          remotePath,
+          legacyRemotePath,
+          localPath: `${mirrorPath}${sep}`,
+          timeout: SYNC_TIMEOUT_MS,
+        },
+        (percent) => this.setSyncStatus({ workspaceId, state: 'syncing', percent })
+      );
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
@@ -401,14 +384,7 @@ class LocalMirrorService {
   }
 
   private setSyncStatus(status: LocalMirrorSyncStatus): void {
-    const previous = this.syncStatuses.get(status.workspaceId);
-    if (
-      previous?.state === status.state &&
-      (previous.state !== 'error' ||
-        (status.state === 'error' && previous.message === status.message))
-    ) {
-      return;
-    }
+    if (isSameSyncStatus(this.syncStatuses.get(status.workspaceId), status)) return;
     if (status.state === 'ready') {
       this.syncStatuses.delete(status.workspaceId);
     } else {
@@ -440,6 +416,19 @@ class LocalMirrorService {
       return undefined;
     }
   }
+}
+
+function isSameSyncStatus(
+  previous: LocalMirrorSyncStatus | undefined,
+  next: LocalMirrorSyncStatus
+): boolean {
+  if (previous?.state === 'syncing' && next.state === 'syncing') {
+    return previous.percent === next.percent;
+  }
+  if (previous?.state === 'error' && next.state === 'error') {
+    return previous.message === next.message;
+  }
+  return previous?.state === next.state;
 }
 
 function ownerFromMarker(content: string): string | undefined {

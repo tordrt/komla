@@ -245,9 +245,6 @@ export const TerminalPane = React.memo(function TerminalPane({
   );
   const busyReason = useTerminalBusyStore((s) => s.busyTerminals.get(terminalId));
   const isOnline = useOnline();
-  const localMirrorSyncStatus = useLocalMirrorSyncStore(
-    (s) => (effectiveWorkspaceId && s.statusesByWorkspaceId.get(effectiveWorkspaceId)) || undefined
-  );
   const isLayoutMutationDisabled = isLayoutLocked || isClosing;
 
   // Select stable values (not a fresh wrapper object) so unrelated store updates skip re-rendering.
@@ -255,6 +252,12 @@ export const TerminalPane = React.memo(function TerminalPane({
     s.workspaces
       .find((w) => w.id === (effectiveWorkspaceId || s.selectedWorkspaceId))
       ?.terminals.find((t) => t.id === terminalId)
+  );
+  // A sync's percent changes often, and only Local copy panes show it.
+  const localMirrorSyncStatus = useLocalMirrorSyncStore((s) =>
+    terminal?.executionLocation === 'local-mirror' && effectiveWorkspaceId
+      ? s.statusesByWorkspaceId.get(effectiveWorkspaceId)
+      : undefined
   );
   const isPrimary = useWorkspacesStore((s) => {
     const workspace = s.workspaces.find(
@@ -809,43 +812,49 @@ export const TerminalPane = React.memo(function TerminalPane({
           </TooltipContent>
         </Tooltip>
       )}
-      {terminal?.executionLocation === 'local-mirror' &&
-        localMirrorSyncStatus?.state === 'syncing' && (
-          <span
-            role="status"
-            aria-label="Syncing local copy"
-            className="flex shrink-0 items-center gap-1 text-2xs font-medium text-primary"
-          >
+      {localMirrorSyncStatus?.state === 'syncing' && (
+        <span className="flex shrink-0 items-center gap-1 text-2xs font-medium text-primary">
+          <span role="status" aria-label="Syncing local copy" className="flex items-center gap-1">
             <Spinner size="xs" />
-            <span>Syncing…</span>
+            <span>{localMirrorSyncStatus.percent === undefined ? 'Syncing…' : 'Syncing'}</span>
           </span>
-        )}
-      {terminal?.executionLocation === 'local-mirror' &&
-        localMirrorSyncStatus?.state === 'error' && (
-          <button
-            type="button"
-            aria-label="Retry local copy sync"
-            title={`${localMirrorSyncStatus.message} Click to retry.`}
-            className="flex shrink-0 items-center gap-1 text-2xs font-medium text-error hover:underline"
-            draggable={false}
-            onMouseDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (!effectiveWorkspaceId) return;
-              void window.api.retryLocalMirrorSync(effectiveWorkspaceId).catch((error) => {
-                useToastStore
-                  .getState()
-                  .addToast(
-                    `Failed to retry local copy sync: ${(error as Error).message}`,
-                    'error'
-                  );
-              });
-            }}
-          >
-            <WarningCircle className="size-3" weight="fill" />
-            <span>Sync failed · Retry</span>
-          </button>
-        )}
+          {/* Outside the status, which would announce every percent as it changes. */}
+          {localMirrorSyncStatus.percent !== undefined && (
+            <span
+              role="progressbar"
+              aria-label="Local copy sync progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={localMirrorSyncStatus.percent}
+              className="tabular-nums"
+            >
+              {localMirrorSyncStatus.percent}%
+            </span>
+          )}
+        </span>
+      )}
+      {localMirrorSyncStatus?.state === 'error' && (
+        <button
+          type="button"
+          aria-label="Retry local copy sync"
+          title={`${localMirrorSyncStatus.message} Click to retry.`}
+          className="flex shrink-0 items-center gap-1 text-2xs font-medium text-error hover:underline"
+          draggable={false}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!effectiveWorkspaceId) return;
+            void window.api.retryLocalMirrorSync(effectiveWorkspaceId).catch((error) => {
+              useToastStore
+                .getState()
+                .addToast(`Failed to retry local copy sync: ${(error as Error).message}`, 'error');
+            });
+          }}
+        >
+          <WarningCircle className="size-3" weight="fill" />
+          <span>Sync failed · Retry</span>
+        </button>
+      )}
       {showRemotePill && (
         <Tooltip>
           <TooltipTrigger asChild>

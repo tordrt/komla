@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  execFile: vi.fn(),
+  rsync: vi.fn(),
+  children: [] as Array<{
+    stdout: { emit: (event: string, chunk: string) => void; destroy: () => void };
+    stderr: { destroy: () => void };
+    kill: () => void;
+  }>,
   existsSync: vi.fn(() => false),
   readFileSync: vi.fn(),
   mkdir: vi.fn(() => Promise.resolve()),
@@ -18,7 +23,44 @@ const mocks = vi.hoisted(() => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('child_process', () => ({ execFile: mocks.execFile }));
+// Each spawned rsync reports its outcome through `mocks.rsync`'s callback, and can write more
+// output before then through `mocks.children`.
+vi.mock('child_process', async () => {
+  const { EventEmitter } = await import('events');
+  const spawn = (file: string, args: string[], options: unknown) => {
+    const stream = () =>
+      Object.assign(new EventEmitter(), { setEncoding: vi.fn(), destroy: vi.fn() });
+    const child = Object.assign(new EventEmitter(), {
+      stdout: stream(),
+      stderr: stream(),
+      kill: vi.fn(),
+    });
+    mocks.children.push(child);
+    mocks.rsync(
+      file,
+      args,
+      options,
+      (
+        error: (Error & { code?: string; exitCode?: number }) | null,
+        stdout: string,
+        stderr: string
+      ) => {
+        // Listeners attach after spawn returns, and a real child can't report before then.
+        queueMicrotask(() => {
+          if (error?.code === 'ENOENT') {
+            child.emit('error', error);
+            return;
+          }
+          if (stdout) child.stdout.emit('data', stdout);
+          if (stderr) child.stderr.emit('data', stderr);
+          child.emit('close', error ? (error.exitCode ?? 1) : 0, null);
+        });
+      }
+    );
+    return child;
+  };
+  return { spawn };
+});
 vi.mock('fs', () => ({ existsSync: mocks.existsSync, readFileSync: mocks.readFileSync }));
 vi.mock('fs/promises', () => ({
   mkdir: mocks.mkdir,
@@ -95,13 +137,14 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    mocks.execFile.mockReset();
+    mocks.rsync.mockReset();
+    mocks.children.length = 0;
     mocks.existsSync.mockReturnValue(false);
     mocks.readFileSync.mockReset();
     mocks.readdir.mockReset().mockResolvedValue([]);
     mocks.readFile.mockReset().mockResolvedValue('');
     mocks.rm.mockReset().mockResolvedValue(undefined);
-    mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       callback(null, '', '');
     });
   });
@@ -111,7 +154,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
   it('keeps per-request sync traces out of info diagnostics', async () => {
     vi.stubEnv('KOMLA_DIAGNOSTICS', '1');
     const finishes: Array<() => void> = [];
-    mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finishes.push(() => callback(null, '', ''));
     });
     const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
@@ -142,7 +185,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     expect(localMirrorService.hasMirror('workspace-1', backend)).toBe(false);
     expect(mocks.mkdir).not.toHaveBeenCalled();
     expect(mocks.writeFile).not.toHaveBeenCalled();
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    expect(mocks.rsync).not.toHaveBeenCalled();
   });
 
   it('recognizes an existing copy after restart', async () => {
@@ -155,7 +198,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
 
     expect(localMirrorService.hasMirror('workspace-1', backend)).toBe(true);
     expect(mocks.mkdir).not.toHaveBeenCalled();
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    expect(mocks.rsync).not.toHaveBeenCalled();
   });
 
   it("does not sync another workspace's copy", async () => {
@@ -191,7 +234,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       'workspace-1',
       'utf8'
     );
-    expect(mocks.execFile).toHaveBeenCalledWith(
+    expect(mocks.rsync).toHaveBeenCalledWith(
       'rsync',
       expect.arrayContaining([
         '-s',
@@ -205,9 +248,32 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         'dev@example.com:/home/dev/work trees/project/',
         '/tmp/komla-test/mirrors/Project-App/agent-local-preview/',
       ]),
-      expect.objectContaining({ timeout: 300_000 }),
+      expect.anything(),
       expect.any(Function)
     );
+  });
+
+  it('stops a sync that is still running after five minutes', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.rsync.mockImplementation(() => undefined);
+      const { localMirrorService } =
+        await import('../../../src/main/services/local-mirror.service');
+
+      localMirrorService.requestSync('workspace-1', backend);
+      await vi.advanceTimersByTimeAsync(0);
+      const child = mocks.children[0];
+
+      await vi.advanceTimersByTimeAsync(299_999);
+      expect(child?.kill).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(child?.kill).toHaveBeenCalled();
+      expect(child?.stdout.destroy).toHaveBeenCalled();
+      expect(child?.stderr.destroy).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not rewrite the watched remote repository during local copy syncs', async () => {
@@ -217,7 +283,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     localMirrorService.requestSync('workspace-1', backend);
     await localMirrorService.prepare('workspace-1', backend);
 
-    expect(mocks.execFile).toHaveBeenCalledTimes(2);
+    expect(mocks.rsync).toHaveBeenCalledTimes(2);
     // Provisioning rewrites shared Git config, causing another watcher snapshot and sync.
     expect(mocks.ensureWorkspaceReady).not.toHaveBeenCalled();
     expect(localMirrorService.getSyncStatuses()).toEqual([]);
@@ -233,13 +299,13 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
       { recursive: true }
     );
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    expect(mocks.rsync).not.toHaveBeenCalled();
     expect(mocks.ensureWorkspaceReady).not.toHaveBeenCalled();
   });
 
   it('reports one continuous busy period while a requested resync is queued', async () => {
     const finishes: Array<() => void> = [];
-    mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finishes.push(() => callback(null, '', ''));
     });
     const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
@@ -260,7 +326,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
 
   it('waits for a queued resync before completing preparation', async () => {
     const finishes: Array<() => void> = [];
-    mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finishes.push(() => callback(null, '', ''));
     });
     const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
@@ -286,31 +352,31 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
 
     localMirrorService.ensureInitialSync('workspace-1', backend);
-    await vi.waitFor(() => expect(mocks.execFile).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mocks.rsync).toHaveBeenCalledTimes(1));
 
     localMirrorService.ensureInitialSync('workspace-1', backend);
     await Promise.resolve();
 
-    expect(mocks.execFile).toHaveBeenCalledTimes(1);
+    expect(mocks.rsync).toHaveBeenCalledTimes(1);
   });
 
   it('is current only while its latest sync succeeded', async () => {
     let finishSync: (error: Error | null) => void = () => undefined;
-    mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finishSync = (error) => callback(error, '', error?.message ?? '');
     });
     const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
     expect(localMirrorService.isCurrent('workspace-1')).toBe(false);
 
     const first = localMirrorService.prepare('workspace-1', backend);
-    await vi.waitFor(() => expect(mocks.execFile).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mocks.rsync).toHaveBeenCalledTimes(1));
     expect(localMirrorService.isCurrent('workspace-1')).toBe(false);
     finishSync(null);
     await first;
     expect(localMirrorService.isCurrent('workspace-1')).toBe(true);
 
     const second = localMirrorService.prepare('workspace-1', backend);
-    await vi.waitFor(() => expect(mocks.execFile).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(mocks.rsync).toHaveBeenCalledTimes(2));
     expect(localMirrorService.isCurrent('workspace-1')).toBe(false);
     finishSync(new Error('connection lost'));
     await expect(second).rejects.toThrow('connection lost');
@@ -318,7 +384,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
   });
 
   it('reports background sync failures and allows the initial sync to retry', async () => {
-    mocks.execFile
+    mocks.rsync
       .mockImplementationOnce((_file, _args, _options, callback) => {
         callback(new Error('connection lost'), '', 'connection lost');
       })
@@ -345,13 +411,13 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     await vi.waitFor(() =>
       expect(statuses.at(-1)).toEqual({ workspaceId: 'workspace-1', state: 'ready' })
     );
-    expect(mocks.execFile).toHaveBeenCalledTimes(2);
+    expect(mocks.rsync).toHaveBeenCalledTimes(2);
   });
 
   it.each(['rsync: invalid option -- s', 'rsync: -s: unknown option'])(
     'falls back to legacy remote-path quoting for %s',
     async (message) => {
-      mocks.execFile.mockImplementation((_file, args, _options, callback) => {
+      mocks.rsync.mockImplementation((_file, args, _options, callback) => {
         if (args.includes('-s')) {
           callback(new Error(message), '', message);
           return;
@@ -363,12 +429,12 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
 
       await localMirrorService.prepare('workspace-1', backend);
 
-      expect(mocks.execFile).toHaveBeenCalledTimes(2);
-      expect(mocks.execFile.mock.calls[1]?.[1]).not.toContain('-s');
-      expect(mocks.execFile.mock.calls[1]?.[1]).toContain(
+      expect(mocks.rsync).toHaveBeenCalledTimes(2);
+      expect(mocks.rsync.mock.calls[1]?.[1]).not.toContain('-s');
+      expect(mocks.rsync.mock.calls[1]?.[1]).toContain(
         "dev@example.com:'/home/dev/work trees/project/'"
       );
-      expect(mocks.execFile.mock.calls[1]?.[2]).toEqual(
+      expect(mocks.rsync.mock.calls[1]?.[2]).toEqual(
         expect.objectContaining({
           env: expect.objectContaining({ RSYNC_OLD_ARGS: '1', RSYNC_PROTECT_ARGS: '0' }),
         })
@@ -376,9 +442,189 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     }
   );
 
+  it('asks rsync for overall progress and reports each new percent', async () => {
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
+      callback(
+        null,
+        '\r      3,000,000  12%    9.17MB/s    0:00:00 (xfr#1, to-chk=38/40)' +
+          '\r      3,000,000  12%    9.17MB/s    0:00:00 (xfr#1, to-chk=38/40)' +
+          '\r     24,000,000  99%    7.90MB/s    0:00:02 (xfr#8, to-chk=0/40)\r',
+        ''
+      );
+    });
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const statuses: unknown[] = [];
+    localMirrorService.onSyncStatus((status) => statuses.push(status));
+
+    await localMirrorService.prepare('workspace-1', backend);
+    await vi.waitFor(() =>
+      expect(statuses.at(-1)).toEqual({ workspaceId: 'workspace-1', state: 'ready' })
+    );
+
+    expect(mocks.rsync.mock.calls[0]?.[1]).toContain('--info=progress2');
+    expect(statuses).toEqual([
+      { workspaceId: 'workspace-1', state: 'syncing' },
+      { workspaceId: 'workspace-1', state: 'syncing', percent: 12 },
+      { workspaceId: 'workspace-1', state: 'syncing', percent: 100 },
+      { workspaceId: 'workspace-1', state: 'ready' },
+    ]);
+  });
+
+  it('gives a window that opens during a sync its current percent', async () => {
+    let finish: (() => void) | undefined;
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
+      finish = () => callback(null, '', '');
+    });
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+
+    const sync = localMirrorService.prepare('workspace-1', backend);
+    await vi.waitFor(() => expect(mocks.children).toHaveLength(1));
+    mocks.children[0]?.stdout.emit('data', '\r      3,000,000  12%    9.17MB/s    0:00:00  ');
+
+    expect(localMirrorService.getSyncStatuses()).toEqual([
+      { workspaceId: 'workspace-1', state: 'syncing', percent: 12 },
+    ]);
+    finish?.();
+    await sync;
+  });
+
+  it('starts over from no percent when a queued sync follows', async () => {
+    const finishes: Array<() => void> = [];
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
+      finishes.push(() =>
+        callback(null, '\r      3,000,000  12%    9.17MB/s    0:00:00  \r', '')
+      );
+    });
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const statuses: unknown[] = [];
+    localMirrorService.onSyncStatus((status) => statuses.push(status));
+
+    localMirrorService.requestSync('workspace-1', backend);
+    await vi.waitFor(() => expect(finishes).toHaveLength(1));
+    localMirrorService.requestSync('workspace-1', backend);
+    finishes[0]?.();
+    await vi.waitFor(() => expect(finishes).toHaveLength(2));
+
+    expect(statuses).toEqual([
+      { workspaceId: 'workspace-1', state: 'syncing' },
+      { workspaceId: 'workspace-1', state: 'syncing', percent: 12 },
+      { workspaceId: 'workspace-1', state: 'syncing' },
+    ]);
+    finishes[1]?.();
+    await vi.waitFor(() =>
+      expect(statuses.at(-1)).toEqual({ workspaceId: 'workspace-1', state: 'ready' })
+    );
+  });
+
+  // Dropping --info=progress2 keeps Local copies working on the rsync that macOS ships.
+  it('falls back to per-file progress when rsync rejects overall progress', async () => {
+    const rejection = "rsync: unrecognized option `--info=progress2'";
+    mocks.rsync.mockImplementation((_file, args, _options, callback) => {
+      if (args.includes('--info=progress2')) {
+        callback(new Error(rejection), '', rejection);
+        return;
+      }
+      callback(
+        null,
+        '     3 100%  1MB/s  0:00:00 (xfer#1, to-check=38/40)\n' +
+          '     3 100%  1MB/s  0:00:00 (xfer#2, to-check=20/40)\n',
+        ''
+      );
+    });
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const statuses: unknown[] = [];
+    localMirrorService.onSyncStatus((status) => statuses.push(status));
+
+    await localMirrorService.prepare('workspace-1', backend);
+
+    expect(mocks.rsync).toHaveBeenCalledTimes(2);
+    expect(mocks.rsync.mock.calls[1]?.[1]).toContain('--progress');
+    expect(mocks.rsync.mock.calls[1]?.[1]).toContain('-s');
+    await vi.waitFor(() =>
+      expect(statuses).toContainEqual({
+        workspaceId: 'workspace-1',
+        state: 'syncing',
+        percent: 50,
+      })
+    );
+  });
+
+  it('still syncs, without a percent, on an rsync with no progress options at all', async () => {
+    mocks.rsync.mockImplementation((_file, args, _options, callback) => {
+      if (args.includes('--info=progress2')) {
+        const message = "rsync: unrecognized option '--info=progress2'";
+        callback(new Error(message), '', message);
+      } else if (args.includes('--progress')) {
+        const message = "rsync: unrecognized option '--progress'";
+        callback(new Error(message), '', message);
+      } else {
+        callback(null, '', '');
+      }
+    });
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+
+    await localMirrorService.prepare('workspace-1', backend);
+
+    expect(mocks.rsync).toHaveBeenCalledTimes(3);
+    expect(mocks.rsync.mock.calls[2]?.[1]).not.toContain('--progress');
+    expect(mocks.rsync.mock.calls[2]?.[1]).not.toContain('--info=progress2');
+  });
+
+  // The rsync on macOS rejects -s and --info=progress2 alike, one at a time.
+  it('drops both -s and overall progress for an old rsync', async () => {
+    mocks.rsync.mockImplementation((_file, args, _options, callback) => {
+      const rejected = args.includes('-s')
+        ? 'rsync: -s: unknown option'
+        : args.includes('--info=progress2')
+          ? 'rsync: --info=progress2: unknown option'
+          : undefined;
+      if (rejected) callback(new Error(rejected), '', rejected);
+      else callback(null, '', '');
+    });
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+
+    await localMirrorService.prepare('workspace-1', backend);
+
+    expect(mocks.rsync).toHaveBeenCalledTimes(3);
+    const last = mocks.rsync.mock.calls[2];
+    expect(last?.[1]).toContain('--progress');
+    expect(last?.[1]).toContain("dev@example.com:'/home/dev/work trees/project/'");
+    expect(last?.[2]).toEqual(
+      expect.objectContaining({ env: expect.objectContaining({ RSYNC_OLD_ARGS: '1' }) })
+    );
+  });
+
+  it('does not repeat a transfer that failed partway, whatever its errors mention', async () => {
+    const message = 'rsync: send_files failed to open "docs/option/info.md": Permission denied';
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
+      callback(Object.assign(new Error(message), { exitCode: 23 }), '', message);
+    });
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+
+    await expect(localMirrorService.prepare('workspace-1', backend)).rejects.toThrow(
+      'Permission denied'
+    );
+
+    expect(mocks.rsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a failure that has nothing to do with its options', async () => {
+    const message = 'ssh: connect to host example.com port 22: Connection refused';
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
+      callback(new Error(message), '', message);
+    });
+    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+
+    await expect(localMirrorService.prepare('workspace-1', backend)).rejects.toThrow(
+      'Connection refused'
+    );
+
+    expect(mocks.rsync).toHaveBeenCalledTimes(1);
+  });
+
   it('coalesces concurrent preparations for one workspace', async () => {
     let finish: (() => void) | undefined;
-    mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finish = () => callback(null, '', '');
     });
     const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
@@ -389,7 +635,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     finish?.();
     await Promise.all([first, second]);
 
-    expect(mocks.execFile).toHaveBeenCalledTimes(1);
+    expect(mocks.rsync).toHaveBeenCalledTimes(1);
   });
 
   it('rejects mirror paths that escape the Komla mirror root', async () => {
@@ -530,7 +776,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     it('leaves a copy being made or synced', async () => {
       layOut({ 'Project-App/agent-local-preview': 'workspace-1' });
       let finish: (() => void) | undefined;
-      mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+      mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
         finish = () => callback(null, '', '');
       });
       const { localMirrorService } =
@@ -563,7 +809,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
 
     it("forgets a removed copy's last sync failure", async () => {
       layOut({ 'Project-App/agent-local-preview': 'workspace-1' });
-      mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+      mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
         callback(new Error('host unreachable'), '', '');
       });
       const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
@@ -591,7 +837,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
           })
       );
       let finishSync: (() => void) | undefined;
-      mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+      mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
         finishSync = () => callback(null, '', '');
       });
       const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
@@ -663,7 +909,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
             finishRemoval = resolve;
           })
       );
-      mocks.execFile.mockImplementation((_file, _args, _options, callback) => {
+      mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
         callback(new Error('host unreachable'), '', '');
       });
 
@@ -672,11 +918,11 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       const preparing = localMirrorService.prepare('workspace-1', backend).catch(() => undefined);
       finishRemoval?.();
       await Promise.all([sweeping, preparing]);
-      mocks.execFile.mockClear();
+      mocks.rsync.mockClear();
 
       localMirrorService.ensureInitialSync('workspace-1', backend);
 
-      await vi.waitFor(() => expect(mocks.execFile).toHaveBeenCalled());
+      await vi.waitFor(() => expect(mocks.rsync).toHaveBeenCalled());
     });
 
     it('removes nothing once stopped while reading an owner marker', async () => {

@@ -419,6 +419,70 @@ describe('TerminalPane SSH reconnect', () => {
     expect(screen.queryByText('Updating local copy…')).not.toBeInTheDocument();
   });
 
+  it('shows how far a local copy sync has come once rsync reports it', () => {
+    workspace.terminals = [
+      {
+        id: 'terminal-1',
+        name: 'Local copy',
+        status: 'running',
+        executionLocation: 'local-mirror',
+        remoteSessionActive: false,
+      },
+    ];
+    setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing' });
+
+    render(
+      <TerminalPane
+        paneId="pane-1"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+      />
+    );
+
+    const status = screen.getByRole('status', { name: 'Syncing local copy' });
+    expect(status).toHaveTextContent('Syncing…');
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+    act(() => {
+      setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 42 });
+    });
+
+    const progress = screen.getByRole('progressbar', { name: 'Local copy sync progress' });
+    expect(progress).toHaveTextContent('42%');
+    expect(progress).toHaveAttribute('aria-valuenow', '42');
+    // A live region would announce every percent, talking over whatever else is being read out.
+    expect(status).not.toContainElement(progress);
+    expect(status).toHaveTextContent('Syncing');
+    expect(status).not.toHaveTextContent('…');
+
+    act(() => {
+      setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 0 });
+    });
+
+    expect(screen.getByRole('progressbar')).toHaveTextContent('0%');
+  });
+
+  it('does not re-render a pane on the SSH host as its local copy syncs', () => {
+    setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 1 });
+    render(
+      <TerminalPane
+        paneId="pane-1"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+      />
+    );
+    expect(mocks.terminalViewProps).not.toBeNull();
+    mocks.terminalViewProps = null;
+
+    act(() => {
+      setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 2 });
+    });
+
+    expect(mocks.terminalViewProps).toBeNull();
+  });
+
   it('labels SSH local-copy terminals as read-only without crowding narrow pane controls', () => {
     mocks.terminalConfig = { colors: { background: '#282c34' }, showPaneHeaders: true };
     workspace.terminals = [

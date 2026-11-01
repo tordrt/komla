@@ -1608,7 +1608,15 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
         'sh',
         backend.remoteDirectory,
       ]);
+      const percents: number[] = [];
+      const stopListening = localMirrorService.onSyncStatus((status) => {
+        if (status.state === 'syncing' && status.percent !== undefined) {
+          percents.push(status.percent);
+        }
+      });
       const mirrorPath = await localMirrorService.prepare(workspaceId, backend);
+      stopListening();
+      expect(percents.at(-1)).toBe(100);
       expect(readFileSync(`${mirrorPath}/visible.txt`, 'utf8')).toBe('first');
       expect(existsSync(`${mirrorPath}/.env`)).toBe(false);
       expect(existsSync(`${mirrorPath}/private.ignored`)).toBe(false);

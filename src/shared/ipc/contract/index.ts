@@ -3,12 +3,14 @@ import { agentsMenuBarContract } from './agents-menu-bar.contract';
 import { appContract } from './app.contract';
 import { askpassContract } from './askpass.contract';
 import { automationContract } from './automation.contract';
+import { configContract } from './config.contract';
 import { customizationContract } from './customization.contract';
 import { devPreviewContract } from './dev-preview.contract';
 import { diagnosticsContract } from './diagnostics.contract';
 import { licenseContract } from './license.contract';
 import { notesContract } from './notes.contract';
 import { pluginsContract } from './plugins.contract';
+import { projectContract } from './project.contract';
 import { remoteControlContract } from './remote-control.contract';
 import { settingsContract } from './settings.contract';
 import { shellContract } from './shell.contract';
@@ -33,6 +35,8 @@ import type { z } from 'zod';
  * it, so importing a schema at runtime would stop the preload loading at all.
  */
 export const ipcContract = {
+  ...projectContract,
+  ...configContract,
   ...windowContract,
   ...askpassContract,
   ...diagnosticsContract,

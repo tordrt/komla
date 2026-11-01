@@ -1,32 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import { BrowserWindow, ipcMain, type WebContents } from 'electron';
+import { BrowserWindow, type WebContents } from 'electron';
 
 import { turnedOffQueuedCommands } from '../../../shared/constants/agent-capabilities';
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  categoryCreateArgsSchema,
-  categoryDeleteArgsSchema,
-  categoryUpdateArgsSchema,
-  configClearOpenRouterApiKeyArgsSchema,
-  configGetOpenRouterKeyStatusArgsSchema,
-  configSaveOpenRouterApiKeyArgsSchema,
-  configTestCustomEndpointArgsSchema,
-  configVerifySshHostArgsSchema,
-  sshDeleteHostArgsSchema,
-  configUpdateArgsSchema,
-  sshCheckHostArgsSchema,
-  sshDisableIntegrationArgsSchema,
-  sshSetKomlaSkillArgsSchema,
-  sshEnableIntegrationArgsSchema,
-  sshGetCachedIntegrationUpdatesArgsSchema,
-  sshGetIntegrationStatusArgsSchema,
-  sshGetPortForwardStatusArgsSchema,
-  sshListConfigHostsArgsSchema,
-  sshListForwardedPortsArgsSchema,
-  sshSaveHostArgsSchema,
-  sshStopDesktopForwardArgsSchema,
-} from '../../../shared/ipc/schemas/config-ipc.schemas';
 import {
   CustomEndpointTestResult,
   SshConfigHost,
@@ -58,7 +35,7 @@ import { utilityInferenceService } from '../../services/utility-inference.servic
 import { utilitySecretService } from '../../services/utility-secret.service';
 import { windowService } from '../../services/window.service';
 import { workspaceService } from '../../services/workspace.service';
-import { handleValidated } from '../validation/ipc-validators';
+import { handleIpc } from '../validation/ipc-validators';
 
 // The saving window gets the config as its reply; the others would keep a stale copy.
 function broadcastConfigChanged(config: AppConfig, sender: WebContents): void {
@@ -90,92 +67,66 @@ export function registerConfigHandlers(): void {
   sshWorkspaceService.onIntegrationUpdatesChanged(broadcastSshIntegrationUpdates);
 
   // Config handlers
-  ipcMain.handle(IPC.CONFIG_GET, async (): Promise<AppConfig> => {
+  handleIpc(IPC.CONFIG_GET, async (): Promise<AppConfig> => {
     return configService.get();
   });
 
-  ipcMain.handle(
-    IPC.CONFIG_UPDATE,
-    handleValidated(
-      IPC.CONFIG_UPDATE,
-      configUpdateArgsSchema,
-      async (event, [updates]): Promise<AppConfig> => {
-        const turnedOffBefore =
-          updates.agentDisabledCapabilities === undefined
-            ? undefined
-            : turnedOffQueuedCommands(configService.get());
-        const config = configService.update(
-          updates.usageTelemetryEnabled === undefined
-            ? updates
-            : { ...updates, usageTelemetryConsentAnswered: true }
-        );
-        broadcastConfigChanged(config, event.sender);
-        if (updates.usageTelemetryEnabled === false) {
-          metricsCollectorService.discard();
-        }
-        // Apply zoom level to all windows when it changes
-        if (updates.zoomLevel !== undefined) {
-          windowService.setZoomLevelAll(updates.zoomLevel);
-        }
-        if (
-          updates.directRemoteEnabled !== undefined ||
-          updates.directRemoteKeepAwake !== undefined
-        ) {
-          await syncRemoteControlKeepAwake(config);
-        }
-        // SSH hosts' companions tell the CLI what is off while Komla is away (ADR 0006).
-        if (
-          turnedOffBefore &&
-          !isDeepStrictEqual(turnedOffQueuedCommands(config), turnedOffBefore)
-        ) {
-          void remoteWorkspaceObservationService.reconcile();
-        }
-        if (updates.keepAwakeMode !== undefined) {
-          keepAwakeService.setMode(config.keepAwakeMode);
-        }
-        if (updates.showAgentsInMenuBar !== undefined) {
-          agentsMenuBarService.setEnabled(config.showAgentsInMenuBar);
-        }
-        if (updates.agentsMenuBarInBackgroundOnly !== undefined) {
-          agentsMenuBarService.setInBackgroundOnly(config.agentsMenuBarInBackgroundOnly);
-        }
-        if (updates.agentsDoneClearedAt !== undefined) {
-          agentsMenuBarService.setDoneClearedAt(config.agentsDoneClearedAt);
-        }
-        if (updates.directRemoteLocalAccess !== undefined) {
-          // A connected device gets a new list and lets go of what it may no longer open.
-          publishRemoteWorkspaceChange();
-        }
-        if (updates.directRemotePasskeyWindowMinutes !== undefined) {
-          remoteControlHostAccessService.passkeyWindowChanged();
-        }
-        return config;
-      }
-    )
-  );
+  handleIpc(IPC.CONFIG_UPDATE, async (event, [updates]): Promise<AppConfig> => {
+    const turnedOffBefore =
+      updates.agentDisabledCapabilities === undefined
+        ? undefined
+        : turnedOffQueuedCommands(configService.get());
+    const config = configService.update(
+      updates.usageTelemetryEnabled === undefined
+        ? updates
+        : { ...updates, usageTelemetryConsentAnswered: true }
+    );
+    broadcastConfigChanged(config, event.sender);
+    if (updates.usageTelemetryEnabled === false) {
+      metricsCollectorService.discard();
+    }
+    // Apply zoom level to all windows when it changes
+    if (updates.zoomLevel !== undefined) {
+      windowService.setZoomLevelAll(updates.zoomLevel);
+    }
+    if (updates.directRemoteEnabled !== undefined || updates.directRemoteKeepAwake !== undefined) {
+      await syncRemoteControlKeepAwake(config);
+    }
+    // SSH hosts' companions tell the CLI what is off while Komla is away (ADR 0006).
+    if (turnedOffBefore && !isDeepStrictEqual(turnedOffQueuedCommands(config), turnedOffBefore)) {
+      void remoteWorkspaceObservationService.reconcile();
+    }
+    if (updates.keepAwakeMode !== undefined) {
+      keepAwakeService.setMode(config.keepAwakeMode);
+    }
+    if (updates.showAgentsInMenuBar !== undefined) {
+      agentsMenuBarService.setEnabled(config.showAgentsInMenuBar);
+    }
+    if (updates.agentsMenuBarInBackgroundOnly !== undefined) {
+      agentsMenuBarService.setInBackgroundOnly(config.agentsMenuBarInBackgroundOnly);
+    }
+    if (updates.agentsDoneClearedAt !== undefined) {
+      agentsMenuBarService.setDoneClearedAt(config.agentsDoneClearedAt);
+    }
+    if (updates.directRemoteLocalAccess !== undefined) {
+      // A connected device gets a new list and lets go of what it may no longer open.
+      publishRemoteWorkspaceChange();
+    }
+    if (updates.directRemotePasskeyWindowMinutes !== undefined) {
+      remoteControlHostAccessService.passkeyWindowChanged();
+    }
+    return config;
+  });
 
-  ipcMain.handle(IPC.SSH_LIST_HOSTS, async (): Promise<SshHost[]> => {
+  handleIpc(IPC.SSH_LIST_HOSTS, async (): Promise<SshHost[]> => {
     return sshHostService.list();
   });
 
-  ipcMain.handle(
-    IPC.SSH_LIST_CONFIG_HOSTS,
-    handleValidated(
-      IPC.SSH_LIST_CONFIG_HOSTS,
-      sshListConfigHostsArgsSchema,
-      (): Promise<SshConfigHost[]> => listSshConfigHosts()
-    )
-  );
+  handleIpc(IPC.SSH_LIST_CONFIG_HOSTS, (): Promise<SshConfigHost[]> => listSshConfigHosts());
 
-  ipcMain.handle(IPC.SSH_HOST_STATUSES_GET, (): SshHostStatus[] => sshHostStatusService.list());
-  ipcMain.handle(
-    IPC.SSH_HOST_CHECK,
-    handleValidated(
-      IPC.SSH_HOST_CHECK,
-      sshCheckHostArgsSchema,
-      (_, [hostId]): Promise<SshHostStatus | undefined> =>
-        sshConnectionService.checkHost(sshWorkspaceService.getHost(hostId))
-    )
+  handleIpc(IPC.SSH_HOST_STATUSES_GET, (): SshHostStatus[] => sshHostStatusService.list());
+  handleIpc(IPC.SSH_HOST_CHECK, (_, [hostId]): Promise<SshHostStatus | undefined> =>
+    sshConnectionService.checkHost(sshWorkspaceService.getHost(hostId))
   );
   sshHostStatusService.onChange((statuses) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -183,224 +134,106 @@ export function registerConfigHandlers(): void {
     }
   });
 
-  ipcMain.handle(
-    IPC.SSH_SAVE_HOST,
-    handleValidated(
-      IPC.SSH_SAVE_HOST,
-      sshSaveHostArgsSchema,
-      async (_, [host]): Promise<SshHost> => {
-        workspaceService.assertSshHostConnectionUpdateAllowed(host);
-        const saved = sshHostService.save(host);
-        sshWorkspaceService.forgetHost(saved.id);
-        void sshPortForwardService.reconcileHostPortForwards(saved);
-        broadcastSshHostsChanged();
-        // A host added on this device brings along the workspaces other devices started there.
-        if (!saved.setupPending) void workspaceService.sshSync.syncSoon(saved.id, { now: true });
-        return saved;
-      }
-    )
-  );
+  handleIpc(IPC.SSH_SAVE_HOST, async (_, [host]): Promise<SshHost> => {
+    workspaceService.assertSshHostConnectionUpdateAllowed(host);
+    const saved = sshHostService.save(host);
+    sshWorkspaceService.forgetHost(saved.id);
+    void sshPortForwardService.reconcileHostPortForwards(saved);
+    broadcastSshHostsChanged();
+    // A host added on this device brings along the workspaces other devices started there.
+    if (!saved.setupPending) void workspaceService.sshSync.syncSoon(saved.id, { now: true });
+    return saved;
+  });
 
-  ipcMain.handle(
-    IPC.CONFIG_SAVE_OPENROUTER_API_KEY,
-    handleValidated(
-      IPC.CONFIG_SAVE_OPENROUTER_API_KEY,
-      configSaveOpenRouterApiKeyArgsSchema,
-      async (_, [apiKey]): Promise<void> => {
-        await utilitySecretService.setOpenRouterApiKey(apiKey);
-      }
-    )
-  );
+  handleIpc(IPC.CONFIG_SAVE_OPENROUTER_API_KEY, async (_, [apiKey]): Promise<void> => {
+    await utilitySecretService.setOpenRouterApiKey(apiKey);
+  });
 
-  ipcMain.handle(
-    IPC.CONFIG_CLEAR_OPENROUTER_API_KEY,
-    handleValidated(
-      IPC.CONFIG_CLEAR_OPENROUTER_API_KEY,
-      configClearOpenRouterApiKeyArgsSchema,
-      async (): Promise<void> => {
-        await utilitySecretService.clearOpenRouterApiKey();
-      }
-    )
-  );
+  handleIpc(IPC.CONFIG_CLEAR_OPENROUTER_API_KEY, async (): Promise<void> => {
+    await utilitySecretService.clearOpenRouterApiKey();
+  });
 
-  ipcMain.handle(
-    IPC.CONFIG_GET_OPENROUTER_KEY_STATUS,
-    handleValidated(
-      IPC.CONFIG_GET_OPENROUTER_KEY_STATUS,
-      configGetOpenRouterKeyStatusArgsSchema,
-      async (): Promise<UtilityOpenRouterKeyStatus> => {
-        const status = await utilitySecretService.getStatus();
-        return {
-          hasOpenRouterKey: status.hasKey,
-          isUsingFallbackStorage: status.storage === 'file',
-        };
-      }
-    )
-  );
+  handleIpc(IPC.CONFIG_GET_OPENROUTER_KEY_STATUS, async (): Promise<UtilityOpenRouterKeyStatus> => {
+    const status = await utilitySecretService.getStatus();
+    return {
+      hasOpenRouterKey: status.hasKey,
+      isUsingFallbackStorage: status.storage === 'file',
+    };
+  });
 
-  ipcMain.handle(
-    IPC.CONFIG_TEST_CUSTOM_ENDPOINT,
-    handleValidated(
-      IPC.CONFIG_TEST_CUSTOM_ENDPOINT,
-      configTestCustomEndpointArgsSchema,
-      async (): Promise<CustomEndpointTestResult> => {
-        return utilityInferenceService.testCustomEndpoint();
-      }
-    )
-  );
+  handleIpc(IPC.CONFIG_TEST_CUSTOM_ENDPOINT, async (): Promise<CustomEndpointTestResult> => {
+    return utilityInferenceService.testCustomEndpoint();
+  });
 
-  ipcMain.handle(
-    IPC.CONFIG_VERIFY_SSH_HOST,
-    handleValidated(
-      IPC.CONFIG_VERIFY_SSH_HOST,
-      configVerifySshHostArgsSchema,
-      async (_, [host, options]): Promise<SshHostSetupResult> => {
-        return options?.prepare
-          ? sshWorkspaceService.verifyAndPrepareHost(host)
-          : sshWorkspaceService.checkHostCapabilities(host);
-      }
-    )
-  );
+  handleIpc(IPC.CONFIG_VERIFY_SSH_HOST, async (_, [host, options]): Promise<SshHostSetupResult> => {
+    return options?.prepare
+      ? sshWorkspaceService.verifyAndPrepareHost(host)
+      : sshWorkspaceService.checkHostCapabilities(host);
+  });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.SSH_DELETE_HOST,
-    handleValidated(
-      IPC.SSH_DELETE_HOST,
-      sshDeleteHostArgsSchema,
-      async (_, [hostId, options]): Promise<{ deletedWorkspaceIds: string[] }> => {
-        const result = await workspaceService.deleteSshHost(hostId, options);
-        await sshPortForwardService.stopHostPortForwards(hostId);
-        broadcastSshHostsChanged();
-        return result;
-      }
-    )
+    async (_, [hostId, options]): Promise<{ deletedWorkspaceIds: string[] }> => {
+      const result = await workspaceService.deleteSshHost(hostId, options);
+      await sshPortForwardService.stopHostPortForwards(hostId);
+      broadcastSshHostsChanged();
+      return result;
+    }
   );
 
-  ipcMain.handle(
-    IPC.SSH_GET_INTEGRATION_STATUS,
-    handleValidated(
-      IPC.SSH_GET_INTEGRATION_STATUS,
-      sshGetIntegrationStatusArgsSchema,
-      async (_, [hostId]): Promise<SshIntegrationStatus> => {
-        return sshWorkspaceService.getIntegrationStatus(hostId);
-      }
-    )
-  );
+  handleIpc(IPC.SSH_GET_INTEGRATION_STATUS, async (_, [hostId]): Promise<SshIntegrationStatus> => {
+    return sshWorkspaceService.getIntegrationStatus(hostId);
+  });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.SSH_GET_CACHED_INTEGRATION_UPDATES,
-    handleValidated(
-      IPC.SSH_GET_CACHED_INTEGRATION_UPDATES,
-      sshGetCachedIntegrationUpdatesArgsSchema,
-      async (): Promise<Record<string, SshIntegrationUpdates>> => {
-        return sshWorkspaceService.getCachedIntegrationUpdates();
-      }
-    )
+    async (): Promise<Record<string, SshIntegrationUpdates>> => {
+      return sshWorkspaceService.getCachedIntegrationUpdates();
+    }
   );
 
-  ipcMain.handle(
-    IPC.SSH_GET_PORT_FORWARD_STATUS,
-    handleValidated(
-      IPC.SSH_GET_PORT_FORWARD_STATUS,
-      sshGetPortForwardStatusArgsSchema,
-      async (_, [hostId]): Promise<SshPortForwardStatus> => {
-        return sshPortForwardService.getHostPortForwardStatus(hostId);
-      }
-    )
+  handleIpc(IPC.SSH_GET_PORT_FORWARD_STATUS, async (_, [hostId]): Promise<SshPortForwardStatus> => {
+    return sshPortForwardService.getHostPortForwardStatus(hostId);
+  });
+
+  handleIpc(IPC.SSH_LIST_FORWARDED_PORTS, (): SshForwardedPort[] =>
+    sshPortForwardService.listForwardedPorts()
   );
 
-  ipcMain.handle(
-    IPC.SSH_LIST_FORWARDED_PORTS,
-    handleValidated(
-      IPC.SSH_LIST_FORWARDED_PORTS,
-      sshListForwardedPortsArgsSchema,
-      (): SshForwardedPort[] => sshPortForwardService.listForwardedPorts()
-    )
-  );
+  handleIpc(IPC.SSH_STOP_DESKTOP_FORWARD, async (_, [hostId, remotePort]): Promise<void> => {
+    await sshPortForwardService.stopDesktopForward(hostId, remotePort);
+  });
 
-  ipcMain.handle(
-    IPC.SSH_STOP_DESKTOP_FORWARD,
-    handleValidated(
-      IPC.SSH_STOP_DESKTOP_FORWARD,
-      sshStopDesktopForwardArgsSchema,
-      async (_, [hostId, remotePort]): Promise<void> => {
-        await sshPortForwardService.stopDesktopForward(hostId, remotePort);
-      }
-    )
-  );
+  handleIpc(IPC.SSH_ENABLE_INTEGRATION, async (_, [hostId, agent, type]): Promise<void> => {
+    return sshWorkspaceService.enableIntegration(hostId, agent, type);
+  });
 
-  ipcMain.handle(
-    IPC.SSH_ENABLE_INTEGRATION,
-    handleValidated(
-      IPC.SSH_ENABLE_INTEGRATION,
-      sshEnableIntegrationArgsSchema,
-      async (_, [hostId, agent, type]): Promise<void> => {
-        return sshWorkspaceService.enableIntegration(hostId, agent, type);
-      }
-    )
-  );
+  handleIpc(IPC.SSH_DISABLE_INTEGRATION, async (_, [hostId, agent, type]): Promise<void> => {
+    return sshWorkspaceService.disableIntegration(hostId, agent, type);
+  });
 
-  ipcMain.handle(
-    IPC.SSH_DISABLE_INTEGRATION,
-    handleValidated(
-      IPC.SSH_DISABLE_INTEGRATION,
-      sshDisableIntegrationArgsSchema,
-      async (_, [hostId, agent, type]): Promise<void> => {
-        return sshWorkspaceService.disableIntegration(hostId, agent, type);
-      }
-    )
-  );
-
-  ipcMain.handle(
-    IPC.SSH_SET_KOMLA_SKILL,
-    handleValidated(
-      IPC.SSH_SET_KOMLA_SKILL,
-      sshSetKomlaSkillArgsSchema,
-      async (_, [hostId, enabled]): Promise<void> => {
-        return sshWorkspaceService.setKomlaSkill(hostId, enabled);
-      }
-    )
-  );
+  handleIpc(IPC.SSH_SET_KOMLA_SKILL, async (_, [hostId, enabled]): Promise<void> => {
+    return sshWorkspaceService.setKomlaSkill(hostId, enabled);
+  });
 
   // Category handlers
-  ipcMain.handle(IPC.CATEGORY_LIST, async (): Promise<Category[]> => {
+  handleIpc(IPC.CATEGORY_LIST, async (): Promise<Category[]> => {
     return categoryService.list();
   });
 
-  ipcMain.handle(
-    IPC.CATEGORY_CREATE,
-    handleValidated(
-      IPC.CATEGORY_CREATE,
-      categoryCreateArgsSchema,
-      async (_, [name, parentId]): Promise<Category> => {
-        return categoryService.create(name, parentId);
-      }
-    )
-  );
+  handleIpc(IPC.CATEGORY_CREATE, async (_, [name, parentId]): Promise<Category> => {
+    return categoryService.create(name, parentId);
+  });
 
-  ipcMain.handle(
-    IPC.CATEGORY_UPDATE,
-    handleValidated(
-      IPC.CATEGORY_UPDATE,
-      categoryUpdateArgsSchema,
-      async (_, [id, updates]): Promise<Category> => {
-        return categoryService.update(id, updates);
-      }
-    )
-  );
+  handleIpc(IPC.CATEGORY_UPDATE, async (_, [id, updates]): Promise<Category> => {
+    return categoryService.update(id, updates);
+  });
 
-  ipcMain.handle(
-    IPC.CATEGORY_DELETE,
-    handleValidated(
-      IPC.CATEGORY_DELETE,
-      categoryDeleteArgsSchema,
-      async (_, [id]): Promise<void> => {
-        return categoryService.delete(id);
-      }
-    )
-  );
+  handleIpc(IPC.CATEGORY_DELETE, async (_, [id]): Promise<void> => {
+    return categoryService.delete(id);
+  });
 
-  ipcMain.handle(IPC.CATEGORY_GET_SETTINGS_PATH, async (): Promise<string> => {
+  handleIpc(IPC.CATEGORY_GET_SETTINGS_PATH, async (): Promise<string> => {
     return categoryService.getSettingsPath();
   });
 }

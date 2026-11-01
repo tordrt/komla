@@ -477,3 +477,16 @@ describe('projectDeleteLeftoverBranchesArgsSchema', () => {
     }
   });
 });
+
+describe('configUpdateArgsSchema agent launch defaults', () => {
+  // AppConfig and the config file both allow null, so a stored null must survive a save.
+  it.each(['agentLaunchDefaultPresetId', 'agentLaunchDefaultLaunchModeId'])(
+    'takes a string, null or nothing for %s',
+    (key) => {
+      expect(configUpdateArgsSchema.safeParse([{ [key]: 'id' }]).success).toBe(true);
+      expect(configUpdateArgsSchema.safeParse([{ [key]: null }]).success).toBe(true);
+      expect(configUpdateArgsSchema.safeParse([{ [key]: undefined }]).success).toBe(true);
+      expect(configUpdateArgsSchema.safeParse([{ [key]: 42 }]).success).toBe(false);
+    }
+  );
+});

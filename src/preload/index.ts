@@ -67,11 +67,13 @@ import type {
   RemoteControlHostAccessStatus,
   PairedDeviceRecord,
   SshConfigHost,
+  SshAgent,
   SshHost,
   SshHostSetupResult,
   SshHostStatus,
   SshWorkspaceMode,
   SshIntegrationStatus,
+  SshIntegrationType,
   SshIntegrationUpdates,
   SshForwardedPort,
   SshLinkForward,
@@ -600,11 +602,17 @@ const api = {
   stopSshDesktopForward: (hostId: string, remotePort: number): Promise<void> =>
     ipcRenderer.invoke(IPC.SSH_STOP_DESKTOP_FORWARD, hostId, remotePort),
 
-  enableSshIntegration: (hostId: string, agent: string, type: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.SSH_ENABLE_INTEGRATION, hostId, agent, type),
+  enableSshIntegration: (
+    hostId: string,
+    agent: SshAgent,
+    type: SshIntegrationType
+  ): Promise<void> => ipcRenderer.invoke(IPC.SSH_ENABLE_INTEGRATION, hostId, agent, type),
 
-  disableSshIntegration: (hostId: string, agent: string, type: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.SSH_DISABLE_INTEGRATION, hostId, agent, type),
+  disableSshIntegration: (
+    hostId: string,
+    agent: SshAgent,
+    type: SshIntegrationType
+  ): Promise<void> => ipcRenderer.invoke(IPC.SSH_DISABLE_INTEGRATION, hostId, agent, type),
 
   setSshKomlaSkill: (hostId: string, enabled: boolean): Promise<void> =>
     ipcRenderer.invoke(IPC.SSH_SET_KOMLA_SKILL, hostId, enabled),

@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { getKomlaBasePath } from '../../paths';
+import { writeNotFound } from '../http-io';
 
 import type http from 'http';
 
@@ -20,15 +21,13 @@ export function handleSkillFileRequest(url: string, res: http.ServerResponse): v
   } catch {
     // Malformed percent-encoding — treat as not found rather than letting the
     // URIError escape the request handler as an uncaught exception.
-    res.writeHead(404);
-    res.end('Not found');
+    writeNotFound(res);
     return;
   }
   // Flat markdown filename only — the regex rejects path separators, so there
   // is no way to traverse out of the skills directory.
   if (!/^[a-zA-Z0-9._-]+\.md$/.test(name)) {
-    res.writeHead(404);
-    res.end('Not found');
+    writeNotFound(res);
     return;
   }
   const filename = SKILL_FILE_ALIASES[name] ?? name;
@@ -37,7 +36,6 @@ export function handleSkillFileRequest(url: string, res: http.ServerResponse): v
     res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' });
     res.end(content);
   } catch {
-    res.writeHead(404);
-    res.end('Not found');
+    writeNotFound(res);
   }
 }

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createLogger } from '../../../lib/logger';
 import { MAX_BRANCH_LEN, MAX_ID_LEN, MAX_PATH_LEN } from '../../komla-operation/schema';
 import { workspaceStatusService } from '../../workspace-status.service';
-import { readBody, writeValidationError } from '../http-io';
+import { readJsonBody, singleHeader, writeValidationError } from '../http-io';
 
 import type http from 'http';
 
@@ -45,28 +45,10 @@ export function handleSshWorkspaceStatusRequest(
   res: http.ServerResponse
 ): void {
   void (async () => {
-    let raw: unknown;
-    try {
-      const body = await readBody(req, 16 * 1024 * 1024);
-      try {
-        raw = JSON.parse(body);
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-        return;
-      }
-    } catch (error) {
-      if (!res.headersSent) {
-        const isTooBig = error instanceof Error && error.message === 'Request body too large';
-        res.writeHead(isTooBig ? 413 : 500, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({ error: isTooBig ? 'Request body too large' : 'Failed to read body' })
-        );
-      }
-      return;
-    }
+    const body = await readJsonBody(req, res, 16 * 1024 * 1024);
+    if (!body) return;
 
-    const parsed = sshWorkspaceStatusPayloadSchema.safeParse(raw);
+    const parsed = sshWorkspaceStatusPayloadSchema.safeParse(body.value);
     if (!parsed.success) {
       writeValidationError(res, parsed.error);
       return;
@@ -74,10 +56,7 @@ export function handleSshWorkspaceStatusRequest(
 
     try {
       const payload = parsed.data;
-      const forwardedHostHeader = req.headers?.['x-komla-ssh-host-id'];
-      const forwardedHostId = Array.isArray(forwardedHostHeader)
-        ? forwardedHostHeader[0]
-        : forwardedHostHeader;
+      const forwardedHostId = singleHeader(req.headers['x-komla-ssh-host-id']);
       const receipt = await workspaceStatusService.change({
         kind: 'snapshot-observed',
         snapshot: {

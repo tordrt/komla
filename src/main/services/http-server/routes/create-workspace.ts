@@ -11,7 +11,7 @@ import {
 } from '../../komla-operation/schema';
 import { KomlaOperationError, komlaOperationService } from '../../komla-operation.service';
 import { workspaceService } from '../../workspace.service';
-import { isJsonRequest, readBody, singleHeader, writeValidationError } from '../http-io';
+import { isJsonRequest, readJsonBody, singleHeader, writeValidationError } from '../http-io';
 
 import type http from 'http';
 
@@ -48,30 +48,10 @@ export function handleCreateWorkspaceRequest(
     return;
   }
   void (async () => {
-    let raw: unknown;
-    try {
-      const body = await readBody(req);
-      try {
-        raw = JSON.parse(body);
-      } catch {
-        // Scoped narrowly so a SyntaxError thrown deep inside workspace
-        // creation isn't misclassified as malformed input.
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid JSON' }));
-        return;
-      }
-    } catch (error) {
-      if (!res.headersSent) {
-        const isTooBig = error instanceof Error && error.message === 'Request body too large';
-        res.writeHead(isTooBig ? 413 : 500, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({ error: isTooBig ? 'Request body too large' : 'Failed to read body' })
-        );
-      }
-      return;
-    }
+    const body = await readJsonBody(req, res);
+    if (!body) return;
 
-    const parsed = createWorkspacePayloadSchema.safeParse(raw);
+    const parsed = createWorkspacePayloadSchema.safeParse(body.value);
     if (!parsed.success) {
       writeValidationError(res, parsed.error);
       return;

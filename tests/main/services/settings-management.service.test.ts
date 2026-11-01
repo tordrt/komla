@@ -305,6 +305,16 @@ function fixture() {
 }
 
 describe('SettingsManagementService', () => {
+  it('names the project a request is about, preferring its terminal, then workspace, then cwd', () => {
+    const { service, projects } = fixture();
+
+    expect(service.targetProject({ terminalId: 'terminal-1', cwd: '/other' })).toBe(projects[0]);
+    expect(service.targetProject({ workspaceId: 'workspace-1', cwd: '/other' })).toBe(projects[0]);
+    expect(service.targetProject({ terminalId: 'unknown', cwd: '/other' })).toBe(projects[1]);
+    expect(service.targetProject({ cwd: '/nowhere' })).toBeUndefined();
+    expect(service.targetProject({})).toBeUndefined();
+  });
+
   it('reads supported Global and current-project Action views', () => {
     const { service } = fixture();
 

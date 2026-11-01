@@ -37,7 +37,11 @@ export type {
   KomlaOperationDependencies,
   KomlaOperationResult,
 } from './komla-operation/operation';
-export { KomlaOperationError, KomlaOperationService } from './komla-operation/operation';
+export {
+  komlaCommandContext,
+  KomlaOperationError,
+  KomlaOperationService,
+} from './komla-operation/operation';
 
 function projectRepoPath(projectId: string): string | undefined {
   const project = projectService.get(projectId);

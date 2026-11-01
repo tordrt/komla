@@ -527,6 +527,10 @@ needed.
 
 ## Development
 
-The adapters are implemented in `src/main/services/http-server.service.ts`; typed requests delegate
-to `KomlaOperationService`. The MCP transport creates a stateless `McpServer` and
-`StreamableHTTPServerTransport` per request, then delegates its tools to the same operation module.
+The adapters are implemented in `src/main/services/http-server/`: `router.ts` matches each request
+to one of `routes/`, and `mcp-tools.ts` registers the MCP tools. `http-server.service.ts` keeps the
+server's lifecycle and port file. Typed requests delegate to `KomlaOperationService`. The MCP
+transport creates a stateless `McpServer` and `StreamableHTTPServerTransport` per request, then
+delegates its tools to the same operation module. Rules stay out of the adapters: hook acceptance
+lives in `notification-delivery.service.ts`, settings in `settings-management.service.ts` and
+approvals in `settings-approval.service.ts`.

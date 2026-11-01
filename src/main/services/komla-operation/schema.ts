@@ -36,6 +36,7 @@ export const MAX_DESCRIPTION_LEN = 2048;
 export const MAX_PROJECT_NAME_LEN = 256;
 export const MAX_PROMPT_LEN = 64 * 1024;
 export const MAX_ID_LEN = 128;
+export const MAX_COLOR_LEN = 256;
 
 export const statusItemIdSchema = z
   .string()

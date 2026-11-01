@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   TRASH_TURN_LIMIT_MS,
   TRASH_WITHOUT_TURN_DELAY_MS,
+  komlaCommandContext,
   KomlaOperationService,
   type KomlaOperationDependencies,
   type KomlaOperationWorkspace,
@@ -57,6 +58,29 @@ function createDependencies(
     ...overrides,
   };
 }
+
+describe('komlaCommandContext', () => {
+  const caller = {
+    terminalId: 'terminal-1',
+    workspaceId: 'workspace-1',
+    cwd: '/repo',
+    sshHostId: 'host-1',
+    requestedAt: 5,
+  };
+
+  it('runs a command in its caller without --workspace', () => {
+    expect(komlaCommandContext(caller)).toEqual(caller);
+  });
+
+  it('lets --workspace replace everything that identifies the caller', () => {
+    expect(komlaCommandContext({ ...caller, targetWorkspaceId: 'workspace-2' })).toEqual({
+      workspaceId: 'workspace-2',
+      sshHostId: 'host-1',
+      targeted: true,
+      requestedAt: 5,
+    });
+  });
+});
 
 describe('KomlaOperationService', () => {
   it('rejects direct workspace identities outside the trusted SSH host', async () => {

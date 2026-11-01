@@ -5,14 +5,13 @@ import {
   ACTION_SSH_EXECUTION_LOCATIONS,
   SETUP_DESTINATIONS,
   SETUP_TRIGGERS,
-} from '../../../../shared/types';
-import { getKomlaBasePath } from '../../paths';
+} from '../../shared/types';
 
-import type http from 'http';
+import { getKomlaBasePath } from './paths';
 
 type SettingsValidationFile = 'projects' | 'actions';
 
-interface SettingsValidationResult {
+export interface SettingsValidationResult {
   ok: boolean;
   files: Record<
     SettingsValidationFile,
@@ -255,7 +254,11 @@ function validateActionsSettings(parsed: unknown): number {
   return actions.length;
 }
 
-export function handleSettingsValidationRequest(res: http.ServerResponse): void {
+/**
+ * Checks the settings files agents may still edit directly, which ADR 0004 keeps available for
+ * compatibility. The confirmed settings resources check their own input.
+ */
+export function validateSettingsFiles(): SettingsValidationResult {
   const result: SettingsValidationResult = {
     ok: true,
     files: {
@@ -264,7 +267,5 @@ export function handleSettingsValidationRequest(res: http.ServerResponse): void 
     },
   };
   result.ok = Object.values(result.files).every((file) => file.ok);
-
-  res.writeHead(result.ok ? 200 : 422, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(result));
+  return result;
 }

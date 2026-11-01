@@ -1,6 +1,10 @@
 import { createLogger } from '../../../lib/logger';
 import { parseKomlaOperation } from '../../komla-operation/schema';
-import { KomlaOperationError, komlaOperationService } from '../../komla-operation.service';
+import {
+  komlaCommandContext,
+  KomlaOperationError,
+  komlaOperationService,
+} from '../../komla-operation.service';
 import { isJsonRequest, parseRequestUrl, readBody, singleHeader } from '../http-io';
 
 import type http from 'http';
@@ -48,20 +52,15 @@ export function handleKomlaCommandRequest(
         return;
       }
       const operation = parseKomlaOperation(raw);
-      const sshHostId = singleHeader(req.headers['x-komla-ssh-host-id']);
-      const targetWorkspaceId = singleHeader(req.headers['x-komla-target-workspace-id']);
-      const requestedAt = requestedAtOf(req);
-      // `--workspace` names the workspace to act on, in place of the calling terminal's.
       const result = await komlaOperationService.execute(
-        targetWorkspaceId
-          ? { workspaceId: targetWorkspaceId, sshHostId, targeted: true, requestedAt }
-          : {
-              terminalId: scopedTerminalId ?? headerTerminalId,
-              workspaceId: singleHeader(req.headers['x-komla-workspace-id']),
-              sshHostId,
-              cwd: url.searchParams.get('cwd') ?? undefined,
-              requestedAt,
-            },
+        komlaCommandContext({
+          terminalId: scopedTerminalId ?? headerTerminalId,
+          workspaceId: singleHeader(req.headers['x-komla-workspace-id']),
+          targetWorkspaceId: singleHeader(req.headers['x-komla-target-workspace-id']),
+          sshHostId: singleHeader(req.headers['x-komla-ssh-host-id']),
+          cwd: url.searchParams.get('cwd') ?? undefined,
+          requestedAt: requestedAtOf(req),
+        }),
         operation
       );
       res.writeHead(200, { 'Content-Type': 'application/json' });

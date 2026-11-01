@@ -170,6 +170,24 @@ export interface KomlaOperationContext {
   requestedAt?: number;
 }
 
+/**
+ * The context a typed command runs in. `--workspace` names the workspace to act on in place of the
+ * calling terminal's, so nothing else about the caller selects it.
+ */
+export function komlaCommandContext({
+  targetWorkspaceId,
+  ...caller
+}: KomlaOperationContext & { targetWorkspaceId?: string }): KomlaOperationContext {
+  return targetWorkspaceId
+    ? {
+        workspaceId: targetWorkspaceId,
+        sshHostId: caller.sshHostId,
+        targeted: true,
+        requestedAt: caller.requestedAt,
+      }
+    : caller;
+}
+
 export interface KomlaOperationWorkspace {
   id: string;
   projectId?: string | null;

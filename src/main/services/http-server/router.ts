@@ -3,8 +3,9 @@ import { resolveKomlaRequestRoute } from '../../lib/komla-request-route';
 import { isLocalHostHeader } from '../../lib/local-host-header';
 import { createLogger } from '../../lib/logger';
 import { configService } from '../config.service';
+import { validateSettingsFiles } from '../settings-file-validation';
 
-import { parseRequestUrl, singleHeader } from './http-io';
+import { parseRequestUrl, singleHeader, writeNotFound } from './http-io';
 import { handleKomlaCommandRequest } from './routes/commands';
 import { handleCreateWorkspaceRequest } from './routes/create-workspace';
 import { handleMcpRequest } from './routes/mcp';
@@ -12,7 +13,6 @@ import { handleNotifyRequest } from './routes/notify';
 import { handleSettingsManagementRequest } from './routes/settings';
 import { handleSkillFileRequest } from './routes/skills';
 import { handleSshWorkspaceStatusRequest } from './routes/ssh-workspace-status';
-import { handleSettingsValidationRequest } from './routes/validate-settings';
 
 import type http from 'http';
 
@@ -45,11 +45,6 @@ function target(methods: readonly string[] | typeof ANY_METHOD, ...urls: readonl
     urls.includes(url) && (!methods || methods.includes(req.method ?? ''));
 }
 
-function writeNotFound(res: http.ServerResponse): void {
-  res.writeHead(404);
-  res.end('Not found');
-}
-
 const isMcpOn: Route['isOn'] = (config) => !config.disableMcpServer;
 
 // The first match answers.
@@ -69,7 +64,11 @@ const ROUTES: readonly Route[] = [
   },
   {
     matches: target(['GET', 'POST'], '/validate-settings'),
-    handle: ({ res }) => handleSettingsValidationRequest(res),
+    handle: ({ res }) => {
+      const result = validateSettingsFiles();
+      res.writeHead(result.ok ? 200 : 422, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+    },
   },
   {
     matches: target(['POST'], '/api/v1/notify', '/notify'),

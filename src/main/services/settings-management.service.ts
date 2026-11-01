@@ -417,6 +417,27 @@ export class SettingsManagementService {
     this.generateId = deps.generateId ?? randomUUID;
   }
 
+  /**
+   * The project a request is about, for saying so in the log. Unlike the checks a read or proposal
+   * makes, it doesn't question identity that disagrees.
+   */
+  targetProject(context: SettingsRequestContext): Project | undefined {
+    const terminalWorkspace = context.terminalId
+      ? this.deps.workspaces.findWorkspaceByTerminalId(context.terminalId)
+      : undefined;
+    const explicitWorkspace = context.workspaceId
+      ? this.deps.workspaces.get(context.workspaceId)
+      : undefined;
+    const identifiedWorkspace = terminalWorkspace ?? explicitWorkspace;
+    if (identifiedWorkspace) {
+      return identifiedWorkspace.projectId
+        ? this.deps.projects.get(identifiedWorkspace.projectId)
+        : undefined;
+    }
+    if (!context.cwd) return undefined;
+    return this.deps.resolveProjectByCwd(context.cwd, context.sshHostId).project;
+  }
+
   readActions(
     context: SettingsRequestContext,
     scope: SettingsActionScope

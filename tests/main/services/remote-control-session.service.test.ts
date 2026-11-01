@@ -663,7 +663,7 @@ describe('RemoteControlSessionService', () => {
       gitUrl: 'git@example.com:repo.git',
     };
     secondWorkspace.terminals.push({
-      id: 't-mirror',
+      id: 't-local-copy',
       name: 'Local copy',
       status: 'running',
       createdAt: 3,
@@ -677,7 +677,7 @@ describe('RemoteControlSessionService', () => {
       type: 'app:terminal:attach',
       requestId: 'r4',
       workspaceId: 'w2',
-      terminalId: 't-mirror',
+      terminalId: 't-local-copy',
     });
     peer.emitJson({ type: 'app:workspace:start', requestId: 'r5', workspaceId: 'w1' });
     peer.emitJson({
@@ -819,7 +819,7 @@ describe('RemoteControlSessionService', () => {
     };
     secondWorkspace.terminals[0]!.attention = done;
     secondWorkspace.terminals.push({
-      id: 't-mirror',
+      id: 't-local-copy',
       name: 'Local copy',
       status: 'running',
       createdAt: 3,
@@ -829,7 +829,7 @@ describe('RemoteControlSessionService', () => {
         source: 'claude-code',
         updatedAt: 2,
         message: 'Approve rm -rf build',
-        terminalId: 't-mirror',
+        terminalId: 't-local-copy',
       },
     });
     secondWorkspace.attention = secondWorkspace.terminals[1]!.attention;

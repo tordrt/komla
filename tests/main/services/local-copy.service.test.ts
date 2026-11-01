@@ -69,7 +69,7 @@ vi.mock('fs/promises', () => ({
   readFile: mocks.readFile,
   rmdir: mocks.rmdir,
 }));
-// Mirrors can contain node_modules/electron's .asar files, which only the
+// Local copies can contain node_modules/electron's .asar files, which only the
 // shared remover deletes correctly inside Electron.
 vi.mock('../../../src/main/lib/remove-path', () => ({ removePath: mocks.rm }));
 vi.mock('../../../src/main/services/paths', () => ({
@@ -96,7 +96,7 @@ const backend = {
   branchName: 'agent/local-preview',
 };
 
-const MIRRORS = '/tmp/komla-test/mirrors';
+const LOCAL_COPIES = '/tmp/komla-test/mirrors';
 
 function directory(name: string) {
   return { name, isDirectory: () => true };
@@ -107,11 +107,11 @@ function layOut(folders: Record<string, string | undefined>): void {
   const children = new Map<string, Array<{ name: string; isDirectory: () => boolean }>>();
   for (const path of Object.keys(folders)) {
     const [project, branch] = path.split('/');
-    children.set(MIRRORS, [
-      ...(children.get(MIRRORS) ?? []).filter((entry) => entry.name !== project),
+    children.set(LOCAL_COPIES, [
+      ...(children.get(LOCAL_COPIES) ?? []).filter((entry) => entry.name !== project),
       directory(project!),
     ]);
-    const projectPath = `${MIRRORS}/${project}`;
+    const projectPath = `${LOCAL_COPIES}/${project}`;
     children.set(projectPath, [...(children.get(projectPath) ?? []), directory(branch!)]);
   }
   mocks.readdir.mockImplementation(async (path: unknown) => {
@@ -123,7 +123,7 @@ function layOut(folders: Record<string, string | undefined>): void {
     const owner =
       folders[
         String(path)
-          .slice(MIRRORS.length + 1)
+          .slice(LOCAL_COPIES.length + 1)
           .replace(/\/\.komla-local-mirror$/, '')
       ];
     if (owner === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
@@ -131,9 +131,9 @@ function layOut(folders: Record<string, string | undefined>): void {
   });
 }
 
-// Local copies aren't supported on Windows, where initializeMirror refuses, so these run on
+// Local copies aren't supported on Windows, where initializeLocalCopy refuses, so these run on
 // macOS and Linux.
-describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
+describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -157,11 +157,11 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finishes.push(() => callback(null, '', ''));
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    localMirrorService.requestSync('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
     await vi.waitFor(() => expect(finishes).toHaveLength(1));
-    localMirrorService.requestSync('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
     finishes[0]?.();
     await vi.waitFor(() => expect(finishes).toHaveLength(2));
     finishes[1]?.();
@@ -180,23 +180,23 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
   });
 
   it('does not create a copy when checking whether remote changes should sync', async () => {
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    expect(localMirrorService.hasMirror('workspace-1', backend)).toBe(false);
+    expect(localCopyService.hasLocalCopy('workspace-1', backend)).toBe(false);
     expect(mocks.mkdir).not.toHaveBeenCalled();
     expect(mocks.writeFile).not.toHaveBeenCalled();
     expect(mocks.rsync).not.toHaveBeenCalled();
   });
 
   it('recognizes an existing copy after restart', async () => {
-    const mirrorPath = '/tmp/komla-test/mirrors/Project-App/agent-local-preview';
-    mocks.existsSync.mockImplementation((path) => String(path) === mirrorPath);
+    const localCopyPath = '/tmp/komla-test/mirrors/Project-App/agent-local-preview';
+    mocks.existsSync.mockImplementation((path) => String(path) === localCopyPath);
     mocks.readFileSync.mockImplementation((path) =>
-      String(path) === `${mirrorPath}/.komla-local-mirror` ? 'workspace-1' : undefined
+      String(path) === `${localCopyPath}/.komla-local-mirror` ? 'workspace-1' : undefined
     );
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    expect(localMirrorService.hasMirror('workspace-1', backend)).toBe(true);
+    expect(localCopyService.hasLocalCopy('workspace-1', backend)).toBe(true);
     expect(mocks.mkdir).not.toHaveBeenCalled();
     expect(mocks.rsync).not.toHaveBeenCalled();
   });
@@ -206,23 +206,23 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       (path) => String(path) === '/tmp/komla-test/mirrors/Project-App/agent-local-preview'
     );
     mocks.readFileSync.mockReturnValue('another-workspace');
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    expect(localMirrorService.hasMirror('workspace-1', backend)).toBe(false);
+    expect(localCopyService.hasLocalCopy('workspace-1', backend)).toBe(false);
   });
 
   it('recognizes a copy being initialized on demand', async () => {
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    const initialization = localMirrorService.initialize('workspace-1', backend);
-    expect(localMirrorService.hasMirror('workspace-1', backend)).toBe(true);
+    const initialization = localCopyService.initialize('workspace-1', backend);
+    expect(localCopyService.hasLocalCopy('workspace-1', backend)).toBe(true);
     await initialization;
   });
 
   it('protects files matched by project gitignore rules', async () => {
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    await localMirrorService.prepare('workspace-1', backend);
+    await localCopyService.prepare('workspace-1', backend);
 
     expect(mocks.ensureWorkspaceReady).not.toHaveBeenCalled();
     expect(mocks.mkdir).toHaveBeenCalledWith(
@@ -257,10 +257,10 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     vi.useFakeTimers();
     try {
       mocks.rsync.mockImplementation(() => undefined);
-      const { localMirrorService } =
-        await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } =
+        await import('../../../src/main/services/local-copy.service');
 
-      localMirrorService.requestSync('workspace-1', backend);
+      localCopyService.requestSync('workspace-1', backend);
       await vi.advanceTimersByTimeAsync(0);
       const child = mocks.children[0];
 
@@ -277,24 +277,24 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
   });
 
   it('does not rewrite the watched remote repository during local copy syncs', async () => {
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    await localMirrorService.prepare('workspace-1', backend);
-    localMirrorService.requestSync('workspace-1', backend);
-    await localMirrorService.prepare('workspace-1', backend);
+    await localCopyService.prepare('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
+    await localCopyService.prepare('workspace-1', backend);
 
     expect(mocks.rsync).toHaveBeenCalledTimes(2);
     // Provisioning rewrites shared Git config, causing another watcher snapshot and sync.
     expect(mocks.ensureWorkspaceReady).not.toHaveBeenCalled();
-    expect(localMirrorService.getSyncStatuses()).toEqual([]);
+    expect(localCopyService.getSyncStatuses()).toEqual([]);
   });
 
   it('can initialize an empty local copy without starting a sync', async () => {
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    const mirrorPath = await localMirrorService.initialize('workspace-1', backend);
+    const localCopyPath = await localCopyService.initialize('workspace-1', backend);
 
-    expect(mirrorPath).toBe('/tmp/komla-test/mirrors/Project-App/agent-local-preview');
+    expect(localCopyPath).toBe('/tmp/komla-test/mirrors/Project-App/agent-local-preview');
     expect(mocks.mkdir).toHaveBeenCalledWith(
       '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
       { recursive: true }
@@ -308,13 +308,13 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finishes.push(() => callback(null, '', ''));
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
     const states: string[] = [];
-    localMirrorService.onSyncStatus((status) => states.push(status.state));
+    localCopyService.onSyncStatus((status) => states.push(status.state));
 
-    localMirrorService.requestSync('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
     await vi.waitFor(() => expect(finishes).toHaveLength(1));
-    localMirrorService.requestSync('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
 
     finishes[0]?.();
     await vi.waitFor(() => expect(finishes).toHaveLength(2));
@@ -329,13 +329,13 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finishes.push(() => callback(null, '', ''));
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    localMirrorService.requestSync('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
     await vi.waitFor(() => expect(finishes).toHaveLength(1));
-    localMirrorService.requestSync('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
     let prepared = false;
-    const preparation = localMirrorService.prepare('workspace-1', backend).then(() => {
+    const preparation = localCopyService.prepare('workspace-1', backend).then(() => {
       prepared = true;
     });
 
@@ -349,12 +349,12 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
   });
 
   it('runs only one initial sync across repeated local copy activations', async () => {
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    localMirrorService.ensureInitialSync('workspace-1', backend);
+    localCopyService.ensureInitialSync('workspace-1', backend);
     await vi.waitFor(() => expect(mocks.rsync).toHaveBeenCalledTimes(1));
 
-    localMirrorService.ensureInitialSync('workspace-1', backend);
+    localCopyService.ensureInitialSync('workspace-1', backend);
     await Promise.resolve();
 
     expect(mocks.rsync).toHaveBeenCalledTimes(1);
@@ -365,22 +365,22 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finishSync = (error) => callback(error, '', error?.message ?? '');
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
-    expect(localMirrorService.isCurrent('workspace-1')).toBe(false);
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
+    expect(localCopyService.isCurrent('workspace-1')).toBe(false);
 
-    const first = localMirrorService.prepare('workspace-1', backend);
+    const first = localCopyService.prepare('workspace-1', backend);
     await vi.waitFor(() => expect(mocks.rsync).toHaveBeenCalledTimes(1));
-    expect(localMirrorService.isCurrent('workspace-1')).toBe(false);
+    expect(localCopyService.isCurrent('workspace-1')).toBe(false);
     finishSync(null);
     await first;
-    expect(localMirrorService.isCurrent('workspace-1')).toBe(true);
+    expect(localCopyService.isCurrent('workspace-1')).toBe(true);
 
-    const second = localMirrorService.prepare('workspace-1', backend);
+    const second = localCopyService.prepare('workspace-1', backend);
     await vi.waitFor(() => expect(mocks.rsync).toHaveBeenCalledTimes(2));
-    expect(localMirrorService.isCurrent('workspace-1')).toBe(false);
+    expect(localCopyService.isCurrent('workspace-1')).toBe(false);
     finishSync(new Error('connection lost'));
     await expect(second).rejects.toThrow('connection lost');
-    expect(localMirrorService.isCurrent('workspace-1')).toBe(false);
+    expect(localCopyService.isCurrent('workspace-1')).toBe(false);
   });
 
   it('reports background sync failures and allows the initial sync to retry', async () => {
@@ -391,11 +391,11 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       .mockImplementationOnce((_file, _args, _options, callback) => {
         callback(null, '', '');
       });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
     const statuses: Array<{ state: string; message?: string }> = [];
-    localMirrorService.onSyncStatus((status) => statuses.push(status));
+    localCopyService.onSyncStatus((status) => statuses.push(status));
 
-    localMirrorService.ensureInitialSync('workspace-1', backend);
+    localCopyService.ensureInitialSync('workspace-1', backend);
     await vi.waitFor(() =>
       expect(statuses).toEqual([
         { workspaceId: 'workspace-1', state: 'syncing' },
@@ -407,7 +407,7 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       ])
     );
 
-    localMirrorService.ensureInitialSync('workspace-1', backend);
+    localCopyService.ensureInitialSync('workspace-1', backend);
     await vi.waitFor(() =>
       expect(statuses.at(-1)).toEqual({ workspaceId: 'workspace-1', state: 'ready' })
     );
@@ -424,10 +424,10 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         }
         callback(null, '', '');
       });
-      const { localMirrorService } =
-        await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } =
+        await import('../../../src/main/services/local-copy.service');
 
-      await localMirrorService.prepare('workspace-1', backend);
+      await localCopyService.prepare('workspace-1', backend);
 
       expect(mocks.rsync).toHaveBeenCalledTimes(2);
       expect(mocks.rsync.mock.calls[1]?.[1]).not.toContain('-s');
@@ -452,11 +452,11 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         ''
       );
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
     const statuses: unknown[] = [];
-    localMirrorService.onSyncStatus((status) => statuses.push(status));
+    localCopyService.onSyncStatus((status) => statuses.push(status));
 
-    await localMirrorService.prepare('workspace-1', backend);
+    await localCopyService.prepare('workspace-1', backend);
     await vi.waitFor(() =>
       expect(statuses.at(-1)).toEqual({ workspaceId: 'workspace-1', state: 'ready' })
     );
@@ -475,13 +475,13 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finish = () => callback(null, '', '');
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    const sync = localMirrorService.prepare('workspace-1', backend);
+    const sync = localCopyService.prepare('workspace-1', backend);
     await vi.waitFor(() => expect(mocks.children).toHaveLength(1));
     mocks.children[0]?.stdout.emit('data', '\r      3,000,000  12%    9.17MB/s    0:00:00  ');
 
-    expect(localMirrorService.getSyncStatuses()).toEqual([
+    expect(localCopyService.getSyncStatuses()).toEqual([
       { workspaceId: 'workspace-1', state: 'syncing', percent: 12 },
     ]);
     finish?.();
@@ -495,13 +495,13 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         callback(null, '\r      3,000,000  12%    9.17MB/s    0:00:00  \r', '')
       );
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
     const statuses: unknown[] = [];
-    localMirrorService.onSyncStatus((status) => statuses.push(status));
+    localCopyService.onSyncStatus((status) => statuses.push(status));
 
-    localMirrorService.requestSync('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
     await vi.waitFor(() => expect(finishes).toHaveLength(1));
-    localMirrorService.requestSync('workspace-1', backend);
+    localCopyService.requestSync('workspace-1', backend);
     finishes[0]?.();
     await vi.waitFor(() => expect(finishes).toHaveLength(2));
 
@@ -531,11 +531,11 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         ''
       );
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
     const statuses: unknown[] = [];
-    localMirrorService.onSyncStatus((status) => statuses.push(status));
+    localCopyService.onSyncStatus((status) => statuses.push(status));
 
-    await localMirrorService.prepare('workspace-1', backend);
+    await localCopyService.prepare('workspace-1', backend);
 
     expect(mocks.rsync).toHaveBeenCalledTimes(2);
     expect(mocks.rsync.mock.calls[1]?.[1]).toContain('--progress');
@@ -561,9 +561,9 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         callback(null, '', '');
       }
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    await localMirrorService.prepare('workspace-1', backend);
+    await localCopyService.prepare('workspace-1', backend);
 
     expect(mocks.rsync).toHaveBeenCalledTimes(3);
     expect(mocks.rsync.mock.calls[2]?.[1]).not.toContain('--progress');
@@ -581,9 +581,9 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       if (rejected) callback(new Error(rejected), '', rejected);
       else callback(null, '', '');
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    await localMirrorService.prepare('workspace-1', backend);
+    await localCopyService.prepare('workspace-1', backend);
 
     expect(mocks.rsync).toHaveBeenCalledTimes(3);
     const last = mocks.rsync.mock.calls[2];
@@ -599,9 +599,9 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       callback(Object.assign(new Error(message), { exitCode: 23 }), '', message);
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    await expect(localMirrorService.prepare('workspace-1', backend)).rejects.toThrow(
+    await expect(localCopyService.prepare('workspace-1', backend)).rejects.toThrow(
       'Permission denied'
     );
 
@@ -613,9 +613,9 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       callback(new Error(message), '', message);
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    await expect(localMirrorService.prepare('workspace-1', backend)).rejects.toThrow(
+    await expect(localCopyService.prepare('workspace-1', backend)).rejects.toThrow(
       'Connection refused'
     );
 
@@ -627,10 +627,10 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       finish = () => callback(null, '', '');
     });
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    const first = localMirrorService.prepare('workspace-1', backend);
-    const second = localMirrorService.prepare('workspace-1', backend);
+    const first = localCopyService.prepare('workspace-1', backend);
+    const second = localCopyService.prepare('workspace-1', backend);
     await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
     finish?.();
     await Promise.all([first, second]);
@@ -638,22 +638,22 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     expect(mocks.rsync).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects mirror paths that escape the Komla mirror root', async () => {
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+  it('rejects paths that escape the folder of Local copies', async () => {
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    expect(() => localMirrorService.getMirrorPath('../outside', backend)).toThrow(
+    expect(() => localCopyService.getLocalCopyPath('../outside', backend)).toThrow(
       'Invalid workspace id for local copy'
     );
   });
 
-  it('adds a numeric suffix when the readable path belongs to another mirror', async () => {
+  it('adds a numeric suffix when the readable path belongs to another local copy', async () => {
     mocks.existsSync.mockImplementation((path) =>
       String(path).endsWith('/Project-App/agent-local-preview')
     );
     mocks.readFileSync.mockImplementation(() => 'another-workspace');
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    expect(localMirrorService.getMirrorPath('3e2fc13d-71e2-424c-85cd-3ffb8b9bc86d', backend)).toBe(
+    expect(localCopyService.getLocalCopyPath('3e2fc13d-71e2-424c-85cd-3ffb8b9bc86d', backend)).toBe(
       '/tmp/komla-test/mirrors/Project-App/agent-local-preview-2'
     );
   });
@@ -669,9 +669,9 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     mocks.readFileSync.mockImplementation((path) =>
       String(path).includes('agent-local-preview-3') ? 'workspace-1' : 'another-workspace'
     );
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    expect(localMirrorService.getMirrorPath('workspace-1', backend)).toBe(
+    expect(localCopyService.getLocalCopyPath('workspace-1', backend)).toBe(
       '/tmp/komla-test/mirrors/Project-App/agent-local-preview-3'
     );
   });
@@ -684,10 +684,10 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
           finishMkdir = resolve;
         })
     );
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    const first = localMirrorService.initialize('workspace-1', backend);
-    const second = localMirrorService.initialize('workspace-1', backend);
+    const first = localCopyService.initialize('workspace-1', backend);
+    const second = localCopyService.initialize('workspace-1', backend);
     await vi.waitFor(() => expect(finishMkdir).toBeTypeOf('function'));
     finishMkdir?.();
 
@@ -698,14 +698,14 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     expect(mocks.mkdir).toHaveBeenCalledTimes(1);
   });
 
-  it('removes a readable mirror discovered from its ownership marker after restart', async () => {
+  it('removes a readable local copy discovered from its ownership marker after restart', async () => {
     mocks.existsSync.mockImplementation((path) =>
       String(path).endsWith('/Project-App/agent-local-preview')
     );
     mocks.readFileSync.mockReturnValue('workspace-1');
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    await localMirrorService.remove('workspace-1', backend);
+    await localCopyService.remove('workspace-1', backend);
 
     expect(mocks.rm).toHaveBeenCalledWith(
       '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
@@ -720,55 +720,55 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         'Project-App/unowned': undefined,
         'Other/gone': 'workspace-other-gone',
       });
-      const { localMirrorService } =
-        await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } =
+        await import('../../../src/main/services/local-copy.service');
 
-      await localMirrorService.removeLeftovers((workspaceId) => workspaceId === 'workspace-kept');
+      await localCopyService.removeLeftovers((workspaceId) => workspaceId === 'workspace-kept');
 
       expect(mocks.rm.mock.calls.map(([path]) => path)).toEqual([
-        `${MIRRORS}/Project-App/gone`,
-        `${MIRRORS}/Other/gone`,
+        `${LOCAL_COPIES}/Project-App/gone`,
+        `${LOCAL_COPIES}/Other/gone`,
       ]);
-      expect(mocks.rm).toHaveBeenCalledWith(`${MIRRORS}/Project-App/gone`, {
+      expect(mocks.rm).toHaveBeenCalledWith(`${LOCAL_COPIES}/Project-App/gone`, {
         recursive: true,
         force: true,
         maxRetries: 3,
         retryDelay: 100,
       });
       // A project folder goes once it is empty; rmdir refuses one that isn't.
-      expect(mocks.rmdir).toHaveBeenCalledWith(`${MIRRORS}/Other`);
+      expect(mocks.rmdir).toHaveBeenCalledWith(`${LOCAL_COPIES}/Other`);
     });
 
     it('leaves a copy whose marker does not name a workspace', async () => {
       layOut({ 'Project-App/odd': '../outside' });
-      const { localMirrorService } =
-        await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } =
+        await import('../../../src/main/services/local-copy.service');
 
-      await localMirrorService.removeLeftovers(() => false);
+      await localCopyService.removeLeftovers(() => false);
 
       expect(mocks.rm).not.toHaveBeenCalled();
     });
 
     it('does nothing before any local copy exists', async () => {
       mocks.readdir.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-      const { localMirrorService } =
-        await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } =
+        await import('../../../src/main/services/local-copy.service');
 
-      await expect(localMirrorService.removeLeftovers(() => false)).resolves.toBeUndefined();
+      await expect(localCopyService.removeLeftovers(() => false)).resolves.toBeUndefined();
       expect(mocks.rm).not.toHaveBeenCalled();
     });
 
     it('goes on with the rest when one copy cannot be removed', async () => {
       layOut({ 'Project-App/locked': 'workspace-1', 'Project-App/free': 'workspace-2' });
       mocks.rm.mockRejectedValueOnce(new Error('EBUSY'));
-      const { localMirrorService } =
-        await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } =
+        await import('../../../src/main/services/local-copy.service');
 
-      await localMirrorService.removeLeftovers(() => false);
+      await localCopyService.removeLeftovers(() => false);
 
       expect(mocks.rm.mock.calls.map(([path]) => path)).toEqual([
-        `${MIRRORS}/Project-App/locked`,
-        `${MIRRORS}/Project-App/free`,
+        `${LOCAL_COPIES}/Project-App/locked`,
+        `${LOCAL_COPIES}/Project-App/free`,
       ]);
       expect(mocks.logger.warn).toHaveBeenCalled();
     });
@@ -779,12 +779,12 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
         finish = () => callback(null, '', '');
       });
-      const { localMirrorService } =
-        await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } =
+        await import('../../../src/main/services/local-copy.service');
 
-      const preparing = localMirrorService.prepare('workspace-1', backend);
+      const preparing = localCopyService.prepare('workspace-1', backend);
       await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
-      await localMirrorService.removeLeftovers(() => false);
+      await localCopyService.removeLeftovers(() => false);
       finish?.();
       await preparing;
 
@@ -797,14 +797,14 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       mocks.rm.mockImplementationOnce(async () => {
         stopped = true;
       });
-      const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-      await localMirrorService.removeLeftovers(
+      await localCopyService.removeLeftovers(
         () => false,
         () => stopped
       );
 
-      expect(mocks.rm.mock.calls.map(([path]) => path)).toEqual([`${MIRRORS}/Project-App/first`]);
+      expect(mocks.rm.mock.calls.map(([path]) => path)).toEqual([`${LOCAL_COPIES}/Project-App/first`]);
     });
 
     it("forgets a removed copy's last sync failure", async () => {
@@ -812,18 +812,18 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
         callback(new Error('host unreachable'), '', '');
       });
-      const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
-      await localMirrorService.prepare('workspace-1', backend).catch(() => undefined);
-      expect(localMirrorService.getSyncStatuses()).toEqual([
+      const { localCopyService } = await import('../../../src/main/services/local-copy.service');
+      await localCopyService.prepare('workspace-1', backend).catch(() => undefined);
+      expect(localCopyService.getSyncStatuses()).toEqual([
         expect.objectContaining({ workspaceId: 'workspace-1', state: 'error' }),
       ]);
 
       const listener = vi.fn();
-      localMirrorService.onSyncStatus(listener);
+      localCopyService.onSyncStatus(listener);
 
-      await localMirrorService.removeLeftovers(() => false);
+      await localCopyService.removeLeftovers(() => false);
 
-      expect(localMirrorService.getSyncStatuses()).toEqual([]);
+      expect(localCopyService.getSyncStatuses()).toEqual([]);
       expect(listener).toHaveBeenCalledWith({ workspaceId: 'workspace-1', state: 'ready' });
     });
 
@@ -840,15 +840,15 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
       mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
         finishSync = () => callback(null, '', '');
       });
-      const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-      const sweeping = localMirrorService.removeLeftovers(() => false);
+      const sweeping = localCopyService.removeLeftovers(() => false);
       await vi.waitFor(() => expect(finishRemoval).toBeTypeOf('function'));
-      const preparing = localMirrorService.prepare('workspace-1', backend);
+      const preparing = localCopyService.prepare('workspace-1', backend);
       finishRemoval?.();
       await sweeping;
 
-      expect(localMirrorService.getSyncStatuses()).toEqual([
+      expect(localCopyService.getSyncStatuses()).toEqual([
         { workspaceId: 'workspace-1', state: 'syncing' },
       ]);
       await vi.waitFor(() => expect(finishSync).toBeTypeOf('function'));
@@ -865,11 +865,11 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
             finishRemoval = resolve;
           })
       );
-      const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-      const deleting = localMirrorService.remove('workspace-1', backend);
+      const deleting = localCopyService.remove('workspace-1', backend);
       await vi.waitFor(() => expect(finishRemoval).toBeTypeOf('function'));
-      await localMirrorService.removeLeftovers(() => false);
+      await localCopyService.removeLeftovers(() => false);
       finishRemoval?.();
       await deleting;
 
@@ -884,14 +884,14 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
           finishes.push(resolve);
         });
       mocks.rm.mockImplementationOnce(removal).mockImplementationOnce(removal);
-      const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-      const first = localMirrorService.remove('workspace-1', backend);
-      const second = localMirrorService.remove('workspace-1', backend);
+      const first = localCopyService.remove('workspace-1', backend);
+      const second = localCopyService.remove('workspace-1', backend);
       await vi.waitFor(() => expect(finishes).toHaveLength(2));
       finishes[0]?.();
       await first;
-      await localMirrorService.removeLeftovers(() => false);
+      await localCopyService.removeLeftovers(() => false);
       finishes[1]?.();
       await second;
 
@@ -899,8 +899,8 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
     });
 
     it('syncs a restored copy again when its first sync after the removal failed', async () => {
-      const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
-      await localMirrorService.prepare('workspace-1', backend);
+      const { localCopyService } = await import('../../../src/main/services/local-copy.service');
+      await localCopyService.prepare('workspace-1', backend);
       layOut({ 'Project-App/agent-local-preview': 'workspace-1' });
       let finishRemoval: (() => void) | undefined;
       mocks.rm.mockImplementationOnce(
@@ -913,14 +913,14 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         callback(new Error('host unreachable'), '', '');
       });
 
-      const sweeping = localMirrorService.removeLeftovers(() => false);
+      const sweeping = localCopyService.removeLeftovers(() => false);
       await vi.waitFor(() => expect(finishRemoval).toBeTypeOf('function'));
-      const preparing = localMirrorService.prepare('workspace-1', backend).catch(() => undefined);
+      const preparing = localCopyService.prepare('workspace-1', backend).catch(() => undefined);
       finishRemoval?.();
       await Promise.all([sweeping, preparing]);
       mocks.rsync.mockClear();
 
-      localMirrorService.ensureInitialSync('workspace-1', backend);
+      localCopyService.ensureInitialSync('workspace-1', backend);
 
       await vi.waitFor(() => expect(mocks.rsync).toHaveBeenCalled());
     });
@@ -932,9 +932,9 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
         stopped = true;
         return 'workspace-1';
       });
-      const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-      await localMirrorService.removeLeftovers(
+      await localCopyService.removeLeftovers(
         () => false,
         () => stopped
       );
@@ -951,11 +951,11 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
             finishRemoval = resolve;
           })
       );
-      const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-      const sweeping = localMirrorService.removeLeftovers(() => false);
+      const sweeping = localCopyService.removeLeftovers(() => false);
       await vi.waitFor(() => expect(finishRemoval).toBeTypeOf('function'));
-      const deleting = localMirrorService.remove('workspace-1', backend);
+      const deleting = localCopyService.remove('workspace-1', backend);
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(mocks.rm).toHaveBeenCalledTimes(1);
 
@@ -973,34 +973,34 @@ describe.skipIf(process.platform === 'win32')('LocalMirrorService', () => {
             finishRemoval = resolve;
           })
       );
-      const { localMirrorService } =
-        await import('../../../src/main/services/local-mirror.service');
+      const { localCopyService } =
+        await import('../../../src/main/services/local-copy.service');
 
-      const removing = localMirrorService.removeLeftovers(() => false);
+      const removing = localCopyService.removeLeftovers(() => false);
       await vi.waitFor(() => expect(finishRemoval).toBeTypeOf('function'));
-      const initializing = localMirrorService.initialize('workspace-1', backend);
+      const initializing = localCopyService.initialize('workspace-1', backend);
       await Promise.resolve();
       expect(mocks.mkdir).not.toHaveBeenCalled();
 
       finishRemoval?.();
       await Promise.all([removing, initializing]);
-      expect(mocks.mkdir).toHaveBeenCalledWith(`${MIRRORS}/Project-App/agent-local-preview`, {
+      expect(mocks.mkdir).toHaveBeenCalledWith(`${LOCAL_COPIES}/Project-App/agent-local-preview`, {
         recursive: true,
       });
     });
   });
 });
 
-describe.runIf(process.platform === 'win32')('LocalMirrorService on Windows', () => {
+describe.runIf(process.platform === 'win32')('LocalCopyService on Windows', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
   });
 
   it('refuses to create a local copy', async () => {
-    const { localMirrorService } = await import('../../../src/main/services/local-mirror.service');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
-    await expect(localMirrorService.initialize('workspace-1', backend)).rejects.toThrow(
+    await expect(localCopyService.initialize('workspace-1', backend)).rejects.toThrow(
       'Local copies are not yet supported on Windows'
     );
     expect(mocks.mkdir).not.toHaveBeenCalled();

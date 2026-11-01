@@ -221,7 +221,7 @@ export const workspaceLinkSshProjectArgsSchema = z.tuple([idSchema, idSchema]);
 export const workspaceSyncSshHostArgsSchema = z.tuple([idSchema]);
 export const workspaceRemoveMissingSshArgsSchema = z.tuple([idSchema]);
 export const workspaceRetrySetupStepArgsSchema = z.tuple([idSchema, idSchema]);
-export const workspaceRetryLocalMirrorSyncArgsSchema = z.tuple([idSchema]);
+export const workspaceRetryLocalCopySyncArgsSchema = z.tuple([idSchema]);
 export const workspaceDismissSetupActivityArgsSchema = z.tuple([idSchema, idSchema]);
 export const workspaceRunBackgroundActionArgsSchema = z.tuple([
   idSchema,

@@ -2,7 +2,7 @@ import { CheckCircle, Warning, XCircle } from '@phosphor-icons/react';
 
 import { cn } from '@/lib/utils';
 
-import { getLocalMirrorDisabledReason, tmuxUpgradeRecommended } from './ssh-host-draft';
+import { getLocalCopyDisabledReason, tmuxUpgradeRecommended } from './ssh-host-draft';
 
 import type { SshHostSetupResult } from '@/types';
 import type { ReactNode } from 'react';
@@ -90,7 +90,7 @@ function checkItems(result: SshHostSetupResult): CheckItem[] {
   }
 
   if (result.localMirror.platform === 'supported') {
-    const reason = getLocalMirrorDisabledReason(result);
+    const reason = getLocalCopyDisabledReason(result);
     items.push(
       reason
         ? {

@@ -24,7 +24,7 @@ server through a random loopback port.
 - Native CLI target merges update pushed ahead counts, including repeated already-up-to-date merges.
 - Additional real tmux panes and workspaces reuse the data tunnel without triggering recovery scans.
 - Closed failure when the companion artifact is missing.
-- Local-mirror synchronization through rsync.
+- Local copy synchronization through rsync.
 - Workspace Setup uploads from a shell-sensitive local project path into the real remote worktree.
 - Successful visible Workspace Setup commands remain interactive in their remote terminal.
 - Remote Git status, restore, discard, push, and deletion operations.

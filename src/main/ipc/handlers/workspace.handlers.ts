@@ -21,7 +21,7 @@ import { removePath } from '../../lib/remove-path';
 import { buildTerminalEnv } from '../../lib/shell';
 import { getConfiguredShellCommand } from '../../lib/shell-command';
 import { configService } from '../../services/config.service';
-import { localMirrorService } from '../../services/local-mirror.service';
+import { localCopyService } from '../../services/local-copy.service';
 import { projectService } from '../../services/project.service';
 import { sshPortForwardService } from '../../services/ssh-port-forward.service';
 import { sshWorkspaceService } from '../../services/ssh-workspace.service';
@@ -55,7 +55,7 @@ import {
   workspaceLinkSshProjectArgsSchema,
   workspaceRemoveMissingSshArgsSchema,
   workspaceSyncSshHostArgsSchema,
-  workspaceRetryLocalMirrorSyncArgsSchema,
+  workspaceRetryLocalCopySyncArgsSchema,
   workspaceRetrySetupStepArgsSchema,
   workspaceDismissSetupActivityArgsSchema,
   workspaceRunBackgroundActionArgsSchema,
@@ -458,12 +458,12 @@ export function registerWorkspaceHandlers(): void {
   );
 
   ipcMain.handle(
-    IPC.WORKSPACE_RETRY_LOCAL_MIRROR_SYNC,
+    IPC.WORKSPACE_RETRY_LOCAL_COPY_SYNC,
     handleValidated(
-      IPC.WORKSPACE_RETRY_LOCAL_MIRROR_SYNC,
-      workspaceRetryLocalMirrorSyncArgsSchema,
+      IPC.WORKSPACE_RETRY_LOCAL_COPY_SYNC,
+      workspaceRetryLocalCopySyncArgsSchema,
       async (_, [workspaceId]): Promise<void> => {
-        workspaceService.retryLocalMirrorSync(workspaceId);
+        workspaceService.retryLocalCopySync(workspaceId);
       }
     )
   );
@@ -584,7 +584,7 @@ export function registerWorkspaceHandlers(): void {
 
         if (isTrashing && currentWorkspace) {
           if (isSshWorkspace(currentWorkspace)) {
-            await localMirrorService.remove(workspaceId, currentWorkspace.backend);
+            await localCopyService.remove(workspaceId, currentWorkspace.backend);
           }
           currentWorkspace.setupActivities = undefined;
         }

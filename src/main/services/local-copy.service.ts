@@ -8,19 +8,24 @@ import { createLogger } from '../lib/logger';
 import { removePath } from '../lib/remove-path';
 
 import { KOMLA_FILES_DIR } from './git/git-status';
-import { collectGitignoreProtectRules } from './local-mirror-protect';
-import { syncWithSupportedOptions } from './local-mirror-rsync';
+import { collectGitignoreProtectRules } from './local-copy-protect';
+import { syncWithSupportedOptions } from './local-copy-rsync';
 import { getKomlaBasePath } from './paths';
 import { sshWorkspaceService } from './ssh-workspace.service';
 
 import type { SshWorkspaceBackend } from '../../shared/types';
-import type { LocalMirrorSyncStatus } from '../../shared/types/local-mirror';
+import type { LocalCopySyncStatus } from '../../shared/types/local-copy';
 
-const logger = createLogger('LocalMirrorService');
+const logger = createLogger('LocalCopyService');
 const SYNC_TIMEOUT_MS = 5 * 60_000;
-const MIRROR_OWNER_FILE = '.komla-local-mirror';
-const MIRROR_PATH_MAX_ATTEMPTS = 25;
-const MIRROR_REMOVE_OPTIONS = { recursive: true, force: true, maxRetries: 3, retryDelay: 100 };
+const LOCAL_COPY_OWNER_FILE = '.komla-local-mirror';
+const LOCAL_COPY_PATH_MAX_ATTEMPTS = 25;
+const LOCAL_COPY_REMOVE_OPTIONS = {
+  recursive: true,
+  force: true,
+  maxRetries: 3,
+  retryDelay: 100,
+};
 const WORKSPACE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 type SyncReason = 'prepare' | 'remote-change' | 'initial-sync' | 'retry';
@@ -29,36 +34,36 @@ function traceSync(message: string, details: Record<string, unknown>): void {
   if (process.env.KOMLA_DIAGNOSTICS === '1') logger.debug(message, details);
 }
 
-class LocalMirrorService {
+class LocalCopyService {
   private syncs = new Map<string, Promise<string>>();
   private initializations = new Map<string, Promise<string>>();
   private pendingSyncs = new Set<string>();
   private syncedWorkspaceIds = new Set<string>();
-  private syncStatuses = new Map<string, LocalMirrorSyncStatus>();
-  private syncStatusListeners = new Set<(status: LocalMirrorSyncStatus) => void>();
-  private mirrorPaths = new Map<string, string>();
+  private syncStatuses = new Map<string, LocalCopySyncStatus>();
+  private syncStatusListeners = new Set<(status: LocalCopySyncStatus) => void>();
+  private localCopyPaths = new Map<string, string>();
   private pathOwners = new Map<string, string>();
   private leftoverRemovals = new Map<string, Promise<void>>();
   // Counts the remove() calls under way for each workspace.
   private removing = new Map<string, number>();
 
-  getMirrorPath(workspaceId: string, backend: SshWorkspaceBackend): string {
+  getLocalCopyPath(workspaceId: string, backend: SshWorkspaceBackend): string {
     this.validateWorkspaceId(workspaceId);
-    const current = this.mirrorPaths.get(workspaceId);
+    const current = this.localCopyPaths.get(workspaceId);
     if (current) return current;
 
-    const root = this.mirrorRoot();
+    const root = this.localCopyRoot();
     const projectName =
       backend.projectName || basename(backend.remoteRepoPath).replace(/\.git$/i, '') || 'project';
     const branchName = backend.branchName || basename(backend.remoteDirectory) || 'branch';
     const safeProject = sanitizeWorktreeProjectSegment(projectName);
     const safeBranch = sanitizeWorktreeProjectSegment(branchName);
     const preferred = resolve(root, safeProject, safeBranch);
-    const candidates = Array.from({ length: MIRROR_PATH_MAX_ATTEMPTS }, (_, index) =>
+    const candidates = Array.from({ length: LOCAL_COPY_PATH_MAX_ATTEMPTS }, (_, index) =>
       index === 0 ? preferred : resolve(root, safeProject, `${safeBranch}-${index + 1}`)
     );
     const candidateStates = candidates.map((candidate) => {
-      this.assertInsideMirrorRoot(root, candidate);
+      this.assertInsideLocalCopyRoot(root, candidate);
       const reservedOwner = this.pathOwners.get(candidate);
       const exists = existsSync(candidate);
       return {
@@ -73,14 +78,14 @@ class LocalMirrorService {
     // numeric slot became free while Komla was closed.
     const owned = candidateStates.find(({ owner }) => owner === workspaceId);
     if (owned) {
-      this.mirrorPaths.set(workspaceId, owned.candidate);
+      this.localCopyPaths.set(workspaceId, owned.candidate);
       this.pathOwners.set(owned.candidate, workspaceId);
       return owned.candidate;
     }
 
     const available = candidateStates.find(({ exists, reserved }) => !exists && !reserved);
     if (available) {
-      this.mirrorPaths.set(workspaceId, available.candidate);
+      this.localCopyPaths.set(workspaceId, available.candidate);
       this.pathOwners.set(available.candidate, workspaceId);
       return available.candidate;
     }
@@ -88,11 +93,11 @@ class LocalMirrorService {
     throw new Error(`Could not allocate a local folder for workspace ${workspaceId}`);
   }
 
-  hasMirror(workspaceId: string, backend: SshWorkspaceBackend): boolean {
+  hasLocalCopy(workspaceId: string, backend: SshWorkspaceBackend): boolean {
     return (
       this.initializations.has(workspaceId) ||
       this.syncs.has(workspaceId) ||
-      this.readOwner(this.getMirrorPath(workspaceId, backend)) === workspaceId
+      this.readOwner(this.getLocalCopyPath(workspaceId, backend)) === workspaceId
     );
   }
 
@@ -127,16 +132,16 @@ class LocalMirrorService {
     workspaceId: string,
     backend: SshWorkspaceBackend
   ): Promise<string> {
-    let mirrorPath: string | undefined;
+    let localCopyPath: string | undefined;
     let lastError: unknown;
     while (true) {
       const sync = this.syncs.get(workspaceId);
       if (!sync) {
         if (lastError) throw lastError;
-        return mirrorPath ?? this.getMirrorPath(workspaceId, backend);
+        return localCopyPath ?? this.getLocalCopyPath(workspaceId, backend);
       }
       try {
-        mirrorPath = await sync;
+        localCopyPath = await sync;
         lastError = undefined;
       } catch (error) {
         lastError = error;
@@ -144,12 +149,12 @@ class LocalMirrorService {
     }
   }
 
-  onSyncStatus(listener: (status: LocalMirrorSyncStatus) => void): () => void {
+  onSyncStatus(listener: (status: LocalCopySyncStatus) => void): () => void {
     this.syncStatusListeners.add(listener);
     return () => this.syncStatusListeners.delete(listener);
   }
 
-  getSyncStatuses(): LocalMirrorSyncStatus[] {
+  getSyncStatuses(): LocalCopySyncStatus[] {
     return Array.from(this.syncStatuses.values());
   }
 
@@ -157,7 +162,7 @@ class LocalMirrorService {
     const current = this.initializations.get(workspaceId);
     if (current) return current;
 
-    const initialization = this.initializeMirror(workspaceId, backend);
+    const initialization = this.initializeLocalCopy(workspaceId, backend);
     this.initializations.set(workspaceId, initialization);
     void initialization.then(
       () => {
@@ -184,7 +189,7 @@ class LocalMirrorService {
     this.requestSync(workspaceId, backend, 'initial-sync');
   }
 
-  private async initializeMirror(
+  private async initializeLocalCopy(
     workspaceId: string,
     backend: SshWorkspaceBackend
   ): Promise<string> {
@@ -193,10 +198,10 @@ class LocalMirrorService {
     }
 
     await this.leftoverRemovals.get(workspaceId);
-    const mirrorPath = this.getMirrorPath(workspaceId, backend);
-    await mkdir(mirrorPath, { recursive: true });
-    await writeFile(join(mirrorPath, MIRROR_OWNER_FILE), workspaceId, 'utf8');
-    return mirrorPath;
+    const localCopyPath = this.getLocalCopyPath(workspaceId, backend);
+    await mkdir(localCopyPath, { recursive: true });
+    await writeFile(join(localCopyPath, LOCAL_COPY_OWNER_FILE), workspaceId, 'utf8');
+    return localCopyPath;
   }
 
   requestSync(
@@ -205,12 +210,16 @@ class LocalMirrorService {
     reason: SyncReason = 'remote-change'
   ): void {
     if (this.syncs.has(workspaceId)) {
-      traceSync('local copy sync requested', { workspaceId, reason, action: 'queue-followup' });
+      traceSync('local copy sync requested', {
+        workspaceId,
+        reason,
+        action: 'queue-followup',
+      });
       this.pendingSyncs.add(workspaceId);
       return;
     }
     void this.prepare(workspaceId, backend, reason).catch((error) => {
-      logger.warn('background mirror sync failed', {
+      logger.warn('background local copy sync failed', {
         workspaceId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -224,13 +233,13 @@ class LocalMirrorService {
       await this.initializations.get(workspaceId)?.catch(() => undefined);
       await this.syncs.get(workspaceId)?.catch(() => undefined);
       await this.leftoverRemovals.get(workspaceId);
-      const mirrorPath =
-        this.mirrorPaths.get(workspaceId) ??
-        (backend ? this.getMirrorPath(workspaceId, backend) : undefined);
-      if (mirrorPath) {
-        await removePath(mirrorPath, MIRROR_REMOVE_OPTIONS);
-        this.pathOwners.delete(mirrorPath);
-        this.mirrorPaths.delete(workspaceId);
+      const localCopyPath =
+        this.localCopyPaths.get(workspaceId) ??
+        (backend ? this.getLocalCopyPath(workspaceId, backend) : undefined);
+      if (localCopyPath) {
+        await removePath(localCopyPath, LOCAL_COPY_REMOVE_OPTIONS);
+        this.pathOwners.delete(localCopyPath);
+        this.localCopyPaths.delete(workspaceId);
       }
       this.syncedWorkspaceIds.delete(workspaceId);
       this.syncStatuses.delete(workspaceId);
@@ -251,7 +260,7 @@ class LocalMirrorService {
     keep: (workspaceId: string) => boolean,
     stopped: () => boolean = () => false
   ): Promise<void> {
-    const root = this.mirrorRoot();
+    const root = this.localCopyRoot();
     for (const project of await readDirectoryNames(root)) {
       const projectPath = join(root, project);
       for (const folder of await readDirectoryNames(projectPath)) {
@@ -264,11 +273,11 @@ class LocalMirrorService {
   }
 
   private async removeLeftover(
-    mirrorPath: string,
+    localCopyPath: string,
     keep: (workspaceId: string) => boolean,
     stopped: () => boolean
   ): Promise<void> {
-    const owner = await readFile(join(mirrorPath, MIRROR_OWNER_FILE), 'utf8')
+    const owner = await readFile(join(localCopyPath, LOCAL_COPY_OWNER_FILE), 'utf8')
       .then(ownerFromMarker)
       .catch(() => undefined);
     if (stopped() || !owner || !WORKSPACE_ID_PATTERN.test(owner) || keep(owner)) return;
@@ -276,25 +285,28 @@ class LocalMirrorService {
       return;
     }
 
-    const removal = removePath(mirrorPath, MIRROR_REMOVE_OPTIONS);
+    const removal = removePath(localCopyPath, LOCAL_COPY_REMOVE_OPTIONS);
     this.leftoverRemovals.set(
       owner,
       removal.catch(() => undefined)
     );
     try {
       await removal;
-      if (this.mirrorPaths.get(owner) === mirrorPath) this.mirrorPaths.delete(owner);
-      if (this.pathOwners.get(mirrorPath) === owner) this.pathOwners.delete(mirrorPath);
+      if (this.localCopyPaths.get(owner) === localCopyPath) this.localCopyPaths.delete(owner);
+      if (this.pathOwners.get(localCopyPath) === owner) this.pathOwners.delete(localCopyPath);
       this.syncedWorkspaceIds.delete(owner);
       // A workspace restored meanwhile is already syncing its new copy.
       if (!this.syncs.has(owner) && this.syncStatuses.has(owner)) {
         this.setSyncStatus({ workspaceId: owner, state: 'ready' });
       }
-      logger.info('removed a leftover local copy', { workspaceId: owner, mirrorPath });
+      logger.info('removed a leftover local copy', {
+        workspaceId: owner,
+        localCopyPath,
+      });
     } catch (error) {
       logger.warn('could not remove a leftover local copy', {
         workspaceId: owner,
-        mirrorPath,
+        localCopyPath,
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -305,10 +317,10 @@ class LocalMirrorService {
   private async sync(workspaceId: string, backend: SshWorkspaceBackend): Promise<string> {
     // Provisioning owns remote setup. Repeating it here rewrites watched Git config,
     // which triggers another snapshot and local copy sync indefinitely.
-    const mirrorPath = await this.initialize(workspaceId, backend);
+    const localCopyPath = await this.initialize(workspaceId, backend);
     const protectRules = await collectGitignoreProtectRules(
-      mirrorPath,
-      new Set(['.git', MIRROR_OWNER_FILE, KOMLA_FILES_DIR])
+      localCopyPath,
+      new Set(['.git', LOCAL_COPY_OWNER_FILE, KOMLA_FILES_DIR])
     );
 
     const transport = sshWorkspaceService.getRsyncTransport(backend.hostId);
@@ -321,7 +333,7 @@ class LocalMirrorService {
       '--delete-after',
       '--safe-links',
       '--exclude=/.git',
-      `--exclude=/${MIRROR_OWNER_FILE}`,
+      `--exclude=/${LOCAL_COPY_OWNER_FILE}`,
       `--exclude=/${KOMLA_FILES_DIR}`,
       '--filter=:- .gitignore',
       ...protectRules.map((rule) => `--filter=${rule}`),
@@ -334,7 +346,7 @@ class LocalMirrorService {
           commonArgs,
           remotePath,
           legacyRemotePath,
-          localPath: `${mirrorPath}${sep}`,
+          localPath: `${localCopyPath}${sep}`,
           timeout: SYNC_TIMEOUT_MS,
         },
         (percent) => this.setSyncStatus({ workspaceId, state: 'syncing', percent })
@@ -349,9 +361,9 @@ class LocalMirrorService {
       );
     }
 
-    logger.debug('local mirror synced', { workspaceId, mirrorPath });
+    logger.debug('local copy synced', { workspaceId, localCopyPath });
     this.syncedWorkspaceIds.add(workspaceId);
-    return mirrorPath;
+    return localCopyPath;
   }
 
   private finishSync(
@@ -383,7 +395,7 @@ class LocalMirrorService {
     }
   }
 
-  private setSyncStatus(status: LocalMirrorSyncStatus): void {
+  private setSyncStatus(status: LocalCopySyncStatus): void {
     if (isSameSyncStatus(this.syncStatuses.get(status.workspaceId), status)) return;
     if (status.state === 'ready') {
       this.syncStatuses.delete(status.workspaceId);
@@ -393,7 +405,7 @@ class LocalMirrorService {
     for (const listener of this.syncStatusListeners) listener(status);
   }
 
-  private mirrorRoot(): string {
+  private localCopyRoot(): string {
     return resolve(getKomlaBasePath(), 'mirrors');
   }
 
@@ -403,15 +415,15 @@ class LocalMirrorService {
     }
   }
 
-  private assertInsideMirrorRoot(root: string, candidate: string): void {
+  private assertInsideLocalCopyRoot(root: string, candidate: string): void {
     if (candidate === root || !candidate.startsWith(`${root}${sep}`)) {
       throw new Error('Invalid local copy path');
     }
   }
 
-  private readOwner(mirrorPath: string): string | undefined {
+  private readOwner(localCopyPath: string): string | undefined {
     try {
-      return ownerFromMarker(readFileSync(join(mirrorPath, MIRROR_OWNER_FILE), 'utf8'));
+      return ownerFromMarker(readFileSync(join(localCopyPath, LOCAL_COPY_OWNER_FILE), 'utf8'));
     } catch {
       return undefined;
     }
@@ -419,8 +431,8 @@ class LocalMirrorService {
 }
 
 function isSameSyncStatus(
-  previous: LocalMirrorSyncStatus | undefined,
-  next: LocalMirrorSyncStatus
+  previous: LocalCopySyncStatus | undefined,
+  next: LocalCopySyncStatus
 ): boolean {
   if (previous?.state === 'syncing' && next.state === 'syncing') {
     return previous.percent === next.percent;
@@ -441,4 +453,4 @@ async function readDirectoryNames(path: string): Promise<string[]> {
   return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 }
 
-export const localMirrorService = new LocalMirrorService();
+export const localCopyService = new LocalCopyService();

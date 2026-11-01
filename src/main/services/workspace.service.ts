@@ -37,7 +37,7 @@ import { backgroundProcessService } from './background-process.service';
 import { configService } from './config.service';
 import { executionLocations } from './execution-location';
 import { gitService } from './git.service';
-import { localMirrorService } from './local-mirror.service';
+import { localCopyService } from './local-copy.service';
 import {
   configureManagedRemoteTerminalLifecycle,
   managedRemoteTerminalLifecycleService,
@@ -72,10 +72,10 @@ import { WorkspaceCreation } from './workspace/creation';
 import { FreeSshSlots } from './workspace/free-ssh-slots';
 import { WorkspaceLifecycle } from './workspace/lifecycle';
 import {
-  initializeLocalMirror,
-  prepareLocalMirror,
-  requestSshLocalMirrorSync,
-  retryLocalMirrorSync,
+  initializeLocalCopy,
+  prepareLocalCopy,
+  requestSshLocalCopySync,
+  retryLocalCopySync,
 } from './workspace/local-copy';
 import { WorkspaceNaming } from './workspace/naming';
 import { hydrateWorkspace } from './workspace/persisted-workspace';
@@ -348,7 +348,7 @@ class WorkspaceService {
       resolveAgentCommand: (preset, prompt, launchModeId, reasoningLevelId) =>
         resolveAgentCommand(preset, prompt, launchModeId, undefined, reasoningLevelId),
       locations: executionLocations,
-      prepareLocalMirror: (workspaceId) => prepareLocalMirror(workspaceId),
+      prepareLocalCopy: (workspaceId) => prepareLocalCopy(workspaceId),
       projects: projectService,
       actions: actionService,
       presets: agentPresetService,
@@ -379,8 +379,8 @@ class WorkspaceService {
           }
         }
       },
-      requestLocalCopySync: (workspaceId) => requestSshLocalMirrorSync(workspaceId),
-      isLocalCopyCurrent: (workspaceId) => localMirrorService.isCurrent(workspaceId),
+      requestLocalCopySync: (workspaceId) => requestSshLocalCopySync(workspaceId),
+      isLocalCopyCurrent: (workspaceId) => localCopyService.isCurrent(workspaceId),
       getSshSnapshot: (backend, targetBranch) => sshWorkspaceGit.getSnapshot(backend, targetBranch),
       restartLocalWatcher: (workspaceId, workingDirectory) =>
         worktreeWatcherService.restartWatching(workspaceId, workingDirectory),
@@ -503,10 +503,10 @@ class WorkspaceService {
       sshWorkspaceService.recordTerminalPoolAssignment(terminalId, assignment);
     });
 
-    localMirrorService.onSyncStatus((status) => {
+    localCopyService.onSyncStatus((status) => {
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed()) {
-          window.webContents.send(IPC.WORKSPACE_LOCAL_MIRROR_SYNC_STATUS, status);
+          window.webContents.send(IPC.WORKSPACE_LOCAL_COPY_SYNC_STATUS, status);
         }
       }
     });
@@ -909,16 +909,16 @@ class WorkspaceService {
       .catch((error) => logger.error('Failed to notify a workspace:', error));
   }
 
-  prepareLocalMirror(...args: Parameters<typeof prepareLocalMirror>) {
-    return prepareLocalMirror(...args);
+  prepareLocalCopy(...args: Parameters<typeof prepareLocalCopy>) {
+    return prepareLocalCopy(...args);
   }
 
-  initializeLocalMirror(...args: Parameters<typeof initializeLocalMirror>) {
-    return initializeLocalMirror(...args);
+  initializeLocalCopy(...args: Parameters<typeof initializeLocalCopy>) {
+    return initializeLocalCopy(...args);
   }
 
-  retryLocalMirrorSync(...args: Parameters<typeof retryLocalMirrorSync>) {
-    return retryLocalMirrorSync(...args);
+  retryLocalCopySync(...args: Parameters<typeof retryLocalCopySync>) {
+    return retryLocalCopySync(...args);
   }
 
   saveWorkspacesImmediate(...args: Parameters<typeof workspaceStore.saveWorkspacesImmediate>) {

@@ -362,7 +362,7 @@ describe('SshTab', () => {
       expect(screen.queryByText(/terminal\.sh/)).not.toBeInTheDocument();
     });
 
-    it('keeps workspace mirror choices out of SSH settings', () => {
+    it('keeps workspace Local copy choices out of SSH settings', () => {
       renderSsh();
 
       expect(screen.queryByRole('button', { name: 'Defaults & rules' })).not.toBeInTheDocument();

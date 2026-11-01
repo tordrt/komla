@@ -5,7 +5,7 @@ import { isSshWorkspace, TRASH_RETENTION_MS, type Workspace } from '../../shared
 import { createLogger } from '../lib/logger';
 
 import { gitExec } from './git/git-exec';
-import { localMirrorService } from './local-mirror.service';
+import { localCopyService } from './local-copy.service';
 import { projectService } from './project.service';
 import { windowService } from './window.service';
 import { workspaceService } from './workspace.service';
@@ -147,7 +147,7 @@ export const workspaceTrash = new WorkspaceTrash({
     windowService.broadcastToAll(IPC.WORKSPACES_CHANGED);
   },
   removeLeftoverLocalCopies: (stopped) =>
-    localMirrorService.removeLeftovers(
+    localCopyService.removeLeftovers(
       (workspaceId) => workspaceService.get(workspaceId)?.status === 'active',
       stopped
     ),

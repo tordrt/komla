@@ -5,6 +5,7 @@
 import type { WorkspaceAttention } from './workspace';
 
 export type TerminalStatus = 'starting' | 'running' | 'stopped';
+// `local-mirror` is the Local copy. Saved workspaces hold this value, so it keeps the old name.
 export type TerminalExecutionLocation = 'workspace' | 'local-mirror';
 /** Launch-time target. `remote` explicitly bypasses an SSH project's Local copy policy. */
 export type TerminalLaunchLocation = TerminalExecutionLocation | 'remote';

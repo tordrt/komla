@@ -332,8 +332,8 @@ describe('WorkspaceSetupSection', () => {
         destination: 'workspace-repository',
       },
       {
-        id: 'mirror',
-        name: 'Mirror install',
+        id: 'local-copy',
+        name: 'Local copy install',
         command: 'npm install',
         placement: 'background',
         destination: 'ssh-local-copy',
@@ -346,7 +346,7 @@ describe('WorkspaceSetupSection', () => {
     expect(
       installDestinations.queryByRole('option', { name: 'Local copy of SSH workspace' })
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Run in for Mirror install' })).toHaveValue(
+    expect(screen.getByRole('combobox', { name: 'Run in for Local copy install' })).toHaveValue(
       'ssh-local-copy'
     );
     expect(screen.queryByRole('button', { name: 'Install in local copy' })).not.toBeInTheDocument();

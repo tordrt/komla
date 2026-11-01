@@ -93,13 +93,13 @@ describe('useVirtualDesktopHint', () => {
         workspace('local-ws', {}, ['local-term']),
         {
           ...workspace('ssh-ws', { backend: sshBackend }, []),
-          terminals: [{ id: 'mirror-term', executionLocation: 'local-mirror' }],
+          terminals: [{ id: 'local-copy-term', executionLocation: 'local-mirror' }],
         } as Workspace,
       ],
     });
     renderHook(() => useVirtualDesktopHint());
     act(() => emit('local-term', 'Missing X server or $DISPLAY\r\n', 1));
-    act(() => emit('mirror-term', 'Missing X server or $DISPLAY\r\n', 1));
+    act(() => emit('local-copy-term', 'Missing X server or $DISPLAY\r\n', 1));
 
     expect(toastMessages()).toEqual([]);
   });

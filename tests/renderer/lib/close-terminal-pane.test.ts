@@ -79,7 +79,7 @@ describe('handleTerminalExit', () => {
     expect(close).not.toHaveBeenCalled();
   });
 
-  it('closes a local mirror terminal in an SSH workspace after a clean exit', () => {
+  it('closes a local copy terminal in an SSH workspace after a clean exit', () => {
     const close = vi.fn().mockResolvedValue(undefined);
     const terminal = createTerminal({ id: 'term-1', executionLocation: 'local-mirror' });
     useWorkspacesStore.setState({

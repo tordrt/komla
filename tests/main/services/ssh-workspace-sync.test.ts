@@ -204,7 +204,7 @@ describe('SSH workspace manifest', () => {
       sshWorkspace({
         terminals: [
           terminal('t1'),
-          terminal('mirror', { executionLocation: 'local-mirror' }),
+          terminal('localCopy', { executionLocation: 'local-mirror' }),
           terminal('plain', { remoteSessionResumable: false }),
         ],
       }),
@@ -441,13 +441,13 @@ describe('mergeSshWorkspaceManifest', () => {
   });
 
   it("keeps this device's own panes, and leaves out the other device's, when taking its layout", () => {
-    // `mirror` runs on this device, e.g. in a Local copy; `their-shell` only on the other.
+    // `localCopy` runs on this device, e.g. in a Local copy; `their-shell` only on the other.
     const local = {
       ...base,
       terminalLayout: {
         activeTab: 't1',
         tabs: ['t1', 't2'],
-        layouts: { t1: split('t1', 'mirror'), t2: leaf('t2') },
+        layouts: { t1: split('t1', 'localCopy'), t2: leaf('t2') },
       },
     };
     const remote = {
@@ -459,8 +459,8 @@ describe('mergeSshWorkspaceManifest', () => {
     };
 
     expect(merge(base, local, remote).terminalLayout).toEqual({
-      tabs: ['t2', 'mirror'],
-      layouts: { t2: split('t2', 't1'), mirror: leaf('mirror') },
+      tabs: ['t2', 'localCopy'],
+      layouts: { t2: split('t2', 't1'), localCopy: leaf('localCopy') },
     });
   });
 
@@ -513,8 +513,8 @@ describe('mergeSshWorkspaceManifest', () => {
       ...base,
       terminalLayout: {
         ...layout('t1', 't2'),
-        tabs: ['t1', 't2', 'mirror'],
-        layouts: { t1: leaf('t1', 'mine-1'), t2: leaf('t2'), mirror: leaf('mirror') },
+        tabs: ['t1', 't2', 'localCopy'],
+        layouts: { t1: leaf('t1', 'mine-1'), t2: leaf('t2'), localCopy: leaf('localCopy') },
       },
     };
     // The other device has not placed t3 yet; this one gave it a tab.

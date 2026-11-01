@@ -29,7 +29,7 @@ import {
 } from './git/git-status';
 import { gitService } from './git.service';
 import { htmlPreviewService } from './html-preview.service';
-import { localMirrorService } from './local-mirror.service';
+import { localCopyService } from './local-copy.service';
 import { getKomlaBasePath } from './paths';
 import { remoteCompanionService } from './remote-companion.service';
 import {
@@ -678,8 +678,8 @@ class WorkspaceFileService {
       if (!isSshWorkspace(workspace)) {
         throw new Error('Local copy file imports require an SSH workspace');
       }
-      const mirrorPath = localMirrorService.getMirrorPath(workspace.id, workspace.backend);
-      return gitService.importExternalFile(mirrorPath, sourcePath, preferredName);
+      const localCopyPath = localCopyService.getLocalCopyPath(workspace.id, workspace.backend);
+      return gitService.importExternalFile(localCopyPath, sourcePath, preferredName);
     }
     if (!isSshWorkspace(workspace)) {
       return gitService.importExternalFile(workspace.workingDirectory, sourcePath, preferredName);
@@ -825,9 +825,9 @@ class WorkspaceFileService {
       const localPath = expandTerminalHome(source.fullPath);
       const name = pathPosix.basename(localPath);
       if (!this.getTerminalFileRunner(workspace, terminal) && !name.startsWith('.')) {
-        // A Local copy terminal of an SSH workspace runs in the workspace's mirror.
+        // A Local copy terminal of an SSH workspace runs in that Local copy.
         const ownFolder = isSshWorkspace(workspace)
-          ? localMirrorService.getMirrorPath(workspace.id, workspace.backend)
+          ? localCopyService.getLocalCopyPath(workspace.id, workspace.backend)
           : workspace.workingDirectory;
         const folder = await servableViewerFolder(pathPosix.dirname(localPath), ownFolder);
         if (folder) return htmlPreviewService.createPreviewUrl(folder, name);

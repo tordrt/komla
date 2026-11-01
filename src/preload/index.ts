@@ -102,7 +102,7 @@ import type {
   ToastOverlayContent,
   ToastOverlayEvent,
   ToastOverlayState,
-  LocalMirrorSyncStatus,
+  LocalCopySyncStatus,
 } from '../shared/types';
 import type { AgentUsage, AgentUsageSource } from '../shared/types/agent-usage';
 import type {
@@ -269,8 +269,8 @@ const api = {
   stopBackgroundActionRun: (workspaceId: string, activityId: string): Promise<void> =>
     ipcRenderer.invoke(IPC.WORKSPACE_STOP_BACKGROUND_ACTION_RUN, workspaceId, activityId),
 
-  retryLocalMirrorSync: (workspaceId: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.WORKSPACE_RETRY_LOCAL_MIRROR_SYNC, workspaceId),
+  retryLocalCopySync: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_RETRY_LOCAL_COPY_SYNC, workspaceId),
 
   dismissSetupActivity: (workspaceId: string, activityId: string): Promise<Workspace> =>
     ipcRenderer.invoke(IPC.WORKSPACE_DISMISS_SETUP_ACTIVITY, workspaceId, activityId),
@@ -1442,12 +1442,12 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.WORKSPACE_UPDATED, handler);
   },
 
-  onLocalMirrorSyncStatus: (callback: (status: LocalMirrorSyncStatus) => void): (() => void) => {
-    const handler = (_: Electron.IpcRendererEvent, status: LocalMirrorSyncStatus): void => {
+  onLocalCopySyncStatus: (callback: (status: LocalCopySyncStatus) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, status: LocalCopySyncStatus): void => {
       callback(status);
     };
-    ipcRenderer.on(IPC.WORKSPACE_LOCAL_MIRROR_SYNC_STATUS, handler);
-    return () => ipcRenderer.removeListener(IPC.WORKSPACE_LOCAL_MIRROR_SYNC_STATUS, handler);
+    ipcRenderer.on(IPC.WORKSPACE_LOCAL_COPY_SYNC_STATUS, handler);
+    return () => ipcRenderer.removeListener(IPC.WORKSPACE_LOCAL_COPY_SYNC_STATUS, handler);
   },
 
   onWorkspacesChanged: (callback: () => void): (() => void) => {

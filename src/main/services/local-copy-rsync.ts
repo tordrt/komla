@@ -126,7 +126,10 @@ export function runRsync(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const { timeout, ...spawnOptions } = options;
-    const child = spawn('rsync', args, { ...spawnOptions, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('rsync', args, {
+      ...spawnOptions,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     // Not on 'close', which waits for rsync to exit and for whatever holds its pipes, such as a stuck
     // ssh it started. That would leave the sync running forever, with no error to show or retry from.
     const timer = setTimeout(() => {

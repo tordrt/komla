@@ -213,7 +213,7 @@ vi.mock('../../../src/main/services/workspace-git/ssh-git', () => ({
 let mockPtyStatusListener:
   | ((terminalId: string, status: 'starting' | 'running' | 'stopped') => void)
   | undefined;
-let mockLocalMirrorSyncStatusListener:
+let mockLocalCopySyncStatusListener:
   | ((status: {
       workspaceId: string;
       state: 'syncing' | 'ready' | 'error';
@@ -553,8 +553,8 @@ vi.mock('../../../src/main/services/ssh-workspace-sync/host', () => ({
   sshWorkspaceSyncHost: mockSshWorkspaceSyncHost,
 }));
 
-const mockLocalMirrorService = {
-  getMirrorPath: vi.fn((workspaceId: string) => `/mock/home/.komla/mirrors/${workspaceId}`),
+const mockLocalCopyService = {
+  getLocalCopyPath: vi.fn((workspaceId: string) => `/mock/home/.komla/mirrors/${workspaceId}`),
   initialize: vi.fn((workspaceId: string) =>
     Promise.resolve(`/mock/home/.komla/mirrors/${workspaceId}`)
   ),
@@ -569,18 +569,18 @@ const mockLocalMirrorService = {
         message?: string;
       }) => void
     ) => {
-      mockLocalMirrorSyncStatusListener = listener;
+      mockLocalCopySyncStatusListener = listener;
       return vi.fn();
     }
   ),
   getSyncStatuses: vi.fn(() => []),
   ensureInitialSync: vi.fn(),
   requestSync: vi.fn(),
-  hasMirror: vi.fn(() => false),
+  hasLocalCopy: vi.fn(() => false),
   remove: vi.fn(() => Promise.resolve()),
 };
-vi.mock('../../../src/main/services/local-mirror.service', () => ({
-  localMirrorService: mockLocalMirrorService,
+vi.mock('../../../src/main/services/local-copy.service', () => ({
+  localCopyService: mockLocalCopyService,
 }));
 
 const mockUtilityInferenceService = {
@@ -757,8 +757,8 @@ describe('WorkspaceService', () => {
     resetIdCounter();
     mockUuidCounter = 0;
     mockPtyStatusListener = undefined;
-    mockLocalMirrorSyncStatusListener = undefined;
-    mockLocalMirrorService.hasMirror.mockReturnValue(false);
+    mockLocalCopySyncStatusListener = undefined;
+    mockLocalCopyService.hasLocalCopy.mockReturnValue(false);
     vfs.clear();
     mockGenerateBranchSuffix.mockReset();
     mockGenerateBranchSuffix.mockReturnValue('swift-fox');
@@ -1138,7 +1138,7 @@ describe('WorkspaceService', () => {
       expect(workspace?.terminalLayout?.activeTab).toBe('term-live');
     });
 
-    it('does not restore local mirror terminals from persisted SSH workspace state', async () => {
+    it('does not restore local copy terminals from persisted SSH workspace state', async () => {
       vfs.setFile(
         '/mock/home/.komla/workspaces.json',
         JSON.stringify([
@@ -1166,7 +1166,7 @@ describe('WorkspaceService', () => {
               { id: 'term-remote', name: 'Agent', createdAt: 1001 },
               {
                 id: 'term-local',
-                name: 'Local mirror',
+                name: 'Local copy',
                 createdAt: 1002,
                 executionLocation: 'local-mirror',
               },
@@ -2705,7 +2705,7 @@ describe('WorkspaceService', () => {
       const workspace = workspaceService.get('ssh-ws')!;
       workspace.terminals.push({
         id: 'term-local',
-        name: 'Local mirror',
+        name: 'Local copy',
         status: 'running',
         createdAt: 1002,
         executionLocation: 'local-mirror',
@@ -3179,7 +3179,7 @@ describe('WorkspaceService', () => {
               remoteSessionActive: true,
             },
             {
-              id: 'term-local-mirror',
+              id: 'term-local-copy',
               name: 'Local',
               status: 'running',
               createdAt: 1001,
@@ -3207,7 +3207,7 @@ describe('WorkspaceService', () => {
         .get('ssh-oldest')!
         .terminals.find((terminal) => terminal.id === 'term-remote')!.remoteSessionActive = true;
       workspaceService.get('ssh-oldest')!.terminals.push({
-        id: 'term-local-mirror',
+        id: 'term-local-copy',
         name: 'Local',
         status: 'running',
         createdAt: 1001,
@@ -3231,7 +3231,7 @@ describe('WorkspaceService', () => {
         ['term-remote']
       );
       expect(mockPtyService.kill).toHaveBeenCalledWith('term-remote');
-      expect(mockPtyService.kill).toHaveBeenCalledWith('term-local-mirror');
+      expect(mockPtyService.kill).toHaveBeenCalledWith('term-local-copy');
       expect(
         workspaceService
           .get('ssh-oldest')
@@ -4978,7 +4978,7 @@ describe('WorkspaceService', () => {
         });
 
         await vi.waitFor(() =>
-          expect(mockLocalMirrorService.prepare).toHaveBeenCalledWith(
+          expect(mockLocalCopyService.prepare).toHaveBeenCalledWith(
             workspace.id,
             workspace.backend
           )
@@ -4995,7 +4995,7 @@ describe('WorkspaceService', () => {
       itWithLocalCopySteps('does not launch a pending SSH Local copy background step after the workspace stops', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
         let finishPreparing: (() => void) | undefined;
-        mockLocalMirrorService.prepare.mockImplementationOnce(
+        mockLocalCopyService.prepare.mockImplementationOnce(
           () =>
             new Promise<string>((resolve) => {
               finishPreparing = () => resolve('/mock/home/.komla/mirrors/pending-copy');
@@ -5041,13 +5041,13 @@ describe('WorkspaceService', () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
         let finishPreparing: (() => void) | undefined;
         let finishRemoving: (() => void) | undefined;
-        mockLocalMirrorService.prepare.mockImplementationOnce(
+        mockLocalCopyService.prepare.mockImplementationOnce(
           () =>
             new Promise<string>((resolve) => {
               finishPreparing = () => resolve('/mock/home/.komla/mirrors/pending-delete');
             })
         );
-        mockLocalMirrorService.remove.mockImplementationOnce(
+        mockLocalCopyService.remove.mockImplementationOnce(
           () =>
             new Promise<void>((resolve) => {
               finishRemoving = resolve;
@@ -5132,7 +5132,7 @@ describe('WorkspaceService', () => {
         });
 
         await vi.waitFor(() =>
-          expect(mockLocalMirrorService.prepare).toHaveBeenCalledWith(
+          expect(mockLocalCopyService.prepare).toHaveBeenCalledWith(
             workspace.id,
             workspace.backend
           )
@@ -5340,7 +5340,7 @@ describe('WorkspaceService', () => {
         });
 
         expect(mockSshWorkspaceService.runStreaming).not.toHaveBeenCalled();
-        expect(mockLocalMirrorService.prepare).not.toHaveBeenCalled();
+        expect(mockLocalCopyService.prepare).not.toHaveBeenCalled();
         expect(mockBackgroundProcessService.spawn).toHaveBeenCalledTimes(1);
         expect(mockBackgroundProcessService.spawn).toHaveBeenCalledWith(
           workspace.id,
@@ -5399,13 +5399,13 @@ describe('WorkspaceService', () => {
         expect(workspace.setupActivities).toEqual([
           expect.objectContaining({ stepId: 'copy-step', state: 'unsupported' }),
         ]);
-        expect(mockLocalMirrorService.prepare).not.toHaveBeenCalled();
+        expect(mockLocalCopyService.prepare).not.toHaveBeenCalled();
         expect(workspace.terminals.map((terminal) => terminal.name)).toContain('Remote shell');
       });
 
       itWithLocalCopySteps('classifies missing rsync discovered during Local copy preparation as unsupported', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLocalMirrorService.prepare.mockRejectedValueOnce(
+        mockLocalCopyService.prepare.mockRejectedValueOnce(
           new Error('Local copies require rsync to be installed on this computer')
         );
         mockProjectService.get.mockReturnValue(
@@ -5486,7 +5486,7 @@ describe('WorkspaceService', () => {
               }),
             ])
           );
-          expect(mockLocalMirrorService.prepare).not.toHaveBeenCalled();
+          expect(mockLocalCopyService.prepare).not.toHaveBeenCalled();
           expect(mockBackgroundProcessService.spawn).not.toHaveBeenCalled();
           expect(workspace.terminals.map((terminal) => terminal.name)).toContain('Remote shell');
         }
@@ -5494,7 +5494,7 @@ describe('WorkspaceService', () => {
 
       it('isolates Local copy path allocation failures from later setup launches', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLocalMirrorService.getMirrorPath.mockImplementationOnce(() => {
+        mockLocalCopyService.getLocalCopyPath.mockImplementationOnce(() => {
           throw new Error('Could not allocate a local folder');
         });
         mockProjectService.get.mockReturnValue(
@@ -6101,7 +6101,7 @@ describe('WorkspaceService', () => {
 
       it('syncs the Local copy before launching a Terminal Command', async () => {
         let finishSync: (() => void) | undefined;
-        mockLocalMirrorService.prepare.mockImplementationOnce(
+        mockLocalCopyService.prepare.mockImplementationOnce(
           () =>
             new Promise<string>((resolve) => {
               finishSync = () => resolve('/mock/home/.komla/mirrors/ssh-ws-1');
@@ -6149,7 +6149,7 @@ describe('WorkspaceService', () => {
           'host'
         );
 
-        expect(mockLocalMirrorService.prepare).toHaveBeenCalledWith('ssh-ws-1', backend);
+        expect(mockLocalCopyService.prepare).toHaveBeenCalledWith('ssh-ws-1', backend);
         expect(mockPtyService.spawn).not.toHaveBeenCalled();
 
         finishSync?.();
@@ -6208,16 +6208,16 @@ describe('WorkspaceService', () => {
           'remote'
         );
 
-        expect(mockLocalMirrorService.initialize).not.toHaveBeenCalled();
+        expect(mockLocalCopyService.initialize).not.toHaveBeenCalled();
         await vi.waitFor(() =>
           expect(mockSshWorkspaceService.buildTerminalLaunchCommand).toHaveBeenCalled()
         );
         expect(terminal.executionLocation).toBe('workspace');
       });
 
-      it('opens an explicit local mirror terminal before its sync starts', async () => {
+      it('opens an explicit local copy terminal before its sync starts', async () => {
         let finishInitialization: (() => void) | undefined;
-        mockLocalMirrorService.initialize.mockImplementationOnce(
+        mockLocalCopyService.initialize.mockImplementationOnce(
           () =>
             new Promise<string>((resolve) => {
               finishInitialization = () => resolve('/mock/home/.komla/mirrors/ssh-ws-1');
@@ -6259,7 +6259,7 @@ describe('WorkspaceService', () => {
 
         const terminal = await workspaceService.addTerminalWithPreparation(
           'ssh-ws-1',
-          'Local mirror',
+          'Local copy',
           null,
           undefined,
           'host-shell',
@@ -6271,11 +6271,11 @@ describe('WorkspaceService', () => {
 
         finishInitialization?.();
         await vi.waitFor(() => expect(mockPtyService.spawn).toHaveBeenCalled());
-        expect(mockLocalMirrorService.ensureInitialSync).toHaveBeenCalledWith('ssh-ws-1', backend);
+        expect(mockLocalCopyService.ensureInitialSync).toHaveBeenCalledWith('ssh-ws-1', backend);
       });
 
       it('keeps a stopped terminal when its local copy folder cannot be initialized', async () => {
-        mockLocalMirrorService.initialize.mockRejectedValueOnce(
+        mockLocalCopyService.initialize.mockRejectedValueOnce(
           new Error('local copy folder is unavailable')
         );
         const backend = {
@@ -6314,7 +6314,7 @@ describe('WorkspaceService', () => {
 
         const terminal = await workspaceService.addTerminalWithPreparation(
           'ssh-ws-1',
-          'Local mirror',
+          'Local copy',
           null,
           undefined,
           'host-shell',
@@ -10964,7 +10964,7 @@ describe('WorkspaceService', () => {
         status: 'trashed',
       });
       await vi.waitFor(() =>
-        expect(mockLocalMirrorService.remove).toHaveBeenCalledWith('ws-42', expect.anything())
+        expect(mockLocalCopyService.remove).toHaveBeenCalledWith('ws-42', expect.anything())
       );
       expect(workspace?.terminals.map((terminal) => terminal.id)).toEqual(['t1', 't2']);
       expect(send).toHaveBeenCalledWith(IPC.WORKSPACE_LAYOUT_CHANGED_ON_OTHER_DEVICE, {
@@ -12205,7 +12205,7 @@ describe('WorkspaceService', () => {
       );
     });
 
-    it('moves a local mirror pane back to remote execution when replacing it with an agent', async () => {
+    it('moves a local copy pane back to remote execution when replacing it with an agent', async () => {
       const backend = {
         kind: 'ssh' as const,
         hostId: 'ssh-dev',
@@ -12234,7 +12234,7 @@ describe('WorkspaceService', () => {
             terminals: [
               {
                 id: 'term-local',
-                name: 'Local mirror',
+                name: 'Local copy',
                 createdAt: 1001,
                 executionLocation: 'local-mirror',
               },
@@ -12245,7 +12245,7 @@ describe('WorkspaceService', () => {
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
       workspaceService.get('ssh-ws')!.terminals.push({
         id: 'term-local',
-        name: 'Local mirror',
+        name: 'Local copy',
         status: 'stopped',
         createdAt: 1001,
         executionLocation: 'local-mirror',
@@ -12261,7 +12261,7 @@ describe('WorkspaceService', () => {
       );
 
       expect(workspaceService.get('ssh-ws')?.terminals[0]?.executionLocation).toBe('workspace');
-      expect(mockLocalMirrorService.getMirrorPath).not.toHaveBeenCalled();
+      expect(mockLocalCopyService.getLocalCopyPath).not.toHaveBeenCalled();
       expect(mockSshWorkspaceService.buildTerminalLaunchCommand).toHaveBeenCalledWith(
         backend,
         'claude --plan',
@@ -12272,7 +12272,7 @@ describe('WorkspaceService', () => {
       );
     });
 
-    describe('moving a local mirror pane back to a shell on the host', () => {
+    describe('moving a local copy pane back to a shell on the host', () => {
       const backend = {
         kind: 'ssh' as const,
         hostId: 'ssh-dev',
@@ -12324,7 +12324,7 @@ describe('WorkspaceService', () => {
         });
 
         expect(workspaceService.get('ssh-ws')?.terminals[0]?.executionLocation).toBe('workspace');
-        expect(mockLocalMirrorService.getMirrorPath).not.toHaveBeenCalled();
+        expect(mockLocalCopyService.getLocalCopyPath).not.toHaveBeenCalled();
         expect(mockPtyService.kill).toHaveBeenCalledWith('term-local');
         expect(mockSshWorkspaceService.buildTerminalLaunchCommand).toHaveBeenCalledWith(
           backend,
@@ -12358,7 +12358,7 @@ describe('WorkspaceService', () => {
 
       it('cancels a local shell still waiting on its first sync', async () => {
         let finishPreparing: (() => void) | undefined;
-        mockLocalMirrorService.initialize.mockImplementationOnce(
+        mockLocalCopyService.initialize.mockImplementationOnce(
           () =>
             new Promise<string>((resolve) => {
               finishPreparing = () => resolve('/mock/home/.komla/mirrors/ssh-ws');
@@ -12437,7 +12437,7 @@ describe('WorkspaceService', () => {
         ])
       );
       let finishPreparing: (() => void) | undefined;
-      mockLocalMirrorService.prepare.mockImplementationOnce(
+      mockLocalCopyService.prepare.mockImplementationOnce(
         () =>
           new Promise<string>((resolve) => {
             finishPreparing = () => resolve('/mock/home/.komla/mirrors/ssh-ws');
@@ -12464,8 +12464,8 @@ describe('WorkspaceService', () => {
         }
       );
 
-      expect(mockLocalMirrorService.prepare).toHaveBeenCalledWith('ssh-ws', backend);
-      expect(mockLocalMirrorService.initialize).not.toHaveBeenCalled();
+      expect(mockLocalCopyService.prepare).toHaveBeenCalledWith('ssh-ws', backend);
+      expect(mockLocalCopyService.initialize).not.toHaveBeenCalled();
       expect(mockPtyService.restart).not.toHaveBeenCalled();
       finishPreparing?.();
       await restarting;
@@ -12477,7 +12477,7 @@ describe('WorkspaceService', () => {
         90,
         30
       );
-      expect(mockLocalMirrorService.ensureInitialSync).toHaveBeenCalledWith('ssh-ws', backend);
+      expect(mockLocalCopyService.ensureInitialSync).toHaveBeenCalledWith('ssh-ws', backend);
     });
 
     describe('converting an SSH terminal to a Local copy shell', () => {
@@ -12528,7 +12528,7 @@ describe('WorkspaceService', () => {
         expect(
           mockSshWorkspaceService.killTerminalSessions.mock.invocationCallOrder[0]
         ).toBeLessThan(mockPtyService.restart.mock.invocationCallOrder[0]);
-        expect(mockLocalMirrorService.initialize).toHaveBeenCalledWith('ssh-ws', backend);
+        expect(mockLocalCopyService.initialize).toHaveBeenCalledWith('ssh-ws', backend);
         expect(mockPtyService.restart).toHaveBeenCalledWith(
           'term-1',
           '/mock/home/.komla/mirrors/ssh-ws',
@@ -12583,7 +12583,7 @@ describe('WorkspaceService', () => {
 
       it('leaves the SSH terminal untouched when the Local copy cannot be prepared', async () => {
         persistRemoteTerminal();
-        mockLocalMirrorService.initialize.mockRejectedValueOnce(new Error('rsync missing'));
+        mockLocalCopyService.initialize.mockRejectedValueOnce(new Error('rsync missing'));
         const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
         await expect(
@@ -14215,7 +14215,7 @@ describe('WorkspaceService', () => {
       expect(workspaceService.get('ssh-ws-1')).toBeDefined();
     });
 
-    it('removes the remote worktree, requested branch, and local mirror for an SSH workspace', async () => {
+    it('removes the remote worktree, requested branch, and local copy for an SSH workspace', async () => {
       const backend = {
         kind: 'ssh' as const,
         hostId: 'ssh-dev',
@@ -14256,7 +14256,7 @@ describe('WorkspaceService', () => {
         'feature/cleanup',
         { allowBranchToRemain: true }
       );
-      expect(mockLocalMirrorService.remove).toHaveBeenCalledWith('ssh-ws-1', backend);
+      expect(mockLocalCopyService.remove).toHaveBeenCalledWith('ssh-ws-1', backend);
       expect(workspaceService.get('ssh-ws-1')).toBeUndefined();
     });
 
@@ -14306,7 +14306,7 @@ describe('WorkspaceService', () => {
       expect(mockWriteFileAtomic).toHaveBeenCalledTimes(2);
     });
 
-    it('retains SSH workspace metadata when local mirror cleanup fails', async () => {
+    it('retains SSH workspace metadata when local copy cleanup fails', async () => {
       const backend = {
         kind: 'ssh' as const,
         hostId: 'ssh-dev',
@@ -14337,11 +14337,11 @@ describe('WorkspaceService', () => {
           },
         ])
       );
-      mockLocalMirrorService.remove.mockRejectedValueOnce(new Error('mirror directory is busy'));
+      mockLocalCopyService.remove.mockRejectedValueOnce(new Error('local copy directory is busy'));
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
       await expect(workspaceService.delete('ssh-ws-1', true, true)).rejects.toThrow(
-        'mirror directory is busy'
+        'local copy directory is busy'
       );
 
       expect(mockSshWorkspaceService.deleteWorkspace).toHaveBeenCalled();
@@ -16050,7 +16050,7 @@ describe('WorkspaceService', () => {
       ['remote', true],
     ] as const)('syncs snapshots in %s mode only when a copy exists (%s)', async (mode, exists) => {
       mockConfigService.get.mockReturnValue({ defaultSshWorkspaceMode: mode });
-      mockLocalMirrorService.hasMirror.mockReturnValue(exists);
+      mockLocalCopyService.hasLocalCopy.mockReturnValue(exists);
       const backend = {
         kind: 'ssh' as const,
         hostId: 'ssh-dev',
@@ -16084,7 +16084,7 @@ describe('WorkspaceService', () => {
         await import('../../../src/main/services/workspace-status.service');
 
       await workspaceStatusService.change({ kind: 'repository-mutated', workspaceId: 'ssh-ws' });
-      expect(mockLocalMirrorService.requestSync).not.toHaveBeenCalled();
+      expect(mockLocalCopyService.requestSync).not.toHaveBeenCalled();
 
       await workspaceStatusService.change({
         kind: 'snapshot-observed',
@@ -16101,17 +16101,17 @@ describe('WorkspaceService', () => {
       });
 
       if (exists) {
-        expect(mockLocalMirrorService.requestSync).toHaveBeenCalledExactlyOnceWith(
+        expect(mockLocalCopyService.requestSync).toHaveBeenCalledExactlyOnceWith(
           'ssh-ws',
           backend
         );
       } else {
-        expect(mockLocalMirrorService.requestSync).not.toHaveBeenCalled();
+        expect(mockLocalCopyService.requestSync).not.toHaveBeenCalled();
       }
     });
 
-    it('should request a mirror sync while an explicit local mirror terminal is open', async () => {
-      mockLocalMirrorService.hasMirror.mockReturnValue(true);
+    it('should request a local copy sync while an explicit local copy terminal is open', async () => {
+      mockLocalCopyService.hasLocalCopy.mockReturnValue(true);
       mockConfigService.get.mockReturnValue({ defaultSshWorkspaceMode: 'remote' });
       const backend = {
         kind: 'ssh' as const,
@@ -16146,7 +16146,7 @@ describe('WorkspaceService', () => {
         await import('../../../src/main/services/workspace-status.service');
       workspaceService.addTerminal(
         'ssh-ws',
-        'Local mirror',
+        'Local copy',
         null,
         undefined,
         'host-shell',
@@ -16154,7 +16154,7 @@ describe('WorkspaceService', () => {
       );
 
       await workspaceStatusService.change({ kind: 'repository-mutated', workspaceId: 'ssh-ws' });
-      expect(mockLocalMirrorService.requestSync).not.toHaveBeenCalled();
+      expect(mockLocalCopyService.requestSync).not.toHaveBeenCalled();
 
       await workspaceStatusService.change({
         kind: 'snapshot-observed',
@@ -16170,24 +16170,24 @@ describe('WorkspaceService', () => {
         },
       });
 
-      expect(mockLocalMirrorService.requestSync).toHaveBeenCalledExactlyOnceWith('ssh-ws', backend);
+      expect(mockLocalCopyService.requestSync).toHaveBeenCalledExactlyOnceWith('ssh-ws', backend);
     });
 
-    it('broadcasts local mirror sync status to renderer windows', async () => {
+    it('broadcasts local copy sync status to renderer windows', async () => {
       const send = vi.fn();
       const { BrowserWindow } = await import('electron');
       vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([rendererWindow(send)]);
       await import('../../../src/main/services/workspace.service');
 
-      mockLocalMirrorSyncStatusListener?.({ workspaceId: 'ssh-ws', state: 'syncing' });
+      mockLocalCopySyncStatusListener?.({ workspaceId: 'ssh-ws', state: 'syncing' });
 
-      expect(send).toHaveBeenCalledWith('workspace:local-mirror-sync-status', {
+      expect(send).toHaveBeenCalledWith('workspace:local-copy-sync-status', {
         workspaceId: 'ssh-ws',
         state: 'syncing',
       });
     });
 
-    it('retries a failed local mirror sync for an SSH workspace', async () => {
+    it('retries a failed local copy sync for an SSH workspace', async () => {
       const backend = {
         kind: 'ssh' as const,
         hostId: 'ssh-dev',
@@ -16216,9 +16216,9 @@ describe('WorkspaceService', () => {
       );
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
-      workspaceService.retryLocalMirrorSync('ssh-ws');
+      workspaceService.retryLocalCopySync('ssh-ws');
 
-      expect(mockLocalMirrorService.requestSync).toHaveBeenCalledWith('ssh-ws', backend, 'retry');
+      expect(mockLocalCopyService.requestSync).toHaveBeenCalledWith('ssh-ws', backend, 'retry');
     });
   });
 

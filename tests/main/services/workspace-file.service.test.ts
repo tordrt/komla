@@ -26,7 +26,7 @@ const {
   execFileMock,
   gitServiceMock,
   htmlPreviewServiceMock,
-  localMirrorServiceMock,
+  localCopyServiceMock,
   ptyServiceMock,
   remoteCompanionServiceMock,
   searchServiceMock,
@@ -50,8 +50,8 @@ const {
     createPreviewUrl: vi.fn(),
     createContentPreviewUrl: vi.fn(),
   },
-  localMirrorServiceMock: {
-    getMirrorPath: vi.fn(),
+  localCopyServiceMock: {
+    getLocalCopyPath: vi.fn(),
   },
   ptyServiceMock: {
     getBuffer: vi.fn(),
@@ -87,8 +87,8 @@ vi.mock('../../../src/main/services/git.service', () => ({ gitService: gitServic
 vi.mock('../../../src/main/services/html-preview.service', () => ({
   htmlPreviewService: htmlPreviewServiceMock,
 }));
-vi.mock('../../../src/main/services/local-mirror.service', () => ({
-  localMirrorService: localMirrorServiceMock,
+vi.mock('../../../src/main/services/local-copy.service', () => ({
+  localCopyService: localCopyServiceMock,
 }));
 vi.mock('../../../src/main/services/pty.service', () => ({ ptyService: ptyServiceMock }));
 vi.mock('../../../src/main/services/remote-companion.service', () => ({
@@ -152,7 +152,7 @@ describe('workspaceFileService', () => {
     },
     terminals: [
       { id: 'term-ssh', executionLocation: 'workspace' as const },
-      { id: 'term-mirror', executionLocation: 'local-mirror' as const },
+      { id: 'term-local-copy', executionLocation: 'local-mirror' as const },
     ],
   };
   const linkedSshWorkspace = {
@@ -168,7 +168,7 @@ describe('workspaceFileService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     configServiceMock.get.mockReturnValue({});
-    localMirrorServiceMock.getMirrorPath.mockReturnValue('/tmp/komla/mirrors/project/branch');
+    localCopyServiceMock.getLocalCopyPath.mockReturnValue('/tmp/komla/mirrors/project/branch');
     ptyServiceMock.getBuffer.mockReturnValue({ buffer: '', seq: 0 });
     sshWorkspaceServiceMock.getHost.mockReturnValue({ id: 'ssh-dev', name: 'SSH Dev' });
     workspaceStatusServiceMock.change.mockResolvedValue({ disposition: 'applied' });
@@ -314,7 +314,7 @@ describe('workspaceFileService', () => {
     await expect(
       workspaceFileService.importExternalFile('ws-ssh', sourcePath, 'report.pdf', 'local-mirror')
     ).resolves.toBe('.komla-files/report.pdf');
-    expect(localMirrorServiceMock.getMirrorPath).toHaveBeenCalledWith(
+    expect(localCopyServiceMock.getLocalCopyPath).toHaveBeenCalledWith(
       'ws-ssh',
       sshWorkspace.backend
     );
@@ -536,14 +536,14 @@ describe('workspaceFileService', () => {
     }
   );
 
-  itWithTerminalFiles('reads a local-mirror terminal file from this computer', async () => {
+  itWithTerminalFiles('reads a local-copy terminal file from this computer', async () => {
     const sourcePath = await createSourceFile('shot.webp');
     workspaceServiceMock.get.mockReturnValue(sshWorkspace);
     const { workspaceFileService } =
       await import('../../../src/main/services/workspace-file.service');
 
     await expect(
-      workspaceFileService.readViewerFile('ws-ssh', 'term-mirror', terminalFile(sourcePath))
+      workspaceFileService.readViewerFile('ws-ssh', 'term-local-copy', terminalFile(sourcePath))
     ).resolves.toEqual({
       data: Buffer.from('contents').toString('base64'),
       mimeType: 'image/webp',
@@ -1031,18 +1031,18 @@ describe('workspaceFileService', () => {
   );
 
   itWithTerminalFiles(
-    "serves a Local copy terminal's page from the workspace's mirror",
+    "serves a Local copy terminal's page from the workspace's Local copy",
     async () => {
       await placeTempFolderAt(await createTempFolder());
-      const mirror = await createTempFolder();
-      localMirrorServiceMock.getMirrorPath.mockReturnValue(mirror);
+      const localCopy = await createTempFolder();
+      localCopyServiceMock.getLocalCopyPath.mockReturnValue(localCopy);
       workspaceServiceMock.get.mockReturnValue(sshWorkspace);
 
       await expect(
-        previewTerminalPage('ws-ssh', 'term-mirror', await writePage(join(mirror, 'dist')))
+        previewTerminalPage('ws-ssh', 'term-local-copy', await writePage(join(localCopy, 'dist')))
       ).resolves.toBe('folder');
       expect(htmlPreviewServiceMock.createPreviewUrl).toHaveBeenCalledWith(
-        join(mirror, 'dist'),
+        join(localCopy, 'dist'),
         'index.html'
       );
     }

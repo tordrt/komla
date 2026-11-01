@@ -21,9 +21,9 @@ import {
 import { useActionEditorStore } from '../../../../src/renderer/stores/action-editor.store';
 import { useDevServerPreviewStore } from '../../../../src/renderer/stores/dev-server-preview.store';
 import {
-  setLocalMirrorSyncStatus,
-  useLocalMirrorSyncStore,
-} from '../../../../src/renderer/stores/local-mirror-sync.store';
+  setLocalCopySyncStatus,
+  useLocalCopySyncStore,
+} from '../../../../src/renderer/stores/local-copy-sync.store';
 import {
   claimTerminal,
   useTerminalBusyStore,
@@ -50,7 +50,7 @@ const mocks = vi.hoisted(() => ({
   refreshTerminalRenderer: vi.fn(),
   pasteClipboardIntoTerminal: vi.fn(),
   showItemInFolder: vi.fn(),
-  retryLocalMirrorSync: vi.fn(() => Promise.resolve()),
+  retryLocalCopySync: vi.fn(() => Promise.resolve()),
   copyToClipboard: vi.fn(),
   submenuKeyDown: vi.fn(),
   terminalHost: null as { hostname: string; isLocal: boolean } | null,
@@ -380,14 +380,14 @@ describe('TerminalPane SSH reconnect', () => {
     useTerminalCloseStore.setState(useTerminalCloseStore.getInitialState(), true);
     useTerminalBusyStore.setState(useTerminalBusyStore.getInitialState(), true);
     useToastStore.setState(useToastStore.getInitialState(), true);
-    useLocalMirrorSyncStore.setState(useLocalMirrorSyncStore.getInitialState(), true);
+    useLocalCopySyncStore.setState(useLocalCopySyncStore.getInitialState(), true);
     useDevServerPreviewStore.setState(useDevServerPreviewStore.getInitialState(), true);
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
         platform: 'linux',
         showItemInFolder: mocks.showItemInFolder,
-        retryLocalMirrorSync: mocks.retryLocalMirrorSync,
+        retryLocalCopySync: mocks.retryLocalCopySync,
         copyToClipboard: mocks.copyToClipboard,
       },
     });
@@ -403,7 +403,7 @@ describe('TerminalPane SSH reconnect', () => {
         remoteSessionActive: false,
       },
     ];
-    setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing' });
+    setLocalCopySyncStatus({ workspaceId: 'workspace-1', state: 'syncing' });
 
     render(
       <TerminalPane
@@ -429,7 +429,7 @@ describe('TerminalPane SSH reconnect', () => {
         remoteSessionActive: false,
       },
     ];
-    setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing' });
+    setLocalCopySyncStatus({ workspaceId: 'workspace-1', state: 'syncing' });
 
     render(
       <TerminalPane
@@ -445,7 +445,7 @@ describe('TerminalPane SSH reconnect', () => {
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 
     act(() => {
-      setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 42 });
+      setLocalCopySyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 42 });
     });
 
     const progress = screen.getByRole('progressbar', { name: 'Local copy sync progress' });
@@ -457,14 +457,14 @@ describe('TerminalPane SSH reconnect', () => {
     expect(status).not.toHaveTextContent('…');
 
     act(() => {
-      setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 0 });
+      setLocalCopySyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 0 });
     });
 
     expect(screen.getByRole('progressbar')).toHaveTextContent('0%');
   });
 
   it('does not re-render a pane on the SSH host as its local copy syncs', () => {
-    setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 1 });
+    setLocalCopySyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 1 });
     render(
       <TerminalPane
         paneId="pane-1"
@@ -477,7 +477,7 @@ describe('TerminalPane SSH reconnect', () => {
     mocks.terminalViewProps = null;
 
     act(() => {
-      setLocalMirrorSyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 2 });
+      setLocalCopySyncStatus({ workspaceId: 'workspace-1', state: 'syncing', percent: 2 });
     });
 
     expect(mocks.terminalViewProps).toBeNull();
@@ -837,7 +837,7 @@ describe('TerminalPane SSH reconnect', () => {
         remoteSessionActive: false,
       },
     ];
-    setLocalMirrorSyncStatus({
+    setLocalCopySyncStatus({
       workspaceId: 'workspace-1',
       state: 'error',
       message: 'Failed to update local copy: connection lost',
@@ -855,7 +855,7 @@ describe('TerminalPane SSH reconnect', () => {
     const strip = screen.getByTestId('pane-status-strip');
     expect(within(strip).getByText('Local copy · Read-only')).toBeInTheDocument();
     fireEvent.click(within(strip).getByRole('button', { name: 'Retry local copy sync' }));
-    expect(mocks.retryLocalMirrorSync).toHaveBeenCalledWith('workspace-1');
+    expect(mocks.retryLocalCopySync).toHaveBeenCalledWith('workspace-1');
   });
 
   it('describes the SSH target and copies the tmux attach command from the host tooltip', () => {
@@ -951,7 +951,7 @@ describe('TerminalPane SSH reconnect', () => {
         remoteSessionActive: false,
       },
     ];
-    setLocalMirrorSyncStatus({
+    setLocalCopySyncStatus({
       workspaceId: 'workspace-1',
       state: 'error',
       message: 'Failed to update local copy: connection lost',
@@ -969,7 +969,7 @@ describe('TerminalPane SSH reconnect', () => {
     const retry = screen.getByRole('button', { name: 'Retry local copy sync' });
     expect(retry).toHaveAttribute('title', expect.stringContaining('connection lost'));
     fireEvent.click(retry);
-    expect(mocks.retryLocalMirrorSync).toHaveBeenCalledWith('workspace-1');
+    expect(mocks.retryLocalCopySync).toHaveBeenCalledWith('workspace-1');
     expect(screen.getByTestId('terminal-view')).toBeInTheDocument();
   });
 
@@ -1609,7 +1609,7 @@ describe('TerminalPane SSH reconnect', () => {
     act(() => useActionEditorStore.getState().closeActionEditor());
   });
 
-  it('disables context-menu image imports for local mirror terminals', () => {
+  it('disables context-menu image imports for local copy terminals', () => {
     workspace.terminals[0].executionLocation = 'local-mirror';
 
     render(

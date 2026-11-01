@@ -78,7 +78,7 @@ import { useActionsStore } from '@/stores/actions.store';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { useCustomizationStore } from '@/stores/customization.store';
 import { useLayoutStore } from '@/stores/layout.store';
-import { useLocalMirrorSyncStore } from '@/stores/local-mirror-sync.store';
+import { useLocalCopySyncStore } from '@/stores/local-copy-sync.store';
 import { usePaneFlashStore } from '@/stores/pane-flash.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
@@ -254,7 +254,7 @@ export const TerminalPane = React.memo(function TerminalPane({
       ?.terminals.find((t) => t.id === terminalId)
   );
   // A sync's percent changes often, and only Local copy panes show it.
-  const localMirrorSyncStatus = useLocalMirrorSyncStore((s) =>
+  const localCopySyncStatus = useLocalCopySyncStore((s) =>
     terminal?.executionLocation === 'local-mirror' && effectiveWorkspaceId
       ? s.statusesByWorkspaceId.get(effectiveWorkspaceId)
       : undefined
@@ -342,12 +342,12 @@ export const TerminalPane = React.memo(function TerminalPane({
   // pane, or any pane with pane headers turned off, needs no header. Its SSH and
   // local-copy status gets a slim strip instead, and it gets a grip to drag it by, which
   // moves even a lone pane onto another tab when there is one.
-  const isLocalMirror = terminal?.executionLocation === 'local-mirror';
+  const isLocalCopy = terminal?.executionLocation === 'local-mirror';
   const hasPaneStatus =
-    (isLocalMirror &&
+    (isLocalCopy &&
       (!!remoteWorkspace ||
-        localMirrorSyncStatus?.state === 'syncing' ||
-        localMirrorSyncStatus?.state === 'error')) ||
+        localCopySyncStatus?.state === 'syncing' ||
+        localCopySyncStatus?.state === 'error')) ||
     showRemotePill;
   const showHeader = showPaneHeaders && !isOnlyPane;
   const showStatusStrip = !showHeader && hasPaneStatus;
@@ -812,39 +812,39 @@ export const TerminalPane = React.memo(function TerminalPane({
           </TooltipContent>
         </Tooltip>
       )}
-      {localMirrorSyncStatus?.state === 'syncing' && (
+      {localCopySyncStatus?.state === 'syncing' && (
         <span className="flex shrink-0 items-center gap-1 text-2xs font-medium text-primary">
           <span role="status" aria-label="Syncing local copy" className="flex items-center gap-1">
             <Spinner size="xs" />
-            <span>{localMirrorSyncStatus.percent === undefined ? 'Syncing…' : 'Syncing'}</span>
+            <span>{localCopySyncStatus.percent === undefined ? 'Syncing…' : 'Syncing'}</span>
           </span>
           {/* Outside the status, which would announce every percent as it changes. */}
-          {localMirrorSyncStatus.percent !== undefined && (
+          {localCopySyncStatus.percent !== undefined && (
             <span
               role="progressbar"
               aria-label="Local copy sync progress"
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-valuenow={localMirrorSyncStatus.percent}
+              aria-valuenow={localCopySyncStatus.percent}
               className="tabular-nums"
             >
-              {localMirrorSyncStatus.percent}%
+              {localCopySyncStatus.percent}%
             </span>
           )}
         </span>
       )}
-      {localMirrorSyncStatus?.state === 'error' && (
+      {localCopySyncStatus?.state === 'error' && (
         <button
           type="button"
           aria-label="Retry local copy sync"
-          title={`${localMirrorSyncStatus.message} Click to retry.`}
+          title={`${localCopySyncStatus.message} Click to retry.`}
           className="flex shrink-0 items-center gap-1 text-2xs font-medium text-error hover:underline"
           draggable={false}
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
             if (!effectiveWorkspaceId) return;
-            void window.api.retryLocalMirrorSync(effectiveWorkspaceId).catch((error) => {
+            void window.api.retryLocalCopySync(effectiveWorkspaceId).catch((error) => {
               useToastStore
                 .getState()
                 .addToast(`Failed to retry local copy sync: ${(error as Error).message}`, 'error');

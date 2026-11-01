@@ -19,7 +19,7 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-function isLocalMirrorUnsupportedError(error: unknown): boolean {
+function isLocalCopyUnsupportedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /(?:requires? rsync|rsync(?::|\s).*(?:command not found|not found|no such file)|not yet supported on Windows)/i.test(
     message
@@ -398,7 +398,7 @@ export class WorkspaceSetupService {
           this.finishSetupActivity(
             workspace,
             activity.id,
-            isLocalMirrorUnsupportedError(error) ? 'unsupported' : 'failed',
+            isLocalCopyUnsupportedError(error) ? 'unsupported' : 'failed',
             {
               error: error instanceof Error ? error.message : String(error),
             }
@@ -688,7 +688,7 @@ export class WorkspaceSetupService {
       this.finishSetupActivity(
         workspace,
         activity.id,
-        isLocalMirrorUnsupportedError(error) ? 'unsupported' : 'failed',
+        isLocalCopyUnsupportedError(error) ? 'unsupported' : 'failed',
         { error: error instanceof Error ? error.message : String(error) }
       );
     }

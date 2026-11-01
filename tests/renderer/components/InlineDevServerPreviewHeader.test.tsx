@@ -796,7 +796,7 @@ describe('InlineDevServerPreviewHeader', () => {
       expect(tabWrites).toContainEqual(tabUpdate('http://localhost:3001/dashboard'));
     });
 
-    it('reclassifies a saved local-mirror preview when selecting a remote terminal URL', async () => {
+    it('reclassifies a saved local-copy preview when selecting a remote terminal URL', async () => {
       workspaceBackend = { kind: 'ssh' };
       workspaceDevServerExecutionLocation = 'local-mirror';
       scannerResult = ['http://localhost:3001/dashboard'];
@@ -818,7 +818,7 @@ describe('InlineDevServerPreviewHeader', () => {
       );
     });
 
-    it('opens a selected local-mirror URL directly in an SSH workspace', async () => {
+    it('opens a selected local-copy URL directly in an SSH workspace', async () => {
       workspaceBackend = { kind: 'ssh' };
       scannerExecutionLocation = 'local-mirror';
       scannerResult = ['http://localhost:3001/dashboard'];
@@ -833,7 +833,7 @@ describe('InlineDevServerPreviewHeader', () => {
       );
     });
 
-    it('hides SSH forwarding actions for a saved local-mirror URL', () => {
+    it('hides SSH forwarding actions for a saved local-copy URL', () => {
       workspaceBackend = { kind: 'ssh' };
       workspaceDevServerExecutionLocation = 'local-mirror';
       render(header());

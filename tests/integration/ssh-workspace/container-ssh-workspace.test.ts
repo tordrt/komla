@@ -59,7 +59,7 @@ type SshWorkspaceModule = typeof import('../../../src/main/services/ssh-workspac
 type SshWorkspaceGitModule = typeof import('../../../src/main/services/workspace-git/ssh-git');
 type SshPortForwardModule = typeof import('../../../src/main/services/ssh-port-forward.service');
 type SshHostModule = typeof import('../../../src/main/services/ssh-host.service');
-type LocalMirrorModule = typeof import('../../../src/main/services/local-mirror.service');
+type LocalCopyModule = typeof import('../../../src/main/services/local-copy.service');
 type RemoteCompanionModule = typeof import('../../../src/main/services/remote-companion.service');
 
 let container: TestContainerHandle;
@@ -68,7 +68,7 @@ let sshWorkspaceModule: SshWorkspaceModule;
 let sshWorkspaceGitModule: SshWorkspaceGitModule;
 let sshPortForwardModule: SshPortForwardModule;
 let sshHostModule: SshHostModule;
-let localMirrorModule: LocalMirrorModule;
+let localCopyModule: LocalCopyModule;
 let remoteCompanionModule: RemoteCompanionModule;
 
 beforeAll(async () => {
@@ -81,14 +81,14 @@ beforeAll(async () => {
     sshWorkspaceGitModule,
     sshPortForwardModule,
     sshHostModule,
-    localMirrorModule,
+    localCopyModule,
     remoteCompanionModule,
   ] = await Promise.all([
     import('../../../src/main/services/ssh-workspace.service'),
     import('../../../src/main/services/workspace-git/ssh-git'),
     import('../../../src/main/services/ssh-port-forward.service'),
     import('../../../src/main/services/ssh-host.service'),
-    import('../../../src/main/services/local-mirror.service'),
+    import('../../../src/main/services/local-copy.service'),
     import('../../../src/main/services/remote-companion.service'),
   ]);
   sshHostModule.sshHostService.save(target.host);
@@ -98,8 +98,8 @@ afterAll(async () => {
   if (sshPortForwardModule) {
     await sshPortForwardModule.sshPortForwardService.dispose();
   }
-  if (localMirrorModule) {
-    await localMirrorModule.localMirrorService.remove('ssh-integration-mirror').catch(() => {});
+  if (localCopyModule) {
+    await localCopyModule.localCopyService.remove('ssh-integration-local-copy').catch(() => {});
   }
   if (sshHostModule && target) {
     sshHostModule.sshHostService.delete(target.host.id);
@@ -1597,10 +1597,10 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
     }
   }, 60_000);
 
-  it('synchronizes a local mirror through the production rsync transport', async () => {
-    const { localMirrorService } = localMirrorModule;
-    const backend = await createPreparedWorkspace('mirror');
-    const workspaceId = 'ssh-integration-mirror';
+  it('synchronizes a local copy through the production rsync transport', async () => {
+    const { localCopyService } = localCopyModule;
+    const backend = await createPreparedWorkspace('local-copy');
+    const workspaceId = 'ssh-integration-local-copy';
 
     try {
       await container.exec([
@@ -1611,24 +1611,24 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
         backend.remoteDirectory,
       ]);
       const percents: number[] = [];
-      const stopListening = localMirrorService.onSyncStatus((status) => {
+      const stopListening = localCopyService.onSyncStatus((status) => {
         if (status.state === 'syncing' && status.percent !== undefined) {
           percents.push(status.percent);
         }
       });
-      const mirrorPath = await localMirrorService.prepare(workspaceId, backend);
+      const localCopyPath = await localCopyService.prepare(workspaceId, backend);
       stopListening();
       expect(percents.at(-1)).toBe(100);
-      expect(readFileSync(`${mirrorPath}/visible.txt`, 'utf8')).toBe('first');
-      expect(existsSync(`${mirrorPath}/.env`)).toBe(false);
-      expect(existsSync(`${mirrorPath}/private.ignored`)).toBe(false);
-      expect(existsSync(`${mirrorPath}/dependencies/remote-only/file`)).toBe(false);
-      expect(existsSync(`${mirrorPath}/.git`)).toBe(false);
+      expect(readFileSync(`${localCopyPath}/visible.txt`, 'utf8')).toBe('first');
+      expect(existsSync(`${localCopyPath}/.env`)).toBe(false);
+      expect(existsSync(`${localCopyPath}/private.ignored`)).toBe(false);
+      expect(existsSync(`${localCopyPath}/dependencies/remote-only/file`)).toBe(false);
+      expect(existsSync(`${localCopyPath}/.git`)).toBe(false);
 
-      mkdirSync(`${mirrorPath}/dependencies/local-only`, { recursive: true });
-      writeFileSync(`${mirrorPath}/dependencies/local-only/file`, 'local');
-      writeFileSync(`${mirrorPath}/.env`, 'local secret');
-      writeFileSync(`${mirrorPath}/local.ignored`, 'local ignored');
+      mkdirSync(`${localCopyPath}/dependencies/local-only`, { recursive: true });
+      writeFileSync(`${localCopyPath}/dependencies/local-only/file`, 'local');
+      writeFileSync(`${localCopyPath}/.env`, 'local secret');
+      writeFileSync(`${localCopyPath}/local.ignored`, 'local ignored');
 
       await container.exec([
         'sh',
@@ -1637,14 +1637,14 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
         'sh',
         backend.remoteDirectory,
       ]);
-      await localMirrorService.prepare(workspaceId, backend);
-      expect(existsSync(`${mirrorPath}/visible.txt`)).toBe(false);
-      expect(readFileSync(`${mirrorPath}/.env`, 'utf8')).toBe('local secret');
-      expect(readFileSync(`${mirrorPath}/updated.txt`, 'utf8')).toBe('second');
-      expect(readFileSync(`${mirrorPath}/dependencies/local-only/file`, 'utf8')).toBe('local');
-      expect(readFileSync(`${mirrorPath}/local.ignored`, 'utf8')).toBe('local ignored');
+      await localCopyService.prepare(workspaceId, backend);
+      expect(existsSync(`${localCopyPath}/visible.txt`)).toBe(false);
+      expect(readFileSync(`${localCopyPath}/.env`, 'utf8')).toBe('local secret');
+      expect(readFileSync(`${localCopyPath}/updated.txt`, 'utf8')).toBe('second');
+      expect(readFileSync(`${localCopyPath}/dependencies/local-only/file`, 'utf8')).toBe('local');
+      expect(readFileSync(`${localCopyPath}/local.ignored`, 'utf8')).toBe('local ignored');
     } finally {
-      await localMirrorService.remove(workspaceId, backend);
+      await localCopyService.remove(workspaceId, backend);
     }
   }, 60_000);
 

@@ -880,7 +880,7 @@ describe('InlineDevServerPreviewPanel', () => {
       expect(startSshPreviewForward).not.toHaveBeenCalled();
     });
 
-    it('opens a URL detected in a local-mirror terminal without SSH forwarding', async () => {
+    it('opens a URL detected in a local-copy terminal without SSH forwarding', async () => {
       workspaceBackend = { kind: 'ssh' };
       workspaceDevServerUrl = undefined;
       scannerExecutionLocation = 'local-mirror';

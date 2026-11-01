@@ -72,7 +72,7 @@ const mockPtyService = {
   setTerminalWindow: vi.fn(),
 };
 
-const mockLocalMirrorService = {
+const mockLocalCopyService = {
   getSyncStatuses: vi.fn(() => []),
 };
 
@@ -92,8 +92,8 @@ vi.mock('../../../../src/main/services/pty.service', () => ({
   ptyService: mockPtyService,
 }));
 
-vi.mock('../../../../src/main/services/local-mirror.service', () => ({
-  localMirrorService: mockLocalMirrorService,
+vi.mock('../../../../src/main/services/local-copy.service', () => ({
+  localCopyService: mockLocalCopyService,
 }));
 
 describe('window IPC validation', () => {
@@ -373,8 +373,8 @@ describe('window IPC validation', () => {
     expect(mockCustomizationService.syncTitleBarOverlay).toHaveBeenCalled();
   });
 
-  it('replays active local mirror status when the renderer becomes ready', async () => {
-    mockLocalMirrorService.getSyncStatuses.mockReturnValueOnce([
+  it('replays active local copy status when the renderer becomes ready', async () => {
+    mockLocalCopyService.getSyncStatuses.mockReturnValueOnce([
       { workspaceId: 'ws-1', state: 'syncing' },
     ]);
     const sender = { id: 123, send: vi.fn() };
@@ -389,7 +389,7 @@ describe('window IPC validation', () => {
     expect(readyHandler).toBeTypeOf('function');
     readyHandler?.({ sender });
 
-    expect(sender.send).toHaveBeenCalledWith('workspace:local-mirror-sync-status', {
+    expect(sender.send).toHaveBeenCalledWith('workspace:local-copy-sync-status', {
       workspaceId: 'ws-1',
       state: 'syncing',
     });

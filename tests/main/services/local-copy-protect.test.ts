@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   collectGitignoreProtectRules,
   gitignoreToProtectRules,
-} from '../../../src/main/services/local-mirror-protect';
+} from '../../../src/main/services/local-copy-protect';
 
 const hasRsync = (() => {
   try {
@@ -19,10 +19,10 @@ const hasRsync = (() => {
   }
 })();
 
-describe('local mirror protect rules', () => {
+describe('local copy protect rules', () => {
   const roots: string[] = [];
   const tempRoot = () => {
-    const root = mkdtempSync(join(tmpdir(), 'komla-mirror-protect-'));
+    const root = mkdtempSync(join(tmpdir(), 'komla-local-copy-protect-'));
     roots.push(root);
     return root;
   };
@@ -89,54 +89,54 @@ describe('local mirror protect rules', () => {
 
   it.skipIf(!hasRsync)('keeps local ignored files while deleting stale ones', async () => {
     const source = tempRoot();
-    const mirror = tempRoot();
+    const localCopy = tempRoot();
     write(join(source, '.gitignore'), '.env\ndependencies/\n');
     write(join(source, 'visible.txt'), 'remote');
-    write(join(mirror, '.gitignore'), '.env\ndependencies/\n');
-    write(join(mirror, '.env'), 'local secret');
-    write(join(mirror, 'dependencies/local-only/file'), 'local');
-    write(join(mirror, 'stale.txt'), 'stale');
+    write(join(localCopy, '.gitignore'), '.env\ndependencies/\n');
+    write(join(localCopy, '.env'), 'local secret');
+    write(join(localCopy, 'dependencies/local-only/file'), 'local');
+    write(join(localCopy, 'stale.txt'), 'stale');
 
-    const rules = await collectGitignoreProtectRules(mirror, new Set());
+    const rules = await collectGitignoreProtectRules(localCopy, new Set());
     execFileSync('rsync', [
       '-a',
       '--delete-after',
       '--filter=:- .gitignore',
       ...rules.map((rule) => `--filter=${rule}`),
       `${source}/`,
-      `${mirror}/`,
+      `${localCopy}/`,
     ]);
 
-    expect(existsSync(join(mirror, '.env'))).toBe(true);
-    expect(existsSync(join(mirror, 'dependencies/local-only/file'))).toBe(true);
-    expect(existsSync(join(mirror, 'visible.txt'))).toBe(true);
-    expect(existsSync(join(mirror, 'stale.txt'))).toBe(false);
+    expect(existsSync(join(localCopy, '.env'))).toBe(true);
+    expect(existsSync(join(localCopy, 'dependencies/local-only/file'))).toBe(true);
+    expect(existsSync(join(localCopy, 'visible.txt'))).toBe(true);
+    expect(existsSync(join(localCopy, 'stale.txt'))).toBe(false);
   });
 
   it.skipIf(!hasRsync)('protects ** patterns without per-directory merge rules', async () => {
     const source = tempRoot();
-    const mirror = tempRoot();
+    const localCopy = tempRoot();
     const gitignore = '**/foo/bar\na/**/b\n/**/env\nc/**/**/d\n';
     write(join(source, '.gitignore'), gitignore);
-    write(join(mirror, '.gitignore'), gitignore);
+    write(join(localCopy, '.gitignore'), gitignore);
     const kept = ['foo/bar', 'x/foo/bar', 'a/b', 'a/x/b', 'env', 'x/env', 'c/d', 'c/x/d'];
     for (const path of [...kept, 'stale.txt']) {
-      write(join(mirror, path), 'local');
+      write(join(localCopy, path), 'local');
     }
 
     // Protect rules alone, as macOS openrsync ignores the merge rule when deleting.
-    const rules = await collectGitignoreProtectRules(mirror, new Set());
+    const rules = await collectGitignoreProtectRules(localCopy, new Set());
     execFileSync('rsync', [
       '-a',
       '--delete-after',
       ...rules.map((rule) => `--filter=${rule}`),
       `${source}/`,
-      `${mirror}/`,
+      `${localCopy}/`,
     ]);
 
     for (const path of kept) {
-      expect(existsSync(join(mirror, path)), path).toBe(true);
+      expect(existsSync(join(localCopy, path)), path).toBe(true);
     }
-    expect(existsSync(join(mirror, 'stale.txt'))).toBe(false);
+    expect(existsSync(join(localCopy, 'stale.txt'))).toBe(false);
   });
 });

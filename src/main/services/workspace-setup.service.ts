@@ -37,7 +37,7 @@ export interface WorkspaceSetupDependencies {
     reasoningLevelId?: string | null
   ): string | null;
   locations: Pick<ExecutionLocations, 'resolve'>;
-  prepareLocalMirror(workspaceId: string): Promise<string>;
+  prepareLocalCopy(workspaceId: string): Promise<string>;
   projects: Pick<typeof projectService, 'get'>;
   actions: Pick<typeof actionService, 'get'>;
   presets: Pick<typeof agentPresetService, 'get' | 'resolvePresetCommand'>;

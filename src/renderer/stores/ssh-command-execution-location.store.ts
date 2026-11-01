@@ -41,11 +41,11 @@ interface SshCommandExecutionLocationState {
 }
 
 export function supportsLocalCopy(host: SshHost): boolean {
-  const localMirror = host.capabilities?.localMirror;
+  const localCopy = host.capabilities?.localMirror;
   return (
-    localMirror?.platform === 'supported' &&
-    localMirror.localRsync === 'available' &&
-    localMirror.remoteRsync === 'available'
+    localCopy?.platform === 'supported' &&
+    localCopy.localRsync === 'available' &&
+    localCopy.remoteRsync === 'available'
   );
 }
 

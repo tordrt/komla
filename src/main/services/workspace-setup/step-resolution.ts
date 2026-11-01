@@ -155,13 +155,13 @@ export class SetupStepResolver {
       };
     }
     if (destination === 'ssh-local-copy') {
-      const mirrorCapability = this.dependencies.hosts.get(workspace.backend.hostId)?.capabilities
-        ?.localMirror;
+      const localCopyCapability = this.dependencies.hosts.get(workspace.backend.hostId)
+        ?.capabilities?.localMirror;
       const unsupported =
         process.platform === 'win32' ||
-        mirrorCapability?.platform === 'unsupported' ||
-        mirrorCapability?.localRsync === 'missing' ||
-        mirrorCapability?.remoteRsync === 'missing';
+        localCopyCapability?.platform === 'unsupported' ||
+        localCopyCapability?.localRsync === 'missing' ||
+        localCopyCapability?.remoteRsync === 'missing';
       const unsupportedReason = 'SSH Local copy requires rsync on this computer and the SSH host';
       return {
         destination,
@@ -170,7 +170,7 @@ export class SetupStepResolver {
         shellFamily: 'desktop',
         prepare: unsupported
           ? () => Promise.reject(new Error(unsupportedReason))
-          : () => this.dependencies.prepareLocalMirror(workspace.id).then(() => undefined),
+          : () => this.dependencies.prepareLocalCopy(workspace.id).then(() => undefined),
         ...(unsupported ? { unsupportedReason } : {}),
       };
     }

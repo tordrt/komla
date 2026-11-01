@@ -6411,7 +6411,7 @@ describe('sshWorkspaceService', () => {
     });
 
     expect(result.localMirror).toEqual({
-      // Komla does not mirror workspaces to a Windows client.
+      // Komla keeps no Local copy on a Windows client.
       platform: process.platform === 'win32' ? 'unsupported' : 'supported',
       localRsync: 'missing',
       remoteRsync: 'missing',

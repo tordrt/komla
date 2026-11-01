@@ -1030,7 +1030,7 @@ describe('terminal clipboard image fallback', () => {
     }
   });
 
-  it('does not import a clipboard image into a local mirror terminal', async () => {
+  it('does not import a clipboard image into a local copy terminal', async () => {
     const api = {
       readFromClipboard: vi.fn().mockResolvedValue(''),
       importClipboardImage: vi.fn(),

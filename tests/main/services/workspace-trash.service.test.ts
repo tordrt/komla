@@ -24,8 +24,8 @@ vi.mock('../../../src/main/services/workspace.service', () => ({
     delete: mocks.deleteWorkspace,
   },
 }));
-vi.mock('../../../src/main/services/local-mirror.service', () => ({
-  localMirrorService: { removeLeftovers: mocks.removeLeftovers },
+vi.mock('../../../src/main/services/local-copy.service', () => ({
+  localCopyService: { removeLeftovers: mocks.removeLeftovers },
 }));
 vi.mock('../../../src/main/services/git/git-exec', () => ({
   gitExec: { execGitAsync: mocks.execGitAsync },

@@ -8,7 +8,7 @@ import {
   createRsyncProgressParser,
   isRsyncOptionRejected,
   runRsync,
-} from '../../../src/main/services/local-mirror-rsync';
+} from '../../../src/main/services/local-copy-rsync';
 
 function percentsFrom(mode: 'overall' | 'per-file', output: string | string[]): number[] {
   const percents: number[] = [];

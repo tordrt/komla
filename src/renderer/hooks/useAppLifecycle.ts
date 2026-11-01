@@ -55,7 +55,7 @@ import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useGitStatusStore } from '@/stores/git-status.store';
 import { useLayoutStore } from '@/stores/layout.store';
 import { useLicenseStore } from '@/stores/license.store';
-import { setLocalMirrorSyncStatus } from '@/stores/local-mirror-sync.store';
+import { setLocalCopySyncStatus } from '@/stores/local-copy-sync.store';
 import { useProjectSyncStatusStore } from '@/stores/project-sync-status.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
@@ -211,8 +211,8 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
         void useWorkspacesStore.getState().selectWorkspace(workspaceId);
       }),
 
-      window.api.onLocalMirrorSyncStatus((status) => {
-        setLocalMirrorSyncStatus(status);
+      window.api.onLocalCopySyncStatus((status) => {
+        setLocalCopySyncStatus(status);
       }),
 
       window.api.onWorkspaceMovedHere(async (workspaceId, layoutData) => {

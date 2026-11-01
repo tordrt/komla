@@ -56,7 +56,7 @@ export type {
   TerminalExecutionLocation,
   TerminalLaunchLocation,
   TerminalHostInfo,
-  LocalMirrorSyncStatus,
+  LocalCopySyncStatus,
   SshWorkspaceMode,
   Terminal,
   Workspace,

@@ -11,7 +11,7 @@ import { configService } from '../config.service';
 import { executionLocations } from '../execution-location';
 import { gitService } from '../git.service';
 import { FREE_WORKSPACE_LIMIT } from '../license.service';
-import { localMirrorService } from '../local-mirror.service';
+import { localCopyService } from '../local-copy.service';
 import { notesService } from '../notes.service';
 import { projectService } from '../project.service';
 import { ptyService } from '../pty.service';
@@ -435,7 +435,7 @@ export class WorkspaceLifecycle {
     this.deps.naming.abortProvisioningNaming(workspaceId);
 
     // Permanently tear down all terminals and wait for their native processes
-    // to exit before removing a worktree or local mirror containing their cwd.
+    // to exit before removing a worktree or local copy containing their cwd.
     const releasingAttached = executionLocations.releaseAttached(workspace);
     if (releasingAttached) await releasingAttached;
 
@@ -483,11 +483,11 @@ export class WorkspaceLifecycle {
       }
     }
 
-    // A workspace is not fully deleted until its local mirror is gone. Keep
+    // A workspace is not fully deleted until its local copy is gone. Keep
     // the workspace record when this fails so deletion can be retried safely;
     // remote cleanup above is idempotent.
     if (isSshWorkspace(workspace)) {
-      await localMirrorService.remove(workspaceId, workspace.backend);
+      await localCopyService.remove(workspaceId, workspace.backend);
     }
 
     // Tear down bidirectional links after worktree deletion succeeds so a
@@ -514,7 +514,7 @@ export class WorkspaceLifecycle {
     }
     await Promise.all([
       stopPreviewForwardPromise,
-      isSshWorkspace(workspace) ? Promise.resolve() : localMirrorService.remove(workspaceId),
+      isSshWorkspace(workspace) ? Promise.resolve() : localCopyService.remove(workspaceId),
     ]);
   }
 

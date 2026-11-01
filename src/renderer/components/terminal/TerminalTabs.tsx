@@ -1424,12 +1424,12 @@ export const TerminalTabs = memo(function TerminalTabs({
       ? state.hosts.find((host) => host.id === getWorkspaceHostId(selectedWorkspace))
       : undefined
   );
-  const showLocalMirrorButton =
+  const showLocalCopyButton =
     selectedWorkspace?.backend?.kind === 'ssh' &&
     !!selectedSshHost &&
     supportsLocalCopy(selectedSshHost);
 
-  const handleCreateLocalMirrorTerminal = async () => {
+  const handleCreateLocalCopyTerminal = async () => {
     if (!selectedWorkspaceId) return;
     try {
       const terminal = await addTerminal(
@@ -2197,12 +2197,12 @@ export const TerminalTabs = memo(function TerminalTabs({
                     workspaceId={selectedWorkspaceId}
                     onNewTerminal={() => void handleCreateTerminal()}
                     terminalOptions={
-                      showLocalMirrorButton
+                      showLocalCopyButton
                         ? [
                             {
                               label: 'New Local copy terminal',
                               icon: <Desktop />,
-                              onSelect: () => void handleCreateLocalMirrorTerminal(),
+                              onSelect: () => void handleCreateLocalCopyTerminal(),
                             },
                           ]
                         : []

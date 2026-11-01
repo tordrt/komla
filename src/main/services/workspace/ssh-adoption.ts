@@ -5,7 +5,7 @@ import { isSshWorkspace, type SshWorkspaceBackend } from '../../../shared/types/
 import { gitRemoteIdentity } from '../../lib/git-remote-identity';
 import { createLogger } from '../../lib/logger';
 import { gitService } from '../git.service';
-import { localMirrorService } from '../local-mirror.service';
+import { localCopyService } from '../local-copy.service';
 import { projectService } from '../project.service';
 import { normalizePersistedTerminalLayout } from '../ssh-workspace-sync/terminal-layout';
 import { windowService } from '../window.service';
@@ -148,7 +148,7 @@ export class SshWorkspaceAdoption {
     this.deps.attention.workspaceStatusChanged();
     if (status === 'trashed') workspace.setupActivities = undefined;
     if (status !== 'trashed' || previous === 'trashed' || !isSshWorkspace(workspace)) return;
-    void localMirrorService.remove(workspace.id, workspace.backend).catch((error) => {
+    void localCopyService.remove(workspace.id, workspace.backend).catch((error) => {
       logger.warn(
         'Could not remove the local copy of a workspace another device moved to the Trash',
         {

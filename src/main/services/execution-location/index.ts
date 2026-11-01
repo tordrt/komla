@@ -1,6 +1,6 @@
 import { isWslMode, windowsPathToWsl } from '../../lib/wsl';
 import { backgroundProcessService } from '../background-process.service';
-import { localMirrorService } from '../local-mirror.service';
+import { localCopyService } from '../local-copy.service';
 import { managedRemoteTerminalLifecycleService } from '../managed-remote-terminal-lifecycle.service';
 import { ptyService } from '../pty.service';
 import { sshHostService } from '../ssh-host.service';
@@ -25,12 +25,11 @@ export { createExecutionLocations } from './execution-location';
 
 export const executionLocations = createExecutionLocations({
   getLocalCopyPath: (workspace) =>
-    localMirrorService.getMirrorPath(workspace.id, workspace.backend),
-  prepareLocalCopy: (workspace) => localMirrorService.prepare(workspace.id, workspace.backend),
-  initializeLocalCopy: (workspace) =>
-    localMirrorService.initialize(workspace.id, workspace.backend),
+    localCopyService.getLocalCopyPath(workspace.id, workspace.backend),
+  prepareLocalCopy: (workspace) => localCopyService.prepare(workspace.id, workspace.backend),
+  initializeLocalCopy: (workspace) => localCopyService.initialize(workspace.id, workspace.backend),
   ensureLocalCopyInitialSync: (workspace) =>
-    localMirrorService.ensureInitialSync(workspace.id, workspace.backend),
+    localCopyService.ensureInitialSync(workspace.id, workspace.backend),
   isWslMode: () => isWslMode(),
   windowsPathToWsl: (path) => windowsPathToWsl(path),
   pty: {

@@ -45,7 +45,7 @@ export const EMPTY_DRAFT: HostDraft = {
   portForwards: [],
 };
 
-export function getLocalMirrorDisabledReason(result: SshHostSetupResult): string | null {
+export function getLocalCopyDisabledReason(result: SshHostSetupResult): string | null {
   if (result.localMirror.platform === 'unsupported') {
     return 'local copies are not supported on Windows.';
   }

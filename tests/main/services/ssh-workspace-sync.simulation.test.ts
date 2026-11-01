@@ -497,8 +497,8 @@ describe.skipIf(process.platform === 'win32')(
       // The desktop has a pane of its own, e.g. a Local copy's terminal.
       desktop.workspaces
         .get('ws-1')!
-        .terminals.push({ ...terminal('mirror'), remoteSessionResumable: false });
-      arrange(desktop, { t1: pane('t1'), mirror: pane('mirror') }, 'mirror');
+        .terminals.push({ ...terminal('localCopy'), remoteSessionResumable: false });
+      arrange(desktop, { t1: pane('t1'), localCopy: pane('localCopy') }, 'localCopy');
       await settle(desktop);
 
       // The laptop opens t2 beside t1.
@@ -516,13 +516,13 @@ describe.skipIf(process.platform === 'win32')(
       await desktop.syncHost();
 
       expect(layoutOf(desktop)).toEqual({
-        tabs: ['t1', 'mirror'],
-        layouts: { t1: sideBySide, mirror: pane('mirror') },
-        activeTab: 'mirror',
+        tabs: ['t1', 'localCopy'],
+        layouts: { t1: sideBySide, localCopy: pane('localCopy') },
+        activeTab: 'localCopy',
       });
 
       // The desktop gives t2 its own tab again.
-      arrange(desktop, { t1: pane('t1'), t2: pane('t2'), mirror: pane('mirror') }, 't2');
+      arrange(desktop, { t1: pane('t1'), t2: pane('t2'), localCopy: pane('localCopy') }, 't2');
       await settle(desktop);
       await laptop.syncHost();
 

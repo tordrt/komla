@@ -58,7 +58,7 @@ companion along with the desktop app when testing changes to these diagnostics.
 refresh superseded, requested a sync.
 
 Entries for each snapshot and sync request are logged at debug level, so they
-also need `LOG_LEVEL=debug`. Desktop `LocalMirrorService` entries identify each
+also need `LOG_LEVEL=debug`. Desktop `LocalCopyService` entries identify each
 request as `prepare`, `remote-change`, `initial-sync`, or `retry`, and show
 whether it starts a sync, waits for one, or queues a follow-up.
 `WorkspaceStatusService` logs each accepted SSH snapshot's timestamp, state hash,

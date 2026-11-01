@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow, dialog } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
 import { customizationService } from '../../services/customization.service';
-import { localMirrorService } from '../../services/local-mirror.service';
+import { localCopyService } from '../../services/local-copy.service';
 import { ptyService } from '../../services/pty.service';
 import { TITLE_BAR_OVERLAY_HEIGHT_PX, windowService } from '../../services/window.service';
 import { workspaceService } from '../../services/workspace.service';
@@ -33,8 +33,8 @@ export function registerWindowHandlers(): void {
     if (windowId) {
       windowService.markRendererReady(windowId);
     }
-    for (const status of localMirrorService.getSyncStatuses()) {
-      event.sender.send(IPC.WORKSPACE_LOCAL_MIRROR_SYNC_STATUS, status);
+    for (const status of localCopyService.getSyncStatuses()) {
+      event.sender.send(IPC.WORKSPACE_LOCAL_COPY_SYNC_STATUS, status);
     }
   });
 

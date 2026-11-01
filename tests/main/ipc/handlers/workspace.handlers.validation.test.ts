@@ -16,7 +16,7 @@ const mockWorkspaceService = {
   reconnectSshTerminal: vi.fn(),
   recoverSshSessions: vi.fn(),
   sshSync: { removeMissing: vi.fn() },
-  retryLocalMirrorSync: vi.fn(),
+  retryLocalCopySync: vi.fn(),
   retrySetupStep: vi.fn(),
   dismissSetupActivity: vi.fn(),
   delete: vi.fn(),
@@ -68,8 +68,8 @@ vi.mock('../../../../src/main/services/ssh-workspace.service', () => ({
   },
 }));
 
-vi.mock('../../../../src/main/services/local-mirror.service', () => ({
-  localMirrorService: { remove: vi.fn() },
+vi.mock('../../../../src/main/services/local-copy.service', () => ({
+  localCopyService: { remove: vi.fn() },
 }));
 
 vi.mock('../../../../src/main/services/config.service', () => ({
@@ -364,7 +364,7 @@ describe('workspace IPC validation', () => {
     expect(mockWorkspaceService.dismissSetupActivity).not.toHaveBeenCalled();
   });
 
-  it('rejects an invalid local mirror retry workspace ID', async () => {
+  it('rejects an invalid local copy retry workspace ID', async () => {
     const { registerWorkspaceHandlers } =
       await import('../../../../src/main/ipc/handlers/workspace.handlers');
     const { ipcMain } = (await import('electron')) as unknown as {
@@ -372,10 +372,10 @@ describe('workspace IPC validation', () => {
     };
     registerWorkspaceHandlers();
 
-    await expect(ipcMain._invoke('workspace:retry-local-mirror-sync', '')).rejects.toMatchObject({
+    await expect(ipcMain._invoke('workspace:retry-local-copy-sync', '')).rejects.toMatchObject({
       code: 'IPC_VALIDATION_ERROR',
     });
-    expect(mockWorkspaceService.retryLocalMirrorSync).not.toHaveBeenCalled();
+    expect(mockWorkspaceService.retryLocalCopySync).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid plain-shell restart option', async () => {

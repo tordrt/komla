@@ -98,7 +98,7 @@ function harness(
     resolvePreset: vi.fn(() => preset),
     resolveAgentCommand: vi.fn(() => 'claude'),
     locations,
-    prepareLocalMirror: vi.fn(async () => '/local-copy'),
+    prepareLocalCopy: vi.fn(async () => '/local-copy'),
     projects: { get: vi.fn((id: string) => (id === project.id ? project : undefined)) },
     actions: {
       get: vi.fn<WorkspaceSetupDependencies['actions']['get']>(),
@@ -343,7 +343,7 @@ describe('Workspace Setup Automation', () => {
         { backend: sshBackend }
       );
       const preparation = createDeferred<string>();
-      h.dependencies.prepareLocalMirror.mockReturnValue(preparation.promise);
+      h.dependencies.prepareLocalCopy.mockReturnValue(preparation.promise);
       h.setup.start(h.workspace, 'claude', 'create');
       expect(h.workspace.terminals.map((t) => t.name)).toEqual(['Workspace', 'Remote shell']);
       expect(h.workspace.setupActivities![0].state).toBe('preparing');
@@ -364,7 +364,7 @@ describe('Workspace Setup Automation', () => {
           { backend: sshBackend }
         );
         const preparation = createDeferred<string>();
-        h.dependencies.prepareLocalMirror.mockReturnValue(preparation.promise);
+        h.dependencies.prepareLocalCopy.mockReturnValue(preparation.promise);
         h.setup.start(h.workspace, 'claude', 'create');
         if (scope === 'pending') h.setup.cancel(h.workspace.id, 'pending');
         else h.setup.clearActive(h.workspace.id);
@@ -385,7 +385,7 @@ describe('Workspace Setup Automation', () => {
         },
         { backend: sshBackend }
       );
-      h.dependencies.prepareLocalMirror.mockReturnValue(createDeferred<string>().promise);
+      h.dependencies.prepareLocalCopy.mockReturnValue(createDeferred<string>().promise);
       h.setup.start(h.workspace, 'claude', 'create');
 
       expect(
@@ -412,7 +412,7 @@ describe('Workspace Setup Automation', () => {
         },
         { backend: sshBackend }
       );
-      h.dependencies.prepareLocalMirror.mockRejectedValue(new Error('rsync: command not found'));
+      h.dependencies.prepareLocalCopy.mockRejectedValue(new Error('rsync: command not found'));
       h.setup.start(h.workspace, 'claude', 'create');
       await vi.advanceTimersByTimeAsync(0);
       expect(h.workspace.setupActivities![0]).toMatchObject({
@@ -453,7 +453,7 @@ describe('Workspace Setup Automation', () => {
             error: 'SSH Local copy requires rsync on this computer and the SSH host',
           }),
         ]);
-        expect(h.dependencies.prepareLocalMirror).not.toHaveBeenCalled();
+        expect(h.dependencies.prepareLocalCopy).not.toHaveBeenCalled();
         expect(h.execution.background.spawn).not.toHaveBeenCalled();
         expect(h.workspace.terminals.map((t) => t.name)).toEqual(['Workspace', 'Remote shell']);
       } finally {

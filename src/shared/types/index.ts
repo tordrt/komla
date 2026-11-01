@@ -12,7 +12,7 @@ export type {
   Terminal,
 } from './terminal';
 export { isLocalTerminalExecutionLocation } from './terminal';
-export type { LocalMirrorSyncStatus } from './local-mirror';
+export type { LocalCopySyncStatus } from './local-copy';
 export type { SshWorkspaceMode } from '../lib/ssh-workspace-mode';
 export { resolveSshWorkspaceMode } from '../lib/ssh-workspace-mode';
 

@@ -54,7 +54,7 @@ const mockWorkspaceService = {
   restartTerminal: vi.fn(),
   reconnectSshTerminal: vi.fn(),
   recoverSshSessions: vi.fn(),
-  retryLocalMirrorSync: vi.fn(),
+  retryLocalCopySync: vi.fn(),
   retrySetupStep: vi.fn(),
   dismissSetupActivity: vi.fn(),
   delete: vi.fn(),
@@ -89,7 +89,7 @@ const mockSshWorkspaceService = {
   runTrashCleanup: vi.fn(),
 };
 
-const mockLocalMirrorService = {
+const mockLocalCopyService = {
   remove: vi.fn(async () => undefined),
 };
 
@@ -122,8 +122,8 @@ vi.mock('../../../../src/main/services/ssh-workspace.service', () => ({
   sshWorkspaceService: mockSshWorkspaceService,
 }));
 
-vi.mock('../../../../src/main/services/local-mirror.service', () => ({
-  localMirrorService: mockLocalMirrorService,
+vi.mock('../../../../src/main/services/local-copy.service', () => ({
+  localCopyService: mockLocalCopyService,
 }));
 
 vi.mock('../../../../src/main/services/config.service', () => ({
@@ -393,12 +393,12 @@ describe('workspace IPC behavior', () => {
     });
   });
 
-  it('retries a local mirror sync', async () => {
+  it('retries a local copy sync', async () => {
     const ipcMain = await setup();
 
-    await ipcMain._invoke('workspace:retry-local-mirror-sync', 'ws-1');
+    await ipcMain._invoke('workspace:retry-local-copy-sync', 'ws-1');
 
-    expect(mockWorkspaceService.retryLocalMirrorSync).toHaveBeenCalledWith('ws-1');
+    expect(mockWorkspaceService.retryLocalCopySync).toHaveBeenCalledWith('ws-1');
   });
 
   describe('workspace:update', () => {
@@ -497,11 +497,11 @@ describe('workspace IPC behavior', () => {
         backend,
         'rm -rf node_modules'
       );
-      expect(mockLocalMirrorService.remove).toHaveBeenCalledWith('ssh-ws', backend);
+      expect(mockLocalCopyService.remove).toHaveBeenCalledWith('ssh-ws', backend);
       expect(mockSshWorkspaceService.runTrashCleanup.mock.invocationCallOrder[0]).toBeLessThan(
-        mockLocalMirrorService.remove.mock.invocationCallOrder[0]
+        mockLocalCopyService.remove.mock.invocationCallOrder[0]
       );
-      expect(mockLocalMirrorService.remove.mock.invocationCallOrder[0]).toBeLessThan(
+      expect(mockLocalCopyService.remove.mock.invocationCallOrder[0]).toBeLessThan(
         mockWorkspaceService.update.mock.invocationCallOrder[0]
       );
       expect(mockRm).not.toHaveBeenCalled();
@@ -529,7 +529,7 @@ describe('workspace IPC behavior', () => {
         isWorktree: true,
         backend,
       });
-      mockLocalMirrorService.remove.mockRejectedValueOnce(new Error('local folder is busy'));
+      mockLocalCopyService.remove.mockRejectedValueOnce(new Error('local folder is busy'));
 
       await expect(
         ipcMain._invoke('workspace:update', 'ssh-ws', { status: 'trashed' })

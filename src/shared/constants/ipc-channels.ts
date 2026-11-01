@@ -41,7 +41,7 @@ export const IPC = {
   WORKSPACE_START_SSH_LINK_FORWARD: 'workspace:start-ssh-link-forward',
   WORKSPACE_STOP_SSH_LINK_FORWARD: 'workspace:stop-ssh-link-forward',
   WORKSPACE_RETRY_SETUP_STEP: 'workspace:retry-setup-step',
-  WORKSPACE_RETRY_LOCAL_MIRROR_SYNC: 'workspace:retry-local-mirror-sync',
+  WORKSPACE_RETRY_LOCAL_COPY_SYNC: 'workspace:retry-local-copy-sync',
   WORKSPACE_DISMISS_SETUP_ACTIVITY: 'workspace:dismiss-setup-activity',
   WORKSPACE_RUN_BACKGROUND_ACTION: 'workspace:run-background-action',
   WORKSPACE_STOP_BACKGROUND_ACTION_RUN: 'workspace:stop-background-action-run',
@@ -60,7 +60,7 @@ export const IPC = {
   WORKSPACE_MOVED_HERE: 'workspace:moved-here',
   WORKSPACE_SELECT: 'workspace:select',
   WORKSPACE_FOCUS_WINDOW: 'workspace:focus-window',
-  WORKSPACE_LOCAL_MIRROR_SYNC_STATUS: 'workspace:local-mirror-sync-status',
+  WORKSPACE_LOCAL_COPY_SYNC_STATUS: 'workspace:local-copy-sync-status',
 
   // PTY
   PTY_INPUT: 'pty:input',

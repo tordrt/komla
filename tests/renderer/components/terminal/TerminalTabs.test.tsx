@@ -921,6 +921,23 @@ describe('TerminalTabs', () => {
     });
 
     it.each([
+      ['darwin', true],
+      ['linux', false],
+      ['win32', false],
+    ] as const)('on %s, fits the first tab to a rounded corner: %s', (platform, inCorner) => {
+      (window.api as { platform: string }).platform = platform;
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+      setUpWorkspace(['t1']);
+      render(<TerminalTabs />);
+
+      // In the top row the panel has a rounded corner; inside the panel its corner is square.
+      expect(screen.getByTitle('Show changed files').classList.contains('corner-tab')).toBe(
+        inCorner
+      );
+      expect(screen.getByTitle('Show all files').classList.contains('corner-tab')).toBe(false);
+    });
+
+    it.each([
       ['darwin', 194],
       ['linux', 150],
     ] as const)('on %s, keeps the file panel at least %ipx wide', (platform, minWidth) => {

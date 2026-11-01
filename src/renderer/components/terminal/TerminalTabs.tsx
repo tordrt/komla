@@ -483,6 +483,7 @@ function FileTreeModeTabs({
     cn(
       'relative mt-[0.5px] rounded-t-lg px-2.25 text-xs transition-colors [--tab-surface:oklch(var(--card))]',
       first ? 'edge-tab mr-px' : 'mx-px',
+      first && treeTabsInTopRow() && 'corner-tab',
       active
         ? 'flat-tab-active joined-tab text-foreground'
         : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground'
@@ -2062,7 +2063,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                                   : visible
                                     ? 'text-foreground/80 hover:bg-foreground/[0.045] hover:text-foreground'
                                     : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground',
-                                firstTabAtEdge && tabIndex === 0 && 'edge-tab'
+                                firstTabAtEdge && tabIndex === 0 && 'edge-tab corner-tab'
                               )}
                             >
                               {tabSurfaceIcons.length > 0 && (

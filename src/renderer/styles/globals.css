@@ -1219,6 +1219,19 @@ html[data-status-bar-row='large'] [data-status-bar] {
 .flat-tab-active.joined-tab.edge-tab::after {
   border-left: 0;
 }
+/* A first tab in a 14px corner with a 1px left border and no top border: the work area card's, or
+   the file panel's. It takes that corner's inner curve, from its place 0.5px below the top. A
+   tighter corner would stick out past the curve and be clipped, outline and all, leaving only the
+   corner's border, which tapers away towards the top. That border also draws the tab's left side,
+   so the tab leaves out its own line. */
+.corner-tab {
+  border-top-left-radius: 13px 13.5px;
+}
+.dark .flat-tab-active.joined-tab.corner-tab {
+  box-shadow:
+    inset -1px 0 0 oklch(var(--border) / 0.7),
+    inset 0 1px 0 oklch(var(--border) / 0.7);
+}
 
 /* Allotment split pane sash refinements. Allotment puts every split's sashes in a
    `.sash-container` directly under its `.split-view` root (including the top-level split),

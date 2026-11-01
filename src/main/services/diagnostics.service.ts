@@ -1,10 +1,10 @@
 import { monitorEventLoopDelay } from 'perf_hooks';
 import { getHeapStatistics } from 'v8';
 
-import { app, ipcMain } from 'electron';
+import { app } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
-import { ipcListener } from '../ipc/validation/ipc-validators';
+import { onIpc } from '../ipc/validation/ipc-validators';
 import { createLogger } from '../lib/logger';
 
 import { backgroundProcessService } from './background-process.service';
@@ -53,12 +53,7 @@ class DiagnosticsService {
   private readonly eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
   private lastMainMemory: MainMemorySample | null = null;
   private readonly rendererStatsByWebContents = new Map<number, RendererStats>();
-  private readonly rendererStatsHandler = ipcListener(
-    IPC.DIAGNOSTICS_RENDERER_STATS,
-    (event, [stats]) => {
-      this.rendererStatsByWebContents.set(event.sender.id, stats);
-    }
-  );
+  private stopListening: (() => void) | null = null;
 
   start(): void {
     if (this.intervalId) {
@@ -71,7 +66,9 @@ class DiagnosticsService {
     }
 
     // Listen for renderer-side diagnostics reports
-    ipcMain.on(IPC.DIAGNOSTICS_RENDERER_STATS, this.rendererStatsHandler);
+    this.stopListening = onIpc(IPC.DIAGNOSTICS_RENDERER_STATS, (event, [stats]) => {
+      this.rendererStatsByWebContents.set(event.sender.id, stats);
+    });
 
     const intervalMs = this.getIntervalMs();
     this.eventLoopDelay.enable();
@@ -90,7 +87,8 @@ class DiagnosticsService {
       this.intervalId = null;
     }
 
-    ipcMain.removeListener(IPC.DIAGNOSTICS_RENDERER_STATS, this.rendererStatsHandler);
+    this.stopListening?.();
+    this.stopListening = null;
     this.eventLoopDelay.disable();
     this.lastMainMemory = null;
     this.rendererStatsByWebContents.clear();

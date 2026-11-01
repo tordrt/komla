@@ -6,10 +6,10 @@ import { tmpdir } from 'os';
 import { basename, join } from 'path';
 import { promisify } from 'util';
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
-import { ipcListener } from '../ipc/validation/ipc-validators';
+import { onIpc } from '../ipc/validation/ipc-validators';
 import { createLogger } from '../lib/logger';
 import { opensshMarksServerPrompts, sshKeyPathFromPrompt } from '../lib/ssh-askpass-prompt';
 import { sshAskpassVars } from '../lib/ssh-client';
@@ -83,10 +83,7 @@ class AskpassService {
   private verifications = new Map<string, string>();
   private sshMarksServerPrompts: Promise<boolean> | null = null;
   private isStarted = false;
-  private askpassResponseListener = ipcListener(
-    IPC.ASKPASS_RESPONSE,
-    this.handleAskpassResponse.bind(this)
-  );
+  private stopListening: (() => void) | null = null;
 
   /**
    * Start the askpass service.
@@ -117,7 +114,7 @@ class AskpassService {
     await this.createServer();
 
     // Register IPC handler for responses from renderer
-    ipcMain.on(IPC.ASKPASS_RESPONSE, this.askpassResponseListener);
+    this.stopListening = onIpc(IPC.ASKPASS_RESPONSE, this.handleAskpassResponse.bind(this));
 
     this.isStarted = true;
     logger.info('Askpass service started', { socketPath: this.socketPath });
@@ -132,7 +129,8 @@ class AskpassService {
     }
 
     // Remove IPC handler
-    ipcMain.removeListener(IPC.ASKPASS_RESPONSE, this.askpassResponseListener);
+    this.stopListening?.();
+    this.stopListening = null;
 
     // Clear all pending requests
     for (const id of this.pendingRequests.keys()) {

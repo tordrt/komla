@@ -94,6 +94,14 @@ const originalMemoryUsage = process.memoryUsage;
 const originalUptime = process.uptime;
 const originalEnv = process.env;
 
+/** What start() added for the renderer's reports, which validates them on the way in. */
+function rendererStatsListener(): (event: any, ...args: unknown[]) => void {
+  const registration = vi
+    .mocked(ipcMain.on)
+    .mock.calls.find(([channel]) => channel === 'diagnostics:renderer-stats');
+  return registration![1] as (event: any, ...args: unknown[]) => void;
+}
+
 describe('DiagnosticsService', () => {
   let diagnosticsService: any;
   let shouldEnableDiagnostics: typeof import('../../../src/main/services/diagnostics.service').shouldEnableDiagnostics;
@@ -314,13 +322,13 @@ describe('DiagnosticsService', () => {
       webContentsId === 10 || webContentsId === 20 ? `window-${webContentsId}` : undefined
     );
 
-    diagnosticsService['rendererStatsHandler']({ sender: { id: 10 } } as any, {
+    rendererStatsListener()({ sender: { id: 10 } } as any, {
       terminalCacheSize: 5,
       parkedTerminalCount: 3,
       activeWebglContexts: 2,
       timestamp: Date.now(),
     });
-    diagnosticsService['rendererStatsHandler']({ sender: { id: 20 } } as any, {
+    rendererStatsListener()({ sender: { id: 20 } } as any, {
       terminalCacheSize: 7,
       parkedTerminalCount: 1,
       activeWebglContexts: 4,
@@ -351,13 +359,13 @@ describe('DiagnosticsService', () => {
       webContentsId === 10 ? 'window-10' : undefined
     );
 
-    diagnosticsService['rendererStatsHandler']({ sender: { id: 10 } } as any, {
+    rendererStatsListener()({ sender: { id: 10 } } as any, {
       terminalCacheSize: 5,
       parkedTerminalCount: 3,
       activeWebglContexts: 2,
       timestamp: Date.now(),
     });
-    diagnosticsService['rendererStatsHandler']({ sender: { id: 20 } } as any, {
+    rendererStatsListener()({ sender: { id: 20 } } as any, {
       terminalCacheSize: 7,
       parkedTerminalCount: 1,
       activeWebglContexts: 4,
@@ -395,7 +403,7 @@ describe('DiagnosticsService', () => {
     diagnosticsService.start();
 
     // Simulate the IPC handler receiving malformed data
-    const handler = diagnosticsService['rendererStatsHandler'];
+    const handler = rendererStatsListener();
 
     // Missing fields
     handler({} as any, { terminalCacheSize: 'not a number' } as any);

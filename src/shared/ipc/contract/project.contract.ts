@@ -14,7 +14,6 @@ import {
   projectCreateFromNewArgsSchema,
   projectFindIconsArgsSchema,
   projectTakeIconPromptArgsSchema,
-  projectChooseIconFileArgsSchema,
   projectListLeftoverBranchesArgsSchema,
   projectDeleteLeftoverBranchesArgsSchema,
   projectCheckWorkspacesForCleanupArgsSchema,
@@ -75,9 +74,7 @@ export const projectContract = {
   [IPC.PROJECT_TAKE_ICON_PROMPT]: invoke(projectTakeIconPromptArgsSchema).returns<
     ProjectIconCandidate[]
   >(),
-  [IPC.PROJECT_CHOOSE_ICON_FILE]: invoke(
-    projectChooseIconFileArgsSchema
-  ).returns<ProjectIconCandidate | null>(),
+  [IPC.PROJECT_CHOOSE_ICON_FILE]: invoke().returns<ProjectIconCandidate | null>(),
   [IPC.PROJECT_LIST_LEFTOVER_BRANCHES]: invoke(
     projectListLeftoverBranchesArgsSchema
   ).returns<LeftoverBranches>(),

@@ -63,14 +63,12 @@ import {
   addRemoteArgsSchema,
   createGithubRepoArgsSchema,
   pushProjectBranchesArgsSchema,
-  getGitIdentityArgsSchema,
   setGitIdentityArgsSchema,
   managedRepoFetchArgsSchema,
   managedRepoPushPullStatusArgsSchema,
   projectSyncRefreshArgsSchema,
   blameArgsSchema,
   refreshGitStatusArgsSchema,
-  getWorkspaceObservationsArgsSchema,
 } from '../schemas/git-ipc.schemas';
 
 import { invoke } from './define';
@@ -348,7 +346,7 @@ export const gitContract = {
     username?: string;
     installed: boolean;
   }>(),
-  [IPC.GIT_GET_IDENTITY]: invoke(getGitIdentityArgsSchema).returns<GitIdentityStatus>(),
+  [IPC.GIT_GET_IDENTITY]: invoke().returns<GitIdentityStatus>(),
   [IPC.GIT_SET_IDENTITY]: invoke(setGitIdentityArgsSchema).returns<{
     success: boolean;
     message: string;
@@ -387,7 +385,5 @@ export const gitContract = {
   } | null>(),
   [IPC.GIT_GET_BLAME]: invoke(blameArgsSchema).returns<BlameHunk[]>(),
   [IPC.GIT_REFRESH_STATUS]: invoke(refreshGitStatusArgsSchema).returns<void>(),
-  [IPC.WORKSPACE_OBSERVATIONS_GET]: invoke(getWorkspaceObservationsArgsSchema).returns<
-    WorkspaceObservationProjection[]
-  >(),
+  [IPC.WORKSPACE_OBSERVATIONS_GET]: invoke().returns<readonly WorkspaceObservationProjection[]>(),
 } as const;

@@ -181,6 +181,7 @@ describe('ErrorReportingService', () => {
     await errorReportingService.report(error, 'uncaughtException', {
       type: 'renderer',
       origin: 'workspace:open',
+      channel: 'pty:resize',
       service: 'workspace-service',
       componentStack: '<Stack />',
       processType: 'Utility',
@@ -209,6 +210,7 @@ describe('ErrorReportingService', () => {
     expect(payload.context).toEqual({
       type: 'renderer',
       origin: 'workspace:open',
+      channel: 'pty:resize',
       componentStack: '<Stack />',
       processType: 'Utility',
       reason: 'crashed',

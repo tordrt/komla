@@ -31,10 +31,6 @@ export const agentsMenuBarResizeArgsSchema = z.tuple([sizeSchema, sizeSchema]);
 
 export const agentsMenuBarOpenArgsSchema = z.tuple([idSchema, idSchema.optional()]);
 
-export const agentsMenuBarCloseArgsSchema = z.tuple([]);
-
-export const agentsMenuBarStateRequestArgsSchema = z.tuple([]);
-
 export const agentsMenuBarThemeArgsSchema = z.tuple([
   z.object({ className: z.string().max(1_000), style: z.string().max(50_000) }).strip(),
 ]);

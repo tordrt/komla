@@ -2,7 +2,7 @@
 // contract stops rejecting that mistake.
 import { IPC } from '../../shared/constants/ipc-channels';
 
-import { handleIpc } from './validation/ipc-validators';
+import { handleIpc, onIpc, onIpcSync } from './validation/ipc-validators';
 
 import type {
   IpcArgsInput,
@@ -57,6 +57,35 @@ export async function _preloadCallsAreCheckedAgainstTheContract(): Promise<void>
   await ipcRenderer.invoke(IPC.VOICE_WARMUP, 'extra');
   // @ts-expect-error no such channel
   await ipcRenderer.invoke('voice:no-such-channel');
+  // @ts-expect-error main sends this to the renderer, not the other way round
+  await ipcRenderer.invoke(IPC.VOICE_MODEL_DOWNLOAD_PROGRESS);
+}
+
+export function _messagesAreCheckedAgainstTheContract(): void {
+  ipcRenderer.send(IPC.WINDOW_SET_SHOWN_WORKSPACE, 'workspace');
+  ipcRenderer.send(IPC.WORKSPACE_SAVE_LAYOUTS_ON_CLOSE, 'window', {});
+  ipcRenderer.sendSync(IPC.WORKSPACE_SAVE_LAYOUTS_ON_CLOSE, 'window', {});
+  onIpc(IPC.WINDOW_SET_SHOWN_WORKSPACE, (_, [workspaceId]) => {
+    workspaceId?.trim();
+  });
+  onIpcSync(IPC.WORKSPACE_SAVE_LAYOUTS_ON_CLOSE, (_, [windowId]) => {
+    windowId.trim();
+  });
+
+  // @ts-expect-error the argument is a string or null
+  ipcRenderer.send(IPC.WINDOW_SET_SHOWN_WORKSPACE, 42);
+  // @ts-expect-error a call is invoked, not sent
+  ipcRenderer.send(IPC.VOICE_WARMUP);
+  // @ts-expect-error nothing would answer, freezing the renderer
+  ipcRenderer.sendSync(IPC.WINDOW_SET_SHOWN_WORKSPACE, 'workspace');
+  // @ts-expect-error a message isn't invoked: its listener returns nothing
+  void ipcRenderer.invoke(IPC.WINDOW_SET_SHOWN_WORKSPACE, 'workspace');
+  // @ts-expect-error a message has no handler to return a result
+  handleIpc(IPC.WINDOW_SET_SHOWN_WORKSPACE, () => {});
+  // @ts-expect-error a call needs a handler that returns its result
+  onIpc(IPC.VOICE_WARMUP, () => {});
+  // @ts-expect-error a message the renderer may block on has to answer
+  onIpc(IPC.WORKSPACE_SAVE_LAYOUTS_ON_CLOSE, () => {});
 }
 
 // A caller passes the schema's input, which a transform can change: idSchema trims, for one.

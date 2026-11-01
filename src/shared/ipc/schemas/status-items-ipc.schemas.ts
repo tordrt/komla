@@ -8,7 +8,6 @@ import {
 
 import { idSchema } from './primitives';
 
-export const statusItemsListArgsSchema = z.tuple([]);
 export const statusCommandsListArgsSchema = z.tuple([idSchema]);
 const statusItemIdSchema = z.string().regex(STATUS_ITEM_ID_PATTERN);
 

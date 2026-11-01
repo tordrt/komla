@@ -37,8 +37,6 @@ const toastOverlayStateSchema = z
   .strip();
 
 export const toastOverlayShowArgsSchema = z.tuple([toastOverlayStateSchema]);
-export const toastOverlayHideArgsSchema = z.tuple([]);
-export const toastOverlayPointerUpArgsSchema = z.tuple([]);
 export const toastOverlayEventArgsSchema = z.tuple([
   z.object({ type: z.enum(['remove', 'action']), id: idSchema }).strip(),
 ]);

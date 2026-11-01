@@ -23,3 +23,7 @@ export function createIpcValidationError(
   err.issues = issues;
   return err;
 }
+
+export function isIpcValidationError(error: unknown): error is IpcValidationError {
+  return error instanceof Error && (error as IpcValidationError).code === 'IPC_VALIDATION_ERROR';
+}

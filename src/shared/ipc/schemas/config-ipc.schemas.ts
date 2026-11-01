@@ -598,9 +598,6 @@ const errorReportSchema = z
 
 export const configUpdateArgsSchema = z.tuple([appConfigUpdateSchema]);
 export const configSaveOpenRouterApiKeyArgsSchema = z.tuple([nonEmptyStringSchema]);
-export const configClearOpenRouterApiKeyArgsSchema = z.tuple([]);
-export const configGetOpenRouterKeyStatusArgsSchema = z.tuple([]);
-export const configTestCustomEndpointArgsSchema = z.tuple([]);
 export const configVerifySshHostArgsSchema = z.union([
   z.tuple([sshHostSchema]),
   z.tuple([sshHostSchema, z.object({ prepare: z.boolean().optional() }).strip()]),
@@ -617,10 +614,7 @@ export const sshDeleteHostArgsSchema = z.tuple([
 ]);
 export const sshGetIntegrationStatusArgsSchema = z.tuple([idSchema]);
 export const sshCheckHostArgsSchema = z.tuple([idSchema]);
-export const sshGetCachedIntegrationUpdatesArgsSchema = z.tuple([]);
 export const sshGetPortForwardStatusArgsSchema = z.tuple([idSchema]);
-export const sshListForwardedPortsArgsSchema = z.tuple([]);
-export const sshListConfigHostsArgsSchema = z.tuple([]);
 export const sshStopDesktopForwardArgsSchema = z.tuple([
   idSchema,
   z.number().int().min(1).max(65535),
@@ -635,7 +629,6 @@ export const sshDisableIntegrationArgsSchema = z.tuple([
   sshAgentSchema,
   sshIntegrationTypeSchema,
 ]);
-export const komlaSkillArgsSchema = z.tuple([]);
 export const sshSetKomlaSkillArgsSchema = z.tuple([idSchema, z.boolean()]);
 
 export const categoryCreateArgsSchema = z.tuple([nonEmptyStringSchema, idSchema.optional()]);
@@ -678,7 +671,6 @@ export const projectFindIconsArgsSchema = z.tuple([
   ]),
 ]);
 export const projectTakeIconPromptArgsSchema = z.tuple([idSchema]);
-export const projectChooseIconFileArgsSchema = z.tuple([]);
 // The last argument is the SSH host whose clone to clean up, or null for this computer's.
 export const projectListLeftoverBranchesArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectCheckWorkspacesForCleanupArgsSchema = z.tuple([idSchema]);

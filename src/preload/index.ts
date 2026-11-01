@@ -158,8 +158,8 @@ const komlaEnv = typeof __KOMLA_ENV__ !== 'undefined' ? __KOMLA_ENV__ : 'staging
 declare const __KOMLA_DISTRIBUTION__: string | undefined;
 declare const __KOMLA_HAS_UTILITY_TOKEN__: boolean | undefined;
 
-// Only a type: every call below is checked against the contract, with no runtime cost.
-const ipcRenderer = electronIpcRenderer as unknown as TypedIpcRenderer;
+// The same object, retyped: every call below is checked against the contract, at no runtime cost.
+const ipcRenderer: TypedIpcRenderer = electronIpcRenderer;
 
 const api = {
   platform: process.platform,
@@ -1153,7 +1153,7 @@ const api = {
   refreshGitStatus: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke(IPC.GIT_REFRESH_STATUS, workspaceId),
 
-  getWorkspaceObservations: (): Promise<WorkspaceObservationProjection[]> =>
+  getWorkspaceObservations: (): Promise<readonly WorkspaceObservationProjection[]> =>
     ipcRenderer.invoke(IPC.WORKSPACE_OBSERVATIONS_GET),
 
   onWorkspaceObservation: (

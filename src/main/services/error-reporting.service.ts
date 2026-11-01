@@ -155,7 +155,15 @@ class ErrorReportingService {
   }
 
   private scrubContext(context: Record<string, unknown>): Record<string, unknown> {
-    const safeKeys = ['type', 'origin', 'componentStack', 'processType', 'reason', 'exitCode'];
+    const safeKeys = [
+      'type',
+      'origin',
+      'channel',
+      'componentStack',
+      'processType',
+      'reason',
+      'exitCode',
+    ];
     const scrubbed: Record<string, unknown> = {};
     for (const key of safeKeys) {
       if (key in context) {

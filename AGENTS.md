@@ -33,7 +33,8 @@ Add renderer-only packages with `npm install -D`: Vite bundles them, while every
 - `src/renderer/`: React UI and Zustand state.
 - `src/shared/`: contracts and constants shared across processes.
 - `src/main/services/`: one service per domain; `git.service.ts` is the facade over modular git subservices.
-- `src/main/ipc/handlers/`: main-process handlers organized by domain. New renderer-to-main operations must update the IPC constant, schema, handler, preload surface, and registration.
+- `src/shared/ipc/contract/`: one entry per renderer-to-main channel, by domain, holding its argument schema and result type. The preload may only `import type` it: it's sandboxed without zod.
+- `src/main/ipc/handlers/`: main-process handlers organized by domain, registered with `handleIpc` or `onIpc`, which are typed from the contract. A new renderer-to-main operation needs an IPC constant, a contract entry, a handler, and a preload method; the compiler rejects a preload call or handler that disagrees with the entry. A new domain also needs its contract spread into `src/shared/ipc/contract/index.ts` and its handlers registered in `src/main/ipc/handlers/index.ts`.
 
 Komla runs on macOS, Windows, and Linux. Treat filesystem paths, shell execution, process spawning, and native modules as cross-platform boundaries.
 

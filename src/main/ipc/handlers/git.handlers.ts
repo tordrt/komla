@@ -1141,5 +1141,5 @@ export function registerGitHandlers(): void {
     await workspaceStatusService.change({ kind: 'refresh-requested', workspaceId });
   });
 
-  handleIpc(IPC.WORKSPACE_OBSERVATIONS_GET, async () => [...(await workspaceStatusService.read())]);
+  handleIpc(IPC.WORKSPACE_OBSERVATIONS_GET, async () => workspaceStatusService.read());
 }

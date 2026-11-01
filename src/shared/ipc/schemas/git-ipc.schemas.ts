@@ -236,7 +236,6 @@ export const pushProjectBranchesArgsSchema = z.tuple([
   idSchema,
   z.array(idSchema.refine((branch) => !branch.startsWith('-'))).max(16),
 ]);
-export const getGitIdentityArgsSchema = z.tuple([]);
 export const setGitIdentityArgsSchema = z
   .tuple([nonEmptyStringSchema, nonEmptyStringSchema])
   .refine(([userName, userEmail]) => validateGitIdentity(userName, userEmail) === null, {
@@ -261,4 +260,3 @@ export const blameArgsSchema = z.tuple([
 ]);
 
 export const refreshGitStatusArgsSchema = z.tuple([idSchema]);
-export const getWorkspaceObservationsArgsSchema = z.tuple([]);

@@ -1,6 +1,5 @@
 import { IPC } from '../../constants/ipc-channels';
 import {
-  statusItemsListArgsSchema,
   statusCommandsListArgsSchema,
   statusCommandRunArgsSchema,
   statusPopoverRunArgsSchema,
@@ -19,7 +18,7 @@ import type {
 } from '../../types/status-items';
 
 export const statusItemsContract = {
-  [IPC.STATUS_ITEMS_LIST]: invoke(statusItemsListArgsSchema).returns<WindowStatusItem[]>(),
+  [IPC.STATUS_ITEMS_LIST]: invoke().returns<WindowStatusItem[]>(),
   [IPC.STATUS_COMMANDS_LIST]: invoke(statusCommandsListArgsSchema).returns<StatusCommandList>(),
   [IPC.STATUS_COMMAND_RUN]: invoke(statusCommandRunArgsSchema).returns<StatusCommandResult>(),
   [IPC.STATUS_POPOVER_RUN]: invoke(statusPopoverRunArgsSchema).returns<StatusPopoverResult>(),

@@ -238,6 +238,12 @@ export function registerAppHandlers(): void {
     return clipboard.readText();
   });
 
+  // Fires a real clipboard event at what has focus in the window, as the Edit menu's items do. A
+  // renderer can't do this itself: Electron has no execCommand('paste').
+  handleIpc(IPC.CLIPBOARD_RUN_COMMAND, (event, [command]) => {
+    event.sender[command]();
+  });
+
   handleIpc(
     IPC.CLIPBOARD_IMPORT_IMAGE,
     async (_, [workspaceId, executionLocation]): Promise<string | null> => {

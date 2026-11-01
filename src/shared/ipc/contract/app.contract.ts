@@ -5,6 +5,7 @@ import {
   announcementsDismissArgsSchema,
   clipboardWriteTextArgsSchema,
   clipboardImportImageArgsSchema,
+  clipboardRunCommandArgsSchema,
 } from '../schemas/app-ipc.schemas';
 import { feedbackSendArgsSchema, errorReportArgsSchema } from '../schemas/config-ipc.schemas';
 
@@ -46,6 +47,7 @@ export const appContract = {
   [IPC.DATA_RESET_APP]: invoke().returns<void>(),
   [IPC.CLIPBOARD_WRITE_TEXT]: invoke(clipboardWriteTextArgsSchema).returns<void>(),
   [IPC.CLIPBOARD_READ_TEXT]: invoke().returns<string>(),
+  [IPC.CLIPBOARD_RUN_COMMAND]: invoke(clipboardRunCommandArgsSchema).returns<void>(),
   [IPC.CLIPBOARD_IMPORT_IMAGE]: invoke(clipboardImportImageArgsSchema).returns<string | null>(),
   [IPC.CLIPBOARD_STAGE_IMAGE]: invoke().returns<string | null>(),
 } as const;

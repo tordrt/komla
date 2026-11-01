@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
-import { act, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PaneDragBarProvider } from '../../../../../../src/renderer/components/terminal/PaneDragGrip';
 import { TooltipProvider } from '../../../../../../src/renderer/components/ui/tooltip';
@@ -366,5 +366,327 @@ describe('RichMarkdownEditor', () => {
       )
     );
     expect(readImage).toHaveBeenCalledWith('docs/img/diagram.png');
+  });
+
+  describe('context menu', () => {
+    // "Some" in the second block of SOURCE.
+    const SOME = { from: 8, to: 12 };
+    const runClipboardCommand = vi.fn(async () => {});
+    const openExternal = vi.fn();
+
+    beforeEach(() => {
+      runClipboardCommand.mockReset();
+      openExternal.mockReset();
+      window.api = { runClipboardCommand, openExternal } as unknown as typeof window.api;
+      // jsdom doesn't lay out, so it has no scrollIntoView for the menu's items, and no rects for
+      // the editor to scroll a changed block into view with.
+      Element.prototype.scrollIntoView = vi.fn();
+      Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+      Range.prototype.getBoundingClientRect = () => new DOMRect();
+    });
+
+    /** Right-clicks text in the editor as if at the given document position. */
+    function rightClick(editor: Editor, dom: HTMLElement, position: number) {
+      // jsdom doesn't lay out, so it can't tell which position is under the pointer.
+      vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: position, inside: -1 });
+      fireEvent.contextMenu(dom.querySelector('p') as HTMLElement, { button: 2 });
+    }
+
+    function menuLabels(): string[] {
+      return screen.getAllByRole('menuitem').map((item) => item.textContent ?? '');
+    }
+
+    it('offers clipboard and formatting commands', () => {
+      const { dom, editor } = renderEditor();
+      rightClick(editor, dom, SOME.from);
+
+      expect(screen.getByRole('menuitem', { name: /^Paste/ })).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: /^Select All/ })).toBeTruthy();
+      expect(screen.getByRole('menuitemcheckbox', { name: /^Bold/ })).toBeTruthy();
+      expect(screen.getByRole('menuitem', { name: 'Block' })).toBeTruthy();
+    });
+
+    it('only offers what leaves a read-only file unchanged', () => {
+      const { dom, editor } = renderEditor({ readOnly: true });
+      rightClick(editor, dom, SOME.from);
+
+      expect(menuLabels().map((label) => label.replace(/(?:Ctrl|Cmd|⌘).*$/, ''))).toEqual([
+        'Copy',
+        'Select All',
+      ]);
+    });
+
+    it('can only cut or copy a selection', () => {
+      const { dom, editor } = renderEditor();
+      rightClick(editor, dom, SOME.from);
+
+      expect(screen.getByRole('menuitem', { name: /^Cut/ })).toHaveAttribute('aria-disabled');
+      expect(screen.getByRole('menuitem', { name: /^Copy/ })).toHaveAttribute('aria-disabled');
+    });
+
+    it('keeps the selection when the click is inside it', () => {
+      const { dom, editor } = renderEditor();
+      act(() => {
+        editor.commands.setTextSelection(SOME);
+      });
+      rightClick(editor, dom, SOME.from + 1);
+
+      expect(editor.state.selection).toMatchObject(SOME);
+      expect(screen.getByRole('menuitem', { name: /^Copy/ })).not.toHaveAttribute('aria-disabled');
+    });
+
+    it('puts the cursor at a click outside the selection', () => {
+      const { dom, editor } = renderEditor();
+      act(() => {
+        editor.commands.setTextSelection(SOME);
+      });
+      rightClick(editor, dom, SOME.to + 3);
+
+      expect(editor.state.selection).toMatchObject({ from: SOME.to + 3, to: SOME.to + 3 });
+    });
+
+    it('takes up a selection Chromium made for the click', () => {
+      // macOS selects the word under a right-click, and the menu takes focus before ProseMirror
+      // reads that from the DOM.
+      const { dom, editor } = renderEditor();
+      const text = dom.querySelector('p')?.firstChild as Text;
+      window.getSelection()?.setBaseAndExtent(text, 0, text, 4);
+      rightClick(editor, dom, SOME.from + 1);
+
+      expect(editor.state.selection).toMatchObject(SOME);
+    });
+
+    it('ignores a menu event that reports no mouse button', () => {
+      const { dom, editor } = renderEditor();
+      act(() => {
+        editor.commands.setTextSelection(SOME);
+      });
+      const posAtCoords = vi.spyOn(editor.view, 'posAtCoords');
+      fireEvent.contextMenu(dom, { button: -1 });
+
+      expect(posAtCoords).not.toHaveBeenCalled();
+    });
+
+    it('leaves the selection alone for a menu opened from the keyboard', () => {
+      const { dom, editor } = renderEditor();
+      act(() => {
+        editor.commands.setTextSelection(SOME);
+      });
+      const posAtCoords = vi.spyOn(editor.view, 'posAtCoords');
+      fireEvent.contextMenu(dom, { button: 0 });
+
+      expect(posAtCoords).not.toHaveBeenCalled();
+      expect(editor.state.selection).toMatchObject(SOME);
+    });
+
+    it('leaves the selection alone for a right-click in the margin', () => {
+      const { container, dom, editor } = renderEditor();
+      act(() => {
+        editor.commands.setTextSelection(SOME);
+      });
+      const scroller = container.querySelector('[data-markdown-scroller]') as HTMLElement;
+      fireEvent.mouseDown(scroller, { button: 2 });
+      fireEvent.contextMenu(scroller, { button: 2 });
+
+      expect(editor.state.selection).toMatchObject(SOME);
+      expect(dom.isConnected).toBe(true);
+      expect(screen.getByRole('menuitem', { name: /^Copy/ })).toBeTruthy();
+    });
+
+    it.each(['Cut', 'Copy', 'Paste'])(
+      'runs %s on the editor once the menu has given focus back',
+      async (label) => {
+        const { dom, editor } = renderEditor();
+        act(() => {
+          editor.commands.setTextSelection(SOME);
+        });
+        rightClick(editor, dom, SOME.from + 1);
+        let focusedDuringCommand: Element | null = null;
+        runClipboardCommand.mockImplementation(async () => {
+          focusedDuringCommand = document.activeElement;
+        });
+
+        fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}`) }));
+
+        await waitFor(() => expect(runClipboardCommand).toHaveBeenCalledWith(label.toLowerCase()));
+        expect(focusedDuringCommand).toBe(dom);
+        expect(screen.queryByRole('menu')).toBeNull();
+      }
+    );
+
+    it('runs no command when dismissed', async () => {
+      const { dom, editor } = renderEditor();
+      rightClick(editor, dom, SOME.from);
+
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+      await new Promise((resolve) => setTimeout(resolve));
+      expect(runClipboardCommand).not.toHaveBeenCalled();
+    });
+
+    it('selects the whole document', async () => {
+      const { dom, editor } = renderEditor();
+      rightClick(editor, dom, SOME.from);
+
+      fireEvent.click(screen.getByRole('menuitem', { name: /^Select All/ }));
+
+      await waitFor(() =>
+        expect(editor.state.selection).toMatchObject({ from: 0, to: editor.state.doc.content.size })
+      );
+    });
+
+    it('toggles a mark on the selection, showing it as checked', async () => {
+      const { dom, editor } = renderEditor();
+      act(() => {
+        editor.commands.setTextSelection(SOME);
+      });
+      rightClick(editor, dom, SOME.from + 1);
+      expect(screen.getByRole('menuitemcheckbox', { name: /^Bold/ })).not.toBeChecked();
+
+      fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /^Bold/ }));
+      await waitFor(() => expect(dom.querySelector('p strong')?.textContent).toBe('Some'));
+
+      rightClick(editor, dom, SOME.from + 1);
+      expect(screen.getByRole('menuitemcheckbox', { name: /^Bold/ })).toBeChecked();
+    });
+
+    it('turns the current block into another from the Block submenu', async () => {
+      const { dom, editor } = renderEditor();
+      rightClick(editor, dom, SOME.from);
+
+      const block = screen.getByRole('menuitem', { name: 'Block' });
+      fireEvent.keyDown(block, { key: 'Enter' });
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Heading 2' }));
+
+      await waitFor(() => expect(dom.querySelector('h2')?.textContent).toContain('Some'));
+    });
+
+    it('keeps a right-click on the menu to itself', () => {
+      const { dom, editor } = renderEditor();
+      rightClick(editor, dom, SOME.from);
+
+      // Prevented, so a menu around the editor, such as the pane's, doesn't open as well.
+      expect(fireEvent.contextMenu(screen.getByRole('menu'), { button: 2 })).toBe(false);
+    });
+
+    it('selects a divider when right-clicked, rather than a cursor where no text can go', () => {
+      const warn = vi.spyOn(console, 'warn');
+      const { dom, editor } = renderEditor({ content: 'Before\n\n---\n\nAfter\n' });
+      rightClick(editor, dom, editor.state.doc.child(0).nodeSize);
+
+      expect(editor.state.selection).toMatchObject({ node: { type: { name: 'horizontalRule' } } });
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    async function openBlockMenu() {
+      fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Block' }), { key: 'Enter' });
+      await screen.findByRole('menuitem', { name: 'Heading 1' });
+    }
+
+    it('leaves out the blocks that would split what is under the cursor', async () => {
+      const { dom, editor } = renderEditor();
+      rightClick(editor, dom, SOME.from + 1);
+      await openBlockMenu();
+
+      expect(screen.queryByRole('menuitem', { name: 'Table' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Divider' })).toBeNull();
+    });
+
+    it('has no block to convert to in a table cell', () => {
+      const { dom, editor } = renderEditor({ content: '| a |\n| --- |\n| b |\n' });
+      act(() => {
+        editor.commands.setTextSelection(4);
+      });
+      rightClick(editor, dom, 4);
+
+      expect(screen.getByRole('menuitem', { name: 'Block' })).toHaveAttribute('aria-disabled');
+    });
+
+    it('has no block to convert a selected divider to', () => {
+      const { dom, editor } = renderEditor({ content: 'Before\n\n---\n\nAfter\n' });
+      rightClick(editor, dom, editor.state.doc.child(0).nodeSize);
+
+      expect(screen.getByRole('menuitem', { name: 'Block' })).toHaveAttribute('aria-disabled');
+    });
+
+    it('converts a heading to a list, which a dry run of the command would rule out', async () => {
+      const { dom, editor } = renderEditor();
+      // The heading of SOURCE.
+      act(() => {
+        editor.commands.setTextSelection(2);
+      });
+      rightClick(editor, dom, 2);
+      await openBlockMenu();
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Bullet list' }));
+
+      await waitFor(() => expect(dom.querySelector('ul li')?.textContent).toContain('Title'));
+    });
+
+    describe('a Ctrl+click on macOS, which opens the menu', () => {
+      beforeEach(() => {
+        window.api = {
+          runClipboardCommand,
+          openExternal,
+          platform: 'darwin',
+        } as unknown as typeof window.api;
+      });
+
+      it('moves the cursor as a right-click does', () => {
+        const { dom, editor } = renderEditor();
+        act(() => {
+          editor.commands.setTextSelection(SOME);
+        });
+        vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: SOME.to + 3, inside: -1 });
+        fireEvent.contextMenu(dom.querySelector('p') as HTMLElement, { button: 0, ctrlKey: true });
+
+        expect(editor.state.selection).toMatchObject({ from: SOME.to + 3, to: SOME.to + 3 });
+      });
+
+      it('does not open a link', () => {
+        const { dom, editor } = renderEditor({ content: '[docs](https://example.com)\n' });
+        vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: 2, inside: -1 });
+        const link = dom.querySelector('a') as HTMLElement;
+
+        fireEvent.mouseDown(link, { button: 0, ctrlKey: true });
+        fireEvent.mouseUp(link, { button: 0, ctrlKey: true });
+        expect(openExternal).not.toHaveBeenCalled();
+
+        // Far enough from the last click not to count as a double-click.
+        fireEvent.mouseDown(link, { button: 0, metaKey: true, clientX: 100 });
+        fireEvent.mouseUp(link, { button: 0, metaKey: true, clientX: 100 });
+        expect(openExternal).toHaveBeenCalledWith('https://example.com');
+      });
+
+      it('does not move the cursor to the end from the margin', () => {
+        const { container, editor } = renderEditor();
+        act(() => {
+          editor.commands.setTextSelection(SOME);
+        });
+        const scroller = container.querySelector('[data-markdown-scroller]') as HTMLElement;
+        fireEvent.mouseDown(scroller, { button: 0, ctrlKey: true });
+
+        expect(editor.state.selection).toMatchObject(SOME);
+      });
+    });
+
+    it('does not open a link on a right-click in a read-only file', () => {
+      const { dom, editor } = renderEditor({
+        readOnly: true,
+        content: '[docs](https://example.com)\n',
+      });
+      vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({ pos: 2, inside: -1 });
+      const link = dom.querySelector('a') as HTMLElement;
+
+      fireEvent.mouseDown(link, { button: 2 });
+      fireEvent.mouseUp(link, { button: 2 });
+      expect(openExternal).not.toHaveBeenCalled();
+
+      fireEvent.mouseDown(link, { button: 0 });
+      fireEvent.mouseUp(link, { button: 0 });
+      expect(openExternal).toHaveBeenCalledWith('https://example.com');
+    });
   });
 });

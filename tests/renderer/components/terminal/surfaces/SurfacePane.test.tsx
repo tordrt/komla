@@ -25,7 +25,10 @@ vi.mock('../../../../../src/renderer/components/terminal/surfaces/NoteSurface', 
     NoteSurface: function NoteSurface() {
       return (
         <>
-          <div data-testid="note-toolbar" {...usePaneDragBar()} />
+          <div data-testid="note-toolbar" {...usePaneDragBar()}>
+            <input aria-label="Find in note" />
+            <input aria-label="Task done" type="checkbox" />
+          </div>
           <div data-testid="note-editor" onDragOver={noteEditorDragOver} onDrop={noteEditorDrop} />
         </>
       );
@@ -158,6 +161,34 @@ describe('SurfacePane drag grip', () => {
   it("leaves the note's toolbar still while the layout is locked", () => {
     renderPane({ isLayoutLocked: true });
     expect(screen.getByTestId('note-toolbar')).not.toHaveAttribute('draggable');
+  });
+
+  it('leaves a right-click on a text field to the field, not the pane menu', () => {
+    const onContextMenu = vi.fn();
+    render(
+      <div onContextMenu={onContextMenu}>
+        <SurfacePane
+          paneId="pane-1"
+          surfaceId={SURFACE_ID}
+          workspaceId={WORKSPACE_ID}
+          isTabActive
+        />
+      </div>
+    );
+
+    const field = screen.getByRole('textbox', { name: 'Find in note' });
+    const onField = vi.fn();
+    field.addEventListener('contextmenu', onField);
+    fireEvent.contextMenu(field);
+    expect(onContextMenu).not.toHaveBeenCalled();
+    // Still reaches the field's own listeners, as Monaco's are on its text fields.
+    expect(onField).toHaveBeenCalledOnce();
+
+    fireEvent.contextMenu(screen.getByRole('checkbox', { name: 'Task done' }));
+    expect(onContextMenu).toHaveBeenCalledOnce();
+
+    fireEvent.contextMenu(screen.getByTestId('note-toolbar'));
+    expect(onContextMenu).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -29,6 +29,7 @@ import { createImageNodeView, resolveMarkdownImagePath } from './markdown-image-
 import { INLINE_NODE, MarkdownSearch } from './markdown-search';
 import { MarkdownSlashCommands } from './markdown-slash-commands';
 import { MarkdownSoftBreaks } from './markdown-soft-breaks';
+import { isPrimaryClick, MarkdownContextMenu } from './MarkdownContextMenu';
 import { MarkdownFindBar } from './MarkdownFindBar';
 import { MarkdownSlashMenu } from './MarkdownSlashMenu';
 import { MarkdownToolbar } from './MarkdownToolbar';
@@ -260,7 +261,7 @@ export function RichMarkdownEditor({
     };
     // A click in the margin below the text puts the cursor at the end.
     const focusEnd = (event: MouseEvent) => {
-      if (event.target !== scroller || !editor.isEditable) return;
+      if (!isPrimaryClick(event) || event.target !== scroller || !editor.isEditable) return;
       event.preventDefault();
       editor.commands.focus('end');
     };
@@ -341,14 +342,19 @@ export function RichMarkdownEditor({
         {toolbarEnd}
       </MarkdownToolbar>
       {/* Focusable so Cmd+F reaches the editor when it's read-only and can't take focus itself. */}
-      <div
-        ref={scrollerRef}
-        tabIndex={readOnly ? -1 : undefined}
-        data-markdown-scroller=""
-        className={cn('min-h-0 flex-1 overflow-auto outline-hidden', readOnly && 'cursor-default')}
-      >
-        <EditorContent editor={editor} className="min-h-full" />
-      </div>
+      <MarkdownContextMenu editor={editor} readOnly={readOnly} scrollerRef={scrollerRef}>
+        <div
+          ref={scrollerRef}
+          tabIndex={readOnly ? -1 : undefined}
+          data-markdown-scroller=""
+          className={cn(
+            'min-h-0 flex-1 overflow-auto outline-hidden',
+            readOnly && 'cursor-default'
+          )}
+        >
+          <EditorContent editor={editor} className="min-h-full" />
+        </div>
+      </MarkdownContextMenu>
       {findRequest && (
         <MarkdownFindBar
           editor={editor}
@@ -377,7 +383,9 @@ function isFindShortcut(event: KeyboardEvent): boolean {
 /** Links open with Cmd/Ctrl+click while editing, or a plain click when read-only. */
 function openClickedLink(view: EditorView, event: MouseEvent): boolean {
   const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
-  if (!link || (view.editable && !event.metaKey && !event.ctrlKey)) return false;
+  if (!link || !isPrimaryClick(event) || (view.editable && !event.metaKey && !event.ctrlKey)) {
+    return false;
+  }
   event.preventDefault();
   const href = link.getAttribute('href') ?? '';
   if (/^(?:https?|mailto):/i.test(href)) void window.api.openExternal(href);

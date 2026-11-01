@@ -23,6 +23,8 @@ export interface SlashCommand {
   title: string;
   keywords: string;
   icon: Icon;
+  /** Adds a block rather than changing the current one, so it replaces any selection. */
+  inserts?: boolean;
   apply: (chain: ChainedCommands) => ChainedCommands;
 }
 
@@ -85,12 +87,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     title: 'Table',
     keywords: 'grid',
     icon: Table,
+    inserts: true,
     apply: (chain) => chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }),
   },
   {
     title: 'Divider',
     keywords: 'hr horizontal rule line separator',
     icon: Minus,
+    inserts: true,
     apply: (chain) => chain.setHorizontalRule(),
   },
 ];

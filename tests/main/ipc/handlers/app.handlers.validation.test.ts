@@ -133,6 +133,26 @@ describe('app IPC validation', () => {
     expect((error as Error & { code: string }).code).toBe('IPC_VALIDATION_ERROR');
   });
 
+  it('clipboard:run-command runs the command in the window that asked', async () => {
+    const { registerAppHandlers } = await import('../../../../src/main/ipc/handlers/app.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { handle: ReturnType<typeof vi.fn> };
+    };
+    registerAppHandlers();
+    const handler = ipcMain.handle.mock.calls.find(
+      ([channel]) => channel === 'clipboard:run-command'
+    )?.[1] as (event: unknown, ...args: unknown[]) => unknown;
+    const sender = { cut: vi.fn(), copy: vi.fn(), paste: vi.fn(), loadURL: vi.fn() };
+
+    handler({ sender }, 'paste');
+    expect(sender.paste).toHaveBeenCalledOnce();
+    expect(sender.copy).not.toHaveBeenCalled();
+
+    // Anything else on the sender stays out of reach.
+    expect(() => handler({ sender }, 'loadURL')).toThrow();
+    expect(sender.loadURL).not.toHaveBeenCalled();
+  });
+
   it('clipboard:import-image rejects an invalid workspace id', async () => {
     const { registerAppHandlers } = await import('../../../../src/main/ipc/handlers/app.handlers');
     const { ipcMain } = (await import('electron')) as unknown as {

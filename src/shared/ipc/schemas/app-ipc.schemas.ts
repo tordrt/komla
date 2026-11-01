@@ -7,6 +7,8 @@ export const clipboardImportImageArgsSchema = z.tuple([
   z.enum(['workspace', 'local-copy']).optional(),
 ]);
 
+export const clipboardRunCommandArgsSchema = z.tuple([z.enum(['cut', 'copy', 'paste'])]);
+
 export const agentUsageRefreshArgsSchema = z.tuple([
   z
     .object({

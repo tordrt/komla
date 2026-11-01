@@ -40,7 +40,7 @@ const BLOCK_TYPES = [
   { label: 'Heading 3', level: 3 },
 ] as const;
 
-function shortcut(keys: string): string {
+export function shortcut(keys: string): string {
   return formatShortcutForDisplay(keys, window.api?.platform);
 }
 

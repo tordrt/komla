@@ -269,21 +269,34 @@ export const SurfacePane = React.memo(function SurfacePane({
                 onDragEnd={endDrag}
               />
             )}
-            <PaneDragBarProvider value={showDragGrip ? drag : null}>
-              {surface.kind === 'browser' ? (
-                <BrowserSurface
-                  paneId={paneId}
-                  {...surfaceProps}
-                  onPageFocus={() => {
-                    if (isTabActive && !isFocused) setFocusedPane(paneId);
-                  }}
-                />
-              ) : surface.kind === 'note' ? (
-                <NoteSurface {...surfaceProps} name={surface.name} />
-              ) : (
-                <FileSurface {...surfaceProps} path={surface.path} />
-              )}
-            </PaneDragBarProvider>
+            {/* Text fields keep their own Cut, Copy and Paste menu, which this menu would replace. */}
+            <div
+              className="contents"
+              onContextMenu={(event) => {
+                if (
+                  event.target instanceof Element &&
+                  event.target.matches('input:read-write, textarea:read-write')
+                ) {
+                  event.stopPropagation();
+                }
+              }}
+            >
+              <PaneDragBarProvider value={showDragGrip ? drag : null}>
+                {surface.kind === 'browser' ? (
+                  <BrowserSurface
+                    paneId={paneId}
+                    {...surfaceProps}
+                    onPageFocus={() => {
+                      if (isTabActive && !isFocused) setFocusedPane(paneId);
+                    }}
+                  />
+                ) : surface.kind === 'note' ? (
+                  <NoteSurface {...surfaceProps} name={surface.name} />
+                ) : (
+                  <FileSurface {...surfaceProps} path={surface.path} />
+                )}
+              </PaneDragBarProvider>
+            </div>
             <PaneDropLayer paneId={paneId} paneRef={paneRef} disabled={isLayoutLocked} />
             {/* Not on a browser: its page is a native view drawn over the window, which would hide
                 all but the outline's top edge. */}

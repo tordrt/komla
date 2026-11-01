@@ -6,6 +6,7 @@ import { BrowserWindow, dialog, nativeTheme, shell } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
 import { describeUnsavedFiles } from '../../shared/lib/unsaved-files';
+import { attachEditContextMenu } from '../lib/edit-context-menu';
 import { MAIN_BUNDLE_DIR } from '../lib/module-path';
 import { interceptPaneCloseShortcut } from '../lib/pane-close-shortcut';
 import { markStartup } from '../lib/startup-timing';
@@ -154,6 +155,8 @@ class WindowService {
       void shell.openExternal(details.url);
       return { action: 'deny' };
     });
+
+    attachEditContextMenu(window);
 
     // Handle shortcuts Electron consumes before they can reach the renderer.
     window.webContents.on('before-input-event', (event, input) => {

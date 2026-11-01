@@ -2653,6 +2653,9 @@ const api = {
     void ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text);
   },
   readFromClipboard: (): Promise<string> => ipcRenderer.invoke(IPC.CLIPBOARD_READ_TEXT),
+  /** Cuts, copies or pastes at what has focus, as the keyboard shortcut would. */
+  runClipboardCommand: (command: 'cut' | 'copy' | 'paste'): Promise<void> =>
+    ipcRenderer.invoke(IPC.CLIPBOARD_RUN_COMMAND, command),
   importClipboardImage: (
     workspaceId: string,
     executionLocation?: 'workspace' | 'local-copy'

@@ -583,6 +583,7 @@ export const IPC = {
   // Clipboard
   CLIPBOARD_WRITE_TEXT: 'clipboard:write-text',
   CLIPBOARD_READ_TEXT: 'clipboard:read-text',
+  CLIPBOARD_RUN_COMMAND: 'clipboard:run-command',
   CLIPBOARD_IMPORT_IMAGE: 'clipboard:import-image',
   CLIPBOARD_STAGE_IMAGE: 'clipboard:stage-image',
 

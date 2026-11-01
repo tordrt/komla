@@ -49,7 +49,14 @@ vi.mock('../../src/main/services/config.service', () => ({
 vi.mock('../../src/main/services/project.service', () => ({ projectService: {} }));
 vi.mock('../../src/main/services/managed-repo.service', () => ({ managedRepoService: {} }));
 vi.mock('../../src/main/services/license.service', () => ({ licenseService: {} }));
-vi.mock('../../src/main/services/http-server.service', () => ({ httpServerService: {} }));
+vi.mock('../../src/main/services/http-server.service', () => ({
+  httpServerService: { waitForActualPort: () => Promise.resolve(54183) },
+}));
+const mockConfigureKomlaPort = vi.hoisted(() => vi.fn());
+vi.mock('../../src/main/services/remote-workspace-observation.service', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  configureRemoteObservationKomlaPort: mockConfigureKomlaPort,
+}));
 vi.mock('../../src/main/services/search.service', () => ({ searchService: {} }));
 vi.mock('../../src/main/services/telemetry.service', () => ({
   telemetryService: { capture: vi.fn() },
@@ -93,6 +100,18 @@ vi.mock('@electron-toolkit/utils', () => ({
   optimizer: { watchWindowShortcuts: vi.fn() },
   is: { dev: true },
 }));
+
+describe('remote workspace observation', () => {
+  it('gets the Komla port from the HTTP server', async () => {
+    vi.resetModules();
+    mockConfigureKomlaPort.mockClear();
+
+    await import('../../src/main/index');
+
+    const [waitForKomlaPort] = mockConfigureKomlaPort.mock.calls[0];
+    await expect(waitForKomlaPort()).resolves.toBe(54183);
+  });
+});
 
 describe('preview protocol registration', () => {
   it('allows Electron PDF viewer extensions on the preview scheme', async () => {

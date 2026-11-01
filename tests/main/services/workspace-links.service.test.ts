@@ -219,9 +219,8 @@ vi.mock('fs/promises', () => {
   };
 });
 
-// Stub workspace.service to avoid pulling in the entire main process. Tests
-// drive the in-memory `workspaces` map and assert the links service reads it
-// via get() and writes back via update().
+// Stub the workspace store. Tests drive the in-memory `workspaces` map and assert
+// the links service reads it via get() and writes back via updateLinkedWorkspaceIds().
 type StubWorkspace = {
   id: string;
   name: string;
@@ -282,22 +281,20 @@ vi.mock('../../../src/main/services/project.service', () => {
   };
 });
 
-vi.mock('../../../src/main/services/workspace.service', () => {
+vi.mock('../../../src/main/services/workspace/store', () => {
   return {
-    workspaceService: {
+    workspaceStore: {
       get: (id: string) => workspacesMap.get(id),
       isDeleting: (id: string) => deletingWorkspaceIds.has(id),
       list: () => Array.from(workspacesMap.values()),
-      update: (id: string, updates: Partial<StubWorkspace>) => {
+      updateLinkedWorkspaceIds: (id: string, linkedWorkspaceIds: string[] | undefined) => {
         const ws = workspacesMap.get(id);
         if (!ws) throw new Error(`Workspace ${id} not found`);
         if (replaceWorkspaceOnUpdate) {
-          const next = { ...ws, ...updates };
-          workspacesMap.set(id, next);
-          return next;
+          workspacesMap.set(id, { ...ws, linkedWorkspaceIds });
+          return;
         }
-        Object.assign(ws, updates);
-        return ws;
+        Object.assign(ws, { linkedWorkspaceIds });
       },
       saveWorkspacesImmediate: mockSaveWorkspacesImmediate,
       saveWorkspacesImmediateChecked: mockSaveWorkspacesImmediate,

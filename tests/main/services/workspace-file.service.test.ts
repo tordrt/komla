@@ -101,8 +101,8 @@ vi.mock('../../../src/main/services/search.service', async (importOriginal) => (
 vi.mock('../../../src/main/services/ssh-workspace.service', () => ({
   sshWorkspaceService: sshWorkspaceServiceMock,
 }));
-vi.mock('../../../src/main/services/workspace.service', () => ({
-  workspaceService: workspaceServiceMock,
+vi.mock('../../../src/main/services/workspace/store', () => ({
+  workspaceStore: workspaceServiceMock,
 }));
 vi.mock('../../../src/main/services/workspace-status.service', () => ({
   workspaceStatusService: workspaceStatusServiceMock,

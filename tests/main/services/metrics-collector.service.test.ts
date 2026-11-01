@@ -52,8 +52,8 @@ const mockProjectService = {
   ]),
 };
 
-vi.mock('../../../src/main/services/workspace.service', () => ({
-  workspaceService: mockWorkspaceService,
+vi.mock('../../../src/main/services/workspace/store', () => ({
+  workspaceStore: mockWorkspaceService,
 }));
 vi.mock('../../../src/main/services/config.service', () => ({
   configService: mockConfigService,

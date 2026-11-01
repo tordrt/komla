@@ -41,8 +41,8 @@ import {
   type ContentSearchResult,
 } from './search.service';
 import { sshWorkspaceService } from './ssh-workspace.service';
+import { workspaceStore } from './workspace/store';
 import { workspaceStatusService } from './workspace-status.service';
-import { workspaceService } from './workspace.service';
 
 import type { Workspace } from '../../shared/types';
 import type {
@@ -555,7 +555,7 @@ class WorkspaceFileService {
     if (status !== 'OK') throw new Error('Failed to write remote file');
     await this.refreshSshWorkspace(workspace.id);
     const peerId = values.get('PEER_ID');
-    if (peerId && workspaceService.get(peerId)) await this.refreshSshWorkspace(peerId);
+    if (peerId && workspaceStore.get(peerId)) await this.refreshSshWorkspace(peerId);
   }
 
   async deletePath(workspaceId: string, filePath: string): Promise<void> {
@@ -650,7 +650,7 @@ class WorkspaceFileService {
     if (status !== 'OK') throw new Error('Failed to delete remote path');
     await this.refreshSshWorkspace(workspace.id);
     const peerId = values.get('PEER_ID');
-    if (peerId && workspaceService.get(peerId)) await this.refreshSshWorkspace(peerId);
+    if (peerId && workspaceStore.get(peerId)) await this.refreshSshWorkspace(peerId);
   }
 
   async importExternalFile(
@@ -1041,7 +1041,7 @@ class WorkspaceFileService {
   }
 
   private getWorkspace(workspaceId: string): Workspace {
-    const workspace = workspaceService.get(workspaceId);
+    const workspace = workspaceStore.get(workspaceId);
     if (!workspace) throw new Error(`Workspace ${workspaceId} not found`);
     return workspace;
   }
@@ -1176,7 +1176,7 @@ class WorkspaceFileService {
   private async getManagedLocalLinkPaths(workspace: Workspace): Promise<string[]> {
     const peerDirectories = new Set(
       (workspace.linkedWorkspaceIds ?? [])
-        .map((id) => workspaceService.get(id))
+        .map((id) => workspaceStore.get(id))
         .filter((peer): peer is Workspace => peer !== undefined && !isSshWorkspace(peer))
         .map((peer) => resolve(peer.workingDirectory))
     );
@@ -1212,7 +1212,7 @@ class WorkspaceFileService {
 
   private remoteRecordedPeerFunction(workspace: Workspace): string {
     const peers = (workspace.linkedWorkspaceIds ?? [])
-      .map((id) => workspaceService.get(id))
+      .map((id) => workspaceStore.get(id))
       .filter(
         (peer): peer is Workspace =>
           peer !== undefined &&

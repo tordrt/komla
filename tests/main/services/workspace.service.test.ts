@@ -412,9 +412,6 @@ const mockHttpServerService = {
   getPort: vi.fn(() => 54183),
   waitForActualPort: vi.fn(() => Promise.resolve(54183)),
 };
-vi.mock('../../../src/main/services/http-server.service', () => ({
-  httpServerService: mockHttpServerService,
-}));
 
 const mockSshPortForwardService = {
   startPreviewForward: vi.fn(() => Promise.resolve()),
@@ -883,6 +880,13 @@ describe('WorkspaceService', () => {
       description: 'Generated description',
       branchName: 'generated-branch',
     });
+  });
+
+  // The app's entry point gives observation the HTTP server's port, in production.
+  beforeEach(async () => {
+    const { configureRemoteObservationKomlaPort } =
+      await import('../../../src/main/services/remote-workspace-observation.service');
+    configureRemoteObservationKomlaPort(() => mockHttpServerService.waitForActualPort());
   });
 
   afterEach(() => {

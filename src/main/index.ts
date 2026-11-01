@@ -76,6 +76,7 @@ import { remoteControlHostAccessService } from './services/remote-control-host-a
 import { remoteControlKeepAwakeService } from './services/remote-control-keep-awake.service';
 import { remoteMayOpenAttention } from './services/remote-control-local-access';
 import { remoteControlPushService } from './services/remote-control-push.service';
+import { configureRemoteObservationKomlaPort } from './services/remote-workspace-observation.service';
 import { settingsHistoryService } from './services/settings-history.service';
 import { shortcutsService } from './services/shortcuts.service';
 import { sshConnectionService } from './services/ssh-connection.service';
@@ -150,6 +151,8 @@ function openNewWindow(): ReturnType<typeof windowService.createWindow> {
   return result;
 }
 setFolderWindowOpener(() => openNewWindow().windowId);
+// Here because the HTTP server depends on workspaces, so workspaces can't reach it themselves.
+configureRemoteObservationKomlaPort(() => httpServerService.waitForActualPort());
 
 function reassignTerminalsToWindow(workspaceIds: string[], targetWindowId: number): void {
   for (const workspaceId of workspaceIds) {

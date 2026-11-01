@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 const ALLOWED: Record<string, number> = {
   'shared/lib/terminal-execution-state.ts': 26,
   'shared/types/terminal.ts': 3,
-  'main/services/workspace.service.ts': 3,
+  'main/services/workspace/persisted-workspace.ts': 3,
   'main/services/managed-remote-terminal-lifecycle/lifecycle.ts': 5,
 };
 

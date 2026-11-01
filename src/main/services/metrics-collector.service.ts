@@ -14,7 +14,7 @@ import { licenseService } from './license.service';
 import { getKomlaBasePath } from './paths';
 import { projectService } from './project.service';
 import { getTelemetryCohortDimensions, telemetryAgentName } from './telemetry-dimensions';
-import { workspaceService } from './workspace.service';
+import { workspaceStore } from './workspace/store';
 
 import type { UtilityProviderId } from '../../shared/types';
 import type { BuildDistribution } from '../lib/build-info';
@@ -314,7 +314,7 @@ class MetricsCollectorService {
     const wsState: WorkspaceStateSnapshot =
       snapshotState.workspaceState ??
       (() => {
-        const diag = workspaceService.getDiagnostics();
+        const diag = workspaceStore.getDiagnostics();
         return {
           stoppedWorkspaces: diag.stoppedWorkspaceCount,
           archivedWorkspaces: diag.trashedWorkspaceCount,
@@ -402,7 +402,7 @@ class MetricsCollectorService {
   /** Sample live service values into the given state's accumulators. */
   private sampleCurrentValues(state: MetricsState): void {
     const acc = state.runningWorkspaces;
-    acc.sum += workspaceService.getRunningWorkspaceCount();
+    acc.sum += workspaceStore.getRunningWorkspaceCount();
     acc.count++;
   }
 

@@ -12,7 +12,7 @@ test.describe('Workspace persistence', () => {
 
   test('workspace list survives an app restart', async ({ seedSandbox: _seedSandbox }) => {
     // First launch: create two workspaces and wait for both to finish provisioning.
-    // The startup cleanup in workspace.service.ts deletes any workspace still flagged
+    // The startup cleanup in workspace/lifecycle.ts deletes any workspace still flagged
     // `provisioning: true` at boot, so closing mid-provision would silently lose them.
     {
       const { app, window } = await launchApp();

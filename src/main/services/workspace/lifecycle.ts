@@ -1,0 +1,619 @@
+import { existsSync } from 'fs';
+import { dirname } from 'path';
+
+import { isRunningHere, isRunningOnSshHost } from '../../../shared/lib/terminal-execution-state';
+import { normalizeSshBasePath, type SshHost } from '../../../shared/types/ssh';
+import { canDeleteWorkspaceBranch, isSshWorkspace } from '../../../shared/types/workspace';
+import { createLogger } from '../../lib/logger';
+import { deleteReleasingOpenCodeLocation } from '../../lib/opencode-service';
+import { agentPresetService } from '../agent-preset.service';
+import { configService } from '../config.service';
+import { executionLocations } from '../execution-location';
+import { gitService } from '../git.service';
+import { FREE_WORKSPACE_LIMIT } from '../license.service';
+import { localMirrorService } from '../local-mirror.service';
+import { notesService } from '../notes.service';
+import { projectService } from '../project.service';
+import { ptyService } from '../pty.service';
+import { remoteWorkspaceObservationService } from '../remote-workspace-observation.service';
+import { sshHostService } from '../ssh-host.service';
+import { sshPortForwardService } from '../ssh-port-forward.service';
+import { sshWorkspaceProvisioningService } from '../ssh-workspace-provisioning.service';
+import { sshWorkspaceService } from '../ssh-workspace.service';
+import { workspaceLinksService } from '../workspace-links.service';
+import { workspaceSetupService } from '../workspace-setup.service';
+import { workspaceStatusService } from '../workspace-status.service';
+import { worktreeWatcherService } from '../worktree-watcher.service';
+
+import { resolvePreset } from './agent-launch';
+import { moveFolderIntoProject, workspaceProject } from './projects';
+import { workspaceStore } from './store';
+
+import type { FreeSshSlots } from './free-ssh-slots';
+import type { WorkspaceNaming } from './naming';
+import type { WorkspaceProvisioning } from './provisioning';
+import type { WorkspaceTerminals } from './terminals';
+import type { Terminal, Workspace } from '../../../shared/types';
+import type { SshWorkspaceSync } from '../ssh-workspace-sync/ssh-workspace-sync';
+import type { TerminalAttention } from '../terminal-attention/terminal-attention';
+
+const logger = createLogger('WorkspaceService');
+
+export interface WorkspaceLifecycleDeps {
+  attention: TerminalAttention;
+  sshSync: SshWorkspaceSync;
+  slots: FreeSshSlots;
+  naming: WorkspaceNaming;
+  terminals: WorkspaceTerminals;
+  provisioning: WorkspaceProvisioning;
+}
+
+/** Stops, restarts and deletes workspaces, and clears out those left stale by a crash. */
+export class WorkspaceLifecycle {
+  constructor(private readonly deps: WorkspaceLifecycleDeps) {}
+
+  async cleanupStaleWorkspaces(ids: string[]): Promise<void> {
+    let changed = false;
+    for (const id of ids) {
+      const ws = workspaceStore.workspaces.get(id);
+      if (!ws) continue;
+
+      if (ws.provisioning && isSshWorkspace(ws)) {
+        if ((await sshWorkspaceProvisioningService.recover(ws, 'interrupted')) === 'remove') {
+          workspaceStore.workspaces.delete(id);
+          this.deps.attention.workspaceDeleted(id);
+        }
+        changed = true;
+        continue;
+      }
+
+      // Remove workspaces that were mid-provisioning when app quit. If a worktree
+      // already exists, delete it before dropping the orphaned workspace record.
+      if (ws.provisioning) {
+        if (ws.workingDirectory && ws.provisioningRepoPath && existsSync(ws.workingDirectory)) {
+          try {
+            await gitService.deleteWorktree(ws.provisioningRepoPath, ws.workingDirectory, true, {
+              deleteBranch: ws.provisioningBranchCreated === true,
+              branchName: ws.branchName,
+            });
+          } catch (error) {
+            logger.warn(`Failed to clean up stale provisioning workspace ${id}:`, error);
+          }
+        }
+        await this.unlinkStaleWorkspace(id, ws);
+        logger.info(`Removing stale provisioning workspace ${id}`, { name: ws.name });
+        workspaceStore.workspaces.delete(id);
+        this.deps.attention.workspaceDeleted(id);
+        changed = true;
+        continue;
+      }
+      if (isSshWorkspace(ws)) continue;
+      if (ws.isWorktree && !existsSync(ws.workingDirectory)) {
+        await this.unlinkStaleWorkspace(id, ws);
+        logger.info(`Removing stale workspace ${id} (directory missing)`, { name: ws.name });
+        workspaceStore.workspaces.delete(id);
+        this.deps.attention.workspaceDeleted(id);
+        this.trashNotes(id);
+        changed = true;
+      }
+    }
+    const linksChanged = await workspaceLinksService.reconcileAllFromDisk();
+    if (changed || linksChanged) {
+      await workspaceStore.saveWorkspacesImmediate();
+      workspaceStore.broadcastWorkspacesChanged();
+    }
+  }
+
+  // When the parent folder is gone too (say, an unmounted drive), git can't match the path to
+  // its worktree record, and deleteWorktree's fallback prune would drop every worktree there.
+  private canCleanUpMissingWorktree(worktreePath: string): boolean {
+    return existsSync(dirname(worktreePath));
+  }
+
+  private async unlinkStaleWorkspace(id: string, _workspace: Workspace): Promise<void> {
+    // Run unconditionally — stale on-disk symlinks pointing at this workspace
+    // can exist even when its own metadata is empty.
+    try {
+      await workspaceLinksService.unlinkAll(id);
+    } catch (error) {
+      logger.warn(`Failed to unlink stale workspace ${id}:`, error);
+    }
+  }
+
+  /**
+   * Enforce workspace limit after license revocation.
+   * Stops terminals in excess running SSH workspaces (keeps all workspaces loaded).
+   */
+  async enforceWorkspaceLimit(): Promise<void> {
+    const running = Array.from(workspaceStore.workspaces.values()).filter(isRunningOnSshHost);
+
+    if (running.length <= FREE_WORKSPACE_LIMIT) return;
+
+    const sorted = running.sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
+
+    const toStop = sorted.slice(FREE_WORKSPACE_LIMIT);
+    const failures: string[] = [];
+    let stoppedCount = 0;
+    for (const workspace of toStop) {
+      try {
+        const stopping = executionLocations.stopSessions(workspace);
+        if (stopping) await stopping;
+      } catch (error) {
+        failures.push(`${workspace.name}: ${String(error)}`);
+        logger.error('Failed to stop remote agents while enforcing workspace limit', error, {
+          workspaceId: workspace.id,
+        });
+        continue;
+      }
+      executionLocations.stopAttached(workspace);
+      worktreeWatcherService.stopWatching(workspace.id).catch(() => {});
+      stoppedCount++;
+    }
+
+    if (toStop.length > 0) {
+      workspaceStore.saveWorkspaces();
+      workspaceStore.broadcastWorkspacesChanged();
+      void remoteWorkspaceObservationService.reconcile();
+    }
+
+    logger.warn(
+      `License revoked: stopped terminals in ${stoppedCount} workspace(s) — free plan limit of ${FREE_WORKSPACE_LIMIT} running SSH workspaces reached.`
+    );
+    if (failures.length > 0) {
+      throw new Error(`Could not stop all remote agents: ${failures.join('; ')}`);
+    }
+  }
+
+  async stop(workspaceId: string): Promise<void> {
+    const workspace = workspaceStore.workspaces.get(workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace ${workspaceId} not found`);
+    }
+    // Stopping again, as moving to the Trash does, would kill the last stop's steps.
+    const stopSteps = workspaceSetupService.stopStepsSettled(workspaceId);
+    if (stopSteps) await stopSteps;
+    const wasRunning = isRunningHere(workspace);
+    await workspaceSetupService.cancel(workspaceId);
+    workspaceSetupService.clearActive(workspace.id);
+    if (isSshWorkspace(workspace)) {
+      this.deps.terminals.cancelDeferredWorkspaceLaunches(workspace);
+    }
+    try {
+      const stopping = executionLocations.stopSessions(workspace);
+      if (stopping) await stopping;
+    } catch (error) {
+      throw new Error(
+        `Could not confirm all remote agents stopped; the workspace remains active. ${String(error)}`
+      );
+    }
+    workspace.lastStoppedAt = Date.now();
+
+    // Stop all terminals in the workspace (stopping is idempotent)
+    for (const terminal of executionLocations.stopAttached(workspace)) {
+      terminal.status = 'stopped';
+    }
+    workspaceSetupService.stopBackground(workspaceId);
+    // Starting or deleting the workspace waits for them.
+    if (wasRunning) void workspaceSetupService.runStopSteps(workspace);
+    void remoteWorkspaceObservationService.reconcile();
+    this.deps.attention.workspaceStopped(workspaceId);
+
+    // Stop file watcher — the renderer retains cached git status
+    await worktreeWatcherService.stopWatching(workspaceId);
+    await sshPortForwardService.stopPreviewForward(workspaceId);
+
+    workspaceStore.saveWorkspaces();
+  }
+
+  /** The workspace's running workspace-stop steps, if any. */
+  stopStepsSettled(workspaceId: string): Promise<void> | undefined {
+    return workspaceSetupService.stopStepsSettled(workspaceId);
+  }
+
+  /**
+   * At quit, stops the local workspaces whose projects have workspace-stop steps and runs those
+   * steps, waiting at most `timeLimitMs`. SSH workspaces keep running on their hosts, so theirs
+   * don't run.
+   */
+  async runStopStepsBeforeQuit(timeLimitMs: number): Promise<void> {
+    const runs = [...workspaceStore.workspaces.values()].flatMap((workspace) => {
+      const running = workspaceSetupService.stopStepsSettled(workspace.id);
+      if (running) return [running];
+      if (
+        isSshWorkspace(workspace) ||
+        !isRunningHere(workspace) ||
+        !workspaceSetupService.hasStopSteps(workspace)
+      ) {
+        return [];
+      }
+      executionLocations.stopAttached(workspace);
+      workspaceSetupService.stopBackground(workspace.id);
+      return [workspaceSetupService.runStopSteps(workspace, timeLimitMs)];
+    });
+    if (runs.length === 0) return;
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      Promise.allSettled(runs),
+      new Promise((resolve) => (timer = setTimeout(resolve, timeLimitMs))),
+    ]);
+    clearTimeout(timer);
+  }
+
+  // Restart a workspace by adding a new terminal with continue command
+  // Re-applies project setup steps (background processes, terminal layout)
+  restart(workspaceId: string, remoteSetupStopped = false): Terminal | Promise<Terminal> {
+    const workspace = workspaceStore.workspaces.get(workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace ${workspaceId} not found`);
+    }
+
+    if (workspace.provisioning) {
+      throw new Error(`Workspace ${workspaceId} is still being provisioned`);
+    }
+
+    // Stop steps such as `docker compose down` finish before setup starts things again.
+    const stopSteps = workspaceSetupService.stopStepsSettled(workspaceId);
+    if (stopSteps) return stopSteps.then(() => this.restart(workspaceId, remoteSetupStopped));
+
+    if (!remoteSetupStopped) {
+      const setupCleanup = workspaceSetupService.cancel(workspaceId);
+      if (setupCleanup) {
+        return setupCleanup.then(() => this.restart(workspaceId, true));
+      }
+    }
+
+    if (isSshWorkspace(workspace)) this.deps.slots.assertRestartSlot(workspace);
+
+    // Restart should clean up the same terminal resources as stop before
+    // setup steps and the continue command create fresh terminals.
+    this.deps.terminals.cancelDeferredWorkspaceLaunches(workspace);
+    for (const terminal of workspace.terminals) {
+      ptyService.kill(terminal.id);
+      terminal.status = 'stopped';
+    }
+
+    // Clear old terminals to avoid stale references
+    workspace.terminals = [];
+    workspace.terminalLayout = undefined;
+    workspace.lastStoppedAt = undefined;
+
+    // Auto-activate dormant workspaces when restarting
+    if (workspace.status !== 'active') {
+      workspace.status = 'active';
+      moveFolderIntoProject(workspace);
+      this.deps.attention.workspaceStatusChanged();
+      workspaceStore.saveWorkspaces();
+    }
+
+    // Start file watcher (stopped when workspace was stopped)
+    if (!isSshWorkspace(workspace)) {
+      worktreeWatcherService.startWatching(workspaceId, workspace.workingDirectory).catch((err) => {
+        logger.error(`Failed to start watcher for workspace ${workspaceId}:`, err);
+      });
+    }
+
+    // Kill existing background processes so they can be re-spawned from setup steps
+    workspaceSetupService.clearActive(workspace.id);
+    workspaceSetupService.stopBackground(workspaceId);
+    void sshPortForwardService.stopPreviewForward(workspaceId);
+
+    // Auto-heal: if workspace references a deleted preset, fall back to first active
+    if (
+      workspace.presetId &&
+      agentPresetService.get &&
+      !agentPresetService.get(workspace.presetId)
+    ) {
+      const fallback = agentPresetService.getFirstActive?.();
+      if (fallback) {
+        workspace.presetId = fallback.id;
+        workspace.launchModeId = null;
+        workspace.reasoningLevelId = null;
+        workspaceStore.saveWorkspaces();
+      }
+    }
+
+    // Build continue command from workspace's preset
+    let command: string | null = null;
+    const activePreset = resolvePreset(null, workspace);
+    const continueCommand = activePreset?.continueCommand || null;
+    if (activePreset && continueCommand && continueCommand.trim()) {
+      command = agentPresetService.resolvePresetCommand(
+        activePreset,
+        'continue',
+        workspace.launchModeId,
+        undefined,
+        undefined,
+        workspace.reasoningLevelId
+      );
+    }
+
+    // Re-apply setup steps for worktree workspaces with a project
+    const primaryTerminal = workspaceSetupService.start(workspace, command, 'start');
+    if (primaryTerminal) {
+      return primaryTerminal;
+    }
+
+    // Default: create single terminal with agent command
+    const terminal = this.deps.terminals.addTerminal(workspaceId, workspace.name, command);
+    if (terminal instanceof Promise) {
+      return terminal.then((startedTerminal) => {
+        workspace.primaryTerminalId = startedTerminal.id;
+        return startedTerminal;
+      });
+    }
+    workspace.primaryTerminalId = terminal.id;
+    return terminal;
+  }
+
+  async restartWithCleanup(workspaceId: string): Promise<Terminal> {
+    const workspace = workspaceStore.workspaces.get(workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace ${workspaceId} not found`);
+    }
+    try {
+      const releasing = executionLocations.releaseSessions(workspace, {
+        observeUnknownFirst: true,
+      });
+      if (releasing) await releasing;
+    } catch (error) {
+      throw new Error(
+        `Could not confirm all remote agents stopped; workspace restart was cancelled. ${String(error)}`
+      );
+    }
+    await sshPortForwardService.stopPreviewForward(workspaceId);
+    return this.restart(workspaceId);
+  }
+
+  async delete(
+    workspaceId: string,
+    force = false,
+    deleteBranch = false,
+    options: { skipBackendCleanup?: boolean } = {}
+  ): Promise<void> {
+    const workspace = workspaceStore.workspaces.get(workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace ${workspaceId} not found`);
+    }
+    if (workspaceStore.isDeleting(workspaceId)) {
+      throw new Error(`Workspace ${workspaceId} is being deleted`);
+    }
+    workspaceStore.deletingWorkspaceIds.add(workspaceId);
+    try {
+      await this.deleteWorkspace(workspace, force, deleteBranch, options);
+    } finally {
+      workspaceStore.deletingWorkspaceIds.delete(workspaceId);
+    }
+  }
+
+  private async deleteWorkspace(
+    workspace: Workspace,
+    force: boolean,
+    deleteBranch: boolean,
+    options: { skipBackendCleanup?: boolean }
+  ): Promise<void> {
+    const workspaceId = workspace.id;
+    // The renderer offers branch deletion only where this allows it; never delete the target branch.
+    const deletesBranch =
+      deleteBranch && canDeleteWorkspaceBranch(workspace, workspaceProject(workspace)?.baseBranch);
+    const wasRunning = isRunningHere(workspace);
+    workspaceSetupService.cancel(workspace.id, 'pending');
+
+    this.deps.terminals.cancelDeferredWorkspaceLaunches(workspace);
+    try {
+      const releasing = executionLocations.releaseSessions(workspace, {
+        skipRemoteConfirmation: options.skipBackendCleanup,
+      });
+      if (releasing) await releasing;
+    } catch (error) {
+      throw new Error(
+        `Could not confirm all remote agents stopped; workspace deletion was cancelled. ${String(error)}`
+      );
+    }
+    await workspaceSetupService.cancel(workspaceId);
+    workspaceSetupService.cancel(workspaceId, 'updates');
+
+    // Unregister target branch from git service
+    if (workspace.workingDirectory && !isSshWorkspace(workspace)) {
+      gitService.registerTargetBranch(workspace.workingDirectory, undefined);
+    }
+
+    // Stop watching for git status changes
+    await worktreeWatcherService.stopWatching(workspaceId);
+
+    // Kill background processes for this workspace. Await exit so live shells
+    // don't outlive the worktree removal below (would emit shell-init: getcwd
+    // warnings and break any in-flight git push from the PTY).
+    await workspaceSetupService.stopBackground(workspaceId, { waitForExit: true });
+    const stopPreviewForwardPromise = sshPortForwardService.stopPreviewForward(workspaceId);
+
+    // Mark workspace as provisioning-cancelled so finishProvisioning will bail out early
+    if (workspace.provisioning) {
+      this.deps.provisioning.markCancelled(workspaceId);
+    }
+
+    this.deps.naming.abortAutoNaming(workspaceId);
+    this.deps.naming.abortProvisioningNaming(workspaceId);
+
+    // Permanently tear down all terminals and wait for their native processes
+    // to exit before removing a worktree or local mirror containing their cwd.
+    const releasingAttached = executionLocations.releaseAttached(workspace);
+    if (releasingAttached) await releasingAttached;
+
+    // Once its terminals are gone, a running workspace's stop steps, such as
+    // `docker compose down`, run before its directory goes.
+    const stopSteps =
+      wasRunning && !options.skipBackendCleanup && workspaceSetupService.hasStopSteps(workspace)
+        ? workspaceSetupService.runStopSteps(workspace)
+        : workspaceSetupService.stopStepsSettled(workspaceId);
+    if (stopSteps) await stopSteps;
+
+    // Delete worktree if applicable (skip if provisioning never completed)
+    if (options.skipBackendCleanup) {
+      // Backend already gone or intentionally left in place, along with its manifest.
+      await this.deps.sshSync.deleted(workspace, { leftOnHost: true });
+    } else if (isSshWorkspace(workspace)) {
+      await sshWorkspaceService.deleteWorkspace(
+        workspace.backend,
+        deletesBranch,
+        workspace.branchName,
+        { allowBranchToRemain: true }
+      );
+      await this.deps.sshSync.deleted(workspace, { leftOnHost: false });
+    } else if (workspace.isWorktree && workspace.projectId && workspace.workingDirectory) {
+      const project = projectService.get(workspace.projectId);
+      // A missing directory still leaves git's worktree record (and maybe the branch) to clean
+      // up, unless provisioning never got as far as creating it.
+      if (
+        project &&
+        (existsSync(workspace.workingDirectory) ||
+          (!workspace.provisioning && this.canCleanUpMissingWorktree(workspace.workingDirectory)))
+      ) {
+        // For managed projects, use the bare clone path
+        const repoPath =
+          project.managed && project.managedRepoPath
+            ? project.managedRepoPath
+            : project.repositoryPath;
+        const worktreePath = workspace.workingDirectory;
+        await deleteReleasingOpenCodeLocation(worktreePath, () =>
+          gitService.deleteWorktree(repoPath, worktreePath, force, {
+            deleteBranch: deletesBranch,
+            branchName: workspace.branchName,
+          })
+        );
+      }
+    }
+
+    // A workspace is not fully deleted until its local mirror is gone. Keep
+    // the workspace record when this fails so deletion can be retried safely;
+    // remote cleanup above is idempotent.
+    if (isSshWorkspace(workspace)) {
+      await localMirrorService.remove(workspaceId, workspace.backend);
+    }
+
+    // Tear down bidirectional links after worktree deletion succeeds so a
+    // failed delete does not silently lose link state.
+    try {
+      await workspaceLinksService.unlinkAll(workspaceId);
+    } catch (err) {
+      logger.warn(`Failed to unlink workspace ${workspaceId} during delete:`, err);
+    }
+
+    workspaceStore.workspaces.delete(workspaceId);
+    this.deps.attention.workspaceDeleted(workspaceId);
+    this.trashNotes(workspaceId);
+    void remoteWorkspaceObservationService.reconcile();
+    await workspaceStatusService.change({ kind: 'workspace-removed', workspaceId });
+    // Use immediate save for deletion to ensure consistency
+    try {
+      await workspaceStore.saveWorkspacesImmediateChecked();
+    } catch (error) {
+      // Backend deletion cannot be rolled back. Keep the workspace deleted in
+      // this session instead of reporting a retryable failure to the renderer.
+      logger.warn(`Workspace ${workspaceId} was deleted but could not be persisted:`, error);
+      workspaceStore.saveWorkspaces();
+    }
+    await Promise.all([
+      stopPreviewForwardPromise,
+      isSshWorkspace(workspace) ? Promise.resolve() : localMirrorService.remove(workspaceId),
+    ]);
+  }
+
+  /** Notes belong to their workspace; the trash keeps any still wanted. */
+  private trashNotes(workspaceId: string): void {
+    void notesService.trashAll(workspaceId).catch((error: unknown) => {
+      logger.warn(`Could not move workspace ${workspaceId}'s notes to the trash:`, error);
+    });
+  }
+
+  async deleteAll(): Promise<void> {
+    const ids = Array.from(workspaceStore.workspaces.keys());
+    for (const id of ids) {
+      try {
+        await this.delete(id, true);
+      } catch (err) {
+        logger.error('Failed to delete workspace during deleteAll', err, { workspaceId: id });
+      }
+    }
+  }
+
+  async deleteSshHost(
+    hostId: string,
+    options: { deleteRemoteData?: boolean } = {}
+  ): Promise<{ deletedWorkspaceIds: string[] }> {
+    if (!sshHostService.has(hostId)) {
+      throw new Error(`SSH host ${hostId} not found`);
+    }
+
+    const matchingWorkspaces = Array.from(workspaceStore.workspaces.values()).filter(
+      (workspace) => isSshWorkspace(workspace) && workspace.backend.hostId === hostId
+    );
+
+    if (options.deleteRemoteData) {
+      await sshWorkspaceService.deleteHostData(hostId);
+    } else {
+      for (const workspace of matchingWorkspaces) {
+        await executionLocations.stopSessions(workspace);
+      }
+    }
+
+    for (const workspace of matchingWorkspaces) {
+      await this.delete(workspace.id, true, false, {
+        skipBackendCleanup: true,
+      });
+    }
+
+    const lastEnvironment = configService.get().lastWorkspaceEnvironment;
+    if (lastEnvironment?.kind === 'ssh' && lastEnvironment.hostId === hostId) {
+      configService.update({ lastWorkspaceEnvironment: undefined });
+    }
+    if (configService.get().agentLaunchDefaultSshHostId === hostId) {
+      configService.update({ agentLaunchDefaultSshHostId: undefined });
+    }
+    const syncDisabledHostIds = configService.get().workspaceSyncDisabledHostIds;
+    if (syncDisabledHostIds?.includes(hostId)) {
+      configService.update({
+        workspaceSyncDisabledHostIds: syncDisabledHostIds.filter((id) => id !== hostId),
+      });
+    }
+    sshWorkspaceService.forgetHost(hostId);
+    sshHostService.delete(hostId);
+    // Only now: a sync reading the host meanwhile could add them back. Adding the host back does.
+    this.deps.sshSync.hostForgotten(matchingWorkspaces.map((workspace) => workspace.id));
+    void remoteWorkspaceObservationService.reconcile();
+    return { deletedWorkspaceIds: matchingWorkspaces.map((workspace) => workspace.id) };
+  }
+
+  assertSshHostConnectionUpdateAllowed(nextHost: SshHost): void {
+    const currentHost = sshHostService.get(nextHost.id);
+    if (!currentHost) return;
+    if (normalizeSshBasePath(currentHost.basePath) !== normalizeSshBasePath(nextHost.basePath)) {
+      throw new Error(
+        'Remote Komla path is fixed after this machine is connected. Remove and reconnect the machine to use a different path.'
+      );
+    }
+    const lockedHostIds = new Set(
+      Array.from(workspaceStore.workspaces.values())
+        .filter(isSshWorkspace)
+        .map((workspace) => workspace.backend.hostId)
+    );
+
+    const connectionProfile = (host: SshHost) =>
+      JSON.stringify({
+        hostname: host.hostname.trim(),
+        user: host.user?.trim() || '',
+        port: host.port ?? null,
+        identityFile: host.identityFile?.trim() || '',
+        basePath: normalizeSshBasePath(host.basePath),
+        extraSshArgs: host.extraSshArgs ?? [],
+      });
+
+    if (
+      lockedHostIds.has(nextHost.id) &&
+      connectionProfile(currentHost) !== connectionProfile(nextHost)
+    ) {
+      throw new Error(
+        'Remove existing SSH workspaces for this host before changing its connection settings or remote Komla path.'
+      );
+    }
+  }
+}

@@ -434,8 +434,15 @@ export const remoteWorkspaceObservationService = new RemoteWorkspaceObservationS
 );
 
 export function configureRemoteWorkspaceObservation(
-  dependencies: RemoteWorkspaceObservationDependencies
+  dependencies: Omit<RemoteWorkspaceObservationDependencies, 'waitForKomlaPort'>
 ): void {
   Object.assign(unconfiguredDependencies, dependencies);
   logger.debug('Configured Remote Workspace Observation adapters');
+}
+
+/** Separate because the HTTP server depends on workspaces, so only the app's entry point has both. */
+export function configureRemoteObservationKomlaPort(
+  waitForKomlaPort: RemoteWorkspaceObservationDependencies['waitForKomlaPort']
+): void {
+  unconfiguredDependencies.waitForKomlaPort = waitForKomlaPort;
 }

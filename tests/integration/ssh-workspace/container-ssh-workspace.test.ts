@@ -48,6 +48,13 @@ vi.mock('../../../src/main/services/window.service', () => ({
 
 const execFileAsync = promisify(execFile);
 
+// The app's entry point gives observation the HTTP server's port, in production.
+async function configureKomlaPort(): Promise<void> {
+  const { configureRemoteObservationKomlaPort } =
+    await import('../../../src/main/services/remote-workspace-observation.service');
+  configureRemoteObservationKomlaPort(async () => 54183);
+}
+
 type SshWorkspaceModule = typeof import('../../../src/main/services/ssh-workspace.service');
 type SshWorkspaceGitModule = typeof import('../../../src/main/services/workspace-git/ssh-git');
 type SshPortForwardModule = typeof import('../../../src/main/services/ssh-port-forward.service');
@@ -169,6 +176,7 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
         import('../../../src/main/services/project.service'),
         import('../../../src/main/services/workspace.service'),
       ]);
+      await configureKomlaPort();
       let projectId: string | undefined;
       let workspaceId: string | undefined;
       try {
@@ -278,6 +286,7 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
         import('../../../src/main/services/workspace.service'),
         import('../../../src/main/services/pty.service'),
       ]);
+      await configureKomlaPort();
       let projectId: string | undefined;
       let workspaceId: string | undefined;
       try {

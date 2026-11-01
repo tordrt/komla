@@ -9,7 +9,7 @@ import { createLogger } from '../lib/logger';
 
 import { addGitExcludeRule } from './git/git-exclude';
 import { sshWorkspaceService } from './ssh-workspace.service';
-import { workspaceService } from './workspace.service';
+import { workspaceStore } from './workspace/store';
 
 const logger = createLogger('WorkspaceLinksService');
 
@@ -133,13 +133,13 @@ class WorkspaceLinksService {
    * folder in git, and updates the `linkedWorkspaceIds` arrays on both workspaces.
    */
   async link(originId: string, targetIds: string[]): Promise<void> {
-    if (!workspaceService.get(originId)) throw new Error(`Workspace ${originId} not found`);
+    if (!workspaceStore.get(originId)) throw new Error(`Workspace ${originId} not found`);
     this.assertNotDeleting(originId);
 
     for (const targetId of new Set(targetIds)) {
       if (targetId === originId) continue;
-      const origin = workspaceService.get(originId);
-      const target = workspaceService.get(targetId);
+      const origin = workspaceStore.get(originId);
+      const target = workspaceStore.get(targetId);
       if (!origin) throw new Error(`Workspace ${originId} not found`);
       if (!target) {
         logger.warn(`Skipping link: target workspace ${targetId} not found`);
@@ -149,8 +149,8 @@ class WorkspaceLinksService {
         this.validatePair(origin, target);
         if (isSshWorkspace(origin) && isSshWorkspace(target)) {
           await this.withWorkspaceTransactions([originId, targetId], async () => {
-            const liveOrigin = workspaceService.get(originId);
-            const liveTarget = workspaceService.get(targetId);
+            const liveOrigin = workspaceStore.get(originId);
+            const liveTarget = workspaceStore.get(targetId);
             if (!liveOrigin) throw new Error(`Workspace ${originId} not found`);
             if (!liveTarget) {
               logger.warn(`Skipping link: target workspace ${targetId} not found`);
@@ -175,8 +175,8 @@ class WorkspaceLinksService {
    * Best-effort: missing files are ignored.
    */
   async unlink(originId: string, targetId: string): Promise<void> {
-    const origin = workspaceService.get(originId);
-    const target = workspaceService.get(targetId);
+    const origin = workspaceStore.get(originId);
+    const target = workspaceStore.get(targetId);
     if (!origin && !target) return;
     if (
       (origin !== undefined && isSshWorkspace(origin)) ||
@@ -191,8 +191,8 @@ class WorkspaceLinksService {
   }
 
   private async unlinkPair(originId: string, targetId: string): Promise<void> {
-    const origin = workspaceService.get(originId);
-    const target = workspaceService.get(targetId);
+    const origin = workspaceStore.get(originId);
+    const target = workspaceStore.get(targetId);
     if (!origin && !target) return;
     const shouldPersistImmediately =
       (origin !== undefined && isSshWorkspace(origin)) ||
@@ -227,12 +227,12 @@ class WorkspaceLinksService {
     const updateAndPersistMetadata = async (save?: () => Promise<void>): Promise<void> => {
       if (origin) {
         const updated = (origin.linkedWorkspaceIds ?? []).filter((id) => id !== targetId);
-        workspaceService.update(origin.id, { linkedWorkspaceIds: updated });
+        workspaceStore.updateLinkedWorkspaceIds(origin.id, updated);
         await this.removeFolderIfEmpty(origin);
       }
       if (target) {
         const updated = (target.linkedWorkspaceIds ?? []).filter((id) => id !== originId);
-        workspaceService.update(target.id, { linkedWorkspaceIds: updated });
+        workspaceStore.updateLinkedWorkspaceIds(target.id, updated);
         await this.removeFolderIfEmpty(target);
       }
       if (shouldPersistImmediately) {
@@ -241,10 +241,10 @@ class WorkspaceLinksService {
           await save();
         } catch (error) {
           if (origin) {
-            workspaceService.update(origin.id, { linkedWorkspaceIds: previousOriginLinks });
+            workspaceStore.updateLinkedWorkspaceIds(origin.id, previousOriginLinks);
           }
           if (target) {
-            workspaceService.update(target.id, { linkedWorkspaceIds: previousTargetLinks });
+            workspaceStore.updateLinkedWorkspaceIds(target.id, previousTargetLinks);
           }
           if (
             removedRemotePair &&
@@ -267,7 +267,7 @@ class WorkspaceLinksService {
       }
     };
     if (shouldPersistImmediately) {
-      await workspaceService.withPersistenceTransaction(updateAndPersistMetadata);
+      await workspaceStore.withPersistenceTransaction(updateAndPersistMetadata);
     } else {
       await updateAndPersistMetadata();
     }
@@ -303,9 +303,9 @@ class WorkspaceLinksService {
    * linked-workspaces folder. One with no symlink there, as after a failed link, is left out.
    */
   async listLinkPaths(workspaceId: string): Promise<WorkspaceLinkPath[]> {
-    const workspace = workspaceService.get(workspaceId);
+    const workspace = workspaceStore.get(workspaceId);
     const peers = (workspace?.linkedWorkspaceIds ?? [])
-      .map((id) => workspaceService.get(id))
+      .map((id) => workspaceStore.get(id))
       .filter((peer): peer is Workspace => peer !== undefined);
     if (!workspace || peers.length === 0) return [];
     const targets = isSshWorkspace(workspace)
@@ -359,7 +359,7 @@ class WorkspaceLinksService {
    * deleted so peers don't hold dangling symlinks or stale ids.
    */
   async unlinkAll(workspaceId: string): Promise<void> {
-    const workspace = workspaceService.get(workspaceId);
+    const workspace = workspaceStore.get(workspaceId);
     if (!workspace) return;
     const peers = [...(workspace.linkedWorkspaceIds ?? [])];
     for (const peerId of peers) {
@@ -373,7 +373,7 @@ class WorkspaceLinksService {
   }
 
   async reconcileAllFromDisk(): Promise<boolean> {
-    const workspaces = workspaceService.list();
+    const workspaces = workspaceStore.list();
     const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
     const idByPath = new Map(
       workspaces
@@ -416,7 +416,7 @@ class WorkspaceLinksService {
       if (next.length === current.length && next.every((id, index) => id === current[index])) {
         continue;
       }
-      workspaceService.update(workspace.id, { linkedWorkspaceIds: next });
+      workspaceStore.updateLinkedWorkspaceIds(workspace.id, next);
       changed = true;
     }
 
@@ -427,17 +427,17 @@ class WorkspaceLinksService {
     const current = workspace.linkedWorkspaceIds ?? [];
     const next = current.filter((id) => workspaceIds.has(id));
     if (next.length === current.length) return false;
-    workspaceService.update(workspace.id, { linkedWorkspaceIds: next });
+    workspaceStore.updateLinkedWorkspaceIds(workspace.id, next);
     return true;
   }
 
   private async createPair(a: Workspace, b: Workspace): Promise<void> {
     if (isSshWorkspace(a) && isSshWorkspace(b)) {
       const createdRemoteLinks = await this.createRemotePair(a, b);
-      await workspaceService.withPersistenceTransaction(async (save) => {
-        const liveA = workspaceService.get(a.id);
-        const liveB = workspaceService.get(b.id);
-        const deletingId = [a.id, b.id].find((id) => workspaceService.isDeleting(id));
+      await workspaceStore.withPersistenceTransaction(async (save) => {
+        const liveA = workspaceStore.get(a.id);
+        const liveB = workspaceStore.get(b.id);
+        const deletingId = [a.id, b.id].find((id) => workspaceStore.isDeleting(id));
         if (!liveA || !liveB || deletingId) {
           await this.rollbackRemoteLinkCreation(a, b, createdRemoteLinks);
           if (deletingId) throw new Error(`Workspace ${deletingId} is being deleted`);
@@ -449,11 +449,11 @@ class WorkspaceLinksService {
         try {
           await save();
         } catch (error) {
-          if (workspaceService.get(a.id)) {
-            workspaceService.update(a.id, { linkedWorkspaceIds: previousALinks });
+          if (workspaceStore.get(a.id)) {
+            workspaceStore.updateLinkedWorkspaceIds(a.id, previousALinks);
           }
-          if (workspaceService.get(b.id)) {
-            workspaceService.update(b.id, { linkedWorkspaceIds: previousBLinks });
+          if (workspaceStore.get(b.id)) {
+            workspaceStore.updateLinkedWorkspaceIds(b.id, previousBLinks);
           }
           await this.rollbackRemoteLinkCreation(a, b, createdRemoteLinks);
           throw error;
@@ -506,15 +506,15 @@ class WorkspaceLinksService {
   }
 
   private updatePairMetadata(a: Workspace, b: Workspace): void {
-    const liveA = workspaceService.get(a.id) ?? a;
+    const liveA = workspaceStore.get(a.id) ?? a;
     const aLinks = new Set(liveA.linkedWorkspaceIds ?? []);
     aLinks.add(b.id);
-    workspaceService.update(a.id, { linkedWorkspaceIds: [...aLinks] });
+    workspaceStore.updateLinkedWorkspaceIds(a.id, [...aLinks]);
 
-    const liveB = workspaceService.get(b.id) ?? b;
+    const liveB = workspaceStore.get(b.id) ?? b;
     const bLinks = new Set(liveB.linkedWorkspaceIds ?? []);
     bLinks.add(a.id);
-    workspaceService.update(b.id, { linkedWorkspaceIds: [...bLinks] });
+    workspaceStore.updateLinkedWorkspaceIds(b.id, [...bLinks]);
   }
 
   private validatePair(a: Workspace, b: Workspace): void {
@@ -533,7 +533,7 @@ class WorkspaceLinksService {
   }
 
   private assertNotDeleting(...workspaceIds: string[]): void {
-    const deletingId = workspaceIds.find((id) => workspaceService.isDeleting(id));
+    const deletingId = workspaceIds.find((id) => workspaceStore.isDeleting(id));
     if (deletingId) throw new Error(`Workspace ${deletingId} is being deleted`);
   }
 
@@ -805,7 +805,7 @@ class WorkspaceLinksService {
       return;
     }
     const targetPath = resolve(target.workingDirectory);
-    for (const workspace of workspaceService.list()) {
+    for (const workspace of workspaceStore.list()) {
       if (workspace.id === target.id) continue;
       if (isSshWorkspace(workspace)) continue;
       const folder = this.getFolderPath(workspace);
@@ -824,7 +824,7 @@ class WorkspaceLinksService {
       }
       const updated = (workspace.linkedWorkspaceIds ?? []).filter((id) => id !== target.id);
       if (updated.length !== (workspace.linkedWorkspaceIds ?? []).length) {
-        workspaceService.update(workspace.id, { linkedWorkspaceIds: updated });
+        workspaceStore.updateLinkedWorkspaceIds(workspace.id, updated);
       }
       if (removed) await this.removeFolderIfEmpty(workspace);
     }
@@ -833,7 +833,7 @@ class WorkspaceLinksService {
   private async cleanupRemoteLinksPointingTo(
     target: Workspace & { backend: Extract<Workspace['backend'], { kind: 'ssh' }> }
   ): Promise<void> {
-    const owners = workspaceService
+    const owners = workspaceStore
       .list()
       .filter(
         (workspace) =>
@@ -869,15 +869,15 @@ class WorkspaceLinksService {
       await this.withWorkspaceTransactions(
         owners.map((owner) => owner.id),
         () =>
-          workspaceService.withPersistenceTransaction(async (save) => {
+          workspaceStore.withPersistenceTransaction(async (save) => {
             let metadataChanged = false;
             for (const owner of owners) {
-              const liveOwner = workspaceService.get(owner.id);
+              const liveOwner = workspaceStore.get(owner.id);
               if (!liveOwner) continue;
               const current = liveOwner.linkedWorkspaceIds ?? [];
               const updated = current.filter((id) => id !== target.id);
               if (updated.length !== current.length) {
-                workspaceService.update(owner.id, { linkedWorkspaceIds: updated });
+                workspaceStore.updateLinkedWorkspaceIds(owner.id, updated);
                 metadataChanged = true;
               }
             }
@@ -946,7 +946,7 @@ class WorkspaceLinksService {
   private async removeFolderIfEmpty(workspace: Workspace): Promise<void> {
     const remaining = (workspace.linkedWorkspaceIds ?? []).filter((id) => id !== workspace.id);
     // Re-fetch since `workspace` is a snapshot; the live entry has the update applied.
-    const live = workspaceService.get(workspace.id);
+    const live = workspaceStore.get(workspace.id);
     const liveRemaining = live?.linkedWorkspaceIds ?? remaining;
     if (liveRemaining.length > 0) return;
     const folder = this.getFolderPath(workspace);
@@ -963,7 +963,7 @@ class WorkspaceLinksService {
       return;
     }
     const knownWorkspacePaths = new Set(
-      workspaceService.list().map((w) => resolve(w.workingDirectory))
+      workspaceStore.list().map((w) => resolve(w.workingDirectory))
     );
     for (const entry of entries) {
       const linkPath = join(folder, entry);

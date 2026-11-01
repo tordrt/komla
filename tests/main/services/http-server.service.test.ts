@@ -5897,4 +5897,98 @@ describe('HttpServerService', () => {
       expect(res.writeHead).toHaveBeenCalledWith(404);
     });
   });
+
+  // --------------------------------------------------------------------------
+  // Route matching
+  // --------------------------------------------------------------------------
+
+  describe('route matching', () => {
+    beforeEach(() => {
+      httpServerService.start();
+    });
+
+    it.each([
+      ['GET', '/api/v1/health?x=1'],
+      ['POST', '/api/v1/health'],
+      ['GET', '/validate-settings?x=1'],
+      ['PUT', '/validate-settings'],
+      ['POST', '/api/v1/notify?x=1'],
+      ['POST', '/api/v1/ssh-workspace-status?x=1'],
+      ['GET', '/api/v1/ssh-workspace-status'],
+      ['POST', '/api/v1/workspace?x=1'],
+      ['GET', '/api/v1/commands'],
+      ['GET', '/api/v1/mcp?x=1'],
+      ['GET', '/api/v1/cli/mcp?x=1'],
+      ['POST', '/skills/komla.md'],
+    ])('answers %s %s as an unknown route', async (method, url) => {
+      const { res } = await sendRequest(method, url);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404);
+      expect(res.end).toHaveBeenCalledWith('Not found');
+      expect(mockMcpConnect).not.toHaveBeenCalled();
+    });
+
+    it.each(['GET', 'POST'])('validates settings on %s', async (method) => {
+      mockReadFileSync.mockReturnValue('{"projects":[],"actions":[]}');
+
+      const { res } = await sendRequest(method, '/validate-settings');
+
+      expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
+    });
+
+    it('routes every method of the MCP paths to the MCP transport', async () => {
+      for (const [method, url] of [
+        ['GET', '/api/v1/mcp'],
+        ['DELETE', '/api/v1/mcp'],
+        ['PUT', '/api/v1/cli/mcp'],
+      ] as const) {
+        mockTransportHandleRequest.mockClear();
+        await sendRequest(method, url);
+        expect(mockTransportHandleRequest).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    it('matches the commands route by path, keeping its query', async () => {
+      const { res } = await sendJsonRequest(
+        'POST',
+        '/api/v1/commands?cwd=%2Fnowhere',
+        JSON.stringify({ type: 'workspace.wake' })
+      );
+
+      expect(res.writeHead).not.toHaveBeenCalledWith(404);
+    });
+
+    it('checks the settings prefix before any method', async () => {
+      const { res } = await sendRequest('DELETE', '/settings/nope');
+
+      expect(res.writeHead).toHaveBeenCalledWith(405, {
+        'Content-Type': 'application/json',
+        Allow: 'GET, PUT',
+      });
+    });
+
+    it('strips the terminal prefix but keeps the rest of the route exact', async () => {
+      const scoped = await sendRequest('GET', '/terminals/term-1/api/v1/health');
+      expect(scoped.res.writeHead).toHaveBeenCalledWith(200, {
+        'Content-Type': 'application/json',
+      });
+
+      const withQuery = await sendRequest('GET', '/terminals/term-1/api/v1/health?x=1');
+      expect(withQuery.res.writeHead).toHaveBeenCalledWith(404);
+
+      const tooLong = await sendRequest('GET', `/terminals/${'x'.repeat(129)}/api/v1/health`);
+      expect(tooLong.res.writeHead).toHaveBeenCalledWith(404);
+    });
+
+    it('refuses a web page before matching any route', async () => {
+      for (const headers of [
+        { origin: 'http://example.com' },
+        { 'sec-fetch-site': 'cross-site' },
+        { host: 'evil.example' },
+      ]) {
+        const { res } = await sendRequest('GET', '/nope', undefined, headers);
+        expect(res.writeHead).toHaveBeenCalledWith(403, { 'Content-Type': 'text/plain' });
+      }
+    });
+  });
 });

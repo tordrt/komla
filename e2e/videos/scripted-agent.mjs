@@ -655,7 +655,7 @@ async function runTurn(turn, promptText) {
       void notify('PreToolUse', 'activity');
       const settings = JSON.parse(fs.readFileSync(path.join(process.cwd(), event.appearance)));
       const reply = await postToKomla(
-        '/api/v1/settings/appearance',
+        '/settings/appearance',
         settings,
         { 'x-komla-terminal-id': process.env.KOMLA_TERMINAL_ID ?? '' },
         { method: 'PUT', timeout: 120000 }

@@ -259,9 +259,7 @@ export function handleSettingsManagementRequest(
       );
       return;
     }
-    const pathname = url.pathname.startsWith('/api/v1/settings/')
-      ? url.pathname.slice('/api/v1'.length)
-      : url.pathname;
+    const { pathname } = url;
     const schemaOf = /^\/settings\/([a-z-]+)\/schema$/.exec(pathname)?.[1];
     if (schemaOf !== undefined) {
       writeSettingsSchema(req, res, schemaOf);

@@ -296,8 +296,6 @@ komla settings get|apply workspace-setup
 komla settings get|apply appearance
 ```
 
-The former `/api/v1/settings/...` paths remain compatibility aliases.
-
 `komla settings schema <resource>` (`GET /settings/<resource>/schema`) prints the fields a settings
 file takes, with their limits, defaults and descriptions, rendered from the Zod schema Komla
 validates it with; `--json` prints the JSON Schema. The descriptions live on the schemas as
@@ -309,9 +307,7 @@ schemas.
 The CLI resolves the scoped transport internally. Project Setup uses one environment-independent
 workflow for local, SSH, and SSH Local-copy terminals; its destination values select where each
 step runs.
-Self-integration likewise uses one set of instructions, with a short section for SSH hosts. The
-former SSH Project Setup and SSH Self-integration filenames alias to the common instructions for
-compatibility.
+Self-integration likewise uses one set of instructions, with a short section for SSH hosts.
 
 No identity header or `cwd` is needed from a managed terminal. Unmanaged callers may use the
 unscoped origin routes with `X-Komla-Terminal-Id`, or a URL-encoded `cwd` fallback. The SSH gateway

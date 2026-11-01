@@ -7,8 +7,7 @@ import { windowService } from '../../services/window.service';
 type VoiceTranscribePayload =
   | Float32Array
   | ArrayBuffer
-  | { samples: ArrayBuffer | Float32Array; requestId?: string }
-  | Record<string, number>;
+  | { samples: ArrayBuffer | Float32Array; requestId?: string };
 
 // The download reports every network chunk; a few updates a second are plenty.
 const PROGRESS_BROADCAST_INTERVAL_MS = 250;
@@ -16,12 +15,8 @@ const PROGRESS_BROADCAST_INTERVAL_MS = 250;
 function coerceVoiceSamples(payload: VoiceTranscribePayload): Float32Array {
   if (payload instanceof Float32Array) return payload;
   if (payload instanceof ArrayBuffer) return new Float32Array(payload);
-  if ('samples' in payload && typeof payload.samples !== 'number') {
-    const { samples } = payload;
-    return samples instanceof Float32Array ? samples : new Float32Array(samples);
-  }
-  // Backward compatibility for older preload payloads deserialized as plain objects.
-  return new Float32Array(Object.values(payload));
+  const { samples } = payload;
+  return samples instanceof Float32Array ? samples : new Float32Array(samples);
 }
 
 export function registerVoiceHandlers(): void {

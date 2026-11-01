@@ -270,18 +270,6 @@ describe('voice IPC handlers', () => {
       expect(mockVoiceService.cancelTranscription).toHaveBeenCalledWith('r1');
     });
 
-    it('re-wraps deserialized Float32Array from IPC', async () => {
-      const { ipcMain } = await setup();
-      // Simulate Electron IPC deserializing Float32Array as a plain object
-      const fakeArray = { 0: 0.5, 1: -0.3, 2: 0.1 };
-      await ipcMain._invoke('voice:transcribe', fakeArray);
-
-      const passedArg = mockVoiceService.transcribe.mock.calls[0][0];
-      expect(passedArg).toBeInstanceOf(Float32Array);
-      expect(passedArg[0]).toBeCloseTo(0.5);
-      expect(passedArg[1]).toBeCloseTo(-0.3);
-    });
-
     it('re-wraps ArrayBuffer sample payloads without object conversion', async () => {
       const { ipcMain } = await setup();
       const audio = new Float32Array([0.5, -0.3, 0.1]);

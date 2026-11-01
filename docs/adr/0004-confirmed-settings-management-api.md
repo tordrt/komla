@@ -18,4 +18,4 @@ approval, confirmation-time revalidation, and future MCP reuse behind one settin
 module. Existing direct file editing and validation remain available for compatibility, but the
 project-setup skill will use the confirmed HTTP resources and will not fall back to writing files.
 Keeping identity in the injected URL was chosen over making agents coordinate an origin, terminal
-header, and encoded cwd; legacy unscoped routes remain available for compatibility.
+header, and encoded cwd; unscoped routes remain for callers outside a managed terminal.

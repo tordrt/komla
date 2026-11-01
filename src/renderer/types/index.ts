@@ -228,8 +228,8 @@ export interface AppConfig {
   agentLaunchDefaultLaunchModeId?: string | null;
   agentLaunchDefaultSshHostId?: string;
   agentDisabledCapabilities?: string[];
-  disableMcpServer?: boolean; // Master kill switch: when true, the HTTP server stops serving /mcp and /workspace
-  disableNotificationEndpoint?: boolean; // When true, the HTTP server stops serving /notify
+  disableMcpServer?: boolean; // Master kill switch: when true, the HTTP server stops serving /api/v1/mcp and /api/v1/workspace
+  disableNotificationEndpoint?: boolean; // When true, the HTTP server stops serving /api/v1/notify
   defaultLaunchModeId?: string; // Default launch mode for new agent tabs (global, last-used)
   vimModeEnabled?: boolean; // Enable vim keybindings in the Monaco file viewer
   windowsUseConptyDll?: boolean; // Windows: spawn terminals with node-pty's bundled conpty.dll instead of the inbox ConPTY; on unless false

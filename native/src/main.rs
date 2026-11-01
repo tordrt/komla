@@ -56,8 +56,8 @@ fn run() -> anyhow::Result<()> {
                 .context("internal companion configuration path is required")?;
             runtime::serve(config_path)
         }
-        // helpers/notify.sh passes hook input to the companion in this positional form.
-        Some("notify") if is_legacy_notify_invocation(&args) => {
+        // helpers/notify.sh on the SSH host passes hook input to the companion in this form.
+        Some("notify") if is_companion_notify_invocation(&args) => {
             mailbox::ingest(&args)
         }
         // Run by the desktop over SSH to set up and run phone access to this host.
@@ -92,7 +92,7 @@ fn run() -> anyhow::Result<()> {
     }
 }
 
-fn is_legacy_notify_invocation(args: &[String]) -> bool {
+fn is_companion_notify_invocation(args: &[String]) -> bool {
     args.len() == 6
         && args
             .get(2..5)
@@ -101,10 +101,10 @@ fn is_legacy_notify_invocation(args: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_legacy_notify_invocation;
+    use super::is_companion_notify_invocation;
 
     #[test]
-    fn legacy_notification_accepts_a_leading_hyphen_terminal_id() {
+    fn companion_notification_accepts_a_leading_hyphen_terminal_id() {
         let args = vec![
             "komla".to_owned(),
             "notify".to_owned(),
@@ -114,6 +114,6 @@ mod tests {
             "-terminal".to_owned(),
         ];
 
-        assert!(is_legacy_notify_invocation(&args));
+        assert!(is_companion_notify_invocation(&args));
     }
 }

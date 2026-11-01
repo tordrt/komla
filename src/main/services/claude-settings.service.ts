@@ -302,7 +302,7 @@ class ClaudeSettingsService {
           else resolve(stdout);
         });
       });
-      // Output contains lines like "komla: http://localhost:52863/mcp (HTTP) - ..."
+      // Output contains lines like "komla: http://localhost:52863/api/v1/mcp (HTTP) - ..."
       return output
         .split('\n')
         .some((line) => line.trimStart().startsWith(`${this.mcpServerName}:`));

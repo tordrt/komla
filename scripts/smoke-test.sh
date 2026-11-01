@@ -123,7 +123,7 @@ wait_for_app_ready() {
     if [[ -f "$port_file" ]]; then
       local port
       port=$(cat "$port_file")
-      if curl -sf "http://localhost:$port/health" >/dev/null 2>&1; then
+      if curl -sf "http://localhost:$port/api/v1/health" >/dev/null 2>&1; then
         echo -e "  ${GREEN}App ready on port $port${RESET}"
         return 0
       fi
@@ -359,8 +359,8 @@ if should_run_section 12; then
   if [[ -f "$MCP_PORT_FILE" ]]; then
     MCP_PORT=$(cat "$MCP_PORT_FILE")
     echo -e "  ${DIM}Port file found: $MCP_PORT${RESET}"
-    echo -e "  ${DIM}Running: curl -s localhost:$MCP_PORT/health${RESET}"
-    MCP_HEALTH=$(curl -sf "http://localhost:$MCP_PORT/health" 2>/dev/null || echo "FAILED")
+    echo -e "  ${DIM}Running: curl -s localhost:$MCP_PORT/api/v1/health${RESET}"
+    MCP_HEALTH=$(curl -sf "http://localhost:$MCP_PORT/api/v1/health" 2>/dev/null || echo "FAILED")
     echo -e "  ${DIM}Response: $MCP_HEALTH${RESET}"
     echo ""
   else

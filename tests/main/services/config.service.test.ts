@@ -499,24 +499,10 @@ describe('ConfigService', () => {
       });
     });
 
-    it('replaces the retired default utility model with the current default', async () => {
+    it('drops a last-used environment of an unknown kind on load', async () => {
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(
-        JSON.stringify({ openRouterModel: 'google/gemini-2.5-flash-lite-preview-09-2025' })
-      );
-      const { configService } = await import('../../../src/main/services/config.service');
-      expect(configService.get().openRouterModel).toBe('anthropic/claude-haiku-5.5');
-
-      vi.resetModules();
-      mockReadFileSync.mockReturnValue(JSON.stringify({ openRouterModel: 'openai/gpt-5-mini' }));
-      const { configService: reloaded } = await import('../../../src/main/services/config.service');
-      expect(reloaded.get().openRouterModel).toBe('openai/gpt-5-mini');
-    });
-
-    it('drops a last-used Lima sandbox environment on load', async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        JSON.stringify({ lastWorkspaceEnvironment: { kind: 'sandbox', methodId: 'lima' } })
+        JSON.stringify({ lastWorkspaceEnvironment: { kind: 'vm', id: 'vm-1' } })
       );
 
       const { configService } = await import('../../../src/main/services/config.service');
@@ -536,40 +522,6 @@ describe('ConfigService', () => {
         kind: 'ssh',
         hostId: 'host-1',
       });
-    });
-
-    it('unpins the agent launch mode that was pinned for a Lima sandbox', async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        JSON.stringify({
-          agentLaunchDefaultPresetId: 'claude',
-          agentLaunchDefaultLaunchModeId: 'dangerously-skip-permissions',
-          agentLaunchDefaultSandboxMethodId: 'lima',
-        })
-      );
-
-      const { configService } = await import('../../../src/main/services/config.service');
-      const config = configService.get();
-
-      expect(config.agentLaunchDefaultPresetId).toBe('claude');
-      expect(config.agentLaunchDefaultLaunchModeId).toBeUndefined();
-    });
-
-    it('keeps the agent launch mode pinned for an SSH host over a Lima sandbox', async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(
-        JSON.stringify({
-          agentLaunchDefaultLaunchModeId: 'dangerously-skip-permissions',
-          agentLaunchDefaultSandboxMethodId: 'lima',
-          agentLaunchDefaultSshHostId: 'host-1',
-        })
-      );
-
-      const { configService } = await import('../../../src/main/services/config.service');
-
-      expect(configService.get().agentLaunchDefaultLaunchModeId).toBe(
-        'dangerously-skip-permissions'
-      );
     });
 
     it('should return default config on parse error', async () => {

@@ -36,18 +36,10 @@ const CONFIG_MIGRATIONS: Record<
   (data: Record<string, unknown>) => Record<string, unknown>
 > = {};
 
-/** A stored workspace environment, dropping the removed Lima sandbox kind. */
+/** A stored workspace environment, dropping one of a kind Komla doesn't have. */
 function workspaceEnvironment(value: unknown): DesiredWorkspaceEnvironment | undefined {
   const kind = (value as { kind?: unknown } | null | undefined)?.kind;
   return kind === 'local' || kind === 'ssh' ? (value as DesiredWorkspaceEnvironment) : undefined;
-}
-
-/**
- * Whether agent launches were placed in a Lima sandbox, which is gone. An SSH
- * host took precedence over it, so a pin with one stays where it was.
- */
-function pinnedForRemovedSandbox(raw: Record<string, unknown>): boolean {
-  return !!raw.agentLaunchDefaultSandboxMethodId && !raw.agentLaunchDefaultSshHostId;
 }
 
 /** The strings in a stored list, or undefined when it isn't a list. */
@@ -143,14 +135,8 @@ function normalizeWebLinkOpenTarget(value: unknown): WebLinkOpenTarget {
   return WEB_LINK_OPEN_TARGETS.find((target) => target === value) ?? 'external';
 }
 
-// Saved configs keep the default model they were written with. This one is
-// gone from OpenRouter, so it moves to the current default.
-const RETIRED_DEFAULT_OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite-preview-09-2025';
-
 function normalizeOpenRouterModel(value: unknown): string {
-  return typeof value === 'string' &&
-    value.trim().length > 0 &&
-    value.trim() !== RETIRED_DEFAULT_OPENROUTER_MODEL
+  return typeof value === 'string' && value.trim().length > 0
     ? value.trim()
     : DEFAULT_CONFIG.openRouterModel;
 }
@@ -286,8 +272,8 @@ export interface AppConfig {
   agentLaunchDefaultLaunchModeId?: string | null; // Default launch mode for agent-launched workspaces and tabs
   agentLaunchDefaultSshHostId?: string; // SSH host for agent-launched workspaces
   agentDisabledCapabilities?: string[]; // Default-on agent capabilities the user disabled
-  disableMcpServer?: boolean; // Master kill switch: when true, the HTTP server stops serving /mcp and /workspace
-  disableNotificationEndpoint?: boolean; // When true, the HTTP server stops serving /notify
+  disableMcpServer?: boolean; // Master kill switch: when true, the HTTP server stops serving /api/v1/mcp and /api/v1/workspace
+  disableNotificationEndpoint?: boolean; // When true, the HTTP server stops serving /api/v1/notify
   defaultLaunchModeId?: string; // Default launch mode for new agent tabs (global, last-used)
   vimModeEnabled?: boolean; // Enable vim keybindings in the Monaco file viewer
   windowsUseConptyDll?: boolean; // Windows: spawn terminals with node-pty's bundled conpty.dll instead of the inbox ConPTY; on unless false
@@ -539,10 +525,10 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     // Direct assignment (not pickWithDefault) so a persisted `null`
     // round-trips as `null` instead of being normalized to `undefined`.
     agentLaunchDefaultPresetId: rawConfig.agentLaunchDefaultPresetId as string | null | undefined,
-    // A mode pinned to run in the sandbox must not start on the host instead.
-    agentLaunchDefaultLaunchModeId: pinnedForRemovedSandbox(rawConfig)
-      ? undefined
-      : (rawConfig.agentLaunchDefaultLaunchModeId as string | null | undefined),
+    agentLaunchDefaultLaunchModeId: rawConfig.agentLaunchDefaultLaunchModeId as
+      | string
+      | null
+      | undefined,
     agentLaunchDefaultSshHostId: pickWithDefault(rawConfig, 'agentLaunchDefaultSshHostId'),
     agentDisabledCapabilities: stringList(rawConfig.agentDisabledCapabilities) ?? [],
     disableMcpServer: pickWithDefault(rawConfig, 'disableMcpServer'),

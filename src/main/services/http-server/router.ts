@@ -50,13 +50,12 @@ const isMcpOn: Route['isOn'] = (config) => !config.disableMcpServer;
 // The first match answers.
 const ROUTES: readonly Route[] = [
   {
-    matches: ({ pathname }) =>
-      Boolean(pathname?.startsWith('/settings/') || pathname?.startsWith('/api/v1/settings/')),
+    matches: ({ pathname }) => Boolean(pathname?.startsWith('/settings/')),
     handle: ({ req, res, url, terminalId }) =>
       handleSettingsManagementRequest(req, res, url, terminalId),
   },
   {
-    matches: target(['GET'], '/api/v1/health', '/health'),
+    matches: target(['GET'], '/api/v1/health'),
     handle: ({ res }) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
@@ -71,7 +70,7 @@ const ROUTES: readonly Route[] = [
     },
   },
   {
-    matches: target(['POST'], '/api/v1/notify', '/notify'),
+    matches: target(['POST'], '/api/v1/notify'),
     isOn: (config) => !config.disableNotificationEndpoint,
     handle: ({ req, res }) => handleNotifyRequest(req, res),
   },
@@ -80,7 +79,7 @@ const ROUTES: readonly Route[] = [
     handle: ({ req, res }) => handleSshWorkspaceStatusRequest(req, res),
   },
   {
-    matches: target(['POST'], '/api/v1/workspace', '/api/workspace'),
+    matches: target(['POST'], '/api/v1/workspace'),
     // REST sibling of the spawn_agent_in_new_workspace MCP tool — gate it
     // on the same per-tool toggle so disabling the tool actually disables
     // the capability, not just the MCP registration.
@@ -105,12 +104,9 @@ const ROUTES: readonly Route[] = [
       }),
   },
   {
-    matches: target(ANY_METHOD, '/api/v1/mcp', '/mcp'),
+    matches: target(ANY_METHOD, '/api/v1/mcp'),
     isOn: isMcpOn,
-    handle: ({ req, res }) =>
-      handleMcpRequest(req, res, {
-        sshHostId: singleHeader(req.headers['x-komla-ssh-host-id']),
-      }),
+    handle: ({ req, res }) => handleMcpRequest(req, res),
   },
   {
     matches: ({ req, url }) => req.method === 'GET' && url.startsWith('/skills/'),

@@ -472,7 +472,7 @@ describe('HttpServerService', () => {
       mockActionService.list.mockReturnValue([]);
       httpServerService.start();
 
-      const { res } = await sendRequest('GET', '/api/v1/settings/actions?scope=global');
+      const { res } = await sendRequest('GET', '/settings/actions?scope=global');
 
       expect(res.writeHead).toHaveBeenCalledWith(200, expect.any(Object));
       expect(parseJsonResponse(res)).toMatchObject({ scope: 'global', actions: [] });
@@ -508,7 +508,7 @@ describe('HttpServerService', () => {
 
       const terminalResult = await sendRequest(
         'GET',
-        '/api/v1/settings/actions?scope=current-project',
+        '/settings/actions?scope=current-project',
         undefined,
         {
           'x-komla-terminal-id': 'terminal-1',
@@ -520,7 +520,7 @@ describe('HttpServerService', () => {
       mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(undefined);
       const { res } = await sendRequest(
         'GET',
-        '/api/v1/settings/actions?scope=current-project',
+        '/settings/actions?scope=current-project',
         undefined,
         {
           'x-komla-workspace-id': workspace.id,
@@ -725,7 +725,7 @@ describe('HttpServerService', () => {
 
       const { res } = await sendRequest(
         'GET',
-        '/terminals/terminal-1/api/v1/settings/workspace-setup'
+        '/terminals/terminal-1/settings/workspace-setup'
       );
 
       expect(parseJsonResponse(res)).toMatchObject({
@@ -746,7 +746,7 @@ describe('HttpServerService', () => {
 
       const result = await sendRequest(
         'PUT',
-        '/api/v1/settings/actions?scope=global',
+        '/settings/actions?scope=global',
         JSON.stringify({ actions: [], project: {} }),
         { 'content-type': 'application/json' }
       );
@@ -759,7 +759,7 @@ describe('HttpServerService', () => {
       httpServerService.start();
       const result = await sendRequest(
         'PUT',
-        '/api/v1/settings/actions?scope=global',
+        '/settings/actions?scope=global',
         'x'.repeat(1024 * 1024 + 1),
         { 'content-type': 'application/json' }
       );
@@ -781,7 +781,7 @@ describe('HttpServerService', () => {
 
       const pending = await sendRequest(
         'PUT',
-        '/api/v1/settings/actions?scope=global',
+        '/settings/actions?scope=global',
         JSON.stringify({
           actions: [{ title: 'New', content: 'new prompt', type: 'prompt' }],
         }),
@@ -937,7 +937,7 @@ describe('HttpServerService', () => {
     it("serves a settings file's format, and names the guide for a resource without one", async () => {
       httpServerService.start();
 
-      const { res } = await sendRequest('GET', '/api/v1/settings/hooks/schema');
+      const { res } = await sendRequest('GET', '/settings/hooks/schema');
       expect(parseJsonResponse(res)).toEqual({
         resource: 'hooks',
         text: expect.stringContaining('# hooks\n\nHooks to run.\n\n- `hooks` (required)'),
@@ -1042,7 +1042,7 @@ describe('HttpServerService', () => {
 
       const pending = await sendRequest(
         'PUT',
-        '/api/v1/settings/actions?scope=global',
+        '/settings/actions?scope=global',
         JSON.stringify({
           actions: [{ title: 'New', content: 'new prompt', type: 'prompt' }],
         }),
@@ -1078,7 +1078,7 @@ describe('HttpServerService', () => {
         actions: [{ title: 'New', content: 'new prompt', type: 'prompt' }],
       });
 
-      const pending = await sendRequest('PUT', '/api/v1/settings/actions?scope=global', body, {
+      const pending = await sendRequest('PUT', '/settings/actions?scope=global', body, {
         'content-type': 'application/json',
       });
       expect(window.webContents.send).toHaveBeenCalledWith(
@@ -1112,7 +1112,7 @@ describe('HttpServerService', () => {
         expect.anything()
       );
 
-      const subsequent = await sendRequest('PUT', '/api/v1/settings/actions?scope=global', body, {
+      const subsequent = await sendRequest('PUT', '/settings/actions?scope=global', body, {
         'content-type': 'application/json',
       });
       const prompts = window.webContents.send.mock.calls.filter(
@@ -1140,7 +1140,7 @@ describe('HttpServerService', () => {
         actions: [{ title: 'New', content: 'new prompt', type: 'prompt' }],
       });
 
-      const pending = await sendRequest('PUT', '/api/v1/settings/actions?scope=global', body, {
+      const pending = await sendRequest('PUT', '/settings/actions?scope=global', body, {
         'content-type': 'application/json',
       });
       const reloadHandler = window.webContents.on.mock.calls.find(
@@ -1156,7 +1156,7 @@ describe('HttpServerService', () => {
       });
       expect(mockActionService.replaceAll).not.toHaveBeenCalled();
 
-      const subsequent = await sendRequest('PUT', '/api/v1/settings/actions?scope=global', body, {
+      const subsequent = await sendRequest('PUT', '/settings/actions?scope=global', body, {
         'content-type': 'application/json',
       });
       expect(subsequent.res.writeHead).not.toHaveBeenCalledWith(409, expect.any(Object));
@@ -1191,6 +1191,21 @@ describe('HttpServerService', () => {
         'Refused a request whose Host is not this machine',
         { host: 'rebind.evil.example:52863' }
       );
+    });
+
+    it.each([
+      ['GET', '/health'],
+      ['POST', '/notify'],
+      ['POST', '/mcp'],
+      ['POST', '/api/workspace'],
+      ['GET', '/api/v1/settings/actions?scope=global'],
+      ['GET', '/terminals/terminal-1/api/v1/settings/workspace-setup'],
+    ])('does not answer the retired route %s %s', async (method, url) => {
+      httpServerService.start();
+
+      const { res } = await sendRequest(method, url);
+
+      expect(res.writeHead).toHaveBeenCalledWith(404);
     });
 
     it.each(['127.0.0.1:52863', 'localhost:52863', '127.0.0.1:61234'])(
@@ -3882,10 +3897,10 @@ describe('HttpServerService', () => {
   });
 
   // --------------------------------------------------------------------------
-  // POST /api/workspace
+  // POST /api/v1/workspace
   // --------------------------------------------------------------------------
 
-  describe('POST /api/workspace', () => {
+  describe('POST /api/v1/workspace', () => {
     const project = createProject({ id: 'proj-1', name: 'My Project' });
 
     beforeEach(() => {
@@ -3989,7 +4004,7 @@ describe('HttpServerService', () => {
 
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ project: 'My Project' })
       );
 
@@ -4012,7 +4027,7 @@ describe('HttpServerService', () => {
       const workspace = createWorktreeWorkspace();
       mockWorkspaceService.create.mockResolvedValue(workspace);
 
-      await sendJsonRequest('POST', '/api/workspace', JSON.stringify({ project: 'my project' }));
+      await sendJsonRequest('POST', '/api/v1/workspace', JSON.stringify({ project: 'my project' }));
 
       expect(mockWorkspaceService.create).toHaveBeenCalledWith(
         expect.objectContaining({ projectId: 'proj-1' })
@@ -4033,7 +4048,7 @@ describe('HttpServerService', () => {
 
       await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ cwd: '/mock/source-worktree/src' })
       );
 
@@ -4064,7 +4079,7 @@ describe('HttpServerService', () => {
 
       await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ cwd: '/home/dev/.komla/worktrees/my-project/agent-source/src' })
       );
 
@@ -4103,7 +4118,7 @@ describe('HttpServerService', () => {
 
       await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ cwd: '/srv/custom/worktrees/source/src', branchName: 'agent/sibling' })
       );
 
@@ -4152,7 +4167,7 @@ describe('HttpServerService', () => {
 
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ cwd: '/projects/shared/src' })
       );
 
@@ -4196,7 +4211,7 @@ describe('HttpServerService', () => {
 
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ cwd: '/projects/shared/src' })
       );
 
@@ -4242,7 +4257,7 @@ describe('HttpServerService', () => {
 
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ cwd: '/projects/shared/src' })
       );
 
@@ -4256,7 +4271,7 @@ describe('HttpServerService', () => {
     });
 
     it('should return 400 when project field is missing', async () => {
-      const { res } = await sendJsonRequest('POST', '/api/workspace', JSON.stringify({}));
+      const { res } = await sendJsonRequest('POST', '/api/v1/workspace', JSON.stringify({}));
 
       expect(res.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
       expect(parseJsonResponse(res)).toEqual({
@@ -4269,7 +4284,7 @@ describe('HttpServerService', () => {
     it('should return 400 when project is empty string (schema rejection)', async () => {
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ project: '' })
       );
 
@@ -4282,7 +4297,7 @@ describe('HttpServerService', () => {
     it('should return 404 when project is not found', async () => {
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ project: 'Nonexistent' })
       );
 
@@ -4298,7 +4313,7 @@ describe('HttpServerService', () => {
 
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ project: 'My Project' })
       );
 
@@ -4311,7 +4326,7 @@ describe('HttpServerService', () => {
 
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ project: 'My Project' })
       );
 
@@ -4325,7 +4340,7 @@ describe('HttpServerService', () => {
 
       await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({
           project: 'My Project',
           branchName: 'feat-x',
@@ -4368,7 +4383,7 @@ describe('HttpServerService', () => {
 
       await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({
           project: 'Directory Project',
           branchName: 'ignored-branch',
@@ -4398,7 +4413,7 @@ describe('HttpServerService', () => {
       mockWorkspaceService.create.mockResolvedValue(workspace);
       mockWindowService.getAllWindowIds.mockReturnValue(['main-window-id', 'window-2']);
 
-      await sendJsonRequest('POST', '/api/workspace', JSON.stringify({ project: 'My Project' }));
+      await sendJsonRequest('POST', '/api/v1/workspace', JSON.stringify({ project: 'My Project' }));
 
       expect(mockWindowService.sendWhenReady).toHaveBeenCalledWith(
         'main-window-id',
@@ -4413,7 +4428,7 @@ describe('HttpServerService', () => {
     });
 
     it('should return 400 for invalid JSON body', async () => {
-      const { res } = await sendJsonRequest('POST', '/api/workspace', 'not json');
+      const { res } = await sendJsonRequest('POST', '/api/v1/workspace', 'not json');
 
       expect(res.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
       expect(parseJsonResponse(res)).toEqual({ error: 'Invalid JSON' });
@@ -4422,7 +4437,7 @@ describe('HttpServerService', () => {
     it('should return 400 when branchName has the wrong type', async () => {
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ project: 'My Project', branchName: 12345 })
       );
 
@@ -4436,7 +4451,7 @@ describe('HttpServerService', () => {
       const oversized = 'x'.repeat(64 * 1024 + 1);
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ project: 'My Project', initialPrompt: oversized })
       );
 
@@ -4454,7 +4469,7 @@ describe('HttpServerService', () => {
 
       const { res } = await sendJsonRequest(
         'POST',
-        '/api/workspace',
+        '/api/v1/workspace',
         JSON.stringify({ project: 'My Project' })
       );
 
@@ -4476,7 +4491,7 @@ describe('HttpServerService', () => {
       mockProjectService.list.mockReturnValue([
         createProject({ id: 'proj-1', name: 'My Project' }),
       ]);
-      const req = createMockRequest('POST', '/api/v1/mcp', undefined, {
+      const req = createMockRequest('POST', '/api/v1/cli/mcp', undefined, {
         'x-komla-ssh-host-id': 'ssh-dev',
       });
       capturedHandler!(req, createMockResponse());
@@ -5895,8 +5910,8 @@ describe('HttpServerService', () => {
       expect(res.writeHead).toHaveBeenCalledWith(404);
     });
 
-    it('should return 404 for GET /api/workspace (wrong method)', async () => {
-      const { res } = await sendRequest('GET', '/api/workspace');
+    it('should return 404 for GET /api/v1/workspace (wrong method)', async () => {
+      const { res } = await sendRequest('GET', '/api/v1/workspace');
 
       expect(res.writeHead).toHaveBeenCalledWith(404);
     });

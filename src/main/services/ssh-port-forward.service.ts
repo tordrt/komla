@@ -43,18 +43,16 @@ const CONFIGURED_FORWARD_STDOUT_LIMIT = 1024 * 1024;
 const CONFIGURED_FORWARD_RETRY_INITIAL_MS = 1_000;
 const CONFIGURED_FORWARD_RETRY_MAX_MS = 30_000;
 const KOMLA_SSH_HOST_HEADER = 'x-komla-ssh-host-id';
-// Routes the remote Komla helper calls, optionally under /terminals/<id>. /api/v1/mcp serves
-// remote MCP configs written before the stdio adapter (Oct 2026), and /api/v1/settings/ is the
-// settings alias docs/CLI.md documents. Everything else stays local.
+// Routes the remote Komla helper calls, optionally under /terminals/<id>. Everything else stays
+// local.
 const REMOTE_GATEWAY_ROUTES = new Set([
   '/api/v1/health',
   '/api/v1/notify',
   '/api/v1/ssh-workspace-status',
   '/api/v1/commands',
   '/api/v1/cli/mcp',
-  '/api/v1/mcp',
 ]);
-const REMOTE_GATEWAY_ROUTE_PREFIXES = ['/settings/', '/api/v1/settings/', '/skills/'];
+const REMOTE_GATEWAY_ROUTE_PREFIXES = ['/settings/', '/skills/'];
 const SSH_PARENT_LEASE_COMMAND = 'exec cat >/dev/null';
 // Processes that hold remote listeners use the heartbeat lease so a dropped connection cannot keep
 // a reverse-forwarded port bound on the host.

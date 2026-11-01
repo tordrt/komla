@@ -2735,11 +2735,9 @@ describe('sshPortForwardService', () => {
         '/api/v1/health',
         '/api/v1/notify',
         '/api/v1/ssh-workspace-status',
-        '/api/v1/mcp',
         '/terminals/terminal-1/api/v1/commands?cwd=%2Frepo',
         '/terminals/terminal-1/api/v1/cli/mcp',
         '/terminals/terminal-1/settings/actions?scope=current-project',
-        '/terminals/terminal-1/api/v1/settings/workspace-setup',
         '/skills/komla-project-setup-instructions.md',
       ];
       for (const path of allowed) {
@@ -2750,6 +2748,9 @@ describe('sshPortForwardService', () => {
       const blocked = [
         '/api/v1/workspace',
         '/api/workspace',
+        '/api/v1/mcp',
+        '/api/v1/settings/actions',
+        '/terminals/terminal-1/api/v1/settings/workspace-setup',
         '/terminals/terminal-1/api/v1/workspace',
         '/validate-settings',
         '/skills/../api/v1/workspace',
@@ -2791,22 +2792,22 @@ describe('sshPortForwardService', () => {
 
       const initialize = await requestGatewayWithAgent(
         gatewayPort,
-        '/api/v1/mcp?message=initialize',
+        '/api/v1/cli/mcp?message=initialize',
         agent
       );
       const initialized = await requestGatewayWithAgent(
         gatewayPort,
-        '/api/v1/mcp?message=initialized',
+        '/api/v1/cli/mcp?message=initialized',
         agent
       );
 
       expect(initialize).toMatchObject({
         status: 200,
-        body: '{"path":"/api/v1/mcp?message=initialize"}',
+        body: '{"path":"/api/v1/cli/mcp?message=initialize"}',
       });
       expect(initialized).toMatchObject({
         status: 200,
-        body: '{"path":"/api/v1/mcp?message=initialized"}',
+        body: '{"path":"/api/v1/cli/mcp?message=initialized"}',
       });
       expect(initialize.connection).not.toBe('close');
       expect(initialized.socket).toBe(initialize.socket);
@@ -2841,7 +2842,7 @@ describe('sshPortForwardService', () => {
 
         const response = await requestGatewayWithAgent(
           gatewayPort,
-          '/api/v1/mcp',
+          '/api/v1/cli/mcp',
           agent,
           Buffer.alloc(bodySize)
         ).catch((error: NodeJS.ErrnoException) => {

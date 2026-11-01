@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer as electronIpcRenderer, webUtils } from 'electron';
 
 import { IPC } from '../shared/constants/ipc-channels';
 
@@ -80,6 +80,7 @@ import type {
   SettingsApprovalPrompt,
   SettingsApprovalDecision,
 } from '../renderer/types';
+import type { TypedIpcRenderer } from '../shared/ipc/contract';
 import type { ManagedTmuxFindResult } from '../shared/lib/ssh-tmux-attach';
 import type {
   AskpassRequest,
@@ -154,6 +155,9 @@ declare const __KOMLA_ENV__: string;
 const komlaEnv = typeof __KOMLA_ENV__ !== 'undefined' ? __KOMLA_ENV__ : 'staging';
 declare const __KOMLA_DISTRIBUTION__: string | undefined;
 declare const __KOMLA_HAS_UTILITY_TOKEN__: boolean | undefined;
+
+// Only a type: every call below is checked against the contract, with no runtime cost.
+const ipcRenderer = electronIpcRenderer as unknown as TypedIpcRenderer;
 
 const api = {
   platform: process.platform,

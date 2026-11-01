@@ -344,6 +344,7 @@ function parseJsonResponse(res: ReturnType<typeof createMockResponse>): unknown 
 
 describe('HttpServerService', () => {
   let httpServerService: (typeof import('../../../src/main/services/http-server.service'))['httpServerService'];
+  let settingsApprovalService: (typeof import('../../../src/main/services/settings-approval.service'))['settingsApprovalService'];
 
   beforeEach(async () => {
     vi.resetModules();
@@ -437,6 +438,9 @@ describe('HttpServerService', () => {
 
     const mod = await import('../../../src/main/services/http-server.service');
     httpServerService = mod.httpServerService;
+    ({ settingsApprovalService } = await import(
+      '../../../src/main/services/settings-approval.service'
+    ));
   });
 
   describe('settings management API', () => {
@@ -607,7 +611,7 @@ describe('HttpServerService', () => {
         changes: [{ operation: 'add', kind: 'automation', title: 'Nightly deps' }],
       });
 
-      httpServerService.resolveSettingsApproval(prompt.id, 'apply', window.webContents.id);
+      settingsApprovalService.resolve(prompt.id, 'apply', window.webContents.id);
       await vi.waitFor(() => expect(pending.res.end).toHaveBeenCalled());
       expect(mockAutomationService.save).toHaveBeenCalledWith({
         name: 'Nightly deps',
@@ -796,7 +800,7 @@ describe('HttpServerService', () => {
       const prompt = window.webContents.send.mock.calls.find(
         ([channel]) => channel === IPC.SETTINGS_APPROVAL_REQUESTED
       )?.[1] as { id: string };
-      httpServerService.resolveSettingsApproval(prompt.id, 'cancel', window.webContents.id);
+      settingsApprovalService.resolve(prompt.id, 'cancel', window.webContents.id);
       await vi.waitFor(() => expect(pending.res.end).toHaveBeenCalled());
     });
 
@@ -804,7 +808,7 @@ describe('HttpServerService', () => {
       const window = createMockBrowserWindow({ isMinimized: vi.fn(() => true) });
       vi.mocked(electronMock.BrowserWindow.getAllWindows).mockReturnValue([window]);
 
-      const approved = httpServerService.approveSettingsChange({
+      const approved = settingsApprovalService.approve({
         resource: 'project-settings',
         project: { id: 'project-1', name: 'web' },
         changes: [],
@@ -822,7 +826,7 @@ describe('HttpServerService', () => {
       expect(window.show).not.toHaveBeenCalled();
       expect(window.focus).not.toHaveBeenCalled();
       expect(electronMock.app.focus).not.toHaveBeenCalled();
-      httpServerService.resolveSettingsApproval(prompt.id, 'apply', window.webContents.id);
+      settingsApprovalService.resolve(prompt.id, 'apply', window.webContents.id);
       await expect(approved).resolves.toBe(true);
     });
 
@@ -837,15 +841,15 @@ describe('HttpServerService', () => {
       };
       const controller = new AbortController();
 
-      const abandoned = httpServerService.decideSettingsChange(request, controller.signal);
+      const abandoned = settingsApprovalService.decide(request, controller.signal);
       controller.abort();
       await expect(abandoned).resolves.toBe('unanswered');
 
-      const cancelled = httpServerService.decideSettingsChange(request);
+      const cancelled = settingsApprovalService.decide(request);
       const prompt = window.webContents.send.mock.calls.findLast(
         ([channel]) => channel === IPC.SETTINGS_APPROVAL_REQUESTED
       )?.[1] as { id: string };
-      httpServerService.resolveSettingsApproval(prompt.id, 'cancel', window.webContents.id);
+      settingsApprovalService.resolve(prompt.id, 'cancel', window.webContents.id);
       await expect(cancelled).resolves.toBe('cancel');
     });
 
@@ -882,7 +886,7 @@ describe('HttpServerService', () => {
         ],
       });
 
-      httpServerService.resolveSettingsApproval(prompt.id, 'apply', window.webContents.id);
+      settingsApprovalService.resolve(prompt.id, 'apply', window.webContents.id);
       await vi.waitFor(() => expect(pending.res.end).toHaveBeenCalled());
       expect(mockCustomizationService.setAppearance).toHaveBeenCalledWith(desired);
       expect(parseJsonResponse(pending.res)).toMatchObject({ status: 'applied', applied: true });
@@ -924,7 +928,7 @@ describe('HttpServerService', () => {
         warning: 'Komla runs these commands without asking again.',
       });
 
-      httpServerService.resolveSettingsApproval(prompt.id, 'apply', window.webContents.id);
+      settingsApprovalService.resolve(prompt.id, 'apply', window.webContents.id);
       await vi.waitFor(() => expect(pending.res.end).toHaveBeenCalled());
       expect(mockSettingsFile.write).toHaveBeenCalledWith(desired);
       expect(parseJsonResponse(pending.res)).toMatchObject({ status: 'applied', applied: true });
@@ -1048,10 +1052,10 @@ describe('HttpServerService', () => {
         ([channel]) => channel === IPC.SETTINGS_APPROVAL_REQUESTED
       )?.[1];
 
-      expect(httpServerService.requestPendingSettingsApproval(window.webContents.id)).toBe(true);
+      expect(settingsApprovalService.requestPending(window.webContents.id)).toBe(true);
       expect(window.webContents.send).toHaveBeenCalledWith(IPC.SETTINGS_APPROVAL_REQUESTED, prompt);
 
-      httpServerService.resolveSettingsApproval(
+      settingsApprovalService.resolve(
         (prompt as { id: string }).id,
         'cancel',
         window.webContents.id
@@ -1115,9 +1119,9 @@ describe('HttpServerService', () => {
         ([channel]) => channel === IPC.SETTINGS_APPROVAL_REQUESTED
       );
       const secondPrompt = prompts[1]?.[1] as { id: string };
-      expect(httpServerService.resolveSettingsApproval(secondPrompt.id, 'apply', -1)).toBe(false);
+      expect(settingsApprovalService.resolve(secondPrompt.id, 'apply', -1)).toBe(false);
       expect(
-        httpServerService.resolveSettingsApproval(secondPrompt.id, 'cancel', window.webContents.id)
+        settingsApprovalService.resolve(secondPrompt.id, 'cancel', window.webContents.id)
       ).toBe(true);
       await vi.waitFor(() => expect(subsequent.res.end).toHaveBeenCalled());
       expect(parseJsonResponse(subsequent.res)).toMatchObject({
@@ -1159,7 +1163,7 @@ describe('HttpServerService', () => {
       const prompt = window.webContents.send.mock.calls
         .filter(([channel]) => channel === IPC.SETTINGS_APPROVAL_REQUESTED)
         .at(-1)?.[1] as { id: string };
-      httpServerService.resolveSettingsApproval(prompt.id, 'cancel', window.webContents.id);
+      settingsApprovalService.resolve(prompt.id, 'cancel', window.webContents.id);
       await vi.waitFor(() => expect(subsequent.res.end).toHaveBeenCalled());
     });
   });

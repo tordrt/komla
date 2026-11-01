@@ -1,11 +1,10 @@
-import { randomUUID } from 'crypto';
 import { readFileSync, writeFileSync, unlinkSync } from 'fs';
 import http from 'http';
 import { join } from 'path';
 
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { app, BrowserWindow, nativeTheme } from 'electron';
+import { BrowserWindow, nativeTheme } from 'electron';
 import { z } from 'zod';
 
 import { IPC } from '../../shared/constants/ipc-channels';
@@ -66,6 +65,7 @@ import { generateNotifyScript } from './notify-script';
 import { getKomlaBasePath } from './paths';
 import { pluginsService } from './plugins.service';
 import { projectService } from './project.service';
+import { settingsApprovalService } from './settings-approval.service';
 import { createSettingsFiles } from './settings-files';
 import {
   SettingsManagementError,
@@ -77,7 +77,6 @@ import { shortcutsService } from './shortcuts.service';
 import { sshHostService } from './ssh-host.service';
 import { telemetryService } from './telemetry.service';
 import { settlesBeforeShowing } from './terminal-attention/notification-lifecycle';
-import { windowService } from './window.service';
 import {
   workspaceCwdResolutionService,
   type WorkspaceCwdResolutionContext,
@@ -96,9 +95,6 @@ import type {
   Project,
   Workspace,
   WorkspaceAttentionKind,
-  SettingsApprovalDecision,
-  SettingsApprovalPrompt,
-  SettingsFileResource,
   AppearanceSettings,
 } from '../../shared/types';
 import type { ShapeOutput } from '@modelcontextprotocol/sdk/server/zod-compat.js';
@@ -281,16 +277,6 @@ const SETTINGS_SCHEMA_GUIDES: Record<string, string> = {
   'workspace-setup': 'project-setup',
   automations: 'automations',
   appearance: 'appearance',
-};
-
-/** What the confirmation names for each settings file. */
-const SETTINGS_FILE_TARGETS: Record<SettingsFileResource, string> = {
-  'status-items': 'Status bar items',
-  plugins: 'Plugins',
-  hooks: 'Hooks',
-  shortcuts: 'Keyboard shortcuts',
-  terminal: 'Terminal settings',
-  agents: 'Agents',
 };
 
 const settingsAutomationTargetSchema = z.discriminatedUnion('kind', [
@@ -535,26 +521,6 @@ function isValidActionEntry(value: unknown): boolean {
   );
 }
 
-/** What a settings approval says it changes. */
-function settingsApprovalTarget(request: SettingsApprovalRequest): string {
-  if (request.resource in SETTINGS_FILE_TARGETS) {
-    return SETTINGS_FILE_TARGETS[request.resource as SettingsFileResource];
-  }
-  const project = request.project?.name ?? 'Project';
-  switch (request.resource) {
-    case 'appearance':
-      return 'Appearance';
-    case 'workspace-setup':
-      return `${project} Workspace Setup`;
-    case 'automations':
-      return `${project} Automations`;
-    case 'project-settings':
-      return `${project} settings`;
-    default:
-      return request.project ? `${request.project.name} Quick Commands` : 'Global Quick Commands';
-  }
-}
-
 class HttpServerService {
   private server: http.Server | null = null;
   private preferredPort = 52863;
@@ -576,16 +542,6 @@ class HttpServerService {
   private settingsService: SettingsManagementService | null = null;
   // Refused hosts already logged, so a page retrying in a loop logs each host once.
   private readonly refusedHosts = new Set<string>();
-  private recentSettingsFeedback = new Map<string, number>();
-  private pendingSettingsApprovals = new Map<
-    string,
-    {
-      senderId: number;
-      window: BrowserWindow;
-      prompt: SettingsApprovalPrompt;
-      finish: (decision: SettingsApprovalDecision | 'unanswered') => void;
-    }
-  >();
 
   start(preferredPort?: number): void {
     if (this.server) {
@@ -901,157 +857,10 @@ class HttpServerService {
         hostName: (hostId) => sshHostService.get(hostId)?.name,
         timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
       },
-      approve: (request, signal) => this.approveSettingsChange(request, signal),
-      feedback: (message, workspace) => this.sendSettingsFeedback(message, workspace),
+      approve: (request, signal) => settingsApprovalService.approve(request, signal),
+      feedback: (message, workspace) => settingsApprovalService.sendFeedback(message, workspace),
     });
     return this.settingsService;
-  }
-
-  private selectSettingsWindow(request: SettingsApprovalRequest): BrowserWindow | undefined {
-    const workspaceWindow = request.workspace?.windowId
-      ? windowService.getWindow(request.workspace.windowId)
-      : undefined;
-    return workspaceWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
-  }
-
-  /** Asks the user in a Komla window to apply the changes; true once they do. */
-  async approveSettingsChange(
-    request: SettingsApprovalRequest,
-    signal?: AbortSignal
-  ): Promise<boolean> {
-    return (await this.decideSettingsChange(request, signal)) === 'apply';
-  }
-
-  /**
-   * Asks the user in a Komla window whether to apply the changes. `unanswered`
-   * when the prompt ended without their choice, e.g. as the window closed or
-   * reloaded.
-   */
-  async decideSettingsChange(
-    request: SettingsApprovalRequest,
-    signal?: AbortSignal
-  ): Promise<SettingsApprovalDecision | 'unanswered'> {
-    const window = this.selectSettingsWindow(request);
-    if (!window) {
-      throw new SettingsManagementError(
-        'NO_APPROVAL_WINDOW',
-        'No Komla window is available to approve settings.',
-        503
-      );
-    }
-    const prompt: SettingsApprovalPrompt = {
-      id: randomUUID(),
-      resource: request.resource,
-      target: settingsApprovalTarget(request),
-      changes: request.changes,
-      ...((request.multiProjectWarning ?? request.warning)
-        ? { warning: request.multiProjectWarning ?? request.warning }
-        : {}),
-      ...(request.preview ? { preview: request.preview } : {}),
-      ...(request.description ? { description: request.description } : {}),
-    };
-    return new Promise<SettingsApprovalDecision | 'unanswered'>((resolve) => {
-      let settled = false;
-      const finish = (decision: SettingsApprovalDecision | 'unanswered'): void => {
-        if (settled) return;
-        settled = true;
-        this.pendingSettingsApprovals.delete(prompt.id);
-        signal?.removeEventListener('abort', onAbort);
-        window.webContents.removeListener('destroyed', onDestroyed);
-        window.webContents.removeListener('did-start-navigation', onNavigation);
-        window.webContents.removeListener('render-process-gone', onRendererGone);
-        if (!window.webContents.isDestroyed()) {
-          this.sendToSettingsWindow(window, IPC.SETTINGS_APPROVAL_DISMISSED, prompt.id);
-        }
-        resolve(decision);
-      };
-      const onAbort = (): void => finish('unanswered');
-      const onDestroyed = (): void => finish('unanswered');
-      const onNavigation = (details: { isMainFrame: boolean; isSameDocument: boolean }): void => {
-        if (details.isMainFrame && !details.isSameDocument) finish('unanswered');
-      };
-      const onRendererGone = (): void => finish('unanswered');
-      this.pendingSettingsApprovals.set(prompt.id, {
-        senderId: window.webContents.id,
-        window,
-        prompt,
-        finish,
-      });
-      signal?.addEventListener('abort', onAbort, { once: true });
-      window.webContents.once('destroyed', onDestroyed);
-      window.webContents.on('did-start-navigation', onNavigation);
-      window.webContents.once('render-process-gone', onRendererGone);
-      if (signal?.aborted) {
-        finish('unanswered');
-        return;
-      }
-      if (!this.sendToSettingsWindow(window, IPC.SETTINGS_APPROVAL_REQUESTED, prompt)) {
-        finish('unanswered');
-        return;
-      }
-      if (request.background) return;
-      if (window.isMinimized()) window.restore();
-      window.show();
-      if (process.platform === 'darwin') {
-        app.focus({ steal: true });
-      } else {
-        app.focus();
-      }
-      window.focus();
-    });
-  }
-
-  private sendToSettingsWindow(
-    window: BrowserWindow,
-    channel: string,
-    ...args: unknown[]
-  ): boolean {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
-    try {
-      window.webContents.send(channel, ...args);
-      return true;
-    } catch (error) {
-      logger.warn('Failed to deliver settings approval to renderer', {
-        channel,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return false;
-    }
-  }
-
-  resolveSettingsApproval(
-    id: string,
-    decision: SettingsApprovalDecision,
-    senderId: number
-  ): boolean {
-    const pending = this.pendingSettingsApprovals.get(id);
-    if (!pending || pending.senderId !== senderId) return false;
-    pending.finish(decision);
-    return true;
-  }
-
-  requestPendingSettingsApproval(senderId: number): boolean {
-    const pending = Array.from(this.pendingSettingsApprovals.values()).find(
-      (approval) => approval.senderId === senderId
-    );
-    if (!pending) return false;
-    return this.sendToSettingsWindow(
-      pending.window,
-      IPC.SETTINGS_APPROVAL_REQUESTED,
-      pending.prompt
-    );
-  }
-
-  private sendSettingsFeedback(message: string, workspace?: Workspace): void {
-    const request = { workspace, changes: [], resource: 'actions' as const };
-    const window = this.selectSettingsWindow(request);
-    if (!window) return;
-    const key = `${window.id}:${message}`;
-    const now = Date.now();
-    if (now - (this.recentSettingsFeedback.get(key) ?? 0) < 2_000) return;
-    this.recentSettingsFeedback.set(key, now);
-    window.webContents.send(IPC.SETTINGS_FEEDBACK, message);
-    setTimeout(() => this.recentSettingsFeedback.delete(key), 2_000).unref();
   }
 
   private resolveSettingsTarget(context: SettingsRequestContext): {
@@ -1423,9 +1232,7 @@ class HttpServerService {
   }
 
   stop(): void {
-    for (const approval of Array.from(this.pendingSettingsApprovals.values())) {
-      approval.finish('unanswered');
-    }
+    settingsApprovalService.dismissAll();
     workspaceService.attention.hooksStopped();
     const error = new Error('HTTP server stopped before a port became available');
     for (const waiter of this.portWaiters) {

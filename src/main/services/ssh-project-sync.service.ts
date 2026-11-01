@@ -7,9 +7,9 @@ import { writeFileAtomic } from '../lib/atomic-write';
 import { actionService } from './action.service';
 import { agentPresetService } from './agent-preset.service';
 import { configService } from './config.service';
-import { httpServerService } from './http-server.service';
 import { getKomlaBasePath } from './paths';
 import { projectService } from './project.service';
+import { settingsApprovalService } from './settings-approval.service';
 import { sshHostService } from './ssh-host.service';
 import { sshProjectSyncHost } from './ssh-project-sync/host';
 import { SshProjectSync } from './ssh-project-sync/ssh-project-sync';
@@ -67,7 +67,7 @@ export const sshProjectSync = new SshProjectSync({
   },
   approve: ({ hostId, project, changes, background }) => {
     const hostName = sshHostService.get(hostId)?.name ?? 'the SSH host';
-    return httpServerService.decideSettingsChange({
+    return settingsApprovalService.decide({
       resource: 'project-settings',
       // A project copying adds has no id yet.
       project: { id: project.id ?? '', name: project.name },

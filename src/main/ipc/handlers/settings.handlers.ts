@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { httpServerService } from '../../services/http-server.service';
+import { settingsApprovalService } from '../../services/settings-approval.service';
 import { settingsHistoryService } from '../../services/settings-history.service';
 import { windowService } from '../../services/window.service';
 import { handleValidated } from '../validation/ipc-validators';
@@ -21,7 +21,7 @@ export function registerSettingsHandlers(): void {
       IPC.SETTINGS_APPROVAL_REQUEST_PENDING,
       settingsApprovalRequestPendingArgsSchema,
       async (event): Promise<boolean> => {
-        return httpServerService.requestPendingSettingsApproval(event.sender.id);
+        return settingsApprovalService.requestPending(event.sender.id);
       }
     )
   );
@@ -32,7 +32,7 @@ export function registerSettingsHandlers(): void {
       IPC.SETTINGS_APPROVAL_RESOLVE,
       settingsApprovalResolveArgsSchema,
       async (event, [id, decision]): Promise<boolean> => {
-        return httpServerService.resolveSettingsApproval(id, decision, event.sender.id);
+        return settingsApprovalService.resolve(id, decision, event.sender.id);
       }
     )
   );

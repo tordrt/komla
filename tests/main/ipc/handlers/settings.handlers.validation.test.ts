@@ -7,10 +7,10 @@ vi.mock('electron', () => electronMock);
 
 const mockResolveSettingsApproval = vi.fn();
 const mockRequestPendingSettingsApproval = vi.fn();
-vi.mock('../../../../src/main/services/http-server.service', () => ({
-  httpServerService: {
-    resolveSettingsApproval: mockResolveSettingsApproval,
-    requestPendingSettingsApproval: mockRequestPendingSettingsApproval,
+vi.mock('../../../../src/main/services/settings-approval.service', () => ({
+  settingsApprovalService: {
+    resolve: mockResolveSettingsApproval,
+    requestPending: mockRequestPendingSettingsApproval,
   },
 }));
 

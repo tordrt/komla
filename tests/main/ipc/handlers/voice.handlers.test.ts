@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 import { mockElectron } from '../../../mocks/electron';
 
 vi.mock('electron', () => mockElectron());
@@ -253,9 +254,9 @@ describe('voice IPC handlers', () => {
     it('returns transcription text', async () => {
       const { ipcMain } = await setup();
       const audio = new Float32Array(16000);
-      const result = await ipcMain._invoke('voice:transcribe', audio);
+      const result = await ipcMain._invoke('voice:transcribe', { samples: audio.buffer });
       expect(result).toBe('hello world');
-      expect(mockVoiceService.transcribe).toHaveBeenCalledWith(audio, undefined);
+      expect(mockVoiceService.transcribe).toHaveBeenCalledWith(expect.any(Float32Array), undefined);
     });
 
     it('passes the request ID along so the renderer can cancel it', async () => {
@@ -263,11 +264,9 @@ describe('voice IPC handlers', () => {
       const audio = new Float32Array([0.5]);
       await ipcMain._invoke('voice:transcribe', { samples: audio.buffer, requestId: 'r1' });
       await ipcMain._invoke('voice:transcribe-cancel', 'r1');
-      await ipcMain._invoke('voice:transcribe-cancel', 42);
 
       expect(mockVoiceService.transcribe).toHaveBeenCalledWith(expect.any(Float32Array), 'r1');
-      expect(mockVoiceService.cancelTranscription).toHaveBeenCalledTimes(1);
-      expect(mockVoiceService.cancelTranscription).toHaveBeenCalledWith('r1');
+      expect(mockVoiceService.cancelTranscription).toHaveBeenCalledExactlyOnceWith('r1');
     });
 
     it('re-wraps ArrayBuffer sample payloads without object conversion', async () => {
@@ -286,6 +285,51 @@ describe('voice IPC handlers', () => {
       const { ipcMain } = await setup();
       await ipcMain._invoke('voice:recording-state', true);
       expect(mockVoiceService.setRecordingState).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('argument validation', () => {
+    it.each([
+      ['voice:model-select', [42]],
+      ['voice:model-select', []],
+      ['voice:model-select', ['']],
+      ['voice:model-download', [{ id: 'model-a' }]],
+      ['voice:model-download', []],
+      ['voice:model-delete', [42]],
+      ['voice:transcribe', []],
+      ['voice:transcribe', [new Float32Array(4)]],
+      ['voice:transcribe', [{ 0: 0.5, 1: -0.3 }]],
+      ['voice:transcribe', [{ samples: 'audio' }]],
+      ['voice:transcribe', [{ samples: new ArrayBuffer(3) }]],
+      ['voice:transcribe', [{ samples: new ArrayBuffer(4), requestId: 42 }]],
+      ['voice:transcribe-cancel', [42]],
+      ['voice:transcribe-cancel', []],
+      ['voice:recording-state', ['yes']],
+      ['voice:recording-state', []],
+    ])('rejects %s with %j', async (channel, args) => {
+      const { ipcMain } = await setup();
+
+      await expect(ipcMain._invoke(channel, ...args)).rejects.toMatchObject({
+        code: 'IPC_VALIDATION_ERROR',
+      });
+    });
+
+    it('never reaches the service with a rejected model', async () => {
+      const { ipcMain } = await setup();
+
+      await ipcMain._invoke('voice:model-download', 42).catch(() => {});
+      await ipcMain._invoke('voice:model-select', 42).catch(() => {});
+
+      expect(mockVoiceService.downloadModel).not.toHaveBeenCalled();
+      expect(mockVoiceService.selectModel).not.toHaveBeenCalled();
+    });
+
+    it('still deletes the current model when none is named', async () => {
+      const { ipcMain } = await setup();
+
+      await ipcMain._invoke('voice:model-delete');
+
+      expect(mockVoiceService.deleteModel).toHaveBeenCalledExactlyOnceWith(undefined);
     });
   });
 });

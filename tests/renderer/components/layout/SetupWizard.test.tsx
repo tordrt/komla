@@ -143,7 +143,7 @@ describe('SetupWizard', () => {
       getKomlaSkillStatus: vi.fn(),
       enableNotifications: vi.fn().mockResolvedValue(undefined),
       enableKomlaSkill: vi.fn(),
-      trackAgentSelected: vi.fn(),
+      trackAgentSelected: vi.fn(async () => {}),
       listSshConfigHosts: vi.fn().mockResolvedValue([]),
       listSshHosts: vi.fn().mockResolvedValue([]),
       websiteUrl: 'https://komla.dev',

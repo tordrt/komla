@@ -173,4 +173,39 @@ describe('app IPC validation', () => {
       expect((error as Error & { code: string }).code).toBe('IPC_VALIDATION_ERROR');
     }
   });
+
+  it.each([
+    ['announcements:dismiss', []],
+    ['announcements:dismiss', [42]],
+    ['announcements:dismiss', ['']],
+    ['clipboard:write-text', []],
+    ['clipboard:write-text', [42]],
+    ['clipboard:write-text', [{ text: 'hello' }]],
+  ])('%s rejects %j', async (channel, args) => {
+    const { registerAppHandlers } = await import('../../../../src/main/ipc/handlers/app.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+
+    registerAppHandlers();
+
+    await expect(ipcMain._invoke(channel, ...args)).rejects.toMatchObject({
+      code: 'IPC_VALIDATION_ERROR',
+    });
+  });
+
+  it('clipboard:write-text keeps text exactly as given', async () => {
+    const { registerAppHandlers } = await import('../../../../src/main/ipc/handlers/app.handlers');
+    const { ipcMain, clipboard } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+      clipboard: { writeText: ReturnType<typeof vi.fn> };
+    };
+
+    registerAppHandlers();
+    await ipcMain._invoke('clipboard:write-text', '  spaced\n');
+    await ipcMain._invoke('clipboard:write-text', '');
+
+    expect(clipboard.writeText).toHaveBeenCalledWith('  spaced\n');
+    expect(clipboard.writeText).toHaveBeenCalledWith('');
+  });
 });

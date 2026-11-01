@@ -6,6 +6,7 @@ import { ipcMain } from 'electron';
 import { AGENTS_WITH_AUTO_INTEGRATIONS } from '../../../shared/constants/agents';
 import { IPC } from '../../../shared/constants/ipc-channels';
 import { buildSkillFetchInstruction } from '../../../shared/constants/skill-fetch-instruction';
+import { mcpGetStatusArgsSchema } from '../../../shared/ipc/schemas/agent-settings-ipc.schemas';
 import { komlaSkillArgsSchema } from '../../../shared/ipc/schemas/config-ipc.schemas';
 import { getNotifyHelper, isKomlaCliBlocked } from '../../lib/komla-cli';
 import { antigravitySettingsService } from '../../services/antigravity-settings.service';
@@ -205,75 +206,125 @@ export function registerAgentSettingsHandlers(): void {
   // MCP handlers
   ipcMain.handle(
     IPC.MCP_GET_STATUS,
-    async (_event, agent?: string, sshHostId?: string): Promise<McpStatus> => {
-      if (sshHostId) sshWorkspaceService.getHost(sshHostId);
-      const port = httpServerService.getPort();
+    handleValidated(
+      IPC.MCP_GET_STATUS,
+      mcpGetStatusArgsSchema,
+      async (_event, [agent, sshHostId]): Promise<McpStatus> => {
+        if (sshHostId) sshWorkspaceService.getHost(sshHostId);
+        const port = httpServerService.getPort();
 
-      // SSH agents run their own CLI, which Windows doesn't police.
-      const cliBlocked = !sshHostId && isKomlaCliBlocked();
-      const { nodeCommand, script } = getNotifyHelper();
-      const notifyCommand = cliBlocked
-        ? `${JSON.stringify(nodeCommand.replace(/\\/g, '/'))} ${JSON.stringify(script.replace(/\\/g, '/'))} --source my-agent --event Stop`
-        : 'komla notify --source my-agent --event Stop';
-      const mcpCliCommand = 'komla mcp';
-      const mcpConfigJson = JSON.stringify(
-        {
-          mcpServers: {
-            komla: {
-              command: 'komla',
-              args: ['mcp'],
+        // SSH agents run their own CLI, which Windows doesn't police.
+        const cliBlocked = !sshHostId && isKomlaCliBlocked();
+        const { nodeCommand, script } = getNotifyHelper();
+        const notifyCommand = cliBlocked
+          ? `${JSON.stringify(nodeCommand.replace(/\\/g, '/'))} ${JSON.stringify(script.replace(/\\/g, '/'))} --source my-agent --event Stop`
+          : 'komla notify --source my-agent --event Stop';
+        const mcpCliCommand = 'komla mcp';
+        const mcpConfigJson = JSON.stringify(
+          {
+            mcpServers: {
+              komla: {
+                command: 'komla',
+                args: ['mcp'],
+              },
             },
           },
-        },
-        null,
-        2
-      );
-      // `komla skill` prints this installed guide, which also covers hooks for a blocked CLI.
-      const blockedCliFallback = cliBlocked
-        ? ` If Windows refuses to run it, read \`${join(getKomlaBasePath(), 'skills', 'komla-self-integration-instructions.md').replace(/\\/g, '/')}\` instead.`
-        : '';
-      const integrationPrompt = `# Integrate this agent with Komla
+          null,
+          2
+        );
+        // `komla skill` prints this installed guide, which also covers hooks for a blocked CLI.
+        const blockedCliFallback = cliBlocked
+          ? ` If Windows refuses to run it, read \`${join(getKomlaBasePath(), 'skills', 'komla-self-integration-instructions.md').replace(/\\/g, '/')}\` instead.`
+          : '';
+        const integrationPrompt = `# Integrate this agent with Komla
 
 ${buildSkillFetchInstruction('self-integration')}${blockedCliFallback}
 
 It walks through wiring up Komla's notification hook and the Komla skill, and stopping this agent asking to trust each new workspace — investigate first, then apply the changes after I approve.`;
 
-      const genericFields = {
-        generic: {
-          cliCommand: mcpCliCommand,
-          configJson: mcpConfigJson,
-          notifyCommand,
-          integrationPrompt,
-        },
-      };
+        const genericFields = {
+          generic: {
+            cliCommand: mcpCliCommand,
+            configJson: mcpConfigJson,
+            notifyCommand,
+            integrationPrompt,
+          },
+        };
 
-      // Remote runtimes and generic agents only need the environment-specific payload.
-      if (sshHostId || (agent && !AGENTS_WITH_AUTO_INTEGRATIONS.includes(agent))) {
-        return {
+        // Remote runtimes and generic agents only need the environment-specific payload.
+        if (sshHostId || (agent && !AGENTS_WITH_AUTO_INTEGRATIONS.includes(agent))) {
+          return {
+            isConfigured: false,
+            cliCommand: '',
+            configJson: '',
+            ...genericFields,
+          };
+        }
+
+        // Base fields without reading Claude's config (used by per-agent paths)
+        const baseFields = {
           isConfigured: false,
           cliCommand: '',
           configJson: '',
-          ...genericFields,
         };
-      }
 
-      // Base fields without reading Claude's config (used by per-agent paths)
-      const baseFields = {
-        isConfigured: false,
-        cliCommand: '',
-        configJson: '',
-      };
+        // If a specific agent was requested, only check that one
+        if (agent === 'Claude Code') {
+          const claudeStatus = await claudeSettingsService.getMcpStatus(port);
+          return { ...claudeStatus, ...genericFields };
+        }
 
-      // If a specific agent was requested, only check that one
-      if (agent === 'Claude Code') {
+        if (agent === 'Codex') {
+          const codexMcpStatus = codexSettingsService.getMcpStatus();
+          return {
+            ...baseFields,
+            codex: {
+              isConfigured: codexMcpStatus.isConfigured,
+              cliCommand: codexSettingsService.getMcpCliCommand(port),
+              removeCliCommand: codexSettingsService.getMcpRemoveCliCommand(),
+              configToml: codexSettingsService.getMcpConfigToml(port),
+              settingsPath: codexSettingsService.getSettingsPath(),
+            },
+            ...genericFields,
+          };
+        }
+
+        if (agent === 'Antigravity CLI') {
+          const antigravityMcpStatus = antigravitySettingsService.getMcpStatus();
+          return {
+            ...baseFields,
+            antigravity: {
+              isConfigured: antigravityMcpStatus.isConfigured,
+              cliCommand: antigravitySettingsService.getMcpCliCommand(port),
+              removeCliCommand: antigravitySettingsService.getMcpRemoveCliCommand(),
+              settingsPath: antigravitySettingsService.getMcpSettingsPath(),
+            },
+            ...genericFields,
+          };
+        }
+
+        if (agent === 'OpenCode') {
+          const opencodeMcpStatus = opencodeSettingsService.getMcpStatus();
+          return {
+            ...baseFields,
+            opencode: {
+              isConfigured: opencodeMcpStatus.isConfigured,
+              cliCommand: opencodeSettingsService.getMcpCliCommand(port),
+              configJson: opencodeSettingsService.getMcpConfigJson(port),
+              settingsPath: opencodeSettingsService.getSettingsPath(),
+            },
+            ...genericFields,
+          };
+        }
+
+        // No agent specified — return everything (used by settings page)
         const claudeStatus = await claudeSettingsService.getMcpStatus(port);
-        return { ...claudeStatus, ...genericFields };
-      }
-
-      if (agent === 'Codex') {
         const codexMcpStatus = codexSettingsService.getMcpStatus();
+        const antigravityMcpStatus = antigravitySettingsService.getMcpStatus();
+        const opencodeMcpStatus = opencodeSettingsService.getMcpStatus();
+
         return {
-          ...baseFields,
+          ...claudeStatus,
           codex: {
             isConfigured: codexMcpStatus.isConfigured,
             cliCommand: codexSettingsService.getMcpCliCommand(port),
@@ -281,28 +332,12 @@ It walks through wiring up Komla's notification hook and the Komla skill, and st
             configToml: codexSettingsService.getMcpConfigToml(port),
             settingsPath: codexSettingsService.getSettingsPath(),
           },
-          ...genericFields,
-        };
-      }
-
-      if (agent === 'Antigravity CLI') {
-        const antigravityMcpStatus = antigravitySettingsService.getMcpStatus();
-        return {
-          ...baseFields,
           antigravity: {
             isConfigured: antigravityMcpStatus.isConfigured,
             cliCommand: antigravitySettingsService.getMcpCliCommand(port),
             removeCliCommand: antigravitySettingsService.getMcpRemoveCliCommand(),
             settingsPath: antigravitySettingsService.getMcpSettingsPath(),
           },
-          ...genericFields,
-        };
-      }
-
-      if (agent === 'OpenCode') {
-        const opencodeMcpStatus = opencodeSettingsService.getMcpStatus();
-        return {
-          ...baseFields,
           opencode: {
             isConfigured: opencodeMcpStatus.isConfigured,
             cliCommand: opencodeSettingsService.getMcpCliCommand(port),
@@ -312,37 +347,7 @@ It walks through wiring up Komla's notification hook and the Komla skill, and st
           ...genericFields,
         };
       }
-
-      // No agent specified — return everything (used by settings page)
-      const claudeStatus = await claudeSettingsService.getMcpStatus(port);
-      const codexMcpStatus = codexSettingsService.getMcpStatus();
-      const antigravityMcpStatus = antigravitySettingsService.getMcpStatus();
-      const opencodeMcpStatus = opencodeSettingsService.getMcpStatus();
-
-      return {
-        ...claudeStatus,
-        codex: {
-          isConfigured: codexMcpStatus.isConfigured,
-          cliCommand: codexSettingsService.getMcpCliCommand(port),
-          removeCliCommand: codexSettingsService.getMcpRemoveCliCommand(),
-          configToml: codexSettingsService.getMcpConfigToml(port),
-          settingsPath: codexSettingsService.getSettingsPath(),
-        },
-        antigravity: {
-          isConfigured: antigravityMcpStatus.isConfigured,
-          cliCommand: antigravitySettingsService.getMcpCliCommand(port),
-          removeCliCommand: antigravitySettingsService.getMcpRemoveCliCommand(),
-          settingsPath: antigravitySettingsService.getMcpSettingsPath(),
-        },
-        opencode: {
-          isConfigured: opencodeMcpStatus.isConfigured,
-          cliCommand: opencodeSettingsService.getMcpCliCommand(port),
-          configJson: opencodeSettingsService.getMcpConfigJson(port),
-          settingsPath: opencodeSettingsService.getSettingsPath(),
-        },
-        ...genericFields,
-      };
-    }
+    )
   );
 
   ipcMain.handle(IPC.MCP_ENABLE, async (): Promise<{ success: boolean; error?: string }> => {

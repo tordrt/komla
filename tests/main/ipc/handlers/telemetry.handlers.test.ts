@@ -10,7 +10,11 @@ vi.mock('electron', () => ({
   },
 }));
 
-const telemetry = vi.hoisted(() => ({ sendSshHostAdded: vi.fn() }));
+const telemetry = vi.hoisted(() => ({
+  sendSshHostAdded: vi.fn(),
+  sendMonetizationEvent: vi.fn(),
+  sendAgentSelected: vi.fn(),
+}));
 
 vi.mock('../../../../src/main/services/telemetry.service', () => ({
   telemetryService: telemetry,
@@ -44,6 +48,50 @@ describe('telemetry IPC handlers', () => {
       ).rejects.toThrow();
 
       expect(telemetry.sendSshHostAdded).not.toHaveBeenCalled();
+    }
+  );
+
+  it('reports a monetization event with its properties', async () => {
+    const props = { source: 'free_limit_wall', limit: 3, runningCount: 2 };
+
+    await handlers.get(IPC.TELEMETRY_TRACK_MONETIZATION)?.({}, 'free_limit_hit', props);
+    await handlers.get(IPC.TELEMETRY_TRACK_MONETIZATION)?.({}, 'license_activated');
+
+    expect(telemetry.sendMonetizationEvent).toHaveBeenCalledWith('free_limit_hit', props);
+    expect(telemetry.sendMonetizationEvent).toHaveBeenCalledWith('license_activated', undefined);
+  });
+
+  it.each([
+    [['unknown_event']],
+    [[]],
+    [[42]],
+    [['free_limit_hit', { source: 'wizard' }]],
+    [['free_limit_hit', { limit: 'many' }]],
+    [['free_limit_hit', { runningCount: -1 }]],
+    [['free_limit_hit', { source: 'free_limit_wall', secret: 'x' }]],
+    [['free_limit_hit', 'props']],
+  ])('rejects the monetization event %j', async (args) => {
+    await expect(async () =>
+      handlers.get(IPC.TELEMETRY_TRACK_MONETIZATION)?.({}, ...args)
+    ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
+
+    expect(telemetry.sendMonetizationEvent).not.toHaveBeenCalled();
+  });
+
+  it('reports the selected agent, trimmed', async () => {
+    await handlers.get(IPC.TELEMETRY_TRACK_AGENT_SELECTED)?.({}, '  Claude Code ');
+
+    expect(telemetry.sendAgentSelected).toHaveBeenCalledExactlyOnceWith('Claude Code');
+  });
+
+  it.each([[[]], [['']], [['   ']], [[42]], [[null]]])(
+    'rejects the selected agent %j',
+    async (args) => {
+      await expect(async () =>
+        handlers.get(IPC.TELEMETRY_TRACK_AGENT_SELECTED)?.({}, ...args)
+      ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
+
+      expect(telemetry.sendAgentSelected).not.toHaveBeenCalled();
     }
   );
 });

@@ -403,7 +403,7 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
       const selectedAgent = usesDetectedAgents ? presets[0].name : selectedTemplateName;
       if (!agentSelectedTrackedRef.current && selectedAgent) {
         agentSelectedTrackedRef.current = true;
-        void window.api.trackAgentSelected(selectedAgent);
+        window.api.trackAgentSelected(selectedAgent).catch(() => {});
       }
 
       // The SSH host is added once setup is done, so a failed check never holds it up.

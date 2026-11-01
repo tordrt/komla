@@ -8,6 +8,7 @@ import {
   setShownWorkspaceArgsSchema,
   setTitleBarOverlayArgsSchema,
   setUnsavedFilesArgsSchema,
+  showMessageBoxArgsSchema,
 } from '../../../shared/ipc/schemas/window-ipc.schemas';
 import { customizationService } from '../../services/customization.service';
 import { localCopyService } from '../../services/local-copy.service';
@@ -145,33 +146,26 @@ export function registerWindowHandlers(): void {
 
   ipcMain.handle(
     IPC.DIALOG_SHOW_MESSAGE_BOX,
-    async (
-      event,
-      options: {
-        type?: 'none' | 'info' | 'error' | 'question' | 'warning';
-        title?: string;
-        message: string;
-        detail?: string;
-        buttons?: string[];
-        defaultId?: number;
-        cancelId?: number;
+    handleValidated(
+      IPC.DIALOG_SHOW_MESSAGE_BOX,
+      showMessageBoxArgsSchema,
+      async (event, [options]): Promise<number> => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        const messageBoxOptions: Electron.MessageBoxOptions = {
+          type: options.type ?? 'info',
+          title: options.title,
+          message: options.message,
+          detail: options.detail,
+          buttons: options.buttons,
+          defaultId: options.defaultId,
+          cancelId: options.cancelId,
+        };
+        const result = window
+          ? await dialog.showMessageBox(window, messageBoxOptions)
+          : await dialog.showMessageBox(messageBoxOptions);
+        return result.response;
       }
-    ): Promise<number> => {
-      const window = BrowserWindow.fromWebContents(event.sender);
-      const messageBoxOptions: Electron.MessageBoxOptions = {
-        type: options.type ?? 'info',
-        title: options.title,
-        message: options.message,
-        detail: options.detail,
-        buttons: options.buttons,
-        defaultId: options.defaultId,
-        cancelId: options.cancelId,
-      };
-      const result = window
-        ? await dialog.showMessageBox(window, messageBoxOptions)
-        : await dialog.showMessageBox(messageBoxOptions);
-      return result.response;
-    }
+    )
   );
 }
 

@@ -16,7 +16,9 @@ import { app, clipboard, ipcMain, nativeImage, type NativeImage } from 'electron
 import { IPC } from '../../../shared/constants/ipc-channels';
 import {
   agentUsageRefreshArgsSchema,
+  announcementsDismissArgsSchema,
   clipboardImportImageArgsSchema,
+  clipboardWriteTextArgsSchema,
   resourceUsageArgsSchema,
 } from '../../../shared/ipc/schemas/app-ipc.schemas';
 import {
@@ -183,9 +185,16 @@ export function registerAppHandlers(): void {
     return announcementService.getActive();
   });
 
-  ipcMain.handle(IPC.ANNOUNCEMENTS_DISMISS, async (_, id: string): Promise<void> => {
-    announcementService.dismiss(id);
-  });
+  ipcMain.handle(
+    IPC.ANNOUNCEMENTS_DISMISS,
+    handleValidated(
+      IPC.ANNOUNCEMENTS_DISMISS,
+      announcementsDismissArgsSchema,
+      async (_, [id]): Promise<void> => {
+        announcementService.dismiss(id);
+      }
+    )
+  );
 
   // Update handlers
   ipcMain.handle(IPC.APP_GET_VERSION, async (): Promise<string> => {
@@ -281,9 +290,16 @@ export function registerAppHandlers(): void {
   });
 
   // Clipboard handlers
-  ipcMain.handle(IPC.CLIPBOARD_WRITE_TEXT, async (_, text: string): Promise<void> => {
-    await clipboard.writeText(text);
-  });
+  ipcMain.handle(
+    IPC.CLIPBOARD_WRITE_TEXT,
+    handleValidated(
+      IPC.CLIPBOARD_WRITE_TEXT,
+      clipboardWriteTextArgsSchema,
+      async (_, [text]): Promise<void> => {
+        await clipboard.writeText(text);
+      }
+    )
+  );
 
   ipcMain.handle(IPC.CLIPBOARD_READ_TEXT, async (): Promise<string> => {
     return clipboard.readText();

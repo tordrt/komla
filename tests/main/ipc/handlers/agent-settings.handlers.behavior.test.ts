@@ -802,4 +802,21 @@ describe('agent-settings IPC behavior', () => {
       expect(await portPromise).toBe(52864);
     });
   });
+
+  it.each([[[42]], [['Codex', 42]], [[{ agent: 'Codex' }]], [['']], [['Codex', '']]])(
+    'mcp:get-status rejects %j',
+    async (args) => {
+      const { registerAgentSettingsHandlers } =
+        await import('../../../../src/main/ipc/handlers/agent-settings.handlers');
+      const { ipcMain } = (await import('electron')) as unknown as {
+        ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+      };
+
+      registerAgentSettingsHandlers();
+
+      await expect(ipcMain._invoke('mcp:get-status', ...args)).rejects.toMatchObject({
+        code: 'IPC_VALIDATION_ERROR',
+      });
+    }
+  );
 });

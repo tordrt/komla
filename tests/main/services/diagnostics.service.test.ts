@@ -1,5 +1,5 @@
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { app, ipcMain } from 'electron';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // Mock logger before importing anything else
 const mockLogger = {
@@ -403,6 +403,15 @@ describe('DiagnosticsService', () => {
 
     // Null payload
     handler({} as any, null as any);
+    expect(diagnosticsService['rendererStatsByWebContents'].size).toBe(0);
+
+    // Numbers that aren't counts
+    handler({ sender: { id: 10 } } as any, {
+      terminalCacheSize: Number.NaN,
+      parkedTerminalCount: 0,
+      activeWebglContexts: 0,
+      timestamp: 0,
+    } as any);
     expect(diagnosticsService['rendererStatsByWebContents'].size).toBe(0);
 
     // Valid payload should be accepted

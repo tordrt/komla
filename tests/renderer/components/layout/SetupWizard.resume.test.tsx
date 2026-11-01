@@ -61,7 +61,7 @@ describe('SetupWizard onboarding resume', () => {
     window.api = {
       getMcpStatus: vi.fn().mockResolvedValue({}),
       detectInstalledAgents: vi.fn().mockResolvedValue([]),
-      trackAgentSelected: vi.fn(),
+      trackAgentSelected: vi.fn(async () => {}),
     } as unknown as typeof window.api;
   });
 

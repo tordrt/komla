@@ -28,3 +28,15 @@ export const setTitleBarOverlayArgsSchema = z.tuple([
     symbolColor: titleBarColorSchema,
   }),
 ]);
+
+export const showMessageBoxArgsSchema = z.tuple([
+  z.strictObject({
+    type: z.enum(['none', 'info', 'error', 'question', 'warning']).optional(),
+    title: z.string().optional(),
+    message: z.string(),
+    detail: z.string().optional(),
+    buttons: z.array(z.string()).optional(),
+    defaultId: z.number().int().optional(),
+    cancelId: z.number().int().optional(),
+  }),
+]);

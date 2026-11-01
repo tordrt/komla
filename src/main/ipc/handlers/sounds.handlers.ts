@@ -4,7 +4,9 @@ import { basename, extname, join } from 'path';
 import { ipcMain, shell } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
+import { soundsGetDataUrlArgsSchema } from '../../../shared/ipc/schemas/sounds-ipc.schemas';
 import { getKomlaBasePath } from '../../services/paths';
+import { handleValidated } from '../validation/ipc-validators';
 
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac', '.webm']);
 const MAX_SOUND_SIZE = 1024 * 1024; // 1 MB
@@ -49,29 +51,36 @@ export function registerSoundsHandlers(): void {
       .sort();
   });
 
-  ipcMain.handle(IPC.SOUNDS_GET_DATA_URL, (_, filename: string): string | null => {
-    // Prevent path traversal
-    const safe = basename(filename);
-    const ext = extname(safe).toLowerCase();
-    if (!AUDIO_EXTENSIONS.has(ext)) return null;
+  ipcMain.handle(
+    IPC.SOUNDS_GET_DATA_URL,
+    handleValidated(
+      IPC.SOUNDS_GET_DATA_URL,
+      soundsGetDataUrlArgsSchema,
+      (_, [filename]): string | null => {
+        // Prevent path traversal
+        const safe = basename(filename);
+        const ext = extname(safe).toLowerCase();
+        if (!AUDIO_EXTENSIONS.has(ext)) return null;
 
-    const filePath = join(getSoundsDir(), safe);
-    if (!existsSync(filePath)) return null;
+        const filePath = join(getSoundsDir(), safe);
+        if (!existsSync(filePath)) return null;
 
-    try {
-      if (statSync(filePath).size > MAX_SOUND_SIZE) return null;
-    } catch {
-      return null;
-    }
+        try {
+          if (statSync(filePath).size > MAX_SOUND_SIZE) return null;
+        } catch {
+          return null;
+        }
 
-    try {
-      const mime = EXT_TO_MIME[ext] ?? 'audio/mpeg';
-      const data = readFileSync(filePath).toString('base64');
-      return `data:${mime};base64,${data}`;
-    } catch {
-      return null;
-    }
-  });
+        try {
+          const mime = EXT_TO_MIME[ext] ?? 'audio/mpeg';
+          const data = readFileSync(filePath).toString('base64');
+          return `data:${mime};base64,${data}`;
+        } catch {
+          return null;
+        }
+      }
+    )
+  );
 
   ipcMain.handle(IPC.SOUNDS_OPEN_DIRECTORY, async (): Promise<void> => {
     const dir = ensureSoundsDir();

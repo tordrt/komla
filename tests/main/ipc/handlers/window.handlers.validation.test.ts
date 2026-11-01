@@ -456,4 +456,55 @@ describe('window IPC validation', () => {
     expect(senderWindow.unmaximize).not.toHaveBeenCalled();
     expect(senderWindow.close).not.toHaveBeenCalled();
   });
+
+  describe('dialog:show-message-box', () => {
+    async function setupDialog() {
+      const { registerWindowHandlers } =
+        await import('../../../../src/main/ipc/handlers/window.handlers');
+      const electron = (await import('electron')) as unknown as {
+        ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+        dialog: { showMessageBox: ReturnType<typeof vi.fn> };
+      };
+      electron.dialog.showMessageBox.mockResolvedValue({ response: 1, checkboxChecked: false });
+      registerWindowHandlers();
+      return electron;
+    }
+
+    it('shows a valid message box and returns the button chosen', async () => {
+      const { ipcMain, dialog } = await setupDialog();
+
+      await expect(
+        ipcMain._invoke('dialog:show-message-box', {
+          type: 'warning',
+          title: 'Delete?',
+          message: 'Delete this?',
+          detail: 'It cannot be undone.',
+          buttons: ['Cancel', 'Delete'],
+          defaultId: 1,
+          cancelId: 0,
+        })
+      ).resolves.toBe(1);
+      expect(dialog.showMessageBox).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      [[]],
+      [['Delete?']],
+      [[{}]],
+      [[{ message: 42 }]],
+      [[{ message: 'Delete?', type: 'danger' }]],
+      [[{ message: 'Delete?', buttons: 'OK' }]],
+      [[{ message: 'Delete?', buttons: [1] }]],
+      [[{ message: 'Delete?', defaultId: 'first' }]],
+      [[{ message: 'Delete?', cancelId: 0.5 }]],
+      [[{ message: 'Delete?', icon: '/tmp/icon.png' }]],
+    ])('rejects %j', async (args) => {
+      const { ipcMain, dialog } = await setupDialog();
+
+      await expect(ipcMain._invoke('dialog:show-message-box', ...args)).rejects.toMatchObject({
+        code: 'IPC_VALIDATION_ERROR',
+      });
+      expect(dialog.showMessageBox).not.toHaveBeenCalled();
+    });
+  });
 });

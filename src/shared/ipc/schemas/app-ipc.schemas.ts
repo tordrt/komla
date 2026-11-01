@@ -30,3 +30,8 @@ export const resourceUsageArgsSchema = z.tuple([
     .strict()
     .optional(),
 ]);
+
+export const announcementsDismissArgsSchema = z.tuple([idSchema]);
+
+// Copied exactly as given, including whitespace, or nothing at all.
+export const clipboardWriteTextArgsSchema = z.tuple([z.string()]);

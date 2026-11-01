@@ -1065,4 +1065,29 @@ describe('registerRemoteControlHandlers', () => {
       })
     );
   });
+
+  it.each([
+    ['remote-control:disconnect-active', []],
+    ['remote-control:disconnect-active', ['relay']],
+    ['remote-control:direct-start', ['https://example.com']],
+    ['remote-control:direct-start', [{ publicOrigin: '' }]],
+    ['remote-control:direct-start', [{ port: 1 }]],
+    ['remote-control:direct-start-pairing', [{ publicOrigin: 42 }]],
+    ['remote-control:direct-start-tailscale-serve', [{ port: 1 }]],
+    ['remote-control:host-access-set', [{ hostId: 'host-1', enabled: 'yes' }]],
+    ['remote-control:host-access-set', [{ hostId: '', enabled: true }]],
+    ['remote-control:host-access-set', []],
+    ['paired-devices:rename', [{ credentialId: 'c1' }]],
+    ['paired-devices:rename', [{ credentialId: 'c1', label: '' }]],
+    ['paired-devices:rename', [{ credentialId: 'c1', label: 'x', extra: true }]],
+    ['paired-devices:remove', [{}]],
+    ['paired-devices:remove', ['c1']],
+  ])('reports a validation error for %s with %j', async (channel, args) => {
+    const { registerRemoteControlHandlers, ipcMain } = await setup();
+    registerRemoteControlHandlers();
+
+    await expect(ipcMain._invoke(channel, ...args)).rejects.toMatchObject({
+      code: 'IPC_VALIDATION_ERROR',
+    });
+  });
 });

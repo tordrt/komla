@@ -1,3 +1,6 @@
+import { chmodSync, readFileSync, statSync } from 'fs';
+import { join } from 'path';
+
 import {
   komlaSshRemoteDataPort,
   isValidSshBasePath,
@@ -7,29 +10,18 @@ import {
   type SshHostCapabilities,
   type SshPortForward,
 } from '../../shared/types';
+import { writeFileAtomicSync } from '../lib/atomic-write';
 import { createLogger } from '../lib/logger';
 
-import { databaseService, type DatabaseService } from './database.service';
-
-import type { DatabaseSync } from 'node:sqlite';
+import { ensureKomlaBasePath } from './paths';
+import { readLegacySshHosts } from './ssh-host-legacy-database';
 
 const logger = createLogger('SshHostService');
 
-interface SshHostRow {
-  id: string;
-  name: string;
-  hostname: string;
-  user: string | null;
-  port: number | null;
-  identity_file: string | null;
-  base_path: string;
-  forward_agent: number;
-  isolated: number;
-  extra_ssh_args_json: string | null;
-  port_forwards_json: string | null;
-  setup_pending: number;
-  capabilities_json: string | null;
-}
+const FILE_NAME = 'ssh-hosts.json';
+const LEGACY_DATABASE_FILE_NAME = 'komla.db';
+const FILE_MODE = 0o600;
+const FILE_VERSION = 1;
 
 function optionalTrimmed(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -145,25 +137,19 @@ function normalizeHost(host: SshHost): SshHost {
   };
 }
 
-function parseExtraSshArgs(value: string | null): string[] | undefined {
-  if (!value) return undefined;
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (Array.isArray(parsed) && parsed.every((entry) => typeof entry === 'string')) {
-      return parsed.length > 0 ? parsed : undefined;
-    }
-  } catch (error) {
-    logger.warn('ignoring invalid SSH argument data', { error: String(error) });
+function parseExtraSshArgs(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+    return value.length > 0 ? value : undefined;
   }
+  logger.warn('ignoring invalid SSH argument data');
   return undefined;
 }
 
-function parsePortForwards(hostId: string, value: string | null): SshPortForward[] | undefined {
-  if (!value) return undefined;
+function parsePortForwards(hostId: string, value: unknown): SshPortForward[] | undefined {
+  if (!Array.isArray(value)) return undefined;
   try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return undefined;
-    const forwards = normalizePortForwards(hostId, parsed as SshPortForward[]);
+    const forwards = normalizePortForwards(hostId, value as SshPortForward[]);
     return forwards.length > 0 ? forwards : undefined;
   } catch (error) {
     logger.warn('ignoring invalid SSH port forward data', { error: String(error) });
@@ -171,90 +157,103 @@ function parsePortForwards(hostId: string, value: string | null): SshPortForward
   }
 }
 
-function parseCapabilities(value: string | null): SshHostCapabilities | undefined {
-  if (!value) return undefined;
-  try {
-    const parsed = JSON.parse(value) as SshHostCapabilities;
-    if (
-      typeof parsed.checkedAt === 'string' &&
-      (parsed.git?.status === 'available' || parsed.git?.status === 'missing') &&
-      (parsed.tmux?.status === 'available' ||
-        parsed.tmux?.status === 'missing' ||
-        parsed.tmux?.status === 'unusable') &&
-      (parsed.localMirror?.platform === 'supported' ||
-        parsed.localMirror?.platform === 'unsupported') &&
-      (parsed.localMirror?.localRsync === 'available' ||
-        parsed.localMirror?.localRsync === 'missing') &&
-      (parsed.localMirror?.remoteRsync === 'available' ||
-        parsed.localMirror?.remoteRsync === 'missing') &&
-      (parsed.monitoring === undefined ||
-        ((parsed.monitoring.status === 'available' || parsed.monitoring.status === 'missing') &&
-          Array.isArray(parsed.monitoring.missingRequirements) &&
-          parsed.monitoring.missingRequirements.every(
-            (requirement) => typeof requirement === 'string'
-          )))
-    ) {
-      return parsed;
-    }
-  } catch (error) {
-    logger.warn('ignoring invalid SSH capability data', { error: String(error) });
+function parseCapabilities(value: unknown): SshHostCapabilities | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const parsed = value as SshHostCapabilities;
+  if (
+    typeof parsed.checkedAt === 'string' &&
+    (parsed.git?.status === 'available' || parsed.git?.status === 'missing') &&
+    (parsed.tmux?.status === 'available' ||
+      parsed.tmux?.status === 'missing' ||
+      parsed.tmux?.status === 'unusable') &&
+    (parsed.localMirror?.platform === 'supported' ||
+      parsed.localMirror?.platform === 'unsupported') &&
+    (parsed.localMirror?.localRsync === 'available' ||
+      parsed.localMirror?.localRsync === 'missing') &&
+    (parsed.localMirror?.remoteRsync === 'available' ||
+      parsed.localMirror?.remoteRsync === 'missing') &&
+    (parsed.monitoring === undefined ||
+      ((parsed.monitoring?.status === 'available' || parsed.monitoring?.status === 'missing') &&
+        Array.isArray(parsed.monitoring.missingRequirements) &&
+        parsed.monitoring.missingRequirements.every(
+          (requirement) => typeof requirement === 'string'
+        )))
+  ) {
+    return parsed;
   }
+  logger.warn('ignoring invalid SSH capability data');
   return undefined;
 }
 
-function mapRow(row: SshHostRow): SshHost {
-  const extraSshArgs = parseExtraSshArgs(row.extra_ssh_args_json);
-  const capabilities = parseCapabilities(row.capabilities_json);
-  const portForwards = parsePortForwards(row.id, row.port_forwards_json);
+/**
+ * A stored host, as it was saved. Deliberately not normalizeHost: a host saved before a check was
+ * added stays listed. Damaged optional fields are dropped, and only a host without its identity
+ * and connection details is refused.
+ */
+function parseStoredHost(value: unknown): SshHost {
+  const host = (value ?? {}) as Record<string, unknown>;
+  const { id, name, hostname, user, port, identityFile, basePath } = host;
+  if (
+    typeof id !== 'string' ||
+    typeof name !== 'string' ||
+    typeof hostname !== 'string' ||
+    typeof basePath !== 'string'
+  ) {
+    throw new Error('a host is missing its id, name, hostname or base path');
+  }
+  const extraSshArgs = parseExtraSshArgs(host.extraSshArgs);
+  const portForwards = parsePortForwards(id, host.portForwards);
+  const capabilities = parseCapabilities(host.capabilities);
+  const validPort = Number.isInteger(port) && (port as number) >= 1 && (port as number) <= 65535;
   return {
-    id: row.id,
-    name: row.name,
-    hostname: row.hostname,
-    ...(row.user ? { user: row.user } : {}),
-    ...(row.port !== null ? { port: row.port } : {}),
-    ...(row.identity_file ? { identityFile: row.identity_file } : {}),
-    basePath: row.base_path,
-    ...(row.forward_agent === 1 ? { forwardAgent: true } : {}),
-    ...(row.isolated === 1 ? { isolated: true } : {}),
+    id,
+    name,
+    hostname,
+    ...(typeof user === 'string' && user ? { user } : {}),
+    ...(validPort ? { port: port as number } : {}),
+    ...(typeof identityFile === 'string' && identityFile ? { identityFile } : {}),
+    basePath,
+    ...(host.forwardAgent === true ? { forwardAgent: true } : {}),
+    ...(host.isolated === true ? { isolated: true } : {}),
     ...(extraSshArgs ? { extraSshArgs } : {}),
     ...(portForwards ? { portForwards } : {}),
-    ...(row.setup_pending === 1 ? { setupPending: true } : {}),
+    ...(host.setupPending === true ? { setupPending: true } : {}),
     ...(capabilities ? { capabilities } : {}),
   };
 }
 
+/** Unlike existsSync, throws when the answer is unknown: no access isn't the same as no file. */
+function fileExists(path: string): boolean {
+  return statSync(path, { throwIfNoEntry: false }) !== undefined;
+}
+
+/**
+ * The configured SSH hosts, in `<komla-data-dir>/ssh-hosts.json`. Hostnames and paths to keys
+ * aren't secret but are private to the user, so the file is theirs alone. It sits outside
+ * `settings/`, whose files are copied into settings history, which anyone can read.
+ *
+ * Loaded on the first read, so later reads can't fail. A write starts from the file as it is then,
+ * as development builds run side by side on one data directory and a list loaded earlier would
+ * overwrite what another one saved. A file it can't read is an error rather than an empty list: a
+ * save would otherwise replace it, and SSH workspaces would see their host as no longer configured.
+ */
 export class SshHostService {
-  constructor(private readonly database: Pick<DatabaseService, 'get'> = databaseService) {}
+  private hosts: SshHost[] | null = null;
+
+  /** Resolved on first use so that importing the service doesn't touch the data directory. */
+  constructor(private readonly dataDirectory?: string) {}
 
   list(): SshHost[] {
-    return (
-      this.connection
-        .prepare(
-          `SELECT id, name, hostname, user, port, identity_file, base_path,
-                  forward_agent, isolated, extra_ssh_args_json, port_forwards_json,
-                  setup_pending, capabilities_json
-             FROM ssh_hosts
-         ORDER BY sort_order, rowid`
-        )
-        .all() as unknown as SshHostRow[]
-    ).map(mapRow);
+    return structuredClone(this.load());
   }
 
   get(hostId: string): SshHost | undefined {
-    const row = this.connection
-      .prepare(
-        `SELECT id, name, hostname, user, port, identity_file, base_path,
-                forward_agent, isolated, extra_ssh_args_json, port_forwards_json,
-                setup_pending, capabilities_json
-           FROM ssh_hosts
-          WHERE id = ?`
-      )
-      .get(hostId) as unknown as SshHostRow | undefined;
-    return row ? mapRow(row) : undefined;
+    const host = this.load().find((candidate) => candidate.id === hostId);
+    return host ? structuredClone(host) : undefined;
   }
 
   has(hostId: string): boolean {
-    return Boolean(this.connection.prepare('SELECT 1 FROM ssh_hosts WHERE id = ?').get(hostId));
+    return this.load().some((host) => host.id === hostId);
   }
 
   /** Whether the host is configured and has finished setup. */
@@ -270,7 +269,8 @@ export class SshHostService {
         ?.filter((forward) => forward.enabled && forward.direction === 'remote-to-local')
         .map((forward) => forward.localPort) ?? []
     );
-    for (const existingHost of this.list()) {
+    const hosts = this.readStored();
+    for (const existingHost of hosts) {
       if (existingHost.id === normalized.id) continue;
       const conflictingForward = existingHost.portForwards?.find(
         (forward) =>
@@ -284,54 +284,93 @@ export class SshHostService {
         );
       }
     }
-    this.connection
-      .prepare(
-        `INSERT INTO ssh_hosts (
-           id, name, hostname, user, port, identity_file, base_path,
-           forward_agent, isolated, extra_ssh_args_json, port_forwards_json,
-           setup_pending, capabilities_json, sort_order
-         ) VALUES (
-           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-           COALESCE((SELECT MAX(sort_order) + 1 FROM ssh_hosts), 0)
-         )
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name,
-           hostname = excluded.hostname,
-           user = excluded.user,
-           port = excluded.port,
-           identity_file = excluded.identity_file,
-           base_path = excluded.base_path,
-           forward_agent = excluded.forward_agent,
-           isolated = excluded.isolated,
-           extra_ssh_args_json = excluded.extra_ssh_args_json,
-           port_forwards_json = excluded.port_forwards_json,
-           setup_pending = excluded.setup_pending,
-           capabilities_json = excluded.capabilities_json`
-      )
-      .run(
-        normalized.id,
-        normalized.name,
-        normalized.hostname,
-        normalized.user ?? null,
-        normalized.port ?? null,
-        normalized.identityFile ?? null,
-        normalized.basePath,
-        normalized.forwardAgent ? 1 : 0,
-        normalized.isolated ? 1 : 0,
-        normalized.extraSshArgs ? JSON.stringify(normalized.extraSshArgs) : null,
-        normalized.portForwards ? JSON.stringify(normalized.portForwards) : null,
-        normalized.setupPending ? 1 : 0,
-        normalized.capabilities ? JSON.stringify(normalized.capabilities) : null
-      );
-    return normalized;
+    const exists = hosts.some((existingHost) => existingHost.id === normalized.id);
+    this.persist(
+      exists
+        ? hosts.map((existingHost) =>
+            existingHost.id === normalized.id ? normalized : existingHost
+          )
+        : [...hosts, normalized]
+    );
+    return structuredClone(normalized);
   }
 
   delete(hostId: string): boolean {
-    return this.connection.prepare('DELETE FROM ssh_hosts WHERE id = ?').run(hostId).changes > 0;
+    const hosts = this.readStored();
+    const remaining = hosts.filter((host) => host.id !== hostId);
+    if (remaining.length === hosts.length) return false;
+    this.persist(remaining);
+    return true;
   }
 
-  private get connection(): DatabaseSync {
-    return this.database.get();
+  private get directory(): string {
+    return this.dataDirectory ?? ensureKomlaBasePath();
+  }
+
+  private get filePath(): string {
+    return join(this.directory, FILE_NAME);
+  }
+
+  private load(): SshHost[] {
+    this.hosts ??= this.readStored();
+    return this.hosts;
+  }
+
+  private readStored(): SshHost[] {
+    return fileExists(this.filePath) ? this.readFile() : this.moveFromLegacyDatabase();
+  }
+
+  private readFile(): SshHost[] {
+    const path = this.filePath;
+    try {
+      chmodSync(path, FILE_MODE);
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
+        version?: unknown;
+        hosts?: unknown;
+      };
+      if (parsed.version !== FILE_VERSION) {
+        throw new Error(`unsupported version ${String(parsed.version)}`);
+      }
+      if (!Array.isArray(parsed.hosts)) throw new Error(`'hosts' is not a list`);
+      const hosts = parsed.hosts.map(parseStoredHost);
+      if (new Set(hosts.map((host) => host.id)).size !== hosts.length) {
+        throw new Error('two hosts have the same id');
+      }
+      return hosts;
+    } catch (error) {
+      logger.error('SSH hosts file is unreadable', { error: String(error) });
+      throw new Error(`Could not read SSH hosts from ${path}: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Moves the hosts of an install that kept them in komla.db, the first time it runs without it.
+   * The hosts file, even with no hosts in it, marks the move as done; until the file is complete
+   * there isn't one, so a failure here tries again on the next read. The database stays behind for
+   * a build rolled back to the last release that reads it.
+   */
+  private moveFromLegacyDatabase(): SshHost[] {
+    const databasePath = join(this.directory, LEGACY_DATABASE_FILE_NAME);
+    if (!fileExists(databasePath)) return [];
+    let hosts: SshHost[];
+    try {
+      hosts = readLegacySshHosts(databasePath).map(parseStoredHost);
+    } catch (error) {
+      logger.error('could not move SSH hosts out of the legacy database', { error: String(error) });
+      throw new Error(`Could not read SSH hosts from ${databasePath}: ${String(error)}`);
+    }
+    this.persist(hosts);
+    logger.info('moved SSH hosts out of the legacy database', { count: hosts.length });
+    return hosts;
+  }
+
+  private persist(hosts: SshHost[]): void {
+    writeFileAtomicSync(
+      this.filePath,
+      JSON.stringify({ version: FILE_VERSION, hosts }, null, 2),
+      FILE_MODE
+    );
+    this.hosts = hosts;
   }
 }
 

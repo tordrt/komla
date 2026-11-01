@@ -40,7 +40,6 @@ import { backgroundProcessService } from './services/background-process.service'
 import { categoryService } from './services/category.service';
 import { configService } from './services/config.service';
 import { customizationService } from './services/customization.service';
-import { databaseService } from './services/database.service';
 import { diagnosticsService } from './services/diagnostics.service';
 import { errorReportingService } from './services/error-reporting.service';
 import { gitBackgroundFetchService } from './services/git-background-fetch.service';
@@ -897,7 +896,6 @@ function finishQuit(): void {
       logger.error('Error stopping watchers during quit', { error: String(err) });
     })
     .finally(() => {
-      databaseService.close();
       app.quit();
     });
 }

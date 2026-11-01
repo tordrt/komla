@@ -18,7 +18,6 @@ import { removePathSync } from '../../lib/remove-path';
 import { agentUsageService } from '../../services/agent-usage/agent-usage.service';
 import { announcementService, type Announcement } from '../../services/announcement.service';
 import { backgroundProcessService } from '../../services/background-process.service';
-import { databaseService } from '../../services/database.service';
 import { errorReportingService } from '../../services/error-reporting.service';
 import { feedbackService, FeedbackResult } from '../../services/feedback.service';
 import { notesService } from '../../services/notes.service';
@@ -262,7 +261,6 @@ export function registerAppHandlers(): void {
 
     // Delete all workspaces (cleans up worktrees on disk)
     await workspaceService.deleteAll();
-    databaseService.close();
 
     // Remove the entire komla data directory (maxRetries handles race conditions
     // with files being flushed by services that were just stopped)

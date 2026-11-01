@@ -52,7 +52,6 @@ type SshWorkspaceModule = typeof import('../../../src/main/services/ssh-workspac
 type SshWorkspaceGitModule = typeof import('../../../src/main/services/workspace-git/ssh-git');
 type SshPortForwardModule = typeof import('../../../src/main/services/ssh-port-forward.service');
 type SshHostModule = typeof import('../../../src/main/services/ssh-host.service');
-type DatabaseModule = typeof import('../../../src/main/services/database.service');
 type LocalMirrorModule = typeof import('../../../src/main/services/local-mirror.service');
 type RemoteCompanionModule = typeof import('../../../src/main/services/remote-companion.service');
 
@@ -62,7 +61,6 @@ let sshWorkspaceModule: SshWorkspaceModule;
 let sshWorkspaceGitModule: SshWorkspaceGitModule;
 let sshPortForwardModule: SshPortForwardModule;
 let sshHostModule: SshHostModule;
-let databaseModule: DatabaseModule;
 let localMirrorModule: LocalMirrorModule;
 let remoteCompanionModule: RemoteCompanionModule;
 
@@ -76,7 +74,6 @@ beforeAll(async () => {
     sshWorkspaceGitModule,
     sshPortForwardModule,
     sshHostModule,
-    databaseModule,
     localMirrorModule,
     remoteCompanionModule,
   ] = await Promise.all([
@@ -84,7 +81,6 @@ beforeAll(async () => {
     import('../../../src/main/services/workspace-git/ssh-git'),
     import('../../../src/main/services/ssh-port-forward.service'),
     import('../../../src/main/services/ssh-host.service'),
-    import('../../../src/main/services/database.service'),
     import('../../../src/main/services/local-mirror.service'),
     import('../../../src/main/services/remote-companion.service'),
   ]);
@@ -100,9 +96,6 @@ afterAll(async () => {
   }
   if (sshHostModule && target) {
     sshHostModule.sshHostService.delete(target.host.id);
-  }
-  if (databaseModule) {
-    databaseModule.databaseService.close();
   }
   if (container) {
     await teardownTestContainer(container);

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { PLUGIN_ID_PATTERN } from '../../../shared/types/plugins';
+import { PLUGIN_ID_PATTERN } from '../../types/plugins';
 
 export const pluginsListArgsSchema = z.tuple([]);
 export const pluginsSetEnabledArgsSchema = z.tuple([

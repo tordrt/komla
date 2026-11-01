@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { validateGitIdentity } from '../../../shared/lib/git-identity';
+import { validateGitIdentity } from '../../lib/git-identity';
 
 import {
   fileStatusSchema,

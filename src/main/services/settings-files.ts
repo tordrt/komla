@@ -4,6 +4,10 @@ import { join } from 'path';
 
 import { z } from 'zod';
 
+import {
+  levelPickerFields,
+  terminalUpdateSchema,
+} from '../../shared/ipc/schemas/config-ipc.schemas';
 import { levelPickerOf, storedLevelPicker } from '../../shared/lib/level-picker';
 import {
   MAX_REASONING_LEVEL_NAME_LENGTH,
@@ -12,7 +16,6 @@ import {
   type ReasoningLevel,
 } from '../../shared/types/agent-preset';
 import { HOOK_EVENT_LABELS, type HookEvent } from '../../shared/types/hooks';
-import { levelPickerFields, terminalUpdateSchema } from '../ipc/validation/config-ipc.schemas';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { parseSettingsFile } from '../lib/settings-file';
 

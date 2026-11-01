@@ -2,6 +2,14 @@ import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
 import {
+  statusButtonRunArgsSchema,
+  statusCommandRunArgsSchema,
+  statusCommandsListArgsSchema,
+  statusItemPopoverPageArgsSchema,
+  statusItemsListArgsSchema,
+  statusPopoverRunArgsSchema,
+} from '../../../shared/ipc/schemas/status-items-ipc.schemas';
+import {
   serveStatusPopoverPage,
   statusCommandsService,
 } from '../../services/status-commands.service';
@@ -9,14 +17,6 @@ import { statusItemsService } from '../../services/status-items.service';
 import { buildStatusPopoverPage } from '../../services/status-popover-page';
 import { windowService } from '../../services/window.service';
 import { handleValidated } from '../validation/ipc-validators';
-import {
-  statusButtonRunArgsSchema,
-  statusCommandRunArgsSchema,
-  statusCommandsListArgsSchema,
-  statusItemPopoverPageArgsSchema,
-  statusItemsListArgsSchema,
-  statusPopoverRunArgsSchema,
-} from '../validation/status-items-ipc.schemas';
 
 import type {
   StatusButtonRunResult,

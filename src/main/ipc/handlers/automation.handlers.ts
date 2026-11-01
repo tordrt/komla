@@ -1,14 +1,14 @@
 import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { automationService } from '../../services/automation.service';
 import {
   automationDeleteArgsSchema,
   automationListArgsSchema,
   automationRunNowArgsSchema,
   automationSaveArgsSchema,
   automationSetEnabledArgsSchema,
-} from '../validation/automation-ipc.schemas';
+} from '../../../shared/ipc/schemas/automation-ipc.schemas';
+import { automationService } from '../../services/automation.service';
 import { handleValidated } from '../validation/ipc-validators';
 
 import type {

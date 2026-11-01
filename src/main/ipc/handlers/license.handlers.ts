@@ -2,6 +2,11 @@ import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
 import {
+  licenseActivateArgsSchema,
+  licenseGetActivationsArgsSchema,
+  licenseRevokeActivationArgsSchema,
+} from '../../../shared/ipc/schemas/license-ipc.schemas';
+import {
   licenseService,
   LicenseStatus,
   LicenseActivation,
@@ -11,11 +16,6 @@ import {
 } from '../../services/license.service';
 import { workspaceService } from '../../services/workspace.service';
 import { handleValidated } from '../validation/ipc-validators';
-import {
-  licenseActivateArgsSchema,
-  licenseGetActivationsArgsSchema,
-  licenseRevokeActivationArgsSchema,
-} from '../validation/license-ipc.schemas';
 
 export function registerLicenseHandlers(): void {
   ipcMain.handle(IPC.LICENSE_GET_STATUS, async (): Promise<LicenseStatus> => {

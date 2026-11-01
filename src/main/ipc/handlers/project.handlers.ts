@@ -3,22 +3,6 @@ import { dirname } from 'path';
 import { ipcMain, BrowserWindow } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { canPromptForProjectIcon, hasWorkspaceFiles, isSshWorkspace } from '../../../shared/types';
-import { createLogger } from '../../lib/logger';
-import { actionService } from '../../services/action.service';
-import { detectInstalledAgents } from '../../services/agent-detection.service';
-import { agentPresetService, AgentPreset } from '../../services/agent-preset.service';
-import { devPreviewService } from '../../services/dev-preview.service';
-import { gitService } from '../../services/git';
-import {
-  chooseProjectIconFile,
-  scanProjectIcons,
-  scanWorkspaceIcons,
-} from '../../services/project-icon.service';
-import { projectService, Project } from '../../services/project.service';
-import { recordOpenedFolder, refreshRecentFolders } from '../../services/recent-folders.service';
-import { sshProjectSync } from '../../services/ssh-project-sync.service';
-import { workspaceService } from '../../services/workspace.service';
 import {
   presetAddActiveArgsSchema,
   presetBuildPromptArgsSchema,
@@ -49,7 +33,23 @@ import {
   projectCheckWorkspacesForCleanupArgsSchema,
   projectUpdateArgsSchema,
   projectValidateRepoArgsSchema,
-} from '../validation/config-ipc.schemas';
+} from '../../../shared/ipc/schemas/config-ipc.schemas';
+import { canPromptForProjectIcon, hasWorkspaceFiles, isSshWorkspace } from '../../../shared/types';
+import { createLogger } from '../../lib/logger';
+import { actionService } from '../../services/action.service';
+import { detectInstalledAgents } from '../../services/agent-detection.service';
+import { agentPresetService, AgentPreset } from '../../services/agent-preset.service';
+import { devPreviewService } from '../../services/dev-preview.service';
+import { gitService } from '../../services/git';
+import {
+  chooseProjectIconFile,
+  scanProjectIcons,
+  scanWorkspaceIcons,
+} from '../../services/project-icon.service';
+import { projectService, Project } from '../../services/project.service';
+import { recordOpenedFolder, refreshRecentFolders } from '../../services/recent-folders.service';
+import { sshProjectSync } from '../../services/ssh-project-sync.service';
+import { workspaceService } from '../../services/workspace.service';
 import { handleValidated } from '../validation/ipc-validators';
 
 import type {

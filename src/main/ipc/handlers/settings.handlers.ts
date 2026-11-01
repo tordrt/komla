@@ -1,16 +1,16 @@
 import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { settingsApprovalService } from '../../services/settings-approval.service';
-import { settingsHistoryService } from '../../services/settings-history.service';
-import { windowService } from '../../services/window.service';
-import { handleValidated } from '../validation/ipc-validators';
 import {
   settingsApprovalRequestPendingArgsSchema,
   settingsApprovalResolveArgsSchema,
   settingsHistoryListArgsSchema,
   settingsHistoryRevertArgsSchema,
-} from '../validation/settings-ipc.schemas';
+} from '../../../shared/ipc/schemas/settings-ipc.schemas';
+import { settingsApprovalService } from '../../services/settings-approval.service';
+import { settingsHistoryService } from '../../services/settings-history.service';
+import { windowService } from '../../services/window.service';
+import { handleValidated } from '../validation/ipc-validators';
 
 import type { SettingsHistoryEntry } from '../../../shared/types/settings-history';
 

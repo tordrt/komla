@@ -7,32 +7,6 @@ import { BrowserWindow, ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
 import {
-  WORKSPACE_LIMIT_ERROR_PREFIX,
-  DUPLICATE_WORKSPACE_ERROR_PREFIX,
-  SshProjectNeedsRemoteError,
-  isSshWorkspace,
-  type WorkspaceCreateBatchResult,
-  type WorkspaceCreateError,
-  type WorkspaceCreateResult,
-  type WorkspaceRestartResult,
-} from '../../../shared/types/workspace';
-import { createLogger } from '../../lib/logger';
-import { removePath } from '../../lib/remove-path';
-import { buildTerminalEnv } from '../../lib/shell';
-import { getConfiguredShellCommand } from '../../lib/shell-command';
-import { configService } from '../../services/config.service';
-import { localCopyService } from '../../services/local-copy.service';
-import { projectService } from '../../services/project.service';
-import { sshPortForwardService } from '../../services/ssh-port-forward.service';
-import { sshWorkspaceService } from '../../services/ssh-workspace.service';
-import {
-  workspaceLinksService,
-  type WorkspaceLinkPath,
-} from '../../services/workspace-links.service';
-import { workspaceService, Workspace, Terminal } from '../../services/workspace.service';
-import { worktreeWatcherService } from '../../services/worktree-watcher.service';
-import { handleValidated } from '../validation/ipc-validators';
-import {
   clearAttentionArgsSchema,
   clearTerminalAttentionArgsSchema,
   generateBranchNameArgsSchema,
@@ -73,7 +47,33 @@ import {
   workspaceUnlinkArgsSchema,
   workspaceUpdateArgsSchema,
   workspaceUpdateTerminalArgsSchema,
-} from '../validation/workspace-ipc.schemas';
+} from '../../../shared/ipc/schemas/workspace-ipc.schemas';
+import {
+  WORKSPACE_LIMIT_ERROR_PREFIX,
+  DUPLICATE_WORKSPACE_ERROR_PREFIX,
+  SshProjectNeedsRemoteError,
+  isSshWorkspace,
+  type WorkspaceCreateBatchResult,
+  type WorkspaceCreateError,
+  type WorkspaceCreateResult,
+  type WorkspaceRestartResult,
+} from '../../../shared/types/workspace';
+import { createLogger } from '../../lib/logger';
+import { removePath } from '../../lib/remove-path';
+import { buildTerminalEnv } from '../../lib/shell';
+import { getConfiguredShellCommand } from '../../lib/shell-command';
+import { configService } from '../../services/config.service';
+import { localCopyService } from '../../services/local-copy.service';
+import { projectService } from '../../services/project.service';
+import { sshPortForwardService } from '../../services/ssh-port-forward.service';
+import { sshWorkspaceService } from '../../services/ssh-workspace.service';
+import {
+  workspaceLinksService,
+  type WorkspaceLinkPath,
+} from '../../services/workspace-links.service';
+import { workspaceService, Workspace, Terminal } from '../../services/workspace.service';
+import { worktreeWatcherService } from '../../services/worktree-watcher.service';
+import { handleValidated } from '../validation/ipc-validators';
 
 import type { ManagedTmuxFindResult } from '../../../shared/lib/ssh-tmux-attach';
 import type { SshLinkForward, SshPreviewForward, SshWorkspaceBackend } from '../../../shared/types';

@@ -4,7 +4,7 @@ import {
   workspaceCommitDiffArgsSchema,
   workspaceCommitFileDiffArgsSchema,
   workspaceCommitGraphArgsSchema,
-} from '../../../../src/main/ipc/validation/git-ipc.schemas';
+} from '../../../../src/shared/ipc/schemas/git-ipc.schemas';
 
 const HASH = 'a'.repeat(40);
 

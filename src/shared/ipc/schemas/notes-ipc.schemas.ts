@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { NOTE_NAME_PATTERN, NOTES_SCOPE_PATTERN } from '../../../shared/lib/notes';
+import { NOTE_NAME_PATTERN, NOTES_SCOPE_PATTERN } from '../../lib/notes';
 
 import { safeStringSchema } from './primitives';
 

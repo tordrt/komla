@@ -1,22 +1,19 @@
 import { z } from 'zod';
 
-import { MAX_UTILITY_PROMPT_CHARS } from '../../../shared/constants/utility-prompts';
-import { MAX_ZOOM_LEVEL, MIN_ZOOM_LEVEL, snapZoomLevel } from '../../../shared/constants/zoom';
-import { ACTIVITY_SPINNER_STYLES } from '../../../shared/lib/activity-spinner';
-import {
-  MAX_PROJECT_ICON_DATA_URL_LENGTH,
-  PROJECT_ICON_DATA_URL,
-} from '../../../shared/lib/project-icon';
-import { REMOTE_PASSKEY_WINDOW_MINUTES } from '../../../shared/lib/remote-passkey-window';
-import { STATUS_BAR_SIZES } from '../../../shared/lib/status-bar-size';
-import { WORKSPACE_GROUPINGS } from '../../../shared/lib/workspace-grouping';
+import { MAX_UTILITY_PROMPT_CHARS } from '../../constants/utility-prompts';
+import { MAX_ZOOM_LEVEL, MIN_ZOOM_LEVEL, snapZoomLevel } from '../../constants/zoom';
+import { ACTIVITY_SPINNER_STYLES } from '../../lib/activity-spinner';
+import { MAX_PROJECT_ICON_DATA_URL_LENGTH, PROJECT_ICON_DATA_URL } from '../../lib/project-icon';
+import { REMOTE_PASSKEY_WINDOW_MINUTES } from '../../lib/remote-passkey-window';
+import { STATUS_BAR_SIZES } from '../../lib/status-bar-size';
+import { WORKSPACE_GROUPINGS } from '../../lib/workspace-grouping';
 import {
   isWorkspaceTagIcon,
   MAX_WORKSPACE_TAG_LENGTH,
   MAX_WORKSPACE_TAGS,
   PULL_REQUEST_TAG_STATES,
   WORKSPACE_TAG_TONES,
-} from '../../../shared/lib/workspace-tags';
+} from '../../lib/workspace-tags';
 import {
   ACTION_SSH_EXECUTION_LOCATIONS,
   isValidSshBasePath,
@@ -24,12 +21,9 @@ import {
   SETUP_DESTINATIONS,
   SETUP_STEP_PLACEMENTS,
   SETUP_TRIGGERS,
-} from '../../../shared/types';
-import {
-  LEVEL_PICKER_ICONS,
-  MAX_LEVEL_PICKER_TITLE_LENGTH,
-} from '../../../shared/types/agent-preset';
-import { SSH_PROJECT_SETTINGS_PARTS } from '../../../shared/types/ssh-project-manifest';
+} from '../../types';
+import { LEVEL_PICKER_ICONS, MAX_LEVEL_PICKER_TITLE_LENGTH } from '../../types/agent-preset';
+import { SSH_PROJECT_SETTINGS_PARTS } from '../../types/ssh-project-manifest';
 
 import { BRANCH_NAME_PATTERN, idSchema, nonEmptyStringSchema, safePathSchema } from './primitives';
 

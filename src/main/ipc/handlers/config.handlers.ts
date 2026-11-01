@@ -5,6 +5,29 @@ import { BrowserWindow, ipcMain, type WebContents } from 'electron';
 import { turnedOffQueuedCommands } from '../../../shared/constants/agent-capabilities';
 import { IPC } from '../../../shared/constants/ipc-channels';
 import {
+  categoryCreateArgsSchema,
+  categoryDeleteArgsSchema,
+  categoryUpdateArgsSchema,
+  configClearOpenRouterApiKeyArgsSchema,
+  configGetOpenRouterKeyStatusArgsSchema,
+  configSaveOpenRouterApiKeyArgsSchema,
+  configTestCustomEndpointArgsSchema,
+  configVerifySshHostArgsSchema,
+  sshDeleteHostArgsSchema,
+  configUpdateArgsSchema,
+  sshCheckHostArgsSchema,
+  sshDisableIntegrationArgsSchema,
+  sshSetKomlaSkillArgsSchema,
+  sshEnableIntegrationArgsSchema,
+  sshGetCachedIntegrationUpdatesArgsSchema,
+  sshGetIntegrationStatusArgsSchema,
+  sshGetPortForwardStatusArgsSchema,
+  sshListConfigHostsArgsSchema,
+  sshListForwardedPortsArgsSchema,
+  sshSaveHostArgsSchema,
+  sshStopDesktopForwardArgsSchema,
+} from '../../../shared/ipc/schemas/config-ipc.schemas';
+import {
   CustomEndpointTestResult,
   SshConfigHost,
   SshHost,
@@ -35,29 +58,6 @@ import { utilityInferenceService } from '../../services/utility-inference.servic
 import { utilitySecretService } from '../../services/utility-secret.service';
 import { windowService } from '../../services/window.service';
 import { workspaceService } from '../../services/workspace.service';
-import {
-  categoryCreateArgsSchema,
-  categoryDeleteArgsSchema,
-  categoryUpdateArgsSchema,
-  configClearOpenRouterApiKeyArgsSchema,
-  configGetOpenRouterKeyStatusArgsSchema,
-  configSaveOpenRouterApiKeyArgsSchema,
-  configTestCustomEndpointArgsSchema,
-  configVerifySshHostArgsSchema,
-  sshDeleteHostArgsSchema,
-  configUpdateArgsSchema,
-  sshCheckHostArgsSchema,
-  sshDisableIntegrationArgsSchema,
-  sshSetKomlaSkillArgsSchema,
-  sshEnableIntegrationArgsSchema,
-  sshGetCachedIntegrationUpdatesArgsSchema,
-  sshGetIntegrationStatusArgsSchema,
-  sshGetPortForwardStatusArgsSchema,
-  sshListConfigHostsArgsSchema,
-  sshListForwardedPortsArgsSchema,
-  sshSaveHostArgsSchema,
-  sshStopDesktopForwardArgsSchema,
-} from '../validation/config-ipc.schemas';
 import { handleValidated } from '../validation/ipc-validators';
 
 // The saving window gets the config as its reply; the others would keep a stale copy.

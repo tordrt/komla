@@ -1,13 +1,6 @@
 import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { actionService } from '../../services/action.service';
-import {
-  customizationService,
-  ThemeConfig,
-  TerminalConfig,
-} from '../../services/customization.service';
-import { shortcutsService, ShortcutsConfig } from '../../services/shortcuts.service';
 import {
   customizationUpdateTerminalArgsSchema,
   customizationUpdateThemeArgsSchema,
@@ -17,7 +10,14 @@ import {
   actionReorderArgsSchema,
   actionDeleteArgsSchema,
   actionRecordUsageArgsSchema,
-} from '../validation/config-ipc.schemas';
+} from '../../../shared/ipc/schemas/config-ipc.schemas';
+import { actionService } from '../../services/action.service';
+import {
+  customizationService,
+  ThemeConfig,
+  TerminalConfig,
+} from '../../services/customization.service';
+import { shortcutsService, ShortcutsConfig } from '../../services/shortcuts.service';
 import { handleValidated } from '../validation/ipc-validators';
 
 import type { Action } from '../../../shared/types';

@@ -6,13 +6,10 @@ import {
   MAX_BROWSER_TABS,
   MAX_BROWSER_URL_LENGTH,
   isBrowserUrl,
-} from '../../../shared/lib/browser-tabs';
-import { MAX_RECENT_LINKS } from '../../../shared/lib/recent-links';
-import {
-  MAX_WORKSPACE_TAG_LENGTH,
-  MAX_WORKSPACE_TAG_TOOLTIP,
-} from '../../../shared/lib/workspace-tags';
-import { MAX_PROMPT_ATTACHMENTS } from '../../../shared/types/workspace';
+} from '../../lib/browser-tabs';
+import { MAX_RECENT_LINKS } from '../../lib/recent-links';
+import { MAX_WORKSPACE_TAG_LENGTH, MAX_WORKSPACE_TAG_TOOLTIP } from '../../lib/workspace-tags';
+import { MAX_PROMPT_ATTACHMENTS } from '../../types/workspace';
 
 import {
   idSchema,

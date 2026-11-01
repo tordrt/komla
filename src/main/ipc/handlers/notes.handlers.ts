@@ -1,15 +1,15 @@
 import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { notesService } from '../../services/notes.service';
-import { windowService } from '../../services/window.service';
-import { handleValidated } from '../validation/ipc-validators';
 import {
   noteArgsSchema,
   noteDeleteArgsSchema,
   noteWriteArgsSchema,
   notesScopeArgsSchema,
-} from '../validation/notes-ipc.schemas';
+} from '../../../shared/ipc/schemas/notes-ipc.schemas';
+import { notesService } from '../../services/notes.service';
+import { windowService } from '../../services/window.service';
+import { handleValidated } from '../validation/ipc-validators';
 
 import type { NoteSummary } from '../../../shared/types/notes';
 

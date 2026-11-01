@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
+import { BRANCH_NAME_PATTERN } from '../../../../shared/ipc/schemas/primitives';
 import {
   ACTION_SSH_EXECUTION_LOCATIONS,
   SETTINGS_FILE_RESOURCES,
   SETUP_DESTINATIONS,
   SETUP_TRIGGERS,
 } from '../../../../shared/types';
-import { BRANCH_NAME_PATTERN } from '../../../ipc/validation/primitives';
 import { createLogger } from '../../../lib/logger';
 import {
   MAX_COLOR_LEN,

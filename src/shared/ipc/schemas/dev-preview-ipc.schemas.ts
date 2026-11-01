@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { isBrowserUrl } from '../../../shared/lib/browser-tabs';
+import { isBrowserUrl } from '../../lib/browser-tabs';
 
 import { idSchema } from './primitives';
 

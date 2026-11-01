@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 import {
+  OKLCH_CHANNELS,
   STATUS_ITEM_ID_PATTERN,
   STATUS_POPOVER_THEME_COLORS,
-} from '../../../shared/types/status-items';
-import { OKLCH_CHANNELS } from '../../services/status-popover-page';
+} from '../../types/status-items';
 
 import { idSchema } from './primitives';
 

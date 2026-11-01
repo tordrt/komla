@@ -105,6 +105,9 @@ export const STATUS_POPOVER_THEME_COLORS = [
 ] as const;
 export type StatusPopoverThemeColor = (typeof STATUS_POPOVER_THEME_COLORS)[number];
 
+/** OKLCH channels as Komla's themes write them, such as `0.72 0.17 150` or `0.5 0.1 250 / 40%`. */
+export const OKLCH_CHANNELS = /^[0-9.%\s/+-]{1,60}$/;
+
 /** The window's theme, for an HTML popover to match: each color as OKLCH channels. */
 export interface StatusPopoverTheme {
   scheme: 'light' | 'dark';

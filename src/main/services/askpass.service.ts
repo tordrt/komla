@@ -9,7 +9,7 @@ import { promisify } from 'util';
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
-import { askpassResponseArgsSchema } from '../ipc/validation/askpass-ipc.schemas';
+import { askpassResponseArgsSchema } from '../../shared/ipc/schemas/askpass-ipc.schemas';
 import { onValidated } from '../ipc/validation/ipc-validators';
 import { createLogger } from '../lib/logger';
 import { opensshMarksServerPrompts, sshKeyPathFromPrompt } from '../lib/ssh-askpass-prompt';

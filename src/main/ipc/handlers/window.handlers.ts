@@ -1,12 +1,6 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { customizationService } from '../../services/customization.service';
-import { localCopyService } from '../../services/local-copy.service';
-import { ptyService } from '../../services/pty.service';
-import { TITLE_BAR_OVERLAY_HEIGHT_PX, windowService } from '../../services/window.service';
-import { workspaceService } from '../../services/workspace.service';
-import { handleValidated, onValidated } from '../validation/ipc-validators';
 import {
   focusWorkspaceWindowArgsSchema,
   moveWorkspaceToWindowArgsSchema,
@@ -14,7 +8,13 @@ import {
   setShownWorkspaceArgsSchema,
   setTitleBarOverlayArgsSchema,
   setUnsavedFilesArgsSchema,
-} from '../validation/window-ipc.schemas';
+} from '../../../shared/ipc/schemas/window-ipc.schemas';
+import { customizationService } from '../../services/customization.service';
+import { localCopyService } from '../../services/local-copy.service';
+import { ptyService } from '../../services/pty.service';
+import { TITLE_BAR_OVERLAY_HEIGHT_PX, windowService } from '../../services/window.service';
+import { workspaceService } from '../../services/workspace.service';
+import { handleValidated, onValidated } from '../validation/ipc-validators';
 
 export function registerWindowHandlers(): void {
   ipcMain.handle(IPC.WINDOW_CREATE, async (): Promise<string> => {

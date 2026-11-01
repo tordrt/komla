@@ -1,9 +1,6 @@
 import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { ptyService, type PtyBufferSnapshot } from '../../services/pty.service';
-import { windowService } from '../../services/window.service';
-import { handleValidated, onValidated } from '../validation/ipc-validators';
 import {
   ptyAckArgsSchema,
   ptyGetBufferArgsSchema,
@@ -11,7 +8,10 @@ import {
   ptyResizeArgsSchema,
   terminalClaimSizeArgsSchema,
   terminalSetFocusArgsSchema,
-} from '../validation/terminal-ipc.schemas';
+} from '../../../shared/ipc/schemas/terminal-ipc.schemas';
+import { ptyService, type PtyBufferSnapshot } from '../../services/pty.service';
+import { windowService } from '../../services/window.service';
+import { handleValidated, onValidated } from '../validation/ipc-validators';
 
 export function registerTerminalHandlers(): void {
   ipcMain.on(

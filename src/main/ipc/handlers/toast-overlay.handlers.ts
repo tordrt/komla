@@ -1,14 +1,14 @@
 import { BrowserWindow, ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { toastOverlayService } from '../../services/toast-overlay.service';
-import { onValidated } from '../validation/ipc-validators';
 import {
   toastOverlayEventArgsSchema,
   toastOverlayHideArgsSchema,
   toastOverlayPointerUpArgsSchema,
   toastOverlayShowArgsSchema,
-} from '../validation/toast-overlay-ipc.schemas';
+} from '../../../shared/ipc/schemas/toast-overlay-ipc.schemas';
+import { toastOverlayService } from '../../services/toast-overlay.service';
+import { onValidated } from '../validation/ipc-validators';
 
 export function registerToastOverlayHandlers(): void {
   ipcMain.on(

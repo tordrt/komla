@@ -1,8 +1,6 @@
 import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { agentsMenuBarService } from '../../services/agents-menu-bar.service';
-import { windowService } from '../../services/window.service';
 import {
   agentsMenuBarCloseArgsSchema,
   agentsMenuBarImageArgsSchema,
@@ -10,7 +8,9 @@ import {
   agentsMenuBarResizeArgsSchema,
   agentsMenuBarStateRequestArgsSchema,
   agentsMenuBarThemeArgsSchema,
-} from '../validation/agents-menu-bar-ipc.schemas';
+} from '../../../shared/ipc/schemas/agents-menu-bar-ipc.schemas';
+import { agentsMenuBarService } from '../../services/agents-menu-bar.service';
+import { windowService } from '../../services/window.service';
 import { onValidated } from '../validation/ipc-validators';
 
 import type { IpcMainEvent } from 'electron';

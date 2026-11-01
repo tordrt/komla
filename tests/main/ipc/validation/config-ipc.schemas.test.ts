@@ -12,7 +12,7 @@ import {
   sshEnableIntegrationArgsSchema,
   sshGetIntegrationStatusArgsSchema,
   sshSaveHostArgsSchema,
-} from '../../../../src/main/ipc/validation/config-ipc.schemas';
+} from '../../../../src/shared/ipc/schemas/config-ipc.schemas';
 
 describe('sshDeleteHostArgsSchema', () => {
   it('preserves the remote data purge option', () => {

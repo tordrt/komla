@@ -1,10 +1,8 @@
 import {
+  OKLCH_CHANNELS,
   STATUS_POPOVER_THEME_COLORS,
   type StatusPopoverTheme,
 } from '../../shared/types/status-items';
-
-/** OKLCH channels as Komla's themes write them, such as `0.72 0.17 150` or `0.5 0.1 250 / 40%`. */
-export const OKLCH_CHANNELS = /^[0-9.%\s/+-]{1,60}$/;
 
 // Reports the page's height, so the popover fits it; Komla caps it and the page scrolls past that.
 // The root's box is as tall as what it holds, where its scrollHeight never drops below the frame.

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   toastOverlayEventArgsSchema,
   toastOverlayShowArgsSchema,
-} from '../../../../src/main/ipc/validation/toast-overlay-ipc.schemas';
+} from '../../../../src/shared/ipc/schemas/toast-overlay-ipc.schemas';
 
 const state = {
   bounds: { x: 900.5, y: 740, width: 284, height: 44 },

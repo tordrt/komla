@@ -3,26 +3,6 @@ import { dirname } from 'path';
 import { app, ipcMain, dialog, BrowserWindow } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { projectRepoPath } from '../../../shared/lib/project-repo-path';
-import { extractGitError } from '../../services/git/git-exec';
-import {
-  gitService,
-  WorktreeDiff,
-  FileDiffContent,
-  GitBranchQuickStatus,
-  RepoWebInfo,
-  BranchInfo,
-  CommitDiff,
-  BlameHunk,
-} from '../../services/git.service';
-import { checkGhAuth, createGithubRepo } from '../../services/github-cli';
-import { htmlPreviewService } from '../../services/html-preview.service';
-import { managedRepoService, RemoteStatus } from '../../services/managed-repo.service';
-import { projectService } from '../../services/project.service';
-import { pullRequestStatusService } from '../../services/pull-request-status.service';
-import { workspaceFileService } from '../../services/workspace-file.service';
-import { workspaceGitService } from '../../services/workspace-git.service';
-import { workspaceStatusService } from '../../services/workspace-status.service';
 import {
   copyDirectoryArgsSchema,
   copyFileArgsSchema,
@@ -95,7 +75,27 @@ import {
   workspaceCommitChangesArgsSchema,
   workspaceCreateBranchArgsSchema,
   workspaceSwitchBranchArgsSchema,
-} from '../validation/git-ipc.schemas';
+} from '../../../shared/ipc/schemas/git-ipc.schemas';
+import { projectRepoPath } from '../../../shared/lib/project-repo-path';
+import { extractGitError } from '../../services/git/git-exec';
+import {
+  gitService,
+  WorktreeDiff,
+  FileDiffContent,
+  GitBranchQuickStatus,
+  RepoWebInfo,
+  BranchInfo,
+  CommitDiff,
+  BlameHunk,
+} from '../../services/git.service';
+import { checkGhAuth, createGithubRepo } from '../../services/github-cli';
+import { htmlPreviewService } from '../../services/html-preview.service';
+import { managedRepoService, RemoteStatus } from '../../services/managed-repo.service';
+import { projectService } from '../../services/project.service';
+import { pullRequestStatusService } from '../../services/pull-request-status.service';
+import { workspaceFileService } from '../../services/workspace-file.service';
+import { workspaceGitService } from '../../services/workspace-git.service';
+import { workspaceStatusService } from '../../services/workspace-status.service';
 import { handleValidated } from '../validation/ipc-validators';
 import {
   assertNoNullBytes,

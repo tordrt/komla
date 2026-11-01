@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { AGENT_STATES_BY_URGENCY, type AgentState } from '../../../shared/lib/agent-state';
-import { AGENTS_MENU_BAR_IMAGE_MAX_DATA_URL_LENGTH } from '../../../shared/types';
+import { AGENT_STATES_BY_URGENCY, type AgentState } from '../../lib/agent-state';
+import { AGENTS_MENU_BAR_IMAGE_MAX_DATA_URL_LENGTH } from '../../types';
 
 import { idSchema } from './primitives';
 

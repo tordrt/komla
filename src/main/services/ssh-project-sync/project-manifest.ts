@@ -3,19 +3,19 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 import {
-  ACTION_SSH_EXECUTION_LOCATIONS,
-  SETUP_DESTINATIONS,
-  SETUP_STEP_PLACEMENTS,
-  SETUP_TRIGGERS,
-} from '../../../shared/types';
-import {
   agentPlacementSchema,
   aheadTargetActionSchema,
   behindTargetActionSchema,
   projectIconSchema,
   simpleAheadActionSchema,
-} from '../../ipc/validation/config-ipc.schemas';
-import { idSchema } from '../../ipc/validation/primitives';
+} from '../../../shared/ipc/schemas/config-ipc.schemas';
+import { idSchema } from '../../../shared/ipc/schemas/primitives';
+import {
+  ACTION_SSH_EXECUTION_LOCATIONS,
+  SETUP_DESTINATIONS,
+  SETUP_STEP_PLACEMENTS,
+  SETUP_TRIGGERS,
+} from '../../../shared/types';
 import { gitRemoteIdentity } from '../../lib/git-remote-identity';
 import { withSortedKeys } from '../ssh-workspace-sync/workspace-manifest';
 

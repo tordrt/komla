@@ -1,10 +1,10 @@
 import { ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
+import { telemetryTrackSshHostAddedArgsSchema } from '../../../shared/ipc/schemas/telemetry-ipc.schemas';
 import { createLogger } from '../../lib/logger';
 import { telemetryService } from '../../services/telemetry.service';
 import { handleValidated } from '../validation/ipc-validators';
-import { telemetryTrackSshHostAddedArgsSchema } from '../validation/telemetry-ipc.schemas';
 
 const logger = createLogger('TelemetryHandlers');
 

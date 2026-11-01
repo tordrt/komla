@@ -1,16 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { createLogger } from '../../lib/logger';
-import { devPreviewServiceDetector } from '../../services/dev-preview-services';
-import { devPreviewService } from '../../services/dev-preview.service';
-import { linkPreviewService } from '../../services/link-preview';
-import { projectService } from '../../services/project.service';
-import {
-  forgetVirtualDesktops,
-  openSavedDesktopInVncApp,
-} from '../../services/virtual-desktop.service';
-import { workspaceService } from '../../services/workspace.service';
 import {
   devPreviewCaptureArgsSchema,
   devPreviewClearSiteDataArgsSchema,
@@ -24,7 +14,17 @@ import {
   linkPreviewImageArgsSchema,
   virtualDesktopForgetArgsSchema,
   virtualDesktopOpenInVncAppArgsSchema,
-} from '../validation/dev-preview-ipc.schemas';
+} from '../../../shared/ipc/schemas/dev-preview-ipc.schemas';
+import { createLogger } from '../../lib/logger';
+import { devPreviewServiceDetector } from '../../services/dev-preview-services';
+import { devPreviewService } from '../../services/dev-preview.service';
+import { linkPreviewService } from '../../services/link-preview';
+import { projectService } from '../../services/project.service';
+import {
+  forgetVirtualDesktops,
+  openSavedDesktopInVncApp,
+} from '../../services/virtual-desktop.service';
+import { workspaceService } from '../../services/workspace.service';
 import { handleValidated, onValidated } from '../validation/ipc-validators';
 
 import type { DevPreviewServiceDetection, LinkPreview } from '../../../shared/types';

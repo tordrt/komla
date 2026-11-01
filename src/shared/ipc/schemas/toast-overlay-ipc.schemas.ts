@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { TOAST_OVERLAY_MESSAGE_MAX_LENGTH } from '../../../shared/types';
+import { TOAST_OVERLAY_MESSAGE_MAX_LENGTH } from '../../types';
 
 import { idSchema } from './primitives';
 

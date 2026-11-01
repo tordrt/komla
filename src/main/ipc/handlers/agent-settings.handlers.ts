@@ -6,6 +6,7 @@ import { ipcMain } from 'electron';
 import { AGENTS_WITH_AUTO_INTEGRATIONS } from '../../../shared/constants/agents';
 import { IPC } from '../../../shared/constants/ipc-channels';
 import { buildSkillFetchInstruction } from '../../../shared/constants/skill-fetch-instruction';
+import { komlaSkillArgsSchema } from '../../../shared/ipc/schemas/config-ipc.schemas';
 import { getNotifyHelper, isKomlaCliBlocked } from '../../lib/komla-cli';
 import { antigravitySettingsService } from '../../services/antigravity-settings.service';
 import { claudeSettingsService } from '../../services/claude-settings.service';
@@ -16,7 +17,6 @@ import { komlaSkillService } from '../../services/komla-skill.service';
 import { opencodeSettingsService } from '../../services/opencode-settings.service';
 import { getKomlaBasePath } from '../../services/paths';
 import { sshWorkspaceService } from '../../services/ssh-workspace.service';
-import { komlaSkillArgsSchema } from '../validation/config-ipc.schemas';
 import { handleValidated } from '../validation/ipc-validators';
 
 import type { KomlaSkillStatus } from '../../../shared/types/komla-skill';

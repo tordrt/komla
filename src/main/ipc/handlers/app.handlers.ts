@@ -14,6 +14,15 @@ import { join } from 'path';
 import { app, clipboard, ipcMain, nativeImage, type NativeImage } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
+import {
+  agentUsageRefreshArgsSchema,
+  clipboardImportImageArgsSchema,
+  resourceUsageArgsSchema,
+} from '../../../shared/ipc/schemas/app-ipc.schemas';
+import {
+  errorReportArgsSchema,
+  feedbackSendArgsSchema,
+} from '../../../shared/ipc/schemas/config-ipc.schemas';
 import { removePathSync } from '../../lib/remove-path';
 import { agentUsageService } from '../../services/agent-usage/agent-usage.service';
 import { announcementService, type Announcement } from '../../services/announcement.service';
@@ -28,12 +37,6 @@ import { updateService } from '../../services/update.service';
 import { workspaceFileService } from '../../services/workspace-file.service';
 import { workspaceService } from '../../services/workspace.service';
 import { worktreeWatcherService } from '../../services/worktree-watcher.service';
-import {
-  agentUsageRefreshArgsSchema,
-  clipboardImportImageArgsSchema,
-  resourceUsageArgsSchema,
-} from '../validation/app-ipc.schemas';
-import { errorReportArgsSchema, feedbackSendArgsSchema } from '../validation/config-ipc.schemas';
 import { handleValidated } from '../validation/ipc-validators';
 
 import type { AgentUsage } from '../../../shared/types/agent-usage';

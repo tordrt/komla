@@ -4,12 +4,12 @@ import { existsSync } from 'fs';
 import { app, ipcMain, shell } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { detectWslDistros } from '../../lib/wsl';
 import {
   shellOpenExternalArgsSchema,
   shellOpenInEditorArgsSchema,
   shellPathArgsSchema,
-} from '../validation/config-ipc.schemas';
+} from '../../../shared/ipc/schemas/config-ipc.schemas';
+import { detectWslDistros } from '../../lib/wsl';
 import { handleValidated } from '../validation/ipc-validators';
 
 interface KnownEditor {

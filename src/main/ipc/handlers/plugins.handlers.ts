@@ -3,15 +3,15 @@ import { mkdirSync } from 'fs';
 import { ipcMain, shell } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { createLogger } from '../../lib/logger';
-import { getPluginsPath, pluginsService } from '../../services/plugins.service';
-import { windowService } from '../../services/window.service';
-import { handleValidated } from '../validation/ipc-validators';
 import {
   pluginsListArgsSchema,
   pluginsOpenFolderArgsSchema,
   pluginsSetEnabledArgsSchema,
-} from '../validation/plugins-ipc.schemas';
+} from '../../../shared/ipc/schemas/plugins-ipc.schemas';
+import { createLogger } from '../../lib/logger';
+import { getPluginsPath, pluginsService } from '../../services/plugins.service';
+import { windowService } from '../../services/window.service';
+import { handleValidated } from '../validation/ipc-validators';
 
 import type { PluginInfo } from '../../../shared/types/plugins';
 

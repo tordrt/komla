@@ -8,7 +8,7 @@ import {
   devPreviewNavigateArgsSchema,
   devPreviewReloadArgsSchema,
   devPreviewSyncArgsSchema,
-} from '../../../../src/main/ipc/validation/dev-preview-ipc.schemas';
+} from '../../../../src/shared/ipc/schemas/dev-preview-ipc.schemas';
 
 describe('dev preview IPC schemas', () => {
   it('accepts finite DOM bounds for any web page in a tab', () => {

@@ -2430,7 +2430,7 @@ const api = {
   reportError: (error: {
     message: string;
     stack?: string;
-    type: string;
+    type: 'uncaughtException' | 'unhandledRejection' | 'errorBoundary';
     context?: Record<string, unknown>;
   }): Promise<void> => ipcRenderer.invoke(IPC.ERROR_REPORT, error),
 

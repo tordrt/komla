@@ -11,20 +11,9 @@ import {
 import { cpus, totalmem } from 'os';
 import { join } from 'path';
 
-import { app, clipboard, ipcMain, nativeImage, type NativeImage } from 'electron';
+import { app, clipboard, nativeImage, type NativeImage } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  agentUsageRefreshArgsSchema,
-  announcementsDismissArgsSchema,
-  clipboardImportImageArgsSchema,
-  clipboardWriteTextArgsSchema,
-  resourceUsageArgsSchema,
-} from '../../../shared/ipc/schemas/app-ipc.schemas';
-import {
-  errorReportArgsSchema,
-  feedbackSendArgsSchema,
-} from '../../../shared/ipc/schemas/config-ipc.schemas';
 import { removePathSync } from '../../lib/remove-path';
 import { agentUsageService } from '../../services/agent-usage/agent-usage.service';
 import { announcementService, type Announcement } from '../../services/announcement.service';
@@ -39,7 +28,7 @@ import { updateService } from '../../services/update.service';
 import { workspaceFileService } from '../../services/workspace-file.service';
 import { workspaceService } from '../../services/workspace.service';
 import { worktreeWatcherService } from '../../services/worktree-watcher.service';
-import { handleValidated } from '../validation/ipc-validators';
+import { handleIpc } from '../validation/ipc-validators';
 
 import type { AgentUsage } from '../../../shared/types/agent-usage';
 import type { MachineResourceUsage } from '../../../shared/types/resource-usage';
@@ -148,31 +137,20 @@ export async function importClipboardImage(
 }
 
 export function registerAppHandlers(): void {
-  ipcMain.handle(IPC.APP_GET_SYSTEM_METRICS, async (): Promise<SystemMetrics> => {
+  handleIpc(IPC.APP_GET_SYSTEM_METRICS, async (): Promise<SystemMetrics> => {
     return getSystemMetrics();
   });
 
-  ipcMain.handle(
-    IPC.RESOURCE_USAGE_GET,
-    handleValidated(
-      IPC.RESOURCE_USAGE_GET,
-      resourceUsageArgsSchema,
-      (_, [hostId, options]): Promise<MachineResourceUsage> =>
-        resourceUsageService.get(hostId, options)
-    )
+  handleIpc(IPC.RESOURCE_USAGE_GET, (_, [hostId, options]): Promise<MachineResourceUsage> =>
+    resourceUsageService.get(hostId, options)
   );
 
-  ipcMain.handle(IPC.AGENT_USAGE_GET, (): AgentUsage => agentUsageService.get());
-  ipcMain.handle(
-    IPC.AGENT_USAGE_REFRESH,
-    handleValidated(
-      IPC.AGENT_USAGE_REFRESH,
-      agentUsageRefreshArgsSchema,
-      (_, [options]): Promise<AgentUsage> => agentUsageService.refresh(options)
-    )
+  handleIpc(IPC.AGENT_USAGE_GET, (): AgentUsage => agentUsageService.get());
+  handleIpc(IPC.AGENT_USAGE_REFRESH, (_, [options]): Promise<AgentUsage> =>
+    agentUsageService.refresh(options)
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.APP_GET_HOST_RESOURCES,
     async (): Promise<{ cpuCount: number; totalMemoryGB: number }> => ({
       cpuCount: cpus().length,
@@ -181,79 +159,62 @@ export function registerAppHandlers(): void {
   );
 
   // Announcement handlers
-  ipcMain.handle(IPC.ANNOUNCEMENTS_GET, async (): Promise<Announcement[]> => {
+  handleIpc(IPC.ANNOUNCEMENTS_GET, async (): Promise<Announcement[]> => {
     return announcementService.getActive();
   });
 
-  ipcMain.handle(
-    IPC.ANNOUNCEMENTS_DISMISS,
-    handleValidated(
-      IPC.ANNOUNCEMENTS_DISMISS,
-      announcementsDismissArgsSchema,
-      async (_, [id]): Promise<void> => {
-        announcementService.dismiss(id);
-      }
-    )
-  );
+  handleIpc(IPC.ANNOUNCEMENTS_DISMISS, async (_, [id]): Promise<void> => {
+    announcementService.dismiss(id);
+  });
 
   // Update handlers
-  ipcMain.handle(IPC.APP_GET_VERSION, async (): Promise<string> => {
+  handleIpc(IPC.APP_GET_VERSION, async (): Promise<string> => {
     return app.getVersion();
   });
 
-  ipcMain.handle(IPC.APP_GET_BASE_PATH, async (): Promise<string> => {
+  handleIpc(IPC.APP_GET_BASE_PATH, async (): Promise<string> => {
     return getKomlaBasePath();
   });
 
-  ipcMain.handle(IPC.APP_INSTALL_UPDATE, async (): Promise<void> => {
+  handleIpc(IPC.APP_INSTALL_UPDATE, async (): Promise<void> => {
     updateService.installUpdate();
   });
 
-  ipcMain.handle(IPC.APP_CHECK_UPDATES, async (): Promise<void> => {
+  handleIpc(IPC.APP_CHECK_UPDATES, async (): Promise<void> => {
     updateService.checkForUpdates();
   });
 
-  ipcMain.handle(IPC.APP_DOWNLOAD_UPDATE, async (): Promise<void> => {
+  handleIpc(IPC.APP_DOWNLOAD_UPDATE, async (): Promise<void> => {
     updateService.downloadUpdate();
   });
 
   // Feedback handlers
-  ipcMain.handle(IPC.FEEDBACK_SELECT_SCREENSHOTS, async (): Promise<string[]> => {
+  handleIpc(IPC.FEEDBACK_SELECT_SCREENSHOTS, async (): Promise<string[]> => {
     return feedbackService.selectScreenshots();
   });
 
-  ipcMain.handle(
-    IPC.FEEDBACK_SEND,
-    handleValidated(
-      IPC.FEEDBACK_SEND,
-      feedbackSendArgsSchema,
-      async (_, [payload]): Promise<FeedbackResult> => {
-        return feedbackService.sendFeedback(payload);
-      }
-    )
-  );
+  handleIpc(IPC.FEEDBACK_SEND, async (_, [payload]): Promise<FeedbackResult> => {
+    return feedbackService.sendFeedback(payload);
+  });
 
   // Error reporting handler (from renderer process)
-  ipcMain.handle(
-    IPC.ERROR_REPORT,
-    handleValidated(IPC.ERROR_REPORT, errorReportArgsSchema, async (_, [error]) => {
-      const err = new Error(error.message);
-      err.stack = error.stack;
-      await errorReportingService.report(err, error.type, error.context);
-    })
-  );
+  handleIpc(IPC.ERROR_REPORT, async (_, [error]) => {
+    const err = new Error(error.message);
+    err.stack = error.stack;
+    await errorReportingService.report(err, error.type, error.context);
+  });
 
   // Data management handlers
-  ipcMain.handle(IPC.DATA_DELETE_ALL_WORKSPACES, async (): Promise<void> => {
+  handleIpc(IPC.DATA_DELETE_ALL_WORKSPACES, async (): Promise<void> => {
     await workspaceService.deleteAll();
   });
 
-  ipcMain.handle(IPC.DATA_CLEAR_LOGS, async (): Promise<void> => {
+  handleIpc(IPC.DATA_CLEAR_LOGS, async (): Promise<void> => {
     const logsPath = join(getKomlaBasePath(), 'logs');
     rmSync(logsPath, { recursive: true, force: true });
   });
 
-  ipcMain.handle(IPC.DATA_RESET_APP, async (): Promise<void> => {
+  handleIpc(IPC.DATA_RESET_APP, async (): Promise<void> => {
     const basePath = getKomlaBasePath();
     const licensePath = join(basePath, 'license.json');
 
@@ -290,31 +251,20 @@ export function registerAppHandlers(): void {
   });
 
   // Clipboard handlers
-  ipcMain.handle(
-    IPC.CLIPBOARD_WRITE_TEXT,
-    handleValidated(
-      IPC.CLIPBOARD_WRITE_TEXT,
-      clipboardWriteTextArgsSchema,
-      async (_, [text]): Promise<void> => {
-        await clipboard.writeText(text);
-      }
-    )
-  );
+  handleIpc(IPC.CLIPBOARD_WRITE_TEXT, async (_, [text]): Promise<void> => {
+    await clipboard.writeText(text);
+  });
 
-  ipcMain.handle(IPC.CLIPBOARD_READ_TEXT, async (): Promise<string> => {
+  handleIpc(IPC.CLIPBOARD_READ_TEXT, async (): Promise<string> => {
     return clipboard.readText();
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.CLIPBOARD_IMPORT_IMAGE,
-    handleValidated(
-      IPC.CLIPBOARD_IMPORT_IMAGE,
-      clipboardImportImageArgsSchema,
-      async (_, [workspaceId, executionLocation]): Promise<string | null> => {
-        return importClipboardImage(workspaceId, executionLocation);
-      }
-    )
+    async (_, [workspaceId, executionLocation]): Promise<string | null> => {
+      return importClipboardImage(workspaceId, executionLocation);
+    }
   );
 
-  ipcMain.handle(IPC.CLIPBOARD_STAGE_IMAGE, (): Promise<string | null> => stageClipboardImage());
+  handleIpc(IPC.CLIPBOARD_STAGE_IMAGE, (): Promise<string | null> => stageClipboardImage());
 }

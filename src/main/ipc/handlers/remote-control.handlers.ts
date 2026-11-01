@@ -1,16 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 
-import { ipcMain } from 'electron';
-
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  pairedDevicesRemoveArgsSchema,
-  pairedDevicesRenameArgsSchema,
-  remoteControlDirectStartArgsSchema,
-  remoteControlDisconnectActiveArgsSchema,
-  remoteControlHostAccessSetArgsSchema,
-} from '../../../shared/ipc/schemas/remote-control-ipc.schemas';
 import { tailscaleCommand, type TailscaleCommand } from '../../lib/tailscale-command';
 import { configService } from '../../services/config.service';
 import { pairedDeviceRegistryService } from '../../services/paired-device-registry.service';
@@ -26,7 +17,7 @@ import {
   remoteControlTailscaleService,
 } from '../../services/remote-control-tailscale.service';
 import { windowService } from '../../services/window.service';
-import { handleValidated } from '../validation/ipc-validators';
+import { handleIpc } from '../validation/ipc-validators';
 
 import type { PairedDeviceRecord } from '../../../shared/types/paired-device';
 import type {
@@ -43,41 +34,30 @@ const CONNECTED_BACKEND_STATES = new Set(['Running', 'Starting']);
 const execFileAsync = promisify(execFile);
 
 export function registerRemoteControlHandlers(): void {
-  ipcMain.handle(
-    IPC.REMOTE_CONTROL_DISCONNECT_ACTIVE,
-    handleValidated(
-      IPC.REMOTE_CONTROL_DISCONNECT_ACTIVE,
-      remoteControlDisconnectActiveArgsSchema,
-      async (): Promise<void> => {
-        const { remoteControlDirectService } =
-          await import('../../services/remote-control-direct.service');
-        remoteControlDirectService.disconnectActiveClient();
-      }
-    )
-  );
+  handleIpc(IPC.REMOTE_CONTROL_DISCONNECT_ACTIVE, async (): Promise<void> => {
+    const { remoteControlDirectService } =
+      await import('../../services/remote-control-direct.service');
+    remoteControlDirectService.disconnectActiveClient();
+  });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.REMOTE_CONTROL_DIRECT_START,
-    handleValidated(
-      IPC.REMOTE_CONTROL_DIRECT_START,
-      remoteControlDirectStartArgsSchema,
-      async (_evt, [options]): Promise<RemoteControlDirectServerInfo> => {
-        const { remoteControlDirectService } =
-          await import('../../services/remote-control-direct.service');
-        const config = configService.get();
-        const publicOrigin = options?.publicOrigin ?? config.directRemotePublicOrigin;
-        const server = await remoteControlDirectService.start({
-          ...options,
-          port: config.directRemotePort,
-          publicOrigin,
-        });
-        persistDirectServerConfig(server, publicOrigin);
-        return server;
-      }
-    )
+    async (_evt, [options]): Promise<RemoteControlDirectServerInfo> => {
+      const { remoteControlDirectService } =
+        await import('../../services/remote-control-direct.service');
+      const config = configService.get();
+      const publicOrigin = options?.publicOrigin ?? config.directRemotePublicOrigin;
+      const server = await remoteControlDirectService.start({
+        ...options,
+        port: config.directRemotePort,
+        publicOrigin,
+      });
+      persistDirectServerConfig(server, publicOrigin);
+      return server;
+    }
   );
 
-  ipcMain.handle(IPC.REMOTE_CONTROL_DIRECT_STOP, async (): Promise<void> => {
+  handleIpc(IPC.REMOTE_CONTROL_DIRECT_STOP, async (): Promise<void> => {
     const { remoteControlDirectService } =
       await import('../../services/remote-control-direct.service');
     const config = configService.get();
@@ -105,76 +85,68 @@ export function registerRemoteControlHandlers(): void {
     }
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.REMOTE_CONTROL_DIRECT_START_PAIRING,
-    handleValidated(
-      IPC.REMOTE_CONTROL_DIRECT_START_PAIRING,
-      remoteControlDirectStartArgsSchema,
-      async (_evt, [options]): Promise<RemoteControlDirectPairingOffer> => {
-        const { remoteControlDirectService } =
-          await import('../../services/remote-control-direct.service');
-        const config = configService.get();
-        const publicOrigin = options?.publicOrigin ?? config.directRemotePublicOrigin;
-        const offer = await remoteControlDirectService.startPairing({
-          ...options,
-          port: config.directRemotePort,
-          publicOrigin,
-        });
-        const server = remoteControlDirectService.getInfo();
-        if (server) persistDirectServerConfig(server, publicOrigin);
-        return offer;
-      }
-    )
+    async (_evt, [options]): Promise<RemoteControlDirectPairingOffer> => {
+      const { remoteControlDirectService } =
+        await import('../../services/remote-control-direct.service');
+      const config = configService.get();
+      const publicOrigin = options?.publicOrigin ?? config.directRemotePublicOrigin;
+      const offer = await remoteControlDirectService.startPairing({
+        ...options,
+        port: config.directRemotePort,
+        publicOrigin,
+      });
+      const server = remoteControlDirectService.getInfo();
+      if (server) persistDirectServerConfig(server, publicOrigin);
+      return offer;
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.REMOTE_CONTROL_DIRECT_START_TAILSCALE_SERVE,
-    handleValidated(
-      IPC.REMOTE_CONTROL_DIRECT_START_TAILSCALE_SERVE,
-      remoteControlDirectStartArgsSchema,
-      async (_evt, [options]): Promise<RemoteControlDirectTailscaleServeResult> => {
-        if (!options?.publicOrigin) {
-          throw new Error('Enter a Tailscale HTTPS origin before starting Tailscale Serve');
-        }
-        const { remoteControlDirectService } =
-          await import('../../services/remote-control-direct.service');
-        const config = configService.get();
-        const preferredPort = config.directRemotePort ?? 52864;
-        const existingServer = remoteControlDirectService.getInfo();
-        const initialPublicOrigin = normalizeTailscaleServeOrigin(options.publicOrigin);
-        const server = await remoteControlDirectService.start({
-          port: preferredPort,
-          publicOrigin: initialPublicOrigin,
-        });
-        const publicOrigin = initialPublicOrigin;
-        const managedOrigin = config.directRemoteManagedTailscaleOrigin;
-        let commandArgs: string[];
-        try {
-          commandArgs = await remoteControlTailscaleService.configure(
-            publicOrigin,
-            server.port,
-            managedOrigin
-          );
-        } catch (err) {
-          if (existingServer) {
-            remoteControlDirectService.setPublicOrigin(
-              existingServer.httpOrigin === existingServer.localOrigin
-                ? undefined
-                : existingServer.httpOrigin
-            );
-          } else {
-            await remoteControlDirectService.stop();
-            syncKeepAwake(configService.get());
-          }
-          throw new Error(formatTailscaleServeError(err));
-        }
-        persistDirectServerConfig(server, publicOrigin, publicOrigin);
-        return { server, command: formatCommand(tailscaleCommand().display, commandArgs) };
+    async (_evt, [options]): Promise<RemoteControlDirectTailscaleServeResult> => {
+      if (!options?.publicOrigin) {
+        throw new Error('Enter a Tailscale HTTPS origin before starting Tailscale Serve');
       }
-    )
+      const { remoteControlDirectService } =
+        await import('../../services/remote-control-direct.service');
+      const config = configService.get();
+      const preferredPort = config.directRemotePort ?? 52864;
+      const existingServer = remoteControlDirectService.getInfo();
+      const initialPublicOrigin = normalizeTailscaleServeOrigin(options.publicOrigin);
+      const server = await remoteControlDirectService.start({
+        port: preferredPort,
+        publicOrigin: initialPublicOrigin,
+      });
+      const publicOrigin = initialPublicOrigin;
+      const managedOrigin = config.directRemoteManagedTailscaleOrigin;
+      let commandArgs: string[];
+      try {
+        commandArgs = await remoteControlTailscaleService.configure(
+          publicOrigin,
+          server.port,
+          managedOrigin
+        );
+      } catch (err) {
+        if (existingServer) {
+          remoteControlDirectService.setPublicOrigin(
+            existingServer.httpOrigin === existingServer.localOrigin
+              ? undefined
+              : existingServer.httpOrigin
+          );
+        } else {
+          await remoteControlDirectService.stop();
+          syncKeepAwake(configService.get());
+        }
+        throw new Error(formatTailscaleServeError(err));
+      }
+      persistDirectServerConfig(server, publicOrigin, publicOrigin);
+      return { server, command: formatCommand(tailscaleCommand().display, commandArgs) };
+    }
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.REMOTE_CONTROL_DIRECT_GET_TAILSCALE_STATUS,
     async (): Promise<RemoteControlDirectTailscaleStatus> => {
       const { remoteControlDirectService } =
@@ -221,41 +193,34 @@ export function registerRemoteControlHandlers(): void {
     }
   );
 
-  ipcMain.handle(IPC.REMOTE_CONTROL_DIRECT_CANCEL_PAIRING, async (): Promise<void> => {
+  handleIpc(IPC.REMOTE_CONTROL_DIRECT_CANCEL_PAIRING, async (): Promise<void> => {
     const { remoteControlDirectService } =
       await import('../../services/remote-control-direct.service');
     remoteControlDirectService.cancelPairing();
   });
 
-  ipcMain.handle(
-    IPC.REMOTE_CONTROL_DIRECT_GET_STATE,
-    async (): Promise<RemoteControlDirectState> => {
-      await startPersistedDirectRemoteServer('state-read');
-      const { remoteControlDirectService } =
-        await import('../../services/remote-control-direct.service');
-      return remoteControlDirectService.getState();
-    }
-  );
+  handleIpc(IPC.REMOTE_CONTROL_DIRECT_GET_STATE, async (): Promise<RemoteControlDirectState> => {
+    await startPersistedDirectRemoteServer('state-read');
+    const { remoteControlDirectService } =
+      await import('../../services/remote-control-direct.service');
+    return remoteControlDirectService.getState();
+  });
 
   // Paired-device registry surface. The list is empty until a successful
   // pairing lands.
-  ipcMain.handle(IPC.PAIRED_DEVICES_LIST, async (): Promise<PairedDeviceRecord[]> => {
+  handleIpc(IPC.PAIRED_DEVICES_LIST, async (): Promise<PairedDeviceRecord[]> => {
     return pairedDeviceRegistryService.list();
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.REMOTE_CONTROL_HOST_ACCESS_LIST,
     async (): Promise<RemoteControlHostAccessStatus[]> => remoteControlHostAccessService.list()
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC.REMOTE_CONTROL_HOST_ACCESS_SET,
-    handleValidated(
-      IPC.REMOTE_CONTROL_HOST_ACCESS_SET,
-      remoteControlHostAccessSetArgsSchema,
-      async (_evt, [{ hostId, enabled }]): Promise<RemoteControlHostAccessStatus> =>
-        remoteControlHostAccessService.setEnabled(hostId, enabled)
-    )
+    async (_evt, [{ hostId, enabled }]): Promise<RemoteControlHostAccessStatus> =>
+      remoteControlHostAccessService.setEnabled(hostId, enabled)
   );
 
   remoteControlHostAccessService.onChange(() => {
@@ -265,34 +230,21 @@ export function registerRemoteControlHandlers(): void {
     );
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC.PAIRED_DEVICES_RENAME,
-    handleValidated(
-      IPC.PAIRED_DEVICES_RENAME,
-      pairedDevicesRenameArgsSchema,
-      async (_evt, [{ credentialId, label }]): Promise<PairedDeviceRecord> =>
-        pairedDeviceRegistryService.rename(credentialId, label)
-    )
+    async (_evt, [{ credentialId, label }]): Promise<PairedDeviceRecord> =>
+      pairedDeviceRegistryService.rename(credentialId, label)
   );
 
-  ipcMain.handle(
-    IPC.PAIRED_DEVICES_REMOVE,
-    handleValidated(
-      IPC.PAIRED_DEVICES_REMOVE,
-      pairedDevicesRemoveArgsSchema,
-      async (_evt, [{ credentialId }]): Promise<void> => {
-        const [{ remoteControlDirectService }, { remoteControlSessionService }] = await Promise.all(
-          [
-            import('../../services/remote-control-direct.service'),
-            import('../../services/remote-control-session.service'),
-          ]
-        );
-        remoteControlDirectService.disconnectCredential(credentialId);
-        remoteControlSessionService.releaseDeviceLeases(credentialId);
-        pairedDeviceRegistryService.remove(credentialId);
-      }
-    )
-  );
+  handleIpc(IPC.PAIRED_DEVICES_REMOVE, async (_evt, [{ credentialId }]): Promise<void> => {
+    const [{ remoteControlDirectService }, { remoteControlSessionService }] = await Promise.all([
+      import('../../services/remote-control-direct.service'),
+      import('../../services/remote-control-session.service'),
+    ]);
+    remoteControlDirectService.disconnectCredential(credentialId);
+    remoteControlSessionService.releaseDeviceLeases(credentialId);
+    pairedDeviceRegistryService.remove(credentialId);
+  });
 
   // Broadcast list changes to every window so the Settings panel updates
   // live on add / rename / remove / recordAuthSuccess.

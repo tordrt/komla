@@ -395,6 +395,103 @@ describe('SidebarFileTree context menu actions', () => {
     vi.useRealTimers();
   });
 
+  it('refreshes a remote file list slowly while only imported files need it', async () => {
+    vi.useFakeTimers();
+    const workingDirectory = 'ssh://ssh-dev/home/dev/repo';
+    useFileListStore.setState({
+      cache: new Map([
+        [
+          workingDirectory,
+          {
+            files: ['.komla-files/design.png'],
+            gitIgnoredFiles: [],
+            emptyDirs: [],
+            isLoading: false,
+          },
+        ],
+      ]),
+    });
+
+    const view = render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory={workingDirectory}
+        isRemoteWorkspace
+        currentFile={null}
+        onFileSelect={vi.fn()}
+        changedFilesOnly
+        changedFiles={[]}
+        showImportedFilesWithChanges
+      />
+    );
+    await act(async () => {});
+    vi.mocked(window.api.listWorkspaceFiles).mockClear();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(59_999);
+    });
+    expect(window.api.listWorkspaceFiles).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(window.api.listWorkspaceFiles).toHaveBeenCalledWith('workspace-1', false);
+    view.unmount();
+    vi.useRealTimers();
+  });
+
+  it('leaves ignored files out of the refresh beside the changes', async () => {
+    vi.useFakeTimers();
+    useFileViewerStore.setState({ showGitIgnoredByWorkspace: { 'workspace-1': true } });
+    const view = render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="ssh://ssh-dev/home/dev/repo"
+        isRemoteWorkspace
+        currentFile={null}
+        onFileSelect={vi.fn()}
+        changedFilesOnly
+        changedFiles={[]}
+        showImportedFilesWithChanges
+      />
+    );
+    await act(async () => {});
+    vi.mocked(window.api.listWorkspaceFiles).mockClear();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(window.api.listWorkspaceFiles).toHaveBeenCalledWith('workspace-1', false);
+    view.unmount();
+    vi.useRealTimers();
+  });
+
+  it("doesn't refresh a remote file list for a change list without imported files", async () => {
+    vi.useFakeTimers();
+    const view = render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="ssh://ssh-dev/home/dev/repo"
+        isRemoteWorkspace
+        currentFile={null}
+        onFileSelect={vi.fn()}
+        changedFilesOnly
+        changedFiles={[]}
+      />
+    );
+    await act(async () => {});
+    vi.mocked(window.api.listWorkspaceFiles).mockClear();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+
+    expect(window.api.listWorkspaceFiles).not.toHaveBeenCalled();
+    view.unmount();
+    vi.useRealTimers();
+  });
+
   it('re-lists a remote tree when it comes on screen', async () => {
     const workingDirectory = 'ssh://ssh-dev/home/dev/repo';
     useFileListStore.setState({
@@ -1150,13 +1247,13 @@ describe('SidebarFileTree context menu actions', () => {
     expect(latestPaths).toEqual(['internal/db/sqlite_extractor.go']);
   });
 
-  it('pins Komla-managed folders without adding a fake folder', () => {
+  it('leaves imported files out of the tree and lists them in their own section', () => {
     useFileListStore.setState({
       cache: new Map([
         [
           '/repo',
           {
-            files: ['.komla-files/design.png', 'linked-workspaces/peer/src/index.ts', 'src/app.ts'],
+            files: ['.komla-files/design.png', 'src/app.ts'],
             gitIgnoredFiles: [],
             emptyDirs: [],
             isLoading: false,
@@ -1174,14 +1271,74 @@ describe('SidebarFileTree context menu actions', () => {
       />
     );
 
+    expect(latestPaths).toEqual(['src/app.ts']);
+    expect(
+      within(screen.getByRole('region', { name: 'Imported files' })).getByRole('button', {
+        name: 'design.png',
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('says no project files, not no files, when a workspace has only imported files', () => {
+    useFileListStore.setState({
+      cache: new Map([
+        [
+          '/repo',
+          {
+            files: ['.komla-files/design.png'],
+            gitIgnoredFiles: [],
+            emptyDirs: [],
+            isLoading: false,
+          },
+        ],
+      ]),
+    });
+
+    render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="/repo"
+        currentFile={null}
+        onFileSelect={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('No project files')).toBeInTheDocument();
+  });
+
+  it("treats a project's own linked-workspaces folder as a project folder", () => {
+    useFileListStore.setState({
+      cache: new Map([
+        [
+          '/repo',
+          {
+            files: ['a.ts', 'linked-workspaces/notes.txt'],
+            gitIgnoredFiles: ['linked-workspaces/ignored.log'],
+            emptyDirs: [],
+            isLoading: false,
+          },
+        ],
+      ]),
+    });
+    useFileViewerStore.setState({ showGitIgnoredByWorkspace: { 'workspace-1': true } });
+
+    render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="/repo"
+        currentFile={null}
+        onFileSelect={vi.fn()}
+      />
+    );
+
     expect(latestPaths).toEqual([
-      '.komla-files/design.png',
-      'linked-workspaces/peer/src/index.ts',
-      'src/app.ts',
+      'a.ts',
+      'linked-workspaces/notes.txt',
+      'linked-workspaces/ignored.log',
     ]);
   });
 
-  it('keeps the normal project tree when no Komla-managed folder exists', () => {
+  it('keeps the normal project tree and no section when there are no imported files', () => {
     render(
       <SidebarFileTree
         workspaceId="workspace-1"
@@ -1192,9 +1349,10 @@ describe('SidebarFileTree context menu actions', () => {
     );
 
     expect(latestPaths).toEqual(['src/components/Button.tsx', 'src/index.ts']);
+    expect(screen.queryByRole('region', { name: 'Imported files' })).not.toBeInTheDocument();
   });
 
-  it('shows the Komla section for an existing empty managed folder', () => {
+  it('shows no folder and no section for an empty imported folder', () => {
     useFileListStore.setState({
       cache: new Map([
         [
@@ -1218,7 +1376,8 @@ describe('SidebarFileTree context menu actions', () => {
       />
     );
 
-    expect(latestPaths).toEqual(['.komla-files/', 'src/app.ts']);
+    expect(latestPaths).toEqual(['src/app.ts']);
+    expect(screen.queryByRole('region', { name: 'Imported files' })).not.toBeInTheDocument();
   });
 
   it('shows Komla imports without exposing ignored project files', () => {
@@ -1245,12 +1404,13 @@ describe('SidebarFileTree context menu actions', () => {
       />
     );
 
-    expect(latestPaths).toEqual(['.komla-files/design.png', 'src/app.ts']);
+    expect(latestPaths).toEqual(['src/app.ts']);
+    expect(screen.getByRole('button', { name: 'design.png' })).toBeInTheDocument();
   });
 
-  it('opens files by their real workspace paths from the managed section', () => {
+  it('opens files by their real workspace paths from the section and the tree', () => {
     renderMockRows = true;
-    mockRenderedRowPaths = ['.komla-files/design.png', 'src/app.ts'];
+    mockRenderedRowPaths = ['src/app.ts'];
     useFileListStore.setState({
       cache: new Map([
         [
@@ -1280,6 +1440,171 @@ describe('SidebarFileTree context menu actions', () => {
 
     expect(onFileSelect).toHaveBeenNthCalledWith(1, '.komla-files/design.png');
     expect(onFileSelect).toHaveBeenNthCalledWith(2, 'src/app.ts');
+  });
+
+  describe('imported files while the tree lists changes', () => {
+    const importedList = () =>
+      useFileListStore.setState({
+        cache: new Map([
+          [
+            '/repo',
+            {
+              files: ['.komla-files/design.png', 'src/app.ts'],
+              gitIgnoredFiles: [],
+              emptyDirs: [],
+              isLoading: false,
+            },
+          ],
+        ]),
+      });
+
+    it('shows them when the host asks, without adding them to the changes', () => {
+      importedList();
+
+      render(
+        <SidebarFileTree
+          workspaceId="workspace-1"
+          workingDirectory="/repo"
+          currentFile={null}
+          onFileSelect={vi.fn()}
+          changedFilesOnly
+          changedFiles={[{ path: 'src/app.ts' }]}
+          showImportedFilesWithChanges
+        />
+      );
+
+      expect(latestPaths).toEqual(['src/app.ts']);
+      expect(screen.getByRole('button', { name: 'design.png' })).toBeInTheDocument();
+    });
+
+    it("hides them from other hosts' change lists, such as a commit's", () => {
+      importedList();
+
+      render(
+        <SidebarFileTree
+          workspaceId="workspace-1"
+          workingDirectory="/repo"
+          currentFile={null}
+          onFileSelect={vi.fn()}
+          changedFilesOnly
+          changedFiles={[{ path: 'src/app.ts' }]}
+        />
+      );
+
+      expect(screen.queryByRole('region', { name: 'Imported files' })).not.toBeInTheDocument();
+    });
+
+    it('loads the file list for them while shown, and not while hidden', async () => {
+      const fetchFileListIfNeeded = vi.fn(async () => {});
+      useFileListStore.setState({ cache: new Map(), fetchFileListIfNeeded });
+      const tree = (isVisible: boolean) => (
+        <SidebarFileTree
+          workspaceId="workspace-1"
+          workingDirectory="/repo"
+          currentFile={null}
+          onFileSelect={vi.fn()}
+          changedFilesOnly
+          changedFiles={[]}
+          showImportedFilesWithChanges
+          isVisible={isVisible}
+        />
+      );
+
+      const { rerender } = render(tree(false));
+      expect(fetchFileListIfNeeded).not.toHaveBeenCalled();
+
+      rerender(tree(true));
+      expect(fetchFileListIfNeeded).toHaveBeenCalledWith('/repo', 'workspace-1');
+    });
+
+    it("doesn't load the file list for a change list without the section", () => {
+      const fetchFileListIfNeeded = vi.fn(async () => {});
+      useFileListStore.setState({ cache: new Map(), fetchFileListIfNeeded });
+
+      render(
+        <SidebarFileTree
+          workspaceId="workspace-1"
+          workingDirectory="/repo"
+          currentFile={null}
+          onFileSelect={vi.fn()}
+          changedFilesOnly
+          changedFiles={[]}
+        />
+      );
+
+      expect(fetchFileListIfNeeded).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('searching', () => {
+    const list = (files: string[]) =>
+      useFileListStore.setState({
+        cache: new Map([
+          ['/repo', { files, gitIgnoredFiles: [], emptyDirs: [], isLoading: false }],
+        ]),
+      });
+    const renderTree = (onFileSelect = vi.fn()) =>
+      render(
+        <SidebarFileTree
+          workspaceId="workspace-1"
+          workingDirectory="/repo"
+          currentFile={null}
+          onFileSelect={onFileSelect}
+        />
+      );
+
+    it('narrows the imported files to the query', () => {
+      list(['.komla-files/design.png', '.komla-files/notes.txt', 'src/app.ts']);
+      mockSearchValue = 'DESIGN';
+      mockSearchMatches = [];
+
+      renderTree();
+
+      expect(screen.getByRole('button', { name: 'design.png' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'notes.txt' })).not.toBeInTheDocument();
+    });
+
+    it('hides the section when no imported file matches', () => {
+      list(['.komla-files/design.png', 'src/app.ts']);
+      mockSearchValue = 'app';
+      mockSearchMatches = ['src/app.ts'];
+
+      renderTree();
+
+      expect(screen.queryByRole('region', { name: 'Imported files' })).not.toBeInTheDocument();
+    });
+
+    it('says no project file matches when only imported files do', () => {
+      list(['.komla-files/design.png', 'src/app.ts']);
+      mockSearchValue = 'design';
+      mockSearchMatches = [];
+
+      renderTree();
+
+      expect(screen.getByText('No project files match “design”')).toBeInTheDocument();
+    });
+
+    it('says no file matches when nothing does', () => {
+      list(['.komla-files/design.png', 'src/app.ts']);
+      mockSearchValue = 'zzz';
+      mockSearchMatches = [];
+
+      renderTree();
+
+      expect(screen.getByText('No files match “zzz”')).toBeInTheDocument();
+    });
+
+    it('opens the first imported match on Enter when the tree has none', () => {
+      list(['.komla-files/design.png', 'src/app.ts']);
+      mockSearchValue = 'design';
+      mockSearchMatches = [];
+      const onFileSelect = vi.fn();
+
+      renderTree(onFileSelect);
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+
+      expect(onFileSelect).toHaveBeenCalledWith('.komla-files/design.png');
+    });
   });
 
   it('shows a spinner while branch comparison stats are loading', () => {

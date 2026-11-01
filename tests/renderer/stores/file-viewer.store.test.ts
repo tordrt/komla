@@ -577,6 +577,28 @@ describe('file-viewer.store', () => {
   });
 
   describe('requestInlineFilePreviewModeChange', () => {
+    it('keeps an open imported file as a file, with no diff to switch to', () => {
+      const store = useFileViewerStore.getState();
+      store.openInlineFilePreview('ws-1', 'browse', '.komla-files/design.txt');
+      store.setInlineFilePreviewDirty('ws-1', true);
+
+      store.requestInlineFilePreviewModeChange('ws-1', 'diff');
+
+      const state = useFileViewerStore.getState();
+      expect(state.inlineFileTreeByWorkspace['ws-1']?.mode).toBe('diff');
+      expect(state.inlineFilePreviewByWorkspace['ws-1']?.mode).toBe('browse');
+      expect(state.inlineFilePreviewPendingModeChangeByWorkspace['ws-1']).toBeFalsy();
+    });
+
+    it('still switches a project file to its diff', () => {
+      const store = useFileViewerStore.getState();
+      store.openInlineFilePreview('ws-1', 'browse', 'src/a.ts');
+
+      store.requestInlineFilePreviewModeChange('ws-1', 'diff');
+
+      expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']?.mode).toBe('diff');
+    });
+
     it('applies tree+preview mode immediately when preview is closed', () => {
       useFileViewerStore.getState().requestInlineFilePreviewModeChange('ws-1', 'browse');
       expect(useFileViewerStore.getState().inlineFileTreeByWorkspace['ws-1']?.mode).toBe('browse');

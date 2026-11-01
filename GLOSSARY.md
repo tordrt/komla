@@ -30,6 +30,14 @@ _Avoid_: Teardown script
 A command that must succeed in the workspace before it moves to the Trash. Success then discards any
 Local copy; failure leaves both the workspace and Local copy intact.
 
+## Workspace Files
+
+**Imported files**:
+Files Komla copied into a workspace's `.komla-files/` folder because they were dropped or pasted
+into a terminal or attached to a new workspace's prompt. Git ignores them, so they aren't project
+content: the file panel lists them in a section of their own, not in the file tree.
+_Avoid_: Attachments, which a Terminal Attachment already names
+
 ## Terminals
 
 **Terminal replacement**:

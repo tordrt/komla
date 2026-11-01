@@ -10,7 +10,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useDiffComparison } from '@/hooks/useDiffComparison';
-import { moveFileTreePaths, renameFileTreePath, type FileTreeMove } from '@/lib/file-tree-moves';
+import {
+  moveFileTreePaths,
+  moveWouldLoseUnsavedEdits,
+  renameFileTreePath,
+  type FileTreeMove,
+} from '@/lib/file-tree-moves';
 import { pasteFileTreeNode } from '@/lib/file-tree-paste';
 import { joinAbsPath } from '@/lib/fs-path';
 import {
@@ -19,6 +24,7 @@ import {
   openFilePane,
   type PaneSurfacePlacement,
 } from '@/lib/pane-surfaces';
+import { isImportedFilePath } from '@/lib/workspace-file-paths';
 import { useConfigStore } from '@/stores/config.store';
 import { findRenameSource, useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
@@ -313,7 +319,8 @@ export function InlineFileTreePanel({
       }
 
       const currentMode = store.inlineFileTreeByWorkspace[workspaceId]?.mode ?? 'diff';
-      const mode = isGitWorkspace ? currentMode : 'browse';
+      // Imported files are out of git, so they have no diff to show.
+      const mode = isGitWorkspace && !isImportedFilePath(path) ? currentMode : 'browse';
       // Routes through the store action which prompts for confirmation when
       // the current preview has unsaved changes — otherwise we'd flip
       // previewState.filePath to the rejected target and have to unwind it.
@@ -748,9 +755,11 @@ export function InlineFileTreePanel({
       const destPath = targetDir ? `${targetDir}/${name}` : name;
       // Moving a node onto itself would "overwrite" it and then trash the original.
       if (isCut && destPath === copiedPath) return;
+      const move = { from: copiedPath, to: destPath };
       try {
         const exists = await window.api.fileExists(workingDirectory, destPath);
         if (exists) {
+          if (isCut && moveWouldLoseUnsavedEdits(move, treeMoveOptions.getUnsavedPaths)) return;
           const confirmed = await confirm({
             title: 'File Already Exists',
             description: (
@@ -762,13 +771,19 @@ export function InlineFileTreePanel({
             confirmLabel: 'Overwrite',
           });
           if (!confirmed) return;
+        } else if (isCut) {
+          // As a drag does: refuses unsaved edits, the viewers follow the file, and it can be undone.
+          if (await moveFileTreePaths(workingDirectory, [copiedPath], targetDir, treeMoveOptions)) {
+            setCopiedPath(null);
+            setIsCut(false);
+          }
+          return;
         }
         await pasteFileTreeNode(workingDirectory, {
           src: copiedPath,
           dest: destPath,
           isDirectory: copiedIsDirectory,
           isCut,
-          overwrite: exists,
         });
         if (isCut) {
           setCopiedPath(null);
@@ -785,7 +800,15 @@ export function InlineFileTreePanel({
           );
       }
     },
-    [copiedPath, copiedIsDirectory, isCut, workingDirectory, refreshFileLists, confirm]
+    [
+      copiedPath,
+      copiedIsDirectory,
+      isCut,
+      workingDirectory,
+      refreshFileLists,
+      confirm,
+      treeMoveOptions,
+    ]
   );
 
   return (
@@ -831,6 +854,7 @@ export function InlineFileTreePanel({
             onShowFileHistory={isGitWorkspace ? handleShowFileHistory : undefined}
             onOpenHtmlInBrowser={isRemoteWorkspace ? undefined : handleOpenHtmlInBrowser}
             onOpenInPane={handleOpenInPane}
+            showImportedFilesWithChanges
             side="right"
             embedded
           />

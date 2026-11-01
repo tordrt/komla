@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   moveFileTreePaths,
+  moveWouldLoseUnsavedEdits,
   pathAfterMove,
   renameFileTreePath,
   type FileTreeMove,
@@ -959,47 +960,6 @@ export function FileViewerDialog({
     [workspace.workingDirectory]
   );
 
-  const handlePasteInto = useCallback(
-    async (targetDir: string) => {
-      if (!copiedPath) return;
-      const name = copiedPath.split('/').pop() || copiedPath;
-      const destPath = targetDir ? `${targetDir}/${name}` : name;
-      // Moving a node onto itself would "overwrite" it and then trash the original.
-      if (isCut && destPath === copiedPath) return;
-
-      try {
-        const exists = await window.api.fileExists(workspace.workingDirectory, destPath);
-        if (exists) {
-          setOverwriteTarget({ src: copiedPath, dest: destPath, isDirectory: copiedIsDirectory });
-          return;
-        }
-        await pasteFileTreeNode(workspace.workingDirectory, {
-          src: copiedPath,
-          dest: destPath,
-          isDirectory: copiedIsDirectory,
-          isCut,
-          overwrite: false,
-        });
-        if (isCut) {
-          setCopiedPath(null);
-          setIsCut(false);
-        }
-        useToastStore.getState().addToast(`${isCut ? 'Moved' : 'Pasted'} ${name}`, 'success');
-        const store = useFileListStore.getState();
-        store.fetchFileList(workspace.workingDirectory).catch(() => {});
-        store.fetchFileStatuses(workspace.workingDirectory).catch(() => {});
-      } catch (err) {
-        useToastStore
-          .getState()
-          .addToast(
-            `Failed to paste: ${err instanceof Error ? err.message : 'Unknown error'}`,
-            'error'
-          );
-      }
-    },
-    [copiedPath, copiedIsDirectory, isCut, workspace.workingDirectory]
-  );
-
   const confirmOverwrite = useCallback(async () => {
     if (!overwriteTarget) return;
     const { src, dest, isDirectory } = overwriteTarget;
@@ -1010,7 +970,6 @@ export function FileViewerDialog({
         dest,
         isDirectory,
         isCut,
-        overwrite: true,
       });
       if (isCut) {
         setCopiedPath(null);
@@ -1062,6 +1021,70 @@ export function FileViewerDialog({
       },
     }),
     [workspace.workingDirectory, workspace.id, state.diff, state.editor]
+  );
+
+  // Read when pasting: the options change with the editor, on every render.
+  const treeMoveOptionsRef = useRef(treeMoveOptions);
+  treeMoveOptionsRef.current = treeMoveOptions;
+
+  const handlePasteInto = useCallback(
+    async (targetDir: string) => {
+      if (!copiedPath) return;
+      const name = copiedPath.split('/').pop() || copiedPath;
+      const destPath = targetDir ? `${targetDir}/${name}` : name;
+      // Moving a node onto itself would "overwrite" it and then trash the original.
+      if (isCut && destPath === copiedPath) return;
+
+      try {
+        const exists = await window.api.fileExists(workspace.workingDirectory, destPath);
+        if (exists) {
+          if (
+            isCut &&
+            moveWouldLoseUnsavedEdits(
+              { from: copiedPath, to: destPath },
+              treeMoveOptionsRef.current.getUnsavedPaths
+            )
+          ) {
+            return;
+          }
+          setOverwriteTarget({ src: copiedPath, dest: destPath, isDirectory: copiedIsDirectory });
+          return;
+        }
+        if (isCut) {
+          // As a drag does: refuses unsaved edits, the viewers follow the file, and it can be undone.
+          if (
+            await moveFileTreePaths(
+              workspace.workingDirectory,
+              [copiedPath],
+              targetDir,
+              treeMoveOptionsRef.current
+            )
+          ) {
+            setCopiedPath(null);
+            setIsCut(false);
+          }
+          return;
+        }
+        await pasteFileTreeNode(workspace.workingDirectory, {
+          src: copiedPath,
+          dest: destPath,
+          isDirectory: copiedIsDirectory,
+          isCut: false,
+        });
+        useToastStore.getState().addToast(`Pasted ${name}`, 'success');
+        const store = useFileListStore.getState();
+        store.fetchFileList(workspace.workingDirectory).catch(() => {});
+        store.fetchFileStatuses(workspace.workingDirectory).catch(() => {});
+      } catch (err) {
+        useToastStore
+          .getState()
+          .addToast(
+            `Failed to paste: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            'error'
+          );
+      }
+    },
+    [copiedPath, copiedIsDirectory, isCut, workspace.workingDirectory]
   );
 
   const handleRenameComplete = useCallback(

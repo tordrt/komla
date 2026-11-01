@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { pathAfterMove, type FileTreeMove } from '@/lib/file-tree-moves';
+import { isImportedFilePath } from '@/lib/workspace-file-paths';
 
 import { useConfigStore } from './config.store';
 
@@ -263,6 +264,10 @@ interface FileViewerState {
   // Show gitignored files toggle (per workspace, not persisted)
   showGitIgnoredByWorkspace: Record<string, boolean>;
   toggleShowGitIgnored: (workspaceId: string) => void;
+
+  // Imported files section collapsed (per workspace, not persisted)
+  importedFilesCollapsedByWorkspace: Record<string, boolean>;
+  setImportedFilesCollapsed: (workspaceId: string, collapsed: boolean) => void;
   // Live follow actions
   setLiveFollow: (workspaceId: string, enabled: boolean) => void;
   toggleLiveFollow: (workspaceId: string) => void;
@@ -352,6 +357,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   fileViewerPreviewTabByWorkspace: {},
   filePickerQueryByWorkspace: {},
   showGitIgnoredByWorkspace: {},
+  importedFilesCollapsedByWorkspace: {},
   closeTabRequest: 0,
   closeViewerRequest: 0,
 
@@ -840,6 +846,16 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const current = get().inlineFilePreviewByWorkspace[workspaceId];
     const isOpen = !!current?.open;
     const isDirty = !!current?.isDirty;
+    // An imported file is out of git, so it has no diff to switch to: the tree alone changes.
+    if (
+      nextMode === 'diff' &&
+      isOpen &&
+      current?.filePath &&
+      isImportedFilePath(current.filePath)
+    ) {
+      get().setInlineFileTreeMode(workspaceId, nextMode);
+      return;
+    }
     const wouldChange = !current || current.mode !== nextMode;
 
     if (!isOpen || !isDirty || !wouldChange) {
@@ -1038,6 +1054,15 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       liveFollowByWorkspace: {
         ...state.liveFollowByWorkspace,
         [workspaceId]: !state.liveFollowByWorkspace[workspaceId],
+      },
+    }));
+  },
+
+  setImportedFilesCollapsed: (workspaceId, collapsed) => {
+    set((state) => ({
+      importedFilesCollapsedByWorkspace: {
+        ...state.importedFilesCollapsedByWorkspace,
+        [workspaceId]: collapsed,
       },
     }));
   },
@@ -1260,6 +1285,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       fileViewerPreviewTabByWorkspace,
       filePickerQueryByWorkspace,
       showGitIgnoredByWorkspace,
+      importedFilesCollapsedByWorkspace,
     } = get();
     const newInlineFileTree = { ...inlineFileTreeByWorkspace };
     const newFileTreeReveal = { ...fileTreeRevealByWorkspace };
@@ -1283,6 +1309,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const newPreviewTabs = { ...fileViewerPreviewTabByWorkspace };
     const newPickerQuery = { ...filePickerQueryByWorkspace };
     const newShowGitIgnored = { ...showGitIgnoredByWorkspace };
+    const newImportedFilesCollapsed = { ...importedFilesCollapsedByWorkspace };
 
     delete newInlineFileTree[workspaceId];
     delete newFileTreeReveal[workspaceId];
@@ -1306,6 +1333,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     delete newPreviewTabs[workspaceId];
     delete newPickerQuery[workspaceId];
     delete newShowGitIgnored[workspaceId];
+    delete newImportedFilesCollapsed[workspaceId];
 
     const { pendingFileViewerTransition, pendingFileViewerBlameRequest } = get();
     set({
@@ -1331,6 +1359,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       fileViewerPreviewTabByWorkspace: newPreviewTabs,
       filePickerQueryByWorkspace: newPickerQuery,
       showGitIgnoredByWorkspace: newShowGitIgnored,
+      importedFilesCollapsedByWorkspace: newImportedFilesCollapsed,
       ...(pendingFileViewerTransition?.workspaceId === workspaceId
         ? { pendingFileViewerTransition: null }
         : {}),

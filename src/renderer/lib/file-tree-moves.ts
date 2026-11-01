@@ -25,6 +25,19 @@ export function pathAfterMove(path: string, { from, to }: FileTreeMove): string 
 
 const fileName = (path: string) => path.split('/').pop() || path;
 
+/** Whether `move` would leave unsaved edits on the old path; says so when it would. */
+export function moveWouldLoseUnsavedEdits(
+  move: FileTreeMove,
+  getUnsavedPaths: () => string[]
+): boolean {
+  const unsavedPath = getUnsavedPaths().find((path) => pathAfterMove(path, move));
+  if (!unsavedPath) return false;
+  useToastStore
+    .getState()
+    .addToast(`Save or discard your changes to ${fileName(unsavedPath)} first`, 'error');
+  return true;
+}
+
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : 'Unknown error');
 
 /** Renames `move.from` to `move.to` unless that loses unsaved edits or replaces a path. */
@@ -35,11 +48,7 @@ async function renameIfFree(
   takenMessage: string
 ): Promise<boolean> {
   const { addToast } = useToastStore.getState();
-  const unsavedPath = getUnsavedPaths().find((path) => pathAfterMove(path, move));
-  if (unsavedPath) {
-    addToast(`Save or discard your changes to ${fileName(unsavedPath)} first`, 'error');
-    return false;
-  }
+  if (moveWouldLoseUnsavedEdits(move, getUnsavedPaths)) return false;
   if (await window.api.fileExists(workingDirectory, move.to)) {
     addToast(takenMessage, 'error');
     return false;

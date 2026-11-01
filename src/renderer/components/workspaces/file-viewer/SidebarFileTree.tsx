@@ -47,7 +47,7 @@ import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
 import { AT_PATH_MIME, setTreeDragActive } from '@/lib/tree-drag-token';
 import { cn } from '@/lib/utils';
-import { MANAGED_FILE_ROOTS } from '@/lib/workspace-file-paths';
+import { isImportedFilePath } from '@/lib/workspace-file-paths';
 import { useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore, type FileTreeReveal } from '@/stores/file-viewer.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -58,6 +58,7 @@ import { isMonitored } from '@/types';
 import { isBrowserPreviewableFile } from '../../../../shared/image-utils';
 
 import { getAncestorPaths } from './file-viewer-utils';
+import { ImportedFilesSection } from './ImportedFilesSection';
 import { NotesSection } from './notes/NotesSection';
 import { useFileTreeFocusGuard } from './useFileTreeFocusGuard';
 
@@ -80,6 +81,11 @@ interface SidebarFileTreeProps {
   workingDirectory: string;
   isRemoteWorkspace?: boolean;
   isVisible?: boolean;
+  /**
+   * Lists the imported files beside the changes too. Only for a host whose onFileSelect opens them
+   * as files, since they have no diff to show.
+   */
+  showImportedFilesWithChanges?: boolean;
   currentFile: string | null;
   onFileSelect: (path: string) => void;
   onFileDoubleClick?: (path: string) => void;
@@ -277,32 +283,16 @@ function useRelistShownRemoteTree({
   ]);
 }
 
-function isManagedFilePath(path: string): boolean {
-  const normalized = normalizeDirectoryRoot(path);
-  return MANAGED_FILE_ROOTS.some(
-    (root) => normalized === root || normalized.startsWith(`${root}/`)
-  );
-}
-
-function isManagedFileRoot(segment: string): boolean {
-  return MANAGED_FILE_ROOTS.some((root) => root === segment);
-}
-
 // localeCompare with options builds a collator on every call, which made the
 // sort dominate every tree rebuild (~1.2 s for 50k paths vs ~0.12 s cached).
 const naturalSegmentCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
-const sortManagedFoldersFirst: FileTreeSortComparator = (left, right) => {
+const sortFoldersFirst: FileTreeSortComparator = (left, right) => {
   const sharedDepth = Math.min(left.segments.length, right.segments.length);
   for (let depth = 0; depth < sharedDepth; depth += 1) {
     const leftSegment = left.segments[depth];
     const rightSegment = right.segments[depth];
     if (leftSegment === rightSegment) continue;
-    if (depth === 0) {
-      const leftIsManaged = isManagedFileRoot(leftSegment);
-      const rightIsManaged = isManagedFileRoot(rightSegment);
-      if (leftIsManaged !== rightIsManaged) return leftIsManaged ? -1 : 1;
-    }
     const leftIsDirectory = depth < left.segments.length - 1 || left.isDirectory;
     const rightIsDirectory = depth < right.segments.length - 1 || right.isDirectory;
     if (leftIsDirectory !== rightIsDirectory) return leftIsDirectory ? -1 : 1;
@@ -346,16 +336,6 @@ interface DirectoryExpansionStore {
 
 interface DirectoryExpansionBatchModel {
   batch: (operation: (store: DirectoryExpansionStore) => void) => void;
-}
-
-// Phosphor's regular Paperclip, painted as a CSS mask
-// because folder rows have no icon slot of their own (it holds the chevron).
-const PAPERCLIP_ICON_PATH =
-  'M209.66,122.34a8,8,0,0,1,0,11.32l-82.05,82a56,56,0,0,1-79.2-79.21L147.67,35.73a40,40,0,1,1,56.61,56.55L105,193A24,24,0,1,1,71,159L154.3,74.38A8,8,0,1,1,165.7,85.6L82.39,170.31a8,8,0,1,0,11.27,11.36L192.93,81A24,24,0,1,0,159,47L59.76,147.68a40,40,0,1,0,56.53,56.62l82.06-82A8,8,0,0,1,209.66,122.34Z';
-
-function iconMask(path: string): string {
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'><path d='${path}'/></svg>`;
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") center / contain no-repeat`;
 }
 
 // Hide the git lane (M/U/A/D/R letters on files, rollup dot on folders).
@@ -406,42 +386,6 @@ const TREE_UNSAFE_CSS = `
     padding-inline-end: 0;
     padding-right: 0;
     margin-inline-end: 2px;
-  }
-  /* Komla-owned attachments remain real tree entries. Their root folder gets
-     an accent paperclip icon, and a hairline separates it from the project
-     files. A root folder holding a single folder is flattened
-     into one row, hence the parentless prefix match. A row opts in through
-     these variables; rows without --komla-icon-content get no ::before. */
-  [data-type='item']:not([data-item-parent-path])[data-item-path^='.komla-files/'] {
-    --komla-icon-content: '';
-    --komla-icon: ${iconMask(PAPERCLIP_ICON_PATH)};
-  }
-  [data-item-section='content']::before {
-    content: var(--komla-icon-content, none);
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    margin-right: 5px;
-    vertical-align: -2.5px;
-    background-color: var(--komla-icon-color, oklch(var(--primary)));
-    -webkit-mask: var(--komla-icon);
-  }
-  /* The rename input fills the content box, so the icon would push it out. */
-  [data-item-section='content']:has([data-item-rename-input])::before {
-    display: none;
-  }
-  /* Inset past the rounded corners so the line stays straight. A selected
-     file's card drops it. */
-  [data-item-path^='.komla-files/']
-    + [data-type='item']:not(
-      [data-item-path^='.komla-files/'],
-      [data-item-type='file'][data-item-focused='true'],
-      [data-item-type='file'][data-item-selected='true']
-    ) {
-    background-image: linear-gradient(oklch(var(--border)), oklch(var(--border)));
-    background-size: calc(100% - 16px) 1px;
-    background-position: center top;
-    background-repeat: no-repeat;
   }
   /* Flatten the library's MiddleTruncate into a single nowrap line and run
      our own truncation: no forced extension, no per-segment markers, a
@@ -574,6 +518,7 @@ export function SidebarFileTree({
   workingDirectory,
   isRemoteWorkspace = false,
   isVisible = true,
+  showImportedFilesWithChanges = false,
   currentFile,
   onFileSelect,
   onFileDoubleClick,
@@ -713,6 +658,20 @@ export function SidebarFileTree({
     prevIncludeGitIgnoredRef.current = includeGitIgnored;
   }, [includeGitIgnored, workingDirectory, workspaceId, fetchFileList]);
 
+  // The changes don't need the file list, but the imported files listed beside them do.
+  const showImportedFiles = !changedFilesOnly || showImportedFilesWithChanges;
+  useEffect(() => {
+    if (!changedFilesOnly || !showImportedFilesWithChanges || !isVisible) return;
+    fetchFileListIfNeeded(workingDirectory, workspaceId).catch(() => {});
+  }, [
+    changedFilesOnly,
+    showImportedFilesWithChanges,
+    isVisible,
+    workingDirectory,
+    workspaceId,
+    fetchFileListIfNeeded,
+  ]);
+
   useRelistShownRemoteTree({
     workspaceId,
     workingDirectory,
@@ -727,18 +686,19 @@ export function SidebarFileTree({
   // stale on a report whose file-list fingerprint differs from the list's. The
   // companion skips ignored files and linked workspaces, so poll often for those,
   // and when it isn't watching. It skips .komla-files too: imports re-list the tree
-  // themselves, and only the slow poll sees other files land there.
-  // Refresh only while a remote browse tree is mounted and visible, and never
-  // overlap SSH calls.
+  // themselves, and only the slow poll sees other files land there. Beside the
+  // changes only those files need the list, so the slow poll will do.
+  // Refresh only while a remote file list is shown, and never overlap SSH calls.
   const companionWatchesTree = monitoredByCompanion && companionConfirmed && !includeGitIgnored;
   useEffect(() => {
-    if (!isRemoteWorkspace || changedFilesOnly || !isVisible) return;
+    if (!isRemoteWorkspace || !showImportedFiles || !isVisible) return;
     let refreshInFlight = false;
 
     const refresh = () => {
       if (refreshInFlight || document.visibilityState === 'hidden') return;
       refreshInFlight = true;
-      void fetchFileList(workingDirectory, includeGitIgnored, workspaceId)
+      // The changes never read ignored files, and a list without them keeps those it had.
+      void fetchFileList(workingDirectory, includeGitIgnored && !changedFilesOnly, workspaceId)
         .catch(() => {})
         .finally(() => {
           refreshInFlight = false;
@@ -746,7 +706,7 @@ export function SidebarFileTree({
     };
     const interval = window.setInterval(
       refresh,
-      companionWatchesTree
+      companionWatchesTree || changedFilesOnly
         ? WATCHED_REMOTE_FILE_LIST_REFRESH_INTERVAL_MS
         : REMOTE_FILE_LIST_REFRESH_INTERVAL_MS
     );
@@ -765,6 +725,7 @@ export function SidebarFileTree({
     includeGitIgnored,
     isRemoteWorkspace,
     isVisible,
+    showImportedFiles,
     workingDirectory,
     workspaceId,
   ]);
@@ -787,26 +748,15 @@ export function SidebarFileTree({
       }
       return [...uniquePaths];
     }
-    // Komla-owned folders are pinned above the project files. Ignored content
-    // inside a linked repository follows the ignored-files toggle like normal files.
-    const managedFiles = [
-      ...files.filter(isManagedFilePath),
-      ...(includeGitIgnored ? gitIgnoredFiles.filter(isManagedFilePath) : []),
-    ];
-    const projectFiles = (includeGitIgnored ? [...files, ...gitIgnoredFiles] : files).filter(
-      (path) => !isManagedFilePath(path)
+    // Imported files have their own section, as they aren't project content.
+    const base = (includeGitIgnored ? [...files, ...gitIgnoredFiles] : files).filter(
+      (path) => !isImportedFilePath(path)
     );
-    const base = [...managedFiles, ...projectFiles];
     const filtered = deletedPaths.size > 0 ? base.filter((p) => !deletedPaths.has(p)) : base;
+    const visibleDirs = emptyDirs.filter((dir) => !isImportedFilePath(dir));
     const visiblePaths =
-      emptyDirs.length > 0 ? [...filtered, ...emptyDirs.map((p) => `${p}/`)] : filtered;
-    const uniquePaths = [
-      ...new Set([
-        ...visiblePaths.filter(isManagedFilePath),
-        ...visiblePaths.filter((path) => !isManagedFilePath(path)),
-      ]),
-    ];
-    return uniquePaths;
+      visibleDirs.length > 0 ? [...filtered, ...visibleDirs.map((p) => `${p}/`)] : filtered;
+    return [...new Set(visiblePaths)];
   }, [
     changedFilesOnly,
     changedFilesInView,
@@ -818,8 +768,7 @@ export function SidebarFileTree({
   ]);
 
   const ignoredPathSet = useMemo(
-    () =>
-      changedFilesOnly ? null : new Set(gitIgnoredFiles.filter((path) => !isManagedFilePath(path))),
+    () => (changedFilesOnly ? null : new Set(gitIgnoredFiles)),
     [changedFilesOnly, gitIgnoredFiles]
   );
 
@@ -892,7 +841,7 @@ export function SidebarFileTree({
   const { model } = useFileTree({
     paths,
     gitStatus,
-    sort: sortManagedFoldersFirst,
+    sort: sortFoldersFirst,
     flattenEmptyDirectories: true,
     // Always mount closed — diff mode's "expand everything" is applied via
     // effect below. useFileTree reads options once at mount, so baking
@@ -942,6 +891,23 @@ export function SidebarFileTree({
     searchRef.current = search;
   }, [search]);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const importedFiles = useMemo(() => {
+    if (!showImportedFiles) return emptyArray;
+    return files
+      .filter((path) => isImportedFilePath(path) && !deletedPaths.has(path))
+      .sort(naturalSegmentCollator.compare);
+  }, [showImportedFiles, files, deletedPaths, emptyArray]);
+  const importedMatches = useMemo(() => {
+    const query = search.value?.toLowerCase();
+    if (!query) return importedFiles;
+    return importedFiles.filter((path) =>
+      path
+        .slice(path.indexOf('/') + 1)
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [importedFiles, search.value]);
 
   // Clear any active search when flipping into diff mode so the diff list
   // isn't silently filtered by a stale query from browse mode.
@@ -1538,7 +1504,12 @@ export function SidebarFileTree({
 
   const handleSearchEnter = useCallback(() => {
     // With no match the focused row is hidden behind NoSearchMatches.
-    if (search.value && search.matchingPaths.length === 0) return false;
+    if (search.value && search.matchingPaths.length === 0) {
+      const firstImported = importedMatches.at(0);
+      if (!firstImported) return false;
+      onFileSelect(firstImported);
+      return true;
+    }
     const path = model.getFocusedPath();
     if (!path) return false;
     const item = model.getItem(path);
@@ -1546,7 +1517,7 @@ export function SidebarFileTree({
     lastOpenedRef.current = path;
     onFileSelect(path);
     return true;
-  }, [model, onFileSelect, lastOpenedRef, search.value, search.matchingPaths]);
+  }, [model, onFileSelect, lastOpenedRef, search.value, search.matchingPaths, importedMatches]);
 
   const editorTheme = useKomlaEditorTheme();
   const treeStyle = useMemo(
@@ -1636,7 +1607,9 @@ export function SidebarFileTree({
             {loading ? (
               <div className="p-3 text-sm text-muted-foreground">Loading...</div>
             ) : !changedFilesOnly && paths.length === 0 ? (
-              <div className="p-3 text-sm text-muted-foreground">No files</div>
+              <div className="p-3 text-sm text-muted-foreground">
+                No {importedFiles.length > 0 ? 'project files' : 'files'}
+              </div>
             ) : showNoChanges ? (
               <NoChangesState comparisonBranch={comparisonBranch} useMergeBase={useMergeBase} />
             ) : (
@@ -1647,7 +1620,7 @@ export function SidebarFileTree({
                 renderContextMenu={renderRowContextMenu}
               />
             )}
-            <NoSearchMatches search={search} />
+            <NoSearchMatches search={search} hasImportedMatches={importedMatches.length > 0} />
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -1705,16 +1678,38 @@ export function SidebarFileTree({
           )}
         </ContextMenuContent>
       </ContextMenu>
+      <ImportedFilesSection
+        workspaceId={workspaceId}
+        workingDirectory={workingDirectory}
+        files={importedMatches}
+        isSearching={!!search.value}
+        currentFile={currentFile}
+        isRemoteWorkspace={!!isRemoteWorkspace}
+        reveal={reveal}
+        onFileSelect={onFileSelect}
+        onDeleteFile={onDeleteFile}
+        onRenameComplete={onRenameComplete}
+        onCopyNode={onCopyNode}
+        onCutNode={onCutNode}
+        onOpenInPane={onOpenInPane}
+        onOpenHtmlInBrowser={onOpenHtmlInBrowser}
+      />
     </div>
   );
 }
 
 /** With no match, pierre falls back to showing the whole tree; cover it. */
-function NoSearchMatches({ search }: { search: ReturnType<typeof useFileTreeSearch> }) {
+function NoSearchMatches({
+  search,
+  hasImportedMatches,
+}: {
+  search: ReturnType<typeof useFileTreeSearch>;
+  hasImportedMatches: boolean;
+}) {
   if (!search.value || search.matchingPaths.length > 0) return null;
   return (
     <div className="absolute inset-0 bg-card p-3 text-sm text-muted-foreground">
-      No files match “{search.value}”
+      No {hasImportedMatches ? 'project files' : 'files'} match “{search.value}”
     </div>
   );
 }

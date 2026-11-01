@@ -26,6 +26,8 @@ vi.mock('../../../../src/renderer/components/workspaces/file-viewer/SidebarFileT
       onDeleteFile?: (path: string, isDirectory?: boolean) => void;
       onRestoreFile?: (path: string, status: 'modified' | 'renamed') => void;
       onRollbackAll?: () => void;
+      onFileSelect?: (path: string) => void;
+      showImportedFilesWithChanges?: boolean;
     }) =>
       React.createElement(
         React.Fragment,
@@ -35,10 +37,21 @@ vi.mock('../../../../src/renderer/components/workspaces/file-viewer/SidebarFileT
           {
             disabled: props.diffLoading,
             'data-visible': String(props.isVisible),
+            'data-imported-with-changes': String(props.showImportedFilesWithChanges),
             onClick: props.onToggleBranchComparison,
             type: 'button',
           },
           'toggle comparison'
+        ),
+        React.createElement(
+          'button',
+          { onClick: () => props.onFileSelect?.('src/a.ts'), type: 'button' },
+          'select src/a.ts'
+        ),
+        React.createElement(
+          'button',
+          { onClick: () => props.onFileSelect?.('.komla-files/design.png'), type: 'button' },
+          'select imported file'
         ),
         React.createElement(
           'button',
@@ -177,6 +190,28 @@ describe('InlineFileTreePanel', () => {
     });
   });
 
+  it('opens an imported file as a file from the Diff tab, and a project file as a change', async () => {
+    useFileViewerStore.getState().setInlineFileTreeMode('ws-1', 'diff');
+
+    render(
+      <InlineFileTreePanel workspaceId="ws-1" workingDirectory="/repo" isGitWorkspace isActive />
+    );
+    const toggle = await screen.findByRole('button', { name: 'toggle comparison' });
+    expect(toggle).toHaveAttribute('data-imported-with-changes', 'true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'select imported file' }));
+    expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']).toMatchObject({
+      filePath: '.komla-files/design.png',
+      mode: 'browse',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'select src/a.ts' }));
+    expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']).toMatchObject({
+      filePath: 'src/a.ts',
+      mode: 'diff',
+    });
+  });
+
   it('marks the file tree hidden while its workspace panel is inactive', async () => {
     render(
       <InlineFileTreePanel
@@ -269,6 +304,61 @@ describe('InlineFileTreePanel', () => {
       );
       expect(window.api.copyFile).not.toHaveBeenCalled();
       expect(window.api.deleteFile).not.toHaveBeenCalled();
+    });
+
+    it('moves a cut file as a drag does: the preview follows, and it can be undone', async () => {
+      useFileViewerStore.getState().openInlineFilePreview('ws-1', 'browse', 'src/a.ts');
+      useToastStore.setState({ toasts: [] });
+      render(<InlineFileTreePanel workspaceId="ws-1" workingDirectory="/repo" isGitWorkspace />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'cut src/a.ts' }));
+      fireEvent.click(screen.getByRole('button', { name: 'paste into lib' }));
+
+      await waitFor(() =>
+        expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']).toMatchObject({
+          open: true,
+          filePath: 'lib/a.ts',
+        })
+      );
+      expect(useToastStore.getState().toasts.at(-1)?.action?.label).toBe('Undo');
+    });
+
+    it('leaves a cut file with unsaved edits where it is', async () => {
+      const viewer = useFileViewerStore.getState();
+      viewer.openInlineFilePreview('ws-1', 'browse', 'src/a.ts');
+      viewer.setInlineFilePreviewDirty('ws-1', true);
+      useToastStore.setState({ toasts: [] });
+      render(<InlineFileTreePanel workspaceId="ws-1" workingDirectory="/repo" isGitWorkspace />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'cut src/a.ts' }));
+      fireEvent.click(screen.getByRole('button', { name: 'paste into lib' }));
+
+      await waitFor(() =>
+        expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+          'Save or discard your changes to a.ts first'
+        )
+      );
+      expect(window.api.renameFile).not.toHaveBeenCalled();
+    });
+
+    it('refuses to overwrite with a cut file that has unsaved edits, before asking', async () => {
+      window.api.fileExists = vi.fn().mockResolvedValue(true);
+      const viewer = useFileViewerStore.getState();
+      viewer.openInlineFilePreview('ws-1', 'browse', 'src/a.ts');
+      viewer.setInlineFilePreviewDirty('ws-1', true);
+      useToastStore.setState({ toasts: [] });
+      render(<InlineFileTreePanel workspaceId="ws-1" workingDirectory="/repo" isGitWorkspace />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'cut src/a.ts' }));
+      fireEvent.click(screen.getByRole('button', { name: 'paste into lib' }));
+
+      await waitFor(() =>
+        expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+          'Save or discard your changes to a.ts first'
+        )
+      );
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(window.api.copyFile).not.toHaveBeenCalled();
     });
 
     it('leaves a cut file alone when it is pasted back into its own folder', async () => {

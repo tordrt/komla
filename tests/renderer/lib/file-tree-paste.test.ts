@@ -20,27 +20,12 @@ describe('pasteFileTreeNode', () => {
     api = mockApi();
   });
 
-  it('moves a cut node with a rename so the original never goes to the trash', async () => {
-    await pasteFileTreeNode('/repo', {
-      src: 'src/dir',
-      dest: 'lib/dir',
-      isDirectory: true,
-      isCut: true,
-      overwrite: false,
-    });
-
-    expect(api.renameFile).toHaveBeenCalledWith('/repo', 'src/dir', 'lib/dir');
-    expect(api.copyDirectory).not.toHaveBeenCalled();
-    expect(api.deleteFile).not.toHaveBeenCalled();
-  });
-
   it('copies a copied node and keeps the original', async () => {
     await pasteFileTreeNode('/repo', {
       src: 'src/a.ts',
       dest: 'lib/a.ts',
       isDirectory: false,
       isCut: false,
-      overwrite: false,
     });
 
     expect(api.copyFile).toHaveBeenCalledWith('/repo', 'src/a.ts', 'lib/a.ts');
@@ -54,7 +39,6 @@ describe('pasteFileTreeNode', () => {
       dest: 'lib/a.ts',
       isDirectory: false,
       isCut: true,
-      overwrite: true,
     });
 
     expect(api.copyFile).toHaveBeenCalledWith('/repo', 'src/a.ts', 'lib/a.ts');

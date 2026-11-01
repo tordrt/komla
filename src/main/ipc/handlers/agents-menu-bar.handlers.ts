@@ -1,17 +1,7 @@
-import { ipcMain } from 'electron';
-
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  agentsMenuBarCloseArgsSchema,
-  agentsMenuBarImageArgsSchema,
-  agentsMenuBarOpenArgsSchema,
-  agentsMenuBarResizeArgsSchema,
-  agentsMenuBarStateRequestArgsSchema,
-  agentsMenuBarThemeArgsSchema,
-} from '../../../shared/ipc/schemas/agents-menu-bar-ipc.schemas';
 import { agentsMenuBarService } from '../../services/agents-menu-bar.service';
 import { windowService } from '../../services/window.service';
-import { onValidated } from '../validation/ipc-validators';
+import { onIpc } from '../validation/ipc-validators';
 
 import type { IpcMainEvent } from 'electron';
 
@@ -25,53 +15,27 @@ function fromPopover(event: IpcMainEvent): boolean {
 }
 
 export function registerAgentsMenuBarHandlers(): void {
-  ipcMain.on(
-    IPC.AGENTS_MENU_BAR_IMAGE,
-    onValidated(IPC.AGENTS_MENU_BAR_IMAGE, agentsMenuBarImageArgsSchema, (event, [image]) => {
-      if (fromKomlaWindow(event)) agentsMenuBarService.setImage(image);
-    })
-  );
+  onIpc(IPC.AGENTS_MENU_BAR_IMAGE, (event, [image]) => {
+    if (fromKomlaWindow(event)) agentsMenuBarService.setImage(image);
+  });
 
-  ipcMain.on(
-    IPC.AGENTS_MENU_BAR_THEME,
-    onValidated(IPC.AGENTS_MENU_BAR_THEME, agentsMenuBarThemeArgsSchema, (event, [theme]) => {
-      if (fromKomlaWindow(event)) agentsMenuBarService.setTheme(theme);
-    })
-  );
+  onIpc(IPC.AGENTS_MENU_BAR_THEME, (event, [theme]) => {
+    if (fromKomlaWindow(event)) agentsMenuBarService.setTheme(theme);
+  });
 
-  ipcMain.on(
-    IPC.AGENTS_MENU_BAR_STATE_REQUEST,
-    onValidated(IPC.AGENTS_MENU_BAR_STATE_REQUEST, agentsMenuBarStateRequestArgsSchema, (event) => {
-      if (fromPopover(event)) agentsMenuBarService.sendState();
-    })
-  );
+  onIpc(IPC.AGENTS_MENU_BAR_STATE_REQUEST, (event) => {
+    if (fromPopover(event)) agentsMenuBarService.sendState();
+  });
 
-  ipcMain.on(
-    IPC.AGENTS_MENU_BAR_RESIZE,
-    onValidated(
-      IPC.AGENTS_MENU_BAR_RESIZE,
-      agentsMenuBarResizeArgsSchema,
-      (event, [width, height]) => {
-        if (fromPopover(event)) agentsMenuBarService.resizePopover(width, height);
-      }
-    )
-  );
+  onIpc(IPC.AGENTS_MENU_BAR_RESIZE, (event, [width, height]) => {
+    if (fromPopover(event)) agentsMenuBarService.resizePopover(width, height);
+  });
 
-  ipcMain.on(
-    IPC.AGENTS_MENU_BAR_OPEN,
-    onValidated(
-      IPC.AGENTS_MENU_BAR_OPEN,
-      agentsMenuBarOpenArgsSchema,
-      (event, [workspaceId, terminalId]) => {
-        if (fromPopover(event)) agentsMenuBarService.open(workspaceId, terminalId);
-      }
-    )
-  );
+  onIpc(IPC.AGENTS_MENU_BAR_OPEN, (event, [workspaceId, terminalId]) => {
+    if (fromPopover(event)) agentsMenuBarService.open(workspaceId, terminalId);
+  });
 
-  ipcMain.on(
-    IPC.AGENTS_MENU_BAR_CLOSE,
-    onValidated(IPC.AGENTS_MENU_BAR_CLOSE, agentsMenuBarCloseArgsSchema, (event) => {
-      if (fromPopover(event)) agentsMenuBarService.closePopover();
-    })
-  );
+  onIpc(IPC.AGENTS_MENU_BAR_CLOSE, (event) => {
+    if (fromPopover(event)) agentsMenuBarService.closePopover();
+  });
 }

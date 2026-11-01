@@ -1,14 +1,4 @@
-import { ipcMain } from 'electron';
-
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  statusButtonRunArgsSchema,
-  statusCommandRunArgsSchema,
-  statusCommandsListArgsSchema,
-  statusItemPopoverPageArgsSchema,
-  statusItemsListArgsSchema,
-  statusPopoverRunArgsSchema,
-} from '../../../shared/ipc/schemas/status-items-ipc.schemas';
 import {
   serveStatusPopoverPage,
   statusCommandsService,
@@ -16,7 +6,7 @@ import {
 import { statusItemsService } from '../../services/status-items.service';
 import { buildStatusPopoverPage } from '../../services/status-popover-page';
 import { windowService } from '../../services/window.service';
-import { handleValidated } from '../validation/ipc-validators';
+import { handleIpc } from '../validation/ipc-validators';
 
 import type {
   StatusButtonRunResult,
@@ -43,65 +33,37 @@ export function registerStatusItemsHandlers(): void {
     windowService.broadcastToAll(IPC.STATUS_COMMAND_RESULT, result)
   );
 
-  ipcMain.handle(
-    IPC.STATUS_ITEMS_LIST,
-    handleValidated(IPC.STATUS_ITEMS_LIST, statusItemsListArgsSchema, windowItems)
+  handleIpc(IPC.STATUS_ITEMS_LIST, windowItems);
+
+  handleIpc(IPC.STATUS_COMMANDS_LIST, (_, [workspaceId]): StatusCommandList =>
+    statusCommandsService.list(workspaceId)
   );
 
-  ipcMain.handle(
-    IPC.STATUS_COMMANDS_LIST,
-    handleValidated(
-      IPC.STATUS_COMMANDS_LIST,
-      statusCommandsListArgsSchema,
-      (_, [workspaceId]): StatusCommandList => statusCommandsService.list(workspaceId)
-    )
+  handleIpc(IPC.STATUS_COMMAND_RUN, (_, [workspaceId, id]): Promise<StatusCommandResult> =>
+    statusCommandsService.run(workspaceId, id)
   );
 
-  ipcMain.handle(
-    IPC.STATUS_COMMAND_RUN,
-    handleValidated(
-      IPC.STATUS_COMMAND_RUN,
-      statusCommandRunArgsSchema,
-      (_, [workspaceId, id]): Promise<StatusCommandResult> =>
-        statusCommandsService.run(workspaceId, id)
-    )
-  );
-
-  ipcMain.handle(
+  handleIpc(
     IPC.STATUS_POPOVER_RUN,
-    handleValidated(
-      IPC.STATUS_POPOVER_RUN,
-      statusPopoverRunArgsSchema,
-      (event, [workspaceId, id, theme]): Promise<StatusPopoverResult> =>
-        statusCommandsService.runPopover(workspaceId, id, theme, String(event.sender.id))
-    )
+    (event, [workspaceId, id, theme]): Promise<StatusPopoverResult> =>
+      statusCommandsService.runPopover(workspaceId, id, theme, String(event.sender.id))
   );
 
   // An agent item's HTML popover, in the window's theme and the sandbox status-items.json pages
   // use. Each window gets a page of its own, so one opening it doesn't replace another's.
-  ipcMain.handle(
+  handleIpc(
     IPC.STATUS_ITEM_POPOVER_PAGE,
-    handleValidated(
-      IPC.STATUS_ITEM_POPOVER_PAGE,
-      statusItemPopoverPageArgsSchema,
-      async (event, [workspaceId, id, theme]): Promise<string | null> => {
-        const html = statusItemsService.get(workspaceId, id)?.popover;
-        if (!html) return null;
-        return serveStatusPopoverPage(
-          `status-item-popover:${event.sender.id}:${workspaceId}:${id}`,
-          buildStatusPopoverPage(html, theme)
-        );
-      }
-    )
+    async (event, [workspaceId, id, theme]): Promise<string | null> => {
+      const html = statusItemsService.get(workspaceId, id)?.popover;
+      if (!html) return null;
+      return serveStatusPopoverPage(
+        `status-item-popover:${event.sender.id}:${workspaceId}:${id}`,
+        buildStatusPopoverPage(html, theme)
+      );
+    }
   );
 
-  ipcMain.handle(
-    IPC.STATUS_BUTTON_RUN,
-    handleValidated(
-      IPC.STATUS_BUTTON_RUN,
-      statusButtonRunArgsSchema,
-      (_, [workspaceId, id, name]): Promise<StatusButtonRunResult> =>
-        statusCommandsService.runButton(workspaceId, id, name)
-    )
+  handleIpc(IPC.STATUS_BUTTON_RUN, (_, [workspaceId, id, name]): Promise<StatusButtonRunResult> =>
+    statusCommandsService.runButton(workspaceId, id, name)
   );
 }

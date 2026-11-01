@@ -1,16 +1,11 @@
 import { exec, spawn } from 'child_process';
 import { existsSync } from 'fs';
 
-import { app, ipcMain, shell } from 'electron';
+import { app, shell } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  shellOpenExternalArgsSchema,
-  shellOpenInEditorArgsSchema,
-  shellPathArgsSchema,
-} from '../../../shared/ipc/schemas/config-ipc.schemas';
 import { detectWslDistros } from '../../lib/wsl';
-import { handleValidated } from '../validation/ipc-validators';
+import { handleIpc } from '../validation/ipc-validators';
 
 interface KnownEditor {
   id: string;
@@ -43,38 +38,21 @@ async function isCliEditorInstalled(editor: KnownEditor): Promise<boolean> {
 
 export function registerShellHandlers(): void {
   // Shell handlers
-  ipcMain.handle(
-    IPC.SHELL_OPEN_EXTERNAL,
-    handleValidated(
-      IPC.SHELL_OPEN_EXTERNAL,
-      shellOpenExternalArgsSchema,
-      async (_, [url]): Promise<void> => {
-        await shell.openExternal(url);
-      }
-    )
-  );
+  handleIpc(IPC.SHELL_OPEN_EXTERNAL, async (_, [url]): Promise<void> => {
+    await shell.openExternal(url);
+  });
 
-  ipcMain.handle(
-    IPC.SHELL_SHOW_ITEM_IN_FOLDER,
-    handleValidated(IPC.SHELL_SHOW_ITEM_IN_FOLDER, shellPathArgsSchema, (_, [fullPath]): void => {
-      shell.showItemInFolder(fullPath);
-    })
-  );
+  handleIpc(IPC.SHELL_SHOW_ITEM_IN_FOLDER, (_, [fullPath]): void => {
+    shell.showItemInFolder(fullPath);
+  });
 
-  ipcMain.handle(
-    IPC.SHELL_OPEN_PATH,
-    handleValidated(
-      IPC.SHELL_OPEN_PATH,
-      shellPathArgsSchema,
-      async (_, [fullPath]): Promise<void> => {
-        // shell.openPath resolves with an error message string (empty on
-        // success) rather than rejecting — surface it as a thrown error so
-        // the renderer can react.
-        const error = await shell.openPath(fullPath);
-        if (error) throw new Error(error);
-      }
-    )
-  );
+  handleIpc(IPC.SHELL_OPEN_PATH, async (_, [fullPath]): Promise<void> => {
+    // shell.openPath resolves with an error message string (empty on
+    // success) rather than rejecting — surface it as a thrown error so
+    // the renderer can react.
+    const error = await shell.openPath(fullPath);
+    if (error) throw new Error(error);
+  });
 
   // External editor handlers
   const knownEditors: KnownEditor[] = [
@@ -96,45 +74,35 @@ export function registerShellHandlers(): void {
 
   let cachedEditors: { id: string; name: string }[] | null = null;
 
-  ipcMain.handle(
-    IPC.SHELL_GET_AVAILABLE_EDITORS,
-    async (): Promise<{ id: string; name: string }[]> => {
-      if (cachedEditors) return cachedEditors;
+  handleIpc(IPC.SHELL_GET_AVAILABLE_EDITORS, async (): Promise<{ id: string; name: string }[]> => {
+    if (cachedEditors) return cachedEditors;
 
-      const isDarwin = process.platform === 'darwin';
-      const available: { id: string; name: string }[] = [];
-      for (const editor of knownEditors) {
-        const installed = isDarwin
-          ? isMacEditorInstalled(editor)
-          : await isCliEditorInstalled(editor);
-        if (installed) available.push({ id: editor.id, name: editor.name });
-      }
-
-      cachedEditors = available;
-      return available;
+    const isDarwin = process.platform === 'darwin';
+    const available: { id: string; name: string }[] = [];
+    for (const editor of knownEditors) {
+      const installed = isDarwin
+        ? isMacEditorInstalled(editor)
+        : await isCliEditorInstalled(editor);
+      if (installed) available.push({ id: editor.id, name: editor.name });
     }
-  );
 
-  ipcMain.handle(
-    IPC.SHELL_OPEN_IN_EDITOR,
-    handleValidated(
-      IPC.SHELL_OPEN_IN_EDITOR,
-      shellOpenInEditorArgsSchema,
-      async (_, [editorId, dirPath]): Promise<void> => {
-        const editor = knownEditors.find((e) => e.id === editorId);
-        if (!editor) throw new Error(`Unknown editor: ${editorId}`);
+    cachedEditors = available;
+    return available;
+  });
 
-        if (process.platform === 'darwin' && editor.macAppName) {
-          spawn('open', ['-a', editor.macAppName, dirPath], { detached: true, stdio: 'ignore' });
-        } else if (editor.linuxCmd) {
-          spawn(editor.linuxCmd, [dirPath], { detached: true, stdio: 'ignore' });
-        }
-      }
-    )
-  );
+  handleIpc(IPC.SHELL_OPEN_IN_EDITOR, async (_, [editorId, dirPath]): Promise<void> => {
+    const editor = knownEditors.find((e) => e.id === editorId);
+    if (!editor) throw new Error(`Unknown editor: ${editorId}`);
+
+    if (process.platform === 'darwin' && editor.macAppName) {
+      spawn('open', ['-a', editor.macAppName, dirPath], { detached: true, stdio: 'ignore' });
+    } else if (editor.linuxCmd) {
+      spawn(editor.linuxCmd, [dirPath], { detached: true, stdio: 'ignore' });
+    }
+  });
 
   // WSL distro detection (Windows only)
-  ipcMain.handle(IPC.SHELL_GET_WSL_DISTROS, async (): Promise<string[]> => {
+  handleIpc(IPC.SHELL_GET_WSL_DISTROS, async (): Promise<string[]> => {
     return detectWslDistros();
   });
 }

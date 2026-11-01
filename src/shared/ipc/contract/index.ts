@@ -1,3 +1,17 @@
+import { agentsMenuBarContract } from './agents-menu-bar.contract';
+import { automationContract } from './automation.contract';
+import { customizationContract } from './customization.contract';
+import { devPreviewContract } from './dev-preview.contract';
+import { licenseContract } from './license.contract';
+import { notesContract } from './notes.contract';
+import { pluginsContract } from './plugins.contract';
+import { settingsContract } from './settings.contract';
+import { shellContract } from './shell.contract';
+import { soundsContract } from './sounds.contract';
+import { statusItemsContract } from './status-items.contract';
+import { telemetryContract } from './telemetry.contract';
+import { terminalContract } from './terminal.contract';
+import { toastOverlayContract } from './toast-overlay.contract';
 import { voiceContract } from './voice.contract';
 
 import type { IpcInvokeDefinition } from './define';
@@ -13,6 +27,20 @@ import type { z } from 'zod';
  * it, so importing a schema at runtime would stop the preload loading at all.
  */
 export const ipcContract = {
+  ...customizationContract,
+  ...devPreviewContract,
+  ...agentsMenuBarContract,
+  ...licenseContract,
+  ...shellContract,
+  ...automationContract,
+  ...statusItemsContract,
+  ...settingsContract,
+  ...toastOverlayContract,
+  ...terminalContract,
+  ...pluginsContract,
+  ...notesContract,
+  ...soundsContract,
+  ...telemetryContract,
   ...voiceContract,
 };
 

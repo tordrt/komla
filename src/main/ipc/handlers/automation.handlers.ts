@@ -1,15 +1,6 @@
-import { ipcMain } from 'electron';
-
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  automationDeleteArgsSchema,
-  automationListArgsSchema,
-  automationRunNowArgsSchema,
-  automationSaveArgsSchema,
-  automationSetEnabledArgsSchema,
-} from '../../../shared/ipc/schemas/automation-ipc.schemas';
 import { automationService } from '../../services/automation.service';
-import { handleValidated } from '../validation/ipc-validators';
+import { handleIpc } from '../validation/ipc-validators';
 
 import type {
   Automation,
@@ -18,49 +9,23 @@ import type {
 } from '../../../shared/types/automation';
 
 export function registerAutomationHandlers(): void {
-  ipcMain.handle(
-    IPC.AUTOMATION_LIST,
-    handleValidated(
-      IPC.AUTOMATION_LIST,
-      automationListArgsSchema,
-      async (_, [options]): Promise<AutomationTargetSnapshot[]> => automationService.list(options)
-    )
+  handleIpc(IPC.AUTOMATION_LIST, async (_, [options]): Promise<AutomationTargetSnapshot[]> =>
+    automationService.list(options)
   );
 
-  ipcMain.handle(
-    IPC.AUTOMATION_SAVE,
-    handleValidated(
-      IPC.AUTOMATION_SAVE,
-      automationSaveArgsSchema,
-      async (_, [params]): Promise<Automation> => automationService.save(params)
-    )
+  handleIpc(IPC.AUTOMATION_SAVE, async (_, [params]): Promise<Automation> =>
+    automationService.save(params)
   );
 
-  ipcMain.handle(
-    IPC.AUTOMATION_SET_ENABLED,
-    handleValidated(
-      IPC.AUTOMATION_SET_ENABLED,
-      automationSetEnabledArgsSchema,
-      async (_, [target, id, enabled]): Promise<void> =>
-        automationService.setEnabled(target, id, enabled)
-    )
+  handleIpc(IPC.AUTOMATION_SET_ENABLED, async (_, [target, id, enabled]): Promise<void> =>
+    automationService.setEnabled(target, id, enabled)
   );
 
-  ipcMain.handle(
-    IPC.AUTOMATION_DELETE,
-    handleValidated(
-      IPC.AUTOMATION_DELETE,
-      automationDeleteArgsSchema,
-      async (_, [target, id]): Promise<void> => automationService.delete(target, id)
-    )
+  handleIpc(IPC.AUTOMATION_DELETE, async (_, [target, id]): Promise<void> =>
+    automationService.delete(target, id)
   );
 
-  ipcMain.handle(
-    IPC.AUTOMATION_RUN_NOW,
-    handleValidated(
-      IPC.AUTOMATION_RUN_NOW,
-      automationRunNowArgsSchema,
-      async (_, [target, id]): Promise<AutomationRun> => automationService.runNow(target, id)
-    )
+  handleIpc(IPC.AUTOMATION_RUN_NOW, async (_, [target, id]): Promise<AutomationRun> =>
+    automationService.runNow(target, id)
   );
 }

@@ -1057,8 +1057,11 @@ const api = {
   ): Promise<string> =>
     ipcRenderer.invoke(IPC.GIT_IMPORT_EXTERNAL_FILE, workingDir, sourcePath, preferredName),
 
-  deleteFile: (worktreePath: string, filePath: string, status: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.GIT_DELETE_FILE, worktreePath, filePath, status),
+  deleteFile: (
+    worktreePath: string,
+    filePath: string,
+    status: FileChange['status']
+  ): Promise<void> => ipcRenderer.invoke(IPC.GIT_DELETE_FILE, worktreePath, filePath, status),
 
   renameFile: (worktreePath: string, oldPath: string, newPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.GIT_RENAME_FILE, worktreePath, oldPath, newPath),
@@ -1099,7 +1102,7 @@ const api = {
   restoreFile: (
     worktreePath: string,
     filePath: string,
-    status: string,
+    status: FileChange['status'],
     oldPath?: string
   ): Promise<void> =>
     ipcRenderer.invoke(IPC.GIT_RESTORE_FILE, worktreePath, filePath, status, oldPath),

@@ -7,6 +7,7 @@ import { configContract } from './config.contract';
 import { customizationContract } from './customization.contract';
 import { devPreviewContract } from './dev-preview.contract';
 import { diagnosticsContract } from './diagnostics.contract';
+import { gitContract } from './git.contract';
 import { licenseContract } from './license.contract';
 import { notesContract } from './notes.contract';
 import { pluginsContract } from './plugins.contract';
@@ -24,7 +25,6 @@ import { windowContract } from './window.contract';
 import { workspaceContract } from './workspace.contract';
 
 import type { IpcInvokeDefinition } from './define';
-import type { IpcChannel } from '../../constants/ipc-channels';
 import type { IpcRenderer } from 'electron';
 import type { z } from 'zod';
 
@@ -36,30 +36,31 @@ import type { z } from 'zod';
  * it, so importing a schema at runtime would stop the preload loading at all.
  */
 export const ipcContract = {
-  ...workspaceContract,
-  ...projectContract,
-  ...configContract,
-  ...windowContract,
-  ...askpassContract,
-  ...diagnosticsContract,
-  ...remoteControlContract,
-  ...appContract,
   ...agentSettingsContract,
+  ...agentsMenuBarContract,
+  ...appContract,
+  ...askpassContract,
+  ...automationContract,
+  ...configContract,
   ...customizationContract,
   ...devPreviewContract,
-  ...agentsMenuBarContract,
+  ...diagnosticsContract,
+  ...gitContract,
   ...licenseContract,
-  ...shellContract,
-  ...automationContract,
-  ...statusItemsContract,
-  ...settingsContract,
-  ...toastOverlayContract,
-  ...terminalContract,
-  ...pluginsContract,
   ...notesContract,
+  ...pluginsContract,
+  ...projectContract,
+  ...remoteControlContract,
+  ...settingsContract,
+  ...shellContract,
   ...soundsContract,
+  ...statusItemsContract,
   ...telemetryContract,
+  ...terminalContract,
+  ...toastOverlayContract,
   ...voiceContract,
+  ...windowContract,
+  ...workspaceContract,
 };
 
 export type IpcContract = typeof ipcContract;
@@ -81,15 +82,9 @@ export type IpcArgs<C extends keyof IpcContract> =
 export type IpcResult<C extends IpcInvokeChannel> =
   IpcContract[C] extends IpcInvokeDefinition<infer _TArgs, infer TResult> ? TResult : never;
 
-/** The fallback for channels not in the contract yet, removed once they all are. */
-type UnmigratedChannel = Exclude<IpcChannel, keyof IpcContract>;
-
 /** Electron's `ipcRenderer`, with its calls checked against the contract. */
 export interface TypedIpcRenderer extends Omit<IpcRenderer, 'invoke' | 'send' | 'sendSync'> {
   invoke<C extends IpcInvokeChannel>(channel: C, ...args: IpcArgsInput<C>): Promise<IpcResult<C>>;
-  invoke(channel: UnmigratedChannel, ...args: any[]): Promise<any>;
   send<C extends IpcSendChannel | IpcSyncChannel>(channel: C, ...args: IpcArgsInput<C>): void;
-  send(channel: UnmigratedChannel, ...args: any[]): void;
   sendSync<C extends IpcSyncChannel>(channel: C, ...args: IpcArgsInput<C>): unknown;
-  sendSync(channel: UnmigratedChannel, ...args: any[]): unknown;
 }

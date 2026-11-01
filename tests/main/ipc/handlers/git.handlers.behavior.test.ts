@@ -141,16 +141,6 @@ vi.mock('../../../../src/main/services/paths', () => ({
   getKomlaBasePath: vi.fn(() => '/mock/home/.komla'),
 }));
 
-// Mock schema validation to just pass through args
-vi.mock('../../../../src/main/ipc/validation/ipc-validators', () => ({
-  handleValidated: (channel: string, schema: any, handler: any) => {
-    return (event: any, ...args: any[]) => handler(event, args);
-  },
-  onValidated: (channel: string, schema: any, handler: any) => {
-    return (event: any, ...args: any[]) => handler(event, args);
-  },
-}));
-
 // Mock path safety
 vi.mock('../../../../src/main/ipc/validation/path-safety', () => ({
   assertSafeRelativePath: vi.fn(),
@@ -389,12 +379,6 @@ describe('git IPC behavior', () => {
 
     registerGitHandlers();
 
-    // We need to simulate the handler call manually because _invoke doesn't pass 'event' easily in this mock setup
-    // But since we mocked handleValidated to pass-through, we can just call the handler directly if we could access it.
-    // However, since we are using _invoke from our mockElectron, we need to ensure mockElectron supports it or use the real ipcMain behavior logic.
-    // Our mockElectron's ipcMain.handle stores handlers.
-
-    // Let's use the invoke mechanism provided by the electron mock
     await ipcMain._invoke('git:fetch', '/path/to/repo');
 
     expect(mockGitService.fetchFromRemote).toHaveBeenCalledWith(

@@ -142,15 +142,14 @@ describe('palette runtime', () => {
     expect(lastMonacoWidgets()).toBeNull();
   });
 
-  it("gives Komla Light Ghostty's terminal, keeping the Terminal settings' other colors", () => {
+  it('gives Komla Light a white terminal with its own ANSI colors', () => {
     applyPalette('frost');
 
-    expect(buildTerminalTheme(terminalConfig)).toEqual({
-      ...configToTheme(terminalConfig),
-      background: '#282c34',
-      foreground: '#ffffff',
-      cursorAccent: '#282c34',
-      selectionForeground: '#ffffff',
+    expect(buildTerminalTheme(terminalConfig)).toMatchObject({
+      background: '#ffffff',
+      foreground: '#1f2328',
+      red: '#cf222e',
+      brightBlack: '#57606a',
     });
   });
 
@@ -194,15 +193,30 @@ describe('palette runtime', () => {
       expect(scope('#282a36')).toEqual({});
     });
 
-    it("take Komla Light's dark terminal surfaces and the accent or project color fitted to dark", () => {
+    it('stay light in Komla Light', () => {
       applyPalette('frost');
-      const { className, style } = scope('#282c34');
+      expect(scope('#ffffff')).toEqual({});
+    });
 
-      expect(className).toBe('dark');
-      expect(style).toMatchObject({
-        '--card': getPalette('frost').terminalTokens?.['--card'],
-        '--primary': 'var(--dark-primary)',
-        '--ring': 'var(--dark-primary)',
+    it('take dark surfaces and the accent fitted to dark under a light theme with a dark terminal', () => {
+      setCustomPalette(
+        buildCustomPalette({
+          mode: 'light',
+          surfaces: {
+            background: '#ffffff',
+            card: '#fafafa',
+            muted: '#f0f0f0',
+            highlight: '#e8e8e8',
+            border: '#dddddd',
+          },
+          terminal: { background: '#1c1c1c', foreground: '#eeeeee' },
+        }).palette!
+      );
+      applyPalette('custom');
+
+      expect(scope('#1c1c1c')).toEqual({
+        className: 'dark',
+        style: { '--primary': 'var(--dark-primary)', '--ring': 'var(--dark-primary)' },
       });
     });
 
@@ -238,9 +252,9 @@ describe('palette runtime', () => {
       expect(background()).toBe('#282a36');
     });
 
-    it("sit on the code editor's color in a light theme, whose terminals stay dark", () => {
+    it("sit on Komla Light's code editor color, the white of its terminal", () => {
       applyPalette('frost');
-      expect(background()).toBe('#f6f6f8');
+      expect(background()).toBe('#ffffff');
     });
   });
 

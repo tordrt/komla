@@ -4,8 +4,8 @@
    and `hover:` applies without v4's `(hover: hover)` media query, as Komla is a desktop app. */
 @custom-variant dark (&:is(.dark *));
 @custom-variant hover (&:hover);
-/* `light:` matches inside the `.light` class light themes put on <html>. That includes terminal
-   panes, which carry `.dark` as well for their dark terminal sibling. */
+/* `light:` matches inside the `.light` class light themes put on <html>. That includes the terminal
+   panes of a custom light theme with a dark terminal, which carry `.dark` as well. */
 @custom-variant light (&:is(.light *));
 /* `reduce-effects:` applies while Settings > Appearance > Reduce effects is on. */
 @custom-variant reduce-effects (&:is(:root[data-reduce-effects] *));
@@ -1199,11 +1199,11 @@ html[data-status-bar-row='large'] [data-status-bar] {
 .dark .flat-tab-active {
   background-color: oklch(var(--background));
 }
-/* Joined tabs (dark themes): the active tab takes the color of what it shows, `--tab-surface`,
-   and drops the bar. Its strip draws its bottom line as an inset shadow, which the tab covers,
-   so the tab opens into the surface below. A faint line on its top and sides keeps its edges
-   where a theme's surfaces sit close together. */
-.dark .flat-tab-active.joined-tab {
+/* Joined tabs (dark themes, and light themes with a light terminal): the active tab takes the
+   color of what it shows, `--tab-surface`, and drops the bar. Its strip draws its bottom line as
+   an inset shadow, which the tab covers, so the tab opens into the surface below. A faint line on
+   its top and sides keeps its edges where a theme's surfaces sit close together. */
+:is(.dark, .light-terminal) .flat-tab-active.joined-tab {
   background-color: var(--tab-surface);
   box-shadow:
     inset 1px 0 0 oklch(var(--border) / 0.7),
@@ -1232,7 +1232,7 @@ html[data-status-bar-row='large'] [data-status-bar] {
 .corner-tab {
   border-top-left-radius: 13px 13.5px;
 }
-.dark .flat-tab-active.joined-tab.corner-tab {
+:is(.dark, .light-terminal) .flat-tab-active.joined-tab.corner-tab {
   box-shadow:
     inset -1px 0 0 oklch(var(--border) / 0.7),
     inset 0 1px 0 oklch(var(--border) / 0.7);

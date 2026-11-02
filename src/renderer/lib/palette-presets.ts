@@ -2,8 +2,8 @@
 // Tokens are partial maps (CSS var name -> OKLCH "L C H" string).
 // Only neutral surface tokens are included - each theme's accent lives in
 // BUILT_IN_THEMES and is saved to theme.json when the theme is chosen.
-// Terminals are dark in every theme. Komla Dark uses the Terminal settings' colors, Komla Light a
-// softer dark that sits easier beside its light surfaces, and every other theme its own colors.
+// Komla Dark uses the Terminal settings' colors, every other theme its own: dark terminals in
+// dark themes and a white one in Komla Light.
 
 import { hexToOklchValues } from './project-colors';
 
@@ -43,8 +43,6 @@ export interface Palette {
     selection?: string;
     ansi?: Partial<TerminalColorConfig['ansi']>;
   };
-  /** The dark surfaces for terminal panes in a light theme. */
-  terminalTokens?: PaletteTokens;
   monaco: {
     editorBackground: string;
   };
@@ -280,20 +278,19 @@ export const PALETTES: Palette[] = [
       '--sidebar-muted': '0.945 0.004 286',
       '--chrome': '0.936 0.003 286',
     },
-    // Ghostty's default terminal (src/config/Config.zig), with the Terminal settings' ANSI colors,
-    // and pane surfaces a step lighter than it, as Komla Dark's card sits beside its terminal.
-    xterm: { background: '#282c34', foreground: '#ffffff' },
-    terminalTokens: {
-      '--background': '0.289 0.021 264',
-      '--card': '0.35 0.021 264',
-      '--popover': '0.35 0.021 264',
-      '--muted': '0.39 0.021 264',
-      '--secondary': '0.39 0.021 264',
-      '--accent': '0.42 0.021 264',
-      '--border': '0.39 0.021 264',
-      '--input': '0.44 0.021 264',
+    // A white terminal with GitHub Light's ANSI colors, which are made for white. Its yellow is
+    // GitHub's attention yellow, which reads as yellow where GitHub's ANSI yellow reads as brown.
+    xterm: {
+      background: '#ffffff',
+      foreground: '#1f2328',
+      cursor: '#1f2328',
+      selection: '#cde2fb',
+      ansi: ansi(
+        ['#24292f', '#cf222e', '#116329', '#9a6700', '#0969da', '#8250df', '#1b7c83', '#6e7781'],
+        ['#57606a', '#a40e26', '#1a7f37', '#7d4e00', '#218bff', '#a475f9', '#3192aa', '#8c959f']
+      ),
     },
-    monaco: { editorBackground: '#f6f6f8' },
+    monaco: { editorBackground: '#ffffff' },
   },
 ];
 

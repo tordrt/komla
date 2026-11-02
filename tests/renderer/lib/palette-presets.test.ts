@@ -186,24 +186,22 @@ describe('PALETTES', () => {
     }
   });
 
-  it('keeps terminals dark in light themes', () => {
-    for (const palette of PALETTES.filter((p) => p.mode === 'light')) {
-      const background = palette.xterm?.background;
-      expect(background && isDarkColor(background), palette.id).toBe(true);
+  it("gives every theme's own terminal the theme's mode", () => {
+    for (const palette of PALETTES.filter((p) => p.xterm)) {
+      expect(isDarkColor(palette.xterm!.background), palette.id).toBe(palette.mode === 'dark');
     }
   });
 
-  it('leaves Komla Dark on the Terminal settings colors, and Komla Light on their ANSI colors', () => {
+  it('leaves Komla Dark on the Terminal settings colors', () => {
     expect(getPalette(DEFAULT_PALETTE_ID).xterm).toBeUndefined();
-    expect(getPalette('frost').xterm?.ansi).toBeUndefined();
   });
 
-  it("softens Komla Light's terminal against Komla Dark's", () => {
-    const background = getPalette('frost').xterm!.background;
-
-    expect(contrast(background, '#ffffff')).toBeLessThan(
-      contrast(DEFAULT_TERMINAL_CONFIG.colors.background, '#ffffff')
-    );
+  // The Terminal settings' ANSI colors are made for a dark terminal.
+  it("keeps Komla Light's normal ANSI colors readable on its white terminal", () => {
+    const { background, ansi } = getPalette('frost').xterm!;
+    for (const name of ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'] as const) {
+      expect(contrast(ansi![name]!, background), name).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it("tints Komla Light's surfaces with Komla Dark's hue", () => {

@@ -57,7 +57,8 @@ you apply may not show until the system switches. The result says which theme it
   them, so give it a visible step off the card. `popover`, `sidebar`, `cursor`, `selection` and
   `ansi` (`black` … `brightWhite`) are optional. A `customPalette.accent` that Komla saved is the
   theme's own accent; keep it.
-- Komla's own light themes keep the terminal dark; do the same unless the user asks otherwise.
+- Komla Light has a light terminal. In a light theme, give the terminal a light background and
+  `ansi` colors that read on it, unless the user asks for a dark terminal.
 
 Komla rejects a custom theme whose text would be hard to read. Its text colors are fixed per mode
 (`#fafafa` and `#aeaeae` in dark, `#0a0a0a` and `#636363` in light), and each needs a WCAG contrast

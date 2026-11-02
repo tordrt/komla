@@ -119,15 +119,17 @@ export function readStoredPaletteId(): string {
   }
 }
 
+// `.light-terminal` marks a light theme whose terminal is light too, so its active tab can open
+// into the terminal as dark themes' tabs do.
 function applyMode(palette: Palette): void {
   const root = document.documentElement;
-  if (palette.mode === 'dark') {
-    root.classList.add('dark');
-    root.classList.remove('light');
-  } else {
-    root.classList.remove('dark');
-    root.classList.add('light');
-  }
+  root.classList.toggle('dark', palette.mode === 'dark');
+  root.classList.toggle('light', palette.mode === 'light');
+  const terminal = palette.xterm?.background;
+  root.classList.toggle(
+    'light-terminal',
+    palette.mode === 'light' && terminal !== undefined && !isDarkColor(terminal)
+  );
 }
 
 function clearAllOverrides(): void {
@@ -295,9 +297,9 @@ export function getPaletteTerminalBackground(): string | null {
 }
 
 /**
- * Terminals stay dark in light themes, so a terminal pane on its `background` there takes dark
- * surfaces and the accent or project color fitted to dark, which keeps its header and search bar
- * readable on the terminal.
+ * A custom light theme can have a dark terminal, so a terminal pane on a dark `background` there
+ * takes dark surfaces and the accent or project color fitted to dark, which keeps its header and
+ * search bar readable on the terminal.
  */
 export function useTerminalPaneScope(background: string | undefined): {
   className?: string;
@@ -308,7 +310,6 @@ export function useTerminalPaneScope(background: string | undefined): {
   return {
     className: 'dark',
     style: {
-      ...palette.terminalTokens,
       '--primary': 'var(--dark-primary)',
       '--ring': 'var(--dark-primary)',
     } as CSSProperties,

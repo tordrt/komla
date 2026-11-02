@@ -226,7 +226,7 @@ export function AppearanceTab() {
     <div className="space-y-6">
       <SettingsCard
         title="Theme"
-        description="Colors for the interface, terminals and editor. Terminals stay dark in light themes, and choosing a theme also sets its accent color."
+        description="Colors for the interface, terminals and editor. Choosing a theme also sets its accent color."
       >
         {unknownPalette && (
           <div>

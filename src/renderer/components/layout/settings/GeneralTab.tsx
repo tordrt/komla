@@ -9,14 +9,6 @@ import { TELEMETRY_LEVEL_OPTIONS } from '@/components/layout/settings/telemetry-
 import { UtilityPromptEditor } from '@/components/layout/settings/UtilityPromptEditor';
 import { WorkspaceTagsCard } from '@/components/layout/settings/WorkspaceTagsCard';
 import { KEEP_AWAKE_MODES } from '@/components/layout/status-bar/KeepAwakeStatusSegment';
-import {
-  RESOURCE_USAGE_BAR_CHOICES,
-  RESOURCE_USAGE_HOST_CHOICES,
-  hostChoice,
-  resourceUsageBarChoice,
-  resourceUsageBarChoiceUpdate,
-  useResourceUsageBarSource,
-} from '@/components/layout/status-bar/ResourceUsageSegment';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -32,7 +24,6 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { useConfigStore } from '@/stores/config.store';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
-import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
@@ -64,8 +55,6 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
     saveOpenRouterApiKey,
     clearOpenRouterApiKey,
   } = useConfigStore();
-  const sshHosts = useSshHostsStore((s) => s.hosts);
-  const resourceUsageBarSource = useResourceUsageBarSource();
   const addToast = useToastStore((s) => s.addToast);
   const quitShortcut = formatShortcutForDisplay('Cmd+Q');
   const telemetryLevel = getTelemetryLevel(config);
@@ -565,9 +554,9 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
         </SettingsRow>
       </SettingsCard>
 
-      {/* Advanced */}
-      <SettingsCard title="Advanced">
-        {(window.api.platform === 'darwin' || window.api.platform === 'linux') && (
+      {/* Advanced: Windows has nothing to show in it. */}
+      {(window.api.platform === 'darwin' || window.api.platform === 'linux') && (
+        <SettingsCard title="Advanced">
           <SettingsRow
             label={`Hold ${quitShortcut} to quit`}
             description={`Quit only after ${quitShortcut} is held for a second, so a press meant for another app doesn't stop your agents.`}
@@ -577,46 +566,8 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
               onCheckedChange={(checked) => void updateConfig({ holdToQuit: checked })}
             />
           </SettingsRow>
-        )}
-        <SettingsRow
-          label="Resource usage"
-          description="Show CPU and memory use in the status bar. Click it for what each workspace's terminals use, here and on SSH hosts."
-        >
-          <Switch
-            checked={config?.showSystemMetrics === true}
-            onCheckedChange={(checked) => void updateConfig({ showSystemMetrics: checked })}
-          />
-        </SettingsRow>
-        {config?.showSystemMetrics === true && (
-          <SettingsRow
-            label="Status bar shows"
-            description="Whose CPU and memory the status bar counts."
-          >
-            <Select
-              aria-label="Status bar shows"
-              value={resourceUsageBarChoice(resourceUsageBarSource)}
-              onChange={(e) => void updateConfig(resourceUsageBarChoiceUpdate(e.target.value))}
-              className="w-56"
-            >
-              {RESOURCE_USAGE_BAR_CHOICES.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-              {sshHosts.map((host) => (
-                <optgroup key={host.id} label={host.name}>
-                  {RESOURCE_USAGE_HOST_CHOICES.map((option) => (
-                    // A closed select shows only the option, so it names the host.
-                    <option key={option.value} value={hostChoice(option.value, host)}>
-                      {host.name}: {option.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
-          </SettingsRow>
-        )}
-      </SettingsCard>
+        </SettingsCard>
+      )}
 
       <SettingsHistoryCard />
 

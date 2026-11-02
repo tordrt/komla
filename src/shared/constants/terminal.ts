@@ -9,7 +9,7 @@ export const BUNDLED_TERMINAL_FONT = 'JetBrainsMonoNL Nerd Font Mono';
 /**
  * Default terminal font family stack.
  * Uses the bundled JetBrains Mono Nerd Font as primary, with system monospace fallbacks.
- * Users can override this in Settings > Appearance > Terminal > Font family.
+ * Users can override this in Settings > Appearance > Terminal text > Font family.
  */
 export const DEFAULT_TERMINAL_FONT_FAMILY = `"${BUNDLED_TERMINAL_FONT}", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`;
 

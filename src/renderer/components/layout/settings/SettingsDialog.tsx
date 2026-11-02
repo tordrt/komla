@@ -175,14 +175,14 @@ const PAGES: SettingsPage[] = [
     value: 'appearance',
     label: 'Appearance',
     description:
-      'Theme, accent color, interface size, terminal colors and font, and the status bar.',
+      'Theme, accent color, interface size, the workspace list, panes, terminal colors and font, and the status bar.',
     icon: Palette,
     group: 'Interface',
   },
   {
     value: 'terminal',
     label: 'Terminal',
-    description: 'Scrollback, pane and link behavior for every terminal.',
+    description: 'Scrollback, link and mouse behavior for every terminal.',
     icon: Terminal,
     group: 'Interface',
   },

@@ -51,6 +51,7 @@ import {
   themeSlot,
 } from '../../../../shared/lib/appearance';
 
+import { PanesSettingsCard } from './PanesSettingsCard';
 import { ResetToDefaultsButton } from './ResetToDefaultsButton';
 import { StatusBarSettingsCard } from './StatusBarSettingsCard';
 import { TerminalAppearanceCard } from './TerminalAppearanceCard';
@@ -209,11 +210,16 @@ export function AppearanceTab() {
   const handleReset = async () => {
     setIsResetting(true);
     try {
-      // Scrollback and pane settings have their own reset on the Terminal page.
-      const { font, cursor, colors } = DEFAULT_TERMINAL_CONFIG;
+      // Scrollback and right-clicks have their own reset on the Terminal page; this one covers
+      // the rest of the terminal settings, so a new one is reset somewhere.
+      const {
+        scrollback: _scrollback,
+        sendRightClickToPrograms: _sendRightClickToPrograms,
+        ...look
+      } = DEFAULT_TERMINAL_CONFIG;
       await resetTheme();
       await updateConfig({ zoomLevel: 0 });
-      await updateTerminalConfig({ font, cursor, colors });
+      await updateTerminalConfig(look);
       applyPalette('default');
       addToast('Appearance reset to defaults', 'success');
     } finally {
@@ -313,6 +319,10 @@ export function AppearanceTab() {
           </Select>
         </SettingsRow>
 
+        <ReduceEffectsRow />
+      </SettingsCard>
+
+      <SettingsCard title="Workspace list">
         <SettingsRow
           label="Always show branch names on workspace cards"
           description="Turn off for shorter cards that show the branch only when there's nothing else to show beside the time"
@@ -357,16 +367,16 @@ export function AppearanceTab() {
             }))}
           />
         </SettingsRow>
-
-        <ReduceEffectsRow />
       </SettingsCard>
+
+      <PanesSettingsCard />
 
       <TerminalAppearanceCard activePaletteId={activeId} />
 
       <StatusBarSettingsCard />
 
       <ResetToDefaultsButton
-        label="Reset theme, fonts and zoom"
+        label="Reset theme, zoom, panes and terminal text"
         isResetting={isResetting}
         onClick={() => setResetDialogOpen(true)}
       />
@@ -376,8 +386,8 @@ export function AppearanceTab() {
           <DialogHeader>
             <DialogTitle>Reset appearance</DialogTitle>
             <DialogDescription>
-              This will reset the theme palette, accent color, zoom level, and terminal colors,
-              font, and cursor to their defaults.
+              This will reset the theme palette, accent color, zoom level, pane settings, and
+              terminal colors, font, and cursor to their defaults.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

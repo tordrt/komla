@@ -15,7 +15,6 @@ import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
-import { markPaneMenuHintSeen } from '@/lib/pane-menu-hint';
 import { useConfigStore } from '@/stores/config.store';
 import { useCustomizationStore } from '@/stores/customization.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -29,7 +28,6 @@ export function TerminalTab() {
   const config = useConfigStore((s) => s.config);
   const updateConfig = useConfigStore((s) => s.updateConfig);
   const addToast = useToastStore((s) => s.addToast);
-  const showPaneHeaders = terminalConfig?.showPaneHeaders === true;
 
   const [isResettingTerminal, setIsResettingTerminal] = useState(false);
   const [resetTerminalDialogOpen, setResetTerminalDialogOpen] = useState(false);
@@ -51,14 +49,9 @@ export function TerminalTab() {
   const handleResetTerminal = async () => {
     setIsResettingTerminal(true);
     try {
-      // Colors, font and cursor are on the Appearance page, and its reset covers them.
-      const {
-        font: _font,
-        cursor: _cursor,
-        colors: _colors,
-        ...behavior
-      } = DEFAULT_TERMINAL_CONFIG;
-      await updateTerminalConfig(behavior);
+      // The terminal's look and its panes are on the Appearance page, and its reset covers them.
+      const { scrollback, sendRightClickToPrograms } = DEFAULT_TERMINAL_CONFIG;
+      await updateTerminalConfig({ scrollback, sendRightClickToPrograms });
       addToast('Terminal settings reset to defaults', 'success');
     } finally {
       setIsResettingTerminal(false);
@@ -87,86 +80,6 @@ export function TerminalTab() {
             <option value="50000">50,000</option>
             <option value="100000">100,000</option>
           </Select>
-        </SettingsRow>
-      </SettingsCard>
-
-      <SettingsCard title="Panes">
-        <SettingsRow
-          label="Show pane headers"
-          description="Show a title bar on split panes to drag, split and close them. When off, split and close from the right-click menu."
-        >
-          <Switch
-            checked={showPaneHeaders}
-            onCheckedChange={(checked) => {
-              markPaneMenuHintSeen();
-              void updateTerminalConfig({ showPaneHeaders: checked });
-            }}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          label="Show pane buttons on focus"
-          description="Show split and close buttons in the terminal header when a pane is focused, not just on hover"
-          disabled={!showPaneHeaders}
-        >
-          <Switch
-            disabled={!showPaneHeaders}
-            checked={terminalConfig?.showButtonsOnFocus ?? true}
-            onCheckedChange={(checked) => {
-              void updateTerminalConfig({ showButtonsOnFocus: checked });
-            }}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          label="Dim unfocused panes"
-          description="Reduce brightness of panes that don't have focus"
-        >
-          <Select
-            value={String(terminalConfig?.unfocusedPaneDimOpacity ?? 0.85)}
-            onChange={(e) => {
-              void updateTerminalConfig({
-                unfocusedPaneDimOpacity: Number(e.target.value),
-              });
-            }}
-            className="w-28"
-          >
-            <option value="1">None</option>
-            <option value="0.9">10%</option>
-            <option value="0.85">15%</option>
-            <option value="0.8">20%</option>
-            <option value="0.7">30%</option>
-            <option value="0.6">40%</option>
-            <option value="0.5">50%</option>
-            <option value="0.4">60%</option>
-            <option value="0.3">70%</option>
-          </Select>
-        </SettingsRow>
-
-        <SettingsRow
-          label="Focused pane border"
-          description="Show a colored accent on the focused pane header using the project color"
-          disabled={!showPaneHeaders}
-        >
-          <Switch
-            disabled={!showPaneHeaders}
-            checked={terminalConfig?.focusedPaneBorder === true}
-            onCheckedChange={(checked) => {
-              void updateTerminalConfig({ focusedPaneBorder: checked });
-            }}
-          />
-        </SettingsRow>
-
-        <SettingsRow
-          label="Notification pane border"
-          description="Show a subtle colored border around unfocused terminal panes with notifications"
-        >
-          <Switch
-            checked={terminalConfig?.notificationPaneBorder ?? true}
-            onCheckedChange={(checked) => {
-              void updateTerminalConfig({ notificationPaneBorder: checked });
-            }}
-          />
         </SettingsRow>
       </SettingsCard>
 
@@ -217,7 +130,7 @@ export function TerminalTab() {
       )}
 
       <ResetToDefaultsButton
-        label="Reset scrollback and panes"
+        label="Reset scrollback and mouse"
         isResetting={isResettingTerminal}
         onClick={() => setResetTerminalDialogOpen(true)}
       />
@@ -228,7 +141,7 @@ export function TerminalTab() {
           <DialogHeader>
             <DialogTitle>Reset terminal settings</DialogTitle>
             <DialogDescription>
-              This will reset scrollback and pane settings to their defaults.
+              This will reset scrollback and right-click settings to their defaults.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

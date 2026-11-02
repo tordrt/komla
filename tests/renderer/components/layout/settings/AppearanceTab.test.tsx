@@ -77,24 +77,37 @@ describe('AppearanceTab', () => {
     vi.mocked(getActivePaletteId).mockReturnValue('default');
   });
 
-  it('resets the theme, zoom, and terminal look, leaving scrollback and panes alone', async () => {
+  it('resets the theme, zoom, panes, and terminal look, leaving scrollback and right-clicks alone', async () => {
     const user = userEvent.setup();
     render(<AppearanceTab />, { wrapper: TooltipProvider });
 
-    await user.click(screen.getByRole('button', { name: /Reset theme, fonts and zoom/ }));
+    await user.click(
+      screen.getByRole('button', { name: /Reset theme, zoom, panes and terminal text/ })
+    );
     const confirm = screen.getByRole('dialog', { name: 'Reset appearance' });
+    expect(confirm).toHaveTextContent(/pane settings/);
     expect(confirm).toHaveTextContent(/terminal colors, font, and cursor/);
     await user.click(within(confirm).getByRole('button', { name: 'Reset' }));
 
     await waitFor(() => expect(applyPalette).toHaveBeenCalledWith('default'));
     expect(window.api.resetTheme).toHaveBeenCalled();
     expect(window.api.updateConfig).toHaveBeenCalledWith({ zoomLevel: 0 });
-    const { font, cursor, colors } = DEFAULT_TERMINAL_CONFIG;
-    expect(window.api.updateTerminalConfig).toHaveBeenCalledExactlyOnceWith({
-      font,
-      cursor,
-      colors,
-    });
+    const {
+      scrollback: _scrollback,
+      sendRightClickToPrograms: _sendRightClickToPrograms,
+      ...look
+    } = DEFAULT_TERMINAL_CONFIG;
+    expect(window.api.updateTerminalConfig).toHaveBeenCalledExactlyOnceWith(look);
+  });
+
+  it('groups the cards by what they style', () => {
+    render(<AppearanceTab />, { wrapper: TooltipProvider });
+
+    // The Status bar card is mocked out here.
+    expect(
+      screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)
+    ).toEqual(['Theme', 'Interface', 'Workspace list', 'Panes', 'Terminal text']);
+    expect(screen.getByRole('switch', { name: 'Show pane headers' })).toBeInTheDocument();
   });
 
   it('offers zoom in the half steps Cmd+/− use', async () => {
@@ -178,7 +191,7 @@ describe('AppearanceTab', () => {
   it('shows the terminal colors, font, and cursor beside the theme', () => {
     render(<AppearanceTab />, { wrapper: TooltipProvider });
 
-    const card = screen.getByRole('heading', { name: 'Terminal' }).closest('section')!;
+    const card = screen.getByRole('heading', { name: 'Terminal text' }).closest('section')!;
     expect(within(card).getByRole('textbox', { name: 'Background color' })).toBeInTheDocument();
     expect(within(card).getByRole('spinbutton', { name: 'Font size' })).toHaveValue(18);
     expect(within(card).getByRole('radiogroup', { name: 'Cursor style' })).toBeInTheDocument();

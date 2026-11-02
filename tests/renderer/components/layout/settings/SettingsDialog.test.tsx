@@ -97,7 +97,7 @@ vi.mock('../../../../../src/renderer/components/layout/settings/AppearanceTab', 
   AppearanceTab: () => (
     <div>
       <p>Appearance page</p>
-      <section id="settings-card-terminal">Terminal card</section>
+      <section id="settings-card-terminal-text">Terminal text card</section>
     </div>
   ),
 }));
@@ -551,9 +551,9 @@ describe('SettingsDialog', () => {
         screen.getByRole('listbox', { name: 'Settings search results' })
       ).getAllByRole('option');
       expect(options.map((option) => option.textContent)).toEqual([
-        'TerminalAppearance',
-        'Cursor styleAppearance › Terminal',
-        'Cursor blinkAppearance › Terminal',
+        'Terminal textAppearance',
+        'Cursor styleAppearance › Terminal text',
+        'Cursor blinkAppearance › Terminal text',
       ]);
       expect(options[0]).toHaveAttribute('aria-selected', 'true');
 
@@ -566,7 +566,7 @@ describe('SettingsDialog', () => {
       await user.keyboard('{Enter}');
 
       expect(screen.getByText('Appearance page')).toBeInTheDocument();
-      const card = screen.getByText('Terminal card');
+      const card = screen.getByText('Terminal text card');
       expect(scrolledTo).toContain(card);
       expect(card).toHaveAttribute('data-search-target');
 
@@ -612,7 +612,7 @@ describe('SettingsDialog', () => {
       await user.click(within(confirm).getByRole('button', { name: 'Discard changes' }));
 
       expect(screen.getByText('Appearance page')).toBeInTheDocument();
-      expect(scrolledTo).toContain(screen.getByText('Terminal card'));
+      expect(scrolledTo).toContain(screen.getByText('Terminal text card'));
     });
   });
 

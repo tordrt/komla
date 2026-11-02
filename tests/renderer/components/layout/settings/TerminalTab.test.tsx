@@ -6,10 +6,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { TerminalTab } from '../../../../../src/renderer/components/layout/settings/TerminalTab';
-import { showPaneMenuHintOnce } from '../../../../../src/renderer/lib/pane-menu-hint';
 import { useConfigStore } from '../../../../../src/renderer/stores/config.store';
 import { useCustomizationStore } from '../../../../../src/renderer/stores/customization.store';
-import { useToastStore } from '../../../../../src/renderer/stores/toast.store';
 import { DEFAULT_TERMINAL_CONFIG } from '../../../../../src/shared/constants/terminal';
 
 const terminalConfig = {
@@ -41,31 +39,15 @@ describe('TerminalTab', () => {
     useConfigStore.setState({ config: {} as never });
   });
 
-  it('leaves colors, font, and cursor to the Appearance page', () => {
+  it('leaves colors, font, cursor, and panes to the Appearance page', () => {
     render(<TerminalTab />);
 
     expect(screen.getByRole('combobox', { name: 'Scrollback lines' })).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Focused pane border' })).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Show pane headers' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Focused pane border' })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Background color' })).not.toBeInTheDocument();
     expect(screen.queryByRole('spinbutton', { name: 'Font size' })).not.toBeInTheDocument();
     expect(screen.queryByRole('radiogroup', { name: 'Cursor style' })).not.toBeInTheDocument();
-  });
-
-  it('turns pane headers off and disables the settings that only style them', async () => {
-    const user = userEvent.setup();
-    render(<TerminalTab />);
-
-    await user.click(screen.getByRole('switch', { name: 'Show pane headers' }));
-
-    expect(updateTerminalConfig).toHaveBeenCalledWith({ showPaneHeaders: false });
-    useCustomizationStore.setState({
-      terminalConfig: { ...structuredClone(terminalConfig), showPaneHeaders: false } as never,
-    });
-    await waitFor(() =>
-      expect(screen.getByRole('switch', { name: 'Show pane buttons on focus' })).toBeDisabled()
-    );
-    expect(screen.getByRole('switch', { name: 'Focused pane border' })).toBeDisabled();
-    expect(screen.getByRole('switch', { name: 'Notification pane border' })).toBeEnabled();
   });
 
   it('sends right-clicks to programs only once turned on', async () => {
@@ -79,30 +61,21 @@ describe('TerminalTab', () => {
     expect(updateTerminalConfig).toHaveBeenCalledWith({ sendRightClickToPrograms: true });
   });
 
-  it('skips the pane menu hint for someone who changed the pane header setting', async () => {
-    window.localStorage.clear();
-    useToastStore.setState(useToastStore.getInitialState(), true);
+  it('resets scrollback and right-clicks, leaving the look and panes to Appearance', async () => {
     const user = userEvent.setup();
     render(<TerminalTab />);
 
-    await user.click(screen.getByRole('switch', { name: 'Show pane headers' }));
-    showPaneMenuHintOnce();
-
-    expect(useToastStore.getState().toasts).toEqual([]);
-  });
-
-  it('resets scrollback and panes, leaving colors, font, and cursor alone', async () => {
-    const user = userEvent.setup();
-    render(<TerminalTab />);
-
-    await user.click(screen.getByRole('button', { name: /Reset scrollback and panes/ }));
+    await user.click(screen.getByRole('button', { name: /Reset scrollback and mouse/ }));
     const confirm = screen.getByRole('dialog', { name: 'Reset terminal settings' });
-    expect(confirm).not.toHaveTextContent(/font|color|cursor/i);
+    expect(confirm).not.toHaveTextContent(/font|color|cursor|pane/i);
     await user.click(within(confirm).getByRole('button', { name: 'Reset' }));
 
-    const { font: _font, cursor: _cursor, colors: _colors, ...behavior } = DEFAULT_TERMINAL_CONFIG;
-    await waitFor(() => expect(updateTerminalConfig).toHaveBeenCalledWith(behavior));
-    expect(updateTerminalConfig).toHaveBeenCalledOnce();
+    await waitFor(() =>
+      expect(updateTerminalConfig).toHaveBeenCalledExactlyOnceWith({
+        scrollback: DEFAULT_TERMINAL_CONFIG.scrollback,
+        sendRightClickToPrograms: DEFAULT_TERMINAL_CONFIG.sendRightClickToPrograms,
+      })
+    );
   });
 
   it('sets where links open, in the default browser by default', async () => {

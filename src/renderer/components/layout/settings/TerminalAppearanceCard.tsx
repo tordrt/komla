@@ -32,7 +32,7 @@ export function TerminalAppearanceCard({ activePaletteId }: TerminalAppearanceCa
   const { terminalConfig, updateTerminalConfig } = useCustomizationStore();
 
   return (
-    <SettingsCard title="Terminal">
+    <SettingsCard title="Terminal text">
       <TerminalBackgroundColorRow activePaletteId={activePaletteId} />
 
       <SettingsRow

@@ -71,10 +71,38 @@ describe('StatusBarSettingsCard', () => {
     expect(mockState.updateConfig).toHaveBeenCalledWith({ agentsMenuBarInBackgroundOnly: false });
   });
 
-  it('leaves the open button, file manager, default action and Tips to the status bar', () => {
+  it('leaves the other bar items, such as the open button and Tips, to the status bar', () => {
     render(<StatusBarSettingsCard />);
 
-    expect(screen.getAllByRole('switch')).toHaveLength(1);
+    expect(screen.getAllByRole('switch')).toEqual([
+      screen.getByRole('switch', { name: 'Show status bar' }),
+      screen.getByRole('switch', { name: 'Resource usage' }),
+    ]);
     expect(screen.queryByRole('combobox')).toBeNull();
+  });
+
+  it('shows resource usage in the status bar, then picks whose it counts', () => {
+    const { rerender } = render(<StatusBarSettingsCard />);
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Resource usage' }));
+    expect(mockState.updateConfig).toHaveBeenCalledWith({ showSystemMetrics: true });
+
+    mockState.config = { showSystemMetrics: true };
+    rerender(<StatusBarSettingsCard />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Status bar shows' }), {
+      target: { value: 'computer' },
+    });
+
+    expect(mockState.updateConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ statusBarResourceUsage: 'computer' })
+    );
+  });
+
+  it('turns off resource usage while the status bar is hidden', () => {
+    mockState.config = { showStatusBar: false, showSystemMetrics: true };
+    render(<StatusBarSettingsCard />);
+
+    expect(screen.getByRole('switch', { name: 'Resource usage' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Status bar shows' })).toBeDisabled();
   });
 });

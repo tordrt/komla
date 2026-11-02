@@ -35,9 +35,37 @@ describe('searchSettings', () => {
       page: 'appearance',
       pageLabel: 'Appearance',
       label: 'Font size',
-      card: 'Terminal',
-      cardId: 'settings-card-terminal',
+      card: 'Terminal text',
+      cardId: 'settings-card-terminal-text',
     });
+  });
+
+  it('finds pane settings on the Appearance page', () => {
+    expect(searchSettings('dim unfocused', pages, 'darwin')[0]).toMatchObject({
+      kind: 'row',
+      page: 'appearance',
+      label: 'Dim unfocused panes',
+      cardId: 'settings-card-panes',
+    });
+  });
+
+  it('finds resource usage in the Status bar card', () => {
+    expect(searchSettings('cpu', pages, 'darwin')).toContainEqual(
+      expect.objectContaining({
+        kind: 'row',
+        page: 'appearance',
+        label: 'Resource usage',
+        card: 'Status bar',
+      })
+    );
+  });
+
+  it('leaves out the Advanced card on Windows, where it has nothing to show', () => {
+    const generalPages = [{ value: 'general', label: 'General' }];
+    expect(searchSettings('advanced', generalPages, 'win32')).toEqual([]);
+    expect(searchSettings('advanced', generalPages, 'linux')).toContainEqual(
+      expect.objectContaining({ kind: 'card', label: 'Advanced' })
+    );
   });
 
   it.each(['status bar', 'toolbar', 'footer', 'keep awake', 'tips', 'default editor', 'finder'])(
@@ -78,7 +106,7 @@ describe('searchSettings', () => {
     const results = searchSettings('cursor', pages, 'darwin');
 
     expect(results.map((result) => [result.kind, result.label])).toEqual([
-      ['card', 'Terminal'],
+      ['card', 'Terminal text'],
       ['row', 'Cursor style'],
       ['row', 'Cursor blink'],
     ]);

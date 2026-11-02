@@ -63,7 +63,7 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
       card: 'Power',
       keywords: 'sleep caffeinate prevent suspend agents',
     },
-    card('Advanced'),
+    { ...card('Advanced'), platforms: ['darwin', 'linux'] },
     {
       kind: 'row',
       label: 'Hold ⌘Q to quit',
@@ -78,7 +78,6 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
       keywords: 'ctrl q quit accidental warn before quitting confirm',
       platforms: ['linux'],
     },
-    ...rows('Advanced', 'Resource usage'),
     card('Settings history', 'undo revert agent changes'),
     card('Privacy', 'telemetry'),
     ...rows('Privacy', 'Usage data', 'Crash reports'),
@@ -123,9 +122,9 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
   ],
   appearance: [
     card('Theme', 'palette dark light color scheme system match automatic'),
-    card('Terminal', 'colors font cursor editor'),
+    card('Terminal text', 'colors font cursor editor'),
     ...rows(
-      'Terminal',
+      'Terminal text',
       'Background color',
       'Font family',
       'Font size',
@@ -134,13 +133,7 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
       'Cursor blink'
     ),
     card('Interface'),
-    ...rows(
-      'Interface',
-      'Zoom level',
-      'Always show branch names on workspace cards',
-      'Compact workspace list',
-      'Activity spinner style'
-    ),
+    ...rows('Interface', 'Zoom level'),
     { kind: 'row', label: 'Accent color', card: 'Interface', keywords: 'highlight' },
     {
       kind: 'row',
@@ -148,6 +141,22 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
       card: 'Interface',
       keywords: 'animation motion blur performance slow gpu',
     },
+    card('Workspace list', 'sidebar cards'),
+    ...rows(
+      'Workspace list',
+      'Always show branch names on workspace cards',
+      'Compact workspace list',
+      'Activity spinner style'
+    ),
+    card('Panes', 'split'),
+    ...rows(
+      'Panes',
+      'Show pane headers',
+      'Show pane buttons on focus',
+      'Focused pane border',
+      'Dim unfocused panes',
+      'Notification pane border'
+    ),
     card('Status bar'),
     {
       kind: 'row',
@@ -161,6 +170,12 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
       label: 'Status bar size',
       card: 'Status bar',
       keywords: 'height taller thicker thinner small medium large footer bottom bar',
+    },
+    {
+      kind: 'row',
+      label: 'Resource usage',
+      card: 'Status bar',
+      keywords: 'cpu memory ram system metrics performance',
     },
     {
       kind: 'row',
@@ -180,15 +195,6 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
   terminal: [
     card('Scrollback', 'history'),
     ...rows('Scrollback', 'Scrollback lines'),
-    card('Panes', 'split'),
-    ...rows(
-      'Panes',
-      'Show pane headers',
-      'Show pane buttons on focus',
-      'Dim unfocused panes',
-      'Focused pane border',
-      'Notification pane border'
-    ),
     card('Links', 'url browser external website localhost'),
     ...rows('Links', 'Open links in'),
     card('Mouse', 'right click context menu paste'),

@@ -166,7 +166,8 @@ settings/
 ├── shortcuts.json      # Your keyboard shortcuts
 ├── actions.json        # Your quick commands (Saved Prompts and Terminal Commands)
 ├── status-items.json   # Your custom status bar items (commands run on an interval)
-├── sidebar-panels.json # Your sidebar panels (pages a command prints, beside Diff and Files)
+├── sidebar-panels.json # Your sidebar panels (pages beside Diff and Files)
+├── panels/             # Sidebar panels' own pages, as panels/<name>/index.html
 ├── hooks.json          # Commands run on agent and workspace events, or on a timer
 ├── plugins.json        # Which plugins in ../plugins/ run, as their files were when turned on
 ├── README.md           # This documentation
@@ -481,7 +482,9 @@ At most 30 items. A file Komla can't read shows a warning item in the status bar
 
 ### sidebar-panels.json
 
-Defines panels in the workspace sidebar, as tabs beside Diff and Files: pages a command prints, which Komla runs when the panel opens and on an interval while it stays open. A panel takes a status item's fields and runs where they do; its \`command\` prints what a status item's \`popoverCommand\` prints, an HTML page or Markdown with buttons, shown in the same sandbox.
+Defines panels in the workspace sidebar, as tabs beside Diff and Files: pages a command prints, which Komla runs when the panel opens and on an interval while it stays open. A panel takes a status item's fields and runs where they do; its \`command\` prints what a status item's \`popoverCommand\` prints, an HTML page or Markdown with buttons, shown in the same sandbox, or plain text, shown as a terminal shows it.
+
+A panel can instead have a page of its own, \`"page": "panels/<file or folder>"\`, such as a built React app, which loads once and gets what its \`command\` prints as data. It reaches Komla through \`komla\` in the page, and may change only what its \`capabilities\` name. \`komla skill status-items\` describes it.
 
 \`\`\`json
 {

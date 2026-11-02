@@ -3,6 +3,7 @@ import { homedir } from 'os';
 import { z } from 'zod';
 
 import { isBrowserUrl } from '../../shared/lib/browser-tabs';
+import { KOMLA_EVENT_LABELS, KOMLA_EVENT_TYPES } from '../../shared/types/komla-events';
 import {
   isStatusItemColor,
   MAX_STATUS_BUTTON_LABEL,
@@ -16,8 +17,10 @@ import {
   type StatusPopoverButton,
   type StatusPopoverContent,
   type StatusPopoverTheme,
+  type StatusTextSegment,
 } from '../../shared/types/status-items';
 import { isSshWorkspace } from '../../shared/types/workspace';
+import { ansiSegments } from '../lib/ansi-colors';
 import { createLogger } from '../lib/logger';
 import { isSettingsIconPath, statusIconDataUrl } from '../lib/status-icon';
 import { ANSI_ESCAPE, truncate } from '../lib/status-item-text';
@@ -64,6 +67,15 @@ export const intervalSecondsSchema = z.number().int().min(10).max(86_400).defaul
 export const timeoutSecondsSchema = z.number().int().min(1).max(600).optional();
 export const runOnSchema = z.enum(['workspace', 'local']).optional();
 export const projectsSchema = z.array(z.string().trim().min(1)).min(1).optional();
+export const refreshOnSchema = z
+  .array(z.enum(KOMLA_EVENT_TYPES))
+  .min(1)
+  .max(KOMLA_EVENT_TYPES.length)
+  .optional();
+/** What `refreshOn` can name, for its description. */
+export const REFRESH_ON_EVENTS = KOMLA_EVENT_TYPES.map(
+  (type) => `\`${type}\` (${KOMLA_EVENT_LABELS[type].toLowerCase()})`
+).join(', ');
 export const iconColorSchema = z
   .string()
   .refine(isStatusItemColor, { message: COLOR_MESSAGE })
@@ -150,7 +162,35 @@ export const pageOutputDescription = pageOutputSchema
 export interface ParsedCommandPage {
   markdown: string;
   html?: string;
+  terminal?: StatusTextSegment[][];
   buttons: StatusPopoverButton[];
+}
+
+/** The most lines of terminal text a page shows; the last ones, as a terminal would. */
+const MAX_TERMINAL_LINES = 1000;
+
+/**
+ * Text printed for a terminal as lines of colored runs: each line as a carriage return leaves it,
+ * without the blank lines around them, keeping the last MAX_TERMINAL_LINES and at most
+ * MAX_STATUS_POPOVER_MARKDOWN characters of them.
+ */
+export function terminalLines(stdout: string): StatusTextSegment[][] {
+  const lines = stdout
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.slice(line.lastIndexOf('\r') + 1));
+  const blank = (line: string) => line.replace(ANSI_ESCAPE, '').trim() === '';
+  while (lines.length > 0 && blank(lines[0])) lines.shift();
+  while (lines.length > 0 && blank(lines.at(-1)!)) lines.pop();
+  const kept: StatusTextSegment[][] = [];
+  let length = 0;
+  for (const line of lines.slice(-MAX_TERMINAL_LINES).reverse()) {
+    const segments = ansiSegments(line);
+    length += segments.reduce((sum, segment) => sum + segment.text.length, 0) + 1;
+    if (length > MAX_STATUS_POPOVER_MARKDOWN) break;
+    kept.push(segments);
+  }
+  return kept.reverse();
 }
 
 /**
@@ -160,12 +200,14 @@ export interface ParsedCommandPage {
  */
 export function parseCommandPageOutput(
   stdout: string,
-  commandNames: readonly string[]
+  commandNames: readonly string[],
+  { terminal = false }: { terminal?: boolean } = {}
 ): ParsedCommandPage | null {
   const output = stdout.replace(ANSI_ESCAPE, '').trim();
   if (!output) return null;
   const parsed = pageOutputSchema.safeParse(parseJsonOutput(output));
   if (!parsed.success) {
+    if (terminal) return { markdown: '', terminal: terminalLines(stdout), buttons: [] };
     return { markdown: truncate(output, MAX_STATUS_POPOVER_MARKDOWN), buttons: [] };
   }
   const buttons = (parsed.data.buttons ?? [])
@@ -348,6 +390,10 @@ export class CommandEntries<Entry extends CommandEntry> {
   ): Promise<StatusButtonRunResult> {
     // Only an entry the workspace shows, as its `projects` say.
     const entry = this.forWorkspace(workspaceId).find((each) => each.id === id);
+    if (!this.dependencies.getWorkspace(workspaceId)) {
+      return { error: `Komla has no workspace ${workspaceId}` };
+    }
+    if (!entry && this.find(id)) return { error: `This workspace doesn't show ${id}` };
     const command =
       entry?.commands && Object.hasOwn(entry.commands, name) ? entry.commands[name] : undefined;
     if (!entry || !command) {
@@ -373,13 +419,21 @@ export class CommandEntries<Entry extends CommandEntry> {
     entry: Entry,
     command: string,
     timeoutMs: number,
-    serve: { pageKey: string; theme?: StatusPopoverTheme; servePage: ServePage }
+    serve: {
+      pageKey: string;
+      theme?: StatusPopoverTheme;
+      servePage: ServePage;
+      /** Plain output shows as a terminal shows it, rather than as Markdown. */
+      terminal?: boolean;
+    }
   ): Promise<{ content: StatusPopoverContent | null; error?: string }> {
     const run = this.runner(workspaceId, entry);
     if (!run) return { content: null };
     try {
       const stdout = await run(command, timeoutMs);
-      const parsed = parseCommandPageOutput(stdout, Object.keys(entry.commands ?? {}));
+      const parsed = parseCommandPageOutput(stdout, Object.keys(entry.commands ?? {}), {
+        terminal: serve.terminal,
+      });
       if (!parsed?.html) return { content: parsed };
       const htmlUrl = await serve.servePage(
         serve.pageKey,

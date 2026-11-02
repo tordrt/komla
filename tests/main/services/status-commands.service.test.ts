@@ -12,12 +12,18 @@ vi.mock('../../../src/main/services/ssh-host.service', () => ({ sshHostService: 
 vi.mock('../../../src/main/services/ssh-workspace.service', () => ({ sshWorkspaceService: {} }));
 vi.mock('../../../src/main/services/workspace.service', () => ({ workspaceService: {} }));
 vi.mock('../../../src/main/services/file-watcher', () => ({ FileWatcher: class {} }));
-const { mockCreateContentPreviewUrl } = vi.hoisted(() => ({ mockCreateContentPreviewUrl: vi.fn() }));
+const { mockCreateContentPreviewUrl } = vi.hoisted(() => ({
+  mockCreateContentPreviewUrl: vi.fn(),
+}));
 vi.mock('../../../src/main/services/html-preview.service', () => ({
   htmlPreviewService: { createContentPreviewUrl: mockCreateContentPreviewUrl },
 }));
 
-import { parseCommandPageOutput, serveCommandPage } from '../../../src/main/services/command-items';
+import {
+  parseCommandPageOutput,
+  serveCommandPage,
+  terminalLines,
+} from '../../../src/main/services/command-items';
 import {
   parseStatusCommandOutput,
   parseStatusCommandsFile,
@@ -76,7 +82,7 @@ describe('parseStatusCommandsFile', () => {
     [JSON.stringify({ items: [{ id: 'ci', command: 'x', colour: 'red' }] }), /colour/],
     [
       JSON.stringify({ items: [{ id: 'ci', command: 'x', popoverCommand: 'y', action: 'Test' }] }),
-      /not both/,
+      /one of them/,
     ],
     [
       JSON.stringify({ items: [{ id: 'ci', command: 'x', commands: { rerun: 'gh run rerun' } }] }),
@@ -230,6 +236,22 @@ describe('parseStatusCommandOutput', () => {
     expect(parseStatusCommandOutput('  \n')).toBeNull();
     expect(parseStatusCommandOutput(JSON.stringify({ text: ' ' }))).toBeNull();
     expect(parseStatusCommandOutput('x'.repeat(80))?.text).toHaveLength(60);
+  });
+});
+
+describe('terminalLines', () => {
+  it('keeps what a carriage return leaves of each line, without the blank lines around them', () => {
+    expect(terminalLines('\r\n\n  indented\r\nloading 10%\rloading 100%\n\n')).toEqual([
+      [{ text: '  indented' }],
+      [{ text: 'loading 100%' }],
+    ]);
+  });
+
+  it('keeps the last lines of long output', () => {
+    const lines = terminalLines(Array.from({ length: 1500 }, (_, i) => `line ${i}`).join('\n'));
+    expect(lines).toHaveLength(1000);
+    expect(lines[0]).toEqual([{ text: 'line 500' }]);
+    expect(lines.at(-1)).toEqual([{ text: 'line 1499' }]);
   });
 });
 
@@ -732,6 +754,18 @@ describe('StatusCommandsService with plugins', () => {
     expect(service.list('ws-1').items).toEqual([
       { id: 'ci', intervalSeconds: 60 },
       { id: 'github-prs.pr', intervalSeconds: 60, plugin: 'GitHub PRs' },
+    ]);
+  });
+
+  it("opens the plugin's own panel, and lists the events items refresh on", () => {
+    const service = createService({
+      items: [{ id: 'ci', command: 'gh pr checks', panel: 'checks', refreshOn: ['branch.changed'] }],
+    });
+    service.setPluginItems([pluginItem('github-prs.count', { panel: 'list' })]);
+
+    expect(service.list('ws-1').items).toEqual([
+      { id: 'ci', intervalSeconds: 60, panel: 'checks', refreshOn: ['branch.changed'] },
+      { id: 'github-prs.count', intervalSeconds: 60, panel: 'github-prs.list', plugin: 'GitHub PRs' },
     ]);
   });
 

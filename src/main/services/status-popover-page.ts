@@ -1,8 +1,11 @@
+import { type StatusPopoverTheme } from '../../shared/types/status-items';
+
 import {
-  OKLCH_CHANNELS,
-  STATUS_POPOVER_THEME_COLORS,
-  type StatusPopoverTheme,
-} from '../../shared/types/status-items';
+  KOMLA_FONT_FACES,
+  KOMLA_SCROLLBARS,
+  KOMLA_STYLESHEET,
+  themeStyle,
+} from './komla-page-styles';
 
 // Reports the page's height, so the popover fits it; Komla caps it and the page scrolls past that.
 // The root's box is as tall as what it holds, where its scrollHeight never drops below the frame.
@@ -53,21 +56,12 @@ const PAGE_SCRIPT = `(() => {
   }, true);
 })();`;
 
-// No color-scheme: Chromium paints a dark scheme's frame opaque, and the popover shows through.
-function themeStyle(theme: StatusPopoverTheme | undefined): string {
-  if (!theme) return '';
-  const colors = STATUS_POPOVER_THEME_COLORS.flatMap((name) => {
-    const channels = theme.colors[name];
-    return channels && OKLCH_CHANNELS.test(channels) ? [`--${name}: oklch(${channels});`] : [];
-  });
-  return `:root { ${colors.join(' ')} }`;
-}
-
 /**
  * The page an HTML popover shows: the command's HTML after Komla's theme colors as CSS variables,
- * its fonts, Nerd Font icons included, a look for `<code>`, `data-theme` on the root, and a script
+ * its fonts, Nerd Font icons included, komla.css's `k-` classes, as a sidebar panel's page has them, a look for `<code>`, `data-theme` on the root, and a script
  * that reports the page's height. The page's own styles come later, so they win.
  */
+
 export function buildStatusPopoverPage(
   html: string,
   theme: StatusPopoverTheme | undefined
@@ -78,16 +72,13 @@ export function buildStatusPopoverPage(
 <script>document.documentElement.dataset.theme = '${scheme}';</script>
 <style>
 ${themeStyle(theme)}
-@font-face { font-family: 'Geist'; src: url('/__komla/fonts/geist.woff2') format('woff2'); font-weight: 100 900; }
-@font-face { font-family: 'Komla Icons'; src: url('/__komla/fonts/nerd-font.ttf') format('truetype'); unicode-range: U+E000-F8FF, U+F0000-FFFFD; }
-@font-face { font-family: 'Komla Mono'; src: url('/__komla/fonts/nerd-font.ttf') format('truetype'); }
+${KOMLA_FONT_FACES}
+${KOMLA_STYLESHEET}
 html, body { margin: 0; background: transparent; }
 body { padding: 10px 12px; font: 12px/1.5 'Geist', 'Komla Icons', system-ui, sans-serif; color: var(--foreground); }
 a { color: var(--primary); }
 code { font: 11px/1.4 'Komla Mono', ui-monospace, monospace; padding: 1px 4px; border-radius: 4px; background: color-mix(in oklch, var(--muted) 80%, transparent); }
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: color-mix(in oklch, var(--foreground) 25%, transparent); border-radius: 4px; }
+${KOMLA_SCROLLBARS}
 </style>
 <script>${PAGE_SCRIPT}</script>
 ${html}`;

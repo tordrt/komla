@@ -210,6 +210,81 @@ describe('HtmlPreviewService', () => {
     });
   });
 
+  describe('createPanelPageUrl', () => {
+    const head = '<script>/* komla */</script>';
+
+    it("serves a panel's folder with Komla's head in each HTML page, cross-origin", async () => {
+      const { service, handler } = makeServiceWithHandler();
+      writeFileSync(
+        join(root, 'index.html'),
+        '<!doctype html><html><head><title>CI</title></head></html>'
+      );
+      writeFileSync(join(root, 'assets', 'app.js'), 'export {}');
+      const url = await service.createPanelPageUrl(root, 'index.html', {
+        head,
+        stylesheet: '.k{}',
+      });
+
+      const page = await handler(new Request(url, { headers: { accept: 'text/html' } }));
+      expect(await page.text()).toBe(
+        `<!doctype html>${head}<html><head><title>CI</title></head></html>`
+      );
+      expect(page.headers.get('access-control-allow-origin')).toBe('*');
+      expect(page.headers.get('content-security-policy')).not.toContain('https:');
+
+      // Built pages load their scripts as modules, which an opaque origin loads cross-origin.
+      const script = await handler(new Request(new URL('/assets/app.js', url)));
+      expect(await script.text()).toBe('export {}');
+      expect(script.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it("serves Komla's stylesheet and fonts, and nothing hidden or outside the folder", async () => {
+      const { service, handler } = makeServiceWithHandler();
+      writeFileSync(join(root, 'Geist.woff2'), 'font bytes');
+      fonts.paths = { 'geist.woff2': join(root, 'Geist.woff2') };
+      const url = await service.createPanelPageUrl(root, 'index.html', {
+        head,
+        stylesheet: '.k{}',
+      });
+
+      const css = await handler(new Request(new URL('/__komla/komla.css', url)));
+      expect(await css.text()).toBe('.k{}');
+      expect(css.headers.get('content-type')).toBe('text/css; charset=utf-8');
+      expect((await handler(new Request(new URL('/__komla/fonts/geist.woff2', url)))).status).toBe(
+        200
+      );
+      expect((await handler(new Request(new URL('/.env', url)))).status).toBe(404);
+      expect((await handler(new Request(new URL('/../outside.txt', url)))).status).toBe(404);
+    });
+
+    it("stops serving a closed window's pages", async () => {
+      const { service, handler } = makeServiceWithHandler();
+      writeFileSync(join(root, 'index.html'), '<p>panel</p>');
+      const options = { head, stylesheet: '' };
+      const closed = await service.createPanelPageUrl(root, 'index.html', {
+        ...options,
+        key: 'sidebar-panel-page:7:ws-1:ci',
+      });
+      const open = await service.createPanelPageUrl(root, 'index.html', {
+        ...options,
+        key: 'sidebar-panel-page:8:ws-1:ci',
+      });
+      service.releaseKeys('sidebar-panel-page:7:');
+      expect((await handler(new Request(closed))).status).toBe(404);
+      expect((await handler(new Request(open))).status).toBe(200);
+    });
+
+    it('keeps the latest two pages made with a key', async () => {
+      const { service, handler } = makeServiceWithHandler();
+      const options = { key: 'panel', head, stylesheet: '' };
+      const first = await service.createPanelPageUrl(root, 'index.html', options);
+      await service.createPanelPageUrl(root, 'index.html', options);
+      await service.createPanelPageUrl(root, 'index.html', options);
+
+      expect((await handler(new Request(first))).status).toBe(404);
+    });
+  });
+
   describe('handler — serving files', () => {
     it('serves the entry HTML at the root path', async () => {
       const { service, handler } = makeServiceWithHandler();
@@ -572,6 +647,23 @@ describe('HtmlPreviewService', () => {
 
         const response = await handler(new Request(url));
         expect(response.status).toBe(404);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps serving a panel's page past the hour, as it stays loaded while the panel shows", async () => {
+      vi.useFakeTimers();
+      try {
+        const { service, handler } = makeServiceWithHandler();
+        writeFileSync(join(root, 'index.html'), '<p>panel</p>');
+        const url = await service.createPanelPageUrl(root, 'index.html', {
+          key: 'panel',
+          head: '',
+          stylesheet: '.k{}',
+        });
+        await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
+        expect((await handler(new Request(new URL('/__komla/komla.css', url)))).status).toBe(200);
       } finally {
         vi.useRealTimers();
       }

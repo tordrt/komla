@@ -1,11 +1,11 @@
-import { ArrowClockwise, CaretDown, Warning } from '@phosphor-icons/react';
-import { useEffect, useEffectEvent } from 'react';
+import { CaretDown, Warning } from '@phosphor-icons/react';
 
 import {
   CommandHtmlFrame,
   CommandMarkdown,
   CommandPageButtons,
   CommandPagePlaceholder,
+  CommandTerminalText,
   commandSource,
   useCommandPage,
 } from '@/components/command-page/command-page';
@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { IconButton } from '@/components/ui/icon-button';
 import { useNamedActionRunner } from '@/hooks/useNamedActionRunner';
+import { useRunWhileVisible } from '@/hooks/useRunWhileVisible';
 import { useSidebarPanelChoice } from '@/hooks/useSidebarPanels';
 import { cn } from '@/lib/utils';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
@@ -26,9 +27,14 @@ import {
   cachedSidebarPanelPage,
   keepSidebarPanelPage,
   sidebarPanelKey,
+  useSidebarPanelState,
 } from '@/stores/sidebar-panels.store';
 
+import { SidebarPanelHeader } from './SidebarPanelHeader';
+import { SidebarPanelPage } from './SidebarPanelPage';
+
 import type { SidebarPanel } from '../../../shared/types/sidebar-panels';
+import type { StatusItemTone } from '../../../shared/types/status-items';
 
 const SIDEBAR_PANELS_FILE = 'sidebar-panels.json';
 
@@ -40,6 +46,36 @@ function PanelIcon({ panel }: { panel: SidebarPanel }) {
       color={panel.iconColor}
       className={cn('shrink-0', panel.iconColor ? 'size-3.5' : 'h-3.5 w-auto max-w-7')}
     />
+  );
+}
+
+const BADGE_TONES: Record<StatusItemTone, string> = {
+  success: 'bg-success/15 text-success',
+  warning: 'bg-warning/15 text-warning',
+  error: 'bg-destructive/15 text-destructive',
+  info: 'bg-info/15 text-info',
+};
+
+/** The badge a panel's page or plugin code set on its tab, such as a count. */
+export function SidebarPanelBadge({
+  workspaceId,
+  panelId,
+}: {
+  workspaceId: string;
+  panelId: string;
+}) {
+  const badge = useSidebarPanelState(workspaceId, panelId)?.badge;
+  if (!badge) return null;
+  return (
+    <span
+      data-sidebar-panel-badge={panelId}
+      className={cn(
+        'shrink-0 rounded-full px-1.5 text-[10px] leading-4 font-medium tabular-nums',
+        badge.tone ? BADGE_TONES[badge.tone] : 'bg-muted text-muted-foreground'
+      )}
+    >
+      {badge.text}
+    </span>
   );
 }
 
@@ -70,6 +106,7 @@ export function SidebarPanelTabs({
         >
           <PanelIcon panel={current} />
           <span className="truncate">{current.title}</span>
+          <SidebarPanelBadge workspaceId={workspaceId} panelId={current.id} />
         </button>
       )}
       {list.panels.length > 1 && (
@@ -93,6 +130,9 @@ export function SidebarPanelTabs({
                 <DropdownMenuRadioItem key={panel.id} value={panel.id} className="gap-2">
                   <PanelIcon panel={panel} />
                   <span className="truncate">{panel.title}</span>
+                  <span className="ml-auto">
+                    <SidebarPanelBadge workspaceId={workspaceId} panelId={panel.id} />
+                  </span>
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
@@ -125,6 +165,15 @@ export function InlineSidebarPanel({
   workspaceId: string;
   panel: SidebarPanel;
 }) {
+  return panel.page ? (
+    <SidebarPanelPage workspaceId={workspaceId} panel={panel} />
+  ) : (
+    <CommandSidebarPanel workspaceId={workspaceId} panel={panel} />
+  );
+}
+
+/** A panel whose command prints its page, run again each time. */
+function CommandSidebarPanel({ workspaceId, panel }: { workspaceId: string; panel: SidebarPanel }) {
   const key = sidebarPanelKey(workspaceId, panel);
   const source = commandSource(SIDEBAR_PANELS_FILE, panel.plugin);
   const { runNamedAction, actionInputDialog } = useNamedActionRunner(workspaceId);
@@ -138,35 +187,20 @@ export function InlineSidebarPanel({
   });
 
   // Runs again on the panel's interval while the window can be seen, and once it shows again.
-  const runIfDue = useEffectEvent((lastRun: { at: number }) => {
-    if (document.visibilityState === 'hidden' || loading) return;
-    if (Date.now() - lastRun.at < panel.intervalSeconds * 1000) return;
-    lastRun.at = Date.now();
-    load();
+  useRunWhileVisible({
+    key,
+    intervalSeconds: panel.intervalSeconds,
+    busy: loading,
+    run: load,
+    refreshOn: panel.refreshOn,
+    workspaceId,
+    runOn: panel.runOn,
   });
-  useEffect(() => {
-    const lastRun = { at: Date.now() };
-    const check = () => runIfDue(lastRun);
-    const timer = setInterval(check, 1000);
-    document.addEventListener('visibilitychange', check);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', check);
-    };
-  }, [key]);
 
   const html = content?.htmlUrl;
   return (
     <div className="flex h-full min-h-0 flex-col" data-sidebar-panel={panel.id}>
-      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-foreground/10 pr-1 pl-3">
-        <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
-          {panel.title}
-          {panel.plugin && <span className="font-normal"> · {panel.plugin}</span>}
-        </h2>
-        <IconButton label="Refresh" size="xs" variant="ghost" disabled={loading} onClick={load}>
-          <ArrowClockwise className={loading ? 'animate-spin' : undefined} />
-        </IconButton>
-      </div>
+      <SidebarPanelHeader panel={panel} loading={loading} onRefresh={load} />
       <div
         className={cn(
           'min-h-0 flex-1',
@@ -177,6 +211,8 @@ export function InlineSidebarPanel({
           <div className="min-h-0 flex-1">
             <CommandHtmlFrame url={html} title={panel.title} fill />
           </div>
+        ) : content?.terminal ? (
+          <CommandTerminalText lines={content.terminal} />
         ) : content ? (
           content.markdown && <CommandMarkdown markdown={content.markdown} />
         ) : (

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { AGENT_CAPABILITIES } from '../../../shared/constants/agent-capabilities';
+import { KOMLA_EVENT_LABELS, KOMLA_EVENT_TYPES } from '../../../shared/types/komla-events';
 
 import { KOMLA_OPERATION_CAPABILITIES } from './capabilities';
 import { komlaOperationResultSchemas } from './result-schema';
@@ -214,6 +215,33 @@ export function renderKomlaSdkTypes(): string {
     'export const KOMLA_OPERATION_CAPABILITIES = {',
     ...operationCapabilities,
     '} as const;',
+    '',
+    '/**',
+    ' * What happens in a workspace, which plugin code and panel pages follow with `komla.on`, and status',
+    ' * items and sidebar panels name in `refreshOn`.',
+    ' */',
+    'export const KOMLA_EVENT_TYPES = [',
+    ...KOMLA_EVENT_TYPES.map((type) => `  ${literal(type)},`),
+    '] as const;',
+    '',
+    'export type KomlaEventType = (typeof KOMLA_EVENT_TYPES)[number];',
+    '',
+    '/** What each event is. */',
+    'export const KOMLA_EVENT_LABELS: Record<KomlaEventType, string> = {',
+    ...KOMLA_EVENT_TYPES.map((type) => `  ${literal(type)}: ${literal(KOMLA_EVENT_LABELS[type])},`),
+    '};',
+    '',
+    '/** Something that happened in a workspace. */',
+    'export interface KomlaEvent {',
+    '  type: KomlaEventType;',
+    '  workspaceId: string;',
+    '  /** The terminal an agent event came from. */',
+    '  terminalId?: string;',
+    '  /** The agent an event came from, such as `claude-code`. */',
+    '  agent?: string;',
+    "  /** What the agent said, or the prompt sent to it. Plugin code gets it; panel pages don't. */",
+    '  message?: string;',
+    '}',
     '',
   ].join('\n');
 }

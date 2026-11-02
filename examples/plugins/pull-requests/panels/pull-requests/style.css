@@ -1,0 +1,34 @@
+/* What komla.css doesn't have. Colors come from the window's theme, as var(--…). */
+body { padding: 10px 10px 16px; }
+header .k-input { width: 100%; box-sizing: border-box; }
+.repo { font-weight: 500; color: var(--foreground); text-decoration: none; }
+.repo:hover { text-decoration: underline; }
+.icon { width: 26px; padding: 0; font-family: 'Komla Icons', sans-serif; }
+.icon.k-spinning { animation: k-spin 0.8s linear infinite; }
+
+details.section { margin-top: 10px; }
+details.section > summary { display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; user-select: none; }
+details.section > summary::-webkit-details-marker { display: none; }
+details.section > summary::before { content: '\203a'; width: 10px; color: var(--muted-foreground); transition: transform 0.1s; }
+details.section[open] > summary::before { transform: rotate(90deg); }
+details.section > summary .k-section-title { margin: 0; }
+
+.pr { display: block; padding: 0; }
+.pr > button.k-item { align-items: flex-start; padding: 6px; }
+.pr .state { width: 14px; flex: none; padding-top: 1px; font-family: 'Komla Icons', sans-serif; text-align: center; }
+.pr .title { display: block; line-height: 1.35; }
+.pr .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 3px; font-size: 11px; color: var(--muted-foreground); }
+.pr .number { font-variant-numeric: tabular-nums; }
+.pr .size { white-space: nowrap; }
+.pr .added { color: var(--success); } .pr .removed { color: var(--error); }
+.more { margin: 2px 0 0 28px; }
+
+.detail { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 6px 28px; }
+.checks { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: 11px; }
+.checks li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.checks a { color: inherit; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.notice { margin: 8px 0 0; padding: 6px 8px; border-radius: var(--k-radius); background: color-mix(in oklch, var(--muted) 80%, transparent); font-size: 11px; }
+.notice.k-error { background: color-mix(in oklch, var(--error) 14%, transparent); }
+.problem { padding: 16px 4px; }
+.problem code { white-space: nowrap; }

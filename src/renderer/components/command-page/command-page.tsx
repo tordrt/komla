@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { openLinkInBrowser } from '@/components/workspaces/file-viewer/MarkdownPreview';
+import { statusItemColorProps } from '@/lib/status-item-color';
 import { cn } from '@/lib/utils';
 
 import { isBrowserUrl } from '../../../shared/lib/browser-tabs';
@@ -22,6 +23,7 @@ import {
   type StatusPopoverButton,
   type StatusPopoverContent,
   type StatusPopoverTheme,
+  type StatusTextSegment,
 } from '../../../shared/types/status-items';
 
 /*
@@ -188,6 +190,34 @@ export function CommandMarkdown({ markdown }: { markdown: string }) {
       // Sanitized above.
       dangerouslySetInnerHTML={{ __html: html }}
     />
+  );
+}
+
+/** Text a command printed for a terminal, in Komla's monospace font with its colors as theme colors. */
+export function CommandTerminalText({ lines }: { lines: StatusTextSegment[][] }) {
+  return (
+    <pre
+      className="m-0 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap select-text"
+      data-terminal-text
+    >
+      {lines.map((segments, line) => (
+        // Lines and their runs only change all at once, with the output.
+        <span key={line} className="block min-h-[1lh]">
+          {segments.map((segment, index) => {
+            const colors = statusItemColorProps(segment.color);
+            return (
+              <span
+                key={index}
+                className={cn(colors.className, segment.bold && 'font-semibold')}
+                style={colors.style}
+              >
+                {segment.text}
+              </span>
+            );
+          })}
+        </span>
+      ))}
+    </pre>
   );
 }
 

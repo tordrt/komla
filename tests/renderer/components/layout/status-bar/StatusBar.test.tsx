@@ -3193,6 +3193,106 @@ describe('StatusBar', () => {
       expect(actionMocks.runAction).toHaveBeenCalledOnce();
     });
 
+    it('opens the sidebar panel an item names, opening the sidebar first', async () => {
+      const user = userEvent.setup();
+      mockApi({
+        listStatusCommands: vi.fn(() =>
+          Promise.resolve({
+            items: [{ id: 'prs.count', intervalSeconds: 60, panel: 'prs.list', plugin: 'PRs' }],
+          })
+        ),
+        listSidebarPanels: vi.fn(() =>
+          Promise.resolve({ panels: [{ id: 'prs.list', title: 'PRs', intervalSeconds: 60 }] })
+        ),
+        runStatusCommand: vi.fn((workspaceId: string, id: string) =>
+          Promise.resolve({ id, workspaceId, content: { text: '3 to review' }, ranAt: 1 })
+        ),
+        updateWorkspace: vi.fn(() => Promise.resolve()),
+      });
+      setWorkspaces([createWorkspace({ id: 'ws-open', windowId: WINDOW_ID })]);
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      useFileViewerStore.setState({
+        inlineFileTreeByWorkspace: { 'ws-open': { open: false, mode: 'files' } },
+      });
+      renderStatusBar();
+
+      await user.click(
+        await screen.findByRole('button', { name: '3 to review, opens its panel in the sidebar' })
+      );
+      const state = useFileViewerStore.getState();
+      expect(state.inlineFileTreeByWorkspace['ws-open']?.open).toBe(true);
+      expect(state.inlineSidebarPanelByWorkspace['ws-open']).toEqual({
+        id: 'prs.list',
+        shown: true,
+      });
+    });
+
+    it("says so, and keeps the user's pick, when an item names a panel the workspace lacks", async () => {
+      const user = userEvent.setup();
+      mockApi({
+        listStatusCommands: vi.fn(() =>
+          Promise.resolve({ items: [{ id: 'ci', intervalSeconds: 60, panel: 'gone' }] })
+        ),
+        listSidebarPanels: vi.fn(() => Promise.resolve({ panels: [] })),
+        runStatusCommand: vi.fn((workspaceId: string, id: string) =>
+          Promise.resolve({ id, workspaceId, content: { text: 'CI' }, ranAt: 1 })
+        ),
+      });
+      setWorkspaces([createWorkspace({ id: 'ws-open', windowId: WINDOW_ID })]);
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      useFileViewerStore.setState({
+        inlineSidebarPanelByWorkspace: { 'ws-open': { id: 'notes', shown: false } },
+      });
+      renderStatusBar();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'CI, opens its panel in the sidebar' })
+      );
+      expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+        'This workspace has no sidebar panel gone. Check status-items.json.'
+      );
+      expect(useFileViewerStore.getState().inlineSidebarPanelByWorkspace['ws-open']).toEqual({
+        id: 'notes',
+        shown: false,
+      });
+    });
+
+    it('runs an item again when an event it refreshes on settles in its workspace', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      let publish: (event: unknown) => void = () => {};
+      const runStatusCommand = vi.fn((workspaceId: string, id: string) =>
+        Promise.resolve({ id, workspaceId, content: { text: 'CI' }, ranAt: 1 })
+      );
+      mockApi({
+        listStatusCommands: vi.fn(() =>
+          Promise.resolve({
+            items: [{ id: 'ci', intervalSeconds: 3600, refreshOn: ['branch.changed'] }],
+          })
+        ),
+        runStatusCommand,
+        onKomlaEvent: vi.fn((listener: (event: unknown) => void) => {
+          publish = listener;
+          return () => {};
+        }),
+      });
+      setWorkspaces([createWorkspace({ id: 'ws-open', windowId: WINDOW_ID })]);
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      renderStatusBar();
+      await vi.waitFor(() => expect(runStatusCommand).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        publish({ type: 'branch.changed', workspaceId: 'ws-other' });
+        publish({ type: 'agent.done', workspaceId: 'ws-open' });
+        publish({ type: 'branch.changed', workspaceId: 'ws-open' });
+        publish({ type: 'branch.changed', workspaceId: 'ws-open' });
+      });
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(runStatusCommand).toHaveBeenCalledTimes(2);
+    });
+
     it("opens an item's link in the browser", async () => {
       const user = userEvent.setup();
       const openExternal = vi.fn(() => Promise.resolve());

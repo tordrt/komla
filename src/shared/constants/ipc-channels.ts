@@ -550,8 +550,18 @@ export const IPC = {
   SIDEBAR_PANELS_LIST: 'sidebar-panels:list',
   SIDEBAR_PANEL_RUN: 'sidebar-panels:run',
   SIDEBAR_PANEL_BUTTON_RUN: 'sidebar-panels:button-run',
+  SIDEBAR_PANEL_PAGE: 'sidebar-panels:page',
+  SIDEBAR_PANEL_DATA: 'sidebar-panels:data',
+  SIDEBAR_PANEL_OPERATION: 'sidebar-panels:operation',
+  SIDEBAR_PANEL_STATES: 'sidebar-panels:states',
+  SIDEBAR_PANEL_BADGE: 'sidebar-panels:badge',
+  SIDEBAR_PANEL_MESSAGE: 'sidebar-panels:message',
+  SIDEBAR_PANEL_INSPECT: 'sidebar-panels:inspect',
   // Sidebar panel events (main → renderer)
   SIDEBAR_PANELS_CHANGED: 'sidebar-panels:changed',
+  SIDEBAR_PANEL_STATE_CHANGED: 'sidebar-panels:state-changed',
+  // What happens in workspaces, for refreshOn and panel pages (main → renderer)
+  KOMLA_EVENT: 'komla-events:event',
 
   // Hooks (main → renderer): a hook failed, or hooks.json can't be read
   HOOK_NOTICE: 'hooks:notice',
@@ -560,6 +570,7 @@ export const IPC = {
   PLUGINS_LIST: 'plugins:list',
   PLUGINS_SET_ENABLED: 'plugins:set-enabled',
   PLUGINS_OPEN_FOLDER: 'plugins:open-folder',
+  PLUGINS_SET_DEVELOPMENT: 'plugins:set-development',
   // Plugin events (main → renderer)
   PLUGINS_CHANGED: 'plugins:changed',
 

@@ -42,6 +42,7 @@ export default defineConfig({
           'workers/voice-transcription.worker': resolve(
             'src/main/workers/voice-transcription.worker.ts'
           ),
+          'workers/plugin-host.worker': resolve('src/main/workers/plugin-host.worker.ts'),
         },
         output: {
           // MAIN_BUNDLE_DIR (lib/module-path.ts) comes from import.meta.url, and

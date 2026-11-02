@@ -881,3 +881,44 @@ export const KOMLA_OPERATION_CAPABILITIES = {
   'preview.open': 'preview.open',
   'desktop.open': 'preview.open',
 } as const;
+
+/**
+ * What happens in a workspace, which plugin code and panel pages follow with `komla.on`, and status
+ * items and sidebar panels name in `refreshOn`.
+ */
+export const KOMLA_EVENT_TYPES = [
+  'agent.done',
+  'agent.needs-input',
+  'agent.error',
+  'agent.prompt',
+  'workspace.created',
+  'workspace.trashed',
+  'working-tree.changed',
+  'branch.changed',
+] as const;
+
+export type KomlaEventType = (typeof KOMLA_EVENT_TYPES)[number];
+
+/** What each event is. */
+export const KOMLA_EVENT_LABELS: Record<KomlaEventType, string> = {
+  'agent.done': 'An agent finishes',
+  'agent.needs-input': 'An agent needs input',
+  'agent.error': 'An agent reports an error',
+  'agent.prompt': 'A prompt is sent to an agent',
+  'workspace.created': 'A workspace is created',
+  'workspace.trashed': 'A workspace is moved to the Trash',
+  'working-tree.changed': 'The workspace\'s uncommitted changes change',
+  'branch.changed': 'The workspace\'s branch or its latest commit changes',
+};
+
+/** Something that happened in a workspace. */
+export interface KomlaEvent {
+  type: KomlaEventType;
+  workspaceId: string;
+  /** The terminal an agent event came from. */
+  terminalId?: string;
+  /** The agent an event came from, such as `claude-code`. */
+  agent?: string;
+  /** What the agent said, or the prompt sent to it. Plugin code gets it; panel pages don't. */
+  message?: string;
+}

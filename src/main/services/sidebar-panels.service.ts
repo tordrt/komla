@@ -1,15 +1,23 @@
-import { join } from 'path';
+import { stat } from 'fs/promises';
+import { basename, dirname, join } from 'path';
 
 import { z } from 'zod';
 
 import {
+  AGENT_CAPABILITIES,
+  type AgentCapabilityId,
+} from '../../shared/constants/agent-capabilities';
+import {
   MAX_SIDEBAR_PANEL_TITLE,
+  RISKY_PANEL_CAPABILITIES,
   type SidebarPanel,
+  type SidebarPanelData,
   type SidebarPanelList,
   type SidebarPanelResult,
 } from '../../shared/types/sidebar-panels';
 import { parseSettingsFile, readSettingsFile } from '../lib/settings-file';
 import { readStatusIcon } from '../lib/status-icon';
+import { ANSI_ESCAPE } from '../lib/status-item-text';
 
 import {
   COLOR_DESCRIPTION,
@@ -17,6 +25,7 @@ import {
   CommandEntries,
   commandSchema,
   entryIdSchema,
+  failureMessage,
   ICON_DESCRIPTION,
   iconColorSchema,
   iconSchema,
@@ -24,6 +33,8 @@ import {
   NAMED_COMMANDS_DESCRIPTION,
   namedCommandsSchema,
   projectsSchema,
+  REFRESH_ON_EVENTS,
+  refreshOnSchema,
   runOnSchema,
   serveCommandPage,
   timeoutSecondsSchema,
@@ -31,7 +42,10 @@ import {
   type ServePage,
 } from './command-items';
 import { FileWatcher } from './file-watcher';
+import { htmlPreviewService } from './html-preview.service';
+import { KOMLA_STYLESHEET } from './komla-page-styles';
 import { getKomlaBasePath } from './paths';
+import { sidebarPanelPageHead } from './sidebar-panel-page';
 
 import type { PluginSource } from './plugins.service';
 import type { StatusButtonRunResult, StatusPopoverTheme } from '../../shared/types/status-items';
@@ -43,6 +57,12 @@ const MAX_OUTPUT = 512 * 1024;
 const MAX_SIDEBAR_PANELS = 20;
 const SIDEBAR_PANELS_VERSION = 1;
 const DEFAULT_CONTENT = JSON.stringify({ _version: SIDEBAR_PANELS_VERSION, panels: [] }, null, 2);
+// A file or folder in the panels folder; no segment starts with a dot, so none is `..`.
+const PAGE_PATH = /^panels(\/[A-Za-z0-9_][A-Za-z0-9._-]*)+$/;
+const CAPABILITY_IDS = AGENT_CAPABILITIES.map(({ id }) => id) as [
+  AgentCapabilityId,
+  ...AgentCapabilityId[],
+];
 
 // The descriptions are what `komla settings schema sidebar-panels` tells agents.
 export const sidebarPanelSchema = z
@@ -51,16 +71,35 @@ export const sidebarPanelSchema = z
     title: z.string().trim().min(1).max(MAX_SIDEBAR_PANEL_TITLE).meta({
       description: "The panel's tab, beside Diff and Files. Keep it to a word or two.",
     }),
-    command: commandSchema.meta({
+    command: commandSchema.optional().meta({
       description:
-        "Runs in the user's shell when the panel opens and on each interval while it's open, and prints the panel: a JSON object with an `html` page, as under What `command` prints, or plain Markdown.",
+        "Runs in the user's shell when the panel opens and on each interval while it's open. Without `page`, it prints the panel: a JSON object with an `html` page or `markdown`, as under What `command` prints, or plain text, which shows as a terminal would show it, colors included. With `page`, the page gets what it prints as data: its JSON, or its text.",
     }),
+    page: z
+      .string()
+      .trim()
+      .regex(PAGE_PATH, 'page: a file or folder in the panels folder, such as panels/ci/index.html')
+      .optional()
+      .meta({
+        description:
+          "The panel's own page, which loads once and stays: an HTML file, or a folder with an index.html such as a built React app, in the panels folder beside sidebar-panels.json (a plugin's own panels folder for a plugin), named `panels/<path>`. It loads what it needs from its folder, nothing from the web, and reaches Komla through `komla`, as `komla skill status-items` describes.",
+      }),
+    capabilities: z
+      .array(z.enum(CAPABILITY_IDS))
+      .max(CAPABILITY_IDS.length)
+      .optional()
+      .meta({
+        description: `What the page may change through \`komla.call\`, beyond reading and showing notifications. Komla asks the user each time before ${RISKY_PANEL_CAPABILITIES.join(', ')}, and only from a click in the page.`,
+      }),
     intervalSeconds: intervalSecondsSchema.meta({
       description:
         "How often the command runs while the panel is open. It doesn't run while the panel is closed; opening it, or its refresh button, runs it at once.",
     }),
     timeoutSeconds: timeoutSecondsSchema.meta({
       description: `How long the command may run, ${SIDEBAR_PANEL_TIMEOUT_MS / 1000} when left out. Past it, Komla stops the command and says so in the panel.`,
+    }),
+    refreshOn: refreshOnSchema.meta({
+      description: `Events in the workspace that run the command again at once while the panel is open, besides its interval: ${REFRESH_ON_EVENTS}.`,
     }),
     runOn: runOnSchema.meta({
       description:
@@ -75,7 +114,10 @@ export const sidebarPanelSchema = z
     }),
     commands: namedCommandsSchema.meta({ description: NAMED_COMMANDS_DESCRIPTION }),
   })
-  .strict();
+  .strict()
+  .refine((panel) => panel.command !== undefined || panel.page !== undefined, {
+    message: 'a panel needs a command, a page or both',
+  });
 
 export const sidebarPanelsFileSchema = z
   .object({
@@ -110,6 +152,30 @@ export interface SidebarPanelsDependencies extends CommandRunnerDependencies {
   /** A panel's icon as an image; a plugin's icon files are in its folder. */
   readIcon(value: string, pluginDir?: string): Promise<string | undefined>;
   servePage: ServePage;
+  /**
+   * Where a panel's own page is: the folder it may load from and its HTML file in it, unless it
+   * isn't there. A plugin's page is in its folder.
+   */
+  findPage(page: string, pluginDir?: string): Promise<{ root: string; entry: string } | undefined>;
+  /** Serves a panel's own page in the window's theme, replacing the last one with that key. */
+  servePanelPage(
+    key: string,
+    page: { root: string; entry: string },
+    theme: StatusPopoverTheme | undefined
+  ): Promise<string>;
+}
+
+/** A command's output as a page's data: its JSON, or its text without terminal colors. */
+export function panelData(stdout: string): unknown {
+  const output = stdout.replace(ANSI_ESCAPE, '').trim();
+  if (/^[[{"]/.test(output)) {
+    try {
+      return JSON.parse(output) as unknown;
+    } catch {
+      // Text, then.
+    }
+  }
+  return output;
 }
 
 /** A panel from sidebar-panels.json, or from a plugin that runs. */
@@ -154,17 +220,34 @@ export class SidebarPanelsService {
     const panels = await Promise.all(
       this.panels
         .forWorkspace(workspaceId)
-        .map(async ({ id, title, icon, iconColor, intervalSeconds, runOn, plugin }) => {
-          const image = icon && (await this.dependencies.readIcon(icon, plugin?.dir));
-          return {
+        .map(
+          async ({
             id,
             title,
+            icon,
+            iconColor,
             intervalSeconds,
-            ...(image && { icon: image, ...(iconColor && { iconColor }) }),
-            ...(runOn === 'local' && { runOn }),
-            ...(plugin && { plugin: plugin.name }),
-          } satisfies SidebarPanel;
-        })
+            runOn,
+            plugin,
+            page,
+            command,
+            refreshOn,
+          }) => {
+            const image = icon && (await this.dependencies.readIcon(icon, plugin?.dir));
+            return {
+              id,
+              title,
+              intervalSeconds,
+              ...(page && { page: true as const, ...(command && { command: true as const }) }),
+              ...(image && { icon: image, ...(iconColor && { iconColor }) }),
+              ...(runOn === 'local' && { runOn }),
+              ...(command && refreshOn && { refreshOn }),
+              ...(plugin && { plugin: plugin.name }),
+              ...(page && plugin?.revision && { revision: plugin.revision }),
+              ...(plugin?.development && { development: true as const }),
+            } satisfies SidebarPanel;
+          }
+        )
     );
     const { problem } = this.panels;
     return { panels, ...(problem && { problem }) };
@@ -181,20 +264,86 @@ export class SidebarPanelsService {
     theme?: StatusPopoverTheme,
     windowKey = ''
   ): Promise<SidebarPanelResult> {
-    const panel = this.panels.forWorkspace(workspaceId).find((each) => each.id === id);
+    const panel = this.find(workspaceId, id);
     const base = { id, workspaceId };
-    if (!panel) return { ...base, content: null };
+    if (!panel?.command) return { ...base, content: null };
     if (!this.panels.runner(workspaceId, panel)) {
       return { ...base, content: null, error: "This workspace can't run commands right now" };
     }
-    const timeoutMs =
-      panel.timeoutSeconds === undefined ? SIDEBAR_PANEL_TIMEOUT_MS : panel.timeoutSeconds * 1000;
-    const page = await this.panels.runPage(workspaceId, panel, panel.command, timeoutMs, {
-      pageKey: `sidebar-panel:${windowKey}:${this.panels.scope(workspaceId, panel)}:${id}`,
-      theme,
-      servePage: this.dependencies.servePage,
-    });
+    const page = await this.panels.runPage(
+      workspaceId,
+      panel,
+      panel.command,
+      this.timeoutMs(panel),
+      {
+        pageKey: `sidebar-panel:${windowKey}:${this.panels.scope(workspaceId, panel)}:${id}`,
+        theme,
+        servePage: this.dependencies.servePage,
+        terminal: true,
+      }
+    );
     return { ...base, ...page };
+  }
+
+  /** A panel the workspace shows. */
+  find(workspaceId: string, id: string): SidebarPanelEntry | undefined {
+    return this.panels.forWorkspace(workspaceId).find((each) => each.id === id);
+  }
+
+  /**
+   * Where a panel's badge and posted data belong in a workspace: the workspace, or '' for every
+   * one, as for a panel that runs on this computer or without a workspace.
+   */
+  scope(id: string, workspaceId: string | undefined): string {
+    const panel = this.panels.find(id);
+    return workspaceId && panel ? this.panels.scope(workspaceId, panel) : '';
+  }
+
+  private timeoutMs(panel: SidebarPanelEntry): number {
+    return panel.timeoutSeconds === undefined
+      ? SIDEBAR_PANEL_TIMEOUT_MS
+      : panel.timeoutSeconds * 1000;
+  }
+
+  /**
+   * Serves a panel's own page for a window, in its theme. A window has a page of its own for each
+   * panel and workspace, which stays loaded while the panel shows; `komla` brings it its data.
+   */
+  async pageUrl(
+    workspaceId: string,
+    id: string,
+    theme?: StatusPopoverTheme,
+    windowKey = ''
+  ): Promise<{ url?: string; error?: string }> {
+    const panel = this.find(workspaceId, id);
+    if (!panel?.page) return {};
+    const where = panel.plugin ? `the plugin ${panel.plugin.name}'s folder` : 'the settings folder';
+    const page = await this.dependencies.findPage(panel.page, panel.plugin?.dir);
+    if (!page) return { error: `${panel.page} isn't in ${where}` };
+    try {
+      const url = await this.dependencies.servePanelPage(
+        `sidebar-panel-page:${windowKey}:${workspaceId}:${id}`,
+        page,
+        theme
+      );
+      return { url };
+    } catch (error) {
+      return { error: failureMessage(error, 0) };
+    }
+  }
+
+  /** Runs a page panel's command, for its page's data. */
+  async runData(workspaceId: string, id: string): Promise<SidebarPanelData> {
+    const panel = this.find(workspaceId, id);
+    if (!panel?.command) return {};
+    const run = this.panels.runner(workspaceId, panel);
+    if (!run) return { error: "This workspace can't run commands right now" };
+    const timeoutMs = this.timeoutMs(panel);
+    try {
+      return { data: panelData(await run(panel.command, timeoutMs)) };
+    } catch (error) {
+      return { error: failureMessage(error, timeoutMs) };
+    }
   }
 
   /** Runs one of a panel's named commands, for a button on its page. */
@@ -211,7 +360,33 @@ export const sidebarPanelsService = new SidebarPanelsService({
   readFile: () => readSettingsFile(sidebarPanelsPath, DEFAULT_CONTENT),
   readIcon: (value, pluginDir) => readStatusIcon(pluginDir ?? settingsPath, value),
   servePage: serveCommandPage,
+  findPage: (page, pluginDir) => findPanelPage(join(pluginDir ?? settingsPath, page)),
+  servePanelPage: (key, { root, entry }, theme) =>
+    htmlPreviewService.createPanelPageUrl(root, entry, {
+      key,
+      head: sidebarPanelPageHead(theme),
+      stylesheet: KOMLA_STYLESHEET,
+    }),
 });
+
+/** A page's folder and its HTML file: a folder's index.html, or an HTML file in its folder. */
+export async function findPanelPage(
+  path: string
+): Promise<{ root: string; entry: string } | undefined> {
+  try {
+    const found = await stat(path);
+    if (found.isDirectory()) {
+      return (await stat(join(path, 'index.html'))).isFile()
+        ? { root: path, entry: 'index.html' }
+        : undefined;
+    }
+    return found.isFile() && /\.html?$/i.test(path)
+      ? { root: dirname(path), entry: basename(path) }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 let watcher: FileWatcher | null = null;
 

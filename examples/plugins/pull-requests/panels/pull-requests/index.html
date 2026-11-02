@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Pull requests</title>
+    <link rel="stylesheet" href="/__komla/komla.css" />
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <header class="k-stack">
+      <div class="k-row">
+        <a id="repo" class="k-grow k-truncate repo" href="#"></a>
+        <span id="updated" class="k-muted"></span>
+        <button id="refresh" class="k-button k-ghost icon" title="Ask GitHub again" aria-label="Ask GitHub again"></button>
+      </div>
+      <input id="filter" class="k-input" type="search" placeholder="Filter by title, number, author or branch" aria-label="Filter pull requests" />
+    </header>
+    <p id="notice" class="notice" role="status" hidden></p>
+    <main id="lists">
+      <div class="k-empty"><span class="k-spinner"></span></div>
+    </main>
+  </body>
+</html>

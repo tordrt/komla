@@ -2,7 +2,11 @@ import { create } from 'zustand';
 
 import { statusCommandScope } from '../../shared/types/status-items';
 
-import type { SidebarPanel, SidebarPanelList } from '../../shared/types/sidebar-panels';
+import type {
+  SidebarPanel,
+  SidebarPanelList,
+  SidebarPanelState,
+} from '../../shared/types/sidebar-panels';
 import type { StatusPopoverContent } from '../../shared/types/status-items';
 
 /** How long a panel's last HTML page shows again on opening; Komla serves it for an hour. */
@@ -17,14 +21,79 @@ interface SidebarPanelPage {
   theme: string;
 }
 
+/** What a page panel's command printed last, for its page as it loads again. */
+export interface SidebarPanelPageData {
+  data?: unknown;
+  error?: string;
+}
+
 interface SidebarPanelsState {
   /** Each workspace's panels, once listed. */
   lists: Record<string, SidebarPanelList>;
   /** Each panel's last page, by sidebarPanelKey. */
   pages: Record<string, SidebarPanelPage>;
+  /** Each page panel's last data, by sidebarPanelKey. */
+  data: Record<string, SidebarPanelPageData>;
+  /**
+   * What pages and plugin code set for panels, by sidebarPanelStateKey: badges, and data plugin
+   * code posted. An empty workspace id stands for every workspace.
+   */
+  states: Record<string, SidebarPanelState>;
 }
 
-export const useSidebarPanelsStore = create<SidebarPanelsState>(() => ({ lists: {}, pages: {} }));
+export const useSidebarPanelsStore = create<SidebarPanelsState>(() => ({
+  lists: {},
+  pages: {},
+  data: {},
+  states: {},
+}));
+
+const sidebarPanelStateKey = (workspaceId: string, id: string) => `${workspaceId}\0${id}`;
+
+function keepSidebarPanelState(state: SidebarPanelState): void {
+  useSidebarPanelsStore.setState((current) => {
+    const states = { ...current.states };
+    const key = sidebarPanelStateKey(state.workspaceId, state.id);
+    const before = states[key];
+    if (state.badge === undefined && state.data === undefined) delete states[key];
+    // The same data as before stays the same object, so a badge's change doesn't send it again.
+    else if (before?.data && before.revision === state.revision) {
+      states[key] = { ...state, data: before.data };
+    } else states[key] = state;
+    return { states };
+  });
+}
+
+let followingStates = false;
+
+/** Follows what pages and plugin code set for panels, from the first window that asks. */
+export function followSidebarPanelStates(): void {
+  if (followingStates) return;
+  followingStates = true;
+  window.api.onSidebarPanelStateChange(keepSidebarPanelState);
+  void window.api
+    .listSidebarPanelStates()
+    .then((states) => {
+      for (const state of states) keepSidebarPanelState(state);
+    })
+    .catch(() => {});
+}
+
+/** A panel's state in a workspace: its own, or else the one for every workspace. */
+export function useSidebarPanelState(
+  workspaceId: string,
+  id: string | undefined
+): SidebarPanelState | undefined {
+  return useSidebarPanelsStore((s) =>
+    id === undefined
+      ? undefined
+      : (s.states[sidebarPanelStateKey(workspaceId, id)] ?? s.states[sidebarPanelStateKey('', id)])
+  );
+}
+
+export function keepSidebarPanelData(key: string, data: SidebarPanelPageData): void {
+  useSidebarPanelsStore.setState((state) => ({ data: { ...state.data, [key]: data } }));
+}
 
 /** A panel's key in a workspace; one that runs on this computer shows the same in every one. */
 export const sidebarPanelKey = (workspaceId: string, panel: Pick<SidebarPanel, 'id' | 'runOn'>) =>

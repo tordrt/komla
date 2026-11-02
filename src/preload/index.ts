@@ -83,6 +83,7 @@ import type {
   SettingsApprovalDecision,
 } from '../renderer/types';
 import type { TypedIpcRenderer } from '../shared/ipc/contract';
+import type { SidebarPanelBadgeInput } from '../shared/ipc/schemas/sidebar-panels-ipc.schemas';
 import type { ManagedTmuxFindResult } from '../shared/lib/ssh-tmux-attach';
 import type {
   AskpassRequest,
@@ -120,6 +121,7 @@ import type {
 } from '../shared/types/automation';
 import type { CommitGraph, CommitGraphQuery } from '../shared/types/commit-graph';
 import type { GitIdentityStatus } from '../shared/types/git-identity';
+import type { KomlaEvent } from '../shared/types/komla-events';
 import type { KomlaSkillStatus } from '../shared/types/komla-skill';
 import type { NoteSummary } from '../shared/types/notes';
 import type { NotificationIntegrationUpdate } from '../shared/types/notification-integration';
@@ -127,7 +129,13 @@ import type { PluginInfo } from '../shared/types/plugins';
 import type { PullRequestStatus } from '../shared/types/pull-request';
 import type { MachineResourceUsage } from '../shared/types/resource-usage';
 import type { SettingsHistoryEntry } from '../shared/types/settings-history';
-import type { SidebarPanelList, SidebarPanelResult } from '../shared/types/sidebar-panels';
+import type {
+  SidebarPanelData,
+  SidebarPanelList,
+  SidebarPanelOperationResult,
+  SidebarPanelResult,
+  SidebarPanelState,
+} from '../shared/types/sidebar-panels';
 import type { SshHostAddedSource } from '../shared/types/ssh';
 import type {
   SshHostProject,
@@ -1853,10 +1861,68 @@ const api = {
   ): Promise<StatusButtonRunResult> =>
     ipcRenderer.invoke(IPC.SIDEBAR_PANEL_BUTTON_RUN, workspaceId, id, name),
 
+  /** A panel's own page for this window, in its theme, which stays loaded while it shows. */
+  getSidebarPanelPage: (
+    workspaceId: string,
+    id: string,
+    theme?: StatusPopoverTheme
+  ): Promise<{ url?: string; error?: string }> =>
+    ipcRenderer.invoke(IPC.SIDEBAR_PANEL_PAGE, workspaceId, id, theme),
+
+  /** Runs a page panel's command, for its page's data. */
+  runSidebarPanelData: (workspaceId: string, id: string): Promise<SidebarPanelData> =>
+    ipcRenderer.invoke(IPC.SIDEBAR_PANEL_DATA, workspaceId, id),
+
+  /** A Komla Operation a panel's page sent through `komla.call`. */
+  runSidebarPanelOperation: (
+    workspaceId: string,
+    id: string,
+    request: Record<string, unknown>,
+    options: { activated: boolean; workspace?: string }
+  ): Promise<SidebarPanelOperationResult> =>
+    ipcRenderer.invoke(IPC.SIDEBAR_PANEL_OPERATION, workspaceId, id, request, options),
+
   onSidebarPanelsChange: (callback: () => void): (() => void) => {
     const handler = (): void => callback();
     ipcRenderer.on(IPC.SIDEBAR_PANELS_CHANGED, handler);
     return () => ipcRenderer.removeListener(IPC.SIDEBAR_PANELS_CHANGED, handler);
+  },
+
+  /** What pages and plugin code set for panels: their badges, and data plugin code posted. */
+  listSidebarPanelStates: (): Promise<SidebarPanelState[]> =>
+    ipcRenderer.invoke(IPC.SIDEBAR_PANEL_STATES),
+
+  onSidebarPanelStateChange: (callback: (state: SidebarPanelState) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: SidebarPanelState): void =>
+      callback(state);
+    ipcRenderer.on(IPC.SIDEBAR_PANEL_STATE_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC.SIDEBAR_PANEL_STATE_CHANGED, handler);
+  },
+
+  /** The badge a panel's page set on its tab, or null for none. */
+  setSidebarPanelBadge: (
+    workspaceId: string,
+    id: string,
+    badge: SidebarPanelBadgeInput
+  ): Promise<void> => ipcRenderer.invoke(IPC.SIDEBAR_PANEL_BADGE, workspaceId, id, badge),
+
+  /** Opens the window's developer tools, to inspect a panel's page. */
+  inspectSidebarPanel: (): Promise<void> => ipcRenderer.invoke(IPC.SIDEBAR_PANEL_INSPECT),
+
+  /** A message a panel's page sends its plugin's code, with the code's reply. */
+  sendSidebarPanelMessage: (
+    workspaceId: string,
+    id: string,
+    message: unknown,
+    options: { activated: boolean }
+  ): Promise<SidebarPanelOperationResult> =>
+    ipcRenderer.invoke(IPC.SIDEBAR_PANEL_MESSAGE, workspaceId, id, message, options),
+
+  /** What happens in workspaces, for refreshOn and panel pages' `komla.on`. */
+  onKomlaEvent: (callback: (event: KomlaEvent) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, event: KomlaEvent): void => callback(event);
+    ipcRenderer.on(IPC.KOMLA_EVENT, handler);
+    return () => ipcRenderer.removeListener(IPC.KOMLA_EVENT, handler);
   },
 
   /** The plugins in the plugins folder, read again first. */
@@ -1870,6 +1936,13 @@ const api = {
     ipcRenderer.invoke(IPC.PLUGINS_SET_ENABLED, id, digest),
 
   openPluginsFolder: (): Promise<void> => ipcRenderer.invoke(IPC.PLUGINS_OPEN_FOLDER),
+
+  /**
+   * Runs a plugin that is on as its files change, without turning it on again, or with false only
+   * as its files are now; resolves with every plugin.
+   */
+  setPluginDevelopment: (id: string, development: boolean): Promise<PluginInfo[]> =>
+    ipcRenderer.invoke(IPC.PLUGINS_SET_DEVELOPMENT, id, development),
 
   onPluginsChange: (callback: (plugins: PluginInfo[]) => void): (() => void) => {
     const handler = (_: Electron.IpcRendererEvent, plugins: PluginInfo[]): void =>

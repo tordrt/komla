@@ -186,6 +186,8 @@ interface FileViewerState {
   inlineSidebarPanelByWorkspace: Record<string, { id: string; shown: boolean }>;
   /** Shows a sidebar panel in place of the file tree. */
   showInlineSidebarPanel: (workspaceId: string, id: string) => void;
+  /** Shows a sidebar panel, opening the sidebar first if it's closed, as a status item's click. */
+  openInlineSidebarPanel: (workspaceId: string, id: string) => void;
   // Inline file tree panel actions
   toggleInlineFileTree: (workspaceId: string) => void;
   setInlineFileTreeOpen: (workspaceId: string, open: boolean) => void;
@@ -537,6 +539,13 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         [workspaceId]: { id, shown: true },
       },
     }));
+  },
+
+  openInlineSidebarPanel: (workspaceId, id) => {
+    if (!(get().inlineFileTreeByWorkspace[workspaceId]?.open ?? true)) {
+      get().toggleInlineFileTree(workspaceId);
+    }
+    get().showInlineSidebarPanel(workspaceId, id);
   },
 
   setInlineFileTreeMode: (workspaceId, mode, options) => {

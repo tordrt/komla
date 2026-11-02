@@ -26,6 +26,7 @@ import { checkGitInstalled } from './lib/git-requirement';
 import { createHoldToQuit } from './lib/hold-to-quit';
 import { installBundledSkills } from './lib/install-skills';
 import { installKomlaCli } from './lib/komla-cli';
+import { followHookEventsAsKomlaEvents } from './lib/komla-events';
 import { createLogger } from './lib/logger';
 import { MAIN_BUNDLE_DIR } from './lib/module-path';
 import { reportChildProcessGone } from './lib/process-gone-reporter';
@@ -57,6 +58,7 @@ import {
   setFolderWindowOpener,
 } from './services/open-folder-request';
 import { getKomlaBasePath } from './services/paths';
+import { startPluginHost, stopPluginHost } from './services/plugin-host';
 import { stopWatchingPlugins, watchPlugins } from './services/plugins.service';
 import { projectService } from './services/project.service';
 import { ptyService } from './services/pty.service';
@@ -749,6 +751,7 @@ void app.whenReady().then(async () => {
 
   // Initialize file watchers for config services in background (don't block window)
   // This starts watching for config file changes to hot-reload settings
+  followHookEventsAsKomlaEvents();
   void Promise.allSettled([
     customizationService.init(),
     shortcutsService.init(),
@@ -769,6 +772,8 @@ void app.whenReady().then(async () => {
     }
     // Local automations run even if a watcher couldn't start, e.g. at the inotify limit.
     automationService.start();
+    // Plugins' code, once Komla has read which plugins run.
+    startPluginHost();
     retargetAutomationsOnGitSettingsChange();
   });
 
@@ -898,6 +903,7 @@ function finishQuit(): void {
     stopWatchingSidebarPanels(),
     stopWatchingHooks(),
     stopWatchingPlugins(),
+    Promise.resolve().then(stopPluginHost),
   ])
     .catch((err) => {
       logger.error('Error stopping watchers during quit', { error: String(err) });

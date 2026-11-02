@@ -7,6 +7,7 @@ import * as parcelWatcher from '@parcel/watcher';
 import { z } from 'zod';
 
 import { HOOK_EVENT_LABELS } from '../../shared/types/hooks';
+import { KOMLA_EVENT_LABELS, type KomlaEventType } from '../../shared/types/komla-events';
 import {
   PLUGIN_ID_PATTERN,
   type PluginContributionInfo,
@@ -33,6 +34,8 @@ import {
   type ConfiguredStatusCommand,
 } from './status-commands.service';
 
+import type { HostedPlugin } from './plugin-host.service';
+
 const logger = createLogger('PluginsService');
 
 export const PLUGIN_MANIFEST = 'komla-plugin.json';
@@ -46,6 +49,9 @@ const MAX_SIDEBAR_PANELS = 5;
 /** A plugin's files Komla reads to tell when they change; past these, it doesn't run it. */
 const MAX_PLUGIN_FILES = 5000;
 const MAX_PLUGIN_BYTES = 50 * 1024 * 1024;
+// A module in the plugin's folder; no segment starts with a dot, so none is `..`.
+const MAIN_PATH =
+  /^[A-Za-z0-9_][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*(\/[A-Za-z0-9_][A-Za-z0-9._-]*)*\.(m?js|m?ts)$/;
 
 // The descriptions are what `komla settings schema plugins` tells agents.
 export const pluginManifestSchema = z
@@ -61,6 +67,18 @@ export const pluginManifestSchema = z
     name: z.string().trim().min(1).max(60).meta({ description: 'Shown in Settings.' }),
     version: z.string().trim().min(1).max(40).optional(),
     description: z.string().trim().min(1).max(300).optional(),
+    main: z
+      .string()
+      .trim()
+      .regex(
+        MAIN_PATH,
+        "main: a .js, .mjs, .ts or .mts file in the plugin's folder, such as main.ts"
+      )
+      .optional()
+      .meta({
+        description:
+          "The plugin's code: a JavaScript or TypeScript module in its folder, such as `main.ts`, which Komla runs without a build step in a process of its own while the plugin is on, and calls as `activate(komla)`. `komla` calls Komla Operations, follows events, runs commands in a workspace, and gives the plugin's panels data and badges, as `komla skill status-items` describes. For an integration that keeps state, or feeds a panel and a status item from one query.",
+      }),
     contributes: z
       .object({
         statusItems: z
@@ -84,9 +102,18 @@ export const pluginManifestSchema = z
   .strict()
   .superRefine((manifest, context) => {
     const { statusItems = [], hooks = [], sidebarPanels = [] } = manifest.contributes;
-    if (statusItems.length + hooks.length + sidebarPanels.length === 0) {
+    if (statusItems.length + hooks.length + sidebarPanels.length === 0 && !manifest.main) {
       context.addIssue({ code: 'custom', path: ['contributes'], message: 'adds nothing' });
     }
+    statusItems.forEach((item, index) => {
+      if (item.panel && !sidebarPanels.some((panel) => panel.id === item.panel)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['contributes', 'statusItems', index, 'panel'],
+          message: `the plugin has no sidebar panel ${item.panel}`,
+        });
+      }
+    });
     for (const [key, entries] of [
       ['statusItems', statusItems],
       ['hooks', hooks],
@@ -118,7 +145,13 @@ export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 const pluginsFileSchema = z
   .object({
     _version: z.number().int().optional(),
-    enabled: z.array(z.object({ id: z.string(), digest: z.string() }).strict()).max(MAX_PLUGINS),
+    enabled: z
+      .array(
+        z
+          .object({ id: z.string(), digest: z.string(), development: z.literal(true).optional() })
+          .strict()
+      )
+      .max(MAX_PLUGINS),
   })
   .strict();
 
@@ -128,6 +161,10 @@ export interface PluginSource {
   name: string;
   /** The plugin's folder, which its commands get as `KOMLA_PLUGIN_DIR`. */
   dir: string;
+  /** Changes with its files, so its panels' pages load again. */
+  revision?: string;
+  /** It runs as its files change, as while the user writes it. */
+  development?: true;
 }
 
 export type PluginStatusCommand = ConfiguredStatusCommand & { plugin: PluginSource };
@@ -290,10 +327,16 @@ function statusItemInfo(pluginId: string, item: ConfiguredStatusCommand): Plugin
     id: `${pluginId}.${item.id}`,
     title: item.label ?? item.id,
     command: item.command,
-    when: `Every ${item.intervalSeconds} seconds`,
+    when: `Every ${item.intervalSeconds} seconds${refreshOnText(item.refreshOn)}`,
     ...(item.runOn === 'local' && { runOn: 'local' as const }),
     ...(moreCommands.length > 0 && { moreCommands }),
   };
+}
+
+/** The events an entry runs again on, after when else it runs, as Settings says it. */
+function refreshOnText(events: KomlaEventType[] | undefined): string {
+  if (!events?.length) return '';
+  return `, and at once when ${events.map((event) => KOMLA_EVENT_LABELS[event].replace(/^An? |^The /, (word) => word.toLowerCase())).join(', or ')}`;
 }
 
 /** A page's button commands, as Settings lists them with an item's or panel's command. */
@@ -310,8 +353,12 @@ function sidebarPanelInfo(pluginId: string, panel: ConfiguredSidebarPanel): Plug
     kind: 'sidebar-panel',
     id: `${pluginId}.${panel.id}`,
     title: panel.title,
-    command: panel.command,
-    when: `Every ${panel.intervalSeconds} seconds while the panel is open`,
+    ...(panel.command && { command: panel.command }),
+    ...(panel.page && { page: panel.page }),
+    ...(panel.capabilities?.length && { capabilities: panel.capabilities }),
+    when: panel.command
+      ? `Every ${panel.intervalSeconds} seconds while the panel is open${refreshOnText(panel.refreshOn)}`
+      : 'While the panel is open',
     ...(panel.runOn === 'local' && { runOn: 'local' as const }),
     ...(moreCommands.length > 0 && { moreCommands }),
   };
@@ -363,7 +410,8 @@ function contributionsOf(manifest: PluginManifest): PluginContributionInfo[] {
  */
 export class PluginsService {
   private scanned: ScannedPlugin[] = [];
-  private enabled = new Map<string, string>();
+  /** The plugins the user turned on: the digest of the files they saw, and whether in development. */
+  private enabled = new Map<string, { digest: string; development?: true }>();
   private scanning: Promise<void> | undefined;
   private rescan = false;
   private readonly listeners = new Set<() => void>();
@@ -421,13 +469,15 @@ export class PluginsService {
 
   /** Every plugin, as `list()` has them, with what writing its manifest needs. */
   folders(): PluginFolder[] {
-    return this.plugins().map(({ scanned, state, problem }) => ({
+    return this.plugins().map(({ scanned, state, problem, development }) => ({
       id: scanned.manifest?.id ?? scanned.folder,
       name: scanned.manifest?.name ?? scanned.folder,
       ...(scanned.manifest?.version && { version: scanned.manifest.version }),
       ...(scanned.manifest?.description && { description: scanned.manifest.description }),
+      ...(scanned.manifest?.main && { main: scanned.manifest.main }),
       folder: scanned.folder,
       state,
+      ...(development && { development }),
       ...(problem && { problem }),
       ...(scanned.digest && { digest: scanned.digest }),
       contributions: scanned.manifest ? contributionsOf(scanned.manifest) : [],
@@ -535,11 +585,38 @@ export class PluginsService {
           `Plugin ${id}'s files changed. Look at its commands again, then turn it on.`
         );
       }
-      enabled.set(id, digest);
+      enabled.set(id, { digest, ...(this.enabled.get(id)?.development && { development: true }) });
     }
+    this.writeSettings(enabled);
+  }
+
+  /**
+   * Runs a plugin that is on as its files change, without the user turning it on again, or, with
+   * false, only as they were when the user turned it on. For a plugin the user is writing.
+   */
+  setDevelopment(id: string, development: boolean): void {
+    const current = this.enabled.get(id);
+    if (!current) throw new Error(`Plugin ${id} isn't on`);
+    const plugin = this.plugins().find((other) => other.id === id && other.state !== 'invalid');
+    const enabled = new Map(this.enabled);
+    enabled.set(
+      id,
+      development
+        ? { ...current, development: true }
+        : // Turning it off keeps it on as its files are now, which the user just ran.
+          { digest: plugin?.scanned.digest ?? current.digest }
+    );
+    this.writeSettings(enabled);
+  }
+
+  private writeSettings(enabled: Map<string, { digest: string; development?: true }>): void {
     const content = {
       _version: FILE_VERSION,
-      enabled: [...enabled].map(([id, digest]) => ({ id, digest })),
+      enabled: [...enabled].map(([id, { digest, development }]) => ({
+        id,
+        digest,
+        ...(development && { development }),
+      })),
     };
     mkdirSync(this.settingsPath, { recursive: true });
     writeFileAtomicSync(this.settingsFilePath(), `${JSON.stringify(content, null, 2)}\n`);
@@ -551,6 +628,7 @@ export class PluginsService {
     scanned: ScannedPlugin;
     state: PluginState;
     problem?: string;
+    development?: true;
   }[] {
     const seen = new Map<string, string>();
     return this.scanned.map((scanned) => {
@@ -570,18 +648,46 @@ export class PluginsService {
       seen.set(id, scanned.folder);
       const approved = this.enabled.get(id);
       const state: PluginState =
-        approved === undefined ? 'off' : approved === scanned.digest ? 'on' : 'changed';
-      return { id, scanned, state };
+        approved === undefined
+          ? 'off'
+          : approved.digest === scanned.digest || approved.development
+            ? 'on'
+            : 'changed';
+      return { id, scanned, state, ...(approved?.development && { development: true as const }) };
     });
   }
 
-  private running(): { manifest: PluginManifest; source: PluginSource }[] {
+  private running(): { manifest: PluginManifest; source: PluginSource; digest: string }[] {
     return this.plugins()
       .filter((plugin) => plugin.state === 'on')
-      .map(({ scanned }) => ({
+      .map(({ scanned, development }) => ({
         manifest: scanned.manifest!,
-        source: { id: scanned.manifest!.id, name: scanned.manifest!.name, dir: scanned.dir },
+        source: {
+          id: scanned.manifest!.id,
+          name: scanned.manifest!.name,
+          dir: scanned.dir,
+          ...(scanned.digest && { revision: scanned.digest.slice(0, 12) }),
+          ...(development && { development }),
+        },
+        digest: scanned.digest ?? '',
       }));
+  }
+
+  /** The plugins that run and have code of their own, for the plugin host. */
+  hostedPlugins(): HostedPlugin[] {
+    return this.running().flatMap(({ manifest, source, digest }) =>
+      manifest.main
+        ? [
+            {
+              source,
+              ...(manifest.version && { version: manifest.version }),
+              main: join(source.dir, manifest.main),
+              panels: (manifest.contributes.sidebarPanels ?? []).map((panel) => panel.id),
+              digest,
+            },
+          ]
+        : []
+    );
   }
 
   private async scanFolders(): Promise<ScannedPlugin[]> {
@@ -637,7 +743,9 @@ export class PluginsService {
       logger.warn(`${parsed.problem}. No plugin runs until it's fixed.`);
       return;
     }
-    for (const { id, digest } of parsed.value.enabled) this.enabled.set(id, digest);
+    for (const { id, digest, development } of parsed.value.enabled) {
+      this.enabled.set(id, { digest, ...(development && { development }) });
+    }
   }
 
   private emit(): void {

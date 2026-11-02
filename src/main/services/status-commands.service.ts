@@ -46,6 +46,8 @@ import {
   namedCommandsSchema,
   parseJsonOutput,
   projectsSchema,
+  REFRESH_ON_EVENTS,
+  refreshOnSchema,
   runOnSchema,
   serveCommandPage,
   timeoutSecondsSchema,
@@ -97,6 +99,13 @@ export const statusCommandSchema = z
     action: z.string().trim().min(1).max(200).optional().meta({
       description: 'A Quick Command, by title, that clicking the item runs, in place of a popover.',
     }),
+    panel: entryIdSchema.optional().meta({
+      description:
+        "A sidebar panel, by id, that clicking the item opens, in place of a popover: one in sidebar-panels.json, or in a plugin, one of the plugin's own. For an item that shows a count, with the details in the panel.",
+    }),
+    refreshOn: refreshOnSchema.meta({
+      description: `Events in the workspace that run the command again at once, besides its interval, while the workspace is open: ${REFRESH_ON_EVENTS}.`,
+    }),
     iconColor: iconColorSchema.meta({
       description: `Shows the icon's shape in a color: ${COLOR_DESCRIPTION}. Without it, the icon keeps its own colors.`,
     }),
@@ -108,8 +117,9 @@ export const statusCommandSchema = z
     }),
   })
   .strict()
-  .refine((item) => !(item.popoverCommand && item.action), {
-    message: 'an item opens its popover or runs a Quick Command when clicked, not both',
+  .refine((item) => [item.popoverCommand, item.action, item.panel].filter(Boolean).length <= 1, {
+    message:
+      'an item opens its popover, runs a Quick Command or opens a panel when clicked, one of them',
   })
   .refine((item) => !item.commands || item.popoverCommand, {
     message: 'commands run from popover buttons, so the item needs a popoverCommand',
@@ -348,15 +358,30 @@ export class StatusCommandsService {
   list(workspaceId: string): StatusCommandList {
     const items: StatusCommand[] = this.items
       .forWorkspace(workspaceId)
-      .map(({ id, intervalSeconds, runOn, label, popoverCommand, action, plugin }) => ({
-        id,
-        intervalSeconds,
-        ...(runOn === 'local' && { runOn }),
-        ...(label && { label }),
-        ...(popoverCommand && { popover: true }),
-        ...(action && { action }),
-        ...(plugin && { plugin: plugin.name }),
-      }));
+      .map(
+        ({
+          id,
+          intervalSeconds,
+          runOn,
+          label,
+          popoverCommand,
+          action,
+          panel,
+          refreshOn,
+          plugin,
+        }) => ({
+          id,
+          intervalSeconds,
+          ...(runOn === 'local' && { runOn }),
+          ...(label && { label }),
+          ...(popoverCommand && { popover: true }),
+          ...(action && { action }),
+          // A plugin's item opens the plugin's own panel.
+          ...(panel && { panel: plugin ? `${plugin.id}.${panel}` : panel }),
+          ...(refreshOn && { refreshOn }),
+          ...(plugin && { plugin: plugin.name }),
+        })
+      );
     const { problem, changedAt } = this.items;
     return { items, ...(problem && { problem }), changedAt };
   }

@@ -7,6 +7,7 @@ import { BrowserWindow } from 'electron';
 import ignore, { Ignore } from 'ignore';
 
 import { IPC } from '../../shared/constants/ipc-channels';
+import { publishWorkingTreeEvents } from '../lib/komla-events';
 import { createLogger } from '../lib/logger';
 
 import { gitService } from './git.service';
@@ -909,6 +910,7 @@ class WorktreeWatcherService {
       );
     }
 
+    publishWorkingTreeEvents(sessionId, changeTypes);
     const windows = BrowserWindow.getAllWindows();
     logger.debug('Notifying renderer of worktree change', {
       sessionId,

@@ -13,7 +13,12 @@ export interface PluginContributionInfo {
   /** `<plugin>.<id>`, as `komla status refresh` takes it. */
   id: string;
   title: string;
-  command: string;
+  /** Its command; a sidebar panel with a page of its own may have none. */
+  command?: string;
+  /** A sidebar panel's own page, in the plugin's folder. */
+  page?: string;
+  /** What a sidebar panel's page may change through Komla. */
+  capabilities?: string[];
   /** When it runs, such as "Every 60 seconds" or "An agent finishes". */
   when: string;
   /** Runs on this computer, in the home folder, not where the workspace's files are. */
@@ -28,6 +33,12 @@ export interface PluginInfo {
   name: string;
   version?: string;
   description?: string;
+  /** Its code, a module in its folder, which runs while it's on. */
+  main?: string;
+  /** It runs as its files change, without being turned on again, as while the user writes it. */
+  development?: true;
+  /** How its code runs, while it's on and has code. */
+  host?: PluginHostStatus;
   /** The plugin's folder, in the plugins folder. */
   folder: string;
   state: PluginState;
@@ -36,4 +47,15 @@ export interface PluginInfo {
   /** Changes when any of the plugin's files do; turning it on takes the one the user saw. */
   digest?: string;
   contributions: PluginContributionInfo[];
+}
+
+/** How a plugin's code runs: starting, running, or failed and left off until it changes. */
+export type PluginHostState = 'starting' | 'running' | 'failed';
+
+export interface PluginHostStatus {
+  state: PluginHostState;
+  /** Why it failed, or why it's starting again. */
+  error?: string;
+  /** What its code printed last, oldest first. */
+  log: string[];
 }

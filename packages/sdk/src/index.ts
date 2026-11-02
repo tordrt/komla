@@ -9,6 +9,7 @@ export * from './client.js';
 export { discoverKomla, komlaDataDir } from './discovery.js';
 export type { DiscoverOptions, DiscoveredRoute } from './discovery.js';
 export { httpTransport } from './http.js';
+export type * from './plugin.js';
 export type { HttpTransportOptions, KomlaRoute } from './http.js';
 
 export interface ConnectKomlaOptions<C extends KomlaCapability> extends DiscoverOptions {

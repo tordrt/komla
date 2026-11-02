@@ -16,6 +16,7 @@ import {
   type ReasoningLevel,
 } from '../../shared/types/agent-preset';
 import { HOOK_EVENT_LABELS, type HookEvent } from '../../shared/types/hooks';
+import { KOMLA_EVENT_LABELS, type KomlaEventType } from '../../shared/types/komla-events';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { parseSettingsFile } from '../lib/settings-file';
 
@@ -84,7 +85,8 @@ function listChanges<Entry>(
 
 interface CommandEntry {
   id: string;
-  command: string;
+  /** A sidebar panel with a page of its own may have none. */
+  command?: string;
   projects?: string[];
 }
 
@@ -168,9 +170,23 @@ interface StatusItemEntry extends CommandEntry {
   label?: string;
   popoverCommand?: string;
   action?: string;
+  panel?: string;
+  refreshOn?: KomlaEventType[];
   icon?: string;
   iconColor?: string;
   commands?: Record<string, string>;
+}
+
+/** The events an entry runs again on, as a change's details say them. */
+function refreshOnDetails(events: KomlaEventType[] | undefined) {
+  return events?.length
+    ? [
+        {
+          label: 'Also runs when',
+          value: events.map((event) => KOMLA_EVENT_LABELS[event]).join('; '),
+        },
+      ]
+    : [];
 }
 
 // An icon file's path, or what kind of image the item carries in its place.
@@ -185,6 +201,9 @@ interface SidebarPanelEntry extends CommandEntry {
   runOn?: 'workspace' | 'local';
   icon?: string;
   commands?: Record<string, string>;
+  page?: string;
+  capabilities?: string[];
+  refreshOn?: KomlaEventType[];
 }
 
 /** A page's button commands, each as a change lists it under the entry's command. */
@@ -546,11 +565,22 @@ function manifestChanges(
         { label: 'Folder', value: `plugins/${plugin?.folder ?? id}` },
         {
           label: 'Adds',
-          value: counts
-            .filter(([count]) => count > 0)
-            .map(([count, noun]) => `${count} ${noun}${count === 1 ? '' : 's'}`)
-            .join(', '),
+          value: [
+            ...counts
+              .filter(([count]) => count > 0)
+              .map(([count, noun]) => `${count} ${noun}${count === 1 ? '' : 's'}`),
+            ...(written.main ? ['code of its own'] : []),
+          ].join(', '),
         },
+        // Its code can do what Komla's operations and the user's shell can, so the approval says so.
+        ...(written.main
+          ? [
+              {
+                label: 'Its code',
+                value: `${written.main}, which runs while the plugin is on and may do what Komla's operations and your shell can`,
+              },
+            ]
+          : []),
         ...(enabled ? [] : [{ label: 'Runs', value: 'Only once turned on' }]),
       ],
     },
@@ -764,12 +794,16 @@ export function createSettingsFiles({
           ...(moreContent.length > 0 && { moreContent }),
           details: [
             { label: 'Runs', value: `Every ${item.intervalSeconds ?? 60} seconds` },
+            ...refreshOnDetails(item.refreshOn),
             ...(item.runOn === 'local'
               ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
               : []),
             ...(item.icon ? [{ label: 'Icon', value: describeIcon(item.icon) }] : []),
             ...(item.action
               ? [{ label: 'On click, runs the quick command', value: item.action }]
+              : []),
+            ...(item.panel
+              ? [{ label: 'On click, opens the sidebar panel', value: item.panel }]
               : []),
             { label: 'Projects', value: projectsLabel(item.projects) },
           ],
@@ -788,14 +822,22 @@ export function createSettingsFiles({
         return {
           kind: 'sidebar-panel',
           title: panel.title,
-          contentLabel: 'Command',
-          content: panel.command,
+          ...(panel.command && { contentLabel: 'Command' as const, content: panel.command }),
           ...(moreContent.length > 0 && { moreContent }),
           details: [
-            {
-              label: 'Runs',
-              value: `Every ${panel.intervalSeconds ?? 60} seconds while the panel is open`,
-            },
+            ...(panel.page ? [{ label: 'Page', value: panel.page }] : []),
+            ...(panel.capabilities?.length
+              ? [{ label: 'Its page may use', value: panel.capabilities.join(', ') }]
+              : []),
+            ...(panel.command
+              ? [
+                  {
+                    label: 'Runs',
+                    value: `Every ${panel.intervalSeconds ?? 60} seconds while the panel is open`,
+                  },
+                  ...refreshOnDetails(panel.refreshOn),
+                ]
+              : []),
             ...(panel.runOn === 'local'
               ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
               : []),

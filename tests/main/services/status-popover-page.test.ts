@@ -18,6 +18,13 @@ describe('buildStatusPopoverPage', () => {
     expect(page.indexOf('</script>')).toBeLessThan(page.indexOf('<style>body{padding:0}'));
   });
 
+  it("has komla.css's classes, as a sidebar panel's page does", () => {
+    const page = buildStatusPopoverPage('<p class="k-muted">hi</p>', undefined);
+    expect(page).toContain('.k-badge');
+    expect(page).toContain('.k-button.k-primary');
+    expect(page.indexOf('.k-badge')).toBeLessThan(page.indexOf('<p class="k-muted">'));
+  });
+
   it('leaves out colors that are not OKLCH channels', () => {
     const page = buildStatusPopoverPage('', {
       scheme: 'light',

@@ -1,3 +1,7 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../src/main/services/paths', () => ({ getKomlaBasePath: () => '/mock/.komla' }));
@@ -17,6 +21,7 @@ vi.mock('../../../src/main/services/html-preview.service', () => ({
 }));
 
 import {
+  findPanelPage,
   parseSidebarPanelsFile,
   SidebarPanelsService,
   type SidebarPanelsDependencies,
@@ -40,6 +45,12 @@ function createService(file: unknown, overrides: Partial<SidebarPanelsDependenci
       value === 'icons/missing.svg' ? undefined : `data:image/png;base64,${value}`
     ),
     servePage: vi.fn(async () => 'komla-preview://token/popover.html'),
+    findPage: vi.fn(async (page: string, pluginDir?: string) =>
+      page === 'panels/missing'
+        ? undefined
+        : { root: `${pluginDir ?? '/mock/.komla/settings'}/${page}`, entry: 'index.html' }
+    ),
+    servePanelPage: vi.fn(async () => 'komla-preview://token/index.html'),
     now: () => 42,
     ...overrides,
   });
@@ -60,7 +71,9 @@ describe('parseSidebarPanelsFile', () => {
     ['{', /not valid JSON/],
     [JSON.stringify({ panels: [{ id: 'ci', command: 'x' }] }), /panels\.0\.title/],
     [
-      JSON.stringify({ panels: [{ id: 'ci', title: 'A title far too long for a tab', command: 'x' }] }),
+      JSON.stringify({
+        panels: [{ id: 'ci', title: 'A title far too long for a tab', command: 'x' }],
+      }),
       /panels\.0\.title/,
     ],
     [JSON.stringify({ panels: [{ id: 'bad id', title: 'CI', command: 'x' }] }), /ids are/],
@@ -86,6 +99,25 @@ describe('parseSidebarPanelsFile', () => {
         panels: [{ id: 'ci', title: 'CI', command: 'x', commands: { 'bad name': 'y' } }],
       }),
       /command names/,
+    ],
+    [JSON.stringify({ panels: [{ id: 'ci', title: 'CI' }] }), /a command, a page or both/],
+    [
+      JSON.stringify({ panels: [{ id: 'ci', title: 'CI', page: 'panels/../hooks.json' }] }),
+      /page: a file or folder in the panels folder/,
+    ],
+    [
+      JSON.stringify({ panels: [{ id: 'ci', title: 'CI', page: 'board/index.html' }] }),
+      /page: a file or folder in the panels folder/,
+    ],
+    [
+      JSON.stringify({ panels: [{ id: 'ci', title: 'CI', page: 'panels/.git' }] }),
+      /page: a file or folder in the panels folder/,
+    ],
+    [
+      JSON.stringify({
+        panels: [{ id: 'ci', title: 'CI', page: 'panels/ci', capabilities: ['shell.run'] }],
+      }),
+      /capabilities/,
     ],
   ])('names what is wrong with %s', (content, problem) => {
     const parsed = parseSidebarPanelsFile(content);
@@ -129,6 +161,23 @@ describe('SidebarPanelsService', () => {
     service.onChange(listener);
     service.reload();
     expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it('shows plain output as a terminal would, with its colors', async () => {
+    const run = vi.fn(async () => '\n\u001b[32m✓\u001b[0m unit\n\u001b[1;31m✗ e2e\u001b[0m\n\n');
+    const service = createService(
+      { panels: [{ id: 'ci', title: 'CI', command: 'sh ci.sh' }] },
+      { run }
+    );
+
+    expect((await service.run('ws-1', 'ci')).content).toEqual({
+      markdown: '',
+      terminal: [
+        [{ text: '✓', color: 'success' }, { text: ' unit' }],
+        [{ text: '✗ e2e', color: 'error', bold: true }],
+      ],
+      buttons: [],
+    });
   });
 
   it("runs a panel's command in the workspace and shows its Markdown and buttons", async () => {
@@ -250,7 +299,7 @@ describe('SidebarPanelsService', () => {
       { run }
     );
     await expect(service.runButton('ws-1', 'ci', 'deploy')).resolves.toEqual({
-      error: 'sidebar-panels.json has no command deploy for ci',
+      error: "This workspace doesn't show ci",
     });
     expect(run).not.toHaveBeenCalled();
   });
@@ -266,6 +315,126 @@ describe('SidebarPanelsService', () => {
     await expect(service.runButton('ws-1', 'ci', 'toString')).resolves.toEqual({
       error: 'sidebar-panels.json has no command toString for ci',
     });
+  });
+});
+
+describe('SidebarPanelsService with pages of their own', () => {
+  const board = {
+    id: 'board',
+    title: 'Board',
+    page: 'panels/board',
+    command: 'gh pr list --json title',
+    capabilities: ['workspace.tag'],
+  };
+
+  it('reads a page, with or without a command, and the capabilities its page uses', () => {
+    expect(
+      parseSidebarPanelsFile(
+        JSON.stringify({
+          panels: [board, { id: 'notes', title: 'Notes', page: 'panels/notes.html' }],
+        })
+      )
+    ).toEqual({
+      panels: [
+        { ...board, intervalSeconds: 60 },
+        { id: 'notes', title: 'Notes', page: 'panels/notes.html', intervalSeconds: 60 },
+      ],
+    });
+  });
+
+  it('lists which panels have a page, and a command for it', async () => {
+    const service = createService({
+      panels: [board, { id: 'notes', title: 'Notes', page: 'panels/notes.html' }],
+    });
+    const { panels } = await service.list('ws-1');
+    expect(panels).toEqual([
+      expect.objectContaining({ id: 'board', page: true, command: true }),
+      expect.not.objectContaining({ command: true }),
+    ]);
+    expect(panels[1]).toMatchObject({ id: 'notes', page: true });
+  });
+
+  it("serves a panel's page in the window's theme, one per window, workspace and panel", async () => {
+    const servePanelPage = vi.fn(async () => 'komla-preview://token/index.html');
+    const service = createService({ panels: [board] }, { servePanelPage });
+    const theme = { scheme: 'dark' as const, colors: { success: '0.7 0.1 150' } };
+
+    expect(await service.pageUrl('ws-1', 'board', theme, '7')).toEqual({
+      url: 'komla-preview://token/index.html',
+    });
+    expect(servePanelPage).toHaveBeenCalledWith(
+      'sidebar-panel-page:7:ws-1:board',
+      { root: '/mock/.komla/settings/panels/board', entry: 'index.html' },
+      theme
+    );
+    // A panel without a page has none to serve.
+    expect(await service.pageUrl('ws-1', 'other')).toEqual({});
+  });
+
+  it("says when a panel's page isn't there", async () => {
+    const service = createService({
+      panels: [{ ...board, page: 'panels/missing' }],
+    });
+    expect(await service.pageUrl('ws-1', 'board')).toEqual({
+      error: "panels/missing isn't in the settings folder",
+    });
+  });
+
+  it('gives the page what its command prints: its JSON, or its text without colors', async () => {
+    const run = vi.fn(async () => '[{"title":"Add search"}]');
+    const service = createService({ panels: [board] }, { run });
+    expect(await service.runData('ws-1', 'board')).toEqual({ data: [{ title: 'Add search' }] });
+    expect(run).toHaveBeenCalledWith(workspace, board.command, 30_000, undefined);
+
+    run.mockResolvedValueOnce('\u001b[32mAll pass\u001b[0m\n');
+    expect(await service.runData('ws-1', 'board')).toEqual({ data: 'All pass' });
+
+    run.mockRejectedValueOnce(new WorkspaceCommandError('slow', true));
+    expect(await service.runData('ws-1', 'board')).toEqual({
+      error: 'timed out after 30 seconds',
+    });
+  });
+
+  it("finds a plugin's page in its folder", async () => {
+    const servePanelPage = vi.fn(async () => 'komla-preview://token/index.html');
+    const service = createService({ panels: [] }, { servePanelPage });
+    service.setPluginPanels([{ ...board, id: 'ci.board', intervalSeconds: 60, plugin } as never]);
+
+    expect(await service.pageUrl('ws-1', 'ci.board')).toEqual({
+      url: 'komla-preview://token/index.html',
+    });
+    expect(servePanelPage).toHaveBeenCalledWith(
+      expect.any(String),
+      { root: `${plugin.dir}/panels/board`, entry: 'index.html' },
+      undefined
+    );
+  });
+});
+
+describe('findPanelPage', () => {
+  it("finds a folder's index.html, or an HTML file in its folder", async () => {
+    const root = mkdtempSync(join(tmpdir(), 'komla-panel-page-'));
+    try {
+      mkdirSync(join(root, 'app'));
+      writeFileSync(join(root, 'app', 'index.html'), '<p>app</p>');
+      mkdirSync(join(root, 'empty'));
+      writeFileSync(join(root, 'notes.html'), '<p>notes</p>');
+      writeFileSync(join(root, 'data.json'), '{}');
+
+      expect(await findPanelPage(join(root, 'app'))).toEqual({
+        root: join(root, 'app'),
+        entry: 'index.html',
+      });
+      expect(await findPanelPage(join(root, 'notes.html'))).toEqual({
+        root,
+        entry: 'notes.html',
+      });
+      expect(await findPanelPage(join(root, 'empty'))).toBeUndefined();
+      expect(await findPanelPage(join(root, 'data.json'))).toBeUndefined();
+      expect(await findPanelPage(join(root, 'missing'))).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

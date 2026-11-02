@@ -90,7 +90,9 @@ describe('WorkspaceStatusService', () => {
         workspace.id,
         ['file'],
         1_600_000_000_000,
-        undefined
+        undefined,
+        // Reopening sees the same files: no working-tree.changed.
+        false
       );
     }
   );
@@ -122,7 +124,8 @@ describe('WorkspaceStatusService', () => {
       workspace.id,
       ['file'],
       workspace.lastActivityAt,
-      { fileListHash: 'file-list', changedPaths: ['src/app.ts'] }
+      { fileListHash: 'file-list', changedPaths: ['src/app.ts'] },
+      true
     );
 
     // A scan can see a checkout before the companion sees the files it changed.
@@ -144,7 +147,8 @@ describe('WorkspaceStatusService', () => {
       workspace.id,
       ['file', 'git-head', 'git-branch'],
       workspace.lastActivityAt,
-      { fileListHash: 'file-list-2' }
+      { fileListHash: 'file-list-2' },
+      true
     );
     expect(publishWorkingTreeChange.mock.lastCall?.[3]).not.toHaveProperty('changedPaths');
   });
@@ -162,13 +166,29 @@ describe('WorkspaceStatusService', () => {
       publishWorkingTreeChange,
       saveWorkspaces,
     });
+    // Whether working-tree.changed fires follows the files too, not the report alone.
     const statuses = [
-      { status: '', numstat: '', expected: 1_600_000_000_000 },
-      { status: ' M src/app.ts\0', numstat: '3\t1\tsrc/app.ts\0', expected: now + 1 },
-      { status: ' M src/app.ts\0', numstat: '3\t1\tsrc/app.ts\0', expected: now + 1 },
-      { status: ' M src/app.ts\0', numstat: '4\t1\tsrc/app.ts\0', expected: now + 3 },
-      { status: '', numstat: '', incomplete: true, expected: now + 3 },
-      { status: '', numstat: '', expected: now + 5 },
+      { status: '', numstat: '', expected: 1_600_000_000_000, changed: false },
+      {
+        status: ' M src/app.ts\0',
+        numstat: '3\t1\tsrc/app.ts\0',
+        expected: now + 1,
+        changed: true,
+      },
+      {
+        status: ' M src/app.ts\0',
+        numstat: '3\t1\tsrc/app.ts\0',
+        expected: now + 1,
+        changed: false,
+      },
+      {
+        status: ' M src/app.ts\0',
+        numstat: '4\t1\tsrc/app.ts\0',
+        expected: now + 3,
+        changed: true,
+      },
+      { status: '', numstat: '', incomplete: true, expected: now + 3, changed: false },
+      { status: '', numstat: '', expected: now + 5, changed: true },
     ];
     for (const [index, item] of statuses.entries()) {
       await service.change({
@@ -191,7 +211,8 @@ describe('WorkspaceStatusService', () => {
         workspace.id,
         ['file'],
         item.expected,
-        undefined
+        undefined,
+        item.changed
       );
       expect(saveWorkspaces).toHaveBeenCalledTimes(index + 1);
       now++;
@@ -222,6 +243,45 @@ describe('WorkspaceStatusService', () => {
       expect(requestLocalCopySync).toHaveBeenCalledTimes(Math.floor((index + 1) / 2));
     }
     expect(service.read(workspace.id)?.revision).toBe(4);
+  });
+
+  it('publishes a file change for what the files show, or the paths a report says changed', async () => {
+    const workspace = createSshWorkspace();
+    const publishWorkingTreeChange = vi.fn();
+    const service = createStatusService({
+      getWorkspace: () => workspace,
+      listWorkspaces: () => [workspace],
+      publishWorkingTreeChange,
+    });
+    // The baseline; a commit, which only Git's files see but the summary shows; the same files,
+    // with paths the companion says didn't change; and an edit the summary can't show.
+    for (const [index, [status, workingTreeChanged]] of [
+      ['', true],
+      [' M src/app.ts\0', false],
+      [' M src/app.ts\0', false],
+      [' M src/app.ts\0', true],
+    ].entries()) {
+      await service.change({
+        kind: 'snapshot-observed',
+        snapshot: {
+          source: { kind: 'remote-companion', sequence: index + 1 },
+          workspaceId: workspace.id,
+          cwd: '/remote/project/worktree',
+          observedAt: 1_700_000_000_000 + index,
+          stateHash: `state-${index}`,
+          statusB64: Buffer.from(status as string).toString('base64'),
+          changedPaths: ['src/app.ts'],
+          workingTreeChanged: workingTreeChanged as boolean,
+          branch: { currentBranch: 'feature/old', targetBranch: 'main' },
+        },
+      });
+    }
+    expect(publishWorkingTreeChange.mock.calls.map((call) => call[4])).toEqual([
+      true,
+      true,
+      false,
+      true,
+    ]);
   });
 
   it('keeps per-snapshot sync decisions out of info diagnostics', async () => {
@@ -1337,67 +1397,70 @@ describe('WorkspaceStatusService', () => {
     });
   });
 
-  it.each([true, false])('invalidates the mutated SSH workspace cache and syncs on the next watcher snapshot (summary changed: %s)', async (summaryChanged) => {
-    const workspace = createSshWorkspace();
-    const requestLocalCopySync = vi.fn();
-    const getSshSnapshot = vi.fn().mockRejectedValue(new Error('agent refused operation'));
-    const service = createStatusService({
-      getWorkspace: () => workspace,
-      listWorkspaces: () => [workspace],
-      requestLocalCopySync,
-      getSshSnapshot,
-    });
-    await service.change({
-      kind: 'snapshot-observed',
-      snapshot: {
-        source: { kind: 'remote-companion', sequence: 1 },
+  it.each([true, false])(
+    'invalidates the mutated SSH workspace cache and syncs on the next watcher snapshot (summary changed: %s)',
+    async (summaryChanged) => {
+      const workspace = createSshWorkspace();
+      const requestLocalCopySync = vi.fn();
+      const getSshSnapshot = vi.fn().mockRejectedValue(new Error('agent refused operation'));
+      const service = createStatusService({
+        getWorkspace: () => workspace,
+        listWorkspaces: () => [workspace],
+        requestLocalCopySync,
+        getSshSnapshot,
+      });
+      await service.change({
+        kind: 'snapshot-observed',
+        snapshot: {
+          source: { kind: 'remote-companion', sequence: 1 },
+          workspaceId: workspace.id,
+          cwd: '/remote/project/worktree',
+          observedAt: 1_700_000_000_100,
+          stateHash: 'complete',
+          statusB64: Buffer.from(' M src/app.ts\0').toString('base64'),
+          numstatB64: Buffer.from('3\t1\tsrc/app.ts\0').toString('base64'),
+          branch: { currentBranch: 'feature/old', targetBranch: 'main' },
+        },
+      });
+      expect(
+        service.read({ kind: 'working-tree-for-diff', workspaceId: workspace.id })
+      ).toBeDefined();
+      requestLocalCopySync.mockClear();
+
+      const receipt = await service.change({
+        kind: 'repository-mutated',
         workspaceId: workspace.id,
-        cwd: '/remote/project/worktree',
-        observedAt: 1_700_000_000_100,
-        stateHash: 'complete',
-        statusB64: Buffer.from(' M src/app.ts\0').toString('base64'),
-        numstatB64: Buffer.from('3\t1\tsrc/app.ts\0').toString('base64'),
-        branch: { currentBranch: 'feature/old', targetBranch: 'main' },
-      },
-    });
-    expect(
-      service.read({ kind: 'working-tree-for-diff', workspaceId: workspace.id })
-    ).toBeDefined();
-    requestLocalCopySync.mockClear();
+      });
 
-    const receipt = await service.change({
-      kind: 'repository-mutated',
-      workspaceId: workspace.id,
-    });
+      expect(receipt).toEqual({
+        disposition: 'applied',
+        change: 'repository-mutated',
+        workspaceIds: [workspace.id],
+      });
+      expect(
+        service.read({ kind: 'working-tree-for-diff', workspaceId: workspace.id })
+      ).toBeUndefined();
+      expect(requestLocalCopySync).not.toHaveBeenCalled();
+      expect(getSshSnapshot).not.toHaveBeenCalled();
+      expect(service.read(workspace.id)?.confirmation.kind).toBe('current');
 
-    expect(receipt).toEqual({
-      disposition: 'applied',
-      change: 'repository-mutated',
-      workspaceIds: [workspace.id],
-    });
-    expect(
-      service.read({ kind: 'working-tree-for-diff', workspaceId: workspace.id })
-    ).toBeUndefined();
-    expect(requestLocalCopySync).not.toHaveBeenCalled();
-    expect(getSshSnapshot).not.toHaveBeenCalled();
-    expect(service.read(workspace.id)?.confirmation.kind).toBe('current');
+      await service.change({
+        kind: 'snapshot-observed',
+        snapshot: {
+          source: { kind: 'remote-companion', sequence: 2 },
+          workspaceId: workspace.id,
+          cwd: '/remote/project/worktree',
+          observedAt: 1_700_000_000_200,
+          stateHash: summaryChanged ? 'after-mutation' : 'complete',
+          statusB64: summaryChanged ? '' : Buffer.from(' M src/app.ts\0').toString('base64'),
+          numstatB64: summaryChanged ? '' : Buffer.from('3\t1\tsrc/app.ts\0').toString('base64'),
+          branch: { currentBranch: 'feature/old', targetBranch: 'main' },
+        },
+      });
 
-    await service.change({
-      kind: 'snapshot-observed',
-      snapshot: {
-        source: { kind: 'remote-companion', sequence: 2 },
-        workspaceId: workspace.id,
-        cwd: '/remote/project/worktree',
-        observedAt: 1_700_000_000_200,
-        stateHash: summaryChanged ? 'after-mutation' : 'complete',
-        statusB64: summaryChanged ? '' : Buffer.from(' M src/app.ts\0').toString('base64'),
-        numstatB64: summaryChanged ? '' : Buffer.from('3\t1\tsrc/app.ts\0').toString('base64'),
-        branch: { currentBranch: 'feature/old', targetBranch: 'main' },
-      },
-    });
-
-    expect(requestLocalCopySync).toHaveBeenCalledExactlyOnceWith(workspace.id);
-  });
+      expect(requestLocalCopySync).toHaveBeenCalledExactlyOnceWith(workspace.id);
+    }
+  );
 
   it('forgets all Workspace Status state when a workspace is removed', async () => {
     const workspace = createWorkspace({ id: 'workspace-local' });

@@ -27,6 +27,7 @@ import {
 } from '../../shared/types/workspace';
 import { writeFileAtomic } from '../lib/atomic-write';
 import { publishAttentionHookEvent, publishHookEvent } from '../lib/hook-events';
+import { publishWorkingTreeEvents } from '../lib/komla-events';
 import { createLogger } from '../lib/logger';
 import { sshConnectionFailure } from '../lib/ssh-connection-failure';
 import {
@@ -374,7 +375,18 @@ class WorkspaceService {
       listWorkspaces: () => Array.from(workspaceStore.workspaces.values()),
       saveWorkspaces: () => workspaceStore.saveWorkspaces(),
       broadcastWorkspaceUpdate: (workspace) => workspaceStore.broadcastWorkspaceUpdate(workspace),
-      publishWorkingTreeChange: (workspaceId, changeTypes, activityAt, remoteChange) => {
+      publishWorkingTreeChange: (
+        workspaceId,
+        changeTypes,
+        activityAt,
+        remoteChange,
+        filesChanged
+      ) => {
+        // A status refresh confirms the files again; working-tree.changed is for when they change.
+        publishWorkingTreeEvents(
+          workspaceId,
+          filesChanged ? changeTypes : changeTypes.filter((type) => type !== 'file')
+        );
         for (const window of BrowserWindow.getAllWindows()) {
           if (!window.isDestroyed()) {
             // SSH workspaces push no file or git status here; the observation carries it.

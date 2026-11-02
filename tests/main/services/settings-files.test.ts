@@ -763,8 +763,8 @@ describe('settings files', () => {
   });
 
   describe('sidebar panels', () => {
-    it("takes the guide's example as it is", () => {
-      const [, panels] = [
+    it("takes the guide's examples as they are", () => {
+      const [, panels, pagePanel] = [
         ...readFileSync(
           join('resources', 'skills', 'komla-status-items-instructions.md'),
           'utf-8'
@@ -773,6 +773,33 @@ describe('settings files', () => {
 
       expect(panels).toHaveProperty('panels');
       expect(files['sidebar-panels'].prepare(panels)).not.toHaveProperty('problems');
+      expect(pagePanel).toHaveProperty('page');
+      expect(files['sidebar-panels'].prepare({ panels: [pagePanel] })).not.toHaveProperty(
+        'problems'
+      );
+    });
+
+    it("names a page panel's page and what its page may use, and leaves out a command it lacks", () => {
+      const result = files['sidebar-panels'].prepare({
+        panels: [
+          {
+            id: 'board',
+            title: 'Board',
+            page: 'panels/board',
+            capabilities: ['workspace.tag'],
+          },
+        ],
+      });
+      expect(result).not.toHaveProperty('problems');
+      const [change] = (result as { changes: Record<string, unknown>[] }).changes;
+      expect(change).not.toHaveProperty('content');
+      expect(change.details).toEqual(
+        expect.arrayContaining([
+          { label: 'Page', value: 'panels/board' },
+          { label: 'Its page may use', value: 'workspace.tag' },
+        ])
+      );
+      expect(change.details).not.toContainEqual(expect.objectContaining({ label: 'Runs' }));
     });
 
     it('reads an empty file when there is none yet', () => {

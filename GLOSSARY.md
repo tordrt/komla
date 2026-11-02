@@ -118,7 +118,8 @@ copy says Quick Command, Saved Prompt, and Terminal Command.
 
 **Sidebar Panel**:
 A tab in a workspace's sidebar beside Diff and Files, whose page comes from a command Komla runs
-while the panel is open. Users and agents define panels in `sidebar-panels.json`, in the format of
+while the panel is open, or is a page of its own that gets data from its command or its plugin's
+code. Users and agents define panels in `sidebar-panels.json`, in the format of
 status bar items, and their pages and buttons work as a status item's popover does. Code and
 `komla settings` call the file and resource `sidebar-panels`.
 _Avoid_: Custom pane, sidebar pane (a pane is a split inside a tab), sidebar tab
@@ -134,6 +135,21 @@ _Avoid_: Extension, add-on
 **Contribution**:
 One status bar item, Sidebar Panel or hook a Plugin adds, in the format of the user's own
 `status-items.json`, `sidebar-panels.json` or `hooks.json`, with the id `<plugin>.<id>`.
+
+**Plugin Host**:
+The process of its own in which Komla runs a Plugin's code, its `main`, while the plugin is on, and
+calls `activate(komla)` with a Komla SDK client that also follows Komla Events, runs commands in a
+workspace and feeds the plugin's Sidebar Panels.
+_Avoid_: Extension host, plugin runtime
+
+**Komla Event**:
+Something that happened in a workspace, such as `agent.done` or `branch.changed`, which status
+items and Sidebar Panels refresh on with `refreshOn`, and panel pages and plugin code follow with
+`komla.on`. The events hooks run on are Komla Events too.
+_Avoid_: Hook event, for those that aren't hooks'
+
+**Panel Badge**:
+A short mark on a Sidebar Panel's tab, such as a count, which its page or its plugin's code sets.
 
 ## Workspace Status
 
@@ -183,7 +199,7 @@ _Avoid_: MCP operation, CLI endpoint
 **Komla SDK**:
 The `@komla/sdk` TypeScript client for Komla Operations, whose types are rendered from their
 schemas. One client runs over different transports: Komla's local HTTP server for scripts and
-hooks, and later a channel of its own for plugin code and panel pages. A client declares the
-capabilities it uses and refuses operations that need any other, so code that shows outside text
-can't launch an agent.
+hooks, the Plugin Host's port for plugin code, and `komla` in a panel's page. A client declares
+the capabilities it uses and refuses operations that need any other, so code that shows outside
+text can't launch an agent.
 _Avoid_: Plugin API, which names only one of its consumers

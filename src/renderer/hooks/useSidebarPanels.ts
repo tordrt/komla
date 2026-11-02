@@ -1,7 +1,11 @@
 import { useEffect } from 'react';
 
 import { useFileViewerStore } from '@/stores/file-viewer.store';
-import { loadSidebarPanels, useSidebarPanelsStore } from '@/stores/sidebar-panels.store';
+import {
+  followSidebarPanelStates,
+  loadSidebarPanels,
+  useSidebarPanelsStore,
+} from '@/stores/sidebar-panels.store';
 
 import type { SidebarPanel, SidebarPanelList } from '../../shared/types/sidebar-panels';
 
@@ -14,6 +18,7 @@ const NO_PANELS: SidebarPanelList = { panels: [] };
 export function useSidebarPanels(workspaceId: string): SidebarPanelList {
   const list = useSidebarPanelsStore((s) => s.lists[workspaceId]);
   useEffect(() => {
+    followSidebarPanelStates();
     const load = () => void loadSidebarPanels(workspaceId).catch(() => {});
     load();
     return window.api.onSidebarPanelsChange(load);

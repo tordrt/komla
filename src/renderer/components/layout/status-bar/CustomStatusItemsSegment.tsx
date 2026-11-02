@@ -6,9 +6,12 @@ import { commandSource, linkHost } from '@/components/command-page/command-page'
 import { CheckedIcon } from '@/components/ui/checked-icon';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useNamedActionRunner } from '@/hooks/useNamedActionRunner';
+import { REFRESH_ON_SETTLE_MS, refreshesOn } from '@/hooks/useRunWhileVisible';
 import { statusItemColorProps } from '@/lib/status-item-color';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
+import { useFileViewerStore } from '@/stores/file-viewer.store';
+import { loadSidebarPanels, useSidebarPanelsStore } from '@/stores/sidebar-panels.store';
 import {
   isStatusCommandDue,
   loadStatusCommandList,
@@ -18,6 +21,7 @@ import {
   statusCommandKey,
   useStatusItemsStore,
 } from '@/stores/status-items.store';
+import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import { isStatusIconSegment } from '../../../../shared/types/status-items';
@@ -113,8 +117,31 @@ function useStatusCommandSchedule(workspaceId: string | null, commands: StatusCo
     runDue(true);
     const timer = setInterval(() => runDue(false), DUE_CHECK_MS);
     document.addEventListener('visibilitychange', catchUp);
+    // The events an item names in refreshOn run it again once they settle, while it can be seen.
+    const settling = new Map<string, ReturnType<typeof setTimeout>>();
+    const refreshing = commands.filter((command) => command.refreshOn);
+    const stopFollowing =
+      refreshing.length > 0
+        ? window.api.onKomlaEvent((event) => {
+            for (const command of refreshing) {
+              if (!refreshesOn(event, command, workspaceId)) continue;
+              clearTimeout(settling.get(command.id));
+              settling.set(
+                command.id,
+                setTimeout(() => {
+                  settling.delete(command.id);
+                  if (document.visibilityState !== 'hidden') {
+                    void runStatusCommand(workspaceId, command);
+                  }
+                }, REFRESH_ON_SETTLE_MS)
+              );
+            }
+          })
+        : undefined;
     return () => {
       clearInterval(timer);
+      for (const pending of settling.values()) clearTimeout(pending);
+      stopFollowing?.();
       document.removeEventListener('visibilitychange', catchUp);
     };
   }, [workspaceId, commands]);
@@ -383,6 +410,8 @@ export function useCustomStatusItems(): {
     )
   );
   const { runNamedAction, actionInputDialog } = useNamedActionRunner(workspaceId);
+  const openSidebarPanel = useFileViewerStore((s) => s.openInlineSidebarPanel);
+  const addToast = useToastStore((s) => s.addToast);
 
   const commandItems = commands.flatMap((command, index) => {
     const result = results[index];
@@ -430,6 +459,30 @@ export function useCustomStatusItems(): {
             />
           )}
         </PopoverItem>
+      );
+    } else if (command.panel && workspaceId) {
+      const panel = command.panel;
+      rendered.set(
+        key,
+        <StatusItemButton
+          key={key}
+          {...item}
+          hint="opens its panel in the sidebar"
+          onClick={async () => {
+            // Listed again, as the list Komla had may predate the plugin that adds the panel.
+            await loadSidebarPanels(workspaceId).catch(() => {});
+            const list = useSidebarPanelsStore.getState().lists[workspaceId];
+            // Picking a panel the workspace doesn't show would only lose the user's own pick.
+            if (list && !list.panels.some((each) => each.id === panel)) {
+              addToast(
+                `This workspace has no sidebar panel ${panel}. Check ${commandSource('status-items.json', command.plugin)}.`,
+                'error'
+              );
+              return;
+            }
+            openSidebarPanel(workspaceId, panel);
+          }}
+        />
       );
     } else if (command.action) {
       const action = command.action;

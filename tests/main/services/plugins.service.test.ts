@@ -18,7 +18,12 @@ vi.mock('../../../src/main/services/workspace.service', () => ({ workspaceServic
 vi.mock('../../../src/main/services/file-watcher', () => ({ FileWatcher: class {} }));
 vi.mock('../../../src/main/services/html-preview.service', () => ({ htmlPreviewService: {} }));
 
-import { digestFolder, PluginsService } from '../../../src/main/services/plugins.service';
+import {
+  digestFolder,
+  pluginManifestSchema,
+  PluginsService,
+} from '../../../src/main/services/plugins.service';
+import { findPanelPage } from '../../../src/main/services/sidebar-panels.service';
 
 const prManifest = {
   id: 'github-prs',
@@ -115,7 +120,8 @@ describe('PluginsService', () => {
 
     expect(listener).toHaveBeenCalled();
     expect(service.list()[0].state).toBe('on');
-    const source = { id: 'github-prs', name: 'GitHub PRs', dir };
+    // Its revision changes with its files, so its panels' pages load again.
+    const source = expect.objectContaining({ id: 'github-prs', name: 'GitHub PRs', dir });
     expect(service.statusItems()).toEqual([
       expect.objectContaining({ id: 'github-prs.pr', intervalSeconds: 60, plugin: source }),
     ]);
@@ -127,6 +133,35 @@ describe('PluginsService', () => {
       _version: 1,
       enabled: [{ id: 'github-prs', digest: (await digestFolder(dir)).digest }],
     });
+  });
+
+  it("lists a panel's own page and what it may use, with no command to run", async () => {
+    writePlugin('board', {
+      id: 'board',
+      name: 'Board',
+      contributes: {
+        sidebarPanels: [
+          {
+            id: 'board',
+            title: 'Board',
+            page: 'panels/board',
+            capabilities: ['workspace.tag'],
+          },
+        ],
+      },
+    });
+    await service.scan();
+
+    expect(service.list()[0].contributions).toEqual([
+      {
+        kind: 'sidebar-panel',
+        id: 'board.board',
+        title: 'Board',
+        page: 'panels/board',
+        capabilities: ['workspace.tag'],
+        when: 'While the panel is open',
+      },
+    ]);
   });
 
   it('adds sidebar panels, listed with their button commands and run once turned on', async () => {
@@ -165,7 +200,7 @@ describe('PluginsService', () => {
       expect.objectContaining({
         id: 'checks.ci',
         title: 'CI',
-        plugin: { id: 'checks', name: 'Checks', dir },
+        plugin: expect.objectContaining({ id: 'checks', name: 'Checks', dir }),
       }),
     ]);
   });
@@ -187,6 +222,109 @@ describe('PluginsService', () => {
     await service.scan();
 
     expect(service.list()[0]).toMatchObject({ state: 'invalid', problem: expect.stringMatching(problem) });
+  });
+
+  it.each([
+    [{ main: '../main.ts', contributes: {} }, /main: a \.js, \.mjs, \.ts or \.mts file/],
+    [{ main: 'main.py', contributes: {} }, /main: a \.js/],
+    [
+      { contributes: { statusItems: [{ id: 'count', command: 'echo 1', panel: 'list' }] } },
+      /contributes\.statusItems\.0\.panel: the plugin has no sidebar panel list/,
+    ],
+    [
+      {
+        contributes: {
+          statusItems: [{ id: 'count', command: 'echo 1', panel: 'list', action: 'Test' }],
+          sidebarPanels: [{ id: 'list', title: 'List', command: 'x' }],
+        },
+      },
+      /one of them/,
+    ],
+  ])("can't read a manifest with code or links that are wrong: %j", async (fields, problem) => {
+    writePlugin('checks', { id: 'checks', name: 'Checks', ...fields });
+    await service.scan();
+
+    expect(service.list()[0]).toMatchObject({ state: 'invalid', problem: expect.stringMatching(problem) });
+  });
+
+  it('runs code of its own, which may be all a plugin adds, once turned on', async () => {
+    const dir = writePlugin(
+      'prs',
+      {
+        id: 'prs',
+        name: 'PRs',
+        version: '2.0.0',
+        main: 'src/main.ts',
+        contributes: {
+          sidebarPanels: [{ id: 'list', title: 'PRs', page: 'panels/list' }],
+          statusItems: [{ id: 'count', command: 'echo 1', panel: 'list', refreshOn: ['agent.done'] }],
+        },
+      },
+      { 'src/main.ts': 'export function activate() {}', 'panels/list/index.html': '<p>' }
+    );
+    writePlugin('bare', { id: 'bare', name: 'Bare', main: 'main.mjs', contributes: {} }, {
+      'main.mjs': 'export function activate() {}',
+    });
+    await service.scan();
+    expect(service.list().find((plugin) => plugin.id === 'prs')).toMatchObject({
+      state: 'off',
+      main: 'src/main.ts',
+      contributions: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'prs.count',
+          when: 'Every 60 seconds, and at once when an agent finishes',
+        }),
+      ]),
+    });
+    expect(service.hostedPlugins()).toEqual([]);
+
+    turnOn('prs');
+    turnOn('bare');
+    const digest = service.list().find((plugin) => plugin.id === 'prs')!.digest!;
+    expect(service.hostedPlugins()).toEqual([
+      {
+        source: expect.objectContaining({ id: 'bare' }),
+        main: join(pluginsPath, 'bare', 'main.mjs'),
+        panels: [],
+        digest: expect.any(String),
+      },
+      {
+        source: { id: 'prs', name: 'PRs', dir, revision: digest.slice(0, 12) },
+        version: '2.0.0',
+        main: join(dir, 'src/main.ts'),
+        panels: ['list'],
+        digest,
+      },
+    ]);
+  });
+
+  it('runs a plugin in development as its files change, until that is turned off', async () => {
+    writePlugin('prs', prManifest, { 'pr.js': 'console.log("PR")' });
+    await service.scan();
+    expect(() => service.setDevelopment('github-prs', true)).toThrow(/isn't on/);
+    turnOn('github-prs');
+    service.setDevelopment('github-prs', true);
+    expect(service.list()[0]).toMatchObject({ state: 'on', development: true });
+
+    writePlugin('prs', prManifest, { 'pr.js': 'console.log("changed")' });
+    await service.scan();
+    const now = service.list()[0];
+    expect(now).toMatchObject({ state: 'on', development: true });
+    expect(service.statusItems()[0].plugin).toMatchObject({
+      development: true,
+      revision: now.digest!.slice(0, 12),
+    });
+
+    // Turning it off keeps it on as its files are now.
+    service.setDevelopment('github-prs', false);
+    expect(service.list()[0]).toMatchObject({ state: 'on' });
+    expect(service.list()[0].development).toBeUndefined();
+    const saved = JSON.parse(readFileSync(join(settingsPath, 'plugins.json'), 'utf-8'));
+    expect(saved.enabled).toEqual([{ id: 'github-prs', digest: now.digest }]);
+
+    writePlugin('prs', prManifest, { 'pr.js': 'console.log("changed again")' });
+    await service.scan();
+    expect(service.list()[0].state).toBe('changed');
   });
 
   it('stops a plugin whose files changed until it is turned on again', async () => {
@@ -435,5 +573,18 @@ describe('PluginsService', () => {
     await service.scan();
 
     expect(service.revision()).not.toBe(before);
+  });
+});
+
+describe('the example plugins', () => {
+  it.each(['pull-requests'])('%s has a manifest Komla reads, and the pages it names', async (id) => {
+    const dir = join('examples', 'plugins', id);
+    const manifest = pluginManifestSchema.parse(
+      JSON.parse(readFileSync(join(dir, 'komla-plugin.json'), 'utf-8'))
+    );
+    expect(manifest.id).toBe(id);
+    for (const panel of manifest.contributes.sidebarPanels ?? []) {
+      if (panel.page) expect(await findPanelPage(join(dir, panel.page))).toBeDefined();
+    }
   });
 });

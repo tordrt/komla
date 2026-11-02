@@ -93,7 +93,9 @@ export interface WorkspaceStatusServiceDependencies {
     workspaceId: string,
     changeTypes: readonly ('file' | 'git-head' | 'git-branch')[],
     activityAt: number,
-    remoteChange: RemoteWorkingTreeChange | undefined
+    remoteChange: RemoteWorkingTreeChange | undefined,
+    /** Whether the files changed since the last report, rather than only being confirmed again. */
+    filesChanged: boolean
   ): void;
   requestLocalCopySync(workspaceId: string): void;
   isLocalCopyCurrent(workspaceId: string): boolean;
@@ -682,13 +684,16 @@ export class WorkspaceStatusService {
   ): Promise<void> {
     const branch = toGitBranchQuickStatus(projection.branch, workspace.backend.defaultBranch);
     const previousWorkingTree = workspace.lastKnownGitStatus?.diff;
+    const summaryChanged =
+      !!previousWorkingTree &&
+      activityFingerprint(previousWorkingTree) !== activityFingerprint(projection.workingTree);
+    // The paths the companion saw change include edits the summary can't show, such as to an
+    // untracked file, unless it says the files didn't change, as for a commit, which the summary
+    // shows. A report it sends again, as on a reconnect, names none.
+    const filesChanged = summaryChanged || (syncLocalCopy && !!remoteChange?.changedPaths?.length);
     // Match the local watcher's activity comparison. Initial scans establish a baseline;
     // reconnects and status-only refreshes must not make an idle workspace look active.
-    if (
-      projection.confirmation.kind === 'current' &&
-      previousWorkingTree &&
-      activityFingerprint(previousWorkingTree) !== activityFingerprint(projection.workingTree)
-    ) {
+    if (projection.confirmation.kind === 'current' && summaryChanged) {
       workspace.lastActivityAt = this.dependencies.now();
     }
     workspace.lastKnownGitStatus = {
@@ -715,7 +720,8 @@ export class WorkspaceStatusService {
       branchChanged ? ['file', 'git-head', 'git-branch'] : ['file'],
       workspace.lastActivityAt,
       // A scan can see a checkout before the Remote Companion sees the files it changed.
-      branchChanged && remoteChange ? { fileListHash: remoteChange.fileListHash } : remoteChange
+      branchChanged && remoteChange ? { fileListHash: remoteChange.fileListHash } : remoteChange,
+      filesChanged
     );
     if (syncLocalCopy) this.dependencies.requestLocalCopySync(workspace.id);
   }

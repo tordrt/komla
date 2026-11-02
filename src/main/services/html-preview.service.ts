@@ -12,14 +12,33 @@ import { bundledFontPath } from '../lib/bundled-fonts';
 import { createLogger } from '../lib/logger';
 import { isWithinRoot } from '../lib/same-path';
 
+import { withSidebarPanelHead } from './sidebar-panel-page';
+
 import type { NonSharedBuffer } from 'buffer';
 import type { WebContents } from 'electron';
 
 const logger = createLogger('HtmlPreviewService');
 const SCHEME = 'komla-preview';
 const SESSION_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Whether a session's page expires after its hour. A panel's page loads once and stays while the
+ * panel shows, so it doesn't; the next page with its key replaces it, and its window's closing
+ * releases it.
+ */
+function expires(session: object): boolean {
+  return !('panel' in session && session.panel);
+}
+
+/** Whether a session's page is past its hour. */
+function isExpired(session: { createdAt: number }, now: number): boolean {
+  return expires(session) && now - session.createdAt >= SESSION_TTL_MS;
+}
+
 /** Where a content preview that may load Komla's fonts finds them, as in `/__komla/fonts/geist.woff2`. */
 const FONTS_PATH = '__komla/fonts/';
+/** Where a sidebar panel's page finds Komla's stylesheet. */
+const STYLESHEET_PATH = '__komla/komla.css';
 
 interface PreviewSessionBase {
   entryPath: string;
@@ -32,6 +51,8 @@ interface LocalPreviewSession extends PreviewSessionBase {
   kind: 'local';
   rootPath: string;
   realRootPath: string;
+  /** A sidebar panel's page: Komla's head goes into its HTML, and it has Komla's fonts and look. */
+  panel?: { head: string; stylesheet: string };
 }
 
 interface ContentPreviewSession extends PreviewSessionBase {
@@ -249,13 +270,7 @@ class HtmlPreviewService {
       throw new Error('Content previews require an HTML, SVG or PDF entry path');
     }
 
-    const token = randomUUID();
-    if (options.key !== undefined) {
-      // The page before stays, as it may still be on screen while this one loads.
-      const tokens = this.keyedTokens.get(options.key) ?? [];
-      for (const replaced of tokens.slice(0, -1)) this.sessions.delete(replaced);
-      this.keyedTokens.set(options.key, [...tokens.slice(-1), token]);
-    }
+    const token = this.newToken(options.key);
     this.sessions.set(token, {
       kind: 'content',
       content,
@@ -269,12 +284,67 @@ class HtmlPreviewService {
     return `${SCHEME}://${token}/${normalizedEntry.split('/').map(encodeURIComponent).join('/')}`;
   }
 
+  /**
+   * Serves a sidebar panel's page, a file in `rootPath` and what it loads from there, with `head`
+   * at the start of each HTML page and Komla's fonts and `stylesheet`. Nothing loads from the web.
+   * A `key` keeps only the latest two pages made with it, as createContentPreviewUrl does.
+   */
+  async createPanelPageUrl(
+    rootPath: string,
+    entryPath: string,
+    // Required: a panel's page doesn't expire, so the next page with its key replaces it.
+    options: { key: string; head: string; stylesheet: string }
+  ): Promise<string> {
+    assertSafeRelativePath(rootPath, entryPath, 'entryPath');
+    const resolvedRoot = resolve(rootPath);
+    const normalizedEntry = normalizeUrlPath(entryPath);
+    if (containsDotfileSegment(normalizedEntry)) {
+      throw new Error('entryPath references a hidden file');
+    }
+    const realRoot = await realpath(resolvedRoot);
+    const token = this.newToken(options.key);
+    this.sessions.set(token, {
+      kind: 'local',
+      rootPath: resolvedRoot,
+      realRootPath: realRoot,
+      entryPath: normalizedEntry,
+      createdAt: Date.now(),
+      web: false,
+      panel: { head: options.head, stylesheet: options.stylesheet },
+    });
+    this.pruneOldSessions();
+    this.scheduleSessionExpiry();
+    return `${SCHEME}://${token}/${normalizedEntry.split('/').map(encodeURIComponent).join('/')}`;
+  }
+
+  /** Stops serving the pages made with keys that start so, as a closed window's. */
+  releaseKeys(prefix: string): void {
+    for (const [key, tokens] of Array.from(this.keyedTokens.entries())) {
+      if (!key.startsWith(prefix)) continue;
+      for (const token of tokens) this.sessions.delete(token);
+      this.keyedTokens.delete(key);
+    }
+    this.scheduleSessionExpiry();
+  }
+
+  /** A new page's token. Of the pages before it with this key, only the last stays. */
+  private newToken(key: string | undefined): string {
+    const token = randomUUID();
+    if (key !== undefined) {
+      // The page before stays, as it may still be on screen while this one loads.
+      const tokens = this.keyedTokens.get(key) ?? [];
+      for (const replaced of tokens.slice(0, -1)) this.sessions.delete(replaced);
+      this.keyedTokens.set(key, [...tokens.slice(-1), token]);
+    }
+    return token;
+  }
+
   private async handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const token = url.hostname;
     const session = this.sessions.get(token);
     if (!session) return new Response('Not found', { status: 404 });
-    if (Date.now() - session.createdAt >= SESSION_TTL_MS) {
+    if (isExpired(session, Date.now())) {
       this.sessions.delete(token);
       this.scheduleSessionExpiry();
       return new Response('Not found', { status: 404 });
@@ -298,12 +368,44 @@ class HtmlPreviewService {
       });
     }
 
+    if (session.panel)
+      return this.createPanelResponse(session, session.panel, relativePath, request);
+
     const fullPath = await this.resolvePreviewPath(session, relativePath, request);
     if (extname(fullPath).toLowerCase() === '.pdf') {
       return this.createPdfResponse(fullPath, request);
     }
     const data = await readFile(fullPath);
     return new Response(data, { headers: makeHeaders(fullPath, session.web) });
+  }
+
+  // The page's sandbox gives it an opaque origin, so what it loads as a module or with
+  // `crossorigin`, as built React pages do, loads cross-origin. Only the token reaches it.
+  private async createPanelResponse(
+    session: LocalPreviewSession,
+    panel: NonNullable<LocalPreviewSession['panel']>,
+    relativePath: string,
+    request: Request
+  ): Promise<Response> {
+    if (relativePath.startsWith(FONTS_PATH)) {
+      return this.createFontResponse(relativePath.slice(FONTS_PATH.length));
+    }
+    let headers: Headers;
+    let body: string | NonSharedBuffer;
+    if (relativePath === STYLESHEET_PATH) {
+      headers = makeHeaders(STYLESHEET_PATH, false);
+      body = panel.stylesheet;
+    } else {
+      const fullPath = await this.resolvePreviewPath(session, relativePath, request);
+      headers = makeHeaders(fullPath, false);
+      const data = await readFile(fullPath);
+      body = /^\.html?$/i.test(extname(fullPath))
+        ? withSidebarPanelHead(data.toString('utf8'), panel.head)
+        : data;
+    }
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Cache-Control', 'no-cache');
+    return new Response(contentForRequest(request, body), { headers });
   }
 
   // The page's sandbox gives it an opaque origin, so fonts load from it cross-origin.
@@ -442,7 +544,7 @@ class HtmlPreviewService {
   private pruneOldSessions(): void {
     const now = Date.now();
     for (const [token, session] of Array.from(this.sessions.entries())) {
-      if (now - session.createdAt >= SESSION_TTL_MS) {
+      if (isExpired(session, now)) {
         this.sessions.delete(token);
       }
     }
@@ -456,11 +558,10 @@ class HtmlPreviewService {
   private scheduleSessionExpiry(): void {
     if (this.expiryTimer) clearTimeout(this.expiryTimer);
     this.expiryTimer = null;
-    if (this.sessions.size === 0) return;
+    const expiring = Array.from(this.sessions.values()).filter(expires);
+    if (expiring.length === 0) return;
 
-    const nextExpiry = Math.min(
-      ...Array.from(this.sessions.values(), (session) => session.createdAt + SESSION_TTL_MS)
-    );
+    const nextExpiry = Math.min(...expiring.map((session) => session.createdAt + SESSION_TTL_MS));
     this.expiryTimer = setTimeout(
       () => {
         this.expiryTimer = null;

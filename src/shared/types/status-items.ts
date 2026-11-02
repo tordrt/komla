@@ -1,3 +1,5 @@
+import type { KomlaEventType } from './komla-events';
+
 /** Theme colors a status item can take, so it reads the same in every theme. */
 export const STATUS_ITEM_TONES = ['success', 'warning', 'error', 'info'] as const;
 export type StatusItemTone = (typeof STATUS_ITEM_TONES)[number];
@@ -84,6 +86,11 @@ export interface StatusPopoverContent {
   markdown: string;
   /** A sandboxed page for the popover's HTML, in place of Markdown. */
   htmlUrl?: string;
+  /**
+   * Text a sidebar panel's command printed for a terminal, in place of Markdown: its lines, each
+   * in runs by color and weight.
+   */
+  terminal?: StatusTextSegment[][];
   buttons: StatusPopoverButton[];
 }
 
@@ -155,6 +162,10 @@ export interface StatusCommand {
   popover?: boolean;
   /** One of the project's Actions, by title or id, that clicking the item runs. */
   action?: string;
+  /** The sidebar panel, by its id in the workspace, that clicking the item opens. */
+  panel?: string;
+  /** Events in the workspace that run the item's command again at once. */
+  refreshOn?: KomlaEventType[];
   /** The name of the plugin the item comes from, when it isn't status-items.json's. */
   plugin?: string;
 }

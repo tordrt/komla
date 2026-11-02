@@ -176,6 +176,8 @@ describe('TerminalTabs', () => {
         // The file panel's tabs list its sidebar panels.
         listSidebarPanels: vi.fn().mockResolvedValue({ panels: [] }),
         onSidebarPanelsChange: vi.fn(() => () => {}),
+        listSidebarPanelStates: vi.fn().mockResolvedValue([]),
+        onSidebarPanelStateChange: vi.fn(() => () => {}),
         platform: 'linux',
       },
     });

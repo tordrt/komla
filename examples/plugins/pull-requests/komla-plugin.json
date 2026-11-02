@@ -1,0 +1,29 @@
+{
+  "_version": 1,
+  "id": "pull-requests",
+  "name": "Pull requests",
+  "version": "2.0.0",
+  "description": "The repository's open pull requests beside Diff and Files: what waits on your review, how your own are doing, and an agent to review one or fix it in a click. Needs the GitHub CLI, signed in.",
+  "main": "main.ts",
+  "contributes": {
+    "sidebarPanels": [
+      {
+        "id": "prs",
+        "title": "Pull requests",
+        "page": "panels/pull-requests",
+        "capabilities": [
+          "agent.launch.workspace"
+        ]
+      }
+    ],
+    "statusItems": [
+      {
+        "id": "to-review",
+        "label": "Pull requests to review",
+        "command": "n=$(gh pr list --search 'review-requested:@me' --json number --jq length) && if [ \"$n\" -gt 0 ]; then printf ' %s to review\\nPull requests waiting on your review. Click to see them.\\n' \"$n\"; fi",
+        "intervalSeconds": 300,
+        "panel": "prs"
+      }
+    ]
+  }
+}

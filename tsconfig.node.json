@@ -20,6 +20,7 @@
     "src/shared/**/*",
     "src/shared/**/*.json",
     "src/renderer/types/**/*",
-    "packages/remote-protocol/src/app/**/*"
+    "packages/remote-protocol/src/app/**/*",
+    "packages/sdk/src/**/*"
   ]
 }

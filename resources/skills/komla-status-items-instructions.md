@@ -63,7 +63,8 @@ The page runs in a sandbox: inline styles and scripts work, but nothing loads fr
 Komla's theme colors so it fits every theme, dark and light: `--foreground`, `--muted-foreground`,
 `--muted`, `--border`, `--card`, `--accent`, `--primary`, `--success`, `--warning`, `--error` and
 `--info`, and `color-mix()` for tints. Keep its background transparent and `color-scheme` unset.
-It has Komla's font with Nerd Font icons, is 352 pixels wide and scrolls past 420 pixels tall.
+It has Komla's font with Nerd Font icons, and the classes of `komla.css` (under **A page of its
+own**), such as `k-badge` and `k-success`. It is 352 pixels wide and scrolls past 420 pixels tall.
 Escape text from elsewhere, as `@html` does.
 
 ## Sidebar panels
@@ -96,16 +97,72 @@ in place of `label`, and its `command` prints what a popover command prints, wit
 Its command runs when the user opens the panel and on its interval while it stays open, never
 while it's closed, so a panel can run a slower command than an item. Make its page as under **HTML
 popovers**, in the same sandbox and theme; it fills the panel, which is as wide as the user makes
-the sidebar, often 260 to 400 pixels, and scrolls the page itself. With more than one panel, the
-user picks which one the tab shows.
+the sidebar, often 260 to 400 pixels, and scrolls the page itself. Plain text in place of JSON shows
+as a terminal shows it, colors included, and `{"markdown": "…"}` as Markdown. With more than one
+panel, the user picks which one the tab shows.
+
+### A page of its own
+
+For a panel that does more than show a command's output, such as a board with filters or a form,
+give it a `page`: an HTML file, or a folder with an `index.html` such as a React app's build, in
+the `panels` folder beside `sidebar-panels.json` (a plugin keeps its own `panels` folder). The page
+loads once and stays while the panel shows; its `command`, if it has one, now prints data for it
+rather than a page:
+
+```json
+{
+  "id": "reviews",
+  "title": "Reviews",
+  "page": "panels/reviews",
+  "command": "gh pr list --search 'review-requested:@me' --json number,title,url",
+  "intervalSeconds": 300,
+  "commands": { "checkout": "gh pr checkout \"$(cat ~/.cache/komla-review)\"" },
+  "capabilities": ["agent.launch.workspace"]
+}
+```
+
+The page loads what it needs from its folder, nothing from the web, so bundle its scripts; a build
+can use paths from `/`, which is the page's folder. Komla puts `komla` in the page before its own
+scripts run:
+
+- `komla.onData((data, error) => …)` gets what the command printed, its JSON or its text, each time
+  it runs, and the last run's at once; `komla.data` holds it. `komla.refresh()` runs it now.
+- `komla.run(name)` runs one of `commands`, only from a click or a key press in the page, then
+  runs the command again.
+- `komla.workspace.list()`, `komla.agent.launch({ destination: "workspace", prompt })` and one such
+  method for each Komla Operation, as `komla` commands have them, send it to Komla, with `{
+  workspace }` as a second argument to act on another workspace. `komla.call(request)` sends one as
+  it is. Reading and notifying need nothing; anything else needs its capability in `capabilities`.
+  Before it launches an agent, moves a workspace to the Trash, links workspaces or opens a folder,
+  Komla asks the user, and only from a click in the page.
+- `komla.setBadge(3)` or `komla.setBadge({ text: "Failing", tone: "error" })` marks the panel's
+  tab, as with a count; `null` or `0` clears it.
+- `komla.on("agent.done", event => …)` follows what happens in the workspace, as `refreshOn` names
+  it below; `"*"` follows every event.
+- The theme's colors are CSS variables, such as `var(--success)`, which change with the user's
+  theme; `komla.onTheme(theme => …)` says when. `<link rel="stylesheet" href="/__komla/komla.css">`
+  styles the page as Komla, with classes such as `k-button`, `k-primary`, `k-list`, `k-item`,
+  `k-card`, `k-badge`, `k-success`, `k-muted`, `k-row`, `k-stack`, `k-table` and `k-spinner`.
+- Links to http(s) pages open in the browser. Don't reload or navigate the page itself; call
+  `komla.refresh()`.
+- In a plugin with code, `komla.send(message)` asks the plugin's code and resolves to its answer.
+
+Data can carry text from elsewhere, such as a pull request title: put it in the page with
+`textContent` or your framework's text, never as HTML.
 
 ## With the rest of Komla
 
 An item is one part of what Komla can show; combine it with the rest:
 
+- **Events** run an item's or panel's command again at once, besides its interval, with
+  `refreshOn`: `agent.done`, `agent.needs-input`, `agent.error`, `agent.prompt`,
+  `workspace.created`, `workspace.trashed`, `working-tree.changed` (its uncommitted changes) and
+  `branch.changed` (a checkout or commit). Prefer them to a short interval, such as
+  `"refreshOn": ["branch.changed"]` for a branch's checks.
 - **Hooks and Quick Commands** update an item at once with `komla status refresh <id>`, such as
-  the Quick Command that runs the tests, or an `agent.done` hook after each turn.
-- **Clicking** an item can run a Quick Command, with `action`, in place of a popover.
+  the Quick Command that runs the tests.
+- **Clicking** an item can run a Quick Command, with `action`, or open a sidebar panel, with
+  `panel` and its id, in place of a popover: a count in the bar, with the list in the panel.
 - **Commands and buttons** run in the workspace's folder, unless `runOn` is `local`, with the
   `komla` CLI, so they can tag the workspace, notify, or `komla launch` an agent to fix what the
   popover shows. An item's command runs again and again, so tag or notify only when what it sees
@@ -114,6 +171,46 @@ An item is one part of what Komla can show; combine it with the rest:
 - **A plugin** bundles items and panels with the hooks and scripts they need, so the user can
   share them or turn them off as one. Make one when an item comes with a hook or a script of its
   own, or the user wants to share it; `komla skill customize` says how.
+
+## A plugin's code
+
+A plugin can have code of its own: a `main` in its `komla-plugin.json`, a JavaScript or TypeScript
+module in its folder such as `main.ts`. Komla runs it without a build step, in a process of its
+own, while the plugin is on, and calls its `activate(komla)`. Give a plugin code when commands on
+an interval fall short: to ask a service once for every workspace that shows it, keep state, or
+answer what its panel's page sends.
+
+```ts
+import type { KomlaPlugin } from '@komla/sdk/plugin';
+
+export function activate(komla: KomlaPlugin) {
+  komla.panels.onOpen('ci', async ({ workspace }) => {
+    const runs = JSON.parse(await komla.exec('gh run list --json name,conclusion', { workspace }));
+    komla.panels.post('ci', runs, { workspace });
+    const failing = runs.filter((run) => run.conclusion === 'failure').length;
+    komla.panels.setBadge('ci', failing && { text: failing, tone: 'error' }, { workspace });
+  });
+}
+```
+
+- `komla.exec(command, { workspace })` runs a shell command where the workspace's files are, on its
+  SSH host for an SSH workspace, and resolves to what it printed; without a workspace, in the
+  plugin's folder on this computer.
+- `komla.panels.post(panel, data, { workspace })` gives the plugin's panel's page data, which it
+  gets from `komla.onData`, and `komla.panels.setBadge` marks its tab. Without a workspace, they're
+  for every workspace. `komla.panels.onOpen` says when a window opens the panel, and
+  `komla.panels.onMessage(panel, (message, { workspace, activated }) => answer)` answers the page's
+  `komla.send`. The page shows outside text, so check its messages, and act past the page only
+  when `activated`, from a click; the page can launch an agent itself, which Komla asks about.
+- `komla.on(event, listener)` follows the events `refreshOn` names, in every workspace, and
+  `komla.workspace.list()` and the other Komla Operations work as in a page, without
+  `capabilities`, within what the user leaves on.
+- What it prints shows under the plugin in Settings → Plugins, which turns it on. Turn on
+  Development there while you write a plugin: it then runs as its files change, and its panels
+  get buttons to load their page again and inspect it.
+
+The Pull requests example in Komla's repository, `examples/plugins/pull-requests`, has code, a
+page, a badge and a status item that opens the panel.
 
 ## While you work
 

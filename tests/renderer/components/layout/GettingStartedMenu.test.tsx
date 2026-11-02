@@ -97,6 +97,8 @@ Object.assign(window as any, {
     listSshHosts: vi.fn().mockResolvedValue([]),
     listAutomations: vi.fn().mockResolvedValue([]),
     pairedDevicesList: vi.fn().mockResolvedValue([]),
+    listPlugins: vi.fn().mockResolvedValue([]),
+    listSidebarPanels: vi.fn().mockResolvedValue({ panels: [] }),
     getServerPort: vi.fn().mockResolvedValue(52863),
     getBasePath: vi.fn().mockResolvedValue('/Users/test/.komla'),
   },
@@ -481,6 +483,30 @@ describe('GettingStartedMenu', () => {
       expect((window as any).api.addAgentTab).not.toHaveBeenCalled();
     });
 
+    it('has the agent build a panel or plugin from the panels tip, reading both guides first', async () => {
+      await renderComponent();
+      fireEvent.click(rowFor('Panels and plugins')!);
+
+      await waitFor(() =>
+        expect(useLayoutStore.getState().tabsByWorkspace['ws-1']).toEqual(['terminal-customize'])
+      );
+      const [workspaceId, prompt] = (window as any).api.addAgentTab.mock.calls[0];
+      expect(workspaceId).toBe('ws-1');
+      expect(prompt).toContain('Run `komla skill customize` and follow it.');
+      expect(prompt.indexOf('komla skill integrations')).toBeLessThan(prompt.indexOf('ask me'));
+      expect(prompt).toContain('sidebar panels and plugins');
+    });
+
+    it('counts a panel the open workspace shows as panels set up', async () => {
+      (window as any).api.listSidebarPanels.mockResolvedValueOnce({
+        panels: [{ id: 'nightly', title: 'Nightly' }],
+      });
+      await renderComponent();
+      openPopover();
+      await waitFor(() => expect(isDone('Panels and plugins')).toBe(true));
+      expect((window as any).api.listSidebarPanels).toHaveBeenCalledWith('ws-1');
+    });
+
     it('says so when the tab could not open', async () => {
       (window as any).api.addAgentTab.mockRejectedValue(new Error('pty failed'));
       await renderComponent();
@@ -748,6 +774,7 @@ describe('GettingStartedMenu', () => {
       'Automations',
       'Phone accessAlpha',
       'Status bar items',
+      'Panels and plugins',
       'Voice dictation',
       'Keyboard shortcuts',
       'New window',
@@ -918,6 +945,28 @@ describe('GettingStartedMenu', () => {
       expect(isDone('Voice dictation')).toBe(true);
     });
     expect(isDone('Automations')).toBe(false);
+  });
+
+  it('marks panels and plugins done once Komla can read a plugin, on or off', async () => {
+    (window as any).api.listPlugins.mockResolvedValueOnce([
+      { id: 'broken', name: 'broken', folder: 'broken', state: 'invalid', contributions: [] },
+      { id: 'prs', name: 'Pull requests', folder: 'prs', state: 'off', contributions: [] },
+    ]);
+    await renderComponent();
+    openPopover();
+    await waitFor(() => expect(isDone('Panels and plugins')).toBe(true));
+  });
+
+  it('leaves panels and plugins to do with only a plugin Komla can’t read, and no workspace', async () => {
+    (window as any).api.listPlugins.mockResolvedValueOnce([
+      { id: 'broken', name: 'broken', folder: 'broken', state: 'invalid', contributions: [] },
+    ]);
+    (window as any).api.voiceGetModelStatus.mockResolvedValueOnce('ready');
+    await renderComponent();
+    openPopover();
+    await waitFor(() => expect(isDone('Voice dictation')).toBe(true));
+    expect(isDone('Panels and plugins')).toBe(false);
+    expect((window as any).api.listSidebarPanels).not.toHaveBeenCalled();
   });
 
   it('marks remote control done once a device is paired', async () => {

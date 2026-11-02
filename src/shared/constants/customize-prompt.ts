@@ -6,6 +6,9 @@ const ASK_WHAT_TO_CHANGE =
 export const ASK_FOR_STATUS_ITEM =
   'Then run `komla skill integrations` for what an item can show and how to make it look good, and ask me what my new status bar item should show and how often it should update.';
 
+export const ASK_FOR_PANEL =
+  "Then run `komla skill integrations` for sidebar panels and plugins, and ask me what I'd like to see beside my work, such as a CI run's jobs, the issues on my plate or a deploy board.";
+
 export const SUGGEST_STATUS_ITEMS =
   "Then run `komla skill integrations`, which lists Komla's built-in status bar items and how to make your own look good. Tell me that Komla has many built-in status bar items I can turn on by right-clicking the status bar, and above all that you can make me my own here, such as status bar items, hooks and shortcuts. Suggest a few that would help in this project and ask me what I'd like to change.";
 

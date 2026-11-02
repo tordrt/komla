@@ -15,6 +15,7 @@ import {
   BookOpenText,
   DeviceMobile,
   Star,
+  SidebarSimple,
 } from '@phosphor-icons/react';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -43,7 +44,7 @@ import { TRASH_RETENTION_DAYS } from '@/types';
 import { listAgentNames } from '@/utils/agent-name';
 
 import { AGENTS_WITH_AUTO_INTEGRATIONS } from '../../../shared/constants/agents';
-import { buildCustomizePrompt } from '../../../shared/constants/customize-prompt';
+import { ASK_FOR_PANEL, buildCustomizePrompt } from '../../../shared/constants/customize-prompt';
 import { buildOnboardingDemoPrompt } from '../../../shared/constants/onboarding-demo-prompt';
 import { buildProjectSetupPrompt } from '../../../shared/constants/project-setup-prompt';
 
@@ -124,6 +125,12 @@ const MORE_TIPS: MoreTipDef[] = [
     title: 'Status bar items',
     subtitle: 'Show Claude Code or Codex usage, or add your own',
     icon: Layout,
+  },
+  {
+    id: 'panels',
+    title: 'Panels and plugins',
+    subtitle: 'Have an agent build a sidebar panel or plugin for your tools',
+    icon: SidebarSimple,
   },
   {
     id: 'dictation',
@@ -247,6 +254,7 @@ export function GettingStartedMenu({
   const selectedWorkspace = useWorkspacesStore((s) =>
     s.workspaces.find((workspace) => workspace.id === s.selectedWorkspaceId)
   );
+  const selectedWorkspaceId = selectedWorkspace?.id;
   // Agent-led setup opens as tabs in the open workspace. SSH workspaces run agents
   // elsewhere, so setup there starts from New Workspace as before.
   const setupWorkspaceId =
@@ -296,6 +304,11 @@ export function GettingStartedMenu({
         window.api.listSshHosts(),
         window.api.listAutomations(),
         window.api.pairedDevicesList(),
+        window.api.listPlugins(),
+        // Panels can be a project's own, so the open workspace's are the ones to count.
+        selectedWorkspaceId
+          ? window.api.listSidebarPanels(selectedWorkspaceId)
+          : Promise.resolve({ panels: [] }),
       ]);
 
       const isOk = <R extends PromiseSettledResult<unknown>>(
@@ -332,6 +345,16 @@ export function GettingStartedMenu({
       const devicesResult = results[8];
       if (isOk(devicesResult) && devicesResult.value.length > 0) done.add('remote-control');
 
+      // A plugin counts once Komla can read it, on or off.
+      const pluginsResult = results[9];
+      const panelsResult = results[10];
+      if (
+        (isOk(pluginsResult) && pluginsResult.value.some((plugin) => plugin.state !== 'invalid')) ||
+        (isOk(panelsResult) && panelsResult.value.panels.length > 0)
+      ) {
+        done.add('panels');
+      }
+
       if (config?.selfIntegrationTipCompleted === true) done.add('self-integration');
 
       if (!cancelled) setCheckedDoneIds(done);
@@ -339,7 +362,7 @@ export function GettingStartedMenu({
     return () => {
       cancelled = true;
     };
-  }, [open, config?.selfIntegrationTipCompleted]);
+  }, [open, config?.selfIntegrationTipCompleted, selectedWorkspaceId]);
 
   // One tab per agent in the open workspace, so setup needs no workspace of its own.
   // Without one, New Workspace opens with these agents picked instead of the default. It
@@ -408,9 +431,10 @@ export function GettingStartedMenu({
         if (config?.showStatusBar === false) void updateConfig({ showStatusBar: true });
         useStatusBarCustomizeStore.getState().show();
         break;
-      case 'customize': {
+      case 'customize':
+      case 'panels': {
         setOpen(false);
-        const prompt = buildCustomizePrompt();
+        const prompt = buildCustomizePrompt(tipId === 'panels' ? ASK_FOR_PANEL : undefined);
         if (!selectedWorkspace) {
           useDialogsStore.getState().setNewWorkspaceDialogPrompt(prompt);
           onOpenNewWorkspace();

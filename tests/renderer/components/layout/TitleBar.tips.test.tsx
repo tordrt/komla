@@ -76,6 +76,8 @@ Object.assign(window as any, {
     listSshHosts: () => Promise.resolve([]),
     listAutomations: () => Promise.resolve([]),
     pairedDevicesList: () => Promise.resolve([]),
+    listPlugins: () => Promise.resolve([]),
+    listSidebarPanels: () => Promise.resolve({ panels: [] }),
   },
 });
 

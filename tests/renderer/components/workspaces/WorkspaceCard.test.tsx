@@ -2286,14 +2286,14 @@ describe('WorkspaceCard', () => {
     }
   });
 
-  it('greys out a stopped card without fading it out, and restores its opacity on hover', () => {
+  it('greys out a stopped card without fading it, so its title still reads', () => {
     const workspace = createWorktreeWorkspace({ name: 'Stopped workspace', terminals: [] });
 
     const { container } = render(<WorkspaceCard workspace={workspace} />);
 
     const card = container.querySelector('.workspace-card-hover');
-    expect(card).toHaveClass('opacity-60', 'hover:opacity-100', 'text-muted-foreground');
-    expect(card).not.toHaveClass('opacity-35');
+    expect(card).toHaveClass('text-muted-foreground');
+    expect(card?.className).not.toMatch(/\bopacity-(\d|\[)/);
     expect(screen.getByRole('button', { name: 'Git status action' })).toHaveAttribute(
       'data-mute-diff-stats',
       'true'
@@ -2316,7 +2316,7 @@ describe('WorkspaceCard', () => {
     const { container } = render(<WorkspaceCard workspace={workspace} />);
 
     const card = container.querySelector('.workspace-card-hover');
-    expect(card).not.toHaveClass('opacity-60');
+    expect(card?.className).not.toMatch(/\bopacity-(\d|\[)/);
     expect(card).not.toHaveClass('text-muted-foreground');
     expect(screen.getByRole('button', { name: 'Git status action' })).toHaveAttribute(
       'data-mute-diff-stats',
@@ -2333,7 +2333,7 @@ describe('WorkspaceCard', () => {
     const { container } = render(<WorkspaceCard workspace={workspace} />);
 
     const card = container.querySelector('.workspace-card-hover');
-    expect(card).not.toHaveClass('opacity-60');
+    expect(card?.className).not.toMatch(/\bopacity-(\d|\[)/);
     expect(card).not.toHaveClass('text-muted-foreground');
   });
 

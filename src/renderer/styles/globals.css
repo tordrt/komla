@@ -1170,8 +1170,9 @@ html[data-status-bar-row='large'] [data-status-bar] {
   --ring: var(--brand);
 }
 
-/* Workspace card hover lift. Only hovering fades the background: a selection change shows at
-   once, so the highlight keeps up with a keyboard switch. */
+/* Workspace card hover. Only hovering fades the background: a selection change shows at
+   once, so the highlight keeps up with a keyboard switch. Cards run flush to their panel, so
+   hovering doesn't nudge them sideways past its edge. */
 .workspace-card-hover {
   transition:
     transform 120ms ease,
@@ -1179,7 +1180,6 @@ html[data-status-bar-row='large'] [data-status-bar] {
     opacity 200ms ease;
 }
 .workspace-card-hover:hover {
-  transform: translateX(1px);
   transition:
     transform 120ms ease,
     box-shadow 120ms ease,
@@ -1310,7 +1310,6 @@ html[data-status-bar-row='large'] [data-status-bar] {
       opacity: 0;
     }
   }
-  .workspace-card-hover:hover,
   .workspace-card-hover:active {
     transform: none;
   }

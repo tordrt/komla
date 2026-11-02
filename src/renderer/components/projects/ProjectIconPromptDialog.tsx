@@ -220,7 +220,7 @@ function GroupPanel({ children }: { children: ReactNode }) {
 // Sized like the sidebar's group header.
 function GroupRow({ project }: { project: Project & { color: string } }) {
   return (
-    <div className="flex shrink-0 items-center gap-2 py-1.5 pl-1.5 text-[13px]">
+    <div className="flex shrink-0 items-center gap-2 py-1.5 pl-2 text-[13px]">
       <GroupHeaderIcon
         isDirectory={project.kind === 'directory'}
         expanded
@@ -236,7 +236,7 @@ function SkeletonCard({ selected }: { selected?: boolean }) {
   return (
     <div
       className={cn(
-        'flex shrink-0 flex-col gap-1.5 rounded-md px-2.5 py-2',
+        'flex shrink-0 flex-col gap-1.5 rounded-xl px-2.5 py-2',
         selected && 'bg-accent'
       )}
     >

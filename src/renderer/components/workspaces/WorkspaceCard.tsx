@@ -615,7 +615,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
             <span
               ref={highlightRef}
               aria-hidden
-              className="pointer-events-none absolute inset-0 -z-10 origin-top rounded-[inherit] bg-foreground/[0.07] shadow-[inset_0_0_0_1px_oklch(var(--foreground)/0.08),0_1px_2px_rgb(0_0_0/0.15)]"
+              className="pointer-events-none absolute inset-0 -z-10 origin-top rounded-[inherit] bg-foreground/[0.08]"
             />
           )}
           <SelectionCheckbox
@@ -770,15 +770,19 @@ function getCardClassName({
 }): string {
   return cn(
     // The scroll margin keeps a card scrolled into view clear of the list's faded edges.
-    'relative group flex cursor-pointer items-center gap-2 rounded-lg px-2 scroll-my-10 workspace-card-hover',
+    // On a sidebar panel its corners are the panel's, which it runs flush to, and its side padding
+    // keeps the content as far from the panel's edge as the panel's own padding used to. Shelf
+    // headers below the list share that inset, so a shelf's cards line up with its header.
+    'relative group flex cursor-pointer items-center gap-2 rounded-xl px-2.5 scroll-my-10 workspace-card-hover',
     compact ? 'py-2' : 'py-2.5',
-    // The selected card's highlight is its own layer, a light wash with a hairline edge, so it
-    // can glide between cards; `isolate` keeps it above the sidebar and under the card's content.
+    // The selected card's highlight is its own layer, a light wash, so it can glide between
+    // cards; `isolate` keeps it above the sidebar and under the card's content.
     isSelected ? 'isolate' : 'hover:bg-accent/50',
     isDragging && 'opacity-60 scale-[0.97] ring-2 ring-primary/30',
     dropPosition === 'before' && 'drop-indicator-before',
     dropPosition === 'after' && 'drop-indicator-after',
-    stopped && !isSelected && 'text-muted-foreground opacity-60 hover:opacity-100',
+    // Grey, not faded: after a restart most cards are stopped, and they must still read.
+    stopped && !isSelected && 'text-muted-foreground',
     selectionMode && 'pl-8',
     isMultiSelected && 'bg-primary/10 ring-1 ring-primary/40'
   );
@@ -825,7 +829,7 @@ function ProjectBadge({
           <span className="light-darken size-2 rounded-full bg-[var(--project-color)]" />
         </span>
       )}
-      <span className="truncate text-ui font-semibold text-foreground">{projectInfo.name}</span>
+      <span className="truncate text-ui font-medium text-muted-foreground">{projectInfo.name}</span>
     </div>
   );
 }

@@ -141,7 +141,7 @@ function WorkArea({ children }: { children: React.ReactNode }) {
     <div
       data-testid="work-area"
       className={cn(
-        'relative flex min-h-0 flex-1 flex-col overflow-hidden border-foreground/15 bg-card',
+        'relative flex min-h-0 flex-1 flex-col overflow-hidden border-foreground/10 bg-card',
         statusBarShown && 'border-b'
       )}
     >
@@ -365,7 +365,7 @@ export default function App() {
           <div
             className={cn(
               'work-column relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card',
-              sidebarShown && 'rounded-tl-[14px] border-l border-foreground/15'
+              sidebarShown && 'rounded-tl-[14px] border-l border-foreground/10'
             )}
           >
             <WorkArea>

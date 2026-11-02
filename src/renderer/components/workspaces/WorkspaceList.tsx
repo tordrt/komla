@@ -313,7 +313,10 @@ const GroupHeader = React.forwardRef<
       data-group-header=""
       data-contains-selection={containsSelection || undefined}
       className={cn(
-        'group/header flex items-center gap-0.5 rounded-md pr-1 transition-colors hover:bg-accent/30',
+        // Flush to its panel's edges, so its hover and selection fills take the panel's corners. Its
+        // icon and action sit where they did when the panel had padding: 8px in on the left, 6px
+        // on the right.
+        'group/header flex items-center gap-0.5 rounded-xl pr-1.5 transition-colors hover:bg-accent/30',
         containsSelection && 'bg-accent hover:bg-accent',
         className
       )}
@@ -322,7 +325,7 @@ const GroupHeader = React.forwardRef<
         type="button"
         aria-expanded={expanded}
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 pl-1.5 text-[13px] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-l-xl rounded-r-md py-1.5 pl-2 text-[13px] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
       >
         <GroupHeaderIcon
           isDirectory={group.isDirectory ?? false}
@@ -360,8 +363,11 @@ const GroupHeader = React.forwardRef<
 
 function PinnedShelfHeader() {
   return (
-    <h3 className="flex items-center gap-1.5 px-2 py-1.5 text-2xs font-medium text-muted-foreground">
-      <PushPin aria-hidden="true" weight="bold" className="size-3" />
+    // Laid out as a project's header, so the sections down the sidebar read as one set.
+    <h3 className="flex items-center gap-2 py-1.5 pl-2 text-[13px] font-semibold text-foreground">
+      <span className="flex size-5 shrink-0 items-center justify-center">
+        <PushPin aria-hidden="true" weight="bold" className="size-3.5 text-muted-foreground" />
+      </span>
       Pinned
     </h3>
   );
@@ -516,7 +522,7 @@ function ShelfHeader({
       type="button"
       aria-expanded={expanded}
       onClick={onToggle}
-      className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
+      className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
     >
       <ShelfIcon aria-hidden="true" weight="bold" className="size-3" />
       {label}
@@ -648,12 +654,12 @@ function ShelfDock({
           )}
           {/* Below the cards, so it stays in sight however many there are. */}
           {shelf.key === 'trash' && shelf.open && (
-            <div className="flex shrink-0 items-center justify-between gap-2 pb-1 pl-2 text-2xs text-muted-foreground">
+            <div className="flex shrink-0 items-center justify-between gap-2 pb-1 pl-2.5 text-2xs text-muted-foreground">
               Deleted after {TRASH_RETENTION_DAYS} days
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2 text-2xs text-muted-foreground hover:text-destructive"
+                className="h-6 px-2.5 text-2xs text-muted-foreground hover:text-destructive"
                 onClick={onEmptyTrash}
               >
                 Empty Trash

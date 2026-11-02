@@ -435,7 +435,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
         data-inline-file-preview-scope={wsId}
         className={cn(
           'shrink-0 overflow-hidden bg-card',
-          wsFileTreeOpen && 'border-l border-foreground/15'
+          wsFileTreeOpen && 'border-l border-foreground/10'
         )}
         style={
           !wsFileTreeOpen || contentWidth <= 0
@@ -2252,7 +2252,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                 data-inline-file-preview-scope={selectedWorkspaceId ?? undefined}
                 className={cn(
                   'relative flex h-full shrink-0 items-stretch',
-                  treeTabsOnTop && 'overflow-hidden rounded-tl-[14px] border-l border-foreground/15'
+                  treeTabsOnTop && 'overflow-hidden rounded-tl-[14px] border-l border-foreground/10'
                 )}
                 style={
                   contentWidth > 0

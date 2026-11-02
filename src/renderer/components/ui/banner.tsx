@@ -16,13 +16,19 @@ import { IconButton } from './icon-button';
 
 export type BannerTone = 'neutral' | 'info' | 'success' | 'warning' | 'error';
 
-const TONE_CLASSES: Record<BannerTone, { bar: string; icon: string }> = {
-  // Solid: a half-transparent wash came out the chrome's color.
-  neutral: { bar: 'border-foreground/12 bg-muted', icon: 'text-muted-foreground' },
-  info: { bar: 'border-info/30 bg-info/10', icon: 'text-info' },
-  success: { bar: 'border-success/30 bg-success/10', icon: 'text-success' },
-  warning: { bar: 'border-warning/30 bg-warning/10', icon: 'text-warning' },
-  error: { bar: 'border-error/30 bg-error/10', icon: 'text-error' },
+// A tone's wash is a gradient over the solid card, so the banner keeps its color over any pane.
+const TONE_CLASSES: Record<BannerTone, { card: string; icon: string }> = {
+  neutral: { card: 'border-foreground/12 bg-muted', icon: 'bg-foreground/8 text-muted-foreground' },
+  info: { card: 'border-info/25 from-info/10 to-info/10', icon: 'bg-info/15 text-info' },
+  success: {
+    card: 'border-success/25 from-success/10 to-success/10',
+    icon: 'bg-success/15 text-success',
+  },
+  warning: {
+    card: 'border-warning/25 from-warning/10 to-warning/10',
+    icon: 'bg-warning/15 text-warning',
+  },
+  error: { card: 'border-error/25 from-error/10 to-error/10', icon: 'bg-error/15 text-error' },
 };
 
 const TONE_ICONS: Record<BannerTone, React.ElementType> = {
@@ -48,7 +54,7 @@ export interface BannerProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 
   dismissLabel?: string;
 }
 
-/** A full-width notice above the status bar: update ready, port changed, announcements. */
+/** A rounded card floating over the work area's bottom: update ready, port changed, announcements. */
 export const Banner = React.forwardRef<HTMLDivElement, BannerProps>(
   (
     {
@@ -70,18 +76,24 @@ export const Banner = React.forwardRef<HTMLDivElement, BannerProps>(
       <div
         ref={ref}
         className={cn(
-          'flex min-h-9 items-center gap-2 border-t px-4 py-1 text-sm text-foreground',
-          TONE_CLASSES[tone].bar,
+          'mx-2 mb-2 flex min-h-10 items-center gap-2.5 rounded-lg border bg-card bg-linear-to-r py-1.5 pr-1.5 pl-2 text-sm text-foreground shadow-soft-lg',
+          TONE_CLASSES[tone].card,
           className
         )}
         {...props}
       >
         {icon !== false && (
-          <span aria-hidden="true" className={cn('flex shrink-0', TONE_CLASSES[tone].icon)}>
+          <span
+            aria-hidden="true"
+            className={cn(
+              'flex size-6 shrink-0 items-center justify-center rounded-md',
+              TONE_CLASSES[tone].icon
+            )}
+          >
             {icon ?? <ToneIcon className="size-4" />}
           </span>
         )}
-        <p className="min-w-0 flex-1">
+        <p className="min-w-0 flex-1 leading-snug">
           {title && <span className="font-medium">{title}</span>}
           {title && children ? ' ' : null}
           {children && <span className={cn(title && 'text-muted-foreground')}>{children}</span>}

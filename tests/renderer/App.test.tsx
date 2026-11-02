@@ -389,4 +389,41 @@ describe('App', () => {
       expect(bannerMounts).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("gives the work area the floating banner's height, for the panes under it to leave free", () => {
+    const observed = new Map<Element, () => void>();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        private element?: Element;
+        constructor(private readonly callback: () => void) {}
+        observe(element: Element) {
+          this.element = element;
+          observed.set(element, this.callback);
+        }
+        unobserve() {}
+        disconnect() {
+          if (this.element) observed.delete(this.element);
+        }
+      }
+    );
+    try {
+      setConfig(true, true);
+      render(<App />);
+      const workArea = screen.getByTestId('work-area');
+      const bannerLayer = screen.getByTestId('banner-layer');
+      const resize = (height: number) => {
+        Object.defineProperty(bannerLayer, 'offsetHeight', { configurable: true, value: height });
+        act(() => observed.get(bannerLayer)?.());
+      };
+
+      resize(50);
+      expect(workArea.style.getPropertyValue('--banner-inset')).toBe('50px');
+
+      resize(0);
+      expect(workArea.style.getPropertyValue('--banner-inset')).toBe('0px');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

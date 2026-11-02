@@ -1078,7 +1078,7 @@ export const TerminalPane = React.memo(function TerminalPane({
                 onLinkContextMenu={setContextMenuLink}
               />
               {isClosing && (
-                <div className="absolute inset-0 z-40 flex cursor-wait items-center justify-center bg-background/35 backdrop-blur-[1px]">
+                <div className="absolute inset-0 z-40 flex cursor-wait items-center justify-center bg-background/35 pb-(--banner-inset) backdrop-blur-[1px]">
                   <div className="flex items-center gap-2 rounded-md bg-card/90 px-3 py-2 text-xs text-muted-foreground shadow-xs">
                     <Spinner size="md" />
                     <span>Closing terminal…</span>
@@ -1087,7 +1087,7 @@ export const TerminalPane = React.memo(function TerminalPane({
               )}
               {isRemoteConnectionPending && (
                 <div
-                  className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center"
+                  className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center pb-(--banner-inset)"
                   style={terminalCover(70)}
                 >
                   <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
@@ -1098,7 +1098,7 @@ export const TerminalPane = React.memo(function TerminalPane({
               )}
               {terminal?.startupError && (
                 <div
-                  className="absolute inset-0 z-30 flex items-center justify-center p-6"
+                  className="absolute inset-0 z-30 flex items-center justify-center p-6 pb-[calc(1.5rem+var(--banner-inset,0px))]"
                   style={terminalCover(100)}
                 >
                   <div className="max-w-md text-center">
@@ -1120,7 +1120,7 @@ export const TerminalPane = React.memo(function TerminalPane({
               )}
               {offer.stopped && !terminal?.startupError && !isRemoteConnectionPending && (
                 <div
-                  className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 p-6 backdrop-blur-[1px]"
+                  className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 p-6 pb-[calc(1.5rem+var(--banner-inset,0px))] backdrop-blur-[1px]"
                   style={terminalCover(70)}
                 >
                   {connectionProblem && (

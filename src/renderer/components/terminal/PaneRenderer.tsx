@@ -92,7 +92,12 @@ export const PaneRenderer = memo(function PaneRenderer({
       defaultSizes={node.sizes}
       onDragEnd={handleSizeChange}
     >
-      <Allotment.Pane key={node.children[0].id} minSize={100}>
+      <Allotment.Pane
+        key={node.children[0].id}
+        minSize={100}
+        // Only panes at the work area's bottom sit under a banner.
+        className={node.direction === 'horizontal' ? '[--banner-inset:0px]' : undefined}
+      >
         <PaneRenderer
           node={node.children[0]}
           isTabActive={isTabActive}

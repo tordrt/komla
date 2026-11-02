@@ -236,7 +236,7 @@ export const SurfacePane = React.memo(function SurfacePane({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              'relative flex h-full min-h-0 flex-col transition-opacity',
+              'relative flex h-full min-h-0 flex-col pb-(--banner-inset) transition-opacity',
               // A file pane's footers and previews keep the page background.
               surface.kind === 'file' && 'bg-background',
               isDragging && 'opacity-40'

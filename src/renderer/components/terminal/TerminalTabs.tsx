@@ -375,7 +375,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
            in the stores guarantees at most one is visible at a time. */}
       <div
         className={cn(
-          'min-h-0',
+          'min-h-0 pb-(--banner-inset)',
           wsPreviewOpen && !wsIsPreviewFullscreen && 'shrink-0 border-l',
           wsIsPreviewFullscreen && 'bg-background'
         )}
@@ -450,7 +450,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
             </div>
           )}
           <div className="relative min-h-0 flex-1">
-            <div className="absolute inset-0">
+            <div className="absolute inset-x-0 top-0 bottom-(--banner-inset)">
               <ErrorBoundary>
                 <InlineFileTreePanel
                   workspaceId={wsId}
@@ -867,7 +867,7 @@ function renderTerminalTabsEmptyState(params: {
 
   if (selectedWorkspaceId && selectedWorkspace && isRestarting) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-card text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-card pb-(--banner-inset) text-muted-foreground">
         <Spinner size="lg" />
         <div className="text-sm">Restarting workspace...</div>
         <div className="text-xs text-muted-foreground/60">
@@ -886,14 +886,14 @@ function renderTerminalTabsEmptyState(params: {
     }
     if (hasActiveWorkspaces) {
       return (
-        <div className="empty-work-area relative flex h-full items-center justify-center bg-card text-sm text-muted-foreground">
+        <div className="empty-work-area relative flex h-full items-center justify-center bg-card pb-(--banner-inset) text-sm text-muted-foreground">
           {sidebarCollapsed && <KomlaBackdrop />}
           <span className="relative">Select a workspace from the sidebar</span>
         </div>
       );
     }
     return (
-      <FolderDropZone className="empty-work-area h-full bg-card">
+      <FolderDropZone className="empty-work-area h-full bg-card pb-(--banner-inset)">
         {sidebarCollapsed && <KomlaBackdrop />}
         <EmptyState
           className="relative h-full"
@@ -930,7 +930,7 @@ function renderTerminalTabsEmptyState(params: {
   // Workspace is still being provisioned (worktree creation in progress)
   if (selectedWorkspace.provisioning) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-3 pb-(--banner-inset) text-muted-foreground">
         <Spinner size="lg" />
         <div className="text-sm">Setting up workspace...</div>
         <div className="text-xs text-muted-foreground/60">
@@ -946,7 +946,7 @@ function renderTerminalTabsEmptyState(params: {
   // Workspace provisioning failed
   if (selectedWorkspace.provisionError) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-3 pb-(--banner-inset) text-muted-foreground">
         <div className="text-sm">
           {selectedWorkspace.removedFromHost
             ? 'Workspace missing from host'

@@ -1157,7 +1157,7 @@ export function TerminalView({
         </div>
       )}
       <TerminalSearchBar terminalId={terminalId} inTmux={searchesInTmux} />
-      <div className="h-full w-full overflow-clip py-2 pl-3">
+      <div className="h-full w-full overflow-clip pt-2 pb-[calc(0.5rem+var(--banner-inset,0px))] pl-3">
         <div
           ref={containerRef}
           className="h-full w-full overflow-clip"

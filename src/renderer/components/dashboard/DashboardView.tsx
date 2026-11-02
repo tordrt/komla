@@ -497,7 +497,7 @@ export const DashboardView = memo(function DashboardView({
   if (overview.totalWindowCount === 0) {
     return (
       <EmptyState
-        className="empty-work-area overview-surface h-full bg-card"
+        className="empty-work-area overview-surface h-full bg-card pb-[calc(2.5rem+var(--banner-inset,0px))]"
         icon={<Terminal weight="duotone" />}
         title="No workspaces"
         description="Create a workspace to get started"
@@ -589,7 +589,7 @@ export const DashboardView = memo(function DashboardView({
   };
 
   return (
-    <div className="empty-work-area overview-surface flex h-full flex-col bg-card">
+    <div className="empty-work-area overview-surface flex h-full flex-col bg-card pb-(--banner-inset)">
       <div className="mx-auto w-full max-w-5xl shrink-0 px-6 pt-6 pb-2">
         <div className="flex items-center gap-2">
           {canReturnToWorkspace && (

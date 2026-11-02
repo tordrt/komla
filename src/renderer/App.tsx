@@ -1,4 +1,13 @@
-import React, { Activity, lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import React, {
+  Activity,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { ActionEditorHost } from '@/components/actions/ActionEditorHost';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -119,7 +128,7 @@ function TitleBarSlot({ tabsAtTop, children }: { tabsAtTop: boolean; children: R
 
 const openCommandCenter = () => executeShortcutAction('commandCenter.open');
 
-/** The app's banners, above the status bar, so they never push the tab row down. */
+/** The app's banners, floating at the work area's bottom, so they never push the tab row down. */
 function AppBanners({ onOpenIntegrationsSettings }: { onOpenIntegrationsSettings: () => void }) {
   return (
     <BannerHost>
@@ -134,11 +143,29 @@ function AppBanners({ onOpenIntegrationsSettings }: { onOpenIntegrationsSettings
 }
 
 /** Everything above the status bar, flat beside the sidebar. */
-function WorkArea({ children }: { children: React.ReactNode }) {
+function WorkArea({ banners, children }: { banners: React.ReactNode; children: React.ReactNode }) {
   const statusBarShown = useConfigStore((s) => !!s.config && s.config.showStatusBar !== false);
+  const workAreaRef = useRef<HTMLDivElement>(null);
+  const bannerLayerRef = useRef<HTMLDivElement>(null);
+
+  // The banner floats over the panes, so its height goes to `--banner-inset`: panes at the
+  // work area's bottom pad by it, their own background running on under the banner. Written to
+  // the DOM, not React state, so the inset changes in the frame the banner does.
+  useLayoutEffect(() => {
+    const workArea = workAreaRef.current;
+    const layer = bannerLayerRef.current;
+    if (!workArea || !layer || typeof ResizeObserver === 'undefined') return;
+    const update = () => workArea.style.setProperty('--banner-inset', `${layer.offsetHeight}px`);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(layer);
+    return () => observer.disconnect();
+  }, []);
+
   // The line above the status bar matches the work column's left edge.
   return (
     <div
+      ref={workAreaRef}
       data-testid="work-area"
       className={cn(
         'relative flex min-h-0 flex-1 flex-col overflow-hidden border-foreground/10 bg-card',
@@ -146,6 +173,15 @@ function WorkArea({ children }: { children: React.ReactNode }) {
       )}
     >
       {children}
+      {/* Above a split's divider (z-index 35) and below the blame gutter's inline z-50 menu,
+          except in a full-screen preview, whose z-10 layer keeps that menu under the banner. */}
+      <div
+        ref={bannerLayerRef}
+        data-testid="banner-layer"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-40 *:pointer-events-auto"
+      >
+        {banners}
+      </div>
     </div>
   );
 }
@@ -368,7 +404,9 @@ export default function App() {
               sidebarShown && 'rounded-tl-[14px] border-l border-foreground/10'
             )}
           >
-            <WorkArea>
+            <WorkArea
+              banners={<AppBanners onOpenIntegrationsSettings={openIntegrationsSettings} />}
+            >
               <TitleBarSlot tabsAtTop={tabsAtTop}>
                 <TitleBar
                   sidebarVisible={sidebarShown}
@@ -393,7 +431,6 @@ export default function App() {
                   />
                 </ErrorBoundary>
               </main>
-              <AppBanners onOpenIntegrationsSettings={openIntegrationsSettings} />
             </WorkArea>
             <StatusBar
               tipsActions={{

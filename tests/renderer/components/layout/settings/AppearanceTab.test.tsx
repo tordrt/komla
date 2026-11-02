@@ -193,28 +193,12 @@ describe('AppearanceTab', () => {
         .map((button) => button.textContent);
     expect(names('Dark')).toEqual([
       'Komla Dark',
-      'Komla Slate',
       'Catppuccin Mocha',
       'Dracula',
-      'GitHub Dark',
-      'Gruvbox Dark',
-      'Kanagawa',
-      'Monokai',
       'Nord',
-      'One Dark',
-      'Rosé Pine',
-      'Solarized Dark',
       'Tokyo Night',
     ]);
-    expect(names('Light')).toEqual([
-      'Komla Light',
-      'Komla Slate Light',
-      'Catppuccin Latte',
-      'GitHub Light',
-      'One Light',
-      'Rosé Pine Dawn',
-      'Solarized Light',
-    ]);
+    expect(names('Light')).toEqual(['Komla Light']);
   });
 
   it('shows the custom theme from theme.json first among the themes of its mode', () => {
@@ -253,7 +237,7 @@ describe('AppearanceTab', () => {
     });
 
     it('makes a light theme in use, with its accent, the light theme beside Komla Dark', async () => {
-      useCustomizationStore.setState({ theme: { ...theme, palette: 'one-light' } as never });
+      useCustomizationStore.setState({ theme: { ...theme, palette: 'frost' } as never });
       const user = userEvent.setup();
       render(<AppearanceTab />, { wrapper: TooltipProvider });
 
@@ -262,7 +246,7 @@ describe('AppearanceTab', () => {
       expect(window.api.updateTheme).toHaveBeenCalledWith({
         followSystem: true,
         palette: 'default',
-        lightPalette: 'one-light',
+        lightPalette: 'frost',
         colors: { accent: 'oklch(0.922 0 0)', lightAccent: '0.6 0.2 260' },
       });
     });
@@ -322,15 +306,29 @@ describe('AppearanceTab', () => {
 
     it('saves a light theme and its accent as the light theme, until a light system shows it', async () => {
       vi.mocked(getActivePaletteId).mockReturnValue('nord');
-      useCustomizationStore.setState({ theme: following as never });
+      const paper = {
+        name: 'Paper',
+        mode: 'light',
+        surfaces: {
+          background: '#ffffff',
+          card: '#f7f7f5',
+          muted: '#efefec',
+          highlight: '#e7e7e3',
+          border: '#dcdcd6',
+        },
+        terminal: { background: '#1c1c1c', foreground: '#e0e0e0' },
+      };
+      useCustomizationStore.setState({
+        theme: { ...following, lightPalette: 'custom', customPalette: paper } as never,
+      });
       const user = userEvent.setup();
       render(<AppearanceTab />, { wrapper: TooltipProvider });
 
-      await user.click(screen.getByRole('button', { name: 'GitHub Light' }));
+      await user.click(screen.getByRole('button', { name: 'Komla Light' }));
 
       expect(window.api.updateTheme).toHaveBeenCalledWith({
-        lightPalette: 'github-light',
-        colors: { accent: '0.6 0.2 260', lightAccent: 'oklch(0.5 0.19 257)' },
+        lightPalette: 'frost',
+        colors: { accent: '0.6 0.2 260', lightAccent: 'oklch(0.205 0 0)' },
       });
       expect(applyPalette).not.toHaveBeenCalled();
     });

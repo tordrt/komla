@@ -334,7 +334,7 @@ describe('CustomizationService', () => {
   });
 
   describe('following the system appearance', () => {
-    const following = { palette: 'nord', followSystem: true, lightPalette: 'github-light' };
+    const following = { palette: 'nord', followSystem: true, lightPalette: 'frost' };
 
     it('is off by default, with Komla Light as the light theme', async () => {
       vfs = createVirtualFs({
@@ -356,11 +356,11 @@ describe('CustomizationService', () => {
     it.each([
       [
         'a light theme and its accent as the light theme',
-        'one-light',
+        'frost',
         undefined,
         {
           palette: 'nord',
-          lightPalette: 'one-light',
+          lightPalette: 'frost',
           colors: { accent: 'oklch(0.922 0 0)', lightAccent: applied },
         },
       ],
@@ -370,7 +370,7 @@ describe('CustomizationService', () => {
         undefined,
         {
           palette: 'dracula',
-          lightPalette: 'github-light',
+          lightPalette: 'frost',
           colors: { accent: applied, lightAccent: 'oklch(0.205 0 0)' },
         },
       ],
@@ -412,14 +412,14 @@ describe('CustomizationService', () => {
         await import('../../../src/main/services/customization.service');
 
       const theme = customizationService.setAppearance({
-        palette: 'one-light',
+        palette: 'frost',
         accent: applied,
         borderRadius: 6,
       });
 
       expect(theme).toMatchObject({
         palette: 'default',
-        lightPalette: 'one-light',
+        lightPalette: 'frost',
         colors: { accent: 'oklch(0.922 0 0)', lightAccent: applied },
       });
       expect(theme.customPalette).toBeUndefined();
@@ -467,7 +467,7 @@ describe('CustomizationService', () => {
       const { customizationService } =
         await import('../../../src/main/services/customization.service');
 
-      const theme = customizationService.updateTheme({ lightPalette: 'one-light' });
+      const theme = customizationService.updateTheme({ lightPalette: 'frost' });
 
       expect(theme.customPalette).toEqual({ ...customPalette, accent: 'oklch(0.5 0.15 145)' });
     });

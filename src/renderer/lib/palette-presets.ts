@@ -2,9 +2,8 @@
 // Tokens are partial maps (CSS var name -> OKLCH "L C H" string).
 // Only neutral surface tokens are included - each theme's accent lives in
 // BUILT_IN_THEMES and is saved to theme.json when the theme is chosen.
-// Terminals are dark in every theme. Komla Dark uses the Terminal settings' colors, Komla Light and
-// Komla Slate Light a softer dark that sits easier beside their light surfaces, every other dark
-// theme its own colors, and every other light theme its dark sibling's.
+// Terminals are dark in every theme. Komla Dark uses the Terminal settings' colors, Komla Light a
+// softer dark that sits easier beside its light surfaces, and every other theme its own colors.
 
 import { hexToOklchValues } from './project-colors';
 
@@ -44,9 +43,7 @@ export interface Palette {
     selection?: string;
     ansi?: Partial<TerminalColorConfig['ansi']>;
   };
-  /** A light theme's dark sibling, whose terminal colors and surfaces its terminal panes use. */
-  darkTerminal?: string;
-  /** The dark surfaces for terminal panes in a light theme with its own dark terminal. */
+  /** The dark surfaces for terminal panes in a light theme. */
   terminalTokens?: PaletteTokens;
   monaco: {
     editorBackground: string;
@@ -139,46 +136,18 @@ const DARK_STEPS: Record<keyof PaletteTokens, number> = {
   '--input': 0.146,
 };
 
-// Komla Light's surfaces as lightness steps from its card, which is also its editor's color.
-const LIGHT_STEPS: Partial<Record<keyof PaletteTokens, number>> = {
-  '--popover': 0.025,
-  '--background': 0.015,
-  '--sidebar': -0.015,
-  '--muted': -0.015,
-  '--secondary': -0.015,
-  '--sidebar-muted': -0.03,
-  '--chrome': -0.039,
-  '--accent': -0.045,
-  '--sidebar-accent': -0.05,
-  '--border': -0.06,
-  '--input': -0.06,
-  '--card': 0,
-};
-
-function steppedSurfaces(
-  anchor: string,
-  steps: Partial<Record<keyof PaletteTokens, number>>
-): PaletteTokens {
-  const [lightness, chroma, hue] = oklch(anchor).split(' ').map(Number);
+/** A dark theme's surfaces around its terminal background, layered as Komla Dark's are. */
+export function darkSurfaces(terminal: string): PaletteTokens {
+  const [lightness, chroma, hue] = oklch(terminal).split(' ').map(Number);
   const round = (value: number) => Number(value.toFixed(3));
   const tokens: PaletteTokens = {};
-  for (const [token, step] of Object.entries(steps)) {
+  for (const [token, step] of Object.entries(DARK_STEPS)) {
     const stepped = Math.min(1, lightness + step);
-    // Above a light anchor the tint fades out toward white, where no chroma fits.
+    // Above the anchor the tint fades out toward white, where no chroma fits.
     const tint = stepped > lightness ? chroma * ((1 - stepped) / (1 - lightness)) : chroma;
     tokens[token as keyof PaletteTokens] = `${round(stepped)} ${round(tint)} ${round(hue)}`;
   }
   return tokens;
-}
-
-/** A dark theme's surfaces around its terminal background, layered as Komla Dark's are. */
-export function darkSurfaces(terminal: string): PaletteTokens {
-  return steppedSurfaces(terminal, DARK_STEPS);
-}
-
-/** A light theme's surfaces around its card (its editor background), layered as Komla Light's are. */
-export function lightSurfaces(card: string): PaletteTokens {
-  return steppedSurfaces(card, LIGHT_STEPS);
 }
 
 type AnsiRow = [string, string, string, string, string, string, string, string];
@@ -225,29 +194,6 @@ export const PALETTES: Palette[] = [
     monaco: { editorBackground: '#13171b' },
   },
   {
-    // Komla Dark before Graphite: every surface carries the same slight blue tint.
-    id: 'slate',
-    label: 'Komla Slate',
-    mode: 'dark',
-    tokens: {
-      '--background': '0.175 0.02 258',
-      '--card': '0.235 0.02 258',
-      '--popover': '0.235 0.02 258',
-      '--muted': '0.29 0.02 258',
-      '--secondary': '0.29 0.02 258',
-      '--accent': '0.32 0.02 258',
-      '--border': '0.29 0.02 258',
-      '--input': '0.35 0.02 258',
-      '--sidebar': '0.285 0.02 258',
-      '--sidebar-accent': '0.329 0.02 258',
-      '--sidebar-muted': '0.305 0.02 258',
-      '--sidebar-border': '0.245 0.02 258',
-      '--chrome': '0.285 0.02 258',
-    },
-    xterm: { background: '#10161f', foreground: '#ffffff' },
-    monaco: { editorBackground: '#10161f' },
-  },
-  {
     id: 'catppuccin-mocha',
     label: 'Catppuccin Mocha',
     mode: 'dark',
@@ -282,76 +228,6 @@ export const PALETTES: Palette[] = [
     monaco: { editorBackground: '#282a36' },
   },
   {
-    id: 'github-dark',
-    label: 'GitHub Dark',
-    mode: 'dark',
-    tokens: darkSurfaces('#0d1117'),
-    xterm: {
-      background: '#0d1117',
-      foreground: '#e6edf3',
-      cursor: '#2f81f7',
-      selection: '#264f78',
-      ansi: ansi(
-        ['#484f58', '#ff7b72', '#3fb950', '#d29922', '#58a6ff', '#bc8cff', '#39c5cf', '#b1bac4'],
-        ['#6e7681', '#ffa198', '#56d364', '#e3b341', '#79c0ff', '#d2a8ff', '#56d4dd', '#ffffff']
-      ),
-    },
-    monaco: { editorBackground: '#0d1117' },
-  },
-  {
-    id: 'gruvbox-dark',
-    label: 'Gruvbox Dark',
-    mode: 'dark',
-    tokens: darkSurfaces('#282828'),
-    xterm: {
-      background: '#282828',
-      foreground: '#ebdbb2',
-      cursor: '#ebdbb2',
-      selection: '#504945',
-      ansi: ansi(
-        ['#282828', '#cc241d', '#98971a', '#d79921', '#458588', '#b16286', '#689d6a', '#a89984'],
-        ['#928374', '#fb4934', '#b8bb26', '#fabd2f', '#83a598', '#d3869b', '#8ec07c', '#ebdbb2']
-      ),
-    },
-    monaco: { editorBackground: '#282828' },
-  },
-  {
-    id: 'kanagawa',
-    label: 'Kanagawa',
-    mode: 'dark',
-    tokens: darkSurfaces('#1f1f28'),
-    // Kanagawa Wave.
-    xterm: {
-      background: '#1f1f28',
-      foreground: '#dcd7ba',
-      cursor: '#c8c093',
-      selection: '#2d4f67',
-      ansi: ansi(
-        ['#16161d', '#c34043', '#76946a', '#c0a36e', '#7e9cd8', '#957fb8', '#6a9589', '#c8c093'],
-        ['#727169', '#e82424', '#98bb6c', '#e6c384', '#7fb4ca', '#938aa9', '#7aa89f', '#dcd7ba']
-      ),
-    },
-    monaco: { editorBackground: '#1f1f28' },
-  },
-  {
-    id: 'monokai',
-    label: 'Monokai',
-    mode: 'dark',
-    tokens: darkSurfaces('#272822'),
-    // base16 Monokai.
-    xterm: {
-      background: '#272822',
-      foreground: '#f8f8f2',
-      cursor: '#f8f8f0',
-      selection: '#49483e',
-      ansi: ansi(
-        ['#272822', '#f92672', '#a6e22e', '#f4bf75', '#66d9ef', '#ae81ff', '#a1efe4', '#f8f8f2'],
-        ['#75715e', '#f92672', '#a6e22e', '#f4bf75', '#66d9ef', '#ae81ff', '#a1efe4', '#f9f8f5']
-      ),
-    },
-    monaco: { editorBackground: '#272822' },
-  },
-  {
     id: 'nord',
     label: 'Nord',
     mode: 'dark',
@@ -367,60 +243,6 @@ export const PALETTES: Palette[] = [
       ),
     },
     monaco: { editorBackground: '#2e3440' },
-  },
-  {
-    id: 'one-dark',
-    label: 'One Dark',
-    mode: 'dark',
-    tokens: darkSurfaces('#282c34'),
-    // Atom's One Dark.
-    xterm: {
-      background: '#282c34',
-      foreground: '#abb2bf',
-      cursor: '#528bff',
-      selection: '#3e4451',
-      ansi: ansi(
-        ['#282c34', '#e06c75', '#98c379', '#e5c07b', '#61afef', '#c678dd', '#56b6c2', '#abb2bf'],
-        ['#5c6370', '#e06c75', '#98c379', '#e5c07b', '#61afef', '#c678dd', '#56b6c2', '#ffffff']
-      ),
-    },
-    monaco: { editorBackground: '#282c34' },
-  },
-  {
-    id: 'rose-pine',
-    label: 'Rosé Pine',
-    mode: 'dark',
-    tokens: darkSurfaces('#191724'),
-    xterm: {
-      background: '#191724',
-      foreground: '#e0def4',
-      cursor: '#524f67',
-      selection: '#403d52',
-      ansi: ansi(
-        ['#26233a', '#eb6f92', '#31748f', '#f6c177', '#9ccfd8', '#c4a7e7', '#ebbcba', '#e0def4'],
-        ['#6e6a86', '#eb6f92', '#31748f', '#f6c177', '#9ccfd8', '#c4a7e7', '#ebbcba', '#e0def4']
-      ),
-    },
-    monaco: { editorBackground: '#191724' },
-  },
-  {
-    id: 'solarized-dark',
-    label: 'Solarized Dark',
-    mode: 'dark',
-    tokens: darkSurfaces('#002b36'),
-    xterm: {
-      background: '#002b36',
-      foreground: '#839496',
-      cursor: '#93a1a1',
-      selection: '#274642',
-      // Solarized's canonical bright slots hold its gray base tones, which turns bright
-      // colors gray in most CLIs; use the accent hues there instead.
-      ansi: ansi(
-        ['#073642', '#dc322f', '#859900', '#b58900', '#268bd2', '#d33682', '#2aa198', '#eee8d5'],
-        ['#586e75', '#cb4b16', '#859900', '#b58900', '#268bd2', '#6c71c4', '#2aa198', '#fdf6e3']
-      ),
-    },
-    monaco: { editorBackground: '#002b36' },
   },
   {
     id: 'tokyo-night',
@@ -473,97 +295,8 @@ export const PALETTES: Palette[] = [
     },
     monaco: { editorBackground: '#f6f6f8' },
   },
-  {
-    // Komla Light before Graphite.
-    id: 'slate-light',
-    label: 'Komla Slate Light',
-    mode: 'light',
-    // Komla Slate's hue, faint enough to read as white.
-    tokens: {
-      '--background': '0.99 0.003 258',
-      '--card': '0.975 0.006 258',
-      '--popover': '1 0 0',
-      '--muted': '0.96 0.008 258',
-      '--secondary': '0.96 0.008 258',
-      '--accent': '0.93 0.012 258',
-      '--border': '0.915 0.013 258',
-      '--input': '0.915 0.013 258',
-      '--sidebar': '0.96 0.008 258',
-      '--sidebar-accent': '0.925 0.013 258',
-      '--sidebar-muted': '0.945 0.01 258',
-      '--chrome': '0.936 0.008 258',
-    },
-    // Komla Slate's terminal lifted to a soft slate, with the Terminal settings' ANSI colors, and
-    // pane surfaces a step lighter than it, as Komla Dark's chrome sits beside its terminal.
-    xterm: { background: '#252c35', foreground: '#e4e8ef' },
-    terminalTokens: {
-      '--background': '0.27 0.02 258',
-      '--card': '0.33 0.02 258',
-      '--popover': '0.33 0.02 258',
-      '--muted': '0.37 0.02 258',
-      '--secondary': '0.37 0.02 258',
-      '--accent': '0.4 0.02 258',
-      '--border': '0.37 0.02 258',
-      '--input': '0.42 0.02 258',
-    },
-    monaco: { editorBackground: '#ffffff' },
-  },
-  {
-    id: 'catppuccin-latte',
-    label: 'Catppuccin Latte',
-    mode: 'light',
-    tokens: lightSurfaces('#eff1f5'),
-    darkTerminal: 'catppuccin-mocha',
-    monaco: { editorBackground: '#eff1f5' },
-  },
-  {
-    id: 'github-light',
-    label: 'GitHub Light',
-    mode: 'light',
-    tokens: lightSurfaces('#ffffff'),
-    darkTerminal: 'github-dark',
-    monaco: { editorBackground: '#ffffff' },
-  },
-  {
-    id: 'one-light',
-    label: 'One Light',
-    mode: 'light',
-    tokens: lightSurfaces('#fafafa'),
-    darkTerminal: 'one-dark',
-    monaco: { editorBackground: '#fafafa' },
-  },
-  {
-    id: 'rose-pine-dawn',
-    label: 'Rosé Pine Dawn',
-    mode: 'light',
-    tokens: lightSurfaces('#faf4ed'),
-    darkTerminal: 'rose-pine',
-    monaco: { editorBackground: '#faf4ed' },
-  },
-  {
-    id: 'solarized-light',
-    label: 'Solarized Light',
-    mode: 'light',
-    tokens: lightSurfaces('#fdf6e3'),
-    darkTerminal: 'solarized-dark',
-    monaco: { editorBackground: '#fdf6e3' },
-  },
 ];
 
 export function getPalette(id: string): Palette {
   return PALETTES.find((p) => p.id === id) ?? PALETTES[0];
-}
-
-/** The terminal colors a palette brings; undefined when the terminal uses the Terminal settings. */
-export function paletteXterm(palette: Palette): Palette['xterm'] {
-  return palette.darkTerminal === undefined
-    ? palette.xterm
-    : getPalette(palette.darkTerminal).xterm;
-}
-
-/** The dark surfaces a light theme gives its terminal panes: its own, or its dark sibling's. */
-export function paletteTerminalTokens(palette: Palette): PaletteTokens {
-  return palette.darkTerminal === undefined
-    ? (palette.terminalTokens ?? {})
-    : getPalette(palette.darkTerminal).tokens;
 }

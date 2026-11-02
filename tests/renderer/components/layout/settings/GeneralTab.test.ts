@@ -99,7 +99,6 @@ describe('GeneralTab settings behavior', () => {
       expect(paletteOverridesTerminalBackground(DEFAULT_PALETTE_ID)).toBe(false);
       expect(paletteOverridesTerminalBackground('frost')).toBe(true);
       expect(paletteOverridesTerminalBackground('nord')).toBe(true);
-      expect(paletteOverridesTerminalBackground('github-light')).toBe(true);
       expect(paletteOverridesTerminalBackground('custom')).toBe(true);
     });
   });

@@ -283,7 +283,7 @@ describe('syncPaletteFromTheme', () => {
 });
 
 describe('following the system appearance', () => {
-  const following = theme({ palette: 'nord', followSystem: true, lightPalette: 'github-light' });
+  const following = theme({ palette: 'nord', followSystem: true, lightPalette: 'frost' });
 
   function systemIs(appearance: 'dark' | 'light') {
     window.matchMedia = vi.fn(() => ({
@@ -307,7 +307,7 @@ describe('following the system appearance', () => {
   it('shows the light theme while the system is light and the dark one while it is dark', () => {
     systemIs('light');
     syncPaletteFromTheme(following);
-    expect(getActivePalette().id).toBe('github-light');
+    expect(getActivePalette().id).toBe('frost');
 
     systemIs('dark');
     syncPaletteFromTheme(following);
@@ -332,7 +332,7 @@ describe('following the system appearance', () => {
     vi.mocked(window.api.getTheme).mockResolvedValue(following);
     await endAppearancePreview();
     syncPaletteFromTheme(useCustomizationStore.getState().theme!);
-    expect(getActivePalette().id).toBe('github-light');
+    expect(getActivePalette().id).toBe('frost');
   });
 });
 

@@ -12,8 +12,6 @@ import {
   TOKEN_FALLBACKS,
   getPalette,
   paletteSurface,
-  paletteTerminalTokens,
-  paletteXterm,
   type Palette,
   type PaletteTokens,
 } from './palette-presets';
@@ -293,7 +291,7 @@ export function useActivePalette(): Palette {
 // the Terminal settings. TerminalView uses this to paint the wrapper DIV behind the xterm canvas
 // so palette switches don't leak the customization-store's bg through padding.
 export function getPaletteTerminalBackground(): string | null {
-  return paletteXterm(activePalette)?.background ?? null;
+  return activePalette.xterm?.background ?? null;
 }
 
 /**
@@ -310,7 +308,7 @@ export function useTerminalPaneScope(background: string | undefined): {
   return {
     className: 'dark',
     style: {
-      ...paletteTerminalTokens(palette),
+      ...palette.terminalTokens,
       '--primary': 'var(--dark-primary)',
       '--ring': 'var(--dark-primary)',
     } as CSSProperties,
@@ -344,7 +342,7 @@ export function buildTerminalTheme(config: TerminalConfig | null): ITheme {
  */
 export function paletteTerminalTheme(palette: Palette, config: TerminalConfig | null): ITheme {
   const theme = config ? configToTheme(config) : DEFAULT_TERMINAL_THEME;
-  const xterm = paletteXterm(palette);
+  const { xterm } = palette;
   if (!xterm) return theme;
   return {
     ...theme,

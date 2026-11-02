@@ -98,12 +98,12 @@ describe('customization IPC validation', () => {
 
     await ipcMain._invoke('customization:update-theme', {
       followSystem: true,
-      lightPalette: 'github-light',
+      lightPalette: 'frost',
       colors: { lightAccent: 'oklch(0.5 0.19 257)' },
     });
     expect(mockCustomizationService.updateTheme).toHaveBeenCalledWith({
       followSystem: true,
-      lightPalette: 'github-light',
+      lightPalette: 'frost',
       colors: { lightAccent: 'oklch(0.5 0.19 257)' },
     });
 

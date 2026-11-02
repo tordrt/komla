@@ -76,13 +76,13 @@ describe('shownTheme', () => {
   const following = {
     palette: 'nord',
     followSystem: true,
-    lightPalette: 'one-light',
+    lightPalette: 'frost',
     colors: { accent: 'oklch(0.77 0.06 217)', lightAccent: 'oklch(0.5 0.2 270)' },
   } as ThemeConfig;
 
   it('shows the light theme and its accent while the system is light', () => {
     expect(shownTheme(following, false)).toMatchObject({
-      palette: 'one-light',
+      palette: 'frost',
       colors: { accent: 'oklch(0.5 0.2 270)' },
     });
     expect(shownTheme(following, true)).toBe(following);

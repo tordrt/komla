@@ -29,7 +29,6 @@ export interface BuiltInTheme {
  */
 export const BUILT_IN_THEMES: ReadonlyArray<BuiltInTheme> = [
   { id: 'default', name: 'Komla Dark', mode: 'dark', accent: DEFAULT_ACCENT },
-  { id: 'slate', name: 'Komla Slate', mode: 'dark', accent: DEFAULT_ACCENT },
   {
     id: 'catppuccin-mocha',
     name: 'Catppuccin Mocha',
@@ -37,32 +36,9 @@ export const BUILT_IN_THEMES: ReadonlyArray<BuiltInTheme> = [
     accent: 'oklch(0.79 0.12 305)',
   },
   { id: 'dracula', name: 'Dracula', mode: 'dark', accent: 'oklch(0.74 0.15 302)' },
-  { id: 'github-dark', name: 'GitHub Dark', mode: 'dark', accent: 'oklch(0.7 0.19 258)' },
-  { id: 'gruvbox-dark', name: 'Gruvbox Dark', mode: 'dark', accent: 'oklch(0.73 0.18 52)' },
-  { id: 'kanagawa', name: 'Kanagawa', mode: 'dark', accent: 'oklch(0.7 0.1 264)' },
-  { id: 'monokai', name: 'Monokai', mode: 'dark', accent: 'oklch(0.7 0.24 7)' },
   { id: 'nord', name: 'Nord', mode: 'dark', accent: 'oklch(0.77 0.06 217)' },
-  { id: 'one-dark', name: 'One Dark', mode: 'dark', accent: 'oklch(0.73 0.12 245)' },
-  { id: 'rose-pine', name: 'Rosé Pine', mode: 'dark', accent: 'oklch(0.78 0.09 305)' },
-  { id: 'solarized-dark', name: 'Solarized Dark', mode: 'dark', accent: 'oklch(0.7 0.14 245)' },
   { id: 'tokyo-night', name: 'Tokyo Night', mode: 'dark', accent: 'oklch(0.72 0.13 264)' },
   { id: LIGHT_PALETTE_ID, name: 'Komla Light', mode: 'light', accent: DEFAULT_LIGHT_ACCENT },
-  {
-    id: 'slate-light',
-    name: 'Komla Slate Light',
-    mode: 'light',
-    accent: DEFAULT_LIGHT_ACCENT,
-  },
-  {
-    id: 'catppuccin-latte',
-    name: 'Catppuccin Latte',
-    mode: 'light',
-    accent: 'oklch(0.5 0.25 297)',
-  },
-  { id: 'github-light', name: 'GitHub Light', mode: 'light', accent: 'oklch(0.5 0.19 257)' },
-  { id: 'one-light', name: 'One Light', mode: 'light', accent: 'oklch(0.5 0.2 270)' },
-  { id: 'rose-pine-dawn', name: 'Rosé Pine Dawn', mode: 'light', accent: 'oklch(0.5 0.07 306)' },
-  { id: 'solarized-light', name: 'Solarized Light', mode: 'light', accent: 'oklch(0.5 0.14 245)' },
 ];
 
 /** Whether a theme is dark or light; undefined for an id that isn't a theme. */

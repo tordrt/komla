@@ -142,16 +142,6 @@ describe('palette runtime', () => {
     expect(lastMonacoWidgets()).toBeNull();
   });
 
-  it("gives a light theme its dark sibling's terminal", () => {
-    applyPalette('catppuccin-latte');
-
-    expect(buildTerminalTheme(terminalConfig)).toMatchObject({
-      background: '#1e1e2e',
-      foreground: '#cdd6f4',
-      red: '#f38ba8',
-    });
-  });
-
   it("gives Komla Light Ghostty's terminal, keeping the Terminal settings' other colors", () => {
     applyPalette('frost');
 
@@ -204,24 +194,16 @@ describe('palette runtime', () => {
       expect(scope('#282a36')).toEqual({});
     });
 
-    it("take the dark sibling's surfaces and the accent or project color fitted to dark", () => {
-      applyPalette('github-light');
-      const { className, style } = scope('#0d1117');
-
-      expect(className).toBe('dark');
-      expect(style).toMatchObject({
-        '--card': getPalette('github-dark').tokens['--card'],
-        '--primary': 'var(--dark-primary)',
-        '--ring': 'var(--dark-primary)',
-      });
-    });
-
-    it("take Komla Light's own surfaces for its softer terminal", () => {
+    it("take Komla Light's dark terminal surfaces and the accent or project color fitted to dark", () => {
       applyPalette('frost');
       const { className, style } = scope('#282c34');
 
       expect(className).toBe('dark');
-      expect(style).toMatchObject({ '--card': getPalette('frost').terminalTokens?.['--card'] });
+      expect(style).toMatchObject({
+        '--card': getPalette('frost').terminalTokens?.['--card'],
+        '--primary': 'var(--dark-primary)',
+        '--ring': 'var(--dark-primary)',
+      });
     });
 
     it('stay light under a custom light theme with a light terminal', () => {

@@ -9,9 +9,7 @@ import {
   PALETTES,
   darkSurfaces,
   getPalette,
-  lightSurfaces,
   paletteSurface,
-  paletteXterm,
   type PreviewToken,
 } from '../../../src/renderer/lib/palette-presets';
 import { oklchTripletToHex } from '../../../src/renderer/lib/palette-runtime';
@@ -135,7 +133,7 @@ describe('PALETTES', () => {
     }
   });
 
-  it("steps surfaces as Komla Dark's, spread out, and Komla Light's own", () => {
+  it("steps surfaces as Komla Dark's, spread out", () => {
     const lightness = (triplet: string) => Number(triplet.split(' ')[0]);
     const css = readFileSync(join(__dirname, '../../../src/renderer/styles/globals.css'), 'utf8');
     const dark = css.slice(css.indexOf('.dark {')).split('}')[0];
@@ -149,22 +147,17 @@ describe('PALETTES', () => {
       if (lowered.includes(token)) expect(komla, token).toBeLessThan(spread);
       else expect(spread, token).toBeCloseTo(komla, 2);
     }
-    const frost = getPalette('frost');
-    for (const [token, value] of Object.entries(lightSurfaces(frost.monaco.editorBackground))) {
-      expect(lightness(value), token).toBeCloseTo(lightness(frost.tokens[token as '--card']!), 2);
-    }
   });
 
-  // Komla Slate and Komla Slate Light keep the looks from before Graphite.
   it('layers every theme as Komla Dark and Komla Light do', () => {
     const lightness = (color: string) =>
       Number((color.startsWith('#') ? hexToOklchValues(color)! : color).split(' ')[0]);
-    for (const palette of PALETTES.filter((p) => !p.id.startsWith('slate'))) {
+    for (const palette of PALETTES) {
       const surface = (token: PreviewToken) => lightness(paletteSurface(palette, token));
       expect(surface('--chrome'), palette.id).toBeLessThan(surface('--card'));
       if (palette.mode === 'dark') {
         const terminal = lightness(
-          paletteXterm(palette)?.background ?? DEFAULT_TERMINAL_CONFIG.colors.background
+          palette.xterm?.background ?? DEFAULT_TERMINAL_CONFIG.colors.background
         );
         expect(surface('--chrome'), palette.id).toBeLessThan(terminal);
         expect(terminal, palette.id).toBeLessThan(surface('--card'));
@@ -174,7 +167,7 @@ describe('PALETTES', () => {
 
   it('keeps terminal text readable on every palette', () => {
     for (const palette of PALETTES) {
-      const xterm = paletteXterm(palette);
+      const { xterm } = palette;
       if (!xterm) continue;
       expect(contrast(xterm.foreground, xterm.background), palette.id).toBeGreaterThanOrEqual(4.5);
     }
@@ -185,8 +178,7 @@ describe('PALETTES', () => {
   it('sets the tab bar apart from the terminal in dark themes', () => {
     const lightness = (triplet: string) => Number(triplet.split(' ')[0]);
     for (const palette of PALETTES.filter((p) => p.mode === 'dark')) {
-      const terminal =
-        paletteXterm(palette)?.background ?? DEFAULT_TERMINAL_CONFIG.colors.background;
+      const terminal = palette.xterm?.background ?? DEFAULT_TERMINAL_CONFIG.colors.background;
       const difference = Math.abs(
         lightness(paletteSurface(palette, '--card')) - lightness(hexToOklchValues(terminal)!)
       );
@@ -194,39 +186,31 @@ describe('PALETTES', () => {
     }
   });
 
-  it('keeps terminals dark in light themes, mostly with a dark theme from the same list', () => {
+  it('keeps terminals dark in light themes', () => {
     for (const palette of PALETTES.filter((p) => p.mode === 'light')) {
-      if (palette.id !== 'frost' && palette.id !== 'slate-light') {
-        const sibling = PALETTES.find((p) => p.id === palette.darkTerminal);
-        expect(sibling?.mode, palette.id).toBe('dark');
-        expect(palette.xterm, palette.id).toBeUndefined();
-      }
-      const background = paletteXterm(palette)?.background;
+      const background = palette.xterm?.background;
       expect(background && isDarkColor(background), palette.id).toBe(true);
     }
   });
 
   it('leaves Komla Dark on the Terminal settings colors, and Komla Light on their ANSI colors', () => {
-    expect(paletteXterm(getPalette(DEFAULT_PALETTE_ID))).toBeUndefined();
-    expect(paletteXterm(getPalette('frost'))?.ansi).toBeUndefined();
+    expect(getPalette(DEFAULT_PALETTE_ID).xterm).toBeUndefined();
+    expect(getPalette('frost').xterm?.ansi).toBeUndefined();
   });
 
   it("softens Komla Light's terminal against Komla Dark's", () => {
-    const background = paletteXterm(getPalette('frost'))!.background;
+    const background = getPalette('frost').xterm!.background;
 
     expect(contrast(background, '#ffffff')).toBeLessThan(
       contrast(DEFAULT_TERMINAL_CONFIG.colors.background, '#ffffff')
     );
   });
 
-  it.each([
-    ['frost', 286],
-    ['slate-light', 258],
-  ])("tints %s's surfaces with its dark sibling's hue", (id, hue) => {
-    const tinted = Object.values(getPalette(id).tokens).filter((value) => value !== '1 0 0');
+  it("tints Komla Light's surfaces with Komla Dark's hue", () => {
+    const tinted = Object.values(getPalette('frost').tokens).filter((value) => value !== '1 0 0');
 
     expect(tinted.length).toBeGreaterThan(0);
-    for (const value of tinted) expect(value).toMatch(new RegExp(` ${hue}$`));
+    for (const value of tinted) expect(value).toMatch(/ 286$/);
   });
 
   it('previews Komla Dark with the surface colors globals.css gives it', () => {

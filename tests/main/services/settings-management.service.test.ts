@@ -1169,7 +1169,7 @@ describe('SettingsManagementService', () => {
         ...base,
         palette: 'dracula',
         followSystem: true,
-        lightPalette: 'one-light',
+        lightPalette: 'frost',
         colors: { accent: 'oklch(0.74 0.15 302)', lightAccent: 'oklch(0.5 0.2 270)' },
       });
       const nord = { palette: 'nord', accent: 'oklch(0.77 0.06 217)', borderRadius: 6 };
@@ -1180,7 +1180,7 @@ describe('SettingsManagementService', () => {
         setSystemIsDark(false);
 
         expect(service.readAppearance()).toMatchObject({
-          palette: 'one-light',
+          palette: 'frost',
           accent: 'oklch(0.5 0.2 270)',
         });
       });
@@ -1208,7 +1208,7 @@ describe('SettingsManagementService', () => {
           },
         ]);
         expect(result).toMatchObject({ status: 'applied', value: nord });
-        expect(getTheme()).toMatchObject({ palette: 'nord', lightPalette: 'one-light' });
+        expect(getTheme()).toMatchObject({ palette: 'nord', lightPalette: 'frost' });
       });
 
       it('applies the change when the system appearance switches while the user decides', async () => {

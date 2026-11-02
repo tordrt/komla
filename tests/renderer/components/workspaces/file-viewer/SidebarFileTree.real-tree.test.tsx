@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -204,6 +204,22 @@ describe('SidebarFileTree with the real tree model', () => {
     expect(fireEvent.keyDown(input, { key: 'Escape' })).toBe(false);
     expect(latestModel!.isSearchOpen()).toBe(false);
     expect(document.activeElement).not.toBe(input);
+  });
+
+  it('heads the changes view "Changes" while nothing has changed, not "Files"', () => {
+    render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="/repo"
+        currentFile={null}
+        onFileSelect={vi.fn()}
+        changedFilesOnly
+        changedFiles={[]}
+      />
+    );
+
+    expect(screen.getByText('Changes')).toBeInTheDocument();
+    expect(screen.queryByText('Files')).not.toBeInTheDocument();
   });
 
   it("leaves letters typed in the changes view to the file viewer's shortcuts", () => {

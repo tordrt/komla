@@ -1833,7 +1833,8 @@ function SidebarFileTreeHeader({
             )}
           </span>
         ) : changedFilesOnly ? (
-          <span className="text-xs font-medium text-muted-foreground">Files</span>
+          // Not "Files": under the Diff/Files switch, that names the other view.
+          <span className="text-xs font-medium text-muted-foreground">Changes</span>
         ) : (
           <SidebarFileTreeSearchInput
             search={search}

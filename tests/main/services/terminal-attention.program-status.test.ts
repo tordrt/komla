@@ -546,6 +546,50 @@ describe('Terminal Attention State: the status Codex reports in its Terminal', (
       expect(!!terminal('t1').agentActive).toBe(false);
     });
 
+    it('count tool use mid-turn as workspace activity', async () => {
+      const { attention, turnActivity, toTerminal } = harness();
+      started(attention, 't1');
+      attention.programStatusChanged('t1', codex('working'));
+      await attention.hook(toTerminal('t1'), prompt());
+      turnActivity.mockClear();
+
+      await attention.hook(toTerminal('t1'), activity('npm test'));
+
+      expect(turnActivity).toHaveBeenCalledWith('ws-1');
+    });
+
+    it('count tool use naming no Terminal by the Terminal its session is bound to', async () => {
+      const { attention, turnActivity, toWorkspace } = harness();
+      started(attention, 't1');
+      attention.programStatusChanged('t1', codex('working'));
+      await attention.hook(toWorkspace('ws-1'), prompt());
+      turnActivity.mockClear();
+
+      await attention.hook(toWorkspace('ws-1'), activity('npm test'));
+      expect(turnActivity).toHaveBeenCalledWith('ws-1');
+
+      turnActivity.mockClear();
+      attention.aborted('t1', true);
+      await attention.hook(toWorkspace('ws-1'), activity('npm test'));
+      expect(turnActivity).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the Stop of a turn that started a server', [activity('npm run dev'), stop()]],
+      ['an Interrupt the session reported', [interrupt()]],
+    ])('do not count tool use reported after %s as workspace activity', async (_end, ends) => {
+      const { attention, turnActivity, toWorkspace } = harness();
+      started(attention, 't1');
+      attention.programStatusChanged('t1', codex('working'));
+      await attention.hook(toWorkspace('ws-1'), prompt());
+      for (const end of ends) await attention.hook(toWorkspace('ws-1'), end);
+      turnActivity.mockClear();
+
+      await attention.hook(toWorkspace('ws-1'), activity('npm test'));
+
+      expect(turnActivity).not.toHaveBeenCalled();
+    });
+
     it('still name the workspace and record the reply', async () => {
       const { attention, promptSubmitted, agentReplied, toTerminal } = harness();
       attention.programStatusChanged('t1', codex('idle'));

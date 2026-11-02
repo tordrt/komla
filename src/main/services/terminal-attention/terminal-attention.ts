@@ -354,7 +354,10 @@ export class TerminalAttention {
       ? this.reportingTerminalFor(hook, target.workspace, target)
       : undefined;
     if (reportingTerminalId) {
-      return this.takeProgramHookContent(hook, target.workspace, reportingTerminalId);
+      const outcome = this.takeProgramHookContent(hook, target.workspace, reportingTerminalId);
+      const status = this.programStatuses.get(reportingTerminalId);
+      this.countToolActivity(hook, target.workspace, reportingTerminalId, status, status?.turn);
+      return outcome;
     }
     // A command's news for the whole workspace, as a background Quick Command's, is no Terminal's.
     const speaksForTerminals = !!target.terminalId || hook.source !== COMMAND_ATTENTION_SOURCE;
@@ -1138,6 +1141,7 @@ export class TerminalAttention {
       if (turn && typeof command === 'string' && isLongRunningCommand(command)) {
         turn.startedServer = true;
       }
+      if (terminalId) this.countToolActivity(hook, workspace, terminalId, status, turn);
       return 'taken';
     }
     if (turn && hook.kind === 'input-required') turn.approval = hook.message;
@@ -1973,6 +1977,26 @@ export class TerminalAttention {
       terminalId,
       Math.max(until, this.lateActivityUntil.get(terminalId) ?? 0)
     );
+  }
+
+  /**
+   * A tool call by an agent whose Terminal reports its own status counts as workspace activity,
+   * as it does when the hook drives the spinner: the status reports no tool calls mid-turn. Only
+   * one in the Terminal's turn while it works or waits on the user does: a hook can land late,
+   * after the turn ended, and Codex reports working on after it while a server it started runs.
+   * Another agent's hooks, as Grok runs Claude Code's, are tool calls in the program's turn too.
+   */
+  private countToolActivity(
+    hook: AgentHook,
+    workspace: Workspace,
+    terminalId: string,
+    status: ProgramStatus | undefined,
+    turn: ProgramTurn | undefined
+  ): void {
+    if (hook.kind !== 'activity' || !turn || turn.stopped) return;
+    if (status?.state !== 'working' && status?.state !== 'blocked') return;
+    if (this.isLateAgentActivity(terminalId)) return;
+    this.deps.turnActivity(workspace.id);
   }
 
   /**

@@ -368,6 +368,94 @@ describe('Terminal Attention State: the status any program reports in its Termin
       expect(!!terminal('t1').agentActive).toBe(false);
     });
 
+    it('count tool use mid-turn as workspace activity', async () => {
+      const { attention, turnActivity, toTerminal } = harness();
+      attention.programStatusChanged('t1', claude('idle'));
+      await attention.hook(toTerminal('t1'), prompt());
+      attention.programStatusChanged('t1', claude('working'));
+      turnActivity.mockClear();
+
+      await attention.hook(
+        toTerminal('t1'),
+        claudeHook('activity', { hook_event_name: 'PreToolUse' })
+      );
+
+      expect(turnActivity).toHaveBeenCalledWith('ws-1');
+    });
+
+    it('count tool use while the Terminal is blocked on a prompt as workspace activity', async () => {
+      const { attention, turnActivity, toTerminal } = harness();
+      attention.programStatusChanged('t1', claude('idle'));
+      await attention.hook(toTerminal('t1'), prompt());
+      attention.programStatusChanged('t1', claude('working'));
+      attention.programStatusChanged('t1', claude('blocked', { msg: 'Run npm test?' }));
+      turnActivity.mockClear();
+
+      await attention.hook(
+        toTerminal('t1'),
+        claudeHook('activity', { hook_event_name: 'PostToolUse' })
+      );
+
+      expect(turnActivity).toHaveBeenCalledWith('ws-1');
+    });
+
+    it.each([
+      ['its Stop', 'stop'],
+      ['the done its program reported', 'done'],
+      ['the idle its program reported', 'idle'],
+    ] as const)(
+      'do not count tool use reported after %s as workspace activity',
+      async (_end, end) => {
+        const { attention, turnActivity, toTerminal } = harness();
+        attention.programStatusChanged('t1', claude('idle'));
+        await attention.hook(toTerminal('t1'), prompt());
+        attention.programStatusChanged('t1', claude('working'));
+        if (end === 'stop') await attention.hook(toTerminal('t1'), stop());
+        else attention.programStatusChanged('t1', claude(end));
+        turnActivity.mockClear();
+
+        await attention.hook(
+          toTerminal('t1'),
+          claudeHook('activity', { hook_event_name: 'PostToolUse' })
+        );
+
+        expect(turnActivity).not.toHaveBeenCalled();
+      }
+    );
+
+    it('do not count tool use reported just after an interrupt as workspace activity', async () => {
+      const { attention, turnActivity, toTerminal } = harness();
+      attention.programStatusChanged('t1', claude('idle'));
+      await attention.hook(toTerminal('t1'), prompt());
+      attention.programStatusChanged('t1', claude('working'));
+      attention.aborted('t1', true);
+      turnActivity.mockClear();
+
+      await attention.hook(
+        toTerminal('t1'),
+        claudeHook('activity', { hook_event_name: 'PreToolUse' })
+      );
+
+      expect(turnActivity).not.toHaveBeenCalled();
+    });
+
+    it('do not count tool use from the interrupted turn once Claude works again', async () => {
+      const { attention, turnActivity, toTerminal } = harness();
+      attention.programStatusChanged('t1', claude('idle'));
+      await attention.hook(toTerminal('t1'), prompt());
+      attention.programStatusChanged('t1', claude('working'));
+      attention.aborted('t1', true);
+      attention.programStatusChanged('t1', claude('working'));
+      turnActivity.mockClear();
+
+      await attention.hook(
+        toTerminal('t1'),
+        claudeHook('activity', { hook_event_name: 'PostToolUse' })
+      );
+
+      expect(turnActivity).not.toHaveBeenCalled();
+    });
+
     it('leave the spinner to the statuses when copied from the device that owns the Terminal', async () => {
       const { attention, terminal, toTerminal } = harness();
       attention.programStatusChanged('t1', claude('idle'));

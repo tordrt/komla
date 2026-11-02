@@ -136,6 +136,7 @@ describe.each(['local', 'ssh'] as const)('GitBranchCleanupService integration (%
     for (const path of tempPaths) rmSync(path, { recursive: true, force: true });
   });
 
+  // Runs about 30 git commands, which took over 15 seconds on a busy Windows runner.
   it('marks merged, rebased and squash-merged branches as landed, and unmerged ones not', async () => {
     await branchWithCommits('merged', ['merged.txt']);
     await runGit(repoPath, ['merge', '--no-ff', '-m', 'merge', 'merged']);
@@ -161,7 +162,7 @@ describe.each(['local', 'ssh'] as const)('GitBranchCleanupService integration (%
       unmerged: false,
       partly: false,
     });
-  });
+  }, 60_000);
 
   it('counts a branch as landed when only origin has the merge', async () => {
     const originPath = mkdtempSync(join(tmpdir(), 'komla-branch-cleanup-origin-'));

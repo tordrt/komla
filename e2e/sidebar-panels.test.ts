@@ -44,7 +44,7 @@ document.querySelector('#title').addEventListener('click', () =>
 document.body.dataset.ready = 'true';
 `;
 
-// A page in Komla's theme, as `komla skill status-items` describes, with a button that runs one of
+// A page in Komla's theme, as `komla skill integrations` describes, with a button that runs one of
 // the panel's commands.
 const PAGE = `<style>
   .row { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border) }

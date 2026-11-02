@@ -9,7 +9,7 @@ import {
 describe('buildCustomizePrompt', () => {
   it('starts from the customize guide', () => {
     expect(buildCustomizePrompt()).toContain('Run `komla skill customize` and follow it.');
-    expect(buildCustomizePrompt()).not.toContain('komla skill status-items');
+    expect(buildCustomizePrompt()).not.toContain('komla skill integrations');
   });
 
   it.each([ASK_FOR_STATUS_ITEM, SUGGEST_STATUS_ITEMS])(
@@ -17,7 +17,7 @@ describe('buildCustomizePrompt', () => {
     (ask) => {
       const prompt = buildCustomizePrompt(ask);
       expect(prompt).toContain('Run `komla skill customize` and follow it.');
-      expect(prompt.indexOf('komla skill status-items')).toBeLessThan(prompt.indexOf('ask me'));
+      expect(prompt.indexOf('komla skill integrations')).toBeLessThan(prompt.indexOf('ask me'));
     }
   );
 });

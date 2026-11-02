@@ -317,7 +317,7 @@ const COMMANDS: &[Command] = &[
             ("--icon-color <color>", "The icon's shape in a color, such as foreground for a one-color logo."),
             ("--tooltip <text>", "Text on hover."),
             ("--link <url>", "A page the item opens, or with a popover a button below it."),
-            ("--popover <html>", "An HTML page shown when the item is clicked, sandboxed: nothing loads from the web, Komla's theme colors are CSS variables such as var(--success), and links open on a click. komla skill status-items shows how to make one."),
+            ("--popover <html>", "An HTML page shown when the item is clicked, sandboxed: nothing loads from the web, Komla's theme colors are CSS variables such as var(--success), and links open on a click. komla skill integrations shows how to make one."),
             ("--popover-file <path|->", "The popover's page from a file, or stdin with -."),
             ("--popover-markdown <markdown>", "Plain Markdown in place of a page, for a line or two of text."),
             ("--popover-markdown-file <path|->", "The popover's Markdown from a file, or stdin with -."),
@@ -383,7 +383,7 @@ const COMMANDS: &[Command] = &[
         usages: &["<guide>"],
         summary: "Print a guide for an agent to follow",
         description: &[
-            "Prints a guide for an agent to follow. customize, status-items, automations, project-setup and appearance change Komla's settings. onboarding-demo and self-integration are flows Komla's own prompts start: a tour of the CLI, and connecting an agent CLI Komla doesn't support out of the box.",
+            "Prints a guide for an agent to follow. customize, integrations, automations, project-setup and appearance change Komla's settings; integrations covers status bar items, sidebar panels and plugins. onboarding-demo and self-integration are flows Komla's own prompts start: a tour of the CLI, and connecting an agent CLI Komla doesn't support out of the box.",
         ],
         options: &[],
         examples: &["komla skill customize"],

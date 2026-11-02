@@ -11,12 +11,13 @@ that after you change something.
 | ---------------------------------------------------- | --------------------------- | -------------------------------- |
 | A theme, accent color or corner radius               | `komla skill appearance`    | `appearance`                     |
 | Quick Commands or Workspace Setup                    | `komla skill project-setup` | `actions`, `workspace-setup`     |
-| A custom status bar item                             | `komla skill status-items`  | `status-items`                   |
-| A panel in the sidebar, beside Diff and Files        | `komla skill status-items`  | `sidebar-panels`                 |
+| A custom status bar item                             | `komla skill integrations`  | `status-items`                   |
+| A panel in the sidebar, beside Diff and Files        | `komla skill integrations`  | `sidebar-panels`                 |
 | An agent Komla starts with a prompt on a schedule    | `komla skill automations`   | `automations`                    |
 | A hook, a shortcut, or the terminal's font or cursor | this guide                  | `hooks`, `shortcuts`, `terminal` |
 | An agent preset's arguments or level picker          | this guide                  | `agents`                         |
 | Items, panels and hooks to share or turn off as one  | this guide                  | `plugins`                        |
+| A plugin with code of its own, feeding its panels    | `komla skill integrations`  | `plugins`                        |
 
 For anything else, such as notification settings or SSH hosts, point the user to Komla's Settings.
 

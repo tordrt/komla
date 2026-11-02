@@ -9,7 +9,7 @@ import { KOMLA_FONT_FACES, KOMLA_SCROLLBARS, themeStyle } from './komla-page-sty
 
 /*
  * What a sidebar panel's own page gets from Komla, before its own HTML: Komla's theme colors as
- * CSS variables, its fonts, and `komla`, the page's way to Komla (`komla skill status-items`
+ * CSS variables, its fonts, and `komla`, the page's way to Komla (`komla skill integrations`
  * describes it). The page loads once and stays; data, theme changes and replies come as messages.
  */
 

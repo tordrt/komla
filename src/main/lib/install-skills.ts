@@ -43,7 +43,7 @@ const SKILL_DIRS = [KOMLA_SKILL_NAME];
 const SKILL_LOOSE_FILES = [
   'komla-appearance-instructions.md',
   'komla-customize-instructions.md',
-  'komla-status-items-instructions.md',
+  'komla-integrations-instructions.md',
   'komla-automations-instructions.md',
   'komla-project-setup-instructions.md',
   'komla-onboarding-demo-instructions.md',

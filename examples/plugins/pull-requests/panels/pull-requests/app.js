@@ -4,7 +4,18 @@
 
 const FAILING = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
 const PENDING = new Set(['IN_PROGRESS', 'QUEUED', 'PENDING', 'WAITING', 'REQUESTED', 'EXPECTED']);
-const ICONS = { failing: '', pending: '', passing: '', none: '' };
+// Nerd Font glyphs, which komla.css's k-icon shows in Komla's icon font.
+const ICON = {
+  failing: '',
+  pending: '',
+  passing: '',
+  none: '',
+  agent: '',
+  external: '',
+  branch: '',
+  done: '',
+  search: '',
+};
 
 const lists = document.querySelector('#lists');
 const filter = document.querySelector('#filter');
@@ -16,7 +27,8 @@ const refreshButton = document.querySelector('#refresh');
 let state = { me: '', repo: null, prs: [] };
 let receivedAt = 0;
 const open = new Set();
-const collapsed = new Set(['others']);
+/** Whether the user opened or folded each section, so a refresh leaves it so. */
+const opened = new Map();
 const showingAll = new Set();
 /** How many pull requests a section shows before "Show more". */
 const SHOWN = 8;
@@ -27,11 +39,26 @@ function el(tag, props = {}, ...children) {
     if (value === undefined || value === false) continue;
     if (key === 'class') node.className = value;
     else if (key === 'text') node.textContent = value;
+    else if (key === 'style') node.style.cssText = value;
     else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
     else node.setAttribute(key, value === true ? '' : value);
   }
-  node.append(...children.filter((child) => child !== null && child !== undefined));
+  node.append(...children.filter((child) => child !== null && child !== undefined && child !== false));
   return node;
+}
+
+const icon = (glyph, className = '') => el('span', { class: `k-icon ${className}`, text: glyph, 'aria-hidden': 'true' });
+const sep = () => el('span', { class: 'k-sep' });
+
+/** A GitHub login without the app/ that bots' logins have. */
+const login = (pr) => (pr.author?.login ?? '').replace(/^app\//, '');
+
+/** Initials in a color the name always gets, since a page can't load avatars from the web. */
+function avatar(name) {
+  let hue = 0;
+  for (const char of name) hue = (hue * 31 + char.charCodeAt(0)) % 360;
+  const initials = name.split(/[-_.\s]+/).filter(Boolean).map((part) => part[0]).join('').slice(0, 2) || '?';
+  return el('span', { class: 'k-avatar', style: `--k-hue: ${hue}`, text: initials, title: name });
 }
 
 function ago(iso) {
@@ -93,10 +120,15 @@ function agentTask(kind, pr) {
   };
 }
 
-function say(message, isError = false) {
+let sayTimer;
+/** A banner above the list; a success goes by itself. */
+function say(message, tone, fromRefresh = false) {
+  clearTimeout(sayTimer);
+  notice.dataset.fromRefresh = String(fromRefresh);
+  if (tone === 'success') sayTimer = setTimeout(() => say(null), 6000);
   notice.hidden = !message;
   notice.textContent = message ?? '';
-  notice.classList.toggle('k-error', isError);
+  notice.className = `k-banner ${tone ? `k-${tone}` : ''}`;
 }
 
 async function startAgent(kind, pr, button) {
@@ -105,9 +137,9 @@ async function startAgent(kind, pr, button) {
   try {
     // Komla asks the user first, showing the prompt, and starts the agent once they allow it.
     await komla.agent.launch({ destination: 'workspace', ...agentTask(kind, pr) });
-    say(`Started an agent for #${pr.number} in a new workspace.`);
+    say(`Started an agent for #${pr.number} in a new workspace.`, 'success');
   } catch (error) {
-    if (error.code !== 'DECLINED') say(error.message, true);
+    if (error.code !== 'DECLINED') say(error.message, 'error');
   } finally {
     button.disabled = false;
   }
@@ -125,14 +157,18 @@ function actionsFor(pr, c) {
     'div',
     { class: 'actions' },
     ...buttons.map(([kind, label], index) => {
-      const button = el('button', {
-        class: `k-button${index === 0 ? ' k-primary' : ''}`,
-        text: label,
-        onclick: () => startAgent(kind, pr, button),
-      });
+      const button = el(
+        'button',
+        {
+          class: `k-button k-small${index === 0 ? ' k-primary' : ''}`,
+          onclick: () => startAgent(kind, pr, button),
+        },
+        icon(ICON.agent),
+        label
+      );
       return button;
     }),
-    el('a', { class: 'k-button k-ghost', href: pr.url, text: 'Open on GitHub' })
+    el('a', { class: 'k-button k-small', href: pr.url }, icon(ICON.external), 'GitHub')
   );
 }
 
@@ -141,22 +177,42 @@ function detail(pr, c) {
   return el(
     'div',
     { class: 'detail' },
+    el(
+      'div',
+      { class: 'branch' },
+      icon(ICON.branch),
+      el('code', { class: 'head', text: pr.headRefName, title: pr.headRefName }),
+      el('span', { text: '→' }),
+      el('code', { text: pr.baseRefName })
+    ),
+    el(
+      'div',
+      { class: 'k-meta' },
+      el(
+        'span',
+        { class: 'k-tabular' },
+        el('span', { class: 'added', text: `+${pr.additions}` }),
+        ' ',
+        el('span', { class: 'removed', text: `−${pr.deletions}` })
+      ),
+      sep(),
+      el('span', { text: checkLabel(c) })
+    ),
     named.length
       ? el(
           'ul',
-          { class: 'checks' },
-          ...named.map((check) =>
-            el(
+          { class: 'check-list' },
+          ...named.map((check) => {
+            const failing = FAILING.has(check.state);
+            return el(
               'li',
               {},
-              el('span', {
-                class: `k-dot ${FAILING.has(check.state) ? 'k-error' : 'k-warning'}`,
-              }),
+              icon(failing ? ICON.failing : ICON.pending, failing ? 'k-error' : 'k-warning'),
               check.url
-                ? el('a', { class: 'k-truncate', href: check.url, text: check.name })
+                ? el('a', { class: 'k-link k-truncate', href: check.url, text: check.name })
                 : el('span', { class: 'k-truncate', text: check.name })
-            )
-          )
+            );
+          })
         )
       : null,
     actionsFor(pr, c)
@@ -166,67 +222,71 @@ function detail(pr, c) {
 function row(pr) {
   const c = checks(pr);
   const expanded = open.has(pr.number);
+  const name = login(pr);
+  const tags = [
+    reviewBadge(pr),
+    pr.mergeable === 'CONFLICTING' ? el('span', { class: 'k-badge k-error', text: 'Conflicts' }) : null,
+  ].filter(Boolean);
   return el(
     'li',
-    { class: 'pr' },
+    { class: `pr${expanded ? ' open' : ''}` },
     el(
       'button',
       {
         class: 'k-item',
         'aria-expanded': String(expanded),
-        title: checkLabel(c),
         onclick: () => {
           if (expanded) open.delete(pr.number);
           else open.add(pr.number);
           render();
         },
       },
-      el('span', { class: `state ${tone[c.summary]}`, text: ICONS[c.summary], 'aria-label': checkLabel(c) }),
+      avatar(name || '?'),
       el(
         'span',
         { class: 'k-grow' },
-        el('span', { class: 'title', text: pr.title }),
+        el('span', { class: 'title k-clamp', text: pr.title, title: pr.title }),
         el(
           'span',
-          { class: 'meta' },
-          el('span', { class: 'number', text: `#${pr.number}` }),
-          el('span', { text: pr.author?.login ?? '' }),
-          el('span', { text: ago(pr.updatedAt) }),
-          el(
-            'span',
-            { class: 'size' },
-            el('span', { class: 'added', text: `+${pr.additions}` }),
-            ' ',
-            el('span', { class: 'removed', text: `−${pr.deletions}` })
-          ),
-          reviewBadge(pr),
-          pr.mergeable === 'CONFLICTING' ? el('span', { class: 'k-badge k-error', text: 'Conflicts' }) : null
-        )
-      )
+          { class: 'k-meta' },
+          el('span', { class: 'k-tabular', text: `#${pr.number}` }),
+          ...(name ? [sep(), el('span', { class: 'k-truncate author', text: name })] : []),
+          sep(),
+          el('span', { text: ago(pr.updatedAt) })
+        ),
+        tags.length ? el('span', { class: 'tags' }, ...tags) : null
+      ),
+      el('span', {
+        class: `checks-state k-icon ${tone[c.summary]}`,
+        text: ICON[c.summary] ?? '',
+        title: checkLabel(c),
+        'aria-label': checkLabel(c),
+      })
     ),
     expanded ? detail(pr, c) : null
   );
 }
 
-function section(key, title, prs, empty) {
+/** A section with its count; one with nothing in it isn't shown. */
+function section(key, title, prs, { tone: countTone, open: openAtFirst = true } = {}) {
+  if (prs.length === 0) return null;
   const all = showingAll.has(key) || prs.length <= SHOWN + 2;
   const shown = all ? prs : prs.slice(0, SHOWN);
+  const isOpen = opened.get(key) ?? openAtFirst;
   const node = el(
     'details',
-    { class: 'section', open: !collapsed.has(key) },
+    { class: 'k-section', open: isOpen },
     el(
       'summary',
-      {},
-      el('h2', { class: 'k-section-title', text: title }),
-      el('span', { class: 'k-badge', text: String(prs.length) })
+      { class: 'k-section-header' },
+      el('span', { text: title }),
+      el('span', { class: `k-count ${countTone ?? ''}`, text: String(prs.length) })
     ),
-    prs.length
-      ? el('ul', { class: 'k-list' }, ...shown.map(row))
-      : el('p', { class: 'k-muted', text: empty }),
+    el('ul', { class: 'k-list' }, ...shown.map(row)),
     all
       ? null
       : el('button', {
-          class: 'k-button k-ghost more',
+          class: 'k-button k-ghost k-small more',
           text: `Show ${prs.length - SHOWN} more`,
           onclick: () => {
             showingAll.add(key);
@@ -235,10 +295,14 @@ function section(key, title, prs, empty) {
         })
   );
   node.addEventListener('toggle', () => {
-    if (node.open) collapsed.delete(key);
-    else collapsed.add(key);
+    // It also fires for the open it's built with, which the user didn't choose.
+    if (node.open !== (opened.get(key) ?? openAtFirst)) opened.set(key, node.open);
   });
   return node;
+}
+
+function empty(glyph, title, text) {
+  return el('div', { class: 'k-empty' }, icon(glyph), el('strong', { text: title }), el('span', { text }));
 }
 
 function matches(pr, query) {
@@ -257,10 +321,25 @@ function render() {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const mine = (pr) => pr.author?.login === state.me;
   const asked = (pr) => !mine(pr) && (pr.reviewRequests ?? []).some((request) => request.login === state.me);
+  if (prs.length === 0) {
+    lists.replaceChildren(
+      query
+        ? empty(ICON.search, 'Nothing matches', `No open pull request has “${query}” in it.`)
+        : empty(ICON.done, 'No open pull requests', 'Nothing here needs you.')
+    );
+    return;
+  }
+  const waiting = prs.filter(asked);
+  const yours = prs.filter(mine);
   lists.replaceChildren(
-    section('review', 'Waiting on your review', prs.filter(asked), 'Nobody is waiting on you.'),
-    section('mine', 'Yours', prs.filter(mine), 'You have no open pull requests here.'),
-    section('others', 'Everything else', prs.filter((pr) => !mine(pr) && !asked(pr)), 'Nothing else is open.')
+    ...[
+      section('review', 'Waiting on your review', waiting, { tone: 'k-warning' }),
+      section('mine', 'Yours', yours),
+      // Folded under the ones that need the user, unless it's all there is.
+      section('others', 'Everything else', prs.filter((pr) => !mine(pr) && !asked(pr)), {
+        open: waiting.length + yours.length === 0,
+      }),
+    ].filter(Boolean)
   );
 }
 
@@ -276,9 +355,11 @@ function showProblem(message) {
   lists.replaceChildren(
     el(
       'div',
-      { class: 'problem k-stack' },
-      el('p', { class: 'k-muted', text: message }),
-      hint.length ? el('p', {}, ...hint) : null
+      { class: 'k-empty' },
+      icon(ICON.failing, 'k-error'),
+      el('strong', { text: "Couldn't get the pull requests" }),
+      hint.length ? el('span', {}, ...hint) : null,
+      el('span', { class: 'k-mono problem', text: message })
     )
   );
 }
@@ -291,6 +372,8 @@ komla.onData((data, error) => {
   if (data && typeof data === 'object' && Array.isArray(data.prs)) {
     state = data;
     receivedAt = Date.now();
+    // GitHub answers again, so a failed refresh's banner is out of date.
+    if (notice.dataset.fromRefresh === 'true') say(null);
     repoLink.textContent = data.repo?.nameWithOwner ?? 'Pull requests';
     repoLink.href = data.repo?.url ?? '#';
     updatedLabel();
@@ -300,22 +383,22 @@ komla.onData((data, error) => {
   const problem = error ?? (typeof data === 'string' ? data || 'The GitHub CLI printed nothing.' : '');
   if (!problem) return;
   // A failed refresh after one that worked keeps the list, and says above it what failed.
-  if (state.prs.length > 0) say(`GitHub didn't answer: ${problem}`, true);
+  if (state.prs.length > 0) say(`GitHub didn't answer: ${problem}`, 'error', true);
   else showProblem(problem);
 });
 
 // The plugin's code asks GitHub again, and posts what it says.
 refreshButton.addEventListener('click', async () => {
   refreshButton.disabled = true;
-  refreshButton.classList.add('k-spinning');
+  refreshButton.firstElementChild.classList.add('k-spin');
   try {
+    // A failed refresh comes back as a post, which onData shows.
     await komla.send({ type: 'refresh' });
-    say(null);
   } catch (error) {
-    say(error.message, true);
+    say(error.message, 'error', true);
   } finally {
     refreshButton.disabled = false;
-    refreshButton.classList.remove('k-spinning');
+    refreshButton.firstElementChild.classList.remove('k-spin');
   }
 });
 

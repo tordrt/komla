@@ -484,7 +484,7 @@ At most 30 items. A file Komla can't read shows a warning item in the status bar
 
 Defines panels in the workspace sidebar, as tabs beside Diff and Files: pages a command prints, which Komla runs when the panel opens and on an interval while it stays open. A panel takes a status item's fields and runs where they do; its \`command\` prints what a status item's \`popoverCommand\` prints, an HTML page or Markdown with buttons, shown in the same sandbox, or plain text, shown as a terminal shows it.
 
-A panel can instead have a page of its own, \`"page": "panels/<file or folder>"\`, such as a built React app, which loads once and gets what its \`command\` prints as data. It reaches Komla through \`komla\` in the page, and may change only what its \`capabilities\` name. \`komla skill status-items\` describes it.
+A panel can instead have a page of its own, \`"page": "panels/<file or folder>"\`, such as a built React app, which loads once and gets what its \`command\` prints as data. It reaches Komla through \`komla\` in the page, and may change only what its \`capabilities\` name. \`komla skill integrations\` describes it.
 
 \`\`\`json
 {
@@ -510,7 +510,7 @@ Field reference:
 - \`timeoutSeconds\` — how long the command may run, 1 to 600 (default 30)
 - \`runOn\`, \`projects\`, \`icon\`, \`iconColor\` and \`commands\` — as for status bar items; \`commands\` are what the page's buttons run
 
-At most 20 panels. A file Komla can't read shows what is wrong in the sidebar. \`komla skill status-items\` says how to make the page fit Komla's theme.
+At most 20 panels. A file Komla can't read shows what is wrong in the sidebar. \`komla skill integrations\` says how to make the page fit Komla's theme.
 
 ### hooks.json
 

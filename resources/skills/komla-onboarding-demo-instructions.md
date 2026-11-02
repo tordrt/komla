@@ -261,7 +261,7 @@ Ask the user to open the Demo Workspace again and click its CI item: the same it
 passed run, as a script sets it again with what changed. An item an agent or script sets lasts until
 Komla quits. For one Komla keeps, backed by a command that asks the CI service on an interval, with
 buttons that run commands such as rerunning failed jobs, the user approves it in
-`status-items.json`; `komla skill status-items` shows how. Then ask the user to come back to this
+`status-items.json`; `komla skill integrations` shows how. Then ask the user to come back to this
 tab and ask to continue. End the turn.
 
 ## Wrap up

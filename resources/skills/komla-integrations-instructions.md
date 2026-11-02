@@ -1,4 +1,8 @@
-# Komla Status Bar Items and Sidebar Panels
+# Komla Integrations: Status Bar Items, Sidebar Panels and Plugins
+
+What Komla shows of the user's own tools: a status bar item for a glance, a sidebar panel for a
+list or a board beside their work, and a plugin that bundles them, with code of its own when
+commands fall short. Each section below builds on the one before.
 
 A status bar item shows a few words from a command, refreshed on an interval, in every workspace or
 a project's, and can open a popover with more and buttons that run commands. Change them with
@@ -63,8 +67,8 @@ The page runs in a sandbox: inline styles and scripts work, but nothing loads fr
 Komla's theme colors so it fits every theme, dark and light: `--foreground`, `--muted-foreground`,
 `--muted`, `--border`, `--card`, `--accent`, `--primary`, `--success`, `--warning`, `--error` and
 `--info`, and `color-mix()` for tints. Keep its background transparent and `color-scheme` unset.
-It has Komla's font with Nerd Font icons, and the classes of `komla.css` (under **A page of its
-own**), such as `k-badge` and `k-success`. It is 352 pixels wide and scrolls past 420 pixels tall.
+It has Komla's font with Nerd Font icons, and the classes of `komla.css` (under **Pages that look
+like Komla**), such as `k-badge` and `k-success`. It is 352 pixels wide and scrolls past 420 pixels tall.
 Escape text from elsewhere, as `@html` does.
 
 ## Sidebar panels
@@ -141,14 +145,81 @@ scripts run:
   it below; `"*"` follows every event.
 - The theme's colors are CSS variables, such as `var(--success)`, which change with the user's
   theme; `komla.onTheme(theme => …)` says when. `<link rel="stylesheet" href="/__komla/komla.css">`
-  styles the page as Komla, with classes such as `k-button`, `k-primary`, `k-list`, `k-item`,
-  `k-card`, `k-badge`, `k-success`, `k-muted`, `k-row`, `k-stack`, `k-table` and `k-spinner`.
+  styles the page as Komla, as the next section shows.
 - Links to http(s) pages open in the browser. Don't reload or navigate the page itself; call
   `komla.refresh()`.
 - In a plugin with code, `komla.send(message)` asks the plugin's code and resolves to its answer.
 
 Data can carry text from elsewhere, such as a pull request title: put it in the page with
 `textContent` or your framework's text, never as HTML.
+
+## Pages that look like Komla
+
+The user keeps a panel open beside their work all day, so it should read as part of Komla, not as
+a web page inside it. `komla.css` has the pieces; build from them before writing styles of your
+own, and start from this skeleton:
+
+```html
+<link rel="stylesheet" href="/__komla/komla.css" />
+<header class="k-header">
+  <div class="k-toolbar">
+    <label class="k-search">
+      <span class="k-icon">&#xea6d;</span><input class="k-input" type="search" placeholder="Filter runs" />
+    </label>
+    <button class="k-icon-button" title="Refresh" aria-label="Refresh">
+      <span class="k-icon">&#xeb37;</span>
+    </button>
+  </div>
+  <div class="k-meta"><span>main</span><span class="k-sep"></span><span>2m ago</span></div>
+</header>
+<div class="k-banner k-error" hidden></div>
+<details class="k-section" open>
+  <summary class="k-section-header"><span>Failing</span><span class="k-count k-error">2</span></summary>
+  <ul class="k-list">
+    <li>
+      <button class="k-item" aria-expanded="false">
+        <span class="k-avatar" style="--k-hue: 210">TD</span>
+        <span class="k-grow">
+          <span class="k-clamp">A title, set with textContent</span>
+          <span class="k-meta"><span>#123</span><span class="k-sep"></span><span>5d ago</span></span>
+        </span>
+        <span class="k-icon k-error" title="2 checks failing">&#xf00d;</span>
+      </button>
+    </li>
+  </ul>
+</details>
+<div class="k-empty"><span class="k-icon">&#xeab2;</span><strong>All clear</strong><span>Nothing fails on main.</span></div>
+```
+
+- **The panel's tab and header already name it.** Don't repeat the title. The page's header holds
+  what the user acts on, a filter and a refresh, over a line of `k-meta`: where the data is from
+  and when it updated. `k-header` stays at the top as the page scrolls; change the page's padding
+  with `--k-page-x` and `--k-page-y`, not on `body`, so the header still meets the edges.
+- **One line of meaning per row.** A title of at most two lines (`k-clamp`), one muted `k-meta`
+  line below it, with `k-sep` between its parts, and the row's state as an icon at its right. Put
+  the rest, such as a run's failing jobs and the buttons that act on it, in the row's open state
+  (`aria-expanded="true"`) rather than in every row.
+- **Color says state, nothing else.** Use `k-success`, `k-warning`, `k-error` and `k-info` on
+  icons, counts, badges and banners, and keep text in `--foreground` or `--muted-foreground`. Add
+  no colors, gradients, shadows or font sizes of your own: the base is 12px, and meta is 11px.
+- **Leave out what's empty.** Skip a section with nothing in it. When there's nothing at all, show
+  `k-empty`: an icon, a line, and what to do when it's a problem, such as `gh auth login`.
+- **Loading and errors.** Show `k-skeleton` rows or `k-spinner` until the first data comes. When
+  a later refresh fails, keep what's shown and say so in a `k-banner` above it.
+- **Icons** are Nerd Font glyphs in `k-icon`, or a `k-icon-button` for a button that is only an
+  icon, never emoji: search `&#xea6d;`, refresh `&#xeb37;`, check `&#xf00c;`, cross `&#xf00d;`,
+  running `&#xf192;`, branch `&#xe725;`, pull request `&#xea64;`, link out `&#xeb14;`, agent
+  `&#xeb08;`.
+- **Buttons.** At most one `k-primary` in view, `k-small` inside a row, and `<a class="k-button">`
+  for a link to the web. The page can't load images from the web, so people get `k-avatar`
+  initials, with `--k-hue` from a hash of their name.
+- **Check it** at 260 and 400 pixels wide, in a dark theme and a light one. With Development on in
+  Settings → Plugins, the panel's inspect button opens its developer tools.
+
+The rest of `komla.css`: `k-row`, `k-stack` and `k-grow` lay out, `k-truncate` cuts a line short,
+`k-muted`, `k-mono`, `k-tabular` and `k-kbd` style text, `k-card`, `k-table`, `k-progress` (with
+`--value` from 0 to 1), `k-badge`, `k-dot`, `k-divider` and `k-link` show things, and `k-input`,
+`k-button` and `k-ghost` take input. `[hidden]` hides any of them.
 
 ## With the rest of Komla
 

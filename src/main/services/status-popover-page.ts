@@ -75,7 +75,7 @@ ${themeStyle(theme)}
 ${KOMLA_FONT_FACES}
 ${KOMLA_STYLESHEET}
 html, body { margin: 0; background: transparent; }
-body { padding: 10px 12px; font: 12px/1.5 'Geist', 'Komla Icons', system-ui, sans-serif; color: var(--foreground); }
+body { font: 12px/1.5 'Geist', 'Komla Icons', system-ui, sans-serif; color: var(--foreground); }
 a { color: var(--primary); }
 code { font: 11px/1.4 'Komla Mono', ui-monospace, monospace; padding: 1px 4px; border-radius: 4px; background: color-mix(in oklch, var(--muted) 80%, transparent); }
 ${KOMLA_SCROLLBARS}

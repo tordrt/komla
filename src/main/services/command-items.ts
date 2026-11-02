@@ -139,7 +139,7 @@ const pageOutputSchema = z
       .meta({ description: 'Plain Markdown in place of `html`, for a line or two of text.' }),
     html: z.string().optional().meta({
       description:
-        "A page shown in a sandbox: inline `<style>` and `<script>` work, but nothing loads from the web and it can't reach Komla. `komla skill status-items` says how to make it match Komla's theme.",
+        "A page shown in a sandbox: inline `<style>` and `<script>` work, but nothing loads from the web and it can't reach Komla. `komla skill integrations` says how to make it match Komla's theme.",
     }),
     buttons: z.array(z.unknown()).optional().catch(undefined),
   })

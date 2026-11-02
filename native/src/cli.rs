@@ -146,12 +146,12 @@ const TAG_TONES: [&str; 6] = [
     "error",
 ];
 const SKILL_USAGE: &str = "usage: komla skill \
-     <customize|status-items|automations|project-setup|appearance|onboarding-demo|self-integration>";
+     <customize|integrations|automations|project-setup|appearance|onboarding-demo|self-integration>";
 
 /// Guides that `komla skill <name>` prints, keyed by name.
 const SKILL_GUIDES: [(&str, &str); 7] = [
     ("customize", "komla-customize-instructions.md"),
-    ("status-items", "komla-status-items-instructions.md"),
+    ("integrations", "komla-integrations-instructions.md"),
     ("automations", "komla-automations-instructions.md"),
     ("project-setup", "komla-project-setup-instructions.md"),
     ("appearance", "komla-appearance-instructions.md"),
@@ -4792,9 +4792,9 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
     }
 
     #[test]
-    fn fetches_the_status_items_and_automations_guides_by_their_short_names() {
+    fn fetches_the_integrations_and_automations_guides_by_their_short_names() {
         for (guide, path) in [
-            ("status-items", "/skills/komla-status-items-instructions.md"),
+            ("integrations", "/skills/komla-integrations-instructions.md"),
             ("automations", "/skills/komla-automations-instructions.md"),
         ] {
             let mut api = FakeApi {

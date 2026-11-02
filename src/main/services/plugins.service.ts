@@ -77,7 +77,7 @@ export const pluginManifestSchema = z
       .optional()
       .meta({
         description:
-          "The plugin's code: a JavaScript or TypeScript module in its folder, such as `main.ts`, which Komla runs without a build step in a process of its own while the plugin is on, and calls as `activate(komla)`. `komla` calls Komla Operations, follows events, runs commands in a workspace, and gives the plugin's panels data and badges, as `komla skill status-items` describes. For an integration that keeps state, or feeds a panel and a status item from one query.",
+          "The plugin's code: a JavaScript or TypeScript module in its folder, such as `main.ts`, which Komla runs without a build step in a process of its own while the plugin is on, and calls as `activate(komla)`. `komla` calls Komla Operations, follows events, runs commands in a workspace, and gives the plugin's panels data and badges, as `komla skill integrations` describes. For an integration that keeps state, or feeds a panel and a status item from one query.",
       }),
     contributes: z
       .object({

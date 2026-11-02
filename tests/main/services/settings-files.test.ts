@@ -545,7 +545,7 @@ describe('settings files', () => {
           ),
         ].map(([, json]) => JSON.parse(json) as Record<string, unknown>);
       const [hooks] = examples('komla-customize-instructions.md');
-      const [items] = examples('komla-status-items-instructions.md');
+      const [items] = examples('komla-integrations-instructions.md');
 
       expect(files.hooks.prepare(hooks)).not.toHaveProperty('problems');
       expect(files['status-items'].prepare(items)).not.toHaveProperty('problems');
@@ -766,7 +766,7 @@ describe('settings files', () => {
     it("takes the guide's examples as they are", () => {
       const [, panels, pagePanel] = [
         ...readFileSync(
-          join('resources', 'skills', 'komla-status-items-instructions.md'),
+          join('resources', 'skills', 'komla-integrations-instructions.md'),
           'utf-8'
         ).matchAll(/```json\r?\n([\s\S]*?)```/g),
       ].map(([, json]) => JSON.parse(json) as Record<string, unknown>);

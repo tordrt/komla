@@ -45,5 +45,5 @@ cp -R examples/plugins/pull-requests ~/.komla/plugins/
 While you change it, turn on Development for it in Settings → Plugins: it then runs as its files
 change, and the panel gets buttons to load the page again and open the developer tools.
 `main.ts` imports its types from `@komla/sdk/plugin`, the Komla SDK in Komla's repository, which
-an editor finds once the SDK is installed; Komla ignores the import. `komla skill status-items`
+an editor finds once the SDK is installed; Komla ignores the import. `komla skill integrations`
 describes the rest.

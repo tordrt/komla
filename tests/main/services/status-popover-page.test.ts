@@ -25,6 +25,18 @@ describe('buildStatusPopoverPage', () => {
     expect(page.indexOf('.k-badge')).toBeLessThan(page.indexOf('<p class="k-muted">'));
   });
 
+  it("pads the page by komla.css's variables, which k-header's margins follow", () => {
+    const page = buildStatusPopoverPage('<header class="k-header"></header>', undefined);
+    expect(page).toContain('body { padding: var(--k-page-y) var(--k-page-x); }');
+    // Nothing after komla.css pads the body otherwise.
+    expect(page).not.toMatch(/body \{[^}]*padding: \d/);
+  });
+
+  it('hides a hidden element even when a k- class shows it', () => {
+    const page = buildStatusPopoverPage('<div class="k-banner" hidden>…</div>', undefined);
+    expect(page).toContain("[hidden]:not([hidden='until-found']) { display: none !important; }");
+  });
+
   it('leaves out colors that are not OKLCH channels', () => {
     const page = buildStatusPopoverPage('', {
       scheme: 'light',
@@ -32,6 +44,6 @@ describe('buildStatusPopoverPage', () => {
     });
     expect(page).toContain(':root { --primary: oklch(0.5 0.1 250); }');
     expect(page).toContain("dataset.theme = 'light'");
-    expect(page).not.toContain('display: none');
+    expect(page).not.toContain('body { display: none');
   });
 });

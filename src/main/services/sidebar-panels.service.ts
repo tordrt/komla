@@ -82,7 +82,7 @@ export const sidebarPanelSchema = z
       .optional()
       .meta({
         description:
-          "The panel's own page, which loads once and stays: an HTML file, or a folder with an index.html such as a built React app, in the panels folder beside sidebar-panels.json (a plugin's own panels folder for a plugin), named `panels/<path>`. It loads what it needs from its folder, nothing from the web, and reaches Komla through `komla`, as `komla skill status-items` describes.",
+          "The panel's own page, which loads once and stays: an HTML file, or a folder with an index.html such as a built React app, in the panels folder beside sidebar-panels.json (a plugin's own panels folder for a plugin), named `panels/<path>`. It loads what it needs from its folder, nothing from the web, and reaches Komla through `komla`, as `komla skill integrations` describes.",
       }),
     capabilities: z
       .array(z.enum(CAPABILITY_IDS))

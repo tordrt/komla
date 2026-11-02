@@ -8,17 +8,29 @@
     <script type="module" src="./app.js"></script>
   </head>
   <body>
-    <header class="k-stack">
-      <div class="k-row">
-        <a id="repo" class="k-grow k-truncate repo" href="#"></a>
-        <span id="updated" class="k-muted"></span>
-        <button id="refresh" class="k-button k-ghost icon" title="Ask GitHub again" aria-label="Ask GitHub again"></button>
+    <header class="k-header">
+      <div class="k-toolbar">
+        <label class="k-search">
+          <span class="k-icon" aria-hidden="true">&#xea6d;</span>
+          <input id="filter" class="k-input" type="search" placeholder="Filter pull requests" aria-label="Filter pull requests" />
+        </label>
+        <button id="refresh" class="k-icon-button" title="Ask GitHub again" aria-label="Ask GitHub again">
+          <span class="k-icon">&#xeb37;</span>
+        </button>
       </div>
-      <input id="filter" class="k-input" type="search" placeholder="Filter by title, number, author or branch" aria-label="Filter pull requests" />
+      <div class="k-meta">
+        <span class="k-icon" aria-hidden="true">&#xea64;</span>
+        <a id="repo" class="k-link k-truncate" href="#">Pull requests</a>
+        <span id="updated"></span>
+      </div>
     </header>
-    <p id="notice" class="notice" role="status" hidden></p>
+    <div id="notice" class="k-banner" role="status" hidden></div>
     <main id="lists">
-      <div class="k-empty"><span class="k-spinner"></span></div>
+      <div class="loading k-stack" aria-label="Loading">
+        <div class="k-row"><span class="k-skeleton dot"></span><span class="k-skeleton k-grow"></span></div>
+        <div class="k-row"><span class="k-skeleton dot"></span><span class="k-skeleton short"></span></div>
+        <div class="k-row"><span class="k-skeleton dot"></span><span class="k-skeleton k-grow"></span></div>
+      </div>
     </main>
   </body>
 </html>

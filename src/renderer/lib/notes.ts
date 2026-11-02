@@ -58,6 +58,11 @@ export async function createNote(workspaceId: string): Promise<void> {
   if (!workspace) return;
   try {
     const note = await useNotesStore.getState().create(workspace.id);
+    // A collapsed section would hide the new note's row, so it wouldn't show where the note lives.
+    const fileViewer = useFileViewerStore.getState();
+    if (fileViewer.notesCollapsedByWorkspace[workspace.id]) {
+      fileViewer.setNotesCollapsed(workspace.id, false);
+    }
     openNote(workspace.id, note.name);
   } catch (error) {
     useToastStore

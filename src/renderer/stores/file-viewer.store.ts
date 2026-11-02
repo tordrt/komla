@@ -268,6 +268,9 @@ interface FileViewerState {
   // Imported files section collapsed (per workspace, not persisted)
   importedFilesCollapsedByWorkspace: Record<string, boolean>;
   setImportedFilesCollapsed: (workspaceId: string, collapsed: boolean) => void;
+  // Notes section collapsed (per workspace, not persisted)
+  notesCollapsedByWorkspace: Record<string, boolean>;
+  setNotesCollapsed: (workspaceId: string, collapsed: boolean) => void;
   // Live follow actions
   setLiveFollow: (workspaceId: string, enabled: boolean) => void;
   toggleLiveFollow: (workspaceId: string) => void;
@@ -358,6 +361,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   filePickerQueryByWorkspace: {},
   showGitIgnoredByWorkspace: {},
   importedFilesCollapsedByWorkspace: {},
+  notesCollapsedByWorkspace: {},
   closeTabRequest: 0,
   closeViewerRequest: 0,
 
@@ -1067,6 +1071,15 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     }));
   },
 
+  setNotesCollapsed: (workspaceId, collapsed) => {
+    set((state) => ({
+      notesCollapsedByWorkspace: {
+        ...state.notesCollapsedByWorkspace,
+        [workspaceId]: collapsed,
+      },
+    }));
+  },
+
   toggleShowGitIgnored: (workspaceId) => {
     set((state) => ({
       showGitIgnoredByWorkspace: {
@@ -1286,6 +1299,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       filePickerQueryByWorkspace,
       showGitIgnoredByWorkspace,
       importedFilesCollapsedByWorkspace,
+      notesCollapsedByWorkspace,
     } = get();
     const newInlineFileTree = { ...inlineFileTreeByWorkspace };
     const newFileTreeReveal = { ...fileTreeRevealByWorkspace };
@@ -1310,6 +1324,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const newPickerQuery = { ...filePickerQueryByWorkspace };
     const newShowGitIgnored = { ...showGitIgnoredByWorkspace };
     const newImportedFilesCollapsed = { ...importedFilesCollapsedByWorkspace };
+    const newNotesCollapsed = { ...notesCollapsedByWorkspace };
 
     delete newInlineFileTree[workspaceId];
     delete newFileTreeReveal[workspaceId];
@@ -1334,6 +1349,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     delete newPickerQuery[workspaceId];
     delete newShowGitIgnored[workspaceId];
     delete newImportedFilesCollapsed[workspaceId];
+    delete newNotesCollapsed[workspaceId];
 
     const { pendingFileViewerTransition, pendingFileViewerBlameRequest } = get();
     set({
@@ -1360,6 +1376,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       filePickerQueryByWorkspace: newPickerQuery,
       showGitIgnoredByWorkspace: newShowGitIgnored,
       importedFilesCollapsedByWorkspace: newImportedFilesCollapsed,
+      notesCollapsedByWorkspace: newNotesCollapsed,
       ...(pendingFileViewerTransition?.workspaceId === workspaceId
         ? { pendingFileViewerTransition: null }
         : {}),

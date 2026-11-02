@@ -1597,7 +1597,6 @@ export function SidebarFileTree({
         isRemoteWorkspace={isRemoteWorkspace}
         onCreateFile={onCreateFile}
       />
-      <NotesSection workspaceId={workspaceId} currentFile={currentFile} />
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
@@ -1678,6 +1677,7 @@ export function SidebarFileTree({
           )}
         </ContextMenuContent>
       </ContextMenu>
+      <NotesSection workspaceId={workspaceId} currentFile={currentFile} />
       <ImportedFilesSection
         workspaceId={workspaceId}
         workingDirectory={workingDirectory}

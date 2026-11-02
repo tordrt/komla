@@ -1,4 +1,11 @@
-import { Copy, MagnifyingGlass, NotePencil, Trash } from '@phosphor-icons/react';
+import {
+  CaretDown,
+  CaretRight,
+  Copy,
+  MagnifyingGlass,
+  NotePencil,
+  Trash,
+} from '@phosphor-icons/react';
 
 import {
   ContextMenu,
@@ -23,30 +30,45 @@ interface NotesSectionProps {
   currentFile: string | null;
 }
 
-/** The workspace's notes, above the file tree; hidden until there is one. */
+/** The workspace's notes, below the file tree; hidden until there is one. */
 export function NotesSection({ workspaceId, currentFile }: NotesSectionProps) {
   const notes = useNotes(workspaceId);
+  const collapsed = useFileViewerStore((s) => !!s.notesCollapsedByWorkspace[workspaceId]);
   const openName = getNoteName(currentFile);
   if (notes.length === 0) return null;
 
   return (
     <section
       aria-label="Notes"
-      className="flex max-h-[35%] shrink-0 flex-col border-b border-border/40"
+      className="bg-sidebar-muted/40 flex max-h-[35%] shrink-0 flex-col border-t border-border/60 pt-0.5 pb-1"
     >
-      <h3 className="flex h-7 shrink-0 items-center px-2.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-        Notes
-      </h3>
-      <ul className="thin-scrollbar min-h-0 overflow-y-auto px-1 pb-1">
-        {notes.map((note) => (
-          <NoteRow
-            key={note.name}
-            note={note}
-            isOpen={note.name === openName}
-            workspaceId={workspaceId}
-          />
-        ))}
-      </ul>
+      <button
+        type="button"
+        onClick={() => useFileViewerStore.getState().setNotesCollapsed(workspaceId, !collapsed)}
+        aria-expanded={!collapsed}
+        aria-label="Notes"
+        className="flex h-7 shrink-0 items-center gap-1 px-2 text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase hover:text-foreground"
+      >
+        {collapsed ? (
+          <CaretRight className="size-3 shrink-0" />
+        ) : (
+          <CaretDown className="size-3 shrink-0" />
+        )}
+        <span className="truncate">Notes</span>
+        <span className="shrink-0 font-medium text-muted-foreground/70">{notes.length}</span>
+      </button>
+      {!collapsed && (
+        <ul className="thin-scrollbar min-h-0 overflow-y-auto px-1">
+          {notes.map((note) => (
+            <NoteRow
+              key={note.name}
+              note={note}
+              isOpen={note.name === openName}
+              workspaceId={workspaceId}
+            />
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

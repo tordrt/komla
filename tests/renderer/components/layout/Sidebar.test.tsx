@@ -910,7 +910,7 @@ describe('Sidebar', () => {
     expect(within(topRow).queryByText('Workspace')).toBeNull();
   });
 
-  it('keeps the Jump to shortcut at the narrowest sidebar, truncating the placeholder instead', () => {
+  it('keeps the Jump to shortcut at the narrowest sidebar, shortening the placeholder instead', () => {
     window.api = { platform: 'darwin' } as typeof window.api;
     render(
       <Sidebar
@@ -924,10 +924,15 @@ describe('Sidebar', () => {
 
     const jumpButton = screen.getByRole('button', { name: /Jump to/ });
     expect(within(jumpButton).getByText('⌘K')).toBeTruthy();
-    expect(within(jumpButton).getByText('Jump to…')).toHaveClass('truncate');
+    // The placeholder truncates to a few characters, as "Jump…", then wraps onto a line the
+    // field hides, leaving the icon and shortcut rather than a stub like "Ju…". Hidden that way,
+    // it still names the button.
+    const placeholder = within(jumpButton).getByText('Jump to…');
+    expect(placeholder).toHaveClass('truncate', 'basis-[3em]');
+    expect(placeholder.parentElement).toHaveClass('flex-wrap', 'overflow-hidden');
   });
 
-  it('on linux, keeps Ctrl+Shift+P in the Jump to field as Ctrl⇧P, truncating the placeholder', () => {
+  it('on linux, keeps Ctrl+Shift+P in the Jump to field as Ctrl⇧P, dropping the placeholder', () => {
     window.api = { platform: 'linux' } as typeof window.api;
     render(
       <Sidebar
@@ -941,7 +946,7 @@ describe('Sidebar', () => {
 
     const jumpButton = screen.getByRole('button', { name: /Jump to/ });
     expect(within(jumpButton).getByText('Ctrl⇧P').tagName).toBe('KBD');
-    expect(within(jumpButton).getByText('Jump to…')).toHaveClass('truncate');
+    expect(within(jumpButton).getByText('Jump to…').parentElement).toHaveClass('flex-wrap');
   });
 
   it('leaves no traffic-light room in full screen', () => {

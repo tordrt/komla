@@ -11,6 +11,7 @@ import { IconButton } from '@/components/ui/icon-button';
 import { Kbd, ShortcutHint } from '@/components/ui/kbd';
 import { KomlaMark } from '@/components/ui/komla-mark';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { TruncatingLabel } from '@/components/ui/truncating-label';
 import { FolderDropZone } from '@/components/workspaces/FolderDropZone';
 import { QuickCreateMenu } from '@/components/workspaces/QuickCreateMenu';
 import { WorkspaceList } from '@/components/workspaces/WorkspaceList';
@@ -147,10 +148,11 @@ export const Sidebar = memo(function Sidebar({
                 onClick={onOpenCommandCenter}
               >
                 {/* Unfilled, with the shortcut as plain text, so it stays quieter than New
-                    Workspace below it. When narrow, the placeholder truncates before the
-                    shortcut does, which shows Shift as ⇧ to fit. */}
+                    Workspace below it. The shortcut shows Shift as ⇧ to fit. */}
                 <MagnifyingGlass className="size-3.5 shrink-0" />
-                <span className="truncate">Jump to…</span>
+                {/* Beside the macOS traffic lights, the field can be too narrow for the whole
+                    placeholder; it shortens to "Jump…", then leaves the icon and shortcut alone. */}
+                <TruncatingLabel>Jump to…</TruncatingLabel>
                 <ShortcutHint
                   action="commandCenter.open"
                   compact

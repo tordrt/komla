@@ -329,7 +329,7 @@ describe('ActionTabButton', () => {
 
     beforeEach(() => {
       const isLabelHidden = () =>
-        document.querySelector('.max-w-24')?.parentElement?.classList.contains('sr-only') ?? false;
+        document.querySelector('[data-action-label]')?.parentElement?.classList.contains('sr-only') ?? false;
       const isSetupLabelHidden = () =>
         document.querySelector('[data-activity-label]')?.classList.contains('sr-only') ?? false;
       const setupWidth = () => (setupShown ? (isSetupLabelHidden() ? 14 : 40) : 0);
@@ -339,7 +339,7 @@ describe('ActionTabButton', () => {
         this: HTMLElement
       ) {
         if (this.classList.contains('min-w-min')) return slotWidth;
-        return this.classList.contains('max-w-24') ? labelWidth() : 0;
+        return this.hasAttribute('data-action-label') ? labelWidth() : 0;
       });
       vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (
         this: HTMLElement
@@ -354,7 +354,7 @@ describe('ActionTabButton', () => {
         this: HTMLElement
       ) {
         if (this.hasAttribute('data-activity-label')) return 20;
-        return this.classList.contains('max-w-24') ? 80 : 0;
+        return this.hasAttribute('data-action-label') ? 80 : 0;
       });
       vi.stubGlobal(
         'ResizeObserver',
@@ -377,7 +377,7 @@ describe('ActionTabButton', () => {
     });
 
     const label = () =>
-      screen.getByRole('button', { name: 'Run Dev Server' }).querySelector('.max-w-24')!
+      screen.getByRole('button', { name: 'Run Dev Server' }).querySelector('[data-action-label]')!
         .parentElement;
     const resizeTo = (width: number) => {
       slotWidth = width;

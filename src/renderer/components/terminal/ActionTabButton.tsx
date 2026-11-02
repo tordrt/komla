@@ -157,10 +157,11 @@ export function ActionTabButton({ workspaceId, tabRoom }: ActionTabButtonProps) 
     </div>
   );
   // The grid track keeps the label out of the button's min-content width, so the label
-  // truncates instead of pushing the tabs.
+  // truncates instead of pushing the tabs. Its cap only stops a long title taking the whole row
+  // when there's room: a title like "Develop with Claude" shows whole.
   const renderLabel = (text: string) => (
     <span className={cn('grid grid-cols-[minmax(0,max-content)]', compact && 'sr-only')}>
-      <span ref={labelRef} className="max-w-24 truncate text-xs font-medium">
+      <span ref={labelRef} data-action-label="" className="max-w-40 truncate text-xs font-medium">
         {text}
       </span>
     </span>

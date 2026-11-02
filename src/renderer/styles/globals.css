@@ -1145,17 +1145,22 @@ html[data-status-bar-row='large'] [data-status-bar] {
    --sidebar-accent. Popover cards, menus and tooltips share it, so everything that floats
    reads as one family. Lines inside take the input border and fills take --sidebar-muted:
    Komla's --border and --muted are as light as this surface.
-   Controls the new-workspace dialog floats outside its card get the same surface: the dimmed
-   window shows through sharp behind them, terminal text included, and in light themes it
-   mixes dark terminals with light chrome, so no text color reads on both. */
+   The tray tucked under the new-workspace card shares it, a shade deeper so it reads as part
+   of the card rather than more of it. */
 .floating-surface,
-.floating-controls {
+.new-workspace-tray {
   --accent: var(--sidebar-accent);
   --border: var(--input);
   --muted: var(--sidebar-muted);
   --secondary: var(--sidebar-muted);
   background: oklch(var(--sidebar));
   border-color: oklch(var(--foreground) / 0.15);
+}
+.new-workspace-tray {
+  background: color-mix(in oklch, oklch(var(--sidebar)) 94%, oklch(var(--foreground)));
+}
+.dark .new-workspace-tray {
+  background: color-mix(in oklch, oklch(var(--sidebar)) 80%, black);
 }
 
 /* Komla blue rather than the accent, for the upgrade dialog's button, checks and Unlimited

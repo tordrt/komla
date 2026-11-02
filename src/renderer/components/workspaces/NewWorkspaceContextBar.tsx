@@ -587,10 +587,7 @@ export function NewWorkspaceContextBar({
     refocusComposer(event, { promptTextareaRef, branchInputRef, projectTriggerRef });
 
   return (
-    <div
-      className="floating-controls mt-1.5 flex w-fit max-w-full min-w-0 items-center gap-0.5 rounded-lg border px-1 py-0.5 light:shadow-soft"
-      data-new-workspace-context-bar
-    >
+    <div className="flex min-w-0 items-center gap-0.5" data-new-workspace-context-bar>
       <EnvironmentSegment
         {...environment}
         onCloseAutoFocus={refocusPrompt}

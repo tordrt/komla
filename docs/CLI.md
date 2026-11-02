@@ -18,12 +18,12 @@ komla notify "Review ready" --body "Authentication changes are waiting." --color
 komla settings get actions --scope current-project
 komla context --json
 komla agent presets
-komla agent launch "Investigate the cache" --new-workspace --name "Investigate cache" --branch investigate-cache
+komla launch --name "Investigate cache" --branch investigate-cache "Investigate the cache"
 komla workspace title "Cache investigation" --description "Trace stale cache reads."
 komla open ~/notes
 komla status set tests "142/150 passing" --tone warning --link https://github.com/org/repo/pull/812
 komla status clear tests
-komla agent launch "Review the current implementation."
+komla launch --here "Review the current implementation."
 komla preview open http://localhost:5173
 ```
 
@@ -39,7 +39,7 @@ and keep only when and how to use them.
 `--all`: each one's `id`, `name`, `project`, `branch`, `path`, `environment`, `agentActive`, the
 `attention` it shows, its `tag` and the `linkedWorkspaceIds` it's linked to. Through an SSH host's tunnel it lists that host's
 workspaces only. `--workspace <id>` makes any command that acts on a workspace (`tag`, `title`,
-`snooze`, `status set`, `notify`, `agent launch`, `context` and the rest) act on that one in
+`snooze`, `status set`, `notify`, `launch`, `context` and the rest) act on that one in
 place of the calling terminal's, so one script can keep every workspace current. It never
 reaches past the SSH host a request came from. `trash` refuses it, as does `notify -- <command>`,
 which shows the terminal it runs in working.
@@ -78,9 +78,12 @@ pull request stands so, and `hidden` marks one the user hides in the sidebar, wh
 to the Filtered shelf while nothing there needs the user. The list belongs to the user, so `tags`
 takes no `--workspace` and works the same through an SSH host's tunnel.
 
-`komla agent launch [prompt]` is the single launch interface. It opens a tab by default;
-`--new-workspace` creates a workspace and launches exactly one agent there. Use `--prompt-file` for
-longer instructions or stdin, and `--preset` with an optional `--mode` after discovering canonical
+`komla launch [prompt]` starts agents: it creates a workspace and launches exactly one agent there.
+`--here` opens a tab in the calling workspace instead, and refuses the options that only a new
+workspace takes (`--project`, `--name`, `--description`, `--branch`, `--from-current-branch`).
+`komla agent launch` is its older form, which opens a tab unless `--new-workspace` is given. Use
+`--prompt-file` for longer instructions or stdin, and `--preset` with an optional `--mode`
+after discovering canonical
 IDs through `komla agent presets --json`, which marks the modes agents may not start `launchable:
 false`, with an `unavailableReason` that tells the user how to allow them, and the modes agents may
 start only isolated `isolatedOnly: true`. Its `default` names a mode only when one is pinned. Each
@@ -102,7 +105,7 @@ device it ran on: this computer, unless Where agents start pins an SSH host, or 
 pinned host that isn't set up yet, or no longer exists, refuses worktree launches from this
 computer (`SSH_HOST_NOT_READY`) rather than starting them here, since agents may start the pinned
 mode anywhere. On an SSH host, a launch from outside its workspaces, such as `ssh host
-'~/.komla/helpers/komla agent launch "…" --new-workspace --project web'`, reaches Komla on the host
+'~/.komla/helpers/komla launch --project web "…"'`, reaches Komla on the host
 itself if it runs there, else the desktop whose companion route was written last and whose port
 still accepts connections, and always starts the workspace on that host. Other commands outside a
 workspace reach a desktop the same way, which acts only on that host's workspaces; agent hooks

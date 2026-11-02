@@ -2,7 +2,9 @@ import { join } from 'path';
 
 import { utilityProcess } from 'electron';
 
+import { pluginSettingChangesSchema } from '../../shared/ipc/schemas/plugins-ipc.schemas';
 import { sidebarPanelBadgeInputSchema } from '../../shared/ipc/schemas/sidebar-panels-ipc.schemas';
+import { MAX_PLUGIN_SETTING_ID, MAX_PLUGIN_SETTINGS } from '../../shared/types/plugins';
 import { createLogger } from '../lib/logger';
 import { MAIN_BUNDLE_DIR } from '../lib/module-path';
 
@@ -86,6 +88,11 @@ export interface PluginHostDependencies {
   onEvent(listener: (event: KomlaEvent) => void): () => void;
   /** A plugin's settings, the user's or their defaults, secrets included. */
   settings(pluginId: string): Record<string, PluginSettingValue>;
+  /**
+   * Sets some of a plugin's settings for its code; throws a KomlaOperationError for a setting it
+   * doesn't declare or a value of the wrong kind.
+   */
+  setSettings(pluginId: string, changes: Record<string, unknown>): Promise<void>;
   now(): number;
   setTimeout(callback: () => void, ms: number): unknown;
   clearTimeout(timer: unknown): void;
@@ -103,8 +110,6 @@ interface Running {
   restartTimer?: unknown;
   pending: Map<number, { resolve(result: SidebarPanelOperationResult): void; timer: unknown }>;
   next: number;
-  /** The settings changed after `activate` carried them, so the code gets them once ready. */
-  settingsStale?: boolean;
 }
 
 function failure(error: unknown): PluginHostFailure {
@@ -202,14 +207,14 @@ export class PluginHostService {
     return status;
   }
 
-  /** Gives a plugin's code its settings again, after the user changed them. */
+  /**
+   * Gives a plugin's code its settings again, after the user or its code changed them; while it
+   * starts too, as the process gets messages in order, after `activate`. Not while it waits to
+   * start again after stopping, as its next `activate` carries them.
+   */
   settingsChanged(pluginId: string): void {
     const running = this.running.get(pluginId);
-    if (!running) return;
-    if (running.state !== 'running') {
-      running.settingsStale = true;
-      return;
-    }
+    if (!running || running.restartTimer !== undefined) return;
     running.process.postMessage({
       type: 'settings',
       settings: this.dependencies.settings(pluginId),
@@ -427,10 +432,6 @@ export class PluginHostService {
       case 'ready':
         running.state = 'running';
         running.error = undefined;
-        if (running.settingsStale) {
-          running.settingsStale = false;
-          this.settingsChanged(plugin.source.id);
-        }
         for (const { panel, workspace } of this.opened.get(plugin.source.id)?.values() ?? []) {
           running.process.postMessage({ type: 'panel-open', panel, workspace });
         }
@@ -485,6 +486,9 @@ export class PluginHostService {
         );
         return;
       }
+      case 'set-settings':
+        this.reply(running, message.id, this.setSettings(plugin.source.id, message.changes));
+        return;
       case 'panel-post':
         this.postPanelData(running, message);
         return;
@@ -501,6 +505,28 @@ export class PluginHostService {
         );
       }
     }
+  }
+
+  /**
+   * Sets the settings the plugin's code asks to, as `komla.settings.set`; the store checks each
+   * against what the manifest declares, naming the setting that's wrong.
+   */
+  private setSettings(pluginId: string, changes: unknown): Promise<void> {
+    const parsed = pluginSettingChangesSchema.safeParse(changes);
+    if (!parsed.success) {
+      const [issue] = parsed.error.issues;
+      const setting = issue?.path[0];
+      return Promise.reject(
+        new KomlaOperationError(
+          'INVALID_SETTINGS',
+          typeof setting === 'string' && setting.length <= MAX_PLUGIN_SETTING_ID
+            ? `The setting ${setting} takes text, a number, true or false, or null to clear it.`
+            : `Settings are an object of at most ${MAX_PLUGIN_SETTINGS} setting ids, each a value or null to clear it.`,
+          400
+        )
+      );
+    }
+    return this.dependencies.setSettings(pluginId, parsed.data);
   }
 
   /** Gives the plugin's panel's page what its code posted, if it fits. */

@@ -70,7 +70,15 @@ export function activate(komla: KomlaPlugin) {
     komla.panels.post('code', { from: 'code', printed, workspaces: workspaces.length } satisfies Hello, { workspace });
     komla.panels.setBadge('code', { text: 2, tone: 'warning' }, { workspace });
   });
-  komla.panels.onMessage('code', (message, { activated }) => ({ echo: message, activated }));
+  komla.panels.onMessage('code', async (message, { activated }) => {
+    // The page asks for a token while there is none, and the code keeps it in its settings.
+    if (typeof message === 'object' && message !== null && 'signIn' in message) {
+      if (!activated) throw new Error('Sign in from a click');
+      await komla.settings.set({ token: String(message.signIn) });
+      return { signedIn: Boolean(komla.settings.get('token')) };
+    }
+    return { echo: message, activated };
+  });
 }
 `;
 
@@ -80,7 +88,26 @@ const PLUGIN_HTML = `<!doctype html>
 <p id="data">…</p>
 <button id="ping" class="k-button">Ping</button>
 <p id="reply"></p>
+<div class="k-stack">
+  <input id="token" class="k-input" type="password" placeholder="API token">
+  <button id="sign-in" class="k-button k-primary">Sign in</button>
+  <button id="open-settings" class="k-button">Open settings</button>
+</div>
+<p id="signed"></p>
 <script>
+komla.openSettings().then(
+  () => { document.body.dataset.openAlone = 'ok'; },
+  (error) => { document.body.dataset.openAlone = error.code; }
+);
+// The page can't submit a form, so a click sends what the user typed.
+document.querySelector('#sign-in').addEventListener('click', async () => {
+  const signed = document.querySelector('#signed');
+  await komla.send({ signIn: document.querySelector('#token').value }).then(
+    (reply) => { signed.textContent = JSON.stringify(reply); },
+    (error) => { signed.textContent = error.code + ': ' + error.message; }
+  );
+});
+document.querySelector('#open-settings').addEventListener('click', () => komla.openSettings());
 komla.onData((data) => { document.querySelector('#data').textContent = JSON.stringify(data); });
 document.querySelector('#ping').addEventListener('click', async () => {
   const reply = await komla.send({ ping: 1 });
@@ -146,6 +173,7 @@ const test = base.extend({
         id: 'coded',
         name: 'Coded',
         main: 'main.ts',
+        settings: [{ id: 'token', title: 'API token', type: 'secret' }],
         contributes: {
           sidebarPanels: [{ id: 'code', title: 'Code', page: 'panels/code' }],
           statusItems: [{ id: 'open', command: 'echo Code panel', panel: 'code' }],
@@ -299,5 +327,41 @@ test.describe('Sidebar panels', () => {
     );
     if (SCREENSHOTS)
       await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'plugin-code-panel.png') });
+  });
+
+  test("lets a plugin's page sign in with a token its code keeps, or open its settings", async ({
+    appWindow,
+  }) => {
+    await createWorkspace(appWindow, 'sidebar-panels/sign-in');
+    await appWindow.getByRole('button', { name: 'Files', exact: true }).click({ timeout: 20_000 });
+    await appWindow
+      .getByRole('button', { name: 'Code panel, opens its panel in the sidebar' })
+      .click({ timeout: 30_000 });
+    const page = appWindow.locator('[data-sidebar-panel="coded.code"]').frameLocator('iframe');
+    // Without a click, a page can't open Settings.
+    await expect(page.locator('body')).toHaveAttribute('data-open-alone', 'NEEDS_USER_ACTION', {
+      timeout: 30_000,
+    });
+
+    await page.locator('#token').fill('tok_from_page');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.locator('#signed')).toHaveText(JSON.stringify({ signedIn: true }), {
+      timeout: 15_000,
+    });
+
+    // Settings opens at the plugin, which knows only that its token is set.
+    await page.getByRole('button', { name: 'Open settings' }).click();
+    const row = appWindow.locator('[data-plugin="coded"]');
+    await expect(row).toBeInViewport({ timeout: 15_000 });
+    await expect(row.getByLabel('API token')).toHaveAttribute(
+      'placeholder',
+      'Set. Type a new one to replace it'
+    );
+    if (SCREENSHOTS)
+      await row.screenshot({ path: path.join(SCREENSHOTS, 'plugin-open-settings.png') });
+    const listed = await appWindow.evaluate(async () =>
+      JSON.stringify(await window.api.listPlugins())
+    );
+    expect(listed).not.toContain('tok_from_page');
   });
 });

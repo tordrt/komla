@@ -65,7 +65,16 @@ export interface KomlaPluginSettings {
   get(): Record<string, KomlaPluginSettingValue>;
   /** One setting, or undefined while it has no value. */
   get(id: string): KomlaPluginSettingValue | undefined;
-  /** Follows the user changing them, with every setting as they are now. */
+  /**
+   * Sets some of them, as the user does in Settings, or clears those given null; a secret is
+   * encrypted with the OS keychain. For a form in the plugin's own page, as to sign in with a
+   * token the page asks for. It resolves once `get` gives the new values, and fails with a
+   * KomlaError `INVALID_SETTINGS`, changing nothing, for a setting komla-plugin.json doesn't
+   * declare or a value of the wrong kind. Each call writes Komla's settings file, so it's for
+   * what the user gives, not a cache.
+   */
+  set(changes: Record<string, KomlaPluginSettingValue | null>): Promise<void>;
+  /** Follows changes to them, by the user or `set`, with every setting as they are now. */
   onChange(listener: (settings: Record<string, KomlaPluginSettingValue>) => void): () => void;
 }
 
@@ -123,6 +132,11 @@ export type KomlaPanelPage<C extends KomlaCapability = never> = KomlaClient<C> &
   send(message: unknown): Promise<unknown>;
   /** Sets or, with null, clears the badge on the panel's tab. */
   setBadge(badge: KomlaPanelBadge): Promise<void>;
+  /**
+   * Opens Settings → Plugins at the panel's plugin, where the user fills in its settings, such as
+   * a token. Only from a click or key press in the page, and only in a plugin's panel.
+   */
+  openSettings(): Promise<void>;
   /** Sends a Komla Operation as it is, for code that builds requests itself. */
   call(request: KomlaOperationRequest, options?: KomlaCallOptions): Promise<unknown>;
   /** The transport for `createKomlaClient`, for a page that bundles @komla/sdk/client. */

@@ -148,6 +148,11 @@ const BRIDGE_SCRIPT = `(() => {
     send: (message) => ask({ komlaPanel: 'send', message }),
     /** Sets the badge on the panel's tab: text or a number, with a tone; null clears it. */
     setBadge: (badge) => ask({ komlaPanel: 'badge', badge: badge ?? null }),
+    /** Opens Settings at the panel's plugin, to fill in its settings. Only from a click or key press. */
+    openSettings: () =>
+      clicking()
+        ? ask({ komlaPanel: 'open-settings' })
+        : Promise.reject(komlaError({ code: 'NEEDS_USER_ACTION', message: 'komla.openSettings works only from a click or a key press.' })),
     /** Runs the panel's command now; resolves once its data came. */
     refresh: () => ask({ komlaPanel: 'refresh' }),
     /** Runs one of the commands the panel names. Only from a click or key press in the page. */

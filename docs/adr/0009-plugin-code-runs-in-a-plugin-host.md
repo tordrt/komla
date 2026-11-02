@@ -52,9 +52,13 @@ for panel pages on the Komla SDK; this records how they're built.
   keychain through Electron's `safeStorage`, or kept in that file alone, readable only by the
   user, on a computer without one, as Komla's other secrets are. Only the main process decrypts
   them, and they go to the plugin's code and to its commands that run on this computer, never to
-  a window, a panel's page or an SSH host. Settings gets whether a secret is set, and only
-  Settings sets them: an agent asks the user to enter a token there, so it never passes through
-  the agent's context. Plain settings also reach commands on an SSH host.
+  a window, a panel's page or an SSH host. Settings gets whether a secret is set. Settings and
+  the plugin's own code (`komla.settings.set`) set them, agents never: an agent asks the user to
+  enter a token in Settings, so it never passes through the agent's context. A page can open
+  Settings at its plugin with `komla.openSettings()`, from a click, which is what the guide shows
+  first; a page may also ask for a token itself and send it to its code, which then passes
+  through a page that may show outside text, so that stays the plugin's choice. Plain settings
+  also reach commands on an SSH host.
 
 Not done: events over HTTP (server-sent events for scripts), a typed SDK bundle served to pages
 that build their own client, agents setting plain plugin settings through `komla settings`, and

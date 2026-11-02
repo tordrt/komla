@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 
 import { readPopoverTheme } from '@/components/command-page/command-page';
+import { pluginCardId } from '@/components/layout/settings/plugin-card';
 import { Spinner } from '@/components/ui/spinner';
 import { useRunWhileVisible } from '@/hooks/useRunWhileVisible';
+import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import {
   keepSidebarPanelData,
   sidebarPanelKey,
@@ -181,6 +183,20 @@ export function SidebarPanelPage({
         return window.api.sendSidebarPanelMessage(workspaceId, panel.id, message.message ?? null, {
           activated,
         });
+      case 'open-settings':
+        if (!activated) {
+          return failed(
+            'NEEDS_USER_ACTION',
+            'komla.openSettings works only from a click or a key press.'
+          );
+        }
+        if (!panel.pluginId) {
+          return failed('NOT_A_PLUGIN', 'Only a plugin’s panel has settings to open.');
+        }
+        useSettingsDialogStore
+          .getState()
+          .openSettings({ tab: 'integrations', cardId: pluginCardId(panel.pluginId) });
+        return { ok: true };
       case 'badge': {
         const badge = sidebarPanelBadgeInputSchema.safeParse(message.badge);
         if (!badge.success) {

@@ -51,6 +51,8 @@ export interface SidebarPanel {
   refreshOn?: KomlaEventType[];
   /** The name of the plugin the panel comes from, when it isn't sidebar-panels.json's. */
   plugin?: string;
+  /** That plugin's id, which its page's `komla.openSettings()` opens Settings at. */
+  pluginId?: string;
   /** Changes with its plugin's files, so its page loads again. */
   revision?: string;
   /** Its plugin runs as its files change, so the panel offers to inspect and reload its page. */

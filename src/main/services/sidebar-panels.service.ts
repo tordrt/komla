@@ -242,7 +242,7 @@ export class SidebarPanelsService {
               ...(image && { icon: image, ...(iconColor && { iconColor }) }),
               ...(runOn === 'local' && { runOn }),
               ...(command && refreshOn && { refreshOn }),
-              ...(plugin && { plugin: plugin.name }),
+              ...(plugin && { plugin: plugin.name, pluginId: plugin.id }),
               ...(page && plugin?.revision && { revision: plugin.revision }),
               ...(plugin?.development && { development: true as const }),
             } satisfies SidebarPanel;

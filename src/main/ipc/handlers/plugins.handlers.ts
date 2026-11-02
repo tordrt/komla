@@ -67,7 +67,8 @@ export function registerPluginsHandlers(): void {
     return listPlugins();
   });
 
-  // Only Settings sets them, as the user types them: agents can't, and never see a secret.
+  // Settings sets them as the user types them, as the plugin's own code can; agents can't, and
+  // never see a secret.
   handleIpc(IPC.PLUGINS_SET_SETTINGS, async (_, [id, changes]): Promise<PluginInfo[]> => {
     await pluginsService.scan();
     if (!pluginsService.list().some((plugin) => plugin.id === id && plugin.state !== 'invalid')) {

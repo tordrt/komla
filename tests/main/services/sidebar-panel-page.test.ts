@@ -22,6 +22,7 @@ interface Komla {
   on(type: string, listener: (event: unknown) => void): () => void;
   send(message: unknown): Promise<unknown>;
   setBadge(badge: unknown): Promise<unknown>;
+  openSettings(): Promise<unknown>;
   workspace: { list(input?: unknown, options?: unknown): Promise<unknown> };
   agent: { launch(input: unknown): Promise<unknown> };
 }
@@ -215,7 +216,12 @@ describe("the page's komla", () => {
     void komla.workspace.list(undefined, { workspace: 'ws-2' });
     void komla.agent.launch({ destination: 'tab', prompt: 'Fix it' });
     expect(posted).toEqual([
-      { komlaPanel: 'call', id: expect.any(Number), request: { type: 'workspace.list' }, workspace: 'ws-2' },
+      {
+        komlaPanel: 'call',
+        id: expect.any(Number),
+        request: { type: 'workspace.list' },
+        workspace: 'ws-2',
+      },
       {
         komlaPanel: 'call',
         id: expect.any(Number),
@@ -254,6 +260,12 @@ describe("the page's komla", () => {
       'branch.changed',
       'agent.done',
     ]);
+  });
+
+  it("opens its plugin's settings only from a click", async () => {
+    // jsdom has no user activation, so the click itself is for the e2e test.
+    await expect(komla.openSettings()).rejects.toMatchObject({ code: 'NEEDS_USER_ACTION' });
+    expect(posted).toEqual([]);
   });
 
   it('runs a command only from a click, and refreshes when asked', async () => {

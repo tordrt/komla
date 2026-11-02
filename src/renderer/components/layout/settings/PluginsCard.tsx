@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useToastStore } from '@/stores/toast.store';
 
+import { pluginCardId } from './plugin-card';
 import { PluginSettingsForm } from './PluginSettingsForm';
 import { SettingsCard } from './SettingsCard';
 
@@ -59,6 +60,8 @@ export function PluginsCard() {
     }
   };
 
+  const targets = settingsTargets(plugins ?? []);
+
   const toggle = async (plugin: PluginInfo, enabled: boolean) => {
     // Only a plugin Komla can read has a digest, and only those can be switched on.
     if (enabled && !plugin.digest) return;
@@ -101,9 +104,11 @@ export function PluginsCard() {
           plugins folder.
         </p>
       )}
-      {plugins?.map((plugin) => (
+      {plugins?.map((plugin, index) => (
         <PluginRow
           key={`${plugin.folder}:${plugin.id}`}
+          // Where a plugin's page opens Settings.
+          cardId={targets.get(plugin.id) === index ? pluginCardId(plugin.id) : undefined}
           plugin={plugin}
           busy={busyIds.has(plugin.id)}
           onToggle={(enabled) => void toggle(plugin, enabled)}
@@ -115,13 +120,33 @@ export function PluginsCard() {
   );
 }
 
+/**
+ * The row each plugin id opens Settings at, by index: the one Komla can read, as another folder
+ * may have the same id, or else the first.
+ */
+function settingsTargets(plugins: PluginInfo[]): Map<string, number> {
+  const targets = new Map<string, number>();
+  plugins.forEach((plugin, index) => {
+    const current = targets.get(plugin.id);
+    if (
+      current === undefined ||
+      (plugins[current]!.state === 'invalid' && plugin.state !== 'invalid')
+    ) {
+      targets.set(plugin.id, index);
+    }
+  });
+  return targets;
+}
+
 function PluginRow({
+  cardId,
   plugin,
   busy,
   onToggle,
   onDevelopment,
   onSaveSettings,
 }: {
+  cardId?: string;
   plugin: PluginInfo;
   busy: boolean;
   onToggle: (enabled: boolean) => void;
@@ -130,7 +155,11 @@ function PluginRow({
 }) {
   const on = plugin.state === 'on';
   return (
-    <div className="flex items-start gap-3 !py-3 !pl-4">
+    <div
+      id={cardId}
+      data-plugin={plugin.id}
+      className="flex scroll-mt-6 items-start gap-3 rounded-lg !py-3 !pl-4 transition-shadow duration-300 data-[search-target]:ring-2 data-[search-target]:ring-primary/40"
+    >
       <Switch
         className="mt-0.5"
         checked={on}

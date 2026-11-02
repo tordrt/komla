@@ -16,6 +16,8 @@ export interface SettingsDialogTarget {
   selfSetupPresetId?: string;
   /** Title of a card on the page to scroll to and flash. */
   card?: string;
+  /** The id of an element on the page to scroll to and flash, for one without a title of its own. */
+  cardId?: string;
 }
 
 interface SettingsDialogState {

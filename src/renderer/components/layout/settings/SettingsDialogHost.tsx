@@ -34,6 +34,7 @@ export function SettingsDialogHost() {
         initialEditProjectId={target.editProjectId}
         initialSetupProjectId={target.setupProjectId}
         initialCard={target.card}
+        initialCardId={target.cardId}
         openRequestId={requestId}
       />
     </DeferredDialog>

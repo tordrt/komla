@@ -456,9 +456,11 @@ describe('SidebarPanelsService with plugins', () => {
       { readIcon }
     );
     service.setPluginPanels([pluginPanel]);
-    expect((await service.list('ws-1')).panels.map(({ id, plugin }) => [id, plugin])).toEqual([
-      ['mine', undefined],
-      ['ci.checks', 'CI tools'],
+    expect(
+      (await service.list('ws-1')).panels.map(({ id, plugin, pluginId }) => [id, plugin, pluginId])
+    ).toEqual([
+      ['mine', undefined, undefined],
+      ['ci.checks', 'CI tools', 'ci'],
     ]);
     expect(readIcon).toHaveBeenCalledWith('icons/checks.svg', plugin.dir);
   });

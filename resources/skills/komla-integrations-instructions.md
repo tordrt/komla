@@ -149,6 +149,10 @@ scripts run:
 - Links to http(s) pages open in the browser. Don't reload or navigate the page itself; call
   `komla.refresh()`.
 - In a plugin with code, `komla.send(message)` asks the plugin's code and resolves to its answer.
+- In a plugin's panel, `komla.openSettings()` opens Settings → Plugins at the plugin, only from a
+  click or a key press.
+- The page can't submit a form or open a popup: handle the button's `click`, or Enter in a field,
+  instead of a form's `submit`.
 
 Data can carry text from elsewhere, such as a pull request title: put it in the page with
 `textContent` or your framework's text, never as HTML.
@@ -306,6 +310,13 @@ in under the plugin in Settings → Plugins:
 - A secret is encrypted with the OS keychain. You can't read or set one: once the plugin is
   ready, tell the user which secret to enter in Settings → Plugins, and never ask them to paste
   it into the chat.
+- When a setting is missing, have the page say so instead of failing: the code tells the page,
+  through `komla.send` or the data it posts, and the page shows a button that calls
+  `komla.openSettings()`, which opens Settings → Plugins at the plugin. Prefer this for a secret.
+- A page may instead ask for it in a field of its own: a click sends what the user typed to the
+  code with `komla.send`, and the code saves it with `await komla.settings.set({ token })`, or
+  clears it with `null`. Do it only for a plugin whose page shows nothing from elsewhere as HTML,
+  since the secret passes through the page; the code checks `activated` before saving.
 
 The Pull requests example in Komla's repository, `examples/plugins/pull-requests`, has code, a
 page, a badge, a setting and a status item that opens the panel.

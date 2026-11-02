@@ -149,9 +149,10 @@ items and Sidebar Panels refresh on with `refreshOn`, and panel pages and plugin
 _Avoid_: Hook event, for those that aren't hooks'
 
 **Plugin Setting**:
-A value a Plugin's `komla-plugin.json` declares and the user fills in in Settings → Plugins, such
-as a repository or, as a secret, an API token. Its code reads them with `komla.settings` and its
-commands get them as `KOMLA_SETTING_<ID>`; agents never read or set a secret.
+A value a Plugin's `komla-plugin.json` declares and the user fills in in Settings → Plugins, or in
+the plugin's own page, which its code saves, such as a repository or, as a secret, an API token.
+Its code reads and sets them with `komla.settings` and its commands get them as
+`KOMLA_SETTING_<ID>`; agents never read or set a secret.
 _Avoid_: Plugin config, plugin preferences
 
 **Panel Badge**:

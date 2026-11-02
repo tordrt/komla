@@ -95,6 +95,7 @@ describe('PluginHostService', () => {
         };
       },
       settings: () => settings,
+      setSettings: vi.fn(async () => {}),
       now: () => now,
       setTimeout: (callback, ms) => {
         const timer = { callback, ms };
@@ -140,19 +141,39 @@ describe('PluginHostService', () => {
     expect(process.last('settings')).toEqual({ type: 'settings', settings: { repo: 'cli/go-gh' } });
   });
 
-  it('gives code that was starting the settings changed meanwhile, once it is ready', () => {
+  it('gives code that is still starting the settings changed meanwhile, after its activate', () => {
     service.sync([prs]);
     const [process] = processes;
     settings = { repo: 'cli/go-gh' };
 
     service.settingsChanged('prs');
-    expect(process.last('settings')).toBeUndefined();
-    process.send({ type: 'ready' });
 
+    expect(process.sent.map((message) => message.type)).toEqual(['activate', 'settings']);
     expect(process.last('settings')).toEqual({ type: 'settings', settings: { repo: 'cli/go-gh' } });
-    // Only once.
-    process.send({ type: 'ready' });
-    expect(process.sent.filter((message) => message.type === 'settings')).toHaveLength(1);
+  });
+
+  it("doesn't give settings to code waiting to start again, whose activate carries them", () => {
+    const process = started();
+    process.exit(1);
+    const sent = process.sent.length;
+
+    service.settingsChanged('prs');
+
+    expect(process.sent).toHaveLength(sent);
+  });
+
+  it('gives code that sets its settings as it activates the new ones before its reply', async () => {
+    service.sync([prs]);
+    const [process] = processes;
+    vi.mocked(dependencies.setSettings).mockImplementationOnce(async () => {
+      settings = { token: 'ghp_123' };
+      service.settingsChanged('prs');
+    });
+
+    process.send({ type: 'set-settings', id: 1, changes: { token: 'ghp_123' } });
+    await flush();
+
+    expect(process.sent.map((message) => message.type)).toEqual(['activate', 'settings', 'reply']);
   });
 
   it("answers its code's operations and commands, with Komla's error codes", async () => {
@@ -204,6 +225,42 @@ describe('PluginHostService', () => {
       ok: false,
       error: { code: 'WORKSPACE_UNAVAILABLE' },
     });
+  });
+
+  it('sets the settings its code asks to, and refuses what they cannot be', async () => {
+    const process = started();
+    process.send({ type: 'set-settings', id: 5, changes: { token: 'ghp_123', repo: null } });
+    await flush();
+    expect(dependencies.setSettings).toHaveBeenCalledWith('prs', { token: 'ghp_123', repo: null });
+    expect(process.last('reply')).toEqual({ type: 'reply', id: 5, ok: true });
+
+    // Undefined would clear the setting by mistake, and a Map has no settings to set.
+    for (const [id, changes] of [
+      [6, ['token']],
+      [60, { token: undefined }],
+      [61, new Map([['token', 'ghp_x']])],
+      [62, { ['x'.repeat(100)]: 1 }],
+    ] as const) {
+      process.send({ type: 'set-settings', id, changes });
+      await flush();
+      expect(process.last('reply')).toMatchObject({
+        id,
+        ok: false,
+        error: { code: 'INVALID_SETTINGS' },
+      });
+    }
+
+    vi.mocked(dependencies.setSettings).mockRejectedValueOnce(
+      new KomlaOperationError('INVALID_SETTINGS', 'The plugin has no setting nope', 400)
+    );
+    process.send({ type: 'set-settings', id: 7, changes: { nope: 1 } });
+    await flush();
+    expect(process.last('reply')).toMatchObject({
+      id: 7,
+      ok: false,
+      error: { code: 'INVALID_SETTINGS', message: 'The plugin has no setting nope' },
+    });
+    expect(dependencies.setSettings).toHaveBeenCalledTimes(2);
   });
 
   it("answers a request Komla can't read, rather than leave the code waiting", async () => {

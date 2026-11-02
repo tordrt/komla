@@ -47,6 +47,8 @@ export type FromPluginHost =
   | { type: 'deactivated' }
   | { type: 'call'; id: number; request: unknown; workspace?: string }
   | { type: 'exec'; id: number; command: string; workspace?: string; timeoutSeconds?: number }
+  /** Sets some of the plugin's own settings; Komla sends the new `settings` before it replies. */
+  | { type: 'set-settings'; id: number; changes: unknown }
   | { type: 'panel-post'; panel: string; workspace?: string; data: unknown }
   | { type: 'panel-badge'; panel: string; workspace?: string; badge: unknown }
   | PluginHostReply;

@@ -156,6 +156,10 @@ describe('PluginSettingsStore', () => {
     await expect(settings.set('prs', FIELDS, { limit: '10' })).rejects.toThrow(
       'Limit must be a number'
     );
+    // Only null or '' clears a setting, not a value left undefined by mistake.
+    await expect(settings.set('prs', FIELDS, { repo: undefined })).rejects.toThrow(
+      'Repository takes a value, or null to clear it'
+    );
 
     expect(settings.values('prs', FIELDS).repo).toBeUndefined();
     expect(listener).not.toHaveBeenCalled();

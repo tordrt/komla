@@ -79,6 +79,7 @@ import { ProjectPageSubtitle } from './ProjectPageSubtitle';
 import { ProjectSectionTabs } from './ProjectSectionTabs';
 import { ProjectSettingsPage } from './ProjectSettingsPage';
 import { ProjectsTab } from './ProjectsTab';
+import { waitForVisibleCard } from './settings-card-lookup';
 import { settingsCardId, type SettingsSearchProject } from './settings-search';
 import { SettingsSearch } from './SettingsSearch';
 import { ShortcutsTab } from './ShortcutsTab';
@@ -339,36 +340,7 @@ function escapeClearsField(target: EventTarget | null): boolean {
   );
 }
 
-function findVisibleCard(container: HTMLElement | null, cardId: string): HTMLElement | null {
-  if (!container) return null;
-  const cards = Array.from(container.querySelectorAll<HTMLElement>(`[id="${cardId}"]`));
-  return cards.find((card) => !card.closest('[hidden]')) ?? null;
-}
-
 const CARD_HIGHLIGHT_MS = 1600;
-// Pages may render a card a little after they mount (async config, lazy chunks).
-const CARD_LOOKUP_FRAMES = 30;
-
-/** Calls onFound once the container shows the card, checking each frame for a while.
- *  Returns a function that stops looking. */
-function waitForVisibleCard(
-  getContainer: () => HTMLElement | null,
-  cardId: string,
-  onFound: (card: HTMLElement) => void
-): () => void {
-  let frame = 0;
-  let attempts = 0;
-  const lookUp = () => {
-    const card = findVisibleCard(getContainer(), cardId);
-    if (card) {
-      onFound(card);
-    } else if (++attempts < CARD_LOOKUP_FRAMES) {
-      frame = requestAnimationFrame(lookUp);
-    }
-  };
-  lookUp();
-  return () => cancelAnimationFrame(frame);
-}
 
 interface SettingsNavRowProps {
   current: boolean;
@@ -449,6 +421,8 @@ interface SettingsDialogProps {
   initialSetupProjectId?: string;
   /** Title of a card on the page to scroll to and flash */
   initialCard?: string;
+  /** The id of an element on the page to scroll to and flash, ahead of `initialCard` */
+  initialCardId?: string;
   /** Changes with every request to open Settings, including a link inside it to a page
    *  it already asked for. */
   openRequestId?: number;
@@ -462,6 +436,7 @@ export function SettingsDialog({
   initialEditProjectId,
   initialSetupProjectId,
   initialCard,
+  initialCardId,
   openRequestId,
 }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState('general');
@@ -643,7 +618,7 @@ export function SettingsDialog({
       requestPageRef.current({
         tab: page,
         projectId: initialEditProjectId,
-        cardId: initialCard ? settingsCardId(initialCard) : undefined,
+        cardId: initialCardId ?? (initialCard ? settingsCardId(initialCard) : undefined),
       });
     }
   }, [
@@ -653,6 +628,7 @@ export function SettingsDialog({
     initialEditProjectId,
     initialSetupProjectId,
     initialCard,
+    initialCardId,
     openRequestId,
   ]);
 

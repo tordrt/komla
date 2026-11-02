@@ -22,6 +22,11 @@ const FILE_VERSION = 1;
 const FILE_MODE = 0o600;
 const SETTING_ID = new RegExp(`^[a-z][a-z0-9_]{0,${MAX_PLUGIN_SETTING_ID - 1}}$`);
 
+/** A setting the plugin doesn't declare, or a value of the wrong kind for one. */
+export class PluginSettingsError extends Error {
+  override name = 'PluginSettingsError';
+}
+
 /** The variable a plugin's commands get a setting in, such as `KOMLA_SETTING_API_URL`. */
 export const settingVariable = (id: string) => `KOMLA_SETTING_${id.toUpperCase()}`;
 
@@ -34,7 +39,7 @@ export function settingValue(
   value: unknown
 ): PluginSettingValue | undefined {
   if (value === null || value === undefined || value === '') return undefined;
-  const wrong = (what: string) => new Error(`${field.title} must be ${what}`);
+  const wrong = (what: string) => new PluginSettingsError(`${field.title} must be ${what}`);
   switch (field.type) {
     case 'text':
       if (typeof value !== 'string') throw wrong('text');
@@ -299,7 +304,11 @@ export class PluginSettingsStore {
   ): Promise<void> {
     const checked = Object.entries(changes).map(([id, raw]) => {
       const field = fields.find((each) => each.id === id);
-      if (!field) throw new Error(`The plugin has no setting ${id}`);
+      if (!field) throw new PluginSettingsError(`The plugin has no setting ${id}`);
+      // Only null or '' clears one, so a value left undefined by mistake doesn't.
+      if (raw === undefined) {
+        throw new PluginSettingsError(`${field.title} takes a value, or null to clear it`);
+      }
       return { field, value: settingValue(field, raw) };
     });
     const entry = this.stored.plugins[pluginId] ?? {};

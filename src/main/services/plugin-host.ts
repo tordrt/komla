@@ -6,6 +6,7 @@ import { parseKomlaOperation } from './komla-operation/schema';
 import { komlaOperationService } from './komla-operation.service';
 import { pluginEnvironment } from './plugin-environment';
 import { forkPluginProcess, PluginHostService, type HostedPlugin } from './plugin-host.service';
+import { PluginSettingsError } from './plugin-settings';
 import { pluginSettingsStore } from './plugin-settings-store';
 import { pluginsService } from './plugins.service';
 import { sidebarPanelStates } from './sidebar-panel-states';
@@ -72,6 +73,16 @@ export const pluginHostService = new PluginHostService({
   onEvent: onKomlaEvent,
   settings: (pluginId) =>
     pluginSettingsStore.values(pluginId, pluginsService.settingFields(pluginId)),
+  setSettings: async (pluginId, changes) => {
+    try {
+      await pluginSettingsStore.set(pluginId, pluginsService.settingFields(pluginId), changes);
+    } catch (error) {
+      if (error instanceof PluginSettingsError) {
+        throw new KomlaOperationError('INVALID_SETTINGS', error.message, 400);
+      }
+      throw error;
+    }
+  },
   now: Date.now,
   setTimeout: (callback, ms) => setTimeout(callback, ms),
   clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),

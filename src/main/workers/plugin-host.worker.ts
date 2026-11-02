@@ -29,7 +29,7 @@ let next = 0;
 const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
 
 /** Asks Komla, and resolves to its answer or throws a KomlaError with Komla's code. */
-type Question = Extract<FromPluginHost, { type: 'call' | 'exec' }>;
+type Question = Extract<FromPluginHost, { type: 'call' | 'exec' | 'set-settings' }>;
 type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
 
 function ask(message: WithoutId<Question>): Promise<unknown> {
@@ -73,6 +73,9 @@ function getSettings(
 
 const pluginSettings: KomlaPluginSettings = Object.freeze({
   get: getSettings,
+  set: async (changes: Record<string, KomlaPluginSettingValue | null>) => {
+    await ask({ type: 'set-settings', changes });
+  },
   onChange: (listener: (settings: Record<string, KomlaPluginSettingValue>) => void) => {
     settingsListeners.add(listener);
     return () => settingsListeners.delete(listener);

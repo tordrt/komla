@@ -79,6 +79,7 @@ export const Sidebar = memo(function Sidebar({
   // The macOS traffic lights sit at the left of the top row.
   const topRowInset = hasTrafficLights ? MAC_TRAFFIC_LIGHT_INSET_PX : 0;
 
+  // Narrower, New Workspace drops its shortcut, and the footer's SSH count its icon.
   const showNewWorkspaceShortcut = width >= 185;
 
   // One filled split control, the same field as Jump to: New Workspace, then quick create.
@@ -110,7 +111,7 @@ export const Sidebar = memo(function Sidebar({
           onClick={() => selectWorkspace(null)}
         >
           <KomlaMark className="size-3.5 shrink-0" />
-          <span className="truncate">Komla</span>
+          <TruncatingLabel whole>Komla</TruncatingLabel>
         </Button>
       </TooltipTrigger>
       <TooltipContent>
@@ -181,9 +182,6 @@ export const Sidebar = memo(function Sidebar({
         <WorkspaceList onNewWorkspaceDialogChange={onNewWorkspaceDialogChange} />
       </FolderDropZone>
 
-      {/* Workspace quota display */}
-      <WorkspaceQuota onUpgradeClick={() => onUpgradeNeeded('settings')} />
-
       {/* Selection mode indicator */}
       {selectionMode && (
         <div className="flex items-center justify-between border-t border-border/20 px-2.5 py-1 text-xs">
@@ -197,9 +195,10 @@ export const Sidebar = memo(function Sidebar({
         </div>
       )}
 
-      {/* Bottom toolbar: Komla's name, which opens Overview, on the left; the filter and
-          sort menu, then the settings menu in the sidebar's corner, on the right. The name and the
-          settings menu stay put, and have the status bar's right-click menu. */}
+      {/* Bottom toolbar: Komla's name, which opens Overview, on the left; the free plan's SSH
+          workspace count, the filter and sort menu, then the settings menu in the sidebar's
+          corner, on the right. The name and the settings menu stay put, and have the status bar's
+          right-click menu. */}
       <div className="flex h-[calc(var(--status-bar-row-height)+1px)] shrink-0 items-center gap-0.5 px-2">
         {/* Fills the footer's left, so right-clicking anywhere there opens the status bar's menu. */}
         <StatusBarContextMenu>
@@ -210,7 +209,11 @@ export const Sidebar = memo(function Sidebar({
             {overview}
           </div>
         </StatusBarContextMenu>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div data-testid="sidebar-footer-end" className="flex shrink-0 items-center gap-0.5">
+          <WorkspaceQuota
+            compact={!showNewWorkspaceShortcut}
+            onUpgradeClick={() => onUpgradeNeeded('settings')}
+          />
           <SidebarFilterMenu />
           <StatusBarContextMenu>
             <div className="flex items-center">{renderAppMenu?.('sidebar')}</div>

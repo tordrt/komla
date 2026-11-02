@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -53,14 +53,36 @@ describe('WorkspaceQuota', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('shows the count compactly, naming what it counts', () => {
+    licenseState.quota = { count: 2, limit: 4, isLicensed: false };
+    const onUpgradeClick = vi.fn();
+    const { container } = render(<WorkspaceQuota onUpgradeClick={onUpgradeClick} />);
+
+    // The name holds the visible "2/4", so voice control can say what it sees.
+    const button = screen.getByRole('button', { name: '2/4 SSH workspaces running' });
+    expect(button).toHaveTextContent('2/4');
+    expect(button).not.toHaveTextContent('SSH workspaces');
+    expect(button.querySelector('svg')).not.toBeNull();
+    // A count, not a progress bar that reads as something loading.
+    expect(container.querySelector('[style*="width"]')).toBeNull();
+    fireEvent.click(button);
+    expect(onUpgradeClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops its icon in a narrow sidebar, leaving the footer room for Komla', () => {
+    render(<WorkspaceQuota compact onUpgradeClick={vi.fn()} />);
+
+    const button = screen.getByRole('button', { name: /SSH workspaces/ });
+    expect(button).toHaveTextContent('4/4');
+    expect(button.querySelector('svg')).toBeNull();
+  });
+
   it('uses a warning color rather than an error color at the limit', () => {
-    const { container } = render(<WorkspaceQuota onUpgradeClick={vi.fn()} />);
+    render(<WorkspaceQuota onUpgradeClick={vi.fn()} />);
 
     const button = screen.getByRole('button', { name: /SSH workspaces/ });
     expect(button).toHaveClass('text-warning');
     expect(button).not.toHaveClass('text-destructive');
-    expect(container.querySelector('.bg-warning')).not.toBeNull();
-    expect(container.querySelector('.bg-destructive')).toBeNull();
   });
 
   it('stays neutral below the limit', () => {

@@ -121,7 +121,7 @@ vi.mock('../../../../src/renderer/components/workspaces/QuickCreateMenu', () => 
 }));
 
 vi.mock('../../../../src/renderer/components/layout/WorkspaceQuota', () => ({
-  WorkspaceQuota: () => null,
+  WorkspaceQuota: () => <span data-testid="workspace-quota" />,
 }));
 
 vi.mock('../../../../src/renderer/components/ui/dropdown-menu', () => ({
@@ -833,6 +833,9 @@ describe('Sidebar', () => {
         })
       ).toBeNull();
       expect(button).toHaveTextContent('Komla');
+      // Squeezed by the footer's other controls, the name drops rather than going to "K…".
+      expect(within(button).getByText('Komla').parentElement).toHaveClass('flex-wrap');
+      expect(within(button).getByText('Komla')).toHaveClass('basis-auto');
       fireEvent.click(button);
 
       expect(workspaceState.selectWorkspace).toHaveBeenCalledWith(null);
@@ -857,6 +860,21 @@ describe('Sidebar', () => {
 
       expect(screen.getByRole('menuitem', { name: 'Customize status bar…' })).toBeTruthy();
     });
+  });
+
+  it('keeps the SSH workspace count in the footer row, beside the filter and settings', () => {
+    render(
+      <Sidebar
+        width={240}
+        onResize={vi.fn()}
+        onNewWorkspaceDialogChange={vi.fn()}
+        onUpgradeNeeded={vi.fn()}
+      />
+    );
+
+    const footerEnd = screen.getByTestId('sidebar-footer-end');
+    expect(footerEnd).toContainElement(screen.getByTestId('workspace-quota'));
+    expect(footerEnd.firstElementChild).toBe(screen.getByTestId('workspace-quota'));
   });
 
   it('resets to the default width when the resize handle is double-clicked', () => {

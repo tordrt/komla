@@ -1,5 +1,7 @@
 mod protocol;
 mod repository;
+#[cfg(test)]
+mod test_watchdog;
 
 pub use protocol::{
     CompanionSnapshotPayload, NotificationPresentation, PendingTerminalHook,
@@ -515,6 +517,8 @@ mod tests {
 
     #[test]
     fn native_watcher_emits_a_working_tree_change() {
+        let _watchdog =
+            crate::test_watchdog::Watchdog::start("native_watcher_emits_a_working_tree_change");
         let temp = tempdir().unwrap();
         let repository = temp.path().join("repository");
         fs::create_dir(&repository).unwrap();
@@ -557,20 +561,28 @@ mod tests {
 
     #[test]
     fn native_watcher_rebuilds_after_a_directory_is_created() {
+        let watchdog = crate::test_watchdog::Watchdog::start(
+            "native_watcher_rebuilds_after_a_directory_is_created",
+        );
         let temp = tempdir().unwrap();
         let repository = temp.path().join("repository");
         fs::create_dir(&repository).unwrap();
+        watchdog.step("git init");
         git(&repository, &["init"]);
+        watchdog.step("discover the watch paths");
         let paths = RepositoryWatchPaths::discover(&repository).unwrap();
+        watchdog.step("load the event filter");
         let filter = RepositoryEventFilter::load(&repository).unwrap();
         let (sender, receiver) = std::sync::mpsc::channel();
-        let _watcher = super::RepositoryWatcher::start(&paths, &filter, move |event| {
+        watchdog.step("start the watcher");
+        let watcher = super::RepositoryWatcher::start(&paths, &filter, move |event| {
             let _ = sender.send(event);
         })
         .unwrap();
 
         // Working-tree directories are watched one level deep, so files in a new
         // directory are seen only after the watcher is rebuilt.
+        watchdog.step("wait for the rebuild event");
         fs::create_dir(repository.join("feature")).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         let mut saw_rebuild = false;
@@ -594,10 +606,16 @@ mod tests {
             saw_rebuild,
             "native watcher should rebuild after a directory is created"
         );
+        watchdog.step("drop the watcher");
+        drop(watcher);
+        watchdog.step("remove the repository");
+        drop(temp);
     }
 
     #[test]
     fn native_watcher_does_not_forward_file_reads() {
+        let _watchdog =
+            crate::test_watchdog::Watchdog::start("native_watcher_does_not_forward_file_reads");
         let temp = tempdir().unwrap();
         let repository = temp.path().join("repository");
         fs::create_dir(&repository).unwrap();
@@ -640,6 +658,9 @@ mod tests {
 
     #[test]
     fn native_watcher_observes_git_info_exclude_changes() {
+        let _watchdog = crate::test_watchdog::Watchdog::start(
+            "native_watcher_observes_git_info_exclude_changes",
+        );
         let temp = tempdir().unwrap();
         let repository = temp.path().join("repository");
         fs::create_dir(&repository).unwrap();
@@ -678,6 +699,9 @@ mod tests {
 
     #[test]
     fn native_watcher_keeps_observing_atomically_replaced_linked_worktree_head() {
+        let _watchdog = crate::test_watchdog::Watchdog::start(
+            "native_watcher_keeps_observing_atomically_replaced_linked_worktree_head",
+        );
         let temp = tempdir().unwrap();
         let repository = temp.path().join("repository");
         let linked = temp.path().join("linked");

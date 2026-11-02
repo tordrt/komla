@@ -807,6 +807,9 @@ mod tests {
 
     #[test]
     fn invalid_workspace_initialization_does_not_reject_valid_workspaces() {
+        let _watchdog = crate::test_watchdog::Watchdog::start(
+            "invalid_workspace_initialization_does_not_reject_valid_workspaces",
+        );
         let temp = tempdir().unwrap();
         let repository = temp.path().join("repository");
         std::fs::create_dir(&repository).unwrap();
@@ -1087,7 +1090,11 @@ mod tests {
 
     #[test]
     fn file_signals_survive_metadata_scans_and_watcher_recovery() {
+        let watchdog = crate::test_watchdog::Watchdog::start(
+            "file_signals_survive_metadata_scans_and_watcher_recovery",
+        );
         let temp = tempdir().unwrap();
+        watchdog.step("git init");
         assert!(Command::new("git")
             .arg("init")
             .current_dir(temp.path())
@@ -1096,6 +1103,7 @@ mod tests {
             .status
             .success());
         let (sender, _receiver) = std::sync::mpsc::sync_channel(1024);
+        watchdog.step("start the first watcher");
         let mut workspaces = [WorkspaceRuntime::initialize(
             WorkspaceConfig {
                 workspace_id: "workspace-1".to_owned(),
@@ -1109,6 +1117,7 @@ mod tests {
         let mut scanner = SnapshotScanner::new();
 
         // Initial synchronization is explicit, even with a clean repository.
+        watchdog.step("check the signals");
         super::start_scan_if_due(&mut workspaces[0], 0, &mut scanner, u64::MAX);
         let complete = |workspaces: &mut [WorkspaceRuntime]| {
             apply_scan_result(
@@ -1139,9 +1148,11 @@ mod tests {
         // A main ref update and an index-triggered watcher rebuild are metadata only.
         send_event(git_dir.join("refs/heads/main"), &mut workspaces);
         send_event(git_dir.join("index"), &mut workspaces);
+        watchdog.step("replace the watcher");
         workspaces[0]
             .load_repository(0, sender.clone(), 2_000)
             .unwrap();
+        watchdog.step("check the signals after the rebuild");
         super::start_scan_if_due(&mut workspaces[0], 0, &mut scanner, u64::MAX);
         // Files written during an in-flight scan belong to the next scan.
         // Watch paths are canonical (macOS temp dirs live under the /private symlink).
@@ -1182,10 +1193,17 @@ mod tests {
         super::start_scan_if_due(&mut workspaces[0], 0, &mut scanner, u64::MAX);
         complete(&mut workspaces);
         assert!(workspaces[0].pending.take().unwrap().working_tree_changed);
+        watchdog.step("drop the watcher");
+        drop(workspaces);
+        watchdog.step("remove the repository");
+        drop(temp);
     }
 
     #[test]
     fn komla_files_changes_are_reported_without_syncing_local_copies() {
+        let _watchdog = crate::test_watchdog::Watchdog::start(
+            "komla_files_changes_are_reported_without_syncing_local_copies",
+        );
         let temp = tempdir().unwrap();
         assert!(Command::new("git")
             .arg("init")
@@ -1268,6 +1286,9 @@ mod tests {
 
     #[test]
     fn snapshots_name_every_path_changed_since_the_last_delivered_one() {
+        let _watchdog = crate::test_watchdog::Watchdog::start(
+            "snapshots_name_every_path_changed_since_the_last_delivered_one",
+        );
         let temp = tempdir().unwrap();
         assert!(Command::new("git")
             .arg("init")
@@ -1414,6 +1435,9 @@ mod tests {
 
     #[test]
     fn keeps_the_file_list_fingerprint_until_files_may_come_or_go() {
+        let _watchdog = crate::test_watchdog::Watchdog::start(
+            "keeps_the_file_list_fingerprint_until_files_may_come_or_go",
+        );
         let temp = tempdir().unwrap();
         let git = |args: &[&str]| {
             let output = Command::new("git")

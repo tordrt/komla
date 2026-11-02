@@ -19,6 +19,8 @@ mod remote_control;
 mod runtime;
 mod scanner;
 mod search;
+#[cfg(test)]
+mod test_watchdog;
 mod transport;
 
 fn main() {

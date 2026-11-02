@@ -67,6 +67,9 @@ const mockWorkspaceService = {
   persistSshAttention: vi.fn(),
   hasAcceptedTerminalHook: vi.fn(() => false),
   recordCopiedHookDelivery: vi.fn(),
+  onWorkspaceUpdated: vi.fn(() => () => {}),
+  onAttentionRaised: vi.fn(() => () => {}),
+  onPromptSubmitted: vi.fn(() => () => {}),
   sshSync: { expectWorkspace: vi.fn() },
   attention: {
     hook: vi.fn((): Promise<string> => Promise.resolve('taken')),
@@ -1261,6 +1264,35 @@ describe('HttpServerService', () => {
           message: 'Komla command requests must use application/json.',
         },
       });
+    });
+
+    it('ends a wait once its caller disconnects', async () => {
+      const workspace = createWorkspace({ id: 'workspace-1', workingDirectory: '/projects/komla' });
+      Object.assign(workspace, {
+        terminals: [
+          { id: 'terminal-1', name: 'Claude', createdAt: Date.now() },
+          { id: 'terminal-2', name: 'Codex', createdAt: Date.now(), agentActive: true },
+        ],
+      });
+      mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(workspace);
+      mockWorkspaceService.get.mockReturnValue(workspace);
+      httpServerService.start();
+
+      const req = createMockRequest(
+        'POST',
+        '/terminals/terminal-1/api/v1/commands',
+        JSON.stringify({ type: 'terminal.wait', terminal: 'Codex' }),
+        { 'content-type': 'application/json' }
+      );
+      const res = createMockResponse();
+      capturedHandler!(req, res);
+      req._sendBody();
+      await vi.waitFor(() => expect(res.on).toHaveBeenCalledWith('close', expect.any(Function)));
+      expect(res.end).not.toHaveBeenCalled();
+      res._close();
+
+      await vi.waitFor(() => expect(res.end).toHaveBeenCalled());
+      expect(parseJsonResponse(res)).toMatchObject({ ok: true, result: { reason: 'timeout' } });
     });
 
     it('executes typed CLI operations independently of the MCP server', async () => {

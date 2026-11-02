@@ -22,6 +22,10 @@ komla trash                               # moves this workspace to the Trash wh
 komla workspace link <id>                 # links another workspace, by its id, under linked-workspaces/
 komla open ~/notes                        # opens a folder on this computer in Komla; no agent
 komla title "Login fix" --description "Fix the flaky login test"
+komla terminals                           # this workspace's terminals, and what each agent is doing
+komla read <terminal>                     # what another terminal shows
+komla send <terminal> "Recheck the fix"   # types it in and submits it; --wait waits for its turn
+komla wait <terminal>                     # until its turn ends or it needs the user; never sleep
 komla desktop run -- <app command>        # on an SSH host, shows the app on a virtual desktop
 ```
 
@@ -38,6 +42,10 @@ Rules:
 - A `linked-workspaces/` folder in the workspace holds other workspaces linked to it, such as the
   repository an API lives in; read and edit them there when a task spans them. Link or unlink one
   with `komla workspace link` or `unlink` when the user asks to work across workspaces.
+- An agent you start with `komla launch --here` prints its terminal id. Put its whole task in the
+  launch's prompt, `komla wait` on it instead of sleeping, and `komla read` its result before you
+  report it. When `wait` says it's blocked, it waits for the user: read its question and ask them,
+  don't answer it for them. A timeout means it's still working, so wait again.
 - Run `komla desktop run` only when the user asks to see a GUI app, such as an Electron app, that
   runs on a Komla SSH host. Elsewhere the app opens as usual and needs no `komla`.
 

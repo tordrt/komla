@@ -42,6 +42,9 @@ export function handleKomlaCommandRequest(
       );
       return;
     }
+    // A wait ends when its caller goes, as on Ctrl-C, even before its body arrives.
+    const caller = new AbortController();
+    res.on('close', () => caller.abort());
     try {
       const body = await readBody(req);
       let raw: unknown;
@@ -60,6 +63,8 @@ export function handleKomlaCommandRequest(
           sshHostId: singleHeader(req.headers['x-komla-ssh-host-id']),
           cwd: url.searchParams.get('cwd') ?? undefined,
           requestedAt: requestedAtOf(req),
+          signal: caller.signal,
+          callerTerminalId: singleHeader(req.headers['x-komla-caller-terminal-id']),
         }),
         operation
       );

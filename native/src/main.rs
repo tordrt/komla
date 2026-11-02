@@ -26,6 +26,9 @@ fn main() {
         if error.downcast_ref::<cli::ReportedCliError>().is_some() {
             std::process::exit(1);
         }
+        if let Some(cli::CliExit(code)) = error.downcast_ref::<cli::CliExit>() {
+            std::process::exit(*code);
+        }
         eprintln!("{error:#}");
         std::process::exit(1);
     }

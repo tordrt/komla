@@ -41,6 +41,15 @@ import {
 } from '../../lib/status-item-text';
 import { parseSnoozeUntil, wokenMarks } from '../workspace-snooze';
 
+import {
+  terminalAgentState,
+  waitForTerminal,
+  type TerminalWaitOptions,
+  type TerminalWaitReason,
+  type TerminalWaitResult,
+  type TerminalWaitSnapshot,
+} from './terminal-wait';
+
 import type { AgentTurnEnd } from './agent-turn-end';
 import type {
   AgentLaunchPolicy,
@@ -54,6 +63,7 @@ import type {
   StatusItemTone,
   StatusItemSegment,
 } from '../../../shared/types/status-items';
+import type { TerminalStatus } from '../../../shared/types/terminal';
 import type {
   AddAgentTabOptions,
   CreateWorkspaceParams,
@@ -62,12 +72,23 @@ import type {
   WorkspaceTrashRequest,
   WorkspaceAttention,
 } from '../../../shared/types/workspace';
+import type { TerminalText } from '../../lib/terminal-text';
 
 const MAX_SNOOZE_MS = 365 * 24 * 60 * 60 * 1000;
 /** Lets `komla trash` reply before the Trash stops the terminal it runs in. */
 export const TRASH_WITHOUT_TURN_DELAY_MS = 1000;
 /** A turn that runs longer, as with a spinner no Stop turns off, keeps its workspace. */
 export const TRASH_TURN_LIMIT_MS = 30 * 60 * 1000;
+/** How long `komla wait` and `send --wait` wait by default before checking in. */
+export const TERMINAL_WAIT_DEFAULT_MS = 180_000;
+/** How long a sent message's turn may take to start before `send --wait` says it hasn't. */
+export const TERMINAL_SEND_START_MS = 10_000;
+/** A terminal this new may still be starting its agent, whose first turn `komla wait` waits for. */
+export const TERMINAL_STARTUP_MS = 60_000;
+/** History lines `komla read` shows above the screen by default. */
+export const TERMINAL_READ_DEFAULT_HISTORY = 50;
+
+type OperationTerminal = NonNullable<KomlaOperationWorkspace['terminals']>[number];
 
 /**
  * Why moving to the Trash would cut work short, if it would: another tab's, or work no tab owns. Once the
@@ -94,6 +115,37 @@ function trashBlocker(
     return 'An agent in this workspace is still working, and the Trash would stop it.';
   }
   return undefined;
+}
+
+/**
+ * The text as `komla send` types it: lines and tabs only. Escape sequences or control keys in it
+ * could end a paste early and reach the agent as keys, as one answering a prompt.
+ */
+function typedText(text: string): string {
+  // oxlint-disable-next-line no-control-regex
+  return (
+    text
+      .replace(/\r\n?/g, '\n')
+      .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '')
+      // `send` presses Enter itself, so a final newline from a file isn't a second one.
+      .replace(/\n+$/, '')
+  );
+}
+
+/** What a done, error or question says: the agent's text, else the notice's. */
+function attentionText(
+  attention: Pick<WorkspaceAttention, 'message' | 'body' | 'title'> | undefined
+): string | undefined {
+  return attention?.message ?? attention?.body ?? attention?.title;
+}
+
+function callerTerminal(context: KomlaOperationContext): string | undefined {
+  return context.callerTerminalId ?? context.terminalId;
+}
+
+/** How a message names a terminal: by its tab's name, else its id. */
+function terminalLabel(terminal: { id: string; name?: string }): string {
+  return terminal.name ? `Terminal ${terminal.name} (${terminal.id})` : `Terminal ${terminal.id}`;
 }
 
 /** What a status item's click opens: a web page, and one popover at most. */
@@ -168,6 +220,10 @@ export interface KomlaOperationContext {
   targeted?: boolean;
   /** When an agent ran a command an SSH host queued while Komla was away, in epoch ms. */
   requestedAt?: number;
+  /** Aborted once the caller stops waiting for the answer, which ends a wait early. */
+  signal?: AbortSignal;
+  /** The terminal the command runs in, also when `--workspace` names where it acts. */
+  callerTerminalId?: string;
 }
 
 /**
@@ -184,6 +240,9 @@ export function komlaCommandContext({
         sshHostId: caller.sshHostId,
         targeted: true,
         requestedAt: caller.requestedAt,
+        signal: caller.signal,
+        // The calling terminal stays the caller's own, which `send` and `wait` refuse.
+        callerTerminalId: caller.callerTerminalId ?? caller.terminalId,
       }
     : caller;
 }
@@ -206,7 +265,14 @@ export interface KomlaOperationWorkspace {
   attention?: WorkspaceAttention;
   status?: Workspace['status'];
   agentActive?: boolean;
-  terminals?: Array<{ id: string; agentActive?: boolean; attention?: WorkspaceAttention }>;
+  terminals?: Array<{
+    id: string;
+    name?: string;
+    createdAt?: number;
+    status?: TerminalStatus;
+    agentActive?: boolean;
+    attention?: WorkspaceAttention;
+  }>;
   virtualDesktops?: WorkspaceVirtualDesktop[];
   linkedWorkspaceIds?: string[];
 }
@@ -306,6 +372,22 @@ export interface KomlaOperationDependencies {
     terminalId: string,
     ended: (end: AgentTurnEnd) => void
   ): () => void;
+  /** What a terminal shows as plain text, with that many history lines; undefined without a PTY. */
+  readTerminalText(terminalId: string, history: number): Promise<TerminalText | undefined>;
+  /** Types text into a terminal, bracketed as a paste when `bracketed`, then presses Enter. */
+  submitToTerminal(terminalId: string, text: string, bracketed: boolean): Promise<void>;
+  /** Whether the terminal's program still runs. */
+  isTerminalRunning(terminalId: string): boolean;
+  /** Returns a function that unsubscribes. */
+  onWorkspaceUpdated(listener: (workspaceId: string) => void): () => void;
+  /** Each prompt submitted in a terminal. Returns a function that unsubscribes. */
+  onPromptSubmitted(listener: (terminalId: string) => void): () => void;
+  /** Each attention a terminal raises. Returns a function that unsubscribes. */
+  onAttentionRaised(listener: (attention: WorkspaceAttention) => void): () => void;
+  /** Returns a function that unsubscribes. */
+  onTerminalOutput(listener: (terminalId: string, data: string) => void): () => void;
+  /** Returns a function that unsubscribes. */
+  onTerminalExit(listener: (terminalId: string) => void): () => void;
   /** Asks the window showing the workspace to move it to the Trash, or to say why it wasn't. */
   requestTrash(request: WorkspaceTrashRequest): void;
   /** Opens the folder in the window, or another, as Open Folder does. False when it's no folder. */
@@ -390,6 +472,29 @@ export type KomlaOperation =
   /** Runs a status-items.json item again now. */
   | { type: 'status.refresh'; id: string }
   | { type: 'preview.open'; url?: string }
+  /** The calling workspace's terminals, with what each one's agent is doing. */
+  | { type: 'terminal.list' }
+  /** `terminal` is a terminal's id or its tab's name; `history` lines above the screen. */
+  | { type: 'terminal.read'; terminal: string; history?: number }
+  /**
+   * Types `text` into the terminal and submits it. Refused while its agent waits for the user,
+   * unless `force`. With `wait`, then waits as `terminal.wait` does for the turn it started.
+   */
+  | {
+      type: 'terminal.send';
+      terminal: string;
+      text: string;
+      force?: boolean;
+      wait?: boolean;
+      timeoutMs?: number;
+    }
+  /** Waits for the terminal's agent to end its turn or need the user, or for `output`. */
+  | {
+      type: 'terminal.wait';
+      terminal: string;
+      output?: string;
+      timeoutMs?: number;
+    }
   | {
       type: 'desktop.open';
       vncPort: number;
@@ -503,6 +608,14 @@ export class KomlaOperationService {
         return this.openPreview(context, operation.url);
       case 'desktop.open':
         return this.openDesktop(context, operation);
+      case 'terminal.list':
+        return this.listTerminals(context);
+      case 'terminal.read':
+        return this.readTerminal(context, operation);
+      case 'terminal.send':
+        return this.sendToTerminal(context, operation);
+      case 'terminal.wait':
+        return this.waitForTerminal(context, operation);
     }
   }
 
@@ -1813,6 +1926,245 @@ export class KomlaOperationService {
       );
     }
     return workspace;
+  }
+
+  private listTerminals(context: KomlaOperationContext): unknown {
+    this.requireCapability('terminal.read');
+    const workspace = this.requireWorkspace(context);
+    return {
+      terminals: (workspace.terminals ?? []).map((terminal) => ({
+        ...this.describeTerminal(terminal),
+        ...(terminal.id === callerTerminal(context) ? { current: true } : {}),
+      })),
+    };
+  }
+
+  private async readTerminal(
+    context: KomlaOperationContext,
+    operation: Extract<KomlaOperation, { type: 'terminal.read' }>
+  ): Promise<unknown> {
+    this.requireCapability('terminal.read');
+    const { terminal } = this.resolveTerminal(context, operation.terminal);
+    const screen = await this.dependencies.readTerminalText(
+      terminal.id,
+      operation.history ?? TERMINAL_READ_DEFAULT_HISTORY
+    );
+    if (!screen) throw this.terminalNotRunning(terminal);
+    return { terminal: this.describeTerminal(terminal), text: screen.text };
+  }
+
+  private async sendToTerminal(
+    context: KomlaOperationContext,
+    operation: Extract<KomlaOperation, { type: 'terminal.send' }>
+  ): Promise<unknown> {
+    this.requireCapability('terminal.send');
+    const { workspace, terminal } = this.resolveTerminal(context, operation.terminal);
+    if (terminal.id === callerTerminal(context)) {
+      throw new KomlaOperationError(
+        'TERMINAL_IS_CALLER',
+        'That is the terminal this command runs in; send to another one.',
+        400
+      );
+    }
+    const text = typedText(operation.text);
+    if (!text.trim()) {
+      throw new KomlaOperationError(
+        'EMPTY_MESSAGE',
+        'The message has no text to type once its control characters are left out.',
+        400
+      );
+    }
+    const described = this.describeTerminal(terminal);
+    if (described.state === 'exited') throw this.terminalNotRunning(terminal);
+    if (described.state === 'blocked' && operation.force !== true) {
+      throw new KomlaOperationError(
+        'TERMINAL_BLOCKED',
+        `${terminalLabel(terminal)} is waiting for the user${described.message ? `: ${described.message}` : ''}. Read it with \`komla read ${terminal.id}\` and ask the user; don't answer for them. --force sends anyway.`,
+        409,
+        { terminal: described }
+      );
+    }
+    // Agents enable bracketed paste, so a message of several lines arrives as one.
+    const screen = await this.dependencies.readTerminalText(terminal.id, 0);
+    if (!screen) throw this.terminalNotRunning(terminal);
+    // Watching starts before the message goes, so a quick turn can't end unseen.
+    const waiting = operation.wait
+      ? this.watchTerminal(workspace.id, terminal.id, {
+          timeoutMs: operation.timeoutMs ?? TERMINAL_WAIT_DEFAULT_MS,
+          startTimeoutMs: TERMINAL_SEND_START_MS,
+          nextTurn: true,
+          answering: described.state === 'blocked',
+          signal: context.signal,
+        })
+      : undefined;
+    await this.dependencies.submitToTerminal(terminal.id, text, screen.bracketedPaste);
+    if (!waiting) return { sent: true, terminal: this.describeTerminal(terminal) };
+    return { sent: true, ...this.waitResult(workspace.id, terminal, await waiting) };
+  }
+
+  private async waitForTerminal(
+    context: KomlaOperationContext,
+    operation: Extract<KomlaOperation, { type: 'terminal.wait' }>
+  ): Promise<unknown> {
+    this.requireCapability('terminal.read');
+    const { workspace, terminal } = this.resolveTerminal(context, operation.terminal);
+    if (terminal.id === callerTerminal(context)) {
+      throw new KomlaOperationError(
+        'TERMINAL_IS_CALLER',
+        'That is the terminal this command runs in, which can’t end its turn while it waits.',
+        400
+      );
+    }
+    // A new terminal's agent may not have started its first turn yet.
+    const starting =
+      operation.output === undefined &&
+      terminal.attention === undefined &&
+      terminal.createdAt !== undefined &&
+      Date.now() - terminal.createdAt < TERMINAL_STARTUP_MS;
+    const result = await this.watchTerminal(workspace.id, terminal.id, {
+      timeoutMs: operation.timeoutMs ?? TERMINAL_WAIT_DEFAULT_MS,
+      ...(operation.output !== undefined ? { output: operation.output } : {}),
+      ...(starting ? { startTimeoutMs: TERMINAL_STARTUP_MS } : {}),
+      signal: context.signal,
+    });
+    return this.waitResult(workspace.id, terminal, result);
+  }
+
+  /**
+   * Why the wait returned, with the done's, error's or question's text, which the terminal may no
+   * longer show once the user saw it.
+   */
+  private waitResult(
+    workspaceId: string,
+    terminal: OperationTerminal,
+    { reason, attention }: TerminalWaitResult
+  ): {
+    reason: TerminalWaitReason;
+    message?: string;
+    terminal: ReturnType<KomlaOperationService['describeTerminal']>;
+  } {
+    const current =
+      this.dependencies
+        .getWorkspace(workspaceId)
+        ?.terminals?.find((candidate) => candidate.id === terminal.id) ?? terminal;
+    const message = attentionText(attention);
+    return {
+      reason,
+      ...(message ? { message } : {}),
+      terminal: this.describeTerminal(current),
+    };
+  }
+
+  private watchTerminal(
+    workspaceId: string,
+    terminalId: string,
+    options: TerminalWaitOptions
+  ): Promise<TerminalWaitResult> {
+    return waitForTerminal(
+      {
+        snapshot: () => this.terminalSnapshot(workspaceId, terminalId),
+        onChange: (listener) =>
+          this.dependencies.onWorkspaceUpdated((id) => {
+            if (id === workspaceId) listener();
+          }),
+        onAttention: (listener) =>
+          this.dependencies.onAttentionRaised((attention) => {
+            if (attention.terminalId === terminalId) listener(attention);
+          }),
+        onPromptSubmitted: (listener) =>
+          this.dependencies.onPromptSubmitted((id) => {
+            if (id === terminalId) listener();
+          }),
+        onOutput: (listener) =>
+          this.dependencies.onTerminalOutput((id, data) => {
+            if (id === terminalId) listener(data);
+          }),
+        onExit: (listener) =>
+          this.dependencies.onTerminalExit((id) => {
+            if (id === terminalId) listener();
+          }),
+      },
+      options
+    );
+  }
+
+  private terminalSnapshot(workspaceId: string, terminalId: string): TerminalWaitSnapshot {
+    const terminal = this.dependencies
+      .getWorkspace(workspaceId)
+      ?.terminals?.find((candidate) => candidate.id === terminalId);
+    return this.snapshotOf(terminal);
+  }
+
+  private snapshotOf(terminal: OperationTerminal | undefined): TerminalWaitSnapshot {
+    return {
+      running: terminal !== undefined && this.isTerminalRunning(terminal),
+      working: terminal?.agentActive === true,
+      ...(terminal?.attention ? { attention: terminal.attention } : {}),
+    };
+  }
+
+  /** A tab `launch --here` just opened may not have its program yet, which isn't an exit. */
+  private isTerminalRunning(terminal: OperationTerminal): boolean {
+    if (this.dependencies.isTerminalRunning(terminal.id)) return true;
+    return (
+      terminal.status !== 'stopped' &&
+      terminal.createdAt !== undefined &&
+      Date.now() - terminal.createdAt < TERMINAL_STARTUP_MS
+    );
+  }
+
+  private describeTerminal(terminal: OperationTerminal): {
+    id: string;
+    name?: string;
+    state: ReturnType<typeof terminalAgentState>;
+    message?: string;
+  } {
+    const state = terminalAgentState(this.snapshotOf(terminal));
+    const attention = terminal.attention;
+    const message =
+      state === 'blocked' || state === 'done' || state === 'error'
+        ? attentionText(attention)
+        : undefined;
+    return {
+      id: terminal.id,
+      ...(terminal.name ? { name: terminal.name } : {}),
+      state,
+      ...(message ? { message } : {}),
+    };
+  }
+
+  /** The terminal `selector` names in the calling workspace: its id, or its tab's name. */
+  private resolveTerminal(
+    context: KomlaOperationContext,
+    selector: string
+  ): { workspace: KomlaOperationWorkspace; terminal: OperationTerminal } {
+    const workspace = this.requireWorkspace(context);
+    const terminals = workspace.terminals ?? [];
+    const byId = terminals.find((terminal) => terminal.id === selector);
+    if (byId) return { workspace, terminal: byId };
+    const wanted = selector.trim().toLowerCase();
+    const named = terminals.filter((terminal) => terminal.name?.trim().toLowerCase() === wanted);
+    if (named.length === 1) return { workspace, terminal: named[0] };
+    if (named.length > 1) {
+      throw new KomlaOperationError(
+        'TERMINAL_AMBIGUOUS',
+        `Several terminals here are named ${selector}; name one by its id, as \`komla terminals\` lists them.`,
+        409
+      );
+    }
+    throw new KomlaOperationError(
+      'TERMINAL_NOT_FOUND',
+      `This workspace has no terminal ${selector}; \`komla terminals\` lists them.`,
+      404
+    );
+  }
+
+  private terminalNotRunning(terminal: OperationTerminal): KomlaOperationError {
+    return new KomlaOperationError(
+      'TERMINAL_NOT_RUNNING',
+      `${terminalLabel(terminal)} has no program running on this computer, yet or any more.`,
+      409
+    );
   }
 
   private requireWorkspace(context: KomlaOperationContext): KomlaOperationWorkspace {

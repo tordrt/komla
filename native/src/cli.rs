@@ -64,6 +64,18 @@ impl fmt::Display for ReportedCliError {
 
 impl std::error::Error for ReportedCliError {}
 
+/// The command printed its answer and exits with this code, as `komla wait` does for a timeout.
+#[derive(Debug)]
+pub(crate) struct CliExit(pub(crate) i32);
+
+impl fmt::Display for CliExit {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "exit {}", self.0)
+    }
+}
+
+impl std::error::Error for CliExit {}
+
 /// No Komla installation answered, so the request cannot have reached one.
 #[derive(Debug)]
 struct KomlaUnreachable(String);
@@ -157,6 +169,9 @@ struct CliEnvironment {
     workspace_id: Option<String>,
     /// The workspace `--workspace` named, which commands act on in place of the calling one.
     target_workspace_id: Option<String>,
+    /// The terminal this runs in, kept when `--workspace` names another workspace to act on, so
+    /// `komla send` and `wait` still know which terminal is the caller's own.
+    caller_terminal_id: Option<String>,
     companion_inbox: Option<PathBuf>,
     scoped_url: bool,
     stdin_is_terminal: bool,
@@ -271,6 +286,7 @@ impl CliEnvironment {
             terminal_id: values.terminal_id,
             workspace_id: values.workspace_id,
             target_workspace_id: None,
+            caller_terminal_id: None,
             companion_inbox: values.companion_inbox.map(PathBuf::from),
             stdin_is_terminal: std::io::stdin().is_terminal(),
             stdout_is_terminal: std::io::stdout().is_terminal(),
@@ -582,7 +598,9 @@ impl KomlaApi for HttpKomlaApi {
     fn target_workspace(&mut self, workspace_id: &str) {
         self.environment.target_workspace_id = Some(workspace_id.to_owned());
         self.environment.workspace_id = Some(workspace_id.to_owned());
-        self.environment.terminal_id = None;
+        if let Some(terminal_id) = self.environment.terminal_id.take() {
+            self.environment.caller_terminal_id = Some(terminal_id);
+        }
     }
 
     fn refresh_route(&mut self) {
@@ -619,6 +637,9 @@ impl KomlaApi for HttpKomlaApi {
         }
         if let Some(target) = self.environment.target_workspace_id.as_deref() {
             headers.push(("X-Komla-Target-Workspace-Id", target));
+        }
+        if let Some(caller) = self.environment.caller_terminal_id.as_deref() {
+            headers.push(("X-Komla-Caller-Terminal-Id", caller));
         }
         request_http(
             method,
@@ -861,6 +882,10 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 | "preview"
                 | "notify"
                 | "mcp"
+                | "terminals"
+                | "read"
+                | "send"
+                | "wait"
         )
     ) {
         bail!(UNKNOWN_COMMAND);
@@ -1065,6 +1090,9 @@ fn option_arguments(args: &[String]) -> impl Iterator<Item = (usize, &str)> {
                     | "--segments-file"
                     | "--workspace"
                     | "--if"
+                    | "--lines"
+                    | "--output"
+                    | "--timeout"
             );
             Some((index, argument.as_str()))
         })
@@ -1199,6 +1227,10 @@ cannot be used with --here"
             }
             preview_command(&options, &environment, api, output)
         }
+        Some("terminals") => terminals_command(&args[1..], &environment, api, output),
+        Some("read") => read_command(&args[1..], &environment, api, output),
+        Some("send") => send_command(&args[1..], &environment, api, input, output),
+        Some("wait") => wait_command(&args[1..], &environment, api, output),
         Some("notify") => notify_command(&args[1..], &environment, api, input, output, hook_input),
         Some("mcp") => mcp_command(&args[1..], api, input, output, errors),
         _ => bail!(UNKNOWN_COMMAND),
@@ -2020,6 +2052,253 @@ Leave them out to start this workspace's agent in a new workspace on this host."
             write_operation_result(&result, json_output, output)
         }
         _ => bail!("usage: komla agent <presets|launch> [arguments]"),
+    }
+}
+
+const READ_USAGE: &str = "usage: komla read <terminal> [--lines <n>] [--json]";
+const SEND_USAGE: &str =
+    "usage: komla send <terminal> <text> [--file <path|->] [--force] [--wait] [--timeout <seconds>] [--json]";
+const WAIT_USAGE: &str =
+    "usage: komla wait <terminal> [--output <text>] [--timeout <seconds>] [--json]";
+/// The longest `komla wait` waits before checking in, as Komla allows.
+const MAX_WAIT_SECONDS: u64 = 3600;
+
+fn terminals_command(
+    args: &[String],
+    environment: &CliEnvironment,
+    api: &mut dyn KomlaApi,
+    output: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut options = args.to_vec();
+    let json_output = take_flag(&mut options, "--json")?;
+    ensure_no_arguments(&options)?;
+    let result = execute_operation(api, environment, json!({"type": "terminal.list"}))?;
+    if json_output {
+        writeln!(output, "{result}")?;
+        return Ok(());
+    }
+    for terminal in result
+        .get("terminals")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let mut line = describe_terminal(terminal);
+        if terminal.get("current").and_then(Value::as_bool) == Some(true) {
+            line.push_str(" (this terminal)");
+        }
+        writeln!(output, "{line}")?;
+    }
+    Ok(())
+}
+
+/// One terminal as `komla terminals` shows it: `<id>  <name>  <state>[: message]`.
+fn describe_terminal(terminal: &Value) -> String {
+    let field = |name: &str| terminal.get(name).and_then(Value::as_str).unwrap_or("");
+    let mut line = format!("{}  {}  {}", field("id"), field("name"), field("state"));
+    let message = field("message");
+    if !message.is_empty() {
+        line.push_str(": ");
+        line.push_str(&first_line(message));
+    }
+    line
+}
+
+fn first_line(text: &str) -> String {
+    let line = text.lines().next().unwrap_or("").trim();
+    if line.chars().count() > 120 {
+        format!("{}…", line.chars().take(119).collect::<String>())
+    } else {
+        line.to_owned()
+    }
+}
+
+/// The one terminal a command names, and no stray arguments after it.
+fn terminal_argument(options: &[String], usage: &str) -> anyhow::Result<String> {
+    match options {
+        [terminal] if !terminal.starts_with('-') => Ok(terminal.clone()),
+        _ => bail!("{usage}"),
+    }
+}
+
+fn timeout_ms(options: &mut Vec<String>) -> anyhow::Result<Option<u64>> {
+    let Some(value) = take_option(options, "--timeout")? else {
+        return Ok(None);
+    };
+    match value.parse::<u64>() {
+        Ok(seconds) if (1..=MAX_WAIT_SECONDS).contains(&seconds) => Ok(Some(seconds * 1000)),
+        _ => bail!("--timeout takes whole seconds, from 1 to {MAX_WAIT_SECONDS}"),
+    }
+}
+
+fn read_command(
+    args: &[String],
+    environment: &CliEnvironment,
+    api: &mut dyn KomlaApi,
+    output: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut options = args.to_vec();
+    let json_output = take_flag(&mut options, "--json")?;
+    let lines = take_option(&mut options, "--lines")?
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .ok()
+                .filter(|lines| *lines <= 2000)
+                .context("--lines takes a number of history lines, from 0 to 2000")
+        })
+        .transpose()?;
+    let terminal = terminal_argument(&options, READ_USAGE)?;
+    let mut operation = json!({"type": "terminal.read", "terminal": terminal});
+    if let Some(lines) = lines {
+        operation["history"] = lines.into();
+    }
+    let result = execute_operation(api, environment, operation)?;
+    if json_output {
+        writeln!(output, "{result}")?;
+    } else {
+        writeln!(
+            output,
+            "{}",
+            result.get("text").and_then(Value::as_str).unwrap_or("")
+        )?;
+    }
+    Ok(())
+}
+
+fn send_command(
+    args: &[String],
+    environment: &CliEnvironment,
+    api: &mut dyn KomlaApi,
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut options = args.to_vec();
+    let json_output = take_flag(&mut options, "--json")?;
+    let force = take_flag(&mut options, "--force")?;
+    let wait = take_flag(&mut options, "--wait")?;
+    let timeout = timeout_ms(&mut options)?;
+    if timeout.is_some() && !wait {
+        bail!("--timeout works with --wait");
+    }
+    let file = take_option(&mut options, "--file")?;
+    let (terminal, text) = match (options.as_slice(), file) {
+        ([terminal, text], None) if !terminal.starts_with('-') => (terminal.clone(), text.clone()),
+        ([terminal], Some(path)) if !terminal.starts_with('-') => {
+            (terminal.clone(), read_text_input(&path, input, "message")?)
+        }
+        _ => bail!("{SEND_USAGE}"),
+    };
+    if text.trim().is_empty() {
+        bail!("the message is empty");
+    }
+    let mut operation = json!({"type": "terminal.send", "terminal": terminal, "text": text});
+    if force {
+        operation["force"] = true.into();
+    }
+    if wait {
+        operation["wait"] = true.into();
+    }
+    if let Some(timeout) = timeout {
+        operation["timeoutMs"] = timeout.into();
+    }
+    let result = execute_operation(api, environment, operation)?;
+    if !wait {
+        if json_output {
+            writeln!(output, "{result}")?;
+        } else {
+            writeln!(output, "Sent to {}.", terminal_name(&result))?;
+        }
+        return Ok(());
+    }
+    write_wait_result(&result, json_output, output)
+}
+
+fn wait_command(
+    args: &[String],
+    environment: &CliEnvironment,
+    api: &mut dyn KomlaApi,
+    output: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut options = args.to_vec();
+    let json_output = take_flag(&mut options, "--json")?;
+    let timeout = timeout_ms(&mut options)?;
+    let text = take_option(&mut options, "--output")?;
+    if text.as_deref().is_some_and(|text| text.is_empty()) {
+        bail!("--output needs the text to wait for");
+    }
+    let terminal = terminal_argument(&options, WAIT_USAGE)?;
+    let mut operation = json!({"type": "terminal.wait", "terminal": terminal});
+    insert_json_optional(&mut operation, "output", text);
+    if let Some(timeout) = timeout {
+        operation["timeoutMs"] = timeout.into();
+    }
+    let result = execute_operation(api, environment, operation)?;
+    write_wait_result(&result, json_output, output)
+}
+
+fn terminal_name(result: &Value) -> String {
+    let id = result
+        .pointer("/terminal/id")
+        .and_then(Value::as_str)
+        .unwrap_or("the terminal");
+    match result.pointer("/terminal/name").and_then(Value::as_str) {
+        Some(name) if !name.is_empty() => format!("{name} ({id})"),
+        _ => id.to_owned(),
+    }
+}
+
+/// Prints why a wait returned and exits as scripts can tell apart: 0 when the turn ended or the
+/// output came, 2 when the agent waits for the user, 124 on a timeout, 1 otherwise.
+fn write_wait_result(
+    result: &Value,
+    json_output: bool,
+    output: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let reason = result.get("reason").and_then(Value::as_str).unwrap_or("");
+    let name = terminal_name(result);
+    // The wait's own text outlasts the terminal's, which the user may have seen and dismissed.
+    let message = result
+        .get("message")
+        .or_else(|| result.pointer("/terminal/message"))
+        .and_then(Value::as_str)
+        .map(first_line)
+        .filter(|message| !message.is_empty());
+    let with_message = |text: String| match &message {
+        Some(message) => format!("{text}: {message}"),
+        None => format!("{text}."),
+    };
+    if json_output {
+        writeln!(output, "{result}")?;
+    } else {
+        let line = match reason {
+            "done" => with_message(format!("{name} is done")),
+            "idle" => format!("{name} stopped working."),
+            "error" => with_message(format!("{name} ended its turn with an error")),
+            "blocked" => with_message(format!(
+                "{name} is waiting for the user; read it with `komla read`"
+            )),
+            "exited" => format!("{name} exited."),
+            "output" => format!("{name} printed it."),
+            "not_started" => format!(
+                "{name} hasn't started a turn; read it with `komla read` before sending again."
+            ),
+            "timeout" => format!(
+                "{name} is still {}; wait again.",
+                result
+                    .pointer("/terminal/state")
+                    .and_then(Value::as_str)
+                    .unwrap_or("running")
+            ),
+            other => format!("{name}: {other}"),
+        };
+        writeln!(output, "{line}")?;
+    }
+    match reason {
+        "done" | "idle" | "output" => Ok(()),
+        "blocked" => Err(CliExit(2).into()),
+        "timeout" => Err(CliExit(124).into()),
+        _ => Err(CliExit(1).into()),
     }
 }
 
@@ -3079,7 +3358,14 @@ fn execute_operation(
     let path = command_path(environment);
     let may_have_side_effects = !matches!(
         operation.get("type").and_then(Value::as_str),
-        Some("context.get" | "agent.presets" | "workspace.list" | "tag.list")
+        Some(
+            "context.get"
+                | "agent.presets"
+                | "workspace.list"
+                | "tag.list"
+                | "terminal.list"
+                | "terminal.read"
+        )
     );
     let response = api.request(
         "POST",
@@ -3142,7 +3428,17 @@ fn write_operation_result(
             .pointer("/agent/preset/name")
             .and_then(Value::as_str)
             .unwrap_or("agent");
-        writeln!(output, "{preset} {state} in {destination}.")?;
+        match result
+            .pointer("/destination/terminalId")
+            .and_then(Value::as_str)
+        {
+            // Its id is how `komla read`, `send` and `wait` name it.
+            Some(terminal) => writeln!(
+                output,
+                "{preset} {state} in {destination}, as terminal {terminal}."
+            )?,
+            None => writeln!(output, "{preset} {state} in {destination}.")?,
+        }
         return Ok(());
     }
     if let Some(presets) = result.get("presets").and_then(Value::as_array) {
@@ -3875,6 +4171,7 @@ browser preview.";
             terminal_id: Some("terminal-1".to_owned()),
             workspace_id: Some("workspace-1".to_owned()),
             target_workspace_id: None,
+            caller_terminal_id: None,
             companion_inbox: None,
             scoped_url: true,
             stdin_is_terminal: false,
@@ -4601,6 +4898,166 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
                 assert_eq!(&body[key], value);
             }
         }
+    }
+
+    /// What a command printed, and the code it exits with.
+    fn run_for_exit(api: &mut FakeApi, args: &[&str]) -> (String, i32) {
+        let mut input = Cursor::new(Vec::new());
+        let mut output = Vec::new();
+        let mut errors = Vec::new();
+        let result = run_command(
+            &args
+                .iter()
+                .map(|argument| argument.to_string())
+                .collect::<Vec<_>>(),
+            &environment(),
+            api,
+            &mut input,
+            &mut output,
+            &mut errors,
+        );
+        let code = match result {
+            Ok(()) => 0,
+            Err(error) => error.downcast_ref::<CliExit>().map_or(-1, |exit| exit.0),
+        };
+        (String::from_utf8(output).unwrap(), code)
+    }
+
+    #[test]
+    fn terminal_commands_send_terminal_operations() {
+        for (args, expected, long_running) in [
+            (vec!["terminals"], json!({"type": "terminal.list"}), false),
+            (
+                vec!["read", "review"],
+                json!({"type": "terminal.read", "terminal": "review"}),
+                false,
+            ),
+            (
+                vec!["read", "review", "--lines", "0"],
+                json!({"type": "terminal.read", "terminal": "review", "history": 0}),
+                false,
+            ),
+            (
+                vec!["send", "review", "Focus on the error path"],
+                json!({"type": "terminal.send", "terminal": "review", "text": "Focus on the error path"}),
+                true,
+            ),
+            (
+                vec![
+                    "send",
+                    "--wait",
+                    "--force",
+                    "review",
+                    "Recheck",
+                    "--timeout",
+                    "30",
+                ],
+                json!({
+                    "type": "terminal.send", "terminal": "review", "text": "Recheck",
+                    "wait": true, "force": true, "timeoutMs": 30000
+                }),
+                true,
+            ),
+            (
+                vec!["wait", "server", "--output", "ready in"],
+                json!({"type": "terminal.wait", "terminal": "server", "output": "ready in"}),
+                true,
+            ),
+        ] {
+            let mut api = FakeApi::responding(
+                json!({"ok": true, "result": {"reason": "done", "terminals": [], "text": ""}}),
+            );
+            run_for_exit(&mut api, &args);
+            let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+            assert_eq!(body, expected, "{args:?}");
+            // Waits outlast the 10-second limit read-only requests get.
+            assert_eq!(api.requests[0].allow_long_running, long_running, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn send_reads_a_long_message_from_stdin() {
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {"sent": true}}));
+        run_with(
+            &mut api,
+            &["send", "review", "--file", "-"],
+            "line one\nline two",
+        )
+        .unwrap();
+        let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+        assert_eq!(body["text"], "line one\nline two");
+    }
+
+    #[test]
+    fn terminal_commands_reject_bad_arguments_before_asking_komla() {
+        for args in [
+            vec!["read"],
+            vec!["read", "a", "b"],
+            vec!["read", "a", "--lines", "many"],
+            vec!["send", "review"],
+            vec!["send", "review", "  "],
+            vec!["send", "review", "hi", "--timeout", "30"],
+            vec!["wait"],
+            vec!["wait", "review", "--timeout", "0"],
+            vec!["wait", "review", "--timeout", "3601"],
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+            assert!(run_with(&mut api, &args, "").is_err(), "{args:?}");
+            assert!(api.requests.is_empty(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn terminals_lists_each_terminal_on_a_line() {
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {"terminals": [
+            {"id": "a1", "name": "Claude", "state": "working", "current": true},
+            {"id": "b2", "name": "Codex", "state": "blocked", "message": "approve Bash: npm install\nmore"},
+        ]}}));
+        assert_eq!(
+            run_with(&mut api, &["terminals"], "").unwrap(),
+            "a1  Claude  working (this terminal)\nb2  Codex  blocked: approve Bash: npm install\n"
+        );
+    }
+
+    #[test]
+    fn wait_says_why_it_returned_and_exits_so_scripts_can_tell() {
+        for (reason, state, printed, code) in [
+            ("done", "done", "Codex (b2) is done: Fixed it.\n", 0),
+            ("output", "working", "Codex (b2) printed it.\n", 0),
+            (
+                "blocked",
+                "blocked",
+                "Codex (b2) is waiting for the user; read it with `komla read`: Fixed it.\n",
+                2,
+            ),
+            (
+                "timeout",
+                "working",
+                "Codex (b2) is still working; wait again.\n",
+                124,
+            ),
+            ("exited", "exited", "Codex (b2) exited.\n", 1),
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {
+                "reason": reason,
+                "terminal": {"id": "b2", "name": "Codex", "state": state, "message": "Fixed it."},
+            }}));
+            let (output, exit) = run_for_exit(&mut api, &["wait", "b2"]);
+            assert_eq!((output.as_str(), exit), (printed, code), "{reason}");
+        }
+    }
+
+    #[test]
+    fn a_tab_launch_names_the_terminal_it_started() {
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {
+            "state": "started",
+            "destination": {"kind": "tab", "workspaceId": "w1", "terminalId": "b2"},
+            "agent": {"preset": {"id": "codex", "name": "Codex"}},
+        }}));
+        assert_eq!(
+            run_with(&mut api, &["launch", "--here", "Review"], "").unwrap(),
+            "Codex started in tab, as terminal b2.\n"
+        );
     }
 
     #[test]

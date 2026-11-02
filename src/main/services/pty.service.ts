@@ -38,6 +38,7 @@ import {
   type TerminalPresentationSnapshotOptions,
 } from '../lib/terminal-presentation';
 import { TerminalReplayTail } from '../lib/terminal-replay-tail';
+import { terminalText, type TerminalText } from '../lib/terminal-text';
 import { isWslMode, windowsPathToWsl } from '../lib/wsl';
 
 import { configService } from './config.service';
@@ -52,6 +53,8 @@ const logger = createLogger('PtyService');
 const STARTUP_TIMEOUT_MS = 300;
 // Characters of recent output kept per terminal for renderer snapshots (getBuffer).
 const OUTPUT_BUFFER_LIMIT = 50000;
+/** How long `komla send` waits after pasting before it presses Enter. */
+const SUBMIT_AFTER_PASTE_MS = 100;
 // node-pty delivers every read on its own event-loop turn, so a flood arrives as tens of
 // thousands of chunks a second. A chunk goes out at once unless another went out within this
 // window; then it is held until the window closes, so a flood costs one send per window.
@@ -1194,11 +1197,7 @@ class PtyService {
     if (existing || !this.terminalPresentationTrackingEnabled) return existing;
     const process = this.processes.get(terminalId);
     if (!process) return undefined;
-    const size = this.remoteSize(terminalId) ??
-      this.localTerminalSizes.get(terminalId) ?? {
-        cols: process.pty.cols,
-        rows: process.pty.rows,
-      };
+    const size = this.screenSize(terminalId, process);
     const presentation = new TerminalPresentation({
       cols: size.cols,
       rows: size.rows,
@@ -1209,6 +1208,14 @@ class PtyService {
     if (retainedOutput) presentation.write(retainedOutput.toString(), process.seq);
     this.terminalPresentations.set(terminalId, presentation);
     return presentation;
+  }
+
+  /** The size the terminal's program lays its screen out for: a phone's, the pane's, or the PTY's. */
+  private screenSize(terminalId: string, process: PtyProcess): { cols: number; rows: number } {
+    return (
+      this.remoteSize(terminalId) ??
+      this.localTerminalSizes.get(terminalId) ?? { cols: process.pty.cols, rows: process.pty.rows }
+    );
   }
 
   kill(terminalId: string): void {
@@ -1381,6 +1388,29 @@ class PtyService {
         listener(terminalId);
       }
     }
+  }
+
+  /**
+   * What the running terminal shows as plain text, parsed from its retained output at its size,
+   * with up to `history` lines above the screen; undefined when it isn't running here.
+   */
+  async readText(terminalId: string, history: number): Promise<TerminalText | undefined> {
+    const process = this.processes.get(terminalId);
+    if (!process) return undefined;
+    const output = this.outputBuffers.get(terminalId)?.toString() ?? '';
+    return terminalText(output, this.screenSize(terminalId, process), history);
+  }
+
+  /**
+   * Types text into the terminal and presses Enter, as a person would. Bracketed as one paste
+   * when the program asked for that, and Enter follows a moment later, since an agent's input
+   * may take a paste's final Enter as a newline.
+   */
+  async submit(terminalId: string, text: string, bracketed: boolean): Promise<void> {
+    // Without a paste, each line goes as typed: Enter is a carriage return.
+    this.write(terminalId, bracketed ? `\x1b[200~${text}\x1b[201~` : text.replace(/\n/g, '\r'));
+    await new Promise((resolve) => setTimeout(resolve, SUBMIT_AFTER_PASTE_MS));
+    this.write(terminalId, '\r');
   }
 
   getBuffer(terminalId: string, maxChars?: number): PtyBufferSnapshot {

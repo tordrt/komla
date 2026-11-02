@@ -205,6 +205,78 @@ const COMMANDS: &[Command] = &[
         examples: &[],
     },
     Command {
+        group: Group::Agents,
+        name: "terminals",
+        index: "",
+        usages: &["[--json]"],
+        summary: "List this workspace's terminals and what their agents do",
+        description: &[
+            "Lists the current workspace's terminals by id and tab name, with what each one's agent is doing: working, blocked (waiting for the user), done, error, idle, or exited. read, send and wait take either the id or a tab name only one terminal has.",
+        ],
+        options: &[JSON],
+        examples: &[],
+    },
+    Command {
+        group: Group::Agents,
+        name: "read",
+        index: "<terminal>",
+        usages: &["<terminal> [--lines <n>] [--json]"],
+        summary: "Print what another terminal shows",
+        description: &[
+            "Prints a terminal's screen as plain text, below up to 50 lines that scrolled off above it. A full-screen agent's screen has no history of its own, so only the screen shows.",
+            "Read the result yourself rather than assuming how an agent you started did.",
+        ],
+        options: &[
+            ("--lines <n>", "History lines above the screen, from 0 (the screen only) to 2000."),
+            JSON,
+        ],
+        examples: &["komla read review --lines 0"],
+    },
+    Command {
+        group: Group::Agents,
+        name: "send",
+        index: "<terminal> <text>",
+        usages: &["<terminal> <text> [options]", "<terminal> --file <path|-> [options]"],
+        summary: "Type a message into another terminal and submit it",
+        description: &[
+            "Types the text's lines into the terminal, as one paste where its agent takes pasted text (a plain shell takes each line as typed), and presses Enter, as to steer an agent you started with `komla launch --here`. Put the first task in launch's prompt instead: an agent still starting can lose a message.",
+            "It refuses an agent waiting for the user, such as on a permission prompt: read it and ask the user rather than answering for them. --force sends anyway.",
+            "With --wait it then waits as `komla wait` does, for the turn the message starts, past one under way; not_started means none began within 10 seconds of the agent being idle, so read the terminal before sending again.",
+        ],
+        options: &[
+            ("--file <path|->", "Read the message from a file, or stdin with -."),
+            ("--wait", "Wait for the turn it starts to end."),
+            ("--timeout <seconds>", "With --wait, how long before checking in; 180 by default."),
+            ("--force", "Send even while the agent waits for the user."),
+            JSON,
+        ],
+        examples: &[
+            "komla send review \"Focus on the error path\"",
+            "komla send --wait review \"Recheck the fix\"",
+        ],
+    },
+    Command {
+        group: Group::Agents,
+        name: "wait",
+        index: "<terminal>",
+        usages: &["<terminal> [--output <text>] [--timeout <seconds>] [--json]"],
+        summary: "Wait for another terminal's agent to finish or need the user",
+        description: &[
+            "Waits until the terminal's agent ends its turn (done, error, or idle when it stopped without saying), needs the user (blocked) or exits, and says which. An agent that isn't working answers at once, except one that started under a minute ago, whose first turn it waits for. Use it instead of sleeping and reading again.",
+            "With --output it waits instead for the terminal to print that text after the wait starts, as a dev server's ready line.",
+            "A timeout is a check-in, not a failure: the agent goes on, so wait again. It exits 0 when the turn ended or the text came, 2 when the agent waits for the user, 124 on a timeout and 1 otherwise.",
+        ],
+        options: &[
+            ("--output <text>", "Wait for this text in place of the agent's turn."),
+            ("--timeout <seconds>", "How long before checking in, up to 3600; 180 by default."),
+            JSON,
+        ],
+        examples: &[
+            "komla wait review",
+            "komla wait server --output \"ready in\" && komla preview http://localhost:5173",
+        ],
+    },
+    Command {
         group: Group::Status,
         name: "notify",
         index: "<title>",

@@ -55,6 +55,14 @@ function createDependencies(
     openInVncApp: vi.fn(),
     linkWorkspaces: vi.fn(async () => {}),
     unlinkWorkspace: vi.fn(async () => {}),
+    readTerminalText: vi.fn(async () => ({ text: '', bracketedPaste: false })),
+    submitToTerminal: vi.fn(async () => {}),
+    isTerminalRunning: () => true,
+    onWorkspaceUpdated: () => () => {},
+    onAttentionRaised: () => () => {},
+    onPromptSubmitted: () => () => {},
+    onTerminalOutput: () => () => {},
+    onTerminalExit: () => () => {},
     ...overrides,
   };
 }
@@ -72,12 +80,14 @@ describe('komlaCommandContext', () => {
     expect(komlaCommandContext(caller)).toEqual(caller);
   });
 
-  it('lets --workspace replace everything that identifies the caller', () => {
+  it('lets --workspace replace everything that says where the command acts', () => {
     expect(komlaCommandContext({ ...caller, targetWorkspaceId: 'workspace-2' })).toEqual({
       workspaceId: 'workspace-2',
       sshHostId: 'host-1',
       targeted: true,
       requestedAt: 5,
+      // Only so `send` and `wait` refuse the terminal they run in.
+      callerTerminalId: 'terminal-1',
     });
   });
 });
@@ -3129,5 +3139,362 @@ describe('KomlaOperationService', () => {
         },
       ],
     });
+  });
+});
+
+describe('KomlaOperationService terminals', () => {
+  function workspaceWith(terminals: NonNullable<KomlaOperationWorkspace['terminals']>) {
+    return { id: 'workspace-1', terminals } satisfies KomlaOperationWorkspace;
+  }
+
+  function serviceFor(
+    workspace: KomlaOperationWorkspace,
+    overrides: Partial<KomlaOperationDependencies> = {}
+  ) {
+    return new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        getWorkspace: () => workspace,
+        ...overrides,
+      })
+    );
+  }
+
+  it('lists the workspace’s terminals with what each agent is doing', async () => {
+    const service = serviceFor(
+      workspaceWith([
+        { id: 'lead', name: 'Claude' },
+        { id: 'review', name: 'Codex', agentActive: true },
+        {
+          id: 'fix',
+          name: 'Pi',
+          attention: {
+            kind: 'input-required',
+            source: 'pi',
+            updatedAt: 1,
+            message: 'approve Bash',
+          },
+        },
+      ])
+    );
+
+    await expect(
+      service.execute({ terminalId: 'lead' }, { type: 'terminal.list' })
+    ).resolves.toEqual({
+      terminals: [
+        { id: 'lead', name: 'Claude', state: 'idle', current: true },
+        { id: 'review', name: 'Codex', state: 'working' },
+        { id: 'fix', name: 'Pi', state: 'blocked', message: 'approve Bash' },
+      ],
+    });
+  });
+
+  it('reads a terminal named by its tab, and refuses a name two tabs share', async () => {
+    const readTerminalText = vi.fn(async () => ({
+      text: 'screen',
+      bracketedPaste: false,
+    }));
+    const service = serviceFor(
+      workspaceWith([
+        { id: 'lead', name: 'Claude' },
+        { id: 'a', name: 'Shell' },
+        { id: 'b', name: 'Shell' },
+        { id: 'review', name: 'Codex' },
+      ]),
+      { readTerminalText }
+    );
+
+    await expect(
+      service.execute({ terminalId: 'lead' }, { type: 'terminal.read', terminal: 'codex' })
+    ).resolves.toEqual({
+      terminal: { id: 'review', name: 'Codex', state: 'idle' },
+      text: 'screen',
+    });
+    expect(readTerminalText).toHaveBeenCalledWith('review', 50);
+    await expect(
+      service.execute({ terminalId: 'lead' }, { type: 'terminal.read', terminal: 'Shell' })
+    ).rejects.toMatchObject({ code: 'TERMINAL_AMBIGUOUS' });
+    await expect(
+      service.execute({ terminalId: 'lead' }, { type: 'terminal.read', terminal: 'elsewhere' })
+    ).rejects.toMatchObject({ code: 'TERMINAL_NOT_FOUND', statusCode: 404 });
+  });
+
+  it('types a message as a paste when the agent asked for one', async () => {
+    const submitToTerminal = vi.fn(async () => {});
+    const service = serviceFor(
+      workspaceWith([
+        { id: 'lead', name: 'Claude' },
+        { id: 'review', name: 'Codex' },
+      ]),
+      {
+        readTerminalText: vi.fn(async () => ({
+          text: '>',
+          bracketedPaste: true,
+        })),
+        submitToTerminal,
+      }
+    );
+
+    await expect(
+      service.execute(
+        { terminalId: 'lead' },
+        {
+          type: 'terminal.send',
+          terminal: 'review',
+          text: 'Check\nthe error path',
+        }
+      )
+    ).resolves.toMatchObject({ sent: true, terminal: { id: 'review' } });
+    expect(submitToTerminal).toHaveBeenCalledWith('review', 'Check\nthe error path', true);
+  });
+
+  it('types only lines and tabs, so the text can’t end the paste and press keys', async () => {
+    const submitToTerminal = vi.fn(async () => {});
+    const service = serviceFor(
+      workspaceWith([
+        { id: 'lead', name: 'Claude' },
+        { id: 'review', name: 'Codex' },
+      ]),
+      {
+        readTerminalText: vi.fn(async () => ({ text: '>', bracketedPaste: true })),
+        submitToTerminal,
+      }
+    );
+
+    await service.execute(
+      { terminalId: 'lead' },
+      { type: 'terminal.send', terminal: 'review', text: 'a\x1b[201~y\r\n\tb\x03\n\n' }
+    );
+
+    expect(submitToTerminal).toHaveBeenCalledWith('review', 'a[201~y\n\tb', true);
+    await expect(
+      service.execute(
+        { terminalId: 'lead' },
+        { type: 'terminal.send', terminal: 'review', text: '\x1b\x03' }
+      )
+    ).rejects.toMatchObject({ code: 'EMPTY_MESSAGE' });
+    expect(submitToTerminal).toHaveBeenCalledOnce();
+  });
+
+  it('won’t answer an agent waiting for the user unless forced', async () => {
+    const submitToTerminal = vi.fn(async () => {});
+    const service = serviceFor(
+      workspaceWith([
+        { id: 'lead', name: 'Claude' },
+        {
+          id: 'review',
+          name: 'Codex',
+          attention: {
+            kind: 'input-required',
+            source: 'codex',
+            updatedAt: 1,
+            message: 'Run rm -rf?',
+          },
+        },
+      ]),
+      { submitToTerminal }
+    );
+    const send = {
+      type: 'terminal.send' as const,
+      terminal: 'review',
+      text: 'yes',
+    };
+
+    await expect(service.execute({ terminalId: 'lead' }, send)).rejects.toMatchObject({
+      code: 'TERMINAL_BLOCKED',
+      statusCode: 409,
+      message: expect.stringContaining('Run rm -rf?'),
+    });
+    expect(submitToTerminal).not.toHaveBeenCalled();
+    await service.execute({ terminalId: 'lead' }, { ...send, force: true });
+    expect(submitToTerminal).toHaveBeenCalledOnce();
+  });
+
+  it('refuses to send to or wait on the terminal it runs in', async () => {
+    const service = serviceFor(workspaceWith([{ id: 'lead', name: 'Claude' }]));
+
+    await expect(
+      service.execute(
+        { terminalId: 'lead' },
+        { type: 'terminal.send', terminal: 'lead', text: 'hi' }
+      )
+    ).rejects.toMatchObject({ code: 'TERMINAL_IS_CALLER' });
+    await expect(
+      service.execute({ terminalId: 'lead' }, { type: 'terminal.wait', terminal: 'lead' })
+    ).rejects.toMatchObject({ code: 'TERMINAL_IS_CALLER' });
+  });
+
+  it('knows its own terminal when --workspace names where it acts', async () => {
+    const service = serviceFor(
+      workspaceWith([
+        { id: 'lead', name: 'Claude' },
+        { id: 'review', name: 'Codex' },
+      ])
+    );
+    const context = { workspaceId: 'workspace-1', targeted: true, callerTerminalId: 'lead' };
+
+    await expect(
+      service.execute(context, { type: 'terminal.send', terminal: 'lead', text: 'hi' })
+    ).rejects.toMatchObject({ code: 'TERMINAL_IS_CALLER' });
+    await expect(service.execute(context, { type: 'terminal.list' })).resolves.toMatchObject({
+      terminals: [{ id: 'lead', current: true }, { id: 'review' }],
+    });
+  });
+
+  it('refuses a terminal that isn’t running here', async () => {
+    const service = serviceFor(
+      workspaceWith([
+        { id: 'lead', name: 'Claude' },
+        { id: 'review', name: 'Codex' },
+      ]),
+      {
+        isTerminalRunning: (id) => id === 'lead',
+        readTerminalText: vi.fn(async () => undefined),
+      }
+    );
+
+    await expect(
+      service.execute(
+        { terminalId: 'lead' },
+        { type: 'terminal.send', terminal: 'review', text: 'hi' }
+      )
+    ).rejects.toMatchObject({ code: 'TERMINAL_NOT_RUNNING' });
+    await expect(
+      service.execute({ terminalId: 'lead' }, { type: 'terminal.read', terminal: 'review' })
+    ).rejects.toMatchObject({ code: 'TERMINAL_NOT_RUNNING' });
+  });
+
+  it('waits for a tab launch just opened, before its program starts', async () => {
+    vi.useFakeTimers({ now: 100_000 });
+    try {
+      const review = {
+        id: 'review',
+        name: 'Codex',
+        createdAt: 99_000,
+        status: 'starting' as const,
+      } as NonNullable<KomlaOperationWorkspace['terminals']>[number];
+      const updates = new Set<(id: string) => void>();
+      const service = serviceFor(workspaceWith([{ id: 'lead', name: 'Claude' }, review]), {
+        isTerminalRunning: (id) => id === 'lead',
+        onWorkspaceUpdated: (listener) => {
+          updates.add(listener);
+          return () => updates.delete(listener);
+        },
+      });
+
+      let settled = false;
+      const result = service
+        .execute({ terminalId: 'lead' }, { type: 'terminal.wait', terminal: 'review' })
+        .finally(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(settled).toBe(false);
+      Object.assign(review, { agentActive: true });
+      for (const listener of updates) listener('workspace-1');
+      Object.assign(review, {
+        agentActive: false,
+        attention: {
+          kind: 'turn-complete',
+          source: 'codex',
+          updatedAt: Date.now(),
+        },
+      });
+      for (const listener of updates) listener('workspace-1');
+
+      await expect(result).resolves.toMatchObject({ reason: 'done' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('follows the user’s switches for reading and sending', async () => {
+    const service = serviceFor(
+      workspaceWith([
+        { id: 'lead', name: 'Claude' },
+        { id: 'review', name: 'Codex' },
+      ]),
+      {
+        getConfig: () => ({
+          agentDisabledCapabilities: ['terminal.read', 'terminal.send'],
+        }),
+      }
+    );
+
+    for (const operation of [
+      { type: 'terminal.list' as const },
+      { type: 'terminal.read' as const, terminal: 'review' },
+      { type: 'terminal.wait' as const, terminal: 'review' },
+      { type: 'terminal.send' as const, terminal: 'review', text: 'hi' },
+    ]) {
+      await expect(service.execute({ terminalId: 'lead' }, operation)).rejects.toMatchObject({
+        code: 'CAPABILITY_DISABLED',
+        statusCode: 403,
+      });
+    }
+  });
+
+  it('sends and waits for the turn the message started', async () => {
+    vi.useFakeTimers({ now: 10_000 });
+    try {
+      const review = {
+        id: 'review',
+        name: 'Codex',
+        agentActive: false,
+        attention: {
+          kind: 'turn-complete' as const,
+          source: 'codex',
+          updatedAt: 1,
+        },
+      } as NonNullable<KomlaOperationWorkspace['terminals']>[number];
+      const workspace = workspaceWith([{ id: 'lead', name: 'Claude' }, review]);
+      const updates = new Set<(id: string) => void>();
+      const update = (changes: Partial<typeof review>) => {
+        Object.assign(review, changes);
+        for (const listener of updates) listener('workspace-1');
+      };
+      const service = serviceFor(workspace, {
+        onWorkspaceUpdated: (listener) => {
+          updates.add(listener);
+          return () => updates.delete(listener);
+        },
+        submitToTerminal: vi.fn(async () => {
+          update({ agentActive: true, attention: undefined });
+        }),
+      });
+
+      const result = service.execute(
+        { terminalId: 'lead' },
+        {
+          type: 'terminal.send',
+          terminal: 'review',
+          text: 'Recheck',
+          wait: true,
+        }
+      );
+      await vi.advanceTimersByTimeAsync(30_000);
+      update({
+        agentActive: false,
+        attention: {
+          kind: 'turn-complete',
+          source: 'codex',
+          updatedAt: Date.now(),
+          message: 'Fixed',
+        },
+      });
+
+      await expect(result).resolves.toEqual({
+        sent: true,
+        reason: 'done',
+        message: 'Fixed',
+        terminal: {
+          id: 'review',
+          name: 'Codex',
+          state: 'done',
+          message: 'Fixed',
+        },
+      });
+      expect(updates.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

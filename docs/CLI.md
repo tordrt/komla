@@ -126,6 +126,53 @@ to `origin/<target>` when it was strictly behind and no worktree was using it, o
 The desktop starts the executable's internal Remote Companion role automatically; it is not a
 public CLI command and should not be added to agent instructions or invoked manually.
 
+## Agents that work with other agents
+
+`komla terminals`, `read`, `send` and `wait` let an agent steer one it started with `komla launch
+--here`, and collect its result, without sleeping and polling. They act on the calling workspace's
+terminals, or `--workspace`'s, named by id (`launch --here` prints it) or by a tab name only one
+terminal has (`TERMINAL_AMBIGUOUS`, `TERMINAL_NOT_FOUND`). Each terminal's `state` comes from its
+Attention: `working`, `blocked` (input-required), `done`, `error`, `idle`, or `exited` once its
+program isn't running on this computer, and `message` carries a done's, error's or question's text.
+
+```bash
+komla launch --here --preset codex "Review src/x.ts only. Don't edit files."   # … as terminal b2
+komla wait b2                          # until its turn ends, it needs the user, or it exits
+komla read b2 --lines 100              # its screen, below 100 lines of history
+komla send --wait b2 "Recheck the error path"
+komla wait server --output "ready in" && komla preview http://localhost:5173
+```
+
+`read` parses the terminal's retained output (the last 50,000 characters) into a fresh headless
+xterm at the terminal's size and prints its text, so it shows what the pane shows. `send` types the
+text, with only its lines and tabs, as one bracketed paste when the program enabled bracketed paste,
+as agent TUIs do, then presses Enter 100 ms later. A program without bracketed paste, such as a plain
+shell, takes each line as typed, with Enter after each. A final newline isn't a second Enter. It refuses the calling terminal (`TERMINAL_IS_CALLER`) and, unless `--force`, an
+agent waiting for the user (`TERMINAL_BLOCKED`, with the question in the message): an agent should
+ask the user rather than answer a permission prompt for them.
+
+`wait` returns a `reason`: `done`, `error`, or `idle` when the agent stopped working and no done or
+error followed within 3 seconds; `blocked`; `exited`; `output` for `--output`, matched against output
+printed after the wait began, with escape sequences removed; `timeout` (180 seconds by default, at
+most 3600), a check-in after which the agent goes on; and `not_started`. An agent that isn't working
+answers at once with how its last turn ended, except a terminal under a minute old with no Attention
+yet, whose first turn it waits up to a minute for. `send --wait` waits for the turn the message starts.
+Sent to an agent that isn't working, that is the next turn it starts, or a done or error raised
+since, however quick. Sent to an agent mid-turn, which queues the message, the turn under way and
+its end don't count: the message's turn starts when its prompt is submitted (`UserPromptSubmit` and
+the like), or when the agent works again after at least 3 seconds idle, not after a pause between
+tools. A question raised since the message ends the wait as `blocked`. When the agent is idle and no
+turn starts within 10 seconds it is `not_started`, so read the terminal. A message `--force` sends
+to a waiting agent answers it, so the work it lets go on is the message's turn. `send` refuses a message with nothing left to type (`EMPTY_MESSAGE`). The result's `message` is the done's, error's or
+question's text as it was raised, which the terminal stops showing once the user sees it there. The
+CLI exits 0 for `done`,
+`idle` and `output`, 2 for `blocked`, 124 for `timeout` and 1 otherwise. A wait ends when its caller
+disconnects. With `--workspace`, the CLI still names its own terminal (`X-Komla-Caller-Terminal-Id`),
+which `send` and `wait` refuse.
+
+`terminals`, `read` and `wait` belong to the `terminal.read` capability and `send` to
+`terminal.send`, which the user can turn off in Settings → Integrations & MCP. They have no MCP tools.
+
 ## Notifications
 
 For custom lifecycle hooks, prefer the installed CLI:

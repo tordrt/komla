@@ -25,6 +25,7 @@ import {
 } from '../../../shared/types/status-items';
 import { statusIconDataUrl } from '../../lib/status-icon';
 import { visibleStatusText } from '../../lib/status-item-text';
+import { MAX_TERMINAL_TEXT_HISTORY } from '../../lib/terminal-text';
 
 import { KomlaOperationError, type KomlaOperation } from './operation';
 
@@ -37,6 +38,8 @@ export const MAX_PROJECT_NAME_LEN = 256;
 export const MAX_PROMPT_LEN = 64 * 1024;
 export const MAX_ID_LEN = 128;
 export const MAX_COLOR_LEN = 256;
+/** The longest `komla wait` waits before it checks in. */
+export const MAX_TERMINAL_WAIT_MS = 60 * 60 * 1000;
 
 export const statusItemIdSchema = z
   .string()
@@ -108,7 +111,36 @@ export const statusItemSegmentsSchema = z
     `A status item shows at most ${MAX_STATUS_ITEM_ICONS} icons.`
   );
 
+const terminalSelectorSchema = z.string().trim().min(1).max(MAX_NAME_LEN);
+const terminalWaitTimeoutSchema = z.number().int().min(1).max(MAX_TERMINAL_WAIT_MS);
+
 const komlaOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('terminal.list') }).strict(),
+  z
+    .object({
+      type: z.literal('terminal.read'),
+      terminal: terminalSelectorSchema,
+      history: z.number().int().min(0).max(MAX_TERMINAL_TEXT_HISTORY).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('terminal.send'),
+      terminal: terminalSelectorSchema,
+      text: z.string().min(1).max(MAX_PROMPT_LEN),
+      force: z.boolean().optional(),
+      wait: z.boolean().optional(),
+      timeoutMs: terminalWaitTimeoutSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('terminal.wait'),
+      terminal: terminalSelectorSchema,
+      output: z.string().min(1).max(MAX_NAME_LEN).optional(),
+      timeoutMs: terminalWaitTimeoutSchema.optional(),
+    })
+    .strict(),
   z.object({ type: z.literal('context.get') }).strict(),
   z
     .object({

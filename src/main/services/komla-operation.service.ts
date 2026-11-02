@@ -16,6 +16,7 @@ import {
 import { requestOpenFolder } from './open-folder-request';
 import { getKomlaBasePath } from './paths';
 import { projectService } from './project.service';
+import { ptyService } from './pty.service';
 import { sshHostService } from './ssh-host.service';
 import { statusCommandsService } from './status-commands.service';
 import { statusItemsService } from './status-items.service';
@@ -188,6 +189,21 @@ const productionDependencies: KomlaOperationDependencies = {
       terminalId,
       ended
     ),
+  readTerminalText: (terminalId, history) => ptyService.readText(terminalId, history),
+  submitToTerminal: (terminalId, text, bracketed) => ptyService.submit(terminalId, text, bracketed),
+  // A PTY still starting runs, as far as a wait is concerned.
+  isTerminalRunning: (terminalId) => {
+    const status = ptyService.getStatus(terminalId);
+    return status !== null && status !== 'stopped';
+  },
+  onWorkspaceUpdated: (listener) =>
+    workspaceService.onWorkspaceUpdated((workspace) => listener(workspace.id)),
+  onPromptSubmitted: (listener) => workspaceService.onPromptSubmitted(listener),
+  onAttentionRaised: (listener) =>
+    workspaceService.onAttentionRaised((event) => listener(event.attention)),
+  onTerminalOutput: (listener) =>
+    ptyService.onData((terminalId, data) => listener(terminalId, data)),
+  onTerminalExit: (listener) => ptyService.onExit((terminalId) => listener(terminalId)),
   requestOpenFolder,
   requestTrash: (request) =>
     windowService.sendToWindowOrNext(

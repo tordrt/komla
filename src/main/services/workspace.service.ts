@@ -173,6 +173,7 @@ class WorkspaceService {
     },
   });
   private attentionListeners = new Set<(event: WorkspaceAttentionEvent) => void>();
+  private promptSubmitListeners = new Set<(terminalId: string) => void>();
 
   constructor() {
     const komlaPath = ensureKomlaBasePath();
@@ -272,6 +273,7 @@ class WorkspaceService {
       },
       promptSubmitted: (workspaceId, prompt, terminalId) => {
         this.naming.recordPromptSubmit(workspaceId, prompt, terminalId);
+        if (terminalId) notifyListeners(this.promptSubmitListeners, terminalId);
         publishHookEvent({
           event: 'agent.prompt',
           workspaceId,
@@ -655,6 +657,12 @@ class WorkspaceService {
     workspaceStore.broadcastWorkspaceUpdate(workspace);
     this.snoozeAlarm.check();
     this.attention.workspaceStatusChanged();
+  }
+
+  /** Calls `listener` with the Terminal each prompt is submitted in, until unsubscribed. */
+  onPromptSubmitted(listener: (terminalId: string) => void): () => void {
+    this.promptSubmitListeners.add(listener);
+    return () => this.promptSubmitListeners.delete(listener);
   }
 
   /** Calls `listener` with each attention a Terminal or workspace raises, until unsubscribed. */

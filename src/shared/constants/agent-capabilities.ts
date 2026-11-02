@@ -55,6 +55,18 @@ export const AGENT_CAPABILITIES = [
       'Show a short status, such as test results or a pull request link, in the status bar while the current workspace is open.',
   },
   {
+    id: 'terminal.read',
+    command: 'komla read',
+    description:
+      'List the terminals in the current workspace, read what one shows, and wait for its agent to finish or need you (komla terminals, read and wait).',
+  },
+  {
+    id: 'terminal.send',
+    command: 'komla send',
+    description:
+      'Type a message into another terminal in the current workspace and submit it, as to steer an agent another agent started. It never answers an agent waiting for you unless forced.',
+  },
+  {
     id: 'preview.open',
     command: 'komla preview',
     mcpTool: 'open_browser_preview',

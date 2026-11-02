@@ -547,6 +547,25 @@ describe('PtyService', () => {
       expect(spawnedPtys[1].write).toHaveBeenCalledWith('hello');
     });
 
+    it('submits a message as one paste, or line by line where the program takes no paste', async () => {
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+      ptyService.spawn('term-1', '/home/user', null);
+      const pty = spawnedPtys[0];
+      pty.write.mockClear();
+
+      const pasted = ptyService.submit('term-1', 'one\ntwo', true);
+      expect(pty.write).toHaveBeenLastCalledWith('\x1b[200~one\ntwo\x1b[201~');
+      await vi.advanceTimersByTimeAsync(100);
+      await pasted;
+      expect(pty.write).toHaveBeenLastCalledWith('\r');
+
+      pty.write.mockClear();
+      const typed = ptyService.submit('term-1', 'cd app\nls', false);
+      await vi.advanceTimersByTimeAsync(100);
+      await typed;
+      expect(pty.write.mock.calls).toEqual([['cd app\rls'], ['\r']]);
+    });
+
     it('allows focus reports after the restart startup window expires', async () => {
       const { ptyService } = await import('../../../src/main/services/pty.service');
 

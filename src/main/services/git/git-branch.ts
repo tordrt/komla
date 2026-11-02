@@ -1888,6 +1888,25 @@ class GitBranchService {
   }
 
   /**
+   * The commit origin has for `revision`, so an SSH host can start from it. Origin's copy is used
+   * as it is when it was fetched in the last few minutes and has every commit of the local
+   * branch; otherwise origin is fetched first, since the branch may have just been pushed.
+   */
+  async resolvePublishedCommit(repoPath: string, revision: string): Promise<string> {
+    const branch = revision.replace(/^refs\/remotes\/origin\//, '').replace(/^origin\//, '');
+    if (branch !== 'HEAD' && this.fetchedOriginRecently(repoPath)) {
+      const recent = await this.originStartPoint(repoPath, branch);
+      if (recent.status === 'available') {
+        const commit = await gitExec
+          .execGitAsync(repoPath, ['rev-parse', '--verify', `refs/remotes/${recent.ref}^{commit}`])
+          .catch(() => null);
+        if (commit) return commit;
+      }
+    }
+    return gitExec.resolvePublishedCommit(repoPath, revision);
+  }
+
+  /**
    * Origin's copy of a branch as of the last fetch, as a start point for a new worktree:
    * `origin/<branch>` when that remote-tracking ref exists and contains every local commit on
    * the branch. Callers otherwise keep their local start point. Doesn't fetch.

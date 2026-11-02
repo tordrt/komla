@@ -671,7 +671,8 @@ export const projectFindIconsArgsSchema = z.tuple([
   ]),
 ]);
 export const projectTakeIconPromptArgsSchema = z.tuple([idSchema]);
-export const projectFetchInBackgroundArgsSchema = z.tuple([idSchema]);
+// The last argument is the SSH host whose clone to fetch too, or null for just this computer's.
+export const projectFetchInBackgroundArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 // The last argument is the SSH host whose clone to clean up, or null for this computer's.
 export const projectListLeftoverBranchesArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectCheckWorkspacesForCleanupArgsSchema = z.tuple([idSchema]);

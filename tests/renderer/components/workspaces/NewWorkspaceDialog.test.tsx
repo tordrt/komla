@@ -2104,11 +2104,11 @@ describe('NewWorkspaceDialog', () => {
     render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
 
     await waitFor(() =>
-      expect(window.api.fetchProjectInBackground).toHaveBeenCalledWith('project-komla')
+      expect(window.api.fetchProjectInBackground).toHaveBeenCalledWith('project-komla', null)
     );
   });
 
-  it('leaves the local repository unfetched when launching on an SSH host', async () => {
+  it("also fetches the project's clone on the SSH host it launches on", async () => {
     mockConfigHolder.value = {
       ...mockConfigHolder.value,
       lastWorkspaceEnvironment: { kind: 'ssh', hostId: 'remote' },
@@ -2120,7 +2120,7 @@ describe('NewWorkspaceDialog', () => {
     render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
 
     expect(await screen.findByRole('button', { name: /Build Server/i })).toBeInTheDocument();
-    expect(window.api.fetchProjectInBackground).not.toHaveBeenCalled();
+    expect(window.api.fetchProjectInBackground).toHaveBeenLastCalledWith('project-komla', 'remote');
   });
 
   it('cycles through every active preset even as last-used timestamps change', async () => {

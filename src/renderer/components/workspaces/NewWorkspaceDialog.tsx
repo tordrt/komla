@@ -824,11 +824,13 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   }, [open, loadSyncStatuses, loadActions]);
 
   // Fetching origin while the prompt is typed lets the workspace start from a recent copy of the
-  // project's target branch without fetching as it's created. An SSH host fetches its own clone.
+  // project's target branch without fetching as it's created. An SSH launch also fetches the
+  // host's clone; this computer's tells it which commit a branch other than the target is at.
+  const fetchHostId = isSshLaunch ? effectiveSshHostId || null : null;
   useEffect(() => {
-    if (!open || isSshLaunch || !effectiveProjectId || selectedProjectIsDirectory) return;
-    window.api.fetchProjectInBackground(effectiveProjectId);
-  }, [open, isSshLaunch, effectiveProjectId, selectedProjectIsDirectory]);
+    if (!open || !effectiveProjectId || selectedProjectIsDirectory) return;
+    window.api.fetchProjectInBackground(effectiveProjectId, fetchHostId);
+  }, [open, fetchHostId, effectiveProjectId, selectedProjectIsDirectory]);
 
   useEffect(() => {
     if (!selectedProject) return;

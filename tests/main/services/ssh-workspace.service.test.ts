@@ -1731,11 +1731,16 @@ describe('sshWorkspaceService', () => {
     const second = sshWorkspaceService.resolveWorkspaceBasePath('ssh-workspace-base-cache');
 
     expect(run).toHaveBeenCalledOnce();
+    // Background work only takes a path already found, never one that may be waiting on a prompt.
+    expect(sshWorkspaceService.knownWorkspaceBasePath('ssh-workspace-base-cache')).toBeUndefined();
     resolvePath('/home/dev/.komla\n');
     await expect(Promise.all([first, second])).resolves.toEqual([
       '/home/dev/.komla',
       '/home/dev/.komla',
     ]);
+    expect(sshWorkspaceService.knownWorkspaceBasePath('ssh-workspace-base-cache')).toBe(
+      '/home/dev/.komla'
+    );
     await expect(
       sshWorkspaceService.resolveWorkspaceBasePath('ssh-workspace-base-cache')
     ).resolves.toBe('/home/dev/.komla');
@@ -5034,6 +5039,74 @@ describe('sshWorkspaceService', () => {
     expect(setupCommand).toContain('selected branch is not available on the SSH host');
     expect(setupCommand).not.toContain('selected starting revision is no longer available');
     expect(setupCommand).not.toContain('__KOMLA_SSH_BRANCH_ALREADY_EXISTS__');
+  });
+
+  itWithPosixShell('starts from a clone fetched in the last few minutes without fetching again', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'komla-ssh-recent-fetch-'));
+    const originPath = join(root, 'origin.git');
+    const seedPath = join(root, 'seed');
+    const commit = (message: string): string => {
+      runGit(['commit', '--allow-empty', '-m', message], seedPath);
+      return runGit(['rev-parse', 'HEAD'], seedPath).trim();
+    };
+
+    try {
+      runGit(['init', '--bare', originPath]);
+      runGit(['clone', originPath, seedPath]);
+      runGit(['checkout', '-b', 'main'], seedPath);
+      const first = commit('first');
+      runGit(['push', '-u', 'origin', 'main'], seedPath);
+      runGit(['--git-dir', originPath, 'symbolic-ref', 'HEAD', 'refs/heads/main']);
+
+      const { sshWorkspaceService } =
+        await import('../../../src/main/services/ssh-workspace.service');
+      const setUp = async (
+        branchName: string,
+        options: { startPoint?: string; checkoutExistingBranch?: boolean } = {}
+      ): Promise<string> => {
+        const plan = sshWorkspaceService.createWorkspacePlan({
+          hostId: 'ssh-dev',
+          gitUrl: originPath,
+          projectName: 'recent-fetch',
+          branchName,
+          baseBranch: 'main',
+          resolvedBasePath: join(root, '.komla'),
+          ...options,
+        });
+        execFileSync('/bin/sh', ['-c', await buildLazySetupCommand(plan.backend)], {
+          encoding: 'utf8',
+          stdio: 'pipe',
+        });
+        return runGit(['rev-parse', 'HEAD'], plan.backend.remoteDirectory).trim();
+      };
+      const fetchedAt = join(root, '.komla', 'repos', 'recent-fetch', '.origin-fetched-at');
+      const fetchedSecondsAgo = (seconds: number) =>
+        writeFileSync(fetchedAt, `${Math.floor(Date.now() / 1000) - seconds}\n`);
+
+      // Cloning fetches, and records it.
+      expect(await setUp('agent/one')).toBe(first);
+      expect(existsSync(fetchedAt)).toBe(true);
+
+      const second = commit('second');
+      runGit(['push', 'origin', 'main'], seedPath);
+      expect(await setUp('agent/two')).toBe(first);
+
+      fetchedSecondsAgo(10 * 60);
+      expect(await setUp('agent/three')).toBe(second);
+
+      // A start commit the clone doesn't have yet, and an existing branch, are fetched anyway.
+      runGit(['checkout', '-b', 'feature/pushed'], seedPath);
+      const pushed = commit('pushed');
+      runGit(['push', '-u', 'origin', 'feature/pushed'], seedPath);
+      fetchedSecondsAgo(0);
+      expect(await setUp('agent/four', { startPoint: pushed })).toBe(pushed);
+      const amended = commit('pushed again');
+      runGit(['push', 'origin', 'feature/pushed'], seedPath);
+      fetchedSecondsAgo(0);
+      expect(await setUp('feature/pushed', { checkoutExistingBranch: true })).toBe(amended);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   itWithPosixShell('creates a remote worktree for an existing origin branch', async () => {

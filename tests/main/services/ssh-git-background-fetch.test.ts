@@ -131,6 +131,52 @@ describe('sshWorkspaceGit.fetchOriginWithoutPrompts', () => {
     );
   });
 
+  it("records when it fetched every origin branch, by the host's clock", async () => {
+    const fetchedAt = join(`${clone}.komla`, '.origin-fetched-at');
+
+    await sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000);
+
+    const seconds = Number(readFileSync(fetchedAt, 'utf8'));
+    expect(Math.abs(seconds - Date.now() / 1000)).toBeLessThan(60);
+    expect(existsSync(join(`${clone}.komla`, '.setup-lock')), 'lock left behind').toBe(false);
+
+    // A clone fetching just some branches might not have the one a workspace starts from.
+    rmSync(fetchedAt);
+    await git(clone, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main');
+    await sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000);
+    expect(existsSync(fetchedAt)).toBe(false);
+  });
+
+  it('leaves a clone a workspace is being set up in alone, and takes over a stale lock', async () => {
+    const lock = join(`${clone}.komla`, '.setup-lock');
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(join(lock, 'pid'), `${process.pid}\n`);
+    await git(elsewhere, 'commit', '--quiet', '--allow-empty', '-m', 'pushed elsewhere');
+    await git(elsewhere, 'push', '--quiet', 'origin', 'HEAD:main');
+
+    await expect(sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000)).resolves.toBe(
+      false
+    );
+    expect(existsSync(lock), "another setup's lock removed").toBe(true);
+
+    // Left by a setup that was killed.
+    const { stdout: deadPid } = await execFileAsync('sh', ['-c', 'echo $$']);
+    writeFileSync(join(lock, 'pid'), deadPid);
+    await expect(sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000)).resolves.toBe(
+      true
+    );
+    expect(existsSync(lock), 'lock left behind').toBe(false);
+
+    // Without an owner yet, as a setup that has just taken it leaves it.
+    mkdirSync(lock);
+    await git(elsewhere, 'commit', '--quiet', '--allow-empty', '-m', 'pushed again');
+    await git(elsewhere, 'push', '--quiet', 'origin', 'HEAD:main');
+    await expect(sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000)).resolves.toBe(
+      false
+    );
+    expect(existsSync(lock), "another setup's lock removed").toBe(true);
+  });
+
   it('skips a clone without origin', async () => {
     await git(clone, 'remote', 'remove', 'origin');
 

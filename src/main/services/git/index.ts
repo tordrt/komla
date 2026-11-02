@@ -84,7 +84,7 @@ class GitService {
     return gitExec.getRepoRoot(path);
   }
   resolvePublishedCommit(repoPath: string, revision: string): Promise<string> {
-    return gitExec.resolvePublishedCommit(repoPath, revision);
+    return gitBranchService.resolvePublishedCommit(repoPath, revision);
   }
   invalidateBranchCache(path: string): void {
     gitExec.invalidateCache(`currentBranch:${path}`);

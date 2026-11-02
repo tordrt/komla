@@ -485,9 +485,12 @@ const api = {
   takeProjectIconPrompt: (workspaceId: string): Promise<ProjectIconCandidate[]> =>
     ipcRenderer.invoke(IPC.PROJECT_TAKE_ICON_PROMPT, workspaceId),
 
-  /** Fetches the project's origin unless it was fetched in the last few minutes. */
-  fetchProjectInBackground: (projectId: string): void =>
-    ipcRenderer.send(IPC.PROJECT_FETCH_IN_BACKGROUND, projectId),
+  /**
+   * Fetches the project's origin, and its clone on `hostId` when given, unless they were fetched
+   * in the last few minutes.
+   */
+  fetchProjectInBackground: (projectId: string, hostId: string | null): void =>
+    ipcRenderer.send(IPC.PROJECT_FETCH_IN_BACKGROUND, projectId, hostId),
 
   /** Null when cancelled; rejects when the file can't be an icon. */
   chooseProjectIconFile: (): Promise<ProjectIconCandidate | null> =>

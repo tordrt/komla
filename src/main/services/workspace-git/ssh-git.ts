@@ -17,6 +17,12 @@ import { commitGraphLogArgs, toCommitGraph } from '../git/git-history';
 import { remoteCompanionService } from '../remote-companion.service';
 import { sshWorkspaceService } from '../ssh-workspace.service';
 
+import {
+  recordOriginFetchLines,
+  remoteSetupLockPath,
+  staleSetupLockLines,
+} from './ssh-origin-fetch';
+
 import type {
   CommitChangesResult,
   CommitDraftResult,
@@ -184,12 +190,35 @@ const ORIGIN_REFS_CHANGED_MARKER = '__KOMLA_ORIGIN_REFS_CHANGED__';
  * A script that fetches origin in `repoPath` without asking for anything, like the local
  * background fetch, and prints ORIGIN_REFS_CHANGED_MARKER when a remote-tracking ref moved.
  * It stops git itself after `timeoutSeconds`, so a slow remote doesn't look like a slow host.
+ * It holds the clone's setup lock, so a workspace being created waits for it and then starts
+ * from what it fetched, and it leaves a clone that is being set up alone.
  */
 function backgroundFetchScript(repoPath: string, timeoutSeconds: number): string {
   const { set, unset, sshCommand } = NO_PROMPT_GIT_ENV;
   return [
     `cd ${shellQuotePosix(repoPath)} || exit 1`,
     'git remote get-url origin >/dev/null 2>&1 || exit 0',
+    `lock=${shellQuotePosix(remoteSetupLockPath(repoPath))}`,
+    'mkdir -p "${lock%/*}" 2>/dev/null',
+    ...staleSetupLockLines(),
+    'if mkdir "$lock" 2>/dev/null; then',
+    '  locked=1',
+    'elif [ -d "$lock" ]; then',
+    // A workspace being set up fetches if it needs to; one whose setup died is taken over.
+    '  setup_lock_is_stale "$lock" || exit 0',
+    '  rm -rf "$lock"',
+    '  mkdir "$lock" 2>/dev/null || exit 0',
+    '  locked=1',
+    'fi',
+    // A host where the lock can't be made at all still fetches, without it.
+    'if [ -n "${locked:-}" ]; then',
+    `  printf '%s\\n' "$$" > "$lock/pid"`,
+    '  release_lock() {',
+    '    if [ "$(cat "$lock/pid" 2>/dev/null)" = "$$" ]; then rm -rf "$lock"; fi',
+    '  }',
+    '  trap release_lock 0',
+    "  trap 'exit 1' HUP INT TERM",
+    'fi',
     Object.entries(set)
       .map(([name, value]) => `${name}=${shellQuotePosix(value)}`)
       .join(' '),
@@ -226,6 +255,7 @@ function backgroundFetchScript(repoPath: string, timeoutSeconds: number): string
     'status=$?',
     'stop "$watchdog"',
     '[ "$status" -eq 0 ] || exit "$status"',
+    ...recordOriginFetchLines(repoPath),
     `[ "$(refs)" = "$before" ] || printf '%s\\n' ${ORIGIN_REFS_CHANGED_MARKER}`,
   ].join('\n');
 }

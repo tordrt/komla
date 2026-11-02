@@ -7538,12 +7538,15 @@ describe('WorkspaceService', () => {
         expect(mockSshWorkspaceService.resolveWorkspaceBasePath).toHaveBeenCalledWith('ssh-dev');
         expect(mockSshWorkspaceService.warmConnections).toHaveBeenCalledWith(host);
         await vi.waitFor(() =>
-          expect(mockRemoteCompanionService.detectPlatform).toHaveBeenCalledWith(host)
+          expect(mockRemoteCompanionService.ensureInstalled).toHaveBeenCalledWith(
+            host,
+            '/home/dev/.komla'
+          )
         );
         expect(mockSshWorkspaceService.ensureWorkspaceReady).not.toHaveBeenCalled();
       });
 
-      it('checks the SSH host platform over the connection the base path lookup opens', async () => {
+      it('installs the Remote Companion over the connection the base path lookup opens', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
         let resolveBasePath!: (path: string) => void;
         mockSshWorkspaceService.resolveWorkspaceBasePath.mockReturnValueOnce(
@@ -7564,10 +7567,13 @@ describe('WorkspaceService', () => {
         });
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(mockRemoteCompanionService.detectPlatform).not.toHaveBeenCalled();
+        expect(mockRemoteCompanionService.ensureInstalled).not.toHaveBeenCalled();
         resolveBasePath('/home/dev/.komla');
         await vi.waitFor(() =>
-          expect(mockRemoteCompanionService.detectPlatform).toHaveBeenCalledOnce()
+          expect(mockRemoteCompanionService.ensureInstalled).toHaveBeenCalledExactlyOnceWith(
+            expect.anything(),
+            '/home/dev/.komla'
+          )
         );
       });
 

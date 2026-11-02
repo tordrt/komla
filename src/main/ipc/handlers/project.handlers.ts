@@ -199,8 +199,8 @@ export function registerProjectHandlers(): void {
 
   // The New Workspace dialog asks as it opens, so the workspace starts from a recent copy of
   // the project's target branch without fetching while it's created.
-  onIpc(IPC.PROJECT_FETCH_IN_BACKGROUND, (_, [projectId]) => {
-    void gitBackgroundFetchService.fetchProject(projectId);
+  onIpc(IPC.PROJECT_FETCH_IN_BACKGROUND, (_, [projectId, hostId]) => {
+    void gitBackgroundFetchService.fetchProject(projectId, hostId);
   });
 
   handleIpc(IPC.PROJECT_CHOOSE_ICON_FILE, async (event): Promise<ProjectIconCandidate | null> =>

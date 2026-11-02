@@ -10,6 +10,7 @@ import { gitService } from './git.service';
 import { projectService } from './project.service';
 import { remoteWorkspaceObservationService } from './remote-workspace-observation.service';
 import { isSshConnectionFailure, sshHostStatusService } from './ssh-host-status.service';
+import { sshWorkspaceService } from './ssh-workspace.service';
 import { sshWorkspaceGit } from './workspace-git/ssh-git';
 import { workspaceGitService } from './workspace-git.service';
 import { workspaceStatusService } from './workspace-status.service';
@@ -26,6 +27,8 @@ const logger = createLogger('GitBackgroundFetch');
  */
 export const BACKGROUND_FETCH_INTERVAL_MS = RECENT_ORIGIN_FETCH_MS / 2;
 const FETCH_TIMEOUT_MS = 20_000;
+
+const sshCloneKey = (hostId: string, repoPath: string): string => `ssh:${hostId}:${repoPath}`;
 
 /**
  * Fetches origin for the projects that have workspaces, so their commits behind (↓N) counts
@@ -49,13 +52,18 @@ class GitBackgroundFetchService {
   }
 
   /**
-   * Fetches one project's local repository unless it was fetched in the last few minutes, so a
-   * workspace about to be created in it starts from a recent copy of its target branch.
+   * Fetches one project's local repository, and its clone on `hostId` when given, unless they
+   * were fetched in the last few minutes, so a workspace about to be created in it starts from a
+   * recent copy of its target branch.
    */
-  async fetchProject(projectId: string): Promise<void> {
+  async fetchProject(projectId: string, hostId: string | null = null): Promise<void> {
     if (configService.get().gitBackgroundFetch === false) return;
     const project = projectService.get(projectId);
-    if (project && project.kind !== 'directory') await this.fetchLocalProject(project);
+    if (!project || project.kind === 'directory') return;
+    await Promise.all([
+      this.fetchLocalProject(project),
+      hostId !== null && this.fetchProjectOnHost(project, hostId),
+    ]);
   }
 
   /** Fetches just the SSH clones, for a host that just answered. */
@@ -128,6 +136,35 @@ class GitBackgroundFetchService {
     }
   }
 
+  // The clone a new workspace clones into, once Komla knows the host's base path. Neither looking
+  // it up nor the fetch connects or prompts; creation fetches what it still needs.
+  private async fetchProjectOnHost(project: Project, hostId: string): Promise<void> {
+    if (sshHostStatusService.get(hostId)?.state !== 'connected') return;
+    try {
+      const basePath = sshWorkspaceService.knownWorkspaceBasePath(hostId);
+      if (basePath === undefined) return;
+      const repoPath = sshWorkspaceService.managedRepoPath(basePath, project.name);
+      await this.fetchSshClone(
+        hostId,
+        repoPath,
+        workspaceService
+          .list()
+          .filter(
+            (workspace) =>
+              isSshWorkspace(workspace) &&
+              workspace.backend.hostId === hostId &&
+              workspace.backend.remoteRepoPath === repoPath
+          )
+      );
+    } catch (error) {
+      logger.debug('Background fetch skipped', {
+        projectId: project.id,
+        hostId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async fetchSsh(): Promise<void> {
     const gitProjectIds = new Set<string | null>(
       projectService
@@ -141,47 +178,54 @@ class GitBackgroundFetchService {
       if (!isSshWorkspace(workspace) || !gitProjectIds.has(workspace.projectId)) continue;
       const { hostId, remoteRepoPath } = workspace.backend;
       if (sshHostStatusService.get(hostId)?.state !== 'connected') continue;
-      const key = `ssh:${hostId}:${remoteRepoPath}`;
+      const key = sshCloneKey(hostId, remoteRepoPath);
       const clone = clones.get(key) ?? { hostId, repoPath: remoteRepoPath, workspaces: [] };
       clone.workspaces.push(workspace);
       clones.set(key, clone);
     }
-    for (const [key, { hostId, repoPath, workspaces }] of clones) {
-      if (!this.claim(key)) continue;
-      try {
-        if (
-          !(await sshWorkspaceGit.fetchOriginWithoutPrompts(hostId, repoPath, FETCH_TIMEOUT_MS))
-        ) {
-          continue;
-        }
-        // A running Remote Companion reports the workspaces it watches when their refs move.
-        const watched = !!remoteWorkspaceObservationService.companionForHost(hostId);
-        await Promise.all(
-          workspaces
-            .filter(
-              (workspace) =>
-                !(watched && isMonitored(workspace)) && !workspaceService.isDeleting(workspace.id)
-            )
-            .map((workspace) =>
-              workspaceStatusService
-                .change({ kind: 'refresh-requested', workspaceId: workspace.id, reason: 'fetched' })
-                .catch((error: unknown) => {
-                  logger.debug('Status refresh after background fetch failed', {
-                    workspaceId: workspace.id,
-                    error: error instanceof Error ? error.message : String(error),
-                  });
-                })
-            )
-        );
-      } catch (error) {
-        // A host that dropped mid-fetch fetches again as soon as it answers.
-        if (isSshConnectionFailure(error) && !needsSshPrompt(error)) this.lastFetchAt.delete(key);
-        logger.debug('Background fetch skipped', {
-          hostId,
-          repoPath,
-          error: error instanceof Error ? error.message : String(error),
-        });
+    for (const { hostId, repoPath, workspaces } of clones.values()) {
+      await this.fetchSshClone(hostId, repoPath, workspaces);
+    }
+  }
+
+  private async fetchSshClone(
+    hostId: string,
+    repoPath: string,
+    workspaces: Workspace[]
+  ): Promise<void> {
+    const key = sshCloneKey(hostId, repoPath);
+    if (!this.claim(key)) return;
+    try {
+      if (!(await sshWorkspaceGit.fetchOriginWithoutPrompts(hostId, repoPath, FETCH_TIMEOUT_MS))) {
+        return;
       }
+      // A running Remote Companion reports the workspaces it watches when their refs move.
+      const watched = !!remoteWorkspaceObservationService.companionForHost(hostId);
+      await Promise.all(
+        workspaces
+          .filter(
+            (workspace) =>
+              !(watched && isMonitored(workspace)) && !workspaceService.isDeleting(workspace.id)
+          )
+          .map((workspace) =>
+            workspaceStatusService
+              .change({ kind: 'refresh-requested', workspaceId: workspace.id, reason: 'fetched' })
+              .catch((error: unknown) => {
+                logger.debug('Status refresh after background fetch failed', {
+                  workspaceId: workspace.id,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              })
+          )
+      );
+    } catch (error) {
+      // A host that dropped mid-fetch fetches again as soon as it answers.
+      if (isSshConnectionFailure(error) && !needsSshPrompt(error)) this.lastFetchAt.delete(key);
+      logger.debug('Background fetch skipped', {
+        hostId,
+        repoPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

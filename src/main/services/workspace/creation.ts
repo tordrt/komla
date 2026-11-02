@@ -606,8 +606,8 @@ export class WorkspaceCreation {
   }
 
   /**
-   * Starts the host work SSH workspace creation waits on: the remote base path, the platform
-   * the Remote Companion install needs, and the connections worktree setup and the first
+   * Starts the host work SSH workspace creation waits on: the remote base path, the Remote
+   * Companion worktree setup asks for, and the connections worktree setup and the first
    * terminal run on. Their handshakes then overlap each other and branch naming instead of
    * running one by one.
    */
@@ -618,12 +618,12 @@ export class WorkspaceCreation {
     } catch {
       return;
     }
-    // The platform check reuses the connection the base path opens, so a host that asks for a
-    // password asks once.
+    // The install reuses the connection the base path opens, so a host that asks for a
+    // password asks once. Setup, and the companion every SSH workspace runs, reuse it.
     if (resolveBasePath) {
       void sshWorkspaceService
         .resolveWorkspaceBasePath(hostId)
-        .then(() => remoteCompanionService.detectPlatform(host))
+        .then((basePath) => remoteCompanionService.ensureInstalled(host, basePath))
         .catch(() => undefined);
     }
     sshWorkspaceService.warmConnections(host);

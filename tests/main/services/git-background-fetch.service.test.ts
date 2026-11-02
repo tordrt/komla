@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   statusChange: vi.fn(),
   companionHostIds: new Set<string>(),
   deletingIds: new Set<string>(),
+  basePaths: new Map<string, string>(),
 }));
 
 vi.mock('../../../src/main/lib/logger', () => ({
@@ -58,6 +59,13 @@ vi.mock('../../../src/main/services/ssh-host-status.service', () => ({
     },
   },
 }));
+vi.mock('../../../src/main/services/ssh-workspace.service', () => ({
+  sshWorkspaceService: {
+    knownWorkspaceBasePath: (hostId: string) => mocks.basePaths.get(hostId),
+    managedRepoPath: (basePath: string, projectName: string) =>
+      `${basePath}/repos/${projectName}/repo.git`,
+  },
+}));
 vi.mock('../../../src/main/services/workspace-git/ssh-git', () => ({
   sshWorkspaceGit: { fetchOriginWithoutPrompts: mocks.sshFetch },
 }));
@@ -86,7 +94,7 @@ describe('gitBackgroundFetchService', () => {
       { ...base, id: 'own', managed: false, repositoryPath: '/p/own' },
       { ...base, id: 'unused', managed: false, repositoryPath: '/p/unused' },
       { ...base, id: 'folder', kind: 'directory', managed: false, repositoryPath: '/p/folder' },
-      { ...base, id: 'ssh-only', managed: false, repositoryPath: '/p/ssh' },
+      { ...base, id: 'ssh-only', name: 'app', managed: false, repositoryPath: '/p/ssh' },
     ];
     mocks.workspaces = [
       { id: 'w1', projectId: 'managed' },
@@ -103,6 +111,7 @@ describe('gitBackgroundFetchService', () => {
     mocks.statusChange.mockReset().mockResolvedValue(undefined);
     mocks.companionHostIds = new Set();
     mocks.deletingIds = new Set();
+    mocks.basePaths = new Map();
   });
 
   afterEach(() => {
@@ -341,6 +350,48 @@ describe('gitBackgroundFetchService', () => {
       await Promise.all([first, second]);
 
       expect(mocks.sshFetch.mock.calls).toEqual([['h2', '/r/app', 20_000]]);
+      expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("fetches the clone a new workspace on the host would clone into", async () => {
+      mocks.hostStates.set('h1', 'connected');
+      mocks.basePaths.set('h1', '/home/h1/.komla');
+      mocks.sshFetch.mockResolvedValue(true);
+      mocks.workspaces.push(ssh('s6', 'h1', '/home/h1/.komla/repos/app/repo.git'));
+      const { gitBackgroundFetchService } =
+        await import('../../../src/main/services/git-background-fetch.service');
+
+      // Not /r/app, an older clone of the project on the same host.
+      await gitBackgroundFetchService.fetchProject('ssh-only', 'h1');
+
+      expect(mocks.sshFetch.mock.calls).toEqual([
+        ['h1', '/home/h1/.komla/repos/app/repo.git', 20_000],
+      ]);
+      expect(mocks.statusChange.mock.calls.map(([change]) => change.workspaceId)).toEqual(['s6']);
+      // This computer's repository too, which gives a branch's commit on origin.
+      expect(mocks.fetch.mock.calls).toEqual([['/p/ssh', false, 20_000, 1]]);
+
+      // The focus fetch shares the five-minute window.
+      await gitBackgroundFetchService.fetchStaleOnSshHosts();
+      expect(mocks.sshFetch.mock.calls.map(([, repoPath]) => repoPath)).toEqual([
+        '/home/h1/.komla/repos/app/repo.git',
+        '/r/app',
+        '/r/other',
+      ]);
+    });
+
+    it("leaves the host alone until Komla has reached it and knows where workspaces go", async () => {
+      mocks.hostStates.set('h2', 'unreachable').set('h3', 'connected');
+      mocks.basePaths.set('h2', '/home/h2/.komla');
+      const { gitBackgroundFetchService } =
+        await import('../../../src/main/services/git-background-fetch.service');
+
+      await gitBackgroundFetchService.fetchProject('ssh-only', 'h2');
+      // Finding the base path could prompt.
+      await gitBackgroundFetchService.fetchProject('ssh-only', 'h3');
+      await gitBackgroundFetchService.fetchProject('ssh-only', 'unknown');
+
+      expect(mocks.sshFetch).not.toHaveBeenCalled();
       expect(mocks.fetch).toHaveBeenCalledTimes(1);
     });
 

@@ -264,7 +264,7 @@ describe('project IPC behavior', () => {
     }
   );
 
-  it("fetches a project's origin in the background when asked, dropping bad IDs", async () => {
+  it("fetches a project's origin and host clone in the background when asked, dropping bad IDs", async () => {
     await setup();
     const { ipcMain } = (await import('electron')) as unknown as {
       ipcMain: { on: { mock: { calls: Array<[string, (...args: unknown[]) => void]> } } };
@@ -273,11 +273,14 @@ describe('project IPC behavior', () => {
       ([channel]) => channel === 'project:fetch-in-background'
     )?.[1];
 
-    listener?.({}, 123);
+    listener?.({}, 123, null);
+    listener?.({}, 'p1');
     expect(mockFetchProject).not.toHaveBeenCalled();
 
-    listener?.({}, 'p1');
-    expect(mockFetchProject).toHaveBeenCalledWith('p1');
+    listener?.({}, 'p1', null);
+    expect(mockFetchProject).toHaveBeenCalledWith('p1', null);
+    listener?.({}, 'p1', 'host-1');
+    expect(mockFetchProject).toHaveBeenLastCalledWith('p1', 'host-1');
   });
 
   it('project:recent-folders returns the recent folders still there', async () => {

@@ -329,6 +329,43 @@ describe('GitBranchService integration', () => {
     }
   });
 
+  it("gives a branch's commit on origin from a recent fetch, fetching when it might be stale", async () => {
+    const baseBranch = await runGit(repoPath, ['branch', '--show-current']);
+    const clonePath = mkdtempSync(join(tmpdir(), 'komla-git-branch-clone-'));
+    const pushUpstream = async (message: string) => {
+      await runGit(repoPath, ['commit', '--allow-empty', '-m', message]);
+      return runGit(repoPath, ['rev-parse', 'HEAD']);
+    };
+    try {
+      await execFileAsync('git', ['clone', '--quiet', repoPath, clonePath]);
+      const { gitBranchService } = await import('../../../../src/main/services/git/git-branch');
+
+      // Not fetched recently.
+      const first = await pushUpstream('first push');
+      await expect(gitBranchService.resolvePublishedCommit(clonePath, baseBranch)).resolves.toBe(
+        first
+      );
+
+      await gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0);
+      await pushUpstream('second push');
+      await expect(
+        gitBranchService.resolvePublishedCommit(clonePath, `origin/${baseBranch}`)
+      ).resolves.toBe(first);
+
+      // The local branch has commits origin's copy lacks, which may have just been pushed.
+      await runGit(clonePath, ['config', 'user.name', 'Komla Test']);
+      await runGit(clonePath, ['config', 'user.email', 'komla@example.com']);
+      await runGit(clonePath, ['reset', '--quiet', '--hard', `origin/${baseBranch}`]);
+      await runGit(clonePath, ['commit', '--allow-empty', '-m', 'local only']);
+      const third = await pushUpstream('third push');
+      await expect(gitBranchService.resolvePublishedCommit(clonePath, baseBranch)).resolves.toBe(
+        third
+      );
+    } finally {
+      rmSync(clonePath, { recursive: true, force: true });
+    }
+  });
+
   it('keeps the local branch as the start point when it has unpushed commits', async () => {
     const baseBranch = await runGit(repoPath, ['branch', '--show-current']);
     const clonePath = mkdtempSync(join(tmpdir(), 'komla-git-branch-clone-'));

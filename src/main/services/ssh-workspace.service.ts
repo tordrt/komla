@@ -61,6 +61,14 @@ import { buildOpenCodeNotifyPlugin } from './opencode-settings.service';
 import { getKomlaBasePath } from './paths';
 import { sshConnectionService } from './ssh-connection.service';
 import { sshHostService } from './ssh-host.service';
+import {
+  ORIGIN_FETCH_REFSPEC,
+  originFetchedRecentlyLines,
+  recordOriginFetchLines,
+  remoteProjectRepoRoot,
+  remoteSetupLockPath,
+  staleSetupLockLines,
+} from './workspace-git/ssh-origin-fetch';
 
 import type {
   SshInputRunOptions,
@@ -256,6 +264,28 @@ function startsFromTargetBranch(backend: SshWorkspaceBackend): boolean {
   const startPoint = backend.startPoint || backend.baseBranch || 'HEAD';
   return !!backend.baseBranch && startPoint === backend.baseBranch;
 }
+
+/**
+ * A shell check that the clone already has what a new branch starts from, so setup can skip
+ * fetching: origin's copy of the target, or the commit or origin branch it starts from. None when
+ * checking out an existing branch, which may have just been pushed.
+ */
+function startRefCheck(
+  backend: SshWorkspaceBackend,
+  startPoint: string,
+  originStartPoint: string
+): string | undefined {
+  if (backend.checkoutExistingBranch) return undefined;
+  const repo = shellQuotePosix(backend.remoteRepoPath);
+  const has = (revision: string) =>
+    `git -C ${repo} cat-file -e ${shellQuotePosix(`${revision}^{commit}`)}`;
+  return startsFromTargetBranch(backend)
+    ? `${has(`refs/remotes/origin/${startPoint}`)} 2>/dev/null`
+    : `{ ${has(startPoint)} || ${has(`refs/remotes/origin/${originStartPoint}`)}; } 2>/dev/null`;
+}
+
+/** A lookup of a host's workspace base path, and the path once it's found. */
+type BasePathResolution = { connectionKey: string; promise: Promise<string>; resolved?: string };
 
 function remoteBranchPathSegment(branchName: string, attempt = 1): string {
   const readable = safeRemoteSegment(branchName);
@@ -805,10 +835,7 @@ class SshWorkspaceService {
   // The latest integration check per host; only it may update `integrationUpdates`.
   private integrationChecks = new Map<string, symbol>();
   private claudeVersions = new ClaudeVersionCache();
-  private workspaceBasePathResolutions = new Map<
-    string,
-    { connectionKey: string; promise: Promise<string> }
-  >();
+  private workspaceBasePathResolutions = new Map<string, BasePathResolution>();
   private remoteTmuxStatuses = new Map<
     string,
     { connectionKey: string; status: SshHostSetupResult['tmux'] }
@@ -2059,23 +2086,44 @@ class SshWorkspaceService {
     }).catch(() => undefined);
   }
 
-  async resolveWorkspaceBasePath(hostId: string): Promise<string> {
-    const host = this.getHost(hostId);
-    const connectionKey = JSON.stringify([
+  private basePathConnectionKey(host: SshHost): string {
+    return JSON.stringify([
       this.hostConnectionKey(host),
       host.forwardAgent,
       normalizeSshBasePath(host.basePath),
     ]);
+  }
+
+  /**
+   * The host's base path for workspaces when a lookup already found it, without asking the host
+   * or waiting on a lookup still running, which may be waiting on a password.
+   */
+  knownWorkspaceBasePath(hostId: string): string | undefined {
+    const cached = this.workspaceBasePathResolutions.get(hostId);
+    return cached?.connectionKey === this.basePathConnectionKey(this.getHost(hostId))
+      ? cached.resolved
+      : undefined;
+  }
+
+  async resolveWorkspaceBasePath(hostId: string): Promise<string> {
+    const host = this.getHost(hostId);
+    const connectionKey = this.basePathConnectionKey(host);
     const cached = this.workspaceBasePathResolutions.get(hostId);
     if (cached?.connectionKey === connectionKey) return cached.promise;
 
     const promise = this.resolveRemoteBasePath(host);
-    this.workspaceBasePathResolutions.set(hostId, { connectionKey, promise });
-    void promise.catch(() => {
-      if (this.workspaceBasePathResolutions.get(hostId)?.promise === promise) {
-        this.workspaceBasePathResolutions.delete(hostId);
+    const entry: BasePathResolution = { connectionKey, promise };
+    this.workspaceBasePathResolutions.set(hostId, entry);
+    void promise.then(
+      (basePath) => {
+        entry.resolved = basePath;
+      },
+      () => {
+        if (this.workspaceBasePathResolutions.get(hostId)?.promise === promise) {
+          this.workspaceBasePathResolutions.delete(hostId);
+        }
       }
-    });
+    );
     return promise;
   }
 
@@ -2145,21 +2193,30 @@ class SshWorkspaceService {
     const startsFromTarget = startsFromTargetBranch(backend);
     const needsRemoteDefaultStartPoint =
       !backend.checkoutExistingBranch && !backend.baseBranch && startPoint === 'HEAD';
-    const remoteProjectRepoRoot = ['.git', 'repo.git'].includes(
-      pathPosix.basename(backend.remoteRepoPath)
-    )
-      ? pathPosix.dirname(backend.remoteRepoPath)
-      : `${backend.remoteRepoPath}.komla`;
+    const repo = shellQuotePosix(backend.remoteRepoPath);
+    const recentStartRefCheck = needsRemoteDefaultStartPoint
+      ? undefined
+      : startRefCheck(backend, startPoint, originStartPoint);
+    const fetchOriginLines = [
+      `if ! git -C ${repo} fetch origin --prune; then`,
+      '  if [ -n "$origin_url_changed" ]; then',
+      `    git -C ${repo} config remote.origin.url "$existing_git_url"`,
+      '  fi',
+      '  exit 1',
+      'fi',
+      ...recordOriginFetchLines(backend.remoteRepoPath),
+    ];
+    const projectRepoRoot = remoteProjectRepoRoot(backend.remoteRepoPath);
     // The bare repo lives at .git, where Codex trusts the whole project at once. Workspaces
     // name it repo.git, a link to .git, so every device and Komla version agrees on its path.
-    const movedRepoPath = joinRemote(remoteProjectRepoRoot, '.git');
+    const movedRepoPath = joinRemote(projectRepoRoot, '.git');
     const isManagedLayout =
       pathPosix.basename(backend.remoteRepoPath) === 'repo.git' &&
-      pathPosix.basename(pathPosix.dirname(remoteProjectRepoRoot)) === 'repos';
-    const projectIdPath = joinRemote(remoteProjectRepoRoot, '.project-id');
-    const projectNamePath = joinRemote(remoteProjectRepoRoot, '.project-name');
-    const gitUrlPath = joinRemote(remoteProjectRepoRoot, '.git-url');
-    const setupLockPath = joinRemote(remoteProjectRepoRoot, '.setup-lock');
+      pathPosix.basename(pathPosix.dirname(projectRepoRoot)) === 'repos';
+    const projectIdPath = joinRemote(projectRepoRoot, '.project-id');
+    const projectNamePath = joinRemote(projectRepoRoot, '.project-name');
+    const gitUrlPath = joinRemote(projectRepoRoot, '.git-url');
+    const setupLockPath = remoteSetupLockPath(backend.remoteRepoPath);
 
     const lines = [
       'set -e',
@@ -2181,14 +2238,12 @@ class SshWorkspaceService {
       )} ]; then`,
       '  printf "\\033[2m[komla] preparing remote workspace\\033[0m\\n"',
       'fi',
-      `mkdir -p ${shellQuotePosix(remoteProjectRepoRoot)} ${shellQuotePosix(
-        backend.remoteProjectRoot
-      )}`,
+      `mkdir -p ${shellQuotePosix(projectRepoRoot)} ${shellQuotePosix(backend.remoteProjectRoot)}`,
+      ...staleSetupLockLines(),
       `setup_lock=${shellQuotePosix(setupLockPath)}`,
       'setup_lock_attempt=0',
       'while ! mkdir "$setup_lock" 2>/dev/null; do',
-      '  setup_lock_owner=$(cat "$setup_lock/pid" 2>/dev/null || true)',
-      '  if [ -n "$setup_lock_owner" ] && ! kill -0 "$setup_lock_owner" 2>/dev/null; then',
+      '  if setup_lock_is_stale "$setup_lock"; then',
       '    rm -rf "$setup_lock"',
       '    continue',
       '  fi',
@@ -2285,14 +2340,14 @@ class SshWorkspaceService {
       )} config --get remote.origin.url 2>/dev/null || true)`,
       '  if [ -z "$existing_git_url" ]; then',
       '    printf "\\033[31m[komla] existing remote project repository has no origin URL\\033[0m\\n" >&2',
-      `    printf "path: %s\\n" ${shellQuotePosix(remoteProjectRepoRoot)} >&2`,
+      `    printf "path: %s\\n" ${shellQuotePosix(projectRepoRoot)} >&2`,
       '    exit 1',
       '  fi',
       '  existing_git_identity=$(normalize_git_url "$existing_git_url")',
       '  git_url_identity=$(normalize_git_url "$git_url")',
       '  if [ "$existing_git_identity" != "$git_url_identity" ]; then',
       `    printf "\\033[31m[komla] remote project name collides with a different Git repo\\033[0m\\n" >&2`,
-      `    printf "path: %s\\n" ${shellQuotePosix(remoteProjectRepoRoot)} >&2`,
+      `    printf "path: %s\\n" ${shellQuotePosix(projectRepoRoot)} >&2`,
       '    exit 1',
       '  fi',
       '  if [ "$existing_git_url" != "$git_url" ]; then',
@@ -2323,14 +2378,19 @@ class SshWorkspaceService {
       'printf "%s\\n" "$git_url" > "$git_url_path"',
       `git -C ${shellQuotePosix(
         backend.remoteRepoPath
-      )} config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'`,
+      )} config remote.origin.fetch ${shellQuotePosix(ORIGIN_FETCH_REFSPEC)}`,
+      ...(recentStartRefCheck ? originFetchedRecentlyLines(backend.remoteRepoPath) : []),
       `if [ ! -d ${shellQuotePosix(backend.remoteDirectory)} ]; then`,
-      `  if ! git -C ${shellQuotePosix(backend.remoteRepoPath)} fetch origin --prune; then`,
-      '    if [ -n "$origin_url_changed" ]; then',
-      `      git -C ${shellQuotePosix(backend.remoteRepoPath)} config remote.origin.url "$existing_git_url"`,
-      '    fi',
-      '    exit 1',
-      '  fi',
+      // A clone fetched in the last few minutes already has the start point, so the agent
+      // doesn't wait on a fetch. Checking out an existing branch, or finding origin's default
+      // branch, still fetches, since that branch may have just been pushed.
+      ...(recentStartRefCheck
+        ? [
+            `  if ! { origin_fetched_recently && ${recentStartRefCheck}; }; then`,
+            ...fetchOriginLines.map((line) => `    ${line}`),
+            '  fi',
+          ]
+        : fetchOriginLines.map((line) => `  ${line}`)),
       // A worktree directory removed by hand stays registered and keeps its branch checked out.
       `  git -C ${shellQuotePosix(backend.remoteRepoPath)} worktree prune || true`,
       'fi',

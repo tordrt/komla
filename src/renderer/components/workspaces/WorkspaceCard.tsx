@@ -32,6 +32,7 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -72,6 +73,7 @@ import {
   useLaunchUndoStore,
 } from '@/stores/launch-undo.store';
 import { useProjectsStore } from '@/stores/projects.store';
+import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWindowStore } from '@/stores/window.store';
@@ -1922,6 +1924,13 @@ function WorkspaceMenuItems({
         </>
       )}
       <ContextMenuSeparator />
+      <ContextMenuItem onClick={onEnterSelectionMode}>
+        <CheckSquare />
+        Select
+        <ContextMenuShortcut>
+          {formatShortcutForDisplay('Shift+Click', window.api.platform)}
+        </ContextMenuShortcut>
+      </ContextMenuItem>
       <TrashMenuItem workspace={workspace} onTrash={onTrash} />
       <ContextMenuSub>
         <ContextMenuSubTrigger>
@@ -1929,10 +1938,6 @@ function WorkspaceMenuItems({
           More
         </ContextMenuSubTrigger>
         <ContextMenuSubContent>
-          <ContextMenuItem onClick={onEnterSelectionMode}>
-            <CheckSquare />
-            Select
-          </ContextMenuItem>
           <MoveToWindowMenuItems
             otherWindows={availableWindows.filter((w) => w.id !== currentWindowId)}
             onMoveToWindow={onMoveToWindow}

@@ -495,6 +495,11 @@ html[data-status-bar-row='large'] [data-status-bar] {
       Cantarell,
       sans-serif;
     letter-spacing: 0.01em;
+  }
+  /* Grayscale smoothing on macOS keeps light text on dark surfaces from blooming, but thins dark
+     text on light ones until small gray text reads faint, so light themes keep the system's
+     smoothing. It inherits, so a light theme's dark terminal panes take it too. */
+  .dark {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

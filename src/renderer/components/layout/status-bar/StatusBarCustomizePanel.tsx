@@ -276,7 +276,7 @@ function PlacementSections({ customEntries }: { customEntries: CustomStatusItemE
                 title="Drag, or use the arrow keys, to move"
                 data-move-handle={id}
                 onKeyDown={(event) => onHandleKeyDown(event, id, side)}
-                className="flex h-5 w-4 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground/60 outline-hidden hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+                className="flex h-5 w-4 shrink-0 cursor-grab items-center justify-center rounded-sm text-muted-foreground-60 outline-hidden hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
               >
                 <DotsSixVertical className="size-3.5" />
               </button>

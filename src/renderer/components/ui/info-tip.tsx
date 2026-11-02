@@ -38,7 +38,7 @@ function InfoTipRoot({ children, className, ariaLabel = 'More info', side = 'top
           type="button"
           aria-label={ariaLabel}
           className={cn(
-            'inline-flex shrink-0 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:text-foreground focus:outline-hidden focus-visible:text-foreground',
+            'inline-flex shrink-0 items-center justify-center rounded text-muted-foreground-60 transition-colors hover:text-foreground focus:outline-hidden focus-visible:text-foreground',
             className
           )}
         >
@@ -71,7 +71,7 @@ interface InfoTipSectionProps {
 function InfoTipSection({ label, children }: InfoTipSectionProps) {
   return (
     <div className="space-y-1">
-      <p className="text-2xs font-medium tracking-wide text-muted-foreground/80 uppercase">
+      <p className="text-2xs font-medium tracking-wide text-muted-foreground-80 uppercase">
         {label}
       </p>
       <div>{children}</div>

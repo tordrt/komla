@@ -453,7 +453,7 @@ function ActionContentField({
           placeholder="e.g., npm run dev"
           spellCheck={false}
           rows={1}
-          className="block field-sizing-content max-h-48 min-h-10 w-full resize-none bg-transparent px-3 py-2.5 font-mono text-[13px] outline-hidden placeholder:text-muted-foreground/60"
+          className="block field-sizing-content max-h-48 min-h-10 w-full resize-none bg-transparent px-3 py-2.5 font-mono text-[13px] outline-hidden placeholder:text-muted-foreground-60"
         />
       ) : (
         <>
@@ -463,7 +463,7 @@ function ActionContentField({
             onChange={(e) => onChange(e.target.value)}
             placeholder="Write prompt content in markdown..."
             rows={10}
-            className="block max-h-[45vh] min-h-40 w-full resize-y bg-transparent px-3 py-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground/60"
+            className="block max-h-[45vh] min-h-40 w-full resize-y bg-transparent px-3 py-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60"
           />
           <p className="border-t border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
             <code>{'{{user_input}}'}</code> asks for text when you run it.{' '}

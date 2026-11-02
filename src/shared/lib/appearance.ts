@@ -110,7 +110,7 @@ export const MAX_BORDER_RADIUS = 24;
 // Text colors globals.css draws on a palette's surfaces in each mode.
 export const MODE_TEXT: Record<ThemeMode, { foreground: string; mutedForeground: string }> = {
   dark: { foreground: '0.985 0 0', mutedForeground: '0.75 0 0' },
-  light: { foreground: '0.145 0 0', mutedForeground: '0.5 0 0' },
+  light: { foreground: '0.145 0 0', mutedForeground: '0.4 0 0' },
 };
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;

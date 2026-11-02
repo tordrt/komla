@@ -90,7 +90,7 @@ export function ProjectsTab({ adding, onAddProject, onShowList, onOpenProject }:
                 </span>
                 <ProjectLocation project={project} className="text-muted-foreground" />
               </span>
-              <CaretRight className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+              <CaretRight className="size-3.5 shrink-0 text-muted-foreground-60 transition-colors group-hover:text-foreground" />
             </button>
           );
         })}

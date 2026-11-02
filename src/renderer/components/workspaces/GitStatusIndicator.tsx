@@ -469,7 +469,7 @@ export function GitStatusIndicator({
     <>
       {actionInputDialog}
       <div
-        className={`flex items-center gap-2 text-xs font-mono${isStale ? ' opacity-40 saturate-50' : ''}`}
+        className={`flex items-center gap-2 text-xs font-mono${isStale ? ' opacity-60 saturate-50 dark:opacity-40' : ''}`}
         title={
           isStale
             ? 'Remote workspace status may be stale; waiting for the companion to reconnect'

@@ -81,7 +81,7 @@ export function AddSshRepositoryAsProjectButton({
     <IconButton
       size="xs"
       // Faint so it doesn't compete with the repository name.
-      className="size-5 text-muted-foreground/50 hover:text-foreground"
+      className="size-5 text-muted-foreground-50 hover:text-foreground"
       label={`Add ${repoName} as a project`}
       tooltipSide="right"
       disabled={adding}

@@ -214,7 +214,7 @@ export function BlameGutter({
                     {row.hunk.shortHash}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-2xs">{row.hunk.author}</span>
-                  <span className="shrink-0 text-[9px] text-muted-foreground/70">
+                  <span className="shrink-0 text-[9px] text-muted-foreground-70">
                     {formatRelativeTime(row.hunk.timestamp * 1000)}
                   </span>
                 </div>

@@ -87,7 +87,7 @@ export function ShortcutsDialog({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search shortcuts"
               aria-label="Search keyboard shortcuts"
-              className="h-7 w-full rounded-md border border-foreground/10 bg-foreground/[0.04] pr-2 pl-8 text-xs text-foreground placeholder:text-muted-foreground/60 focus:border-foreground/25 focus:outline-hidden"
+              className="h-7 w-full rounded-md border border-foreground/10 bg-foreground/[0.04] pr-2 pl-8 text-xs text-foreground placeholder:text-muted-foreground-60 focus:border-foreground/25 focus:outline-hidden"
             />
           </div>
           <DialogClose className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden">
@@ -207,7 +207,7 @@ function KeyCaps({ shortcut: { keys, separator } }: { shortcut: ShortcutKeys }) 
         // The keys up to this one, since a double tap repeats a key.
         <Fragment key={keys.slice(0, index + 1).join(' ')}>
           {index > 0 && separator === '+' && (
-            <span className="text-2xs text-muted-foreground/60">+</span>
+            <span className="text-2xs text-muted-foreground-60">+</span>
           )}
           <KeyCap>{key}</KeyCap>
         </Fragment>
@@ -222,7 +222,7 @@ function KeyRange({ first, last }: { first: ShortcutKeys; last: ShortcutKeys }) 
     return (
       <>
         <KeyCaps shortcut={first} />
-        <span className="text-xs text-muted-foreground/60">&hellip;</span>
+        <span className="text-xs text-muted-foreground-60">&hellip;</span>
         <KeyCaps shortcut={last} />
       </>
     );
@@ -230,7 +230,7 @@ function KeyRange({ first, last }: { first: ShortcutKeys; last: ShortcutKeys }) 
   return (
     <span className="inline-flex items-center gap-1">
       <KeyCaps shortcut={first} />
-      <span className="text-xs text-muted-foreground/60">–</span>
+      <span className="text-xs text-muted-foreground-60">–</span>
       <KeyCap>{last.keys.at(-1)}</KeyCap>
     </span>
   );

@@ -59,7 +59,7 @@ export function VoiceRecordingIndicator({
         <PopoverTrigger asChild>
           <IconButton
             label="Voice input unavailable"
-            className="size-auto p-0.5 text-muted-foreground/40 hover:bg-border/50 hover:text-muted-foreground"
+            className="size-auto p-0.5 text-muted-foreground-40 hover:bg-border/50 hover:text-muted-foreground"
             aria-haspopup="dialog"
           >
             <Microphone className="size-3.5" />
@@ -87,7 +87,7 @@ export function VoiceRecordingIndicator({
   // State: mic opening — getUserMedia is in flight, don't speak yet
   if (isStarting) {
     return (
-      <span className="flex items-center justify-center p-0.5 text-muted-foreground/60">
+      <span className="flex items-center justify-center p-0.5 text-muted-foreground-60">
         <Spinner size="sm" label="Preparing microphone" />
       </span>
     );
@@ -141,7 +141,7 @@ export function VoiceRecordingIndicator({
       label="Dictate"
       shortcut={voiceShortcut}
       onClick={onStartRecording}
-      className="size-auto p-0.5 text-muted-foreground/60 hover:bg-border/50 hover:text-muted-foreground"
+      className="size-auto p-0.5 text-muted-foreground-60 hover:bg-border/50 hover:text-muted-foreground"
     >
       <Microphone className="size-3.5" />
     </IconButton>

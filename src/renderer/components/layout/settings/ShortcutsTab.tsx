@@ -253,7 +253,7 @@ export function ShortcutsTab({ onDirtyChange }: ShortcutsTabProps) {
         {/* Search */}
         <div>
           <div className="relative">
-            <MagnifyingGlass className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+            <MagnifyingGlass className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground-60" />
             <input
               type="text"
               aria-label="Search shortcuts"
@@ -265,7 +265,7 @@ export function ShortcutsTab({ onDirtyChange }: ShortcutsTabProps) {
                 if (e.key === 'Escape' && searchQuery) setSearchQuery('');
               }}
               placeholder="Search shortcuts..."
-              className="h-8 w-full rounded-md border border-border/60 bg-muted/40 pr-3 pl-8 text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-hidden"
+              className="h-8 w-full rounded-md border border-border/60 bg-muted/40 pr-3 pl-8 text-xs text-foreground placeholder:text-muted-foreground-50 focus:border-primary/50 focus:outline-hidden"
             />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
@@ -426,7 +426,7 @@ function ShortcutRow({
               ? 'Press keys...'
               : 'Press keys or double-tap a modifier...'}
           </span>
-          <span className="text-2xs text-muted-foreground/50">Esc to cancel</span>
+          <span className="text-2xs text-muted-foreground-50">Esc to cancel</span>
         </div>
       </div>
     );
@@ -448,7 +448,7 @@ function ShortcutRow({
           className={`${SHORTCUT_CHIP_BUTTON_CLASS} flex items-center gap-1`}
         >
           <Kbd className={SHORTCUT_CHIP_CLASS}>{first}</Kbd>
-          <span className="text-xs text-muted-foreground/50">&hellip;</span>
+          <span className="text-xs text-muted-foreground-50">&hellip;</span>
           <Kbd className={SHORTCUT_CHIP_CLASS}>{last}</Kbd>
         </button>
       </div>
@@ -482,7 +482,7 @@ function ShortcutRow({
             <Kbd className={SHORTCUT_CHIP_CLASS}>{display}</Kbd>
           ) : (
             <Kbd
-              className={`${SHORTCUT_CHIP_CLASS} border-dashed bg-transparent text-muted-foreground/60`}
+              className={`${SHORTCUT_CHIP_CLASS} border-dashed bg-transparent text-muted-foreground-60`}
             >
               Not set
             </Kbd>

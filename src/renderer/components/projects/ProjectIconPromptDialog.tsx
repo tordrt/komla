@@ -11,7 +11,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { GroupHeaderIcon } from '@/components/workspaces/GroupHeaderIcon';
-import { SIDEBAR_PANEL_CLASS } from '@/components/workspaces/sidebar-panel';
+import {
+  SIDEBAR_PANEL_CLASS,
+  SIDEBAR_SELECTED_CARD_FILL,
+} from '@/components/workspaces/sidebar-panel';
 import { useIconColors } from '@/hooks/useIconColors';
 import { getProjectColor, resolvePickedColor } from '@/lib/project-colors';
 import { cn } from '@/lib/utils';
@@ -237,7 +240,7 @@ function SkeletonCard({ selected }: { selected?: boolean }) {
     <div
       className={cn(
         'flex shrink-0 flex-col gap-1.5 rounded-xl px-2.5 py-2',
-        selected && 'bg-accent'
+        selected && SIDEBAR_SELECTED_CARD_FILL
       )}
     >
       <span className="h-1.5 w-28 rounded-full bg-foreground/25" />

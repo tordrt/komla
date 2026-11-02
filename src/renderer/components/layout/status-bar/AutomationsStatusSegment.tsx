@@ -244,7 +244,7 @@ export function AutomationsStatusSegment() {
           tooltip={summary}
           className={cn(
             'tabular-nums',
-            !soonest && 'text-muted-foreground/60',
+            !soonest && 'text-muted-foreground-60',
             failed > 0 && 'text-error hover:text-error data-[state=open]:text-error'
           )}
         >

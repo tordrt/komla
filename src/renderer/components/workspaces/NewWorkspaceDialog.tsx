@@ -2552,7 +2552,7 @@ function HeaderToolbar({
         <DropdownMenuTrigger asChild>
           <IconButton
             label="Voice options"
-            className="-ml-1 size-auto p-0.5 text-muted-foreground/60 hover:bg-border/50 hover:text-muted-foreground"
+            className="-ml-1 size-auto p-0.5 text-muted-foreground-60 hover:bg-border/50 hover:text-muted-foreground"
           >
             <CaretDown className="size-3" />
           </IconButton>
@@ -2687,7 +2687,7 @@ function PromptArea({
                 ? `${promptlessAgentName} can't start with a prompt, so it opens without one`
                 : 'What should the agent work on? (optional)'
             }
-            className="max-h-[200px] min-h-[40px] flex-1 resize-none overflow-y-auto bg-transparent text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground/60 disabled:opacity-50"
+            className="max-h-[200px] min-h-[40px] flex-1 resize-none overflow-y-auto bg-transparent text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60 disabled:opacity-50"
             rows={1}
             autoFocus
           />
@@ -2702,7 +2702,7 @@ function PromptArea({
                     'mt-1.5 rounded-md',
                     actionId
                       ? 'bg-muted/50 text-foreground'
-                      : 'text-muted-foreground/60 hover:bg-muted/30 hover:text-muted-foreground'
+                      : 'text-muted-foreground-60 hover:bg-muted/30 hover:text-muted-foreground'
                   )}
                 >
                   <NotePencil className="size-4" />
@@ -2767,7 +2767,7 @@ function PromptArea({
               >
                 <Sparkle className="size-3 shrink-0 text-muted-foreground" />
                 <span className="truncate">{a.title}</span>
-                <span className="ml-auto max-w-[180px] truncate text-2xs text-muted-foreground/60">
+                <span className="ml-auto max-w-[180px] truncate text-2xs text-muted-foreground-60">
                   {a.content.slice(0, 60)}
                   {a.content.length > 60 ? '…' : ''}
                 </span>
@@ -3063,7 +3063,7 @@ function ReasoningLevelPill({
             'inline-flex h-6 items-center gap-1 rounded-md px-2 text-ui transition-colors',
             level
               ? 'bg-muted font-medium text-foreground hover:bg-muted/80'
-              : 'text-muted-foreground/70 hover:bg-muted/60 hover:text-foreground'
+              : 'text-muted-foreground-70 hover:bg-muted/60 hover:text-foreground'
           )}
         >
           {level && picker.icon === 'gauge' ? (
@@ -3253,7 +3253,7 @@ function AgentLaunchPickerPill({
             'group inline-flex h-6 items-center rounded-md px-2 text-ui transition-colors',
             isParallelSelection
               ? 'gap-1 bg-primary/10 font-medium text-primary hover:bg-primary/15'
-              : 'text-muted-foreground/70 hover:text-muted-foreground'
+              : 'text-muted-foreground-70 hover:text-muted-foreground'
           )}
           title={
             isParallelSelection
@@ -3330,7 +3330,7 @@ function AgentLaunchPickerPill({
           />
         ) : (
           <div className="mt-1 flex items-center gap-2 border-t border-border/60 px-2 py-1">
-            <span className="min-w-0 truncate text-2xs text-muted-foreground/70">
+            <span className="min-w-0 truncate text-2xs text-muted-foreground-70">
               {hasMultiplePresets && cycleAgentShortcut && (
                 <>
                   <Kbd>{cycleAgentShortcut}</Kbd> cycle agent

@@ -870,7 +870,7 @@ function renderTerminalTabsEmptyState(params: {
       <div className="flex h-full flex-col items-center justify-center gap-3 bg-card pb-(--banner-inset) text-muted-foreground">
         <Spinner size="lg" />
         <div className="text-sm">Restarting workspace...</div>
-        <div className="text-xs text-muted-foreground/60">
+        <div className="text-xs text-muted-foreground-60">
           {getWorkspaceRestartDescription(selectedWorkspace.backend?.kind === 'ssh', restartAgent)}
         </div>
       </div>
@@ -933,7 +933,7 @@ function renderTerminalTabsEmptyState(params: {
       <div className="flex h-full flex-col items-center justify-center gap-3 pb-(--banner-inset) text-muted-foreground">
         <Spinner size="lg" />
         <div className="text-sm">Setting up workspace...</div>
-        <div className="text-xs text-muted-foreground/60">
+        <div className="text-xs text-muted-foreground-60">
           {selectedWorkspace.provisionStatus ??
             (selectedWorkspace.branchName
               ? 'Creating worktree'
@@ -952,7 +952,7 @@ function renderTerminalTabsEmptyState(params: {
             ? 'Workspace missing from host'
             : 'Workspace setup failed'}
         </div>
-        <div className="max-w-md text-center text-xs text-muted-foreground/60">
+        <div className="max-w-md text-center text-xs text-muted-foreground-60">
           {selectedWorkspace.provisionError}
         </div>
         {selectedWorkspace.removedFromHost && (
@@ -2304,7 +2304,7 @@ export const TerminalTabs = memo(function TerminalTabs({
         {/* Split container content - render ALL workspaces' tabs, hide inactive ones to preserve terminal state */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           {openTabs.length === 0 && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center text-muted-foreground/60">
+            <div className="absolute inset-0 z-10 flex items-center justify-center text-muted-foreground-60">
               <div className="text-center">
                 <TerminalWindow className="mx-auto mb-3 size-10 opacity-40" />
                 <p className="text-base font-medium">No terminals open</p>

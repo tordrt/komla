@@ -61,6 +61,6 @@ you apply may not show until the system switches. The result says which theme it
   `ansi` colors that read on it, unless the user asks for a dark terminal.
 
 Komla rejects a custom theme whose text would be hard to read. Its text colors are fixed per mode
-(`#fafafa` and `#aeaeae` in dark, `#0a0a0a` and `#636363` in light), and each needs a WCAG contrast
+(`#fafafa` and `#aeaeae` in dark, `#0a0a0a` and `#484848` in light), and each needs a WCAG contrast
 of 4.5:1 on `background`, `card`, `popover` and `sidebar` (secondary text: `card` and `sidebar`),
 as does `terminal.foreground` on `terminal.background`. Adjust the surfaces to fit.

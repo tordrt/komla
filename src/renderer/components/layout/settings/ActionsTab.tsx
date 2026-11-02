@@ -103,7 +103,7 @@ export function ActionsTab({ onClose: _onClose }: ActionsTabProps) {
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="text-muted-foreground/60 transition-colors hover:text-muted-foreground"
+                  className="text-muted-foreground-60 transition-colors hover:text-muted-foreground"
                   aria-label="About Quick Commands"
                 >
                   <Info className="size-3.5" />

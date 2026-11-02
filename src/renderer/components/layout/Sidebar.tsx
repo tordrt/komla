@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { TruncatingLabel } from '@/components/ui/truncating-label';
 import { FolderDropZone } from '@/components/workspaces/FolderDropZone';
 import { QuickCreateMenu } from '@/components/workspaces/QuickCreateMenu';
+import { SIDEBAR_PANEL_LIGHT_FILL } from '@/components/workspaces/sidebar-panel';
 import { WorkspaceList } from '@/components/workspaces/WorkspaceList';
 import {
   setSidebarCollapsed,
@@ -84,7 +85,13 @@ export const Sidebar = memo(function Sidebar({
 
   // One filled split control, the same field as Jump to: New Workspace, then quick create.
   const newWorkspaceControls = (
-    <div className="no-drag flex h-7 min-w-0 flex-1 items-center overflow-hidden rounded-md bg-accent/60">
+    // In light themes it takes the project panels' fill, as the accent all but matches the chrome.
+    <div
+      className={cn(
+        'no-drag flex h-7 min-w-0 flex-1 items-center overflow-hidden rounded-md dark:bg-accent/60',
+        SIDEBAR_PANEL_LIGHT_FILL
+      )}
+    >
       <button
         type="button"
         aria-label="New Workspace"
@@ -157,7 +164,7 @@ export const Sidebar = memo(function Sidebar({
                 <ShortcutHint
                   action="commandCenter.open"
                   compact
-                  className="ml-auto shrink-0 border-0 bg-transparent px-0 text-muted-foreground/60"
+                  className="ml-auto shrink-0 border-0 bg-transparent px-0 text-muted-foreground-60"
                 />
               </button>
             </TooltipTrigger>

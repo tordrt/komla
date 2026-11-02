@@ -435,7 +435,7 @@ function TerminalSection({
 }) {
   return (
     <section aria-label={title} className="flex flex-col gap-0.5">
-      <h3 className="px-2 pb-0.5 text-ui font-medium text-muted-foreground/60">{title}</h3>
+      <h3 className="px-2 pb-0.5 text-ui font-medium text-muted-foreground-60">{title}</h3>
       <SidebarRows items={items} onScreen={onScreen} folderHints />
     </section>
   );
@@ -634,7 +634,7 @@ function ModifiedTime({ modifiedMs }: { modifiedMs: number | undefined }) {
     <time
       aria-hidden
       dateTime={new Date(modifiedMs).toISOString()}
-      className="ml-auto shrink-0 text-2xs text-muted-foreground/60 tabular-nums"
+      className="ml-auto shrink-0 text-2xs text-muted-foreground-60 tabular-nums"
     >
       {formatRelativeTime(modifiedMs)}
     </time>
@@ -681,7 +681,7 @@ function SidebarFile({
           'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
           isCurrent
             ? 'bg-accent text-foreground'
-            : 'text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground'
+            : 'text-muted-foreground-70 hover:bg-accent/40 hover:text-foreground'
         )}
       >
         <EntryIcon item={item} className="size-3.5" />
@@ -692,7 +692,7 @@ function SidebarFile({
           <span
             aria-hidden
             dir="rtl"
-            className="min-w-0 truncate text-2xs text-muted-foreground/50"
+            className="min-w-0 truncate text-2xs text-muted-foreground-50"
           >
             <bdi>{folderHint}</bdi>
           </span>

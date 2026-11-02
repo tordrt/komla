@@ -714,7 +714,7 @@ function CommandCenterPanel({ mode, onModeChange, onClose }: CommandCenterPanelP
           onKeyDown={handleKeyDown}
           placeholder={inputLabels.placeholder}
           spellCheck={false}
-          className="h-full min-w-0 flex-1 bg-transparent text-base text-foreground placeholder:text-muted-foreground/60 focus:outline-hidden"
+          className="h-full min-w-0 flex-1 bg-transparent text-base text-foreground placeholder:text-muted-foreground-60 focus:outline-hidden"
         />
         {fileMode && (
           <FileSearchControls
@@ -814,7 +814,7 @@ function FileSearchControls({
           tooltipSide="bottom"
           onClick={onToggleGitIgnored}
           className={
-            includeGitIgnored ? undefined : 'text-muted-foreground/60 hover:text-muted-foreground'
+            includeGitIgnored ? undefined : 'text-muted-foreground-60 hover:text-muted-foreground'
           }
         >
           {includeGitIgnored ? <Eye className="size-4" /> : <EyeSlash className="size-4" />}
@@ -941,7 +941,7 @@ function CommandRow({ command }: { command: CommandItem }) {
       <span className="min-w-0 flex-1 truncate text-sm">{command.label}</span>
       {command.shortcut && <Kbd>{command.shortcut}</Kbd>}
       {command.opensView && (
-        <CaretRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground/70" />
+        <CaretRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground-70" />
       )}
     </>
   );
@@ -1071,7 +1071,7 @@ function WorkspaceRow({
           </>
         )}
         {windowLabel && <span>{windowLabel}</span>}
-        <span className="min-w-8 text-right text-muted-foreground/70 tabular-nums">
+        <span className="min-w-8 text-right text-muted-foreground-70 tabular-nums">
           {formatRelativeTime(result.lastActivityAt)}
         </span>
       </span>
@@ -1089,7 +1089,7 @@ function WorkspaceMeta({ result }: { result: CommandCenterWorkspaceResult }) {
       {branch && (
         <>
           {projectInfo && <MetaDot />}
-          <GitBranch aria-hidden className="size-3 shrink-0 text-muted-foreground/70" />
+          <GitBranch aria-hidden className="size-3 shrink-0 text-muted-foreground-70" />
           <span className="max-w-48 shrink-0 truncate">{branch}</span>
         </>
       )}
@@ -1105,7 +1105,7 @@ function WorkspaceMeta({ result }: { result: CommandCenterWorkspaceResult }) {
 
 function MetaDot() {
   return (
-    <span aria-hidden className="shrink-0 text-muted-foreground/50">
+    <span aria-hidden className="shrink-0 text-muted-foreground-50">
       ·
     </span>
   );

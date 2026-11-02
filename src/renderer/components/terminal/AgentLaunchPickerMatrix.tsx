@@ -139,7 +139,7 @@ export function AgentLaunchPickerMatrix({
                 <CaretRight
                   data-agent-preset-caret
                   className={cn(
-                    'size-3 shrink-0 text-muted-foreground/70',
+                    'size-3 shrink-0 text-muted-foreground-70',
                     selectedTargetCount === 0 && 'ml-auto'
                   )}
                 />

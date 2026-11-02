@@ -545,7 +545,7 @@ function ProjectFilterItems({
             draggable
             title="Drag to reorder"
             data-testid={`drag-project-${project.id}`}
-            className="-my-1 flex h-6 w-5 cursor-grab items-center justify-center rounded-sm text-muted-foreground/60 group-data-highlighted:text-muted-foreground hover:bg-foreground/10 hover:text-foreground! active:cursor-grabbing"
+            className="-my-1 flex h-6 w-5 cursor-grab items-center justify-center rounded-sm text-muted-foreground-60 group-data-highlighted:text-muted-foreground hover:bg-foreground/10 hover:text-foreground! active:cursor-grabbing"
             onDragStart={(event) => {
               event.dataTransfer.effectAllowed = 'move';
               event.dataTransfer.setData('text/plain', project.name);

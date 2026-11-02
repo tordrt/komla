@@ -55,7 +55,7 @@ export function NotesSection({ workspaceId, currentFile }: NotesSectionProps) {
           <CaretDown className="size-3 shrink-0" />
         )}
         <span className="truncate">Notes</span>
-        <span className="shrink-0 font-medium text-muted-foreground/70">{notes.length}</span>
+        <span className="shrink-0 font-medium text-muted-foreground-70">{notes.length}</span>
       </button>
       {!collapsed && (
         <ul className="thin-scrollbar min-h-0 overflow-y-auto px-1">
@@ -128,7 +128,7 @@ function NoteRow({
           >
             <NotePencil className="size-3.5 shrink-0" />
             <span className={cn('min-w-0 flex-1 truncate', !note.title && 'italic')}>{title}</span>
-            <span className="shrink-0 text-[11px] text-muted-foreground/70 tabular-nums">
+            <span className="shrink-0 text-[11px] text-muted-foreground-70 tabular-nums">
               {formatRelativeTime(note.modifiedMs)}
             </span>
           </button>

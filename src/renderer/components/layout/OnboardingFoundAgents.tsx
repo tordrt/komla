@@ -80,7 +80,7 @@ export function OnboardingFoundAgents({
               {notInstalled.map((template) => (
                 <li
                   key={template.name}
-                  className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground/70"
+                  className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground-70"
                 >
                   <AgentPresetIcon
                     preset={template}

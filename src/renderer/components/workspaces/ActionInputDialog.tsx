@@ -214,7 +214,7 @@ export function ActionInputDialog({
                 if (trimmedInput) onConfirm(trimmedInput);
               }}
               placeholder="Type or paste here..."
-              className="block field-sizing-content max-h-72 min-h-20 w-full resize-none bg-transparent px-3 pt-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground/60"
+              className="block field-sizing-content max-h-72 min-h-20 w-full resize-none bg-transparent px-3 pt-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60"
             />
             <div className="flex items-center gap-1 px-2 pt-1 pb-2">
               <Button
@@ -244,7 +244,7 @@ export function ActionInputDialog({
                   <Kbd aria-hidden>↑</Kbd>
                 </Button>
               )}
-              <span className="ml-auto shrink-0 pr-1 text-xs text-muted-foreground/70">
+              <span className="ml-auto shrink-0 pr-1 text-xs text-muted-foreground-70">
                 {formatShortcutForDisplay('Shift+Enter')} for a new line
               </span>
             </div>

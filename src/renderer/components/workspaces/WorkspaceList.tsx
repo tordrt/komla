@@ -248,7 +248,7 @@ function GroupHeaderAction({ group, groupProject }: GroupHeaderActionProps) {
       <IconButton
         size="xs"
         // Faint so it doesn't compete with the project name.
-        className="size-5 text-muted-foreground/50 hover:text-foreground"
+        className="size-5 text-muted-foreground-50 hover:text-foreground"
         label={`New workspace in ${groupProject.name}`}
         tooltipSide="right"
         onClick={() => openNewWorkspaceDialog({ prefill: { projectId: groupProject.id } })}
@@ -261,7 +261,7 @@ function GroupHeaderAction({ group, groupProject }: GroupHeaderActionProps) {
     return (
       <IconButton
         size="xs"
-        className="size-5 text-muted-foreground/70 opacity-0 group-hover/header:opacity-100 focus-visible:opacity-100"
+        className="size-5 text-muted-foreground-70 opacity-0 group-hover/header:opacity-100 focus-visible:opacity-100"
         label="Change color"
         tooltipSide="right"
         onClick={(e) => {

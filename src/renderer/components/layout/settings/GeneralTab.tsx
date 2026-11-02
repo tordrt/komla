@@ -527,7 +527,7 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
             >
               Privacy Policy
             </button>
-            <span aria-hidden="true" className="text-muted-foreground/40">
+            <span aria-hidden="true" className="text-muted-foreground-40">
               ·
             </span>
             <button

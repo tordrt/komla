@@ -488,7 +488,7 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
                 <span
                   className={cn(
                     'text-2xs font-medium transition-colors',
-                    s === step ? 'text-primary' : 'text-muted-foreground/60'
+                    s === step ? 'text-primary' : 'text-muted-foreground-60'
                   )}
                 >
                   {label}

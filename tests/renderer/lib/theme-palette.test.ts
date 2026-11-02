@@ -112,11 +112,11 @@ describe('buildCustomPalette', () => {
       ...example,
       mode: 'light',
       surfaces: {
-        background: '#e4e4e4',
-        card: '#e4e4e4',
-        muted: '#e0e0e0',
-        highlight: '#dddddd',
-        border: '#cccccc',
+        background: '#bcbcbc',
+        card: '#bcbcbc',
+        muted: '#b8b8b8',
+        highlight: '#b4b4b4',
+        border: '#a0a0a0',
       },
     });
 

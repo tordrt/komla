@@ -876,7 +876,7 @@ export function SettingsDialog({
                     {navGroups.map((group, index) => (
                       <div key={group.label ?? `group-${index}`} className="flex flex-col gap-0.5">
                         {group.label && (
-                          <div className="px-2.5 pb-1 text-xs font-medium tracking-[0.14em] text-muted-foreground/70 uppercase">
+                          <div className="px-2.5 pb-1 text-xs font-medium tracking-[0.14em] text-muted-foreground-70 uppercase">
                             {group.label}
                           </div>
                         )}
@@ -897,7 +897,7 @@ export function SettingsDialog({
                                     }
                                     aria-expanded={projectsNavExpanded}
                                     onClick={() => setProjectsNavOverride(!projectsNavExpanded)}
-                                    className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-foreground/8 hover:text-foreground"
+                                    className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground-70 transition-colors hover:bg-foreground/8 hover:text-foreground"
                                   >
                                     <CaretRight
                                       className={cn(
@@ -964,7 +964,7 @@ export function SettingsDialog({
                 </nav>
               </SettingsSearch>
               {/* Version footer */}
-              <div className="mt-auto space-y-1 border-t border-foreground/8 px-4 py-3 text-ui text-muted-foreground/70">
+              <div className="mt-auto space-y-1 border-t border-foreground/8 px-4 py-3 text-ui text-muted-foreground-70">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono">{appVersion ? `v${appVersion}` : ''}</span>
                   <button

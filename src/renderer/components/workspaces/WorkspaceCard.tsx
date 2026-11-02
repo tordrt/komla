@@ -116,6 +116,7 @@ import { buildDiffChangePills, hasGitStatusToShow } from './git-status-summary';
 import { GitStatusIndicator } from './GitStatusIndicator';
 import { LinkWorkspacesDialog } from './LinkWorkspacesDialog';
 import { MoveToWindowMenuItems } from './MoveToWindowMenu';
+import { SIDEBAR_CARD_LIGHT_HOVER, SIDEBAR_SELECTED_CARD_FILL } from './sidebar-panel';
 import { CustomSnoozeDialog, SnoozeCountdown, SnoozeSubmenu, useCiRunning } from './SnoozeMenu';
 import { getWorkspaceDynamicTitle, WorkspaceInfoCardContent } from './WorkspaceInfoCard';
 import { TagSubmenu, WorkspaceTagPill } from './WorkspaceTagMenu';
@@ -617,7 +618,10 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
             <span
               ref={highlightRef}
               aria-hidden
-              className="pointer-events-none absolute inset-0 -z-10 origin-top rounded-[inherit] bg-foreground/[0.08]"
+              className={cn(
+                'pointer-events-none absolute inset-0 -z-10 origin-top rounded-[inherit]',
+                SIDEBAR_SELECTED_CARD_FILL
+              )}
             />
           )}
           <SelectionCheckbox
@@ -777,9 +781,9 @@ function getCardClassName({
     // headers below the list share that inset, so a shelf's cards line up with its header.
     'relative group flex cursor-pointer items-center gap-2 rounded-xl px-2.5 scroll-my-10 workspace-card-hover',
     compact ? 'py-2' : 'py-2.5',
-    // The selected card's highlight is its own layer, a light wash, so it can glide between
-    // cards; `isolate` keeps it above the sidebar and under the card's content.
-    isSelected ? 'isolate' : 'hover:bg-accent/50',
+    // The selected card's highlight is its own layer, so it can glide between cards; `isolate`
+    // keeps it above the sidebar and under the card's content.
+    isSelected ? 'isolate' : cn(SIDEBAR_CARD_LIGHT_HOVER, 'dark:hover:bg-accent/50'),
     isDragging && 'opacity-60 scale-[0.97] ring-2 ring-primary/30',
     dropPosition === 'before' && 'drop-indicator-before',
     dropPosition === 'after' && 'drop-indicator-after',
@@ -1263,10 +1267,10 @@ function SecondaryLine({
 }) {
   switch (kind) {
     case 'attention':
-      return <div className="truncate text-xs text-muted-foreground/80">{attentionBody}</div>;
+      return <div className="truncate text-xs text-muted-foreground-80">{attentionBody}</div>;
     case 'path':
       return (
-        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground/80">
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-80">
           <FolderOpen className="size-3 shrink-0" />
           {/* rtl truncates from the left; bdi keeps the path itself in LTR order */}
           <span className="truncate font-mono text-ui" dir="rtl">
@@ -1286,7 +1290,7 @@ function isProvisioningOrFailed(workspace: Workspace): boolean {
 function ProvisionLine({ workspace }: { workspace: Workspace }) {
   if (workspace.provisioning) {
     return (
-      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground/60">
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-60">
         <GitBranch className="mr-1 inline size-3" />
         <span className="animate-pulse truncate">
           {workspace.provisionStatus ?? 'Setting up...'}
@@ -1305,7 +1309,7 @@ function BranchLine({ workspace }: { workspace: Workspace }) {
   const isRemote = isSshWorkspace(workspace);
   const Icon = isRemote ? Cloud : workspace.branchedFrom ? GitFork : GitBranch;
   return (
-    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground/80">
+    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-80">
       <span className="truncate font-mono text-ui" title={workspace.branchName}>
         <Icon className="mr-1 inline size-3" />
         {workspace.branchName}
@@ -1320,7 +1324,7 @@ function WorkingClock({ since }: { since: number }) {
   return (
     <span
       title={`Working for ${elapsed}`}
-      className="ml-auto text-2xs whitespace-nowrap text-muted-foreground/70 tabular-nums"
+      className="ml-auto text-2xs whitespace-nowrap text-muted-foreground-70 tabular-nums"
     >
       {elapsed}
     </span>
@@ -1340,7 +1344,7 @@ function TrashTimeLeft({ trashedAt }: { trashedAt: number }) {
   return (
     <span
       title="Deleted for good when its time in the Trash is up"
-      className="ml-auto text-2xs whitespace-nowrap text-muted-foreground/50"
+      className="ml-auto text-2xs whitespace-nowrap text-muted-foreground-50"
     >
       {left} left
     </span>
@@ -1365,7 +1369,7 @@ function ActivityTime({
   if (startedWorking) return <WorkingClock since={startedWorking} />;
   if (!workspace.lastActivityAt) return null;
   return (
-    <span className="ml-auto text-2xs whitespace-nowrap text-muted-foreground/50">
+    <span className="ml-auto text-2xs whitespace-nowrap text-muted-foreground-50">
       {formatRelativeTime(workspace.lastActivityAt)}
     </span>
   );
@@ -1426,7 +1430,7 @@ function ActivityRow({
       {lead}
       {linkedCount > 0 && (
         <span
-          className="hidden shrink-0 items-center gap-0.5 text-2xs font-medium text-muted-foreground/70 min-[360px]:inline-flex"
+          className="hidden shrink-0 items-center gap-0.5 text-2xs font-medium text-muted-foreground-70 min-[360px]:inline-flex"
           title={`Linked to ${linkedCount} workspace${linkedCount === 1 ? '' : 's'}`}
         >
           <LinkIcon className="h-3 w-3" weight="bold" />

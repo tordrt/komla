@@ -131,7 +131,7 @@ export function ImportedFilesSection({
         <span className="truncate">
           Imported<span className="@max-[219px]:hidden"> files</span>
         </span>
-        <span className="shrink-0 font-medium text-muted-foreground/70">{files.length}</span>
+        <span className="shrink-0 font-medium text-muted-foreground-70">{files.length}</span>
       </button>
       {showRows && (
         <ul ref={listRef} className="thin-scrollbar min-h-0 overflow-y-auto">

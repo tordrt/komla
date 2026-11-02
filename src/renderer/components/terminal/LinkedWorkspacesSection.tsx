@@ -85,7 +85,7 @@ export function LinkedWorkspacesSection({
           <span className="truncate">
             Linked<span className="@max-[219px]:hidden"> workspaces</span>
           </span>
-          <span className="shrink-0 font-medium text-muted-foreground/70">{peers.length}</span>
+          <span className="shrink-0 font-medium text-muted-foreground-70">{peers.length}</span>
         </button>
         <IconButton
           label="Link workspaces"

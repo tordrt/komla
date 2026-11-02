@@ -380,7 +380,7 @@ function AgentUsageItem({
           {inBar.length === 0 && <span>–</span>}
           {inBar.map((window, index) => (
             <span key={window.name} className={toneClass(window.percent)}>
-              {index > 0 && <span className="mr-1.5 text-muted-foreground/60">·</span>}
+              {index > 0 && <span className="mr-1.5 text-muted-foreground-60">·</span>}
               {window.percent}%
               {/* The time left tells the limits apart, so the limit's name only shows without it. */}
               {window.untilReset ? (

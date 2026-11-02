@@ -941,7 +941,7 @@ export function ResourceUsageSegment() {
         >
           <Cpu aria-hidden="true" className="size-3.5" />
           <span>{reading.cpu}</span>
-          <span aria-hidden="true" className="text-muted-foreground/60">
+          <span aria-hidden="true" className="text-muted-foreground-60">
             ·
           </span>
           <span>{reading.memory}</span>

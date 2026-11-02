@@ -43,7 +43,7 @@ const MODE_DEFAULTS = {
   },
   light: {
     foreground: '0.145 0 0',
-    mutedForeground: '0.5 0 0',
+    mutedForeground: '0.4 0 0',
     background: '1 0 0',
     card: '0.985 0 0',
     accent: '0.94 0 0',

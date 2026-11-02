@@ -705,7 +705,7 @@ export function WorkspaceSetupSection({
         <div className="space-y-2.5">
           {PRESET_CATEGORIES.map(({ label, presets }) => (
             <div key={label}>
-              <span className="mb-1 block text-ui font-medium text-muted-foreground/70">
+              <span className="mb-1 block text-ui font-medium text-muted-foreground-70">
                 {label}
               </span>
               <div className="flex flex-wrap gap-1.5">

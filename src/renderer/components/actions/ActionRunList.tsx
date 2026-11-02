@@ -203,7 +203,7 @@ export function ActionRunList({
     <div onKeyDown={handleKeyDown}>
       {showSearch && (
         <div className="relative border-b border-foreground/10">
-          <MagnifyingGlass className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+          <MagnifyingGlass className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground-60" />
           <input
             ref={searchRef}
             type="text"
@@ -221,7 +221,7 @@ export function ActionRunList({
             }}
             placeholder="Search quick commands…"
             spellCheck={false}
-            className="h-9 w-full bg-transparent pr-3 pl-8 text-xs text-foreground outline-hidden placeholder:text-muted-foreground/60"
+            className="h-9 w-full bg-transparent pr-3 pl-8 text-xs text-foreground outline-hidden placeholder:text-muted-foreground-60"
           />
         </div>
       )}

@@ -1852,7 +1852,7 @@ function SidebarFileTreeHeader({
             size="xs"
             tooltipSide="bottom"
             onClick={() => onCreateFile('')}
-            className="text-muted-foreground/60 hover:text-muted-foreground"
+            className="text-muted-foreground-60 hover:text-muted-foreground"
           >
             <FilePlus className="size-3.5" />
           </IconButton>
@@ -1864,7 +1864,7 @@ function SidebarFileTreeHeader({
             tooltipSide="bottom"
             onClick={() => toggleShowGitIgnored(workspaceId)}
             className={cn(
-              !includeGitIgnored && 'text-muted-foreground/60 hover:text-muted-foreground'
+              !includeGitIgnored && 'text-muted-foreground-60 hover:text-muted-foreground'
             )}
           >
             {includeGitIgnored ? <Eye className="size-3.5" /> : <EyeSlash className="size-3.5" />}
@@ -1880,7 +1880,7 @@ function SidebarFileTreeHeader({
             className={cn(
               comparisonBranch && useMergeBase
                 ? 'text-primary hover:text-primary/80'
-                : 'text-muted-foreground/60 hover:text-muted-foreground'
+                : 'text-muted-foreground-60 hover:text-muted-foreground'
             )}
           >
             {diffLoading ? (
@@ -1899,7 +1899,7 @@ function SidebarFileTreeHeader({
             className={cn(
               liveFollow
                 ? 'text-primary hover:text-primary/80'
-                : 'text-muted-foreground/60 hover:text-muted-foreground'
+                : 'text-muted-foreground-60 hover:text-muted-foreground'
             )}
           >
             <Broadcast className="size-3.5" />
@@ -1955,7 +1955,7 @@ function SidebarFileTreeSearchInput({
   };
   return (
     <span className="flex min-w-0 flex-1 items-center gap-1.5">
-      <MagnifyingGlass className="size-3 shrink-0 text-muted-foreground/60" weight="bold" />
+      <MagnifyingGlass className="size-3 shrink-0 text-muted-foreground-60" weight="bold" />
       <input
         ref={inputRef}
         type="text"
@@ -1965,7 +1965,7 @@ function SidebarFileTreeSearchInput({
         onBlur={() => onFocusChange(false)}
         onKeyDown={handleKeyDown}
         placeholder="Search"
-        className="min-w-0 flex-1 bg-transparent text-xs font-normal text-foreground outline-hidden placeholder:text-muted-foreground/60"
+        className="min-w-0 flex-1 bg-transparent text-xs font-normal text-foreground outline-hidden placeholder:text-muted-foreground-60"
       />
     </span>
   );

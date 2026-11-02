@@ -49,7 +49,7 @@ const SEGMENT_CLASS =
 
 function Separator() {
   return (
-    <span aria-hidden className="text-muted-foreground/40 select-none">
+    <span aria-hidden className="text-muted-foreground-40 select-none">
       /
     </span>
   );
@@ -81,7 +81,7 @@ function ProjectRowEnd({ index, isSelected }: { index: number; isSelected: boole
   return (
     <span className="ml-3 flex shrink-0 items-center gap-1.5">
       {isSelected && <Check className="size-4 shrink-0" />}
-      {shortcut && <span className="text-2xs text-muted-foreground/70">{shortcut}</span>}
+      {shortcut && <span className="text-2xs text-muted-foreground-70">{shortcut}</span>}
     </span>
   );
 }
@@ -345,7 +345,7 @@ function BranchNameField({
               );
             }, 0);
           }}
-          className="truncate rounded px-1 text-muted-foreground/70 italic hover:text-muted-foreground"
+          className="truncate rounded px-1 text-muted-foreground-70 italic hover:text-muted-foreground"
         >
           AI generated
         </button>
@@ -361,7 +361,7 @@ function BranchNameField({
           }}
           placeholder={placeholder}
           style={{ width: inputWidth }}
-          className="max-w-[16rem] min-w-0 rounded bg-transparent px-1 py-0.5 font-mono text-ui text-foreground outline-hidden placeholder:text-muted-foreground/60 focus:bg-muted/40"
+          className="max-w-[16rem] min-w-0 rounded bg-transparent px-1 py-0.5 font-mono text-ui text-foreground outline-hidden placeholder:text-muted-foreground-60 focus:bg-muted/40"
         />
       )}
       {showAiToggle && (
@@ -372,7 +372,7 @@ function BranchNameField({
             'size-4 hover:bg-transparent',
             useAiBranchName
               ? 'text-foreground hover:text-foreground'
-              : 'text-muted-foreground/70 hover:text-muted-foreground'
+              : 'text-muted-foreground-70 hover:text-muted-foreground'
           )}
           onClick={() => toggleAiBranchName(!useAiBranchName)}
         >

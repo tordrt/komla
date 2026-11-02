@@ -592,7 +592,7 @@ export function GettingStartedMenu({
 
         {onHideButton && (
           <div className="flex shrink-0 items-center gap-2 border-t border-border/60 py-1.5 pr-1.5 pl-3.5">
-            <span className="min-w-0 truncate text-2xs text-muted-foreground/70">{hideHint}</span>
+            <span className="min-w-0 truncate text-2xs text-muted-foreground-70">{hideHint}</span>
             <button
               type="button"
               className="ml-auto shrink-0 rounded px-1.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
@@ -745,7 +745,7 @@ function StepRow({
       ) : (
         <CaretRight
           aria-hidden="true"
-          className={`size-3.5 shrink-0 text-muted-foreground/60 transition-transform group-hover/tip:text-foreground ${expanded ? 'rotate-90' : ''}`}
+          className={`size-3.5 shrink-0 text-muted-foreground-60 transition-transform group-hover/tip:text-foreground ${expanded ? 'rotate-90' : ''}`}
         />
       )}
     </button>

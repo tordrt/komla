@@ -195,7 +195,7 @@ function PullRequestItem({ workspaceId }: { workspaceId: string }) {
           <span
             tabIndex={0}
             aria-label={hint}
-            className={cn(STATUS_BAR_BUTTON_CLASS, 'text-muted-foreground/60')}
+            className={cn(STATUS_BAR_BUTTON_CLASS, 'text-muted-foreground-60')}
           >
             <GitPullRequest aria-hidden="true" className="size-3.5" />
           </span>
@@ -223,7 +223,7 @@ function PullRequestItem({ workspaceId }: { workspaceId: string }) {
         >
           <GitPullRequest
             aria-hidden="true"
-            className={cn('size-3.5', !open && 'text-muted-foreground/60')}
+            className={cn('size-3.5', !open && 'text-muted-foreground-60')}
           />
           <span>#{pullRequest.number}</span>
           {CiIcon && (

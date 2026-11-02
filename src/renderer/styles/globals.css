@@ -90,6 +90,14 @@
   --color-destructive-foreground: oklch(var(--destructive-foreground));
   --color-muted: oklch(var(--muted));
   --color-muted-foreground: oklch(var(--muted-foreground));
+  /* Secondary text faded a step further, for hints, times and counts. Dark themes fade it to the
+     step's opacity; light ones less, since fading toward a light surface loses contrast faster. */
+  --color-muted-foreground-40: oklch(var(--muted-foreground) / var(--muted-fade-40));
+  --color-muted-foreground-50: oklch(var(--muted-foreground) / var(--muted-fade-50));
+  --color-muted-foreground-60: oklch(var(--muted-foreground) / var(--muted-fade-60));
+  --color-muted-foreground-70: oklch(var(--muted-foreground) / var(--muted-fade-70));
+  --color-muted-foreground-80: oklch(var(--muted-foreground) / var(--muted-fade-80));
+  --color-muted-foreground-90: oklch(var(--muted-foreground) / var(--muted-fade-90));
   --color-accent: oklch(var(--accent));
   --color-accent-foreground: oklch(var(--accent-foreground));
   --color-card: oklch(var(--card));
@@ -340,7 +348,15 @@ html[data-status-bar-row='large'] [data-status-bar] {
     --secondary: 0.97 0 0;
     --secondary-foreground: 0.205 0 0;
     --muted: 0.97 0 0;
-    --muted-foreground: 0.5 0 0;
+    --muted-foreground: 0.4 0 0;
+    /* The muted-foreground-* steps' opacity: each keeps faded text near a dark theme's contrast
+       for the same step. */
+    --muted-fade-40: 0.62;
+    --muted-fade-50: 0.7;
+    --muted-fade-60: 0.78;
+    --muted-fade-70: 0.85;
+    --muted-fade-80: 0.9;
+    --muted-fade-90: 0.95;
     --accent: 0.94 0 0;
     --accent-foreground: 0.205 0 0;
     --destructive: 0.5 0.22 25;
@@ -411,6 +427,12 @@ html[data-status-bar-row='large'] [data-status-bar] {
     --secondary-foreground: 0.985 0 0;
     --muted: 0.357 0.01 250;
     --muted-foreground: 0.75 0 0;
+    --muted-fade-40: 0.4;
+    --muted-fade-50: 0.5;
+    --muted-fade-60: 0.6;
+    --muted-fade-70: 0.7;
+    --muted-fade-80: 0.8;
+    --muted-fade-90: 0.9;
     --accent: 0.37 0.01 250;
     --accent-foreground: 0.985 0 0;
     --destructive: 0.52 0.18 25;
@@ -620,7 +642,7 @@ html[data-status-bar-row='large'] [data-status-bar] {
     @apply bg-[#3b82f660] ring-1 ring-[#3b82f6];
   }
   .markdown-editor .is-empty::before {
-    @apply pointer-events-none float-left h-0 text-muted-foreground/60;
+    @apply pointer-events-none float-left h-0 text-muted-foreground-60;
     content: attr(data-placeholder);
   }
   .markdown-editor ul[data-type='taskList'] {

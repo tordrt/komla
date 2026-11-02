@@ -162,7 +162,7 @@ function ContributionLine({ contribution }: { contribution: PluginContributionIn
       {commands.map((command, index) => (
         <code
           key={index}
-          className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground/90"
+          className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground-90"
           title={command}
         >
           {command}

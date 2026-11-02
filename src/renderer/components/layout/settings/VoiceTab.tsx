@@ -191,7 +191,7 @@ function VoiceModelRow({
           {model.status === 'error' && <Badge tone="error">Error</Badge>}
         </div>
         <p className="mt-0.5 text-xs text-muted-foreground">{model.description}</p>
-        <p className="text-xs text-muted-foreground/80">
+        <p className="text-xs text-muted-foreground-80">
           ~{model.sizeMB} MB download · {model.runtimeMemoryMB} memory while transcribing
         </p>{' '}
         {showProgress && (

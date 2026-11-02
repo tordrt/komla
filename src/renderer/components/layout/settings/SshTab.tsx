@@ -458,7 +458,7 @@ function HostRow({
           </div>
           <div className="truncate text-xs text-muted-foreground">
             <span className="font-mono">{formatSshTarget(host)}</span>
-            <span className="mx-1.5 text-muted-foreground/50">·</span>
+            <span className="mx-1.5 text-muted-foreground-50">·</span>
             <span>
               {workspaceCount} workspace{workspaceCount === 1 ? '' : 's'}
             </span>

@@ -52,7 +52,7 @@ export function AgentPresetMenuItems({
       >
         <Robot />
         AI Agent
-        <span className="text-2xs text-muted-foreground/60">Configure...</span>
+        <span className="text-2xs text-muted-foreground-60">Configure...</span>
       </Item>
     );
   }

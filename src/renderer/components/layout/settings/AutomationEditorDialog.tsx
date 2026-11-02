@@ -299,7 +299,7 @@ export function AutomationEditorDialog({
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder="e.g., Check for outdated dependencies, update the safe ones, run the tests, and commit the updates on this branch."
                 rows={8}
-                className="block max-h-[40vh] min-h-32 w-full resize-y bg-transparent px-3 py-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground/60"
+                className="block max-h-[40vh] min-h-32 w-full resize-y bg-transparent px-3 py-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60"
               />
             </div>
 

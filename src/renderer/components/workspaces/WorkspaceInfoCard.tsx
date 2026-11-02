@@ -99,7 +99,7 @@ export function WorkspaceInfoCardContent({
               )}
               title={sshTarget}
             >
-              <Cloud className="size-3.5 shrink-0 text-muted-foreground/70" />
+              <Cloud className="size-3.5 shrink-0 text-muted-foreground-70" />
               <span className={cn('truncate', !hasBranchLine && 'max-w-1/2 shrink-0')}>
                 {sshHostName}
               </span>
@@ -113,7 +113,7 @@ export function WorkspaceInfoCardContent({
           )}
           {(branchName || workspace.branchedFrom) && (
             <span className="flex min-w-0 flex-1 items-center gap-1.5">
-              <BranchIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+              <BranchIcon className="size-3.5 shrink-0 text-muted-foreground-70" />
               {branchName && (
                 <span className="min-w-0 truncate font-mono" title={branchName}>
                   {branchName}

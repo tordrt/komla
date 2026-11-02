@@ -70,7 +70,7 @@ export function KeepAwakeStatusSegment() {
         <StatusBarButton
           aria-label={description}
           tooltip={description}
-          className={cn(awake && 'text-foreground', mode === 'off' && 'text-muted-foreground/60')}
+          className={cn(awake && 'text-foreground', mode === 'off' && 'text-muted-foreground-60')}
         >
           <Coffee aria-hidden="true" weight={awake ? 'fill' : 'regular'} className="size-3.5" />
           {awake && <span className="@max-3xl:hidden">Awake</span>}

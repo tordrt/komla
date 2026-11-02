@@ -180,7 +180,7 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
             <textarea
               ref={descriptionRef}
               aria-label="Description"
-              className="block field-sizing-content max-h-80 min-h-28 w-full resize-none bg-transparent px-3 pt-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground/60 disabled:opacity-50"
+              className="block field-sizing-content max-h-80 min-h-28 w-full resize-none bg-transparent px-3 pt-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60 disabled:opacity-50"
               placeholder={
                 type === 'bug'
                   ? 'Describe what happened and how to reproduce it...'

@@ -18,7 +18,11 @@ import {
 } from 'react';
 
 import { Spinner } from '@/components/ui/spinner';
-import { usePreviewUrlCandidates, type OwnPortsAnswer } from '@/hooks/useDevPreviewServices';
+import {
+  checkPreviewUrlCandidatesAhead,
+  usePreviewUrlCandidates,
+  type OwnPortsAnswer,
+} from '@/hooks/useDevPreviewServices';
 import {
   candidatePreviewTarget,
   linkPreviewKey,
@@ -206,6 +210,69 @@ function useRunningDesktops(
 }
 
 /**
+ * The servers but those of the desktops' noVNC pages. Such a page carries its desktop's
+ * password in its address, and the desktop's row opens it in Komla, so its server outside
+ * Komla and the address `komla desktop status` prints aren't listed, where a click would
+ * hand them to the default browser.
+ */
+function withoutDesktopViewers(
+  candidates: PreviewUrlCandidate[],
+  desktops: WorkspaceVirtualDesktop[],
+  isSsh: boolean
+): PreviewUrlCandidate[] {
+  const viewerPorts = new Set(
+    desktops.flatMap((desktop) => virtualDesktopViewerPort(desktop) ?? [])
+  );
+  if (viewerPorts.size === 0) return candidates;
+  return candidates.filter((candidate) => {
+    const onWorkspaceMachine =
+      !isSsh || !isLocalTerminalExecutionLocation(candidate.executionLocation);
+    const port = parseLoopbackForwardIntent(candidate.url)?.remotePort;
+    return !(onWorkspaceMachine && port !== undefined && viewerPorts.has(port));
+  });
+}
+
+/** The pages of the servers and of `shownLinks`, whose details the list reads. */
+function pageTargets(
+  candidates: PreviewUrlCandidate[],
+  shownLinks: WorkspaceRecentLink[],
+  isSsh: boolean
+): LinkPreviewTarget[] {
+  return [
+    ...candidates.flatMap((candidate) => candidatePreviewTarget(candidate, isSsh) ?? []),
+    ...shownLinks.map((link): LinkPreviewTarget => ({ url: link.url, onSshHost: false })),
+  ];
+}
+
+/**
+ * Starts reading what a list with `desktops` and without `servers` reads on opening:
+ * the terminals' links, the servers and desktops running, and the pages' details,
+ * which main keeps for a while. Call it on the way to opening the list, as when the
+ * pointer reaches its button, so it opens ready. Resolves to whether the servers were
+ * checked.
+ */
+export function prepareBrowserLinks(workspaceId: string): Promise<boolean> {
+  // The links first, so the one just scanned is read too.
+  rememberTerminalLinks(workspaceId);
+  const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
+  if (!workspace) return Promise.resolve(false);
+  const isSsh = isSshWorkspace(workspace);
+  const read = (targets: LinkPreviewTarget[]) => {
+    for (const target of targets) {
+      void window.api.getLinkPreview({ ...target, workspaceId }).catch(() => null);
+    }
+  };
+  read(pageTargets([], (workspace.recentLinks ?? NO_LINKS).slice(0, LINKS_SHOWN), isSsh));
+  const savedDesktops = workspace.virtualDesktops ?? NO_DESKTOPS;
+  const desktopPorts = savedDesktops.slice(0, MAX_CHECKED_PORTS).map(({ vncPort }) => vncPort);
+  return checkPreviewUrlCandidatesAhead(workspaceId, isSsh, desktopPorts).then((found) => {
+    if (!found) return false;
+    read(pageTargets(withoutDesktopViewers(found, savedDesktops, isSsh), [], isSsh));
+    return true;
+  });
+}
+
+/**
  * The servers and links of the workspace, with their pages' details once read. The
  * servers show once their titles arrive, or after TITLE_WAIT_MS, since titles decide
  * which come first; once shown, they stay. Given `listsDesktops`, its running virtual
@@ -244,24 +311,9 @@ function useBrowserLinks(
     desktopPorts
   );
   const { candidates: found, ready } = servers ?? ownServers;
-  // A desktop's noVNC page carries its password in its address, and the desktop's row opens
-  // it in Komla, so its server outside Komla and the address `komla desktop status` prints
-  // aren't listed, where a click would hand them to the default browser.
-  const viewerPorts = useMemo(
-    () => new Set(savedDesktops.flatMap((desktop) => virtualDesktopViewerPort(desktop) ?? [])),
-    [savedDesktops]
-  );
   const candidates = useMemo(
-    () =>
-      viewerPorts.size === 0
-        ? found
-        : found.filter((candidate) => {
-            const onWorkspaceMachine =
-              !isSsh || !isLocalTerminalExecutionLocation(candidate.executionLocation);
-            const port = parseLoopbackForwardIntent(candidate.url)?.remotePort;
-            return !(onWorkspaceMachine && port !== undefined && viewerPorts.has(port));
-          }),
-    [found, isSsh, viewerPorts]
+    () => withoutDesktopViewers(found, savedDesktops, isSsh),
+    [found, isSsh, savedDesktops]
   );
   // While a check with other ports is on its way, as for a desktop just added, the last
   // answer for this workspace stands for the ports it checked; once one comes back
@@ -273,14 +325,7 @@ function useBrowserLinks(
   const desktops = useRunningDesktops(workspaceId, savedDesktops, own);
   const desktopsChecking = checkedDesktops.length > 0 && !own && !ownServers.ready;
   const previewTargets = useMemo(
-    () => [
-      ...candidates.flatMap((candidate) => candidatePreviewTarget(candidate, isSsh) ?? []),
-      // Only the links shown have their pages read.
-      ...(linksExpanded ? links : links.slice(0, LINKS_SHOWN)).map((link): LinkPreviewTarget => ({
-        url: link.url,
-        onSshHost: false,
-      })),
-    ],
+    () => pageTargets(candidates, linksExpanded ? links : links.slice(0, LINKS_SHOWN), isSsh),
     [candidates, isSsh, links, linksExpanded]
   );
   const { previews, answered } = useLinkPreviews(workspaceId, previewTargets, true);

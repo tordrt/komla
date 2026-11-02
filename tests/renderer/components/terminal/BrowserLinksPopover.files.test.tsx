@@ -17,6 +17,7 @@ import { BrowserLinksPopover } from '@/components/terminal/BrowserLinksPopover';
 import { useTerminalFiles } from '@/components/terminal/terminal-files';
 import { openTerminalFileLink } from '@/components/terminal/TerminalView';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { resetAheadChecks } from '@/hooks/useDevPreviewServices';
 import { useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useQuickLookStore } from '@/stores/quick-look.store';
@@ -71,6 +72,7 @@ function print(lines: string[], printedAt?: number[], terminalId = 't1') {
 }
 
 beforeEach(() => {
+  resetAheadChecks();
   vi.spyOn(Date, 'now').mockReturnValue(NOW);
   listViewerFolder.mockResolvedValue([]);
   output.mockReturnValue([]);

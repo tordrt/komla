@@ -18,6 +18,7 @@ import {
   LIVE_REFRESH_MS,
   QUICK_REFRESH_MS,
   QUICK_REFRESHES,
+  resetAheadChecks,
 } from '../../../../src/renderer/hooks/useDevPreviewServices';
 import { getAllLeaves } from '../../../../src/renderer/lib/layout-utils';
 import { useDevServerPreviewStore } from '../../../../src/renderer/stores/dev-server-preview.store';
@@ -70,6 +71,7 @@ function renderPopover() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetAheadChecks();
   openExternal.mockResolvedValue(undefined);
   updateWorkspace.mockResolvedValue(undefined);
   detectDevPreviewServices.mockResolvedValue({
@@ -561,6 +563,260 @@ describe('BrowserLinksPopover', () => {
       'files',
       expect.any(Function)
     );
+  });
+
+  it("checks for servers and reads the pages' titles once the pointer reaches the button", async () => {
+    detectDevPreviewServices.mockResolvedValue({
+      services: [
+        {
+          port: 5173,
+          scheme: 'http',
+          pid: 4242,
+          processName: 'node',
+          terminalId: 't1',
+          executionLocation: 'workspace',
+        },
+      ],
+      openPorts: [5173],
+      otherServers: [],
+    });
+    renderPopover();
+    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Links' }));
+    await act(async () => {});
+
+    expect(detectDevPreviewServices).toHaveBeenCalledWith('ws-1', [5173], [], []);
+    expect(getLinkPreview).toHaveBeenCalledWith({
+      url: 'http://localhost:5173/',
+      onSshHost: false,
+      pid: 4242,
+      workspaceId: 'ws-1',
+    });
+    // The links the list shows, the printed one just read among them.
+    expect(getLinkPreview).toHaveBeenCalledWith({
+      url: 'https://claude.ai/artifact/abc',
+      onSshHost: false,
+      workspaceId: 'ws-1',
+    });
+    expect(getLinkPreview).toHaveBeenCalledWith({
+      url: 'https://github.com/acme/app/pull/9',
+      onSshHost: false,
+      workspaceId: 'ws-1',
+    });
+    expect(screen.queryByRole('toolbar', { name: 'Servers and links' })).toBeNull();
+  });
+
+  it('checks the virtual desktops on hover as the list does', async () => {
+    withDesktops({ kind: 'ssh', hostId: 'host-1' } as Workspace['backend'], [
+      xtermDesktop,
+      { vncPort: 5903, app: 'gedit', vncApp: 'Screen Sharing', shownAt: 1_000 },
+    ]);
+    detectDevPreviewServices.mockResolvedValue({
+      services: [],
+      openPorts: [],
+      remoteOpenPorts: [5173],
+      ownOpenPorts: [5901],
+      checkedAt: 2_000,
+      otherServers: [
+        { port: 6081, scheme: 'http', processName: 'websockify', executionLocation: 'workspace' },
+      ],
+    });
+    renderPopover();
+    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Links' }));
+    await act(async () => {});
+
+    expect(detectDevPreviewServices).toHaveBeenCalledWith('ws-1', [], [5173], [5901, 5903]);
+    // The desktop's noVNC page holds its password in its address, so it isn't read.
+    expect(getLinkPreview).not.toHaveBeenCalledWith(
+      expect.objectContaining({ url: expect.stringContaining(':6081') })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Links' }));
+    expect(await screen.findByText('xterm')).toBeTruthy();
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens with the check the hover started, then checks again as usual', async () => {
+    vi.useFakeTimers();
+    try {
+      const wait = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+      renderPopover();
+      const button = screen.getByRole('button', { name: 'Links' });
+      fireEvent.pointerEnter(button);
+      await wait(0);
+      expect(detectDevPreviewServices).toHaveBeenCalledTimes(1);
+
+      // Hovering on doesn't check again.
+      fireEvent.pointerLeave(button);
+      fireEvent.pointerEnter(button);
+      // Longer than main reuses an answer for.
+      await wait(LIVE_REFRESH_MS - 1_000);
+      fireEvent.click(button);
+      await wait(0);
+      expect(screen.getByText('localhost:5173')).toBeTruthy();
+      expect(detectDevPreviewServices).toHaveBeenCalledTimes(1);
+
+      await wait(QUICK_REFRESH_MS);
+      expect(detectDevPreviewServices).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens with the check the hover started while it is still on its way', async () => {
+    let answer!: (detection: unknown) => void;
+    detectDevPreviewServices.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.pointerEnter(button);
+    fireEvent.click(button);
+    await act(async () => {});
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(1);
+
+    await act(async () => answer({ services: [], openPorts: [5173], otherServers: [] }));
+    expect(await screen.findByText('localhost:5173')).toBeTruthy();
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks again on opening once the check the hover started is a few seconds old', async () => {
+    vi.useFakeTimers();
+    try {
+      const wait = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+      renderPopover();
+      const button = screen.getByRole('button', { name: 'Links' });
+      fireEvent.pointerEnter(button);
+      await wait(LIVE_REFRESH_MS);
+      fireEvent.click(button);
+      await wait(0);
+
+      expect(detectDevPreviewServices).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens with the check the hover started under StrictMode too', async () => {
+    render(<React.StrictMode>{popover()}</React.StrictMode>);
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.pointerEnter(button);
+    await act(async () => {});
+    fireEvent.click(button);
+
+    expect(await screen.findByText('localhost:5173')).toBeTruthy();
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the links’ pages on hover without waiting for the servers', async () => {
+    detectDevPreviewServices.mockReturnValueOnce(new Promise(() => {}));
+    renderPopover();
+    fireEvent.pointerEnter(screen.getByRole('button', { name: 'Links' }));
+    await act(async () => {});
+
+    expect(getLinkPreview).toHaveBeenCalledWith({
+      url: 'https://claude.ai/artifact/abc',
+      onSshHost: false,
+      workspaceId: 'ws-1',
+    });
+  });
+
+  it('reads nothing ahead while the list is open, nor once focus returns to the button on closing', async () => {
+    vi.useFakeTimers();
+    try {
+      const wait = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+      renderPopover();
+      const button = screen.getByRole('button', { name: 'Links' });
+      fireEvent.pointerEnter(button);
+      fireEvent.focus(button);
+      fireEvent.click(button);
+      await wait(0);
+      expect(detectDevPreviewServices).toHaveBeenCalledTimes(1);
+
+      // Past when the hover's check stands, with the list's own check pending.
+      detectDevPreviewServices.mockReturnValue(new Promise(() => {}));
+      await wait(LIVE_REFRESH_MS);
+      const checks = detectDevPreviewServices.mock.calls.length;
+      fireEvent.pointerLeave(button);
+      fireEvent.pointerEnter(button);
+      fireEvent.keyDown(screen.getByRole('toolbar', { name: 'Servers and links' }), {
+        key: 'Escape',
+      });
+      await wait(0);
+      expect(screen.queryByRole('toolbar', { name: 'Servers and links' })).toBeNull();
+      expect(document.activeElement).toBe(button);
+      expect(detectDevPreviewServices).toHaveBeenCalledTimes(checks);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('checks again on reopening rather than going back to the check the hover started', async () => {
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.pointerEnter(button);
+    await act(async () => {});
+    fireEvent.click(button);
+    expect(await screen.findByText('localhost:5173')).toBeTruthy();
+    fireEvent.click(button);
+    await act(async () => {});
+    fireEvent.click(button);
+    await act(async () => {});
+
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(2);
+  });
+
+  it('checks again on reopening when the list closed before the hover’s check answered', async () => {
+    let answer!: (detection: unknown) => void;
+    detectDevPreviewServices.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.pointerEnter(button);
+    fireEvent.click(button);
+    await act(async () => {});
+    fireEvent.click(button);
+    await act(async () => answer({ services: [], openPorts: [5173], otherServers: [] }));
+    fireEvent.click(button);
+    await act(async () => {});
+
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads ahead once as the pointer reaches the button and the click focuses it', async () => {
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.pointerEnter(button);
+    await act(async () => {});
+    const reads = getLinkPreview.mock.calls.length;
+    fireEvent.focus(button);
+    fireEvent.pointerLeave(button);
+    fireEvent.pointerEnter(button);
+    await act(async () => {});
+
+    expect(getLinkPreview).toHaveBeenCalledTimes(reads);
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks again on the next hover when the check the hover started failed', async () => {
+    detectDevPreviewServices.mockRejectedValueOnce(new Error('lsof failed'));
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.pointerEnter(button);
+    await act(async () => {});
+    fireEvent.pointerLeave(button);
+    fireEvent.pointerEnter(button);
+    await act(async () => {});
+
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(2);
+  });
+
+  it('checks again on opening when the check the hover started failed', async () => {
+    detectDevPreviewServices.mockRejectedValueOnce(new Error('lsof failed'));
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.pointerEnter(button);
+    await act(async () => {});
+    fireEvent.click(button);
+
+    expect(await screen.findByText('localhost:5173')).toBeTruthy();
+    expect(detectDevPreviewServices).toHaveBeenCalledTimes(2);
   });
 
   it('opens a file as its link would, and closes', async () => {

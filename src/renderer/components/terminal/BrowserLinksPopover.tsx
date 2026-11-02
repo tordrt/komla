@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { LIVE_REFRESH_MS } from '@/hooks/useDevPreviewServices';
 import { openTerminalUrl } from '@/lib/open-terminal-url';
 import { openFilePane } from '@/lib/pane-surfaces';
 import { openVirtualDesktop } from '@/lib/virtual-desktops';
@@ -9,7 +10,7 @@ import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 
 import { getViewableFileKind } from '../../../shared/image-utils';
 
-import { BrowserLinksList, type BrowserLinkPick } from './BrowserLinksList';
+import { BrowserLinksList, prepareBrowserLinks, type BrowserLinkPick } from './BrowserLinksList';
 import {
   openTerminalFile,
   rememberTerminalFiles,
@@ -33,9 +34,9 @@ function fileKindRank(file: TerminalFile): number {
  * printed or you opened, which open in the default browser (Shift: in Komla's browser;
  * right-click: in a new tab or split), then their files, which open as clicking their
  * links would. A server on an SSH host is
- * forwarded to this computer first. The terminals' files are read once the pointer or
- * focus reaches the button, so the list is ready by the click. The arrow keys and
- * Enter pick a row.
+ * forwarded to this computer first. The terminals' files and links, the running servers
+ * and desktops, and the pages' titles are read once the pointer or focus reaches the
+ * button, so the list is ready by the click. The arrow keys and Enter pick a row.
  */
 export function BrowserLinksPopover({
   workspaceId,
@@ -57,6 +58,21 @@ export function BrowserLinksPopover({
     [fileGroups]
   );
   const remember = () => rememberTerminalFiles(workspaceId);
+  // Set while the list hands focus back to the button on closing.
+  const closing = useRef(false);
+  const preparedAt = useRef(-Infinity);
+  const prepare = () => {
+    if (open || closing.current) return;
+    remember();
+    // Once per approach: the hover and the click's focus, or the window's on coming back,
+    // read the same. A failed check is tried again on the next.
+    if (Date.now() - preparedAt.current < LIVE_REFRESH_MS) return;
+    const at = Date.now();
+    preparedAt.current = at;
+    void prepareBrowserLinks(workspaceId).then((checked) => {
+      if (!checked && preparedAt.current === at) preparedAt.current = -Infinity;
+    });
+  };
 
   const openPick = (picked: BrowserLinkPick, target: OpenInTarget) => {
     setOpen(false);
@@ -75,13 +91,18 @@ export function BrowserLinksPopover({
         setOpen(next);
       }}
     >
-      <PopoverTrigger asChild onPointerEnter={remember} onFocus={remember}>
+      <PopoverTrigger asChild onPointerEnter={prepare} onFocus={prepare}>
         {children}
       </PopoverTrigger>
       <PopoverContent
         align="end"
         sideOffset={6}
         className="flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-96 flex-col p-0"
+        onCloseAutoFocus={() => {
+          // The button takes focus right after this, unless the click landed elsewhere.
+          closing.current = true;
+          queueMicrotask(() => (closing.current = false));
+        }}
         onOpenAutoFocus={(event) => {
           // The list takes focus, so the arrow keys move through its rows from the first.
           event.preventDefault();

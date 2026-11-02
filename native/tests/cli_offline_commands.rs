@@ -6,6 +6,9 @@ use std::process::{Command, Output, Stdio};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
+mod common;
+use common::read_http_request;
+
 /// What a Windows process needs after `env_clear`: SystemRoot to open sockets and PATH to find
 /// git. Unix needs neither.
 fn windows_essentials() -> Vec<(&'static str, std::ffi::OsString)> {
@@ -341,10 +344,9 @@ fn a_new_command_goes_to_komla_once_the_companion_delivers_earlier_ones() {
     let server = {
         let komla = komla.try_clone().unwrap();
         std::thread::spawn(move || {
-            use std::io::{Read, Write};
+            use std::io::Write;
             let (mut stream, _) = komla.accept().unwrap();
-            let mut request = [0_u8; 4096];
-            let _ = stream.read(&mut request).unwrap();
+            let request = read_http_request(&mut stream);
             let body = br#"{"ok":true,"result":{"snooze":{"workspaceId":"ws-1","woke":true}}}"#;
             write!(
                 stream,

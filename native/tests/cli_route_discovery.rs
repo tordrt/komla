@@ -1,12 +1,15 @@
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
 use tempfile::TempDir;
+
+mod common;
+use common::read_http_request;
 
 /// What a Windows process needs after `env_clear`: SystemRoot to open sockets and PATH to find
 /// git. Unix needs neither.
@@ -31,37 +34,6 @@ fn git(directory: &std::path::Path, arguments: &[&str]) {
         "git {arguments:?} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-fn read_http_request(stream: &mut TcpStream) -> Vec<u8> {
-    let mut request = Vec::new();
-    let mut buffer = [0_u8; 1024];
-    let mut expected_length = None;
-    loop {
-        let bytes_read = stream.read(&mut buffer).unwrap();
-        assert!(
-            bytes_read > 0,
-            "HTTP request ended before its body was complete"
-        );
-        request.extend_from_slice(&buffer[..bytes_read]);
-        if expected_length.is_none() {
-            let text = String::from_utf8_lossy(&request);
-            if let Some(header_end) = text.find("\r\n\r\n") {
-                let content_length = text[..header_end]
-                    .lines()
-                    .find_map(|line| {
-                        let (name, value) = line.split_once(':')?;
-                        name.eq_ignore_ascii_case("content-length")
-                            .then(|| value.trim().parse::<usize>().unwrap())
-                    })
-                    .unwrap_or(0);
-                expected_length = Some(header_end + 4 + content_length);
-            }
-        }
-        if expected_length.is_some_and(|length| request.len() >= length) {
-            return request;
-        }
-    }
 }
 
 /// Writes a hook's input. A CLI that fails before reading it, such as when Komla isn't

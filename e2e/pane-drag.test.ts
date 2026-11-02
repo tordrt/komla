@@ -4,7 +4,11 @@ import type { Locator, Page } from '@playwright/test';
 
 const test = base.extend({
   seedSandbox: async ({ cleanSandbox: _cleanSandbox }, provide) => {
-    seedDefaultProject({ branchPrefix: 'pane-drag/' });
+    // A page for a file pane to preview, in a frame that would take a drag of its own.
+    seedDefaultProject({
+      branchPrefix: 'pane-drag/',
+      initialFile: { name: 'page.html', content: '<h1>A page</h1>' },
+    });
     await provide();
   },
 });
@@ -137,4 +141,52 @@ test.describe('Pane drag', () => {
       expect(Math.abs(a.y - b.y)).toBeLessThan(4);
     }).toPass({ timeout: 5_000 });
   });
+
+  // Only terminal panes took drops once; a browser, note or file pane now takes them too.
+  for (const kind of ['browser', 'note', 'file'] as const) {
+    test(`swaps a terminal pane with a ${kind} pane dropped on`, async ({ appWindow }) => {
+      await createWorkspace(appWindow, `pane-drag/onto-${kind}`);
+      const terminal = appWindow.locator('.xterm').filter({ visible: true });
+
+      if (kind === 'file') {
+        await appWindow.getByRole('button', { name: 'Toggle file panel' }).click();
+        await appWindow.getByRole('button', { name: 'Files', exact: true }).click();
+        await appWindow.locator('[data-item-path="page.html"]').click({ button: 'right' });
+        await appWindow.getByRole('menuitem', { name: 'Open in Split Right' }).click();
+        await appWindow.getByRole('button', { name: 'Toggle file panel' }).click();
+      } else {
+        await terminal.click({ button: 'right' });
+        await appWindow.getByRole('menuitem', { name: 'Choose what opens to the right' }).click();
+        await appWindow
+          .getByRole('menuitem', { name: kind === 'browser' ? 'Browser' : 'Note', exact: true })
+          .click();
+      }
+      const surface = appWindow.locator(`[data-pane-surface="${kind}"]`).filter({ visible: true });
+      await expect(surface).toBeVisible({ timeout: 10_000 });
+      if (kind === 'file') {
+        await expect(surface.locator('iframe')).toBeVisible({ timeout: 10_000 });
+      }
+
+      // The terminal's grip, not the one the other pane shows at its own top.
+      const grip = appWindow
+        .locator('[data-testid="pane-drag-grip"]:not([data-pane-surface] > *)')
+        .filter({ visible: true });
+      await revealGrip(appWindow, terminal, grip);
+      const target = await surface.boundingBox();
+      if (!target) throw new Error('pane has no box');
+      await grip.hover();
+      await appWindow.mouse.down();
+      await appWindow.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {
+        steps: 10,
+      });
+      await release(appWindow);
+
+      // The terminal now sits where the dropped-on pane was, on the right.
+      await expect(async () => {
+        const [a, b] = await Promise.all([terminal.boundingBox(), surface.boundingBox()]);
+        if (!a || !b) throw new Error('pane has no box');
+        expect(a.x).toBeGreaterThan(b.x);
+      }).toPass({ timeout: 5_000 });
+    });
+  }
 });

@@ -1,5 +1,5 @@
 import { Desktop, Globe, NotePencil, Swap, TerminalWindow, X } from '@phosphor-icons/react';
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 import { QuickCommandMenuItem } from '@/components/actions/QuickCommandMenuItem';
 import {
@@ -42,6 +42,7 @@ import {
   PaneDragGrip,
   paneDragGripRevealProps,
 } from '../PaneDragGrip';
+import { PaneDropLayer } from '../PaneDropTarget';
 
 import { BrowserSurface } from './BrowserSurface';
 import { FileSurface } from './FileSurface';
@@ -103,6 +104,7 @@ export const SurfacePane = React.memo(function SurfacePane({
   });
   const closePaneShortcut = useShortcutDisplay('pane.close');
   const [isDragging, setIsDragging] = useState(false);
+  const paneRef = useRef<HTMLDivElement>(null);
   const [isPointerNearTop, setIsPointerNearTop] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   // Only the open menu lists quick commands and agents, and places them in the active tab, so a
@@ -235,6 +237,7 @@ export const SurfacePane = React.memo(function SurfacePane({
       <ContextMenu open={contextMenuOpen} onOpenChange={handleContextMenuOpen}>
         <ContextMenuTrigger asChild>
           <div
+            ref={paneRef}
             className={cn(
               'relative flex h-full min-h-0 flex-col pb-(--banner-inset) transition-opacity',
               // A file pane's footers and previews keep the page background.
@@ -259,6 +262,7 @@ export const SurfacePane = React.memo(function SurfacePane({
             <PaneDragBarProvider value={showDragGrip ? drag : null}>
               {surface.kind === 'browser' ? (
                 <BrowserSurface
+                  paneId={paneId}
                   {...surfaceProps}
                   onPageFocus={() => {
                     if (isTabActive && !isFocused) setFocusedPane(paneId);
@@ -270,6 +274,7 @@ export const SurfacePane = React.memo(function SurfacePane({
                 <FileSurface {...surfaceProps} path={surface.path} />
               )}
             </PaneDragBarProvider>
+            <PaneDropLayer paneId={paneId} paneRef={paneRef} disabled={isLayoutLocked} />
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>

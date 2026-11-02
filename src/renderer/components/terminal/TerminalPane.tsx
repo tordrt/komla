@@ -49,15 +49,7 @@ import { resolveLaunchablePresets } from '@/lib/agent-launch';
 import { ipcErrorMessage } from '@/lib/ipc-error-message';
 import { openTerminalUrl } from '@/lib/open-terminal-url';
 import { useTerminalBackground, useTerminalPaneScope } from '@/lib/palette-runtime';
-import {
-  getDraggedPaneId,
-  getDropZone,
-  isPaneDrag,
-  isTabPaneDrag,
-  PANE_DRAG_MIME,
-  resolvePaneDropFromEvent,
-  setDraggedPaneId,
-} from '@/lib/pane-drag';
+import { PANE_DRAG_MIME, setDraggedPaneId } from '@/lib/pane-drag';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { replaceTerminal, replaceTerminalWithPaneSurface } from '@/lib/replace-terminal';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
@@ -100,6 +92,7 @@ import {
 
 import { AgentPresetMenuItems } from './AgentPresetMenuItems';
 import { PaneDragGrip, paneDragGripRevealProps } from './PaneDragGrip';
+import { usePaneDropTarget } from './PaneDropTarget';
 import { SplitPaneMenuItems } from './surfaces/SplitPaneMenuItems';
 import {
   pasteClipboardIntoTerminal,
@@ -109,7 +102,7 @@ import {
 import { useConfirmDialog } from './useConfirmDialog';
 
 import type { ActionPlace } from '@/lib/action-launch';
-import type { AgentPreset, DropZone, PaneId } from '@/types';
+import type { AgentPreset, PaneId } from '@/types';
 
 // URL regex pattern (matches http, https, and common URLs)
 const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
@@ -157,7 +150,6 @@ export const TerminalPane = React.memo(function TerminalPane({
   // Controlled so the Actions list, which has no menu items, can close the menu.
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [dropZone, setDropZone] = useState<DropZone | null>(null);
   const [isPointerNearTop, setIsPointerNearTop] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
   const dragFromControlRef = useRef(false);
@@ -199,9 +191,6 @@ export const TerminalPane = React.memo(function TerminalPane({
   const currentWorkspaceId = useLayoutStore((s) => s.currentWorkspaceId);
   const setFocusedPane = useLayoutStore((s) => s.setFocusedPane);
   const splitPane = useLayoutStore((s) => s.splitPane);
-  const swapPanes = useLayoutStore((s) => s.swapPanes);
-  const movePaneToEdge = useLayoutStore((s) => s.movePaneToEdge);
-  const moveTabToEdge = useLayoutStore((s) => s.moveTabToEdge);
   const selectedWorkspaceId = useWorkspacesStore((s) => s.selectedWorkspaceId);
   const addTerminal = useWorkspacesStore((s) => s.addTerminal);
   const setTerminalDynamicTitle = useWorkspacesStore((s) => s.setTerminalDynamicTitle);
@@ -404,87 +393,11 @@ export const TerminalPane = React.memo(function TerminalPane({
     setIsPointerNearTop(false);
   }, []);
 
-  const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
-      if (isLayoutMutationDisabled) return;
-      // Ignore non-pane drags (e.g. OS file drops) and hovering the drag
-      // source itself. The MIME check is the real gate — getDraggedPaneId()
-      // can be stale if a `dragend` was missed after a layout reflow.
-      if (!isPaneDrag(e.dataTransfer)) return;
-      const source = getDraggedPaneId();
-      if (!source || source === paneId) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      const rect = paneRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      // dragover fires continuously; skip the state update unless the zone
-      // actually changed so hovering within one zone doesn't churn React.
-      const zone = getDropZone(rect, e.clientX, e.clientY, {
-        edgesOnly: isTabPaneDrag(e.dataTransfer),
-      });
-      setDropZone((prev) => (prev === zone ? prev : zone));
-    },
-    [isLayoutMutationDisabled, paneId]
-  );
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    // dragleave also fires when crossing into a child element — only clear
-    // when the pointer has actually left the pane.
-    if (e.relatedTarget instanceof Node && paneRef.current?.contains(e.relatedTarget)) return;
-    setDropZone(null);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      setDropZone(null);
-      if (isLayoutMutationDisabled) return;
-      if (!isPaneDrag(e.dataTransfer)) return;
-      e.preventDefault();
-      const rect = paneRef.current?.getBoundingClientRect();
-      const action = rect
-        ? resolvePaneDropFromEvent(e.dataTransfer, paneId, rect, e.clientX, e.clientY)
-        : null;
-      // Clear module state regardless: a `dragend` can be missed when an edge
-      // drop remounts the source pane.
-      setDraggedPaneId(null);
-      if (action?.kind === 'swap') {
-        swapPanes(action.sourcePaneId, action.targetPaneId);
-      } else if (action?.kind === 'move') {
-        movePaneToEdge(action.sourcePaneId, action.targetPaneId, action.edge);
-      } else if (action?.kind === 'moveTab') {
-        // The tab was checked for a pending close when its drag began; one may have started since.
-        const { layoutsByTab, currentWorkspaceId: layoutWorkspaceId } = useLayoutStore.getState();
-        const sourceLayout = layoutWorkspaceId
-          ? layoutsByTab[layoutWorkspaceId]?.[action.sourceTabId]
-          : undefined;
-        const closingIds = useTerminalCloseStore.getState().closingTerminalIds;
-        if (sourceLayout?.type === 'leaf' && !closingIds.has(sourceLayout.terminalId)) {
-          moveTabToEdge(action.sourceTabId, action.targetPaneId, action.edge);
-        }
-      }
-    },
-    [isLayoutMutationDisabled, paneId, swapPanes, movePaneToEdge, moveTabToEdge]
-  );
-
-  // Style for the edge-drop indicator rail — a thin bar on the target's edge,
-  // not a filled half-pane. movePane removes the dragged pane first, which
-  // reflows the whole split tree, so a half-pane preview would lie about the
-  // final geometry. The rail only claims "inserted on this side", which stays
-  // true through the reflow.
-  const edgeRailStyle = useMemo((): React.CSSProperties | null => {
-    switch (dropZone) {
-      case 'left':
-        return { left: 0, top: 0, bottom: 0, width: 4 };
-      case 'right':
-        return { right: 0, top: 0, bottom: 0, width: 4 };
-      case 'top':
-        return { left: 0, right: 0, top: 0, height: 4 };
-      case 'bottom':
-        return { left: 0, right: 0, bottom: 0, height: 4 };
-      default:
-        return null;
-    }
-  }, [dropZone]);
+  const { dropTargetProps, dropIndicator } = usePaneDropTarget({
+    paneId,
+    paneRef,
+    disabled: isLayoutMutationDisabled,
+  });
 
   const handleSplitHorizontal = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -910,9 +823,7 @@ export const TerminalPane = React.memo(function TerminalPane({
             style={paneScope.style}
             onClick={handleFocus}
             {...paneDragGripRevealProps(showDragGrip, setIsPointerNearTop)}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
+            {...dropTargetProps}
           >
             {flashAt !== null && (
               <div
@@ -1201,18 +1112,7 @@ export const TerminalPane = React.memo(function TerminalPane({
             )}
 
             {/* Drop indicator while a pane is dragged over this one. */}
-            {dropZone === 'center' && (
-              <div className="pointer-events-none absolute inset-0 z-20 rounded-sm border-2 border-primary bg-primary/20" />
-            )}
-            {edgeRailStyle && (
-              <>
-                <div className="pointer-events-none absolute inset-0 z-20 rounded-sm border-2 border-primary/40" />
-                <div
-                  className="pointer-events-none absolute z-20 rounded-full bg-primary"
-                  style={edgeRailStyle}
-                />
-              </>
-            )}
+            {dropIndicator}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>

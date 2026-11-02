@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
+import { useDraggedPaneId } from '@/hooks/useDraggedPaneId';
 import { closePaneBrowserTab } from '@/lib/pane-surfaces';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { usePaneSurfacesStore } from '@/stores/pane-surfaces.store';
@@ -12,6 +13,7 @@ import { InlineDevServerPreviewPanel } from '../InlineDevServerPreviewPanel';
 import type { SurfaceBodyProps } from './surface-props';
 
 interface BrowserSurfaceProps extends SurfaceBodyProps {
+  paneId: string;
   /** Clicking into the page, which the pane's own DOM never hears about. */
   onPageFocus: () => void;
 }
@@ -50,6 +52,7 @@ function useSplitResizeActive(): boolean {
 
 /** A browser pane, with its tabs in the pane's header. It finds running servers and forwards SSH ports. */
 export function BrowserSurface({
+  paneId,
   surfaceId,
   workspace,
   isTabActive,
@@ -59,6 +62,10 @@ export function BrowserSurface({
   const workspaceId = workspace.id;
   const coveredByPanel = useRightSlotCoversPanes(workspaceId);
   const isResizing = useSplitResizeActive();
+  // The page sits over the window and takes the drag's events, so it hides to let another pane
+  // be dropped on this one.
+  const draggedPaneId = useDraggedPaneId();
+  const isPaneDragActive = draggedPaneId !== null && draggedPaneId !== paneId;
 
   const onPageFocusRef = useRef(onPageFocus);
   useLayoutEffect(() => {
@@ -102,7 +109,7 @@ export function BrowserSurface({
           browserId={surfaceId}
           isActive={isTabActive}
           isSplitResizeActive={isResizing}
-          isCovered={coveredByPanel}
+          isCovered={coveredByPanel || isPaneDragActive}
         />
       </div>
     </>

@@ -13,9 +13,38 @@ export const TAB_PANE_DRAG_MIME = 'application/x-komla-tab-pane';
 // read during `dragover` (only on `drop`), so the hovered pane needs this to
 // know whether it's the drag source and skip its own drop highlight.
 let draggedPaneId: string | null = null;
+const draggedPaneListeners = new Set<(id: string | null) => void>();
+
+// A drop that unmounts the drag's source, such as a pane moved into another tab, leaves no
+// source for its dragend to reach, and a source detached mid-drag sends its dragend nowhere, so
+// while a pane is dragged the window listens too: any drop or dragend ends the drag. The drop is
+// heard as it bubbles, after the target's own handler has read the dragged pane. So does a
+// press, which can't come while the button is held for a drag.
+const DRAG_END_EVENTS = [
+  ['drop', false],
+  ['dragend', true],
+  ['pointerdown', true],
+] as const;
+
+function endPaneDrag(): void {
+  setDraggedPaneId(null);
+}
 
 export function setDraggedPaneId(id: string | null): void {
+  if (typeof window !== 'undefined' && (draggedPaneId === null) !== (id === null)) {
+    for (const [type, capture] of DRAG_END_EVENTS) {
+      if (id === null) window.removeEventListener(type, endPaneDrag, capture);
+      else window.addEventListener(type, endPaneDrag, capture);
+    }
+  }
   draggedPaneId = id;
+  for (const listener of draggedPaneListeners) listener(id);
+}
+
+/** Calls `listener` with each id set as the dragged pane, `null` included. */
+export function subscribeDraggedPaneId(listener: (id: string | null) => void): () => void {
+  draggedPaneListeners.add(listener);
+  return () => draggedPaneListeners.delete(listener);
 }
 
 export function getDraggedPaneId(): string | null {

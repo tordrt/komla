@@ -82,9 +82,15 @@ takes no `--workspace` and works the same through an SSH host's tunnel.
 `--here` opens a tab in the calling workspace instead, and refuses the options that only a new
 workspace takes (`--project`, `--name`, `--description`, `--branch`, `--from-current-branch`).
 `komla agent launch` is its older form, which opens a tab unless `--new-workspace` is given. Use
-`--prompt-file` for longer instructions or stdin, and `--preset` with an optional `--mode`
-after discovering canonical
-IDs through `komla agent presets --json`, which marks the modes agents may not start `launchable:
+`--prompt-file` for longer instructions or stdin, and `--preset` with an optional `--mode` and
+`--effort` after discovering canonical IDs through `komla agent presets --json`. Each preset's
+`effort` lists the `levels` its level picker shows under the picker's `title`, which an agent may
+have renamed, such as to Model; a preset whose picker is hidden lists none, and without `--effort`
+the agent starts at its default level. A level it doesn't list is refused
+(`AGENT_EFFORT_NOT_FOUND`, with `availableLevels`). A level's arguments are the user's own, so one
+that skips permission prompts is marked `isolatedOnly` and starts only on an SSH host the user
+marked isolated (`AGENT_EFFORT_REQUIRES_ISOLATION`); unlike a mode, it has no robot button to allow
+it elsewhere. The presets list also marks the modes agents may not start `launchable:
 false`, with an `unavailableReason` that tells the user how to allow them, and the modes agents may
 start only isolated `isolatedOnly: true`. Its `default` names a mode only when one is pinned. Each
 mode's robot button in Settings → Agents decides where agents may start it: anywhere, only where

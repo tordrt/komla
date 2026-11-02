@@ -9183,6 +9183,42 @@ describe('WorkspaceService', () => {
       expect(mockPtyService.spawn).toHaveBeenCalledWith(terminal.id, '/ws1', expectedCommand);
     });
 
+    it('starts an agent tab at the reasoning level asked for', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          {
+            id: 'ws1',
+            name: 'Local',
+            workingDirectory: '/ws1',
+            isWorktree: false,
+            projectId: null,
+            windowId: null,
+            categoryId: null,
+            createdAt: 1000,
+            lastActivityAt: 1000,
+            order: 0,
+          },
+        ])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      workspaceService.addAgentTab('ws1', 'Fix the bug', undefined, undefined, {
+        keepWorkspaceAgent: true,
+        reasoningLevelId: 'high',
+      });
+
+      expect(mockAgentPresetService.resolvePresetCommand).toHaveBeenCalledWith(
+        mockClaudePreset,
+        'prompt',
+        undefined,
+        'Fix the bug',
+        undefined,
+        'high',
+        undefined
+      );
+    });
+
     it('resolves SSH project-setup guidance for the remote POSIX shell', async () => {
       vfs.setFile(
         '/mock/home/.komla/workspaces.json',

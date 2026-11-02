@@ -78,7 +78,7 @@ Explain that without `--branch`, Komla names the branch from the prompt while it
 workspace, so the launch result can't name it yet.
 Mention that `--preset` picks another agent CLI from step 1, `--from-current-branch` builds on this
 workspace's branch, and `--here` opens the agent in a tab beside this one instead. Also mention that
-`--mode` picks a launch mode, and that agents may start a mode that skips permission prompts, such
+`--mode` picks a launch mode and `--effort` one of the agent's effort levels, and that agents may start a mode that skips permission prompts, such
 as `--dangerously-skip-permissions` or `--yolo`, only on an SSH host the user marked isolated,
 unless the user allows it with that mode's robot button in **Settings → Agents**.
 

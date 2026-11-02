@@ -374,7 +374,7 @@ fn launch_outside_a_workspace_leaves_a_crashed_komla_to_start_offline() {
     assert!(!output.status.success(), "{output:?}");
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("--preset, --mode, and --project are unavailable"),
+            .contains("--preset, --mode, --effort, and --project are unavailable"),
         "{output:?}"
     );
 }

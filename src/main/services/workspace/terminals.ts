@@ -342,7 +342,7 @@ export class WorkspaceTerminals {
     prompt?: string,
     launchModeId?: string,
     presetId?: string,
-    { keepWorkspaceAgent = false }: AddAgentTabOptions = {}
+    { keepWorkspaceAgent = false, reasoningLevelId }: AddAgentTabOptions = {}
   ): Terminal | Promise<Terminal> {
     const workspace = workspaceStore.workspaces.get(workspaceId);
     const resolvedPresetId = presetId ?? workspace?.presetId;
@@ -355,7 +355,8 @@ export class WorkspaceTerminals {
       activePreset,
       effectivePrompt,
       launchModeId,
-      workspace && isSshWorkspace(workspace) ? 'posix' : undefined
+      workspace && isSshWorkspace(workspace) ? 'posix' : undefined,
+      reasoningLevelId
     );
 
     // Apply the preset to the workspace BEFORE spawning. Stash the prior values

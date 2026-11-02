@@ -155,6 +155,7 @@ const komlaOperationSchema = z.discriminatedUnion('type', [
       project: z.string().min(1).max(MAX_PROJECT_NAME_LEN).optional(),
       preset: z.string().min(1).max(MAX_NAME_LEN).optional(),
       mode: z.string().min(1).max(MAX_NAME_LEN).optional(),
+      effort: z.string().min(1).max(MAX_NAME_LEN).optional(),
       prompt: z.string().max(MAX_PROMPT_LEN).optional(),
       name: z.string().min(1).max(MAX_NAME_LEN).optional(),
       description: z.string().max(MAX_DESCRIPTION_LEN).optional(),

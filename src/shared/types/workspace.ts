@@ -79,6 +79,8 @@ export interface RestartTerminalOptions {
 export interface AddAgentTabOptions {
   /** Leave the workspace's agent and launch mode, and the last agent used, as they were. */
   keepWorkspaceAgent?: boolean;
+  /** One of the agent's reasoning levels for this tab; absent, the agent's default. */
+  reasoningLevelId?: string;
 }
 
 export type WorkspaceAttentionKind =

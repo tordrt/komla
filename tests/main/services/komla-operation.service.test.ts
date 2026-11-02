@@ -745,6 +745,210 @@ describe('KomlaOperationService', () => {
     expect(publish).toHaveBeenCalledOnce();
   });
 
+  describe('effort levels', () => {
+    const codex = {
+      id: 'codex',
+      name: 'Codex',
+      openCommand: 'codex',
+      continueCommand: 'codex resume',
+      promptCommand: 'codex {{prompt}}',
+      launchModes: [],
+      reasoningLevels: [
+        { id: 'low', name: 'Low', arguments: '-c effort=low' },
+        { id: 'high', name: 'High', arguments: '-c effort=high' },
+      ],
+      isBuiltin: true,
+    };
+    const workspace = {
+      id: 'workspace-1',
+      projectId: 'project-1',
+      workingDirectory: '/repo',
+      presetId: 'codex',
+      backend: { kind: 'local' as const },
+    };
+    function effortService(
+      presets = [codex],
+      overrides: Partial<KomlaOperationDependencies> = {}
+    ) {
+      const addAgentTab = vi.fn().mockResolvedValue({ id: 'terminal-2' });
+      const createWorkspace = vi.fn().mockResolvedValue({ id: 'workspace-2' });
+      const service = new KomlaOperationService(
+        createDependencies({
+          findWorkspaceByTerminalId: () => workspace,
+          getProject: () => ({ id: 'project-1', name: 'Komla', kind: 'git' }),
+          listPresets: () => presets,
+          getActivePresets: () => presets.map(({ id }) => ({ presetId: id, lastUsedAt: 100 })),
+          addAgentTab,
+          createWorkspace,
+          ...overrides,
+        })
+      );
+      return { service, addAgentTab, createWorkspace };
+    }
+
+    it('lists the levels an agent offers, under its picker title', async () => {
+      const { service } = effortService([
+        {
+          ...codex,
+          levelPicker: { title: 'Model' },
+          reasoningLevels: [
+            ...codex.reasoningLevels,
+            { id: 'max', name: 'Max', arguments: '--dangerously-bypass-approvals-and-sandbox' },
+          ],
+        },
+        { ...codex, id: 'hidden', name: 'Hidden', levelPicker: { hidden: true } },
+      ]);
+
+      const result = (await service.execute(
+        {},
+        { type: 'agent.presets', includeInactive: true }
+      )) as { presets: Array<Record<string, unknown>> };
+
+      expect(result.presets[0].effort).toEqual({
+        title: 'Model',
+        levels: [
+          { id: 'low', name: 'Low' },
+          { id: 'high', name: 'High' },
+          { id: 'max', name: 'Max', isolatedOnly: true },
+        ],
+      });
+      expect(result.presets[1]).not.toHaveProperty('effort');
+    });
+
+    it('starts a tab or a workspace at the level named by id or name', async () => {
+      const { service, addAgentTab, createWorkspace } = effortService();
+
+      await expect(
+        service.execute(
+          { terminalId: 'terminal-1' },
+          { type: 'agent.launch', destination: 'tab', preset: 'codex', effort: 'high' }
+        )
+      ).resolves.toMatchObject({
+        agent: { preset: { id: 'codex' }, effort: { id: 'high', name: 'High' } },
+      });
+      expect(addAgentTab.mock.calls[0][4]).toEqual({
+        keepWorkspaceAgent: true,
+        reasoningLevelId: 'high',
+      });
+
+      await service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'agent.launch', destination: 'workspace', preset: 'Codex', effort: 'LOW' }
+      );
+      expect(createWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({ presetId: 'codex', reasoningLevelId: 'low' })
+      );
+    });
+
+    it('starts a level that skips permission prompts only on an isolated SSH host', async () => {
+      const { service, addAgentTab } = effortService([
+        {
+          ...codex,
+          reasoningLevels: [
+            ...codex.reasoningLevels,
+            { id: 'max', name: 'Max', arguments: '--dangerously-bypass-approvals-and-sandbox' },
+          ],
+        },
+      ]);
+
+      await expect(
+        service.execute(
+          { terminalId: 'terminal-1' },
+          { type: 'agent.launch', destination: 'tab', preset: 'codex', effort: 'max' }
+        )
+      ).rejects.toMatchObject({
+        code: 'AGENT_EFFORT_REQUIRES_ISOLATION',
+        statusCode: 403,
+        details: { presetId: 'codex', effortId: 'max', environment: { kind: 'local' } },
+      });
+      expect(addAgentTab).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['starts', true, undefined],
+      ['refuses', false, 'AGENT_EFFORT_REQUIRES_ISOLATION'],
+    ])('%s a level that skips prompts on an SSH host marked isolated: %s', async (_verb, isolated, code) => {
+      const { service, addAgentTab } = effortService(
+        [
+          {
+            ...codex,
+            reasoningLevels: [
+              { id: 'max', name: 'Max', arguments: '--dangerously-bypass-approvals-and-sandbox' },
+            ],
+          },
+        ],
+        {
+          findWorkspaceByTerminalId: () => ({
+            ...workspace,
+            backend: { kind: 'ssh' as const, hostId: 'box' },
+          }),
+          listSshHosts: () => [{ id: 'box', name: 'Box', isolated }],
+        }
+      );
+      const launch = service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'agent.launch', destination: 'tab', preset: 'codex', effort: 'max' }
+      );
+
+      if (code) {
+        await expect(launch).rejects.toMatchObject({
+          code,
+          message: expect.stringContaining('mark the host isolated in Settings → SSH Hosts'),
+        });
+        expect(addAgentTab).not.toHaveBeenCalled();
+      } else {
+        await launch;
+        expect(addAgentTab.mock.calls[0][4]).toMatchObject({ reasoningLevelId: 'max' });
+      }
+    });
+
+    it('starts at the agent default without a level', async () => {
+      const { service, addAgentTab } = effortService();
+
+      await service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'agent.launch', destination: 'tab', preset: 'codex' }
+      );
+
+      expect(addAgentTab.mock.calls[0][4]).toEqual({ keepWorkspaceAgent: true });
+    });
+
+    it('refuses a level the agent doesn’t offer, listing those it does', async () => {
+      const { service, addAgentTab } = effortService([
+        codex,
+        { ...codex, id: 'hidden', name: 'Hidden', levelPicker: { hidden: true } },
+      ]);
+
+      await expect(
+        service.execute(
+          { terminalId: 'terminal-1' },
+          { type: 'agent.launch', destination: 'tab', preset: 'codex', effort: 'max' }
+        )
+      ).rejects.toMatchObject({
+        code: 'AGENT_EFFORT_NOT_FOUND',
+        statusCode: 404,
+        message: 'No effort level on Codex matches "max". Levels: Low, High.',
+        details: {
+          presetId: 'codex',
+          availableLevels: [
+            { id: 'low', name: 'Low' },
+            { id: 'high', name: 'High' },
+          ],
+        },
+      });
+      await expect(
+        service.execute(
+          { terminalId: 'terminal-1' },
+          { type: 'agent.launch', destination: 'tab', preset: 'hidden', effort: 'low' }
+        )
+      ).rejects.toMatchObject({
+        code: 'AGENT_EFFORT_NOT_FOUND',
+        message: 'Hidden has no effort levels to choose from.',
+      });
+      expect(addAgentTab).not.toHaveBeenCalled();
+    });
+  });
+
   it('launches in an explicitly selected project without ambient workspace context', async () => {
     const createWorkspace = vi.fn().mockResolvedValue({
       id: 'workspace-2',

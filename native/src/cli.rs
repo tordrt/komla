@@ -1067,6 +1067,7 @@ fn option_arguments(args: &[String]) -> impl Iterator<Item = (usize, &str)> {
                     | "--prompt-file"
                     | "--preset"
                     | "--mode"
+                    | "--effort"
                     | "--name"
                     | "--branch"
                     | "--project"
@@ -1969,6 +1970,10 @@ fn agent_command(
             if mode.is_some() && preset.is_none() {
                 bail!("--mode requires --preset");
             }
+            let effort = take_option(&mut options, "--effort")?;
+            if effort.is_some() && preset.is_none() {
+                bail!("--effort requires --preset");
+            }
             let name = take_option(&mut options, "--name")?;
             let description = take_option(&mut options, "--description")?;
             let branch = take_option(&mut options, "--branch")?;
@@ -2017,6 +2022,7 @@ require --new-workspace"
             });
             insert_json_optional(&mut operation, "preset", preset);
             insert_json_optional(&mut operation, "mode", mode);
+            insert_json_optional(&mut operation, "effort", effort);
             insert_json_optional(&mut operation, "prompt", prompt);
             insert_json_optional(&mut operation, "project", project);
             insert_json_optional(&mut operation, "name", name);
@@ -2035,7 +2041,7 @@ then try again."
                     }
                     if offline_unsupported {
                         bail!(
-                            "Komla isn't connected, so --preset, --mode, and --project are unavailable. \
+                            "Komla isn't connected, so --preset, --mode, --effort, and --project are unavailable. \
 Leave them out to start this workspace's agent in a new workspace on this host."
                         );
                     }
@@ -3494,6 +3500,35 @@ fn write_operation_result(
                     "  {mode_name} ({mode_id}){}",
                     render_attributes(&mode_attributes)
                 )?;
+            }
+            let levels: Vec<String> = preset
+                .pointer("/effort/levels")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|level| {
+                    let level_name = level
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Unknown");
+                    let level_id = level.get("id").and_then(Value::as_str).unwrap_or("");
+                    let mut level_attributes = Vec::new();
+                    if level.get("isolatedOnly").and_then(Value::as_bool) == Some(true) {
+                        level_attributes.push("isolated SSH host only".to_owned());
+                    }
+                    format!(
+                        "{level_name} ({level_id}){}",
+                        render_attributes(&level_attributes)
+                    )
+                })
+                .collect();
+            if !levels.is_empty() {
+                // An agent can title its levels otherwise, such as Model; --effort picks them either way.
+                let title = preset
+                    .pointer("/effort/title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Effort");
+                writeln!(output, "  {title} (--effort): {}", levels.join(", "))?;
             }
         }
         return Ok(());
@@ -5984,6 +6019,8 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
                 "Komla",
                 "--preset",
                 "Codex",
+                "--effort",
+                "High",
                 "--name",
                 "CLI work",
                 "--branch",
@@ -5999,6 +6036,7 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
         assert_eq!(body["destination"], "workspace");
         assert_eq!(body["project"], "Komla");
         assert_eq!(body["preset"], "Codex");
+        assert_eq!(body["effort"], "High");
         assert_eq!(body["branch"], "cli-work");
         assert_eq!(body["prompt"], "Build it");
         assert!(
@@ -6043,6 +6081,31 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
         assert!(output.contains("  Plan (plan)\n"));
         assert!(output.contains("  Skip (skip) [unavailable]\n"));
         assert!(output.contains("  YOLO (yolo) [isolated SSH host only]\n"));
+    }
+
+    #[test]
+    fn presets_text_lists_effort_levels_under_their_title() {
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {
+            "presets": [
+                {"id": "claude", "name": "Claude Code", "modes": [], "effort": {
+                    "title": "Effort",
+                    "levels": [{"id": "low", "name": "Low"}, {"id": "max", "name": "Max", "isolatedOnly": true}]
+                }},
+                {"id": "gemini", "name": "Gemini", "modes": [], "effort": {
+                    "title": "Model",
+                    "levels": [{"id": "pro", "name": "Pro"}]
+                }},
+                {"id": "codex", "name": "Codex", "modes": []}
+            ]
+        }}));
+
+        let output = run_with(&mut api, &["agent", "presets"], "").unwrap();
+
+        assert!(
+            output.contains("Claude Code (claude)\n  Effort (--effort): Low (low), Max (max) [isolated SSH host only]\n")
+        );
+        assert!(output.contains("Gemini (gemini)\n  Model (--effort): Pro (pro)\n"));
+        assert!(output.ends_with("Codex (codex)\n"));
     }
 
     #[test]
@@ -6100,6 +6163,20 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
         let error = run_with(&mut api, &["agent", "launch", "--mode", "plan"], "").unwrap_err();
 
         assert!(error.to_string().contains("--mode requires --preset"));
+        assert!(api.requests.is_empty());
+    }
+
+    #[test]
+    fn rejects_effort_without_preset_before_contacting_komla() {
+        let mut api = FakeApi {
+            requests: Vec::new(),
+            target: None,
+            responses: VecDeque::new(),
+        };
+
+        let error = run_with(&mut api, &["agent", "launch", "--effort", "high"], "").unwrap_err();
+
+        assert!(error.to_string().contains("--effort requires --preset"));
         assert!(api.requests.is_empty());
     }
 

@@ -18,7 +18,9 @@ import {
   agentLaunchPolicy,
   agentsMayLaunch,
   isIsolatedEnvironment,
+  skipsPermissionPrompts,
 } from '../../../shared/lib/launch-mode-permissions';
+import { levelPickerOf, shownReasoningLevels } from '../../../shared/lib/level-picker';
 import {
   findWorkspaceTag,
   MAX_WORKSPACE_TAGS,
@@ -55,6 +57,7 @@ import type {
   AgentLaunchPolicy,
   AgentPreset,
   ActivePresetEntry,
+  ReasoningLevel,
 } from '../../../shared/types/agent-preset';
 import type { VirtualDesktopViewer } from '../../../shared/types/dev-preview';
 import type { SshHost } from '../../../shared/types/ssh';
@@ -185,6 +188,23 @@ function isolatedOnlyRefusal(
   return environment.kind === 'ssh'
     ? `Agents may start launch mode "${mode.name}" only on an SSH host marked isolated, and this agent would start on one that isn't. To allow it, they can mark the host isolated in Settings → SSH Hosts, or ${anywhere}.`
     : `Agents may start launch mode "${mode.name}" only on an SSH host marked isolated, and this agent would start on this computer. To allow it here, they can ${anywhere}.`;
+}
+
+function isolatedOnlyEffortRefusal(
+  preset: Pick<AgentPreset, 'id' | 'name'>,
+  effort: Pick<ReasoningLevel, 'id' | 'name'>,
+  environment: DesiredWorkspaceEnvironment
+): KomlaOperationError {
+  const where =
+    environment.kind === 'ssh'
+      ? 'on an SSH host that isn’t. To allow it, they can mark the host isolated in Settings → SSH Hosts'
+      : 'on this computer';
+  return new KomlaOperationError(
+    'AGENT_EFFORT_REQUIRES_ISOLATION',
+    `${preset.name}'s effort level "${effort.name}" skips permission prompts, so agents may start it only on an SSH host marked isolated, and this agent would start ${where}. Launch without --effort to use the agent's default.`,
+    403,
+    { presetId: preset.id, effortId: effort.id, environment }
+  );
 }
 
 interface AgentLaunchPin {
@@ -414,6 +434,8 @@ export type KomlaOperation =
       project?: string;
       preset?: string;
       mode?: string;
+      /** One of the agent's reasoning levels, by id or name, as `agent.presets` lists them. */
+      effort?: string;
       prompt?: string;
       name?: string;
       description?: string;
@@ -527,6 +549,7 @@ export interface AgentLaunchResult {
 interface AgentLaunchSelection {
   preset: { id: string; name: string };
   mode?: { id: string; name: string };
+  effort?: { id: string; name: string };
 }
 
 /** What `execute` resolves to for each operation; one not listed resolves to `unknown`. */
@@ -540,6 +563,7 @@ export type KomlaOperationResult<T extends KomlaOperation['type']> =
 type AgentSelection = {
   preset?: AgentPreset;
   mode?: AgentPreset['launchModes'][number];
+  effort?: ReasoningLevel;
 };
 
 export class KomlaOperationError extends Error {
@@ -1302,8 +1326,7 @@ export class KomlaOperationService {
     }
     const selection = this.resolveAgentSelection(
       workspace,
-      operation.preset,
-      operation.mode,
+      operation,
       this.workspaceEnvironment(workspace!),
       operation.prompt
     );
@@ -1313,7 +1336,10 @@ export class KomlaOperationService {
       selection.mode?.id,
       selection.preset?.id,
       // The workspace's agent, its mode and the most recent agent stay the user's picks.
-      { keepWorkspaceAgent: true }
+      {
+        keepWorkspaceAgent: true,
+        ...(selection.effort ? { reasoningLevelId: selection.effort.id } : {}),
+      }
     );
     this.dependencies.publish(IPC.WORKSPACE_AGENT_TAB_ADDED, {
       workspaceId: workspace!.id,
@@ -1322,7 +1348,7 @@ export class KomlaOperationService {
     return {
       state: 'started',
       destination: { kind: 'tab', workspaceId: workspace!.id, terminalId: terminal.id },
-      ...(selection.preset ? { agent: this.agentResult(selection.preset, selection.mode) } : {}),
+      ...(selection.preset ? { agent: this.agentResult(selection) } : {}),
     };
   }
 
@@ -1341,8 +1367,7 @@ export class KomlaOperationService {
     );
     const selection = this.resolveAgentSelection(
       target.workspace,
-      operation.preset,
-      operation.mode,
+      operation,
       plannedWorkspaceEnvironment(placement, this.dependencies.resolveEnvironment()),
       operation.prompt
     );
@@ -1350,6 +1375,7 @@ export class KomlaOperationService {
       ...placement,
       presetId: selection.preset?.id,
       launchModeId: selection.mode?.id,
+      ...(selection.effort ? { reasoningLevelId: selection.effort.id } : {}),
     };
     if (operation.fromCurrentBranch) {
       params.baseBranch = await this.currentBranchStartPoint(
@@ -1380,7 +1406,7 @@ export class KomlaOperationService {
         ...(created.branchName ? { branch: created.branchName } : {}),
         ...(params.baseBranch ? { branchedFrom: params.baseBranch } : {}),
       },
-      ...(selection.preset ? { agent: this.agentResult(selection.preset, selection.mode) } : {}),
+      ...(selection.preset ? { agent: this.agentResult(selection) } : {}),
     };
   }
 
@@ -1583,8 +1609,11 @@ export class KomlaOperationService {
   /** `environment` is where the new agent would run. */
   private resolveAgentSelection(
     workspace: KomlaOperationWorkspace | undefined,
-    presetSelector: string | undefined,
-    modeSelector: string | undefined,
+    {
+      preset: presetSelector,
+      mode: modeSelector,
+      effort: effortSelector,
+    }: Pick<AgentLaunchOperation, 'preset' | 'mode' | 'effort'>,
     environment: DesiredWorkspaceEnvironment,
     prompt: string | undefined
   ): AgentSelection {
@@ -1596,7 +1625,7 @@ export class KomlaOperationService {
     const defaultPresetId = pin.presetId ?? workspace?.presetId ?? activeEntries.at(0)?.presetId;
     const preset = this.selectPresetForLaunch(presets, activeIds, defaultPresetId, presetSelector);
     if (!preset) {
-      return this.selectionWithoutPreset(pin.presetId, pin.modeId, modeSelector);
+      return this.selectionWithoutPreset(pin.presetId, pin.modeId, modeSelector, effortSelector);
     }
     this.requireLaunchablePreset(preset);
     // Otherwise the agent opens without the task, and the launcher thinks it handed it over.
@@ -1619,13 +1648,9 @@ export class KomlaOperationService {
     // could launch one that acts without asking, with its own prompt, and an
     // isolated one could start it on this computer. A mode no one named is the pinned one.
     const policy = mode ? pinnedAgentLaunchPolicy(pin, preset.id, mode) : 'always';
-    if (
-      mode &&
-      !agentsMayLaunch(
-        policy,
-        isIsolatedEnvironment(environment, { sshHosts: this.dependencies.listSshHosts() })
-      )
-    ) {
+    const isolated = () =>
+      isIsolatedEnvironment(environment, { sshHosts: this.dependencies.listSshHosts() });
+    if (mode && !agentsMayLaunch(policy, isolated())) {
       const isolatedOnly = policy === 'isolated';
       throw new KomlaOperationError(
         isolatedOnly ? 'AGENT_MODE_REQUIRES_ISOLATION' : 'AGENT_MODE_REQUIRES_USER',
@@ -1636,7 +1661,13 @@ export class KomlaOperationService {
         { presetId: preset.id, modeId: mode.id, ...(isolatedOnly ? { environment } : {}) }
       );
     }
-    return { preset, ...(mode ? { mode } : {}) };
+    const effort = effortSelector ? this.resolveEffortSelector(preset, effortSelector) : undefined;
+    // A level's arguments are the user's own, so one can skip permission prompts as a mode can.
+    // Levels have no robot button, so agents may start such a level only on an isolated host.
+    if (effort && skipsPermissionPrompts(effort) && !isolated()) {
+      throw isolatedOnlyEffortRefusal(preset, effort, environment);
+    }
+    return { preset, ...(mode ? { mode } : {}), ...(effort ? { effort } : {}) };
   }
 
   private selectPresetForLaunch(
@@ -1657,7 +1688,8 @@ export class KomlaOperationService {
   private selectionWithoutPreset(
     configuredPresetId?: string,
     configuredModeId?: string,
-    modeSelector?: string
+    modeSelector?: string,
+    effortSelector?: string
   ): AgentSelection {
     if (configuredPresetId) {
       return {
@@ -1673,10 +1705,10 @@ export class KomlaOperationService {
         ...(configuredModeId ? { mode: { id: configuredModeId, name: configuredModeId } } : {}),
       };
     }
-    if (modeSelector) {
+    if (modeSelector || effortSelector) {
       throw new KomlaOperationError(
         'AGENT_PRESET_NOT_FOUND',
-        'A launch mode cannot be selected because no active agent preset is available.',
+        `${modeSelector ? 'A launch mode' : 'An effort level'} cannot be selected because no active agent preset is available.`,
         404
       );
     }
@@ -1693,13 +1725,11 @@ export class KomlaOperationService {
     );
   }
 
-  private agentResult(
-    preset: AgentPreset,
-    mode?: AgentPreset['launchModes'][number]
-  ): AgentLaunchSelection {
+  private agentResult({ preset, mode, effort }: AgentSelection): AgentLaunchSelection {
     return {
-      preset: { id: preset.id, name: preset.name },
+      preset: { id: preset!.id, name: preset!.name },
       ...(mode ? { mode: { id: mode.id, name: mode.name } } : {}),
+      ...(effort ? { effort: { id: effort.id, name: effort.name } } : {}),
     };
   }
 
@@ -1758,6 +1788,28 @@ export class KomlaOperationService {
     );
   }
 
+  /** One of the levels the agent's picker shows; a hidden picker launches at the agent default. */
+  private resolveEffortSelector(preset: AgentPreset, selector: string): ReasoningLevel {
+    const levels = shownReasoningLevels(preset);
+    const exact = levels.find((level) => level.id === selector);
+    if (exact) return exact;
+    const matches = levels.filter(
+      (level) => level.name.localeCompare(selector, undefined, { sensitivity: 'accent' }) === 0
+    );
+    if (matches.length === 1) return matches[0];
+    const available = levels.map(({ id, name }) => ({ id, name }));
+    throw new KomlaOperationError(
+      matches.length > 1 ? 'AGENT_EFFORT_AMBIGUOUS' : 'AGENT_EFFORT_NOT_FOUND',
+      matches.length > 1
+        ? `Effort level name "${selector}" is ambiguous for ${preset.name}.`
+        : levels.length === 0
+          ? `${preset.name} has no effort levels to choose from.`
+          : `No effort level on ${preset.name} matches "${selector}". Levels: ${levels.map(({ name }) => name).join(', ')}.`,
+      matches.length > 1 ? 409 : 404,
+      { presetId: preset.id, availableLevels: available }
+    );
+  }
+
   private getAgentPresets(includeInactive: boolean): unknown {
     const presets = this.dependencies.listPresets();
     const activeEntries = this.dependencies.getActivePresets();
@@ -1791,6 +1843,7 @@ export class KomlaOperationService {
             ? { unavailableReason: 'This preset does not define an agent command.' }
             : {}),
           environment,
+          ...this.presetEffort(preset),
           // Modes only the user can start are listed too, so an agent asked for
           // one can tell the user how to allow it instead of picking another.
           modes: preset.launchModes.map((mode) => {
@@ -1810,6 +1863,28 @@ export class KomlaOperationService {
             };
           }),
         })),
+    };
+  }
+
+  /**
+   * The levels `--effort` picks from, under the picker's title, which an agent can give another
+   * meaning, such as Model. None while the picker is hidden.
+   */
+  private presetEffort(preset: AgentPreset): {
+    effort?: { title: string; levels: Array<{ id: string; name: string; isolatedOnly?: true }> };
+  } {
+    const levels = shownReasoningLevels(preset);
+    if (levels.length === 0) return {};
+    return {
+      effort: {
+        title: levelPickerOf(preset).title,
+        // Agents may start a level that skips permission prompts only isolated, as such a mode.
+        levels: levels.map((level) => ({
+          id: level.id,
+          name: level.name,
+          ...(skipsPermissionPrompts(level) ? { isolatedOnly: true as const } : {}),
+        })),
+      },
     };
   }
 

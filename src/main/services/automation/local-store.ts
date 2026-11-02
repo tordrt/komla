@@ -21,6 +21,7 @@ const localAutomationSchema = z.object({
   target: z.object({ kind: z.literal('local') }),
   presetId: z.string().optional(),
   launchModeId: z.string().optional(),
+  startBranch: z.string().optional(),
   agentName: z.string().optional(),
   schedule: automationScheduleSchema,
   enabled: z.boolean(),

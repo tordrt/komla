@@ -59,6 +59,13 @@ describe('LocalAutomationStore', () => {
     expect(reloaded.runs.nightly?.[0]?.id).toBe(`run-${MAX_AUTOMATION_RUNS + 4}`);
   });
 
+  it('keeps the branch an automation starts from across restarts', async () => {
+    const fromRelease = { ...automation, startBranch: 'release/1.x' };
+    await new LocalAutomationStore(path()).saveAutomation(fromRelease);
+
+    expect(new LocalAutomationStore(path()).read().automations).toEqual([fromRelease]);
+  });
+
   it('forgets an automation’s runs with it', async () => {
     const store = new LocalAutomationStore(path());
     await store.saveAutomation(automation);

@@ -30,11 +30,14 @@ async function runGitOutsideRepo(args: string[]): Promise<string> {
 }
 
 // `git var` fails exactly when a commit would fail with "Author identity unknown".
+// Waits for both, so no git still holds the global config open once this settles.
 async function assertCanCommit(): Promise<void> {
-  await Promise.all([
+  const results = await Promise.allSettled([
     runGitOutsideRepo(['var', 'GIT_AUTHOR_IDENT']),
     runGitOutsideRepo(['var', 'GIT_COMMITTER_IDENT']),
   ]);
+  const failure = results.find((result) => result.status === 'rejected');
+  if (failure) throw failure.reason;
 }
 
 /**

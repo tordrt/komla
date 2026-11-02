@@ -94,6 +94,12 @@ const SHELL_READY_FALLBACK_MS = 5000;
 const DEFAULT_PTY_COLS = 120;
 const DEFAULT_PTY_ROWS = 30;
 
+// A shell that draws its prompt at a size its view doesn't have draws it again when the view's
+// size arrives, and bash then leaves part of the first prompt above the second. So a program
+// spawned without a current size is held stopped until the next size arrives, or until this
+// long has passed for a terminal no view shows.
+const SIZE_WAIT_MS = 1000;
+
 export type { TerminalStatus };
 
 type PtyStartupMode = 'echo-command' | 'wait-for-marker';
@@ -136,6 +142,8 @@ interface PtyProcess {
   // terminal for about 3 s until it hears back. xterm answers only while a view is attached, so
   // the first output's query is answered here.
   answersConptyStartupQuery: boolean;
+  // Runs while the program is held stopped until its terminal has a size; see SIZE_WAIT_MS.
+  sizeWaitTimer: NodeJS.Timeout | null;
 }
 
 /** How a terminal's process ended by itself, unlike one Komla killed. */
@@ -493,8 +501,8 @@ class PtyService {
     windowId?: number,
     _workspaceId?: string,
     initialSeq = 0,
-    cols = DEFAULT_PTY_COLS,
-    rows = DEFAULT_PTY_ROWS,
+    cols?: number,
+    rows?: number,
     startupMode: PtyStartupMode = 'echo-command',
     localLoginShell = true
   ): void {
@@ -573,11 +581,7 @@ class PtyService {
       env.KOMLA_API_URL = buildTerminalApiUrl(env.KOMLA_API_URL, terminalId);
     }
 
-    const pendingSize = this.pendingSizes.get(terminalId);
-    this.pendingSizes.delete(terminalId);
-    const localSize = pendingSize ?? { cols, rows };
-    this.localTerminalSizes.set(terminalId, localSize);
-    const initialSize = this.remoteSize(terminalId) ?? localSize;
+    const { initialSize, sized } = this.takeSpawnSize(terminalId, cols, rows);
     const spawnOptions = {
       name: 'xterm-256color',
       cols: initialSize.cols,
@@ -610,7 +614,9 @@ class PtyService {
       statusReporter: null,
       answersStatusQueries: process.platform !== 'win32' || bundledConpty,
       answersConptyStartupQuery: bundledConpty,
+      sizeWaitTimer: null,
     };
+    this.holdUntilSized(processInfo, sized);
 
     this.processes.set(terminalId, processInfo);
     this.outputBuffers.set(terminalId, new TerminalReplayTail(OUTPUT_BUFFER_LIMIT));
@@ -652,6 +658,50 @@ class PtyService {
     if (pendingCommand) {
       this.schedulePendingCommandWrite(processInfo, SHELL_READY_FALLBACK_MS);
     }
+  }
+
+  /**
+   * The size a terminal's PTY starts at: a remote presentation's, a size the desktop sent before
+   * the spawn, the caller's, or the desktop's last one for this terminal, else the fallback. Only
+   * the first three count as current; a PTY started at another waits for its view's size.
+   */
+  private takeSpawnSize(
+    terminalId: string,
+    cols: number | undefined,
+    rows: number | undefined
+  ): { initialSize: { cols: number; rows: number }; sized: boolean } {
+    const pendingSize = this.pendingSizes.get(terminalId);
+    this.pendingSizes.delete(terminalId);
+    const givenSize = cols && rows ? { cols, rows } : undefined;
+    const currentSize = pendingSize ?? givenSize;
+    const localSize = currentSize ??
+      this.localTerminalSizes.get(terminalId) ?? { cols: DEFAULT_PTY_COLS, rows: DEFAULT_PTY_ROWS };
+    this.localTerminalSizes.set(terminalId, localSize);
+    const remoteSize = this.remoteSize(terminalId);
+    return {
+      initialSize: remoteSize ?? localSize,
+      sized: Boolean(remoteSize ?? currentSize),
+    };
+  }
+
+  /** Stops an unsized terminal's program until it has a size; Windows has no signal for it. */
+  private holdUntilSized(processInfo: PtyProcess, sized: boolean): void {
+    if (sized || process.platform === 'win32') return;
+    processInfo.pty.kill('SIGSTOP');
+    processInfo.sizeWaitTimer = setTimeout(() => this.endSizeWait(processInfo), SIZE_WAIT_MS);
+  }
+
+  /** Forgets the hold; says whether the program was still held. */
+  private clearSizeWait(processInfo: PtyProcess): boolean {
+    if (!processInfo.sizeWaitTimer) return false;
+    clearTimeout(processInfo.sizeWaitTimer);
+    processInfo.sizeWaitTimer = null;
+    return true;
+  }
+
+  /** Lets a program held by holdUntilSized() run; a stopped one wouldn't act on a kill's SIGHUP. */
+  private endSizeWait(processInfo: PtyProcess): void {
+    if (this.clearSizeWait(processInfo)) processInfo.pty.kill('SIGCONT');
   }
 
   private queueOutput(process: PtyProcess, data: string): void {
@@ -912,6 +962,8 @@ class PtyService {
       clearTimeout(process.pendingCommandTimeoutId);
       process.pendingCommandTimeoutId = null;
     }
+    // The PID is free again, so nothing may signal it.
+    this.clearSizeWait(process);
     this.resumeOutput(process);
 
     this.updateStatus(terminalId, 'stopped');
@@ -1165,6 +1217,7 @@ class PtyService {
     const process = this.processes.get(terminalId);
     if (!process) return;
     process.pty.resize(size.cols, size.rows);
+    this.endSizeWait(process);
     this.terminalPresentations.get(terminalId)?.resize(size.cols, size.rows);
   }
 
@@ -1381,6 +1434,7 @@ class PtyService {
       this.terminalFocusReportSuppressUntil.delete(terminalId);
     }
     this.exitingProcesses.add(process);
+    this.endSizeWait(process);
     process.pty.kill();
 
     if (notifyExitListeners) {
@@ -1566,6 +1620,7 @@ class PtyService {
       });
       promises.push(exitPromise);
 
+      this.endSizeWait(proc);
       try {
         proc.pty.kill();
       } catch (err) {

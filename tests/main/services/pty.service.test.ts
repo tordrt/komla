@@ -448,7 +448,7 @@ describe('PtyService', () => {
     it('waits for native exit before completing permanent terminal release', async () => {
       const { ptyService } = await import('../../../src/main/services/pty.service');
 
-      ptyService.spawn('term-1', '/home/user', null);
+      ptyService.spawn('term-1', '/home/user', null, [], undefined, undefined, 0, 120, 30);
       const releasePromise = ptyService.releaseTerminalAndWait('term-1');
       let resolved = false;
       void releasePromise.then(() => {
@@ -2191,6 +2191,138 @@ describe('PtyService', () => {
       );
     });
 
+    describe('before the terminal has a size', () => {
+      // A shell that drew its prompt at the fallback size redrew it on the resize that followed,
+      // and bash left part of the first prompt above the second.
+      it('holds the program stopped until the first size arrives', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        expect(spawnedPtys[0].kill.mock.calls).toEqual([['SIGSTOP']]);
+
+        ptyService.resize('term-1', 100, 40);
+        expect(spawnedPtys[0].resize).toHaveBeenCalledWith(100, 40);
+        expect(spawnedPtys[0].kill.mock.calls).toEqual([['SIGSTOP'], ['SIGCONT']]);
+
+        ptyService.resize('term-1', 90, 35);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(spawnedPtys[0].kill).toHaveBeenCalledTimes(2);
+      });
+
+      it('starts a program no view sizes after a second', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        await vi.advanceTimersByTimeAsync(999);
+        expect(spawnedPtys[0].kill.mock.calls).toEqual([['SIGSTOP']]);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(spawnedPtys[0].kill.mock.calls).toEqual([['SIGSTOP'], ['SIGCONT']]);
+      });
+
+      it('takes a remote presentation size as the first size', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        ptyService.acquireSizeAuthority('term-1', 52, 20);
+
+        expect(spawnedPtys[0].kill.mock.calls).toEqual([['SIGSTOP'], ['SIGCONT']]);
+      });
+
+      it('lets a held program run before killing it, so it acts on the SIGHUP', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        ptyService.kill('term-1');
+
+        expect(spawnedPtys[0].kill.mock.calls).toEqual([['SIGSTOP'], ['SIGCONT'], []]);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(spawnedPtys[0].kill).toHaveBeenCalledTimes(3);
+      });
+
+      it('signals nothing once the held program has exited', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        spawnedPtys[0]._simulateExit(0, 9);
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        expect(spawnedPtys[0].kill.mock.calls).toEqual([['SIGSTOP']]);
+      });
+
+      it('does not hold a program whose size is known at spawn', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-given', '/home/user', null, [], undefined, undefined, 0, 95, 42);
+        ptyService.resize('term-pending', 100, 40);
+        ptyService.spawn('term-pending', '/home/user', null);
+        const authority = ptyService.acquireSizeAuthority('term-remote', 52, 20);
+        ptyService.spawn('term-remote', '/home/user', null);
+        ptyService.restart('term-given', '/home/user', null, 'ws-1', 95, 42);
+
+        for (const spawned of spawnedPtys) expect(spawned.kill).not.toHaveBeenCalledWith('SIGSTOP');
+        authority.release();
+      });
+
+      it('holds a restarted program again when no one ever sized its terminal', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        await vi.advanceTimersByTimeAsync(1_000);
+        ptyService.restart('term-1', '/home/user', 'claude', 'ws-1');
+
+        expect(spawnedPtys[1].kill.mock.calls).toEqual([['SIGSTOP']]);
+      });
+
+      it('restarts a program at its last size, held until its pane confirms one', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        ptyService.resize('term-1', 100, 40);
+        ptyService.restart('term-1', '/home/user', 'claude', 'ws-1');
+        expect(mockSpawn.mock.calls[1]?.[2]).toMatchObject({ cols: 100, rows: 40 });
+        expect(spawnedPtys[1].kill.mock.calls).toEqual([['SIGSTOP']]);
+
+        // The pane may have moved on in the meantime, so the program starts at what it says.
+        ptyService.resize('term-1', 96, 40);
+        expect(spawnedPtys[1].resize).toHaveBeenCalledWith(96, 40);
+        expect(spawnedPtys[1].kill.mock.calls).toEqual([['SIGSTOP'], ['SIGCONT']]);
+      });
+
+      it('starts a restarted program no pane sizes after a second, at its last size', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        ptyService.resize('term-1', 100, 40);
+        ptyService.restart('term-1', '/home/user', 'claude', 'ws-1');
+        await vi.advanceTimersByTimeAsync(999);
+        expect(spawnedPtys[1].kill.mock.calls).toEqual([['SIGSTOP']]);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(spawnedPtys[1].kill.mock.calls).toEqual([['SIGSTOP'], ['SIGCONT']]);
+        expect(spawnedPtys[1]).toMatchObject({ cols: 100, rows: 40 });
+      });
+
+      it('gives the fallback size back when a remote presentation lets go of an unsized one', async () => {
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', '/home/user', null);
+        const authority = ptyService.acquireSizeAuthority('term-1', 48, 18);
+        authority.release();
+
+        expect(spawnedPtys[0].resize).toHaveBeenLastCalledWith(120, 30);
+      });
+
+      it('does not hold a program on Windows, which has no stop signal', async () => {
+        Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+        const { ptyService } = await import('../../../src/main/services/pty.service');
+
+        ptyService.spawn('term-1', 'C:\\Users\\user', null);
+
+        expect(spawnedPtys[0].kill).not.toHaveBeenCalled();
+      });
+    });
+
     it('should discard a pending resize when the terminal is released', async () => {
       const { ptyService } = await import('../../../src/main/services/pty.service');
 
@@ -2570,7 +2702,7 @@ describe('PtyService', () => {
       async () => {
         const { ptyService } = await import('../../../src/main/services/pty.service');
 
-        ptyService.spawn('term-1', '/home/user', null);
+        ptyService.spawn('term-1', '/home/user', null, [], undefined, undefined, 0, 120, 30);
 
         const killPromise = ptyService.killAll();
         let resolved = false;

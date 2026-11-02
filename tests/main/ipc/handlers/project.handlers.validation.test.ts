@@ -60,6 +60,11 @@ vi.mock('../../../../src/main/services/dev-preview.service', () => ({
   devPreviewService: { clearProjectData: vi.fn(async () => undefined) },
 }));
 
+const { mockFetchProject } = vi.hoisted(() => ({ mockFetchProject: vi.fn(async () => undefined) }));
+vi.mock('../../../../src/main/services/git-background-fetch.service', () => ({
+  gitBackgroundFetchService: { fetchProject: mockFetchProject },
+}));
+
 vi.mock('../../../../src/main/services/workspace.service', () => ({
   workspaceService: mockWorkspaceService,
 }));

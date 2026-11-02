@@ -14,7 +14,7 @@ import { gitRepoService } from './git-repo';
 import { gitWorktreeService } from './git-worktree';
 
 import type { BlameHunk } from './git-blame';
-import type { BranchInfo, GitBranchQuickStatus } from './git-branch';
+import type { BranchInfo, GitBranchQuickStatus, OriginStartPoint } from './git-branch';
 import type { FileChange, WorktreeDiff, FileDiffContent } from './git-diff';
 import type { GitProgressCallback, ManagedWorktree } from './git-exec';
 import type { CommitDiff } from './git-history';
@@ -331,6 +331,12 @@ class GitService {
   }
   fetchOriginStartPoint(repoPath: string, branchName: string): Promise<string | undefined> {
     return gitBranchService.fetchOriginStartPoint(repoPath, branchName);
+  }
+  fetchedOriginRecently(repoPath: string): boolean {
+    return gitBranchService.fetchedOriginRecently(repoPath);
+  }
+  originStartPoint(repoPath: string, branchName: string): Promise<OriginStartPoint> {
+    return gitBranchService.originStartPoint(repoPath, branchName);
   }
   pushToRemote(repoPath: string, remoteName: string, branchName: string): Promise<void> {
     return gitBranchService.pushToRemote(repoPath, remoteName, branchName);

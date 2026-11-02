@@ -76,6 +76,11 @@ vi.mock('../../../../src/main/services/project-icon.service', () => ({
   chooseProjectIconFile: mockChooseProjectIconFile,
 }));
 
+const { mockFetchProject } = vi.hoisted(() => ({ mockFetchProject: vi.fn(async () => undefined) }));
+vi.mock('../../../../src/main/services/git-background-fetch.service', () => ({
+  gitBackgroundFetchService: { fetchProject: mockFetchProject },
+}));
+
 vi.mock('../../../../src/main/services/workspace.service', () => ({
   workspaceService: mockWorkspaceService,
 }));
@@ -258,6 +263,22 @@ describe('project IPC behavior', () => {
       expect(result).toEqual(returns);
     }
   );
+
+  it("fetches a project's origin in the background when asked, dropping bad IDs", async () => {
+    await setup();
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { on: { mock: { calls: Array<[string, (...args: unknown[]) => void]> } } };
+    };
+    const listener = ipcMain.on.mock.calls.find(
+      ([channel]) => channel === 'project:fetch-in-background'
+    )?.[1];
+
+    listener?.({}, 123);
+    expect(mockFetchProject).not.toHaveBeenCalled();
+
+    listener?.({}, 'p1');
+    expect(mockFetchProject).toHaveBeenCalledWith('p1');
+  });
 
   it('project:recent-folders returns the recent folders still there', async () => {
     const ipcMain = await setup();

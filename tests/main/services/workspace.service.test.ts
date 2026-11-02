@@ -28,6 +28,7 @@ import type {
 } from '../../../src/main/services/terminal-attention/terminal-attention';
 import type { Project } from '../../../src/shared/types/project';
 import type { Terminal } from '../../../src/shared/types/terminal';
+import type { OriginStartPoint } from '../../../src/main/services/git/git-branch';
 import type { Workspace } from '../../../src/shared/types/workspace';
 
 // Mock electron
@@ -151,6 +152,10 @@ const mockGitService = {
   setManagedWorktreeLookup: vi.fn(),
   fastForwardBranchToRemoteIfSafe: vi.fn(() => Promise.resolve(false)),
   fetchOriginStartPoint: vi.fn((): Promise<string | undefined> => Promise.resolve(undefined)),
+  fetchedOriginRecently: vi.fn(() => false),
+  originStartPoint: vi.fn(
+    (): Promise<OriginStartPoint> => Promise.resolve({ status: 'missing' })
+  ),
   stopBackgroundWork: vi.fn(),
   readWorktreeForCleanup: vi.fn(),
   findLandedCommits: vi.fn(),
@@ -4043,6 +4048,98 @@ describe('WorkspaceService', () => {
           'origin/main',
           { fetchRemote: undefined }
         );
+      });
+
+      it("starts from origin's recently fetched copy without fetching again", async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        mockGitService.fetchedOriginRecently.mockReturnValueOnce(true);
+        mockGitService.originStartPoint.mockResolvedValueOnce({ status: 'available', ref: 'origin/main' });
+        mockGitService.fetchOriginStartPoint.mockClear();
+        await workspaceService.create({
+          mode: 'worktree',
+          projectId: 'project-1',
+          deferBranchNaming: true,
+        });
+        await vi.waitFor(() => expect(mockGitService.createWorktree).toHaveBeenCalled());
+
+        expect(mockGitService.fetchedOriginRecently).toHaveBeenCalledWith('/mock/repo');
+        expect(mockGitService.originStartPoint).toHaveBeenCalledWith('/mock/repo', 'main');
+        expect(mockGitService.fetchOriginStartPoint).not.toHaveBeenCalled();
+        expect(mockGitService.createWorktree).toHaveBeenCalledWith(
+          '/mock/repo',
+          expect.any(String),
+          expect.any(String),
+          'origin/main',
+          { fetchRemote: undefined }
+        );
+      });
+
+      it('fetches a start point the recent fetch left out, such as a branch pushed since', async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        mockGitService.fetchedOriginRecently.mockReturnValueOnce(true);
+        mockGitService.originStartPoint.mockResolvedValueOnce({ status: 'missing' });
+        mockGitService.fetchOriginStartPoint.mockClear();
+        mockGitService.fetchOriginStartPoint.mockResolvedValueOnce('origin/main');
+        await workspaceService.create({
+          mode: 'worktree',
+          name: 'Feature',
+          branchName: 'my-feature',
+          projectId: 'project-1',
+        });
+
+        expect(mockGitService.fetchOriginStartPoint).toHaveBeenCalledWith('/mock/repo', 'main');
+        expect(mockGitService.createWorktree).toHaveBeenCalledWith(
+          '/mock/repo',
+          'agent/my-feature',
+          expect.any(String),
+          'origin/main',
+          { fetchRemote: undefined }
+        );
+      });
+
+      it("keeps a local target that's ahead of origin's recent copy, without fetching", async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        mockGitService.fetchedOriginRecently.mockReturnValueOnce(true);
+        mockGitService.originStartPoint.mockResolvedValueOnce({ status: 'behind-local' });
+        mockGitService.fetchOriginStartPoint.mockClear();
+        await workspaceService.create({
+          mode: 'worktree',
+          name: 'Feature',
+          branchName: 'my-feature',
+          projectId: 'project-1',
+        });
+
+        expect(mockGitService.fetchOriginStartPoint).not.toHaveBeenCalled();
+        expect(mockGitService.createWorktree).toHaveBeenCalledWith(
+          '/mock/repo',
+          'agent/my-feature',
+          expect.any(String),
+          'main',
+          { fetchRemote: undefined }
+        );
+      });
+
+      it("fetches the start point when origin wasn't fetched recently", async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        mockGitService.originStartPoint.mockClear();
+        mockGitService.fetchOriginStartPoint.mockClear();
+        await workspaceService.create({
+          mode: 'worktree',
+          name: 'Feature',
+          branchName: 'my-feature',
+          projectId: 'project-1',
+        });
+
+        expect(mockGitService.originStartPoint).not.toHaveBeenCalled();
+        expect(mockGitService.fetchOriginStartPoint).toHaveBeenCalledWith('/mock/repo', 'main');
       });
 
       it("stops the project's background fetch before waiting on its git queue", async () => {

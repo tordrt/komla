@@ -23,7 +23,10 @@ vi.mock('../../../src/main/services/config.service', () => ({
   configService: { get: () => mocks.config },
 }));
 vi.mock('../../../src/main/services/project.service', () => ({
-  projectService: { list: () => mocks.projects },
+  projectService: {
+    list: () => mocks.projects,
+    get: (projectId: string) => mocks.projects.find((project) => project.id === projectId),
+  },
 }));
 vi.mock('../../../src/main/services/workspace.service', () => ({
   workspaceService: {
@@ -91,6 +94,7 @@ describe('gitBackgroundFetchService', () => {
       { id: 'w3', projectId: 'folder' },
       { id: 'w4', projectId: 'ssh-only', backend: { kind: 'ssh', hostId: 'h' } },
     ];
+    mocks.backgroundMark.mockImplementation((repoPath: string) => (repoPath === '/p/own' ? 2 : 1));
     mocks.hasRemote.mockReset().mockResolvedValue(true);
     mocks.fetch.mockReset().mockResolvedValue(undefined);
     mocks.fastForwardTargets.mockReset().mockResolvedValue([]);
@@ -115,6 +119,64 @@ describe('gitBackgroundFetchService', () => {
       ['/p/m.git', true, 20_000, 1],
       ['/p/own', false, 20_000, 2],
     ]);
+  });
+
+  it('fetches one project when asked, sharing the five-minute window', async () => {
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchProject('unused');
+    await gitBackgroundFetchService.fetchProject('own');
+    expect(mocks.fetch.mock.calls).toEqual([
+      ['/p/unused', false, 20_000, 1],
+      ['/p/own', false, 20_000, 2],
+    ]);
+
+    await gitBackgroundFetchService.fetchProject('own');
+    await gitBackgroundFetchService.fetchProject('folder');
+    await gitBackgroundFetchService.fetchProject('missing');
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+
+    await gitBackgroundFetchService.fetchStale();
+    expect(mocks.fetch.mock.calls.slice(2).map(([repoPath]) => repoPath)).not.toContain('/p/own');
+  });
+
+  it("fast-forwards Komla's own clone's targets after fetching just that project", async () => {
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchProject('managed');
+
+    expect(mocks.fastForwardTargets.mock.calls.map(([projectId]) => projectId)).toEqual([
+      'managed',
+    ]);
+  });
+
+  it('does not fetch a project when asked while background fetch is off', async () => {
+    mocks.config = { gitBackgroundFetch: false };
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchProject('own');
+
+    expect(mocks.fetch).not.toHaveBeenCalled();
+  });
+
+  it('fetches again soon after a workspace creation stopped the fetch', async () => {
+    mocks.projects = mocks.projects.filter((project) => project.id === 'own');
+    let mark = 2;
+    mocks.backgroundMark.mockImplementation(() => mark);
+    mocks.fetch.mockImplementationOnce(async () => {
+      mark += 1;
+      throw new Error('Git was stopped for other work in this repository');
+    });
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchProject('own');
+    await gitBackgroundFetchService.fetchStale();
+
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('skips repositories fetched in the last five minutes, and ones without origin', async () => {

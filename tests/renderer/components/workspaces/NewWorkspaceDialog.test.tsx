@@ -554,6 +554,7 @@ describe('NewWorkspaceDialog', () => {
     mockSelectedWorkspace.id = null;
     mockWorkspaces.value = [{ id: 'ws-1', projectId: 'project-komla' }];
     global.window.api = {
+      fetchProjectInBackground: vi.fn(),
       getWorktreeBranches: vi.fn().mockResolvedValue([]),
       getDirectoryInfo: vi.fn().mockResolvedValue(null),
       findProjectForFolder: vi.fn().mockResolvedValue({ project: null, repoRoot: null }),
@@ -2097,6 +2098,29 @@ describe('NewWorkspaceDialog', () => {
 
     expect(await screen.findByRole('button', { name: /Build Server/i })).toBeInTheDocument();
     expect(screen.queryByText(/behind (remote|origin)/i)).not.toBeInTheDocument();
+  });
+
+  it("fetches the selected project's origin as it opens, so creating doesn't have to", async () => {
+    render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(window.api.fetchProjectInBackground).toHaveBeenCalledWith('project-komla')
+    );
+  });
+
+  it('leaves the local repository unfetched when launching on an SSH host', async () => {
+    mockConfigHolder.value = {
+      ...mockConfigHolder.value,
+      lastWorkspaceEnvironment: { kind: 'ssh', hostId: 'remote' },
+    };
+    mockSshHostsHolder.value = [
+      { id: 'remote', name: 'Build Server', hostname: 'build.example.com' },
+    ];
+
+    render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+
+    expect(await screen.findByRole('button', { name: /Build Server/i })).toBeInTheDocument();
+    expect(window.api.fetchProjectInBackground).not.toHaveBeenCalled();
   });
 
   it('cycles through every active preset even as last-used timestamps change', async () => {

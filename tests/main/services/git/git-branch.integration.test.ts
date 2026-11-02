@@ -247,6 +247,88 @@ describe('GitBranchService integration', () => {
     }
   );
 
+  it('remembers fetching origin for a while, but not a fetch that failed', async () => {
+    const clonePath = mkdtempSync(join(tmpdir(), 'komla-git-branch-clone-'));
+    try {
+      await execFileAsync('git', ['clone', '--quiet', repoPath, clonePath]);
+      const { gitBranchService, RECENT_ORIGIN_FETCH_MS } =
+        await import('../../../../src/main/services/git/git-branch');
+      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(false);
+
+      await runGit(clonePath, ['remote', 'set-url', 'origin', join(repoPath, 'missing')]);
+      await expect(
+        gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0)
+      ).rejects.toThrow();
+      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(false);
+
+      await runGit(clonePath, ['remote', 'set-url', 'origin', repoPath]);
+      await gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0);
+      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(true);
+
+      const now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now + RECENT_ORIGIN_FETCH_MS);
+      try {
+        expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(false);
+      } finally {
+        clock.mockRestore();
+      }
+    } finally {
+      rmSync(clonePath, { recursive: true, force: true });
+    }
+  });
+
+  it("doesn't count a fetch that leaves some of origin's branches untracked", async () => {
+    const clonePath = mkdtempSync(join(tmpdir(), 'komla-git-branch-clone-'));
+    try {
+      await execFileAsync('git', ['clone', '--quiet', '--single-branch', repoPath, clonePath]);
+      const { gitBranchService } = await import('../../../../src/main/services/git/git-branch');
+
+      await gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0);
+      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(false);
+
+      // Komla's own clones fetch every branch whatever their refspec says.
+      await gitBranchService.fetchOriginWithoutPrompts(clonePath, true, 30_000, 0);
+      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(true);
+    } finally {
+      rmSync(clonePath, { recursive: true, force: true });
+    }
+  });
+
+  it("returns origin's copy from the last fetch as a start point, without fetching", async () => {
+    const baseBranch = await runGit(repoPath, ['branch', '--show-current']);
+    const clonePath = mkdtempSync(join(tmpdir(), 'komla-git-branch-clone-'));
+    try {
+      await execFileAsync('git', ['clone', '--quiet', repoPath, clonePath]);
+      const fetchedHead = await runGit(clonePath, ['rev-parse', `origin/${baseBranch}`]);
+      writeFileSync(join(repoPath, 'local.txt'), 'pushed later\n');
+      await runGit(repoPath, ['commit', '-am', 'upstream change']);
+
+      const { gitBranchService } = await import('../../../../src/main/services/git/git-branch');
+
+      await expect(gitBranchService.originStartPoint(clonePath, baseBranch)).resolves.toEqual({
+        status: 'available',
+        ref: `origin/${baseBranch}`,
+      });
+      expect(await runGit(clonePath, ['rev-parse', `origin/${baseBranch}`])).toBe(fetchedHead);
+      await expect(
+        gitBranchService.originStartPoint(clonePath, 'missing-branch')
+      ).resolves.toEqual({ status: 'missing' });
+      await expect(gitBranchService.originStartPoint(repoPath, baseBranch)).resolves.toEqual({
+        status: 'missing',
+      });
+
+      await runGit(clonePath, ['config', 'user.name', 'Komla Test']);
+      await runGit(clonePath, ['config', 'user.email', 'komla@example.com']);
+      writeFileSync(join(clonePath, 'local.txt'), 'not pushed yet\n');
+      await runGit(clonePath, ['commit', '-am', 'unpushed change']);
+      await expect(gitBranchService.originStartPoint(clonePath, baseBranch)).resolves.toEqual({
+        status: 'behind-local',
+      });
+    } finally {
+      rmSync(clonePath, { recursive: true, force: true });
+    }
+  });
+
   it('keeps the local branch as the start point when it has unpushed commits', async () => {
     const baseBranch = await runGit(repoPath, ['branch', '--show-current']);
     const clonePath = mkdtempSync(join(tmpdir(), 'komla-git-branch-clone-'));

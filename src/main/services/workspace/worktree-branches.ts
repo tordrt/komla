@@ -87,13 +87,32 @@ export async function resolveLocalWorkspaceTarget(
     (!params.useExactBranchName && (!requestedStartPoint || requestedStartPoint === projectTarget));
   const originStartPoint =
     startFromOrigin && localStartPoint && !/^(?:origin\/|refs\/)/.test(localStartPoint)
-      ? await gitService.fetchOriginStartPoint(repoPath, localStartPoint)
+      ? await startPointFromOrigin(repoPath, localStartPoint)
       : undefined;
 
   return {
     startPoint: originStartPoint || localStartPoint,
     baseBranch: projectTarget || requestedStartPoint || detectedTarget,
   };
+}
+
+/**
+ * Origin's copy of a branch as a start point, or undefined to keep the local branch. A copy
+ * fetched in the last few minutes is used as it is, so the agent doesn't wait on a fetch, and the
+ * local branch is kept without fetching when it has commits that copy lacks. Otherwise, or when
+ * that fetch didn't bring the branch, the branch is fetched first.
+ */
+async function startPointFromOrigin(
+  repoPath: string,
+  branchName: string
+): Promise<string | undefined> {
+  if (gitService.fetchedOriginRecently(repoPath)) {
+    const recent = await gitService.originStartPoint(repoPath, branchName);
+    if (recent.status === 'available') return recent.ref;
+    // Fetching again can't give origin the local branch's unpushed commits.
+    if (recent.status === 'behind-local') return undefined;
+  }
+  return gitService.fetchOriginStartPoint(repoPath, branchName);
 }
 
 export function toSafeWorktreePath(projectName: string, branchName: string): string {

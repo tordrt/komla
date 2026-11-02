@@ -823,6 +823,13 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     return () => window.clearTimeout(timer);
   }, [open, loadSyncStatuses, loadActions]);
 
+  // Fetching origin while the prompt is typed lets the workspace start from a recent copy of the
+  // project's target branch without fetching as it's created. An SSH host fetches its own clone.
+  useEffect(() => {
+    if (!open || isSshLaunch || !effectiveProjectId || selectedProjectIsDirectory) return;
+    window.api.fetchProjectInBackground(effectiveProjectId);
+  }, [open, isSshLaunch, effectiveProjectId, selectedProjectIsDirectory]);
+
   useEffect(() => {
     if (!selectedProject) return;
     setMode(selectedProject.kind === 'directory' ? 'directory' : 'worktree');

@@ -16,6 +16,18 @@ import { gitWorktreeService } from './git-worktree';
 
 const logger = createLogger('GitBranch');
 
+/** How long a fetch of origin lets new worktrees start from its copy without fetching again. */
+export const RECENT_ORIGIN_FETCH_MS = 10 * 60_000;
+
+/**
+ * Origin's copy of a branch as a worktree's start point: available, missing as of the last
+ * fetch, or behind the local branch, which has commits origin's copy lacks.
+ */
+export type OriginStartPoint =
+  | { status: 'available'; ref: string }
+  | { status: 'missing' }
+  | { status: 'behind-local' };
+
 // `git stash create` builds a stash commit for tracked changes without touching
 // the shared refs/stash reflog — critical in bare-repo worktree setups where all
 // worktrees share a single stash reflog. The returned SHA is private; we apply
@@ -280,6 +292,8 @@ class GitBranchService {
   // Request coalescing: if an operation is already in-flight for a path, reuse its promise
   private inFlightBranchStatus = new Map<string, Promise<GitBranchQuickStatus>>();
   private inFlightSafeFastForwards = new Map<string, Promise<RemoteBranchSync>>();
+  // When each repository last fetched every branch from origin, keyed by resolved path.
+  private originFetchedAt = new Map<string, number>();
 
   /**
    * Create a new local branch from a starting point (defaults to HEAD), without tracking it
@@ -1811,9 +1825,13 @@ class GitBranchService {
     timeoutMs: number,
     mark: number
   ): Promise<void> {
-    const config = await gitExec
-      .execGitAsync(repoPath, ['config', '-z', '--get-regexp', NO_PROMPT_CONFIG_KEYS])
-      .catch(() => '');
+    const [config, tracksEveryBranch] = await Promise.all([
+      gitExec
+        .execGitAsync(repoPath, ['config', '-z', '--get-regexp', NO_PROMPT_CONFIG_KEYS])
+        .catch(() => ''),
+      // Komla's own clones name the branches to fetch; a user's fetch follows its refspec.
+      managed || this.fetchTracksEveryOriginBranch(repoPath),
+    ]);
     const args = managed
       ? ['fetch', 'origin', '+refs/heads/*:refs/remotes/origin/*', '--prune']
       : ['fetch', 'origin'];
@@ -1822,17 +1840,32 @@ class GitBranchService {
       timeoutMs,
       background: mark,
     });
+    // A fetch that leaves branches untracked can't vouch for their remote-tracking refs.
+    if (tracksEveryBranch) this.originFetchedAt.set(path.resolve(repoPath), Date.now());
     gitExec.invalidateCache(`mainBranch:${repoPath}`);
     gitExec.invalidateCache(`remoteDefaultBranch:${repoPath}`);
   }
 
+  private async fetchTracksEveryOriginBranch(repoPath: string): Promise<boolean> {
+    const refspecs = await gitExec
+      .execGitAsync(repoPath, ['config', '--get-all', 'remote.origin.fetch'])
+      .catch(() => '');
+    return refspecs
+      .split('\n')
+      .some(
+        (refspec) => refspec.trim().replace(/^\+/, '') === 'refs/heads/*:refs/remotes/origin/*'
+      );
+  }
+
+  /** Whether the repository fetched every one of origin's branches in the last few minutes. */
+  fetchedOriginRecently(repoPath: string): boolean {
+    const fetchedAt = this.originFetchedAt.get(path.resolve(repoPath));
+    return fetchedAt !== undefined && Date.now() - fetchedAt < RECENT_ORIGIN_FETCH_MS;
+  }
+
   /**
-   * Fetch one branch from origin so a new worktree can start from the latest
-   * remote commit. Returns `origin/<branch>` when the remote-tracking ref is
-   * available afterwards and contains every local commit on the branch, or
-   * undefined when there is no origin, the branch is missing there, the fetch
-   * fails, or the local branch has unpushed commits — callers then keep their
-   * local start point.
+   * Fetch one branch from origin, then return it as a start point the way
+   * originStartPoint does. Undefined also when the fetch fails.
    */
   async fetchOriginStartPoint(repoPath: string, branchName: string): Promise<string | undefined> {
     if (!(await gitExec.hasRemote(repoPath, 'origin'))) return undefined;
@@ -1843,12 +1876,6 @@ class GitBranchService {
         undefined,
         { enableAskpass: true }
       );
-      await gitExec.execGitAsync(repoPath, [
-        'rev-parse',
-        '--verify',
-        '--quiet',
-        `refs/remotes/origin/${branchName}^{commit}`,
-      ]);
     } catch (error) {
       logger.warn('Could not fetch start point from origin', {
         branchName,
@@ -1856,27 +1883,34 @@ class GitBranchService {
       });
       return undefined;
     }
+    const startPoint = await this.originStartPoint(repoPath, branchName);
+    return startPoint.status === 'available' ? startPoint.ref : undefined;
+  }
+
+  /**
+   * Origin's copy of a branch as of the last fetch, as a start point for a new worktree:
+   * `origin/<branch>` when that remote-tracking ref exists and contains every local commit on
+   * the branch. Callers otherwise keep their local start point. Doesn't fetch.
+   */
+  async originStartPoint(repoPath: string, branchName: string): Promise<OriginStartPoint> {
+    const remoteRef = `refs/remotes/origin/${branchName}`;
     const localRef = `refs/heads/${branchName}`;
     const succeeds = (args: string[]) =>
       gitExec.execGitAsync(repoPath, args).then(
         () => true,
         () => false
       );
-    const hasLocalBranch = await succeeds([
-      'rev-parse',
-      '--verify',
-      '--quiet',
-      `${localRef}^{commit}`,
-    ]);
+    const [hasRemoteBranch, hasLocalBranch] = await Promise.all(
+      [remoteRef, localRef].map((ref) =>
+        succeeds(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+      )
+    );
+    if (!hasRemoteBranch) return { status: 'missing' };
     const originHasLocalCommits =
-      !hasLocalBranch ||
-      (await succeeds([
-        'merge-base',
-        '--is-ancestor',
-        localRef,
-        `refs/remotes/origin/${branchName}`,
-      ]));
-    return originHasLocalCommits ? `origin/${branchName}` : undefined;
+      !hasLocalBranch || (await succeeds(['merge-base', '--is-ancestor', localRef, remoteRef]));
+    return originHasLocalCommits
+      ? { status: 'available', ref: `origin/${branchName}` }
+      : { status: 'behind-local' };
   }
 
   /**

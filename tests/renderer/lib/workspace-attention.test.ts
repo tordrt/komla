@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   findNextAttentionWorkspaceId,
@@ -112,6 +112,10 @@ describe('getTabAttentionDisplay', () => {
 });
 
 describe('getWorkspaceAttentionAppearance', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('uses custom notification presentation', () => {
     expect(
       getWorkspaceAttentionAppearance({
@@ -169,6 +173,34 @@ describe('getWorkspaceAttentionAppearance', () => {
       getWorkspaceAttentionAppearance({ ...attention('turn-complete'), color: 'muted' })
     ).toEqual(expect.objectContaining({ tone: 'neutral', dotClassName: 'bg-muted-foreground/60' }));
   });
+
+  it("keeps the kind's own color for one the browser can't parse, for the badge and the outline", () => {
+    vi.stubGlobal('CSS', { supports: (_property: string, value: string) => value !== '#ff000' });
+    const plain = getWorkspaceAttentionAppearance({ ...attention('generic'), title: 'Done' });
+    const appearance = getWorkspaceAttentionAppearance({
+      ...attention('generic'),
+      title: 'Done',
+      color: '#ff000',
+    });
+
+    expect(appearance?.borderColor).toBe(plain?.borderColor);
+    expect(appearance?.badgeStyle).toBeUndefined();
+  });
+
+  it.each(['inherit', 'unset', 'currentColor'])(
+    'keeps the kind\'s own color for the keyword "%s", which takes the parent\'s',
+    (color) => {
+      const plain = getWorkspaceAttentionAppearance({ ...attention('generic'), title: 'Done' });
+      const appearance = getWorkspaceAttentionAppearance({
+        ...attention('generic'),
+        title: 'Done',
+        color,
+      });
+
+      expect(appearance?.borderColor).toBe(plain?.borderColor);
+      expect(appearance?.badgeStyle).toBeUndefined();
+    }
+  );
 
   it("takes a color named like an object's own property for a CSS color, not a tone", () => {
     expect(

@@ -142,9 +142,8 @@ function AppBanners({ onOpenIntegrationsSettings }: { onOpenIntegrationsSettings
   );
 }
 
-/** Everything above the status bar, flat beside the sidebar. */
+/** Everything above the status bar, on the sidebar's chrome with no line between them. */
 function WorkArea({ banners, children }: { banners: React.ReactNode; children: React.ReactNode }) {
-  const statusBarShown = useConfigStore((s) => !!s.config && s.config.showStatusBar !== false);
   const workAreaRef = useRef<HTMLDivElement>(null);
   const bannerLayerRef = useRef<HTMLDivElement>(null);
 
@@ -162,15 +161,11 @@ function WorkArea({ banners, children }: { banners: React.ReactNode; children: R
     return () => observer.disconnect();
   }, []);
 
-  // The line above the status bar matches the work column's left edge.
   return (
     <div
       ref={workAreaRef}
       data-testid="work-area"
-      className={cn(
-        'relative flex min-h-0 flex-1 flex-col overflow-hidden border-foreground/10 bg-card',
-        statusBarShown && 'border-b'
-      )}
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       {children}
       {/* Above a split's divider (z-index 35) and below the blame gutter's inline z-50 menu,
@@ -382,7 +377,7 @@ export default function App() {
     <AppShell>
       <ShortcutProvider onOpenNewWorkspaceDialog={() => setNewWorkspaceDialogOpen(true)}>
         {/* The sidebar runs the full window height; the title and status bars span only the main
-            column, which sits on the sidebar's color as a card with rounded left corners. */}
+            column, which sits on the sidebar's color too, with a faint line between them. */}
         <div className="window-chrome flex h-screen min-h-0 overflow-hidden">
           {sidebarMounted && (
             <Activity mode={showSidebar ? 'visible' : 'hidden'}>
@@ -399,9 +394,12 @@ export default function App() {
           )}
 
           <div
+            // On the sidebar's chrome, which runs on under the tab row and the status bar. Its faint
+            // line along the sidebar runs the window's full height, the same line as under the tab
+            // row and along the file panel, so the panes are framed alike on every side.
             className={cn(
-              'work-column relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card',
-              sidebarShown && 'rounded-tl-[14px] border-l border-foreground/10'
+              'work-column relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
+              sidebarShown && 'border-l border-foreground/8'
             )}
           >
             <WorkArea

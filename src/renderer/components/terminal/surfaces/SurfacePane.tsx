@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { openNewActionEditor } from '@/stores/action-editor.store';
 import { useActionsStore } from '@/stores/actions.store';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
+import { useCustomizationStore } from '@/stores/customization.store';
 import { useLayoutStore } from '@/stores/layout.store';
 import { usePaneSurfacesStore } from '@/stores/pane-surfaces.store';
 import { supportsLocalCopy } from '@/stores/ssh-command-execution-location.store';
@@ -43,6 +44,7 @@ import {
   paneDragGripRevealProps,
 } from '../PaneDragGrip';
 import { PaneDropLayer } from '../PaneDropTarget';
+import { PaneOutline } from '../PaneOutline';
 
 import { BrowserSurface } from './BrowserSurface';
 import { FileSurface } from './FileSurface';
@@ -95,6 +97,9 @@ export const SurfacePane = React.memo(function SurfacePane({
     (s) => !!workspaceId && (s.tabsByWorkspace[workspaceId]?.length ?? 0) > 1
   );
   const setFocusedPane = useLayoutStore((s) => s.setFocusedPane);
+  const focusedPaneBorder = useCustomizationStore(
+    (s) => s.terminalConfig?.focusedPaneBorder === true
+  );
   const background = useEditorSurfaceBackground();
   // An SSH workspace's panes can open a terminal on this computer, in its Local copy.
   const sshHostId = workspace && isSshWorkspace(workspace) ? workspace.backend.hostId : undefined;
@@ -160,11 +165,12 @@ export const SurfacePane = React.memo(function SurfacePane({
   const header: SurfaceHeader = (title, options = {}) => (
     <div
       className={cn(
-        'flex h-7 shrink-0 cursor-grab items-center gap-1 bg-card pr-1 active:cursor-grabbing',
-        // Tabs draw the bottom line as an inset shadow, which the active tab covers.
+        'flex h-7 shrink-0 cursor-grab items-center gap-1 pr-1 active:cursor-grabbing',
+        // Tabs sit on the sidebar's chrome with the faint line under them, like the terminal tab
+        // row, and draw that line as an inset shadow, which the active tab covers.
         options.tabs
-          ? 'shadow-[inset_0_-1px_0_oklch(var(--border))]'
-          : 'border-b border-border pl-2'
+          ? 'pane-frame-tabs bg-[oklch(var(--chrome))] shadow-[inset_0_-1px_0_oklch(var(--foreground)/0.08)]'
+          : 'border-b border-border bg-card pl-2'
       )}
       // The active tab opens into the surface below it.
       style={options.tabs ? ({ '--tab-surface': background } as React.CSSProperties) : undefined}
@@ -275,6 +281,9 @@ export const SurfacePane = React.memo(function SurfacePane({
               )}
             </PaneDragBarProvider>
             <PaneDropLayer paneId={paneId} paneRef={paneRef} disabled={isLayoutLocked} />
+            {/* Not on a browser: its page is a native view drawn over the window, which would hide
+                all but the outline's top edge. */}
+            {surface.kind !== 'browser' && <PaneOutline focused={focusedPaneBorder && isFocused} />}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>

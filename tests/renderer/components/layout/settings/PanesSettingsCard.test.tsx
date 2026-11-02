@@ -48,7 +48,8 @@ describe('PanesSettingsCard', () => {
     await waitFor(() =>
       expect(screen.getByRole('switch', { name: 'Show pane buttons on focus' })).toBeDisabled()
     );
-    expect(screen.getByRole('switch', { name: 'Focused pane border' })).toBeDisabled();
+    // The border outlines the whole pane, so it works without a header.
+    expect(screen.getByRole('switch', { name: 'Focused pane border' })).toBeEnabled();
     expect(screen.getByRole('switch', { name: 'Notification pane border' })).toBeEnabled();
   });
 

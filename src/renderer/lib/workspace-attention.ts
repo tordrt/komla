@@ -22,7 +22,6 @@ export interface WorkspaceAttentionAppearance {
   badgeStyle?: CSSProperties;
   dotClassName: string;
   borderColor: string;
-  borderOpacity?: number;
   /** Tone for a soft `<Badge>` status pill: input and error stand out by hue, not by a solid fill. */
   tone: BadgeTone;
 }
@@ -142,7 +141,7 @@ export function resolveAttentionDelivery(
 
 type ToneAppearance = Pick<
   WorkspaceAttentionAppearance,
-  'badgeClassName' | 'dotClassName' | 'borderColor' | 'borderOpacity' | 'tone'
+  'badgeClassName' | 'dotClassName' | 'borderColor' | 'tone'
 >;
 
 // How each tone looks, following the theme. A notification's `color` can name one to look like
@@ -182,7 +181,6 @@ const TONE_APPEARANCES: Record<string, ToneAppearance> = {
     badgeClassName: 'bg-muted text-muted-foreground ring-1 ring-border',
     dotClassName: 'bg-muted-foreground/60',
     borderColor: 'oklch(var(--muted-foreground) / 0.6)',
-    borderOpacity: 0.85,
     tone: 'neutral',
   },
 };
@@ -241,6 +239,9 @@ export function getWorkspaceAttentionAppearance(
   // Own keys only: a color such as "constructor" isn't a tone.
   const toneAppearance =
     color && Object.hasOwn(TONE_APPEARANCES, color) ? TONE_APPEARANCES[color] : undefined;
+  // A color the browser can't parse keeps the kind's own, so the badge and the pane's outline still
+  // show (an invalid one would leave the badge bare and draw the outline in the text color).
+  const customColor = color && isCssColor(color) ? color : undefined;
 
   return {
     ...appearance,
@@ -250,14 +251,35 @@ export function getWorkspaceAttentionAppearance(
     heading: title ?? appearance.tooltip,
     detail: explicitBody ?? (message || undefined),
     ...(toneAppearance
-      ? { borderOpacity: undefined, ...toneAppearance }
-      : color
+      ? toneAppearance
+      : customColor
         ? {
-            badgeStyle: { backgroundColor: color },
-            borderColor: color,
+            badgeStyle: { backgroundColor: customColor },
+            borderColor: customColor,
           }
         : {}),
   };
+}
+
+// CSS-wide keywords parse as a color but take the parent's value, which leaves the badge bare and
+// the outline's color-mix() invalid.
+const CSS_WIDE_KEYWORD = /^(?:inherit|initial|unset|revert|revert-layer|currentcolor)$/i;
+// Notification colors come from a short set of strings, and appearances are built on every render.
+const cssColorChecks = new Map<string, boolean>();
+
+/**
+ * Whether the browser parses it as a color of its own, not a CSS-wide keyword; with no way to
+ * tell (as in tests), assume it does.
+ */
+function isCssColor(value: string): boolean {
+  if (CSS_WIDE_KEYWORD.test(value)) return false;
+  if (typeof CSS === 'undefined' || typeof CSS.supports !== 'function') return true;
+  let valid = cssColorChecks.get(value);
+  if (valid === undefined) {
+    valid = CSS.supports('color', value);
+    cssColorChecks.set(value, valid);
+  }
+  return valid;
 }
 
 /** The source of the attention an unread mark shows as; a woken snooze's has its own glyph. */

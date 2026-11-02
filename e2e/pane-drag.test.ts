@@ -150,7 +150,7 @@ test.describe('Pane drag', () => {
 
       if (kind === 'file') {
         await appWindow.getByRole('button', { name: 'Toggle file panel' }).click();
-        await appWindow.getByRole('button', { name: 'Files', exact: true }).click();
+        await appWindow.getByRole('radio', { name: 'Files', exact: true }).click();
         await appWindow.locator('[data-item-path="page.html"]').click({ button: 'right' });
         await appWindow.getByRole('menuitem', { name: 'Open in Split Right' }).click();
         await appWindow.getByRole('button', { name: 'Toggle file panel' }).click();

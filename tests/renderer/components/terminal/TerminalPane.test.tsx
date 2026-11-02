@@ -80,6 +80,7 @@ const mocks = vi.hoisted(() => ({
     colors: { background: string };
     showPaneHeaders?: boolean;
     sendRightClickToPrograms?: boolean;
+    focusedPaneBorder?: boolean;
   } | null,
   tabIds: ['tab-1'],
   moveTabToEdge: vi.fn(),
@@ -638,6 +639,74 @@ describe('TerminalPane SSH reconnect', () => {
     expect(screen.queryByRole('button', { name: 'Split terminal right' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('pane-status-strip')).not.toBeInTheDocument();
     expect(screen.getByTestId('terminal-view')).toBeInTheDocument();
+  });
+
+  it('outlines the focused split pane in the accent even with pane headers turned off', () => {
+    mocks.terminalConfig = {
+      colors: { background: '#282c34' },
+      showPaneHeaders: false,
+      focusedPaneBorder: true,
+    };
+
+    render(
+      <TerminalPane
+        paneId="pane-1"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+      />
+    );
+
+    expect(screen.getByTestId('pane-outline')).toHaveAttribute('data-focused', 'true');
+  });
+
+  it('leaves an unfocused split pane, and a focused one with the border off, without the accent outline', () => {
+    mocks.terminalConfig = {
+      colors: { background: '#282c34' },
+      showPaneHeaders: true,
+      focusedPaneBorder: true,
+    };
+    const { unmount } = render(
+      <TerminalPane
+        paneId="pane-2"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+      />
+    );
+    expect(screen.getByTestId('pane-outline')).toHaveAttribute('data-focused', 'false');
+    unmount();
+
+    mocks.terminalConfig = { ...mocks.terminalConfig, focusedPaneBorder: false };
+    render(
+      <TerminalPane
+        paneId="pane-1"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+      />
+    );
+    expect(screen.getByTestId('pane-outline')).toHaveAttribute('data-focused', 'false');
+  });
+
+  it('outlines a lone pane too, as every pane is a card', () => {
+    mocks.terminalConfig = {
+      colors: { background: '#282c34' },
+      showPaneHeaders: false,
+      focusedPaneBorder: true,
+    };
+
+    render(
+      <TerminalPane
+        paneId="pane-1"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+        isOnlyPane
+      />
+    );
+
+    expect(screen.getByTestId('pane-outline')).toHaveAttribute('data-focused', 'true');
   });
 
   it('moves a split pane by its grip when pane headers are turned off', () => {

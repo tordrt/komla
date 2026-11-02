@@ -42,11 +42,9 @@ export function PanesSettingsCard() {
 
       <SettingsRow
         label="Focused pane border"
-        description="Show a colored accent on the focused pane header using the project color"
-        disabled={!showPaneHeaders}
+        description="Outline the focused pane in the accent color"
       >
         <Switch
-          disabled={!showPaneHeaders}
           checked={terminalConfig?.focusedPaneBorder === true}
           onCheckedChange={(checked) => {
             void updateTerminalConfig({ focusedPaneBorder: checked });

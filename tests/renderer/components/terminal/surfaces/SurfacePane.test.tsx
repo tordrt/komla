@@ -304,3 +304,20 @@ describe('SurfacePane as a drop target', () => {
     expect(pane.querySelector('[data-pane-drop-indicator]')).not.toBeInTheDocument();
   });
 });
+
+describe('SurfacePane outline', () => {
+  beforeEach(() => setUp(['tab-1']));
+
+  it('outlines a note pane, but not a browser pane, whose page is a native view over the window', () => {
+    const { unmount } = renderPane();
+    expect(screen.getByTestId('pane-outline')).toBeInTheDocument();
+    unmount();
+
+    usePaneSurfacesStore.setState({
+      surfaces: { [SURFACE_ID]: { kind: 'browser', workspaceId: WORKSPACE_ID } },
+    } as never);
+    renderPane();
+    // It would show only along the tab strip, the native page hiding its sides and bottom.
+    expect(screen.queryByTestId('pane-outline')).not.toBeInTheDocument();
+  });
+});

@@ -808,6 +808,21 @@ describe('TerminalTabs', () => {
     expect(kindsOf('Tab t3')).toEqual(['note']);
   });
 
+  it('joins the active tab to the panes below, the first one at the edge without a left side', () => {
+    setUpWorkspace(['t1', 't2'], { activeTabId: 't2' });
+    const { rerender } = render(<TerminalTabs />);
+
+    expect(getTab('Tab t2')).toHaveClass('flat-tab-active', 'joined-tab');
+    expect(getTab('Tab t2')).not.toHaveClass('edge-tab');
+    expect(getTab('Tab t1')).not.toHaveClass('flat-tab-active');
+
+    act(() => useLayoutStore.setState({ activeTabByWorkspace: { [WORKSPACE_ID]: 't1' } }));
+    rerender(<TerminalTabs />);
+    expect(getTab('Tab t1')).toHaveClass('flat-tab-active', 'joined-tab', 'edge-tab');
+    // Square, like the panes it opens into.
+    expect(getTab('Tab t1').className).not.toMatch(/\brounded/);
+  });
+
   describe('moving a single-pane tab', () => {
     it('moves the pane into another tab from the tab menu', () => {
       setUpWorkspace(['t1', 't2', 't3'], { activeTabId: 't3' });
@@ -904,51 +919,66 @@ describe('TerminalTabs', () => {
       vi.unstubAllGlobals();
     });
 
-    it.each([
-      ['darwin', true],
-      ['linux', false],
-      ['win32', false],
-    ] as const)('on %s, sits in the top row: %s', (platform, inTopRow) => {
-      (window.api as { platform: string }).platform = platform;
+    it.each(['darwin', 'linux', 'win32'] as const)(
+      "on %s, sits in the panel's header in the top row",
+      (platform) => {
+        (window.api as { platform: string }).platform = platform;
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+        setUpWorkspace(['t1']);
+        render(<TerminalTabs />);
+
+        const header = screen.getByTestId('file-panel-header');
+        expect(screen.getByTestId('workspace-top-row')).toContainElement(header);
+        expect(header).toContainElement(screen.getByTitle('Show all files'));
+      }
+    );
+
+    it('puts the browser button beside the panel toggle, in the panel header', () => {
       vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
       setUpWorkspace(['t1']);
       render(<TerminalTabs />);
 
-      const topRow = screen.getByTestId('workspace-top-row');
-      const files = screen.getByTitle('Show all files');
-      // Elsewhere the window controls share the top row's corner, so the tabs open the panel.
-      expect(topRow.contains(files)).toBe(inTopRow);
-    });
-
-    it.each([
-      ['darwin', true],
-      ['linux', false],
-      ['win32', false],
-    ] as const)('on %s, fits the first tab to a rounded corner: %s', (platform, inCorner) => {
-      (window.api as { platform: string }).platform = platform;
-      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
-      setUpWorkspace(['t1']);
-      render(<TerminalTabs />);
-
-      // In the top row the panel has a rounded corner; inside the panel its corner is square.
-      expect(screen.getByTitle('Show changed files').classList.contains('corner-tab')).toBe(
-        inCorner
+      const browser = screen.getByRole('button', { name: 'Open in default browser' });
+      expect(screen.getByTestId('terminal-tab-row')).not.toContainElement(browser);
+      expect(browser.parentElement).toContainElement(
+        screen.getByRole('button', { name: 'Toggle file panel' })
       );
-      expect(screen.getByTitle('Show all files').classList.contains('corner-tab')).toBe(false);
     });
 
+    it.each(['darwin', 'linux'] as const)(
+      'on %s, switches between them with a two-part toggle',
+      (platform) => {
+        (window.api as { platform: string }).platform = platform;
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+        setUpWorkspace(['t1']);
+        render(<TerminalTabs />);
+
+        const view = screen.getByRole('radiogroup', { name: 'File panel view' });
+        expect(within(view).getByRole('radio', { name: 'Diff' })).toHaveAttribute(
+          'aria-checked',
+          'true'
+        );
+        expect(within(view).getByRole('radio', { name: 'Files' })).toHaveAttribute(
+          'aria-checked',
+          'false'
+        );
+      }
+    );
+
     it.each([
-      ['darwin', 194],
-      ['linux', 150],
-    ] as const)('on %s, keeps the file panel at least %ipx wide', (platform, minWidth) => {
+      ['darwin', '202'],
+      ['linux', '202'],
+      // The Windows window controls (138px) share the header too, right of the corner buttons.
+      ['win32', '340'],
+    ] as const)('on %s, keeps the file panel wide enough for its header', (platform, minWidth) => {
       (window.api as { platform: string }).platform = platform;
-      // The Diff/Files tabs measure 90px and the corner buttons 100px.
+      // The Diff/Files switch measures 90px and the corner buttons 100px.
       vi.stubGlobal(
         'ResizeObserver',
         class {
           constructor(private readonly callback: ResizeObserverCallback) {}
           observe(element: Element) {
-            const width = element.querySelector(':scope > [title="Show all files"]')
+            const width = element.querySelector(':scope > [aria-label="File panel view"]')
               ? 90
               : element.querySelector(':scope > [aria-label="Toggle file panel"]')
                 ? 100
@@ -966,16 +996,25 @@ describe('TerminalTabs', () => {
       render(<TerminalTabs />);
 
       const handle = screen.getByRole('separator', { name: 'Resize file tree panel' });
-      // On macOS the tabs share the top row with the corner buttons: 90 + 100 + 4.
-      expect(handle).toHaveAttribute('aria-valuemin', String(minWidth));
+      // The switch shares the panel's header with the corner buttons: 90 + 100 + 12.
+      expect(handle).toHaveAttribute('aria-valuemin', minWidth);
     });
 
-    it.each([
-      ['darwin', '0px'],
-      ['linux', '108px'],
-    ] as const)(
-      'on %s, ends the terminal tab row %s before the corner buttons',
-      (platform, paddingRight) => {
+    it("collapses the file panel's header to nothing until the work area is measured", () => {
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
+      setUpWorkspace(['t1']);
+      render(<TerminalTabs />);
+
+      // Its padding and line would otherwise keep a sliver with a line at its end.
+      const header = screen.getByTestId('file-panel-header');
+      expect(header.style.width).toBe('0px');
+      expect(header).not.toHaveClass('border-l');
+      expect(header).not.toHaveClass('pl-1.5');
+    });
+
+    it.each(['darwin', 'linux'] as const)(
+      "on %s, ends the terminal tab row at the file panel's header",
+      (platform) => {
         (window.api as { platform: string }).platform = platform;
         // The corner buttons measure 100px.
         vi.stubGlobal(
@@ -998,10 +1037,8 @@ describe('TerminalTabs', () => {
         setUpWorkspace(['t1']);
         render(<TerminalTabs />);
 
-        // On macOS the file panel's tabs take its stretch of the row, so the tab row ends at the
-        // panel's edge. Elsewhere that stretch would be empty, so the tab row runs on to the
-        // corner buttons and keeps the Action button beside them.
-        expect(screen.getByTestId('terminal-tab-row')).toHaveStyle({ paddingRight });
+        // The corner buttons sit in the panel's header, so the tab row keeps no room for them.
+        expect(screen.getByTestId('terminal-tab-row')).toHaveStyle({ paddingRight: '0px' });
       }
     );
   });
@@ -1025,9 +1062,7 @@ describe('TerminalTabs', () => {
       expect(handle).toHaveAttribute('aria-valuenow', '236');
 
       fireEvent.doubleClick(handle);
-      expect(useFileViewerStore.getState().inlineFileTreeWidthByWorkspace[WORKSPACE_ID]).toBe(
-        0.22
-      );
+      expect(useFileViewerStore.getState().inlineFileTreeWidthByWorkspace[WORKSPACE_ID]).toBe(0.22);
     });
 
     it('resizes a side-by-side preview from the keyboard', () => {

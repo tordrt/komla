@@ -74,7 +74,6 @@ import { useCustomizationStore } from '@/stores/customization.store';
 import { useLayoutStore } from '@/stores/layout.store';
 import { useLocalCopySyncStore } from '@/stores/local-copy-sync.store';
 import { usePaneFlashStore } from '@/stores/pane-flash.store';
-import { useProjectsStore } from '@/stores/projects.store';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { supportsLocalCopy } from '@/stores/ssh-command-execution-location.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
@@ -95,6 +94,7 @@ import {
 import { AgentPresetMenuItems } from './AgentPresetMenuItems';
 import { PaneDragGrip, paneDragGripRevealProps } from './PaneDragGrip';
 import { usePaneDropTarget } from './PaneDropTarget';
+import { PaneOutline } from './PaneOutline';
 import { SplitPaneMenuItems } from './surfaces/SplitPaneMenuItems';
 import {
   pasteClipboardIntoTerminal,
@@ -350,10 +350,6 @@ export const TerminalPane = React.memo(function TerminalPane({
   const showDragGrip = !showHeader && !isLayoutMutationDisabled && (!isOnlyPane || hasOtherTabs);
 
   const projectId = actionWorkspace?.projectId;
-  const actionProject = useProjectsStore((s) =>
-    projectId ? s.projects.find((p) => p.id === projectId) : undefined
-  );
-  const projectColor = actionProject?.color;
 
   const actionMenuGroups = getActionMenuGroups(actions, projectId);
   const promptMenuGroups = actionMenuGroups.filter((group) => group.type === 'prompt');
@@ -709,18 +705,6 @@ export const TerminalPane = React.memo(function TerminalPane({
   const showAttentionBorder =
     notificationPaneBorder && !!attentionAppearance && !(isTabActive && isFocused);
 
-  const paneStyle = useMemo(() => {
-    if (!focusedPaneBorder) return undefined;
-    return {
-      borderBottomWidth: '2px',
-      borderBottomStyle: 'solid' as const,
-      borderBottomColor: isFocused
-        ? projectColor || 'oklch(var(--primary))'
-        : 'oklch(var(--border) / 0.4)',
-      transition: 'border-color 150ms, background-color 150ms',
-    };
-  }, [focusedPaneBorder, isFocused, projectColor]);
-
   const terminalContentStyle = useMemo(
     () => ({ opacity: isFocused ? 1 : unfocusedPaneDimOpacity }),
     [isFocused, unfocusedPaneDimOpacity]
@@ -839,9 +823,6 @@ export const TerminalPane = React.memo(function TerminalPane({
             className={cn(
               'relative isolate flex h-full min-h-0 flex-col transition-opacity',
               isDragging && 'opacity-40',
-              // Allotment draws the split's divider over the pane's top or left edge at
-              // z-index 5; the notification border takes that edge's place.
-              showAttentionBorder && 'z-[6]',
               paneScope.className
             )}
             style={paneScope.style}
@@ -859,9 +840,9 @@ export const TerminalPane = React.memo(function TerminalPane({
             {/* Pane header — the whole bar is the drag handle */}
             {showHeader && (
               <div
-                className="group/pane-header relative flex h-6 cursor-grab items-center justify-between border-b border-foreground/10 px-2 active:cursor-grabbing"
+                className="group/pane-header relative flex h-7 shrink-0 cursor-grab items-center justify-between border-b border-foreground/10 px-2.5 active:cursor-grabbing"
                 // On the terminal's own color, so the header doesn't cut a band across the pane.
-                style={{ backgroundColor: terminalBackground, ...paneStyle }}
+                style={{ backgroundColor: terminalBackground }}
                 draggable={!isLayoutMutationDisabled}
                 onMouseDown={handleHeaderMouseDown}
                 onDragStart={handleDragStart}
@@ -1125,15 +1106,12 @@ export const TerminalPane = React.memo(function TerminalPane({
               )}
             </div>
 
-            {showAttentionBorder && (
-              <div
-                className="pointer-events-none absolute inset-0 z-10 border transition-colors duration-150"
-                style={{
-                  borderColor: attentionAppearance.borderColor,
-                  opacity: attentionAppearance.borderOpacity ?? 0.6,
-                }}
-              />
-            )}
+            <PaneOutline
+              focused={focusedPaneBorder && isFocused}
+              attention={
+                showAttentionBorder ? { color: attentionAppearance.borderColor } : undefined
+              }
+            />
 
             {/* Drop indicator while a pane is dragged over this one. */}
             {dropIndicator}

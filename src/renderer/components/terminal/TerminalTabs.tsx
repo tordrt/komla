@@ -157,30 +157,21 @@ interface TerminalTabsProps {
 const EMPTY_TAB_IDS: string[] = [];
 
 /**
- * On macOS the file panel's Diff and Files tabs sit in the top row, under its corner buttons. On
- * Windows and Linux the window controls share that corner, so the tabs move into the panel.
- */
-function treeTabsInTopRow(): boolean {
-  return window.api.platform === 'darwin';
-}
-
-/**
  * The room the top row's last header keeps at its right for the corner buttons (and window
- * controls), less what the file panel's empty stretch of the row already gives them.
+ * controls). With the file panel open they sit in its header, so it keeps none.
  */
-function topRowEndReserve(treeOpen: boolean, treeWidthPx: number, cornerWidthPx: number): number {
-  if (treeOpen && treeTabsInTopRow()) return 0;
-  return Math.max(0, cornerWidthPx + 8 - (treeOpen ? treeWidthPx : 0));
+function topRowEndReserve(treeOpen: boolean, cornerWidthPx: number): number {
+  if (treeOpen) return 0;
+  return cornerWidthPx + 8;
 }
 
 /**
- * The file panel's narrowest width. On macOS its Diff/Files tabs share the top row with the
- * corner buttons, so it never gets narrower than both together, plus a sliver so the active
- * tab's edge doesn't touch the first button.
+ * The file panel's narrowest width. Its header holds the Diff/Files switch and the corner buttons
+ * (and window controls), so it never gets narrower than both together, plus a sliver so the
+ * switch doesn't touch the first button.
  */
 function inlineTreeMinWidthPx(treeTabsWidthPx: number, cornerWidthPx: number): number {
-  if (!treeTabsInTopRow()) return INLINE_TREE_MIN_WIDTH_PX;
-  return Math.max(INLINE_TREE_MIN_WIDTH_PX, Math.ceil(treeTabsWidthPx + cornerWidthPx + 4));
+  return Math.max(INLINE_TREE_MIN_WIDTH_PX, Math.ceil(treeTabsWidthPx + cornerWidthPx + 12));
 }
 
 /** The tab row is the top of the window: as tall as the title bar, with room for the caption buttons. */
@@ -316,8 +307,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   );
 
   return (
-    // The terminal's color behind the file panel's rounded corners, so the panel sits on top of
-    // the terminal area.
+    // The terminal's color behind the panes and side panels.
     <div
       className="absolute inset-0 flex"
       style={
@@ -427,16 +417,11 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
         />
       )}
       {/* File tree panel — always rendered, collapses to width 0 when closed. Its Diff/Files
-           tabs are in the shared header bar above on macOS, where their row rounds the panel's
-           top left like the work area card. Elsewhere they sit at the panel's top, under the
-           header bar, and the panel's corner stays square. */}
+           switch is in its header, in the top row above. */}
       <div
         // Escape from the tree closes the preview, like Escape inside the panel.
         data-inline-file-preview-scope={wsId}
-        className={cn(
-          'shrink-0 overflow-hidden bg-card',
-          wsFileTreeOpen && 'border-l border-foreground/10'
-        )}
+        className={cn('shrink-0 overflow-hidden', wsFileTreeOpen && 'file-panel-chrome')}
         style={
           !wsFileTreeOpen || contentWidth <= 0
             ? { width: 0, overflow: 'hidden' }
@@ -444,11 +429,6 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
         }
       >
         <div className="flex h-full flex-col">
-          {!treeTabsInTopRow() && (
-            <div className="flex h-8 shrink-0 items-stretch shadow-[inset_0_-1px_0_oklch(var(--border)/0.4)]">
-              <FileTreeModeTabs workspaceId={wsId} isGitWorkspace={isWorktree} />
-            </div>
-          )}
           <div className="relative min-h-0 flex-1">
             <div className="absolute inset-x-0 top-0 bottom-(--banner-inset)">
               <ErrorBoundary>
@@ -477,37 +457,22 @@ function FileTreeModeTabs({
 }) {
   const mode = useFileViewerStore((s) => s.inlineFileTreeByWorkspace[workspaceId]?.mode ?? 'diff');
   const requestModeChange = useFileViewerStore((s) => s.requestInlineFilePreviewModeChange);
-  // The first tab meets the panel's top-left corner, as the first terminal tab meets
-  // the work area card's.
-  const tabClass = (active: boolean, first: boolean) =>
-    cn(
-      'relative mt-[0.5px] rounded-t-lg px-2.25 text-xs transition-colors [--tab-surface:oklch(var(--card))]',
-      first ? 'edge-tab mr-px' : 'mx-px',
-      first && treeTabsInTopRow() && 'corner-tab',
-      active
-        ? 'flat-tab-active joined-tab text-foreground'
-        : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground'
-    );
-  // Through the store action, so a dirty preview asks before reloading in the other mode.
+  const options = [
+    ...(isGitWorkspace
+      ? [{ value: 'diff' as const, label: 'Diff', title: 'Show changed files' }]
+      : []),
+    { value: 'browse' as const, label: 'Files', title: 'Show all files' },
+  ];
+  // A switch rather than more tabs, so it doesn't read as part of the terminal tabs' row. Through
+  // the store action, so a dirty preview asks before reloading in the other mode.
   return (
-    <>
-      {isGitWorkspace && (
-        <button
-          onClick={() => requestModeChange(workspaceId, 'diff')}
-          className={tabClass(mode === 'diff', true)}
-          title="Show changed files"
-        >
-          Diff
-        </button>
-      )}
-      <button
-        onClick={() => requestModeChange(workspaceId, 'browse')}
-        className={tabClass(mode === 'browse', !isGitWorkspace)}
-        title="Show all files"
-      >
-        Files
-      </button>
-    </>
+    <SegmentedControl
+      aria-label="File panel view"
+      value={mode}
+      onValueChange={(next) => requestModeChange(workspaceId, next)}
+      options={options}
+      className="bg-foreground/[0.06]"
+    />
   );
 }
 
@@ -1009,14 +974,18 @@ export const TerminalTabs = memo(function TerminalTabs({
   const movePaneToNewTab = useLayoutStore((s) => s.movePaneToNewTab);
   const initializeWorkspaceLayout = useLayoutStore((s) => s.initializeWorkspaceLayout);
   const sidebarCollapsed = useSidebarCollapsed();
-  // The first tab meets the work area card's edge, unless the collapsed sidebar's buttons sit
-  // before it.
+  // The first tab lines up with the panes below, unless the collapsed sidebar's buttons sit before
+  // it.
   const firstTabAtEdge = !sidebarCollapsed;
+  const terminalBackground = useTerminalBackground();
   const [topRowActionsRef, topRowActionsWidth] = useElementWidth();
   const [treeTabsRef, treeTabsWidth] = useElementWidth();
-  const treeMinWidthPx = inlineTreeMinWidthPx(treeTabsWidth, topRowActionsWidth);
   const { heightPx: topRowHeightPx, captionWidthPx: topRowCaptionWidthPx } = topRowMetrics();
-  const terminalBackground = useTerminalBackground();
+  // The corner buttons sit left of the Windows window controls, so the header holds both.
+  const treeMinWidthPx = inlineTreeMinWidthPx(
+    treeTabsWidth,
+    topRowActionsWidth + topRowCaptionWidthPx
+  );
   const requestInlineFilePreviewModeChange = useFileViewerStore(
     (s) => s.requestInlineFilePreviewModeChange
   );
@@ -1183,14 +1152,10 @@ export const TerminalTabs = memo(function TerminalTabs({
       )
     : 0;
   const availableForPreviewParent = contentWidth - resolvedTreeWidthPx;
-  // The file panel keeps its stretch of the top row on macOS, for its tabs, and under a file
-  // preview, whose header sits over the preview pane. Elsewhere that stretch would stand empty, so
-  // the terminal tab row runs on into it and keeps the Action button beside the corner buttons.
-  const treeTabsOnTop = treeTabsInTopRow();
-  const isTreeInTopRow = isFileTreeOpen && (treeTabsOnTop || isInlinePreviewOpen);
+  // The file panel runs from the top of the window: its stretch of the top row is its header, with
+  // the Diff/Files switch and the corner buttons.
   const topRowEndReservePx = topRowEndReserve(
-    isTreeInTopRow,
-    resolvedTreeWidthPx,
+    isFileTreeOpen,
     topRowActionsWidth + topRowCaptionWidthPx
   );
   const resolvedPreviewWidthPx = isInlinePreviewOpen
@@ -1891,13 +1856,13 @@ export const TerminalTabs = memo(function TerminalTabs({
     };
   }, [isResizingTree, setInlineFileTreeWidth]);
 
-  // The empty page and the Overview put the title bar on the sidebar's chrome (globals.css), so
-  // the Windows window controls follow.
-  const emptyWorkAreaShown = !selectedWorkspace && (showDashboard || hasLoaded);
+  // A workspace's tab row, the empty page and the Overview all sit on the sidebar's chrome, so the
+  // Windows window controls follow.
+  const workColumnShown = !!selectedWorkspace || showDashboard || hasLoaded;
   useEffect(() => {
-    if (!emptyWorkAreaShown) return;
+    if (!workColumnShown) return;
     return claimWindowsTitleBarOverlaySurface('chrome');
-  }, [emptyWorkAreaShown]);
+  }, [workColumnShown]);
 
   // No workspace selected — show dashboard if requested, empty state if no active workspaces
   const emptyState = renderTerminalTabsEmptyState({
@@ -1942,7 +1907,8 @@ export const TerminalTabs = memo(function TerminalTabs({
         {selectedWorkspaceId && selectedWorkspace && (
           <div
             data-testid="workspace-top-row"
-            className="drag-region relative flex shrink-0 items-stretch bg-card shadow-[inset_0_-1px_0_oklch(var(--border))]"
+            // On the work column's surface, with no line under it: the tabs underline themselves.
+            className="pane-frame-tabs drag-region relative flex shrink-0 items-stretch shadow-[inset_0_-1px_0_oklch(var(--foreground)/0.08)]"
             style={{ height: topRowHeightPx }}
           >
             <SidebarExpandButton trafficLightInset className="gap-0.5 pr-1 pl-1.5">
@@ -2013,9 +1979,6 @@ export const TerminalTabs = memo(function TerminalTabs({
                         <ContextMenuTrigger asChild>
                           <div
                             className={cn(
-                              // Half a pixel off the top, one device pixel on Retina screens, so the
-                              // active tab's outline shows there. The first tab meets the work area
-                              // card's left edge like the terminal below it, without an outline.
                               'group/tab relative flex w-[180px] min-w-[96px] items-stretch pt-[0.5px] xl:w-[220px]',
                               firstTabAtEdge && tabIndex === 0 ? 'pr-px' : 'px-px',
                               draggedTabId === terminalId && 'opacity-50',
@@ -2057,13 +2020,13 @@ export const TerminalTabs = memo(function TerminalTabs({
                                 }
                               }}
                               className={cn(
-                                'relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-t-lg px-3 text-xs transition-colors',
+                                'relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 text-xs transition-colors',
                                 isActive
                                   ? 'flat-tab-active joined-tab text-foreground'
                                   : visible
                                     ? 'text-foreground/80 hover:bg-foreground/[0.045] hover:text-foreground'
                                     : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground',
-                                firstTabAtEdge && tabIndex === 0 && 'edge-tab corner-tab'
+                                firstTabAtEdge && tabIndex === 0 && 'edge-tab'
                               )}
                             >
                               {tabSurfaceIcons.length > 0 && (
@@ -2245,14 +2208,17 @@ export const TerminalTabs = memo(function TerminalTabs({
               previewCloseRef,
               layoutAttention: previewLayoutAttention,
             })}
-            {isTreeInTopRow && (
+            {isFileTreeOpen && (
               <div
-                // The tree's Diff/Files tabs on macOS. Elsewhere it only holds the tree's width,
-                // so a preview's header stays over the preview pane.
+                // The file panel's header: the top of the panel below, on the same chrome with the
+                // same faint line along its edge, so the panel reads as a sidebar on the right, as
+                // the workspace sidebar does on the left.
                 data-inline-file-preview-scope={selectedWorkspaceId ?? undefined}
+                data-testid="file-panel-header"
                 className={cn(
-                  'relative flex h-full shrink-0 items-stretch',
-                  treeTabsOnTop && 'overflow-hidden rounded-tl-[14px] border-l border-foreground/10'
+                  'relative flex shrink-0 items-stretch overflow-hidden',
+                  // Unmeasured, it collapses to nothing: padding and a border would keep a sliver.
+                  contentWidth > 0 && 'border-l border-foreground/8 pl-1.5'
                 )}
                 style={
                   contentWidth > 0
@@ -2260,9 +2226,9 @@ export const TerminalTabs = memo(function TerminalTabs({
                     : { width: 0, overflow: 'hidden' }
                 }
               >
-                {treeTabsOnTop && selectedWorkspaceId && (
+                {selectedWorkspaceId && (
                   // Measured, so the panel stays wide enough for these and the corner buttons.
-                  <div ref={treeTabsRef} className="flex items-stretch">
+                  <div ref={treeTabsRef} className="no-drag flex items-center">
                     <FileTreeModeTabs
                       workspaceId={selectedWorkspaceId}
                       isGitWorkspace={isGitWorkspace}
@@ -2271,10 +2237,11 @@ export const TerminalTabs = memo(function TerminalTabs({
                 )}
               </div>
             )}
-            {/* Globe + sidebar toggles live outside the file-tree conditional so
-                toggling the tree never remounts them. Rendering them in both
-                branches let React reconcile the file-tree tab buttons into these
-                buttons, animating `transition-colors` through bg-card — a white flash. */}
+            {/* Globe + panel toggles live outside the file-tree conditional so toggling the
+                tree never remounts them. Rendering them in both branches let React reconcile
+                the file-tree tab buttons into these buttons, animating `transition-colors`
+                through bg-card — a white flash. They sit over the panel's header while the panel
+                is open. */}
             <div
               ref={topRowActionsRef}
               className="no-drag absolute top-1/2 z-[2] flex h-7 -translate-y-1/2 items-center pr-1"

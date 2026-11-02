@@ -1138,13 +1138,18 @@ html[data-status-bar-row='large'] [data-status-bar] {
   background: oklch(var(--chrome));
 }
 
-/* With no workspace open, the main column's card (title bar, empty page or Overview) takes the
-   sidebar's --chrome, as the status bar always does, and drops the lines between them, so it reads
-   as one surface. Opening a workspace brings the card back. Only these surfaces: buttons on
-   bg-card keep their hover. */
+/* The main column's title bar sits on the chrome like the page below it, wherever it shows: over
+   a workspace that is still being set up, failed its setup or is restarting, the empty page, the
+   Overview, or Settings. */
+.work-column [data-komla-title-bar] {
+  background-color: oklch(var(--chrome));
+}
+
+/* With no workspace open, the empty page or Overview takes the sidebar's --chrome, which the
+   main column and status bar always sit on, so it reads as one surface with the title bar. Only
+   these surfaces: buttons on bg-card keep their hover. */
 .work-column:has(.empty-work-area),
-.work-column:has(.empty-work-area)
-  :is(.empty-work-area, [data-komla-title-bar], [data-testid='work-area']) {
+.work-column:has(.empty-work-area) :is(.empty-work-area, [data-testid='work-area']) {
   background-color: oklch(var(--chrome));
 }
 
@@ -1247,30 +1252,41 @@ html[data-status-bar-row='large'] [data-status-bar] {
   border-radius: inherit;
   pointer-events: none;
 }
-/* The first tab meets the work area card's edge, so it leaves out its left side. */
+/* The first tab meets the work column's edge, whose line draws its left side, so it leaves out
+   its own. */
 .flat-tab-active.joined-tab.edge-tab::after {
   border-left: 0;
 }
-/* A first tab in a 14px corner with a 1px left border and no top border: the work area card's, or
-   the file panel's. It takes that corner's inner curve, from its place 0.5px below the top. A
-   tighter corner would stick out past the curve and be clipped, outline and all, leaving only the
-   corner's border, which tapers away towards the top. That border also draws the tab's left side,
-   so the tab leaves out its own line. */
-.corner-tab {
-  border-top-left-radius: 13px 13.5px;
+/* The terminal tab row: the active tab's outline is the faint line that frames the pane area on
+   every side (along the sidebar, under this row, along the file panel). Joined tabs drop their
+   own side lines, so the first tab sits flush against the sidebar's line; light themes with a dark
+   terminal keep their bar. */
+:is(.dark, .light-terminal) .pane-frame-tabs .flat-tab-active.joined-tab {
+  box-shadow: none;
 }
-:is(.dark, .light-terminal) .flat-tab-active.joined-tab.corner-tab {
-  box-shadow:
-    inset -1px 0 0 oklch(var(--border) / 0.7),
-    inset 0 1px 0 oklch(var(--border) / 0.7);
+.pane-frame-tabs .flat-tab-active.joined-tab::after {
+  border-color: oklch(var(--foreground) / 0.08);
 }
-
 /* Allotment split pane sash refinements. Allotment puts every split's sashes in a
    `.sash-container` directly under its `.split-view` root (including the top-level split),
    and marks orientation with plain `sash-vertical` / `sash-horizontal` classes. */
 .split-view {
-  --separator-border: oklch(var(--border));
+  --separator-border: transparent;
   --focus-border: oklch(var(--primary) / 0.4);
+}
+/* Split panes sit apart on a 4px gutter of the sidebar's chrome in place of a divider line: every
+   pane after the first in a split keeps that much room before it, so each pane reads as its own
+   block and its outline stays at its own edge. The sash sits on the gutter's near edge, so its
+   grip moves over to the gutter's middle. */
+.split-view-horizontal > .split-view-container > .split-view-view:not(:first-child),
+.split-view-vertical > .split-view-container > .split-view-view:not(:first-child) {
+  background-color: oklch(var(--chrome));
+}
+.split-view-horizontal > .split-view-container > .split-view-view:not(:first-child) {
+  padding-left: 4px;
+}
+.split-view-vertical > .split-view-container > .split-view-view:not(:first-child) {
+  padding-top: 4px;
 }
 .split-view > .sash-container > .sash {
   transition: background-color 150ms ease;
@@ -1296,7 +1312,7 @@ html[data-status-bar-row='large'] [data-status-bar] {
   left: 50%;
   width: 4px;
   height: 20px;
-  transform: translate(-50%, -50%);
+  transform: translate(calc(-50% + 2px), -50%);
 }
 /* Horizontal sash (stacked splits) - vertical grip dots */
 .split-view > .sash-container > .sash.sash-horizontal::before {
@@ -1304,9 +1320,36 @@ html[data-status-bar-row='large'] [data-status-bar] {
   left: 50%;
   width: 20px;
   height: 4px;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, calc(-50% + 2px));
 }
 
+/* The file panel is a sidebar on the right: on the chrome, like the workspace sidebar, running on
+   from its header in the top row (TerminalTabs) with the faint line that frames the panes along
+   its inner edge. Its card-colored surfaces take the chrome, as the Overview's do. */
+.file-panel-chrome {
+  --card: var(--chrome);
+  border-left: 1px solid oklch(var(--foreground) / 0.08);
+  background-color: oklch(var(--chrome));
+}
+
+/* The line around a pane: none on its own, since the gutters divide the panes. Around the
+   focused pane (with the focused pane border on) it is the accent muted toward the secondary text
+   color, so it reads as a soft outline rather than a colored frame. */
+.pane-outline {
+  border-color: transparent;
+}
+.pane-outline[data-focused='true'] {
+  border-color: color-mix(
+    in oklab,
+    oklch(var(--komla, var(--brand))) 45%,
+    oklch(var(--muted-foreground))
+  );
+}
+/* A notification waiting on the pane, in its color softened the same way, a little stronger so it
+   still draws the eye. */
+.pane-outline[data-attention='true'] {
+  border-color: color-mix(in oklab, var(--pane-attention) 60%, oklch(var(--muted-foreground)));
+}
 /* Reduced motion: overlays and toasts fade instead of zooming or sliding, and decorative
    movement is removed. Redefining a keyframe here replaces the earlier definition while
    the query matches, so exit animations still end and Radix can unmount overlays.

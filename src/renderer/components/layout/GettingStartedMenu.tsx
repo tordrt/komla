@@ -14,6 +14,7 @@ import {
   Layout,
   BookOpenText,
   DeviceMobile,
+  Star,
 } from '@phosphor-icons/react';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -26,6 +27,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openCustomizeAgent } from '@/lib/customize-agent';
+import { openKomlaGitHub } from '@/lib/komla-github';
 import { useActionsStore } from '@/stores/actions.store';
 import { offerKomlaSkillInstall } from '@/stores/agent-launch-defaults-dialog.store';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
@@ -571,6 +573,21 @@ export function GettingStartedMenu({
               for later, or move it to the Trash, which keeps it {TRASH_RETENTION_DAYS} days.
             </span>
           </p>
+
+          <button
+            type="button"
+            className="mx-1.5 mb-1.5 flex w-[calc(100%-0.75rem)] items-center gap-2.5 rounded px-2 py-1.5 text-left text-ui text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+            onClick={() => {
+              setOpen(false);
+              openKomlaGitHub();
+            }}
+          >
+            <Star className="size-3.5 shrink-0" />
+            <span>
+              <span className="font-medium text-foreground">Enjoying Komla?</span> Give it a star on
+              GitHub.
+            </span>
+          </button>
         </div>
 
         {onHideButton && (

@@ -7,6 +7,7 @@ import {
   GitDiff,
   Lightbulb,
   Sparkle,
+  Star,
   type Icon,
 } from '@phosphor-icons/react';
 import React, { useState, useLayoutEffect, useRef } from 'react';
@@ -22,6 +23,7 @@ import {
 import { IconButton } from '@/components/ui/icon-button';
 import { Kbd } from '@/components/ui/kbd';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { openKomlaGitHub } from '@/lib/komla-github';
 import { useCommandCenterStore } from '@/stores/command-center.store';
 import { useConfigStore } from '@/stores/config.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
@@ -265,15 +267,17 @@ export function TitleBar({
                     Tips
                   </DropdownMenuItem>
                 )}
+                {(onOpenSettings || onOpenShortcuts) && <DropdownMenuSeparator />}
                 {onOpenFeedback && (
-                  <>
-                    {(onOpenSettings || onOpenShortcuts) && <DropdownMenuSeparator />}
-                    <DropdownMenuItem onClick={onOpenFeedback}>
-                      <ChatCircle />
-                      Feedback
-                    </DropdownMenuItem>
-                  </>
+                  <DropdownMenuItem onClick={onOpenFeedback}>
+                    <ChatCircle />
+                    Feedback
+                  </DropdownMenuItem>
                 )}
+                <DropdownMenuItem onClick={openKomlaGitHub}>
+                  <Star />
+                  Star on GitHub
+                </DropdownMenuItem>
                 {quota?.isLicensed === false && onOpenUpgrade && (
                   <>
                     <DropdownMenuSeparator />

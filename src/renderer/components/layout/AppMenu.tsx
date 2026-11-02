@@ -1,4 +1,4 @@
-import { ChatCircle, Command, GearSix, Lightbulb, Sparkle } from '@phosphor-icons/react';
+import { ChatCircle, Command, GearSix, Lightbulb, Sparkle, Star } from '@phosphor-icons/react';
 import { useRef, useState } from 'react';
 
 import {
@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { IconButton } from '@/components/ui/icon-button';
+import { openKomlaGitHub } from '@/lib/komla-github';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
 import { useLicenseStore } from '@/stores/license.store';
@@ -31,8 +32,8 @@ interface AppMenuProps {
 
 /**
  * The sidebar's settings menu, behind a gear in the sidebar's bottom-right corner: Settings,
- * Shortcuts, Feedback and Upgrade. While the status bar doesn't show Tips, Tips is here too and
- * opens beside the gear. While the sidebar is collapsed, the tab row shows it.
+ * Shortcuts, Feedback, Star on GitHub and Upgrade. While the status bar doesn't show Tips, Tips
+ * is here too and opens beside the gear. While the sidebar is collapsed, the tab row shows it.
  */
 export function AppMenu({
   placement = 'sidebar',
@@ -116,6 +117,10 @@ export function AppMenu({
           <DropdownMenuItem onClick={onOpenFeedback}>
             <ChatCircle />
             Feedback
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={openKomlaGitHub}>
+            <Star />
+            Star on GitHub
           </DropdownMenuItem>
           {quota?.isLicensed === false && (
             <>

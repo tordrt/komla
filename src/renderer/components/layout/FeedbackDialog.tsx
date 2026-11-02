@@ -1,4 +1,12 @@
-import { Bug, Lightbulb, ChatCircle, EnvelopeSimple, Image, X } from '@phosphor-icons/react';
+import {
+  ArrowSquareOut,
+  Bug,
+  Lightbulb,
+  ChatCircle,
+  EnvelopeSimple,
+  Image,
+  X,
+} from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -15,6 +23,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { SegmentedControl, type SegmentedControlOption } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
+import { openKomlaGitHub } from '@/lib/komla-github';
 import { useLicenseStore } from '@/stores/license.store';
 import { useToastStore } from '@/stores/toast.store';
 
@@ -150,7 +159,8 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
         <DialogHeader>
           <DialogTitle>Send feedback</DialogTitle>
           <DialogDescription className="sr-only">
-            Report a bug, request a feature, or share general feedback
+            Report a bug, request a feature, share general feedback, or open a pull request on
+            GitHub instead
           </DialogDescription>
         </DialogHeader>
 
@@ -242,14 +252,32 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
           </Callout>
         )}
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => handleOpenChange(false)} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting || description.trim().length < 2}>
-            {isSubmitting && <Spinner size="md" className="mr-2" />}
-            Send
-          </Button>
+        <DialogFooter className="gap-2 sm:items-center sm:justify-between sm:space-x-0">
+          {/* Apart from the buttons: it sends nothing, and leaves for GitHub. */}
+          <p className="text-xs text-muted-foreground">
+            Rather build it yourself?{' '}
+            <button
+              type="button"
+              className="inline-flex items-center gap-0.5 underline-offset-2 hover:text-foreground hover:underline"
+              title="Komla is open source. Open a pull request on GitHub, and we’ll consider it."
+              onClick={() => {
+                openKomlaGitHub();
+                handleOpenChange(false);
+              }}
+            >
+              Open a pull request
+              <ArrowSquareOut className="size-3" />
+            </button>
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => handleOpenChange(false)} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} disabled={isSubmitting || description.trim().length < 2}>
+              {isSubmitting && <Spinner size="md" className="mr-2" />}
+              Send
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

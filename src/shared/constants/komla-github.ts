@@ -1,2 +1,2 @@
-/** Komla's repository on GitHub, where people who enjoy Komla can star it. */
+/** Komla's repository on GitHub, where people star Komla and send pull requests. */
 export const KOMLA_GITHUB_URL = 'https://github.com/tordrt/komla';

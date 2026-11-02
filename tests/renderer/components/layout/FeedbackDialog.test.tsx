@@ -59,6 +59,7 @@ describe('FeedbackDialog', () => {
     window.api = {
       sendFeedback: vi.fn().mockResolvedValue({ success: true }),
       selectScreenshots: vi.fn().mockResolvedValue([]),
+      openExternal: vi.fn().mockResolvedValue(undefined),
     } as never;
   });
 
@@ -106,5 +107,23 @@ describe('FeedbackDialog', () => {
 
     expect(screen.getByRole('radio', { name: 'General' })).toBeChecked();
     expect(screen.getByPlaceholderText('Share your thoughts...')).toHaveValue('');
+  });
+
+  it('points people who would rather build it themselves to GitHub, keeping the draft', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(screen.getByRole('radio', { name: 'Bug report' }));
+    await user.type(screen.getByPlaceholderText(/describe what happened/i), 'A long report');
+    await user.click(screen.getByRole('button', { name: 'Open a pull request' }));
+
+    expect(window.api.openExternal).toHaveBeenCalledWith('https://github.com/tordrt/komla');
+    expect(window.api.sendFeedback).not.toHaveBeenCalled();
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Open feedback' }));
+
+    expect(screen.getByRole('radio', { name: 'Bug report' })).toBeChecked();
+    expect(screen.getByPlaceholderText(/describe what happened/i)).toHaveValue('A long report');
   });
 });

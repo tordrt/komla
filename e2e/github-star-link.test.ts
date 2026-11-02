@@ -23,7 +23,7 @@ async function recordOpenedUrls(electronApp: ElectronApplication) {
     electronApp.evaluate(() => (globalThis as { e2eOpenedUrls?: string[] }).e2eOpenedUrls);
 }
 
-test.describe('Star on GitHub', () => {
+test.describe('Komla on GitHub', () => {
   test.describe.configure({ timeout: 60_000 });
 
   test('Tips links to the GitHub repository', async ({ appWindow, electronApp }, testInfo) => {
@@ -55,6 +55,25 @@ test.describe('Star on GitHub', () => {
     await item.click();
 
     await expect.poll(openedUrls).toEqual([KOMLA_GITHUB_URL]);
+  });
+
+  test('Feedback links to the GitHub repository for building it yourself', async ({
+    appWindow,
+    electronApp,
+  }, testInfo) => {
+    const openedUrls = await recordOpenedUrls(electronApp);
+    await appWindow.locator('[data-tips-home="settings menu"]').filter({ visible: true }).click();
+    await appWindow.getByRole('menuitem', { name: 'Feedback' }).click();
+    await expect(appWindow.getByText('Rather build it yourself?')).toBeVisible();
+    await appWindow.screenshot({
+      animations: 'disabled',
+      path: testInfo.outputPath('feedback-build-it-yourself.png'),
+    });
+
+    await appWindow.getByRole('button', { name: 'Open a pull request' }).click();
+
+    await expect.poll(openedUrls).toEqual([KOMLA_GITHUB_URL]);
+    await expect(appWindow.getByText('Send feedback')).toHaveCount(0);
   });
 
   test('says so when the browser does not open', async ({ appWindow, electronApp }) => {

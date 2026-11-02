@@ -280,8 +280,35 @@ export function activate(komla: KomlaPlugin) {
   Development there while you write a plugin: it then runs as its files change, and its panels
   get buttons to load their page again and inspect it.
 
+### Settings and secrets
+
+When a plugin needs something from the user, such as a repository, a team or an API token, declare
+it in `settings` in `komla-plugin.json` rather than writing it into a script. The user fills them
+in under the plugin in Settings → Plugins:
+
+```json
+{
+  "settings": [
+    { "id": "team", "title": "Team", "type": "text", "placeholder": "ENG" },
+    { "id": "token", "title": "API token", "type": "secret" },
+    { "id": "sort", "title": "Sort by", "type": "choice", "options": ["updated", "created"], "default": "updated" }
+  ]
+}
+```
+
+- A setting is `text`, `number`, `boolean`, `choice` (one of `options`) or `secret`, with an
+  optional `default`, `description` and `placeholder`.
+- The plugin's code reads them with `komla.settings.get("team")`, or all of them with
+  `komla.settings.get()`, and follows changes with `komla.settings.onChange(settings => …)`.
+- Its commands get them as variables, `KOMLA_SETTING_TEAM` and so on. On an SSH host they get
+  every setting but the secrets, so a command there that needs a token runs with `"runOn":
+  "local"`, or the plugin's code calls the service itself.
+- A secret is encrypted with the OS keychain. You can't read or set one: once the plugin is
+  ready, tell the user which secret to enter in Settings → Plugins, and never ask them to paste
+  it into the chat.
+
 The Pull requests example in Komla's repository, `examples/plugins/pull-requests`, has code, a
-page, a badge and a status item that opens the panel.
+page, a badge, a setting and a status item that opens the panel.
 
 ## While you work
 

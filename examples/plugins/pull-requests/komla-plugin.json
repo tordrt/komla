@@ -5,6 +5,15 @@
   "version": "2.0.0",
   "description": "The repository's open pull requests beside Diff and Files: what waits on your review, how your own are doing, and an agent to review one or fix it in a click. Needs the GitHub CLI, signed in.",
   "main": "main.ts",
+  "settings": [
+    {
+      "id": "hide_drafts",
+      "title": "Hide drafts",
+      "description": "Leave draft pull requests out of the panel and its badge.",
+      "type": "boolean",
+      "default": false
+    }
+  ],
   "contributes": {
     "sidebarPanels": [
       {

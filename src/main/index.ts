@@ -59,6 +59,7 @@ import {
 } from './services/open-folder-request';
 import { getKomlaBasePath } from './services/paths';
 import { startPluginHost, stopPluginHost } from './services/plugin-host';
+import { loadPluginSettings, stopFeedingPluginSettings } from './services/plugin-settings-store';
 import { stopWatchingPlugins, watchPlugins } from './services/plugins.service';
 import { projectService } from './services/project.service';
 import { ptyService } from './services/pty.service';
@@ -752,7 +753,12 @@ void app.whenReady().then(async () => {
   // Initialize file watchers for config services in background (don't block window)
   // This starts watching for config file changes to hot-reload settings
   followHookEventsAsKomlaEvents();
-  void Promise.allSettled([
+  // Reads plugins' settings before plugins run, so their commands get them from the first run;
+  // their secrets follow once the keychain decrypts them, which can wait on its prompt.
+  const pluginSecrets = loadPluginSettings().catch((error: unknown) =>
+    logger.warn("Could not read plugins' settings", error)
+  );
+  const watchers = Promise.allSettled([
     customizationService.init(),
     shortcutsService.init(),
     actionService.init(),
@@ -764,7 +770,8 @@ void app.whenReady().then(async () => {
     watchSidebarPanels(),
     watchHooks(),
     watchPlugins(),
-  ]).then((results) => {
+  ]);
+  void watchers.then((results) => {
     for (const result of results) {
       if (result.status === 'rejected') {
         logger.warn('Could not start watching a config file', result.reason);
@@ -772,10 +779,10 @@ void app.whenReady().then(async () => {
     }
     // Local automations run even if a watcher couldn't start, e.g. at the inotify limit.
     automationService.start();
-    // Plugins' code, once Komla has read which plugins run.
-    startPluginHost();
     retargetAutomationsOnGitSettingsChange();
   });
+  // Plugins' code, once Komla has read which plugins run and decrypted their secrets.
+  void Promise.all([watchers, pluginSecrets]).then(startPluginHost);
 
   // Deferred housekeeping — run after window creation to avoid blocking startup
   const config = configService.get();
@@ -904,6 +911,7 @@ function finishQuit(): void {
     stopWatchingHooks(),
     stopWatchingPlugins(),
     Promise.resolve().then(stopPluginHost),
+    Promise.resolve().then(stopFeedingPluginSettings),
   ])
     .catch((err) => {
       logger.error('Error stopping watchers during quit', { error: String(err) });

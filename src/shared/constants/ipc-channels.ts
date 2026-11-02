@@ -571,6 +571,7 @@ export const IPC = {
   PLUGINS_SET_ENABLED: 'plugins:set-enabled',
   PLUGINS_OPEN_FOLDER: 'plugins:open-folder',
   PLUGINS_SET_DEVELOPMENT: 'plugins:set-development',
+  PLUGINS_SET_SETTINGS: 'plugins:set-settings',
   // Plugin events (main → renderer)
   PLUGINS_CHANGED: 'plugins:changed',
 

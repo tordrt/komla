@@ -298,6 +298,28 @@ describe('PluginsService', () => {
     ]);
   });
 
+  it('lists the settings a plugin declares, which it has whether on or off', async () => {
+    const settings = [
+      { id: 'repo', title: 'Repository', type: 'text', placeholder: 'owner/name' },
+      { id: 'token', title: 'Token', type: 'secret' },
+    ];
+    writePlugin('prs', { ...prManifest, settings });
+    await service.scan();
+
+    expect(service.list()[0].settings).toEqual(settings);
+    expect(service.settingFields('github-prs')).toEqual(settings);
+    expect(service.settingFields('nope')).toEqual([]);
+  });
+
+  it('refuses a manifest naming one setting twice', () => {
+    const field = { id: 'repo', title: 'Repository', type: 'text' };
+    const parsed = pluginManifestSchema.safeParse({ ...prManifest, settings: [field, field] });
+
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({ path: ['settings', 1, 'id'], message: 'repo is already in the list' }),
+    ]);
+  });
+
   it('runs a plugin in development as its files change, until that is turned off', async () => {
     writePlugin('prs', prManifest, { 'pr.js': 'console.log("PR")' });
     await service.scan();

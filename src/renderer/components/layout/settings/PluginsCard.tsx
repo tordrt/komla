@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useToastStore } from '@/stores/toast.store';
 
+import { PluginSettingsForm } from './PluginSettingsForm';
 import { SettingsCard } from './SettingsCard';
 
 import type { PluginContributionInfo, PluginInfo } from '../../../../shared/types/plugins';
@@ -42,6 +43,19 @@ export function PluginsCard() {
       setPlugins(await window.api.setPluginDevelopment(plugin.id, development));
     } catch (error) {
       addToast(`Couldn’t change ${plugin.name}: ${ipcErrorMessage(error)}`, 'error');
+    }
+  };
+
+  const saveSettings = async (
+    plugin: PluginInfo,
+    changes: Record<string, string | number | boolean | null>
+  ): Promise<boolean> => {
+    try {
+      setPlugins(await window.api.setPluginSettings(plugin.id, changes));
+      return true;
+    } catch (error) {
+      addToast(`Couldn’t save ${plugin.name}’s settings: ${ipcErrorMessage(error)}`, 'error');
+      return false;
     }
   };
 
@@ -94,6 +108,7 @@ export function PluginsCard() {
           busy={busyIds.has(plugin.id)}
           onToggle={(enabled) => void toggle(plugin, enabled)}
           onDevelopment={(development) => void setDevelopment(plugin, development)}
+          onSaveSettings={(changes) => saveSettings(plugin, changes)}
         />
       ))}
     </SettingsCard>
@@ -105,11 +120,13 @@ function PluginRow({
   busy,
   onToggle,
   onDevelopment,
+  onSaveSettings,
 }: {
   plugin: PluginInfo;
   busy: boolean;
   onToggle: (enabled: boolean) => void;
   onDevelopment: (development: boolean) => void;
+  onSaveSettings: (changes: Record<string, string | number | boolean | null>) => Promise<boolean>;
 }) {
   const on = plugin.state === 'on';
   return (
@@ -153,6 +170,9 @@ function PluginRow({
               <ContributionLine key={contribution.id} contribution={contribution} />
             ))}
           </ul>
+        )}
+        {plugin.state !== 'invalid' && plugin.settings && plugin.settings.length > 0 && (
+          <PluginSettingsForm plugin={plugin} onSave={onSaveSettings} />
         )}
         {on && (
           <label className="flex items-start gap-2 pt-1 text-xs text-muted-foreground">

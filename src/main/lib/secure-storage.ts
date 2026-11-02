@@ -11,12 +11,11 @@ const logger = createLogger('SecureStorage');
  * machineId-keyed AES) instead of storing plaintext-equivalent data.
  */
 function selectedBasicTextBackend(): boolean {
-  const getSelectedStorageBackend = (
-    safeStorage as typeof safeStorage & {
-      getSelectedStorageBackend?: () => string;
-    }
-  ).getSelectedStorageBackend;
-  return getSelectedStorageBackend?.() === 'basic_text';
+  const storage = safeStorage as typeof safeStorage & {
+    getSelectedStorageBackend?: () => string;
+  };
+  // Called on safeStorage itself: a native method taken off it throws "Illegal invocation".
+  return storage.getSelectedStorageBackend?.() === 'basic_text';
 }
 
 /**

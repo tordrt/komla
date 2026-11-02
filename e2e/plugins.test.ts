@@ -117,6 +117,86 @@ test.describe('Plugins', () => {
     await expect(appWindow.getByText('Something else')).toBeVisible({ timeout: 20_000 });
   });
 
+  test('gives a plugin the settings the user fills in, and never shows a secret back', async ({
+    appWindow,
+  }) => {
+    await appWindow.getByRole('button', { name: 'New Workspace' }).first().click({
+      timeout: 15_000,
+    });
+    const dialog = appWindow.getByRole('dialog', { name: 'Create Workspace' });
+    await dialog.locator('input[placeholder$="swift-fox"]').fill('plugins/settings');
+    await dialog.getByRole('button', { name: /^(Launch|Create)/ }).click();
+    await expect
+      .poll(async () => appWindow.evaluate(async () => (await window.api.getWorkspaces()).length))
+      .toBe(1);
+
+    const dir = path.join(SANDBOX_DIR, 'plugins', 'team');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'komla-plugin.json'),
+      JSON.stringify({
+        id: 'team',
+        name: 'Team board',
+        main: 'main.mjs',
+        settings: [
+          { id: 'team', title: 'Team', type: 'text', placeholder: 'ENG' },
+          { id: 'token', title: 'API token', type: 'secret' },
+        ],
+        contributes: {
+          statusItems: [
+            {
+              id: 'board',
+              label: 'Board',
+              command:
+                'echo "Board ${KOMLA_SETTING_TEAM:-none} $([ -n "$KOMLA_SETTING_TOKEN" ] && echo signed-in || echo signed-out)"',
+            },
+          ],
+        },
+      })
+    );
+    fs.writeFileSync(
+      path.join(dir, 'main.mjs'),
+      `export function activate(komla) {
+  const show = (s) => console.log(\`team=\${s.team ?? '-'} token=\${s.token ? s.token.length + ' characters' : 'unset'}\`);
+  show(komla.settings.get());
+  komla.settings.onChange(show);
+}
+`
+    );
+
+    await openIntegrations(appWindow);
+    await appWindow.getByRole('switch', { name: 'Turn on Team board' }).click();
+    const form = appWindow.getByRole('form', { name: 'Team board settings' });
+    await form.getByLabel('Team').fill('ENG');
+    await form.getByLabel('API token').fill('tok_12345');
+    await form.getByRole('button', { name: 'Save' }).click();
+
+    // The code hears of them without starting again.
+    await appWindow.getByText('Output').last().click();
+    await expect(appWindow.getByText('team=ENG token=9 characters')).toBeVisible({
+      timeout: 20_000,
+    });
+    // Settings knows only that the secret is set.
+    await expect(form.getByLabel('API token')).toHaveValue('');
+    await expect(form.getByLabel('API token')).toHaveAttribute(
+      'placeholder',
+      'Set. Type a new one to replace it'
+    );
+    if (SCREENSHOTS) {
+      await appWindow
+        .locator('#settings-card-plugins')
+        .screenshot({ path: path.join(SCREENSHOTS, 'plugin-settings.png') });
+    }
+    const listed = await appWindow.evaluate(async () =>
+      JSON.stringify(await window.api.listPlugins())
+    );
+    expect(listed).not.toContain('tok_12345');
+
+    // Its command runs on this computer, so it gets the secret too.
+    await appWindow.keyboard.press('Escape');
+    await expect(appWindow.getByText('Board ENG signed-in')).toBeVisible({ timeout: 20_000 });
+  });
+
   test('makes a plugin from a manifest, as an agent on an SSH host does', async ({ appWindow }) => {
     await expect(appWindow.getByRole('button', { name: 'New Workspace' }).first()).toBeVisible({
       timeout: 15_000,

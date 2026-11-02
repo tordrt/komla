@@ -26,6 +26,7 @@ import { isSettingsIconPath, statusIconDataUrl } from '../lib/status-icon';
 import { ANSI_ESCAPE, truncate } from '../lib/status-item-text';
 
 import { htmlPreviewService } from './html-preview.service';
+import { pluginEnvironment } from './plugin-environment';
 import { buildStatusPopoverPage } from './status-popover-page';
 import {
   canRunWorkspaceCommands,
@@ -369,17 +370,24 @@ export class CommandEntries<Entry extends CommandEntry> {
 
   /**
    * Where an entry's commands run, unless they can't run now, as while an SSH host is down. A
-   * plugin's commands on this computer get its folder, which an SSH host doesn't have.
+   * plugin's commands on this computer get its folder, which an SSH host doesn't have. A plugin's
+   * environment is built only when a command runs, as callers also ask only whether one can.
    */
   runner(workspaceId: string, entry: Entry): RunCommand | undefined {
-    const pluginEnv = entry.plugin && { KOMLA_PLUGIN_DIR: entry.plugin.dir };
+    const { plugin } = entry;
     if (entry.runOn === 'local') {
-      return (command, timeoutMs) => this.dependencies.runLocal(command, timeoutMs, pluginEnv);
+      return (command, timeoutMs) =>
+        this.dependencies.runLocal(command, timeoutMs, plugin && pluginEnvironment(plugin, true));
     }
     const workspace = this.dependencies.getWorkspace(workspaceId);
     if (!workspace || !this.dependencies.canRun(workspace)) return undefined;
-    const env = isSshWorkspace(workspace) ? undefined : pluginEnv;
-    return (command, timeoutMs) => this.dependencies.run(workspace, command, timeoutMs, env);
+    return (command, timeoutMs) =>
+      this.dependencies.run(
+        workspace,
+        command,
+        timeoutMs,
+        plugin && pluginEnvironment(plugin, !isSshWorkspace(workspace))
+      );
   }
 
   /** Runs one of an entry's named commands, for a button on its page. */

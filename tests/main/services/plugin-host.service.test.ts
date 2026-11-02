@@ -67,6 +67,7 @@ describe('PluginHostService', () => {
   let events: ((event: KomlaEvent) => void) | undefined;
   let timers: { callback: () => void; ms: number }[];
   let now: number;
+  let settings: Record<string, string | number | boolean>;
   let dependencies: PluginHostDependencies;
   let service: PluginHostService;
 
@@ -76,6 +77,7 @@ describe('PluginHostService', () => {
     events = undefined;
     timers = [];
     now = 1_000_000;
+    settings = { repo: 'cli/cli' };
     dependencies = {
       fork: vi.fn(() => {
         const process = new FakeProcess();
@@ -92,6 +94,7 @@ describe('PluginHostService', () => {
           events = undefined;
         };
       },
+      settings: () => settings,
       now: () => now,
       setTimeout: (callback, ms) => {
         const timer = { callback, ms };
@@ -121,10 +124,35 @@ describe('PluginHostService', () => {
       type: 'activate',
       main: '/plugins/prs/main.ts',
       plugin: { id: 'prs', name: 'Pull requests', dir: '/plugins/prs' },
+      settings: { repo: 'cli/cli' },
     });
     expect(service.status().prs).toEqual({ state: 'starting', log: [] });
     process.send({ type: 'ready' });
     expect(service.status().prs.state).toBe('running');
+  });
+
+  it('gives running code its settings again when the user changes them', () => {
+    const process = started();
+    settings = { repo: 'cli/go-gh' };
+
+    service.settingsChanged('prs');
+
+    expect(process.last('settings')).toEqual({ type: 'settings', settings: { repo: 'cli/go-gh' } });
+  });
+
+  it('gives code that was starting the settings changed meanwhile, once it is ready', () => {
+    service.sync([prs]);
+    const [process] = processes;
+    settings = { repo: 'cli/go-gh' };
+
+    service.settingsChanged('prs');
+    expect(process.last('settings')).toBeUndefined();
+    process.send({ type: 'ready' });
+
+    expect(process.last('settings')).toEqual({ type: 'settings', settings: { repo: 'cli/go-gh' } });
+    // Only once.
+    process.send({ type: 'ready' });
+    expect(process.sent.filter((message) => message.type === 'settings')).toHaveLength(1);
   });
 
   it("answers its code's operations and commands, with Komla's error codes", async () => {

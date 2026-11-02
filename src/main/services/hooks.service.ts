@@ -12,6 +12,7 @@ import { parseSettingsFile, readSettingsFile } from '../lib/settings-file';
 
 import { FileWatcher } from './file-watcher';
 import { getKomlaBasePath } from './paths';
+import { pluginEnvironment } from './plugin-environment';
 import {
   canRunWorkspaceCommands,
   runLocalCommand,
@@ -311,13 +312,13 @@ export class HooksService {
     workspace: Workspace | undefined,
     details: HookRun
   ): Record<string, string> {
-    // A plugin's commands on this computer get its folder, which an SSH host doesn't have.
+    // A plugin's commands get its settings, and on this computer its folder and secrets.
     const onThisComputer = hook.runOn === 'local' || !workspace || !isSshWorkspace(workspace);
     // `komla notify` sends a hook's notifications as the hook's, which run no hooks.
     const own = {
       KOMLA_EVENT: details.event,
       KOMLA_HOOK_ID: hook.id,
-      ...(hook.plugin && onThisComputer && { KOMLA_PLUGIN_DIR: hook.plugin.dir }),
+      ...(hook.plugin && pluginEnvironment(hook.plugin, onThisComputer)),
     };
     if (!workspace) return own;
     const project = this.dependencies

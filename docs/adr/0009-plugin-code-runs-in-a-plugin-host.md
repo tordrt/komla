@@ -46,8 +46,18 @@ for panel pages on the Komla SDK; this records how they're built.
   without approving each change, and gives its panels buttons to load the page again and open the
   developer tools. Only Settings turns it on; `komla settings apply plugins` can't, as it would let
   an agent run changes unseen.
+- **Settings and secrets.** A manifest declares `settings`, which the user fills in under the
+  plugin in Settings. They live outside the plugin's folder, in `settings/plugin-settings.json`,
+  so changing one doesn't change the digest the user approved. Secrets are encrypted with the OS
+  keychain through Electron's `safeStorage`, or kept in that file alone, readable only by the
+  user, on a computer without one, as Komla's other secrets are. Only the main process decrypts
+  them, and they go to the plugin's code and to its commands that run on this computer, never to
+  a window, a panel's page or an SSH host. Settings gets whether a secret is set, and only
+  Settings sets them: an agent asks the user to enter a token there, so it never passes through
+  the agent's context. Plain settings also reach commands on an SSH host.
 
 Not done: events over HTTP (server-sent events for scripts), a typed SDK bundle served to pages
-that build their own client, plugin settings, and Quick Commands and automations as contributions.
+that build their own client, agents setting plain plugin settings through `komla settings`, and
+Quick Commands and automations as contributions.
 A page that reloads itself loses its click token, since Komla can't tell its second hello from a
 forged one.

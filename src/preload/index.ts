@@ -1944,6 +1944,15 @@ const api = {
   setPluginDevelopment: (id: string, development: boolean): Promise<PluginInfo[]> =>
     ipcRenderer.invoke(IPC.PLUGINS_SET_DEVELOPMENT, id, development),
 
+  /**
+   * Sets some of a plugin's settings, or clears those given null; secrets go one way, as Settings
+   * only ever gets whether one is set. Resolves with every plugin.
+   */
+  setPluginSettings: (
+    id: string,
+    changes: Record<string, string | number | boolean | null>
+  ): Promise<PluginInfo[]> => ipcRenderer.invoke(IPC.PLUGINS_SET_SETTINGS, id, changes),
+
   onPluginsChange: (callback: (plugins: PluginInfo[]) => void): (() => void) => {
     const handler = (_: Electron.IpcRendererEvent, plugins: PluginInfo[]): void =>
       callback(plugins);

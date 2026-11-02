@@ -19,7 +19,7 @@ const QUERY = [
 interface PullRequests {
   me: string;
   repo: { nameWithOwner: string; url: string };
-  prs: { author?: { login: string }; reviewRequests?: { login?: string }[] }[];
+  prs: { author?: { login: string }; reviewRequests?: { login?: string }[]; isDraft?: boolean }[];
 }
 
 /** The workspaces whose panel opened, by the repository they show, as their project. */
@@ -47,6 +47,10 @@ export function activate(komla: KomlaPlugin) {
         const data = JSON.parse(
           await komla.exec(QUERY, { workspace: workspaces[0], timeoutSeconds: 60 })
         ) as PullRequests;
+        // As the user set it in Settings → Plugins.
+        if (komla.settings.get('hide_drafts') === true) {
+          data.prs = data.prs.filter((pr) => !pr.isDraft);
+        }
         const waiting = waitingOnMe(data);
         for (const workspace of workspaces) {
           komla.panels.post(PANEL, data, { workspace });
@@ -107,7 +111,9 @@ export function activate(komla: KomlaPlugin) {
     });
   }
 
-  setInterval(() => {
+  const refreshAll = () => {
     for (const repo of watched.keys()) void refresh(repo);
-  }, EVERY_MS);
+  };
+  setInterval(refreshAll, EVERY_MS);
+  komla.settings.onChange(refreshAll);
 }

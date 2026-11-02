@@ -3,6 +3,7 @@
  * Types only, so neither side bundles the other's code.
  */
 import type { KomlaEvent } from '../../shared/types/komla-events';
+import type { PluginSettingValue } from '../../shared/types/plugins';
 
 export interface PluginHostFailure {
   code: string;
@@ -21,7 +22,10 @@ export type ToPluginHost =
       /** The plugin's `main`, as an absolute path. */
       main: string;
       plugin: { id: string; name: string; version?: string; dir: string };
+      /** Its settings' values, the user's or their defaults, secrets included. */
+      settings: Record<string, PluginSettingValue>;
     }
+  | { type: 'settings'; settings: Record<string, PluginSettingValue> }
   | { type: 'deactivate' }
   | { type: 'event'; event: KomlaEvent }
   | {

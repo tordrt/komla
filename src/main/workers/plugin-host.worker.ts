@@ -15,6 +15,8 @@ import type {
   KomlaPlugin,
   KomlaPluginModule,
   KomlaPluginPanels,
+  KomlaPluginSettings,
+  KomlaPluginSettingValue,
 } from '../../../packages/sdk/src/plugin';
 import type { KomlaEvent } from '../../shared/types/komla-events';
 
@@ -45,6 +47,8 @@ const messageHandlers = new Map<
 >();
 const openHandlers = new Map<string, Set<(from: { workspace: string }) => void>>();
 let plugin: KomlaPluginModule | undefined;
+let settings: Readonly<Record<string, KomlaPluginSettingValue>> = Object.freeze({});
+const settingsListeners = new Set<(settings: Record<string, KomlaPluginSettingValue>) => void>();
 
 function report(error: unknown): void {
   console.error(error);
@@ -58,6 +62,22 @@ function safely<A extends unknown[]>(listener: (...args: A) => unknown, ...args:
     report(error);
   }
 }
+
+function getSettings(): Record<string, KomlaPluginSettingValue>;
+function getSettings(id: string): KomlaPluginSettingValue | undefined;
+function getSettings(
+  id?: string
+): Record<string, KomlaPluginSettingValue> | KomlaPluginSettingValue | undefined {
+  return id === undefined ? { ...settings } : settings[id];
+}
+
+const pluginSettings: KomlaPluginSettings = Object.freeze({
+  get: getSettings,
+  onChange: (listener: (settings: Record<string, KomlaPluginSettingValue>) => void) => {
+    settingsListeners.add(listener);
+    return () => settingsListeners.delete(listener);
+  },
+});
 
 function makeKomla(info: Extract<ToPluginHost, { type: 'activate' }>['plugin']): KomlaPlugin {
   const transport: KomlaTransport = {
@@ -106,10 +126,12 @@ function makeKomla(info: Extract<ToPluginHost, { type: 'activate' }>['plugin']):
         })
       ),
     panels: Object.freeze(panels),
+    settings: pluginSettings,
   });
 }
 
 async function activate(message: Extract<ToPluginHost, { type: 'activate' }>): Promise<void> {
+  settings = Object.freeze({ ...message.settings });
   try {
     const loaded = (await import(/* @vite-ignore */ pathToFileURL(message.main).href)) as {
       activate?: KomlaPluginModule['activate'];
@@ -202,6 +224,10 @@ port.on('message', ({ data }: { data: ToPluginHost }) => {
       return;
     case 'panel-message':
       void answerPanel(data);
+      return;
+    case 'settings':
+      settings = Object.freeze({ ...data.settings });
+      for (const listener of settingsListeners) safely(listener, { ...settings });
       return;
     case 'panel-open':
       for (const handler of openHandlers.get(data.panel) ?? []) {

@@ -5,6 +5,7 @@ import { shell } from 'electron';
 import { IPC } from '../../../shared/constants/ipc-channels';
 import { createLogger } from '../../lib/logger';
 import { pluginHostService } from '../../services/plugin-host';
+import { pluginSettingsStore } from '../../services/plugin-settings-store';
 import { getPluginsPath, pluginsService } from '../../services/plugins.service';
 import { windowService } from '../../services/window.service';
 import { handleIpc } from '../validation/ipc-validators';
@@ -13,18 +14,30 @@ import type { PluginInfo } from '../../../shared/types/plugins';
 
 const logger = createLogger('PluginsHandlers');
 
-/** The plugins, with how the code of those that have it runs. */
+/**
+ * The plugins, with how the code of those that have it runs, and what the user set for their
+ * settings: never a secret, only whether it's set.
+ */
 function listPlugins(): PluginInfo[] {
   const hosts = pluginHostService.status();
   return pluginsService.list().map((plugin) => {
     const host = plugin.state === 'on' && plugin.main ? hosts[plugin.id] : undefined;
-    return host ? { ...plugin, host } : plugin;
+    const settings = plugin.settings && pluginSettingsStore.info(plugin.id, plugin.settings);
+    const hasSecrets = plugin.settings?.some((field) => field.type === 'secret');
+    const secretStorage = hasSecrets && pluginSettingsStore.secretStorage();
+    return {
+      ...plugin,
+      ...(host && { host }),
+      ...(settings && { settings }),
+      ...(secretStorage && { secretStorage }),
+    };
   });
 }
 
 export function registerPluginsHandlers(): void {
   const broadcast = () => windowService.broadcastToAll(IPC.PLUGINS_CHANGED, listPlugins());
   pluginsService.onChange(broadcast);
+  pluginSettingsStore.onChange(broadcast);
   // A plugin's output changes its status often, so windows hear of it at most twice a second.
   let pending: ReturnType<typeof setTimeout> | undefined;
   pluginHostService.onChange(() => {
@@ -51,6 +64,16 @@ export function registerPluginsHandlers(): void {
   handleIpc(IPC.PLUGINS_SET_DEVELOPMENT, async (_, [id, development]): Promise<PluginInfo[]> => {
     await pluginsService.scan();
     pluginsService.setDevelopment(id, development);
+    return listPlugins();
+  });
+
+  // Only Settings sets them, as the user types them: agents can't, and never see a secret.
+  handleIpc(IPC.PLUGINS_SET_SETTINGS, async (_, [id, changes]): Promise<PluginInfo[]> => {
+    await pluginsService.scan();
+    if (!pluginsService.list().some((plugin) => plugin.id === id && plugin.state !== 'invalid')) {
+      throw new Error(`There is no plugin ${id} Komla can read`);
+    }
+    await pluginSettingsStore.set(id, pluginsService.settingFields(id), changes);
     return listPlugins();
   });
 

@@ -4,7 +4,9 @@ import { onKomlaEvent } from '../lib/komla-events';
 import { komlaCommandContext, KomlaOperationError } from './komla-operation/operation';
 import { parseKomlaOperation } from './komla-operation/schema';
 import { komlaOperationService } from './komla-operation.service';
+import { pluginEnvironment } from './plugin-environment';
 import { forkPluginProcess, PluginHostService, type HostedPlugin } from './plugin-host.service';
+import { pluginSettingsStore } from './plugin-settings-store';
 import { pluginsService } from './plugins.service';
 import { sidebarPanelStates } from './sidebar-panel-states';
 import { sidebarPanelsService } from './sidebar-panels.service';
@@ -33,9 +35,9 @@ function execPluginCommand(
   workspaceId: string | undefined,
   timeoutMs: number
 ): Promise<string> | undefined {
-  const env = { KOMLA_PLUGIN_DIR: plugin.source.dir };
   const options = { timeoutMs, maxOutput: MAX_EXEC_OUTPUT };
   if (!workspaceId) {
+    const env = pluginEnvironment(plugin.source, true);
     return runLocalCommand(plugin.source.dir, command, { ...options, env }).catch((error) => {
       throw commandFailure(error);
     });
@@ -47,10 +49,10 @@ function execPluginCommand(
     );
   }
   if (!canRunWorkspaceCommands(workspace)) return undefined;
-  // An SSH host doesn't have the plugin's folder.
+  // An SSH host doesn't have the plugin's folder or its secrets.
   return runWorkspaceCommand(workspace, command, {
     ...options,
-    ...(!isSshWorkspace(workspace) && { env }),
+    env: pluginEnvironment(plugin.source, !isSshWorkspace(workspace)),
   }).catch((error) => {
     throw commandFailure(error);
   });
@@ -68,22 +70,37 @@ export const pluginHostService = new PluginHostService({
   states: sidebarPanelStates,
   panelScope: (panelId, workspaceId) => sidebarPanelsService.scope(panelId, workspaceId),
   onEvent: onKomlaEvent,
+  settings: (pluginId) =>
+    pluginSettingsStore.values(pluginId, pluginsService.settingFields(pluginId)),
   now: Date.now,
   setTimeout: (callback, ms) => setTimeout(callback, ms),
   clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
 });
 
 let stopFollowing: (() => void) | undefined;
+let stopped = false;
 
-/** Runs the code of the plugins that run, following changes to them. */
+/**
+ * Runs the code of the plugins that run, following changes to them; not once stopped, as when
+ * the keychain answers after the user quit.
+ */
 export function startPluginHost(): void {
-  if (stopFollowing) return;
+  if (stopFollowing || stopped) return;
   const sync = () => pluginHostService.sync(pluginsService.hostedPlugins());
-  stopFollowing = pluginsService.onChange(sync);
+  // Every plugin's only once they load, which the host waits for before it starts.
+  const stopSettings = pluginSettingsStore.onChange((pluginId) => {
+    if (pluginId) pluginHostService.settingsChanged(pluginId);
+  });
+  const stopPlugins = pluginsService.onChange(sync);
+  stopFollowing = () => {
+    stopPlugins();
+    stopSettings();
+  };
   sync();
 }
 
 export function stopPluginHost(): void {
+  stopped = true;
   stopFollowing?.();
   stopFollowing = undefined;
   pluginHostService.stopAll();

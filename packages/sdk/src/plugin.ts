@@ -53,6 +53,22 @@ export interface KomlaPluginPanels {
   onOpen(panel: string, handler: (from: { workspace: string }) => void): () => void;
 }
 
+/** A plugin setting's value: text, a choice or a secret, a number, or on and off. */
+export type KomlaPluginSettingValue = string | number | boolean;
+
+/**
+ * The settings the plugin's komla-plugin.json declares, as the user set them in Settings →
+ * Plugins, or their defaults. A setting with neither is left out.
+ */
+export interface KomlaPluginSettings {
+  /** Every setting, secrets included. */
+  get(): Record<string, KomlaPluginSettingValue>;
+  /** One setting, or undefined while it has no value. */
+  get(id: string): KomlaPluginSettingValue | undefined;
+  /** Follows the user changing them, with every setting as they are now. */
+  onChange(listener: (settings: Record<string, KomlaPluginSettingValue>) => void): () => void;
+}
+
 /** What `activate` gets. */
 export type KomlaPlugin = KomlaClient<KomlaCapability> & {
   readonly plugin: { id: string; name: string; version?: string; dir: string };
@@ -68,6 +84,7 @@ export type KomlaPlugin = KomlaClient<KomlaCapability> & {
    */
   exec(command: string, options?: KomlaExecOptions): Promise<string>;
   readonly panels: KomlaPluginPanels;
+  readonly settings: KomlaPluginSettings;
 };
 
 /** A plugin's `main`: `export function activate(komla) { … }`, and optionally `deactivate`. */

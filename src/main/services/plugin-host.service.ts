@@ -11,7 +11,11 @@ import { sidebarPanelBadge, type SidebarPanelStates } from './sidebar-panel-stat
 
 import type { PluginSource } from './plugins.service';
 import type { KomlaEvent } from '../../shared/types/komla-events';
-import type { PluginHostState, PluginHostStatus } from '../../shared/types/plugins';
+import type {
+  PluginHostState,
+  PluginHostStatus,
+  PluginSettingValue,
+} from '../../shared/types/plugins';
 import type { SidebarPanelOperationResult } from '../../shared/types/sidebar-panels';
 import type {
   FromPluginHost,
@@ -80,6 +84,8 @@ export interface PluginHostDependencies {
    */
   panelScope(panelId: string, workspaceId: string | undefined): string;
   onEvent(listener: (event: KomlaEvent) => void): () => void;
+  /** A plugin's settings, the user's or their defaults, secrets included. */
+  settings(pluginId: string): Record<string, PluginSettingValue>;
   now(): number;
   setTimeout(callback: () => void, ms: number): unknown;
   clearTimeout(timer: unknown): void;
@@ -97,6 +103,8 @@ interface Running {
   restartTimer?: unknown;
   pending: Map<number, { resolve(result: SidebarPanelOperationResult): void; timer: unknown }>;
   next: number;
+  /** The settings changed after `activate` carried them, so the code gets them once ready. */
+  settingsStale?: boolean;
 }
 
 function failure(error: unknown): PluginHostFailure {
@@ -192,6 +200,20 @@ export class PluginHostService {
       };
     }
     return status;
+  }
+
+  /** Gives a plugin's code its settings again, after the user changed them. */
+  settingsChanged(pluginId: string): void {
+    const running = this.running.get(pluginId);
+    if (!running) return;
+    if (running.state !== 'running') {
+      running.settingsStale = true;
+      return;
+    }
+    running.process.postMessage({
+      type: 'settings',
+      settings: this.dependencies.settings(pluginId),
+    });
   }
 
   /** Whether a plugin has code that runs, to answer its panels' messages. */
@@ -298,6 +320,7 @@ export class PluginHostService {
         dir: plugin.source.dir,
         ...(plugin.version && { version: plugin.version }),
       },
+      settings: this.dependencies.settings(plugin.source.id),
     });
   }
 
@@ -404,6 +427,10 @@ export class PluginHostService {
       case 'ready':
         running.state = 'running';
         running.error = undefined;
+        if (running.settingsStale) {
+          running.settingsStale = false;
+          this.settingsChanged(plugin.source.id);
+        }
         for (const { panel, workspace } of this.opened.get(plugin.source.id)?.values() ?? []) {
           running.process.postMessage({ type: 'panel-open', panel, workspace });
         }

@@ -34,6 +34,9 @@ cp -R examples/plugins/pull-requests ~/.komla/plugins/
   `komla.panels.post` and the count with `komla.panels.setBadge`. `komla.on('branch.changed')` and
   `komla.on('agent.done')` ask again once a burst of them settles, and `komla.panels.onMessage`
   answers the page's refresh button.
+- Its setting, Hide drafts, shows under the plugin in Settings → Plugins. `main.ts` reads it
+  with `komla.settings.get('hide_drafts')` and asks GitHub again when it changes, with
+  `komla.settings.onChange`.
 - `panels/pull-requests/app.js` gets the data from `komla.onData` and draws the lists with
   Komla's stylesheet, `/__komla/komla.css`, in the window's theme. It puts titles and names from
   GitHub in as text, never as HTML.

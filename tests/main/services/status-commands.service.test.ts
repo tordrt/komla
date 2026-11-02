@@ -31,6 +31,7 @@ import {
   StatusCommandsService,
   type StatusCommandsDependencies,
 } from '../../../src/main/services/status-commands.service';
+import { providePluginSettingsEnvironment } from '../../../src/main/services/plugin-environment';
 import { WorkspaceCommandError } from '../../../src/main/services/workspace-command';
 
 import type { Workspace } from '../../../src/shared/types/workspace';
@@ -800,8 +801,41 @@ describe('StatusCommandsService with plugins', () => {
     const env = { KOMLA_PLUGIN_DIR: '/plugins/prs' };
     expect(run).toHaveBeenNthCalledWith(1, workspace, expect.any(String), 15_000, env);
     // The SSH host doesn't have the plugin's folder.
-    expect(run).toHaveBeenNthCalledWith(2, sshWorkspace, expect.any(String), 15_000, undefined);
+    expect(run).toHaveBeenNthCalledWith(2, sshWorkspace, expect.any(String), 15_000, {});
     expect(runLocal).toHaveBeenCalledWith(expect.any(String), 15_000, env);
+  });
+
+  it("gives a plugin's commands its settings, and its secrets only on this computer", async () => {
+    const run = vi.fn(async () => 'ok');
+    const sshWorkspace = { ...workspace, id: 'ws-ssh', backend: { kind: 'ssh' } } as Workspace;
+    const service = createService(
+      { items: [] },
+      {
+        run,
+        getWorkspace: (id) => [workspace, sshWorkspace].find((candidate) => candidate.id === id),
+      }
+    );
+    providePluginSettingsEnvironment((pluginId, withSecrets) => ({
+      ...(pluginId === 'github-prs' && { KOMLA_SETTING_REPO: 'cli/cli' }),
+      ...(withSecrets && { KOMLA_SETTING_TOKEN: 'secret' }),
+    }));
+    service.setPluginItems([pluginItem('github-prs.pr')]);
+
+    try {
+      await service.run('ws-1', 'github-prs.pr');
+      await service.run('ws-ssh', 'github-prs.pr');
+    } finally {
+      providePluginSettingsEnvironment(() => ({}));
+    }
+
+    expect(run).toHaveBeenNthCalledWith(1, workspace, expect.any(String), 15_000, {
+      KOMLA_SETTING_REPO: 'cli/cli',
+      KOMLA_SETTING_TOKEN: 'secret',
+      KOMLA_PLUGIN_DIR: '/plugins/prs',
+    });
+    expect(run).toHaveBeenNthCalledWith(2, sshWorkspace, expect.any(String), 15_000, {
+      KOMLA_SETTING_REPO: 'cli/cli',
+    });
   });
 
   it("reads a plugin's icon files from its folder", async () => {

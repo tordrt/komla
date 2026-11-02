@@ -12,6 +12,8 @@ import {
   PLUGIN_ID_PATTERN,
   type PluginContributionInfo,
   type PluginInfo,
+  MAX_PLUGIN_SETTINGS,
+  type PluginSettingField,
   type PluginState,
 } from '../../shared/types/plugins';
 import { STATUS_ITEM_ID_PATTERN } from '../../shared/types/status-items';
@@ -22,6 +24,7 @@ import { parseSettingsFile } from '../lib/settings-file';
 import { FileWatcher } from './file-watcher';
 import { hookSchema, hooksService, type Hook } from './hooks.service';
 import { getKomlaBasePath } from './paths';
+import { pluginSettingFieldSchema } from './plugin-settings';
 import {
   sidebarPanelSchema,
   sidebarPanelsService,
@@ -79,6 +82,10 @@ export const pluginManifestSchema = z
         description:
           "The plugin's code: a JavaScript or TypeScript module in its folder, such as `main.ts`, which Komla runs without a build step in a process of its own while the plugin is on, and calls as `activate(komla)`. `komla` calls Komla Operations, follows events, runs commands in a workspace, and gives the plugin's panels data and badges, as `komla skill integrations` describes. For an integration that keeps state, or feeds a panel and a status item from one query.",
       }),
+    settings: z.array(pluginSettingFieldSchema).max(MAX_PLUGIN_SETTINGS).optional().meta({
+      description:
+        "What the user fills in in Settings → Plugins for the plugin, such as a repository, an API's URL or a token. Its code gets them as `komla.settings.get()`, and its commands as `KOMLA_SETTING_<ID>`: on an SSH host, all but its secrets. Agents can't read or set secrets, so tell the user to enter them there.",
+    }),
     contributes: z
       .object({
         statusItems: z
@@ -102,6 +109,15 @@ export const pluginManifestSchema = z
   .strict()
   .superRefine((manifest, context) => {
     const { statusItems = [], hooks = [], sidebarPanels = [] } = manifest.contributes;
+    (manifest.settings ?? []).forEach((field, index, fields) => {
+      if (fields.findIndex((other) => other.id === field.id) < index) {
+        context.addIssue({
+          code: 'custom',
+          path: ['settings', index, 'id'],
+          message: `${field.id} is already in the list`,
+        });
+      }
+    });
     if (statusItems.length + hooks.length + sidebarPanels.length === 0 && !manifest.main) {
       context.addIssue({ code: 'custom', path: ['contributes'], message: 'adds nothing' });
     }
@@ -481,11 +497,20 @@ export class PluginsService {
       ...(problem && { problem }),
       ...(scanned.digest && { digest: scanned.digest }),
       contributions: scanned.manifest ? contributionsOf(scanned.manifest) : [],
+      ...(scanned.manifest?.settings && { settings: scanned.manifest.settings }),
       ...(scanned.folderProblem && { folderProblem: scanned.folderProblem }),
       hasManifest: scanned.problem !== NO_MANIFEST,
       ...(scanned.manifest && { manifest: scanned.manifest, written: scanned.written }),
       ...(scanned.otherFiles && { otherFiles: scanned.otherFiles }),
     }));
+  }
+
+  /** The settings a plugin declares, by its id; none for a plugin Komla can't read. */
+  settingFields(id: string): PluginSettingField[] {
+    return (
+      this.plugins().find((plugin) => plugin.id === id && plugin.state !== 'invalid')?.scanned
+        .manifest?.settings ?? []
+    );
   }
 
   /** The status bar items of the plugins that run, with their ids as `<plugin>.<id>`. */

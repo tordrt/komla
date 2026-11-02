@@ -83,8 +83,8 @@ export function getSettingsManagementService(): SettingsManagementService {
       list: () => automationService.list(),
       listCurrent: (options) => automationService.listCurrent(options),
       hostProblem: (project) => automationHostProblem(project),
-      agentProblem: (target, presetId, launchModeId) =>
-        automationAgentProblem(target, presetId, launchModeId),
+      agentProblem: (target, presetId, launchModeId, launchArguments) =>
+        automationAgentProblem(target, presetId, launchModeId, launchArguments),
       save: (params) => automationService.save(params),
       setEnabled: (target, id, enabled) => automationService.setEnabled(target, id, enabled),
       delete: (target, id) => automationService.delete(target, id),

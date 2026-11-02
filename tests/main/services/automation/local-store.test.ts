@@ -59,11 +59,16 @@ describe('LocalAutomationStore', () => {
     expect(reloaded.runs.nightly?.[0]?.id).toBe(`run-${MAX_AUTOMATION_RUNS + 4}`);
   });
 
-  it('keeps the branch an automation starts from across restarts', async () => {
-    const fromRelease = { ...automation, startBranch: 'release/1.x' };
-    await new LocalAutomationStore(path()).saveAutomation(fromRelease);
+  it('keeps an automation’s level, extra arguments and start branch across restarts', async () => {
+    const tuned = {
+      ...automation,
+      reasoningLevelId: 'high',
+      extraArguments: '--model opus',
+      startBranch: 'release/1.x',
+    };
+    await new LocalAutomationStore(path()).saveAutomation(tuned);
 
-    expect(new LocalAutomationStore(path()).read().automations).toEqual([fromRelease]);
+    expect(new LocalAutomationStore(path()).read().automations).toEqual([tuned]);
   });
 
   it('forgets an automation’s runs with it', async () => {

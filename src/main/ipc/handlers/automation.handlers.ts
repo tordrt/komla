@@ -1,9 +1,10 @@
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { automationService } from '../../services/automation.service';
+import { automationService, previewAutomationCommand } from '../../services/automation.service';
 import { handleIpc } from '../validation/ipc-validators';
 
 import type {
   Automation,
+  AutomationCommandPreview,
   AutomationRun,
   AutomationTargetSnapshot,
 } from '../../../shared/types/automation';
@@ -27,5 +28,10 @@ export function registerAutomationHandlers(): void {
 
   handleIpc(IPC.AUTOMATION_RUN_NOW, async (_, [target, id]): Promise<AutomationRun> =>
     automationService.runNow(target, id)
+  );
+
+  handleIpc(
+    IPC.AUTOMATION_PREVIEW_COMMAND,
+    async (_, [params]): Promise<AutomationCommandPreview> => previewAutomationCommand(params)
   );
 }

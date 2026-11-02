@@ -16,7 +16,10 @@ import { getShell } from '../lib/shell';
 import { usesPowerShell } from '../lib/workspace-launch-variables';
 
 import { configService } from './config.service';
-import { resolvePosixAutoTrustArgs } from './execution-location/launch-variables';
+import {
+  resolveAutoTrustArgs,
+  resolvePosixAutoTrustArgs,
+} from './execution-location/launch-variables';
 import { FileWatcher } from './file-watcher';
 import { getKomlaBasePath } from './paths';
 
@@ -631,6 +634,16 @@ export const BUILTIN_PRESETS: Omit<AgentPreset, 'id'>[] = [
 
 export const PRESET_CONFIG_VERSION = 1;
 
+/** Stands in for the prompt while a command is resolved, to find where the prompt goes. */
+const PROMPT_SENTINEL = 'KOMLA_PROMPT_PLACEHOLDER';
+
+/** What a launch adds to its launch mode's arguments. */
+export interface LaunchArguments {
+  reasoningLevelId?: string | null;
+  /** Arguments for this launch only, after the launch mode's and the reasoning level's. */
+  extraArguments?: string;
+}
+
 function reasoningLevelArguments(
   preset: AgentPreset,
   reasoningLevelId: string | null | undefined
@@ -1039,7 +1052,10 @@ class AgentPresetService {
     const created = presets.map((preset, index) => {
       const newPreset: AgentPreset = { ...preset, id: randomUUID() };
       this.presets.set(newPreset.id, newPreset);
-      this.activePresets.push({ presetId: newPreset.id, lastUsedAt: now - index });
+      this.activePresets.push({
+        presetId: newPreset.id,
+        lastUsedAt: now - index,
+      });
       return newPreset;
     });
     this.saveConfig();
@@ -1156,7 +1172,9 @@ class AgentPresetService {
     launchModeId?: string | null,
     prompt?: string,
     shellFamily: 'desktop' | 'posix' = 'desktop',
-    reasoningLevelId?: string | null
+    reasoningLevelId?: string | null,
+    /** Arguments for this launch only, after the launch mode's and the reasoning level's. */
+    extraArguments?: string
   ): string {
     const mode = launchModeId
       ? preset.launchModes.find((candidate) => candidate.id === launchModeId)
@@ -1174,7 +1192,11 @@ class AgentPresetService {
 
     // Reasoning flags travel with the launch mode so they land wherever the
     // template places {{launchMode}} (e.g. before Gemini's `--` prompt separator).
-    const launchModeArguments = [mode?.arguments?.trim(), reasoningArguments]
+    const launchModeArguments = [
+      mode?.arguments?.trim(),
+      reasoningArguments,
+      extraArguments?.trim(),
+    ]
       .filter(Boolean)
       .join(' ');
     if (!launchModeArguments) {
@@ -1186,7 +1208,8 @@ class AgentPresetService {
     }
 
     const commandWithLaunchMode = command.includes('{{launchMode}}')
-      ? command.replace(/\{\{launchMode\}\}/g, launchModeArguments)
+      ? // A replacer function keeps `$&`-style patterns in the arguments literal.
+        command.replace(/\{\{launchMode\}\}/g, () => launchModeArguments)
       : `${command} ${launchModeArguments}`;
     return this.resolveCommand(commandWithLaunchMode, prompt, shellFamily);
   }
@@ -1197,22 +1220,66 @@ class AgentPresetService {
    */
   resolvePosixPromptTemplate(
     preset: AgentPreset,
-    launchModeId?: string | null
+    launchModeId?: string | null,
+    { reasoningLevelId, extraArguments }: LaunchArguments = {}
   ): { promptCommand: string; openCommand: string } | undefined {
-    const sentinel = 'KOMLA_PROMPT_PLACEHOLDER';
     const promptCommand = resolvePosixAutoTrustArgs(
-      this.resolvePresetCommand(preset, 'prompt', launchModeId, sentinel, 'posix').replace(
-        `"$(printf -- '${sentinel}')"`,
-        '{{prompt}}'
-      )
+      this.resolvePresetCommand(
+        preset,
+        'prompt',
+        launchModeId,
+        PROMPT_SENTINEL,
+        'posix',
+        reasoningLevelId,
+        extraArguments
+      ).replace(`"$(printf -- '${PROMPT_SENTINEL}')"`, '{{prompt}}')
     );
     const openCommand = resolvePosixAutoTrustArgs(
-      this.resolvePresetCommand(preset, 'open', launchModeId, undefined, 'posix')
+      this.resolvePresetCommand(
+        preset,
+        'open',
+        launchModeId,
+        undefined,
+        'posix',
+        reasoningLevelId,
+        extraArguments
+      )
     );
-    if (!promptCommand.includes('{{prompt}}') || promptCommand.includes(sentinel) || !openCommand) {
+    if (
+      !promptCommand.includes('{{prompt}}') ||
+      promptCommand.includes(PROMPT_SENTINEL) ||
+      !openCommand
+    ) {
       return undefined;
     }
     return { promptCommand, openCommand };
+  }
+
+  /**
+   * The command a launch with a prompt runs, with `<prompt>` where the quoted prompt goes, to
+   * show the user. Undefined when the preset can't start with a prompt.
+   */
+  previewPromptCommand(
+    preset: AgentPreset,
+    launchModeId: string | null | undefined,
+    { reasoningLevelId, extraArguments }: LaunchArguments,
+    shellFamily: 'desktop' | 'posix'
+  ): string | undefined {
+    const command = resolveAutoTrustArgs(
+      this.resolvePresetCommand(
+        preset,
+        'prompt',
+        launchModeId,
+        PROMPT_SENTINEL,
+        shellFamily,
+        reasoningLevelId,
+        extraArguments
+      ),
+      shellFamily
+    );
+    // The prompt is quoted, and escaped as the shell needs, inside one double-quoted word.
+    const preview = command.replace(new RegExp(`"[^"]*${PROMPT_SENTINEL}[^"]*"`), '<prompt>');
+    return preview.includes('<prompt>') ? preview : undefined;
   }
 
   /** The POSIX command that resumes this preset's last session, if it has one. */

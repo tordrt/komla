@@ -395,6 +395,9 @@ export interface CreateWorkspaceParams {
   launchModeId?: string;
   // null = agent default; undefined = no choice made (keeps the remembered level)
   reasoningLevelId?: string | null;
+  // Arguments the first agent starts with after its launch mode's and reasoning level's, such
+  // as an automation's; later agent tabs start without them
+  extraArguments?: string;
   // Agent preset to use (defaults to first active preset)
   presetId?: string;
   // Initial command (runs command then returns to shell)

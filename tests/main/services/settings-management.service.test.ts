@@ -1381,6 +1381,253 @@ describe('SettingsManagementService', () => {
       );
     });
 
+    it('offers the reasoning levels of agents whose level picker is shown', async () => {
+      const { service, presets } = withHost();
+      presets[0].reasoningLevels = [{ id: 'high', name: 'High', arguments: '-c effort=high' }];
+      presets.push({
+        id: 'hidden',
+        name: 'Hidden levels',
+        openCommand: 'h',
+        continueCommand: '',
+        promptCommand: 'h {{prompt}}',
+        launchModes: [],
+        reasoningLevels: [{ id: 'max', name: 'Max', arguments: '--max' }],
+        levelPicker: { hidden: true },
+        isBuiltin: false,
+      });
+
+      const read = await service.readAutomations({ terminalId: 'terminal-1' });
+
+      expect(read.agents).toEqual([
+        {
+          id: 'preset-1',
+          name: 'Codex',
+          modes: [{ id: 'mode-1', name: 'Full auto' }],
+          levels: [{ id: 'high', name: 'High' }],
+        },
+        { id: 'hidden', name: 'Hidden levels', modes: [] },
+      ]);
+    });
+
+    it('keeps a reasoning level and extra arguments until they are set to empty', async () => {
+      const { service, automationDeps, approve, presets } = withHost();
+      presets[0].reasoningLevels = [{ id: 'high', name: 'High', arguments: '-c effort=high' }];
+      const nightly = {
+        id: 'nightly',
+        name: 'Nightly deps',
+        prompt: 'Update dependencies',
+        target: { kind: 'local' as const },
+        presetId: 'preset-1',
+        schedule: { cron: '0 2 * * *' },
+      };
+      const triage = {
+        id: 'triage',
+        name: 'Triage',
+        prompt: 'Triage new issues',
+        target: { kind: 'ssh' as const, hostId: 'ssh-1' },
+        schedule: { cron: '30 8 * * 1-5' },
+      };
+      const apply = (edited: Record<string, unknown>) =>
+        service.proposeAutomations(
+          { terminalId: 'terminal-1' },
+          { automations: [{ ...nightly, ...edited }, triage] }
+        );
+
+      await apply({ reasoningLevelId: 'high', extraArguments: ' --search ' });
+      expect(approve.mock.calls[0][0].changes[0].details).toEqual(
+        expect.arrayContaining([
+          { label: 'Effort', value: 'High' },
+          { label: 'Extra arguments', value: '--search' },
+        ])
+      );
+      expect(automationDeps.agentProblem).toHaveBeenCalledWith(
+        { kind: 'local' },
+        'preset-1',
+        undefined,
+        { reasoningLevelId: 'high', extraArguments: '--search' }
+      );
+      const read = await service.readAutomations({ terminalId: 'terminal-1' });
+      expect(read.automations.find(({ id }) => id === 'nightly')).toMatchObject({
+        reasoningLevelId: 'high',
+        extraArguments: '--search',
+      });
+
+      await apply({ prompt: 'Update dependencies and run the tests' });
+      expect(automationDeps.save).toHaveBeenLastCalledWith(
+        expect.objectContaining({ reasoningLevelId: 'high', extraArguments: '--search' })
+      );
+
+      await apply({ reasoningLevelId: '', extraArguments: '' });
+      const cleared = automationDeps.save.mock.lastCall?.[0];
+      expect(cleared).not.toHaveProperty('reasoningLevelId');
+      expect(cleared).not.toHaveProperty('extraArguments');
+    });
+
+    it('keeps a level the agent no longer shows through edits that leave it as it was', async () => {
+      const { service, automationDeps, presets } = withHost();
+      presets[0].reasoningLevels = [{ id: 'high', name: 'High', arguments: '-c effort=high' }];
+      const nightly = {
+        id: 'nightly',
+        name: 'Nightly deps',
+        prompt: 'Update dependencies',
+        target: { kind: 'local' as const },
+        presetId: 'preset-1',
+        schedule: { cron: '0 2 * * *' },
+      };
+      const triage = {
+        id: 'triage',
+        name: 'Triage',
+        prompt: 'Triage new issues',
+        target: { kind: 'ssh' as const, hostId: 'ssh-1' },
+        schedule: { cron: '30 8 * * 1-5' },
+      };
+      await service.proposeAutomations(
+        { terminalId: 'terminal-1' },
+        { automations: [{ ...nightly, reasoningLevelId: 'high' }, triage] }
+      );
+      presets[0].levelPicker = { hidden: true };
+
+      // Runs still start at it, so reading shows it, and sending it back keeps it.
+      const read = await service.readAutomations({ terminalId: 'terminal-1' });
+      expect(read.automations.find(({ id }) => id === 'nightly')).toMatchObject({
+        reasoningLevelId: 'high',
+      });
+      await service.proposeAutomations(
+        { terminalId: 'terminal-1' },
+        {
+          automations: read.automations.map((automation) =>
+            automation.id === 'nightly'
+              ? { ...automation, prompt: 'Update dependencies and run the tests' }
+              : automation
+          ),
+        }
+      );
+      expect(automationDeps.save.mock.lastCall?.[0]).toMatchObject({
+        id: 'nightly',
+        prompt: 'Update dependencies and run the tests',
+        reasoningLevelId: 'high',
+      });
+
+      // Choosing it anew is refused, as the agent no longer offers it.
+      await expect(
+        service.proposeAutomations(
+          { terminalId: 'terminal-1' },
+          {
+            automations: [
+              ...read.automations,
+              { ...nightly, id: undefined, name: 'New', reasoningLevelId: 'high' },
+            ],
+          }
+        )
+      ).rejects.toMatchObject({ code: 'INVALID_REASONING_LEVEL' });
+    });
+
+    it('accepts unchanged extra arguments that a newer rule refuses', async () => {
+      const { service, automationSnapshots, automationDeps } = withHost();
+      const snapshots = await automationSnapshots();
+      const local = snapshots.find((snapshot) => snapshot.target.kind === 'local')!;
+      local.automations[0] = { ...local.automations[0]!, extraArguments: '--title {{prompt}}' };
+      automationDeps.listCurrent.mockResolvedValue(snapshots);
+      const read = await service.readAutomations({ terminalId: 'terminal-1' });
+
+      await service.proposeAutomations(
+        { terminalId: 'terminal-1' },
+        {
+          automations: read.automations.map((automation) =>
+            automation.id === 'nightly' ? automation : { ...automation, enabled: false }
+          ),
+        }
+      );
+      await expect(
+        service.proposeAutomations(
+          { terminalId: 'terminal-1' },
+          {
+            automations: read.automations.map((automation) =>
+              automation.id === 'nightly'
+                ? { ...automation, extraArguments: '--title {{workspacePath}}' }
+                : automation
+            ),
+          }
+        )
+      ).rejects.toMatchObject({ code: 'INVALID_AUTOMATION' });
+    });
+
+    it('marks the levels that skip permission prompts', async () => {
+      const { service, presets } = withHost();
+      presets[0].reasoningLevels = [
+        { id: 'high', name: 'High', arguments: '-c effort=high' },
+        { id: 'max', name: 'Max', arguments: '--dangerously-bypass-approvals-and-sandbox' },
+      ];
+
+      const read = await service.readAutomations({ terminalId: 'terminal-1' });
+
+      expect(read.agents[0]?.levels).toEqual([
+        { id: 'high', name: 'High' },
+        { id: 'max', name: 'Max', skipsPermissionPrompts: true },
+      ]);
+    });
+
+    it.each([
+      ['a level of another agent', { reasoningLevelId: 'max' }, 'INVALID_REASONING_LEVEL'],
+      [
+        'a level without an agent',
+        { presetId: undefined, reasoningLevelId: 'high' },
+        'INVALID_REASONING_LEVEL',
+      ],
+      ['extra arguments on two lines', { extraArguments: '-v\nrm -rf ~' }, 'INVALID_AUTOMATION'],
+    ])('refuses %s', async (_label, edited, code) => {
+      const { service, presets, automationDeps } = withHost();
+      presets[0].reasoningLevels = [{ id: 'high', name: 'High', arguments: '-c effort=high' }];
+
+      await expect(
+        service.proposeAutomations(
+          { terminalId: 'terminal-1' },
+          {
+            automations: [
+              {
+                name: 'New',
+                prompt: 'Do it',
+                target: { kind: 'local' },
+                presetId: 'preset-1',
+                schedule: { cron: '0 2 * * *' },
+                ...edited,
+              },
+            ],
+          }
+        )
+      ).rejects.toMatchObject({ code });
+      expect(automationDeps.save).not.toHaveBeenCalled();
+    });
+
+    it('warns when extra arguments skip permission prompts', async () => {
+      const { service, approve } = withHost();
+      const read = await service.readAutomations({ terminalId: 'terminal-1' });
+
+      await service.proposeAutomations(
+        { terminalId: 'terminal-1' },
+        {
+          automations: [
+            ...read.automations,
+            {
+              name: 'CI check',
+              prompt: 'Fix CI',
+              target: { kind: 'local' },
+              presetId: 'preset-1',
+              extraArguments: '--dangerously-bypass-approvals-and-sandbox',
+              schedule: { cron: '0 8 * * 1-5' },
+            },
+          ],
+        }
+      );
+
+      const prompt = approve.mock.calls[0][0];
+      expect(prompt.changes[0].details).toContainEqual({
+        label: 'Permission prompts',
+        value: 'Skipped',
+      });
+      expect(prompt.warning).toMatch(/“CI check” skips permission prompts/);
+    });
+
     it('leaves SSH hosts out of the targets of a folder project, without reading them', async () => {
       const { service, projects, automationDeps } = withHost();
       projects[0].kind = 'directory';

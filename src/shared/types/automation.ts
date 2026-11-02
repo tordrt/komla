@@ -22,6 +22,10 @@ export interface Automation {
   target: AutomationTarget;
   presetId?: string;
   launchModeId?: string;
+  /** One of the preset's reasoning levels; absent, the agent's default. */
+  reasoningLevelId?: string;
+  /** Arguments runs add after the launch mode's and the reasoning level's, e.g. `--model opus`. */
+  extraArguments?: string;
   /** The branch runs start from; absent, the project's target branch when each run starts. */
   startBranch?: string;
   /** The agent's display name, for SSH automations saved by another device. */
@@ -88,10 +92,37 @@ export interface SaveAutomationParams {
   target: AutomationTarget;
   presetId?: string;
   launchModeId?: string;
+  reasoningLevelId?: string;
+  extraArguments?: string;
   startBranch?: string;
   schedule: AutomationSchedule;
   enabled: boolean;
   missedRunGraceMinutes: number;
+}
+
+/** What the automation editor shows a run's agent command for. */
+export interface AutomationCommandPreviewParams {
+  target: AutomationTarget;
+  presetId?: string;
+  launchModeId?: string;
+  reasoningLevelId?: string;
+  extraArguments?: string;
+}
+
+/** A run's agent command, with `<prompt>` for the prompt, or why the agent can't start there. */
+export type AutomationCommandPreview = { command: string } | { problem: string };
+
+export const MAX_AUTOMATION_EXTRA_ARGUMENTS_LENGTH = 1024;
+
+/** Why extra arguments can't be saved: they go into a shell command line, so on one line. */
+export function automationExtraArgumentsError(value: string): string | undefined {
+  if (value.length > MAX_AUTOMATION_EXTRA_ARGUMENTS_LENGTH)
+    return 'The extra arguments are too long.';
+  // oxlint-disable-next-line no-control-regex -- a control character could end the command line
+  if (/[\x00-\x1f\x7f]/.test(value)) return 'Put the extra arguments on one line.';
+  // Komla fills `{{…}}` placeholders in itself, and only in some places a run starts.
+  if (value.includes('{{')) return 'Leave {{…}} placeholders out of the extra arguments.';
+  return undefined;
 }
 
 /**
@@ -126,7 +157,13 @@ export interface HostAutomation {
    */
   startBranch?: string;
   launch: SshWorkspaceLaunch;
-  desktop?: { projectId?: string; presetId?: string; launchModeId?: string };
+  desktop?: {
+    projectId?: string;
+    presetId?: string;
+    launchModeId?: string;
+    reasoningLevelId?: string;
+    extraArguments?: string;
+  };
   createdAt: number;
   updatedAt: number;
   writtenBy?: string;

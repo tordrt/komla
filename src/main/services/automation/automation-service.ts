@@ -11,6 +11,7 @@ import {
   automationScheduleError,
   dueAutomationOccurrence,
 } from '../../../shared/lib/automation-schedule';
+import { automationExtraArgumentsError } from '../../../shared/types/automation';
 import { createLogger } from '../../lib/logger';
 
 import type { AutomationHostClient, AutomationHostListing } from './host-client';
@@ -68,7 +69,14 @@ export interface AutomationServiceDependencies {
   resolveHostAutomations(
     hostId: string,
     automations: HostAutomation[]
-  ): Promise<Array<{ projectId?: string; presetId?: string; launchModeId?: string }>>;
+  ): Promise<
+    Array<
+      Pick<
+        Automation,
+        'projectId' | 'presetId' | 'launchModeId' | 'reasoningLevelId' | 'extraArguments'
+      >
+    >
+  >;
   /** The Git settings of a project here that its SSH automations have compiled in. */
   projectGitSettings(projectId: string): { baseBranch?: string; branchPrefix?: string };
   /** Tells windows the automations changed. */
@@ -77,6 +85,24 @@ export interface AutomationServiceDependencies {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The agent choice as saved, without empty fields. Extra arguments are trimmed, and refused when
+ * they can't go on a command line.
+ */
+function savedAgent(
+  params: SaveAutomationParams
+): Pick<Automation, 'presetId' | 'launchModeId' | 'reasoningLevelId' | 'extraArguments'> {
+  const extraArguments = params.extraArguments?.trim();
+  const error = extraArguments && automationExtraArgumentsError(extraArguments);
+  if (error) throw new Error(error);
+  return {
+    ...(params.presetId ? { presetId: params.presetId } : {}),
+    ...(params.launchModeId ? { launchModeId: params.launchModeId } : {}),
+    ...(params.reasoningLevelId ? { reasoningLevelId: params.reasoningLevelId } : {}),
+    ...(extraArguments ? { extraArguments } : {}),
+  };
 }
 
 function sameTarget(a: AutomationTarget, b: AutomationTarget): boolean {
@@ -182,6 +208,7 @@ export class AutomationService {
     if (prompt.length > MAX_PROMPT_LENGTH) throw new Error('The prompt is too long.');
     const scheduleError = automationScheduleError(params.schedule);
     if (scheduleError) throw new Error(scheduleError);
+    const agent = savedAgent(params);
 
     const previousTarget = params.previousTarget ?? params.target;
     const existing = params.id ? this.find(previousTarget, params.id) : undefined;
@@ -192,8 +219,7 @@ export class AutomationService {
       prompt,
       projectId: params.projectId,
       target: params.target,
-      ...(params.presetId ? { presetId: params.presetId } : {}),
-      ...(params.launchModeId ? { launchModeId: params.launchModeId } : {}),
+      ...agent,
       ...(params.startBranch?.trim() ? { startBranch: params.startBranch.trim() } : {}),
       schedule: { cron: params.schedule.cron.trim(), timeZone: params.schedule.timeZone },
       enabled: params.enabled,

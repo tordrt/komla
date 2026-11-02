@@ -4781,7 +4781,8 @@ describe('WorkspaceService', () => {
           undefined,
           expect.stringContaining('komla skill project-setup'),
           'posix',
-          null
+          null,
+          undefined
         );
       });
 
@@ -6560,13 +6561,39 @@ describe('WorkspaceService', () => {
           undefined,
           undefined,
           undefined,
-          'high'
+          'high',
+          undefined
         );
         expect(mockAgentPresetService.recordPresetUsage).toHaveBeenCalledWith(
           mockArgumentPreset.id,
           undefined,
           'high'
         );
+      });
+
+      it('starts the first agent with extra arguments, without keeping them on the workspace', async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'directory',
+          directoryPath: '/some/path',
+          presetId: mockArgumentPreset.id,
+          reasoningLevelId: 'high',
+          extraArguments: '--model opus',
+        });
+
+        expect(mockAgentPresetService.resolvePresetCommand).toHaveBeenCalledWith(
+          mockArgumentPreset,
+          'open',
+          undefined,
+          undefined,
+          undefined,
+          'high',
+          '--model opus'
+        );
+        expect(workspace).not.toHaveProperty('extraArguments');
       });
 
       it('drops reasoning levels the preset does not define', async () => {
@@ -7290,7 +7317,8 @@ describe('WorkspaceService', () => {
             undefined,
             'Fix login\n\n@.komla-files/shot.png',
             'posix',
-            null
+            null,
+            undefined
           )
         );
       });
@@ -7318,7 +7346,8 @@ describe('WorkspaceService', () => {
           undefined,
           'Fix login\n\n@.komla-files/shot.png',
           'posix',
-          null
+          null,
+          undefined
         );
       });
 
@@ -9193,6 +9222,7 @@ describe('WorkspaceService', () => {
         undefined,
         expect.stringContaining('komla skill project-setup'),
         'posix',
+        undefined,
         undefined
       );
     });

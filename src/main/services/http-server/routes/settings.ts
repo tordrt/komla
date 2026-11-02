@@ -7,6 +7,7 @@ import {
   SETUP_DESTINATIONS,
   SETUP_TRIGGERS,
 } from '../../../../shared/types';
+import { MAX_AUTOMATION_EXTRA_ARGUMENTS_LENGTH } from '../../../../shared/types/automation';
 import { createLogger } from '../../../lib/logger';
 import {
   MAX_COLOR_LEN,
@@ -103,6 +104,9 @@ const settingsAutomationsPayloadSchema = z
           target: settingsAutomationTargetSchema,
           presetId: z.string().min(1).max(MAX_ID_LEN).optional(),
           launchModeId: z.string().min(1).max(MAX_ID_LEN).optional(),
+          // Empty goes back to the agent's default level, or runs without extra arguments.
+          reasoningLevelId: z.string().max(MAX_ID_LEN).optional(),
+          extraArguments: z.string().max(MAX_AUTOMATION_EXTRA_ARGUMENTS_LENGTH).optional(),
           startBranch: z
             .union([z.literal(''), z.string().max(1024).regex(BRANCH_NAME_PATTERN)])
             .optional(),

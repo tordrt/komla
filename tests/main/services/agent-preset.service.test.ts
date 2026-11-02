@@ -921,7 +921,6 @@ describe('AgentPresetService', () => {
       // Should have saved due to stale entry removal
       expect(mockWriteFileAtomicSync).toHaveBeenCalled();
     });
-
   });
 
   describe('CRUD operations', () => {
@@ -1175,6 +1174,86 @@ describe('AgentPresetService', () => {
       ).toBe('claude --resume --permission-mode plan --effort high');
     });
 
+    it('adds extra arguments after the launch mode and reasoning arguments', () => {
+      const preset = {
+        id: 'gemini',
+        name: 'Gemini',
+        openCommand: 'gemini {{launchMode}}',
+        continueCommand: '',
+        promptCommand: 'gemini {{launchMode}} -- {{prompt}}',
+        launchModes: [{ id: 'yolo', name: 'YOLO', arguments: '--yolo' }],
+        reasoningLevels: [{ id: 'pro', name: 'Pro', arguments: '--model pro' }],
+        isBuiltin: false,
+      };
+
+      expect(
+        agentPresetService.resolvePresetCommand(
+          preset,
+          'prompt',
+          'yolo',
+          'go',
+          'posix',
+          'pro',
+          '  --debug  '
+        )
+      ).toBe(`gemini --yolo --model pro --debug -- "$(printf -- 'go')"`);
+      expect(
+        agentPresetService.resolvePresetCommand(
+          preset,
+          'open',
+          null,
+          undefined,
+          'posix',
+          null,
+          '--debug'
+        )
+      ).toBe('gemini --debug');
+    });
+
+    it('keeps dollar signs in launch arguments literal', () => {
+      const preset = createClaudePreset({
+        openCommand: 'claude {{launchMode}} --verbose',
+        launchModes: [],
+      });
+
+      expect(
+        agentPresetService.resolvePresetCommand(
+          preset,
+          'open',
+          null,
+          undefined,
+          'posix',
+          null,
+          "--sep $'\\t' --pid $$"
+        )
+      ).toBe("claude --sep $'\\t' --pid $$ --verbose");
+    });
+
+    it('previews a prompt launch with the prompt left out', () => {
+      const preset = createClaudePreset({
+        promptCommand: 'claude {{launchMode}} {{prompt}} --verbose',
+        launchModes: [{ id: 'plan', name: 'Plan', arguments: '--permission-mode plan' }],
+        reasoningLevels: [{ id: 'high', name: 'High', arguments: '--effort high' }],
+      });
+
+      expect(
+        agentPresetService.previewPromptCommand(
+          preset,
+          'plan',
+          { reasoningLevelId: 'high', extraArguments: '--model opus' },
+          'posix'
+        )
+      ).toBe('claude --permission-mode plan --effort high --model opus <prompt> --verbose');
+      expect(
+        agentPresetService.previewPromptCommand(
+          createClaudePreset({ promptCommand: '' }),
+          null,
+          {},
+          'posix'
+        )
+      ).toBeUndefined();
+    });
+
     it('ignores reasoning level ids the preset does not define', () => {
       const preset = {
         id: 'custom',
@@ -1360,6 +1439,25 @@ describe('AgentPresetService', () => {
       expect(
         agentPresetService.resolvePosixPromptTemplate(createClaudePreset({ promptCommand: '' }))
       ).toBeUndefined();
+    });
+
+    it('builds POSIX prompt templates with a reasoning level and extra arguments', () => {
+      const preset = createClaudePreset({
+        promptCommand: 'claude {{launchMode}} {{prompt}}',
+        openCommand: 'claude {{launchMode}}',
+        launchModes: [],
+        reasoningLevels: [{ id: 'high', name: 'High', arguments: '--effort high' }],
+      });
+
+      expect(
+        agentPresetService.resolvePosixPromptTemplate(preset, undefined, {
+          reasoningLevelId: 'high',
+          extraArguments: '--model opus',
+        })
+      ).toEqual({
+        promptCommand: 'claude --effort high --model opus {{prompt}}',
+        openCommand: 'claude --effort high --model opus',
+      });
     });
 
     it('expands auto-trust arguments in POSIX prompt templates', () => {

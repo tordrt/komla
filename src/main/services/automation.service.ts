@@ -22,7 +22,14 @@ import { sshWorkspaceService } from './ssh-workspace.service';
 import { windowService } from './window.service';
 import { workspaceService } from './workspace.service';
 
-import type { Automation, AutomationTarget, HostAutomation } from '../../shared/types/automation';
+import type { LaunchArguments } from './agent-preset.service';
+import type {
+  Automation,
+  AutomationCommandPreview,
+  AutomationCommandPreviewParams,
+  AutomationTarget,
+  HostAutomation,
+} from '../../shared/types/automation';
 import type { Project } from '../../shared/types/project';
 
 export { AutomationService } from './automation/automation-service';
@@ -106,6 +113,8 @@ async function launchLocal(
     initialPrompt: automation.prompt,
     ...(automation.presetId ? { presetId: automation.presetId } : {}),
     ...(automation.launchModeId ? { launchModeId: automation.launchModeId } : {}),
+    ...(automation.reasoningLevelId ? { reasoningLevelId: automation.reasoningLevelId } : {}),
+    ...(automation.extraArguments ? { extraArguments: automation.extraArguments } : {}),
     windowId: windowService.getMainWindowId() ?? undefined,
     environment: { kind: 'local' },
     skipRecordUsage: true,
@@ -128,16 +137,48 @@ export async function automationHostProblem(project: Project): Promise<string | 
 export function automationAgentProblem(
   target: AutomationTarget,
   presetId?: string,
-  launchModeId?: string
+  launchModeId?: string,
+  launchArguments: LaunchArguments = {}
 ): string | undefined {
   const preset = agentPresetService.getPresetForWorkspace(presetId);
   if (!preset) return 'Choose an agent.';
   if (target.kind === 'ssh') {
-    return agentPresetService.resolvePosixPromptTemplate(preset, launchModeId)
+    return agentPresetService.resolvePosixPromptTemplate(preset, launchModeId, launchArguments)
       ? undefined
       : `${preset.name} can't start with a prompt on an SSH host.`;
   }
   return canStartWithPrompt(preset) ? undefined : `${preset.name} can't start with a prompt.`;
+}
+
+/**
+ * The agent command an automation's runs start, `<prompt>` standing for the prompt, as the
+ * editor shows it. An SSH host runs it in a POSIX shell, this computer in its own.
+ */
+export function previewAutomationCommand(
+  params: AutomationCommandPreviewParams
+): AutomationCommandPreview {
+  const launchArguments = {
+    reasoningLevelId: params.reasoningLevelId,
+    extraArguments: params.extraArguments,
+  };
+  const problem = automationAgentProblem(
+    params.target,
+    params.presetId,
+    params.launchModeId,
+    launchArguments
+  );
+  const preset = agentPresetService.getPresetForWorkspace(params.presetId);
+  const command =
+    preset &&
+    agentPresetService.previewPromptCommand(
+      preset,
+      params.launchModeId,
+      launchArguments,
+      params.target.kind === 'ssh' ? 'posix' : 'desktop'
+    );
+  if (problem || !command)
+    return { problem: problem ?? `${preset?.name} can't start with a prompt.` };
+  return { command };
 }
 
 async function compileForHost(automation: SshAutomation): Promise<HostAutomation> {
@@ -153,7 +194,10 @@ async function compileForHost(automation: SshAutomation): Promise<HostAutomation
   }
   const preset = agentPresetService.getPresetForWorkspace(automation.presetId);
   if (!preset) throw new Error('Choose an agent.');
-  const template = agentPresetService.resolvePosixPromptTemplate(preset, automation.launchModeId);
+  const template = agentPresetService.resolvePosixPromptTemplate(preset, automation.launchModeId, {
+    reasoningLevelId: automation.reasoningLevelId,
+    extraArguments: automation.extraArguments,
+  });
   if (!template) {
     throw new Error(`${preset.name} can't start with a prompt on an SSH host.`);
   }
@@ -197,6 +241,8 @@ async function compileForHost(automation: SshAutomation): Promise<HostAutomation
       projectId: project.id,
       presetId: preset.id,
       ...(automation.launchModeId ? { launchModeId: automation.launchModeId } : {}),
+      ...(automation.reasoningLevelId ? { reasoningLevelId: automation.reasoningLevelId } : {}),
+      ...(automation.extraArguments ? { extraArguments: automation.extraArguments } : {}),
     },
     createdAt: automation.createdAt,
     updatedAt: automation.updatedAt,
@@ -260,15 +306,19 @@ export const automationService = new AutomationService({
               remoteRepoPath: automation.project.remoteRepoPath,
               gitUrl: automation.project.gitUrl,
             });
-      const savedPresetId = automation.desktop?.presetId;
+      const desktop = automation.desktop;
+      const savedPresetId = desktop?.presetId;
       const presetId =
         savedPresetId && agentPresetService.get(savedPresetId) ? savedPresetId : undefined;
       return {
         ...(projectId ? { projectId } : {}),
         ...(presetId ? { presetId } : {}),
-        ...(presetId && automation.desktop?.launchModeId
-          ? { launchModeId: automation.desktop.launchModeId }
+        ...(presetId && desktop?.launchModeId ? { launchModeId: desktop.launchModeId } : {}),
+        ...(presetId && desktop?.reasoningLevelId
+          ? { reasoningLevelId: desktop.reasoningLevelId }
           : {}),
+        // The host's command has them either way, so they show even without the agent here.
+        ...(desktop?.extraArguments ? { extraArguments: desktop.extraArguments } : {}),
       };
     });
   },

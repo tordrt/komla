@@ -37,19 +37,23 @@ import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 
 import { canStartWithPrompt } from '../../../../shared/lib/agent-preset-prompt';
 import { automationScheduleError } from '../../../../shared/lib/automation-schedule';
+import { levelPickerOf, shownReasoningLevels } from '../../../../shared/lib/level-picker';
 import { projectRepoPath } from '../../../../shared/lib/project-repo-path';
 import {
   AUTOMATION_MISSED_RUN_GRACE_MINUTES,
+  automationExtraArgumentsError,
   DEFAULT_AUTOMATION_MISSED_RUN_GRACE_MINUTES,
+  MAX_AUTOMATION_EXTRA_ARGUMENTS_LENGTH,
   type Automation,
   type AutomationTarget,
   type SaveAutomationParams,
 } from '../../../../shared/types/automation';
 
+import { AutomationCommandPreviewLine } from './AutomationCommandPreview';
 import { AgentPicker, LOCAL_TARGET_VALUE, ProjectPicker, TargetPicker } from './AutomationPickers';
 import { AutomationScheduleSection } from './AutomationScheduleFields';
 
-import type { ActivePresetEntry, AgentPreset, Project, SshHost } from '@/types';
+import type { ActivePresetEntry, AgentPreset, Project, ReasoningLevel, SshHost } from '@/types';
 
 function targetValue(target: AutomationTarget): string {
   return target.kind === 'local' ? LOCAL_TARGET_VALUE : `ssh:${target.hostId}`;
@@ -137,6 +141,8 @@ export function AutomationEditorDialog({
   const [target, setTarget] = useState(initial.target);
   const [presetId, setPresetId] = useState(initial.presetId);
   const [launchModeId, setLaunchModeId] = useState(initial.launchModeId);
+  const [reasoningLevelId, setReasoningLevelId] = useState(initial.reasoningLevelId);
+  const [extraArguments, setExtraArguments] = useState(initial.extraArguments);
   const [startBranch, setStartBranch] = useState(initial.startBranch);
   const [draft, setDraft] = useState<ScheduleDraft>(initial.draft);
   const [timeZone, setTimeZone] = useState(initial.timeZone);
@@ -152,6 +158,8 @@ export function AutomationEditorDialog({
     target,
     presetId,
     launchModeId,
+    reasoningLevelId,
+    extraArguments,
     startBranch,
     timeZone,
     grace,
@@ -168,7 +176,16 @@ export function AutomationEditorDialog({
   const project = projects.find((candidate) => candidate.id === projectId);
   const gitProject = project?.kind === 'directory' ? undefined : project;
 
+  // The active preset is only known when a run starts, so its levels can't be offered. A level
+  // the agent no longer offers, e.g. after its picker was hidden, isn't shown or kept.
+  const chosenPreset = presets.find((candidate) => candidate.id === presetId);
+  const levels = chosenPreset ? shownReasoningLevels(chosenPreset) : [];
+  const offeredReasoningLevelId = levels.some((level) => level.id === reasoningLevelId)
+    ? reasoningLevelId
+    : '';
+
   const scheduleError = draftScheduleError(draft, { cron, timeZone });
+  const extraArgumentsError = automationExtraArgumentsError(extraArguments.trim());
   const missingFields = [
     !name.trim() && 'a name',
     !prompt.trim() && 'a prompt',
@@ -177,12 +194,17 @@ export function AutomationEditorDialog({
 
   const handleSave = () => {
     if (isSaving) return;
-    if (missingFields.length > 0 || scheduleError) {
+    if (missingFields.length > 0 || scheduleError || extraArgumentsError) {
       setShowMissing(true);
       return;
     }
     onSave(
-      toSaveParams(automation, { ...current, startBranch: gitProject ? startBranch : '', cron })
+      toSaveParams(automation, {
+        ...current,
+        reasoningLevelId: offeredReasoningLevelId,
+        startBranch: gitProject ? startBranch : '',
+        cron,
+      })
     );
   };
 
@@ -302,14 +324,24 @@ export function AutomationEditorDialog({
               presets={pickerPresets}
               presetId={presetId}
               launchModeId={launchModeId}
+              levels={levels}
+              levelTitle={chosenPreset ? levelPickerOf(chosenPreset).title : ''}
+              reasoningLevelId={offeredReasoningLevelId}
+              extraArguments={extraArguments}
+              extraArgumentsError={extraArgumentsError}
+              target={targetFromValue(target)}
               getPreferredLaunchModeId={(preset) =>
                 resolveLaunchModeForPreset(preset, activePresets, defaultLaunchModeId)
               }
               otherDeviceAgentName={!presetId ? automation?.agentName : undefined}
               onChange={(nextPresetId, nextLaunchModeId) => {
+                // Levels belong to their agent.
+                if (nextPresetId !== presetId) setReasoningLevelId('');
                 setPresetId(nextPresetId);
                 setLaunchModeId(nextLaunchModeId);
               }}
+              onReasoningLevelChange={setReasoningLevelId}
+              onExtraArgumentsChange={setExtraArguments}
             />
 
             <AutomationScheduleSection
@@ -400,6 +432,10 @@ function toSaveParams(
     target: targetFromValue(values.target),
     ...(values.presetId ? { presetId: values.presetId } : {}),
     ...(values.presetId && values.launchModeId ? { launchModeId: values.launchModeId } : {}),
+    ...(values.presetId && values.reasoningLevelId
+      ? { reasoningLevelId: values.reasoningLevelId }
+      : {}),
+    ...(values.extraArguments.trim() ? { extraArguments: values.extraArguments.trim() } : {}),
     ...(values.startBranch ? { startBranch: values.startBranch } : {}),
     schedule: { cron: values.cron, timeZone: values.timeZone },
     enabled: automation?.enabled ?? true,
@@ -466,6 +502,8 @@ function initialValues({
     target: targetValue(automation?.target ?? defaultTarget),
     presetId: automation ? (automation.presetId ?? '') : (agent?.presetId ?? ''),
     launchModeId: automation ? (automation.launchModeId ?? '') : (agent?.launchModeId ?? ''),
+    reasoningLevelId: automation?.reasoningLevelId ?? '',
+    extraArguments: automation?.extraArguments ?? '',
     startBranch: automation?.startBranch ?? '',
     draft: cron ? cronToDraft(cron) : DEFAULT_SCHEDULE_DRAFT,
     timeZone: automation?.schedule.timeZone ?? localTimeZone(),
@@ -550,10 +588,20 @@ interface AgentFieldsProps {
   presets: AgentPreset[];
   presetId: string;
   launchModeId: string;
+  /** The chosen agent's levels, shown under its picker's title. */
+  levels: ReasoningLevel[];
+  levelTitle: string;
+  /** One of `levels`; empty for the agent's default. */
+  reasoningLevelId: string;
+  extraArguments: string;
+  extraArgumentsError: string | undefined;
+  target: AutomationTarget;
   getPreferredLaunchModeId: (preset: AgentPreset) => string | null;
   /** The agent another device saved, when it isn't set up here. */
   otherDeviceAgentName: string | undefined;
   onChange: (presetId: string, launchModeId: string) => void;
+  onReasoningLevelChange: (reasoningLevelId: string) => void;
+  onExtraArgumentsChange: (extraArguments: string) => void;
 }
 
 function AgentFields({
@@ -561,28 +609,91 @@ function AgentFields({
   presets,
   presetId,
   launchModeId,
+  levels,
+  levelTitle,
+  reasoningLevelId,
+  extraArguments,
+  extraArgumentsError,
+  target,
   getPreferredLaunchModeId,
   otherDeviceAgentName,
   onChange,
+  onReasoningLevelChange,
+  onExtraArgumentsChange,
 }: AgentFieldsProps) {
+  const trimmedArguments = extraArguments.trim();
   return (
-    <div className="grid gap-1.5">
-      <label htmlFor={`${fieldId}-preset`} className="text-[13px] font-medium">
-        Agent
-      </label>
-      <AgentPicker
-        id={`${fieldId}-preset`}
-        presets={presets}
-        presetId={presetId}
-        launchModeId={launchModeId}
-        getPreferredLaunchModeId={getPreferredLaunchModeId}
-        onChange={onChange}
-      />
+    <div className="grid gap-3">
+      <div className={cn('grid gap-3', levels.length > 0 && 'sm:grid-cols-[1fr_12rem]')}>
+        <div className="grid min-w-0 content-start gap-1.5">
+          <label htmlFor={`${fieldId}-preset`} className="text-[13px] font-medium">
+            Agent
+          </label>
+          <AgentPicker
+            id={`${fieldId}-preset`}
+            presets={presets}
+            presetId={presetId}
+            launchModeId={launchModeId}
+            getPreferredLaunchModeId={getPreferredLaunchModeId}
+            onChange={onChange}
+          />
+        </div>
+        {levels.length > 0 && (
+          <div className="grid content-start gap-1.5">
+            <label htmlFor={`${fieldId}-level`} className="text-[13px] font-medium">
+              {levelTitle}
+            </label>
+            <Select
+              id={`${fieldId}-level`}
+              value={reasoningLevelId}
+              className="h-9"
+              onChange={(event) => onReasoningLevelChange(event.target.value)}
+            >
+              <option value="">Default</option>
+              {levels.map((level) => (
+                <option key={level.id} value={level.id}>
+                  {level.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+      </div>
       {otherDeviceAgentName && (
-        <p className="text-xs text-muted-foreground">
+        <p className="-mt-1.5 text-xs text-muted-foreground">
           Saved on another device with {otherDeviceAgentName}.
         </p>
       )}
+      <div className="grid gap-1.5">
+        <label htmlFor={`${fieldId}-arguments`} className="text-[13px] font-medium">
+          Extra arguments
+        </label>
+        <Input
+          id={`${fieldId}-arguments`}
+          value={extraArguments}
+          maxLength={MAX_AUTOMATION_EXTRA_ARGUMENTS_LENGTH}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          onChange={(event) => onExtraArgumentsChange(event.target.value)}
+          placeholder="e.g., --model opus"
+          aria-invalid={!!extraArgumentsError}
+          className="h-9 font-mono text-[13px]"
+        />
+        {extraArgumentsError ? (
+          <p className="text-xs text-destructive">{extraArgumentsError}</p>
+        ) : (
+          <AutomationCommandPreviewLine
+            params={{
+              target,
+              ...(presetId ? { presetId } : {}),
+              ...(presetId && launchModeId ? { launchModeId } : {}),
+              ...(reasoningLevelId ? { reasoningLevelId } : {}),
+              ...(trimmedArguments ? { extraArguments: trimmedArguments } : {}),
+            }}
+          />
+        )}
+      </div>
       <p className="text-xs text-muted-foreground">
         Nobody is watching when a run starts. If the agent stops to ask for permission, the run
         waits for you in its workspace. Choose a launch mode that doesn’t ask if it should finish on

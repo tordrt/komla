@@ -22,6 +22,13 @@ export function levelPickerOf(preset: Pick<AgentPreset, 'levelPicker'>): Require
   };
 }
 
+/** The levels a picker offers: none while the preset hides its picker, so launches use the agent default. */
+export function shownReasoningLevels(
+  preset: Pick<AgentPreset, 'levelPicker' | 'reasoningLevels'>
+): ReasoningLevel[] {
+  return levelPickerOf(preset).hidden ? [] : (preset.reasoningLevels ?? []);
+}
+
 /** Whether two levels share a name. Agents name levels to keep them, so names must differ. */
 export function hasDuplicateLevelNames(levels: Pick<ReasoningLevel, 'name'>[]): boolean {
   const names = levels.map((level) => level.name.trim()).filter(Boolean);

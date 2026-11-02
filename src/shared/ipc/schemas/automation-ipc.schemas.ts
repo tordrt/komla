@@ -1,11 +1,19 @@
 import { z } from 'zod';
 
+import { automationExtraArgumentsError } from '../../types/automation';
+
 import { BRANCH_NAME_PATTERN, idSchema, nonEmptyStringSchema } from './primitives';
 
 const automationTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('local') }).strict(),
   z.object({ kind: z.literal('ssh'), hostId: idSchema }).strict(),
 ]);
+
+// Checked again when saving; here so a preview and a save refuse the same input.
+const extraArgumentsSchema = z.string().superRefine((value, context) => {
+  const error = automationExtraArgumentsError(value);
+  if (error) context.addIssue({ code: 'custom', message: error });
+});
 
 const saveAutomationSchema = z
   .object({
@@ -17,6 +25,8 @@ const saveAutomationSchema = z
     target: automationTargetSchema,
     presetId: idSchema.optional(),
     launchModeId: idSchema.optional(),
+    reasoningLevelId: idSchema.optional(),
+    extraArguments: extraArgumentsSchema.optional(),
     startBranch: z
       .string()
       .max(1024)
@@ -45,3 +55,14 @@ export const automationSetEnabledArgsSchema = z.tuple([
 ]);
 export const automationDeleteArgsSchema = z.tuple([automationTargetSchema, idSchema]);
 export const automationRunNowArgsSchema = z.tuple([automationTargetSchema, idSchema]);
+export const automationPreviewCommandArgsSchema = z.tuple([
+  z
+    .object({
+      target: automationTargetSchema,
+      presetId: idSchema.optional(),
+      launchModeId: idSchema.optional(),
+      reasoningLevelId: idSchema.optional(),
+      extraArguments: extraArgumentsSchema.optional(),
+    })
+    .strict(),
+]);

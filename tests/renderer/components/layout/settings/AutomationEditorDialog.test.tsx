@@ -3,7 +3,7 @@
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AutomationEditorDialog } from '../../../../../src/renderer/components/layout/settings/AutomationEditorDialog';
 import { AUTOMATION_TEMPLATES } from '../../../../../src/renderer/lib/automation-templates';
@@ -24,9 +24,15 @@ const presets: AgentPreset[] = [
     continueCommand: 'claude --continue',
     promptCommand: 'claude {{prompt}}',
     launchModes: [{ id: 'auto', name: 'Auto', command: 'claude --auto {{prompt}}' }],
+    reasoningLevels: [
+      { id: 'low', name: 'Low', arguments: '--effort low' },
+      { id: 'high', name: 'High', arguments: '--effort high' },
+    ],
     isBuiltin: true,
   },
 ];
+
+const previewAutomationCommand = vi.fn();
 
 const hosts = [{ id: 'h1', name: 'devbox' } as SshHost];
 
@@ -67,6 +73,98 @@ function renderEditor(
 }
 
 describe('AutomationEditorDialog', () => {
+  beforeEach(() => {
+    previewAutomationCommand.mockReset();
+    previewAutomationCommand.mockResolvedValue({ command: 'claude <prompt>' });
+    Object.assign(window, { api: { previewAutomationCommand } });
+  });
+
+  it('runs with the chosen effort and extra arguments, showing the command first', async () => {
+    const user = userEvent.setup();
+    const { props } = renderEditor({ automation });
+    previewAutomationCommand.mockImplementation(async ({ reasoningLevelId, extraArguments }) => ({
+      command: ['claude', reasoningLevelId && `--effort ${reasoningLevelId}`, extraArguments]
+        .filter(Boolean)
+        .concat('<prompt>')
+        .join(' '),
+    }));
+
+    expect(await screen.findByTestId('automation-command-preview')).toHaveTextContent(
+      'claude <prompt>'
+    );
+    await user.selectOptions(screen.getByLabelText('Effort'), 'High');
+    await user.type(screen.getByLabelText('Extra arguments'), '--model opus ');
+
+    await vi.waitFor(() =>
+      expect(screen.getByTestId('automation-command-preview')).toHaveTextContent(
+        'claude --effort high --model opus <prompt>'
+      )
+    );
+    expect(previewAutomationCommand).toHaveBeenLastCalledWith({
+      target: { kind: 'ssh', hostId: 'h1' },
+      presetId: 'claude',
+      reasoningLevelId: 'high',
+      extraArguments: '--model opus',
+    });
+    expect(screen.getByText('Each run starts on the host')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Save/ }));
+    expect(props.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ reasoningLevelId: 'high', extraArguments: '--model opus' })
+    );
+  });
+
+  it('shows why the agent can’t start instead of a command', async () => {
+    previewAutomationCommand.mockResolvedValue({
+      problem: "Claude Code can't start with a prompt on an SSH host.",
+    });
+    renderEditor({ automation });
+
+    expect(
+      await screen.findByText("Claude Code can't start with a prompt on an SSH host.")
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('automation-command-preview')).not.toBeInTheDocument();
+  });
+
+  it('forgets the effort when another agent is chosen, and offers none for the active preset', async () => {
+    const user = userEvent.setup();
+    const { props } = renderEditor({ automation: { ...automation, reasoningLevelId: 'low' } });
+
+    expect(screen.getByLabelText('Effort')).toHaveValue('low');
+    await user.click(screen.getByLabelText('Agent'));
+    await user.click(await screen.findByRole('menuitem', { name: 'Active preset (default)' }));
+
+    expect(screen.queryByLabelText('Effort')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Save/ }));
+    expect(props.onSave).toHaveBeenCalledWith(
+      expect.not.objectContaining({ reasoningLevelId: expect.anything() })
+    );
+  });
+
+  it('names the level picker as the agent does, and leaves out a hidden one', () => {
+    const { unmount } = renderEditor({
+      automation,
+      presets: [{ ...presets[0], levelPicker: { title: 'Model' } }],
+    });
+    expect(screen.getByLabelText('Model')).toBeInTheDocument();
+    unmount();
+
+    renderEditor({ automation, presets: [{ ...presets[0], levelPicker: { hidden: true } }] });
+    expect(screen.queryByLabelText('Effort')).not.toBeInTheDocument();
+  });
+
+  it('won’t save extra arguments on more than one line', async () => {
+    const user = userEvent.setup();
+    const { props } = renderEditor({ automation: { ...automation, extraArguments: '-v' } });
+
+    fireEvent.change(screen.getByLabelText('Extra arguments'), {
+      target: { value: '-v\trm -rf ~' },
+    });
+    expect(screen.getByText('Put the extra arguments on one line.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Save/ }));
+    expect(props.onSave).not.toHaveBeenCalled();
+  });
+
   it('starts from a template, so only the project is left to choose', async () => {
     const user = userEvent.setup();
     const { props } = renderEditor({ template: dependencyTemplate });

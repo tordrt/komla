@@ -54,7 +54,8 @@ export function resolveAgentCommand(
   prompt: string | undefined,
   launchModeId: string | undefined,
   shellFamily?: 'posix',
-  reasoningLevelId?: string | null
+  reasoningLevelId?: string | null,
+  extraArguments?: string
 ): string | null {
   if (!preset) return null;
   const resolve = (text: string | undefined) =>
@@ -64,7 +65,8 @@ export function resolveAgentCommand(
       launchModeId,
       text,
       shellFamily,
-      reasoningLevelId
+      reasoningLevelId,
+      extraArguments
     );
   // An agent that can't start with a prompt still opens.
   return resolve(prompt) || (prompt && resolve(undefined)) || null;
@@ -97,7 +99,8 @@ export function resolveInitialCommand(
     initialPrompt,
     params.launchModeId,
     isSshWorkspace(workspace) ? 'posix' : undefined,
-    workspace.reasoningLevelId
+    workspace.reasoningLevelId,
+    params.extraArguments
   );
 }
 

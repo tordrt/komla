@@ -5,11 +5,17 @@ import {
   automationSetEnabledArgsSchema,
   automationDeleteArgsSchema,
   automationRunNowArgsSchema,
+  automationPreviewCommandArgsSchema,
 } from '../schemas/automation-ipc.schemas';
 
 import { invoke } from './define';
 
-import type { Automation, AutomationRun, AutomationTargetSnapshot } from '../../types/automation';
+import type {
+  Automation,
+  AutomationCommandPreview,
+  AutomationRun,
+  AutomationTargetSnapshot,
+} from '../../types/automation';
 
 export const automationContract = {
   [IPC.AUTOMATION_LIST]: invoke(automationListArgsSchema).returns<AutomationTargetSnapshot[]>(),
@@ -17,4 +23,7 @@ export const automationContract = {
   [IPC.AUTOMATION_SET_ENABLED]: invoke(automationSetEnabledArgsSchema).returns<void>(),
   [IPC.AUTOMATION_DELETE]: invoke(automationDeleteArgsSchema).returns<void>(),
   [IPC.AUTOMATION_RUN_NOW]: invoke(automationRunNowArgsSchema).returns<AutomationRun>(),
+  [IPC.AUTOMATION_PREVIEW_COMMAND]: invoke(
+    automationPreviewCommandArgsSchema
+  ).returns<AutomationCommandPreview>(),
 } as const;

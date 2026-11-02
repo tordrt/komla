@@ -218,6 +218,7 @@ export const IPC = {
   AUTOMATION_SET_ENABLED: 'automation:set-enabled',
   AUTOMATION_DELETE: 'automation:delete',
   AUTOMATION_RUN_NOW: 'automation:run-now',
+  AUTOMATION_PREVIEW_COMMAND: 'automation:preview-command',
 
   // Automation events (main → renderer)
   AUTOMATIONS_CHANGED: 'automations:changed',

@@ -12,7 +12,11 @@ const automationService = {
   delete: vi.fn(),
   runNow: vi.fn(),
 };
-vi.mock('../../../../src/main/services/automation.service', () => ({ automationService }));
+const previewAutomationCommand = vi.fn();
+vi.mock('../../../../src/main/services/automation.service', () => ({
+  automationService,
+  previewAutomationCommand,
+}));
 
 const params = {
   name: 'Nightly deps',
@@ -60,6 +64,8 @@ describe('automation IPC validation', () => {
     ['an empty schedule', { ...params, schedule: { cron: '', timeZone: 'UTC' } }],
     ['a start branch that is an option', { ...params, startBranch: '--upload-pack=x' }],
     ['a start branch with revision syntax', { ...params, startBranch: 'main@{1}' }],
+    ['extra arguments on two lines', { ...params, extraArguments: '-v\nrm -rf ~' }],
+    ['a reasoning level that is no id', { ...params, reasoningLevelId: '  ' }],
   ])('rejects %s', async (_label, invalid) => {
     const save = await handler('automation:save');
 
@@ -67,6 +73,29 @@ describe('automation IPC validation', () => {
       code: 'IPC_VALIDATION_ERROR',
     });
     expect(automationService.save).not.toHaveBeenCalled();
+  });
+
+  it('passes the reasoning level and extra arguments', async () => {
+    const save = await handler('automation:save');
+    const tuned = { ...params, reasoningLevelId: 'high', extraArguments: '--model opus' };
+
+    await save?.({}, tuned);
+    expect(automationService.save).toHaveBeenCalledWith(tuned);
+  });
+
+  it('previews the command of a valid agent choice only', async () => {
+    previewAutomationCommand.mockReturnValue({ command: 'claude <prompt>' });
+    const preview = await handler('automation:preview-command');
+    const choice = { target: { kind: 'local' }, presetId: 'claude', extraArguments: '-v' };
+
+    await expect(preview?.({}, choice)).resolves.toEqual({ command: 'claude <prompt>' });
+    expect(previewAutomationCommand).toHaveBeenCalledWith(choice);
+    await expect(
+      Promise.resolve().then(() => preview?.({}, { ...choice, extraArguments: 'a\rb' }))
+    ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
+    await expect(
+      Promise.resolve().then(() => preview?.({}, { ...choice, prompt: 'x' }))
+    ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
   });
 
   it('runs an automation on its target', async () => {

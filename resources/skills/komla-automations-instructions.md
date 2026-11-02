@@ -45,6 +45,11 @@ should skip items it launched before and launch only a few at a time.
   mode asks rarely, and a sandboxed one can block the network a task needs. Unless the user named a mode,
   offer the choice, recommend skipping prompts for a task that changes files, and apply after they
   choose.
+- `reasoningLevelId`: one of the agent's `levels`, from `agents`, for its effort, or whatever the
+  agent's levels pick, such as a model; `""` goes back to the agent's default.
+- `extraArguments`: arguments each run adds after the mode's and the level's, such as
+  `--model opus`, on one line; `""` removes them. Arguments that skip permission prompts count as a
+  mode that does.
 - `startBranch`: the branch runs start from, instead of the project's target branch; `""` goes back.
 - `enabled` and `missedRunGraceMinutes`: whether it runs, and how late a run missed while Komla or
   the host was off may start (0, 30, 60, 180, 720 or 1440).

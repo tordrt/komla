@@ -14,7 +14,12 @@ function antigravityAutoTrustArgs(shellFamily: ShellFamily): string {
  * workspace, for launches Komla prepares before the workspace path is known.
  */
 export function resolvePosixAutoTrustArgs(command: string): string {
-  return command.replaceAll('{{antigravityAutoTrustArgs}}', antigravityAutoTrustArgs('posix'));
+  return resolveAutoTrustArgs(command, 'posix');
+}
+
+/** Expands the auto-trust placeholders for a shell of the given family started in the workspace. */
+export function resolveAutoTrustArgs(command: string, shellFamily: ShellFamily): string {
+  return command.replaceAll('{{antigravityAutoTrustArgs}}', antigravityAutoTrustArgs(shellFamily));
 }
 
 export function resolveLaunchVariables(
@@ -23,10 +28,7 @@ export function resolveLaunchVariables(
   shellFamily: ShellFamily
 ): string | null {
   if (!launchCommand) return launchCommand;
-  const command = launchCommand.replaceAll(
-    '{{antigravityAutoTrustArgs}}',
-    antigravityAutoTrustArgs(shellFamily)
-  );
+  const command = resolveAutoTrustArgs(launchCommand, shellFamily);
   if (!command.includes('{{workspacePath}}')) return command;
 
   return substituteVariables(

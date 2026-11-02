@@ -110,6 +110,8 @@ import type {
 import type { AgentUsage, AgentUsageSource } from '../shared/types/agent-usage';
 import type {
   Automation,
+  AutomationCommandPreview,
+  AutomationCommandPreviewParams,
   AutomationHostReads,
   AutomationRun,
   AutomationTarget,
@@ -400,6 +402,11 @@ const api = {
 
   runAutomationNow: (target: AutomationTarget, id: string): Promise<AutomationRun> =>
     ipcRenderer.invoke(IPC.AUTOMATION_RUN_NOW, target, id),
+
+  previewAutomationCommand: (
+    params: AutomationCommandPreviewParams
+  ): Promise<AutomationCommandPreview> =>
+    ipcRenderer.invoke(IPC.AUTOMATION_PREVIEW_COMMAND, params),
 
   onAutomationsChange: (callback: () => void): (() => void) => {
     const handler = (): void => callback();

@@ -12,6 +12,7 @@ import {
 } from '../../shared/lib/appearance';
 import { automationScheduleError } from '../../shared/lib/automation-schedule';
 import { skipsPermissionPrompts } from '../../shared/lib/launch-mode-permissions';
+import { levelPickerOf, shownReasoningLevels } from '../../shared/lib/level-picker';
 import {
   resolveSshWorkspaceMode,
   type SshWorkspaceMode,
@@ -19,6 +20,7 @@ import {
 import { isLocalTerminalExecutionLocation, isSshWorkspace } from '../../shared/types';
 import {
   AUTOMATION_MISSED_RUN_GRACE_MINUTES,
+  automationExtraArgumentsError,
   DEFAULT_AUTOMATION_MISSED_RUN_GRACE_MINUTES,
 } from '../../shared/types/automation';
 import { describeSettingsSchema, settingsJsonSchema } from '../lib/settings-schema';
@@ -39,6 +41,7 @@ import type {
   AppearanceSettings,
   LaunchMode,
   Project,
+  ReasoningLevel,
   SettingsApprovalChange,
   SettingsApprovalPrompt,
   SettingsFileResource,
@@ -113,6 +116,10 @@ export interface SettingsAutomation {
   target: AutomationTarget;
   presetId?: string;
   launchModeId?: string;
+  /** One of the agent's `levels`; empty goes back to the agent's default, absent keeps it. */
+  reasoningLevelId?: string;
+  /** Arguments after the mode's and the level's; empty removes them, absent keeps them. */
+  extraArguments?: string;
   /** The branch runs start from; empty or absent, the project's target branch. */
   startBranch?: string;
   /** Shown, never taken: the agent of an SSH automation whose preset isn't on this computer. */
@@ -136,6 +143,8 @@ export interface AutomationsRepresentation {
     id: string;
     name: string;
     modes: Array<{ id: string; name: string; skipsPermissionPrompts?: true }>;
+    /** Its reasoning levels, for `reasoningLevelId`, when its level picker is shown. */
+    levels?: Array<{ id: string; name: string; skipsPermissionPrompts?: true }>;
   }>;
 }
 
@@ -243,7 +252,8 @@ interface Dependencies {
     agentProblem(
       target: AutomationTarget,
       presetId?: string,
-      launchModeId?: string
+      launchModeId?: string,
+      launchArguments?: { reasoningLevelId?: string; extraArguments?: string }
     ): string | undefined;
     save(params: SaveAutomationParams): Promise<unknown>;
     setEnabled(target: AutomationTarget, id: string, enabled: boolean): Promise<void>;
@@ -269,6 +279,7 @@ export type SettingsManagementErrorCode =
   | 'INVALID_ACTION_METADATA'
   | 'INVALID_ACTION_REFERENCE'
   | 'INVALID_LAUNCH_MODE'
+  | 'INVALID_REASONING_LEVEL'
   | 'INVALID_PRESET'
   | 'INVALID_SETTINGS'
   | 'INVALID_SSH_EXECUTION_LOCATION'
@@ -387,6 +398,8 @@ function automationConfig(automation: SettingsAutomation) {
     target: automation.target,
     presetId: automation.presetId,
     launchModeId: automation.launchModeId,
+    reasoningLevelId: automation.reasoningLevelId,
+    extraArguments: automation.extraArguments,
     startBranch: automation.startBranch,
     schedule: automation.schedule,
     enabled: automation.enabled,
@@ -737,6 +750,8 @@ export class SettingsManagementService {
         target: automation.target,
         ...(automation.presetId ? { presetId: automation.presetId } : {}),
         ...(automation.launchModeId ? { launchModeId: automation.launchModeId } : {}),
+        ...(automation.reasoningLevelId ? { reasoningLevelId: automation.reasoningLevelId } : {}),
+        ...(automation.extraArguments ? { extraArguments: automation.extraArguments } : {}),
         ...(automation.startBranch ? { startBranch: automation.startBranch } : {}),
         ...(!automation.presetId && automation.agentName
           ? { agentName: automation.agentName }
@@ -802,15 +817,27 @@ export class SettingsManagementService {
         !offered.includes(preset) &&
         automations.some((automation) => automation.presetId === preset.id)
     );
-    return [...offered, ...used].map((preset) => ({
-      id: preset.id,
-      name: preset.name,
-      modes: preset.launchModes.map((mode) => ({
-        id: mode.id,
-        name: mode.name,
-        ...(skipsPermissionPrompts(mode) ? { skipsPermissionPrompts: true as const } : {}),
-      })),
-    }));
+    return [...offered, ...used].map((preset) => {
+      const levels = shownReasoningLevels(preset);
+      return {
+        id: preset.id,
+        name: preset.name,
+        modes: preset.launchModes.map((mode) => ({
+          id: mode.id,
+          name: mode.name,
+          ...(skipsPermissionPrompts(mode) ? { skipsPermissionPrompts: true as const } : {}),
+        })),
+        ...(levels.length > 0
+          ? {
+              levels: levels.map((level) => ({
+                id: level.id,
+                name: level.name,
+                ...(skipsPermissionPrompts(level) ? { skipsPermissionPrompts: true as const } : {}),
+              })),
+            }
+          : {}),
+      };
+    });
   }
 
   /** What saving the desired automations changes, in the order Komla applies it. */
@@ -856,20 +883,26 @@ export class SettingsManagementService {
     const skipPrompts: string[] = [];
     const starts = (automation: SettingsAutomation) => {
       startsAgents = true;
-      const { mode } = this.automationAgent(automation, presets);
-      if (mode && skipsPermissionPrompts(mode)) skipPrompts.push(automation.name);
+      if (this.automationSkipsPermissionPrompts(automation, presets)) {
+        skipPrompts.push(automation.name);
+      }
     };
     for (const automation of next) {
       const previous = automation.id ? existing.get(automation.id) : undefined;
       const save = (operation: 'add' | 'edit') => {
         // Only what is saved needs its agent; unchanged automations keep working as they are.
         this.validatePresetSelection(automation.presetId, automation.launchModeId, presets);
+        this.validateReasoningLevel(automation, previous, presets);
         const problem =
           (automation.target.kind === 'ssh' ? hostProblem : undefined) ??
           this.deps.automations.agentProblem(
             automation.target,
             automation.presetId,
-            automation.launchModeId
+            automation.launchModeId,
+            {
+              reasoningLevelId: automation.reasoningLevelId,
+              extraArguments: automation.extraArguments,
+            }
           );
         if (problem) {
           throw new SettingsManagementError(
@@ -892,6 +925,10 @@ export class SettingsManagementService {
               target: automation.target,
               ...(automation.presetId ? { presetId: automation.presetId } : {}),
               ...(automation.launchModeId ? { launchModeId: automation.launchModeId } : {}),
+              ...(automation.reasoningLevelId
+                ? { reasoningLevelId: automation.reasoningLevelId }
+                : {}),
+              ...(automation.extraArguments ? { extraArguments: automation.extraArguments } : {}),
               ...(automation.startBranch ? { startBranch: automation.startBranch } : {}),
               schedule: { cron: automation.schedule.cron, timeZone: automation.schedule.timeZone! },
               enabled: automation.enabled!,
@@ -988,10 +1025,36 @@ export class SettingsManagementService {
           : { kind: 'ssh', hostId: input.target.hostId },
       ...(input.presetId ? { presetId: input.presetId } : {}),
       ...(input.launchModeId ? { launchModeId: input.launchModeId } : {}),
+      ...this.automationLaunchArguments(name, input, previous),
       ...(startBranch ? { startBranch } : {}),
       schedule,
       enabled: input.enabled ?? previous?.enabled ?? true,
       missedRunGraceMinutes,
+    };
+  }
+
+  /**
+   * The level and extra arguments an automation keeps. Absent keeps what it had, as for
+   * startBranch, a level only while the agent stays the same; empty clears it.
+   */
+  private automationLaunchArguments(
+    name: string,
+    input: SettingsAutomation,
+    previous: SettingsAutomation | undefined
+  ): Pick<SettingsAutomation, 'reasoningLevelId' | 'extraArguments'> {
+    const reasoningLevelId =
+      input.reasoningLevelId ??
+      (input.presetId === previous?.presetId ? previous?.reasoningLevelId : undefined);
+    const extraArguments = (input.extraArguments ?? previous?.extraArguments)?.trim();
+    // Only new arguments are checked, so ones saved before a rule was added keep working.
+    const error =
+      extraArguments &&
+      extraArguments !== previous?.extraArguments &&
+      automationExtraArgumentsError(extraArguments);
+    if (error) throw new SettingsManagementError('INVALID_AUTOMATION', `“${name}”: ${error}`, 422);
+    return {
+      ...(reasoningLevelId ? { reasoningLevelId } : {}),
+      ...(extraArguments ? { extraArguments } : {}),
     };
   }
 
@@ -1007,12 +1070,26 @@ export class SettingsManagementService {
   private automationAgent(
     automation: SettingsAutomation,
     presets: Map<string, AgentPreset>
-  ): { preset?: AgentPreset; mode?: LaunchMode } {
+  ): { preset?: AgentPreset; mode?: LaunchMode; level?: ReasoningLevel } {
     const preset = automation.presetId ? presets.get(automation.presetId) : undefined;
     const mode = automation.launchModeId
       ? preset?.launchModes.find((candidate) => candidate.id === automation.launchModeId)
       : undefined;
-    return { preset, mode };
+    const level = automation.reasoningLevelId
+      ? preset?.reasoningLevels?.find((candidate) => candidate.id === automation.reasoningLevelId)
+      : undefined;
+    return { preset, mode, level };
+  }
+
+  /** Whether its mode, level or extra arguments let the agent act without asking. */
+  private automationSkipsPermissionPrompts(
+    automation: SettingsAutomation,
+    presets: Map<string, AgentPreset>
+  ): boolean {
+    const { mode, level } = this.automationAgent(automation, presets);
+    return [mode?.arguments, level?.arguments, automation.extraArguments].some(
+      (args) => !!args && skipsPermissionPrompts({ arguments: args })
+    );
   }
 
   private describeAutomation(
@@ -1021,7 +1098,7 @@ export class SettingsManagementService {
     presets: Map<string, AgentPreset>
   ): SettingsApprovalChange {
     const { target, schedule } = automation;
-    const { preset, mode } = this.automationAgent(automation, presets);
+    const { preset, mode, level } = this.automationAgent(automation, presets);
     const details: SettingsApprovalChange['details'] = [
       { label: 'Schedule', value: `${schedule.cron} (${schedule.timeZone})` },
       {
@@ -1037,10 +1114,14 @@ export class SettingsManagementService {
           (preset?.name ?? automation.agentName ?? 'Default agent') +
           (mode ? ` (${mode.name})` : ''),
       },
+      ...(level && preset ? [{ label: levelPickerOf(preset).title, value: level.name }] : []),
+      ...(automation.extraArguments
+        ? [{ label: 'Extra arguments', value: automation.extraArguments }]
+        : []),
       ...(automation.startBranch ? [{ label: 'Starts from', value: automation.startBranch }] : []),
     ];
     if (operation !== 'delete') {
-      if (mode && skipsPermissionPrompts(mode)) {
+      if (this.automationSkipsPermissionPrompts(automation, presets)) {
         details.push({ label: 'Permission prompts', value: 'Skipped' });
       }
       details.push({ label: 'Runs on schedule', value: automation.enabled ? 'On' : 'Off' });
@@ -1583,6 +1664,29 @@ export class SettingsManagementService {
           422
         );
       }
+    }
+  }
+
+  /**
+   * A level must be one the agent shows, unless it is the one the automation already had: runs
+   * keep starting at it after its picker is hidden, as `komla settings get` shows.
+   */
+  private validateReasoningLevel(
+    { presetId, reasoningLevelId }: SettingsAutomation,
+    previous: SettingsAutomation | undefined,
+    presets: Map<string, AgentPreset>
+  ): void {
+    if (!reasoningLevelId) return;
+    if (presetId === previous?.presetId && reasoningLevelId === previous?.reasoningLevelId) return;
+    const preset = presetId ? presets.get(presetId) : undefined;
+    if (!preset || !shownReasoningLevels(preset).some((level) => level.id === reasoningLevelId)) {
+      throw new SettingsManagementError(
+        'INVALID_REASONING_LEVEL',
+        preset
+          ? `Reasoning level does not belong to ${preset.name}: ${reasoningLevelId}`
+          : 'A reasoning level requires a preset.',
+        422
+      );
     }
   }
 

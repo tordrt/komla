@@ -57,6 +57,8 @@ export const hostAutomationSchema = z.looseObject({
       projectId: text(128).optional(),
       presetId: text(128).optional(),
       launchModeId: text(128).optional(),
+      reasoningLevelId: text(128).optional(),
+      extraArguments: text(4096).optional(),
     })
     .optional(),
   createdAt: z.number().finite(),

@@ -119,6 +119,7 @@ function setup(
     launchLocal?: Mock;
     projectOf?: (automation: HostAutomation) => string | undefined;
     projectGitSettings?: AutomationServiceDependencies['projectGitSettings'];
+    resolveHostAutomations?: AutomationServiceDependencies['resolveHostAutomations'];
   } = {}
 ) {
   const now = at(options.now ?? '2026-10-15T09:00:20Z');
@@ -148,11 +149,13 @@ function setup(
     hostIdsInUse: () => options.hostIdsInUse ?? [],
     launchLocal,
     compileForHost,
-    resolveHostAutomations: async (_hostId, automations) =>
-      automations.map((automation) => {
-        const projectId = options.projectOf ? options.projectOf(automation) : 'project-1';
-        return projectId ? { projectId } : {};
-      }),
+    resolveHostAutomations:
+      options.resolveHostAutomations ??
+      (async (_hostId, automations) =>
+        automations.map((automation) => {
+          const projectId = options.projectOf ? options.projectOf(automation) : 'project-1';
+          return projectId ? { projectId } : {};
+        })),
     projectGitSettings: options.projectGitSettings ?? (() => ({})),
     changed,
   };
@@ -321,6 +324,34 @@ describe('AutomationService', () => {
     expect(store.state.automations[0]?.startBranch).toBe('release/1.x');
   });
 
+  it('keeps an automation’s reasoning level and extra arguments, trimmed', async () => {
+    const { service, store } = setup();
+
+    await service.save(saveParams({ reasoningLevelId: 'high', extraArguments: '  --model opus ' }));
+    expect(store.state.automations[0]).toMatchObject({
+      reasoningLevelId: 'high',
+      extraArguments: '--model opus',
+    });
+
+    await service.save(saveParams({ id: 'id-1', extraArguments: '   ' }));
+    expect(store.state.automations[0]).not.toHaveProperty('extraArguments');
+    expect(store.state.automations[0]).not.toHaveProperty('reasoningLevelId');
+  });
+
+  it('refuses extra arguments on more than one line, or too long', async () => {
+    const { service } = setup();
+
+    await expect(service.save(saveParams({ extraArguments: '--model opus\nrm -rf ~' }))).rejects.toThrow(
+      'one line'
+    );
+    await expect(service.save(saveParams({ extraArguments: 'x'.repeat(1025) }))).rejects.toThrow(
+      'too long'
+    );
+    await expect(
+      service.save(saveParams({ extraArguments: '--title {{prompt}}' }))
+    ).rejects.toThrow('placeholders');
+  });
+
   it('saves an SSH automation on its host and moves it off this computer', async () => {
     const store = memoryStore({ automations: [localAutomation()] });
     const hosts = hostClient();
@@ -483,6 +514,31 @@ describe('AutomationService', () => {
     const [, host] = await service.list();
 
     expect(host?.automations[0]?.startBranch).toBe('release/1.x');
+  });
+
+  it('lists the reasoning level and extra arguments resolved for a host automation', async () => {
+    const hosts = hostClient({
+      list: vi.fn(async () => ({
+        automations: [hostAutomation()],
+        runs: {},
+        scheduler: { available: true },
+      })),
+    });
+    const { service } = setup({
+      hosts,
+      resolveHostAutomations: async () => [
+        { projectId: 'project-1', presetId: 'codex', reasoningLevelId: 'high', extraArguments: '-v' },
+      ],
+    });
+    await service.refreshHost('host-1');
+
+    const [, host] = await service.list();
+
+    expect(host?.automations[0]).toMatchObject({
+      presetId: 'codex',
+      reasoningLevelId: 'high',
+      extraArguments: '-v',
+    });
   });
 
   it('saves a project’s host automations again with its new target branch and prefix', async () => {

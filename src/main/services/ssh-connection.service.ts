@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import { createLogger } from '../lib/logger';
 import { applySshAskpassEnv, buildSshEnv, needsSshPrompt, sshTarget } from '../lib/ssh-client';
+import { sshConnectionFailure } from '../lib/ssh-connection-failure';
 
 import { askpassService } from './askpass.service';
 import { ExecChannelUnavailableError, SshExecChannels } from './ssh-connection/exec-channel';
@@ -44,6 +45,23 @@ const SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS = 15;
 const BACKGROUND_PURPOSE = { kind: 'background' } as const;
 const INTERACTIVE_PURPOSE = { kind: 'interactive' } as const;
 const FIRST_TERMINAL_PURPOSE = { kind: 'terminal', poolIndex: 0 } as const;
+
+/**
+ * Says why ssh couldn't connect, or that the command timed out, in a failed command's message, in
+ * place of the `Command failed:` line that repeats the whole remote script. The exit code, stderr
+ * and whether it was killed stay for callers to read.
+ */
+function showSshFailureInMessage(host: SshHost, error: unknown): void {
+  if (!(error instanceof Error)) return;
+  if (isSshTimeout(error)) {
+    error.message = `The command on ${sshTarget(host)} timed out.`;
+    return;
+  }
+  const { code, stderr } = error as Error & { code?: unknown; stderr?: unknown };
+  if (typeof code !== 'number') return;
+  const failure = sshConnectionFailure(code, typeof stderr === 'string' ? stderr : '');
+  if (failure) error.message = failure;
+}
 
 /** Prints the options ssh would connect to a host with, without connecting. */
 function sshConfigArgs(host: SshHost): string[] {
@@ -439,6 +457,7 @@ class SshConnectionService {
       sshHostStatusService.reached(host.id);
       return result;
     } catch (error) {
+      showSshFailureInMessage(host, error);
       if (!prompt && needsSshPrompt(error)) throw error;
       // A slow command and a host that doesn't answer both time out; a quick command tells them
       // apart.
@@ -799,7 +818,7 @@ class SshConnectionService {
           env: buildSshEnv(askpassService),
           encoding: 'utf8',
         },
-        (error, stdout) => finish(error, stdout)
+        (error, stdout, stderr) => finish(error && Object.assign(error, { stdout, stderr }), stdout)
       );
       input.on('error', (error) => {
         child.kill();

@@ -426,6 +426,104 @@ describe('sshConnectionService', () => {
     expect(status()).toMatchObject({ state: 'connected' });
   });
 
+  it('fails with ssh’s own error rather than the command when ssh cannot connect', async () => {
+    const { sshConnectionService } =
+      await import('../../../src/main/services/ssh-connection.service');
+    const stderr = 'ssh: connect to host connection.example.com port 22: Operation timed out\n';
+    const failures = [
+      Object.assign(
+        new Error(`Command failed: ssh dev@connection.example.com sh -lc '…'\n${stderr}`),
+        {
+          code: 255,
+          stderr,
+        }
+      ),
+      Object.assign(new Error("Command failed: ssh dev@connection.example.com sh -lc 'false'\n"), {
+        code: 1,
+        stderr: '',
+      }),
+    ];
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      callback(failures.shift() ?? null, { stdout: '', stderr: '' });
+      return { stdin: new PassThrough(), kill: vi.fn() };
+    });
+
+    const connectionFailure = await sshConnectionService.run(host, 'true').catch((e) => e);
+    expect(connectionFailure.message).toBe(
+      'ssh: connect to host connection.example.com port 22: Operation timed out'
+    );
+    // Callers still tell failures apart by what ssh printed and its exit code.
+    expect(connectionFailure).toMatchObject({ code: 255, stderr });
+
+    // A remote command that failed keeps its own error.
+    await expect(sshConnectionService.run(host, 'false')).rejects.toThrow(
+      "Command failed: ssh dev@connection.example.com sh -lc 'false'"
+    );
+  });
+
+  it('says why ssh couldn’t connect when sending a file, whose error comes without stderr', async () => {
+    const { sshConnectionService } =
+      await import('../../../src/main/services/ssh-connection.service');
+    const directory = mkdtempSync(join(tmpdir(), 'komla-ssh-connection-failure-'));
+    const sourcePath = join(directory, 'upload.txt');
+    writeFileSync(sourcePath, 'upload');
+    const stderr = 'ssh: connect to host connection.example.com port 22: Connection refused\n';
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      const stdin = new PassThrough();
+      stdin.resume();
+      // Like Node's execFile, the callback's error has no stderr of its own.
+      stdin.on('end', () =>
+        callback(
+          Object.assign(new Error(`Command failed: ssh dev@connection.example.com …\n${stderr}`), {
+            code: 255,
+          }),
+          '',
+          stderr
+        )
+      );
+      return { stdin, kill: vi.fn() };
+    });
+
+    try {
+      const failure = await sshConnectionService
+        .runWithFileInput(host, 'cat >upload', sourcePath)
+        .catch((error) => error);
+      expect(failure.message).toBe(
+        'ssh: connect to host connection.example.com port 22: Connection refused'
+      );
+      expect(failure).toMatchObject({ code: 255, stderr });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('says a command timed out rather than repeating it', async () => {
+    const { sshConnectionService } =
+      await import('../../../src/main/services/ssh-connection.service');
+    const timedOutHost = { ...host, id: 'ssh-connection-timed-out' };
+    const commands: string[] = [];
+    execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+      commands.push(args[args.length - 1]);
+      callback(
+        Object.assign(new Error("Command failed: ssh dev@connection.example.com sh -lc 'slow'\n"), {
+          killed: true,
+          code: null,
+          signal: 'SIGTERM',
+          stderr: '',
+        }),
+        { stdout: '', stderr: '' }
+      );
+      return { stdin: new PassThrough(), kill: vi.fn() };
+    });
+
+    const failure = await sshConnectionService.run(timedOutHost, 'slow').catch((error) => error);
+    expect(failure.message).toBe('The command on dev@connection.example.com timed out.');
+    expect(failure).toMatchObject({ killed: true, code: null });
+    // Let the check the timeout started finish before the next test.
+    await vi.waitFor(() => expect(commands).toContain("sh -lc 'true'"));
+    await sshConnectionService.checkHost(timedOutHost);
+  });
+
   it("runs without prompting when asked, and doesn't call a host that wants a password unreachable", async () => {
     const { sshConnectionService } =
       await import('../../../src/main/services/ssh-connection.service');
@@ -577,12 +675,11 @@ describe('sshConnectionService', () => {
       stdin.on('end', () => {
         receivedInputs.push(Buffer.concat(chunks).toString('utf8'));
         if (callIndex === 0) {
+          // Like Node's execFile, the error has no stderr of its own; it comes as an argument.
           callback(
-            Object.assign(new Error('SSH failed'), {
-              stderr:
-                'mux_client_request_session: session request failed: Session open refused by peer',
-            }),
-            ''
+            new Error('SSH failed'),
+            '',
+            'mux_client_request_session: session request failed: Session open refused by peer'
           );
         } else {
           callback(null, 'uploaded');

@@ -4064,7 +4064,7 @@ describe('WorkspaceService', () => {
         });
         await vi.waitFor(() => expect(mockGitService.createWorktree).toHaveBeenCalled());
 
-        expect(mockGitService.fetchedOriginRecently).toHaveBeenCalledWith('/mock/repo');
+        expect(mockGitService.fetchedOriginRecently).toHaveBeenCalledWith('/mock/repo', 'main');
         expect(mockGitService.originStartPoint).toHaveBeenCalledWith('/mock/repo', 'main');
         expect(mockGitService.fetchOriginStartPoint).not.toHaveBeenCalled();
         expect(mockGitService.createWorktree).toHaveBeenCalledWith(

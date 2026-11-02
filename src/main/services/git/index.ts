@@ -319,9 +319,10 @@ class GitService {
     repoPath: string,
     managed: boolean,
     timeoutMs: number,
-    mark: number
+    mark: number,
+    branches?: readonly string[]
   ): Promise<void> {
-    return gitBranchService.fetchOriginWithoutPrompts(repoPath, managed, timeoutMs, mark);
+    return gitBranchService.fetchOriginWithoutPrompts(repoPath, managed, timeoutMs, mark, branches);
   }
   stopBackgroundWork(repoPath: string): void {
     gitExec.stopBackgroundWork(repoPath);
@@ -332,8 +333,8 @@ class GitService {
   fetchOriginStartPoint(repoPath: string, branchName: string): Promise<string | undefined> {
     return gitBranchService.fetchOriginStartPoint(repoPath, branchName);
   }
-  fetchedOriginRecently(repoPath: string): boolean {
-    return gitBranchService.fetchedOriginRecently(repoPath);
+  fetchedOriginRecently(repoPath: string, branch: string): boolean {
+    return gitBranchService.fetchedOriginRecently(repoPath, branch);
   }
   originStartPoint(repoPath: string, branchName: string): Promise<OriginStartPoint> {
     return gitBranchService.originStartPoint(repoPath, branchName);

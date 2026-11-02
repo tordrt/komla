@@ -253,26 +253,54 @@ describe('GitBranchService integration', () => {
       await execFileAsync('git', ['clone', '--quiet', repoPath, clonePath]);
       const { gitBranchService, RECENT_ORIGIN_FETCH_MS } =
         await import('../../../../src/main/services/git/git-branch');
-      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(false);
+      expect(gitBranchService.fetchedOriginRecently(clonePath, 'any-branch')).toBe(false);
 
       await runGit(clonePath, ['remote', 'set-url', 'origin', join(repoPath, 'missing')]);
       await expect(
         gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0)
       ).rejects.toThrow();
-      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(false);
+      expect(gitBranchService.fetchedOriginRecently(clonePath, 'any-branch')).toBe(false);
 
       await runGit(clonePath, ['remote', 'set-url', 'origin', repoPath]);
       await gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0);
-      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(true);
+      expect(gitBranchService.fetchedOriginRecently(clonePath, 'any-branch')).toBe(true);
 
       const now = Date.now();
       const clock = vi.spyOn(Date, 'now').mockReturnValue(now + RECENT_ORIGIN_FETCH_MS);
       try {
-        expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(false);
+        expect(gitBranchService.fetchedOriginRecently(clonePath, 'any-branch')).toBe(false);
       } finally {
         clock.mockRestore();
       }
     } finally {
+      rmSync(clonePath, { recursive: true, force: true });
+    }
+  });
+
+  it('fetches just the branches asked for, counting only those as fetched', async () => {
+    const baseBranch = await runGit(repoPath, ['branch', '--show-current']);
+    const clonePath = mkdtempSync(join(tmpdir(), 'komla-git-branch-clone-'));
+    try {
+      await execFileAsync('git', ['clone', '--quiet', repoPath, clonePath]);
+      await runGit(repoPath, ['branch', 'pushed-later']);
+      await runGit(repoPath, ['commit', '--allow-empty', '-m', 'upstream change']);
+      const upstream = await runGit(repoPath, ['rev-parse', 'HEAD']);
+      const { gitBranchService } = await import('../../../../src/main/services/git/git-branch');
+
+      // A branch origin doesn't have is no error.
+      await gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0, [
+        baseBranch,
+        'never-pushed',
+      ]);
+
+      expect(await runGit(clonePath, ['rev-parse', `origin/${baseBranch}`])).toBe(upstream);
+      await expect(
+        runGit(clonePath, ['rev-parse', '--verify', 'origin/pushed-later'])
+      ).rejects.toThrow();
+      expect(gitBranchService.fetchedOriginRecently(clonePath, baseBranch)).toBe(true);
+      expect(gitBranchService.fetchedOriginRecently(clonePath, 'pushed-later')).toBe(false);
+    } finally {
+      await runGit(repoPath, ['branch', '-D', 'pushed-later']);
       rmSync(clonePath, { recursive: true, force: true });
     }
   });
@@ -284,11 +312,23 @@ describe('GitBranchService integration', () => {
       const { gitBranchService } = await import('../../../../src/main/services/git/git-branch');
 
       await gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0);
-      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(false);
+      expect(gitBranchService.fetchedOriginRecently(clonePath, 'any-branch')).toBe(false);
+
+      // Naming branches doesn't add copies the clone's own settings leave out.
+      await runGit(repoPath, ['branch', 'left-out']);
+      try {
+        await gitBranchService.fetchOriginWithoutPrompts(clonePath, false, 30_000, 0, ['left-out']);
+        await expect(
+          runGit(clonePath, ['rev-parse', '--verify', 'origin/left-out'])
+        ).rejects.toThrow();
+        expect(gitBranchService.fetchedOriginRecently(clonePath, 'left-out')).toBe(false);
+      } finally {
+        await runGit(repoPath, ['branch', '-D', 'left-out']);
+      }
 
       // Komla's own clones fetch every branch whatever their refspec says.
       await gitBranchService.fetchOriginWithoutPrompts(clonePath, true, 30_000, 0);
-      expect(gitBranchService.fetchedOriginRecently(clonePath)).toBe(true);
+      expect(gitBranchService.fetchedOriginRecently(clonePath, 'any-branch')).toBe(true);
     } finally {
       rmSync(clonePath, { recursive: true, force: true });
     }

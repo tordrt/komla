@@ -829,7 +829,9 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const fetchHostId = isSshLaunch ? effectiveSshHostId || null : null;
   useEffect(() => {
     if (!open || !effectiveProjectId || selectedProjectIsDirectory) return;
-    window.api.fetchProjectInBackground(effectiveProjectId, fetchHostId);
+    void window.api
+      .fetchProjectInBackground(effectiveProjectId, fetchHostId)
+      .catch(() => undefined);
   }, [open, fetchHostId, effectiveProjectId, selectedProjectIsDirectory]);
 
   useEffect(() => {

@@ -75,6 +75,17 @@ async function pathWithSleepAfter(root: string, pidFile: string, path: string): 
   return `${bin}:${path}`;
 }
 
+/** The branches the clone's marker says were fetched, and when, in seconds. */
+function fetchedBranches(clone: string): Array<[number, string]> {
+  return readFileSync(join(`${clone}.komla`, '.origin-fetched-at'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => {
+      const [seconds, branch] = line.split(' ');
+      return [Number(seconds), branch];
+    });
+}
+
 async function git(cwd: string, ...args: string[]): Promise<void> {
   await execFileAsync('git', ['-c', 'user.name=Test', '-c', 'user.email=t@example.com', ...args], {
     cwd,
@@ -136,15 +147,44 @@ describe('sshWorkspaceGit.fetchOriginWithoutPrompts', () => {
 
     await sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000);
 
-    const seconds = Number(readFileSync(fetchedAt, 'utf8'));
+    const [[seconds, branch]] = fetchedBranches(clone);
     expect(Math.abs(seconds - Date.now() / 1000)).toBeLessThan(60);
+    expect(branch).toBe('*');
     expect(existsSync(join(`${clone}.komla`, '.setup-lock')), 'lock left behind').toBe(false);
+
+    // A fetch of just some branches keeps the record of the fetch of every branch.
+    await sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000, ['main']);
+    expect(fetchedBranches(clone).map(([, name]) => name)).toEqual(['main', '*']);
 
     // A clone fetching just some branches might not have the one a workspace starts from.
     rmSync(fetchedAt);
     await git(clone, 'config', 'remote.origin.fetch', '+refs/heads/main:refs/remotes/origin/main');
     await sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000);
     expect(existsSync(fetchedAt)).toBe(false);
+  });
+
+  it('fetches and prunes just the branches asked for, and records them', async () => {
+    const remoteBranches = async () =>
+      (
+        await execFileAsync('git', ['for-each-ref', '--format=%(refname:strip=3)', 'refs/remotes'], {
+          cwd: clone,
+        })
+      ).stdout
+        .trim()
+        .split('\n');
+    await git(elsewhere, 'push', '--quiet', 'origin', 'HEAD:feature', 'HEAD:other');
+    await git(clone, 'fetch', '--quiet', 'origin');
+    await git(elsewhere, 'commit', '--quiet', '--allow-empty', '-m', 'pushed elsewhere');
+    await git(elsewhere, 'push', '--quiet', 'origin', 'HEAD:main', 'HEAD:unused');
+    await git(elsewhere, 'push', '--quiet', 'origin', '--delete', 'feature', 'other');
+
+    await expect(
+      sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000, ['main', 'feature'])
+    ).resolves.toBe(true);
+
+    // origin/other is left as it was: only a fetch of every branch prunes it.
+    expect(await remoteBranches()).toEqual(['HEAD', 'main', 'other']);
+    expect(fetchedBranches(clone).map(([, name]) => name)).toEqual(['main', 'feature']);
   });
 
   it('leaves a clone a workspace is being set up in alone, and takes over a stale lock', async () => {

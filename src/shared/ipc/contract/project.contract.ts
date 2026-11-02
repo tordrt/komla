@@ -31,7 +31,7 @@ import {
   presetRemoveActiveArgsSchema,
 } from '../schemas/config-ipc.schemas';
 
-import { invoke, send } from './define';
+import { invoke } from './define';
 
 import type { ActivePresetEntry, AgentPreset } from '../../types/agent-preset';
 import type {
@@ -76,7 +76,7 @@ export const projectContract = {
     ProjectIconCandidate[]
   >(),
   [IPC.PROJECT_CHOOSE_ICON_FILE]: invoke().returns<ProjectIconCandidate | null>(),
-  [IPC.PROJECT_FETCH_IN_BACKGROUND]: send(projectFetchInBackgroundArgsSchema),
+  [IPC.PROJECT_FETCH_IN_BACKGROUND]: invoke(projectFetchInBackgroundArgsSchema).returns<boolean>(),
   [IPC.PROJECT_LIST_LEFTOVER_BRANCHES]: invoke(
     projectListLeftoverBranchesArgsSchema
   ).returns<LeftoverBranches>(),

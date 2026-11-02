@@ -671,8 +671,13 @@ export const projectFindIconsArgsSchema = z.tuple([
   ]),
 ]);
 export const projectTakeIconPromptArgsSchema = z.tuple([idSchema]);
-// The last argument is the SSH host whose clone to fetch too, or null for just this computer's.
-export const projectFetchInBackgroundArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
+// Then the SSH host whose clone to fetch too, or null for just this computer's, and whether this
+// computer's repository fetches every branch rather than just the ones Komla uses.
+export const projectFetchInBackgroundArgsSchema = z.tuple([
+  idSchema,
+  idSchema.nullable(),
+  z.boolean(),
+]);
 // The last argument is the SSH host whose clone to clean up, or null for this computer's.
 export const projectListLeftoverBranchesArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectCheckWorkspacesForCleanupArgsSchema = z.tuple([idSchema]);

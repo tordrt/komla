@@ -62,6 +62,7 @@ import { getKomlaBasePath } from './paths';
 import { sshConnectionService } from './ssh-connection.service';
 import { sshHostService } from './ssh-host.service';
 import {
+  forgetOriginFetchLines,
   ORIGIN_FETCH_REFSPEC,
   originFetchedRecentlyLines,
   recordOriginFetchLines,
@@ -266,11 +267,11 @@ function startsFromTargetBranch(backend: SshWorkspaceBackend): boolean {
 }
 
 /**
- * A shell check that the clone already has what a new branch starts from, so setup can skip
- * fetching: origin's copy of the target, or the commit or origin branch it starts from. None when
- * checking out an existing branch, which may have just been pushed.
+ * A shell check that lets setup skip fetching: the clone has the commit a new branch starts from,
+ * or fetched the branch it starts from in the last few minutes and has it. None when checking out
+ * an existing branch, which may have just been pushed.
  */
-function startRefCheck(
+function recentStartCheck(
   backend: SshWorkspaceBackend,
   startPoint: string,
   originStartPoint: string
@@ -279,9 +280,15 @@ function startRefCheck(
   const repo = shellQuotePosix(backend.remoteRepoPath);
   const has = (revision: string) =>
     `git -C ${repo} cat-file -e ${shellQuotePosix(`${revision}^{commit}`)}`;
-  return startsFromTargetBranch(backend)
-    ? `${has(`refs/remotes/origin/${startPoint}`)} 2>/dev/null`
-    : `{ ${has(startPoint)} || ${has(`refs/remotes/origin/${originStartPoint}`)}; } 2>/dev/null`;
+  if (startsFromTargetBranch(backend)) {
+    return `origin_fetched_recently ${shellQuotePosix(startPoint)} && ${has(`refs/remotes/origin/${startPoint}`)} 2>/dev/null`;
+  }
+  // A commit is the same whenever it was fetched; a branch may have moved since. A clone just
+  // made, or just pointed at another origin, still fetches for its copies of origin's branches.
+  if (/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(startPoint)) {
+    return `origin_fetched_before && ${has(startPoint)} 2>/dev/null`;
+  }
+  return `origin_fetched_recently ${shellQuotePosix(originStartPoint)} && { ${has(startPoint)} || ${has(`refs/remotes/origin/${originStartPoint}`)}; } 2>/dev/null`;
 }
 
 /** A lookup of a host's workspace base path, and the path once it's found. */
@@ -2194,9 +2201,9 @@ class SshWorkspaceService {
     const needsRemoteDefaultStartPoint =
       !backend.checkoutExistingBranch && !backend.baseBranch && startPoint === 'HEAD';
     const repo = shellQuotePosix(backend.remoteRepoPath);
-    const recentStartRefCheck = needsRemoteDefaultStartPoint
+    const recentStart = needsRemoteDefaultStartPoint
       ? undefined
-      : startRefCheck(backend, startPoint, originStartPoint);
+      : recentStartCheck(backend, startPoint, originStartPoint);
     const fetchOriginLines = [
       `if ! git -C ${repo} fetch origin --prune; then`,
       '  if [ -n "$origin_url_changed" ]; then',
@@ -2334,6 +2341,8 @@ class SshWorkspaceService {
       `  git clone --bare -- ${shellQuotePosix(backend.gitUrl)} ${shellQuotePosix(
         backend.remoteRepoPath
       )}`,
+      // The clone has no copies of origin's branches yet, whatever an earlier clone fetched.
+      ...forgetOriginFetchLines(backend.remoteRepoPath).map((line) => `  ${line}`),
       'else',
       `  existing_git_url=$(git -C ${shellQuotePosix(
         backend.remoteRepoPath
@@ -2379,14 +2388,14 @@ class SshWorkspaceService {
       `git -C ${shellQuotePosix(
         backend.remoteRepoPath
       )} config remote.origin.fetch ${shellQuotePosix(ORIGIN_FETCH_REFSPEC)}`,
-      ...(recentStartRefCheck ? originFetchedRecentlyLines(backend.remoteRepoPath) : []),
+      ...(recentStart ? originFetchedRecentlyLines(backend.remoteRepoPath) : []),
       `if [ ! -d ${shellQuotePosix(backend.remoteDirectory)} ]; then`,
       // A clone fetched in the last few minutes already has the start point, so the agent
       // doesn't wait on a fetch. Checking out an existing branch, or finding origin's default
       // branch, still fetches, since that branch may have just been pushed.
-      ...(recentStartRefCheck
+      ...(recentStart
         ? [
-            `  if ! { origin_fetched_recently && ${recentStartRefCheck}; }; then`,
+            `  if ! { ${recentStart}; }; then`,
             ...fetchOriginLines.map((line) => `    ${line}`),
             '  fi',
           ]

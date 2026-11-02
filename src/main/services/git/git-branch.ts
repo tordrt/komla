@@ -19,6 +19,18 @@ const logger = createLogger('GitBranch');
 /** How long a fetch of origin lets new worktrees start from its copy without fetching again. */
 export const RECENT_ORIGIN_FETCH_MS = 10 * 60_000;
 
+/** Stands for every one of origin's branches among the branches a fetch brought. */
+const EVERY_BRANCH = '*';
+
+/**
+ * Refspecs that fetch just these branches of origin. Each is a pattern, `<branch>*`, so a branch
+ * origin doesn't have, or no longer has, is no error and `--prune` removes only its copy; the
+ * pattern also brings any branch whose name starts with it.
+ */
+export function originBranchRefspecs(branches: readonly string[]): string[] {
+  return branches.map((branch) => `+refs/heads/${branch}*:refs/remotes/origin/${branch}*`);
+}
+
 /**
  * Origin's copy of a branch as a worktree's start point: available, missing as of the last
  * fetch, or behind the local branch, which has commits origin's copy lacks.
@@ -292,8 +304,8 @@ class GitBranchService {
   // Request coalescing: if an operation is already in-flight for a path, reuse its promise
   private inFlightBranchStatus = new Map<string, Promise<GitBranchQuickStatus>>();
   private inFlightSafeFastForwards = new Map<string, Promise<RemoteBranchSync>>();
-  // When each repository last fetched every branch from origin, keyed by resolved path.
-  private originFetchedAt = new Map<string, number>();
+  // When each branch, or EVERY_BRANCH, was last fetched from origin, per repository.
+  private originFetchedAt = new Map<string, Map<string, number>>();
 
   /**
    * Create a new local branch from a starting point (defaults to HEAD), without tracking it
@@ -1814,16 +1826,19 @@ class GitBranchService {
 
   /**
    * Fetch origin without asking for anything, for refreshes nobody asked for: a remote that
-   * needs a password, passphrase or new host key fails instead. A managed bare clone fetches
-   * every branch into refs/remotes/origin like fetchAllBranches; a user's clone uses its own
-   * fetch settings. Gives up after `timeoutMs`, or when stopBackgroundWork stops it; `mark` is
-   * the backgroundMark taken when the caller's work began.
+   * needs a password, passphrase or new host key fails instead. With `branches`, just those
+   * branches, in a clone that fetches every branch; otherwise a managed bare clone fetches every
+   * branch into refs/remotes/origin like fetchAllBranches, and a user's clone uses its own fetch
+   * settings. Only Komla's own clones
+   * prune. Gives up after `timeoutMs`, or when stopBackgroundWork stops it; `mark` is the
+   * backgroundMark taken when the caller's work began.
    */
   async fetchOriginWithoutPrompts(
     repoPath: string,
     managed: boolean,
     timeoutMs: number,
-    mark: number
+    mark: number,
+    branches?: readonly string[]
   ): Promise<void> {
     const [config, tracksEveryBranch] = await Promise.all([
       gitExec
@@ -1832,18 +1847,31 @@ class GitBranchService {
       // Komla's own clones name the branches to fetch; a user's fetch follows its refspec.
       managed || this.fetchTracksEveryOriginBranch(repoPath),
     ]);
-    const args = managed
-      ? ['fetch', 'origin', '+refs/heads/*:refs/remotes/origin/*', '--prune']
-      : ['fetch', 'origin'];
+    // Naming branches in a clone whose refspec leaves some out would add copies it excludes.
+    const named = tracksEveryBranch ? branches : undefined;
+    const prune = managed ? ['--prune'] : [];
+    const args = named
+      ? ['fetch', 'origin', ...originBranchRefspecs(named), ...prune]
+      : managed
+        ? ['fetch', 'origin', '+refs/heads/*:refs/remotes/origin/*', ...prune]
+        : ['fetch', 'origin'];
     await gitExec.execGitWithProgress(repoPath, args, undefined, {
       noPrompts: { config },
       timeoutMs,
       background: mark,
     });
     // A fetch that leaves branches untracked can't vouch for their remote-tracking refs.
-    if (tracksEveryBranch) this.originFetchedAt.set(path.resolve(repoPath), Date.now());
+    if (tracksEveryBranch) this.recordOriginFetch(repoPath, named ?? [EVERY_BRANCH]);
     gitExec.invalidateCache(`mainBranch:${repoPath}`);
     gitExec.invalidateCache(`remoteDefaultBranch:${repoPath}`);
+  }
+
+  private recordOriginFetch(repoPath: string, branches: readonly string[]): void {
+    const key = path.resolve(repoPath);
+    const fetched = this.originFetchedAt.get(key) ?? new Map<string, number>();
+    const now = Date.now();
+    for (const branch of branches) fetched.set(branch, now);
+    this.originFetchedAt.set(key, fetched);
   }
 
   private async fetchTracksEveryOriginBranch(repoPath: string): Promise<boolean> {
@@ -1857,10 +1885,11 @@ class GitBranchService {
       );
   }
 
-  /** Whether the repository fetched every one of origin's branches in the last few minutes. */
-  fetchedOriginRecently(repoPath: string): boolean {
-    const fetchedAt = this.originFetchedAt.get(path.resolve(repoPath));
-    return fetchedAt !== undefined && Date.now() - fetchedAt < RECENT_ORIGIN_FETCH_MS;
+  /** Whether the repository fetched `branch` from origin in the last few minutes. */
+  fetchedOriginRecently(repoPath: string, branch: string): boolean {
+    const fetched = this.originFetchedAt.get(path.resolve(repoPath));
+    const fetchedAt = Math.max(fetched?.get(branch) ?? 0, fetched?.get(EVERY_BRANCH) ?? 0);
+    return Date.now() - fetchedAt < RECENT_ORIGIN_FETCH_MS;
   }
 
   /**
@@ -1883,6 +1912,8 @@ class GitBranchService {
       });
       return undefined;
     }
+    // So the next workspace started from it soon after doesn't fetch it again.
+    this.recordOriginFetch(repoPath, [branchName]);
     const startPoint = await this.originStartPoint(repoPath, branchName);
     return startPoint.status === 'available' ? startPoint.ref : undefined;
   }
@@ -1894,7 +1925,7 @@ class GitBranchService {
    */
   async resolvePublishedCommit(repoPath: string, revision: string): Promise<string> {
     const branch = revision.replace(/^refs\/remotes\/origin\//, '').replace(/^origin\//, '');
-    if (branch !== 'HEAD' && this.fetchedOriginRecently(repoPath)) {
+    if (branch !== 'HEAD' && this.fetchedOriginRecently(repoPath, branch)) {
       const recent = await this.originStartPoint(repoPath, branch);
       if (recent.status === 'available') {
         const commit = await gitExec

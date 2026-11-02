@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   projects: [] as Array<Record<string, unknown>>,
   workspaces: [] as Array<Record<string, unknown>>,
   hasRemote: vi.fn(),
+  mainBranch: vi.fn(),
   fetch: vi.fn(),
   fastForwardTargets: vi.fn(),
   // Marks are taken before the origin check, which a workspace creation can then stop.
@@ -38,6 +39,7 @@ vi.mock('../../../src/main/services/workspace.service', () => ({
 vi.mock('../../../src/main/services/git.service', () => ({
   gitService: {
     hasRemote: mocks.hasRemote,
+    getMainBranch: mocks.mainBranch,
     fetchOriginWithoutPrompts: mocks.fetch,
     backgroundMark: mocks.backgroundMark,
   },
@@ -104,6 +106,7 @@ describe('gitBackgroundFetchService', () => {
     ];
     mocks.backgroundMark.mockImplementation((repoPath: string) => (repoPath === '/p/own' ? 2 : 1));
     mocks.hasRemote.mockReset().mockResolvedValue(true);
+    mocks.mainBranch.mockReset().mockResolvedValue('trunk');
     mocks.fetch.mockReset().mockResolvedValue(undefined);
     mocks.fastForwardTargets.mockReset().mockResolvedValue([]);
     mocks.hostStates = new Map();
@@ -124,9 +127,179 @@ describe('gitBackgroundFetchService', () => {
 
     await gitBackgroundFetchService.fetchStale();
 
+    // The first fetch after Komla starts brings every branch.
     expect(mocks.fetch.mock.calls).toEqual([
-      ['/p/m.git', true, 20_000, 1],
-      ['/p/own', false, 20_000, 2],
+      ['/p/m.git', true, 20_000, 1, undefined],
+      ['/p/own', false, 20_000, 2, undefined],
+    ]);
+  });
+
+  it('fetches just the branches in use between hourly fetches of every branch', async () => {
+    mocks.projects = mocks.projects.filter((project) => project.id === 'own');
+    mocks.projects[0].baseBranch = 'develop';
+    mocks.workspaces = [
+      { id: 'w2', projectId: 'own', branchName: 'agent/fox', baseBranch: 'release/1.0' },
+      { id: 'w6', projectId: 'own', branchName: 'origin/agent/owl' },
+      { id: 'w7', projectId: 'unused', branchName: 'agent/elsewhere' },
+      { id: 'w8', projectId: 'own', branchName: 'agent/remote', backend: { kind: 'ssh' } },
+    ];
+    const {
+      gitBackgroundFetchService,
+      BACKGROUND_FETCH_INTERVAL_MS,
+      EVERY_BRANCH_FETCH_INTERVAL_MS,
+    } = await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchStale();
+    vi.advanceTimersByTime(BACKGROUND_FETCH_INTERVAL_MS);
+    await gitBackgroundFetchService.fetchStale();
+    vi.advanceTimersByTime(EVERY_BRANCH_FETCH_INTERVAL_MS - BACKGROUND_FETCH_INTERVAL_MS);
+    await gitBackgroundFetchService.fetchStale();
+
+    expect(mocks.fetch.mock.calls.map((call) => call[4])).toEqual([
+      undefined,
+      ['agent/fox', 'agent/owl', 'develop', 'main', 'master', 'release/1.0'],
+      undefined,
+    ]);
+  });
+
+  it("asks for the project's detected target when it has none set", async () => {
+    mocks.projects = mocks.projects.filter((project) => project.id === 'own');
+    mocks.workspaces = [];
+    const { gitBackgroundFetchService, BACKGROUND_FETCH_INTERVAL_MS } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchProject('own');
+    vi.advanceTimersByTime(BACKGROUND_FETCH_INTERVAL_MS);
+    await gitBackgroundFetchService.fetchProject('own');
+
+    expect(mocks.fetch.mock.calls[1][4]).toEqual(['main', 'master', 'trunk']);
+  });
+
+  it('waits for a fetch already running in the repository, then fetches what it did not', async () => {
+    mocks.projects = mocks.projects.filter((project) => project.id === 'own');
+    const { gitBackgroundFetchService, BACKGROUND_FETCH_INTERVAL_MS } =
+      await import('../../../src/main/services/git-background-fetch.service');
+    await gitBackgroundFetchService.fetchProject('own');
+    vi.advanceTimersByTime(BACKGROUND_FETCH_INTERVAL_MS);
+    let finishFirst!: () => void;
+    mocks.fetch.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finishFirst = resolve))
+    );
+
+    // The dialog's fetch of the branches in use, then its branch picker's of every branch.
+    const dialog = gitBackgroundFetchService.fetchProject('own');
+    const picker = gitBackgroundFetchService.fetchProject('own', null, true);
+    await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    finishFirst();
+
+    await expect(Promise.all([dialog, picker])).resolves.toEqual([true, true]);
+    expect(mocks.fetch.mock.calls.map((call) => call[4] === undefined)).toEqual([
+      true,
+      false,
+      true,
+    ]);
+    // Nothing left to fetch, so nothing to list again.
+    await expect(gitBackgroundFetchService.fetchProject('own', null, true)).resolves.toBe(false);
+  });
+
+  it('fetches the branches of every project sharing the repository, leaving out bad names', async () => {
+    mocks.projects = [
+      { ...base, id: 'a', managed: false, repositoryPath: '/p/shared', baseBranch: 'develop' },
+      { ...base, id: 'b', managed: false, repositoryPath: '/p/shared', baseBranch: 'release candidate' },
+      // Follows the repository's main branch, and spells the path another way.
+      { ...base, id: 'c', managed: false, repositoryPath: '/p/shared/' },
+    ];
+    mocks.workspaces = [
+      { id: 'wa', projectId: 'a', branchName: 'agent/a' },
+      { id: 'wb', projectId: 'b', branchName: 'agent/b', baseBranch: 'HEAD~1' },
+    ];
+    const { gitBackgroundFetchService, BACKGROUND_FETCH_INTERVAL_MS } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchProject('a');
+    vi.advanceTimersByTime(BACKGROUND_FETCH_INTERVAL_MS);
+    await gitBackgroundFetchService.fetchProject('a');
+
+    expect(mocks.fetch.mock.calls[1][4]).toEqual([
+      'agent/a',
+      'agent/b',
+      'develop',
+      'main',
+      'master',
+      'trunk',
+    ]);
+    // The same repository however its path is spelled, so it was just fetched.
+    await gitBackgroundFetchService.fetchProject('c');
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts a fetch of every branch it waited for as its own', async () => {
+    mocks.projects = mocks.projects.filter((project) => project.id === 'own');
+    let finishFirst!: () => void;
+    mocks.fetch.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finishFirst = resolve))
+    );
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    // The first fetch after Komla starts brings every branch.
+    const dialog = gitBackgroundFetchService.fetchProject('own');
+    const picker = gitBackgroundFetchService.fetchProject('own', null, true);
+    await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledOnce());
+    finishFirst();
+
+    await expect(Promise.all([dialog, picker])).resolves.toEqual([true, true]);
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+  });
+
+  it('drops a fetch waiting its turn once a workspace creation stops background work', async () => {
+    mocks.projects = mocks.projects.filter((project) => project.id === 'own');
+    let mark = 2;
+    mocks.backgroundMark.mockImplementation(() => mark);
+    let stop!: () => void;
+    mocks.fetch.mockImplementationOnce(
+      () => new Promise<void>((_, reject) => (stop = () => reject(new Error('stopped'))))
+    );
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    const dialog = gitBackgroundFetchService.fetchProject('own');
+    const picker = gitBackgroundFetchService.fetchProject('own', null, true);
+    await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledOnce());
+    mark += 1;
+    stop();
+
+    await expect(Promise.all([dialog, picker])).resolves.toEqual([false, false]);
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    // The stopped fetch didn't count, so the next request fetches.
+    await expect(gitBackgroundFetchService.fetchProject('own')).resolves.toBe(true);
+  });
+
+  it('reports a fetch that brought refs even when what follows it fails', async () => {
+    mocks.fastForwardTargets.mockRejectedValueOnce(new Error('target moved'));
+    const { gitBackgroundFetchService } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await expect(gitBackgroundFetchService.fetchProject('managed', null, true)).resolves.toBe(true);
+  });
+
+  it('fetches every branch when asked, at most once in five minutes', async () => {
+    const { gitBackgroundFetchService, BACKGROUND_FETCH_INTERVAL_MS } =
+      await import('../../../src/main/services/git-background-fetch.service');
+
+    await gitBackgroundFetchService.fetchProject('own');
+    // A branch list asking for every branch isn't held back by a fetch of just some.
+    vi.advanceTimersByTime(BACKGROUND_FETCH_INTERVAL_MS);
+    await gitBackgroundFetchService.fetchProject('own');
+    await gitBackgroundFetchService.fetchProject('own', null, true);
+    await gitBackgroundFetchService.fetchProject('own', null, true);
+
+    expect(mocks.fetch.mock.calls.map((call) => call[4] === undefined)).toEqual([
+      true,
+      false,
+      true,
     ]);
   });
 
@@ -137,8 +310,8 @@ describe('gitBackgroundFetchService', () => {
     await gitBackgroundFetchService.fetchProject('unused');
     await gitBackgroundFetchService.fetchProject('own');
     expect(mocks.fetch.mock.calls).toEqual([
-      ['/p/unused', false, 20_000, 1],
-      ['/p/own', false, 20_000, 2],
+      ['/p/unused', false, 20_000, 1, undefined],
+      ['/p/own', false, 20_000, 2, undefined],
     ]);
 
     await gitBackgroundFetchService.fetchProject('own');
@@ -274,8 +447,8 @@ describe('gitBackgroundFetchService', () => {
       await gitBackgroundFetchService.fetchStale();
 
       expect(mocks.sshFetch.mock.calls).toEqual([
-        ['h1', '/r/app', 20_000],
-        ['h1', '/r/other', 20_000],
+        ['h1', '/r/app', 20_000, undefined],
+        ['h1', '/r/other', 20_000, undefined],
       ]);
       expect(mocks.statusChange).not.toHaveBeenCalled();
     });
@@ -349,7 +522,7 @@ describe('gitBackgroundFetchService', () => {
       finishLocal();
       await Promise.all([first, second]);
 
-      expect(mocks.sshFetch.mock.calls).toEqual([['h2', '/r/app', 20_000]]);
+      expect(mocks.sshFetch.mock.calls).toEqual([['h2', '/r/app', 20_000, undefined]]);
       expect(mocks.fetch).toHaveBeenCalledTimes(1);
     });
 
@@ -365,11 +538,11 @@ describe('gitBackgroundFetchService', () => {
       await gitBackgroundFetchService.fetchProject('ssh-only', 'h1');
 
       expect(mocks.sshFetch.mock.calls).toEqual([
-        ['h1', '/home/h1/.komla/repos/app/repo.git', 20_000],
+        ['h1', '/home/h1/.komla/repos/app/repo.git', 20_000, undefined],
       ]);
       expect(mocks.statusChange.mock.calls.map(([change]) => change.workspaceId)).toEqual(['s6']);
       // This computer's repository too, which gives a branch's commit on origin.
-      expect(mocks.fetch.mock.calls).toEqual([['/p/ssh', false, 20_000, 1]]);
+      expect(mocks.fetch.mock.calls).toEqual([['/p/ssh', false, 20_000, 1, undefined]]);
 
       // The focus fetch shares the five-minute window.
       await gitBackgroundFetchService.fetchStaleOnSshHosts();
@@ -377,6 +550,36 @@ describe('gitBackgroundFetchService', () => {
         '/home/h1/.komla/repos/app/repo.git',
         '/r/app',
         '/r/other',
+      ]);
+    });
+
+    it("fetches just the branches a clone's workspaces use between hourly fetches", async () => {
+      mocks.hostStates.set('h2', 'connected');
+      mocks.projects.find((project) => project.id === 'ssh-only')!.baseBranch = 'develop';
+      mocks.workspaces = [
+        {
+          ...ssh('s4', 'h2', '/r/app'),
+          branchName: 'agent/fox',
+          backend: {
+            kind: 'ssh',
+            hostId: 'h2',
+            remoteRepoPath: '/r/app',
+            baseBranch: 'trunk',
+            // Origin's default branch, as the host found it.
+            defaultBranch: 'stable',
+          },
+        },
+      ];
+      const { gitBackgroundFetchService, BACKGROUND_FETCH_INTERVAL_MS } =
+        await import('../../../src/main/services/git-background-fetch.service');
+
+      await gitBackgroundFetchService.fetchStaleOnSshHosts();
+      vi.advanceTimersByTime(BACKGROUND_FETCH_INTERVAL_MS);
+      await gitBackgroundFetchService.fetchStaleOnSshHosts();
+
+      expect(mocks.sshFetch.mock.calls.map((call) => call[3])).toEqual([
+        undefined,
+        ['agent/fox', 'develop', 'main', 'master', 'stable', 'trunk'],
       ]);
     });
 
@@ -403,7 +606,7 @@ describe('gitBackgroundFetchService', () => {
 
       await gitBackgroundFetchService.fetchStaleOnSshHosts();
 
-      expect(mocks.sshFetch.mock.calls).toEqual([['h2', '/r/app', 20_000]]);
+      expect(mocks.sshFetch.mock.calls).toEqual([['h2', '/r/app', 20_000, undefined]]);
       expect(mocks.fetch).not.toHaveBeenCalled();
     });
   });

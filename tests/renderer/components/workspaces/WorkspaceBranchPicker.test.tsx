@@ -75,6 +75,7 @@ vi.mock('../../../../src/renderer/components/ui/dropdown-menu', () => {
 const listBranches = vi.fn();
 const hasOriginRemote = vi.fn();
 const fetchProject = vi.fn();
+const fetchProjectInBackground = vi.fn();
 const listProjectHostBranches = vi.fn();
 const updateConfig = vi.fn();
 
@@ -114,6 +115,7 @@ describe('WorkspaceBranchPicker', () => {
     ]);
     hasOriginRemote.mockResolvedValue(true);
     fetchProject.mockResolvedValue({ success: true, message: '' });
+    fetchProjectInBackground.mockResolvedValue(false);
     updateConfig.mockImplementation(async (updates) => ({ ...updates }));
     useConfigStore.setState({ config: null });
     listProjectHostBranches.mockResolvedValue([]);
@@ -121,9 +123,45 @@ describe('WorkspaceBranchPicker', () => {
       listBranches,
       hasOriginRemote,
       fetchProject,
+      fetchProjectInBackground,
       listProjectHostBranches,
       updateConfig,
     };
+  });
+
+  it('lists branches pushed since the last fetch of every branch once one runs as it opens', async () => {
+    const user = userEvent.setup();
+    let finishFetch!: (fetched: boolean) => void;
+    fetchProjectInBackground.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        finishFetch = resolve;
+      })
+    );
+    renderPicker();
+
+    await user.click(screen.getByRole('button', { name: 'from main' }));
+    expect(await screen.findByRole('button', { name: /Remote \(1\)/ })).toBeInTheDocument();
+    expect(fetchProjectInBackground).toHaveBeenCalledWith('project-1', null, true);
+
+    listBranches.mockResolvedValue([
+      { name: 'main', isRemoteOnly: false },
+      { name: 'fix/remote', isRemoteOnly: true },
+      { name: 'fix/new-remote', isRemoteOnly: true },
+    ]);
+    finishFetch(true);
+    expect(await screen.findByRole('button', { name: /Remote \(2\)/ })).toBeInTheDocument();
+  });
+
+  it("doesn't list the branches again when its fetch was skipped", async () => {
+    const user = userEvent.setup();
+    fetchProjectInBackground.mockResolvedValue(false);
+    renderPicker();
+
+    await user.click(screen.getByRole('button', { name: 'from main' }));
+    expect(await screen.findByRole('button', { name: /Remote \(1\)/ })).toBeInTheDocument();
+    await vi.waitFor(() => expect(fetchProjectInBackground).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(listBranches).toHaveBeenCalledOnce();
   });
 
   it("lists the SSH host's branches that origin doesn't have", async () => {

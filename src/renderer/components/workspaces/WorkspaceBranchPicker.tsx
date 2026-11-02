@@ -125,10 +125,25 @@ export function WorkspaceBranchPicker({
     }
   }, [repoPath]);
 
-  // Opening by click or by shortcut lists the branches afresh.
+  // Opening by click or by shortcut lists the branches afresh, and again once a fetch of every
+  // branch of origin, which the background fetch otherwise does hourly, brings any pushed since.
   useEffect(() => {
-    if (open) void loadBranches();
-  }, [open, loadBranches]);
+    if (!open) return;
+    let cancelled = false;
+    void loadBranches();
+    window.api
+      .fetchProjectInBackground(projectId, null, true)
+      .then((fetched) => (fetched && !cancelled ? window.api.listBranches(repoPath, true) : null))
+      .then(
+        (branchList) => {
+          if (branchList && !cancelled) setBranches(branchList);
+        },
+        () => undefined
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [open, loadBranches, projectId, repoPath]);
 
   const host = useHostBranches(open, projectId, sshHost?.id);
 

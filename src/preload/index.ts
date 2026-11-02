@@ -487,10 +487,16 @@ const api = {
 
   /**
    * Fetches the project's origin, and its clone on `hostId` when given, unless they were fetched
-   * in the last few minutes.
+   * in the last few minutes. With `everyBranch`, this computer's repository fetches every branch
+   * rather than just the ones Komla uses. Never prompts; settles once done or skipped, with
+   * whether this computer's repository fetched.
    */
-  fetchProjectInBackground: (projectId: string, hostId: string | null): void =>
-    ipcRenderer.send(IPC.PROJECT_FETCH_IN_BACKGROUND, projectId, hostId),
+  fetchProjectInBackground: (
+    projectId: string,
+    hostId: string | null,
+    everyBranch = false
+  ): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.PROJECT_FETCH_IN_BACKGROUND, projectId, hostId, everyBranch),
 
   /** Null when cancelled; rejects when the file can't be an icon. */
   chooseProjectIconFile: (): Promise<ProjectIconCandidate | null> =>

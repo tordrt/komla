@@ -554,7 +554,7 @@ describe('NewWorkspaceDialog', () => {
     mockSelectedWorkspace.id = null;
     mockWorkspaces.value = [{ id: 'ws-1', projectId: 'project-komla' }];
     global.window.api = {
-      fetchProjectInBackground: vi.fn(),
+      fetchProjectInBackground: vi.fn(() => Promise.resolve()),
       getWorktreeBranches: vi.fn().mockResolvedValue([]),
       getDirectoryInfo: vi.fn().mockResolvedValue(null),
       findProjectForFolder: vi.fn().mockResolvedValue({ project: null, repoRoot: null }),

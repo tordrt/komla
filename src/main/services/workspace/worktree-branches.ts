@@ -106,7 +106,7 @@ async function startPointFromOrigin(
   repoPath: string,
   branchName: string
 ): Promise<string | undefined> {
-  if (gitService.fetchedOriginRecently(repoPath)) {
+  if (gitService.fetchedOriginRecently(repoPath, branchName)) {
     const recent = await gitService.originStartPoint(repoPath, branchName);
     if (recent.status === 'available') return recent.ref;
     // Fetching again can't give origin the local branch's unpushed commits.

@@ -5080,12 +5080,23 @@ describe('sshWorkspaceService', () => {
         return runGit(['rev-parse', 'HEAD'], plan.backend.remoteDirectory).trim();
       };
       const fetchedAt = join(root, '.komla', 'repos', 'recent-fetch', '.origin-fetched-at');
-      const fetchedSecondsAgo = (seconds: number) =>
-        writeFileSync(fetchedAt, `${Math.floor(Date.now() / 1000) - seconds}\n`);
+      const fetchedSecondsAgo = (seconds: number, branches = ['*']) =>
+        writeFileSync(
+          fetchedAt,
+          branches.map((branch) => `${Math.floor(Date.now() / 1000) - seconds} ${branch}\n`).join('')
+        );
 
-      // Cloning fetches, and records it.
-      expect(await setUp('agent/one')).toBe(first);
+      // Cloning fetches, and records it, even for a commit the clone already has, and whatever
+      // an earlier clone in its place fetched.
+      mkdirSync(join(root, '.komla', 'repos', 'recent-fetch'), { recursive: true });
+      fetchedSecondsAgo(0);
+      expect(await setUp('agent/zero', { startPoint: first })).toBe(first);
       expect(existsSync(fetchedAt)).toBe(true);
+      const clone = join(root, '.komla', 'repos', 'recent-fetch', 'repo.git');
+      expect(runGit(['--git-dir', clone, 'rev-parse', 'refs/remotes/origin/main']).trim()).toBe(
+        first
+      );
+      expect(await setUp('agent/one')).toBe(first);
 
       const second = commit('second');
       runGit(['push', 'origin', 'main'], seedPath);
@@ -5093,6 +5104,16 @@ describe('sshWorkspaceService', () => {
 
       fetchedSecondsAgo(10 * 60);
       expect(await setUp('agent/three')).toBe(second);
+
+      // A fetch of just other branches doesn't vouch for the target.
+      const third = commit('third');
+      runGit(['push', 'origin', 'main'], seedPath);
+      fetchedSecondsAgo(0, ['agent/fox', 'mainline']);
+      expect(await setUp('agent/three-b')).toBe(third);
+      fetchedSecondsAgo(0, ['agent/fox', 'main']);
+      commit('fourth');
+      runGit(['push', 'origin', 'main'], seedPath);
+      expect(await setUp('agent/three-c')).toBe(third);
 
       // A start commit the clone doesn't have yet, and an existing branch, are fetched anyway.
       runGit(['checkout', '-b', 'feature/pushed'], seedPath);
@@ -5104,6 +5125,16 @@ describe('sshWorkspaceService', () => {
       runGit(['push', 'origin', 'feature/pushed'], seedPath);
       fetchedSecondsAgo(0);
       expect(await setUp('feature/pushed', { checkoutExistingBranch: true })).toBe(amended);
+
+      // A branch other than the target counts only once a recent fetch brought it.
+      runGit(['checkout', '-b', 'feature/other'], seedPath);
+      runGit(['push', '-u', 'origin', 'feature/other'], seedPath);
+      fetchedSecondsAgo(10 * 60);
+      await setUp('agent/five');
+      const pushedLater = commit('pushed later');
+      runGit(['push', 'origin', 'feature/other'], seedPath);
+      fetchedSecondsAgo(0, ['main']);
+      expect(await setUp('agent/six', { startPoint: 'feature/other' })).toBe(pushedLater);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

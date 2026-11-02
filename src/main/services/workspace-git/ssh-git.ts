@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { UNCOMMITTED_CHANGES_PREFIX } from '../../../shared/constants/git';
 import { shellQuotePosix } from '../../../shared/lib/shell-quote';
 import { createLogger } from '../../lib/logger';
+import { originBranchRefspecs } from '../git/git-branch';
 import {
   CHECK_CONCURRENCY,
   type GitBatchCommand,
@@ -187,13 +188,21 @@ function gitBatchScript(repoPath: string, marker: string, commands: GitBatchComm
 const ORIGIN_REFS_CHANGED_MARKER = '__KOMLA_ORIGIN_REFS_CHANGED__';
 
 /**
- * A script that fetches origin in `repoPath` without asking for anything, like the local
- * background fetch, and prints ORIGIN_REFS_CHANGED_MARKER when a remote-tracking ref moved.
+ * A script that fetches origin's `branches`, or every branch, in `repoPath` without asking for
+ * anything, like the local background fetch, and prints ORIGIN_REFS_CHANGED_MARKER when a
+ * remote-tracking ref moved.
  * It stops git itself after `timeoutSeconds`, so a slow remote doesn't look like a slow host.
  * It holds the clone's setup lock, so a workspace being created waits for it and then starts
  * from what it fetched, and it leaves a clone that is being set up alone.
  */
-function backgroundFetchScript(repoPath: string, timeoutSeconds: number): string {
+function backgroundFetchScript(
+  repoPath: string,
+  timeoutSeconds: number,
+  branches: readonly string[] | undefined
+): string {
+  const refspecs = (branches ? originBranchRefspecs(branches) : [])
+    .map((refspec) => ` ${shellQuotePosix(refspec)}`)
+    .join('');
   const { set, unset, sshCommand } = NO_PROMPT_GIT_ENV;
   return [
     `cd ${shellQuotePosix(repoPath)} || exit 1`,
@@ -246,7 +255,7 @@ function backgroundFetchScript(repoPath: string, timeoutSeconds: number): string
     '  kill -CONT "$1" 2>/dev/null',
     '}',
     'before=$(refs)',
-    'git fetch --quiet --prune origin </dev/null &',
+    `git fetch --quiet --prune origin${refspecs} </dev/null &`,
     'fetch=$!',
     // The watchdog writes nowhere, so ssh never waits for it.
     `(sleep ${timeoutSeconds}; stop "$fetch") >/dev/null 2>&1 &`,
@@ -255,7 +264,7 @@ function backgroundFetchScript(repoPath: string, timeoutSeconds: number): string
     'status=$?',
     'stop "$watchdog"',
     '[ "$status" -eq 0 ] || exit "$status"',
-    ...recordOriginFetchLines(repoPath),
+    ...recordOriginFetchLines(repoPath, branches),
     `[ "$(refs)" = "$before" ] || printf '%s\\n' ${ORIGIN_REFS_CHANGED_MARKER}`,
   ].join('\n');
 }
@@ -581,12 +590,13 @@ class SshWorkspaceGit {
   async fetchOriginWithoutPrompts(
     hostId: string,
     repoPath: string,
-    timeoutMs: number
+    timeoutMs: number,
+    branches?: readonly string[]
   ): Promise<boolean> {
     const host = sshWorkspaceService.getHost(hostId);
     const output = await sshWorkspaceService.run(
       host,
-      backgroundFetchScript(repoPath, Math.ceil(timeoutMs / 1000)),
+      backgroundFetchScript(repoPath, Math.ceil(timeoutMs / 1000), branches),
       // Room past git's own timeout, so a host that answers isn't taken for one that doesn't.
       { timeout: timeoutMs + 10_000, purpose: { kind: 'background' }, prompt: false }
     );

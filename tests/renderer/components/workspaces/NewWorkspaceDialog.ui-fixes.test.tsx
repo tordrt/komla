@@ -398,7 +398,7 @@ describe('NewWorkspaceDialog UI fixes', () => {
     mockPresetStore.activePresets = [];
     mockPresetStore.presets = [];
     global.window.api = {
-      fetchProjectInBackground: vi.fn(),
+      fetchProjectInBackground: vi.fn(() => Promise.resolve()),
       getWorktreeBranches: vi.fn().mockResolvedValue([]),
       getDirectoryInfo: vi.fn().mockResolvedValue({ isGit: true, branch: 'main' }),
       hasOriginRemote: vi.fn().mockResolvedValue(true),

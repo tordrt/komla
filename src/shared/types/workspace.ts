@@ -83,12 +83,25 @@ export interface AddAgentTabOptions {
   reasoningLevelId?: string;
 }
 
-export type WorkspaceAttentionKind =
-  | 'input-required'
-  | 'turn-complete'
-  | 'error'
-  | 'idle'
-  | 'generic';
+export const WORKSPACE_ATTENTION_KINDS = [
+  'input-required',
+  'turn-complete',
+  'error',
+  'idle',
+  'generic',
+] as const;
+export type WorkspaceAttentionKind = (typeof WORKSPACE_ATTENTION_KINDS)[number];
+/**
+ * The kinds a notification sent from code takes, as `komla notify --kind`: a public subset of the
+ * attention kinds, which may grow kinds of their own that code shouldn't send.
+ */
+export const NOTIFY_KINDS = [
+  'input-required',
+  'turn-complete',
+  'error',
+  'idle',
+  'generic',
+] as const satisfies readonly WorkspaceAttentionKind[];
 export type KnownWorkspaceAttentionSource =
   | 'claude-code'
   | 'codex'

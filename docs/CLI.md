@@ -2,7 +2,7 @@
 
 Komla bundles a `komla` CLI that agents and hooks use to work with the desktop: launch agents,
 send notifications, set status items and change settings. An MCP server exposes the same
-operations to clients that require MCP.
+operations to clients that require MCP, and the [Komla SDK](#sdk) to TypeScript code.
 
 ## Commands
 
@@ -405,6 +405,72 @@ environment and SSH availability. Whether new workspaces start on an SSH host is
 from SSH being merely configured. The SSH capability also reports whether project Terminal Commands run in the SSH Local
 copy. Callers omit this metadata from PUT bodies.
 
+## SDK
+
+`@komla/sdk` (`packages/sdk/`) is a typed TypeScript client for the same Komla Operations the typed
+CLI commands run, for scripts, hooks and, later, plugins ([ADR 0008](adr/0008-a-typed-sdk-over-komla-operations.md)):
+
+```ts
+import { connectKomla } from '@komla/sdk';
+
+const komla = connectKomla({ capabilities: ['workspace.tag'] });
+const { workspaces } = await komla.workspace.list();
+await komla.workspace.tag({ tag: 'CI running', spinner: true }, { workspace: workspaces[0].id });
+```
+
+Each method is one operation, named by its type: `komla.workspace.tag(input)` sends
+`{ "type": "workspace.tag", ...input }`, which `komla tag` also sends. `komla.execute(request)` sends
+a request as it is. Results and errors are the ones `--json` prints: a call resolves to the result
+and throws a `KomlaError` with Komla's `code`, `message`, HTTP `status` and `details`. The SDK adds
+`CAPABILITY_NOT_DECLARED`, `INVALID_CAPABILITY`, `KOMLA_NOT_RUNNING`, `KOMLA_UNREACHABLE` and
+`UNEXPECTED_RESPONSE`. A call's `{ workspace: id }` acts on that workspace, as `--workspace` does.
+A call that changes nothing (`context.get`, `agent.presets`, `workspace.list`, `tag.list`) waits
+10 seconds for Komla, as the CLI does; the SDK doesn't time out others, which Komla may have
+carried out already. A change whose answer breaks off throws `UNEXPECTED_RESPONSE`, as it may have
+run. The types don't show that `workspace.snooze` needs `until` or `untilNotified`, and
+`status.set` needs `text` or `segments`; Komla answers `INVALID_OPERATION` with the issues.
+
+`komla.workspace.notify({ title, body, kind, color, badge, icon, iconColor, source })` shows a
+notification as `komla notify <title>` does (see [Notifications](#notifications)): `kind` is
+`input-required`, `turn-complete`, `error`, `idle` or `generic` (the default), and `icon` is SVG
+markup or an image data URL. It goes on the calling terminal's pane, or only the workspace's card
+for a named workspace. While the user has turned the hooks endpoint off it is refused with
+`NOTIFICATIONS_DISABLED`, as `komla notify` is. `connectKomla` run from a hook (`KOMLA_HOOK_ID` is
+set) sends `source: "hook"` unless the call names one, so the notification sets off no hooks.
+Agents' lifecycle hooks (`--event`) aren't an operation and stay on `/api/v1/notify`.
+
+A client lists in `capabilities` the capabilities it uses beyond reading, from the ids in
+Settings → Integrations & MCP → MCP and CLI access (`KOMLA_CAPABILITIES`). It refuses any other
+operation with `CAPABILITY_NOT_DECLARED` before sending it, and its type has no method for one. So
+code that shows outside text, such as a pull request title, can't be turned into code that
+launches an agent. A client that declares nothing can read, and do what the CLI does without a
+capability: `workspace.notify`, `workspace.wake` and `status.refresh`. `agent.launch` needs
+`agent.launch.tab` or `agent.launch.workspace` by its `destination`. Komla still checks each
+capability the user turned off.
+
+`connectKomla` finds Komla as the CLI does. In a managed terminal on an SSH host it uses the tmux
+session's `KOMLA_API_URL`, `KOMLA_TERMINAL_ID` and `KOMLA_WORKSPACE_ID` and reads them again before
+each call. Otherwise it uses those variables from the process. Without them it reads the `port`
+file in Komla's data folder: `KOMLA_DATA_DIR`, else the folder above the `bin` (or `helpers/bin`)
+that `KOMLA_CLI` sits in, else `~/.komla`. It then sends the caller's folder as `cwd`, and finds
+Komla again after a call it couldn't reach. That helps a route found by the port file, as Komla may
+restart on another port; `KOMLA_API_URL` names the same route again. It posts to
+`/api/v1/commands` with the headers and `cwd` query described under
+[Confirmed settings](#confirmed-settings), and `X-Komla-Target-Workspace-Id` for `workspace`. It
+doesn't search the companion routes on an SSH host outside every workspace, and it doesn't queue
+commands or notifications while Komla is away; the CLI does both. `komla settings` isn't a Komla
+Operation, so the SDK doesn't cover it yet.
+
+`createKomlaClient({ transport, capabilities })`, from `@komla/sdk/client`, uses no Node APIs, and
+`httpTransport({ route })` takes a route of the caller's own. The request and result types in
+`packages/sdk/src/generated.ts` are rendered from the Zod schemas Komla validates requests with
+(`schema.ts`), the result schemas (`result-schema.ts`) and the capability table
+(`capabilities.ts`) in `src/main/services/komla-operation/`. The operation service checks
+capabilities from that table, and its return types come from the result schemas.
+`tests/main/services/komla-sdk-types.test.ts` fails while the generated file is out of date, and
+`npm run generate:sdk` rewrites it. `komla-operation.service.test.ts` checks every result it
+produces against its schema.
+
 ## MCP
 
 ### HTTP setup
@@ -539,16 +605,16 @@ Set or update the title for an existing Komla workspace by matching the agent's 
 ## Architecture
 
 ```
-typed CLI ─┐
-           ├─► Komla Operations ─► workspace, agent, preview, and settings services
-MCP adapter┘
+typed CLI ──┐
+MCP adapter ┼─► Komla Operations ─► workspace, agent, preview, and settings services
+@komla/sdk ─┘
 ```
 
 Electron owns context resolution, preset and mode selection, validation, authorization, workspace
 lifecycle, persistence, and UI effects. The Rust executable parses commands, carries managed
-terminal context, and renders results; it does not duplicate those business rules. MCP enablement
-controls the MCP adapter only. Individual Agent Capability controls apply consistently to typed CLI
-commands and their MCP equivalents.
+terminal context, and renders results; it does not duplicate those business rules, and neither does the SDK. MCP
+enablement controls the MCP adapter only. Individual Agent Capability controls apply consistently
+to typed CLI commands, their MCP equivalents and SDK calls.
 
 The HTTP MCP server runs inline in Komla's HTTP server on port 52863 using Streamable HTTP. The
 installed executable exposes the same adapter over stdio with `komla mcp`.

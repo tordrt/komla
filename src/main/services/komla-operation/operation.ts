@@ -43,6 +43,7 @@ import {
 } from '../../lib/status-item-text';
 import { parseSnoozeUntil, wokenMarks } from '../workspace-snooze';
 
+import { komlaOperationCapability } from './capabilities';
 import {
   terminalAgentState,
   waitForTerminal,
@@ -53,6 +54,7 @@ import {
 } from './terminal-wait';
 
 import type { AgentTurnEnd } from './agent-turn-end';
+import type { KomlaOperationResults } from './result-schema';
 import type {
   AgentLaunchPolicy,
   AgentPreset,
@@ -74,6 +76,7 @@ import type {
   WorkspaceVirtualDesktop,
   WorkspaceTrashRequest,
   WorkspaceAttention,
+  NOTIFY_KINDS,
 } from '../../../shared/types/workspace';
 import type { TerminalText } from '../../lib/terminal-text';
 
@@ -312,6 +315,8 @@ export interface KomlaOperationDependencies {
     agentDisabledCapabilities?: readonly string[];
     /** Tag keys whose workspaces the sidebar moves to its Filtered shelf. */
     hiddenWorkspaceTags?: readonly string[];
+    /** The user turned the hooks endpoint off, and `komla notify` with it. */
+    disableNotificationEndpoint?: boolean;
   };
   listPresets(): AgentPreset[];
   getActivePresets(): ActivePresetEntry[];
@@ -365,6 +370,16 @@ export interface KomlaOperationDependencies {
   /** Links the workspaces both ways, with a symlink to each in the other's linked-workspaces folder. */
   linkWorkspaces(originId: string, targetIds: string[]): Promise<void>;
   unlinkWorkspace(originId: string, targetId: string): Promise<void>;
+  /**
+   * Shows a notification on the workspace, and on the terminal when one is named, as a hook over
+   * HTTP does, and saves it at once on an SSH workspace. `hasInvalidTerminalId`: the call named a
+   * terminal that isn't the workspace's, so it must not stop any current spinner.
+   */
+  notify(
+    workspace: KomlaOperationWorkspace,
+    target: { terminalId?: string; hasInvalidTerminalId: boolean },
+    notification: WorkspaceNotification
+  ): Promise<void>;
   /** Sets a workspace's status bar item; false when the workspace has as many as it may. */
   setStatusItem(workspaceId: string, id: string, content: StatusItemContent): boolean;
   /** Clears one status bar item, or all of a workspace's; returns how many it cleared. */
@@ -425,6 +440,20 @@ export interface KomlaOperationDependencies {
   ): Promise<void>;
 }
 
+/** A notification as `komla notify <title>` sends it, without an agent hook's event. */
+export interface WorkspaceNotification {
+  cwd?: string;
+  kind: (typeof NOTIFY_KINDS)[number];
+  source: string;
+  title: string;
+  body?: string;
+  color?: string;
+  badge?: string;
+  /** A base64 image data URL. */
+  icon?: string;
+  iconColor?: string;
+}
+
 export type KomlaOperation =
   | { type: 'context.get' }
   | { type: 'agent.presets'; includeInactive?: boolean }
@@ -450,7 +479,7 @@ export type KomlaOperation =
    * `until` is as `parseSnoozeUntil` reads it, in the desktop's time zone. `untilNotified` also
    * ends the snooze at the workspace's next notification; it needs no `until`.
    */
-  | { type: 'workspace.snooze'; until?: string; untilNotified?: boolean }
+  | { type: 'workspace.snooze'; until?: string; untilNotified?: true }
   | { type: 'workspace.wake' }
   /**
    * Without a tag, takes the workspace's tag off. A tag missing from the list joins it with `tone`,
@@ -467,6 +496,9 @@ export type KomlaOperation =
       ifTag?: string;
     }
   | { type: 'workspace.trash' }
+  /** `icon` is a base64 image data URL. */
+  | ({ type: 'workspace.notify' } & Omit<WorkspaceNotification, 'cwd' | 'kind' | 'source'> &
+      Partial<Pick<WorkspaceNotification, 'kind' | 'source'>>)
   /** Links or unlinks the workspace and each of `workspaceIds`, as Link Workspaces does. */
   | { type: 'workspace.link' | 'workspace.unlink'; workspaceIds: string[] }
   /** `path` is absolute, on this computer. */
@@ -530,35 +562,11 @@ export type KomlaOperation =
 
 type AgentLaunchOperation = Extract<KomlaOperation, { type: 'agent.launch' }>;
 
-export interface AgentLaunchResult {
-  /** A new workspace is provisioning while its worktree and branch are made. */
-  state: 'started' | 'provisioning';
-  destination:
-    | { kind: 'tab'; workspaceId: string; terminalId: string }
-    | {
-        kind: 'workspace';
-        workspaceId: string;
-        path?: string;
-        branch?: string;
-        /** The calling workspace's branch, for a launch from the current branch. */
-        branchedFrom?: string;
-      };
-  agent?: AgentLaunchSelection;
-}
+export type AgentLaunchResult = KomlaOperationResults['agent.launch'];
 
-interface AgentLaunchSelection {
-  preset: { id: string; name: string };
-  mode?: { id: string; name: string };
-  effort?: { id: string; name: string };
-}
+type AgentLaunchSelection = NonNullable<AgentLaunchResult['agent']>;
 
-/** What `execute` resolves to for each operation; one not listed resolves to `unknown`. */
-export interface KomlaOperationResults {
-  'agent.launch': AgentLaunchResult;
-}
-
-export type KomlaOperationResult<T extends KomlaOperation['type']> =
-  T extends keyof KomlaOperationResults ? KomlaOperationResults[T] : unknown;
+export type KomlaOperationResult<T extends KomlaOperation['type']> = KomlaOperationResults[T];
 
 type AgentSelection = {
   preset?: AgentPreset;
@@ -594,7 +602,8 @@ export class KomlaOperationService {
   private async dispatch(
     context: KomlaOperationContext,
     operation: KomlaOperation
-  ): Promise<unknown> {
+  ): Promise<KomlaOperationResults[KomlaOperation['type']]> {
+    this.requireCapability(komlaOperationCapability(operation));
     switch (operation.type) {
       case 'context.get':
         return this.getContext(context);
@@ -616,6 +625,8 @@ export class KomlaOperationService {
         return this.tagWorkspace(context, operation);
       case 'workspace.trash':
         return this.trashWorkspace(context);
+      case 'workspace.notify':
+        return this.notifyWorkspace(context, operation);
       case 'workspace.link':
         return this.linkWorkspaces(context, operation.workspaceIds);
       case 'workspace.unlink':
@@ -655,8 +666,7 @@ export class KomlaOperationService {
   private async openDesktop(
     context: KomlaOperationContext,
     operation: Extract<KomlaOperation, { type: 'desktop.open' }>
-  ): Promise<unknown> {
-    this.requireCapability('preview.open');
+  ): Promise<KomlaOperationResults['desktop.open']> {
     const workspace = this.requireWorkspace(context);
     const vncApp = this.dependencies.getVncAppName() || undefined;
     const viewer =
@@ -757,7 +767,10 @@ export class KomlaOperationService {
    * of a browser pane it has, else in a browser in a tab of its own. Without a URL, the browser
    * shows as it is, or opens on a blank tab that finds the workspace's server.
    */
-  private openPreview(context: KomlaOperationContext, url?: string): unknown {
+  private openPreview(
+    context: KomlaOperationContext,
+    url?: string
+  ): KomlaOperationResults['preview.open'] {
     const workspace = this.requirePreviewWorkspace(context, url);
     this.dependencies.publish(IPC.WORKSPACE_OPEN_DEV_PREVIEW, {
       workspaceId: workspace.id,
@@ -776,7 +789,10 @@ export class KomlaOperationService {
    * Offers a page in the window that shows the workspace, without opening it: a toast opens it in
    * the default browser or Komla's, and a dot on the globe button marks it until the user looks.
    */
-  private offerPreview(context: KomlaOperationContext, url?: string): unknown {
+  private offerPreview(
+    context: KomlaOperationContext,
+    url?: string
+  ): KomlaOperationResults['preview.open'] {
     const workspace = this.requirePreviewWorkspace(context, url);
     if (url === undefined) {
       throw new KomlaOperationError(
@@ -813,8 +829,7 @@ export class KomlaOperationService {
   private setWorkspaceTitle(
     context: KomlaOperationContext,
     operation: Extract<KomlaOperation, { type: 'workspace.title' }>
-  ): unknown {
-    this.requireCapability('workspace.title');
+  ): KomlaOperationResults['workspace.title'] {
     const workspace = this.requireWorkspace(context);
     const updated = this.dependencies.updateWorkspace(workspace.id, {
       customName: operation.title,
@@ -840,8 +855,7 @@ export class KomlaOperationService {
   private snoozeWorkspace(
     context: KomlaOperationContext,
     { until: input, untilNotified }: { until?: string; untilNotified?: boolean }
-  ): unknown {
-    this.requireCapability('workspace.snooze');
+  ): KomlaOperationResults['workspace.snooze'] {
     const workspace = this.requireWorkspace(context);
     // It would wake again at once, as an agent asking for the user wakes a snoozed workspace.
     if (isWorkspaceAttentionActionable(workspace.attention)) {
@@ -902,8 +916,7 @@ export class KomlaOperationService {
   }
 
   /** Ends a snooze now, marking the workspace Woke as a snooze that runs out does. */
-  // Not gated by workspace.snooze: waking only undoes a snooze, so a job's hook can still end one.
-  private wakeWorkspace(context: KomlaOperationContext): unknown {
+  private wakeWorkspace(context: KomlaOperationContext): KomlaOperationResults['workspace.wake'] {
     const workspace = this.requireWorkspace(context);
     if (!isWorkspaceSnoozed(workspace)) {
       return { snooze: { workspaceId: workspace.id, woke: false } };
@@ -926,8 +939,7 @@ export class KomlaOperationService {
       spinner,
       ifTag,
     }: Extract<KomlaOperation, { type: 'workspace.tag' }>
-  ): unknown {
-    this.requireCapability('workspace.tag');
+  ): KomlaOperationResults['workspace.tag'] {
     const workspace = this.requireWorkspace(context);
     const name = input === undefined ? undefined : normalizeWorkspaceTagName(input);
     if (input !== undefined && !name) {
@@ -972,8 +984,7 @@ export class KomlaOperationService {
    * and done notification aren't cut off. Other tabs' agents would stop with it, so a busy one
    * keeps it.
    */
-  private trashWorkspace(context: KomlaOperationContext): unknown {
-    this.requireCapability('workspace.trash');
+  private trashWorkspace(context: KomlaOperationContext): KomlaOperationResults['workspace.trash'] {
     if (context.targeted) {
       throw new KomlaOperationError(
         'WORKSPACE_TARGET_NOT_ALLOWED',
@@ -1008,6 +1019,52 @@ export class KomlaOperationService {
   }
 
   /**
+   * Shows a notification on the workspace as `komla notify <title>` does, on the calling terminal
+   * unless the call names another workspace.
+   */
+  private async notifyWorkspace(
+    context: KomlaOperationContext,
+    {
+      type: _type,
+      kind,
+      source,
+      ...presentation
+    }: Extract<KomlaOperation, { type: 'workspace.notify' }>
+  ): Promise<KomlaOperationResults['workspace.notify']> {
+    if (this.dependencies.getConfig().disableNotificationEndpoint) {
+      throw new KomlaOperationError(
+        'NOTIFICATIONS_DISABLED',
+        'Notifications are turned off in Komla. Ask the user to turn on Hooks endpoint in Settings → Integrations & MCP → Notifications.',
+        403
+      );
+    }
+    const workspace = this.requireWorkspace(context);
+    const named = context.targeted ? undefined : context.terminalId;
+    // A terminal that closed, or is another workspace's, keeps its pane out of it.
+    const terminalId =
+      named !== undefined && this.dependencies.findWorkspaceByTerminalId(named)?.id === workspace.id
+        ? named
+        : undefined;
+    const cwd = context.targeted
+      ? workspace.workingDirectory
+      : (context.cwd ?? workspace.workingDirectory);
+    await this.dependencies.notify(
+      workspace,
+      {
+        ...(terminalId !== undefined && { terminalId }),
+        hasInvalidTerminalId: named !== undefined && terminalId === undefined,
+      },
+      {
+        ...(cwd !== undefined && { cwd }),
+        kind: kind ?? 'generic',
+        source: source ?? 'agent',
+        ...presentation,
+      }
+    );
+    return { notification: { workspaceId: workspace.id, ...(terminalId && { terminalId }) } };
+  }
+
+  /**
    * Links the workspace to each of the others as Link Workspaces does: each gets a symlink to the
    * other in its linked-workspaces folder. Komla links local workspaces to local ones and SSH
    * workspaces to others on the same host, once they're ready and out of the Trash.
@@ -1015,8 +1072,7 @@ export class KomlaOperationService {
   private async linkWorkspaces(
     context: KomlaOperationContext,
     workspaceIds: string[]
-  ): Promise<unknown> {
-    this.requireCapability('workspace.link');
+  ): Promise<KomlaOperationResults['workspace.link']> {
     const workspace = this.requireWorkspace(context);
     const targets = [...new Set(workspaceIds)].map((id) =>
       this.requireLinkTarget(context, workspace, id)
@@ -1067,8 +1123,7 @@ export class KomlaOperationService {
   private async unlinkWorkspaces(
     context: KomlaOperationContext,
     workspaceIds: string[]
-  ): Promise<unknown> {
-    this.requireCapability('workspace.link');
+  ): Promise<KomlaOperationResults['workspace.unlink']> {
     const workspace = this.requireWorkspace(context);
     const linked = new Set(workspace.linkedWorkspaceIds);
     const ids = [...new Set(workspaceIds)];
@@ -1146,8 +1201,10 @@ export class KomlaOperationService {
   }
 
   /** Opens a folder on this computer as Open Folder does, in the caller's window when it has one. */
-  private openFolder(context: KomlaOperationContext, path: string): unknown {
-    this.requireCapability('folder.open');
+  private openFolder(
+    context: KomlaOperationContext,
+    path: string
+  ): KomlaOperationResults['folder.open'] {
     if (context.sshHostId) {
       throw new KomlaOperationError(
         'UNSUPPORTED_LOCATION',
@@ -1227,8 +1284,7 @@ export class KomlaOperationService {
       popover,
       popoverMarkdown,
     }: Extract<KomlaOperation, { type: 'status.set' }>
-  ): unknown {
-    this.requireCapability('status.set');
+  ): KomlaOperationResults['status.set'] {
     const workspace = this.requireWorkspace(context);
     if (textInput === undefined && segmentsInput === undefined) {
       throw new KomlaOperationError(
@@ -1292,16 +1348,19 @@ export class KomlaOperationService {
     return { status: { workspaceId: workspace.id, id, ...shown } };
   }
 
-  private clearStatusItems(context: KomlaOperationContext, id?: string): unknown {
-    this.requireCapability('status.set');
+  private clearStatusItems(
+    context: KomlaOperationContext,
+    id?: string
+  ): KomlaOperationResults['status.clear'] {
     const workspace = this.requireWorkspace(context);
     const cleared = this.dependencies.clearStatusItems(workspace.id, id);
     return { status: { workspaceId: workspace.id, ...(id !== undefined && { id }), cleared } };
   }
 
-  // Not gated by status.set: it runs only a command the user's status-items.json names, and adds
-  // nothing to the status bar, so the user's own hooks can refresh items agents can't set.
-  private async refreshStatusCommand(context: KomlaOperationContext, id: string): Promise<unknown> {
+  private async refreshStatusCommand(
+    context: KomlaOperationContext,
+    id: string
+  ): Promise<KomlaOperationResults['status.refresh']> {
     const workspace = this.requireWorkspace(context);
     const result = await this.dependencies.refreshStatusCommand(workspace.id, id);
     if (!result) {
@@ -1333,9 +1392,6 @@ export class KomlaOperationService {
     context: KomlaOperationContext,
     operation: AgentLaunchOperation
   ): Promise<AgentLaunchResult> {
-    this.requireCapability(
-      operation.destination === 'workspace' ? 'agent.launch.workspace' : 'agent.launch.tab'
-    );
     if (
       operation.destination === 'tab' &&
       (operation.name !== undefined ||
@@ -1842,7 +1898,7 @@ export class KomlaOperationService {
     );
   }
 
-  private getAgentPresets(includeInactive: boolean): unknown {
+  private getAgentPresets(includeInactive: boolean): KomlaOperationResults['agent.presets'] {
     const presets = this.dependencies.listPresets();
     const activeEntries = this.dependencies.getActivePresets();
     const activeIds = new Set(activeEntries.map((entry) => entry.presetId));
@@ -1920,7 +1976,7 @@ export class KomlaOperationService {
     };
   }
 
-  private getContext(context: KomlaOperationContext): unknown {
+  private getContext(context: KomlaOperationContext): KomlaOperationResults['context.get'] {
     const workspace = this.resolveWorkspace(context);
     const project = workspace?.projectId
       ? this.dependencies.getProject(workspace.projectId)
@@ -1955,7 +2011,10 @@ export class KomlaOperationService {
    * The workspaces scripts can name with `--workspace`; through an SSH host's tunnel, only that
    * host's.
    */
-  private listWorkspaces(context: KomlaOperationContext, includeTrashed: boolean): unknown {
+  private listWorkspaces(
+    context: KomlaOperationContext,
+    includeTrashed: boolean
+  ): KomlaOperationResults['workspace.list'] {
     const workspaces = this.dependencies
       .listWorkspaces()
       .filter((workspace) => includeTrashed || workspace.status !== 'trashed')
@@ -1975,7 +2034,7 @@ export class KomlaOperationService {
           ...(workspace.branchName && { branch: workspace.branchName }),
           ...(workspace.workingDirectory && { path: workspace.workingDirectory }),
           environment: this.workspaceEnvironment(workspace),
-          ...(workspace.status === 'trashed' && { trashed: true }),
+          ...(workspace.status === 'trashed' && { trashed: true as const }),
           agentActive: workspace.agentActive === true,
           ...(workspace.attention && { attention: workspace.attention.kind }),
           ...(workspace.tag && { tag: workspace.tag }),
@@ -1991,15 +2050,15 @@ export class KomlaOperationService {
    * An icon shows as `hasIcon`: its image is the user's, and too big to list for each tag. `hidden`
    * marks a tag whose workspaces leave the sidebar's list, so an agent doesn't hide one by tagging.
    */
-  private listTags(): unknown {
+  private listTags(): KomlaOperationResults['tag.list'] {
     const hidden = new Set(this.dependencies.getConfig().hiddenWorkspaceTags);
     const tags = this.dependencies.workspaceTags().map((tag) => ({
       name: tag.name,
       tone: tag.tone,
       ...(tag.pullRequestState && { pullRequestState: tag.pullRequestState }),
-      ...(tag.icon && { hasIcon: true }),
-      ...(tag.spinner && { spinner: true }),
-      ...(hidden.has(workspaceTagKey(tag.name)) && { hidden: true }),
+      ...(tag.icon && { hasIcon: true as const }),
+      ...(tag.spinner && { spinner: true as const }),
+      ...(hidden.has(workspaceTagKey(tag.name)) && { hidden: true as const }),
     }));
     return { tags };
   }
@@ -2035,8 +2094,7 @@ export class KomlaOperationService {
     return workspace;
   }
 
-  private listTerminals(context: KomlaOperationContext): unknown {
-    this.requireCapability('terminal.read');
+  private listTerminals(context: KomlaOperationContext): KomlaOperationResults['terminal.list'] {
     const workspace = this.requireWorkspace(context);
     return {
       terminals: (workspace.terminals ?? []).map((terminal) => ({
@@ -2049,8 +2107,7 @@ export class KomlaOperationService {
   private async readTerminal(
     context: KomlaOperationContext,
     operation: Extract<KomlaOperation, { type: 'terminal.read' }>
-  ): Promise<unknown> {
-    this.requireCapability('terminal.read');
+  ): Promise<KomlaOperationResults['terminal.read']> {
     const { terminal } = this.resolveTerminal(context, operation.terminal);
     const screen = await this.dependencies.readTerminalText(
       terminal.id,
@@ -2063,8 +2120,7 @@ export class KomlaOperationService {
   private async sendToTerminal(
     context: KomlaOperationContext,
     operation: Extract<KomlaOperation, { type: 'terminal.send' }>
-  ): Promise<unknown> {
-    this.requireCapability('terminal.send');
+  ): Promise<KomlaOperationResults['terminal.send']> {
     const { workspace, terminal } = this.resolveTerminal(context, operation.terminal);
     if (terminal.id === callerTerminal(context)) {
       throw new KomlaOperationError(
@@ -2112,8 +2168,7 @@ export class KomlaOperationService {
   private async waitForTerminal(
     context: KomlaOperationContext,
     operation: Extract<KomlaOperation, { type: 'terminal.wait' }>
-  ): Promise<unknown> {
-    this.requireCapability('terminal.read');
+  ): Promise<KomlaOperationResults['terminal.wait']> {
     const { workspace, terminal } = this.resolveTerminal(context, operation.terminal);
     if (terminal.id === callerTerminal(context)) {
       throw new KomlaOperationError(
@@ -2299,8 +2354,8 @@ export class KomlaOperationService {
     return workspace;
   }
 
-  private requireCapability(capability: AgentCapabilityId): void {
-    if (isAgentCapabilityEnabled(capability, this.dependencies.getConfig())) return;
+  private requireCapability(capability: AgentCapabilityId | undefined): void {
+    if (!capability || isAgentCapabilityEnabled(capability, this.dependencies.getConfig())) return;
     throw new KomlaOperationError(
       'CAPABILITY_DISABLED',
       turnedOffCapabilityMessage(capability),

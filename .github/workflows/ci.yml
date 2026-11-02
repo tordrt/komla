@@ -48,6 +48,6 @@ jobs:
       - run: npm run lint:native
       # Typechecks, then runs vitest and the native Rust tests.
       - run: npm test
-      # The phone web app and the protocol package it shares with the desktop app.
-      - run: npm --workspace komla-remote-web test && npm --workspace @komla/remote-protocol test
+      # The phone web app, the protocol package it shares with the desktop app, and the SDK.
+      - run: npm --workspace komla-remote-web test && npm --workspace @komla/remote-protocol test && npm --workspace @komla/sdk test
         if: runner.os == 'Linux'

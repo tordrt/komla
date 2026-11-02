@@ -3,6 +3,7 @@ import { join } from 'path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 
+import { createKomlaClient, httpTransport } from '../../../packages/sdk/src/index';
 import { IPC } from '../../../src/shared/constants/ipc-channels';
 import {
   createTerminal,
@@ -1242,6 +1243,106 @@ describe('HttpServerService', () => {
 
       expect(res.writeHead).toHaveBeenCalledWith(403, { 'Content-Type': 'text/plain' });
       expect(mockWorkspaceService.attention.hook).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Komla SDK', () => {
+    // The SDK is an adapter over the same route as the CLI (ADR 0008).
+    async function serveForReal(): Promise<{ url: string; close: () => Promise<void> }> {
+      const http = await vi.importActual<typeof import('http')>('http');
+      const server = http.createServer((req, res) => capturedHandler!(req, res));
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const { port } = server.address() as { port: number };
+      return {
+        url: `http://127.0.0.1:${port}`,
+        close: () => new Promise((resolve) => server.close(() => resolve())),
+      };
+    }
+
+    it("runs a typed call as the calling terminal's operation", async () => {
+      mockWorkspaceService.findWorkspaceByTerminalId.mockImplementation((id: string) =>
+        id === 'terminal-1'
+          ? createWorkspace({ id: 'workspace-1', workingDirectory: '/projects/komla' })
+          : undefined
+      );
+      httpServerService.start();
+      const server = await serveForReal();
+      try {
+        const komla = createKomlaClient({
+          transport: httpTransport({ route: { url: `${server.url}/terminals/terminal-1` } }),
+        });
+
+        await expect(komla.context.get()).resolves.toEqual({
+          context: {
+            connected: true,
+            workspace: {
+              id: 'workspace-1',
+              path: '/projects/komla',
+              environment: { kind: 'local' },
+            },
+            terminalId: 'terminal-1',
+          },
+        });
+      } finally {
+        await server.close();
+      }
+    });
+
+    it('shows a notification as `komla notify` does', async () => {
+      const workspace = createWorkspace({ id: 'workspace-1', workingDirectory: '/projects/komla' });
+      mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(workspace);
+      mockWorkspaceService.get.mockReturnValue(workspace);
+      httpServerService.start();
+      const server = await serveForReal();
+      try {
+        const komla = createKomlaClient({
+          transport: httpTransport({ route: { url: `${server.url}/terminals/terminal-1` } }),
+        });
+
+        await expect(
+          komla.workspace.notify({ title: 'CI failed', badge: 'CI', kind: 'error' })
+        ).resolves.toEqual({
+          notification: { workspaceId: 'workspace-1', terminalId: 'terminal-1' },
+        });
+        expect(mockWorkspaceService.attention.hook).toHaveBeenCalledWith(
+          { workspace, terminalId: 'terminal-1', hasInvalidTerminalId: false },
+          {
+            cwd: '/projects/komla',
+            kind: 'error',
+            source: 'agent',
+            title: 'CI failed',
+            badge: 'CI',
+          }
+        );
+        expect(mockWorkspaceService.persistSshAttention).toHaveBeenCalledWith('workspace-1');
+      } finally {
+        await server.close();
+      }
+    });
+
+    it('is refused a capability the user turned off, as the CLI is', async () => {
+      mockConfigService.get.mockReturnValue({ agentDisabledCapabilities: ['workspace.tag'] });
+      mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(
+        createWorkspace({ id: 'workspace-1', workingDirectory: '/projects/komla' })
+      );
+      httpServerService.start();
+      const server = await serveForReal();
+      try {
+        const komla = createKomlaClient({
+          transport: httpTransport({ route: { url: server.url, terminalId: 'terminal-1' } }),
+          capabilities: ['workspace.tag'],
+        });
+
+        await expect(komla.workspace.tag({ tag: 'CI running' })).rejects.toMatchObject({
+          name: 'KomlaError',
+          code: 'CAPABILITY_DISABLED',
+          status: 403,
+          details: { capability: 'workspace.tag' },
+        });
+        expect(mockWorkspaceService.update).not.toHaveBeenCalled();
+      } finally {
+        await server.close();
+      }
     });
   });
 

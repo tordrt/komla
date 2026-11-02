@@ -10,9 +10,11 @@ import { configService } from './config.service';
 import { gitService } from './git.service';
 import { watchAgentTurnEnd } from './komla-operation/agent-turn-end';
 import {
+  KomlaOperationError,
   KomlaOperationService,
   type KomlaOperationDependencies,
 } from './komla-operation/operation';
+import { notificationDeliveryService } from './notification-delivery.service';
 import { requestOpenFolder } from './open-folder-request';
 import { getKomlaBasePath } from './paths';
 import { projectService } from './project.service';
@@ -140,6 +142,17 @@ const productionDependencies: KomlaOperationDependencies = {
   updateWorkspace: (id, updates) => workspaceService.update(id, updates),
   linkWorkspaces: (originId, targetIds) => workspaceLinksService.link(originId, targetIds),
   unlinkWorkspace: (originId, targetId) => workspaceLinksService.unlink(originId, targetId),
+  notify: async ({ id }, target, notification) => {
+    const workspace = workspaceService.get(id);
+    if (!workspace) {
+      throw new KomlaOperationError(
+        'WORKSPACE_NOT_FOUND',
+        'The current Komla workspace no longer exists.',
+        404
+      );
+    }
+    await notificationDeliveryService.notify({ workspace, ...target }, notification);
+  },
   setStatusItem: (workspaceId, id, content) =>
     statusItemsService.set(workspaceId, id, content) !== undefined,
   clearStatusItems: (workspaceId, id) => statusItemsService.clear(workspaceId, id),

@@ -167,6 +167,14 @@ _Avoid_: Companion RPC, exec server
 
 **Komla Operation**:
 A typed request and result owned by the Electron main process for an agent-facing Komla action or
-query. The CLI and MCP are adapters over Komla Operations; neither adapter owns workspace,
-selection, authorization, persistence, or UI rules.
+query. The CLI, MCP and the Komla SDK are adapters over Komla Operations; no adapter owns
+workspace, selection, authorization, persistence, or UI rules.
 _Avoid_: MCP operation, CLI endpoint
+
+**Komla SDK**:
+The `@komla/sdk` TypeScript client for Komla Operations, whose types are rendered from their
+schemas. One client runs over different transports: Komla's local HTTP server for scripts and
+hooks, and later a channel of its own for plugin code and panel pages. A client declares the
+capabilities it uses and refuses operations that need any other, so code that shows outside text
+can't launch an agent.
+_Avoid_: Plugin API, which names only one of its consumers

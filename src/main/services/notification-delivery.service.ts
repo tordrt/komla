@@ -5,7 +5,15 @@ import { MAX_STATUS_ICON_BYTES, isStatusItemColor } from '../../shared/types/sta
 import { createLogger } from '../lib/logger';
 import { statusIconDataUrl } from '../lib/status-icon';
 
-import { MAX_COLOR_LEN, MAX_ID_LEN, MAX_NAME_LEN, MAX_PATH_LEN } from './komla-operation/schema';
+import {
+  MAX_COLOR_LEN,
+  MAX_ID_LEN,
+  MAX_NAME_LEN,
+  MAX_NOTIFICATION_BADGE_LEN,
+  MAX_NOTIFICATION_BODY_LEN,
+  MAX_NOTIFICATION_SOURCE_LEN,
+  MAX_PATH_LEN,
+} from './komla-operation/schema';
 import {
   notificationTargetResolutionService,
   type NotificationTargetResolution,
@@ -21,6 +29,7 @@ import {
 } from './workspace-cwd-resolution.service';
 import { workspaceService } from './workspace.service';
 
+import type { AgentHook, HookTarget } from './terminal-attention/terminal-attention';
 import type { Project, Workspace, WorkspaceAttentionKind } from '../../shared/types';
 
 const logger = createLogger('NotificationDeliveryService');
@@ -28,10 +37,7 @@ const logger = createLogger('NotificationDeliveryService');
 // Unknown terminals whose hooks already had their host synced, before the oldest is forgotten.
 const MAX_UNKNOWN_TERMINALS_TRACKED = 1024;
 
-const MAX_SOURCE_LEN = 64;
 const MAX_LEVEL_LEN = 64;
-// Room for a short label on the sidebar pill; the title carries the rest.
-const MAX_NOTIFICATION_BADGE_LEN = 64;
 const MAX_MESSAGE_LEN = 64 * 1024;
 
 // The hooks the komla CLI reports as `interrupted`: Codex was cancelled, or Claude quit.
@@ -65,9 +71,9 @@ export const notificationPayloadSchema = z
     terminalId: z.string().min(1).max(MAX_ID_LEN).optional(),
     deliveryId: z.string().min(1).max(MAX_ID_LEN).optional(),
     kind: notificationKindSchema.optional(),
-    source: z.string().min(1).max(MAX_SOURCE_LEN).optional(),
+    source: z.string().min(1).max(MAX_NOTIFICATION_SOURCE_LEN).optional(),
     title: z.string().trim().min(1).max(MAX_NAME_LEN).optional(),
-    body: z.string().max(MAX_MESSAGE_LEN).optional(),
+    body: z.string().max(MAX_NOTIFICATION_BODY_LEN).optional(),
     color: z.string().min(1).max(MAX_COLOR_LEN).optional(),
     badge: z.string().trim().min(1).max(MAX_NOTIFICATION_BADGE_LEN).optional(),
     // Shown like a status item's icon: as an image, where SVG runs no scripts.
@@ -252,6 +258,18 @@ class NotificationDeliveryService {
     }
     this.hostSyncedForTerminals.add(payload.terminalId);
     workspaceService.sshSync.expectWorkspace(sshHostId);
+  }
+
+  /**
+   * Shows a notification code sent for a workspace it named, as `workspace.notify` does: as a hook
+   * without a delivery id is taken, then saved at once on an SSH workspace.
+   */
+  async notify(
+    target: HookTarget & { workspace: Workspace },
+    notification: AgentHook
+  ): Promise<void> {
+    const outcome = await workspaceService.attention.hook(target, notification);
+    if (outcome === 'taken') await workspaceService.persistSshAttention(target.workspace.id);
   }
 
   /** Takes the hook: the same delivery of a terminal's hook is only ever taken once. */

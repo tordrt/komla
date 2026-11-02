@@ -1,6 +1,6 @@
 import { resolve } from 'path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   TRASH_TURN_LIMIT_MS,
@@ -10,6 +10,8 @@ import {
   type KomlaOperationDependencies,
   type KomlaOperationWorkspace,
 } from '../../../src/main/services/komla-operation/operation';
+import { komlaOperationResultSchemas } from '../../../src/main/services/komla-operation/result-schema';
+import { parseKomlaOperation } from '../../../src/main/services/komla-operation/schema';
 import { IPC } from '../../../src/shared/constants/ipc-channels';
 import {
   DEFAULT_WORKSPACE_TAGS,
@@ -63,9 +65,30 @@ function createDependencies(
     onPromptSubmitted: () => () => {},
     onTerminalOutput: () => () => {},
     onTerminalExit: () => () => {},
+    notify: vi.fn(async () => {}),
     ...overrides,
   };
 }
+
+// Every result an operation resolves to has the shape its schema gives it, and the SDK's types
+// with it (ADR 0008).
+const execute = KomlaOperationService.prototype.execute;
+beforeEach(() => {
+  vi.spyOn(KomlaOperationService.prototype, 'execute').mockImplementation(async function (
+    this: KomlaOperationService,
+    context,
+    operation
+  ) {
+    const result = await execute.call(this, context, operation);
+    const parsed = komlaOperationResultSchemas[operation.type].safeParse(result);
+    if (!parsed.success) {
+      throw new Error(
+        `${operation.type} resolved to a result its schema doesn't allow: ${JSON.stringify(parsed.error.issues)}`
+      );
+    }
+    return result;
+  });
+});
 
 describe('komlaCommandContext', () => {
   const caller = {
@@ -766,10 +789,7 @@ describe('KomlaOperationService', () => {
       presetId: 'codex',
       backend: { kind: 'local' as const },
     };
-    function effortService(
-      presets = [codex],
-      overrides: Partial<KomlaOperationDependencies> = {}
-    ) {
+    function effortService(presets = [codex], overrides: Partial<KomlaOperationDependencies> = {}) {
       const addAgentTab = vi.fn().mockResolvedValue({ id: 'terminal-2' });
       const createWorkspace = vi.fn().mockResolvedValue({ id: 'workspace-2' });
       const service = new KomlaOperationService(
@@ -867,40 +887,43 @@ describe('KomlaOperationService', () => {
     it.each([
       ['starts', true, undefined],
       ['refuses', false, 'AGENT_EFFORT_REQUIRES_ISOLATION'],
-    ])('%s a level that skips prompts on an SSH host marked isolated: %s', async (_verb, isolated, code) => {
-      const { service, addAgentTab } = effortService(
-        [
+    ])(
+      '%s a level that skips prompts on an SSH host marked isolated: %s',
+      async (_verb, isolated, code) => {
+        const { service, addAgentTab } = effortService(
+          [
+            {
+              ...codex,
+              reasoningLevels: [
+                { id: 'max', name: 'Max', arguments: '--dangerously-bypass-approvals-and-sandbox' },
+              ],
+            },
+          ],
           {
-            ...codex,
-            reasoningLevels: [
-              { id: 'max', name: 'Max', arguments: '--dangerously-bypass-approvals-and-sandbox' },
-            ],
-          },
-        ],
-        {
-          findWorkspaceByTerminalId: () => ({
-            ...workspace,
-            backend: { kind: 'ssh' as const, hostId: 'box' },
-          }),
-          listSshHosts: () => [{ id: 'box', name: 'Box', isolated }],
-        }
-      );
-      const launch = service.execute(
-        { terminalId: 'terminal-1' },
-        { type: 'agent.launch', destination: 'tab', preset: 'codex', effort: 'max' }
-      );
+            findWorkspaceByTerminalId: () => ({
+              ...workspace,
+              backend: { kind: 'ssh' as const, hostId: 'box' },
+            }),
+            listSshHosts: () => [{ id: 'box', name: 'Box', isolated }],
+          }
+        );
+        const launch = service.execute(
+          { terminalId: 'terminal-1' },
+          { type: 'agent.launch', destination: 'tab', preset: 'codex', effort: 'max' }
+        );
 
-      if (code) {
-        await expect(launch).rejects.toMatchObject({
-          code,
-          message: expect.stringContaining('mark the host isolated in Settings → SSH Hosts'),
-        });
-        expect(addAgentTab).not.toHaveBeenCalled();
-      } else {
-        await launch;
-        expect(addAgentTab.mock.calls[0][4]).toMatchObject({ reasoningLevelId: 'max' });
+        if (code) {
+          await expect(launch).rejects.toMatchObject({
+            code,
+            message: expect.stringContaining('mark the host isolated in Settings → SSH Hosts'),
+          });
+          expect(addAgentTab).not.toHaveBeenCalled();
+        } else {
+          await launch;
+          expect(addAgentTab.mock.calls[0][4]).toMatchObject({ reasoningLevelId: 'max' });
+        }
       }
-    });
+    );
 
     it('starts at the agent default without a level', async () => {
       const { service, addAgentTab } = effortService();
@@ -2190,6 +2213,144 @@ describe('KomlaOperationService', () => {
       });
     }
     expect(updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  describe('workspace.notify', () => {
+    const workspace = { id: 'workspace-1', workingDirectory: '/repo' };
+
+    it("shows the notification on the calling terminal's workspace, as `komla notify` does", async () => {
+      const notify = vi.fn(async () => {});
+      const service = new KomlaOperationService(
+        createDependencies({
+          findWorkspaceByTerminalId: (id) => (id === 'terminal-1' ? workspace : undefined),
+          notify,
+        })
+      );
+
+      await expect(
+        service.execute(
+          { terminalId: 'terminal-1', cwd: '/repo/src' },
+          {
+            type: 'workspace.notify',
+            title: 'CI failed',
+            body: '3 tests failed.',
+            kind: 'error',
+            badge: 'CI',
+            color: 'error',
+            iconColor: 'foreground',
+          }
+        )
+      ).resolves.toEqual({
+        notification: { workspaceId: 'workspace-1', terminalId: 'terminal-1' },
+      });
+      expect(notify).toHaveBeenCalledWith(
+        workspace,
+        { terminalId: 'terminal-1', hasInvalidTerminalId: false },
+        {
+          cwd: '/repo/src',
+          kind: 'error',
+          source: 'agent',
+          title: 'CI failed',
+          body: '3 tests failed.',
+          badge: 'CI',
+          color: 'error',
+          iconColor: 'foreground',
+        }
+      );
+    });
+
+    it("names no terminal, and stops no spinner, for a terminal that isn't the workspace's", async () => {
+      const notify = vi.fn(async () => {});
+      const service = new KomlaOperationService(
+        createDependencies({
+          // The terminal closed, so the workspace id the call also carries names the workspace.
+          findWorkspaceByTerminalId: () => undefined,
+          getWorkspace: (id) => (id === 'workspace-1' ? workspace : undefined),
+          notify,
+        })
+      );
+
+      await expect(
+        service.execute(
+          { terminalId: 'terminal-gone', workspaceId: 'workspace-1' },
+          { type: 'workspace.notify', title: 'Done', kind: 'turn-complete' }
+        )
+      ).resolves.toEqual({ notification: { workspaceId: 'workspace-1' } });
+      expect(notify).toHaveBeenCalledWith(
+        workspace,
+        { hasInvalidTerminalId: true },
+        expect.objectContaining({ kind: 'turn-complete' })
+      );
+    });
+
+    it('notifies a named workspace without naming the calling terminal', async () => {
+      const notify = vi.fn(async () => {});
+      const service = new KomlaOperationService(
+        createDependencies({
+          getWorkspace: (id) => (id === 'workspace-1' ? workspace : undefined),
+          notify,
+        })
+      );
+
+      await expect(
+        service.execute(
+          { workspaceId: 'workspace-1', targeted: true },
+          { type: 'workspace.notify', title: 'Review ready', source: 'github-prs' }
+        )
+      ).resolves.toEqual({ notification: { workspaceId: 'workspace-1' } });
+      expect(notify).toHaveBeenCalledWith(
+        workspace,
+        { hasInvalidTerminalId: false },
+        {
+          cwd: '/repo',
+          kind: 'generic',
+          source: 'github-prs',
+          title: 'Review ready',
+        }
+      );
+    });
+
+    it('is refused while the user has turned the hooks endpoint off', async () => {
+      const notify = vi.fn(async () => {});
+      const service = new KomlaOperationService(
+        createDependencies({
+          getConfig: () => ({ disableNotificationEndpoint: true }),
+          findWorkspaceByTerminalId: () => workspace,
+          notify,
+        })
+      );
+
+      await expect(
+        service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.notify', title: 'x' })
+      ).rejects.toMatchObject({ code: 'NOTIFICATIONS_DISABLED', statusCode: 403 });
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it('takes the notifications an integration sends, not agent lifecycle hooks', () => {
+      expect(
+        parseKomlaOperation({
+          type: 'workspace.notify',
+          title: ' Review ready ',
+          icon: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        })
+      ).toMatchObject({
+        title: 'Review ready',
+        icon: expect.stringMatching(/^data:image\/svg\+xml;base64,/),
+      });
+      for (const invalid of [
+        { type: 'workspace.notify' },
+        { type: 'workspace.notify', title: '   ' },
+        { type: 'workspace.notify', title: 'x', kind: 'activity' },
+        { type: 'workspace.notify', title: 'x', kind: 'interrupted' },
+        { type: 'workspace.notify', title: 'x', iconColor: 'blurple' },
+        { type: 'workspace.notify', title: 'x', icon: 'not an image' },
+        { type: 'workspace.notify', title: 'x', hookInput: { hook_event_name: 'Stop' } },
+      ]) {
+        expect(() => parseKomlaOperation(invalid), JSON.stringify(invalid)).toThrow(
+          expect.objectContaining({ code: 'INVALID_OPERATION' })
+        );
+      }
+    });
   });
 
   describe('workspace.trash', () => {

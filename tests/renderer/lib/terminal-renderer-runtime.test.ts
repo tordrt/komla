@@ -1148,6 +1148,50 @@ describe('TerminalRendererRuntime', () => {
     runtime.dispose('term-drag');
   });
 
+  it('sends only the settled size when a split re-mounts a shown pane mid-layout', async () => {
+    // A shell redraws its prompt for each size, and zsh left a copy of the prompt behind when
+    // the PTY took a size the pane had already left, as a split re-mounts it at a passing width.
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-split', makeHost());
+    const terminal = xtermState.terminals[0];
+    await vi.advanceTimersByTimeAsync(0);
+    vi.runOnlyPendingTimers();
+    api.resizePty.mockClear();
+    let cols = 139;
+    xtermState.fit.mockImplementation(() => terminal.resize(cols, 24));
+
+    // React shows the new mount before the old one's cleanup detaches it.
+    cols = 135;
+    runtime.setVisible('term-split', true);
+    runtime.detach('term-split');
+    attach(runtime, 'term-split', makeHost());
+    expect(api.resizePty).not.toHaveBeenCalled();
+
+    cols = 68;
+    resizeState.callbacks.at(-1)?.([], {} as ResizeObserver);
+    await vi.advanceTimersByTimeAsync(16);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(api.resizePty.mock.calls).toEqual([['term-split', 68, 24]]);
+    runtime.dispose('term-split');
+  });
+
+  it('sizes the PTY at once when a pane detached while shown comes back later', async () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-back', makeHost());
+    const terminal = xtermState.terminals[0];
+    await vi.advanceTimersByTimeAsync(0);
+    vi.runOnlyPendingTimers();
+    api.resizePty.mockClear();
+    xtermState.fit.mockImplementation(() => terminal.resize(100, 24));
+
+    runtime.detach('term-back');
+    await Promise.resolve();
+    attach(runtime, 'term-back', makeHost());
+
+    expect(api.resizePty.mock.calls).toEqual([['term-back', 100, 24]]);
+    runtime.dispose('term-back');
+  });
+
   it('settles columns once a large buffer stops resizing while rows follow every frame', async () => {
     const runtime = new TerminalRendererRuntime();
     attach(runtime, 'term-reflow', makeHost());

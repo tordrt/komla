@@ -134,6 +134,9 @@ interface TerminalRendererEntry {
   ptySized: boolean;
   ptyResizeTimer: ReturnType<typeof setTimeout> | null;
   columnResizeTimer: ReturnType<typeof setTimeout> | null;
+  // Detached while shown, until the task ends: attaching it again then moves it, as a split
+  // re-mounts its panes, rather than showing it.
+  movingWhileShown: boolean;
   unreportedOutput: number;
   // Output reported on receipt while hidden, so its parse is not reported again.
   outputReportedAhead: number;
@@ -303,6 +306,12 @@ export class TerminalRendererRuntime {
     const entry = this.entries.get(terminalId);
     if (!entry || entry.disposed) return;
     this.captureParkScroll(entry);
+    if (entry.visible) {
+      entry.movingWhileShown = true;
+      queueMicrotask(() => {
+        entry.movingWhileShown = false;
+      });
+    }
     entry.visible = false;
     entry.visibleRepairCleanup?.();
     entry.visibleRepairCleanup = undefined;
@@ -364,12 +373,17 @@ export class TerminalRendererRuntime {
       return;
     }
 
+    const shown = !entry.visible && !entry.movingWhileShown;
     entry.visible = true;
     resumeTerminalRendering(entry.terminal);
     entry.webglLastUsed = ++this.webglUseSequence;
     this.restoreVisibleScroll(entry);
     if (!entry.webglAddon) this.initWebgl(entry);
-    this.scheduleVisibleRepair(entry);
+    // Only a pane that was hidden sizes its PTY at once. One already shown, or one that only
+    // moved, as in a split, is measured mid-layout and follows its pane like a resize: sizing its
+    // PTY at once sent the shell a width the pane had already left, and zsh then left a copy of
+    // its prompt above the redrawn one.
+    this.scheduleVisibleRepair(entry, shown);
   }
 
   /**
@@ -775,6 +789,7 @@ export class TerminalRendererRuntime {
       ptySized: false,
       ptyResizeTimer: null,
       columnResizeTimer: null,
+      movingWhileShown: false,
       unreportedOutput: 0,
       outputReportedAhead: 0,
     };
@@ -1081,9 +1096,9 @@ export class TerminalRendererRuntime {
     return { cols: dims.cols, rows: dims.rows };
   }
 
-  private scheduleVisibleRepair(entry: TerminalRendererEntry): void {
+  private scheduleVisibleRepair(entry: TerminalRendererEntry, forcePtyResize: boolean): void {
     entry.visibleRepairCleanup?.();
-    this.repair(entry, true);
+    this.repair(entry, forcePtyResize);
     let cancelled = false;
     const firstFrame = requestAnimationFrame(() => {
       if (cancelled) return;

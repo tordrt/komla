@@ -2300,6 +2300,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
           className="!top-[max(3rem,calc(50vh-12rem))] !max-w-xl !translate-y-0 !gap-0 !overflow-visible !border-0 !bg-transparent !p-0 !shadow-none !ring-0"
+          // Darker than the shared scrim, so the dialog stands out over busy terminals.
+          overlayClassName="bg-black/60"
           showCloseButton={false}
           floating={false}
           onKeyDown={handleDialogKeyDown}

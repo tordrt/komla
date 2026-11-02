@@ -79,6 +79,7 @@ import { remoteControlPushService } from './services/remote-control-push.service
 import { configureRemoteObservationKomlaPort } from './services/remote-workspace-observation.service';
 import { settingsHistoryService } from './services/settings-history.service';
 import { shortcutsService } from './services/shortcuts.service';
+import { stopWatchingSidebarPanels, watchSidebarPanels } from './services/sidebar-panels.service';
 import { sshConnectionService } from './services/ssh-connection.service';
 import { sshHostStatusService } from './services/ssh-host-status.service';
 import { sshHostService } from './services/ssh-host.service';
@@ -757,6 +758,7 @@ void app.whenReady().then(async () => {
     agentPresetService.init(),
     settingsHistoryService.start(),
     watchStatusCommands(),
+    watchSidebarPanels(),
     watchHooks(),
     watchPlugins(),
   ]).then((results) => {
@@ -893,6 +895,7 @@ function finishQuit(): void {
     agentPresetService.dispose(),
     settingsHistoryService.dispose(),
     stopWatchingStatusCommands(),
+    stopWatchingSidebarPanels(),
     stopWatchingHooks(),
     stopWatchingPlugins(),
   ])

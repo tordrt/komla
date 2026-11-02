@@ -23,7 +23,9 @@ vi.mock('../../../../src/main/services/status-commands.service', () => ({
     runPopover: mockRunPopover,
     runButton: mockRunButton,
   },
-  serveStatusPopoverPage: mockServePopoverPage,
+}));
+vi.mock('../../../../src/main/services/command-items', () => ({
+  serveCommandPage: mockServePopoverPage,
 }));
 vi.mock('../../../../src/main/services/status-items.service', () => ({
   statusItemsService: {

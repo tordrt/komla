@@ -26,6 +26,7 @@ export const SETTINGS_HISTORY_FILES: readonly SettingsHistoryFile[] = [
   'agent-presets.json',
   'projects.json',
   'status-items.json',
+  'sidebar-panels.json',
   'hooks.json',
 ];
 

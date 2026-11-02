@@ -114,6 +114,15 @@ prompt, and a Terminal Command runs a shell command in a terminal. Code, `action
 `komla settings actions` call these Actions (prompt and terminal actions, action launch); user-facing
 copy says Quick Command, Saved Prompt, and Terminal Command.
 
+## Customization
+
+**Sidebar Panel**:
+A tab in a workspace's sidebar beside Diff and Files, whose page comes from a command Komla runs
+while the panel is open. Users and agents define panels in `sidebar-panels.json`, in the format of
+status bar items, and their pages and buttons work as a status item's popover does. Code and
+`komla settings` call the file and resource `sidebar-panels`.
+_Avoid_: Custom pane, sidebar pane (a pane is a split inside a tab), sidebar tab
+
 ## Plugins
 
 **Plugin**:
@@ -123,8 +132,8 @@ its files are as they were when the user turned it on.
 _Avoid_: Extension, add-on
 
 **Contribution**:
-One status bar item or hook a Plugin adds, in the format of the user's own `status-items.json` or
-`hooks.json`, with the id `<plugin>.<id>`.
+One status bar item, Sidebar Panel or hook a Plugin adds, in the format of the user's own
+`status-items.json`, `sidebar-panels.json` or `hooks.json`, with the id `<plugin>.<id>`.
 
 ## Workspace Status
 

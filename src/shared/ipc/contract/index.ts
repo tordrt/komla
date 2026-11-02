@@ -15,6 +15,7 @@ import { projectContract } from './project.contract';
 import { remoteControlContract } from './remote-control.contract';
 import { settingsContract } from './settings.contract';
 import { shellContract } from './shell.contract';
+import { sidebarPanelsContract } from './sidebar-panels.contract';
 import { soundsContract } from './sounds.contract';
 import { statusItemsContract } from './status-items.contract';
 import { telemetryContract } from './telemetry.contract';
@@ -53,6 +54,7 @@ export const ipcContract = {
   ...remoteControlContract,
   ...settingsContract,
   ...shellContract,
+  ...sidebarPanelsContract,
   ...soundsContract,
   ...statusItemsContract,
   ...telemetryContract,

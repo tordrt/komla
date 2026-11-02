@@ -17,12 +17,11 @@ vi.mock('../../../src/main/services/html-preview.service', () => ({
   htmlPreviewService: { createContentPreviewUrl: mockCreateContentPreviewUrl },
 }));
 
+import { parseCommandPageOutput, serveCommandPage } from '../../../src/main/services/command-items';
 import {
   parseStatusCommandOutput,
   parseStatusCommandsFile,
-  parseStatusPopoverOutput,
   resolveStatusIcons,
-  serveStatusPopoverPage,
   StatusCommandsService,
   type StatusCommandsDependencies,
 } from '../../../src/main/services/status-commands.service';
@@ -234,13 +233,13 @@ describe('parseStatusCommandOutput', () => {
   });
 });
 
-describe('parseStatusPopoverOutput', () => {
+describe('parseCommandPageOutput', () => {
   it('shows text output as Markdown', () => {
-    expect(parseStatusPopoverOutput('\u001b[1m## Checks\u001b[0m\n- e2e failed\n', [])).toEqual({
+    expect(parseCommandPageOutput('\u001b[1m## Checks\u001b[0m\n- e2e failed\n', [])).toEqual({
       markdown: '## Checks\n- e2e failed',
       buttons: [],
     });
-    expect(parseStatusPopoverOutput(' \n', [])).toBeNull();
+    expect(parseCommandPageOutput(' \n', [])).toBeNull();
   });
 
   it('keeps buttons that open links, run Actions or run a command the item names', () => {
@@ -257,7 +256,7 @@ describe('parseStatusPopoverOutput', () => {
         'nonsense',
       ],
     });
-    expect(parseStatusPopoverOutput(output, ['rerun'])).toEqual({
+    expect(parseCommandPageOutput(output, ['rerun'])).toEqual({
       markdown: 'PR #812',
       buttons: [
         { label: 'Open PR', link: 'https://github.com/o/r/pull/812' },
@@ -703,10 +702,10 @@ describe('StatusCommandsService', () => {
   });
 });
 
-describe('serveStatusPopoverPage', () => {
+describe('serveCommandPage', () => {
   it("serves a popover's page in the preview sandbox with Komla's fonts, by its key", async () => {
     mockCreateContentPreviewUrl.mockResolvedValue('komla-preview://token/popover.html');
-    await expect(serveStatusPopoverPage('status-item-popover:7:ws-1:ci', '<b>4/4</b>')).resolves.toBe(
+    await expect(serveCommandPage('status-item-popover:7:ws-1:ci', '<b>4/4</b>')).resolves.toBe(
       'komla-preview://token/popover.html'
     );
     expect(mockCreateContentPreviewUrl).toHaveBeenCalledWith('popover.html', '<b>4/4</b>', {

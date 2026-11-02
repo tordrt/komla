@@ -166,6 +166,7 @@ settings/
 ├── shortcuts.json      # Your keyboard shortcuts
 ├── actions.json        # Your quick commands (Saved Prompts and Terminal Commands)
 ├── status-items.json   # Your custom status bar items (commands run on an interval)
+├── sidebar-panels.json # Your sidebar panels (pages a command prints, beside Diff and Files)
 ├── hooks.json          # Commands run on agent and workspace events, or on a timer
 ├── plugins.json        # Which plugins in ../plugins/ run, as their files were when turned on
 ├── README.md           # This documentation
@@ -477,6 +478,36 @@ Field reference:
 - \`projects\` — project names or ids it runs in; leave it out to run in every workspace
 
 At most 30 items. A file Komla can't read shows a warning item in the status bar saying what is wrong. Agents can also set an item for their own workspace without this file: \`komla status set <id> <text>\`.
+
+### sidebar-panels.json
+
+Defines panels in the workspace sidebar, as tabs beside Diff and Files: pages a command prints, which Komla runs when the panel opens and on an interval while it stays open. A panel takes a status item's fields and runs where they do; its \`command\` prints what a status item's \`popoverCommand\` prints, an HTML page or Markdown with buttons, shown in the same sandbox.
+
+\`\`\`json
+{
+  "_version": 1,
+  "panels": [
+    {
+      "id": "ci",
+      "title": "CI",
+      "command": "sh ~/.config/komla/ci-panel.sh",
+      "intervalSeconds": 120,
+      "commands": { "rerun": "gh run rerun --failed" },
+      "projects": ["komla"]
+    }
+  ]
+}
+\`\`\`
+
+Field reference:
+- \`id\` — up to 40 letters, digits, dots, dashes and underscores; unique in the file
+- \`title\` — the panel's tab, up to 24 characters
+- \`command\` — run with the user's shell; prints \`{"html": "<page>", "buttons": [...]}\` or plain Markdown
+- \`intervalSeconds\` — how often it runs while the panel is open, 10 or more (default 60); it doesn't run while the panel is closed
+- \`timeoutSeconds\` — how long the command may run, 1 to 600 (default 30)
+- \`runOn\`, \`projects\`, \`icon\`, \`iconColor\` and \`commands\` — as for status bar items; \`commands\` are what the page's buttons run
+
+At most 20 panels. A file Komla can't read shows what is wrong in the sidebar. \`komla skill status-items\` says how to make the page fit Komla's theme.
 
 ### hooks.json
 

@@ -127,6 +127,7 @@ import type { PluginInfo } from '../shared/types/plugins';
 import type { PullRequestStatus } from '../shared/types/pull-request';
 import type { MachineResourceUsage } from '../shared/types/resource-usage';
 import type { SettingsHistoryEntry } from '../shared/types/settings-history';
+import type { SidebarPanelList, SidebarPanelResult } from '../shared/types/sidebar-panels';
 import type { SshHostAddedSource } from '../shared/types/ssh';
 import type {
   SshHostProject,
@@ -1832,6 +1833,30 @@ const api = {
       callback(result);
     ipcRenderer.on(IPC.STATUS_COMMAND_RESULT, handler);
     return () => ipcRenderer.removeListener(IPC.STATUS_COMMAND_RESULT, handler);
+  },
+
+  /** The sidebar panels a workspace shows, from sidebar-panels.json and the plugins that run. */
+  listSidebarPanels: (workspaceId: string): Promise<SidebarPanelList> =>
+    ipcRenderer.invoke(IPC.SIDEBAR_PANELS_LIST, workspaceId),
+
+  runSidebarPanel: (
+    workspaceId: string,
+    id: string,
+    theme?: StatusPopoverTheme
+  ): Promise<SidebarPanelResult> =>
+    ipcRenderer.invoke(IPC.SIDEBAR_PANEL_RUN, workspaceId, id, theme),
+
+  runSidebarPanelButton: (
+    workspaceId: string,
+    id: string,
+    name: string
+  ): Promise<StatusButtonRunResult> =>
+    ipcRenderer.invoke(IPC.SIDEBAR_PANEL_BUTTON_RUN, workspaceId, id, name),
+
+  onSidebarPanelsChange: (callback: () => void): (() => void) => {
+    const handler = (): void => callback();
+    ipcRenderer.on(IPC.SIDEBAR_PANELS_CHANGED, handler);
+    return () => ipcRenderer.removeListener(IPC.SIDEBAR_PANELS_CHANGED, handler);
   },
 
   /** The plugins in the plugins folder, read again first. */

@@ -173,6 +173,9 @@ describe('TerminalTabs', () => {
         onWindowMaximizedChange: vi.fn(() => () => {}),
         // The window without workspaces lists the recent folders.
         getRecentFolders: vi.fn().mockResolvedValue([]),
+        // The file panel's tabs list its sidebar panels.
+        listSidebarPanels: vi.fn().mockResolvedValue({ panels: [] }),
+        onSidebarPanelsChange: vi.fn(() => () => {}),
         platform: 'linux',
       },
     });
@@ -985,25 +988,17 @@ describe('TerminalTabs', () => {
       );
     });
 
-    it.each(['darwin', 'linux'] as const)(
-      'on %s, switches between them with a two-part toggle',
-      (platform) => {
-        (window.api as { platform: string }).platform = platform;
-        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
-        setUpWorkspace(['t1']);
-        render(<TerminalTabs />);
+    it.each(['darwin', 'linux'] as const)('on %s, underlines the view that shows', (platform) => {
+      (window.api as { platform: string }).platform = platform;
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+      setUpWorkspace(['t1']);
+      render(<TerminalTabs />);
 
-        const view = screen.getByRole('radiogroup', { name: 'File panel view' });
-        expect(within(view).getByRole('radio', { name: 'Diff' })).toHaveAttribute(
-          'aria-checked',
-          'true'
-        );
-        expect(within(view).getByRole('radio', { name: 'Files' })).toHaveAttribute(
-          'aria-checked',
-          'false'
-        );
-      }
-    );
+      const view = screen.getByLabelText('File panel view');
+      const underline = 'shadow-[inset_0_-2px_0_oklch(var(--foreground)/0.75)]';
+      expect(within(view).getByRole('button', { name: 'Diff' })).toHaveClass(underline);
+      expect(within(view).getByRole('button', { name: 'Files' })).not.toHaveClass(underline);
+    });
 
     it.each([
       ['darwin', '202'],

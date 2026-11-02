@@ -129,6 +129,66 @@ describe('PluginsService', () => {
     });
   });
 
+  it('adds sidebar panels, listed with their button commands and run once turned on', async () => {
+    const dir = writePlugin('checks', {
+      id: 'checks',
+      name: 'Checks',
+      contributes: {
+        sidebarPanels: [
+          {
+            id: 'ci',
+            title: 'CI',
+            command: 'sh "$KOMLA_PLUGIN_DIR/ci.sh"',
+            intervalSeconds: 120,
+            commands: { rerun: 'gh run rerun --failed' },
+          },
+        ],
+      },
+    });
+    await service.scan();
+
+    expect(service.list()[0].contributions).toEqual([
+      {
+        kind: 'sidebar-panel',
+        id: 'checks.ci',
+        title: 'CI',
+        command: 'sh "$KOMLA_PLUGIN_DIR/ci.sh"',
+        when: 'Every 120 seconds while the panel is open',
+        moreCommands: [{ label: 'Button command rerun', command: 'gh run rerun --failed' }],
+      },
+    ]);
+    expect(service.sidebarPanels()).toEqual([]);
+
+    turnOn('checks');
+
+    expect(service.sidebarPanels()).toEqual([
+      expect.objectContaining({
+        id: 'checks.ci',
+        title: 'CI',
+        plugin: { id: 'checks', name: 'Checks', dir },
+      }),
+    ]);
+  });
+
+  it.each([
+    [{ sidebarPanels: [] }, /adds nothing/],
+    [
+      {
+        sidebarPanels: [
+          { id: 'ci', title: 'CI', command: 'x' },
+          { id: 'ci', title: 'CI 2', command: 'y' },
+        ],
+      },
+      /contributes\.sidebarPanels\.1\.id: ci is already in the list/,
+    ],
+    [{ sidebarPanels: [{ id: 'ci', command: 'x' }] }, /contributes\.sidebarPanels\.0\.title/],
+  ])("can't read a manifest whose panels are wrong: %j", async (contributes, problem) => {
+    writePlugin('checks', { id: 'checks', name: 'Checks', contributes });
+    await service.scan();
+
+    expect(service.list()[0]).toMatchObject({ state: 'invalid', problem: expect.stringMatching(problem) });
+  });
+
   it('stops a plugin whose files changed until it is turned on again', async () => {
     writePlugin('prs', prManifest, { 'pr.js': 'console.log("PR")' });
     await service.scan();

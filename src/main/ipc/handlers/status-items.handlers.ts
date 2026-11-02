@@ -1,8 +1,6 @@
 import { IPC } from '../../../shared/constants/ipc-channels';
-import {
-  serveStatusPopoverPage,
-  statusCommandsService,
-} from '../../services/status-commands.service';
+import { serveCommandPage } from '../../services/command-items';
+import { statusCommandsService } from '../../services/status-commands.service';
 import { statusItemsService } from '../../services/status-items.service';
 import { buildStatusPopoverPage } from '../../services/status-popover-page';
 import { windowService } from '../../services/window.service';
@@ -56,7 +54,7 @@ export function registerStatusItemsHandlers(): void {
     async (event, [workspaceId, id, theme]): Promise<string | null> => {
       const html = statusItemsService.get(workspaceId, id)?.popover;
       if (!html) return null;
-      return serveStatusPopoverPage(
+      return serveCommandPage(
         `status-item-popover:${event.sender.id}:${workspaceId}:${id}`,
         buildStatusPopoverPage(html, theme)
       );

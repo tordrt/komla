@@ -1,4 +1,4 @@
-# Komla Status Bar Items
+# Komla Status Bar Items and Sidebar Panels
 
 A status bar item shows a few words from a command, refreshed on an interval, in every workspace or
 a project's, and can open a popover with more and buttons that run commands. Change them with
@@ -66,6 +66,39 @@ Komla's theme colors so it fits every theme, dark and light: `--foreground`, `--
 It has Komla's font with Nerd Font icons, is 352 pixels wide and scrolls past 420 pixels tall.
 Escape text from elsewhere, as `@html` does.
 
+## Sidebar panels
+
+A sidebar panel is a page in the workspace's sidebar, a tab beside Diff and Files, for what needs
+more room than a popover: the last test run's failures, a CI run's jobs, the issues on the user's
+plate. Change them with `komla settings apply sidebar-panels`; `komla settings schema
+sidebar-panels` lists every field. A panel takes a status item's fields, with a `title` for its tab
+in place of `label`, and its `command` prints what a popover command prints, with the same buttons:
+
+```json
+{
+  "_version": 1,
+  "panels": [
+    {
+      "id": "nightly",
+      "title": "Nightly",
+      "command": "sh ~/.config/komla/nightly.sh",
+      "intervalSeconds": 120,
+      "commands": {
+        "run": "gh workflow run nightly.yml",
+        "fix": "komla launch \"Fix what failed in the last nightly run\""
+      },
+      "projects": ["my-project"]
+    }
+  ]
+}
+```
+
+Its command runs when the user opens the panel and on its interval while it stays open, never
+while it's closed, so a panel can run a slower command than an item. Make its page as under **HTML
+popovers**, in the same sandbox and theme; it fills the panel, which is as wide as the user makes
+the sidebar, often 260 to 400 pixels, and scrolls the page itself. With more than one panel, the
+user picks which one the tab shows.
+
 ## With the rest of Komla
 
 An item is one part of what Komla can show; combine it with the rest:
@@ -78,9 +111,9 @@ An item is one part of what Komla can show; combine it with the rest:
   popover shows. An item's command runs again and again, so tag or notify only when what it sees
   changes, keeping the last state in a file. `komla skill customize` says how to keep tags and
   notifications short.
-- **A plugin** bundles items with the hooks and scripts they need, so the user can share them or
-  turn them off as one. Make one when an item comes with a hook or a script of its own, or the
-  user wants to share it; `komla skill customize` says how.
+- **A plugin** bundles items and panels with the hooks and scripts they need, so the user can
+  share them or turn them off as one. Make one when an item comes with a hook or a script of its
+  own, or the user wants to share it; `komla skill customize` says how.
 
 ## While you work
 

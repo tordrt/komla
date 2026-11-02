@@ -7,9 +7,9 @@ export const PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,23}$/;
  */
 export type PluginState = 'on' | 'off' | 'changed' | 'invalid';
 
-/** One status bar item or hook a plugin adds, as Settings lists it. */
+/** One status bar item, hook or sidebar panel a plugin adds, as Settings lists it. */
 export interface PluginContributionInfo {
-  kind: 'status-item' | 'hook';
+  kind: 'status-item' | 'hook' | 'sidebar-panel';
   /** `<plugin>.<id>`, as `komla status refresh` takes it. */
   id: string;
   title: string;
@@ -18,7 +18,7 @@ export interface PluginContributionInfo {
   when: string;
   /** Runs on this computer, in the home folder, not where the workspace's files are. */
   runOn?: 'local';
-  /** The item's other commands, such as its popover's, which it runs when clicked. */
+  /** Its other commands, such as its popover's or its buttons', which it runs when clicked. */
   moreCommands?: { label: string; command: string }[];
 }
 

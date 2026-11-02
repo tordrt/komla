@@ -20,6 +20,7 @@ function ipcErrorMessage(error: unknown): string {
 const KIND_LABELS: Record<PluginContributionInfo['kind'], string> = {
   'status-item': 'Status bar item',
   hook: 'Hook',
+  'sidebar-panel': 'Sidebar panel',
 };
 
 /**

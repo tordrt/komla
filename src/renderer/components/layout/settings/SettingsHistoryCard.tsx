@@ -20,6 +20,7 @@ const FILE_LABELS: Record<SettingsHistoryFile, string> = {
   'agent-presets.json': 'Agents',
   'projects.json': 'Projects',
   'status-items.json': 'Status bar items',
+  'sidebar-panels.json': 'Sidebar panels',
   'hooks.json': 'Hooks',
 };
 

@@ -14,7 +14,7 @@ const statusItemIdSchema = z.string().regex(STATUS_ITEM_ID_PATTERN);
 export const statusCommandRunArgsSchema = z.tuple([idSchema, statusItemIdSchema]);
 // A theme can set a color that isn't OKLCH channels, such as a hex accent: the page goes
 // without it rather than the popover failing.
-const popoverThemeSchema = z
+export const popoverThemeSchema = z
   .object({
     scheme: z.enum(['light', 'dark']),
     colors: z

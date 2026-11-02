@@ -13,6 +13,7 @@ export type SettingsApprovalChangeKind =
   | 'corner-radius'
   | 'status-item'
   | 'hook'
+  | 'sidebar-panel'
   | 'plugin'
   | 'shortcut'
   | 'terminal-setting'
@@ -44,6 +45,7 @@ export interface SettingsApprovalChange {
 /** Settings files an agent reads and changes whole with `komla settings`. */
 export const SETTINGS_FILE_RESOURCES = [
   'status-items',
+  'sidebar-panels',
   'plugins',
   'hooks',
   'shortcuts',

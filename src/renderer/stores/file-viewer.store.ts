@@ -179,10 +179,25 @@ interface FileViewerState {
   // Expanded diff folders persistence
   setExpandedDiffFolders: (workingDirectory: string, folders: string[]) => void;
   getExpandedDiffFolders: (workingDirectory: string) => string[] | undefined;
+  /**
+   * The sidebar panel each workspace's sidebar last showed, by id, and whether it shows it in place
+   * of the file tree. Choosing Diff or Files, or anything that shows the tree, hides it.
+   */
+  inlineSidebarPanelByWorkspace: Record<string, { id: string; shown: boolean }>;
+  /** Shows a sidebar panel in place of the file tree. */
+  showInlineSidebarPanel: (workspaceId: string, id: string) => void;
   // Inline file tree panel actions
   toggleInlineFileTree: (workspaceId: string) => void;
   setInlineFileTreeOpen: (workspaceId: string, open: boolean) => void;
-  setInlineFileTreeMode: (workspaceId: string, mode: 'diff' | 'browse') => void;
+  /**
+   * Shows the tree in `mode`, hiding a sidebar panel shown in its place, unless `keepSidebarPanel`:
+   * for a change the user didn't make here, such as restoring the saved mode or live follow.
+   */
+  setInlineFileTreeMode: (
+    workspaceId: string,
+    mode: 'diff' | 'browse',
+    options?: { keepSidebarPanel?: boolean }
+  ) => void;
   // Opens the inline file tree on its files and has it show a workspace folder.
   revealInFileTree: (workspaceId: string, folderPath: string) => void;
   clearFileTreeReveal: (workspaceId: string, folderPath: string) => void;
@@ -336,6 +351,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   lastDiffFileByWorkingDir: {},
   expandedDiffFoldersByWorkingDir: {},
   inlineFileTreeByWorkspace: {},
+  inlineSidebarPanelByWorkspace: {},
   fileTreeRevealByWorkspace: {},
   fileViewerDiffComparisonByWorkspace: {},
   inlineFileTreeWidthByWorkspace: {},
@@ -514,10 +530,28 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     });
   },
 
-  setInlineFileTreeMode: (workspaceId, mode) => {
-    const { inlineFileTreeByWorkspace } = get();
+  showInlineSidebarPanel: (workspaceId, id) => {
+    set((state) => ({
+      inlineSidebarPanelByWorkspace: {
+        ...state.inlineSidebarPanelByWorkspace,
+        [workspaceId]: { id, shown: true },
+      },
+    }));
+  },
+
+  setInlineFileTreeMode: (workspaceId, mode, options) => {
+    const { inlineFileTreeByWorkspace, inlineSidebarPanelByWorkspace } = get();
     const current = inlineFileTreeByWorkspace[workspaceId];
+    const panel = inlineSidebarPanelByWorkspace[workspaceId];
     set({
+      // The tree shows again; the panel's tab keeps the panel for next time.
+      ...(panel?.shown &&
+        !options?.keepSidebarPanel && {
+          inlineSidebarPanelByWorkspace: {
+            ...inlineSidebarPanelByWorkspace,
+            [workspaceId]: { ...panel, shown: false },
+          },
+        }),
       inlineFileTreeByWorkspace: {
         ...inlineFileTreeByWorkspace,
         [workspaceId]: {
@@ -1277,6 +1311,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   clearWorkspaceFileViewerState: (workspaceId) => {
     const {
       inlineFileTreeByWorkspace,
+      inlineSidebarPanelByWorkspace,
       fileTreeRevealByWorkspace,
       fileViewerDiffComparisonByWorkspace,
       inlineFileTreeWidthByWorkspace,
@@ -1302,6 +1337,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       notesCollapsedByWorkspace,
     } = get();
     const newInlineFileTree = { ...inlineFileTreeByWorkspace };
+    const newInlineSidebarPanel = { ...inlineSidebarPanelByWorkspace };
     const newFileTreeReveal = { ...fileTreeRevealByWorkspace };
     const newFileViewerDiffComparison = { ...fileViewerDiffComparisonByWorkspace };
     const newInlineFileTreeWidths = { ...inlineFileTreeWidthByWorkspace };
@@ -1327,6 +1363,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const newNotesCollapsed = { ...notesCollapsedByWorkspace };
 
     delete newInlineFileTree[workspaceId];
+    delete newInlineSidebarPanel[workspaceId];
     delete newFileTreeReveal[workspaceId];
     delete newFileViewerDiffComparison[workspaceId];
     delete newInlineFileTreeWidths[workspaceId];
@@ -1354,6 +1391,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const { pendingFileViewerTransition, pendingFileViewerBlameRequest } = get();
     set({
       inlineFileTreeByWorkspace: newInlineFileTree,
+      inlineSidebarPanelByWorkspace: newInlineSidebarPanel,
       fileTreeRevealByWorkspace: newFileTreeReveal,
       fileViewerDiffComparisonByWorkspace: newFileViewerDiffComparison,
       inlineFileTreeWidthByWorkspace: newInlineFileTreeWidths,

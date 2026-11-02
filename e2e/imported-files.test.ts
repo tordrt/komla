@@ -74,8 +74,8 @@ test.describe('Imported files', () => {
     );
 
     // The tree can list changes while it stays open as a file; it has no diff to switch to.
-    await appWindow.getByRole('radio', { name: 'Files', exact: true }).click();
-    await appWindow.getByRole('radio', { name: 'Diff', exact: true }).click();
+    await appWindow.getByRole('button', { name: 'Files', exact: true }).click();
+    await appWindow.getByRole('button', { name: 'Diff', exact: true }).click();
     await expect(appWindow.getByText('contents of design.txt')).toBeVisible();
     await section.getByRole('button', { name: 'design.txt', exact: true }).click();
 
@@ -95,7 +95,7 @@ test.describe('Imported files', () => {
     // Moving one into the project goes through Cut, and Paste on the tree's rows.
     await section.getByRole('button', { name: 'mock.txt', exact: true }).click({ button: 'right' });
     await appWindow.getByRole('menuitem', { name: 'Cut' }).click();
-    await appWindow.getByRole('radio', { name: 'Files', exact: true }).click();
+    await appWindow.getByRole('button', { name: 'Files', exact: true }).click();
     await appWindow.locator('[data-item-path="README.md"]').click({ button: 'right' });
     await appWindow.getByRole('menuitem', { name: 'Paste' }).click();
     await expect.poll(() => fs.existsSync(path.join(cwd, 'mock.txt'))).toBe(true);

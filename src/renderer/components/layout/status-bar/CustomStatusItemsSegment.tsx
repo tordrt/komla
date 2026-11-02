@@ -2,13 +2,12 @@ import * as React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
+import { commandSource, linkHost } from '@/components/command-page/command-page';
 import { CheckedIcon } from '@/components/ui/checked-icon';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useActionLauncher } from '@/hooks/useActionLauncher';
-import { findStatusItemAction } from '@/lib/action-visibility';
+import { useNamedActionRunner } from '@/hooks/useNamedActionRunner';
 import { statusItemColorProps } from '@/lib/status-item-color';
 import { cn } from '@/lib/utils';
-import { useActionsStore } from '@/stores/actions.store';
 import { useConfigStore } from '@/stores/config.store';
 import {
   isStatusCommandDue,
@@ -19,7 +18,6 @@ import {
   statusCommandKey,
   useStatusItemsStore,
 } from '@/stores/status-items.store';
-import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import { isStatusIconSegment } from '../../../../shared/types/status-items';
@@ -30,7 +28,6 @@ import {
   AgentItemPopover,
   CommandItemPopover,
   KeptAgentHtmlPopover,
-  linkHost,
   STATUS_POPOVER_WIDTH,
 } from './StatusItemPopover';
 
@@ -385,30 +382,7 @@ export function useCustomStatusItems(): {
         : []
     )
   );
-  const projectId = useWorkspacesStore(
-    (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.projectId
-  );
-  const { runAction, actionInputDialog } = useActionLauncher(workspaceId ?? '');
-
-  // Actions load with the tab bar; reading them again finds one added since.
-  // `plugin` names the plugin the item comes from, when it isn't status-items.json's.
-  const runNamedAction = async (name: string, plugin?: string) => {
-    const store = useActionsStore.getState();
-    let action = findStatusItemAction(store.actions, name, projectId);
-    if (!action) {
-      await store.loadActions();
-      action = findStatusItemAction(useActionsStore.getState().actions, name, projectId);
-    }
-    if (action) runAction(action);
-    else {
-      useToastStore
-        .getState()
-        .addToast(
-          `This project has no quick command named “${name}”. Check ${plugin ? `the plugin ${plugin}` : 'status-items.json'}.`,
-          'error'
-        );
-    }
-  };
+  const { runNamedAction, actionInputDialog } = useNamedActionRunner(workspaceId);
 
   const commandItems = commands.flatMap((command, index) => {
     const result = results[index];
@@ -421,7 +395,7 @@ export function useCustomStatusItems(): {
         ? {
             text: name,
             tone: 'error',
-            tooltip: `${name} failed in ${command.plugin ? `the plugin ${command.plugin}` : 'status-items.json'}: ${result.error}`,
+            tooltip: `${name} failed in ${commandSource('status-items.json', command.plugin)}: ${result.error}`,
           }
         : null;
     const staleReason = !result.content
@@ -450,7 +424,7 @@ export function useCustomStatusItems(): {
               onClose={close}
               onRunAction={(action) => {
                 close();
-                void runNamedAction(action, command.plugin);
+                void runNamedAction(action, commandSource('status-items.json', command.plugin));
               }}
               onCommandDone={() => void runStatusCommand(workspaceId, command)}
             />
@@ -465,7 +439,9 @@ export function useCustomStatusItems(): {
           key={key}
           {...item}
           hint={`runs ${action}`}
-          onClick={() => void runNamedAction(action, command.plugin)}
+          onClick={() =>
+            void runNamedAction(action, commandSource('status-items.json', command.plugin))
+          }
         />
       );
     } else {

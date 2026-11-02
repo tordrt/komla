@@ -19,6 +19,7 @@ import { HOOK_EVENT_LABELS, type HookEvent } from '../../shared/types/hooks';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { parseSettingsFile } from '../lib/settings-file';
 
+import { pageOutputDescription } from './command-items';
 import { hooksFileSchema } from './hooks.service';
 import {
   contributionEntries,
@@ -30,11 +31,8 @@ import {
   type PluginManifest,
   type PluginsService,
 } from './plugins.service';
-import {
-  commandOutputSchema,
-  popoverOutputDescription,
-  statusCommandsFileSchema,
-} from './status-commands.service';
+import { sidebarPanelsFileSchema } from './sidebar-panels.service';
+import { commandOutputSchema, statusCommandsFileSchema } from './status-commands.service';
 
 import type { SettingsFileAdapter } from './settings-management.service';
 import type {
@@ -95,7 +93,8 @@ function projectsLabel(projects: string[] | undefined): string {
 }
 
 /**
- * A settings file whose entries run commands, as status-items.json and hooks.json: it is changed
+ * A settings file whose entries run commands, as status-items.json, sidebar-panels.json and
+ * hooks.json: it is changed
  * whole, and each entry added, changed or removed is listed with its command.
  */
 function commandFile<Entry extends CommandEntry>({
@@ -178,6 +177,22 @@ interface StatusItemEntry extends CommandEntry {
 function describeIcon(icon: string): string {
   if (!icon.startsWith('data:') && !icon.startsWith('<')) return icon;
   return icon.startsWith('<') || icon.startsWith('data:image/svg') ? 'An SVG image' : 'An image';
+}
+
+interface SidebarPanelEntry extends CommandEntry {
+  title: string;
+  intervalSeconds?: number;
+  runOn?: 'workspace' | 'local';
+  icon?: string;
+  commands?: Record<string, string>;
+}
+
+/** A page's button commands, each as a change lists it under the entry's command. */
+function buttonContent(commands: Record<string, string> | undefined) {
+  return Object.entries(commands ?? {}).map(([name, command]) => ({
+    label: `Button command ${name}`,
+    content: command,
+  }));
 }
 
 interface HookEntry extends CommandEntry {
@@ -380,7 +395,7 @@ const pluginsSchema = z
   })
   .strict()
   .meta({
-    description: `The plugins in Komla's plugins folder, \`~/.komla/plugins/\`: folders with a \`${PLUGIN_MANIFEST}\` that add status bar items and hooks. Apply only the plugins to change or add. A plugin runs only while it's turned on and its files are as they were then; a \`changed\` plugin's files changed since, so it doesn't run until it's turned on again.`,
+    description: `The plugins in Komla's plugins folder, \`~/.komla/plugins/\`: folders with a \`${PLUGIN_MANIFEST}\` that add status bar items, hooks and sidebar panels. Apply only the plugins to change or add. A plugin runs only while it's turned on and its files are as they were then; a \`changed\` plugin's files changed since, so it doesn't run until it's turned on again.`,
   });
 
 type PluginEntry = z.infer<typeof pluginsSchema>['plugins'][number];
@@ -489,7 +504,7 @@ function changesPlugin(state: PluginState, enabled: boolean): boolean {
   return enabled ? state !== 'on' : state === 'on' || state === 'changed';
 }
 
-/** What changes in what runs, from a plugin's items and hooks before to after. */
+/** What changes in what runs, from a plugin's items, hooks and panels before to after. */
 function contributionChanges(
   name: string,
   before: ReturnType<typeof contributionEntries>,
@@ -498,7 +513,7 @@ function contributionChanges(
   return listChanges(
     before,
     after,
-    // An item and a hook may share an id.
+    // An item, a hook and a panel may share an id.
     ({ info }) => `${info.kind}:${info.id}`,
     ({ entry }) => entry,
     ({ info }) => describeContribution(name, info)
@@ -520,6 +535,7 @@ function manifestChanges(
   const counts = [
     [written.contributes.statusItems?.length ?? 0, 'status bar item'],
     [written.contributes.hooks?.length ?? 0, 'hook'],
+    [written.contributes.sidebarPanels?.length ?? 0, 'sidebar panel'],
   ] as const;
   return [
     {
@@ -602,7 +618,8 @@ export function createSettingsFiles({
       schema: [
         { schema: pluginsSchema },
         { title: 'What `command` prints', schema: commandOutputSchema },
-        { title: 'What `popoverCommand` prints', schema: popoverOutputDescription },
+        { title: 'What `popoverCommand` prints', schema: pageOutputDescription },
+        { title: "What a sidebar panel's `command` prints", schema: pageOutputDescription },
       ],
       read: () => {
         // Each id once, so `get`'s entries apply back; one Komla can't read may share an id.
@@ -730,17 +747,14 @@ export function createSettingsFiles({
       schema: statusCommandsFileSchema,
       outputs: [
         { title: 'What `command` prints', schema: commandOutputSchema },
-        { title: 'What `popoverCommand` prints', schema: popoverOutputDescription },
+        { title: 'What `popoverCommand` prints', schema: pageOutputDescription },
       ],
       describe: (item) => {
         const moreContent = [
           ...(item.popoverCommand
             ? [{ label: 'Popover command, run on click', content: item.popoverCommand }]
             : []),
-          ...Object.entries(item.commands ?? {}).map(([name, command]) => ({
-            label: `Button command ${name}`,
-            content: command,
-          })),
+          ...buttonContent(item.commands),
         ];
         return {
           kind: 'status-item',
@@ -758,6 +772,36 @@ export function createSettingsFiles({
               ? [{ label: 'On click, runs the quick command', value: item.action }]
               : []),
             { label: 'Projects', value: projectsLabel(item.projects) },
+          ],
+        };
+      },
+    }),
+    'sidebar-panels': commandFile<SidebarPanelEntry>({
+      path: join(settingsPath, 'sidebar-panels.json'),
+      fileName: 'sidebar-panels.json',
+      name: 'Sidebar panels',
+      listKey: 'panels',
+      schema: sidebarPanelsFileSchema,
+      outputs: [{ title: 'What `command` prints', schema: pageOutputDescription }],
+      describe: (panel) => {
+        const moreContent = buttonContent(panel.commands);
+        return {
+          kind: 'sidebar-panel',
+          title: panel.title,
+          contentLabel: 'Command',
+          content: panel.command,
+          ...(moreContent.length > 0 && { moreContent }),
+          details: [
+            {
+              label: 'Runs',
+              value: `Every ${panel.intervalSeconds ?? 60} seconds while the panel is open`,
+            },
+            ...(panel.runOn === 'local'
+              ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
+              : []),
+            ...(panel.icon ? [{ label: 'Icon', value: describeIcon(panel.icon) }] : []),
+            { label: 'Projects', value: projectsLabel(panel.projects) },
+            { label: 'Id', value: panel.id },
           ],
         };
       },

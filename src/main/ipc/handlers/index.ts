@@ -15,6 +15,7 @@ import { registerProjectHandlers } from './project.handlers';
 import { registerRemoteControlHandlers } from './remote-control.handlers';
 import { registerSettingsHandlers } from './settings.handlers';
 import { registerShellHandlers } from './shell.handlers';
+import { registerSidebarPanelsHandlers } from './sidebar-panels.handlers';
 import { registerSoundsHandlers } from './sounds.handlers';
 import { registerStatusItemsHandlers } from './status-items.handlers';
 import { registerTelemetryHandlers } from './telemetry.handlers';
@@ -48,6 +49,7 @@ export function registerIpcHandlers(): void {
   registerSettingsHandlers();
   registerAutomationHandlers();
   registerStatusItemsHandlers();
+  registerSidebarPanelsHandlers();
   registerHooksHandlers();
   registerPluginsHandlers();
 }
@@ -77,6 +79,7 @@ export {
   registerRemoteControlHandlers,
   registerSettingsHandlers,
   registerStatusItemsHandlers,
+  registerSidebarPanelsHandlers,
   registerHooksHandlers,
   registerPluginsHandlers,
 };

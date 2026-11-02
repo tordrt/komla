@@ -8,6 +8,7 @@ export type SettingsHistoryFile =
   | 'agent-presets.json'
   | 'projects.json'
   | 'status-items.json'
+  | 'sidebar-panels.json'
   | 'hooks.json';
 
 /** One recorded change to a settings file, however it was made: in Komla, by an agent or by hand. */

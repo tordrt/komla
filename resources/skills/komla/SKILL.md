@@ -57,6 +57,6 @@ it:
 - `customize`: hooks, keyboard shortcuts, the terminal, agent presets, and which guide covers
   anything else.
 - `project-setup`: Setup helpful quick Commands and Workspace Setup for this project.
-- `status-items`: custom status bar items.
+- `status-items`: custom status bar items and sidebar panels.
 - `automations`: agents Komla starts on a schedule.
 - `appearance`: custom theming and accent color.

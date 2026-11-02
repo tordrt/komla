@@ -23,6 +23,7 @@ const logger = createLogger('SettingsApprovalService');
 /** What the confirmation names for each settings file. */
 const SETTINGS_FILE_TARGETS: Record<SettingsFileResource, string> = {
   'status-items': 'Status bar items',
+  'sidebar-panels': 'Sidebar panels',
   plugins: 'Plugins',
   hooks: 'Hooks',
   shortcuts: 'Keyboard shortcuts',

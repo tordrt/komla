@@ -293,9 +293,10 @@ export function InlineFileTreePanel({
     if (!current?.open) {
       store.setInlineFilePreviewLayout(workspaceId, 'side-by-side');
     }
-    // Switch the file tree tab to diff if it's currently in browse mode
+    // Switch the file tree tab to diff if it's currently in browse mode; a sidebar panel the
+    // user opened stays, with the preview beside it.
     if (store.inlineFileTreeByWorkspace[workspaceId]?.mode !== 'diff') {
-      store.setInlineFileTreeMode(workspaceId, 'diff');
+      store.setInlineFileTreeMode(workspaceId, 'diff', { keepSidebarPanel: true });
     }
   }, [liveFollow, diffData?.files, hasFullDiff, workspaceId]);
 

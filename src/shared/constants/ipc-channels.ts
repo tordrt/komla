@@ -546,6 +546,12 @@ export const IPC = {
   STATUS_ITEMS_CHANGED: 'status-items:changed',
   STATUS_COMMANDS_CHANGED: 'status-items:commands-changed',
   STATUS_COMMAND_RESULT: 'status-items:command-result',
+  // Sidebar panels
+  SIDEBAR_PANELS_LIST: 'sidebar-panels:list',
+  SIDEBAR_PANEL_RUN: 'sidebar-panels:run',
+  SIDEBAR_PANEL_BUTTON_RUN: 'sidebar-panels:button-run',
+  // Sidebar panel events (main → renderer)
+  SIDEBAR_PANELS_CHANGED: 'sidebar-panels:changed',
 
   // Hooks (main → renderer): a hook failed, or hooks.json can't be read
   HOOK_NOTICE: 'hooks:notice',

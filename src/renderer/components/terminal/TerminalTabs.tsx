@@ -63,6 +63,7 @@ import { RecentFolders } from '@/components/workspaces/RecentFolders';
 import { useAwaitingUserReturn } from '@/hooks/useAwaitingUserReturn';
 import { useDiffComparison } from '@/hooks/useDiffComparison';
 import { useElementWidth } from '@/hooks/useElementWidth';
+import { useSidebarPanelChoice } from '@/hooks/useSidebarPanels';
 import { useWindowFocused } from '@/hooks/useWindowFocused';
 import { closeTerminalPane } from '@/lib/close-terminal-pane';
 import { ipcErrorMessage } from '@/lib/ipc-error-message';
@@ -127,6 +128,7 @@ import { FileTreeToggleButton } from './FileTreeToggleButton';
 import { InlineFilePreviewPanel } from './InlineFilePreviewPanel';
 import { InlineFileTreePanel } from './InlineFileTreePanel';
 import { InlinePanelResizeHandle } from './InlinePanelResizeHandle';
+import { InlineSidebarPanel, SidebarPanelTabs } from './InlineSidebarPanel';
 import { NewTabButton } from './NewTabButton';
 import {
   getPreviewLayoutAttention,
@@ -268,6 +270,8 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
     (s) => s.inlineFilePreviewWidthByWorkspace[wsId] ?? INLINE_PREVIEW_DEFAULT_WIDTH_RATIO
   );
   const wsFileTreeOpen = useFileViewerStore((s) => s.inlineFileTreeByWorkspace[wsId]?.open ?? true);
+  // A sidebar panel shows in place of the tree, which stays loaded beneath it.
+  const { current: wsSidebarPanel, shown: wsSidebarPanelShown } = useSidebarPanelChoice(wsId);
   const wsTreeWidthRatio = useFileViewerStore(
     (s) => s.inlineFileTreeWidthByWorkspace[wsId] ?? INLINE_TREE_DEFAULT_WIDTH_RATIO
   );
@@ -439,16 +443,39 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
       >
         <div className="file-panel-body flex h-full flex-col">
           <div className="relative min-h-0 flex-1">
-            <div className="absolute inset-x-0 top-0 bottom-(--banner-inset)">
+            <div
+              className={cn(
+                'absolute inset-x-0 top-0 bottom-(--banner-inset)',
+                wsSidebarPanelShown && 'invisible'
+              )}
+            >
               <ErrorBoundary>
                 <InlineFileTreePanel
                   workspaceId={wsId}
                   workingDirectory={workingDirectory}
                   isGitWorkspace={isWorktree}
-                  isActive={isCurrentWorkspace && wsFileTreeOpen && contentWidth > 0}
+                  isActive={
+                    isCurrentWorkspace && wsFileTreeOpen && contentWidth > 0 && !wsSidebarPanelShown
+                  }
                 />
               </ErrorBoundary>
             </div>
+            {/* Mounted only while it can be seen, so its command runs only then. */}
+            {wsSidebarPanelShown &&
+              wsSidebarPanel &&
+              isCurrentWorkspace &&
+              wsFileTreeOpen &&
+              contentWidth > 0 && (
+                <div className="absolute inset-x-0 top-0 bottom-(--banner-inset)">
+                  <ErrorBoundary>
+                    <InlineSidebarPanel
+                      key={wsSidebarPanel.id}
+                      workspaceId={wsId}
+                      panel={wsSidebarPanel}
+                    />
+                  </ErrorBoundary>
+                </div>
+              )}
           </div>
         </div>
       </div>
@@ -456,7 +483,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   );
 });
 
-/** The file panel's Diff and Files tabs. Diff needs git. */
+/** The file panel's Diff and Files tabs, then its sidebar panels'. Diff needs git. */
 function FileTreeModeTabs({
   workspaceId,
   isGitWorkspace,
@@ -464,24 +491,43 @@ function FileTreeModeTabs({
   workspaceId: string;
   isGitWorkspace: boolean;
 }) {
-  const mode = useFileViewerStore((s) => s.inlineFileTreeByWorkspace[workspaceId]?.mode ?? 'diff');
+  const treeMode = useFileViewerStore(
+    (s) => s.inlineFileTreeByWorkspace[workspaceId]?.mode ?? 'diff'
+  );
   const requestModeChange = useFileViewerStore((s) => s.requestInlineFilePreviewModeChange);
-  const options = [
-    ...(isGitWorkspace
-      ? [{ value: 'diff' as const, label: 'Diff', title: 'Show changed files' }]
-      : []),
-    { value: 'browse' as const, label: 'Files', title: 'Show all files' },
-  ];
+  // While a sidebar panel shows, neither tree tab is the active one.
+  const { shown: panelShown } = useSidebarPanelChoice(workspaceId);
+  const mode = panelShown ? null : treeMode;
   // Underlined labels rather than more boxed tabs, so they don't read as part of the terminal
-  // tabs' row. Through the store action, so a dirty preview asks before reloading in the other mode.
+  // tabs' row.
+  const tabClass = (active: boolean) =>
+    cn(
+      'inline-flex items-center px-0.5 text-ui font-medium whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset',
+      active
+        ? 'text-foreground shadow-[inset_0_-2px_0_oklch(var(--foreground)/0.75)]'
+        : 'text-muted-foreground hover:text-foreground'
+    );
+  // Through the store action, so a dirty preview asks before reloading in the other mode.
   return (
-    <SegmentedControl
-      aria-label="File panel view"
-      value={mode}
-      onValueChange={(next) => requestModeChange(workspaceId, next)}
-      options={options}
-      variant="underline"
-    />
+    <div aria-label="File panel view" className="flex items-stretch gap-3.5 self-stretch px-1">
+      {isGitWorkspace && (
+        <button
+          onClick={() => requestModeChange(workspaceId, 'diff')}
+          className={tabClass(mode === 'diff')}
+          title="Show changed files"
+        >
+          Diff
+        </button>
+      )}
+      <button
+        onClick={() => requestModeChange(workspaceId, 'browse')}
+        className={tabClass(mode === 'browse')}
+        title="Show all files"
+      >
+        Files
+      </button>
+      <SidebarPanelTabs workspaceId={workspaceId} tabClass={tabClass} />
+    </div>
   );
 }
 
@@ -1231,7 +1277,9 @@ export const TerminalTabs = memo(function TerminalTabs({
           useFileViewerStore.getState().setInlineFileTreeOpen(ws.id, ws.fileTreeOpen);
         }
         if (ws.fileTreeMode) {
-          useFileViewerStore.getState().setInlineFileTreeMode(ws.id, ws.fileTreeMode);
+          useFileViewerStore
+            .getState()
+            .setInlineFileTreeMode(ws.id, ws.fileTreeMode, { keepSidebarPanel: true });
         }
       }
     }

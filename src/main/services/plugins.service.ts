@@ -22,6 +22,12 @@ import { FileWatcher } from './file-watcher';
 import { hookSchema, hooksService, type Hook } from './hooks.service';
 import { getKomlaBasePath } from './paths';
 import {
+  sidebarPanelSchema,
+  sidebarPanelsService,
+  type ConfiguredSidebarPanel,
+  type PluginSidebarPanel,
+} from './sidebar-panels.service';
+import {
   statusCommandSchema,
   statusCommandsService,
   type ConfiguredStatusCommand,
@@ -36,6 +42,7 @@ const FILE_VERSION = 1;
 export const MAX_PLUGINS = 100;
 const MAX_STATUS_ITEMS = 10;
 const MAX_HOOKS = 20;
+const MAX_SIDEBAR_PANELS = 5;
 /** A plugin's files Komla reads to tell when they change; past these, it doesn't run it. */
 const MAX_PLUGIN_FILES = 5000;
 const MAX_PLUGIN_BYTES = 50 * 1024 * 1024;
@@ -66,18 +73,24 @@ export const pluginManifestSchema = z
           .max(MAX_HOOKS)
           .optional()
           .meta({ description: 'Hooks, as in hooks.json.' }),
+        sidebarPanels: z
+          .array(sidebarPanelSchema)
+          .max(MAX_SIDEBAR_PANELS)
+          .optional()
+          .meta({ description: 'Sidebar panels, as in sidebar-panels.json.' }),
       })
       .strict(),
   })
   .strict()
   .superRefine((manifest, context) => {
-    const { statusItems = [], hooks = [] } = manifest.contributes;
-    if (statusItems.length + hooks.length === 0) {
+    const { statusItems = [], hooks = [], sidebarPanels = [] } = manifest.contributes;
+    if (statusItems.length + hooks.length + sidebarPanels.length === 0) {
       context.addIssue({ code: 'custom', path: ['contributes'], message: 'adds nothing' });
     }
     for (const [key, entries] of [
       ['statusItems', statusItems],
       ['hooks', hooks],
+      ['sidebarPanels', sidebarPanels],
     ] as const) {
       entries.forEach((entry, index) => {
         if (entries.findIndex((other) => other.id === entry.id) < index) {
@@ -97,7 +110,7 @@ export const pluginManifestSchema = z
     }
   })
   .meta({
-    description: `A plugin's \`${PLUGIN_MANIFEST}\`, in its own folder in the plugins folder. Its commands get \`KOMLA_PLUGIN_DIR\`, the plugin's folder, when they run on this computer; an SSH workspace's run on its host, where that folder isn't. Its items' \`icons/<file>\` are in the plugin's folder. Keep state outside that folder: any change to its files stops the plugin. Its links must lead to files in its folder, and the folder itself can't be a link.`,
+    description: `A plugin's \`${PLUGIN_MANIFEST}\`, in its own folder in the plugins folder. Its commands get \`KOMLA_PLUGIN_DIR\`, the plugin's folder, when they run on this computer; an SSH workspace's run on its host, where that folder isn't. Its items' and panels' \`icons/<file>\` are in the plugin's folder. Keep state outside that folder: any change to its files stops the plugin. Its links must lead to files in its folder, and the folder itself can't be a link.`,
   });
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;
@@ -270,10 +283,7 @@ function statusItemInfo(pluginId: string, item: ConfiguredStatusCommand): Plugin
     ...(item.popoverCommand
       ? [{ label: 'Popover command, run on click', command: item.popoverCommand }]
       : []),
-    ...Object.entries(item.commands ?? {}).map(([name, command]) => ({
-      label: `Button command ${name}`,
-      command,
-    })),
+    ...buttonCommands(item.commands),
   ];
   return {
     kind: 'status-item',
@@ -282,6 +292,27 @@ function statusItemInfo(pluginId: string, item: ConfiguredStatusCommand): Plugin
     command: item.command,
     when: `Every ${item.intervalSeconds} seconds`,
     ...(item.runOn === 'local' && { runOn: 'local' as const }),
+    ...(moreCommands.length > 0 && { moreCommands }),
+  };
+}
+
+/** A page's button commands, as Settings lists them with an item's or panel's command. */
+function buttonCommands(commands: Record<string, string> | undefined) {
+  return Object.entries(commands ?? {}).map(([name, command]) => ({
+    label: `Button command ${name}`,
+    command,
+  }));
+}
+
+function sidebarPanelInfo(pluginId: string, panel: ConfiguredSidebarPanel): PluginContributionInfo {
+  const moreCommands = buttonCommands(panel.commands);
+  return {
+    kind: 'sidebar-panel',
+    id: `${pluginId}.${panel.id}`,
+    title: panel.title,
+    command: panel.command,
+    when: `Every ${panel.intervalSeconds} seconds while the panel is open`,
+    ...(panel.runOn === 'local' && { runOn: 'local' as const }),
     ...(moreCommands.length > 0 && { moreCommands }),
   };
 }
@@ -300,10 +331,11 @@ function hookInfo(pluginId: string, hook: Hook): PluginContributionInfo {
   };
 }
 
-/** A plugin's items and hooks, each as Settings lists it and as the manifest has it. */
-export function contributionEntries(
-  manifest: PluginManifest
-): { info: PluginContributionInfo; entry: ConfiguredStatusCommand | Hook }[] {
+/** A plugin's items, hooks and panels, each as Settings lists it and as the manifest has it. */
+export function contributionEntries(manifest: PluginManifest): {
+  info: PluginContributionInfo;
+  entry: ConfiguredStatusCommand | Hook | ConfiguredSidebarPanel;
+}[] {
   return [
     ...(manifest.contributes.statusItems ?? []).map((item) => ({
       info: statusItemInfo(manifest.id, item),
@@ -313,6 +345,10 @@ export function contributionEntries(
       info: hookInfo(manifest.id, hook),
       entry: hook,
     })),
+    ...(manifest.contributes.sidebarPanels ?? []).map((panel) => ({
+      info: sidebarPanelInfo(manifest.id, panel),
+      entry: panel,
+    })),
   ];
 }
 
@@ -321,8 +357,8 @@ function contributionsOf(manifest: PluginManifest): PluginContributionInfo[] {
 }
 
 /**
- * The plugins in Komla's plugins folder: folders whose komla-plugin.json adds status bar items and
- * hooks. A plugin runs while it is turned on and its files are as they were then; plugins.json
+ * The plugins in Komla's plugins folder: folders whose komla-plugin.json adds status bar items,
+ * hooks and sidebar panels. A plugin runs while it is turned on and its files are as they were then; plugins.json
  * keeps a digest of them for each plugin the user turned on.
  */
 export class PluginsService {
@@ -408,6 +444,17 @@ export class PluginsService {
       (manifest.contributes.statusItems ?? []).map((item) => ({
         ...item,
         id: `${manifest.id}.${item.id}`,
+        plugin: source,
+      }))
+    );
+  }
+
+  /** The sidebar panels of the plugins that run, with their ids as `<plugin>.<id>`. */
+  sidebarPanels(): PluginSidebarPanel[] {
+    return this.running().flatMap(({ manifest, source }) =>
+      (manifest.contributes.sidebarPanels ?? []).map((panel) => ({
+        ...panel,
+        id: `${manifest.id}.${panel.id}`,
         plugin: source,
       }))
     );
@@ -614,7 +661,7 @@ let rescanTimer: ReturnType<typeof setTimeout> | undefined;
 let stopFeeding: (() => void) | null = null;
 
 /**
- * Reads the plugins and gives the ones that run to the status bar and hooks, following changes to
+ * Reads the plugins and gives the ones that run to the status bar, hooks and sidebar panels, following changes to
  * the plugins folder and plugins.json.
  */
 export async function watchPlugins(): Promise<void> {
@@ -624,6 +671,7 @@ export async function watchPlugins(): Promise<void> {
     fed = true;
     statusCommandsService.setPluginItems(pluginsService.statusItems());
     hooksService.setPluginHooks(pluginsService.hooks());
+    sidebarPanelsService.setPluginPanels(pluginsService.sidebarPanels());
   };
   stopFeeding = pluginsService.onChange(feed);
   mkdirSync(pluginsPath, { recursive: true });

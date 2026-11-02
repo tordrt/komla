@@ -762,6 +762,82 @@ describe('settings files', () => {
     });
   });
 
+  describe('sidebar panels', () => {
+    it("takes the guide's example as it is", () => {
+      const [, panels] = [
+        ...readFileSync(
+          join('resources', 'skills', 'komla-status-items-instructions.md'),
+          'utf-8'
+        ).matchAll(/```json\r?\n([\s\S]*?)```/g),
+      ].map(([, json]) => JSON.parse(json) as Record<string, unknown>);
+
+      expect(panels).toHaveProperty('panels');
+      expect(files['sidebar-panels'].prepare(panels)).not.toHaveProperty('problems');
+    });
+
+    it('reads an empty file when there is none yet', () => {
+      expect(files['sidebar-panels'].read()).toEqual({ _version: 1, panels: [] });
+    });
+
+    it('lists each panel added, changed or removed with every command it runs', () => {
+      writeFile('sidebar-panels.json', {
+        panels: [
+          { id: 'ci', title: 'CI', command: 'sh ci.sh' },
+          { id: 'old', title: 'Old', command: 'echo old' },
+        ],
+      });
+
+      const prepared = files['sidebar-panels'].prepare({
+        panels: [
+          {
+            id: 'ci',
+            title: 'CI',
+            command: 'sh ci.sh',
+            intervalSeconds: 120,
+            commands: { rerun: 'gh run rerun --failed' },
+          },
+          { id: 'usage', title: 'Usage', command: 'usage', runOn: 'local', projects: ['web'] },
+        ],
+      });
+
+      expect(prepared).toMatchObject({
+        changes: [
+          {
+            operation: 'edit',
+            kind: 'sidebar-panel',
+            title: 'CI',
+            contentLabel: 'Command',
+            content: 'sh ci.sh',
+            moreContent: [{ label: 'Button command rerun', content: 'gh run rerun --failed' }],
+            details: [
+              { label: 'Runs', value: 'Every 120 seconds while the panel is open' },
+              { label: 'Projects', value: 'All projects' },
+              { label: 'Id', value: 'ci' },
+            ],
+          },
+          {
+            operation: 'add',
+            title: 'Usage',
+            details: [
+              { label: 'Runs', value: 'Every 60 seconds while the panel is open' },
+              { label: 'Runs on', value: 'This computer, in your home folder' },
+              { label: 'Projects', value: 'web' },
+              { label: 'Id', value: 'usage' },
+            ],
+          },
+          { operation: 'delete', title: 'Old', content: 'echo old' },
+        ],
+        warning: expect.stringContaining('without asking again'),
+      });
+    });
+
+    it('names what is wrong with panels it is asked to apply', () => {
+      expect(
+        files['sidebar-panels'].prepare({ panels: [{ id: 'ci', command: 'x' }] })
+      ).toEqual({ problems: [expect.stringMatching(/^panels\.0\.title/)] });
+    });
+  });
+
   describe('keyboard shortcuts', () => {
     it('reads every shortcut action with its keys', () => {
       expect(files.shortcuts.read()).toEqual({ shortcuts });

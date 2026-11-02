@@ -12,10 +12,11 @@ that after you change something.
 | A theme, accent color or corner radius               | `komla skill appearance`    | `appearance`                     |
 | Quick Commands or Workspace Setup                    | `komla skill project-setup` | `actions`, `workspace-setup`     |
 | A custom status bar item                             | `komla skill status-items`  | `status-items`                   |
+| A panel in the sidebar, beside Diff and Files        | `komla skill status-items`  | `sidebar-panels`                 |
 | An agent Komla starts with a prompt on a schedule    | `komla skill automations`   | `automations`                    |
 | A hook, a shortcut, or the terminal's font or cursor | this guide                  | `hooks`, `shortcuts`, `terminal` |
 | An agent preset's arguments or level picker          | this guide                  | `agents`                         |
-| Status items and hooks to share or turn off as one   | this guide                  | `plugins`                        |
+| Items, panels and hooks to share or turn off as one  | this guide                  | `plugins`                        |
 
 For anything else, such as notification settings or SSH hosts, point the user to Komla's Settings.
 
@@ -25,13 +26,15 @@ SSH host or in a VM can belong to another Komla.
 
 ## Change settings
 
-1. `komla settings get <resource>` reads the current settings. For `status-items`, `hooks`,
-   `plugins`, `shortcuts`, `terminal` and `agents`, `komla settings schema <resource>` lists every
-   field.
-   When `get` returns a `problem` for `status-items` or `hooks`, Komla can't read that file, and
+1. `komla settings get <resource>` reads the current settings. For `status-items`,
+   `sidebar-panels`, `hooks`, `plugins`, `shortcuts`, `terminal` and `agents`, `komla settings
+   schema <resource>` lists every field.
+   When `get` returns a `problem` for `status-items`, `sidebar-panels` or `hooks`, Komla can't read
+   that file, and
    `content` shows what it holds: apply corrected settings without `problem` and `content`.
 2. If the user hasn't said what they want, ask them and wait.
-3. Write the settings to a JSON file: the whole file for `status-items` and `hooks`, keeping the
+3. Write the settings to a JSON file: the whole file for `status-items`, `sidebar-panels` and
+   `hooks`, keeping the
    entries the user didn't ask to change; only what changes for `shortcuts`, `terminal` and
    `agents`. Try any command the settings run yourself first, where it will run.
 4. `komla settings apply <resource> --file <path>` waits while the user applies or cancels the
@@ -81,17 +84,18 @@ changes. Tags a hook sets count as the user's, so Komla's Tag from pull requests
 
 ## Plugins
 
-A plugin is a folder in `{{komlaDir}}/plugins/` whose `komla-plugin.json` bundles status bar items
-and hooks, in the formats `status-items` and `hooks` take, so they can be shared and turned on or
-off together. Make one when the user wants an integration to share or to keep apart from their own
-settings; otherwise change `status-items` and `hooks`. `komla settings schema plugins` shows what
+A plugin is a folder in `{{komlaDir}}/plugins/` whose `komla-plugin.json` bundles status bar items,
+sidebar panels and hooks, in the formats `status-items`, `sidebar-panels` and `hooks` take, so they
+can be shared and turned on or off together. Make one when the user wants an integration to share or
+to keep apart from their own settings; otherwise change `status-items`, `sidebar-panels` and
+`hooks`. `komla settings schema plugins` shows what
 the manifest takes.
 
 Make or change a plugin with `komla settings apply plugins` and `{"plugins": [{"id": "<plugin
 id>", "enabled": true, "manifest": {...}}]}`, from any computer: Komla writes the manifest into the
 plugin's folder once the user applies it. `"enabled": false` makes it without running it. Komla runs
 a plugin only once the user turns it on, and stops it when any of its files change until they turn
-it on again. Each item and hook gets the id `<plugin id>.<id>`. Commands that run on this computer get
+it on again. Each item, panel and hook gets the id `<plugin id>.<id>`. Commands that run on this computer get
 `KOMLA_PLUGIN_DIR`, the plugin's folder, for scripts it ships; an SSH workspace's commands run on
 its host, without that folder. Keep a plugin's state, such as an `interval` hook's last result,
 outside its folder, since any change there stops it. Its links must lead to files in its folder, and

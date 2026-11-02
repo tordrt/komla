@@ -23,6 +23,7 @@ import { IconButton } from '@/components/ui/icon-button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getProjectColor } from '@/lib/project-colors';
 import { getProjectMoveIndex } from '@/lib/project-order';
+import { PINNED_GROUP_KEY } from '@/lib/sidebar-collapsed-groups';
 import { cn } from '@/lib/utils';
 import { summarizeWorkspaceAttention } from '@/lib/workspace-attention';
 import { isWorkspaceHostVisible } from '@/lib/workspace-host';
@@ -344,31 +345,71 @@ const GroupHeader = React.forwardRef<
         >
           {group.projectInfo!.name}
         </span>
-        {!expanded && (
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
-            <GroupAttentionSummary workspaces={group.workspaces} />
-            <span className="text-2xs text-muted-foreground tabular-nums">
-              {group.workspaces.length}
-              <span className="sr-only">
-                {group.workspaces.length === 1 ? ' workspace' : ' workspaces'}
-              </span>
-            </span>
-          </span>
-        )}
+        {!expanded && <CollapsedGroupSummary workspaces={group.workspaces} />}
       </button>
       <GroupHeaderAction group={group} groupProject={groupProject} />
     </div>
   );
 });
 
-function PinnedShelfHeader() {
+/** What a collapsed header says about the workspaces it hides: who needs you, and how many. */
+function CollapsedGroupSummary({ workspaces }: { workspaces: Workspace[] }) {
   return (
-    // Laid out as a project's header, so the sections down the sidebar read as one set.
-    <h3 className="flex items-center gap-2 py-1.5 pl-2 text-[13px] font-semibold text-foreground">
-      <span className="flex size-5 shrink-0 items-center justify-center">
-        <PushPin aria-hidden="true" weight="bold" className="size-3.5 text-muted-foreground" />
+    <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
+      <GroupAttentionSummary workspaces={workspaces} />
+      <span className="text-2xs text-muted-foreground tabular-nums">
+        {workspaces.length}
+        <span className="sr-only">{workspaces.length === 1 ? ' workspace' : ' workspaces'}</span>
       </span>
-      Pinned
+    </span>
+  );
+}
+
+/**
+ * The Pinned shelf's header, which collapses it as a project's header does its group, and is laid
+ * out like one so the sections down the sidebar read as one set. It has no action, so its toggle
+ * runs the full row.
+ */
+function PinnedShelfHeader({
+  workspaces,
+  expanded,
+  containsSelection,
+  onToggle,
+}: {
+  workspaces: Workspace[];
+  expanded: boolean;
+  /** The selected workspace is hidden on the collapsed shelf. */
+  containsSelection: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <h3
+      data-group-header=""
+      data-contains-selection={containsSelection || undefined}
+      className={cn(
+        'flex rounded-xl text-[13px] transition-colors hover:bg-accent/30',
+        containsSelection && 'bg-accent hover:bg-accent'
+      )}
+    >
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={onToggle}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-xl py-1.5 pr-1.5 pl-2 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
+      >
+        <span className="flex size-5 shrink-0 items-center justify-center">
+          <PushPin
+            aria-hidden="true"
+            weight="bold"
+            className={cn(
+              'size-3.5 text-muted-foreground transition-opacity',
+              !expanded && 'opacity-60'
+            )}
+          />
+        </span>
+        <span className="font-semibold tracking-normal text-foreground">Pinned</span>
+        {!expanded && <CollapsedGroupSummary workspaces={workspaces} />}
+      </button>
     </h3>
   );
 }
@@ -1272,6 +1313,7 @@ export function WorkspaceList({
     (group: WorkspaceGroup): boolean => !collapsedGroupKeys.has(group.key),
     [collapsedGroupKeys]
   );
+  const pinnedExpanded = !collapsedGroupKeys.has(PINNED_GROUP_KEY);
 
   // Full ordered IDs — used for shift-click range selection and Cmd+Arrow keyboard
   // navigation (via ShortcutProvider). Excludes workspaces inside collapsed groups so
@@ -1281,7 +1323,7 @@ export function WorkspaceList({
   const prevOrderedIdsRef = useRef<string[]>([]);
   const allOrderedIds = useMemo(() => {
     const next = [
-      ...sections.pinned.map((w) => w.id),
+      ...(pinnedExpanded ? sections.pinned.map((w) => w.id) : []),
       ...getVisibleOrderedWorkspaceIds(workspaceGroups, isGroupExpanded),
       // Opening a workspace in the Trash restores it, so the arrow keys pass the Trash shelf by.
       ...shelves.filter((s) => s.key !== 'trash').flatMap((s) => s.shown.map((w) => w.id)),
@@ -1291,7 +1333,7 @@ export function WorkspaceList({
       return prev;
     }
     return next;
-  }, [sections.pinned, workspaceGroups, isGroupExpanded, shelves]);
+  }, [sections.pinned, pinnedExpanded, workspaceGroups, isGroupExpanded, shelves]);
   // Update ref after commit (not during render) so StrictMode double-renders are safe
   useEffect(() => {
     prevOrderedIdsRef.current = allOrderedIds;
@@ -1367,17 +1409,26 @@ export function WorkspaceList({
                 aria-label="Pinned"
                 className={cn(SIDEBAR_PANEL_CLASS, workspaceGroups.length > 0 && 'mb-2.5')}
               >
-                <PinnedShelfHeader />
-                <div
-                  className={cn(
-                    'relative [clip-path:inset(-4px_-100vw)]',
-                    compact ? 'space-y-0.5' : 'space-y-1'
-                  )}
-                >
-                  {sections.pinned.map((workspace) =>
-                    renderWorkspaceCard(workspace, getProjectInfo(workspace))
-                  )}
-                </div>
+                <PinnedShelfHeader
+                  workspaces={sections.pinned}
+                  expanded={pinnedExpanded}
+                  containsSelection={
+                    !pinnedExpanded && sections.pinned.some((w) => w.id === selectedWorkspaceId)
+                  }
+                  onToggle={() => toggleWorkspaceGroupCollapsed(PINNED_GROUP_KEY)}
+                />
+                {pinnedExpanded && (
+                  <div
+                    className={cn(
+                      'relative [clip-path:inset(-4px_-100vw)]',
+                      compact ? 'space-y-0.5' : 'space-y-1'
+                    )}
+                  >
+                    {sections.pinned.map((workspace) =>
+                      renderWorkspaceCard(workspace, getProjectInfo(workspace))
+                    )}
+                  </div>
+                )}
               </section>
             )}
             {workspaceGroups.map((group, index) => {

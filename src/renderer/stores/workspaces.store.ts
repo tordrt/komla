@@ -14,7 +14,11 @@ import {
   getUnsavedFileNames,
   handOffWorkspacePaneSurfaces,
 } from '../lib/pane-surfaces';
-import { readStoredCollapsedGroups, storeCollapsedGroups } from '../lib/sidebar-collapsed-groups';
+import {
+  PINNED_GROUP_KEY,
+  readStoredCollapsedGroups,
+  storeCollapsedGroups,
+} from '../lib/sidebar-collapsed-groups';
 import {
   disposeTerminalRenderers,
   getTerminalRendererDimensions,
@@ -443,6 +447,20 @@ function snoozeMarks(until: number | undefined, wakesOnNotification?: boolean): 
         wakesOnNotification: wakesOnNotification || undefined,
         unread: undefined,
       };
+}
+
+/**
+ * Opens the Pinned shelf if it was left collapsed, so a workspace just pinned shows where it went
+ * rather than vanishing into it. The collapsed state outlives the shelf, which leaves the sidebar
+ * when nothing is pinned.
+ */
+function openPinnedShelf(get: WorkspacesGet, set: WorkspacesSet): void {
+  const collapsed = get().collapsedWorkspaceGroupKeys;
+  if (!collapsed.has(PINNED_GROUP_KEY)) return;
+  const next = new Set(collapsed);
+  next.delete(PINNED_GROUP_KEY);
+  set({ collapsedWorkspaceGroupKeys: next });
+  storeCollapsedGroups(next);
 }
 
 /** Shows and saves unread marks, pins, tags and snoozes. */
@@ -1674,6 +1692,7 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
 
   setPinned: (workspaceId, pinned) => {
     saveWorkspaceMarks(set, new Map([[workspaceId, { pinned: pinned || undefined }]]));
+    if (pinned) openPinnedShelf(get, set);
   },
 
   setTag: (workspaceIds, tag, tagSource) => {
@@ -2231,6 +2250,7 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
     const selected = workspaces.filter((w) => selectedWorkspaceIds.has(w.id));
     const pinned = selected.some((w) => !w.pinned) || undefined;
     saveWorkspaceMarks(set, new Map(selected.map((w) => [w.id, { pinned }] as const)));
+    if (pinned) openPinnedShelf(get, set);
     get().exitSelectionMode();
   },
 

@@ -357,6 +357,52 @@ describe('WorkspaceList pins and snoozes', () => {
     expect(screen.getByRole('button', { name: /Filtered/ })).toHaveTextContent('1');
   });
 
+  const pinnedToggle = () => screen.getByRole('button', { name: /^Pinned/ });
+
+  it('collapses the Pinned shelf from its header, as a group of its own', () => {
+    twoProjectWorkspaces(['ws-3', 'ws-4']);
+    render(<WorkspaceList />);
+
+    expect(pinnedToggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(pinnedToggle()).not.toHaveTextContent('2 workspaces');
+    fireEvent.click(pinnedToggle());
+
+    expect(workspacesState.toggleWorkspaceGroupCollapsed).toHaveBeenCalledWith('shelf:pinned');
+  });
+
+  it('keeps a collapsed Pinned shelf out of sight and out of the keyboard order', () => {
+    twoProjectWorkspaces(['ws-3', 'ws-4']);
+    workspacesState.collapsedWorkspaceGroupKeys = new Set(['shelf:pinned']);
+    render(<WorkspaceList />);
+
+    expect(screen.getByRole('heading', { name: /^Pinned/ })).toBeTruthy();
+    expect(pinnedToggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(pinnedToggle()).toHaveTextContent('2 workspaces');
+    expect(cardIds()).toEqual(['ws-1', 'ws-2']);
+    expect(workspacesState.setDisplayOrderedWorkspaceIds).toHaveBeenLastCalledWith([
+      'ws-1',
+      'ws-2',
+    ]);
+  });
+
+  it('surfaces input and highlights the selection on a collapsed Pinned shelf', () => {
+    twoProjectWorkspaces(['ws-3', 'ws-4']);
+    workspacesState.workspaces = workspacesState.workspaces.map((w) =>
+      w.id === 'ws-3'
+        ? { ...w, attention: { kind: 'input-required', source: 'claude-code', updatedAt: 1 } }
+        : w
+    );
+    workspacesState.collapsedWorkspaceGroupKeys = new Set(['shelf:pinned']);
+    workspacesState.selectedWorkspaceId = 'ws-4';
+    render(<WorkspaceList />);
+
+    expect(pinnedToggle()).toHaveTextContent('1 needs input');
+    expect(pinnedToggle().closest('[data-group-header]')).toHaveAttribute(
+      'data-contains-selection',
+      'true'
+    );
+  });
+
   it('leaves out the Pinned shelf when nothing is pinned', () => {
     twoProjectWorkspaces();
     render(<WorkspaceList />);

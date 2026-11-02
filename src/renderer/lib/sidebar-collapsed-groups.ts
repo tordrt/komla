@@ -1,6 +1,10 @@
-// Sidebar group keys (`project:<id>`, `repo:<name>`, `dir:<path>`) the user
-// collapsed. Kept per machine, like the sidebar width.
+// Sidebar group keys (`project:<id>`, `repo:<name>`, `dir:<path>`, `none:<workspace id>`, `all`,
+// or PINNED_GROUP_KEY for the Pinned shelf) the user collapsed. Kept per machine, like the sidebar
+// width.
 const COLLAPSED_GROUPS_STORAGE_KEY = 'komla.sidebarCollapsedGroups';
+
+/** The Pinned shelf's key, which collapses with the groups; no group key starts with `shelf:`. */
+export const PINNED_GROUP_KEY = 'shelf:pinned';
 
 export function readStoredCollapsedGroups(): Set<string> {
   try {

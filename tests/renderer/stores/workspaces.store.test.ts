@@ -27,6 +27,7 @@ import {
   registerPaneCloseConfirm,
   setFilePaneDraft,
 } from '../../../src/renderer/lib/pane-surfaces';
+import { PINNED_GROUP_KEY } from '../../../src/renderer/lib/sidebar-collapsed-groups';
 import { useFileListStore } from '../../../src/renderer/stores/file-list.store';
 import { usePaneSurfacesStore } from '../../../src/renderer/stores/pane-surfaces.store';
 import { useDevServerPreviewStore } from '../../../src/renderer/stores/dev-server-preview.store';
@@ -1424,6 +1425,25 @@ describe('workspaces.store', () => {
     useWorkspacesStore.getState().setPinned('ws-1', false);
     expect(useWorkspacesStore.getState().workspaces[0]?.pinned).toBeUndefined();
     expect(api.updateWorkspace).toHaveBeenLastCalledWith('ws-1', { pinned: undefined });
+  });
+
+  it('setPinned opens a collapsed Pinned shelf, so the workspace shows where it went', () => {
+    const api = createApiMock();
+    (globalThis as { window: { api: ApiMock } }).window = { api };
+    useWorkspacesStore.setState({
+      workspaces: [createWorkspace({ id: 'ws-1' }), createWorkspace({ id: 'ws-2', pinned: true })],
+      collapsedWorkspaceGroupKeys: new Set([PINNED_GROUP_KEY, 'project:project-1']),
+    });
+
+    useWorkspacesStore.getState().setPinned('ws-2', false);
+    expect(useWorkspacesStore.getState().collapsedWorkspaceGroupKeys.has(PINNED_GROUP_KEY)).toBe(
+      true
+    );
+
+    useWorkspacesStore.getState().setPinned('ws-1', true);
+    expect([...useWorkspacesStore.getState().collapsedWorkspaceGroupKeys]).toEqual([
+      'project:project-1',
+    ]);
   });
 
   it('snoozeWorkspace snoozes until a time, dropping an unread mark, and wakes when cleared', () => {
@@ -3930,6 +3950,21 @@ describe('workspaces.store', () => {
       const updated = useWorkspacesStore.getState().workspaces;
       expect(updated.map((w) => w.pinned)).toEqual([true, true, true]);
       expect(useWorkspacesStore.getState().selectionMode).toBe(false);
+    });
+
+    it('opens a collapsed Pinned shelf when it pins the selection', () => {
+      const api = createApiMock();
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({
+        workspaces: [createWorkspace({ id: 'ws-1' })],
+        selectionMode: true,
+        selectedWorkspaceIds: new Set(['ws-1']),
+        collapsedWorkspaceGroupKeys: new Set([PINNED_GROUP_KEY]),
+      });
+
+      useWorkspacesStore.getState().togglePinSelected();
+
+      expect(useWorkspacesStore.getState().collapsedWorkspaceGroupKeys.size).toBe(0);
     });
 
     it('unpins all selected when all are already pinned', () => {

@@ -1,7 +1,7 @@
 // Theme Lab: a dev-build panel for trying style changes on the real UI.
 // Ctrl+Alt+Shift+T (Cmd+Alt+Shift+T on macOS) toggles it. Its own colors are fixed, so it stays
 // readable whatever the page's colors become. Changes live in this browser's localStorage only.
-// Past pickers (looks, surfaces, status bar line, terminal shades) are in git history.
+// Past pickers (looks, surfaces, terminal shades, corners) are in git history.
 
 import { ArrowCounterClockwise, Eye, X } from '@phosphor-icons/react';
 import {
@@ -13,7 +13,18 @@ import {
   type ReactNode,
 } from 'react';
 
-import { LAB_STATUS_BARS, TODAY_STATUS_BAR_ID, statusBarCss } from '@/lib/theme-lab';
+import {
+  LAB_PANE_CORNERS,
+  LAB_PANE_GAPS,
+  LAB_STATUS_BAR_LINES,
+  LAB_STATUS_BARS,
+  LAB_TAB_CORNERS,
+  TODAY_OPTION_ID,
+  TODAY_STATUS_BAR_ID,
+  optionCss,
+  statusBarCss,
+  type LabOption,
+} from '@/lib/theme-lab';
 import { cn } from '@/lib/utils';
 
 const OPEN_KEY = 'komla.themeLab.open';
@@ -23,9 +34,35 @@ const FRAME_KEY = 'komla.themeLab.frame';
 interface LabChoices {
   /** A LAB_STATUS_BARS id. */
   statusBar: string;
+  /** A LAB_STATUS_BAR_LINES id. */
+  statusBarLine: string;
+  /** A LAB_PANE_CORNERS id. */
+  paneCorners: string;
+  /** A LAB_PANE_GAPS id. */
+  paneGap: string;
+  /** A LAB_TAB_CORNERS id. */
+  tabCorners: string;
 }
 
-const DEFAULT_CHOICES: LabChoices = { statusBar: TODAY_STATUS_BAR_ID };
+// The pickers whose options are LabOptions, in the panel's order.
+const OPTION_PICKERS: readonly {
+  key: Exclude<keyof LabChoices, 'statusBar'>;
+  heading: string;
+  options: readonly LabOption[];
+}[] = [
+  { key: 'statusBarLine', heading: 'Status bar line', options: LAB_STATUS_BAR_LINES },
+  { key: 'paneCorners', heading: 'Pane corners', options: LAB_PANE_CORNERS },
+  { key: 'paneGap', heading: 'Pane gap', options: LAB_PANE_GAPS },
+  { key: 'tabCorners', heading: 'Tab corners', options: LAB_TAB_CORNERS },
+];
+
+const DEFAULT_CHOICES: LabChoices = {
+  statusBar: TODAY_STATUS_BAR_ID,
+  statusBarLine: TODAY_OPTION_ID,
+  paneCorners: TODAY_OPTION_ID,
+  paneGap: TODAY_OPTION_ID,
+  tabCorners: TODAY_OPTION_ID,
+};
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -62,7 +99,7 @@ function defaultFrame(): Frame {
     x: window.innerWidth - width - EDGE,
     y: 40,
     width,
-    height: Math.min(160, window.innerHeight - 80),
+    height: Math.min(460, window.innerHeight - 80),
   };
 }
 
@@ -136,8 +173,16 @@ function useFloatingFrame() {
 // Older saves hold removed pickers' choices, which are dropped, and removed options fall back to
 // today's.
 function savedChoices(saved: Partial<LabChoices>): LabChoices {
-  const bar = LAB_STATUS_BARS.find((option) => option.id === saved.statusBar);
-  return { statusBar: bar?.id ?? DEFAULT_CHOICES.statusBar };
+  const known = (options: readonly { id: string }[], id: string | undefined, fallback: string) =>
+    options.find((option) => option.id === id)?.id ?? fallback;
+  const choices = {
+    ...DEFAULT_CHOICES,
+    statusBar: known(LAB_STATUS_BARS, saved.statusBar, DEFAULT_CHOICES.statusBar),
+  };
+  for (const { key, options } of OPTION_PICKERS) {
+    choices[key] = known(options, saved[key], DEFAULT_CHOICES[key]);
+  }
+  return choices;
 }
 
 export function ThemeLab() {
@@ -174,7 +219,9 @@ export function ThemeLab() {
     return () => sheet.remove();
   }, [sheet]);
 
-  const css = statusBarCss(choices.statusBar);
+  const css =
+    statusBarCss(choices.statusBar) +
+    OPTION_PICKERS.map(({ key, options }) => optionCss(options, choices[key])).join('');
   useLayoutEffect(() => {
     sheet.textContent = comparing ? '' : css;
   }, [sheet, css, comparing]);
@@ -245,23 +292,23 @@ function ThemeLabPanel({ choices, onChange, onReset, onClose, onCompare }: Panel
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <PickerHeading>Status bar</PickerHeading>
-        <div className="grid grid-cols-3 gap-1">
-          {LAB_STATUS_BARS.map((bar) => (
-            <button
-              key={bar.id}
-              type="button"
-              title={bar.description}
-              aria-pressed={choices.statusBar === bar.id}
-              onClick={() => onChange({ statusBar: bar.id })}
-              className={cn(
-                'h-7 rounded-[4px] px-1 text-[11px] text-[#c9ced6] ring-1 ring-[#2a2f37] hover:bg-[#222730]',
-                choices.statusBar === bar.id && 'bg-[#222730] text-white ring-[#e6e8eb]'
-              )}
-            >
-              {bar.name}
-            </button>
-          ))}
-        </div>
+        <OptionGrid
+          columns={3}
+          options={LAB_STATUS_BARS}
+          selected={choices.statusBar}
+          onSelect={(id) => onChange({ statusBar: id })}
+        />
+        {OPTION_PICKERS.map(({ key, heading, options }) => (
+          <div key={key}>
+            <PickerHeading>{heading}</PickerHeading>
+            <OptionGrid
+              columns={options.length % 3 === 0 || options.length === 5 ? 3 : 2}
+              options={options}
+              selected={choices[key]}
+              onSelect={(id) => onChange({ [key]: id })}
+            />
+          </div>
+        ))}
       </div>
       <div
         {...resizeHandle}
@@ -298,6 +345,38 @@ function LabButton({
     >
       {children}
     </button>
+  );
+}
+
+function OptionGrid({
+  columns,
+  options,
+  selected,
+  onSelect,
+}: {
+  columns: 2 | 3;
+  options: readonly { id: string; name: string; description: string }[];
+  selected: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className={cn('grid gap-1', columns === 2 ? 'grid-cols-2' : 'grid-cols-3')}>
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          title={option.description}
+          aria-pressed={selected === option.id}
+          onClick={() => onSelect(option.id)}
+          className={cn(
+            'h-7 rounded-[4px] px-1 text-[11px] text-[#c9ced6] ring-1 ring-[#2a2f37] hover:bg-[#222730]',
+            selected === option.id && 'bg-[#222730] text-white ring-[#e6e8eb]'
+          )}
+        >
+          {option.name}
+        </button>
+      ))}
+    </div>
   );
 }
 

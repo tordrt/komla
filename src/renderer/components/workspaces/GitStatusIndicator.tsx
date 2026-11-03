@@ -86,8 +86,8 @@ interface GitStatusIndicatorProps {
   workingDirectory: string;
   projectId?: string | null;
   inactive?: boolean;
-  /** Grey the diff stats, as on a stopped workspace's sidebar card. */
-  muteDiffStats?: boolean;
+  /** Grey the diff stats and ahead/behind counts, as on a stopped workspace's sidebar card. */
+  muteStats?: boolean;
 }
 
 const INACTIVE_POLL_INTERVAL_MS = 300_000;
@@ -98,7 +98,7 @@ export function GitStatusIndicator({
   workingDirectory,
   projectId,
   inactive,
-  muteDiffStats,
+  muteStats,
 }: GitStatusIndicatorProps) {
   // Narrow selectors: every sidebar card and Overview row has one of these, so a whole-store
   // subscription would re-render all of them on any workspace's status change.
@@ -476,7 +476,7 @@ export function GitStatusIndicator({
             : undefined
         }
       >
-        {changePills.length > 0 && <DiffSummaryStats pills={changePills} muted={muteDiffStats} />}
+        {changePills.length > 0 && <DiffSummaryStats pills={changePills} muted={muteStats} />}
         {/* Shortcuts would act on the half-rebased branch, so the pill replaces them. */}
         {rebaseInProgress && <RebasePausedPill />}
         {!rebaseInProgress && aheadTargetBranch > 0 && (
@@ -485,6 +485,7 @@ export function GitStatusIndicator({
             behindTargetBranch={behindTargetBranch}
             mainBranch={mainBranch}
             inactive={inactive}
+            muted={muteStats}
             isUnconfigured={isUnconfigured}
             aheadAction={aheadAction}
             mergingToTargetBranch={mergingToTargetBranch}
@@ -508,6 +509,7 @@ export function GitStatusIndicator({
             behindTargetBranch={behindTargetBranch}
             mainBranch={mainBranch}
             inactive={inactive}
+            muted={muteStats}
             syncing={syncing}
             behindAction={behindAction}
             onClick={handleSyncWithMain}
@@ -665,6 +667,7 @@ interface AheadTargetBranchButtonProps {
   behindTargetBranch: number;
   mainBranch: string;
   inactive: boolean | undefined;
+  muted: boolean | undefined;
   isUnconfigured: boolean;
   aheadAction: AheadAction;
   mergingToTargetBranch: boolean;
@@ -755,6 +758,7 @@ function AheadTargetBranchButton(props: AheadTargetBranchButtonProps) {
     aheadTargetBranch,
     behindTargetBranch,
     inactive,
+    muted,
     isUnconfigured,
     aheadAction,
     mergingToTargetBranch,
@@ -782,12 +786,18 @@ function AheadTargetBranchButton(props: AheadTargetBranchButtonProps) {
               data-own-tooltip
               onClick={onClick}
               disabled={disabled}
-              className="cursor-pointer text-ahead hover:text-ahead/80 hover:underline disabled:cursor-wait disabled:opacity-50"
+              className={cn(
+                'cursor-pointer hover:underline disabled:cursor-wait disabled:opacity-50',
+                muted ? 'text-muted-foreground' : 'text-ahead hover:text-ahead/80'
+              )}
             >
               {label}
             </button>
           ) : (
-            <span data-own-tooltip className="cursor-default text-ahead">
+            <span
+              data-own-tooltip
+              className={cn('cursor-default', muted ? 'text-muted-foreground' : 'text-ahead')}
+            >
               ↑{aheadTargetBranch}
             </span>
           )}
@@ -821,6 +831,7 @@ interface BehindTargetBranchButtonProps {
   behindTargetBranch: number;
   mainBranch: string;
   inactive: boolean | undefined;
+  muted: boolean | undefined;
   syncing: boolean;
   behindAction: BehindAction;
   onClick: (e: React.MouseEvent) => Promise<void>;
@@ -830,6 +841,7 @@ function BehindTargetBranchButton({
   behindTargetBranch,
   mainBranch,
   inactive,
+  muted,
   syncing,
   behindAction,
   onClick,
@@ -847,12 +859,18 @@ function BehindTargetBranchButton({
             data-own-tooltip
             onClick={onClick}
             disabled={syncing}
-            className="cursor-pointer text-behind hover:text-behind/80 hover:underline disabled:cursor-wait disabled:opacity-50"
+            className={cn(
+              'cursor-pointer hover:underline disabled:cursor-wait disabled:opacity-50',
+              muted ? 'text-muted-foreground' : 'text-behind hover:text-behind/80'
+            )}
           >
             {syncing ? '...' : `↓${behindTargetBranch}`}
           </button>
         ) : (
-          <span data-own-tooltip className="cursor-default text-behind">
+          <span
+            data-own-tooltip
+            className={cn('cursor-default', muted ? 'text-muted-foreground' : 'text-behind')}
+          >
             ↓{behindTargetBranch}
           </span>
         )}

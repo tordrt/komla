@@ -538,6 +538,8 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
           <span
             className={cn(
               'truncate',
+              // As grey as the lines under it: the card's muted grey alone barely shows in dark mode.
+              !shownRunning && !isVisuallySelected && 'text-muted-foreground-80',
               (workspace.autoNaming || workspace.provisioning) &&
                 'animate-pulse text-muted-foreground'
             )}
@@ -1423,7 +1425,7 @@ function ActivityRow({
             workingDirectory={workspace.workingDirectory}
             projectId={workspace.projectId}
             inactive={!shownRunning}
-            muteDiffStats={!shownRunning}
+            muteStats={!shownRunning}
           />
         </div>
       )}

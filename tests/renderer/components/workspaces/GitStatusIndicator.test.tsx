@@ -406,7 +406,7 @@ describe('GitStatusIndicator SSH actions', () => {
     }
   });
 
-  it('greys the diff stats when asked to mute them, keeping the ahead count colored', async () => {
+  it('greys the diff stats and ahead/behind counts when asked to mute them', async () => {
     const stoppedWorkspace = createWorkspace({
       id: 'muted-workspace',
       projectId: 'project-1',
@@ -431,7 +431,7 @@ describe('GitStatusIndicator SSH actions', () => {
           workingDirectory={stoppedWorkspace.workingDirectory}
           projectId={stoppedWorkspace.projectId}
           inactive
-          muteDiffStats
+          muteStats
         />
       </TooltipProvider>
     );
@@ -440,7 +440,33 @@ describe('GitStatusIndicator SSH actions', () => {
       expect(stat).toHaveClass('text-muted-foreground');
       expect(stat).not.toHaveClass('text-success', 'text-error');
     }
-    expect(screen.getByText('↑3')).not.toHaveClass('text-muted-foreground');
+    for (const count of [screen.getByText('↑3'), screen.getByText('↓2')]) {
+      expect(count).toHaveClass('text-muted-foreground');
+      expect(count).not.toHaveClass('text-ahead', 'text-behind');
+    }
+  });
+
+  it('greys the ahead/behind counts when muted, even while they can be clicked', async () => {
+    useGitStatusStore.setState({
+      statusMap: new Map([
+        [workspace.id, { status: branchStatus, lastFetched: Date.now(), isLoading: false }],
+      ]),
+    });
+
+    render(
+      <TooltipProvider>
+        <GitStatusIndicator
+          workspaceId={workspace.id}
+          workingDirectory={workspace.workingDirectory}
+          projectId={workspace.projectId}
+          muteStats
+        />
+      </TooltipProvider>
+    );
+
+    const behind = await screen.findByRole('button', { name: '↓2' });
+    expect(behind).toHaveClass('text-muted-foreground');
+    expect(behind).not.toHaveClass('text-behind');
   });
 
   it('keeps the merge shortcut unavailable while behind the target', () => {

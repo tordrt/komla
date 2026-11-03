@@ -199,9 +199,9 @@ vi.mock('../../../../src/renderer/components/workspaces/file-viewer/FileViewerDi
 }));
 
 vi.mock('../../../../src/renderer/components/workspaces/GitStatusIndicator', () => ({
-  GitStatusIndicator: ({ muteDiffStats }: { muteDiffStats?: boolean }) => (
+  GitStatusIndicator: ({ muteStats }: { muteStats?: boolean }) => (
     <>
-      <button type="button" data-own-tooltip data-mute-diff-stats={String(!!muteDiffStats)}>
+      <button type="button" data-own-tooltip data-mute-stats={String(!!muteStats)}>
         Git status action
       </button>
       {/* Portalled like its dialogs, so clicks on it bubble through React only. */}
@@ -2294,8 +2294,9 @@ describe('WorkspaceCard', () => {
     const card = container.querySelector('.workspace-card-hover');
     expect(card).toHaveClass('text-muted-foreground');
     expect(card?.className).not.toMatch(/\bopacity-(\d|\[)/);
+    expect(screen.getByText('Stopped workspace')).toHaveClass('text-muted-foreground-80');
     expect(screen.getByRole('button', { name: 'Git status action' })).toHaveAttribute(
-      'data-mute-diff-stats',
+      'data-mute-stats',
       'true'
     );
   });
@@ -2318,8 +2319,9 @@ describe('WorkspaceCard', () => {
     const card = container.querySelector('.workspace-card-hover');
     expect(card?.className).not.toMatch(/\bopacity-(\d|\[)/);
     expect(card).not.toHaveClass('text-muted-foreground');
+    expect(screen.getByText('Running workspace')).not.toHaveClass('text-muted-foreground-80');
     expect(screen.getByRole('button', { name: 'Git status action' })).toHaveAttribute(
-      'data-mute-diff-stats',
+      'data-mute-stats',
       'false'
     );
   });

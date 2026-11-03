@@ -454,6 +454,7 @@ export function NewWorkspaceProjectPicker({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
+            collisionPadding={8}
             onCloseAutoFocus={(event) => {
               if (!openSearchAfterMenuRef.current) return refocusPrompt(event);
               openSearchAfterMenuRef.current = false;

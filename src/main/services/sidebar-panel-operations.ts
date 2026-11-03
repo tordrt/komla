@@ -15,7 +15,8 @@ import type { AgentCapabilityId } from '../../shared/constants/agent-capabilitie
 /*
  * Komla Operations a sidebar panel's page sends through `komla.call`, the end of its SDK client
  * that Komla holds (ADR 0008). The page shows outside text, so it may change only what its panel
- * declares in `capabilities`, and the risky ones only from a click and once the user agrees.
+ * declares in `capabilities`, and the risky ones only from a click and once the user agrees, or,
+ * for a drafted launch, once they start it from New Workspace.
  */
 
 /** What a confirmation shows about an operation a page asks for. */
@@ -114,11 +115,15 @@ export async function runSidebarPanelOperation(
           { capability }
         );
       }
-      const agreed = await dependencies.confirm({
-        panel: `“${panel.title}” from ${source}`,
-        action: ACTIONS[capability] ?? operation.type,
-        detail: describeRequest(operation, targetWorkspaceId),
-      });
+      // A draft waits in New Workspace for the user to start, which is the confirmation.
+      const drafted = operation.type === 'agent.launch' && operation.draft === true;
+      const agreed =
+        drafted ||
+        (await dependencies.confirm({
+          panel: `“${panel.title}” from ${source}`,
+          action: ACTIONS[capability] ?? operation.type,
+          detail: describeRequest(operation, targetWorkspaceId),
+        }));
       if (!agreed) {
         return failure(
           'DECLINED',

@@ -612,6 +612,142 @@ describe('KomlaOperationService', () => {
       expect(addAgentTab.mock.calls.map((call) => call[2])).toEqual(['skip']);
     });
 
+    describe('drafts', () => {
+      function draftService(overrides: Partial<KomlaOperationDependencies> = {}) {
+        const createWorkspace = vi.fn();
+        const publish = vi.fn();
+        const { service, addAgentTab } = launchService({
+          getProject: () => ({ id: 'project-1', name: 'Komla', kind: 'git' }),
+          listProjects: () => [
+            { id: 'project-1', name: 'Komla', kind: 'git' },
+            { id: 'project-2', name: 'Docs', kind: 'git' },
+          ],
+          createWorkspace,
+          publish,
+          ...overrides,
+        });
+        return { service, createWorkspace, addAgentTab, publish };
+      }
+
+      it('opens New Workspace with the launch filled in, and starts nothing', async () => {
+        const { service, createWorkspace, addAgentTab, publish } = draftService({
+          listPresets: () => [
+            {
+              ...claude,
+              launchModes: [
+                claude.launchModes[0],
+                { ...claude.launchModes[1], agentLaunch: 'never' as const },
+              ],
+            },
+          ],
+        });
+
+        await expect(
+          service.execute(
+            { terminalId: 'terminal-1' },
+            {
+              type: 'agent.launch',
+              destination: 'workspace',
+              draft: true,
+              prompt: 'Fix the flaky login test',
+              preset: 'Claude Code',
+              // The user starts it, so a mode agents may not start is theirs to pick.
+              mode: 'Dangerously skip permissions',
+            }
+          )
+        ).resolves.toEqual({
+          state: 'drafted',
+          destination: { kind: 'draft', projectId: 'project-1' },
+          agent: {
+            preset: { id: 'claude', name: 'Claude Code' },
+            mode: { id: 'skip', name: 'Dangerously skip permissions' },
+          },
+        });
+        expect(publish).toHaveBeenCalledWith(IPC.NEW_WORKSPACE_DRAFT, {
+          workspaceId: 'workspace-1',
+          prompt: 'Fix the flaky login test',
+          projectId: 'project-1',
+          presetId: 'claude',
+          launchModeId: 'skip',
+        });
+        expect(createWorkspace).not.toHaveBeenCalled();
+        expect(addAgentTab).not.toHaveBeenCalled();
+      });
+
+      it('fills in the calling workspace as where it starts from the current branch', async () => {
+        const { service, publish } = draftService({
+          findWorkspaceByTerminalId: () => ({ ...workspace, branchName: 'feature/search' }),
+        });
+
+        await expect(
+          service.execute(
+            { terminalId: 'terminal-1' },
+            { type: 'agent.launch', destination: 'workspace', draft: true, fromCurrentBranch: true }
+          )
+        ).resolves.toMatchObject({
+          destination: { kind: 'draft', branchedFrom: 'feature/search' },
+        });
+        expect(publish).toHaveBeenCalledWith(
+          IPC.NEW_WORKSPACE_DRAFT,
+          expect.objectContaining({
+            baseBranch: 'feature/search',
+            sourceWorkspaceId: 'workspace-1',
+          })
+        );
+      });
+
+      it('names another project, or none from outside every workspace', async () => {
+        const { service, publish } = draftService({
+          findWorkspaceByTerminalId: () => undefined,
+        });
+
+        await service.execute(
+          {},
+          { type: 'agent.launch', destination: 'workspace', draft: true, project: 'Docs' }
+        );
+        await expect(
+          service.execute({}, { type: 'agent.launch', destination: 'workspace', draft: true })
+        ).resolves.toEqual({ state: 'drafted', destination: { kind: 'draft' } });
+        expect(publish.mock.calls).toEqual([
+          [IPC.NEW_WORKSPACE_DRAFT, { projectId: 'project-2' }],
+          [IPC.NEW_WORKSPACE_DRAFT, {}],
+        ]);
+      });
+
+      it('refuses what New Workspace cannot fill in', async () => {
+        const { service, publish } = draftService();
+
+        for (const operation of [
+          { type: 'agent.launch', destination: 'tab', draft: true },
+          { type: 'agent.launch', destination: 'workspace', draft: true, name: 'Task' },
+          {
+            type: 'agent.launch',
+            destination: 'workspace',
+            draft: true,
+            preset: 'claude',
+            effort: 'high',
+          },
+        ] as const) {
+          await expect(
+            service.execute({ terminalId: 'terminal-1' }, operation)
+          ).rejects.toMatchObject({ code: 'INVALID_DRAFT_OPTIONS', statusCode: 400 });
+        }
+        await expect(
+          service.execute(
+            { terminalId: 'terminal-1' },
+            { type: 'agent.launch', destination: 'workspace', draft: true, mode: 'plan' }
+          )
+        ).rejects.toMatchObject({ code: 'AGENT_PRESET_REQUIRED' });
+        expect(publish).not.toHaveBeenCalled();
+      });
+
+      it('reads draft from a request only as true', () => {
+        expect(() =>
+          parseKomlaOperation({ type: 'agent.launch', destination: 'workspace', draft: false })
+        ).toThrow();
+      });
+    });
+
     it('marks the modes agents may start only isolated, and those they may not start', async () => {
       const { service } = launchService({
         listPresets: () => [

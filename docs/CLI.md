@@ -131,6 +131,16 @@ workspace reach a desktop the same way, which acts only on that host's workspace
 the new worktree from the branch checked out in the calling workspace instead of the project's base
 branch; uncommitted changes are not copied.
 
+`komla launch --draft` starts nothing: it opens New Workspace in the window showing the calling
+workspace, brought forward, with the prompt, project, agent (`--preset`), mode (`--mode`) and, with
+`--from-current-branch`, the starting branch filled in, and answers `state: drafted` with
+`destination.kind: draft`. The user changes the draft and starts it, or closes it, so the limits on
+which modes agents may start don't apply, and a sidebar panel's page drafts from a click without
+the confirmation a launch shows. New Workspace has no name, description, branch or effort to fill
+in, so `--draft` refuses them (`INVALID_DRAFT_OPTIONS`), as it does `--here`. Outside every
+workspace without `--project`, it opens on no project for the user to pick. It needs Komla, so it
+has no offline fallback.
+
 Typed commands call desktop-owned Komla Operations directly. `komla mcp` has one separate purpose:
 it is a command-based stdio MCP adapter for clients that require MCP. It has no public `list` or
 `call` subcommands, and agents should use the typed CLI commands when invoking Komla themselves.

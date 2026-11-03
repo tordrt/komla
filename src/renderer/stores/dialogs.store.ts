@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import type { NewWorkspaceDraft } from '../../shared/types/workspace';
 import type { LaunchTarget, WorkspaceEnvironmentTarget } from '@/lib/agent-launch';
 import type { Workspace } from '@/types';
 
@@ -37,6 +38,8 @@ export interface NewWorkspaceDialogPrefill {
   addProjectPath?: string;
   /** Agents to start with, in order; several launch one workspace each where the dialog allows. */
   presetIds?: string[];
+  /** The launch mode of the first of `presetIds`, in place of the one it last started in. */
+  launchModeId?: string;
   /** Called with the agents a launch started, which can be fewer than `presetIds`. */
   onLaunch?: (presetIds: string[]) => void;
   /** Restores every choice of an undone launch; the other fields are ignored. */
@@ -120,6 +123,28 @@ export const useDialogsStore = create<DialogsState>((set) => ({
 }));
 
 export const NEW_WORKSPACE_DIALOG_EVENT = 'open-new-workspace-dialog';
+
+/** Opens New Workspace on a launch `komla launch --draft` or a panel drafted. */
+export function openNewWorkspaceDraft({
+  prompt,
+  projectId,
+  baseBranch,
+  sourceWorkspaceId,
+  sshHostId,
+  presetId,
+  launchModeId,
+}: NewWorkspaceDraft): void {
+  openNewWorkspaceDialog({
+    ...(prompt ? { prompt } : {}),
+    prefill: {
+      ...(projectId ? { projectId } : {}),
+      ...(baseBranch ? { baseBranch } : {}),
+      ...(sourceWorkspaceId ? { sourceWorkspaceId } : {}),
+      ...(sshHostId ? { sshHostId } : {}),
+      ...(presetId ? { presetIds: [presetId], ...(launchModeId ? { launchModeId } : {}) } : {}),
+    },
+  });
+}
 
 // Opens the new-workspace dialog from anywhere — App listens for this event.
 // Optionally stages an initial prompt and/or prefill before opening.

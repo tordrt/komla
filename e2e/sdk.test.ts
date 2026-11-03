@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { connectKomla } from '../packages/sdk/src/index';
 import { test as base, expect, SANDBOX_DIR, seedDefaultProject } from './electron-app';
 
@@ -6,6 +9,30 @@ import { test as base, expect, SANDBOX_DIR, seedDefaultProject } from './electro
 const test = base.extend({
   seedSandbox: async ({ cleanSandbox: _cleanSandbox }, provide) => {
     seedDefaultProject({ branchPrefix: 'sdk/' });
+    // An agent, so New Workspace shows the prompt a draft fills in.
+    fs.mkdirSync(path.join(SANDBOX_DIR, 'settings'), { recursive: true });
+    fs.writeFileSync(
+      path.join(SANDBOX_DIR, 'settings', 'agent-presets.json'),
+      JSON.stringify({
+        presets: [
+          {
+            id: 'e2e-agent',
+            name: 'Helper',
+            openCommand: 'sh',
+            continueCommand: 'sh',
+            promptCommand: 'sh -c true {{prompt}}',
+            launchModes: [
+              { id: 'careful', name: 'Careful', arguments: '--careful' },
+              { id: 'quick', name: 'Quick', arguments: '--quick' },
+            ],
+            isBuiltin: false,
+          },
+        ],
+        activePresets: [
+          { presetId: 'e2e-agent', lastUsedAt: Date.now(), lastLaunchModeId: 'careful' },
+        ],
+      })
+    );
     await provide();
   },
 });
@@ -67,5 +94,56 @@ test.describe('Komla SDK', () => {
     await expect(
       komla.execute({ type: 'agent.launch', destination: 'workspace', prompt: 'x' } as never)
     ).rejects.toMatchObject({ code: 'CAPABILITY_NOT_DECLARED' });
+  });
+
+  test('drafts a launch in New Workspace, starting nothing', async ({ appWindow }) => {
+    const created = await appWindow.evaluate(() =>
+      window.api.createWorkspace({
+        mode: 'worktree',
+        projectId: 'e2e-project',
+        branchName: 'sdk/draft',
+        windowId: new URLSearchParams(window.location.search).get('windowId') ?? undefined,
+      })
+    );
+    expect(created).not.toHaveProperty('__workspaceCreateError');
+    const workspaceId = (created as { id: string }).id;
+    const workspaceCount = async () =>
+      appWindow.evaluate(async () => (await window.api.getWorkspaces()).length);
+    const before = await workspaceCount();
+
+    const komla = connectKomla({
+      env: { KOMLA_DATA_DIR: SANDBOX_DIR },
+      cwd: SANDBOX_DIR,
+      capabilities: ['agent.launch.workspace'],
+    });
+    await expect(
+      komla.agent.launch(
+        {
+          destination: 'workspace',
+          prompt: 'Fix the flaky login test',
+          preset: 'Helper',
+          mode: 'Quick',
+          draft: true,
+        },
+        { workspace: workspaceId }
+      )
+    ).resolves.toMatchObject({
+      state: 'drafted',
+      destination: { kind: 'draft', projectId: 'e2e-project' },
+    });
+
+    const dialog = appWindow.getByRole('dialog', { name: 'Create Workspace' });
+    await expect(dialog.getByPlaceholder(/what should the agent work on/i)).toHaveValue(
+      'Fix the flaky login test'
+    );
+    // In the mode it asked for, not the one the agent last started in.
+    await expect(dialog.getByRole('button', { name: 'Helper Quick' })).toBeVisible();
+    await dialog.screenshot({ path: test.info().outputPath('sdk-draft.png') });
+    if (process.env.SIDEBAR_PANELS_SCREENSHOT_DIR) {
+      await dialog.screenshot({
+        path: `${process.env.SIDEBAR_PANELS_SCREENSHOT_DIR}/new-workspace-draft.png`,
+      });
+    }
+    expect(await workspaceCount()).toBe(before);
   });
 });

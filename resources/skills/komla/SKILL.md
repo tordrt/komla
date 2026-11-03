@@ -12,6 +12,7 @@ to approve running it again with network access.
 
 ```sh
 komla launch "Fix the flaky login test"   # an agent in a new isolated workspace; --here opens a tab
+komla launch --draft "Fix the login test" # fills in New Workspace for the user to start, starting nothing
 komla preview http://localhost:3000       # offers the user the page; --open only if they asked for Komla's browser
 komla tags                                # the user's tags, to reuse one before making another
 komla tag "Blocked"                       # says on its card what it waits on; komla untag takes it off

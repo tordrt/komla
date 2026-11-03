@@ -108,6 +108,38 @@ describe('runSidebarPanelOperation', () => {
     });
   });
 
+  it('drafts a launch from a click without asking, as the user starts it', async () => {
+    const dependencies = setup({ ...board, capabilities: ['agent.launch.workspace'] }, false);
+    const draft = { type: 'agent.launch', destination: 'workspace', prompt: 'Fix it', draft: true };
+
+    const alone = await runSidebarPanelOperation(dependencies, {
+      workspaceId: 'ws-1',
+      panelId: 'board',
+      request: draft,
+      activated: false,
+    });
+    expect(alone).toMatchObject({ ok: false, error: { code: 'NEEDS_USER_ACTION' } });
+
+    const clicked = await runSidebarPanelOperation(dependencies, {
+      workspaceId: 'ws-1',
+      panelId: 'board',
+      request: draft,
+      activated: true,
+    });
+    expect(clicked).toEqual({ ok: true, result: { done: true } });
+    expect(dependencies.confirm).not.toHaveBeenCalled();
+    expect(dependencies.execute).toHaveBeenCalledWith({ workspaceId: 'ws-1' }, draft);
+
+    // A launch still asks, though the request names `draft` with another value.
+    const undrafted = await runSidebarPanelOperation(dependencies, {
+      workspaceId: 'ws-1',
+      panelId: 'board',
+      request: { ...draft, draft: undefined },
+      activated: true,
+    });
+    expect(undrafted).toMatchObject({ ok: false, error: { code: 'DECLINED' } });
+  });
+
   it('does nothing the user declines', async () => {
     const dependencies = setup({ ...board, plugin: { name: 'Board' } }, false);
     const result = await runSidebarPanelOperation(dependencies, {

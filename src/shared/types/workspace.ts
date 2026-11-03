@@ -177,6 +177,24 @@ export interface OpenDevPreviewEvent {
   offer?: boolean;
 }
 
+/**
+ * A drafted launch, `komla launch --draft`: the window opens New Workspace with it filled in, and
+ * the user changes it and starts it, or not.
+ */
+export interface NewWorkspaceDraft {
+  /** The workspace it came from, whose window opens the draft. */
+  workspaceId?: string;
+  prompt?: string;
+  projectId?: string;
+  /** The branch to start from, the calling workspace's for a draft from the current branch. */
+  baseBranch?: string;
+  /** The workspace whose machine and clone the branch is on. */
+  sourceWorkspaceId?: string;
+  sshHostId?: string;
+  presetId?: string;
+  launchModeId?: string;
+}
+
 /** An agent's `komla trash`, sent to the window showing its workspace once its turn ends. */
 export interface WorkspaceTrashRequest {
   workspaceId: string;

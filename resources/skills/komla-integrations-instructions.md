@@ -148,7 +148,10 @@ scripts run:
   workspace }` as a second argument to act on another workspace. `komla.call(request)` sends one as
   it is. Reading and notifying need nothing; anything else needs its capability in `capabilities`.
   Before it launches an agent, moves a workspace to the Trash, links workspaces or opens a folder,
-  Komla asks the user, and only from a click in the page.
+  Komla asks the user, and only from a click in the page. Add `draft: true` to a workspace launch
+  to open New Workspace with the prompt, project, agent and mode filled in instead: the user reads
+  the prompt there, changes it and starts it, so Komla doesn't ask first. Prefer a draft for a
+  button that hands an agent a task from what the page shows, such as "Fix this check".
 - `komla.setBadge(3)` or `komla.setBadge({ text: "Failing", tone: "error" })` marks the panel's
   tab, as with a count; `null` or `0` clears it.
 - `komla.on("agent.done", event => …)` follows what happens in the workspace, as `refreshOn` names
@@ -250,7 +253,8 @@ An item is one part of what Komla can show; combine it with the rest:
   `panel` and its id, in place of a popover: a count in the bar, with the list in the panel.
 - **Commands and buttons** run in the workspace's folder, unless `runOn` is `local`, with the
   `komla` CLI, so they can tag the workspace, notify, or `komla launch` an agent to fix what the
-  popover shows. An item's command runs again and again, so tag or notify only when what it sees
+  popover shows, or `komla launch --draft` to open New Workspace with it filled in for the user to
+  start. An item's command runs again and again, so tag or notify only when what it sees
   changes, keeping the last state in a file. `komla skill customize` says how to keep tags and
   notifications short.
 - **A plugin** bundles items and panels with the hooks and scripts they need, so the user can
@@ -286,7 +290,8 @@ export function activate(komla: KomlaPlugin) {
   for every workspace. `komla.panels.onOpen` says when a window opens the panel, and
   `komla.panels.onMessage(panel, (message, { workspace, activated }) => answer)` answers the page's
   `komla.send`. The page shows outside text, so check its messages, and act past the page only
-  when `activated`, from a click; the page can launch an agent itself, which Komla asks about.
+  when `activated`, from a click; the page can launch an agent itself, which Komla asks about, or
+  draft one, which it doesn't.
 - `komla.on(event, listener)` follows the events `refreshOn` names, in every workspace, and
   `komla.workspace.list()` and the other Komla Operations work as in a page, without
   `capabilities`, within what the user leaves on.

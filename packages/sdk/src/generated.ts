@@ -182,6 +182,8 @@ export interface AgentLaunchRequest {
   branch?: string;
   /** Starts a new workspace's worktree from the calling workspace's branch, not the project's base branch. */
   fromCurrentBranch?: boolean;
+  /** Opens New Workspace with the prompt, project, agent, mode and starting branch filled in, for the user to change and start; nothing starts until they do. Only for a workspace launch, without name, description, branch or effort. */
+  draft?: true;
 }
 
 /** Sets the title and description shown for the workspace. */
@@ -603,9 +605,15 @@ export interface AgentPresetsResult {
 
 /** What `agent.launch` resolves to. */
 export interface AgentLaunchResult {
-  /** A new workspace is provisioning while its worktree and branch are made. */
-  state: 'started' | 'provisioning';
+  /** A new workspace is provisioning while its worktree and branch are made; a draft waits in New Workspace for the user. */
+  state: 'started' | 'provisioning' | 'drafted';
   destination: {
+    kind: 'draft';
+    /** The project New Workspace opened on. */
+    projectId?: string;
+    /** The calling workspace's branch, for a draft from the current branch. */
+    branchedFrom?: string;
+  } | {
     kind: 'tab';
     workspaceId: string;
     terminalId: string;

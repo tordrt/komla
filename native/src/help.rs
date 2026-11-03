@@ -186,11 +186,13 @@ const COMMANDS: &[Command] = &[
             ("--description <text>", "The new workspace's description."),
             ("--branch <name>", "The new workspace's branch."),
             ("--from-current-branch", "Branch from this workspace's branch instead of the base branch."),
+            ("--draft", "Open New Workspace with the prompt, project, agent and mode filled in, for the user to change and start, instead of starting it."),
             JSON,
         ],
         examples: &[
             "komla launch \"Fix the flaky login test\"",
             "komla launch --here --preset codex \"Review the diff\"",
+            "komla launch --draft \"Fix the flaky login test\"",
         ],
     },
     Command {

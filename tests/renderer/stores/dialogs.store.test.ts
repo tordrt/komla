@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { useDialogsStore } from '../../../src/renderer/stores/dialogs.store';
+import {
+  NEW_WORKSPACE_DIALOG_EVENT,
+  openNewWorkspaceDraft,
+  useDialogsStore,
+} from '../../../src/renderer/stores/dialogs.store';
 
 function resetStore(): void {
   useDialogsStore.setState(useDialogsStore.getInitialState(), true);
@@ -67,5 +71,32 @@ describe('dialogs.store', () => {
     store.clearNewWorkspaceDialogPrompt('Submitted prompt');
 
     expect(useDialogsStore.getState().newWorkspaceDialogPrompt).toBe('Newer draft');
+  });
+
+  it('opens New Workspace on a drafted launch', () => {
+    // These tests run in node, where the event goes to a window of its own.
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    const opened = vi.fn();
+    target.addEventListener(NEW_WORKSPACE_DIALOG_EVENT, opened);
+    openNewWorkspaceDraft({
+      workspaceId: 'ws-1',
+      prompt: 'Fix the flaky login test',
+      projectId: 'p-1',
+      baseBranch: 'feature/search',
+      sourceWorkspaceId: 'ws-1',
+      presetId: 'claude',
+      launchModeId: 'plan',
+    });
+    vi.unstubAllGlobals();
+
+    expect(useDialogsStore.getState().newWorkspaceDialogPrompt).toBe('Fix the flaky login test');
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      projectId: 'p-1',
+      baseBranch: 'feature/search',
+      sourceWorkspaceId: 'ws-1',
+      presetIds: ['claude'],
+      launchModeId: 'plan',
+    });
   });
 });

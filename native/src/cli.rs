@@ -1202,11 +1202,12 @@ fn run_command_with_hook_input(
                             | "--description"
                             | "--branch"
                             | "--from-current-branch"
+                            | "--draft"
                     )
                 })
             {
                 bail!(
-                    "--project, --name, --description, --branch, and --from-current-branch \
+                    "--project, --name, --description, --branch, --from-current-branch, and --draft \
 cannot be used with --here"
                 );
             }
@@ -1979,16 +1980,26 @@ fn agent_command(
             let branch = take_option(&mut options, "--branch")?;
             let from_current_branch = take_flag(&mut options, "--from-current-branch")?;
             let project = take_option(&mut options, "--project")?;
+            let draft = take_flag(&mut options, "--draft")?;
             if destination == "tab"
                 && (project.is_some()
                     || name.is_some()
                     || description.is_some()
                     || branch.is_some()
-                    || from_current_branch)
+                    || from_current_branch
+                    || draft)
             {
                 bail!(
-                    "--project, --name, --description, --branch, and --from-current-branch \
+                    "--project, --name, --description, --branch, --from-current-branch, and --draft \
 require --new-workspace"
+                );
+            }
+            if draft
+                && (name.is_some() || description.is_some() || branch.is_some() || effort.is_some())
+            {
+                bail!(
+                    "--draft fills in New Workspace's prompt, project, agent, mode and starting branch; \
+leave out --name, --description, --branch and --effort"
                 );
             }
             let positional_prompt = match options.as_slice() {
@@ -2031,7 +2042,13 @@ require --new-workspace"
             if from_current_branch {
                 operation["fromCurrentBranch"] = json!(true);
             }
+            if draft {
+                operation["draft"] = json!(true);
+            }
             let result = match execute_operation(api, environment, operation) {
+                Err(error) if draft && is_unreachable(&error) => {
+                    bail!("Komla isn't connected, so it can't open New Workspace. Open Komla, then try again.");
+                }
                 Err(error) if destination == "workspace" && is_unreachable(&error) => {
                     if environment.reached_host_desktop {
                         bail!(
@@ -3427,6 +3444,18 @@ fn write_operation_result(
 ) -> anyhow::Result<()> {
     if json_output {
         writeln!(output, "{result}")?;
+        return Ok(());
+    }
+    if result.get("state").and_then(Value::as_str) == Some("drafted") {
+        let agent = result
+            .pointer("/agent/preset/name")
+            .and_then(Value::as_str)
+            .map(|name| format!(" for {name}"))
+            .unwrap_or_default();
+        writeln!(
+            output,
+            "Opened New Workspace{agent} in Komla. Nothing starts until the user launches it there."
+        )?;
         return Ok(());
     }
     if let Some(state) = result.get("state").and_then(Value::as_str) {
@@ -4877,6 +4906,58 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
     }
 
     #[test]
+    fn launch_drafts_a_new_workspace_for_the_user_to_start() {
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {
+            "state": "drafted",
+            "destination": {"kind": "draft", "projectId": "p-1"},
+            "agent": {"preset": {"id": "codex", "name": "Codex"}}
+        }}));
+        let output = run_with(
+            &mut api,
+            &[
+                "launch", "Fix it", "--draft", "--preset", "Codex", "--mode", "plan",
+            ],
+            "",
+        )
+        .unwrap();
+
+        let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+        assert_eq!(body["destination"], "workspace");
+        assert_eq!(body["draft"], true);
+        assert_eq!(body["prompt"], "Fix it");
+        assert_eq!(body["mode"], "plan");
+        assert_eq!(
+            output,
+            "Opened New Workspace for Codex in Komla. Nothing starts until the user launches it there.\n"
+        );
+    }
+
+    #[test]
+    fn launch_refuses_a_draft_of_what_new_workspace_cannot_fill_in() {
+        for args in [
+            vec!["launch", "x", "--draft", "--here"],
+            vec!["agent", "launch", "x", "--draft"],
+            vec!["launch", "x", "--draft", "--name", "Task"],
+            vec!["launch", "x", "--draft", "--branch", "task"],
+            vec![
+                "launch", "x", "--draft", "--preset", "Codex", "--effort", "high",
+            ],
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+            assert!(run_with(&mut api, &args, "").is_err(), "{args:?}");
+            assert!(api.requests.is_empty(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn launch_does_not_create_a_draft_offline_while_komla_is_disconnected() {
+        let (api, result) = run_disconnected(&["launch", "x", "--draft"]);
+
+        assert!(result.unwrap_err().to_string().contains("New Workspace"));
+        assert!(api.offline_requests.is_empty());
+    }
+
+    #[test]
     fn short_launch_preserves_flag_like_option_values() {
         for prompt in [
             "--here",
@@ -4886,6 +4967,7 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
             "--description",
             "--branch",
             "--from-current-branch",
+            "--draft",
             "--json",
             "--cwd",
             "-C",
@@ -6236,7 +6318,7 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
         let error = run_with(&mut api, &["agent", "launch", "--branch", "other"], "").unwrap_err();
 
         assert!(error.to_string().contains(
-            "--project, --name, --description, --branch, and --from-current-branch require --new-workspace"
+            "--project, --name, --description, --branch, --from-current-branch, and --draft require --new-workspace"
         ));
         assert!(api.requests.is_empty());
     }

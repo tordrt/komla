@@ -58,6 +58,7 @@ export const IPC = {
   WORKSPACE_AGENT_TAB_ADDED: 'workspace:agent-tab-added',
   WORKSPACE_OPEN_DEV_PREVIEW: 'workspace:open-dev-preview',
   WORKSPACE_TRASH_REQUESTED: 'workspace:trash-requested',
+  NEW_WORKSPACE_DRAFT: 'workspace:new-draft',
   WORKSPACE_WINDOW_CHANGED: 'workspace:window-changed',
   WORKSPACE_MOVED_HERE: 'workspace:moved-here',
   WORKSPACE_SELECT: 'workspace:select',

@@ -52,7 +52,7 @@ import { useCategoriesStore } from '@/stores/categories.store';
 import { useConfigStore } from '@/stores/config.store';
 import { useCustomizationStore } from '@/stores/customization.store';
 import { settleDevPreviewOffer } from '@/stores/dev-preview-offers.store';
-import { useDialogsStore } from '@/stores/dialogs.store';
+import { openNewWorkspaceDraft, useDialogsStore } from '@/stores/dialogs.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useGitStatusStore } from '@/stores/git-status.store';
 import { useLayoutStore } from '@/stores/layout.store';
@@ -530,6 +530,8 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
         if (url) settleDevPreviewOffer(workspaceId, url);
         openInBrowserPane(workspaceId, url, urlExecutionLocation);
       }),
+
+      window.api.onNewWorkspaceDraft(openNewWorkspaceDraft),
 
       window.api.onVirtualDesktopStarted(({ workspaceId, desktop }) => {
         announceVirtualDesktop(workspaceId, desktop);

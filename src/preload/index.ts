@@ -157,6 +157,7 @@ import type {
 } from '../shared/types/status-items';
 import type { ViewerFile, ViewerFileSource, ViewerFolderFile } from '../shared/types/viewer-file';
 import type {
+  NewWorkspaceDraft,
   OpenDevPreviewEvent,
   WorkspaceTrashRequest,
   WorkspaceVirtualDesktop,
@@ -1570,6 +1571,15 @@ const api = {
     };
     ipcRenderer.on(IPC.WORKSPACE_OPEN_DEV_PREVIEW, handler);
     return () => ipcRenderer.removeListener(IPC.WORKSPACE_OPEN_DEV_PREVIEW, handler);
+  },
+
+  /** `komla launch --draft`, or a panel's draft launch, asks this window to open New Workspace. */
+  onNewWorkspaceDraft: (callback: (draft: NewWorkspaceDraft) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, draft: NewWorkspaceDraft): void => {
+      callback(draft);
+    };
+    ipcRenderer.on(IPC.NEW_WORKSPACE_DRAFT, handler);
+    return () => ipcRenderer.removeListener(IPC.NEW_WORKSPACE_DRAFT, handler);
   },
 
   /** An agent ran `komla trash` and its turn ended. */

@@ -245,6 +245,12 @@ export const komlaOperationSchema = z.discriminatedUnion('type', [
         .describe(
           "Starts a new workspace's worktree from the calling workspace's branch, not the project's base branch."
         ),
+      draft: z
+        .literal(true)
+        .optional()
+        .describe(
+          'Opens New Workspace with the prompt, project, agent, mode and starting branch filled in, for the user to change and start; nothing starts until they do. Only for a workspace launch, without name, description, branch or effort.'
+        ),
     })
     .strict()
     .describe('Launches an AI coding agent in a new tab or a new workspace.'),

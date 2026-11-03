@@ -72,6 +72,7 @@ import type { TerminalStatus } from '../../../shared/types/terminal';
 import type {
   AddAgentTabOptions,
   CreateWorkspaceParams,
+  NewWorkspaceDraft,
   Workspace,
   WorkspaceVirtualDesktop,
   WorkspaceTrashRequest,
@@ -470,6 +471,8 @@ export type KomlaOperation =
       description?: string;
       branch?: string;
       fromCurrentBranch?: boolean;
+      /** Opens New Workspace with the launch filled in, for the user to start, in place of it. */
+      draft?: true;
     }
   | { type: 'workspace.list'; includeTrashed?: boolean }
   /** The user's tags, which `workspace.tag` gives a workspace with the look the user gave it. */
@@ -561,6 +564,36 @@ export type KomlaOperation =
     };
 
 type AgentLaunchOperation = Extract<KomlaOperation, { type: 'agent.launch' }>;
+
+function currentBranchUnavailable(): KomlaOperationError {
+  return new KomlaOperationError(
+    'CURRENT_BRANCH_UNAVAILABLE',
+    'Starting from the current branch needs a call from a workspace in the same Git project.',
+    400
+  );
+}
+
+/** A draft fills in New Workspace, which starts workspaces and has no field for the rest. */
+function refuseUndraftableOptions(operation: AgentLaunchOperation): void {
+  if (operation.destination !== 'workspace') {
+    throw new KomlaOperationError(
+      'INVALID_DRAFT_OPTIONS',
+      'Only a workspace launch can be a draft; a tab starts at once.',
+      400
+    );
+  }
+  const unsupported = (['name', 'description', 'branch', 'effort'] as const).filter(
+    (field) => operation[field] !== undefined
+  );
+  if (unsupported.length) {
+    throw new KomlaOperationError(
+      'INVALID_DRAFT_OPTIONS',
+      `A draft fills in the prompt, project, agent, mode and starting branch; New Workspace has no ${unsupported.join(', ')} to fill in.`,
+      400,
+      { fields: unsupported }
+    );
+  }
+}
 
 export type AgentLaunchResult = KomlaOperationResults['agent.launch'];
 
@@ -1406,6 +1439,7 @@ export class KomlaOperationService {
       );
     }
     const workspace = this.resolveWorkspace(context);
+    if (operation.draft) return this.draftWorkspaceLaunch(context, workspace, operation);
     if (operation.destination === 'tab' && !workspace) {
       this.requireWorkspace(context);
     }
@@ -1496,6 +1530,105 @@ export class KomlaOperationService {
       },
       ...(selection.preset ? { agent: this.agentResult(selection) } : {}),
     };
+  }
+
+  /**
+   * Opens New Workspace with the launch filled in, in the calling workspace's window, and starts
+   * nothing: the user changes it and starts it, so it needs no confirmation, and agents' limits on
+   * which modes they may start don't apply. A draft from outside every workspace opens on no
+   * project, for the user to pick one.
+   */
+  private async draftWorkspaceLaunch(
+    context: KomlaOperationContext,
+    workspace: KomlaOperationWorkspace | undefined,
+    operation: AgentLaunchOperation
+  ): Promise<AgentLaunchResult> {
+    refuseUndraftableOptions(operation);
+    const resolution =
+      !workspace && context.cwd
+        ? this.dependencies.resolveProjectByCwd(context.cwd, context.sshHostId)
+        : undefined;
+    const caller = workspace ?? resolution?.sourceWorkspace;
+    const project = operation.project
+      ? this.resolveProjectSelector(operation.project)
+      : caller?.projectId
+        ? this.dependencies.getProject(caller.projectId)
+        : resolution?.project;
+    const selection = this.draftAgentSelection(operation);
+    const startPoint = operation.fromCurrentBranch
+      ? await this.draftStartPoint(project, this.launchSourceWorkspace(project, caller))
+      : {};
+    this.dependencies.publish(IPC.NEW_WORKSPACE_DRAFT, {
+      ...(caller ? { workspaceId: caller.id } : {}),
+      ...(operation.prompt ? { prompt: operation.prompt } : {}),
+      ...(project ? { projectId: project.id } : {}),
+      ...startPoint,
+      ...(selection.preset ? { presetId: selection.preset.id } : {}),
+      ...(selection.mode ? { launchModeId: selection.mode.id } : {}),
+    } satisfies NewWorkspaceDraft);
+    return {
+      state: 'drafted',
+      destination: {
+        kind: 'draft',
+        ...(project ? { projectId: project.id } : {}),
+        ...(startPoint.baseBranch ? { branchedFrom: startPoint.baseBranch } : {}),
+      },
+      ...(selection.preset ? { agent: this.agentResult(selection) } : {}),
+    };
+  }
+
+  /** The agent and mode a draft names, by id or name, any the user left on. */
+  private draftAgentSelection({
+    preset: presetSelector,
+    mode: modeSelector,
+  }: AgentLaunchOperation): AgentSelection {
+    if (!presetSelector) {
+      if (!modeSelector) return {};
+      throw new KomlaOperationError(
+        'AGENT_PRESET_REQUIRED',
+        'A draft names a launch mode only with its agent.',
+        400
+      );
+    }
+    const preset = this.resolvePresetSelector(this.activePresets(), presetSelector);
+    return modeSelector
+      ? { preset, mode: this.resolveModeSelector(preset, modeSelector) }
+      : { preset };
+  }
+
+  /** Where a draft from the current branch starts: the calling workspace's branch and machine. */
+  private async draftStartPoint(
+    project: KomlaOperationProject | undefined,
+    source: KomlaOperationWorkspace | undefined
+  ): Promise<Pick<NewWorkspaceDraft, 'baseBranch' | 'sourceWorkspaceId' | 'sshHostId'>> {
+    if (!source || !project || project.kind === 'directory') {
+      throw currentBranchUnavailable();
+    }
+    return {
+      baseBranch: await this.checkedOutBranch(source),
+      sourceWorkspaceId: source.id,
+      ...(source.backend?.kind === 'ssh' ? { sshHostId: source.backend.hostId } : {}),
+    };
+  }
+
+  /** The branch checked out in the workspace, which a new one can start from. */
+  private async checkedOutBranch(source: KomlaOperationWorkspace): Promise<string> {
+    const branch = await this.dependencies.getCheckedOutBranch(source);
+    // SSH status snapshots name a detached HEAD "HEAD".
+    if (!branch || branch === 'HEAD') {
+      throw new KomlaOperationError(
+        'CURRENT_BRANCH_UNAVAILABLE',
+        'The calling workspace has no branch checked out to start from.',
+        400
+      );
+    }
+    return branch;
+  }
+
+  /** The agents the user left on. */
+  private activePresets(): AgentPreset[] {
+    const activeIds = new Set(this.dependencies.getActivePresets().map((entry) => entry.presetId));
+    return this.dependencies.listPresets().filter((preset) => activeIds.has(preset.id));
   }
 
   private resolveWorkspaceLaunchTarget(
@@ -1657,22 +1790,8 @@ export class KomlaOperationService {
     source: KomlaOperationWorkspace | undefined,
     params: CreateWorkspaceParams
   ): Promise<string> {
-    if (!source || params.mode !== 'worktree') {
-      throw new KomlaOperationError(
-        'CURRENT_BRANCH_UNAVAILABLE',
-        'Starting from the current branch needs a call from a workspace in the same Git project.',
-        400
-      );
-    }
-    const branch = await this.dependencies.getCheckedOutBranch(source);
-    // SSH status snapshots name a detached HEAD "HEAD".
-    if (!branch || branch === 'HEAD') {
-      throw new KomlaOperationError(
-        'CURRENT_BRANCH_UNAVAILABLE',
-        'The calling workspace has no branch checked out to start from.',
-        400
-      );
-    }
+    if (!source || params.mode !== 'worktree') throw currentBranchUnavailable();
+    const branch = await this.checkedOutBranch(source);
     // A source on an SSH host shares its clone, but any other SSH host only sees
     // commits on origin.
     const environment =

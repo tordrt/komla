@@ -483,6 +483,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const pendingPrefillActionIdRef = useRef<string | null>(null);
   // Holds a prefill's agents for the default-agent effect below, until the dialog closes.
   const pendingPrefillPresetIdsRef = useRef<string[] | null>(null);
+  // Holds the launch mode a prefill asked for its first agent, until the dialog closes.
+  const pendingPrefillLaunchModeIdRef = useRef<string | null>(null);
   // Holds a prefill's onLaunch until the dialog closes; a launch reads it before closing.
   const prefillOnLaunchRef = useRef<((presetIds: string[]) => void) | null>(null);
   const observedRetainedPromptRef = useRef('');
@@ -863,6 +865,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       skipBranchSyncRef.current = false;
       pendingPrefillActionIdRef.current = null;
       pendingPrefillPresetIdsRef.current = null;
+      pendingPrefillLaunchModeIdRef.current = null;
       prefillOnLaunchRef.current = null;
       return;
     }
@@ -903,6 +906,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     }
     if (newWorkspaceDialogPrefill.presetIds?.length) {
       pendingPrefillPresetIdsRef.current = newWorkspaceDialogPrefill.presetIds;
+      pendingPrefillLaunchModeIdRef.current = newWorkspaceDialogPrefill.launchModeId ?? null;
     }
     if (newWorkspaceDialogPrefill.onLaunch) {
       prefillOnLaunchRef.current = newWorkspaceDialogPrefill.onLaunch;
@@ -928,7 +932,15 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
         resolvedActivePresets.some((preset) => preset.id === id)
       );
       const presetId = prefilledPresetIds[0] ?? resolvedActivePresets[0].id;
-      const preferredLaunchModeId = resolvePreferredLaunchModeId(presetId);
+      const requestedModeId = pendingPrefillLaunchModeIdRef.current;
+      const preferredLaunchModeId =
+        requestedModeId &&
+        presetId === prefilledPresetIds[0] &&
+        presets
+          .find((preset) => preset.id === presetId)
+          ?.launchModes.some((mode) => mode.id === requestedModeId)
+          ? requestedModeId
+          : resolvePreferredLaunchModeId(presetId);
       setSelectedPresetId(presetId);
       setLaunchModeId(preferredLaunchModeId);
       setSelectedLaunchTargets(

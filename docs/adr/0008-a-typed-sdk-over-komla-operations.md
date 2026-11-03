@@ -112,6 +112,11 @@ command, which a prompt injected into the text would ask for. So:
   with the plugin's digest. Low-risk ones run without asking. A risky one asks the user each time,
   showing what it would do, such as the prompt and where the agent starts, as confirmed settings
   changes do (ADR 0004).
+- **Drafts need no confirmation.** A workspace launch with `draft: true` starts nothing: it opens
+  New Workspace with the launch filled in, where the user reads the prompt, can change it and the
+  agent, and starts it or not. That dialog is a better confirmation than one Komla would show, so a
+  page drafts from a click without asking, and the limits on which modes agents may start don't
+  apply. It still needs `agent.launch.workspace`, so turning off agent launches turns off drafts.
 
 ## Later
 

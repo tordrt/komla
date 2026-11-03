@@ -31,6 +31,8 @@ import {
 import { workspaceLinksService } from './workspace-links.service';
 import { workspaceService } from './workspace.service';
 
+import type { NewWorkspaceDraft } from '../../shared/types/workspace';
+
 const logger = createLogger('KomlaOperationService');
 
 export type {
@@ -167,6 +169,22 @@ const productionDependencies: KomlaOperationDependencies = {
         channel,
         payload
       );
+      return;
+    }
+    if (channel === IPC.NEW_WORKSPACE_DRAFT) {
+      // The window showing the calling workspace opens New Workspace, brought forward since the
+      // call can come from a terminal outside Komla.
+      const { workspaceId } = payload as NewWorkspaceDraft;
+      const windowId =
+        (workspaceId && workspaceService.get(workspaceId)?.windowId) ||
+        windowService.getMainWindowId();
+      const window = windowId ? windowService.getWindow(windowId) : undefined;
+      if (window && !window.isDestroyed()) {
+        if (window.isMinimized()) window.restore();
+        window.show();
+        window.focus();
+      }
+      windowService.sendToWindowOrNext(windowId, channel, payload);
       return;
     }
     if (channel === IPC.WORKSPACE_CREATED) {

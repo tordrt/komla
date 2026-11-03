@@ -1677,6 +1677,27 @@ describe('NewWorkspaceDialog', () => {
       await screen.findByPlaceholderText(/what should the agent work on/i);
       expect(screen.getByTitle(/click to select agent and launch mode/i)).toHaveTextContent('Pi');
     });
+
+    it('starts the agent it asks for in the mode it asks for, as a drafted launch does', async () => {
+      mockPresetStore.presets[3] = {
+        ...mockPresetStore.presets[3],
+        launchModes: [
+          { id: 'mode-a', name: 'Careful', command: 'pi --careful' },
+          { id: 'mode-b', name: 'Quick', command: 'pi --quick' },
+        ],
+      };
+      mockPresetStore.activePresets[3] = {
+        ...mockPresetStore.activePresets[3],
+        lastLaunchModeId: 'mode-a',
+      };
+      mockDialogPrefill.value = { presetIds: ['preset-4'], launchModeId: 'mode-b' };
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+
+      await screen.findByPlaceholderText(/what should the agent work on/i);
+      expect(screen.getByTitle(/click to select agent and launch mode/i)).toHaveTextContent(
+        'Pi Quick'
+      );
+    });
   });
 
   it('discards draft targets and can return a saved batch to one agent', async () => {

@@ -153,9 +153,21 @@ export const komlaOperationResultSchemas = {
   'agent.launch': z
     .object({
       state: z
-        .enum(['started', 'provisioning'])
-        .describe('A new workspace is provisioning while its worktree and branch are made.'),
+        .enum(['started', 'provisioning', 'drafted'])
+        .describe(
+          'A new workspace is provisioning while its worktree and branch are made; a draft waits in New Workspace for the user.'
+        ),
       destination: z.discriminatedUnion('kind', [
+        z
+          .object({
+            kind: z.literal('draft'),
+            projectId: z.string().optional().describe('The project New Workspace opened on.'),
+            branchedFrom: z
+              .string()
+              .optional()
+              .describe("The calling workspace's branch, for a draft from the current branch."),
+          })
+          .strict(),
         z
           .object({ kind: z.literal('tab'), workspaceId: z.string(), terminalId: z.string() })
           .strict(),

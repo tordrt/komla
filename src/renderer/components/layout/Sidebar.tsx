@@ -85,10 +85,12 @@ export const Sidebar = memo(function Sidebar({
 
   // One filled split control, the same field as Jump to: New Workspace, then quick create.
   const newWorkspaceControls = (
-    // In light themes it takes the project panels' fill, as the accent all but matches the chrome.
+    // In light themes it takes the project panels' fill, as the accent all but matches the chrome;
+    // in dark ones a clear line like the panels', drawn over the hovered button's fill.
     <div
+      data-new-workspace-controls=""
       className={cn(
-        'no-drag flex h-7 min-w-0 flex-1 items-center overflow-hidden rounded-md dark:bg-accent/60',
+        'no-drag flex h-7 min-w-0 flex-1 items-center overflow-hidden rounded-md dark:bg-accent/60 dark:outline-1 dark:-outline-offset-1 dark:outline-foreground/[0.14]',
         SIDEBAR_PANEL_LIGHT_FILL
       )}
     >

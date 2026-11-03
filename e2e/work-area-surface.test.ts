@@ -114,7 +114,7 @@ test.describe('Work area surface', () => {
       .toEqual({ across: 6, down: 6, gutterIsSidebarColor: true });
   });
 
-  test('rounds each pane on a chrome gutter that runs around them, with no lines beside them', async ({
+  test('rounds each pane on a chrome gutter, with clear lines around the panes, tabs, panels and file panel', async ({
     appWindow,
   }) => {
     await expect(appWindow.getByRole('button', { name: 'New Workspace' }).first()).toBeVisible({
@@ -146,6 +146,8 @@ test.describe('Work area surface', () => {
           const column = document.querySelector('.work-column')!.getBoundingClientRect();
           const statusBar = document.querySelector('[data-status-bar]')!.getBoundingClientRect();
           const panel = document.querySelector('.file-panel-chrome')!;
+          const panelBody = getComputedStyle(panel.querySelector('.file-panel-body')!);
+          const panelBodyBox = panel.querySelector('.file-panel-body')!.getBoundingClientRect();
           const probe = document.body.appendChild(document.createElement('div'));
           probe.style.backgroundColor = 'oklch(var(--chrome))';
           const chrome = getComputedStyle(probe).backgroundColor;
@@ -161,8 +163,33 @@ test.describe('Work area surface', () => {
             bottom: Math.round(statusBar.top - box.bottom),
             right: Math.round(panel.getBoundingClientRect().left - box.right),
             onChrome: behind === chrome,
-            panelLine: getComputedStyle(panel).borderLeftWidth,
-            panelBottomLine: getComputedStyle(panel).boxShadow.includes('inset'),
+            panelLine: panelBody.borderLeftWidth,
+            panelBottomLine: panelBody.borderBottomWidth,
+            panelCorner: panelBody.borderBottomLeftRadius,
+            panelTopLine: panelBody.borderTopWidth,
+            topRowDivider: getComputedStyle(
+              document.querySelector('[data-testid="file-panel-header"]')!,
+              '::before'
+            ).height,
+            panelTopCorner: panelBody.borderTopLeftRadius,
+            panelTopLevelWithPanes: Math.round(panelBodyBox.top) === Math.round(box.top),
+            panelBottom: Math.round(statusBar.top - panelBodyBox.bottom),
+            paneLine: getComputedStyle(pane!.querySelector('.pane-outline')!).borderTopColor,
+            ...Object.fromEntries(
+              (
+                [
+                  ['tabLine', '[data-testid="terminal-tab-row"] [data-active]'],
+                  ['sidebarPanelLine', '.sidebar-panel'],
+                  ['newWorkspaceLine', '[data-new-workspace-controls]'],
+                ] as const
+              ).map(([key, selector]) => {
+                const style = getComputedStyle(document.querySelector(selector)!);
+                return [key, `${style.outlineStyle} ${style.outlineWidth} ${style.outlineOffset}`];
+              })
+            ),
+            selectedWorkspaceLine: getComputedStyle(
+              document.querySelector('.sidebar-selected-card')!
+            ).boxShadow.includes('inset'),
             headerLine: getComputedStyle(
               document.querySelector('[data-testid="file-panel-header"]')!
             ).borderLeftWidth,
@@ -176,8 +203,19 @@ test.describe('Work area surface', () => {
         bottom: 6,
         right: 6,
         onChrome: true,
-        panelLine: '0px',
-        panelBottomLine: true,
+        panelLine: '1px',
+        panelBottomLine: '1px',
+        panelCorner: '12px',
+        panelTopLine: '1px',
+        topRowDivider: '16px',
+        panelTopCorner: '12px',
+        panelTopLevelWithPanes: true,
+        panelBottom: 6,
+        paneLine: expect.not.stringMatching(/^rgba\(0, 0, 0, 0\)$/),
+        tabLine: 'solid 1px -1px',
+        sidebarPanelLine: 'solid 1px -1px',
+        newWorkspaceLine: 'solid 1px -1px',
+        selectedWorkspaceLine: true,
         headerLine: '0px',
       });
   });

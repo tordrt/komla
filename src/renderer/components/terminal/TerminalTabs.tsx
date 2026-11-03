@@ -437,7 +437,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
             : { width: wsResolvedTreeWidthPx }
         }
       >
-        <div className="flex h-full flex-col">
+        <div className="file-panel-body flex h-full flex-col">
           <div className="relative min-h-0 flex-1">
             <div className="absolute inset-x-0 top-0 bottom-(--banner-inset)">
               <ErrorBoundary>
@@ -2023,7 +2023,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                               className={cn(
                                 'relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 text-xs transition-colors',
                                 isActive
-                                  ? 'bg-foreground/[0.075] text-foreground'
+                                  ? 'bg-foreground/[0.075] text-foreground outline-1 -outline-offset-1 outline-foreground/[0.14]'
                                   : visible
                                     ? 'text-foreground/80 hover:bg-foreground/[0.045] hover:text-foreground'
                                     : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground'
@@ -2212,7 +2212,7 @@ export const TerminalTabs = memo(function TerminalTabs({
               <div
                 // The file panel's header: the top of the panel below, on the same chrome, so the
                 // panel reads as a sidebar on the right, as the workspace sidebar does on the left.
-                // The panes' rounded edge sets them apart, so neither needs a line.
+                // On the chrome, as the tabs are; the panel's line starts below it (globals.css).
                 data-inline-file-preview-scope={selectedWorkspaceId ?? undefined}
                 data-testid="file-panel-header"
                 className={cn(

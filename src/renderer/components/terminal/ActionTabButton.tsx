@@ -30,6 +30,11 @@ interface ActionTabButtonProps {
   tabRoom?: TabRoom;
 }
 
+// A clear line around the control, as around the active tab beside it. An outline draws over the
+// hovered button's fill, which an inset ring would sit under. `quick-commands-control` names it
+// for the Theme Lab.
+const EDGE_LINE = 'quick-commands-control outline-1 -outline-offset-1 outline-foreground/[0.14]';
+
 const buttonClass =
   'flex items-center text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
 
@@ -185,7 +190,11 @@ export function ActionTabButton({ workspaceId, tabRoom }: ActionTabButtonProps) 
                 type="button"
                 onClick={openEditorForNewAction}
                 aria-label="New quick command"
-                className={cn(buttonClass, 'h-6 gap-1.5 rounded-md bg-foreground/[0.06] px-1.5')}
+                className={cn(
+                  buttonClass,
+                  'h-6 gap-1.5 rounded-md bg-foreground/[0.06] px-1.5',
+                  EDGE_LINE
+                )}
               >
                 <Play weight="fill" className="size-3 shrink-0" />
                 {renderLabel('Quick command')}
@@ -208,7 +217,10 @@ export function ActionTabButton({ workspaceId, tabRoom }: ActionTabButtonProps) 
           Open is read from aria-expanded, since the tooltip owns the trigger's data-state. */}
       <div
         ref={buttonRef}
-        className="group/action-split flex h-6 items-stretch overflow-hidden rounded-md bg-foreground/[0.06]"
+        className={cn(
+          'group/action-split flex h-6 items-stretch overflow-hidden rounded-md bg-foreground/[0.06]',
+          EDGE_LINE
+        )}
       >
         <Tooltip delayDuration={600}>
           <TooltipTrigger asChild>

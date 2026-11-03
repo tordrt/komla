@@ -1804,7 +1804,8 @@ function SidebarFileTreeHeader({
       ? 'Show uncommitted changes'
       : `Show all changes since ${targetBranchName || 'target branch'}`;
   return (
-    <div className="flex h-9 shrink-0 items-center justify-between gap-0 border-b bg-card pr-1 pl-2.5 text-sm font-medium">
+    // `file-tree-header` names it for the Theme Lab.
+    <div className="file-tree-header flex h-9 shrink-0 items-center justify-between gap-0 border-b bg-card pr-1 pl-2.5 text-sm font-medium">
       <span ref={statsRef} className="flex min-w-0 flex-1 items-center overflow-hidden">
         {showDiffSummary && diffSummary ? (
           <span

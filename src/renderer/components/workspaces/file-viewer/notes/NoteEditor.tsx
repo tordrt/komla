@@ -64,6 +64,9 @@ interface NoteEditorProps {
   onSavedToProject?: () => void;
   /** Buttons at the end of the toolbar, after the view toggle. */
   trailingActions?: React.ReactNode;
+  /** Moves keyboard focus into the editor, then calls onFocused. */
+  focusRequested?: boolean;
+  onFocused?: () => void;
 }
 
 /**
@@ -83,6 +86,8 @@ function NoteEditorContent({
   isClosing,
   onSavedToProject,
   trailingActions,
+  focusRequested,
+  onFocused,
 }: NoteEditorProps) {
   const scopeId = workspace.id;
   const isRemoteWorkspace = workspace.backend?.kind === 'ssh';
@@ -360,6 +365,8 @@ function NoteEditorContent({
         readOnly={false}
         sourceOnly={false}
         autoFocus={startedBlank}
+        focusRequested={focusRequested}
+        onFocused={onFocused}
         onChange={handleChange}
         onMarkdownEditorMount={setRichEditor}
         // Relative image paths resolve against the project, as if the note were at its root.

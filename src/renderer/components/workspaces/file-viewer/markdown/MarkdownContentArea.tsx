@@ -1,5 +1,12 @@
 import { Code, TextAa } from '@phosphor-icons/react';
-import React, { Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, {
+  Suspense,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { usePaneDragBar } from '@/components/terminal/PaneDragGrip';
@@ -47,6 +54,9 @@ interface MarkdownContentAreaProps {
   trailingActions?: React.ReactNode;
   /** Focuses the editor when it first shows. */
   autoFocus?: boolean;
+  /** Moves keyboard focus into the editor, then calls onFocused. */
+  focusRequested?: boolean;
+  onFocused?: () => void;
 }
 
 /**
@@ -62,6 +72,29 @@ function useContentReady(
   const ready = fileContent !== null && !fileError && (!loadingFile || shown);
   if (ready && !shown) setShown(true);
   return ready;
+}
+
+/**
+ * Focuses the source editor in the container. Monaco mounts after its chunk loads and stays hidden
+ * until ready, so this keeps trying. Returns the cleanup for an effect.
+ */
+function focusSourceEditor(
+  container: HTMLElement,
+  onFocused?: () => void
+): (() => void) | undefined {
+  const focus = () => {
+    const input = container.querySelector<HTMLElement>('.monaco-editor textarea');
+    input?.focus();
+    const focused = !!input && document.activeElement === input;
+    if (focused) onFocused?.();
+    return focused;
+  };
+  if (focus()) return;
+  const observer = new MutationObserver(() => {
+    if (focus()) observer.disconnect();
+  });
+  observer.observe(container, { attributes: true, childList: true, subtree: true });
+  return () => observer.disconnect();
 }
 
 /** A Markdown file in the file viewer: rich text by default, its source on request. */
@@ -80,6 +113,8 @@ export function MarkdownContentArea({
   actions,
   trailingActions,
   autoFocus = false,
+  focusRequested = false,
+  onFocused,
 }: MarkdownContentAreaProps) {
   const preferredMode = useSyncExternalStore(
     subscribeMarkdownViewMode,
@@ -107,22 +142,14 @@ export function MarkdownContentArea({
     setMarkdownViewMode(next);
   };
 
-  // Monaco mounts after its chunk loads and stays hidden until ready, so keep trying.
+  const notifyFocused = useEffectEvent(() => {
+    if (focusRequested) onFocused?.();
+  });
   useEffect(() => {
     const container = containerRef.current;
-    if (!focusNewView || mode !== 'source' || !container) return;
-    const focusSource = () => {
-      const input = container.querySelector<HTMLElement>('.monaco-editor textarea');
-      input?.focus();
-      return !!input && document.activeElement === input;
-    };
-    if (focusSource()) return;
-    const observer = new MutationObserver(() => {
-      if (focusSource()) observer.disconnect();
-    });
-    observer.observe(container, { attributes: true, childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [focusNewView, mode]);
+    if (!(focusNewView || focusRequested) || mode !== 'source' || !container) return;
+    return focusSourceEditor(container, notifyFocused);
+  }, [focusNewView, focusRequested, mode]);
 
   const toggle = (
     <SegmentedControl
@@ -218,6 +245,8 @@ export function MarkdownContentArea({
               onChange={onChange}
               readImage={readImage}
               autoFocus={focusNewView}
+              focusRequested={focusRequested}
+              onFocused={onFocused}
               toolbarEnd={toolbarEnd}
             />
           </Suspense>

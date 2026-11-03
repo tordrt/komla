@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { updatePaneBrowserTabs } from '../../../src/renderer/lib/browser-tabs';
 import { findPaneByTerminalId, getAllLeaves } from '../../../src/renderer/lib/layout-utils';
+import { getNotePath } from '../../../src/renderer/lib/notes';
 import {
   adoptPaneSurfaces,
   closePagesOfRemovedPaneBrowserTabs,
@@ -34,6 +35,7 @@ import {
   restoreSavedBrowserPanes,
   saveBrowserPanes,
   setFilePaneDraft,
+  showNote,
   splitAgentBesidePane,
   takeFilePaneOpening,
 } from '../../../src/renderer/lib/pane-surfaces';
@@ -224,6 +226,136 @@ describe('openBrowserPane', () => {
         '',
       ]);
     }
+  });
+});
+
+describe('showNote', () => {
+  const NOTE: PaneSurface = { kind: 'note', workspaceId: WS, name: 'a.md' };
+
+  beforeEach(() => {
+    useFileViewerStore.setState(useFileViewerStore.getInitialState(), true);
+    usePaneSurfacesStore.setState({ editorFocusRequest: null });
+  });
+
+  const preview = () => useFileViewerStore.getState().inlineFilePreviewByWorkspace[WS];
+
+  it('shows the tab and pane the note is open in, focused', () => {
+    const id = openPaneSurface(WS, NOTE, { kind: 'split', direction: 'vertical' });
+    useLayoutStore.getState().addTab(WS, 'term-2');
+    useLayoutStore.getState().showTabInFullPane('term-2');
+
+    showNote(WS, 'a.md');
+
+    const layout = useLayoutStore.getState();
+    expect(layout.getActiveTabId()).toBe('term-1');
+    expect(layout.getFocusedPaneId()).toBe(
+      findPaneByTerminalId(layout.layoutsByTab[WS]['term-1'], id)?.id
+    );
+    expect(preview()?.open).toBeFalsy();
+  });
+
+  it('prefers a pane in the tab on screen', () => {
+    openPaneSurface(WS, NOTE, { kind: 'tab' });
+    useLayoutStore.getState().addTab(WS, 'term-2');
+    useLayoutStore.getState().showTabInFullPane('term-2');
+    const beside = openPaneSurface(WS, NOTE, { kind: 'split', direction: 'vertical' });
+    useLayoutStore.getState().setFocusedPane(
+      findPaneByTerminalId(useLayoutStore.getState().layoutsByTab[WS]['term-2'], 'term-2')!.id
+    );
+
+    showNote(WS, 'a.md');
+
+    const layout = useLayoutStore.getState();
+    expect(layout.getActiveTabId()).toBe('term-2');
+    expect(layout.getFocusedPaneId()).toBe(
+      findPaneByTerminalId(layout.layoutsByTab[WS]['term-2'], beside)?.id
+    );
+  });
+
+  it('opens a note no pane shows in the file panel', () => {
+    openPaneSurface(WS, { ...NOTE, name: 'b.md' }, { kind: 'tab' });
+    useLayoutStore.getState().showTabInFullPane('term-1');
+
+    showNote(WS, 'a.md');
+
+    expect(preview()).toMatchObject({ open: true, filePath: getNotePath('a.md') });
+    expect(useLayoutStore.getState().getActiveTabId()).toBe('term-1');
+  });
+
+  it('closes a file panel in Full layout that covers the pane', () => {
+    const id = openPaneSurface(WS, NOTE, { kind: 'tab' });
+    useLayoutStore.getState().showTabInFullPane('term-1');
+    useFileViewerStore.getState().openInlineFilePreview(WS, 'browse', 'a.ts');
+    useFileViewerStore.getState().setInlineFilePreviewLayout(WS, 'full');
+
+    showNote(WS, 'a.md');
+
+    expect(preview()?.open).toBe(false);
+    expect(useLayoutStore.getState().getActiveTabId()).toBe(id);
+  });
+
+  it("asks for the note's editor to take keyboard focus", () => {
+    const id = openPaneSurface(WS, NOTE, { kind: 'tab' });
+    useLayoutStore.getState().showTabInFullPane('term-1');
+
+    expect(showNote(WS, 'a.md')).toBe(true);
+
+    expect(usePaneSurfacesStore.getState().editorFocusRequest).toBe(id);
+  });
+
+  it('drops the focus request once another tab shows or another pane takes focus', () => {
+    const id = openPaneSurface(WS, NOTE, { kind: 'split', direction: 'vertical' });
+    useLayoutStore.getState().addTab(WS, 'term-2');
+    useLayoutStore.getState().showTabInFullPane('term-2');
+    const request = () => usePaneSurfacesStore.getState().editorFocusRequest;
+
+    showNote(WS, 'a.md');
+    expect(request()).toBe(id);
+    useLayoutStore.getState().showTabInFullPane('term-2');
+    expect(request()).toBeNull();
+
+    showNote(WS, 'a.md');
+    expect(request()).toBe(id);
+    const layout = useLayoutStore.getState();
+    layout.setFocusedPane(findPaneByTerminalId(layout.layoutsByTab[WS]['term-1'], 'term-1')!.id);
+    expect(request()).toBeNull();
+  });
+
+  it('opens the note in the file panel when its pane closes while unsaved edits ask first', () => {
+    const id = openPaneSurface(WS, NOTE, { kind: 'tab' });
+    useLayoutStore.getState().showTabInFullPane('term-1');
+    useFileViewerStore.setState({
+      inlineFilePreviewByWorkspace: {
+        [WS]: { open: true, mode: 'browse', filePath: 'a.ts', layout: 'full', isDirty: true },
+      },
+    });
+
+    // The pane isn't shown yet, so a menu that picked the note gets its focus back.
+    expect(showNote(WS, 'a.md')).toBe(false);
+    closePaneSurface(WS, id);
+    // As the panel's Unsaved Changes prompt answers Discard.
+    const fileViewer = useFileViewerStore.getState();
+    fileViewer.clearAllInlineFilePreviewPendingDiscardSlots(WS);
+    fileViewer.closeInlineFilePreview(WS);
+
+    return Promise.resolve().then(() => {
+      expect(preview()).toMatchObject({ open: true, filePath: getNotePath('a.md') });
+      expect(usePaneSurfacesStore.getState().editorFocusRequest).toBeNull();
+    });
+  });
+
+  it('opens the note in the file panel from the full-screen file viewer', () => {
+    openPaneSurface(WS, NOTE, { kind: 'tab' });
+    useLayoutStore.getState().showTabInFullPane('term-1');
+    useFileViewerStore.getState().openFileViewer(WS, 'browse');
+
+    showNote(WS, 'a.md');
+
+    expect(useFileViewerStore.getState().pendingFileViewerTransition).toMatchObject({
+      kind: 'inline-preview',
+      filePath: getNotePath('a.md'),
+    });
+    expect(useLayoutStore.getState().getActiveTabId()).toBe('term-1');
   });
 });
 

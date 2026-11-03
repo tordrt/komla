@@ -1,4 +1,5 @@
 import { NotePencil, Plus } from '@phosphor-icons/react';
+import { useRef } from 'react';
 
 import {
   DropdownMenu,
@@ -11,7 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { formatRelativeTime } from '@/lib/format-time';
-import { createNote, openNote, UNTITLED_NOTE } from '@/lib/notes';
+import { createNote, UNTITLED_NOTE } from '@/lib/notes';
+import { showNote } from '@/lib/pane-surfaces';
 import { cn } from '@/lib/utils';
 import { useNotes } from '@/stores/notes.store';
 import { useShortcutsStore } from '@/stores/shortcuts.store';
@@ -27,6 +29,8 @@ export function NotesStatusSegment() {
   );
   const notes = useNotes(workspace?.id ?? null);
   const newNoteShortcut = useShortcutsStore((s) => s.getDisplayShortcut('note.new'));
+  // Set when a pick goes to the pane the note is open in, which keeps focus.
+  const shownInPane = useRef(false);
   if (!workspace) return null;
   const count = notes.length === 1 ? '1 note' : `${notes.length} notes`;
 
@@ -41,7 +45,15 @@ export function NotesStatusSegment() {
           {notes.length > 0 && <span className="tabular-nums">{notes.length}</span>}
         </StatusBarButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" className="w-72">
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        className="w-72"
+        onCloseAutoFocus={(event) => {
+          if (shownInPane.current) event.preventDefault();
+          shownInPane.current = false;
+        }}
+      >
         <DropdownMenuLabel className="truncate">
           Notes in {workspaceLabel(workspace)}
         </DropdownMenuLabel>
@@ -57,7 +69,9 @@ export function NotesStatusSegment() {
               {notes.map((note) => (
                 <DropdownMenuItem
                   key={note.name}
-                  onSelect={() => openNote(workspace.id, note.name)}
+                  onSelect={() => {
+                    shownInPane.current = showNote(workspace.id, note.name);
+                  }}
                 >
                   <NotePencil />
                   <span className={cn('min-w-0 flex-1 truncate', !note.title && 'italic')}>

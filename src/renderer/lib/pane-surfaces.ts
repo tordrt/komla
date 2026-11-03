@@ -24,7 +24,7 @@ import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
 import { getBrowserTabLabel, updatePaneBrowserTabs } from './browser-tabs';
 import { pathAfterMove, type FileTreeMove } from './file-tree-moves';
 import { findPaneByTerminalId, getAllLeaves, showsPaneSurface } from './layout-utils';
-import { UNTITLED_NOTE } from './notes';
+import { openNote, UNTITLED_NOTE } from './notes';
 import { addLocalCopyTerminal, addTerminalForSplit } from './split-terminal';
 import { isWorkspaceLayoutPlaceholder } from './workspace-layout-hydration';
 
@@ -109,10 +109,13 @@ export function openBrowserPane(
 }
 
 /**
- * The surface id of the workspace's first browser pane, in the tab on screen if that has one,
- * else in its other tabs.
+ * The surface id of the workspace's first pane whose surface matches, in the tab on screen if that
+ * has one, else in its other tabs.
  */
-function findBrowserPane(workspaceId: string): string | null {
+function findPaneSurface(
+  workspaceId: string,
+  matches: (surface: PaneSurface) => boolean
+): string | null {
   const layout = useLayoutStore.getState();
   const active = layout.activeTabByWorkspace[workspaceId];
   const tabs = [...(layout.tabsByWorkspace[workspaceId] ?? [])].sort(
@@ -122,7 +125,11 @@ function findBrowserPane(workspaceId: string): string | null {
   for (const tabId of tabs) {
     const root = layout.layoutsByTab[workspaceId]?.[tabId];
     const leaf =
-      root && getAllLeaves(root).find((pane) => surfaces[pane.terminalId]?.kind === 'browser');
+      root &&
+      getAllLeaves(root).find((pane) => {
+        const surface = surfaces[pane.terminalId];
+        return !!surface && matches(surface);
+      });
     if (leaf) return leaf.terminalId;
   }
   return null;
@@ -192,7 +199,7 @@ function showPageInBrowserPane(
   page: string,
   urlExecutionLocation?: TerminalExecutionLocation
 ): string {
-  const found = findBrowserPane(workspaceId);
+  const found = findPaneSurface(workspaceId, (surface) => surface.kind === 'browser');
   if (found) {
     if (page) {
       updatePaneBrowserTabs(found, (tabs) =>
@@ -230,6 +237,60 @@ export async function openNewNotePane(
   }
   openPaneSurface(workspaceId, { kind: 'note', workspaceId, name: note.name }, placement);
   return true;
+}
+
+/**
+ * Shows a note where it's already open in a pane, the one in the tab on screen first, and focuses
+ * its editor; else opens it in the file panel. The full-screen file viewer always opens it in the
+ * file panel, as leaving the viewer may first ask about its unsaved edits. Returns whether the
+ * pane showed straight away, so a menu that picked the note can leave focus to it.
+ */
+export function showNote(workspaceId: string, name: string): boolean {
+  const paneId =
+    useFileViewerStore.getState().fileViewerWorkspaceId === workspaceId
+      ? null
+      : findPaneSurface(workspaceId, (surface) => surface.kind === 'note' && surface.name === name);
+  if (!paneId) {
+    openNote(workspaceId, name);
+    return false;
+  }
+  let shown = false;
+  whenPanesUncovered(workspaceId, () => {
+    // The pane may have closed while unsaved edits in the file panel asked first.
+    if (!useLayoutStore.getState().revealTerminal(workspaceId, paneId)) {
+      openNote(workspaceId, name);
+      return;
+    }
+    requestEditorFocus(workspaceId, paneId);
+    shown = true;
+  });
+  return shown;
+}
+
+/**
+ * Asks the surface's editor to take keyboard focus once it can: its tab may still be showing, or
+ * its editor loading. The request lapses once another tab shows or another pane takes focus, so a
+ * slow editor can't take focus from where the user went since.
+ */
+function requestEditorFocus(workspaceId: string, surfaceId: string): void {
+  const where = () => {
+    const layout = useLayoutStore.getState();
+    const tabId = layout.activeTabByWorkspace[workspaceId];
+    return tabId ? layout.focusedPaneByTab[workspaceId]?.[tabId] : undefined;
+  };
+  const shownAt = where();
+  usePaneSurfacesStore.getState().requestEditorFocus(surfaceId);
+  const stop = () => {
+    stopFollowingLayout();
+    stopFollowingRequest();
+    usePaneSurfacesStore.getState().clearEditorFocusRequest(surfaceId);
+  };
+  const stopFollowingLayout = useLayoutStore.subscribe(() => {
+    if (where() !== shownAt) stop();
+  });
+  const stopFollowingRequest = usePaneSurfacesStore.subscribe((state) => {
+    if (state.editorFocusRequest !== surfaceId) stop();
+  });
 }
 
 /** Opens a workspace file in a pane, at a line if given. */

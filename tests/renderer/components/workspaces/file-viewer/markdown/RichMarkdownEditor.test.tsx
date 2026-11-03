@@ -141,6 +141,41 @@ describe('RichMarkdownEditor', () => {
     expect(outside.container.querySelector('[draggable="true"]')).toBeNull();
   });
 
+  it('takes keyboard focus on request, then says so', async () => {
+    const onFocused = vi.fn();
+    const { rerender, dom, editor } = renderEditor({ onFocused });
+    const focus = vi.spyOn(dom, 'focus');
+    // jsdom can't focus a contenteditable, so the view reports the focus that would have landed.
+    vi.spyOn(editor.view, 'hasFocus').mockImplementation(() => focus.mock.calls.length > 0);
+    expect(onFocused).not.toHaveBeenCalled();
+
+    rerender(
+      <RichMarkdownEditor
+        filePath="docs/plan.md"
+        content={SOURCE}
+        readOnly={false}
+        readImage={vi.fn()}
+        focusRequested
+        onFocused={onFocused}
+      />
+    );
+
+    expect(onFocused).not.toHaveBeenCalled();
+    await waitFor(() => expect(onFocused).toHaveBeenCalledTimes(1));
+    expect(focus).toHaveBeenCalled();
+  });
+
+  it("leaves a focus request that didn't land", async () => {
+    const onFocused = vi.fn();
+    const { editor } = renderEditor({ focusRequested: true, onFocused });
+    vi.spyOn(editor.view, 'hasFocus').mockReturnValue(false);
+
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(onFocused).not.toHaveBeenCalled();
+  });
+
   it('shows the file as rich text', () => {
     const { dom } = renderEditor();
     expect(dom.querySelector('h1')?.textContent).toBe('Title');

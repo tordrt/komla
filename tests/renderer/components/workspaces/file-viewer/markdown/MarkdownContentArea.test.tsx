@@ -20,14 +20,18 @@ vi.mock(
     RichMarkdownEditor: ({
       content,
       toolbarEnd,
+      focusRequested,
     }: {
       content: string;
       toolbarEnd: React.ReactNode;
+      focusRequested?: boolean;
     }) => {
       if (richEditorMock.crash) throw new Error('bad table');
       return (
         <div>
-          <div data-testid="rich">{content}</div>
+          <div data-testid="rich" data-focus-requested={focusRequested ? 'true' : undefined}>
+            {content}
+          </div>
           {toolbarEnd}
         </div>
       );
@@ -100,6 +104,38 @@ describe('MarkdownContentArea', () => {
     fireEvent.click(screen.getByRole('radio', { name: /Source/ }));
     expect(screen.getByTestId('source')).toBeInTheDocument();
     vi.mocked(console.error).mockRestore();
+  });
+
+  it('hands a focus request to the rich editor', async () => {
+    renderArea({ focusRequested: true });
+
+    expect(await screen.findByTestId('rich')).toHaveAttribute('data-focus-requested', 'true');
+  });
+
+  it('focuses the source editor on request once Monaco shows, then says so', async () => {
+    setMarkdownViewMode('source');
+    const onFocused = vi.fn();
+    const { rerender } = renderArea({
+      focusRequested: true,
+      onFocused,
+      sourceEditor: <div data-testid="source" />,
+    });
+    expect(onFocused).not.toHaveBeenCalled();
+
+    rerender(
+      area({
+        focusRequested: true,
+        onFocused,
+        sourceEditor: (
+          <div className="monaco-editor">
+            <textarea aria-label="Source" />
+          </div>
+        ),
+      })
+    );
+
+    await vi.waitFor(() => expect(onFocused).toHaveBeenCalledTimes(1));
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Source' }));
   });
 
   it('shows the source of a file too large for rich text', () => {

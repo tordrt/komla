@@ -27,6 +27,11 @@ export type PaneSurface =
 interface PaneSurfacesState {
   /** What each non-terminal pane shows, by surface id. Not saved across restarts. */
   surfaces: Record<string, PaneSurface>;
+  /** The surface whose editor takes keyboard focus once its tab shows, until it has. */
+  editorFocusRequest: string | null;
+  requestEditorFocus: (id: string) => void;
+  /** Drops the surface's focus request, leaving another surface's. */
+  clearEditorFocusRequest: (id: string) => void;
   addSurface: (surface: PaneSurface) => string;
   setBrowserTabs: (id: string, tabs: BrowserTabsState) => void;
   setFileDirty: (id: string, dirty: boolean) => void;
@@ -36,6 +41,13 @@ interface PaneSurfacesState {
 
 export const usePaneSurfacesStore = create<PaneSurfacesState>((set) => ({
   surfaces: {},
+  editorFocusRequest: null,
+
+  requestEditorFocus: (id) => set({ editorFocusRequest: id }),
+
+  clearEditorFocusRequest: (id) => {
+    set((state) => (state.editorFocusRequest === id ? { editorFocusRequest: null } : state));
+  },
 
   addSurface: (surface) => {
     const id = createPaneSurfaceId(surface.kind);

@@ -15,7 +15,8 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { formatRelativeTime } from '@/lib/format-time';
-import { getNoteName, openNote, UNTITLED_NOTE } from '@/lib/notes';
+import { getNoteName, UNTITLED_NOTE } from '@/lib/notes';
+import { showNote } from '@/lib/pane-surfaces';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { cn } from '@/lib/utils';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
@@ -87,7 +88,7 @@ function NoteRow({
   const toggle = () => {
     // A second click closes the note, as it does a file.
     if (isOpen) useFileViewerStore.getState().requestInlineFilePreviewClose(workspaceId);
-    else openNote(workspaceId, note.name);
+    else showNote(workspaceId, note.name);
   };
 
   const copyPath = () => {

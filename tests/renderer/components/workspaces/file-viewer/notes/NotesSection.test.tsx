@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NotesSection } from '../../../../../../src/renderer/components/workspaces/file-viewer/notes/NotesSection';
 import { createNote, getNotePath, openNote } from '../../../../../../src/renderer/lib/notes';
+import { openPaneSurface } from '../../../../../../src/renderer/lib/pane-surfaces';
 import { useFileViewerStore } from '../../../../../../src/renderer/stores/file-viewer.store';
+import { useLayoutStore } from '../../../../../../src/renderer/stores/layout.store';
+import { usePaneSurfacesStore } from '../../../../../../src/renderer/stores/pane-surfaces.store';
 import { resetNotesStore } from '../../../../../../src/renderer/stores/notes.store';
 import { useWorkspacesStore } from '../../../../../../src/renderer/stores/workspaces.store';
 
@@ -52,6 +55,8 @@ describe('NotesSection', () => {
   afterEach(() => {
     useFileViewerStore.setState(useFileViewerStore.getInitialState(), true);
     useWorkspacesStore.setState({ workspaces: [] });
+    useLayoutStore.setState(useLayoutStore.getInitialState(), true);
+    usePaneSurfacesStore.setState({ surfaces: {} });
   });
 
   async function renderSection(currentFile: string | null = null, workspaceId = 'w1') {
@@ -132,6 +137,22 @@ describe('NotesSection', () => {
     expect(open).toHaveAttribute('aria-current', 'true');
     fireEvent.click(open);
     expect(preview()?.open).toBe(false);
+  });
+
+  it('shows a note open in a pane there, instead of in the file panel', async () => {
+    useLayoutStore.getState().setCurrentWorkspace('w1', 'term-1');
+    const id = openPaneSurface(
+      'w1',
+      { kind: 'note', workspaceId: 'w1', name: PROMPT.name },
+      { kind: 'tab' }
+    );
+    useLayoutStore.getState().showTabInFullPane('term-1');
+    await renderSection();
+
+    fireEvent.click(screen.getByRole('button', { name: /Prompt for the login fix/ }));
+
+    expect(useLayoutStore.getState().activeTabByWorkspace.w1).toBe(id);
+    expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace.w1?.open).toBeFalsy();
   });
 
   it('copies a note’s path for pointing an agent at it', async () => {

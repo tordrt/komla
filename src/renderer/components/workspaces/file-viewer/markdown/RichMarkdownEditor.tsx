@@ -60,6 +60,9 @@ interface RichMarkdownEditorProps {
   onChange?: (content: string) => void;
   readImage: (path: string) => Promise<{ data: string; mimeType: string }>;
   autoFocus?: boolean;
+  /** Moves keyboard focus into the editor, then calls onFocused. */
+  focusRequested?: boolean;
+  onFocused?: () => void;
   /** Rendered at the end of the toolbar. */
   toolbarEnd?: React.ReactNode;
   ref?: React.Ref<MarkdownEditorHandle>;
@@ -83,6 +86,8 @@ export function RichMarkdownEditor({
   onChange,
   readImage,
   autoFocus = false,
+  focusRequested = false,
+  onFocused,
   toolbarEnd,
   ref,
 }: RichMarkdownEditorProps) {
@@ -187,6 +192,18 @@ export function RichMarkdownEditor({
   useEffect(() => {
     editor.setEditable(!readOnly, false);
   }, [editor, readOnly]);
+
+  const notifyFocused = useEffectEvent(() => onFocused?.());
+  useEffect(() => {
+    if (!focusRequested) return;
+    // At the selection it had, where the note was left scrolled.
+    editor.commands.focus(null, { scrollIntoView: false });
+    // TipTap focuses on the next frame; a focus that didn't land leaves the request to lapse.
+    const frame = requestAnimationFrame(() => {
+      if (!editor.isDestroyed && editor.view.hasFocus()) notifyFocused();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [editor, focusRequested]);
 
   // Code blocks color once Monaco's highlighter and their grammar are ready, and again when
   // the theme changes.

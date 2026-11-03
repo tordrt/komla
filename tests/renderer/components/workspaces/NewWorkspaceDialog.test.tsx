@@ -2334,7 +2334,9 @@ describe('NewWorkspaceDialog', () => {
     await screen.findByPlaceholderText('komla/swift-fox');
     await user.click(screen.getByRole('button', { name: 'Claude Code Effort: High' }));
     await user.click(screen.getByRole('menuitemradio', { name: 'Default' }));
-    expect(screen.getByRole('button', { name: 'Claude Code Effort: Default' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claude Code Effort: Default' })).not.toHaveTextContent(
+      'Effort'
+    );
     expect(document.querySelector('[data-reasoning-meter]')).toBeNull();
     await user.click(getLaunchButton());
 
@@ -2384,7 +2386,7 @@ describe('NewWorkspaceDialog', () => {
     );
   });
 
-  it('shows the title and icon the agent gives its picker, without the effort meter', async () => {
+  it('shows only the icon the agent gives its picker, with its title in the tooltip and menu', async () => {
     const user = userEvent.setup();
     mockPresetStore.presets = [
       {
@@ -2404,13 +2406,13 @@ describe('NewWorkspaceDialog', () => {
 
     await screen.findByPlaceholderText('komla/swift-fox');
     const pill = screen.getByRole('button', { name: 'Claude Code Model: Default' });
-    expect(pill).toHaveTextContent('Model');
+    expect(pill).not.toHaveTextContent('Model');
     expect(pill).toHaveAttribute('title', 'Model');
     await user.click(pill);
     expect(screen.getByText('Claude Code Model')).toBeInTheDocument();
     await user.click(screen.getByRole('menuitemradio', { name: 'Opus' }));
 
-    expect(screen.getByRole('button', { name: 'Claude Code Model: Opus' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Claude Code Model: Opus' })).toHaveTextContent('Opus');
     expect(document.querySelector('[data-reasoning-meter]')).toBeNull();
   });
 

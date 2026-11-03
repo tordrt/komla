@@ -3034,7 +3034,8 @@ const DEFAULT_REASONING_VALUE = '__default__';
 
 // Effort pill next to the agent pill. Agents define their own number of
 // levels, and can give the pill another title and icon, such as for a model.
-// The gauge's bar meter only appears once a non-default level is chosen.
+// At the default level the pill shows only the icon; the title stays in its
+// tooltip and menu. The gauge's bar meter replaces the icon once a level is chosen.
 function ReasoningLevelPill({
   preset,
   getReasoningLevelId,
@@ -3082,7 +3083,7 @@ function ReasoningLevelPill({
           ) : (
             <PickerIcon className="size-3" />
           )}
-          {level ? level.name : picker.title}
+          {level?.name}
           <CaretDown className="size-2.5" />
         </button>
       </DropdownMenuTrigger>

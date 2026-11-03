@@ -1172,6 +1172,13 @@ html[data-status-bar-row='large'] [data-status-bar] {
   --accent: var(--sidebar-accent);
 }
 
+/* Quick Look's top row and sidebar, on its chrome around the file's rounded block: rows hover
+   and select on --sidebar-accent, as the workspace sidebar's do; buttons keep the card, so they
+   stand out on the chrome as in the workspace's top row. */
+.quick-look-chrome {
+  --accent: var(--sidebar-accent);
+}
+
 /* Dialogs (DialogContent unless floating={false}, plus the new-workspace card) - the sidebar's
    surface so they stand out from the dimmed window, with a crisp edge; rows select on
    --sidebar-accent. Popover cards, menus and tooltips share it, so everything that floats

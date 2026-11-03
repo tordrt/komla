@@ -152,21 +152,18 @@ function applyTokens(tokens: PaletteTokens): void {
   }
 }
 
-type TitleBarOverlaySurface = 'card' | 'chrome' | 'background';
+type TitleBarOverlaySurface = 'chrome' | 'background';
 
-// The surface under the Windows window controls: the sidebar's chrome, which the title bar and
-// the tab row sit on, or what a full-window page that covers the title bar puts there: Settings'
-// background, or the card of QuickLook's top row. Those pages sit on top, so their claims win.
+// The surface under the Windows window controls: the sidebar's chrome, which the title bar, the
+// tab row and Quick Look's top row sit on, or Settings' background, which covers the title bar.
+// Settings sits on top, so its claim wins.
 type ClaimedTitleBarOverlaySurface = Exclude<TitleBarOverlaySurface, 'chrome'>;
 const titleBarOverlayClaims: Record<ClaimedTitleBarOverlaySurface, number> = {
-  card: 0,
   background: 0,
 };
 
 function titleBarOverlaySurface(): TitleBarOverlaySurface {
-  if (titleBarOverlayClaims.background > 0) return 'background';
-  if (titleBarOverlayClaims.card > 0) return 'card';
-  return 'chrome';
+  return titleBarOverlayClaims.background > 0 ? 'background' : 'chrome';
 }
 
 /** Puts the Windows window controls on `surface` until the returned release is called. */
@@ -193,9 +190,7 @@ export function syncWindowsTitleBarOverlay(): void {
   const computed = getComputedStyle(document.documentElement);
   const surfaceName = titleBarOverlaySurface();
   const surface = computed.getPropertyValue(`--${surfaceName}`);
-  const surfaceFg = computed.getPropertyValue(
-    surfaceName === 'card' ? '--card-foreground' : '--foreground'
-  );
+  const surfaceFg = computed.getPropertyValue('--foreground');
   const color = oklchTripletToHex(surface);
   const symbolColor = oklchTripletToHex(surfaceFg);
   if (!color || !symbolColor) return;

@@ -282,7 +282,7 @@ describe('palette runtime', () => {
   });
 
   describe('Windows window controls', () => {
-    const surfaces = { card: '0.2 0 0', chrome: '0.15 0 0', background: '0.1 0 0' };
+    const surfaces = { chrome: '0.15 0 0', background: '0.1 0 0' };
     const setTitleBarOverlay = vi.fn().mockResolvedValue(undefined);
     const overlayColor = () => setTitleBarOverlay.mock.lastCall?.[0].color;
     let releases: (() => void)[] = [];
@@ -297,7 +297,6 @@ describe('palette runtime', () => {
       for (const [name, value] of Object.entries(surfaces))
         root.style.setProperty(`--${name}`, value);
       root.style.setProperty('--foreground', '0.9 0 0');
-      root.style.setProperty('--card-foreground', '0.9 0 0');
       setTitleBarOverlay.mockClear();
       window.api = { platform: 'win32', setTitleBarOverlay } as unknown as typeof window.api;
     });
@@ -307,25 +306,14 @@ describe('palette runtime', () => {
       releases = [];
     });
 
-    it('sits on the chrome, which the title bar and tab row sit on', () => {
+    it("sits on the chrome, takes Settings' background, and goes back to the chrome", () => {
       syncWindowsTitleBarOverlay();
       expect(overlayColor()).toBe(oklchTripletToHex(surfaces.chrome));
 
-      const release = claim('card');
-      expect(overlayColor()).toBe(oklchTripletToHex(surfaces.card));
-
-      release();
-      expect(overlayColor()).toBe(oklchTripletToHex(surfaces.chrome));
-    });
-
-    it("takes Settings' background over a card page, and goes back to the chrome", () => {
-      const releasePage = claim('card');
-      const releaseSettings = claim('background');
+      const release = claim('background');
       expect(overlayColor()).toBe(oklchTripletToHex(surfaces.background));
 
-      releaseSettings();
-      expect(overlayColor()).toBe(oklchTripletToHex(surfaces.card));
-      releasePage();
+      release();
       expect(overlayColor()).toBe(oklchTripletToHex(surfaces.chrome));
     });
   });

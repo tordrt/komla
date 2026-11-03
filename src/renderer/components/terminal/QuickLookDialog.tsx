@@ -54,7 +54,7 @@ import { formatFileSize, MediaPane } from '@/components/workspaces/file-viewer/M
 import { getFocusedPromptTerminalId } from '@/lib/focused-terminal';
 import { formatRelativeTime } from '@/lib/format-time';
 import { ensureMonacoInitialized } from '@/lib/monaco-loader';
-import { claimWindowsTitleBarOverlaySurface } from '@/lib/palette-runtime';
+import { useEditorSurfaceBackground } from '@/lib/palette-runtime';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
 import { focusTerminalRenderer } from '@/lib/terminal-renderer-runtime';
@@ -80,6 +80,7 @@ import { useToastStore } from '@/stores/toast.store';
 import { getViewableFileKind, type ViewableFileKind } from '../../../shared/image-utils';
 
 import { openInFilePanel } from './file-panel';
+import { PaneOutline } from './PaneOutline';
 import { rememberTerminalFiles, useTerminalFileViewerItems } from './terminal-files';
 
 import type { ViewerFile, ViewerFileSource } from '../../../shared/types/viewer-file';
@@ -240,7 +241,7 @@ export function QuickLookDialog() {
         showCloseButton={false}
         floating={false}
         // The whole window, title bar included, as Settings: the header is the top row.
-        className="!top-0 !left-0 flex !h-screen !max-h-none !w-full !max-w-none !translate-x-0 !translate-y-0 flex-col !gap-0 overflow-hidden !rounded-none !border-0 !p-0"
+        className="!top-0 !left-0 flex !h-screen !max-h-none !w-full !max-w-none !translate-x-0 !translate-y-0 flex-col !gap-0 overflow-hidden !rounded-none !border-0 !bg-[oklch(var(--chrome))] !p-0"
         onOpenAutoFocus={(event) => {
           // The viewer itself takes focus, so Enter doesn't press its first button.
           event.preventDefault();
@@ -308,15 +309,12 @@ function QuickLookContent({
   const { terminalId, insert } = useContext(ReferenceTargetContext);
   const reference = () => referenceTo(item, shownEditor.current);
 
-  // QuickLook covers the title bar, so the Windows window controls take its card, even over the
-  // empty page's chrome.
-  useEffect(() => claimWindowsTitleBarOverlaySurface('card'), []);
-
   return (
     <>
-      {/* Draggable and level with the window controls; the Windows ones take its card. */}
+      {/* Draggable and level with the window controls, on the chrome as the workspace's top row
+          is, with no line under it. */}
       <div
-        className="drag-region flex shrink-0 items-center gap-2 border-b border-border px-1.5"
+        className="quick-look-chrome drag-region flex shrink-0 items-center gap-2 px-1.5"
         style={topRowStyle}
       >
         {/* Back, not a close X: on Linux the window's own close X sits at the right. */}
@@ -410,42 +408,48 @@ function QuickLookContent({
       </div>
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && <QuickLookSidebar session={session} listed={listed} />}
-        <div className="group/body relative flex min-h-0 min-w-0 flex-1 flex-col">
-          {isFolder ? (
-            <FolderBody item={item} name={name} />
-          ) : (
-            <QuickLookBody
-              key={`${quickLookItemKey(item)}:${item.lineNumber ?? ''}`}
-              workspaceId={workspaceId}
-              item={item}
-              kind={kind}
-              name={name}
-              viewMode={viewMode}
-              shownEditor={shownEditor}
-            />
-          )}
-          {/* Over the file only while the pointer is, so they don't cover it; the arrow keys
+        {/* The file is a rounded block on the chrome's gutter, as a pane in the workspace, on the
+            page background, as a file pane's previews are; a file's source is on the editor's
+            color (EditorSurface). */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col px-(--pane-gap) pb-(--pane-gap)">
+          <div className="group/body relative flex min-h-0 flex-1 flex-col overflow-clip rounded-(--pane-radius) bg-background">
+            {isFolder ? (
+              <FolderBody item={item} name={name} />
+            ) : (
+              <QuickLookBody
+                key={`${quickLookItemKey(item)}:${item.lineNumber ?? ''}`}
+                workspaceId={workspaceId}
+                item={item}
+                kind={kind}
+                name={name}
+                viewMode={viewMode}
+                shownEditor={shownEditor}
+              />
+            )}
+            {/* Over the file only while the pointer is, so they don't cover it; the arrow keys
               step through the files too. */}
-          {canStepBack && (
-            <IconButton
-              label="Previous file"
-              variant="secondary"
-              className={cn(STEP_BUTTON_CLASS, 'left-3')}
-              onClick={() => step(-1, listed)}
-            >
-              <CaretLeft className="size-4" />
-            </IconButton>
-          )}
-          {canStepForward && (
-            <IconButton
-              label="Next file"
-              variant="secondary"
-              className={cn(STEP_BUTTON_CLASS, 'right-3')}
-              onClick={() => step(1, listed)}
-            >
-              <CaretRight className="size-4" />
-            </IconButton>
-          )}
+            {canStepBack && (
+              <IconButton
+                label="Previous file"
+                variant="secondary"
+                className={cn(STEP_BUTTON_CLASS, 'left-3')}
+                onClick={() => step(-1, listed)}
+              >
+                <CaretLeft className="size-4" />
+              </IconButton>
+            )}
+            {canStepForward && (
+              <IconButton
+                label="Next file"
+                variant="secondary"
+                className={cn(STEP_BUTTON_CLASS, 'right-3')}
+                onClick={() => step(1, listed)}
+              >
+                <CaretRight className="size-4" />
+              </IconButton>
+            )}
+            <PaneOutline focused={false} />
+          </div>
         </div>
       </div>
     </>
@@ -582,7 +586,7 @@ function QuickLookSidebar({
           hasFocus.current = event.currentTarget.contains(event.relatedTarget);
       }}
       aria-label="Files"
-      className="flex w-60 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border p-1.5"
+      className="quick-look-chrome flex w-60 shrink-0 flex-col gap-3 overflow-y-auto p-1.5"
     >
       {sections.recent.length > 0 && (
         <TerminalSection title="Recent" items={sections.recent} onScreen={onScreen} />
@@ -935,12 +939,22 @@ function QuickLookBody({
   if (kind === 'image' || kind === 'svg' || kind === 'audio' || kind === 'video') {
     return <BinaryPreview {...props} />;
   }
+  const rendered = kind === 'markdown' && viewMode === 'preview';
+  const text = <TextPreview {...props} rendered={rendered} shownEditor={shownEditor} />;
+  // Rendered Markdown keeps the page background it paints itself.
+  return rendered ? text : <EditorSurface>{text}</EditorSurface>;
+}
+
+/**
+ * The code editor's color, under the source while it loads too, so stepping from file to file
+ * doesn't flash the page background before the editor paints.
+ */
+function EditorSurface({ children }: { children: ReactNode }) {
+  const background = useEditorSurfaceBackground();
   return (
-    <TextPreview
-      {...props}
-      rendered={kind === 'markdown' && viewMode === 'preview'}
-      shownEditor={shownEditor}
-    />
+    <div className="flex min-h-0 flex-1 flex-col" style={{ backgroundColor: background }}>
+      {children}
+    </div>
   );
 }
 

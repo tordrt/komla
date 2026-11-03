@@ -56,6 +56,13 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
       card: 'Workspace tags',
       keywords: 'github gh pr review changes auto',
     },
+    card('Startup', 'launch open'),
+    {
+      kind: 'row',
+      label: 'Restart running workspaces',
+      card: 'Startup',
+      keywords: 'restore session reopen resume last quit launch',
+    },
     card('Power', 'sleep'),
     {
       kind: 'row',

@@ -202,6 +202,8 @@ export class WorkspaceTerminals {
     };
 
     workspace.terminals.push(terminal);
+    // Starting it, however it starts, answers an offer to restart it from the last quit.
+    if (workspaceStore.runningAtQuitIds.delete(workspaceId)) workspaceStore.saveWorkspaces();
 
     const spawnRequest = {
       workspaceId,

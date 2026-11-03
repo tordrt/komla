@@ -840,6 +840,8 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (!windowService.confirmQuit()) return;
   isCleaningUp = true;
+  // Before stop steps stop any terminals, so the next launch can offer to restart these.
+  workspaceService.rememberRunningAtQuit();
 
   // Hide windows immediately so the close feels instant — async cleanup
   // (PTY teardown, service disposal) can take ~a second.

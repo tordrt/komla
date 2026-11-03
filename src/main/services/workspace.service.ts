@@ -8,7 +8,11 @@ import { IPC } from '../../shared/constants/ipc-channels';
 import { normalizeBrowserPanes } from '../../shared/lib/browser-tabs';
 import { branchSuffixToName } from '../../shared/lib/random-names';
 import { normalizeRecentLinks } from '../../shared/lib/recent-links';
-import { isResumable, sessionEndedHere } from '../../shared/lib/terminal-execution-state';
+import {
+  isResumable,
+  runningTerminalCount,
+  sessionEndedHere,
+} from '../../shared/lib/terminal-execution-state';
 import { normalizeVirtualDesktops } from '../../shared/lib/virtual-desktops';
 import {
   normalizeWorkspaceTags,
@@ -147,6 +151,11 @@ worktreeWatcherService.onObservation = (snapshot) =>
 
 // Agent hooks arrive with every tool call; a minute is precise enough for Recent and "x ago".
 const AGENT_TURN_ACTIVITY_INTERVAL_MS = 60 * 1000;
+
+/** A local workspace outside the Trash that has finished being created, which a launch can restart. */
+function isRestorable(workspace: Workspace): boolean {
+  return workspace.status === 'active' && !workspace.provisioning && !isSshWorkspace(workspace);
+}
 
 /**
  * What the rest of the app asks of workspaces. It wires the modules in ./workspace to each other
@@ -594,8 +603,9 @@ class WorkspaceService {
       if (workspacesList === null) return;
 
       for (const rawPersisted of workspacesList) {
-        const { workspace, agentSources } = hydrateWorkspace(rawPersisted);
+        const { workspace, agentSources, runningAtQuit } = hydrateWorkspace(rawPersisted);
         workspaceStore.workspaces.set(workspace.id, workspace);
+        if (runningAtQuit) workspaceStore.runningAtQuitIds.add(workspace.id);
         this.attention.restored(workspace, agentSources);
       }
       // Give workspaces that share a position their own; dragging between them does nothing.
@@ -1081,6 +1091,46 @@ class WorkspaceService {
 
   stopStepsSettled(...args: Parameters<WorkspaceLifecycle['stopStepsSettled']>) {
     return this.lifecycle.stopStepsSettled(...args);
+  }
+
+  /**
+   * At quit, before anything stops, marks the local workspaces with running terminals so the next
+   * launch can offer to restart them. Those this launch offered and the user left unanswered keep
+   * their marks. The final save at quit records them.
+   */
+  rememberRunningAtQuit(): void {
+    const marks = workspaceStore.runningAtQuitIds;
+    for (const id of marks) {
+      const workspace = workspaceStore.workspaces.get(id);
+      if (!workspace || !isRestorable(workspace)) marks.delete(id);
+    }
+    for (const workspace of workspaceStore.workspaces.values()) {
+      if (isRestorable(workspace) && runningTerminalCount(workspace) > 0) marks.add(workspace.id);
+    }
+  }
+
+  /**
+   * The local workspaces that were running when Komla last quit and are stopped now, in their
+   * saved order. Starting a terminal in one, or `forgetRunningAtLastQuit`, takes it off the list.
+   */
+  listRunningAtLastQuit(): string[] {
+    return [...workspaceStore.runningAtQuitIds]
+      .map((id) => workspaceStore.workspaces.get(id))
+      .filter(
+        (workspace): workspace is Workspace =>
+          workspace !== undefined &&
+          isRestorable(workspace) &&
+          runningTerminalCount(workspace) === 0
+      )
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((workspace) => workspace.id);
+  }
+
+  /** The user declined restarting these, or they left the offer another way. */
+  forgetRunningAtLastQuit(workspaceIds: readonly string[]): void {
+    let changed = false;
+    for (const id of workspaceIds) changed = workspaceStore.runningAtQuitIds.delete(id) || changed;
+    if (changed) workspaceStore.saveWorkspaces();
   }
 
   runStopStepsBeforeQuit(...args: Parameters<WorkspaceLifecycle['runStopStepsBeforeQuit']>) {

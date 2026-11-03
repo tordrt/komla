@@ -67,6 +67,7 @@ describe('ConfigService', () => {
         workspaceGrouping: 'project',
         recentFolders: [],
         hideStoppedWorkspaces: false,
+        restoreRunningWorkspaces: 'ask',
         hideWorkingWorkspaces: false,
         hiddenWorkspaceHostIds: [],
         hiddenWorkspaceTags: ['on hold'],
@@ -337,6 +338,20 @@ describe('ConfigService', () => {
       const { configService } = await import('../../../src/main/services/config.service');
 
       expect(configService.get().keepAwakeMode).toBe(loaded);
+    });
+
+    it.each([
+      ['always', 'always'],
+      ['never', 'never'],
+      [undefined, 'ask'],
+      ['sometimes', 'ask'],
+    ])('should load restarting running workspaces %j as %j', async (stored, loaded) => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify({ restoreRunningWorkspaces: stored }));
+
+      const { configService } = await import('../../../src/main/services/config.service');
+
+      expect(configService.get().restoreRunningWorkspaces).toBe(loaded);
     });
 
     it.each([

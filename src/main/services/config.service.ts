@@ -73,6 +73,17 @@ function normalizeKeepAwakeMode(value: unknown): KeepAwakeMode | undefined {
   return KEEP_AWAKE_MODES.find((mode) => mode === value);
 }
 
+type RestoreRunningWorkspacesMode = NonNullable<AppConfig['restoreRunningWorkspaces']>;
+const RESTORE_RUNNING_WORKSPACES_MODES: readonly RestoreRunningWorkspacesMode[] = [
+  'ask',
+  'always',
+  'never',
+];
+
+function normalizeRestoreRunningWorkspaces(value: unknown): RestoreRunningWorkspacesMode {
+  return RESTORE_RUNNING_WORKSPACES_MODES.find((mode) => mode === value) ?? 'ask';
+}
+
 const AHEAD_ACTIONS = ['pr', 'merge', 'agent-prompt', 'disabled'] as const;
 const BEHIND_ACTIONS = ['auto', 'rebase', 'merge'] as const;
 
@@ -268,6 +279,7 @@ export interface AppConfig {
   statusBarLeftItems?: string[]; // Status bar items the user placed at the left, in order; unplaced items keep their default spot
   statusBarRightItems?: string[]; // Status bar items the user placed at the right, in order
   keepAwakeMode?: 'off' | 'agents' | 'always'; // Keep the computer from sleeping: never, while an agent works, or always
+  restoreRunningWorkspaces?: 'ask' | 'always' | 'never'; // At launch, restart the local workspaces that were running at the last quit
   agentLaunchDefaultPresetId?: string | null; // Default preset for agent-launched workspaces and tabs
   agentLaunchDefaultLaunchModeId?: string | null; // Default launch mode for agent-launched workspaces and tabs
   agentLaunchDefaultSshHostId?: string; // SSH host for agent-launched workspaces
@@ -355,6 +367,7 @@ const DEFAULT_CONFIG: AppConfig = {
   recentFolders: [],
   hideStoppedWorkspaces: false,
   hideWorkingWorkspaces: false,
+  restoreRunningWorkspaces: 'ask',
   hiddenWorkspaceHostIds: [],
   hiddenWorkspaceTags: [...DEFAULT_HIDDEN_WORKSPACE_TAGS],
   tagsFromPullRequests: false,
@@ -518,6 +531,7 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     agentsMenuBarInBackgroundOnly: pickWithDefault(rawConfig, 'agentsMenuBarInBackgroundOnly'),
     agentsDoneClearedAt: pickWithDefault(rawConfig, 'agentsDoneClearedAt'),
     keepAwakeMode: normalizeKeepAwakeMode(rawConfig.keepAwakeMode),
+    restoreRunningWorkspaces: normalizeRestoreRunningWorkspaces(rawConfig.restoreRunningWorkspaces),
     statusBarHiddenItems: stringList(rawConfig.statusBarHiddenItems),
     statusBarShownItems: stringList(rawConfig.statusBarShownItems),
     statusBarLeftItems: stringList(rawConfig.statusBarLeftItems),

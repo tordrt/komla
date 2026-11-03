@@ -2928,6 +2928,178 @@ describe('WorkspaceService', () => {
     });
   });
 
+  describe('workspaces running at the last quit', () => {
+    const localWorkspace = (id: string, order: number, extra = {}) => ({
+      id,
+      name: id,
+      workingDirectory: `/mock/${id}`,
+      isWorktree: false,
+      projectId: null,
+      windowId: null,
+      categoryId: null,
+      createdAt: 1000,
+      lastActivityAt: 1000,
+      order,
+      ...extra,
+    });
+    const sshWorkspace = {
+      ...localWorkspace('ssh-ws', 3),
+      workingDirectory: 'ssh://ssh-dev/home/dev/worktree',
+      backend: {
+        kind: 'ssh',
+        hostId: 'ssh-dev',
+        remoteDirectory: '/home/dev/worktree',
+        remoteRepoPath: '/home/dev/repo.git',
+        remoteProjectRoot: '/home/dev',
+        gitUrl: 'git@example.com:repo.git',
+      },
+      terminals: [],
+    };
+    const lastSaved = () =>
+      JSON.parse(workspaceFileWrites().at(-1)![1]) as Array<{
+        id: string;
+        runningAtQuit?: boolean;
+      }>;
+
+    it('marks the running local workspaces at quit, in the last save', async () => {
+      mockPtyService.isRunning.mockReturnValue(true);
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          localWorkspace('running', 0),
+          localWorkspace('stopped', 1),
+          localWorkspace('trashed', 2, { status: 'trashed', trashedAt: 1000 }),
+          sshWorkspace,
+        ])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      workspaceService.addTerminal('running', 'Agent');
+      workspaceService.addTerminal('ssh-ws', 'Agent');
+
+      workspaceService.rememberRunningAtQuit();
+      await workspaceService.dispose();
+
+      const marked = lastSaved()
+        .filter((workspace) => workspace.runningAtQuit)
+        .map((workspace) => workspace.id);
+      expect(marked).toEqual(['running']);
+    });
+
+    it('lists the marked local workspaces at the next launch, until forgotten', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          localWorkspace('second', 1, { runningAtQuit: true }),
+          localWorkspace('first', 0, { runningAtQuit: true }),
+          localWorkspace('unmarked', 2),
+          localWorkspace('trashed', 3, { runningAtQuit: true, status: 'trashed' }),
+          { ...sshWorkspace, runningAtQuit: true },
+        ])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      expect(workspaceService.listRunningAtLastQuit()).toEqual(['first', 'second']);
+      expect(workspaceService.get('first')).not.toHaveProperty('runningAtQuit');
+
+      workspaceService.forgetRunningAtLastQuit(['first']);
+      expect(workspaceService.listRunningAtLastQuit()).toEqual(['second']);
+    });
+
+    it("doesn't mark one that only shows a browser or note pane", async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([localWorkspace('pane', 0)]));
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      workspaceService.setPaneSurfaceWorkspaces('window-1', ['pane']);
+      expect(workspaceService.get('pane')?.showsPaneSurfaces).toBe(true);
+
+      workspaceService.rememberRunningAtQuit();
+      await workspaceService.dispose();
+
+      expect(lastSaved().some((workspace) => workspace.runningAtQuit)).toBe(false);
+    });
+
+    it('keeps the ones offered at launch and left unanswered, for the next launch', async () => {
+      mockPtyService.isRunning.mockReturnValue(true);
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          localWorkspace('offered', 0, { runningAtQuit: true }),
+          localWorkspace('declined', 1),
+          localWorkspace('working', 2),
+        ])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      workspaceService.addTerminal('working', 'Agent');
+
+      workspaceService.rememberRunningAtQuit();
+      await workspaceService.dispose();
+
+      const marked = lastSaved()
+        .filter((workspace) => workspace.runningAtQuit)
+        .map((workspace) => workspace.id);
+      expect(marked.sort()).toEqual(['offered', 'working']);
+    });
+
+    it('takes one off the offer once restarted, and keeps the rest marked in every save', async () => {
+      mockPtyService.isRunning.mockReturnValue(true);
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          localWorkspace('restarted', 0, { runningAtQuit: true }),
+          localWorkspace('deleted', 1, { runningAtQuit: true }),
+          localWorkspace('waiting', 2, { runningAtQuit: true }),
+        ])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await workspaceService.restart('restarted');
+      await workspaceService.delete('deleted', true);
+      expect(workspaceService.listRunningAtLastQuit()).toEqual(['waiting']);
+
+      // A crash now still leaves the unanswered offer for the next launch.
+      await workspaceService.saveWorkspacesImmediate();
+      const marked = () =>
+        lastSaved()
+          .filter((workspace) => workspace.runningAtQuit)
+          .map((workspace) => workspace.id);
+      expect(marked()).toEqual(['waiting']);
+
+      // Stopped by hand, the restarted one isn't offered again at the next launch.
+      await workspaceService.stop('restarted');
+      workspaceService.rememberRunningAtQuit();
+      await workspaceService.dispose();
+      expect(marked()).toEqual(['waiting']);
+    });
+
+    it('takes one off the offer once any terminal starts in it, not only a restart', async () => {
+      mockPtyService.isRunning.mockReturnValue(true);
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([localWorkspace('opened', 0, { runningAtQuit: true })])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      workspaceService.addTerminal('opened', 'Shell');
+      await workspaceService.stop('opened');
+      workspaceService.rememberRunningAtQuit();
+      await workspaceService.dispose();
+
+      expect(lastSaved().some((workspace) => workspace.runningAtQuit)).toBe(false);
+    });
+
+    it('drops the mark of one restored from the Trash that was in it at the last quit', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          localWorkspace('trashed', 0, { runningAtQuit: true, status: 'trashed', trashedAt: 1 }),
+        ])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      await workspaceService.update('trashed', { status: 'active' });
+
+      expect(workspaceService.listRunningAtLastQuit()).toEqual([]);
+    });
+  });
+
   // ============================================================================
   // enforceWorkspaceLimit Tests
   // ============================================================================

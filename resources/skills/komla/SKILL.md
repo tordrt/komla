@@ -12,7 +12,7 @@ to approve running it again with network access.
 
 ```sh
 komla launch "Fix the flaky login test"   # an agent in a new isolated workspace; --here opens a tab
-komla preview http://localhost:3000       # once the dev server responds
+komla preview http://localhost:3000       # offers the user the page; --open only if they asked for Komla's browser
 komla tags                                # the user's tags, to reuse one before making another
 komla tag "Blocked"                       # says on its card what it waits on; komla untag takes it off
 komla snooze 2h                           # hides this workspace until then; komla wake ends it
@@ -53,10 +53,10 @@ Rules:
 
 To set up this project in Komla or change its settings, first run `komla skill <guide>` and follow
 it:
+
 - `customize`: hooks, keyboard shortcuts, the terminal, agent presets, and which guide covers
   anything else.
 - `project-setup`: Setup helpful quick Commands and Workspace Setup for this project.
 - `status-items`: custom status bar items.
 - `automations`: agents Komla starts on a schedule.
 - `appearance`: custom theming and accent color.
-

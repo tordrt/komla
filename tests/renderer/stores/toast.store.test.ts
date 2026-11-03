@@ -123,6 +123,44 @@ describe('toast.store', () => {
     expect(onClick).toHaveBeenCalled();
   });
 
+  it('stores a second action beside the first', () => {
+    const onClick = vi.fn();
+    useToastStore.getState().addToast('msg', 'info', {
+      action: { label: 'Open', onClick: vi.fn() },
+      secondaryAction: { label: 'Open here', onClick },
+    });
+    const toast = useToastStore.getState().toasts[0];
+    expect(toast.secondaryAction?.label).toBe('Open here');
+    toast.secondaryAction?.onClick();
+    expect(onClick).toHaveBeenCalled();
+  });
+
+  it('replaces the toast with the same key, as the newest, instead of stacking another', () => {
+    const { addToast } = useToastStore.getState();
+    const first = addToast('Preview ready: localhost:3000', 'info', { key: 'preview:ws-1' });
+    addToast('Other news', 'info');
+    const second = addToast('Preview ready: localhost:5173', 'info', { key: 'preview:ws-1' });
+    addToast('Preview ready: localhost:4000', 'info', { key: 'preview:ws-2' });
+
+    expect(second).not.toBe(first);
+    expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
+      'Other news',
+      'Preview ready: localhost:5173',
+      'Preview ready: localhost:4000',
+    ]);
+  });
+
+  it('removes the toast added with a key, and leaves the others', () => {
+    const { addToast, removeToastWithKey } = useToastStore.getState();
+    addToast('Preview ready: localhost:5173', 'info', { key: 'preview:ws-1' });
+    addToast('Other news', 'info');
+
+    removeToastWithKey('preview:ws-1');
+    removeToastWithKey('preview:ws-2');
+
+    expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual(['Other news']);
+  });
+
   it('removeToast is a no-op for unknown id', () => {
     useToastStore.getState().addToast('msg', 'success');
     useToastStore.getState().removeToast('nonexistent');

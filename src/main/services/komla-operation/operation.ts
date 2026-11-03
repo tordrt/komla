@@ -493,7 +493,7 @@ export type KomlaOperation =
   | { type: 'status.clear'; id?: string }
   /** Runs a status-items.json item again now. */
   | { type: 'status.refresh'; id: string }
-  | { type: 'preview.open'; url?: string }
+  | { type: 'preview.open'; url?: string; open?: boolean }
   /** The calling workspace's terminals, with what each one's agent is doing. */
   | { type: 'terminal.list' }
   /** `terminal` is a terminal's id or its tab's name; `history` lines above the screen. */
@@ -629,7 +629,9 @@ export class KomlaOperationService {
       case 'status.refresh':
         return this.refreshStatusCommand(context, operation.id);
       case 'preview.open':
-        return this.openPreview(context, operation.url);
+        return operation.open
+          ? this.openPreview(context, operation.url)
+          : this.offerPreview(context, operation.url);
       case 'desktop.open':
         return this.openDesktop(context, operation);
       case 'terminal.list':
@@ -756,15 +758,7 @@ export class KomlaOperationService {
    * shows as it is, or opens on a blank tab that finds the workspace's server.
    */
   private openPreview(context: KomlaOperationContext, url?: string): unknown {
-    this.requireCapability('preview.open');
-    const workspace = this.requireWorkspace(context);
-    if (url !== undefined && !isBrowserUrl(url)) {
-      throw new KomlaOperationError(
-        'INVALID_PREVIEW_URL',
-        'Preview URLs must be HTTP or HTTPS URLs.',
-        400
-      );
-    }
+    const workspace = this.requirePreviewWorkspace(context, url);
     this.dependencies.publish(IPC.WORKSPACE_OPEN_DEV_PREVIEW, {
       workspaceId: workspace.id,
       ...(url !== undefined ? { url, urlExecutionLocation: 'workspace' } : {}),
@@ -776,6 +770,44 @@ export class KomlaOperationService {
         opened: true,
       },
     };
+  }
+
+  /**
+   * Offers a page in the window that shows the workspace, without opening it: a toast opens it in
+   * the default browser or Komla's, and a dot on the globe button marks it until the user looks.
+   */
+  private offerPreview(context: KomlaOperationContext, url?: string): unknown {
+    const workspace = this.requirePreviewWorkspace(context, url);
+    if (url === undefined) {
+      throw new KomlaOperationError(
+        'PREVIEW_URL_REQUIRED',
+        "A preview needs the page's URL, unless it opens Komla's browser (komla preview --open, or open in the MCP tool).",
+        400
+      );
+    }
+    this.dependencies.publish(IPC.WORKSPACE_OPEN_DEV_PREVIEW, {
+      workspaceId: workspace.id,
+      url,
+      urlExecutionLocation: 'workspace',
+      offer: true,
+    });
+    return { preview: { workspaceId: workspace.id, url, opened: false } };
+  }
+
+  private requirePreviewWorkspace(
+    context: KomlaOperationContext,
+    url?: string
+  ): KomlaOperationWorkspace {
+    this.requireCapability('preview.open');
+    const workspace = this.requireWorkspace(context);
+    if (url !== undefined && !isBrowserUrl(url)) {
+      throw new KomlaOperationError(
+        'INVALID_PREVIEW_URL',
+        'Preview URLs must be HTTP or HTTPS URLs.',
+        400
+      );
+    }
+    return workspace;
   }
 
   private setWorkspaceTitle(

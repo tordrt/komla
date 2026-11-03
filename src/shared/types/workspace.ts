@@ -151,12 +151,17 @@ export interface WorkspacePromptSubmit {
   reply?: string;
 }
 
-/** Main asks the window showing a workspace to open a page, or the workspace's browser, in Komla. */
+/**
+ * Main asks the window showing a workspace to open a page, or the workspace's browser, in Komla,
+ * or to offer a page for the user to open.
+ */
 export interface OpenDevPreviewEvent {
   workspaceId: string;
   url?: string;
   /** Where the terminal that printed the URL runs, for a page on that machine. */
   urlExecutionLocation?: TerminalExecutionLocation;
+  /** Offer `url` with a toast and a dot on the globe button, instead of opening it. */
+  offer?: boolean;
 }
 
 /** An agent's `komla trash`, sent to the window showing its workspace once its turn ends. */

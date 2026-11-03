@@ -411,12 +411,21 @@ const COMMANDS: &[Command] = &[
     Command {
         group: Group::More,
         name: "preview",
-        index: "[url]",
-        usages: &["[url] [--json]"],
-        summary: "Open a dev server in Komla's browser preview",
-        description: &["Opens a running dev server in Komla's browser preview, once it responds. `komla preview open` is the same."],
-        options: &[JSON],
-        examples: &["komla preview http://localhost:3000"],
+        index: "<url>",
+        usages: &["<url> [--open] [--json]", "--open [--json]"],
+        summary: "Offer the user a page, such as a dev server",
+        description: &[
+            "Offers the user a page, such as a running dev server, without opening it: Komla shows a toast that opens it in the default browser, forwarded from an SSH host, or in Komla's browser, and a dot on its globe button, which lists it. A later preview in the same workspace replaces the toast. `komla preview open` is the same.",
+            "--open opens the page in Komla's browser right away instead, once it responds; without a URL, it shows the workspace's browser, or a new one that finds its dev server. Use it only when the user asked to see the page in Komla.",
+        ],
+        options: &[
+            ("--open", "Open it in Komla's browser now, instead of offering it."),
+            JSON,
+        ],
+        examples: &[
+            "komla preview http://localhost:3000",
+            "komla preview --open http://localhost:3000",
+        ],
     },
     Command {
         group: Group::More,

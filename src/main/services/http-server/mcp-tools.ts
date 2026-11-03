@@ -255,7 +255,7 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
 
   registerTool(
     'open_browser_preview',
-    "Open Komla's browser for this workspace: its browser pane, or one in a tab of its own when it has none. Use it to show the user a page, such as a dev server you started; any http(s) URL works. URL is optional; with one, it opens in a new tab of that browser (or the tab already at that URL); without one, Komla shows the browser as it is, or a new one that detects a local dev URL.",
+    "Offer the user a page, such as a dev server you started; any http(s) URL works. Komla shows a toast that opens it in the user's default browser or in Komla's browser, and marks it under the globe button, without opening it. Set open only when the user asked to see the page in Komla: it opens Komla's browser for this workspace right away, in a new tab of its browser pane (or the tab already at that URL), or in a tab of its own when it has none. With open and no URL, Komla shows the browser as it is, or a new one that detects a local dev URL.",
     {
       cwd: z.string().describe('Current working directory of the calling agent.'),
       url: z
@@ -263,11 +263,22 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
         .trim()
         .min(1)
         .optional()
-        .describe('Optional HTTP(S) URL to show in a tab of the browser.'),
+        .describe('HTTP(S) URL of the page. Required unless open is set.'),
+      open: z
+        .boolean()
+        .optional()
+        .describe("Open the page in Komla's browser now, instead of offering it."),
     },
-    async ({ cwd, url }) => {
-      return executeMcpOperation({ ...requestContext, cwd }, { type: 'preview.open', url }, () =>
-        url !== undefined ? `Browser preview opened at ${url}` : 'Browser preview opened.'
+    async ({ cwd, url, open }) => {
+      return executeMcpOperation(
+        { ...requestContext, cwd },
+        { type: 'preview.open', url, ...(open ? { open } : {}) },
+        () =>
+          !open
+            ? `Browser preview offered at ${url}: the user can open it from Komla's toast or globe button.`
+            : url !== undefined
+              ? `Browser preview opened at ${url}`
+              : 'Browser preview opened.'
       );
     }
   );

@@ -10,6 +10,7 @@ export interface ToastOverlayToast {
   message: string;
   type: 'success' | 'error' | 'info';
   actionLabel?: string;
+  secondaryActionLabel?: string;
   dismissOnTimeout: boolean;
   progress?: boolean;
   quiet?: boolean;
@@ -29,8 +30,8 @@ export interface ToastOverlayState extends ToastOverlayContent {
   bounds: { x: number; y: number; width: number; height: number };
 }
 
-/** Dismissing a toast or clicking its action in the overlay, applied by the main window. */
+/** Dismissing a toast or clicking one of its actions in the overlay, applied by the main window. */
 export interface ToastOverlayEvent {
-  type: 'remove' | 'action';
+  type: 'remove' | 'action' | 'secondary-action';
   id: string;
 }

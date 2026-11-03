@@ -36,3 +36,10 @@ export function parseLoopbackUrl(input: string): URL | null {
 export function isLoopbackUrl(input: string): boolean {
   return parseLoopbackUrl(input) !== null;
 }
+
+/** One spelling for every loopback alias of a URL, such as 127.0.0.1 and localhost. */
+export function equivalentLoopbackUrlKey(input: string): string {
+  const url = parseLoopbackUrl(input);
+  if (!url) return input;
+  return `${url.protocol}//localhost:${url.port}${url.pathname}${url.search}${url.hash}`;
+}

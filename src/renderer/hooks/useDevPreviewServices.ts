@@ -3,9 +3,11 @@ import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useStat
 import {
   getCandidatePorts,
   mergeDetectedServices,
+  withOfferedPage,
   type PreviewUrlCandidate,
 } from '@/lib/dev-preview-candidates';
 import { scanWorkspaceTerminalsForLocalhostUrlCandidates } from '@/lib/scan-terminal-urls';
+import { useDevPreviewOffersStore } from '@/stores/dev-preview-offers.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import type { DevPreviewServiceDetection } from '../../shared/types';
@@ -164,9 +166,13 @@ export function useLiveRefresh(
 const NO_PORTS: number[] = [];
 
 // Read on each check rather than followed, as background runs' output changes often.
+/** The localhost pages the workspace shows, after the one an agent last offered there. */
 function scanCandidates(workspaceId: string) {
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
-  return scanWorkspaceTerminalsForLocalhostUrlCandidates(workspaceId, workspace);
+  return withOfferedPage(
+    scanWorkspaceTerminalsForLocalhostUrlCandidates(workspaceId, workspace),
+    useDevPreviewOffersStore.getState().offers[workspaceId]
+  );
 }
 
 /**
@@ -233,10 +239,13 @@ export function usePreviewUrlCandidates(
   own: OwnPortsAnswer | null;
 } {
   const [refreshTick, setRefreshTick] = useState(0);
+  // A page an agent offers while the list is open joins it right away.
+  const offer = useDevPreviewOffersStore((s) => s.offers[workspaceId]);
   const scannedCandidates = useMemo(() => {
     void refreshTick;
+    void offer;
     return open ? scanCandidates(workspaceId) : [];
-  }, [open, refreshTick, workspaceId]);
+  }, [offer, open, refreshTick, workspaceId]);
   const detectionPorts = useMemo(
     () => ({ ...getCandidatePorts(scannedCandidates, isSshWorkspace), own: ownPorts }),
     [isSshWorkspace, ownPorts, scannedCandidates]

@@ -72,7 +72,7 @@ function designAgent(design: (typeof DESIGNS)[number]): AgentScene {
           { waitFor: PREVIEW_CUE },
           {
             mcp: 'open_browser_preview',
-            args: { url },
+            args: { url, open: true },
             result: [`Browser preview opened at ${url}`],
             delay: 500,
           },

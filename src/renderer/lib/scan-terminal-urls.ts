@@ -36,7 +36,8 @@ function stripTrailingPunctuation(url: string): string {
   return url.replace(TRAILING_PUNCT_REGEX, '');
 }
 
-function normalizeScannedLocalUrl(input: string): string {
+/** A localhost URL as the scan spells it, with trailing-slash and host aliases made one. */
+export function normalizeScannedLocalUrl(input: string): string {
   try {
     const url = new URL(normalizeLocalDevServerUrl(input));
     // Round-trip through URL so trailing-slash variants of the same URL

@@ -117,11 +117,13 @@ as for any dev server or link, so a project's own tags show there too. On an SSH
 leaves out the image. Mention that clicking the URL right in this terminal opens it too: where
 **Settings → Terminal → Open links in** says, which is the default browser on a new install, and
 Shift+click the other way. When the terminal runs on an SSH host, Komla forwards the port to this
-computer by itself either way. Explain that an agent opens a page there itself with
-`komla preview <url>`, or with no URL, a dev server it finds running in this workspace. Keep the
+computer by itself either way. Explain that an agent offers a page itself with
+`komla preview <url>`: a toast opens it in the default browser or Komla's, and a dot on the globe
+button marks it. `--open` opens it in Komla's browser right away, and with no URL, a dev server it
+finds running in this workspace. Keep the
 server running until the tour ends. End the turn and wait for the user to ask to continue. If the
 user doesn't find the server under the globe button, open it yourself as the one exception: run
-`komla preview <root URL>`, point out Komla's browser preview, end the turn and wait again. If that
+`komla preview --open <root URL>`, point out Komla's browser preview, end the turn and wait again. If that
 fails too, report the error and go on to step 4, which doesn't need it.
 
 ## 4. Drive another workspace from a script

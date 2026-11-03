@@ -35,6 +35,17 @@ command's first words show each command they start, such as every `status` comma
 `native/src/help.rs`, wrapped at 80 columns when printed. The agent guides point there for options
 and keep only when and how to use them.
 
+`komla preview <url>` offers the user a page, such as a dev server an agent started, without opening
+it. The window that shows the workspace shows a toast with Open in browser, which opens the page in
+the default browser through a tunnel from an SSH host, and Open in Komla, which opens it in the
+workspace's browser. The globe button lists the page with its servers or links, and a dot marks the
+offer until the user opens that list or opens the page, by either button, from the list, by a
+terminal's link or through `--open` for it. A later preview in the same workspace replaces the
+toast. `--open` opens the page in Komla's browser right away, as `komla desktop run --browser` does
+for a desktop; without a URL it shows the workspace's browser, or a new one that finds its dev
+server. Without a URL or `--open`, it fails with `PREVIEW_URL_REQUIRED`. The MCP tool
+`open_browser_preview` takes `open` for the same choice.
+
 `komla workspace list [--all] [--json]` lists the workspaces, with those in the Trash under
 `--all`: each one's `id`, `name`, `project`, `branch`, `path`, `environment`, `agentActive`, the
 `attention` it shows, its `tag` and the `linkedWorkspaceIds` it's linked to. Through an SSH host's tunnel it lists that host's
@@ -501,6 +512,16 @@ Spawn a new AI agent in a new tab within the current Komla workspace. Only use w
 | --------- | -------- | ---------------------------------------------- |
 | `cwd`     | Yes      | Current working directory of the calling agent |
 | `prompt`  | No       | Prompt to pass to the new AI agent             |
+
+#### `open_browser_preview`
+
+Offer the user a page, as `komla preview` does: a toast opens it in the default browser or in Komla's browser, and the globe button marks it.
+
+| Parameter | Required | Description                                                                          |
+| --------- | -------- | ------------------------------------------------------------------------------------ |
+| `cwd`     | Yes      | Current working directory of the calling agent                                       |
+| `url`     | No       | HTTP(S) URL of the page; required unless `open` is set                               |
+| `open`    | No       | Open the page in Komla's browser now, or without `url`, show the workspace's browser |
 
 #### `set_workspace_title`
 

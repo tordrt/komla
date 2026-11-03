@@ -77,7 +77,7 @@ export class ToastOverlayService {
     if (!overlay || overlay.owner.webContents.isDestroyed()) return;
     // An action can open Komla UI, such as a dialog that hides the preview, so
     // the keyboard goes to the window rather than back to the page.
-    if (event.type === 'action') overlay.owner.webContents.focus();
+    if (event.type !== 'remove') overlay.owner.webContents.focus();
     overlay.owner.webContents.send(IPC.TOAST_OVERLAY_EVENT, event);
   }
 

@@ -2354,16 +2354,20 @@ fn preview_command(
 ) -> anyhow::Result<()> {
     let operation = args
         .first()
-        .context("usage: komla preview open [url] [--cwd <path>]")?;
+        .context("usage: komla preview open [url] [--open] [--cwd <path>]")?;
     let mut options = args[1..].to_vec();
     let json_output = take_flag(&mut options, "--json")?;
+    let open = take_flag(&mut options, "--open")?;
     match operation.as_str() {
         "open" => {
             if options.len() > 1 {
-                bail!("usage: komla preview open [url] [--cwd <path>]");
+                bail!("usage: komla preview open [url] [--open] [--cwd <path>]");
             }
             let mut operation = json!({"type": "preview.open"});
             insert_json_optional(&mut operation, "url", options.pop());
+            if open {
+                operation["open"] = json!(true);
+            }
             let result = execute_operation(api, environment, operation)?;
             write_operation_result(&result, json_output, output)
         }
@@ -3641,12 +3645,18 @@ fn write_operation_result(
         return Ok(());
     }
     if let Some(preview) = result.get("preview") {
-        let opened = preview.get("opened").and_then(Value::as_bool) == Some(true);
-        writeln!(
-            output,
-            "Preview {}.",
-            if opened { "opened" } else { "updated" }
-        )?;
+        if preview.get("opened").and_then(Value::as_bool) == Some(true) {
+            writeln!(output, "Preview opened.")?;
+        } else {
+            let url = preview
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or("the page");
+            writeln!(
+                output,
+                "Offered {url}: the user can open it from Komla's toast or globe button."
+            )?;
+        }
         return Ok(());
     }
     writeln!(output, "{result}")?;
@@ -4920,7 +4930,14 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
                 vec!["preview", "http://localhost:3000"],
                 json!({"type": "preview.open", "url": "http://localhost:3000"}),
             ),
-            (vec!["preview"], json!({"type": "preview.open"})),
+            (
+                vec!["preview", "http://localhost:3000", "--open"],
+                json!({"type": "preview.open", "url": "http://localhost:3000", "open": true}),
+            ),
+            (
+                vec!["preview", "open", "--open"],
+                json!({"type": "preview.open", "open": true}),
+            ),
             (
                 vec!["title", "Build investigation"],
                 json!({"type": "workspace.title", "title": "Build investigation"}),
@@ -4933,6 +4950,33 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
                 assert_eq!(&body[key], value);
             }
         }
+    }
+
+    #[test]
+    fn preview_says_whether_it_opened_the_page_or_offered_it() {
+        let mut api = FakeApi::responding(json!({
+            "ok": true,
+            "result": {"preview": {"workspaceId": "w1", "url": "http://localhost:3000", "opened": false}},
+        }));
+        let printed = run_with(&mut api, &["preview", "http://localhost:3000"], "").unwrap();
+        let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+        assert!(body.get("open").is_none());
+        assert_eq!(
+            printed,
+            "Offered http://localhost:3000: the user can open it from Komla's toast or globe button.\n"
+        );
+
+        let mut api = FakeApi::responding(json!({
+            "ok": true,
+            "result": {"preview": {"workspaceId": "w1", "url": "http://localhost:3000", "opened": true}},
+        }));
+        let printed = run_with(
+            &mut api,
+            &["preview", "--open", "http://localhost:3000"],
+            "",
+        )
+        .unwrap();
+        assert_eq!(printed, "Preview opened.\n");
     }
 
     /// What a command printed, and the code it exits with.

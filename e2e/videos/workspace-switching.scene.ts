@@ -45,7 +45,7 @@ export const PRICING: VideoWorkspace = {
           { waitFor: PREVIEW },
           {
             mcp: 'open_browser_preview',
-            args: { url: PRICING_URL },
+            args: { url: PRICING_URL, open: true },
             result: [`Browser preview opened at ${PRICING_URL}`],
             delay: 500,
           },

@@ -10,6 +10,10 @@ export interface Toast {
   message: string;
   type: 'success' | 'error' | 'info';
   action?: ToastAction;
+  /** A second choice, drawn quieter before `action`, such as somewhere else to open a page. */
+  secondaryAction?: ToastAction;
+  /** Another toast added with the same key replaces this one. */
+  key?: string;
   dismissOnTimeout?: boolean;
   /** The work it reports is still running, so it shows a spinner instead of its icon. */
   progress?: boolean;
@@ -27,12 +31,16 @@ interface ToastState {
     type: 'success' | 'error' | 'info',
     options?: {
       action?: ToastAction;
+      secondaryAction?: ToastAction;
+      key?: string;
       dismissOnTimeout?: boolean;
       progress?: boolean;
       quiet?: boolean;
     }
   ) => string;
   removeToast: (id: string) => void;
+  /** Removes the toast added with `key`, if one shows. */
+  removeToastWithKey: (key: string) => void;
 }
 
 /** Older toasts beyond this are dropped so a burst can't fill the screen. */
@@ -50,14 +58,18 @@ export const useToastStore = create<ToastState>((set) => ({
     // A success is routine, so it stays small. One that waits to be dismissed keeps the
     // close button the quiet style drops.
     const quiet = options?.quiet ?? (type === 'success' && dismissOnTimeout);
+    // One with the key of a shown toast replaces it as the newest, with its countdown restarted.
+    const key = options?.key;
     set((state) => ({
       toasts: [
-        ...state.toasts,
+        ...state.toasts.filter((toast) => key === undefined || toast.key !== key),
         {
           id,
           message,
           type,
           action: options?.action,
+          secondaryAction: options?.secondaryAction,
+          key,
           dismissOnTimeout,
           progress: options?.progress,
           quiet,
@@ -71,5 +83,13 @@ export const useToastStore = create<ToastState>((set) => ({
     set((state) => ({
       toasts: state.toasts.filter((t) => t.id !== id),
     }));
+  },
+
+  removeToastWithKey: (key) => {
+    set((state) =>
+      state.toasts.some((t) => t.key === key)
+        ? { toasts: state.toasts.filter((t) => t.key !== key) }
+        : state
+    );
   },
 }));

@@ -122,7 +122,7 @@ import {
 } from '../workspaces/SetupActivityPanel';
 
 import { ActionTabButton } from './ActionTabButton';
-import { BrowserLinksPopover } from './BrowserLinksPopover';
+import { BrowserLinksButtonIcon, BrowserLinksPopover } from './BrowserLinksPopover';
 import { FileTreeToggleButton } from './FileTreeToggleButton';
 import { InlineFilePreviewPanel } from './InlineFilePreviewPanel';
 import { InlineFileTreePanel } from './InlineFileTreePanel';
@@ -2265,7 +2265,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                     label="Open in default browser"
                     className="rounded-md hover:bg-muted/60"
                   >
-                    <Globe className="size-3.5" />
+                    <BrowserLinksButtonIcon workspaceId={selectedWorkspaceId} />
                   </IconButton>
                 </BrowserLinksPopover>
               )}

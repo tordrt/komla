@@ -147,6 +147,20 @@ export function ToastItem({ toast, mirrored = false, overlay }: ToastItemProps) 
         {toast.message}
       </span>
 
+      {toast.secondaryAction && (
+        <button
+          onClick={() => {
+            toast.secondaryAction?.onClick();
+            dismiss();
+          }}
+          className={`shrink-0 text-xs font-semibold opacity-75 transition-opacity hover:opacity-100 ${
+            toast.quiet ? 'rounded-full px-2.5 py-1' : 'rounded-md px-2 py-0.5'
+          } ${isError ? 'text-error' : 'text-primary'}`}
+        >
+          {toast.secondaryAction.label}
+        </button>
+      )}
+
       {toast.action && (
         <button
           onClick={() => {
@@ -227,16 +241,19 @@ function toastOverlayState(stack: DOMRect, toasts: Toast[]): ToastOverlayState {
   const root = document.documentElement;
   return {
     bounds: { x: stack.x, y: stack.y, width: stack.width, height: stack.height },
-    toasts: toasts.map(({ id, message, type, action, dismissOnTimeout, progress, quiet }) => ({
-      id,
-      // The overlay would refuse the whole stack over one long message.
-      message: message.slice(0, TOAST_OVERLAY_MESSAGE_MAX_LENGTH),
-      type,
-      actionLabel: action?.label,
-      dismissOnTimeout: dismissOnTimeout !== false,
-      progress,
-      quiet,
-    })),
+    toasts: toasts.map(
+      ({ id, message, type, action, secondaryAction, dismissOnTimeout, progress, quiet }) => ({
+        id,
+        // The overlay would refuse the whole stack over one long message.
+        message: message.slice(0, TOAST_OVERLAY_MESSAGE_MAX_LENGTH),
+        type,
+        actionLabel: action?.label,
+        secondaryActionLabel: secondaryAction?.label,
+        dismissOnTimeout: dismissOnTimeout !== false,
+        progress,
+        quiet,
+      })
+    ),
     themeClassName: root.className,
     themeStyle: root.style.cssText,
     messageMaxHeight: window.innerHeight * 0.4,
@@ -287,7 +304,9 @@ export function ToastContainer() {
   useEffect(() => {
     return window.api.onToastOverlayEvent(({ type, id }) => {
       const { toasts: current, removeToast } = useToastStore.getState();
-      if (type === 'action') current.find((toast) => toast.id === id)?.action?.onClick();
+      const toast = current.find((candidate) => candidate.id === id);
+      if (type === 'action') toast?.action?.onClick();
+      else if (type === 'secondary-action') toast?.secondaryAction?.onClick();
       else removeToast(id);
     });
   }, []);
@@ -342,7 +361,7 @@ export function ToastOverlay() {
       setToasts(
         content.toasts
           .filter((toast) => !removedIds.has(toast.id))
-          .map(({ actionLabel, ...toast }) => ({
+          .map(({ actionLabel, secondaryActionLabel, ...toast }) => ({
             ...toast,
             action:
               actionLabel === undefined
@@ -351,6 +370,14 @@ export function ToastOverlay() {
                     label: actionLabel,
                     onClick: () =>
                       window.api.sendToastOverlayEvent({ type: 'action', id: toast.id }),
+                  },
+            secondaryAction:
+              secondaryActionLabel === undefined
+                ? undefined
+                : {
+                    label: secondaryActionLabel,
+                    onClick: () =>
+                      window.api.sendToastOverlayEvent({ type: 'secondary-action', id: toast.id }),
                   },
           }))
       );

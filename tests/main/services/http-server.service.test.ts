@@ -5301,12 +5301,13 @@ describe('HttpServerService', () => {
       toolHandler = call![3];
     });
 
-    it("should open the workspace's browser in the main window when no URL is provided", async () => {
+    it("should open the workspace's browser in the main window when asked to without a URL", async () => {
       const workspace = createWorkspace({ id: 'ws-1', workingDirectory: '/projects/my-app' });
       mockWorkspaceService.list.mockReturnValue([workspace]);
 
       const result = (await toolHandler({
         cwd: '/projects/my-app',
+        open: true,
       })) as { content: { text: string }[]; isError?: boolean };
 
       expect(result.isError).toBeUndefined();
@@ -5318,7 +5319,7 @@ describe('HttpServerService', () => {
       );
     });
 
-    it('should open the URL in the window that shows the workspace', async () => {
+    it('should offer the URL in the window that shows the workspace', async () => {
       const workspace = createWorkspace({
         id: 'ws-1',
         workingDirectory: '/projects/my-app',
@@ -5333,9 +5334,34 @@ describe('HttpServerService', () => {
       })) as { content: { text: string }[]; isError?: boolean };
 
       expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('offered');
       expect(mockWorkspaceService.update).not.toHaveBeenCalled();
       expect(mockWindowService.sendToWindowOrNext).toHaveBeenCalledExactlyOnceWith(
         'window-2',
+        'workspace:open-dev-preview',
+        {
+          workspaceId: 'ws-1',
+          url: 'http://localhost:8080',
+          urlExecutionLocation: 'workspace',
+          offer: true,
+        }
+      );
+    });
+
+    it("should open the URL in Komla's browser when asked to", async () => {
+      const workspace = createWorkspace({ id: 'ws-1', workingDirectory: '/projects/my-app' });
+      mockWorkspaceService.list.mockReturnValue([workspace]);
+
+      const result = (await toolHandler({
+        cwd: '/projects/my-app',
+        url: 'http://localhost:8080',
+        open: true,
+      })) as { content: { text: string }[]; isError?: boolean };
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toBe('Browser preview opened at http://localhost:8080');
+      expect(mockWindowService.sendToWindowOrNext).toHaveBeenCalledExactlyOnceWith(
+        undefined,
         'workspace:open-dev-preview',
         { workspaceId: 'ws-1', url: 'http://localhost:8080', urlExecutionLocation: 'workspace' }
       );
@@ -5381,6 +5407,7 @@ describe('HttpServerService', () => {
 
       const result = (await toolHandler({
         cwd: '/projects/shared-dir/src',
+        open: true,
       })) as { content: { text: string }[]; isError?: boolean };
 
       expect(result.isError).toBeUndefined();

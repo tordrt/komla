@@ -13,6 +13,7 @@ const toastSchema = z
     message: z.string().max(TOAST_OVERLAY_MESSAGE_MAX_LENGTH),
     type: z.enum(['success', 'error', 'info']),
     actionLabel: z.string().max(200).optional(),
+    secondaryActionLabel: z.string().max(200).optional(),
     dismissOnTimeout: z.boolean(),
     progress: z.boolean().optional(),
     quiet: z.boolean().optional(),
@@ -38,5 +39,5 @@ const toastOverlayStateSchema = z
 
 export const toastOverlayShowArgsSchema = z.tuple([toastOverlayStateSchema]);
 export const toastOverlayEventArgsSchema = z.tuple([
-  z.object({ type: z.enum(['remove', 'action']), id: idSchema }).strip(),
+  z.object({ type: z.enum(['remove', 'action', 'secondary-action']), id: idSchema }).strip(),
 ]);

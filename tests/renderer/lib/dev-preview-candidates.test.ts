@@ -9,6 +9,7 @@ import {
   mergeDetectedServices,
   rankPopoverServers,
   splitListeningPorts,
+  withOfferedPage,
   type PreviewUrlCandidate,
 } from '../../../src/renderer/lib/dev-preview-candidates';
 
@@ -76,6 +77,41 @@ describe('getCandidatePorts', () => {
       scanned(`http://localhost:${3000 + index}/`)
     );
     expect(getCandidatePorts(candidates, false).local).toHaveLength(32);
+  });
+});
+
+describe('withOfferedPage', () => {
+  const printed = [
+    { url: 'http://localhost:4000/', terminalId: 't1', executionLocation: 'workspace' as const },
+    { url: 'http://localhost:3000/', terminalId: 't1', executionLocation: 'workspace' as const },
+  ];
+
+  it('lists the page an agent offered first, though no terminal printed it', () => {
+    expect(
+      withOfferedPage(printed, { url: 'http://127.0.0.1:8080/admin', executionLocation: 'workspace' })
+    ).toEqual([
+      { url: 'http://127.0.0.1:8080/admin', executionLocation: 'workspace' },
+      ...printed,
+    ]);
+  });
+
+  it('lists it as the URL a terminal printed for it, under any loopback alias', () => {
+    expect(
+      withOfferedPage(printed, { url: 'http://127.0.0.1:3000', executionLocation: 'workspace' })
+    ).toEqual([printed[1], printed[0]]);
+  });
+
+  it('lists a page offered on every interface as the localhost page it is', () => {
+    expect(
+      withOfferedPage([], { url: 'http://0.0.0.0:3000/', executionLocation: 'workspace' })
+    ).toEqual([{ url: 'http://localhost:3000/', executionLocation: 'workspace' }]);
+  });
+
+  it('leaves out a page on another site, which the links list', () => {
+    expect(
+      withOfferedPage(printed, { url: 'https://preview.example.com/', executionLocation: 'workspace' })
+    ).toEqual(printed);
+    expect(withOfferedPage(printed, undefined)).toEqual(printed);
   });
 });
 

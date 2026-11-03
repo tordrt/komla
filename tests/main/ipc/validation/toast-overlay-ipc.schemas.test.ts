@@ -34,6 +34,23 @@ describe('toast overlay IPC schemas', () => {
     expect(toastOverlayShowArgsSchema.parse([deleting])).toEqual([deleting]);
   });
 
+  it('keeps the labels of both of a toast\'s actions', () => {
+    const offer = {
+      ...state,
+      toasts: [
+        {
+          id: 'a1',
+          message: 'Preview ready: localhost:5173',
+          type: 'info',
+          actionLabel: 'Open in browser',
+          secondaryActionLabel: 'Open in Komla',
+          dismissOnTimeout: true,
+        },
+      ],
+    };
+    expect(toastOverlayShowArgsSchema.parse([offer])).toEqual([offer]);
+  });
+
   it('rejects an empty stack, unusable bounds and unknown toast types', () => {
     expect(() => toastOverlayShowArgsSchema.parse([{ ...state, toasts: [] }])).toThrow();
     expect(() =>
@@ -49,6 +66,9 @@ describe('toast overlay IPC schemas', () => {
   it('accepts only removals and actions for a toast id', () => {
     expect(toastOverlayEventArgsSchema.parse([{ type: 'remove', id: 'a1' }])).toEqual([
       { type: 'remove', id: 'a1' },
+    ]);
+    expect(toastOverlayEventArgsSchema.parse([{ type: 'secondary-action', id: 'a1' }])).toEqual([
+      { type: 'secondary-action', id: 'a1' },
     ]);
     expect(() => toastOverlayEventArgsSchema.parse([{ type: 'focus', id: 'a1' }])).toThrow();
     expect(() => toastOverlayEventArgsSchema.parse([{ type: 'remove', id: '' }])).toThrow();

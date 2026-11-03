@@ -2974,7 +2974,7 @@ describe('KomlaOperationService', () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it("sends the page to the workspace's window, without saving it to the workspace", async () => {
+  it("offers the page in the workspace's window, without opening or saving it", async () => {
     const updateWorkspace = vi.fn();
     const publish = vi.fn();
     const service = new KomlaOperationService(
@@ -2991,6 +2991,29 @@ describe('KomlaOperationService', () => {
         { type: 'preview.open', url: 'http://127.0.0.1:3000' }
       )
     ).resolves.toEqual({
+      preview: { workspaceId: 'workspace-1', url: 'http://127.0.0.1:3000', opened: false },
+    });
+    expect(publish).toHaveBeenLastCalledWith('workspace:open-dev-preview', {
+      workspaceId: 'workspace-1',
+      url: 'http://127.0.0.1:3000',
+      urlExecutionLocation: 'workspace',
+      offer: true,
+    });
+    expect(updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("opens the page in Komla's browser when asked to", async () => {
+    const publish = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({ findWorkspaceByTerminalId: () => ({ id: 'workspace-1' }), publish })
+    );
+
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'preview.open', url: 'http://127.0.0.1:3000', open: true }
+      )
+    ).resolves.toEqual({
       preview: { workspaceId: 'workspace-1', url: 'http://127.0.0.1:3000', opened: true },
     });
     expect(publish).toHaveBeenLastCalledWith('workspace:open-dev-preview', {
@@ -2999,12 +3022,23 @@ describe('KomlaOperationService', () => {
       urlExecutionLocation: 'workspace',
     });
 
-    await service.execute({ terminalId: 'terminal-1' }, { type: 'preview.open' });
+    await service.execute({ terminalId: 'terminal-1' }, { type: 'preview.open', open: true });
 
     expect(publish).toHaveBeenLastCalledWith('workspace:open-dev-preview', {
       workspaceId: 'workspace-1',
     });
-    expect(updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("refuses to offer Komla's browser without a page to offer", async () => {
+    const publish = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({ findWorkspaceByTerminalId: () => ({ id: 'workspace-1' }), publish })
+    );
+
+    await expect(
+      service.execute({ terminalId: 'terminal-1' }, { type: 'preview.open' })
+    ).rejects.toMatchObject({ code: 'PREVIEW_URL_REQUIRED', statusCode: 400 });
+    expect(publish).not.toHaveBeenCalled();
   });
 
   describe('desktop.open', () => {

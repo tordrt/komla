@@ -2,6 +2,7 @@ import { ipcErrorMessage } from '@/lib/ipc-error-message';
 import { openBrowserPane, openInBrowserPane, type PaneSurfacePlacement } from '@/lib/pane-surfaces';
 import { recordOpenedRecentLink } from '@/lib/recent-links';
 import { parseLoopbackForwardIntent } from '@/lib/scan-terminal-urls';
+import { settleDevPreviewOffer } from '@/stores/dev-preview-offers.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -33,7 +34,10 @@ export function openTerminalUrl(
 ): void {
   const normalized = normalizeLocalDevServerUrl(url);
   const { workspaceId } = context;
-  if (workspaceId) recordOpenedRecentLink(workspaceId, normalized);
+  if (workspaceId) {
+    recordOpenedRecentLink(workspaceId, normalized);
+    settleDevPreviewOffer(workspaceId, normalized);
+  }
   const executionLocation = context.executionLocation ?? 'workspace';
   if (target === 'external' || !workspaceId) {
     void openExternally(normalized, context);

@@ -1546,7 +1546,7 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.VIRTUAL_DESKTOP_STARTED, handler);
   },
 
-  /** An agent or `komla preview` opened a page, or the workspace's browser, in Komla. */
+  /** An agent or `komla preview` offered a page, or opened it or the workspace's browser in Komla. */
   onOpenDevPreview: (callback: (event: OpenDevPreviewEvent) => void): (() => void) => {
     const handler = (_: Electron.IpcRendererEvent, event: OpenDevPreviewEvent): void => {
       callback(event);

@@ -192,6 +192,25 @@ describe('ToastContainer', () => {
     expect(toastElement('Push failed: permission denied')).not.toHaveClass('self-end');
   });
 
+  it('runs the second action from its own button, and closes', () => {
+    const open = vi.fn();
+    const openHere = vi.fn();
+    act(() => {
+      useToastStore.getState().addToast('Preview ready: localhost:5173', 'info', {
+        action: { label: 'Open in browser', onClick: open },
+        secondaryAction: { label: 'Open in Komla', onClick: openHere },
+      });
+    });
+    render(<ToastContainer />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in Komla' }));
+    advance(200);
+
+    expect(openHere).toHaveBeenCalledTimes(1);
+    expect(open).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts).toHaveLength(0);
+  });
+
   it('shows at most four toasts, keeping the newest', () => {
     act(() => {
       for (let i = 1; i <= 6; i++) {
@@ -385,10 +404,14 @@ describe('ToastContainer next to a native browser preview', () => {
 
   it('applies removals and actions from the overlay layer', () => {
     const onClick = vi.fn();
+    const onLater = vi.fn();
     act(() => {
       useToastStore
         .getState()
-        .addToast('Update ready', 'info', { action: { label: 'Restart', onClick } });
+        .addToast('Update ready', 'info', {
+          action: { label: 'Restart', onClick },
+          secondaryAction: { label: 'Later', onClick: onLater },
+        });
     });
     render(<ToastContainer />);
     const onOverlayEvent = vi.mocked(window.api.onToastOverlayEvent).mock.calls[0][0];
@@ -396,6 +419,9 @@ describe('ToastContainer next to a native browser preview', () => {
 
     act(() => onOverlayEvent({ type: 'action', id: update.id }));
     expect(onClick).toHaveBeenCalledTimes(1);
+
+    act(() => onOverlayEvent({ type: 'secondary-action', id: update.id }));
+    expect(onLater).toHaveBeenCalledTimes(1);
 
     act(() => onOverlayEvent({ type: 'remove', id: saved.id }));
     expect(useToastStore.getState().toasts.map((toast) => toast.id)).toEqual([update.id]);
@@ -519,6 +545,31 @@ describe('ToastOverlay', () => {
     });
     expect(window.api.sendToastOverlayEvent).toHaveBeenNthCalledWith(2, {
       type: 'remove',
+      id: 'a',
+    });
+  });
+
+  it('runs the second action in the main window', () => {
+    render(<ToastOverlay />);
+    act(() => {
+      sendContent(
+        content([
+          {
+            id: 'a',
+            message: 'Preview ready: localhost:5173',
+            type: 'info',
+            actionLabel: 'Open in browser',
+            secondaryActionLabel: 'Open in Komla',
+            dismissOnTimeout: true,
+          },
+        ])
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in Komla' }));
+
+    expect(window.api.sendToastOverlayEvent).toHaveBeenNthCalledWith(1, {
+      type: 'secondary-action',
       id: 'a',
     });
   });

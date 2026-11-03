@@ -1,10 +1,12 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { Globe } from '@phosphor-icons/react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { LIVE_REFRESH_MS } from '@/hooks/useDevPreviewServices';
 import { openTerminalUrl } from '@/lib/open-terminal-url';
 import { openFilePane } from '@/lib/pane-surfaces';
 import { openVirtualDesktop } from '@/lib/virtual-desktops';
+import { useDevPreviewOffersStore } from '@/stores/dev-preview-offers.store';
 import { useQuickLookStore } from '@/stores/quick-look.store';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 
@@ -26,6 +28,36 @@ const FILE_KIND_RANK: Partial<Record<string, number>> = { html: 0, markdown: 1, 
 
 function fileKindRank(file: TerminalFile): number {
   return FILE_KIND_RANK[getViewableFileKind(file.path) ?? ''] ?? 3;
+}
+
+/** What the globe button's `aria-describedby` names: the hint its icon shows with the dot. */
+const BROWSER_LINKS_OFFER_HINT_ID = 'browser-links-offer-hint';
+
+/** Whether a page an agent offered in the workspace waits to be looked at. */
+function useUnseenDevPreviewOffer(workspaceId: string): boolean {
+  return useDevPreviewOffersStore((s) => s.unseen[workspaceId] === true);
+}
+
+/** The globe button's icon, with a dot while a page an agent offered waits to be looked at. */
+export function BrowserLinksButtonIcon({ workspaceId }: { workspaceId: string }) {
+  const offered = useUnseenDevPreviewOffer(workspaceId);
+  return (
+    <span className="relative flex">
+      <Globe className="size-3.5" />
+      {offered && (
+        <>
+          <span
+            aria-hidden="true"
+            data-offer-dot
+            className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary"
+          />
+          <span id={BROWSER_LINKS_OFFER_HINT_ID} className="sr-only">
+            An agent offered a page
+          </span>
+        </>
+      )}
+    </span>
+  );
 }
 
 /**
@@ -58,6 +90,11 @@ export function BrowserLinksPopover({
     [fileGroups]
   );
   const remember = () => rememberTerminalFiles(workspaceId);
+  // An offer shows in the list, so opening it, or an offer that comes while it's open, is seeing it.
+  const offered = useUnseenDevPreviewOffer(workspaceId);
+  useEffect(() => {
+    if (open && offered) useDevPreviewOffersStore.getState().markSeen(workspaceId);
+  }, [offered, open, workspaceId]);
   // Set while the list hands focus back to the button on closing.
   const closing = useRef(false);
   const preparedAt = useRef(-Infinity);
@@ -91,7 +128,12 @@ export function BrowserLinksPopover({
         setOpen(next);
       }}
     >
-      <PopoverTrigger asChild onPointerEnter={prepare} onFocus={prepare}>
+      <PopoverTrigger
+        asChild
+        onPointerEnter={prepare}
+        onFocus={prepare}
+        aria-describedby={offered ? BROWSER_LINKS_OFFER_HINT_ID : undefined}
+      >
         {children}
       </PopoverTrigger>
       <PopoverContent

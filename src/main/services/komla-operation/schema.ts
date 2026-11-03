@@ -235,6 +235,7 @@ const komlaOperationSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('preview.open'),
       url: z.string().min(1).max(MAX_PATH_LEN).optional(),
+      open: z.boolean().optional(),
     })
     .strict(),
   z

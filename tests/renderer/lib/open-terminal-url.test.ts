@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getAllLeaves } from '../../../src/renderer/lib/layout-utils';
 import { openTerminalUrl } from '../../../src/renderer/lib/open-terminal-url';
+import { useDevPreviewOffersStore } from '../../../src/renderer/stores/dev-preview-offers.store';
 import { useLayoutStore } from '../../../src/renderer/stores/layout.store';
 import { usePaneSurfacesStore } from '../../../src/renderer/stores/pane-surfaces.store';
 import { useSshHostsStore } from '../../../src/renderer/stores/ssh-hosts.store';
@@ -186,6 +187,23 @@ describe('openTerminalUrl and recent links', () => {
     openTerminalUrl('http://localhost:3000/', 'external', { workspaceId: 'local-ws' });
 
     expect(updateWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+describe('openTerminalUrl and an offered page', () => {
+  it("settles the workspace's offer once its page opens, however it is reached", () => {
+    useDevPreviewOffersStore.setState({ offers: {}, unseen: {} });
+    useDevPreviewOffersStore
+      .getState()
+      .offer('local-ws', { url: 'http://localhost:3000/', executionLocation: 'workspace' });
+    useToastStore.getState().addToast('Preview ready: localhost:3000', 'info', {
+      key: 'dev-preview-offer:local-ws',
+    });
+
+    openTerminalUrl('http://127.0.0.1:3000', 'external', { workspaceId: 'local-ws' });
+
+    expect(useDevPreviewOffersStore.getState().unseen).toEqual({});
+    expect(useToastStore.getState().toasts).toEqual([]);
   });
 });
 

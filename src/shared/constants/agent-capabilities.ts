@@ -70,7 +70,8 @@ export const AGENT_CAPABILITIES = [
     id: 'preview.open',
     command: 'komla preview',
     mcpTool: 'open_browser_preview',
-    description: 'Open the embedded browser preview for the current workspace.',
+    description:
+      "Offer the user a page, such as a dev server, or open it in the workspace's browser.",
   },
 ] as const;
 

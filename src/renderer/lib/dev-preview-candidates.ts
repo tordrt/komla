@@ -1,4 +1,4 @@
-import { parseLoopbackUrl } from '../../shared/lib/loopback-url';
+import { equivalentLoopbackUrlKey, isLoopbackUrl } from '../../shared/lib/loopback-url';
 import {
   isLocalTerminalExecutionLocation,
   type TerminalExecutionLocation,
@@ -6,6 +6,7 @@ import {
 
 import {
   isRootlessUrl,
+  normalizeScannedLocalUrl,
   parseLoopbackForwardIntent,
   type ScannedTerminalUrl,
 } from './scan-terminal-urls';
@@ -88,6 +89,28 @@ function candidateRank(candidate: PreviewUrlCandidate): number {
 }
 
 /**
+ * Puts the page on the workspace's machine an agent last offered with `komla preview` first in a
+ * scan, as the URL a terminal printed for it where one did, so the globe button's list shows it
+ * even when no terminal printed it. A page on another site lists with the links instead.
+ */
+export function withOfferedPage(
+  scanned: ScannedTerminalUrl[],
+  offer: { url: string; executionLocation: TerminalExecutionLocation } | undefined
+): ScannedTerminalUrl[] {
+  if (!offer) return scanned;
+  const url = normalizeScannedLocalUrl(offer.url);
+  if (!isLoopbackUrl(url)) return scanned;
+  const key = equivalentLoopbackUrlKey(url);
+  const same = (candidate: ScannedTerminalUrl) =>
+    candidate.executionLocation === offer.executionLocation &&
+    equivalentLoopbackUrlKey(candidate.url) === key;
+  return [
+    scanned.find(same) ?? { url, executionLocation: offer.executionLocation },
+    ...scanned.filter((candidate) => !same(candidate)),
+  ];
+}
+
+/**
  * Marks which scanned URLs still answer and adds the ports the workspace's
  * terminals listen on that no terminal printed a URL for, then the servers
  * outside Komla. In an SSH workspace, URLs and ports on the SSH host are
@@ -144,12 +167,6 @@ export function mergeDetectedServices(
     });
   }
   return merged.sort((a, b) => candidateRank(a) - candidateRank(b));
-}
-
-function equivalentLoopbackUrlKey(input: string): string {
-  const url = parseLoopbackUrl(input);
-  if (!url) return input;
-  return `${url.protocol}//localhost:${url.port}${url.pathname}${url.search}${url.hash}`;
 }
 
 function collapseEquivalentLoopbackUrls(candidates: PreviewUrlCandidate[]): PreviewUrlCandidate[] {

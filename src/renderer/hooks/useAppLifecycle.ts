@@ -8,6 +8,7 @@ import {
   retryPendingTerminalExits,
   retryPendingTerminalExitsOnChange,
 } from '@/lib/close-terminal-pane';
+import { offerDevPreview } from '@/lib/dev-preview-offers';
 import { getFocusedTerminalId } from '@/lib/focused-terminal';
 import { cacheCustomSound, CUSTOM_PREFIX, playNotificationSound } from '@/lib/notification-sounds';
 import { openFolder } from '@/lib/open-folder';
@@ -50,6 +51,7 @@ import { useAutomationsStore } from '@/stores/automations.store';
 import { useCategoriesStore } from '@/stores/categories.store';
 import { useConfigStore } from '@/stores/config.store';
 import { useCustomizationStore } from '@/stores/customization.store';
+import { settleDevPreviewOffer } from '@/stores/dev-preview-offers.store';
 import { useDialogsStore } from '@/stores/dialogs.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useGitStatusStore } from '@/stores/git-status.store';
@@ -520,7 +522,12 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
         });
       }),
 
-      window.api.onOpenDevPreview(({ workspaceId, url, urlExecutionLocation }) => {
+      window.api.onOpenDevPreview(({ workspaceId, url, urlExecutionLocation, offer }) => {
+        if (offer && url) {
+          offerDevPreview(workspaceId, url, urlExecutionLocation);
+          return;
+        }
+        if (url) settleDevPreviewOffer(workspaceId, url);
         openInBrowserPane(workspaceId, url, urlExecutionLocation);
       }),
 

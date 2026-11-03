@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   BUNDLED_TERMINAL_FONT,
+  DEFAULT_TERMINAL_CONFIG,
   DEFAULT_TERMINAL_FONT_FAMILY,
   buildTerminalFontFamily,
 } from '../../../src/shared/constants/terminal';
@@ -19,5 +20,11 @@ describe('buildTerminalFontFamily', () => {
   it('quotes font names that contain spaces', () => {
     const result = buildTerminalFontFamily('Fira Code');
     expect(result).toBe(`"Fira Code", "${BUNDLED_TERMINAL_FONT}", monospace`);
+  });
+});
+
+describe('DEFAULT_TERMINAL_CONFIG', () => {
+  it('outlines the focused pane out of the box', () => {
+    expect(DEFAULT_TERMINAL_CONFIG.focusedPaneBorder).toBe(true);
   });
 });

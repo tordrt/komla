@@ -98,7 +98,7 @@ export const SurfacePane = React.memo(function SurfacePane({
   );
   const setFocusedPane = useLayoutStore((s) => s.setFocusedPane);
   const focusedPaneBorder = useCustomizationStore(
-    (s) => s.terminalConfig?.focusedPaneBorder === true
+    (s) => s.terminalConfig?.focusedPaneBorder ?? true
   );
   const background = useEditorSurfaceBackground();
   // An SSH workspace's panes can open a terminal on this computer, in its Local copy.

@@ -185,7 +185,7 @@ export const TerminalPane = React.memo(function TerminalPane({
     backgroundColor: `color-mix(in srgb, ${coverColor} ${percent}%, transparent)`,
   });
   const focusedPaneBorder = useCustomizationStore(
-    (s) => s.terminalConfig?.focusedPaneBorder === true
+    (s) => s.terminalConfig?.focusedPaneBorder ?? true
   );
   const notificationPaneBorder = useCustomizationStore(
     (s) => s.terminalConfig?.notificationPaneBorder ?? true

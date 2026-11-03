@@ -53,6 +53,14 @@ describe('PanesSettingsCard', () => {
     expect(screen.getByRole('switch', { name: 'Notification pane border' })).toBeEnabled();
   });
 
+  it('shows the pane borders on before the terminal config has loaded, as they ship', () => {
+    useCustomizationStore.setState({ terminalConfig: null });
+    render(<PanesSettingsCard />);
+
+    expect(screen.getByRole('switch', { name: 'Focused pane border' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Notification pane border' })).toBeChecked();
+  });
+
   it('dims unfocused panes by the chosen amount', async () => {
     const user = userEvent.setup();
     render(<PanesSettingsCard />);

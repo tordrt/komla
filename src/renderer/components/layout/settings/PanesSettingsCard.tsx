@@ -45,7 +45,7 @@ export function PanesSettingsCard() {
         description="Outline the focused pane in the accent color"
       >
         <Switch
-          checked={terminalConfig?.focusedPaneBorder === true}
+          checked={terminalConfig?.focusedPaneBorder ?? true}
           onCheckedChange={(checked) => {
             void updateTerminalConfig({ focusedPaneBorder: checked });
           }}

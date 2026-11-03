@@ -41,7 +41,7 @@ export const DEFAULT_TERMINAL_CONFIG: TerminalConfig = {
   showPaneHeaders: false,
   showButtonsOnFocus: true,
   unfocusedPaneDimOpacity: 0.85,
-  focusedPaneBorder: false,
+  focusedPaneBorder: true,
   notificationPaneBorder: true,
   sendRightClickToPrograms: false,
   // Ghostty's default dark colors on Graphite's cool tint, between the window's chrome and its card,

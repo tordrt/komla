@@ -312,6 +312,13 @@ const api = {
   restartWorkspace: (workspaceId: string): Promise<WorkspaceRestartResult> =>
     ipcRenderer.invoke(IPC.WORKSPACE_RESTART, workspaceId),
 
+  /** Local workspaces that were running when Komla last quit and are stopped now. */
+  listWorkspacesRunningAtLastQuit: (): Promise<string[]> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_LIST_RUNNING_AT_LAST_QUIT),
+
+  forgetWorkspacesRunningAtLastQuit: (): Promise<void> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_FORGET_RUNNING_AT_LAST_QUIT),
+
   reorderWorkspace: (workspaceId: string, newOrder: number): Promise<void> =>
     ipcRenderer.invoke(IPC.WORKSPACE_REORDER, workspaceId, newOrder),
 

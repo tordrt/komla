@@ -16,10 +16,11 @@ import type { PropsWithChildren, ReactNode } from 'react';
 export const BANNER_PRIORITY = {
   update: 0,
   portChanged: 1,
-  integrationUpdate: 2,
-  usageConsent: 3,
-  announcement: 4,
-  aiHelpersOff: 5,
+  runningAtLastQuit: 2,
+  integrationUpdate: 3,
+  usageConsent: 4,
+  announcement: 5,
+  aiHelpersOff: 6,
 } as const;
 
 interface BannerSlot {

@@ -102,6 +102,8 @@ export const workspaceContract = {
   [IPC.WORKSPACE_NOTIFY_CHANGED]: invoke().returns<void>(),
   [IPC.WORKSPACE_UPDATE_TERMINAL]: invoke(workspaceUpdateTerminalArgsSchema).returns<Terminal>(),
   [IPC.WORKSPACE_RESTART]: invoke(workspaceRestartArgsSchema).returns<WorkspaceRestartResult>(),
+  [IPC.WORKSPACE_LIST_RUNNING_AT_LAST_QUIT]: invoke().returns<string[]>(),
+  [IPC.WORKSPACE_FORGET_RUNNING_AT_LAST_QUIT]: invoke().returns<void>(),
   [IPC.WORKSPACE_REORDER]: invoke(workspaceReorderArgsSchema).returns<void>(),
   [IPC.NOTIFICATIONS_CLEAR_ATTENTION]: invoke(clearAttentionArgsSchema).returns<void>(),
   [IPC.WORKSPACE_CLEAR_TERMINAL_ATTENTION]: invoke(

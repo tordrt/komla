@@ -55,6 +55,8 @@ export function notifyListeners<T>(listeners: Set<(value: T) => void>, value: T)
 class WorkspaceStore {
   readonly workspaces: Map<string, Workspace> = new Map();
   readonly deletingWorkspaceIds = new Set<string>();
+  /** Local workspaces Komla is quitting with running, saved so the next launch can restart them. */
+  readonly runningAtQuitIds = new Set<string>();
   private owner: WorkspaceStoreOwner | null = null;
   private saveDebounceTimer: NodeJS.Timeout | null = null;
   private pendingSave = false;
@@ -142,7 +144,7 @@ class WorkspaceStore {
       if (!this.owner) throw new Error('The workspace store has no owner to save for');
       const { workspacesPath, persistedSources } = this.owner;
       const workspacesList = Array.from(this.workspaces.values()).map((w) =>
-        serializeWorkspace(w, persistedSources)
+        serializeWorkspace(w, persistedSources, this.runningAtQuitIds.has(w.id))
       );
 
       // Serialize async writes to prevent concurrent writes racing on the same .tmp file

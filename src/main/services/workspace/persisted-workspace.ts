@@ -85,6 +85,8 @@ export type PersistedWorkspace = {
   createdAt: number;
   lastActivityAt: number;
   lastStoppedAt?: number;
+  /** A local workspace that was running when Komla last quit, so the next launch can restart it. */
+  runningAtQuit?: boolean;
   order: number;
   unread?: Workspace['unread'];
   pinned?: boolean;
@@ -333,8 +335,10 @@ export function hydrateWorkspace(rawPersisted: PersistedWorkspace): {
   workspace: Workspace;
   /** Saved spinner sources by Terminal id, restored once the workspace is in the store. */
   agentSources: Map<string, Map<WorkspaceAttentionSource, number>>;
+  /** Whether it is a local workspace, outside the Trash, that was running when Komla last quit. */
+  runningAtQuit: boolean;
 } {
-  const persisted = migrate(
+  const { runningAtQuit: persistedRunningAtQuit, ...persisted } = migrate(
     rawPersisted,
     WORKSPACE_VERSION,
     WORKSPACE_MIGRATIONS
@@ -406,15 +410,20 @@ export function hydrateWorkspace(rawPersisted: PersistedWorkspace): {
       normalizePersistedActiveAgentSources(terminal.activeAgentSources)
     );
   }
-  return { workspace, agentSources };
+  const runningAtQuit = persistedRunningAtQuit === true && backend?.kind !== 'ssh' && !inTrash;
+  return { workspace, agentSources, runningAtQuit };
 }
 
 export type PersistedTerminalSources = ReturnType<TerminalAttention['persistedSources']>;
 
-/** What is saved of a workspace; `persistedSources` gives a Terminal's saved spinner sources. */
+/**
+ * What is saved of a workspace; `persistedSources` gives a Terminal's saved spinner sources, and
+ * `runningAtQuit` marks a local workspace Komla is quitting with running.
+ */
 export function serializeWorkspace(
   w: Workspace,
-  persistedSources: (workspaceId: string, terminalId: string) => PersistedTerminalSources
+  persistedSources: (workspaceId: string, terminalId: string) => PersistedTerminalSources,
+  runningAtQuit = false
 ): PersistedWorkspace {
   const persistedTerminals = isSshWorkspace(w)
     ? w.terminals.filter((terminal) => isResumable(w, terminal))
@@ -464,6 +473,7 @@ export function serializeWorkspace(
     createdAt: w.createdAt,
     lastActivityAt: w.lastActivityAt,
     lastStoppedAt: w.lastStoppedAt,
+    runningAtQuit: runningAtQuit && !isSshWorkspace(w) ? true : undefined,
     order: w.order,
     unread: w.unread,
     pinned: w.pinned,

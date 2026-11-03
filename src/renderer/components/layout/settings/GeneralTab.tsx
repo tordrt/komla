@@ -34,11 +34,23 @@ import {
 import { getTelemetryLevel, telemetryLevelUpdates } from '../../../../shared/lib/telemetry-level';
 
 import type { TelemetryLevel } from '../../../../shared/lib/telemetry-level';
+import type { AppConfig } from '@/types';
 
 interface GeneralTabProps {
   onClose: () => void;
   onDirtyChange?: (isDirty: boolean) => void;
 }
+
+type RestoreRunningWorkspacesMode = NonNullable<AppConfig['restoreRunningWorkspaces']>;
+
+const RESTORE_RUNNING_WORKSPACES_OPTIONS: ReadonlyArray<{
+  value: RestoreRunningWorkspacesMode;
+  label: string;
+}> = [
+  { value: 'ask', label: 'Ask' },
+  { value: 'always', label: 'Always' },
+  { value: 'never', label: 'Never' },
+];
 
 export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }: GeneralTabProps) {
   const defaultOpenRouterModel = 'anthropic/claude-haiku-5.5';
@@ -479,6 +491,30 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
       </SettingsCard>
 
       <WorkspaceTagsCard />
+
+      {/* Startup */}
+      <SettingsCard title="Startup">
+        <SettingsRow
+          label="Restart running workspaces"
+          description="When Komla opens, restart the local workspaces that were running when it last quit. Agents resume their last session where they can."
+        >
+          <Select
+            value={config?.restoreRunningWorkspaces ?? 'ask'}
+            onChange={(e) =>
+              void updateConfig({
+                restoreRunningWorkspaces: e.target.value as RestoreRunningWorkspacesMode,
+              })
+            }
+            className="w-44"
+          >
+            {RESTORE_RUNNING_WORKSPACES_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </SettingsRow>
+      </SettingsCard>
 
       {/* Power */}
       <SettingsCard title="Power">

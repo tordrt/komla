@@ -211,6 +211,18 @@ export class WorkspaceLifecycle {
   }
 
   /**
+   * At quit, before anything stops, marks the local workspaces that are running so the next launch
+   * can offer to restart them. The final save at quit records the marks.
+   */
+  rememberRunningAtQuit(): void {
+    workspaceStore.runningAtQuitIds.clear();
+    for (const workspace of workspaceStore.workspaces.values()) {
+      if (isSshWorkspace(workspace) || workspace.status !== 'active') continue;
+      if (isRunningHere(workspace)) workspaceStore.runningAtQuitIds.add(workspace.id);
+    }
+  }
+
+  /**
    * At quit, stops the local workspaces whose projects have workspace-stop steps and runs those
    * steps, waiting at most `timeLimitMs`. SSH workspaces keep running on their hosts, so theirs
    * don't run.

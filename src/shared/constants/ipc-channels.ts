@@ -22,6 +22,8 @@ export const IPC = {
   WORKSPACE_UPDATE: 'workspace:update',
   WORKSPACE_UPDATE_TERMINAL: 'workspace:update-terminal',
   WORKSPACE_RESTART: 'workspace:restart',
+  WORKSPACE_LIST_RUNNING_AT_LAST_QUIT: 'workspace:list-running-at-last-quit',
+  WORKSPACE_FORGET_RUNNING_AT_LAST_QUIT: 'workspace:forget-running-at-last-quit',
   WORKSPACE_REORDER: 'workspace:reorder',
   WORKSPACE_GENERATE_BRANCH_NAME: 'workspace:generate-branch-name',
   WORKSPACE_REGENERATE_NAME: 'workspace:regenerate-name',

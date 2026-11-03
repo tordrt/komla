@@ -26,6 +26,7 @@ import { PortChangedBanner } from '@/components/layout/PortChangedBanner';
 import { PublishRepoDialogHost } from '@/components/layout/PublishRepoDialogHost';
 import { PushConflictDialog } from '@/components/layout/PushConflictDialog';
 import { RebaseAbortDialog } from '@/components/layout/RebaseAbortDialog';
+import { RunningAtLastQuitBanner } from '@/components/layout/RunningAtLastQuitBanner';
 import { SettingsDialogHost } from '@/components/layout/settings/SettingsDialogHost';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { StatusBar } from '@/components/layout/status-bar/StatusBar';
@@ -132,6 +133,7 @@ function AppBanners({ onOpenIntegrationsSettings }: { onOpenIntegrationsSettings
     <BannerHost>
       <UpdateBanner />
       <PortChangedBanner onOpenSettings={onOpenIntegrationsSettings} />
+      <RunningAtLastQuitBanner />
       <AgentIntegrationUpdateBanner />
       <UsageAnalyticsConsentBanner />
       <AnnouncementBanner />

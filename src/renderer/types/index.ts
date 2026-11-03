@@ -223,6 +223,7 @@ export interface AppConfig {
   statusBarLeftItems?: string[]; // Status bar items the user placed at the left, in order; unplaced items keep their default spot
   statusBarRightItems?: string[]; // Status bar items the user placed at the right, in order
   keepAwakeMode?: 'off' | 'agents' | 'always'; // Keep the computer from sleeping: never, while an agent works, or always
+  restoreRunningWorkspaces?: 'ask' | 'always' | 'never'; // At launch, restart the local workspaces that were running at the last quit
   zoomLevel?: number; // Electron zoom level in half steps: -3 (58%) to 3 (173%), 0 = default
   agentLaunchDefaultPresetId?: string | null;
   agentLaunchDefaultLaunchModeId?: string | null;

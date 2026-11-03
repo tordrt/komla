@@ -205,6 +205,7 @@ const appConfigUpdateSchema = z
     statusBarLeftItems: z.array(z.string().max(64)).max(128).optional(),
     statusBarRightItems: z.array(z.string().max(64)).max(128).optional(),
     keepAwakeMode: z.enum(['off', 'agents', 'always']).optional(),
+    restoreRunningWorkspaces: z.enum(['ask', 'always', 'never']).optional(),
     agentLaunchDefaultPresetId: z.string().nullable().optional(),
     agentLaunchDefaultLaunchModeId: z.string().nullable().optional(),
     agentLaunchDefaultSshHostId: z.string().optional(),

@@ -47,6 +47,7 @@ const DEFAULT_CONFIG: AppConfig = {
   workspaceGrouping: 'project',
   hideStoppedWorkspaces: false,
   hideWorkingWorkspaces: false,
+  restoreRunningWorkspaces: 'ask',
   remoteBranchesExpanded: false,
   diffHideUnchangedRegions: true,
   anonymousTelemetryEnabled: true,

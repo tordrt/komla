@@ -8,7 +8,11 @@ import { IPC } from '../../shared/constants/ipc-channels';
 import { normalizeBrowserPanes } from '../../shared/lib/browser-tabs';
 import { branchSuffixToName } from '../../shared/lib/random-names';
 import { normalizeRecentLinks } from '../../shared/lib/recent-links';
-import { isResumable, sessionEndedHere } from '../../shared/lib/terminal-execution-state';
+import {
+  isResumable,
+  isRunningHere,
+  sessionEndedHere,
+} from '../../shared/lib/terminal-execution-state';
 import { normalizeVirtualDesktops } from '../../shared/lib/virtual-desktops';
 import {
   normalizeWorkspaceTags,
@@ -164,6 +168,8 @@ class WorkspaceService {
   private readonly sshAttention: SshAttentionPersistence;
   // The workspaces each window shows a browser or note pane of, by window id.
   private paneSurfaceWorkspaceIdsByWindow = new Map<string, ReadonlySet<string>>();
+  // Local workspaces that were running when Komla last quit, as this launch read them.
+  private runningAtLastQuitIds: string[] = [];
   private readonly snoozeAlarm = new WorkspaceSnoozeAlarm({
     workspaces: () => workspaceStore.workspaces.values(),
     woke: (workspaces) => {
@@ -594,8 +600,9 @@ class WorkspaceService {
       if (workspacesList === null) return;
 
       for (const rawPersisted of workspacesList) {
-        const { workspace, agentSources } = hydrateWorkspace(rawPersisted);
+        const { workspace, agentSources, runningAtQuit } = hydrateWorkspace(rawPersisted);
         workspaceStore.workspaces.set(workspace.id, workspace);
+        if (runningAtQuit) this.runningAtLastQuitIds.push(workspace.id);
         this.attention.restored(workspace, agentSources);
       }
       // Give workspaces that share a position their own; dragging between them does nothing.
@@ -1081,6 +1088,33 @@ class WorkspaceService {
 
   stopStepsSettled(...args: Parameters<WorkspaceLifecycle['stopStepsSettled']>) {
     return this.lifecycle.stopStepsSettled(...args);
+  }
+
+  rememberRunningAtQuit(): void {
+    this.lifecycle.rememberRunningAtQuit();
+  }
+
+  /**
+   * The local workspaces that were running when Komla last quit and are stopped now, in sidebar
+   * order, until `forgetRunningAtLastQuit` is called.
+   */
+  listRunningAtLastQuit(): string[] {
+    return this.runningAtLastQuitIds
+      .map((id) => workspaceStore.workspaces.get(id))
+      .filter(
+        (workspace): workspace is Workspace =>
+          workspace !== undefined &&
+          workspace.status === 'active' &&
+          !workspace.provisioning &&
+          !isSshWorkspace(workspace) &&
+          !isRunningHere(workspace)
+      )
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((workspace) => workspace.id);
+  }
+
+  forgetRunningAtLastQuit(): void {
+    this.runningAtLastQuitIds = [];
   }
 
   runStopStepsBeforeQuit(...args: Parameters<WorkspaceLifecycle['runStopStepsBeforeQuit']>) {

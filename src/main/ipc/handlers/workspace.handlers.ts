@@ -469,6 +469,14 @@ export function registerWorkspaceHandlers(): void {
     }
   });
 
+  handleIpc(IPC.WORKSPACE_LIST_RUNNING_AT_LAST_QUIT, () =>
+    workspaceService.listRunningAtLastQuit()
+  );
+
+  handleIpc(IPC.WORKSPACE_FORGET_RUNNING_AT_LAST_QUIT, () =>
+    workspaceService.forgetRunningAtLastQuit()
+  );
+
   handleIpc(IPC.WORKSPACE_REORDER, async (_, [workspaceId, newOrder]): Promise<void> => {
     return workspaceService.reorderWorkspace(workspaceId, newOrder);
   });

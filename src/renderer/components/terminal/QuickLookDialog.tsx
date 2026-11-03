@@ -9,15 +9,37 @@ import {
   File,
   Folder,
   FolderOpen,
+  MagnifyingGlass,
   SidebarSimple,
+  TerminalWindow,
 } from '@phosphor-icons/react';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import {
+  createContext,
+  lazy,
+  Suspense,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { LinuxWindowControlsEnd } from '@/components/layout/LinuxWindowControls';
 import { useTopRowStyle } from '@/components/layout/title-bar-metrics';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { IconButton } from '@/components/ui/icon-button';
 import { SegmentedControl } from '@/components/ui/segmented-control';
@@ -25,19 +47,26 @@ import { Spinner } from '@/components/ui/spinner';
 import { BrowserPreviewFrame } from '@/components/workspaces/file-viewer/BrowserPreviewFrame';
 import { FileTypeIcon } from '@/components/workspaces/file-viewer/file-icon-utils';
 import { getSidebarToggleShortcutLabel } from '@/components/workspaces/file-viewer/file-viewer-keyboard';
+import { formatAtPathWithLine } from '@/components/workspaces/file-viewer/file-viewer-utils';
 import { ImagePane } from '@/components/workspaces/file-viewer/ImagePane';
 import { MarkdownPreview } from '@/components/workspaces/file-viewer/MarkdownPreview';
 import { formatFileSize, MediaPane } from '@/components/workspaces/file-viewer/MediaPane';
+import { getFocusedPromptTerminalId } from '@/lib/focused-terminal';
 import { formatRelativeTime } from '@/lib/format-time';
 import { ensureMonacoInitialized } from '@/lib/monaco-loader';
 import { claimWindowsTitleBarOverlaySurface } from '@/lib/palette-runtime';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
+import { focusTerminalRenderer } from '@/lib/terminal-renderer-runtime';
 import { cn } from '@/lib/utils';
+import { useFileViewerStore } from '@/stores/file-viewer.store';
+import { useLayoutStore } from '@/stores/layout.store';
 import {
   canStepQuickLook,
   isQuickLookFolder,
+  quickLookFullPath,
   quickLookItemKey,
+  quickLookReferencePath,
   quickLookSidebar,
   useQuickLookStore,
   type QuickLookFolderSection,
@@ -45,6 +74,8 @@ import {
   type QuickLookListed,
   type QuickLookSession,
 } from '@/stores/quick-look.store';
+import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
+import { useToastStore } from '@/stores/toast.store';
 
 import { getViewableFileKind, type ViewableFileKind } from '../../../shared/image-utils';
 
@@ -52,6 +83,7 @@ import { openInFilePanel } from './file-panel';
 import { rememberTerminalFiles, useTerminalFileViewerItems } from './terminal-files';
 
 import type { ViewerFile, ViewerFileSource } from '../../../shared/types/viewer-file';
+import type { editor as monacoEditor } from 'monaco-editor';
 
 // The editor needs Monaco set up first, as the file panel does when it opens.
 const EditorPane = lazy(async () => {
@@ -80,6 +112,56 @@ const STEP_KEYS = new Map<string, -1 | 1>([
 const STEP_BUTTON_CLASS =
   'absolute top-1/2 -translate-y-1/2 rounded-full border border-foreground/10 bg-background/80 text-foreground shadow-lg backdrop-blur-sm transition-opacity hover:bg-background opacity-0 group-hover/body:opacity-100 focus-visible:opacity-100';
 
+/** The source editor on screen and the file in it, for the lines selected there. */
+interface ShownEditor {
+  item: QuickLookItem;
+  editor: monacoEditor.ICodeEditor;
+}
+
+type ShownEditorRef = RefObject<ShownEditor | null>;
+
+/** Puts a reference to a file into a terminal's prompt, then goes back to that terminal. */
+type InsertInTerminal = (terminalId: string, reference: string) => void;
+
+/** The terminal behind the viewer, where the user was working, which references can go into. */
+interface ReferenceTarget {
+  terminalId: string | null;
+  insert: InsertInTerminal;
+}
+
+const ReferenceTargetContext = createContext<ReferenceTarget>({
+  terminalId: null,
+  insert: () => {},
+});
+
+/**
+ * How an agent prompt refers to an item: `@` and its path, with the lines selected in its source,
+ * as the file panel's Copy @path gives them.
+ */
+function referenceTo(item: QuickLookItem, shown: ShownEditor | null): string {
+  // A file name can hold a newline, which a shell would run as a command, pasted or put into a
+  // terminal; control characters go, as from a file tree drop.
+  // oxlint-disable-next-line no-control-regex
+  const path = quickLookReferencePath(item).replace(/[\x00-\x1f\x7f]/g, '');
+  // A view switch or step to another file disposes the editor, which then has no model.
+  const editor = shown?.item === item && shown.editor.getModel() ? shown.editor : null;
+  return editor ? formatAtPathWithLine(path, editor) : `@${path}`;
+}
+
+function copyText(text: string, shown = text) {
+  window.api.copyToClipboard(text);
+  useToastStore.getState().addToast(`Copied ${shown}`, 'success');
+}
+
+/** With a trailing space, so the paste is ready for the rest of the prompt. */
+function copyReference(reference: string) {
+  copyText(`${reference} `, reference);
+}
+
+function getCopyReferenceShortcutLabel(): string {
+  return formatShortcutForDisplay('Cmd+Shift+C', window.api?.platform);
+}
+
 type Pending = { status: 'loading' } | { status: 'error'; message: string };
 type Loaded<T> = Pending | { status: 'loaded'; value: T };
 
@@ -101,8 +183,25 @@ export function QuickLookDialog() {
   const close = useQuickLookStore((s) => s.close);
   const toggleSidebar = useQuickLookStore((s) => s.toggleSidebar);
   const contentRef = useRef<HTMLDivElement>(null);
+  const shownEditor = useRef<ShownEditor | null>(null);
+  // The terminal a reference went into, which takes focus once the viewer closes.
+  const returnToTerminal = useRef<string | null>(null);
   const isOpen = session !== null;
   const listed = useTerminalFileViewerItems(session?.workspaceId ?? '');
+  // The full file viewer covers the terminals, which a reference would go into out of sight.
+  const fileViewerCovers = useFileViewerStore(
+    (s) => session !== null && s.fileViewerWorkspaceId === session.workspaceId
+  );
+  // Read again as panes close or take focus while the viewer is open.
+  const focusedTerminalId = useLayoutStore(() =>
+    session ? getFocusedPromptTerminalId(session.workspaceId) : null
+  );
+
+  const insertInTerminal: InsertInTerminal = (terminalId, reference) => {
+    window.api.sendInput(terminalId, `${reference} `);
+    returnToTerminal.current = terminalId;
+    close();
+  };
 
   // On the window, so the arrows still work after the last file disables the button in focus,
   // and claimed while capturing, before the file viewer behind moves through its own list.
@@ -147,15 +246,37 @@ export function QuickLookDialog() {
           event.preventDefault();
           (event.currentTarget as HTMLElement).focus();
         }}
-        onKeyDown={(event) => {
-          // Cmd+B, as in the file viewer; claimed so the file panel behind doesn't toggle too.
-          if (!isSidebarToggle(event.nativeEvent)) return;
+        onCloseAutoFocus={(event) => {
+          const terminalId = returnToTerminal.current;
+          returnToTerminal.current = null;
+          if (!terminalId) return;
           event.preventDefault();
-          claimShortcutEvent(event.nativeEvent);
-          toggleSidebar();
+          focusTerminalRenderer(terminalId);
+        }}
+        onKeyDown={(event) => {
+          // Cmd+B and Cmd+Shift+C, as in the file viewer; claimed so the file panel behind
+          // doesn't act on them too.
+          if (isSidebarToggle(event.nativeEvent)) {
+            event.preventDefault();
+            claimShortcutEvent(event.nativeEvent);
+            toggleSidebar();
+          } else if (session && isCopyReference(event.nativeEvent)) {
+            event.preventDefault();
+            claimShortcutEvent(event.nativeEvent);
+            copyReference(referenceTo(session.item, shownEditor.current));
+          }
         }}
       >
-        {session && <QuickLookContent session={session} listed={listed} />}
+        {session && (
+          <ReferenceTargetContext.Provider
+            value={{
+              terminalId: fileViewerCovers ? null : focusedTerminalId,
+              insert: insertInTerminal,
+            }}
+          >
+            <QuickLookContent session={session} listed={listed} shownEditor={shownEditor} />
+          </ReferenceTargetContext.Provider>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -164,10 +285,12 @@ export function QuickLookDialog() {
 function QuickLookContent({
   session,
   listed,
+  shownEditor,
 }: {
   session: QuickLookSession;
   /** The workspace's files from terminals, which the sidebar lists. */
   listed: QuickLookListed;
+  shownEditor: ShownEditorRef;
 }) {
   const step = useQuickLookStore((s) => s.step);
   const close = useQuickLookStore((s) => s.close);
@@ -182,6 +305,8 @@ function QuickLookContent({
   const isFolder = isQuickLookFolder(item);
   const name = fileName(item.path);
   const kind = isFolder ? null : getViewableFileKind(item.path);
+  const { terminalId, insert } = useContext(ReferenceTargetContext);
+  const reference = () => referenceTo(item, shownEditor.current);
 
   // QuickLook covers the title bar, so the Windows window controls take its card, even over the
   // empty page's chrome.
@@ -206,30 +331,45 @@ function QuickLookContent({
           <SidebarSimple className="size-4" />
         </IconButton>
         {/* Where the file or folder is, as the terminal printed it: its folder, cut from the
-            left so the folders nearest it stay, then its name. */}
-        <div
-          className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg border border-foreground/10 bg-foreground/[0.03] pr-0.5 pl-2.5 text-[13px]"
-          title={item.path}
-        >
-          <EntryIcon item={item} className="size-4" />
-          <span className="flex min-w-0 flex-1">
-            {/* rtl truncates from the left; bdi keeps the path itself in LTR order */}
-            <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
-              <bdi>{folderOf(item.path)}</bdi>
-            </span>
-            <DialogTitle className="max-w-full shrink-0 truncate text-[13px] leading-5 font-medium tracking-normal">
-              {name}
-            </DialogTitle>
-          </span>
-          <DialogDescription className="sr-only">{item.path}</DialogDescription>
-          <IconButton
-            label="Copy path"
-            size="xs"
-            onClick={() => window.api.copyToClipboard(item.path)}
+            left so the folders nearest it stay, then its name. Right-click for its other paths. */}
+        <ReferenceMenu item={item} reference={reference}>
+          <div
+            className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg border border-foreground/10 bg-foreground/[0.03] pr-0.5 pl-2.5 text-[13px]"
+            title={item.path}
           >
-            <Copy className="size-3.5" />
-          </IconButton>
-        </div>
+            <EntryIcon item={item} className="size-4" />
+            <span className="flex min-w-0 flex-1">
+              {/* rtl truncates from the left; bdi keeps the path itself in LTR order */}
+              <span className="min-w-0 truncate text-muted-foreground" dir="rtl">
+                <bdi>{folderOf(item.path)}</bdi>
+              </span>
+              <DialogTitle className="max-w-full shrink-0 truncate text-[13px] leading-5 font-medium tracking-normal">
+                {name}
+              </DialogTitle>
+            </span>
+            <DialogDescription className="sr-only">{item.path}</DialogDescription>
+            {/* A click leaves focus where it was, so the arrows still step through the files. */}
+            <IconButton
+              label="Copy @path"
+              shortcut={getCopyReferenceShortcutLabel()}
+              size="xs"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => copyReference(reference())}
+            >
+              <Copy className="size-3.5" />
+            </IconButton>
+            {terminalId && (
+              <IconButton
+                label="Insert @path in terminal"
+                size="xs"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => insert(terminalId, reference())}
+              >
+                <TerminalWindow className="size-3.5" />
+              </IconButton>
+            )}
+          </div>
+        </ReferenceMenu>
         {(kind === 'html' || kind === 'markdown') && (
           // A click leaves focus on the viewer, so the arrows still step through the files.
           <div onMouseDown={(event) => event.preventDefault()}>
@@ -281,6 +421,7 @@ function QuickLookContent({
               kind={kind}
               name={name}
               viewMode={viewMode}
+              shownEditor={shownEditor}
             />
           )}
           {/* Over the file only while the pointer is, so they don't cover it; the arrow keys
@@ -323,6 +464,74 @@ function useViewMode(item: QuickLookItem) {
   const viewMode = item.lineNumber !== undefined && chosen.on !== item ? 'source' : chosen.mode;
   const choose = (mode: ViewMode) => setChosen({ mode, on: item });
   return [viewMode, choose] as const;
+}
+
+/**
+ * A right-click menu of the ways to refer to a file or folder: its `@path` for an agent prompt,
+ * copied or put into the terminal behind the viewer, and its path as printed and in full.
+ */
+function ReferenceMenu({
+  item,
+  reference,
+  children,
+}: {
+  item: QuickLookItem;
+  /** The file on screen's `@path`, which names the lines selected in its source. */
+  reference?: () => string;
+  children: ReactNode;
+}) {
+  const referenceToItem = reference ?? (() => referenceTo(item, null));
+  const { terminalId, insert } = useContext(ReferenceTargetContext);
+  const fullPath = quickLookFullPath(item);
+  const { hostPath } = item;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent
+        onKeyDown={(event) => {
+          // The menu's own file, which for a row's menu isn't the one on screen. React would bubble
+          // the key to the viewer, which copies that one, so it stops here.
+          if (!isCopyReference(event.nativeEvent)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          claimShortcutEvent(event.nativeEvent);
+          copyReference(referenceToItem());
+        }}
+      >
+        <ContextMenuItem onSelect={() => copyReference(referenceToItem())}>
+          <Copy />
+          Copy @path
+          <ContextMenuShortcut>{getCopyReferenceShortcutLabel()}</ContextMenuShortcut>
+        </ContextMenuItem>
+        {terminalId && (
+          <ContextMenuItem onSelect={() => insert(terminalId, referenceToItem())}>
+            <TerminalWindow />
+            Insert @path in terminal
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => copyText(item.path)}>
+          <Copy />
+          Copy path
+        </ContextMenuItem>
+        {fullPath && (
+          <ContextMenuItem onSelect={() => copyText(fullPath)}>
+            <Copy />
+            Copy full path
+          </ContextMenuItem>
+        )}
+        {hostPath && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => window.api.showItemInFolder(hostPath)}>
+              <MagnifyingGlass />
+              {getRevealInFileManagerLabel()}
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
 }
 
 // Rows each list in the sidebar shows before "Show more", as in the files dropdown.
@@ -607,17 +816,19 @@ function FolderBody({ item, name }: { item: QuickLookItem; name: string }) {
         >
           {folder.items.map((entry) => (
             <li key={quickLookItemKey(entry)}>
-              <button
-                type="button"
-                title={entry.path}
-                onMouseDown={focusViewer}
-                onClick={() => show(entry)}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors duration-150 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
-              >
-                <EntryIcon item={entry} className="size-4" />
-                <span className="truncate">{fileName(entry.path)}</span>
-                <ModifiedTime modifiedMs={entry.modifiedMs} />
-              </button>
+              <ReferenceMenu item={entry}>
+                <button
+                  type="button"
+                  title={entry.path}
+                  onMouseDown={focusViewer}
+                  onClick={() => show(entry)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors duration-150 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+                >
+                  <EntryIcon item={entry} className="size-4" />
+                  <span className="truncate">{fileName(entry.path)}</span>
+                  <ModifiedTime modifiedMs={entry.modifiedMs} />
+                </button>
+              </ReferenceMenu>
             </li>
           ))}
         </ul>
@@ -670,35 +881,37 @@ function SidebarFile({
 
   return (
     <li>
-      <button
-        ref={ref}
-        type="button"
-        title={title}
-        aria-current={isCurrent || undefined}
-        onMouseDown={focusViewer}
-        onClick={() => show(item)}
-        className={cn(
-          'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
-          isCurrent
-            ? 'bg-accent text-foreground'
-            : 'text-muted-foreground-70 hover:bg-accent/40 hover:text-foreground'
-        )}
-      >
-        <EntryIcon item={item} className="size-3.5" />
-        <span className={cn('truncate', folderHint && 'max-w-[70%] shrink-0')}>{name}</span>
-        {folderHint && (
-          // Out of the button's name, like the time. Right to left, so a long folder loses its
-          // start rather than the part by the name.
-          <span
-            aria-hidden
-            dir="rtl"
-            className="min-w-0 truncate text-2xs text-muted-foreground-50"
-          >
-            <bdi>{folderHint}</bdi>
-          </span>
-        )}
-        <ModifiedTime modifiedMs={modifiedMs} />
-      </button>
+      <ReferenceMenu item={item}>
+        <button
+          ref={ref}
+          type="button"
+          title={title}
+          aria-current={isCurrent || undefined}
+          onMouseDown={focusViewer}
+          onClick={() => show(item)}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
+            isCurrent
+              ? 'bg-accent text-foreground'
+              : 'text-muted-foreground-70 hover:bg-accent/40 hover:text-foreground'
+          )}
+        >
+          <EntryIcon item={item} className="size-3.5" />
+          <span className={cn('truncate', folderHint && 'max-w-[70%] shrink-0')}>{name}</span>
+          {folderHint && (
+            // Out of the button's name, like the time. Right to left, so a long folder loses its
+            // start rather than the part by the name.
+            <span
+              aria-hidden
+              dir="rtl"
+              className="min-w-0 truncate text-2xs text-muted-foreground-50"
+            >
+              <bdi>{folderHint}</bdi>
+            </span>
+          )}
+          <ModifiedTime modifiedMs={modifiedMs} />
+        </button>
+      </ReferenceMenu>
     </li>
   );
 }
@@ -710,7 +923,11 @@ interface BodyProps {
   name: string;
 }
 
-function QuickLookBody({ viewMode, ...props }: BodyProps & { viewMode: ViewMode }) {
+function QuickLookBody({
+  viewMode,
+  shownEditor,
+  ...props
+}: BodyProps & { viewMode: ViewMode; shownEditor: ShownEditorRef }) {
   const { kind } = props;
   if (kind === 'pdf' || (kind === 'html' && viewMode === 'preview')) {
     return <PagePreview {...props} />;
@@ -718,7 +935,13 @@ function QuickLookBody({ viewMode, ...props }: BodyProps & { viewMode: ViewMode 
   if (kind === 'image' || kind === 'svg' || kind === 'audio' || kind === 'video') {
     return <BinaryPreview {...props} />;
   }
-  return <TextPreview {...props} rendered={kind === 'markdown' && viewMode === 'preview'} />;
+  return (
+    <TextPreview
+      {...props}
+      rendered={kind === 'markdown' && viewMode === 'preview'}
+      shownEditor={shownEditor}
+    />
+  );
 }
 
 /** HTML pages and PDFs, in the same locked-down frame the file panel uses. */
@@ -747,7 +970,8 @@ function TextPreview({
   kind,
   name,
   rendered,
-}: BodyProps & { rendered: boolean }) {
+  shownEditor,
+}: BodyProps & { rendered: boolean; shownEditor: ShownEditorRef }) {
   const file = useViewerRequest(workspaceId, item, readFile);
   const text = useMemo<Loaded<DecodedText>>(
     () =>
@@ -781,6 +1005,7 @@ function TextPreview({
           error={null}
           readOnly
           onMount={(editor) => {
+            shownEditor.current = { item, editor };
             if (item.lineNumber === undefined) return;
             editor.revealLineInCenter(item.lineNumber);
             editor.setPosition({ lineNumber: item.lineNumber, column: 1 });
@@ -900,6 +1125,15 @@ function isSidebarToggle(event: KeyboardEvent): boolean {
     !event.shiftKey &&
     !event.altKey &&
     event.key.toLowerCase() === 'b'
+  );
+}
+
+function isCopyReference(event: KeyboardEvent): boolean {
+  return (
+    (event.metaKey || event.ctrlKey) &&
+    event.shiftKey &&
+    !event.altKey &&
+    event.key.toLowerCase() === 'c'
   );
 }
 

@@ -73,6 +73,24 @@ function folderKey(workspaceId: string, item: QuickLookItem): string {
   return `${workspaceId}:${quickLookItemKey(item).replace(/[^/]*$/, '')}`;
 }
 
+/**
+ * The path an agent prompt's `@path` names an item by: from the workspace root for a workspace
+ * file, as the file tree's Copy @path does, else in full, where its terminal runs.
+ */
+export function quickLookReferencePath({ source }: QuickLookItem): string {
+  return source.kind === 'workspace' ? source.filePath : source.fullPath;
+}
+
+/**
+ * The item's full path, to copy, unless it is the path as printed: on this computer, or where its
+ * terminal runs. Unknown for a workspace file on an SSH host.
+ */
+export function quickLookFullPath(item: QuickLookItem): string | undefined {
+  const full =
+    item.hostPath ?? (item.source.kind === 'terminal' ? item.source.fullPath : undefined);
+  return full === item.path ? undefined : full;
+}
+
 /** Whether an item is a folder, which a terminal printed with a trailing separator. */
 export function isQuickLookFolder({ source }: QuickLookItem): boolean {
   return (source.kind === 'workspace' ? source.filePath : source.fullPath).endsWith('/');

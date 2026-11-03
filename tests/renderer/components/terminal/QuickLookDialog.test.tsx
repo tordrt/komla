@@ -5,13 +5,26 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const editor = vi.hoisted(() => ({ revealLineInCenter: vi.fn(), setPosition: vi.fn() }));
+const editor = vi.hoisted(() => ({
+  revealLineInCenter: vi.fn(),
+  setPosition: vi.fn(),
+  // A mounted editor, with nothing selected.
+  getModel: vi.fn((): object | null => ({})),
+  getSelection: vi.fn(
+    (): { startLineNumber: number; endLineNumber: number; isEmpty: () => boolean } | null => null
+  ),
+}));
+const focusTerminalRenderer = vi.hoisted(() => vi.fn());
 // The files from terminals, the latest opened or printed first, which the sidebar lists first.
 const terminalFiles = vi.hoisted(() => ({ listed: [] as unknown[] }));
 
 vi.mock('../../../../src/renderer/components/terminal/terminal-files', () => ({
   rememberTerminalFiles: () => {},
   useTerminalFileViewerItems: () => terminalFiles.listed,
+}));
+
+vi.mock('../../../../src/renderer/lib/terminal-renderer-runtime', () => ({
+  focusTerminalRenderer,
 }));
 
 // The Windows height, so the test fails if the viewer hard-codes the 36px one.
@@ -38,16 +51,19 @@ import { QuickLookDialog } from '../../../../src/renderer/components/terminal/Qu
 import { TooltipProvider } from '../../../../src/renderer/components/ui/tooltip';
 import { isShortcutEventClaimed } from '../../../../src/renderer/lib/shortcut-claims';
 import { useFileViewerStore } from '../../../../src/renderer/stores/file-viewer.store';
+import { useLayoutStore } from '../../../../src/renderer/stores/layout.store';
 import {
   useQuickLookStore,
   type QuickLookItem,
 } from '../../../../src/renderer/stores/quick-look.store';
+import { useToastStore } from '../../../../src/renderer/stores/toast.store';
 
 const api = {
   readViewerFile: vi.fn(),
   getViewerPreviewUrl: vi.fn(),
   listViewerFolder: vi.fn(),
   copyToClipboard: vi.fn(),
+  sendInput: vi.fn(),
   openExternal: vi.fn(),
   openPath: vi.fn(),
   showItemInFolder: vi.fn(),
@@ -77,6 +93,17 @@ const listing = (...names: string[]) =>
 
 const base64 = (text: string) => Buffer.from(text).toString('base64');
 
+/** Puts a terminal in the focused pane of the workspace's active tab, behind the viewer. */
+function focusTerminal(terminalId: string) {
+  useLayoutStore.setState({
+    activeTabByWorkspace: { 'ws-1': 'tab-1' },
+    focusedPaneByTab: { 'ws-1': { 'tab-1': 'pane-1' } },
+    layoutsByTab: { 'ws-1': { 'tab-1': { type: 'leaf', id: 'pane-1', terminalId } } },
+  });
+}
+
+const toasts = () => useToastStore.getState().toasts.map((toast) => toast.message);
+
 function renderViewer() {
   return render(
     <TooltipProvider>
@@ -104,8 +131,12 @@ const sidebarRows = (name: string) =>
 describe('QuickLookDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    editor.getModel.mockReturnValue({});
+    editor.getSelection.mockReturnValue(null);
     window.localStorage.clear();
     useQuickLookStore.setState(useQuickLookStore.getInitialState(), true);
+    useLayoutStore.setState({ activeTabByWorkspace: {}, focusedPaneByTab: {}, layoutsByTab: {} });
+    useToastStore.setState({ toasts: [] });
     terminalFiles.listed = [];
     api.readViewerFile.mockImplementation(
       async (_workspaceId: string, _terminalId: string, source: QuickLookItem['source']) => ({
@@ -293,7 +324,7 @@ describe('QuickLookDialog', () => {
     await screen.findByRole('img', { name: 'a.png' });
 
     // A click leaves focus on the viewer, not on the file clicked or a button that had it.
-    screen.getByRole('button', { name: 'Copy path' }).focus();
+    screen.getByRole('button', { name: 'Copy @path' }).focus();
     await user.click(row('c.png'));
     expect(await screen.findByRole('img', { name: 'c.png' })).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toHaveFocus();
@@ -687,14 +718,176 @@ describe('QuickLookDialog', () => {
     expect(screen.getByRole('button', { name: 'Open in file panel' })).toBeInTheDocument();
   });
 
-  it('copies the path and closes with Escape', async () => {
+  it('copies an @path for an agent prompt, from the workspace root for a workspace file', async () => {
+    const user = userEvent.setup();
+    renderViewer();
+    // Printed from a terminal in the workspace's out/ folder.
+    openViewer([{ ...workspaceItem('out/b.png'), path: './b.png' }]);
+    await screen.findByRole('img', { name: 'b.png' });
+
+    await user.click(screen.getByRole('button', { name: 'Copy @path' }));
+
+    // Ready for the rest of the prompt.
+    expect(api.copyToClipboard).toHaveBeenCalledWith('@out/b.png ');
+    expect(toasts()).toEqual(['Copied @out/b.png']);
+  });
+
+  it('copies the full path of a file outside the workspace as its @path', async () => {
     const user = userEvent.setup();
     renderViewer();
     openViewer(images);
     await screen.findByRole('img', { name: 'a.png' });
 
-    await user.click(screen.getByRole('button', { name: 'Copy path' }));
-    expect(api.copyToClipboard).toHaveBeenCalledWith('/tmp/shots/a.png');
+    await user.keyboard('{Control>}{Shift>}c{/Shift}{/Control}');
+
+    expect(api.copyToClipboard).toHaveBeenCalledWith('@/tmp/shots/a.png ');
+  });
+
+  it('names the lines selected in the source in the @path', async () => {
+    api.readViewerFile.mockResolvedValue({ data: base64('a\nb\nc\nd'), mimeType: 'text/plain' });
+    editor.getSelection.mockReturnValue({
+      startLineNumber: 2,
+      endLineNumber: 3,
+      isEmpty: () => false,
+    });
+    const user = userEvent.setup();
+    renderViewer();
+    openViewer([workspaceItem('src/app.ts')]);
+    await screen.findByLabelText('Editor for src/app.ts');
+
+    await user.click(screen.getByRole('button', { name: 'Copy @path' }));
+    expect(api.copyToClipboard).toHaveBeenLastCalledWith('@src/app.ts:2-3 ');
+
+    // Not once the editor is gone, as a switch to the preview disposes it.
+    editor.getModel.mockReturnValueOnce(null);
+    await user.click(screen.getByRole('button', { name: 'Copy @path' }));
+    expect(api.copyToClipboard).toHaveBeenLastCalledWith('@src/app.ts ');
+  });
+
+  it("copies a row's own @path with Cmd+Shift+C in its menu, kept from the viewer behind", async () => {
+    // The file viewer's own listener, which would copy the file it has open, unless the key never
+    // reaches it or comes claimed.
+    const claimed: boolean[] = [];
+    const behind = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'c') claimed.push(isShortcutEventClaimed(event));
+    };
+    window.addEventListener('keydown', behind);
+    try {
+      const user = userEvent.setup();
+      renderViewer();
+      openViewer(images);
+      await screen.findByRole('img', { name: 'a.png' });
+
+      fireEvent.contextMenu(within(sidebarList('Recent')).getByRole('button', { name: /b\.png/ }));
+      await screen.findByRole('menu');
+      await user.keyboard('{Control>}{Shift>}c{/Shift}{/Control}');
+    } finally {
+      window.removeEventListener('keydown', behind);
+    }
+
+    expect(api.copyToClipboard.mock.calls).toEqual([['@out/b.png ']]);
+    expect(claimed).not.toContain(false);
+  });
+
+  it('strips control characters from a file name, which a shell would run', async () => {
+    focusTerminal('term-9');
+    const user = userEvent.setup();
+    renderViewer();
+    openViewer([workspaceItem('out/x\nrm -rf ~\n.png')]);
+    await screen.findByRole('dialog');
+
+    await user.click(screen.getByRole('button', { name: 'Copy @path' }));
+    expect(api.copyToClipboard).toHaveBeenCalledWith('@out/xrm -rf ~.png ');
+
+    await user.click(screen.getByRole('button', { name: 'Insert @path in terminal' }));
+    expect(api.sendInput).toHaveBeenCalledWith('term-9', '@out/xrm -rf ~.png ');
+  });
+
+  it('offers no terminal while a browser or note pane has focus, and follows focus', async () => {
+    focusTerminal('surface:browser:1');
+    renderViewer();
+    openViewer([workspaceItem('out/b.png')]);
+    await screen.findByRole('img', { name: 'b.png' });
+    expect(
+      screen.queryByRole('button', { name: 'Insert @path in terminal' })
+    ).not.toBeInTheDocument();
+
+    act(() => focusTerminal('term-9'));
+    expect(screen.getByRole('button', { name: 'Insert @path in terminal' })).toBeInTheDocument();
+  });
+
+  it('puts the @path into the terminal behind it, and goes back to that terminal', async () => {
+    focusTerminal('term-9');
+    const user = userEvent.setup();
+    renderViewer();
+    openViewer([workspaceItem('out/b.png')]);
+    await screen.findByRole('img', { name: 'b.png' });
+
+    await user.click(screen.getByRole('button', { name: 'Insert @path in terminal' }));
+
+    expect(api.sendInput).toHaveBeenCalledWith('term-9', '@out/b.png ');
+    expect(useQuickLookStore.getState().session).toBeNull();
+    await waitFor(() => expect(focusTerminalRenderer).toHaveBeenCalledWith('term-9'));
+  });
+
+  it('offers no terminal for the @path when none is focused or the full viewer covers it', async () => {
+    renderViewer();
+    openViewer([workspaceItem('out/b.png')]);
+    await screen.findByRole('img', { name: 'b.png' });
+    expect(
+      screen.queryByRole('button', { name: 'Insert @path in terminal' })
+    ).not.toBeInTheDocument();
+
+    act(() => {
+      focusTerminal('term-9');
+      useFileViewerStore.setState({ fileViewerWorkspaceId: 'ws-1' });
+    });
+    act(() => useQuickLookStore.getState().open('ws-1', workspaceItem('out/c.png')));
+    await screen.findByRole('img', { name: 'c.png' });
+    expect(
+      screen.queryByRole('button', { name: 'Insert @path in terminal' })
+    ).not.toBeInTheDocument();
+    useFileViewerStore.setState({ fileViewerWorkspaceId: null });
+  });
+
+  it('copies its path as printed or in full from a right-click on it', async () => {
+    const user = userEvent.setup();
+    renderViewer();
+    openViewer([terminalItem('shots/a.png', '/Users/me/app/shots/a.png')]);
+    await screen.findByRole('img', { name: 'a.png' });
+
+    fireEvent.contextMenu(screen.getByRole('heading', { name: 'a.png' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Copy path' }));
+    expect(api.copyToClipboard).toHaveBeenLastCalledWith('shots/a.png');
+
+    fireEvent.contextMenu(screen.getByRole('heading', { name: 'a.png' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Copy full path' }));
+    expect(api.copyToClipboard).toHaveBeenLastCalledWith('/Users/me/app/shots/a.png');
+  });
+
+  it('copies the @path of a file in the sidebar from a right-click on it', async () => {
+    focusTerminal('term-9');
+    const user = userEvent.setup();
+    renderViewer();
+    openViewer(images);
+    await screen.findByRole('img', { name: 'a.png' });
+
+    fireEvent.contextMenu(within(sidebarList('Recent')).getByRole('button', { name: /b\.png/ }));
+    const menu = await screen.findByRole('menu');
+    // A workspace file has a full path only on this computer.
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Copy full path' })
+    ).not.toBeInTheDocument();
+    await user.click(within(menu).getByRole('menuitem', { name: 'Insert @path in terminal' }));
+
+    expect(api.sendInput).toHaveBeenCalledWith('term-9', '@out/b.png ');
+  });
+
+  it('closes with Escape', async () => {
+    const user = userEvent.setup();
+    renderViewer();
+    openViewer(images);
+    await screen.findByRole('img', { name: 'a.png' });
 
     await user.keyboard('{Escape}');
     expect(useQuickLookStore.getState().session).toBeNull();

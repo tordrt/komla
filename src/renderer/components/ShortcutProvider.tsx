@@ -12,7 +12,7 @@ import { matchesWorkspaceListFiltersExceptHost } from '@/components/workspaces/w
 import { useShortcuts, useDoubleTapShortcuts } from '@/hooks/useShortcuts';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { resolveDefaultLaunchTarget } from '@/lib/agent-launch';
-import { getFocusedTerminalId } from '@/lib/focused-terminal';
+import { getFocusedPromptTerminalId } from '@/lib/focused-terminal';
 import { createNote } from '@/lib/notes';
 import { openFolder } from '@/lib/open-folder';
 import { closePaneBrowserTab } from '@/lib/pane-surfaces';
@@ -58,9 +58,7 @@ function findRunningWorkspace(preferredId: string | null, workspaces: Workspace[
 
 function findFocusedTerminalId(): string | null {
   const { currentWorkspaceId } = useLayoutStore.getState();
-  const id = currentWorkspaceId ? getFocusedTerminalId(currentWorkspaceId) : null;
-  // A focused browser or note pane has no terminal to type into.
-  return id && !isPaneSurfaceId(id) ? id : null;
+  return currentWorkspaceId ? getFocusedPromptTerminalId(currentWorkspaceId) : null;
 }
 
 function openVoiceSettings() {

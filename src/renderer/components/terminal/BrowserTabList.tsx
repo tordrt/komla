@@ -63,10 +63,10 @@ export function BrowserTabList({ browserId, onCloseTab: closeTab }: BrowserTabLi
               key={tab.id}
               data-tab-id={tab.id}
               className={cn(
-                // Half a pixel off the top so the active tab's outline shows there. Square, like the
-                // terminal tabs; the first tab meets the pane's left edge, without an outline there.
+                // Half a pixel off the top so the active tab's outline shows there. Square; the
+                // first tab meets the pane's left edge, with its outline down that side too.
                 'group/tab relative mt-[0.5px] flex w-[180px] max-w-[180px] min-w-[72px] items-center pr-1 text-xs transition-colors',
-                index === 0 ? 'edge-tab mr-px' : 'mx-px',
+                index === 0 ? 'mr-px' : 'mx-px',
                 isActive
                   ? 'flat-tab-active joined-tab text-foreground'
                   : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground'

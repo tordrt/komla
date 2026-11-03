@@ -820,12 +820,13 @@ export const TerminalPane = React.memo(function TerminalPane({
         <ContextMenuTrigger asChild>
           <div
             ref={paneRef}
+            // A rounded block in the terminal's color, on the chrome's gutter.
             className={cn(
-              'relative isolate flex h-full min-h-0 flex-col transition-opacity',
+              'relative isolate flex h-full min-h-0 flex-col overflow-clip rounded-(--pane-radius) transition-opacity',
               isDragging && 'opacity-40',
               paneScope.className
             )}
-            style={paneScope.style}
+            style={{ ...paneScope.style, backgroundColor: terminalColor }}
             onClick={handleFocus}
             {...paneDragGripRevealProps(showDragGrip, setIsPointerNearTop)}
             {...dropTargetProps}

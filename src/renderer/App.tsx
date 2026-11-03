@@ -53,11 +53,9 @@ import { useWindowTitle } from '@/hooks/useWindowTitle';
 import { useWorkspaceObservations } from '@/hooks/useWorkspaceObservations';
 import { useWorktreeWatcher } from '@/hooks/useWorktreeWatcher';
 import { readOnboardingProjectId } from '@/lib/onboarding-progress';
-import { claimWindowsTitleBarOverlaySurface } from '@/lib/palette-runtime';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
 import { useSidebarCollapsed, useSidebarWindowEmpty } from '@/lib/sidebar-collapsed';
 import { readStoredSidebarWidth, storeSidebarWidth } from '@/lib/sidebar-width';
-import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
 import {
   NEW_WORKSPACE_DIALOG_EVENT,
@@ -275,13 +273,6 @@ export default function App() {
     setFeedbackOpen,
   });
 
-  // The wizard's title bar sits on the sidebar's chrome, so the Windows window controls do too,
-  // from the first frame rather than once the lazy wizard loads.
-  useEffect(() => {
-    if (!showSetupWizard) return;
-    return claimWindowsTitleBarOverlaySurface('chrome');
-  }, [showSetupWizard]);
-
   const { openSettings } = useSettingsDialogStore.getState();
   const openIntegrationsSettings = () => openSettings({ tab: 'integrations' });
 
@@ -333,7 +324,8 @@ export default function App() {
   if (configLoading) {
     return (
       <AppShell>
-        <div className="flex h-screen flex-col">
+        {/* On the sidebar's chrome, as the window controls are on Windows. */}
+        <div className="flex h-screen flex-col bg-[oklch(var(--chrome))] [--card:var(--chrome)]">
           <TitleBar />
           <div className="flex flex-1 items-center justify-center">
             <div className="text-muted-foreground">Loading...</div>
@@ -377,7 +369,7 @@ export default function App() {
     <AppShell>
       <ShortcutProvider onOpenNewWorkspaceDialog={() => setNewWorkspaceDialogOpen(true)}>
         {/* The sidebar runs the full window height; the title and status bars span only the main
-            column, which sits on the sidebar's color too, with a faint line between them. */}
+            column, which sits on the sidebar's color too. */}
         <div className="window-chrome flex h-screen min-h-0 overflow-hidden">
           {sidebarMounted && (
             <Activity mode={showSidebar ? 'visible' : 'hidden'}>
@@ -394,13 +386,10 @@ export default function App() {
           )}
 
           <div
-            // On the sidebar's chrome, which runs on under the tab row and the status bar. Its faint
-            // line along the sidebar runs the window's full height, the same line as under the tab
-            // row and along the file panel, so the panes are framed alike on every side.
-            className={cn(
-              'work-column relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
-              sidebarShown && 'border-l border-foreground/8'
-            )}
+            // On the sidebar's chrome with no line between them, so the rounded panes are the only
+            // raised surface: the chrome runs on under the tab row, around the panes and under the
+            // status bar.
+            className="work-column relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           >
             <WorkArea
               banners={<AppBanners onOpenIntegrationsSettings={openIntegrationsSettings} />}

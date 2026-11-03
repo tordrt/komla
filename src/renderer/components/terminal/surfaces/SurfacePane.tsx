@@ -245,7 +245,8 @@ export const SurfacePane = React.memo(function SurfacePane({
           <div
             ref={paneRef}
             className={cn(
-              'relative flex h-full min-h-0 flex-col pb-(--banner-inset) transition-opacity',
+              // A rounded block on the chrome's gutter, like a terminal pane.
+              'relative flex h-full min-h-0 flex-col overflow-clip rounded-(--pane-radius) pb-(--banner-inset) transition-opacity',
               // A file pane's footers and previews keep the page background.
               surface.kind === 'file' && 'bg-background',
               isDragging && 'opacity-40'

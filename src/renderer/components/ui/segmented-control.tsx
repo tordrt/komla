@@ -42,6 +42,11 @@ interface SegmentedControlProps<T extends string> {
   fill?: boolean;
   /** Show each option's icon alone, with its label in a tooltip. */
   iconOnly?: boolean;
+  /**
+   * `pill` fills the selected option on a tray; `underline` marks it with a line along its
+   * bottom, at the full height of its container, like tabs without boxes.
+   */
+  variant?: 'pill' | 'underline';
 }
 
 /**
@@ -58,6 +63,7 @@ export function SegmentedControl<T extends string>({
   className,
   fill = false,
   iconOnly = false,
+  variant = 'pill',
   ...ariaProps
 }: SegmentedControlProps<T>) {
   const buttonRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
@@ -102,7 +108,9 @@ export function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-disabled={disabled || undefined}
       className={cn(
-        'items-center gap-0.5 rounded-md bg-muted p-0.5',
+        variant === 'underline'
+          ? 'items-stretch gap-3.5 self-stretch px-1'
+          : 'items-center gap-0.5 rounded-md bg-muted p-0.5',
         fill ? 'flex' : 'inline-flex',
         className
       )}
@@ -134,9 +142,16 @@ export function SegmentedControl<T extends string>({
               'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
               iconOnly ? ICON_ONLY_SIZE_CLASSES[size] : SIZE_CLASSES[size],
               fill && 'flex-1',
-              selected
-                ? 'bg-card text-foreground shadow-xs dark:bg-accent'
-                : 'text-muted-foreground hover:text-foreground'
+              variant === 'underline'
+                ? cn(
+                    'h-auto rounded-none px-0.5 focus-visible:ring-inset',
+                    selected
+                      ? 'text-foreground shadow-[inset_0_-2px_0_oklch(var(--foreground)/0.75)]'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )
+                : selected
+                  ? 'bg-card text-foreground shadow-xs dark:bg-accent'
+                  : 'text-muted-foreground hover:text-foreground'
             )}
           >
             {option.icon}

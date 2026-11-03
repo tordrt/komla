@@ -154,25 +154,25 @@ function applyTokens(tokens: PaletteTokens): void {
 
 type TitleBarOverlaySurface = 'card' | 'chrome' | 'background';
 
-// The surface under the Windows window controls: the title bar's card by default, the
-// sidebar's chrome while the title bar takes it (no workspace open, the setup wizard), or
-// what a full-window page that covers the title bar puts there: Settings' background, or the
-// card of QuickLook's top row. Those pages sit on top, so their claims win over chrome.
-const titleBarOverlayClaims: Record<TitleBarOverlaySurface, number> = {
+// The surface under the Windows window controls: the sidebar's chrome, which the title bar and
+// the tab row sit on, or what a full-window page that covers the title bar puts there: Settings'
+// background, or the card of QuickLook's top row. Those pages sit on top, so their claims win.
+type ClaimedTitleBarOverlaySurface = Exclude<TitleBarOverlaySurface, 'chrome'>;
+const titleBarOverlayClaims: Record<ClaimedTitleBarOverlaySurface, number> = {
   card: 0,
-  chrome: 0,
   background: 0,
 };
 
 function titleBarOverlaySurface(): TitleBarOverlaySurface {
   if (titleBarOverlayClaims.background > 0) return 'background';
   if (titleBarOverlayClaims.card > 0) return 'card';
-  if (titleBarOverlayClaims.chrome > 0) return 'chrome';
-  return 'card';
+  return 'chrome';
 }
 
 /** Puts the Windows window controls on `surface` until the returned release is called. */
-export function claimWindowsTitleBarOverlaySurface(surface: TitleBarOverlaySurface): () => void {
+export function claimWindowsTitleBarOverlaySurface(
+  surface: ClaimedTitleBarOverlaySurface
+): () => void {
   titleBarOverlayClaims[surface] += 1;
   syncWindowsTitleBarOverlay();
   let released = false;

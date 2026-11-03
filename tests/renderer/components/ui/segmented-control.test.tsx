@@ -117,4 +117,25 @@ describe('SegmentedControl', () => {
       'Too large to edit as rich text'
     );
   });
+
+  it('marks the selected option with an underline, not a fill, in the underline variant', () => {
+    render(
+      <SegmentedControl
+        aria-label="File panel view"
+        value="files"
+        onValueChange={vi.fn()}
+        options={OPTIONS}
+        variant="underline"
+      />
+    );
+
+    const group = screen.getByRole('radiogroup', { name: 'File panel view' });
+    const selected = screen.getByRole('radio', { name: 'Files' });
+    const other = screen.getByRole('radio', { name: 'Symbols' });
+    expect(group.className).not.toMatch(/\bbg-/);
+    expect(selected).toHaveAttribute('aria-checked', 'true');
+    expect(selected.className).toMatch(/shadow-\[inset_0_-2px_0/);
+    expect(selected.className).not.toMatch(/\bbg-/);
+    expect(other.className).not.toMatch(/shadow-\[inset/);
+  });
 });

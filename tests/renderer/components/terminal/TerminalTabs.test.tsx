@@ -808,19 +808,20 @@ describe('TerminalTabs', () => {
     expect(kindsOf('Tab t3')).toEqual(['note']);
   });
 
-  it('joins the active tab to the panes below, the first one at the edge without a left side', () => {
+  it('marks the active tab as a pill on the chrome, apart from the panes below', () => {
     setUpWorkspace(['t1', 't2'], { activeTabId: 't2' });
     const { rerender } = render(<TerminalTabs />);
 
-    expect(getTab('Tab t2')).toHaveClass('flat-tab-active', 'joined-tab');
-    expect(getTab('Tab t2')).not.toHaveClass('edge-tab');
-    expect(getTab('Tab t1')).not.toHaveClass('flat-tab-active');
+    expect(getTab('Tab t2')).toHaveAttribute('data-active', 'true');
+    expect(getTab('Tab t2')).toHaveClass('rounded-md', 'bg-foreground/[0.075]');
+    expect(getTab('Tab t1')).not.toHaveAttribute('data-active');
+    expect(getTab('Tab t1')).not.toHaveClass('bg-foreground/[0.075]');
 
     act(() => useLayoutStore.setState({ activeTabByWorkspace: { [WORKSPACE_ID]: 't1' } }));
     rerender(<TerminalTabs />);
-    expect(getTab('Tab t1')).toHaveClass('flat-tab-active', 'joined-tab', 'edge-tab');
-    // Square, like the panes it opens into.
-    expect(getTab('Tab t1').className).not.toMatch(/\brounded/);
+    expect(getTab('Tab t1')).toHaveAttribute('data-active', 'true');
+    // Not joined to the panes any more: no outline open at its bottom.
+    expect(getTab('Tab t1')).not.toHaveClass('joined-tab');
   });
 
   describe('moving a single-pane tab', () => {

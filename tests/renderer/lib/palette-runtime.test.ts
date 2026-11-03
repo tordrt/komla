@@ -21,6 +21,7 @@ import {
   readStoredPaletteId,
   setCustomPalette,
   subscribeSystemAppearance,
+  syncWindowsTitleBarOverlay,
   useEditorSurfaceBackground,
   useTerminalPaneScope,
 } from '../../../src/renderer/lib/palette-runtime';
@@ -306,28 +307,24 @@ describe('palette runtime', () => {
       releases = [];
     });
 
-    it('takes the chrome while no workspace is open', () => {
-      const release = claim('chrome');
+    it('sits on the chrome, which the title bar and tab row sit on', () => {
+      syncWindowsTitleBarOverlay();
       expect(overlayColor()).toBe(oklchTripletToHex(surfaces.chrome));
 
-      release();
+      const release = claim('card');
       expect(overlayColor()).toBe(oklchTripletToHex(surfaces.card));
+
+      release();
+      expect(overlayColor()).toBe(oklchTripletToHex(surfaces.chrome));
     });
 
-    it('goes back to the chrome when Settings closes over the empty page', () => {
-      claim('chrome');
+    it("takes Settings' background over a card page, and goes back to the chrome", () => {
+      const releasePage = claim('card');
       const releaseSettings = claim('background');
       expect(overlayColor()).toBe(oklchTripletToHex(surfaces.background));
 
       releaseSettings();
-      expect(overlayColor()).toBe(oklchTripletToHex(surfaces.chrome));
-    });
-
-    it("keeps a card page's card over the empty page", () => {
-      claim('chrome');
-      const releasePage = claim('card');
       expect(overlayColor()).toBe(oklchTripletToHex(surfaces.card));
-
       releasePage();
       expect(overlayColor()).toBe(oklchTripletToHex(surfaces.chrome));
     });

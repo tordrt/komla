@@ -1252,15 +1252,9 @@ html[data-status-bar-row='large'] [data-status-bar] {
   border-radius: inherit;
   pointer-events: none;
 }
-/* The first tab meets the work column's edge, whose line draws its left side, so it leaves out
-   its own. */
-.flat-tab-active.joined-tab.edge-tab::after {
-  border-left: 0;
-}
-/* The terminal tab row: the active tab's outline is the faint line that frames the pane area on
-   every side (along the sidebar, under this row, along the file panel). Joined tabs drop their
-   own side lines, so the first tab sits flush against the sidebar's line; light themes with a dark
-   terminal keep their bar. */
+/* A browser pane's tab strip: the active tab's outline is a faint line over its top and sides,
+   open into the page below, in place of the bar's lines; light themes with a dark terminal keep
+   their bar. (The terminal tab row's tabs are pills on the chrome instead.) */
 :is(.dark, .light-terminal) .pane-frame-tabs .flat-tab-active.joined-tab {
   box-shadow: none;
 }
@@ -1274,22 +1268,34 @@ html[data-status-bar-row='large'] [data-status-bar] {
   --separator-border: transparent;
   --focus-border: oklch(var(--primary) / 0.4);
 }
-/* Split panes sit apart on a 4px gutter of the sidebar's chrome in place of a divider line: every
-   pane after the first in a split keeps that much room before it, so each pane reads as its own
-   block and its outline stays at its own edge. The sash sits on the gutter's near edge, so its
-   grip moves over to the gutter's middle. */
+/* The panes are rounded blocks on the sidebar's chrome: their corner, and the gutter between them
+   and around them (TerminalTabs). */
+:root {
+  --pane-radius: 12px;
+  --pane-gap: 6px;
+}
+/* Split panes sit apart on that gutter in place of a divider line: every pane after the first in
+   a split keeps that much room before it, so each pane reads as its own block and its outline
+   stays at its own edge. Allotment centers each sash on the gutter's near edge, so the sash moves
+   over to the gutter's middle, taking its drag area and grip off the pane before it. */
 .split-view-horizontal > .split-view-container > .split-view-view:not(:first-child),
 .split-view-vertical > .split-view-container > .split-view-view:not(:first-child) {
   background-color: oklch(var(--chrome));
 }
 .split-view-horizontal > .split-view-container > .split-view-view:not(:first-child) {
-  padding-left: 4px;
+  padding-left: var(--pane-gap);
 }
 .split-view-vertical > .split-view-container > .split-view-view:not(:first-child) {
-  padding-top: 4px;
+  padding-top: var(--pane-gap);
 }
 .split-view > .sash-container > .sash {
   transition: background-color 150ms ease;
+}
+.split-view > .sash-container > .sash.sash-vertical {
+  transform: translateX(calc(var(--pane-gap) / 2));
+}
+.split-view > .sash-container > .sash.sash-horizontal {
+  transform: translateY(calc(var(--pane-gap) / 2));
 }
 .split-view > .sash-container > .sash::before {
   content: '';
@@ -1312,7 +1318,7 @@ html[data-status-bar-row='large'] [data-status-bar] {
   left: 50%;
   width: 4px;
   height: 20px;
-  transform: translate(calc(-50% + 2px), -50%);
+  transform: translate(-50%, -50%);
 }
 /* Horizontal sash (stacked splits) - vertical grip dots */
 .split-view > .sash-container > .sash.sash-horizontal::before {
@@ -1320,16 +1326,18 @@ html[data-status-bar-row='large'] [data-status-bar] {
   left: 50%;
   width: 20px;
   height: 4px;
-  transform: translate(-50%, calc(-50% + 2px));
+  transform: translate(-50%, -50%);
 }
 
 /* The file panel is a sidebar on the right: on the chrome, like the workspace sidebar, running on
-   from its header in the top row (TerminalTabs) with the faint line that frames the panes along
-   its inner edge. Its card-colored surfaces take the chrome, as the Overview's do. */
+   from its header in the top row (TerminalTabs). The panes' rounded edge sets them apart, so it
+   needs no line beside them. A faint line along its bottom edge keeps it from running on into
+   the status bar below, which shares its chrome. Its card-colored surfaces take the chrome, as
+   the Overview's do. */
 .file-panel-chrome {
   --card: var(--chrome);
-  border-left: 1px solid oklch(var(--foreground) / 0.08);
   background-color: oklch(var(--chrome));
+  box-shadow: inset 0 -1px 0 oklch(var(--foreground) / 0.08);
 }
 
 /* The line around a pane: none on its own, since the gutters divide the panes. Around the

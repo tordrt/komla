@@ -68,7 +68,7 @@ import { closeTerminalPane } from '@/lib/close-terminal-pane';
 import { ipcErrorMessage } from '@/lib/ipc-error-message';
 import { findNode, getAllLeaves } from '@/lib/layout-utils';
 import { UNTITLED_NOTE, useNoteTitle } from '@/lib/notes';
-import { claimWindowsTitleBarOverlaySurface, useTerminalBackground } from '@/lib/palette-runtime';
+import { useTerminalBackground } from '@/lib/palette-runtime';
 import {
   getDroppedPaneId,
   isPaneDragFromPane,
@@ -275,6 +275,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   const setInlineFileTreeWidth = useFileViewerStore((s) => s.setInlineFileTreeWidth);
 
   const wsIsPreviewFullscreen = wsPreviewOpen && wsPreviewLayout === 'full';
+  const handleAfterPanes = (wsPreviewOpen && !wsIsPreviewFullscreen) || wsFileTreeOpen;
 
   const wsResolvedTreeWidthPx = wsFileTreeOpen
     ? resolvePanelWidthPx(contentWidth, wsTreeWidthRatio, treeMinWidthPx, INLINE_TREE_MAX_WIDTH_PX)
@@ -307,7 +308,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   );
 
   return (
-    // The terminal's color behind the panes and side panels.
+    // The terminal's color behind the side panels; the panes sit on the chrome.
     <div
       className="absolute inset-0 flex"
       style={
@@ -317,8 +318,10 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
       }
     >
       {/* Terminal area — keeps its dimensions even when preview is fullscreen,
-           so Allotment split panes don't recalculate to zero-width sizes */}
-      <div className="relative min-h-0 overflow-clip" style={{ flex: 1 }}>
+           so Allotment split panes don't recalculate to zero-width sizes. The panes are rounded
+           blocks on the chrome, which runs around them as the same gutter as between them
+           (the tab row's own padding is the gap above). */}
+      <div className="relative min-h-0 overflow-clip bg-[oklch(var(--chrome))]" style={{ flex: 1 }}>
         {wsTabs.map((tabId) => {
           const tabLayout = layoutsByTab[wsId]?.[tabId];
           if (!tabLayout) return null;
@@ -327,7 +330,11 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
           return (
             <div
               key={tabId}
-              className="absolute inset-0"
+              // A resize handle after the panes is 3px of the gutter already.
+              className={cn(
+                'absolute top-0 bottom-(--pane-gap) left-(--pane-gap)',
+                handleAfterPanes ? 'right-[calc(var(--pane-gap)-3px)]' : 'right-(--pane-gap)'
+              )}
               // clip-path (like inactive workspaces above) lets xterm's IntersectionObserver
               // pause rendering for hidden tabs; visibility alone still counts as on-screen.
               style={
@@ -351,6 +358,8 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
           maxWidthPx={previewMaxWidthPx}
           isResizing={isResizingPreview && isCurrentWorkspace}
           onResizeStart={(e) => onPreviewResizeStart(e, wsId)}
+          // Part of the chrome's gutter beside the panes; it shows only while in use.
+          className="bg-[oklch(var(--chrome))]"
           onResize={(widthPx) =>
             availableForPreview > 0 &&
             setInlineFilePreviewWidth(wsId, widthPx / availableForPreview)
@@ -412,8 +421,8 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
             contentWidth > 0 && setInlineFileTreeWidth(wsId, widthPx / contentWidth)
           }
           onReset={() => setInlineFileTreeWidth(wsId, INLINE_TREE_DEFAULT_WIDTH_RATIO)}
-          // The panel's own edge is the line; the handle shows only while in use.
-          className="bg-transparent"
+          // Part of the chrome's gutter beside the panes; it shows only while in use.
+          className="bg-[oklch(var(--chrome))]"
         />
       )}
       {/* File tree panel — always rendered, collapses to width 0 when closed. Its Diff/Files
@@ -463,15 +472,15 @@ function FileTreeModeTabs({
       : []),
     { value: 'browse' as const, label: 'Files', title: 'Show all files' },
   ];
-  // A switch rather than more tabs, so it doesn't read as part of the terminal tabs' row. Through
-  // the store action, so a dirty preview asks before reloading in the other mode.
+  // Underlined labels rather than more boxed tabs, so they don't read as part of the terminal
+  // tabs' row. Through the store action, so a dirty preview asks before reloading in the other mode.
   return (
     <SegmentedControl
       aria-label="File panel view"
       value={mode}
       onValueChange={(next) => requestModeChange(workspaceId, next)}
       options={options}
-      className="bg-foreground/[0.06]"
+      variant="underline"
     />
   );
 }
@@ -974,10 +983,8 @@ export const TerminalTabs = memo(function TerminalTabs({
   const movePaneToNewTab = useLayoutStore((s) => s.movePaneToNewTab);
   const initializeWorkspaceLayout = useLayoutStore((s) => s.initializeWorkspaceLayout);
   const sidebarCollapsed = useSidebarCollapsed();
-  // The first tab lines up with the panes below, unless the collapsed sidebar's buttons sit before
-  // it.
+  // The first tab sits by the sidebar's line, unless the collapsed sidebar's buttons sit before it.
   const firstTabAtEdge = !sidebarCollapsed;
-  const terminalBackground = useTerminalBackground();
   const [topRowActionsRef, topRowActionsWidth] = useElementWidth();
   const [treeTabsRef, treeTabsWidth] = useElementWidth();
   const { heightPx: topRowHeightPx, captionWidthPx: topRowCaptionWidthPx } = topRowMetrics();
@@ -1856,14 +1863,6 @@ export const TerminalTabs = memo(function TerminalTabs({
     };
   }, [isResizingTree, setInlineFileTreeWidth]);
 
-  // A workspace's tab row, the empty page and the Overview all sit on the sidebar's chrome, so the
-  // Windows window controls follow.
-  const workColumnShown = !!selectedWorkspace || showDashboard || hasLoaded;
-  useEffect(() => {
-    if (!workColumnShown) return;
-    return claimWindowsTitleBarOverlaySurface('chrome');
-  }, [workColumnShown]);
-
   // No workspace selected — show dashboard if requested, empty state if no active workspaces
   const emptyState = renderTerminalTabsEmptyState({
     selectedWorkspaceId,
@@ -1907,8 +1906,9 @@ export const TerminalTabs = memo(function TerminalTabs({
         {selectedWorkspaceId && selectedWorkspace && (
           <div
             data-testid="workspace-top-row"
-            // On the work column's surface, with no line under it: the tabs underline themselves.
-            className="pane-frame-tabs drag-region relative flex shrink-0 items-stretch shadow-[inset_0_-1px_0_oklch(var(--foreground)/0.08)]"
+            // On the work column's chrome with no line under it: the tabs are pills on the chrome,
+            // so a split's gutter, the same chrome, runs up into the row rather than into a tab.
+            className="pane-frame-tabs drag-region relative flex shrink-0 items-stretch"
             style={{ height: topRowHeightPx }}
           >
             <SidebarExpandButton trafficLightInset className="gap-0.5 pr-1 pl-1.5">
@@ -1928,7 +1928,6 @@ export const TerminalTabs = memo(function TerminalTabs({
                 style={
                   {
                     paddingRight: isInlinePreviewOpen ? undefined : topRowEndReservePx,
-                    '--tab-surface': terminalBackground,
                   } as React.CSSProperties
                 }
               >
@@ -1979,8 +1978,9 @@ export const TerminalTabs = memo(function TerminalTabs({
                         <ContextMenuTrigger asChild>
                           <div
                             className={cn(
-                              'group/tab relative flex w-[180px] min-w-[96px] items-stretch pt-[0.5px] xl:w-[220px]',
-                              firstTabAtEdge && tabIndex === 0 ? 'pr-px' : 'px-px',
+                              'group/tab relative flex w-[180px] min-w-[96px] items-stretch py-1.5 xl:w-[220px]',
+                              // Clear of the sidebar's line.
+                              firstTabAtEdge && tabIndex === 0 ? 'pr-px pl-1' : 'px-px',
                               draggedTabId === terminalId && 'opacity-50',
                               dropTarget?.tabId === terminalId &&
                                 dropTarget.position === 'before' &&
@@ -2002,6 +2002,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                               role="button"
                               tabIndex={0}
                               aria-label={tabLabel}
+                              data-active={isActive || undefined}
                               onClick={() => handleTabClick(terminalId)}
                               // Middle-click closes, as in browsers; preventing the
                               // mousedown stops autoscroll/paste on Windows and Linux.
@@ -2020,13 +2021,12 @@ export const TerminalTabs = memo(function TerminalTabs({
                                 }
                               }}
                               className={cn(
-                                'relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-3 text-xs transition-colors',
+                                'relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 text-xs transition-colors',
                                 isActive
-                                  ? 'flat-tab-active joined-tab text-foreground'
+                                  ? 'bg-foreground/[0.075] text-foreground'
                                   : visible
                                     ? 'text-foreground/80 hover:bg-foreground/[0.045] hover:text-foreground'
-                                    : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground',
-                                firstTabAtEdge && tabIndex === 0 && 'edge-tab'
+                                    : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground'
                               )}
                             >
                               {tabSurfaceIcons.length > 0 && (
@@ -2210,15 +2210,15 @@ export const TerminalTabs = memo(function TerminalTabs({
             })}
             {isFileTreeOpen && (
               <div
-                // The file panel's header: the top of the panel below, on the same chrome with the
-                // same faint line along its edge, so the panel reads as a sidebar on the right, as
-                // the workspace sidebar does on the left.
+                // The file panel's header: the top of the panel below, on the same chrome, so the
+                // panel reads as a sidebar on the right, as the workspace sidebar does on the left.
+                // The panes' rounded edge sets them apart, so neither needs a line.
                 data-inline-file-preview-scope={selectedWorkspaceId ?? undefined}
                 data-testid="file-panel-header"
                 className={cn(
                   'relative flex shrink-0 items-stretch overflow-hidden',
-                  // Unmeasured, it collapses to nothing: padding and a border would keep a sliver.
-                  contentWidth > 0 && 'border-l border-foreground/8 pl-1.5'
+                  // Unmeasured, it collapses to nothing: padding would keep a sliver.
+                  contentWidth > 0 && 'pl-1.5'
                 )}
                 style={
                   contentWidth > 0
@@ -2228,7 +2228,7 @@ export const TerminalTabs = memo(function TerminalTabs({
               >
                 {selectedWorkspaceId && (
                   // Measured, so the panel stays wide enough for these and the corner buttons.
-                  <div ref={treeTabsRef} className="no-drag flex items-center">
+                  <div ref={treeTabsRef} className="no-drag flex items-stretch">
                     <FileTreeModeTabs
                       workspaceId={selectedWorkspaceId}
                       isGitWorkspace={isGitWorkspace}

@@ -25,6 +25,11 @@ import { shortcutsService } from './shortcuts.service';
 const HIDE_WINDOWS = process.env.NODE_ENV === 'test' && process.env.KOMLA_E2E_HIDE_WINDOWS === '1';
 const HIDE_FROM_SCREEN = HIDE_WINDOWS && process.platform !== 'linux';
 
+/** The default palette's --chrome from globals.css (OKLCH → hex), the window's surface. */
+function coldStartChromeHex(isDark: boolean): string {
+  return isDark ? '#090d10' : '#f0f0f0';
+}
+
 // Electron saves this window's size, position and maximized or full-screen
 // state and restores them on the next launch. A name can belong to one live
 // window at a time, so only one window has it; the others open at the default size.
@@ -73,7 +78,7 @@ class WindowService {
       // Avoid Electron's default white background flashing through when the
       // renderer hasn't painted (cold start, reload, or shutdown teardown).
       // Matches the cold-start titleBarOverlay palette below.
-      backgroundColor: nativeTheme.shouldUseDarkColors ? '#262a2f' : '#fafafa',
+      backgroundColor: coldStartChromeHex(nativeTheme.shouldUseDarkColors),
       autoHideMenuBar: true,
       ...(process.platform !== 'darwin' && {
         icon: is.dev
@@ -87,10 +92,10 @@ class WindowService {
       ...(process.platform === 'win32' && {
         titleBarOverlay: {
           height: TITLE_BAR_OVERLAY_HEIGHT_PX,
-          // Cold-start fallback: match the default palette's --card / --card-foreground
-          // from globals.css (OKLCH → hex). The renderer overrides these via
-          // WINDOW_SET_TITLE_BAR_OVERLAY once applyPalette() runs.
-          color: nativeTheme.shouldUseDarkColors ? '#262a2f' : '#fafafa',
+          // Cold-start fallback: the default palette's --chrome, which the title bar sits on.
+          // The renderer overrides these via WINDOW_SET_TITLE_BAR_OVERLAY once applyPalette()
+          // runs.
+          color: coldStartChromeHex(nativeTheme.shouldUseDarkColors),
           symbolColor: nativeTheme.shouldUseDarkColors ? '#fafafa' : '#0a0a0a',
         },
       }),

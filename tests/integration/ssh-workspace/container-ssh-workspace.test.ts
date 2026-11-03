@@ -1648,6 +1648,49 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
     }
   }, 60_000);
 
+  it('copies what Git tracks or would add, even under an ignored folder', async () => {
+    const { localCopyService } = localCopyModule;
+    const backend = await createPreparedWorkspace('local-copy-git-files');
+    const workspaceId = 'ssh-integration-local-copy-git-files';
+
+    try {
+      await container.exec([
+        'sh',
+        '-lc',
+        [
+          'cd "$1"',
+          'printf "/tmp/*\\n!/tmp/pids/\\n/tmp/pids/*\\n!/tmp/pids/.keep\\n!/tmp/sockets/\\n*.key\\n.env*\\n!.env.example\\ndeps/\\n" > .gitignore',
+          'mkdir -p tmp/pids tmp/sockets config',
+          ': > tmp/pids/.keep',
+          ': > tmp/sockets/.keep',
+          'printf cache > tmp/cache',
+          'printf key > config/master.key',
+          'printf example > .env.example',
+          'printf secret > .env',
+          'mkdir -p deps/vendored deps/installed',
+          'printf vendored > deps/vendored/index.js',
+          'printf installed > deps/installed/index.js',
+          'git add .gitignore tmp/pids/.keep tmp/sockets/.keep',
+          'git add -f config/master.key deps/vendored/index.js',
+        ].join('; '),
+        'sh',
+        backend.remoteDirectory,
+      ]);
+
+      const localCopyPath = await localCopyService.prepare(workspaceId, backend);
+      expect(existsSync(`${localCopyPath}/tmp/pids/.keep`)).toBe(true);
+      expect(existsSync(`${localCopyPath}/tmp/sockets/.keep`)).toBe(true);
+      expect(readFileSync(`${localCopyPath}/config/master.key`, 'utf8')).toBe('key');
+      expect(readFileSync(`${localCopyPath}/.env.example`, 'utf8')).toBe('example');
+      expect(existsSync(`${localCopyPath}/tmp/cache`)).toBe(false);
+      expect(existsSync(`${localCopyPath}/.env`)).toBe(false);
+      expect(readFileSync(`${localCopyPath}/deps/vendored/index.js`, 'utf8')).toBe('vendored');
+      expect(existsSync(`${localCopyPath}/deps/installed`)).toBe(false);
+    } finally {
+      await localCopyService.remove(workspaceId, backend);
+    }
+  }, 60_000);
+
   it('runs representative Git mutations through real SSH commands', async () => {
     const { sshWorkspaceGit } = sshWorkspaceGitModule;
     const backend = await createPreparedWorkspace('git');

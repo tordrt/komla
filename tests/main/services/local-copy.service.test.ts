@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   readdir: vi.fn((): Promise<unknown[]> => Promise.resolve([])),
   readFile: vi.fn((): Promise<string> => Promise.resolve('')),
   rmdir: vi.fn(() => Promise.resolve()),
+  mkdtemp: vi.fn((prefix: string) => Promise.resolve(`${prefix}abc123`)),
+  rmTemp: vi.fn(() => Promise.resolve()),
+  // Outside a Git work tree, Git lists nothing.
+  run: vi.fn((): Promise<string> => Promise.resolve('')),
+  getHost: vi.fn(() => ({ id: 'ssh-dev' })),
   ensureWorkspaceReady: vi.fn(() => Promise.resolve()),
   getRsyncTransport: vi.fn(() => ({
     remoteTarget: 'dev@example.com',
@@ -68,6 +73,8 @@ vi.mock('fs/promises', () => ({
   readdir: mocks.readdir,
   readFile: mocks.readFile,
   rmdir: mocks.rmdir,
+  mkdtemp: mocks.mkdtemp,
+  rm: mocks.rmTemp,
 }));
 // Local copies can contain node_modules/electron's .asar files, which only the
 // shared remover deletes correctly inside Electron.
@@ -79,6 +86,8 @@ vi.mock('../../../src/main/services/ssh-workspace.service', () => ({
   sshWorkspaceService: {
     ensureWorkspaceReady: mocks.ensureWorkspaceReady,
     getRsyncTransport: mocks.getRsyncTransport,
+    getHost: mocks.getHost,
+    run: mocks.run,
   },
 }));
 vi.mock('../../../src/main/lib/logger', () => ({
@@ -144,6 +153,7 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
     mocks.readdir.mockReset().mockResolvedValue([]);
     mocks.readFile.mockReset().mockResolvedValue('');
     mocks.rm.mockReset().mockResolvedValue(undefined);
+    mocks.run.mockReset().mockResolvedValue('');
     mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
       callback(null, '', '');
     });
@@ -250,6 +260,87 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
       ]),
       expect.anything(),
       expect.any(Function)
+    );
+  });
+
+  it('includes what Git keeps although .gitignore matches it, ahead of the .gitignore filter', async () => {
+    // A login shell can print before the command does.
+    mocks.run.mockResolvedValue(
+      [
+        'Welcome!\nkomla-git-paths\n',
+        '.gitignore\x001\x00deps/\x00deps/x/file\x00',
+        '.gitignore\x004\x00!/tmp/pids/.keep\x00tmp/pids/.keep\x00',
+        '\x00\x00\x00\x00',
+        '.gitignore\x001\x00deps/\x00deps\x00',
+        '.gitignore\x001\x00deps/\x00deps/x\x00',
+      ].join('')
+    );
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
+
+    await localCopyService.prepare('workspace-1', backend);
+
+    expect(mocks.getHost).toHaveBeenCalledWith('ssh-dev');
+    expect(mocks.run).toHaveBeenCalledWith(
+      { id: 'ssh-dev' },
+      expect.stringContaining("cd '/home/dev/work trees/project' || exit 1")
+    );
+    const ruleDir = await (mocks.mkdtemp.mock.results[0]?.value as Promise<string>);
+    expect(mocks.writeFile).toHaveBeenCalledWith(
+      `${ruleDir}/include`,
+      '/deps/\n/deps/x/\n/deps/x/file\n/tmp/\n/tmp/pids/\n/tmp/pids/.keep\n',
+      'utf8'
+    );
+    expect(mocks.writeFile).toHaveBeenCalledWith(
+      `${ruleDir}/exclude`,
+      '/deps/*\n/deps/x/*\n',
+      'utf8'
+    );
+    const args = mocks.rsync.mock.calls[0]?.[1] as string[];
+    const include = args.indexOf(`--include-from=${ruleDir}/include`);
+    const exclude = args.indexOf(`--exclude-from=${ruleDir}/exclude`);
+    expect(include).toBeGreaterThan(args.indexOf('--exclude=/.komla-files'));
+    expect(exclude).toBeGreaterThan(include);
+    expect(args.indexOf('--filter=:- .gitignore')).toBeGreaterThan(exclude);
+    expect(mocks.rmTemp).toHaveBeenCalledWith(ruleDir, { recursive: true, force: true });
+  });
+
+  it('writes no rule files when Git keeps nothing that .gitignore matches', async () => {
+    mocks.run.mockResolvedValue('komla-git-paths\n\0\0\0\0');
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
+
+    await localCopyService.prepare('workspace-1', backend);
+
+    expect(mocks.mkdtemp).not.toHaveBeenCalled();
+    const args = mocks.rsync.mock.calls[0]?.[1] as string[];
+    expect(args).toContain('--filter=:- .gitignore');
+    expect(args.some((arg) => /^--(include|exclude)-from=/.test(arg))).toBe(false);
+  });
+
+  it('removes the rule files when the sync fails', async () => {
+    mocks.run.mockResolvedValue('komla-git-paths\n.gitignore\x001\x00*.key\x00master.key\x00');
+    mocks.rsync.mockImplementation((_file, _args, _options, callback) => {
+      callback(Object.assign(new Error('failed'), { exitCode: 23 }), '', 'rsync error');
+    });
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
+
+    await expect(localCopyService.prepare('workspace-1', backend)).rejects.toThrow(
+      'Failed to update local copy'
+    );
+    expect(mocks.rmTemp).toHaveBeenCalledTimes(1);
+  });
+
+  it("syncs with the .gitignore filter alone when Git can't say which ignored files it keeps", async () => {
+    mocks.run.mockRejectedValue(new Error('ssh: connection reset'));
+    const { localCopyService } = await import('../../../src/main/services/local-copy.service');
+
+    await localCopyService.prepare('workspace-1', backend);
+
+    const args = mocks.rsync.mock.calls[0]?.[1] as string[];
+    expect(args).toContain('--filter=:- .gitignore');
+    expect(args.some((arg) => /^--(include|exclude)-from=/.test(arg))).toBe(false);
+    expect(mocks.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('could not ask Git which ignored files it keeps'),
+      expect.objectContaining({ workspaceId: 'workspace-1', error: 'ssh: connection reset' })
     );
   });
 

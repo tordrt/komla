@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
-import { mkdir, readdir, readFile, rmdir, writeFile } from 'fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, rmdir, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
 import { basename, join, resolve, sep } from 'path';
 
 import { sanitizeWorktreeProjectSegment } from '../../shared/lib/random-names';
@@ -8,6 +9,7 @@ import { createLogger } from '../lib/logger';
 import { removePath } from '../lib/remove-path';
 
 import { KOMLA_FILES_DIR } from './git/git-status';
+import { buildKeptPathsCommand, keptPathRules, parseKeptPaths } from './local-copy-kept-paths';
 import { collectGitignoreProtectRules } from './local-copy-protect';
 import { syncWithSupportedOptions } from './local-copy-rsync';
 import { getKomlaBasePath } from './paths';
@@ -318,38 +320,42 @@ class LocalCopyService {
     // Provisioning owns remote setup. Repeating it here rewrites watched Git config,
     // which triggers another snapshot and local copy sync indefinitely.
     const localCopyPath = await this.initialize(workspaceId, backend);
-    const protectRules = await collectGitignoreProtectRules(
-      localCopyPath,
-      new Set(['.git', LOCAL_COPY_OWNER_FILE, KOMLA_FILES_DIR])
-    );
-
+    const [protectRules, keptRules] = await Promise.all([
+      collectGitignoreProtectRules(
+        localCopyPath,
+        new Set(['.git', LOCAL_COPY_OWNER_FILE, KOMLA_FILES_DIR])
+      ),
+      readKeptPathRules(workspaceId, backend),
+    ]);
     const transport = sshWorkspaceService.getRsyncTransport(backend.hostId);
     const remotePath = `${transport.remoteTarget}:${backend.remoteDirectory}/`;
     const legacyRemotePath = `${transport.remoteTarget}:${shellQuotePosix(`${backend.remoteDirectory}/`)}`;
-    const commonArgs = [
-      // Directory times are not content. Restoring them bumps folders that local tools write
-      // ignored files into, which dev-server watchers treat as changes.
-      '--omit-dir-times',
-      '--delete-after',
-      '--safe-links',
-      '--exclude=/.git',
-      `--exclude=/${LOCAL_COPY_OWNER_FILE}`,
-      `--exclude=/${KOMLA_FILES_DIR}`,
-      '--filter=:- .gitignore',
-      ...protectRules.map((rule) => `--filter=${rule}`),
-      '-e',
-      transport.remoteShell,
-    ];
     try {
-      await syncWithSupportedOptions(
-        {
-          commonArgs,
-          remotePath,
-          legacyRemotePath,
-          localPath: `${localCopyPath}${sep}`,
-          timeout: SYNC_TIMEOUT_MS,
-        },
-        (percent) => this.setSyncStatus({ workspaceId, state: 'syncing', percent })
+      await withRuleFiles(keptRules, (keptPathArgs) =>
+        syncWithSupportedOptions(
+          {
+            commonArgs: [
+              // Directory times are not content. Restoring them bumps folders that local tools
+              // write ignored files into, which dev-server watchers treat as changes.
+              '--omit-dir-times',
+              '--delete-after',
+              '--safe-links',
+              '--exclude=/.git',
+              `--exclude=/${LOCAL_COPY_OWNER_FILE}`,
+              `--exclude=/${KOMLA_FILES_DIR}`,
+              ...keptPathArgs,
+              '--filter=:- .gitignore',
+              ...protectRules.map((rule) => `--filter=${rule}`),
+              '-e',
+              transport.remoteShell,
+            ],
+            remotePath,
+            legacyRemotePath,
+            localPath: `${localCopyPath}${sep}`,
+            timeout: SYNC_TIMEOUT_MS,
+          },
+          (percent) => this.setSyncStatus({ workspaceId, state: 'syncing', percent })
+        )
       );
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -427,6 +433,60 @@ class LocalCopyService {
     } catch {
       return undefined;
     }
+  }
+}
+
+/**
+ * The rules that copy what Git keeps in the remote workspace although .gitignore matches it, which
+ * `--filter=:- .gitignore` alone would leave out. Outside a Git work tree there are none.
+ */
+async function readKeptPathRules(
+  workspaceId: string,
+  backend: SshWorkspaceBackend
+): Promise<{ include: string[]; exclude: string[] }> {
+  try {
+    const kept = parseKeptPaths(
+      await sshWorkspaceService.run(
+        sshWorkspaceService.getHost(backend.hostId),
+        buildKeptPathsCommand(backend.remoteDirectory)
+      )
+    );
+    return kept ? keptPathRules(kept) : { include: [], exclude: [] };
+  } catch (error) {
+    // The .gitignore filter alone never copies an ignored file, so the sync can go ahead.
+    logger.warn('could not ask Git which ignored files it keeps, so the local copy may lack some', {
+      workspaceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { include: [], exclude: [] };
+  }
+}
+
+/**
+ * Runs `run` with the rsync options that read `rules` from files, removing the files after.
+ * Without rules, there are no files.
+ */
+async function withRuleFiles<T>(
+  rules: { include: string[]; exclude: string[] },
+  run: (args: string[]) => Promise<T>
+): Promise<T> {
+  if (!rules.include.length && !rules.exclude.length) return run([]);
+  const directory = await mkdtemp(join(tmpdir(), 'komla-local-copy-'));
+  try {
+    const args: string[] = [];
+    // rsync applies the rules in this order, so the includes come first.
+    for (const [kind, patterns] of [
+      ['include', rules.include],
+      ['exclude', rules.exclude],
+    ] as const) {
+      if (!patterns.length) continue;
+      const file = join(directory, kind);
+      await writeFile(file, patterns.map((pattern) => `${pattern}\n`).join(''), 'utf8');
+      args.push(`--${kind}-from=${file}`);
+    }
+    return await run(args);
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
   }
 }
 

@@ -33,7 +33,8 @@ export function SplitContainer({ tabId, isActive, workspaceId }: SplitContainerP
   // Use individual selectors to minimize re-renders
   const currentWorkspaceId = useLayoutStore((s) => s.currentWorkspaceId);
   const splitPane = useLayoutStore((s) => s.splitPane);
-  const setFocusedPane = useLayoutStore((s) => s.setFocusedPane);
+  const handleFocusNext = useLayoutStore((s) => s.focusNextPane);
+  const handleFocusPrev = useLayoutStore((s) => s.focusPreviousPane);
 
   const addTerminal = useWorkspacesStore((s) => s.addTerminal);
 
@@ -133,26 +134,6 @@ export function SplitContainer({ tabId, isActive, workspaceId }: SplitContainerP
       console.error('Failed to remove terminal:', err);
     }
   }, [isLayoutLocked, root, effectiveWorkspaceId]);
-
-  const handleFocusNext = useCallback(() => {
-    if (!root) return;
-    const leaves = getAllLeaves(root);
-    if (leaves.length <= 1) return;
-
-    const currentIndex = leaves.findIndex((l) => l.id === focusedPaneId);
-    const newIndex = (currentIndex + 1) % leaves.length;
-    setFocusedPane(leaves[newIndex].id);
-  }, [root, focusedPaneId, setFocusedPane]);
-
-  const handleFocusPrev = useCallback(() => {
-    if (!root) return;
-    const leaves = getAllLeaves(root);
-    if (leaves.length <= 1) return;
-
-    const currentIndex = leaves.findIndex((l) => l.id === focusedPaneId);
-    const newIndex = currentIndex <= 0 ? leaves.length - 1 : currentIndex - 1;
-    setFocusedPane(leaves[newIndex].id);
-  }, [root, focusedPaneId, setFocusedPane]);
 
   // Memoize handlers to prevent re-registering on every render
   const shortcutHandlers = useMemo(

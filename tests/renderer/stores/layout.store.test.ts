@@ -464,4 +464,92 @@ describe('layout.store', () => {
       'term-2',
     ]);
   });
+
+  describe('stepping pane focus', () => {
+    // Tabs t1, t2 (split into t2 | t2b) and t3, with t2's right pane focused.
+    function setUpThreeTabs(): void {
+      const state = useLayoutStore.getState();
+      state.setCurrentWorkspace('ws-1', 't1');
+      state.addTab('ws-1', 't2');
+      state.addTab('ws-1', 't3');
+      state.setActiveTab('t2');
+      state.splitPane('vertical', 't2b');
+    }
+
+    function focusedTerminal(): { tab: string | null; terminal: string | undefined } {
+      const state = useLayoutStore.getState();
+      const layout = state.getCurrentLayout();
+      const paneId = state.getFocusedPaneId();
+      return {
+        tab: state.getActiveTabId(),
+        terminal: layout ? getAllLeaves(layout).find((l) => l.id === paneId)?.terminalId : undefined,
+      };
+    }
+
+    it('moves between the panes of a split tab', () => {
+      setUpThreeTabs();
+      useLayoutStore.getState().focusPreviousPane();
+      expect(focusedTerminal()).toEqual({ tab: 't2', terminal: 't2' });
+      useLayoutStore.getState().focusNextPane();
+      expect(focusedTerminal()).toEqual({ tab: 't2', terminal: 't2b' });
+    });
+
+    it("moves on to the next tab's first pane past a tab's last pane, wrapping at the end", () => {
+      setUpThreeTabs();
+      useLayoutStore.getState().focusNextPane();
+      expect(focusedTerminal()).toEqual({ tab: 't3', terminal: 't3' });
+      useLayoutStore.getState().focusNextPane();
+      expect(focusedTerminal()).toEqual({ tab: 't1', terminal: 't1' });
+      useLayoutStore.getState().focusNextPane();
+      expect(focusedTerminal()).toEqual({ tab: 't2', terminal: 't2' });
+    });
+
+    it("moves back to the previous tab's last pane, not the pane it last focused", () => {
+      setUpThreeTabs();
+      useLayoutStore.getState().focusPreviousPane();
+      useLayoutStore.getState().setActiveTab('t3');
+      useLayoutStore.getState().focusPreviousPane();
+      expect(focusedTerminal()).toEqual({ tab: 't2', terminal: 't2b' });
+    });
+
+    it('wraps back from the first tab to the last tab', () => {
+      setUpThreeTabs();
+      useLayoutStore.getState().setActiveTab('t1');
+      useLayoutStore.getState().focusPreviousPane();
+      expect(focusedTerminal()).toEqual({ tab: 't3', terminal: 't3' });
+    });
+
+    it("stays in the shown tab when its focused pane is unknown, entering it at the step's end", () => {
+      const forgetFocus = () =>
+        useLayoutStore.setState((s) => ({
+          focusedPaneByTab: { 'ws-1': { ...s.focusedPaneByTab['ws-1'], t2: 'gone' } },
+        }));
+      setUpThreeTabs();
+      forgetFocus();
+      useLayoutStore.getState().focusNextPane();
+      expect(focusedTerminal()).toEqual({ tab: 't2', terminal: 't2' });
+      forgetFocus();
+      useLayoutStore.getState().focusPreviousPane();
+      expect(focusedTerminal()).toEqual({ tab: 't2', terminal: 't2b' });
+    });
+
+    it('starts from the first or last pane when the shown tab is unknown', () => {
+      setUpThreeTabs();
+      useLayoutStore.setState({ activeTabByWorkspace: { 'ws-1': 'gone' } });
+      useLayoutStore.getState().focusNextPane();
+      expect(focusedTerminal()).toEqual({ tab: 't1', terminal: 't1' });
+      useLayoutStore.setState({ activeTabByWorkspace: { 'ws-1': 'gone' } });
+      useLayoutStore.getState().focusPreviousPane();
+      expect(focusedTerminal()).toEqual({ tab: 't3', terminal: 't3' });
+    });
+
+    it('leaves a workspace with a single pane as it is', () => {
+      useLayoutStore.getState().setCurrentWorkspace('ws-1', 't1');
+      const before = useLayoutStore.getState();
+      useLayoutStore.getState().focusNextPane();
+      useLayoutStore.getState().focusPreviousPane();
+      expect(useLayoutStore.getState().focusedPaneByTab).toBe(before.focusedPaneByTab);
+      expect(useLayoutStore.getState().activeTabByWorkspace).toBe(before.activeTabByWorkspace);
+    });
+  });
 });

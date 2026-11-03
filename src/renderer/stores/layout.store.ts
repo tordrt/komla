@@ -30,6 +30,50 @@ function dropEmptiedTab(
   return tabs.filter((t) => t !== tabId);
 }
 
+// Moves focus one pane forward (step 1) or back (step -1) through every pane of the workspace in tab
+// order: past a tab's last pane it moves into the next tab's first pane, before a tab's first pane
+// into the previous tab's last pane, and it wraps around at either end. Returns the state update, or
+// null when there is no other pane to move to.
+function stepPaneFocus(
+  state: Pick<
+    LayoutState,
+    | 'currentWorkspaceId'
+    | 'tabsByWorkspace'
+    | 'layoutsByTab'
+    | 'focusedPaneByTab'
+    | 'activeTabByWorkspace'
+  >,
+  step: 1 | -1
+): Pick<LayoutState, 'activeTabByWorkspace' | 'focusedPaneByTab'> | null {
+  const { currentWorkspaceId: workspaceId, layoutsByTab, focusedPaneByTab } = state;
+  if (!workspaceId) return null;
+  const layouts = layoutsByTab[workspaceId] ?? {};
+  const panes = (state.tabsByWorkspace[workspaceId] ?? []).flatMap((tabId) =>
+    layouts[tabId] ? getAllLeaves(layouts[tabId]).map((leaf) => ({ tabId, paneId: leaf.id })) : []
+  );
+  if (panes.length <= 1) return null;
+
+  const activeTabId = state.activeTabByWorkspace[workspaceId];
+  const focusedPaneId = focusedPaneByTab[workspaceId]?.[activeTabId];
+  let current = panes.findIndex((p) => p.tabId === activeTabId && p.paneId === focusedPaneId);
+  if (current === -1) {
+    // Without a focused pane, step into the shown tab, or into the workspace when the tab is
+    // unknown too, from just outside its first pane going forward or its last pane going back.
+    const inTab = (p: { tabId: string }) => p.tabId === activeTabId;
+    const edge = step === 1 ? panes.findIndex(inTab) : panes.findLastIndex(inTab);
+    current = edge === -1 ? (step === 1 ? -1 : panes.length) : edge - step;
+  }
+  const next = panes[(current + step + panes.length) % panes.length];
+
+  return {
+    activeTabByWorkspace: { ...state.activeTabByWorkspace, [workspaceId]: next.tabId },
+    focusedPaneByTab: {
+      ...focusedPaneByTab,
+      [workspaceId]: { ...focusedPaneByTab[workspaceId], [next.tabId]: next.paneId },
+    },
+  };
+}
+
 interface LayoutState {
   // Per-tab layouts: layoutsByTab[workspaceId][tabTerminalId] = layout
   layoutsByTab: Record<string, Record<string, LayoutNode>>;
@@ -69,6 +113,10 @@ interface LayoutState {
   moveTabToEdge: (sourceTabId: string, targetPaneId: PaneId, edge: DropEdge) => void;
   movePaneToNewTab: (sourcePaneId: PaneId) => void;
   setFocusedPane: (paneId: PaneId) => void;
+  // Focus the next or previous pane in the workspace, crossing into the adjacent tab at a tab's
+  // last or first pane.
+  focusNextPane: () => void;
+  focusPreviousPane: () => void;
   replaceTerminalInPane: (paneId: PaneId, newTerminalId: string) => void;
   updateSizes: (paneId: PaneId, sizes: [number, number]) => void;
   openInFocusedPane: (terminalId: string) => void;
@@ -686,6 +734,16 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
         [currentWorkspaceId]: { ...focusedPaneByTab[currentWorkspaceId], [activeTabId]: paneId },
       },
     });
+  },
+
+  focusNextPane: () => {
+    const update = stepPaneFocus(get(), 1);
+    if (update) set(update);
+  },
+
+  focusPreviousPane: () => {
+    const update = stepPaneFocus(get(), -1);
+    if (update) set(update);
   },
 
   replaceTerminalInPane: (paneId, newTerminalId) => {

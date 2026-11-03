@@ -223,8 +223,8 @@ Controls keyboard shortcuts. Use "Cmd" in the config file - it becomes the Meta 
 | pane.close | Cmd+W (macOS), Cmd+Alt+W (Windows/Linux) | Close current pane |
 | pane.splitRight | Cmd+D (macOS), Cmd+\\ (Windows/Linux) | Split pane vertically |
 | pane.splitDown | Cmd+Shift+D (macOS), Cmd+Shift+\\ (Windows/Linux) | Split pane horizontally |
-| pane.focusNext | Cmd+K | Focus next pane |
-| pane.focusPrev | Cmd+J | Focus previous pane |
+| pane.focusNext | Cmd+K (macOS), Cmd+Shift+K (Windows/Linux) | Focus next pane, moving on to the next tab after a tab's last pane |
+| pane.focusPrev | Cmd+J (macOS), Cmd+Shift+J (Windows/Linux) | Focus previous pane, moving back to the previous tab before a tab's first pane |
 | terminal.new | Cmd+T | New terminal in workspace |
 | tab.next | Cmd+Shift+] | Switch to next tab |
 | tab.previous | Cmd+Shift+[ | Switch to previous tab |
@@ -374,8 +374,8 @@ Controls keyboard shortcuts. Use "Cmd" in the config — it maps to ⌘ on Mac a
 | pane.close | Cmd+W (macOS), Cmd+Alt+W (Windows/Linux) | Close current pane |
 | pane.splitRight | Cmd+D (macOS), Cmd+\\ (Windows/Linux) | Split pane vertically |
 | pane.splitDown | Cmd+Shift+D (macOS), Cmd+Shift+\\ (Windows/Linux) | Split pane horizontally |
-| pane.focusNext | Cmd+K | Focus next pane |
-| pane.focusPrev | Cmd+J | Focus previous pane |
+| pane.focusNext | Cmd+K (macOS), Cmd+Shift+K (Windows/Linux) | Focus next pane, moving on to the next tab after a tab's last pane |
+| pane.focusPrev | Cmd+J (macOS), Cmd+Shift+J (Windows/Linux) | Focus previous pane, moving back to the previous tab before a tab's first pane |
 | terminal.new | Cmd+T | New terminal in workspace |
 | tab.next | Cmd+Shift+] | Switch to next tab |
 | tab.previous | Cmd+Shift+[ | Switch to previous tab |

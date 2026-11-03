@@ -813,6 +813,18 @@ function PreviewFileIcon({ filePath, isNote }: { filePath: string | null; isNote
   );
 }
 
+/**
+ * A selected workspace's page while it restarts, sets up or fails its setup. It paints nothing, so
+ * it shows the work column's chrome, as the sidebar beside it does.
+ */
+function WorkspaceStatusPage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 pb-(--banner-inset) text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
 function renderTerminalTabsEmptyState(params: {
   selectedWorkspaceId: string | null;
   selectedWorkspace: Workspace | null | undefined;
@@ -841,13 +853,13 @@ function renderTerminalTabsEmptyState(params: {
 
   if (selectedWorkspaceId && selectedWorkspace && isRestarting) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-card pb-(--banner-inset) text-muted-foreground">
+      <WorkspaceStatusPage>
         <Spinner size="lg" />
         <div className="text-sm">Restarting workspace...</div>
         <div className="text-xs text-muted-foreground-60">
           {getWorkspaceRestartDescription(selectedWorkspace.backend?.kind === 'ssh', restartAgent)}
         </div>
-      </div>
+      </WorkspaceStatusPage>
     );
   }
 
@@ -904,7 +916,7 @@ function renderTerminalTabsEmptyState(params: {
   // Workspace is still being provisioned (worktree creation in progress)
   if (selectedWorkspace.provisioning) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 pb-(--banner-inset) text-muted-foreground">
+      <WorkspaceStatusPage>
         <Spinner size="lg" />
         <div className="text-sm">Setting up workspace...</div>
         <div className="text-xs text-muted-foreground-60">
@@ -913,14 +925,14 @@ function renderTerminalTabsEmptyState(params: {
               ? 'Creating worktree'
               : 'Generating branch name and creating worktree')}
         </div>
-      </div>
+      </WorkspaceStatusPage>
     );
   }
 
   // Workspace provisioning failed
   if (selectedWorkspace.provisionError) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 pb-(--banner-inset) text-muted-foreground">
+      <WorkspaceStatusPage>
         <div className="text-sm">
           {selectedWorkspace.removedFromHost
             ? 'Workspace missing from host'
@@ -932,7 +944,7 @@ function renderTerminalTabsEmptyState(params: {
         {selectedWorkspace.removedFromHost && (
           <RemoveFromThisDeviceButton workspaceId={selectedWorkspace.id} />
         )}
-      </div>
+      </WorkspaceStatusPage>
     );
   }
 

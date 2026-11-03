@@ -203,6 +203,45 @@ describe('TerminalTabs', () => {
     expect(removeMissingSshWorkspace).toHaveBeenCalledWith(WORKSPACE_ID);
   });
 
+  // A workspace's status page paints nothing, so it shows the work column's chrome, the sidebar's
+  // color, rather than the card.
+  it.each([
+    {
+      page: 'restarting',
+      text: 'Restarting workspace...',
+      workspace: {},
+      restarting: true,
+    },
+    {
+      page: 'setting up',
+      text: 'Setting up workspace...',
+      workspace: { provisioning: true },
+      restarting: false,
+    },
+    {
+      page: 'setup failed',
+      text: 'Workspace setup failed',
+      workspace: { provisionError: 'git worktree add failed' },
+      restarting: false,
+    },
+  ])('shows a workspace that is $page on the chrome', ({ text, workspace, restarting }) => {
+    useWorkspacesStore.setState({
+      workspaces: [createWorkspace({ id: WORKSPACE_ID, ...workspace })],
+      selectedWorkspaceId: WORKSPACE_ID,
+      restartingWorkspaceIds: new Set(restarting ? [WORKSPACE_ID] : []),
+      hasLoaded: true,
+    });
+
+    const { container } = render(<TerminalTabs />);
+
+    const painted: Element[] = [];
+    for (let el = screen.getByText(text).parentElement; el && el !== container; ) {
+      if ([...el.classList].some((name) => name.startsWith('bg-'))) painted.push(el);
+      el = el.parentElement;
+    }
+    expect(painted).toEqual([]);
+  });
+
   // zustand 5 re-renders forever if a selector returns a fresh [] each call.
   it('renders with no selected workspace', () => {
     expect(() => render(<TerminalTabs />)).not.toThrow();

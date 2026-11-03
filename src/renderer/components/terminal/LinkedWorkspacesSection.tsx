@@ -29,6 +29,7 @@ import {
 import { joinAbsPath } from '@/lib/fs-path';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { AT_PATH_MIME, setTreeDragActive } from '@/lib/tree-drag-token';
+import { cn } from '@/lib/utils';
 import { useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useProjectsStore } from '@/stores/projects.store';
@@ -36,6 +37,14 @@ import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { isSshWorkspace, type Workspace } from '@/types';
+
+import {
+  FILE_PANEL_SECTION_CLASS,
+  FILE_PANEL_SECTION_COUNT_CLASS,
+  FILE_PANEL_SECTION_HEADER_CLASS,
+  FILE_PANEL_SECTION_ICON_CLASS,
+  FILE_PANEL_SECTION_ROW_CLASS,
+} from '../workspaces/file-viewer/file-panel-section';
 
 /**
  * The workspaces linked to this one, below its file tree: each by its title, to open, with the
@@ -67,7 +76,7 @@ export function LinkedWorkspacesSection({
     <section
       aria-label="Linked workspaces"
       // A container, so a narrow panel (150px at least) gets the shorter label and counts.
-      className="bg-sidebar-muted/40 @container shrink-0 border-t border-border/60 pt-0.5 pb-1"
+      className={cn(FILE_PANEL_SECTION_CLASS, '@container')}
     >
       <div className="flex h-7 items-center gap-1 pr-1 pl-2">
         <button
@@ -75,7 +84,10 @@ export function LinkedWorkspacesSection({
           onClick={() => setCollapsed((value) => !value)}
           aria-expanded={!collapsed}
           aria-label="Linked workspaces"
-          className="flex min-w-0 flex-1 items-center gap-1 text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase hover:text-foreground"
+          className={cn(
+            FILE_PANEL_SECTION_HEADER_CLASS,
+            'flex min-w-0 flex-1 hover:text-foreground'
+          )}
         >
           {collapsed ? (
             <CaretRight className="size-3 shrink-0" />
@@ -85,7 +97,7 @@ export function LinkedWorkspacesSection({
           <span className="truncate">
             Linked<span className="@max-[219px]:hidden"> workspaces</span>
           </span>
-          <span className="shrink-0 font-medium text-muted-foreground-70">{peers.length}</span>
+          <span className={FILE_PANEL_SECTION_COUNT_CLASS}>{peers.length}</span>
         </button>
         <IconButton
           label="Link workspaces"
@@ -222,16 +234,17 @@ function LinkedWorkspaceRow({
                 setTreeDragActive(true);
               }}
               onDragEnd={() => setTreeDragActive(false)}
-              className="group mx-1 flex w-[calc(100%-8px)] items-start gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-hidden"
+              className={cn(
+                FILE_PANEL_SECTION_ROW_CLASS,
+                'group items-start hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-hidden'
+              )}
             >
-              <LinkSimple className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <LinkSimple className={cn(FILE_PANEL_SECTION_ICON_CLASS, 'mt-0.5')} />
               {/* The title has the row to itself; the project, branch and changes share the line
               below, where the changes stay and the rest truncates. */}
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="flex min-w-0 items-center gap-1">
-                  <span className="truncate text-[13px] font-medium text-foreground">
-                    {getWorkspaceDisplayTitle(peer)}
-                  </span>
+                  <span className="truncate text-foreground">{getWorkspaceDisplayTitle(peer)}</span>
                   {!showChanges && (
                     <ArrowUpRight className="size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
                   )}

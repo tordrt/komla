@@ -34,6 +34,14 @@ import { useToastStore } from '@/stores/toast.store';
 
 import { isBrowserPreviewableFile } from '../../../../shared/image-utils';
 
+import {
+  FILE_PANEL_SECTION_CLASS,
+  FILE_PANEL_SECTION_COUNT_CLASS,
+  FILE_PANEL_SECTION_HEADER_CLASS,
+  FILE_PANEL_SECTION_ICON_CLASS,
+  FILE_PANEL_SECTION_ROW_CLASS,
+} from './file-panel-section';
+
 import type { PaneSurfacePlacement } from '@/lib/pane-surfaces';
 
 interface ImportedFilesSectionProps {
@@ -110,7 +118,7 @@ export function ImportedFilesSection({
     <section
       aria-label="Imported files"
       // A container, so a narrow panel (150px at least) gets the shorter label.
-      className="bg-sidebar-muted/40 @container flex max-h-[35%] shrink-0 flex-col border-t border-border/60 pt-0.5 pb-1"
+      className={cn(FILE_PANEL_SECTION_CLASS, '@container flex max-h-[35%] flex-col')}
     >
       <button
         type="button"
@@ -121,7 +129,10 @@ export function ImportedFilesSection({
         aria-label="Imported files"
         // Matches show either way, so it would only change what shows after the search.
         disabled={isSearching}
-        className="flex h-7 shrink-0 items-center gap-1 px-2 text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase enabled:hover:text-foreground"
+        className={cn(
+          FILE_PANEL_SECTION_HEADER_CLASS,
+          'flex h-7 shrink-0 px-2 enabled:hover:text-foreground'
+        )}
       >
         {showRows ? (
           <CaretDown className="size-3 shrink-0" />
@@ -131,7 +142,7 @@ export function ImportedFilesSection({
         <span className="truncate">
           Imported<span className="@max-[219px]:hidden"> files</span>
         </span>
-        <span className="shrink-0 font-medium text-muted-foreground-70">{files.length}</span>
+        <span className={FILE_PANEL_SECTION_COUNT_CLASS}>{files.length}</span>
       </button>
       {showRows && (
         <ul ref={listRef} className="thin-scrollbar min-h-0 overflow-y-auto">
@@ -289,13 +300,14 @@ function ImportedFileRow({
               }}
               onDragEnd={() => setTreeDragActive(false)}
               className={cn(
-                'mx-1 flex w-[calc(100%-8px)] items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[13px] focus-visible:bg-muted/60 focus-visible:outline-hidden',
+                FILE_PANEL_SECTION_ROW_CLASS,
+                'items-center focus-visible:bg-muted/60 focus-visible:outline-hidden',
                 isOpen
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
               )}
             >
-              <Paperclip className="size-3.5 shrink-0 text-primary" />
+              <Paperclip className={FILE_PANEL_SECTION_ICON_CLASS} />
               <span className="min-w-0 flex-1 truncate">{label}</span>
             </button>
           )}

@@ -23,6 +23,14 @@ import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useNotes, useNotesStore } from '@/stores/notes.store';
 import { useToastStore } from '@/stores/toast.store';
 
+import {
+  FILE_PANEL_SECTION_CLASS,
+  FILE_PANEL_SECTION_COUNT_CLASS,
+  FILE_PANEL_SECTION_HEADER_CLASS,
+  FILE_PANEL_SECTION_ICON_CLASS,
+  FILE_PANEL_SECTION_ROW_CLASS,
+} from '../file-panel-section';
+
 import type { NoteSummary } from '../../../../../shared/types/notes';
 
 interface NotesSectionProps {
@@ -41,14 +49,17 @@ export function NotesSection({ workspaceId, currentFile }: NotesSectionProps) {
   return (
     <section
       aria-label="Notes"
-      className="bg-sidebar-muted/40 flex max-h-[35%] shrink-0 flex-col border-t border-border/60 pt-0.5 pb-1"
+      className={cn(FILE_PANEL_SECTION_CLASS, 'flex max-h-[35%] flex-col')}
     >
       <button
         type="button"
         onClick={() => useFileViewerStore.getState().setNotesCollapsed(workspaceId, !collapsed)}
         aria-expanded={!collapsed}
         aria-label="Notes"
-        className="flex h-7 shrink-0 items-center gap-1 px-2 text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted-foreground uppercase hover:text-foreground"
+        className={cn(
+          FILE_PANEL_SECTION_HEADER_CLASS,
+          'flex h-7 shrink-0 px-2 hover:text-foreground'
+        )}
       >
         {collapsed ? (
           <CaretRight className="size-3 shrink-0" />
@@ -56,10 +67,10 @@ export function NotesSection({ workspaceId, currentFile }: NotesSectionProps) {
           <CaretDown className="size-3 shrink-0" />
         )}
         <span className="truncate">Notes</span>
-        <span className="shrink-0 font-medium text-muted-foreground-70">{notes.length}</span>
+        <span className={FILE_PANEL_SECTION_COUNT_CLASS}>{notes.length}</span>
       </button>
       {!collapsed && (
-        <ul className="thin-scrollbar min-h-0 overflow-y-auto px-1">
+        <ul className="thin-scrollbar min-h-0 overflow-y-auto">
           {notes.map((note) => (
             <NoteRow
               key={note.name}
@@ -120,14 +131,15 @@ function NoteRow({
             type="button"
             aria-current={isOpen ? 'true' : undefined}
             className={cn(
-              'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
+              FILE_PANEL_SECTION_ROW_CLASS,
+              'items-center transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
               isOpen
                 ? 'bg-accent text-foreground'
                 : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
             )}
             onClick={toggle}
           >
-            <NotePencil className="size-3.5 shrink-0" />
+            <NotePencil className={FILE_PANEL_SECTION_ICON_CLASS} />
             <span className={cn('min-w-0 flex-1 truncate', !note.title && 'italic')}>{title}</span>
             <span className="shrink-0 text-[11px] text-muted-foreground-70 tabular-nums">
               {formatRelativeTime(note.modifiedMs)}

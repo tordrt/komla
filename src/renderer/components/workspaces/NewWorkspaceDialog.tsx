@@ -2060,7 +2060,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   };
 
   const showContextBar = projects.length > 0 && !showInlineProjectForm;
-  const showAgentLaunchPicker = showPresetPicker || (hasAgent && availableModes.length > 0);
+  // Shown even with nothing to choose, so the dialog always names the agent that will launch.
+  const showAgentLaunchPicker = showPresetPicker || hasAgent;
   const showReasoningLevelPill =
     hasAgent && selectedLaunchTargets.length === 0 && availableReasoningLevels.length > 0;
   const showBranchPicker =
@@ -3244,6 +3245,8 @@ function AgentLaunchPickerPill({
 
   const isParallelSelection = selectedLaunchTargets.length > 0;
   const hasMultiplePresets = resolvedActivePresets.length > 1;
+  const hasLaunchModes = (selectedPreset?.launchModes.length ?? 0) > 0;
+  const launchModeShortcut = hasLaunchModes ? cycleLaunchModeShortcut : null;
 
   return (
     <DropdownMenu modal={false} open={isPickerOpen} onOpenChange={handleMenuOpenChange}>
@@ -3262,9 +3265,11 @@ function AgentLaunchPickerPill({
               : [
                   hasMultiplePresets
                     ? 'Click to select agent and launch mode'
-                    : 'Click to select launch mode',
+                    : hasLaunchModes
+                      ? 'Click to select launch mode'
+                      : 'Click to manage agents',
                   hasMultiplePresets && cycleAgentShortcut && `${cycleAgentShortcut} cycles agents`,
-                  cycleLaunchModeShortcut && `${cycleLaunchModeShortcut} cycles launch modes`,
+                  launchModeShortcut && `${launchModeShortcut} cycles launch modes`,
                 ]
                   .filter(Boolean)
                   .join(', ')
@@ -3335,12 +3340,12 @@ function AgentLaunchPickerPill({
               {hasMultiplePresets && cycleAgentShortcut && (
                 <>
                   <Kbd>{cycleAgentShortcut}</Kbd> cycle agent
-                  {cycleLaunchModeShortcut && ' · '}
+                  {launchModeShortcut && ' · '}
                 </>
               )}
-              {cycleLaunchModeShortcut && (
+              {launchModeShortcut && (
                 <>
-                  <Kbd>{cycleLaunchModeShortcut}</Kbd> cycle launch mode
+                  <Kbd>{launchModeShortcut}</Kbd> cycle launch mode
                 </>
               )}
             </span>

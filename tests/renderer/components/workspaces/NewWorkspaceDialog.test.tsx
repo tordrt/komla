@@ -1238,6 +1238,32 @@ describe('NewWorkspaceDialog', () => {
     expect(screen.getByRole('button', { name: 'Manage agents…' })).toBeInTheDocument();
   });
 
+  it('shows the agent pill for a single agent without launch modes', async () => {
+    const user = userEvent.setup();
+    mockPresetStore.presets = [
+      {
+        id: 'preset-1',
+        name: 'Codex',
+        openCommand: 'codex',
+        promptCommand: 'codex {{prompt}}',
+        launchModes: [],
+      },
+    ];
+    mockPresetStore.activePreset = mockPresetStore.presets[0];
+    mockPresetStore.activePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+
+    render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+
+    await screen.findByPlaceholderText('komla/swift-fox');
+    const picker = screen.getByTitle('Click to manage agents');
+    expect(picker).toHaveTextContent('Codex');
+    await user.click(picker);
+
+    expect(screen.getByRole('button', { name: 'Manage agents…' })).toBeInTheDocument();
+    expect(screen.queryByText(/cycle launch mode/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/cycle agent/i)).not.toBeInTheDocument();
+  });
+
   it('opens Settings → Agents from the agent picker, keeping the prompt', async () => {
     useSettingsDialogStore.setState({ open: false, target: {} });
     const user = userEvent.setup();

@@ -938,6 +938,17 @@ describe('TerminalRendererRuntime', () => {
     expect(runtime.takeProgramRightClick('term-right-click')).toBe(false);
   });
 
+  it('tells whether the program tracks the mouse', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-mouse', makeHost());
+    const terminal = xtermState.terminals[0];
+
+    expect(runtime.tracksMouse('term-mouse')).toBe(false);
+    terminal.modes.mouseTrackingMode = 'any';
+    expect(runtime.tracksMouse('term-mouse')).toBe(true);
+    expect(runtime.tracksMouse('term-unknown')).toBe(false);
+  });
+
   it("replaces the theme on a palette switch so the previous palette's colors don't linger", () => {
     const runtime = new TerminalRendererRuntime();
     attach(runtime, 'term-palette', makeHost());

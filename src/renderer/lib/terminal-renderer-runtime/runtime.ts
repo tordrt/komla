@@ -77,6 +77,7 @@ const MIN_BACKLOG_CHARS = 1024 * 1024;
 const OUTPUT_REPORT_CHARS = 64 * 1024;
 // Holding one of these alone, e.g. on the way to a shortcut, doesn't use the terminal.
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']);
+
 const TERMINAL_RESET_FOCUS_REPORT_SUPPRESS_MS = 1000;
 
 interface FrameBufferedWriter {
@@ -240,6 +241,11 @@ function createFrameBufferedWriter(
     clear,
     backlogged: () => queuedChars > backlogChars(),
   };
+}
+
+/** Whether the program asked for mouse events, so xterm reports presses to it. */
+function programTracksMouse(terminal: Terminal): boolean {
+  return terminal.modes.mouseTrackingMode !== 'none';
 }
 
 function loadFont(fontSize: number, fontFamily: string): Promise<unknown> | undefined {
@@ -476,6 +482,11 @@ export class TerminalRendererRuntime {
     if (!entry?.programRightClick) return false;
     entry.programRightClick = false;
     return true;
+  }
+
+  tracksMouse(terminalId: string): boolean {
+    const entry = this.entries.get(terminalId);
+    return !!entry && !entry.disposed && programTracksMouse(entry.terminal);
   }
 
   updateConfiguration(terminalId: string, configuration: TerminalRendererConfiguration): void {
@@ -805,9 +816,7 @@ export class TerminalRendererRuntime {
       (event) => {
         if (event.button !== 2) return;
         entry.programRightClick =
-          entry.sendRightClickToPrograms &&
-          !event.shiftKey &&
-          terminal.modes.mouseTrackingMode !== 'none';
+          entry.sendRightClickToPrograms && !event.shiftKey && programTracksMouse(terminal);
         if (entry.programRightClick) return;
         event.preventDefault();
         event.stopPropagation();

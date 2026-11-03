@@ -62,6 +62,9 @@ export const getTerminalRendererHoveredLink = (terminalId: string) =>
 /** Whether the last right-click went to the program, which then gets it instead of the menu. */
 export const takeTerminalRendererProgramRightClick = (terminalId: string): boolean =>
   runtime.takeProgramRightClick(terminalId);
+/** Whether the program in the terminal asked for mouse events, as Neovim or Claude Code do. */
+export const terminalRendererTracksMouse = (terminalId: string): boolean =>
+  runtime.tracksMouse(terminalId);
 export const updateTerminalRendererConfiguration = (
   terminalId: string,
   configuration: TerminalRendererConfiguration

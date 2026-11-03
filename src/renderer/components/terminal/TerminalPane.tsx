@@ -30,6 +30,7 @@ import {
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuCheckboxItem,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
@@ -60,6 +61,7 @@ import {
   getTerminalRendererDimensions,
   getTerminalRendererSelection,
   refreshTerminalRenderer,
+  terminalRendererTracksMouse,
 } from '@/lib/terminal-renderer-runtime';
 import { DEFAULT_TERMINAL_THEME } from '@/lib/terminal-theme';
 import { cn } from '@/lib/utils';
@@ -149,6 +151,8 @@ export const TerminalPane = React.memo(function TerminalPane({
   const [contextMenuLink, setContextMenuLink] = useState<TerminalContextMenuLink | null>(null);
   // Controlled so the Actions list, which has no menu items, can close the menu.
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  // Read as the menu opens: the program can turn mouse tracking on or off at any time.
+  const [programTracksMouse, setProgramTracksMouse] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isPointerNearTop, setIsPointerNearTop] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -162,6 +166,9 @@ export const TerminalPane = React.memo(function TerminalPane({
   const pasteShortcut = getTerminalClipboardShortcutDisplay('V');
 
   const showPaneHeaders = useCustomizationStore((s) => s.terminalConfig?.showPaneHeaders === true);
+  const sendRightClickToPrograms = useCustomizationStore(
+    (s) => s.terminalConfig?.sendRightClickToPrograms === true
+  );
   const showButtonsOnFocus = useCustomizationStore(
     (s) => s.terminalConfig?.showButtonsOnFocus ?? true
   );
@@ -507,6 +514,7 @@ export const TerminalPane = React.memo(function TerminalPane({
         setFocusedPane(paneId);
         void loadActions();
         void loadPresets();
+        setProgramTracksMouse(terminalRendererTracksMouse(terminalId));
         const selection = getTerminalRendererSelection(terminalId);
         if (selection) {
           const matches = selection.match(URL_REGEX);
@@ -533,6 +541,22 @@ export const TerminalPane = React.memo(function TerminalPane({
       : contextMenuLink === null
         ? urlInSelection
         : null;
+
+  const setSendRightClickToPrograms = (checked: boolean) => {
+    const customization = useCustomizationStore.getState();
+    void customization.updateTerminalConfig({ sendRightClickToPrograms: checked }).then(() => {
+      // A right-click no longer opens this menu, so say what does. The store keeps a failed
+      // update to itself, so check that it took.
+      if (checked && useCustomizationStore.getState().terminalConfig?.sendRightClickToPrograms) {
+        useToastStore
+          .getState()
+          .addToast(
+            'Right-clicks now go to programs that use the mouse. Shift+right-click opens the menu.',
+            'info'
+          );
+      }
+    });
+  };
 
   const { confirm, confirmDialog } = useConfirmDialog();
   const openNewQuickCommand = () =>
@@ -1300,6 +1324,17 @@ export const TerminalPane = React.memo(function TerminalPane({
               <ArrowClockwise />
               Refresh Terminal
             </ContextMenuItem>
+          )}
+          {/* Offered where a right-click would reach the program, such as Neovim. Komla's tmux
+              always uses the mouse, so there it would show at every prompt; it shows only once
+              the setting is on, to turn it back off. */}
+          {programTracksMouse && (!usesManagedTmux || sendRightClickToPrograms) && (
+            <ContextMenuCheckboxItem
+              checked={sendRightClickToPrograms}
+              onCheckedChange={setSendRightClickToPrograms}
+            >
+              Send Right-Clicks to Programs
+            </ContextMenuCheckboxItem>
           )}
           <ContextMenuSub>
             <ContextMenuSubTrigger>

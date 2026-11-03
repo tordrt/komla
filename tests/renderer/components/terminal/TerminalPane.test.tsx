@@ -53,6 +53,8 @@ const mocks = vi.hoisted(() => ({
   retryLocalCopySync: vi.fn(() => Promise.resolve()),
   copyToClipboard: vi.fn(),
   submenuKeyDown: vi.fn(),
+  updateTerminalConfig: vi.fn(),
+  tracksMouse: false,
   terminalHost: null as { hostname: string; isLocal: boolean } | null,
   supportsLocalCopy: false,
   sshHosts: [] as Array<{ id: string; name: string; hostname: string; user?: string }>,
@@ -74,7 +76,11 @@ const mocks = vi.hoisted(() => ({
     isBuiltin: boolean;
   }>,
   activePresets: [] as Array<{ presetId: string; lastUsedAt: number }>,
-  terminalConfig: null as { colors: { background: string }; showPaneHeaders?: boolean } | null,
+  terminalConfig: null as {
+    colors: { background: string };
+    showPaneHeaders?: boolean;
+    sendRightClickToPrograms?: boolean;
+  } | null,
   tabIds: ['tab-1'],
   moveTabToEdge: vi.fn(),
   layoutsByTab: {} as Record<string, Record<string, unknown>>,
@@ -138,6 +144,22 @@ vi.mock('../../../../src/renderer/components/ui/context-menu', () => ({
       {children}
     </button>
   ),
+  ContextMenuCheckboxItem: ({
+    children,
+    checked,
+    onCheckedChange,
+  }: React.PropsWithChildren<{
+    checked?: boolean;
+    onCheckedChange?: (checked: boolean) => void;
+  }>) => (
+    <button
+      role="menuitemcheckbox"
+      aria-checked={!!checked}
+      onClick={() => onCheckedChange?.(!checked)}
+    >
+      {children}
+    </button>
+  ),
   ContextMenuLabel: ({ children }: React.PropsWithChildren) => <>{children}</>,
   ContextMenuSub: ({ children }: React.PropsWithChildren) => <>{children}</>,
   // Stands in for Radix's own handler, which closes the submenu on ArrowLeft.
@@ -198,6 +220,7 @@ vi.mock('../../../../src/renderer/lib/terminal-renderer-runtime', () => ({
   pasteIntoTerminalRenderer: vi.fn(),
   focusTerminalRenderer: vi.fn(),
   refreshTerminalRenderer: mocks.refreshTerminalRenderer,
+  terminalRendererTracksMouse: () => mocks.tracksMouse,
 }));
 
 vi.mock('../../../../src/renderer/stores/actions.store', () => ({
@@ -241,8 +264,16 @@ vi.mock('../../../../src/renderer/stores/config.store', () => {
 });
 
 vi.mock('../../../../src/renderer/stores/customization.store', () => ({
-  useCustomizationStore: (selector: (state: { terminalConfig: unknown }) => unknown) =>
-    selector({ terminalConfig: mocks.terminalConfig }),
+  useCustomizationStore: Object.assign(
+    (selector: (state: { terminalConfig: unknown }) => unknown) =>
+      selector({ terminalConfig: mocks.terminalConfig }),
+    {
+      getState: () => ({
+        terminalConfig: mocks.terminalConfig,
+        updateTerminalConfig: mocks.updateTerminalConfig,
+      }),
+    }
+  ),
 }));
 
 vi.mock('../../../../src/renderer/stores/git-status.store', () => ({
@@ -368,6 +399,15 @@ describe('TerminalPane SSH reconnect', () => {
     mocks.pasteClipboardIntoTerminal.mockReset();
     mocks.showItemInFolder.mockReset();
     mocks.copyToClipboard.mockReset();
+    // Applies the update the way the store does once the main process saves it.
+    mocks.updateTerminalConfig.mockReset().mockImplementation(async (updates: object) => {
+      mocks.terminalConfig = {
+        colors: { background: '#000' },
+        ...mocks.terminalConfig,
+        ...updates,
+      };
+    });
+    mocks.tracksMouse = false;
     mocks.terminalHost = null;
     mocks.terminalConfig = null;
     mocks.tabIds = ['tab-1'];
@@ -1126,6 +1166,118 @@ describe('TerminalPane SSH reconnect', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Terminal' }));
 
     expect(mocks.refreshTerminalRenderer).toHaveBeenCalledWith('terminal-1');
+  });
+
+  describe('sending right-clicks to programs', () => {
+    const renderLocalPane = () => {
+      workspace.backend.kind = 'local';
+      workspace.workingDirectory = '/repo';
+      render(
+        <TerminalPane
+          paneId="pane-1"
+          terminalId="terminal-1"
+          workspaceId="workspace-1"
+          isTabActive={true}
+        />
+      );
+      fireEvent.contextMenu(screen.getByTestId('terminal-view'));
+    };
+    const toggle = () =>
+      screen.queryByRole('menuitemcheckbox', { name: 'Send Right-Clicks to Programs' });
+
+    it('offers the setting in the menu while the program uses the mouse', async () => {
+      mocks.tracksMouse = true;
+      renderLocalPane();
+
+      expect(toggle()).toHaveAttribute('aria-checked', 'false');
+      fireEvent.click(toggle()!);
+
+      expect(mocks.updateTerminalConfig).toHaveBeenCalledWith({ sendRightClickToPrograms: true });
+      // Once on, a right-click no longer opens this menu, so say what does.
+      await vi.waitFor(() =>
+        expect(useToastStore.getState().toasts.map((toast) => toast.message)).toEqual([
+          'Right-clicks now go to programs that use the mouse. Shift+right-click opens the menu.',
+        ])
+      );
+    });
+
+    it('turns the setting off from the menu that Shift+right-click opened', async () => {
+      mocks.tracksMouse = true;
+      mocks.terminalConfig = { colors: { background: '#000' }, sendRightClickToPrograms: true };
+      renderLocalPane();
+
+      expect(toggle()).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(toggle()!);
+
+      expect(mocks.updateTerminalConfig).toHaveBeenCalledWith({ sendRightClickToPrograms: false });
+      await mocks.updateTerminalConfig.mock.results[0].value;
+      expect(useToastStore.getState().toasts).toEqual([]);
+    });
+
+    it.each([false, true])(
+      "says nothing about Shift+right-click when the setting didn't save (was on: %s)",
+      async (wasOn) => {
+        mocks.tracksMouse = true;
+        mocks.terminalConfig = { colors: { background: '#000' }, sendRightClickToPrograms: wasOn };
+        mocks.updateTerminalConfig.mockImplementation(async () => {});
+        renderLocalPane();
+
+        fireEvent.click(toggle()!);
+
+        // The menu's own callback on this update was registered first, so it has run by now.
+        await mocks.updateTerminalConfig.mock.results[0].value;
+        expect(useToastStore.getState().toasts).toEqual([]);
+      }
+    );
+
+    it('leaves the setting out at a shell prompt, where right-clicks open the menu anyway', () => {
+      renderLocalPane();
+
+      expect(toggle()).toBeNull();
+    });
+
+    const renderSshPane = () => {
+      workspace.terminals = [
+        {
+          id: 'terminal-1',
+          name: 'Terminal',
+          status: 'running',
+          executionLocation: 'workspace',
+          remoteSessionActive: true,
+          remoteSessionResumable: true,
+        },
+      ];
+      render(
+        <TerminalPane
+          paneId="pane-1"
+          terminalId="terminal-1"
+          workspaceId="workspace-1"
+          isTabActive={true}
+        />
+      );
+      fireEvent.contextMenu(screen.getByTestId('terminal-view'));
+      expect(screen.getByRole('button', { name: 'Refresh SSH Session' })).toBeInTheDocument();
+    };
+
+    it('leaves the setting out in SSH workspaces, whose tmux always uses the mouse', () => {
+      mocks.tracksMouse = true;
+      renderSshPane();
+
+      expect(toggle()).toBeNull();
+    });
+
+    it('turns the setting off in SSH workspaces, where it sends right-clicks to tmux', async () => {
+      mocks.tracksMouse = true;
+      mocks.terminalConfig = { colors: { background: '#000' }, sendRightClickToPrograms: true };
+      renderSshPane();
+
+      expect(toggle()).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(toggle()!);
+
+      expect(mocks.updateTerminalConfig).toHaveBeenCalledWith({ sendRightClickToPrograms: false });
+      await mocks.updateTerminalConfig.mock.results[0].value;
+      expect(useToastStore.getState().toasts).toEqual([]);
+    });
   });
 
   it('reveals terminal file links launched directly on the local host', () => {

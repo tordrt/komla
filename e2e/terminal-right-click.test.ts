@@ -20,6 +20,11 @@ function pasteItem(appWindow: Page) {
   return appWindow.getByRole('menuitem', { name: /^Paste.*V$/ });
 }
 
+/** The pane menu's own copy of the Settings switch, offered while the program uses the mouse. */
+function menuToggle(appWindow: Page) {
+  return appWindow.getByRole('menuitemcheckbox', { name: 'Send Right-Clicks to Programs' });
+}
+
 /** What the program has read so far; Ctrl+D hands cat the line typed so far. */
 async function programInput(appWindow: Page, screen: ReturnType<Page['locator']>) {
   await screen.click();
@@ -55,6 +60,7 @@ test.describe('Terminal right-click', () => {
 
     await screen.click({ button: 'right' });
     await expect(pasteItem(appWindow)).toBeVisible();
+    await expect(menuToggle(appWindow)).toHaveAttribute('aria-checked', 'false');
     await appWindow.keyboard.press('Escape');
     await expect(pasteItem(appWindow)).toHaveCount(0);
 
@@ -89,5 +95,17 @@ test.describe('Terminal right-click', () => {
 
     await screen.click({ button: 'right', modifiers: ['Shift'] });
     await expect(pasteItem(appWindow)).toBeVisible();
+
+    // The menu Shift+right-click opened turns the setting back off, so right-clicks open it again.
+    await expect(menuToggle(appWindow)).toHaveAttribute('aria-checked', 'true');
+    await menuToggle(appWindow).click();
+    await expect(pasteItem(appWindow)).toHaveCount(0);
+    // The setting saves in the main process first, so the terminal can take a moment to hear.
+    // A menu that opened late counts, as another right-click would only move it.
+    await expect(async () => {
+      if (!(await pasteItem(appWindow).isVisible())) await screen.click({ button: 'right' });
+      await expect(pasteItem(appWindow)).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 10_000 });
+    await expect(menuToggle(appWindow)).toHaveAttribute('aria-checked', 'false');
   });
 });

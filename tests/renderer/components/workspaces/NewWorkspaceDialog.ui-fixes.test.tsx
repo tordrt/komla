@@ -267,7 +267,7 @@ vi.mock('../../../../src/renderer/stores/actions.store', () => ({
 vi.mock('../../../../src/renderer/stores/config.store', () => {
   const state = {
     config: {
-      lastUsedProjectId: 'project-komla',
+      recentProjectIds: ['project-komla'],
       defaultProjectId: 'project-komla',
       autoNameBranches: false,
       preferredCloneProtocol: 'ssh',
@@ -314,18 +314,22 @@ vi.mock('../../../../src/renderer/stores/project-sync-status.store', () => ({
     }),
 }));
 
-vi.mock('../../../../src/renderer/stores/projects.store', () => ({
-  // The inline project form reads the whole store; the dialog selects from it.
-  useProjectsStore: (selector?: (state: Record<string, unknown>) => unknown) => {
-    const state = {
-      projects: mockProjects,
-      createProject: vi.fn(),
-      createProjectFromRemote: mockCreateProjectFromRemote,
-      createProjectFromNew: vi.fn(),
-    };
-    return selector ? selector(state) : state;
-  },
-}));
+vi.mock('../../../../src/renderer/stores/projects.store', () => {
+  const state = () => ({
+    projects: mockProjects,
+    createProject: vi.fn(),
+    createProjectFromRemote: mockCreateProjectFromRemote,
+    createProjectFromNew: vi.fn(),
+  });
+  return {
+    // The inline project form reads the whole store; the dialog selects from it.
+    useProjectsStore: Object.assign(
+      (selector?: (value: Record<string, unknown>) => unknown) =>
+        selector ? selector(state()) : state(),
+      { getState: state }
+    ),
+  };
+});
 
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({
   useToastStore: Object.assign(() => ({ addToast: vi.fn() }), {

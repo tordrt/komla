@@ -125,7 +125,7 @@ describe('ConfigService', () => {
           inputRequired: true,
           inputRequiredSound: 'bell',
         },
-        lastUsedProjectId: null,
+        recentProjectIds: [],
         dashboardFilterProject: null,
         statusBarSize: 'medium',
         workspaceNamingPrompt: '',

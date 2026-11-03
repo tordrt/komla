@@ -161,7 +161,8 @@ export interface AppConfig {
   scrollbackLines: number;
   theme: 'dark' | 'system';
   defaultProjectId: string | null;
-  lastUsedProjectId?: string | null; // Most recently used project for new workspace creation
+  /** Projects New workspace last created workspaces in, most recent first */
+  recentProjectIds?: string[];
   notificationsEnabled: boolean;
   notificationPort: number;
   directRemoteEnabled?: boolean;

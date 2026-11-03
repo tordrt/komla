@@ -25,11 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { IconButton } from '@/components/ui/icon-button';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
-import {
-  type NewWorkspaceMenu,
-  useProjectSearchShortcutLabel,
-  useProjectShortcutLabel,
-} from '@/lib/agent-dialog-shortcuts';
+import { type NewWorkspaceMenu, useProjectSearchShortcutLabel } from '@/lib/agent-dialog-shortcuts';
 import { focusPromptOnMenuClose } from '@/lib/dialog-menus';
 import { stopWheelPropagation } from '@/lib/dialog-scroll-lock';
 import { cn } from '@/lib/utils';
@@ -75,17 +71,6 @@ function SegmentCaret() {
   return <CaretDown className="size-2.5 shrink-0 opacity-50" />;
 }
 
-/** Check mark for the selected project, then its Go to workspace 1–9 shortcut. */
-function ProjectRowEnd({ index, isSelected }: { index: number; isSelected: boolean }) {
-  const shortcut = useProjectShortcutLabel(index);
-  return (
-    <span className="ml-3 flex shrink-0 items-center gap-1.5">
-      {isSelected && <Check className="size-4 shrink-0" />}
-      {shortcut && <span className="text-2xs text-muted-foreground-70">{shortcut}</span>}
-    </span>
-  );
-}
-
 interface ProjectSearchProps {
   projects: Project[];
   projectId: string;
@@ -93,8 +78,8 @@ interface ProjectSearchProps {
 }
 
 /**
- * Type-to-filter project list. Arrow keys move the selection and Enter picks
- * it; shortcut numbers keep the dropdown's order while filtering.
+ * Type-to-filter project list, in the dropdown's order. Arrow keys move the
+ * selection and Enter picks it.
  */
 function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
   const [query, setQuery] = useState('');
@@ -107,9 +92,7 @@ function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const lowerQuery = query.trim().toLowerCase();
-  const matches = projects
-    .map((project, index) => ({ project, index }))
-    .filter(({ project }) => project.name.toLowerCase().includes(lowerQuery));
+  const matches = projects.filter((project) => project.name.toLowerCase().includes(lowerQuery));
   const activeMatch = matches[activeIndex];
   const optionId = (id: string) => `${listId}-${id}`;
 
@@ -130,7 +113,7 @@ function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
       if (matches.length > 0) moveSelection(event.key === 'ArrowDown' ? 1 : -1);
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      if (activeMatch) onSelect(activeMatch.project.id);
+      if (activeMatch) onSelect(activeMatch.id);
     }
   };
 
@@ -144,7 +127,7 @@ function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={activeMatch ? optionId(activeMatch.project.id) : undefined}
+          aria-activedescendant={activeMatch ? optionId(activeMatch.id) : undefined}
           placeholder="Search projects…"
           value={query}
           onChange={(event) => {
@@ -165,7 +148,7 @@ function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
         aria-label="Projects"
         className="max-h-64 overflow-y-auto p-1 empty:hidden"
       >
-        {matches.map(({ project, index }, matchIndex) => (
+        {matches.map((project, matchIndex) => (
           <div
             key={project.id}
             id={optionId(project.id)}
@@ -186,7 +169,7 @@ function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
               <ProjectMark project={project} />
               <span className="truncate font-mono text-ui">{project.name}</span>
             </span>
-            <ProjectRowEnd index={index} isSelected={project.id === projectId} />
+            {project.id === projectId && <Check className="ml-3 size-4 shrink-0" />}
           </div>
         ))}
       </div>
@@ -384,7 +367,7 @@ function BranchNameField({
 }
 
 export interface NewWorkspaceProjectPickerProps {
-  /** In the order the 1–9 project shortcuts count */
+  /** Most recently used first */
   projects: Project[];
   projectId: string;
   setProjectId: (id: string) => void;
@@ -471,7 +454,7 @@ export function NewWorkspaceProjectPicker({
               {searchShortcut && <DropdownMenuShortcut>{searchShortcut}</DropdownMenuShortcut>}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {projects.map((project, index) => (
+            {projects.map((project) => (
               <DropdownMenuItem
                 key={project.id}
                 onClick={() => setProjectId(project.id)}
@@ -481,7 +464,7 @@ export function NewWorkspaceProjectPicker({
                   <ProjectMark project={project} />
                   <span className="truncate font-mono text-ui">{project.name}</span>
                 </span>
-                <ProjectRowEnd index={index} isSelected={project.id === projectId} />
+                {project.id === projectId && <Check className="ml-3 size-4 shrink-0" />}
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />

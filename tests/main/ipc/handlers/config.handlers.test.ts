@@ -9,7 +9,7 @@ const mockConfig = {
   scrollbackLines: 10000,
   theme: 'dark' as const,
   defaultProjectId: null,
-  lastUsedProjectId: null,
+  recentProjectIds: [],
   notificationsEnabled: true,
   notificationPort: 52863,
   utilityProvider: 'komla-managed' as const,

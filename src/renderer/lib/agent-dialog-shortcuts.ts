@@ -47,24 +47,13 @@ export function useProjectSearchShortcutLabel(): string {
   );
 }
 
-const PROJECT_SHORTCUT_COUNT = 9;
-
-/** The Go to workspace keys for this project's position, such as "⌘1"; '' when unbound. */
-export function useProjectShortcutLabel(index: number): string {
-  return (
-    useShortcutsStore(
-      (state) =>
-        index < PROJECT_SHORTCUT_COUNT &&
-        state.config &&
-        state.getDisplayShortcut(`workspace.select.${index + 1}`)
-    ) || ''
-  );
-}
-
-/** Index of the project that the Go to workspace 1–9 keys pick, or null for any other key. */
-export function getProjectShortcutIndex(event: ShortcutEvent): number | null {
-  for (let index = 0; index < PROJECT_SHORTCUT_COUNT; index++) {
-    if (matches(`workspace.select.${index + 1}`, event)) return index;
+/**
+ * The Go to workspace 1–9 keys, which the dialog claims so they never act
+ * behind it.
+ */
+export function isWorkspaceSelectShortcut(event: ShortcutEvent): boolean {
+  for (let number = 1; number <= 9; number++) {
+    if (matches(`workspace.select.${number}`, event)) return true;
   }
-  return null;
+  return false;
 }

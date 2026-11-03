@@ -135,17 +135,16 @@ describe('NewWorkspaceContextBar', () => {
     (window as unknown as { api: unknown }).api = originalApi;
   });
 
-  it('shows the 1–9 shortcut of each project in the project dropdown', async () => {
+  it('lists the projects in the order given, checking the current one', async () => {
     const user = userEvent.setup();
-    render(<ContextBar />);
+    render(<ContextBar initialProjectId="project-2" />);
 
-    await user.click(screen.getByRole('button', { name: /Project one/ }));
+    await user.click(screen.getByRole('button', { name: /Project two/ }));
 
     const items = await screen.findAllByRole('menuitem', { name: /^Project / });
-    expect(items).toHaveLength(11);
-    expect(items[0]).toHaveTextContent(/Project one\s*Ctrl\+1$/);
-    expect(items[8]).toHaveTextContent(/Project nine\s*Ctrl\+9$/);
-    expect(items[9]).not.toHaveTextContent(/Ctrl/);
+    expect(items.map((item) => item.textContent)).toEqual(projects.map(({ name }) => name));
+    expect(items[1].querySelector('svg')).not.toBeNull();
+    expect(items[0].querySelector('svg')).toBeNull();
   });
 
   it('offers the project search in the project dropdown with the New workspace keys', async () => {
@@ -180,7 +179,7 @@ describe('NewWorkspaceContextBar', () => {
     expect(search).toHaveFocus();
   });
 
-  it('focuses the project search, with each project number shown', async () => {
+  it('focuses the project search, listing every project', async () => {
     render(<ContextBar initialPickerOpen />);
 
     const search = await screen.findByRole('combobox', { name: /search projects/i });
@@ -188,8 +187,7 @@ describe('NewWorkspaceContextBar', () => {
     const options = getOptions();
     expect(options).toHaveLength(11);
     expect(options[0]).toHaveAttribute('aria-selected', 'true');
-    expect(options[1]).toHaveTextContent(/Project two\s*Ctrl\+2$/);
-    expect(options[10]).not.toHaveTextContent(/Ctrl/);
+    expect(options[1]).toHaveTextContent(/^Project two$/);
   });
 
   it('opens scrolled to the current project', async () => {
@@ -218,7 +216,7 @@ describe('NewWorkspaceContextBar', () => {
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveFocus());
   });
 
-  it('filters by name to reach projects past the ninth', async () => {
+  it('filters by name', async () => {
     const user = userEvent.setup();
     const onSelectProject = vi.fn();
     render(<ContextBar initialPickerOpen onSelectProject={onSelectProject} />);

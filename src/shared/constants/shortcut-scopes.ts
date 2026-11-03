@@ -18,9 +18,9 @@ export const NEW_WORKSPACE_DIALOG_ACTIONS = [
 
 export type NewWorkspaceDialogAction = (typeof NEW_WORKSPACE_DIALOG_ACTIONS)[number];
 
-// App-wide actions the dialog also answers to: New workspace, pressed again,
-// searches projects, and Go to workspace 1–9 picks a project.
-const ALSO_IN_NEW_WORKSPACE_DIALOG = /^workspace\.(new|select\.[1-9])$/;
+// The app-wide action the dialog also answers to: New workspace, pressed
+// again, searches projects.
+const ALSO_IN_NEW_WORKSPACE_DIALOG = /^workspace\.new$/;
 
 export function isNewWorkspaceDialogShortcut(action: string): boolean {
   return action.startsWith(NEW_WORKSPACE_DIALOG_PREFIX);

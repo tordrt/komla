@@ -59,7 +59,7 @@ import {
 } from '@/lib/action-injection';
 import {
   getNewWorkspaceDialogAction,
-  getProjectShortcutIndex,
+  isWorkspaceSelectShortcut,
   movesFocus,
   type NewWorkspaceMenu,
   useNewWorkspaceShortcutLabel,
@@ -106,6 +106,7 @@ import { levelPickerOf } from '../../../shared/lib/level-picker';
 import { resolveBranchPrefix } from '../../../shared/lib/project-git-defaults';
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
 import { generateBranchSuffix, branchSuffixToName } from '../../../shared/lib/random-names';
+import { orderByRecentUse, withRecentProject } from '../../../shared/lib/recent-projects';
 
 import type { NewWorkspaceDialogAction } from '../../../shared/constants/shortcut-scopes';
 import type { BranchPickerMeta } from '@/components/workspaces/WorkspaceBranchPicker';
@@ -229,6 +230,19 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const config = useConfigStore((state) => state.config);
   const updateConfig = useConfigStore((state) => state.updateConfig);
   const projects = useProjectsStore((state) => state.projects);
+  const isConfigLoaded = config !== null;
+  // Read when the dialog opens: a launch that settles while it's open again
+  // must not reorder the projects under the pointer.
+  const recentProjectIds = useMemo(
+    () =>
+      (open && isConfigLoaded ? useConfigStore.getState().config?.recentProjectIds : null) ?? [],
+    [open, isConfigLoaded]
+  );
+  // What the project dropdown lists and Next project steps through.
+  const projectsByRecentUse = useMemo(
+    () => orderByRecentUse(projects, recentProjectIds),
+    [projects, recentProjectIds]
+  );
   const loadSyncStatuses = useProjectSyncStatusStore((state) => state.loadAllStatuses);
 
   const [mode, setMode] = useState<Mode>('worktree');
@@ -511,20 +525,19 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     if (pendingPrefill?.projectId && projects.some((p) => p.id === pendingPrefill.projectId)) {
       return pendingPrefill.projectId;
     }
-    const lastUsedProject = config?.lastUsedProjectId
-      ? projects.find((p) => p.id === config.lastUsedProjectId)
-      : null;
+    const recentProject = projectsByRecentUse.find((p) => recentProjectIds.includes(p.id));
     const defaultProject = config?.defaultProjectId
       ? projects.find((p) => p.id === config.defaultProjectId)
       : null;
     // Not the selected workspace's project: the default would change with every
     // click in the sidebar, so it couldn't be predicted.
-    return (lastUsedProject || defaultProject || projects[0])?.id ?? '';
+    return (recentProject || defaultProject || projects[0])?.id ?? '';
   }, [
     open,
     pendingPrefill?.projectId,
     projects,
-    config?.lastUsedProjectId,
+    projectsByRecentUse,
+    recentProjectIds,
     config?.defaultProjectId,
   ]);
 
@@ -637,7 +650,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const handleEnvironmentChange = (environment: DesiredWorkspaceEnvironment) => {
     // A folder project is on this computer, so an SSH host takes a Git project instead.
     if (environment.kind === 'ssh' && selectedProjectIsDirectory) {
-      setProjectId(projects.find((project) => project.kind !== 'directory')?.id ?? '');
+      setProjectId(projectsByRecentUse.find((project) => project.kind !== 'directory')?.id ?? '');
     }
     setLaunchTarget(environment.kind === 'ssh' ? 'ssh' : 'local');
     setSshHostId(environment.kind === 'ssh' ? environment.hostId : '');
@@ -1074,7 +1087,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       if (prefillProjectConsumedRef.current) return;
 
       // Set default project first (we need the prefix for branch name generation)
-      // Priority: lastUsedProjectId > defaultProjectId > first project
+      // Priority: last used project > defaultProjectId > first project
       if (initialProjectId && !projectId) {
         setProjectId(initialProjectId);
       }
@@ -1190,10 +1203,20 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     }));
   };
 
+  // Read from the stores: the launch settles after the dialog has closed.
+  const rememberRecentProject = (projectId: string) => {
+    const { projects: currentProjects } = useProjectsStore.getState();
+    // Drops removed projects, so the saved list doesn't keep growing with them.
+    const recentProjectIds = (useConfigStore.getState().config?.recentProjectIds ?? []).filter(
+      (id) => currentProjects.some((project) => project.id === id)
+    );
+    void updateConfig({ recentProjectIds: withRecentProject(recentProjectIds, projectId) });
+  };
+
   const finalizeCreate = async (
     paramsWithoutAction: CreateWorkspaceParams,
     actionUsage: { id: string; userInput?: string } | undefined,
-    lastUsedProjectId?: string,
+    launchedProjectId?: string,
     undo?: LaunchUndo
   ) => {
     const createParams = withDefaultAction(paramsWithoutAction, actionUsage);
@@ -1202,8 +1225,10 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     useDialogsStore.getState().setNewWorkspaceDialogPrompt(submittedPrompt);
     // Kept, like the prompt, for the next open if the launch fails.
     useDialogsStore.getState().setNewWorkspaceDialogAttachments(createParams.attachments ?? []);
+    let created = false;
     try {
       const workspace = await createWorkspace(createParams);
+      created = true;
       if (!workspace.provisionError) {
         useDialogsStore.getState().setNewWorkspaceDialogAttachments([]);
         onLaunch?.(createParams.presetId ? [createParams.presetId] : []);
@@ -1219,7 +1244,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     } catch (err) {
       handleCreateError(
         err,
-        () => void finalizeCreate(createParams, undefined, lastUsedProjectId, undo)
+        () => void finalizeCreate(createParams, undefined, launchedProjectId, undo)
       );
     }
     if (actionUsage) {
@@ -1229,19 +1254,18 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
         console.error('Failed to record action usage:', error);
       }
     }
-    if (lastUsedProjectId) {
-      void updateConfig({ lastUsedProjectId });
-    }
+    // After the try, so a throw here isn't reported as a failed create.
+    if (created && launchedProjectId) rememberRecentProject(launchedProjectId);
   };
 
   const finalizeCreates = async (
     createParams: CreateWorkspaceParams[],
     actionUsage: { id: string; userInput?: string } | undefined,
-    lastUsedProjectId?: string,
+    launchedProjectId?: string,
     undo?: LaunchUndo
   ): Promise<boolean> => {
     if (createParams.length === 1) {
-      await finalizeCreate(createParams[0], actionUsage, lastUsedProjectId, undo);
+      await finalizeCreate(createParams[0], actionUsage, launchedProjectId, undo);
       return true;
     }
 
@@ -1271,7 +1295,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       }
     } catch (error) {
       // Retry like a fresh Launch, so the dialog blocks a second Launch while it runs.
-      const retry = () => void submitCreates(createParams, actionUsage, lastUsedProjectId, undo);
+      const retry = () => void submitCreates(createParams, actionUsage, launchedProjectId, undo);
       if (isRunningLimitError(error)) {
         showUpgradeDialog(retry, createParams.length);
       } else {
@@ -1287,9 +1311,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
         console.error('Failed to record action usage:', error);
       }
     }
-    if (lastUsedProjectId) {
-      void updateConfig({ lastUsedProjectId });
-    }
+    if (launchedProjectId) rememberRecentProject(launchedProjectId);
     return true;
   };
 
@@ -1298,19 +1320,19 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const submitCreates = async (
     createParams: CreateWorkspaceParams[],
     actionUsage: { id: string; userInput?: string } | undefined,
-    lastUsedProjectId?: string,
+    launchedProjectId?: string,
     undo?: LaunchUndo
   ) => {
     if (createParams.length === 1) {
       onOpenChange(false);
       resetForm();
-      await finalizeCreates(createParams, actionUsage, lastUsedProjectId, undo);
+      await finalizeCreates(createParams, actionUsage, launchedProjectId, undo);
       return;
     }
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
-      const created = await finalizeCreates(createParams, actionUsage, lastUsedProjectId, undo);
+      const created = await finalizeCreates(createParams, actionUsage, launchedProjectId, undo);
       if (created) {
         onOpenChange(false);
         resetForm();
@@ -2032,8 +2054,9 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
 
     // Voice recording: typing cancels recording silently, so the user can
     // switch from speaking to typing. Keys that only move the cursor don't.
-    // Excludes the dialog's own and project shortcuts so the user can adjust
-    // those mid-recording without aborting the mic.
+    // Excludes the dialog's own shortcuts so the user can adjust the workspace
+    // mid-recording without aborting the mic, and Go to workspace 1–9, which
+    // the dialog claims and ignores.
     const isCommand = e.ctrlKey || e.metaKey;
     const editsText =
       (e.key.length === 1 && !isCommand) ||
@@ -2044,7 +2067,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       (isVoiceStarting || isVoiceRecording) &&
       editsText &&
       getNewWorkspaceDialogAction(e) === null &&
-      getProjectShortcutIndex(e) === null &&
+      !isWorkspaceSelectShortcut(e) &&
       !isNewWorkspaceShortcut(e.nativeEvent)
     ) {
       cancelVoiceRecording();
@@ -2136,9 +2159,9 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
         cycleReasoningLevel();
         return true;
       case 'cycleProject': {
-        if (!showContextBar || projects.length < 2) return false;
-        const index = projects.findIndex((project) => project.id === effectiveProjectId);
-        pickProject(projects[(index + 1) % projects.length]);
+        if (!showContextBar || projectsByRecentUse.length < 2) return false;
+        const index = projectsByRecentUse.findIndex((project) => project.id === effectiveProjectId);
+        pickProject(projectsByRecentUse[(index + 1) % projectsByRecentUse.length]);
         return true;
       }
       case 'cycleEnvironment':
@@ -2179,11 +2202,10 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       .openSettings({ tab: 'shortcuts', card: NEW_WORKSPACE_SHORTCUTS_GROUP });
   };
 
-  // Cmd/Ctrl+1…9 picks a project in the order the project dropdown lists them,
-  // and the New workspace shortcut, pressed again, opens the project search.
+  // The New workspace shortcut, pressed again, opens the project search.
   // Handled on the dialog content so focused buttons and portalled menus are
-  // covered too, and claimed so app-wide workspace shortcuts never act behind
-  // the open dialog.
+  // covered too, and claimed, with Go to workspace 1–9, so app-wide workspace
+  // shortcuts never act behind the open dialog.
   const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const dialogAction = getNewWorkspaceDialogAction(e);
     if (dialogAction && (!movesFocus(e) || e.target === promptTextareaRef.current)) {
@@ -2202,12 +2224,10 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       return;
     }
 
-    const projectIndex = getProjectShortcutIndex(e);
-    if (projectIndex === null) return;
-    e.preventDefault();
-    claimShortcutEvent(e.nativeEvent);
-    const project = showContextBar ? projects[projectIndex] : undefined;
-    if (project) pickProject(project);
+    if (isWorkspaceSelectShortcut(e)) {
+      e.preventDefault();
+      claimShortcutEvent(e.nativeEvent);
+    }
   };
 
   const handleActionSelect = async (selectedId: string) => {
@@ -2320,7 +2340,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
               {showContextBar && (
                 <div className="flex min-w-0 px-4 pt-2.5">
                   <NewWorkspaceProjectPicker
-                    projects={projects}
+                    projects={projectsByRecentUse}
                     projectId={effectiveProjectId}
                     setProjectId={selectProject}
                     selectedProject={contextProject}

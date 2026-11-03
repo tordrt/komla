@@ -121,7 +121,7 @@ const appConfigUpdateSchema = z
     scrollbackLines: z.number().int().optional(),
     theme: z.enum(['dark', 'system']).optional(),
     defaultProjectId: idSchema.nullable().optional(),
-    lastUsedProjectId: idSchema.nullable().optional(),
+    recentProjectIds: z.array(idSchema).optional(),
     notificationsEnabled: z.boolean().optional(),
     notificationPort: z.number().int().optional(),
     directRemoteEnabled: z.boolean().optional(),

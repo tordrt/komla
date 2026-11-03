@@ -30,6 +30,17 @@ describe('configUpdateArgsSchema', () => {
     expect(configUpdateArgsSchema.parse([{ zoomLevel: 2.5 }])).toEqual([{ zoomLevel: 2.5 }]);
   });
 
+  it('preserves recent project updates and rejects malformed ones', () => {
+    expect(configUpdateArgsSchema.parse([{ recentProjectIds: ['a', 'b', 'c'] }])).toEqual([
+      { recentProjectIds: ['a', 'b', 'c'] },
+    ]);
+    const parse = (recentProjectIds: unknown) =>
+      configUpdateArgsSchema.parse([{ recentProjectIds }]);
+    expect(() => parse([''])).toThrow();
+    expect(() => parse([1])).toThrow();
+    expect(() => parse('a')).toThrow();
+  });
+
   it('rejects a zoomLevel outside the listed range', () => {
     expect(() => configUpdateArgsSchema.parse([{ zoomLevel: 3.5 }])).toThrow();
   });

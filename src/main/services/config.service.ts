@@ -7,6 +7,7 @@ import {
   ACTIVITY_SPINNER_STYLES,
   DEFAULT_ACTIVITY_SPINNER,
 } from '../../shared/lib/activity-spinner';
+import { normalizeRecentProjectIds } from '../../shared/lib/recent-projects';
 import {
   DEFAULT_REMOTE_PASSKEY_WINDOW_MINUTES,
   normalizeRemotePasskeyWindow,
@@ -208,7 +209,8 @@ export interface AppConfig {
   scrollbackLines: number;
   theme: 'dark' | 'system';
   defaultProjectId: string | null;
-  lastUsedProjectId?: string | null; // Most recently used project for new workspace creation
+  /** Projects New workspace last created workspaces in, most recent first */
+  recentProjectIds?: string[];
   notificationsEnabled: boolean;
   notificationPort: number;
   directRemoteEnabled?: boolean;
@@ -448,9 +450,7 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     // `||` (not `??`) so an empty-string theme also falls back.
     theme: (rawConfig.theme as AppConfig['theme']) || DEFAULT_CONFIG.theme,
     defaultProjectId: pickWithDefault(rawConfig, 'defaultProjectId'),
-    // DEFAULT_CONFIG omits this key, so pickWithDefault would yield
-    // undefined; preserve the historical `?? null` here.
-    lastUsedProjectId: (rawConfig.lastUsedProjectId as string | null | undefined) ?? null,
+    recentProjectIds: normalizeRecentProjectIds(rawConfig.recentProjectIds),
     notificationsEnabled: pickWithDefault(rawConfig, 'notificationsEnabled'),
     notificationPort: pickWithDefault(rawConfig, 'notificationPort'),
     directRemoteEnabled: pickWithDefault(rawConfig, 'directRemoteEnabled'),

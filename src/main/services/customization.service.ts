@@ -237,7 +237,7 @@ Controls keyboard shortcuts. Use "Cmd" in the config file - it becomes the Meta 
 | newWorkspace.cycleEffort, cycleProject, cycleEnvironment | unbound | Next effort level, project or environment, in the dialog |
 | newWorkspace.agentMenu, effortMenu, environmentMenu, branchMenu, projectSearch | unbound | Open that menu, in the dialog |
 
-\`newWorkspace.*\` shortcuts act only in the new workspace dialog, so they can reuse keys used elsewhere, and may use Shift+Tab. In the dialog, the \`workspace.select.1-9\` keys pick a project. An empty string (\`""\`) leaves an action unbound.
+\`newWorkspace.*\` shortcuts act only in the new workspace dialog, so they can reuse keys used elsewhere, and may use Shift+Tab. An empty string (\`""\`) leaves an action unbound.
 
 **Note:** \`workspace.next\` and \`workspace.previous\` only cycle through running workspaces (not stopped ones). Use \`Cmd+1-9\` to jump to any workspace by position.
 
@@ -388,7 +388,7 @@ Controls keyboard shortcuts. Use "Cmd" in the config — it maps to ⌘ on Mac a
 | newWorkspace.cycleEffort, cycleProject, cycleEnvironment | unbound | Next effort level, project or environment, in the dialog |
 | newWorkspace.agentMenu, effortMenu, environmentMenu, branchMenu, projectSearch | unbound | Open that menu, in the dialog |
 
-\`newWorkspace.*\` shortcuts act only in the new workspace dialog, so they can reuse keys used elsewhere, and may use Shift+Tab. In the dialog, the \`workspace.select.1-9\` keys pick a project. An empty string (\`""\`) leaves an action unbound.
+\`newWorkspace.*\` shortcuts act only in the new workspace dialog, so they can reuse keys used elsewhere, and may use Shift+Tab. An empty string (\`""\`) leaves an action unbound.
 
 Avoid key combinations that conflict with terminal signals: Ctrl+C, Ctrl+D, Ctrl+Z, Ctrl+L, Ctrl+R, Ctrl+A/E.
 

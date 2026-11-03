@@ -14,6 +14,7 @@ import { dismissLaunchUndo } from '../../../../src/renderer/stores/launch-undo.s
 import { useOpenFolderStore } from '../../../../src/renderer/stores/open-folder.store';
 import { useSettingsDialogStore } from '../../../../src/renderer/stores/settings-dialog.store';
 import { useShortcutsStore } from '../../../../src/renderer/stores/shortcuts.store';
+import { handleCreateError } from '../../../../src/renderer/utils/workspace-error';
 import { seedShortcuts } from '../../../helpers/shortcuts';
 import { useSshHostDialogStore } from '../../../../src/renderer/stores/ssh-host-dialog.store';
 
@@ -422,7 +423,7 @@ vi.mock('../../../../src/renderer/stores/actions.store', () => ({
 
 const mockConfigHolder = vi.hoisted(() => ({
   value: {
-    lastUsedProjectId: 'project-komla',
+    recentProjectIds: ['project-komla'],
     defaultProjectId: 'project-komla',
     autoNameBranches: false,
   } as Record<string, unknown>,
@@ -490,13 +491,15 @@ vi.mock('../../../../src/renderer/stores/project-sync-status.store', () => ({
   ),
 }));
 
-vi.mock('../../../../src/renderer/stores/projects.store', () => ({
-  useProjectsStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({
-      projects: mockProjects,
-      updateProject: mockUpdateProject,
-    }),
-}));
+vi.mock('../../../../src/renderer/stores/projects.store', () => {
+  const state = () => ({ projects: mockProjects, updateProject: mockUpdateProject });
+  return {
+    useProjectsStore: Object.assign(
+      (selector: (value: Record<string, unknown>) => unknown) => selector(state()),
+      { getState: state }
+    ),
+  };
+});
 
 const mockAddToast = vi.hoisted(() => vi.fn());
 const mockShowUpgradeDialog = vi.hoisted(() => vi.fn());
@@ -524,7 +527,7 @@ describe('NewWorkspaceDialog', () => {
     seedShortcuts();
     mockSetActivePreset.mockResolvedValue(undefined);
     mockConfigHolder.value = {
-      lastUsedProjectId: 'project-komla',
+      recentProjectIds: ['project-komla'],
       defaultProjectId: 'project-komla',
       autoNameBranches: false,
     };
@@ -934,7 +937,7 @@ describe('NewWorkspaceDialog', () => {
       const user = userEvent.setup();
       mockSelectedWorkspace.id = 'ws-1'; // in project-komla
       mockConfigHolder.value = {
-        lastUsedProjectId: 'project-empty',
+        recentProjectIds: ['project-empty'],
         defaultProjectId: null,
         autoNameBranches: false,
       };
@@ -947,6 +950,57 @@ describe('NewWorkspaceDialog', () => {
         expect(mockCreateWorkspace).toHaveBeenCalledWith(
           expect.objectContaining({ projectId: 'project-empty' })
         )
+      );
+    });
+
+    it('moves the launched project to the front of the recent projects', async () => {
+      const user = userEvent.setup();
+      mockConfigHolder.value = {
+        // A removed project, then the one the dialog starts in.
+        recentProjectIds: ['project-removed', 'project-komla'],
+        defaultProjectId: 'project-komla',
+        autoNameBranches: false,
+      };
+
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      await screen.findByPlaceholderText('komla/swift-fox');
+      await user.click(getLaunchButton());
+
+      await waitFor(() =>
+        expect(mockUpdateConfig).toHaveBeenCalledWith({ recentProjectIds: ['project-komla'] })
+      );
+    });
+
+    it('starts in the most recent project that still exists', async () => {
+      mockConfigHolder.value = {
+        recentProjectIds: ['project-removed', 'project-empty'],
+        defaultProjectId: 'project-komla',
+        autoNameBranches: false,
+      };
+
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      await screen.findByPlaceholderText('swift-fox');
+      await user.click(getLaunchButton());
+
+      await waitFor(() =>
+        expect(mockCreateWorkspace).toHaveBeenCalledWith(
+          expect.objectContaining({ projectId: 'project-empty' })
+        )
+      );
+    });
+
+    it('leaves the recent projects alone when creating the workspace fails', async () => {
+      const user = userEvent.setup();
+      mockCreateWorkspace.mockRejectedValueOnce(new Error('worktree failed'));
+
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      await screen.findByPlaceholderText('komla/swift-fox');
+      await user.click(getLaunchButton());
+
+      await waitFor(() => expect(vi.mocked(handleCreateError)).toHaveBeenCalled());
+      expect(mockUpdateConfig).not.toHaveBeenCalledWith(
+        expect.objectContaining({ recentProjectIds: expect.anything() })
       );
     });
 
@@ -2031,7 +2085,7 @@ describe('NewWorkspaceDialog', () => {
   it('names new branches with the app-wide prefix in a project without one', async () => {
     const user = userEvent.setup();
     mockConfigHolder.value = {
-      lastUsedProjectId: 'project-empty',
+      recentProjectIds: ['project-empty'],
       defaultProjectId: 'project-empty',
       autoNameBranches: false,
       gitDefaults: { branchPrefix: 'me/' },
@@ -3935,7 +3989,13 @@ describe('NewWorkspaceDialog', () => {
       } as unknown as typeof ResizeObserver;
       Element.prototype.scrollIntoView = vi.fn();
       useShortcutsStore.setState({
-        config: { shortcuts: { 'workspace.new': 'Cmd+N', 'workspace.select.2': 'Cmd+2' } } as any,
+        config: {
+          shortcuts: {
+            'workspace.new': 'Cmd+N',
+            'workspace.select.2': 'Cmd+2',
+            'newWorkspace.cycleProject': 'Alt+P',
+          },
+        } as any,
       });
     });
 
@@ -3955,25 +4015,30 @@ describe('NewWorkspaceDialog', () => {
       return { user, textarea, branchInput };
     };
 
-    it('selects a project by its number and keeps the prompt focused', async () => {
-      const { user, textarea, branchInput } = await renderWithPrompt('Fix the flaky test');
+    const nextProject = { key: 'p', altKey: true };
 
-      fireEvent.keyDown(textarea, { key: '2', ctrlKey: true });
-
+    it('lists projects by last use, and Next project steps through them in that order', async () => {
+      const user = userEvent.setup();
+      mockConfigHolder.value = {
+        recentProjectIds: ['project-empty'],
+        defaultProjectId: null,
+        autoNameBranches: false,
+      };
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      const branchInput = screen.getByPlaceholderText('swift-fox');
       await waitFor(() => expect(branchInput).toHaveValue('swift-fox'));
-      expect(textarea).toHaveValue('Fix the flaky test');
-      expect(textarea).toHaveFocus();
 
-      await user.click(getLaunchButton());
-      await waitFor(() =>
-        expect(mockCreateWorkspace).toHaveBeenCalledWith(
-          expect.objectContaining({
-            projectId: 'project-empty',
-            branchName: 'swift-fox',
-            initialPrompt: 'Fix the flaky test',
-          })
-        )
-      );
+      fireEvent.keyDown(textarea, { key: 'n', ctrlKey: true });
+      await screen.findByRole('combobox', { name: /search projects/i });
+      const names = within(screen.getByRole('listbox'))
+        .getAllByRole('option')
+        .map((option) => option.textContent);
+      expect(names).toEqual(['Empty Prefix Project', 'Komla Project']);
+      await user.keyboard('{Escape}');
+
+      fireEvent.keyDown(textarea, nextProject);
+      await waitFor(() => expect(branchInput).toHaveValue('komla/swift-fox'));
     });
 
     it.each(['Start from feature/existing', 'Open feature/existing'])(
@@ -3982,7 +4047,7 @@ describe('NewWorkspaceDialog', () => {
         const { user, textarea } = await renderWithPrompt('Fix the flaky test');
         await user.click(screen.getByRole('button', { name: choice }));
 
-        fireEvent.keyDown(textarea, { key: '2', ctrlKey: true });
+        fireEvent.keyDown(textarea, nextProject);
         await user.click(getLaunchButton());
 
         // A new branch from the new project's default base.
@@ -4033,7 +4098,7 @@ describe('NewWorkspaceDialog', () => {
       // Focus leaving a menu closes it, so the branch picker can't list the old project's branches.
       const branchPickerItem = screen.getByRole('button', { name: 'Start from main' });
       branchPickerItem.focus();
-      fireEvent.keyDown(branchPickerItem, { key: '2', ctrlKey: true });
+      fireEvent.keyDown(branchPickerItem, nextProject);
 
       await waitFor(() => expect(branchInput).toHaveValue('swift-fox'));
       expect(branchInput).toHaveFocus();
@@ -4050,7 +4115,7 @@ describe('NewWorkspaceDialog', () => {
       expect(await screen.findByText(/feature\/taken" is already checked out/)).toBeInTheDocument();
 
       // The new project's worktrees are still loading.
-      fireEvent.keyDown(textarea, { key: '2', ctrlKey: true });
+      fireEvent.keyDown(textarea, nextProject);
       await user.click(getLaunchButton());
 
       await waitFor(() =>
@@ -4141,6 +4206,58 @@ describe('NewWorkspaceDialog', () => {
       }
     });
 
+    it('takes the most recently used Git project when an SSH host is picked', async () => {
+      const user = userEvent.setup();
+      mockProjects.unshift({
+        id: 'project-folder',
+        name: 'Downloads',
+        kind: 'directory',
+        repositoryPath: '/Users/me/Downloads',
+      });
+      try {
+        mockConfigHolder.value = {
+          ...mockConfigHolder.value,
+          recentProjectIds: ['project-folder', 'project-empty'],
+        };
+        mockSshHostsHolder.value = [
+          { id: 'remote', name: 'Build Server', hostname: 'build.example.com' },
+        ];
+        render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+        await screen.findByPlaceholderText(/what should the agent work on/i);
+
+        await user.click(await screen.findByRole('button', { name: /^Local$/i }));
+        await user.click(getLaunchButton());
+
+        await waitFor(() =>
+          expect(mockCreateWorkspace).toHaveBeenCalledWith(
+            expect.objectContaining({ projectId: 'project-empty' })
+          )
+        );
+      } finally {
+        mockProjects.shift();
+      }
+    });
+
+    it('keeps the project order while open when an earlier launch records its project', async () => {
+      mockConfigHolder.value = {
+        recentProjectIds: ['project-empty'],
+        defaultProjectId: null,
+        autoNameBranches: false,
+      };
+      const { rerender } = render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      mockConfigHolder.value = { ...mockConfigHolder.value, recentProjectIds: ['project-komla'] };
+      rerender(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      fireEvent.keyDown(textarea, { key: 'n', ctrlKey: true });
+      await screen.findByRole('combobox', { name: /search projects/i });
+
+      const names = within(screen.getByRole('listbox'))
+        .getAllByRole('option')
+        .map((option) => option.textContent);
+      expect(names).toEqual(['Empty Prefix Project', 'Komla Project']);
+    });
+
     it('opens a project search when the New workspace shortcut is pressed again', async () => {
       const { user, textarea, branchInput } = await renderWithPrompt('Fix the flaky test');
 
@@ -4201,7 +4318,8 @@ describe('NewWorkspaceDialog', () => {
 
         expect(selectWorkspace).not.toHaveBeenCalled();
         expect(openNewWorkspace).not.toHaveBeenCalled();
-        await waitFor(() => expect(branchInput).toHaveValue('swift-fox'));
+        // Go to workspace no longer picks a project here.
+        expect(branchInput).toHaveValue('komla/swift-fox');
         expect(
           await screen.findByRole('combobox', { name: /search projects/i })
         ).toBeInTheDocument();
@@ -4212,7 +4330,7 @@ describe('NewWorkspaceDialog', () => {
       }
     });
 
-    it('does not cancel an active recording when a project shortcut fires', async () => {
+    it('does not cancel an active recording when a dialog shortcut fires', async () => {
       mockVoiceInput.isRecording = true;
       render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
       const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);

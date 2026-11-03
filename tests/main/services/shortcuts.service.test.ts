@@ -234,7 +234,7 @@ describe('ShortcutsService', () => {
     expect(shortcuts['newWorkspace.cycleAgent']).toBe('Ctrl+Tab');
   });
 
-  it('leaves a new dialog default unbound when its keys pick a project in the dialog', () => {
+  it('keeps a new dialog default on the keys of Go to workspace, which the dialog ignores', () => {
     vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
     vfs.mock.writeFileSync(
       '/mock/home/.komla/settings/shortcuts.json',
@@ -246,7 +246,7 @@ describe('ShortcutsService', () => {
       'darwin'
     ).getConfig();
 
-    expect(shortcuts['newWorkspace.cycleAgent']).toBe('');
+    expect(shortcuts['newWorkspace.cycleAgent']).toBe('Ctrl+Tab');
   });
 
   it('treats Cmd and Ctrl as the same keys on Linux when an upgrading user has them', () => {

@@ -54,40 +54,6 @@ export interface LabOption {
 
 export const TODAY_OPTION_ID = 'today';
 
-/** Clears the faint line globals.css draws along the file panel's bottom edge. */
-const NO_PANEL_LINE = '.file-panel-chrome {\n  box-shadow: none !important;\n}\n';
-
-function statusBarTopLine(alpha: number): string {
-  return `${OPEN_WORK_COLUMN} [data-status-bar] {\n  box-shadow: inset 0 1px 0 oklch(var(--foreground) / ${alpha}) !important;\n}\n${NO_PANEL_LINE}`;
-}
-
-export const LAB_STATUS_BAR_LINES: readonly LabOption[] = [
-  {
-    id: TODAY_OPTION_ID,
-    name: 'Under panel',
-    description: 'A faint line above the status bar under the file panel only, as today',
-    css: '',
-  },
-  {
-    id: 'none',
-    name: 'None',
-    description: 'No line above the status bar',
-    css: NO_PANEL_LINE,
-  },
-  {
-    id: 'soft',
-    name: 'Soft',
-    description: 'A soft line along the whole top of the status bar',
-    css: statusBarTopLine(0.06),
-  },
-  {
-    id: 'faint',
-    name: 'Faint',
-    description: 'A faint line along the whole top of the status bar',
-    css: statusBarTopLine(0.1),
-  },
-];
-
 /** Options that set one of globals.css's root variables, today's value first. */
 function rootVariableOptions(
   variable: string,
@@ -139,3 +105,280 @@ export const LAB_TAB_CORNERS: readonly LabOption[] = [
 export function optionCss(options: readonly LabOption[], id: string): string {
   return options.find((option) => option.id === id)?.css ?? '';
 }
+
+// Lines: the faint lines that give the panes, the active tab, quick commands and the sidebar's
+// panels an edge against the chrome. Each picker tries another strength for one of them.
+
+/** Each line strength, as a foreground alpha; none is no line. */
+const LINE_ALPHAS = { none: 0, hairline: 0.06, soft: 0.1, clear: 0.14 } as const;
+type LineStrength = keyof typeof LINE_ALPHAS;
+const LINE_STRENGTHS = Object.keys(LINE_ALPHAS) as LineStrength[];
+
+const LINE_NAMES: Record<LineStrength, string> = {
+  none: 'None',
+  hairline: 'Hairline',
+  soft: 'Soft',
+  clear: 'Clear',
+};
+
+function line(strength: LineStrength): string {
+  return strength === 'none'
+    ? 'transparent'
+    : `oklch(var(--foreground) / ${LINE_ALPHAS[strength]})`;
+}
+
+/** Where a line goes and how it is drawn there, with today's strength. */
+interface LineTarget {
+  /** What the line goes around, for the descriptions. */
+  what: string;
+  today: LineStrength;
+  css: (strength: LineStrength) => string;
+}
+
+// Each line is drawn as globals.css or the component draws it: the panes' as the outline's border,
+// the sidebar's selected workspace as an inset ring, the others as an inset outline. The sidebar's
+// lines are dark themes' only: light themes lift those surfaces with white fills and shadows.
+const PANE_LINE: LineTarget = {
+  what: 'every pane without focus',
+  today: 'clear',
+  // The focused pane's outline and a notification's keep their colors.
+  css: (strength) =>
+    `.pane-outline:not([data-focused='true']):not([data-attention='true']) {\n  border-color: ${line(strength)} !important;\n}\n`,
+};
+
+function outlineLine(what: string, selector: string): LineTarget {
+  return {
+    what,
+    today: 'clear',
+    css: (strength) => `${selector} {\n  outline-color: ${line(strength)} !important;\n}\n`,
+  };
+}
+
+const ACTIVE_TAB = `${TERMINAL_TAB}[data-active]`;
+const TAB_LINE = outlineLine('the active tab', ACTIVE_TAB);
+const QUICK_COMMANDS_LINE = outlineLine('quick commands', '.quick-commands-control');
+const SIDEBAR_PANEL_LINE = outlineLine(
+  'the project panels and the Pinned shelf',
+  '.dark .sidebar-panel'
+);
+const NEW_WORKSPACE_LINE = outlineLine(
+  'New Workspace and its quick create menu',
+  '.dark [data-new-workspace-controls]'
+);
+const SELECTED_WORKSPACE_LINE: LineTarget = {
+  what: 'the selected workspace',
+  today: 'hairline',
+  css: (strength) =>
+    `.dark .sidebar-selected-card {\n  --tw-ring-color: ${line(strength)} !important;\n}\n`,
+};
+
+/** None, hairline, soft and clear lines around one target, today's strength as today's option. */
+function lineOptions(target: LineTarget): LabOption[] {
+  return LINE_STRENGTHS.map((strength) => {
+    const today = strength === target.today;
+    const name = LINE_NAMES[strength];
+    const description =
+      strength === 'none'
+        ? `No line around ${target.what}`
+        : `A ${name.toLowerCase()} line around ${target.what}`;
+    return {
+      id: today ? TODAY_OPTION_ID : strength,
+      name,
+      description: today ? `${description}, as today` : description,
+      css: today ? '' : target.css(strength),
+    };
+  });
+}
+
+export const LAB_PANE_BORDERS: readonly LabOption[] = lineOptions(PANE_LINE);
+
+export const LAB_ACTIVE_TABS: readonly LabOption[] = [
+  ...lineOptions(TAB_LINE),
+  {
+    id: 'raised',
+    name: 'Raised',
+    description: 'A stronger wash and a clear line, so the active tab reads as a raised button',
+    css: `${ACTIVE_TAB} {\n  background-color: oklch(var(--foreground) / 0.11) !important;\n}\n`,
+  },
+  {
+    id: 'accent',
+    name: 'Accent',
+    description: "A line in the focused pane's outline color around the active tab",
+    css: `${ACTIVE_TAB} {\n  outline-color: color-mix(in oklab, oklch(var(--komla, var(--brand))) 45%, oklch(var(--muted-foreground))) !important;\n}\n`,
+  },
+];
+
+export const LAB_QUICK_COMMANDS: readonly LabOption[] = lineOptions(QUICK_COMMANDS_LINE);
+
+export const LAB_SIDEBAR_PANELS: readonly LabOption[] = lineOptions(SIDEBAR_PANEL_LINE);
+
+export const LAB_NEW_WORKSPACE_BUTTONS: readonly LabOption[] = lineOptions(NEW_WORKSPACE_LINE);
+
+export const LAB_SELECTED_WORKSPACES: readonly LabOption[] = lineOptions(SELECTED_WORKSPACE_LINE);
+
+const ALL_LINES = [
+  PANE_LINE,
+  TAB_LINE,
+  QUICK_COMMANDS_LINE,
+  SIDEBAR_PANEL_LINE,
+  NEW_WORKSPACE_LINE,
+  SELECTED_WORKSPACE_LINE,
+];
+
+// Every edge line, around the panes, the active tab, quick commands, the sidebar's panels, New
+// Workspace and the selected workspace, at one strength. The panel puts it first, so a picker
+// below it still wins. The file panel's frame and the dividers have their own pickers.
+export const LAB_ALL_LINES: readonly LabOption[] = [
+  {
+    id: TODAY_OPTION_ID,
+    name: 'Mixed',
+    description: 'Each line at its own strength, as today',
+    css: '',
+  },
+  ...LINE_STRENGTHS.map((strength) => ({
+    id: strength,
+    name: LINE_NAMES[strength],
+    description:
+      strength === 'none'
+        ? 'No edge lines on the panes, tabs and sidebar'
+        : `Every edge line on the panes, tabs and sidebar ${LINE_NAMES[strength].toLowerCase()}`,
+    css: ALL_LINES.map((target) => target.css(strength)).join(''),
+  })),
+];
+
+// The file panel: today a block like the panes, its line across its top and down its left edge
+// from rounded corners, a gutter above the status bar, its header on the chrome above. These try
+// other ways to set it apart.
+const FILE_PANEL = '.file-panel-chrome';
+const FILE_PANEL_BODY = '.file-panel-body';
+const FILE_PANEL_HEADER = '[data-testid="file-panel-header"]';
+const PANEL_FILL = 'oklch(var(--sidebar-muted))';
+
+// Takes away today's line, corners and gutter.
+const PANEL_RESET = `${FILE_PANEL} {\n  padding-bottom: 0 !important;\n}\n${FILE_PANEL_BODY} {\n  border-width: 0 !important;\n  border-radius: 0 !important;\n}\n`;
+
+const PANEL_FILL_CSS = `${FILE_PANEL_BODY} {\n  --card: var(--sidebar-muted) !important;\n  background-color: ${PANEL_FILL} !important;\n}\n`;
+
+// A card on the chrome like a pane: the same corners and gutter, and a clear line. The panes'
+// gutter is to its left already, so it keeps one on its right and below.
+function panelCard(fill: boolean): string {
+  return `${PANEL_RESET}${FILE_PANEL} {\n  padding: 0 var(--pane-gap) var(--pane-gap) 0 !important;\n}\n${FILE_PANEL_BODY} {\n  border-radius: var(--pane-radius) !important;\n  outline: 1px solid ${line('clear')};\n  outline-offset: -1px;\n}\n${fill ? PANEL_FILL_CSS : ''}`;
+}
+
+export const LAB_FILE_PANELS: readonly LabOption[] = [
+  {
+    id: TODAY_OPTION_ID,
+    name: 'Edge',
+    description:
+      'A clear line across its top and down its left edge, from rounded corners, as today',
+    css: '',
+  },
+  {
+    id: 'straight',
+    name: 'Straight edge',
+    description:
+      'A clear line down its left edge only, from the top of the window to the status bar',
+    css: `${PANEL_RESET}${FILE_PANEL_BODY} {\n  border-left-width: 1px !important;\n}\n${FILE_PANEL_HEADER} {\n  border-left: 1px solid ${line('clear')};\n}\n`,
+  },
+  {
+    id: 'chrome',
+    name: 'Chrome',
+    description: 'On the chrome, with only a faint line under it, as before',
+    css: `${PANEL_RESET}${FILE_PANEL} {\n  box-shadow: inset 0 -1px 0 oklch(var(--foreground) / 0.08);\n}\n`,
+  },
+  {
+    id: 'fill',
+    name: 'Filled edge',
+    description: "Today's line and corner, the panel in the project panels' fill",
+    css: PANEL_FILL_CSS,
+  },
+  {
+    id: 'card',
+    name: 'Card',
+    description: 'A rounded card like a pane, with a clear line, its header on the chrome above',
+    css: panelCard(false),
+  },
+  {
+    id: 'card-fill',
+    name: 'Filled card',
+    description: "A rounded card in the project panels' fill, with a clear line",
+    css: panelCard(true),
+  },
+];
+
+// The line under the file tree's header (its search or its changes summary): today a soft line, a
+// step under the panel's own.
+export const LAB_FILE_TREE_DIVIDERS: readonly LabOption[] = [
+  {
+    id: 'border',
+    name: 'Border',
+    description: "The theme's border color, as before",
+    css: `${FILE_PANEL_BODY} .file-tree-header {\n  border-bottom-color: oklch(var(--border)) !important;\n}\n`,
+  },
+  ...(['clear', 'soft', 'hairline'] as const).map((strength) => ({
+    id: strength === 'soft' ? TODAY_OPTION_ID : strength,
+    name: LINE_NAMES[strength],
+    description: `A ${LINE_NAMES[strength].toLowerCase()} line under the file tree's header${strength === 'soft' ? ', as today' : ''}`,
+    css:
+      strength === 'soft'
+        ? ''
+        : `${FILE_PANEL_BODY} .file-tree-header {\n  border-bottom-color: ${line(strength)} !important;\n}\n`,
+  })),
+];
+
+// Where the panel's line starts: today below its Diff/Files header, at a rounded corner level
+// with the panes' tops.
+export const LAB_FILE_PANEL_TOPS: readonly LabOption[] = [
+  {
+    id: TODAY_OPTION_ID,
+    name: 'Rounded top',
+    description:
+      'The line starts below the header, at a rounded corner level with the panes, as today',
+    css: '',
+  },
+  {
+    id: 'open',
+    name: 'Open',
+    description: 'The line runs on up past the header to the top of the window',
+    css: `${FILE_PANEL_BODY} {\n  border-top-width: 0 !important;\n  border-top-left-radius: 0 !important;\n}\n${FILE_PANEL_HEADER} {\n  border-left: 1px solid ${line('clear')};\n}\n`,
+  },
+  {
+    id: 'header-line',
+    name: 'Line under header',
+    description: 'The line runs up to the top of the window, with a soft line under the header',
+    css: `${FILE_PANEL_BODY} {\n  border-top-width: 0 !important;\n  border-top-left-radius: 0 !important;\n}\n${FILE_PANEL_HEADER} {\n  border-left: 1px solid ${line('clear')};\n  box-shadow: inset 0 -1px 0 ${line('soft')};\n}\n`,
+  },
+];
+
+// Between the tab row and the file panel's header, which share the top row's chrome: today a
+// short soft upright line at the header's left edge, over the panel's own.
+function topRowDivider(height: string, strength: LineStrength): string {
+  return `${FILE_PANEL_HEADER}::before {\n  height: ${height} !important;\n  background-color: ${line(strength)} !important;\n}\n`;
+}
+
+export const LAB_TOP_ROW_DIVIDERS: readonly LabOption[] = [
+  {
+    id: TODAY_OPTION_ID,
+    name: 'Short, soft',
+    description: 'A short soft line between the tabs and the Diff/Files header, as today',
+    css: '',
+  },
+  {
+    id: 'none',
+    name: 'None',
+    description: 'Nothing between the tabs and the Diff/Files header',
+    css: `${FILE_PANEL_HEADER}::before {\n  content: none !important;\n}\n`,
+  },
+  {
+    id: 'short-clear',
+    name: 'Short, clear',
+    description: 'A short clear line between the tabs and the Diff/Files header',
+    css: topRowDivider('16px', 'clear'),
+  },
+  {
+    id: 'tall',
+    name: 'Tall, soft',
+    description: "A soft line nearly the top row's height between the tabs and the header",
+    css: topRowDivider('calc(100% - 12px)', 'soft'),
+  },
+];

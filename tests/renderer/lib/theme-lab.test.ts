@@ -1,9 +1,19 @@
 import {
+  LAB_ACTIVE_TABS,
+  LAB_ALL_LINES,
+  LAB_FILE_PANEL_TOPS,
+  LAB_FILE_PANELS,
+  LAB_FILE_TREE_DIVIDERS,
+  LAB_NEW_WORKSPACE_BUTTONS,
+  LAB_PANE_BORDERS,
   LAB_PANE_CORNERS,
   LAB_PANE_GAPS,
-  LAB_STATUS_BAR_LINES,
+  LAB_QUICK_COMMANDS,
+  LAB_SELECTED_WORKSPACES,
+  LAB_SIDEBAR_PANELS,
   LAB_STATUS_BARS,
   LAB_TAB_CORNERS,
+  LAB_TOP_ROW_DIVIDERS,
   TODAY_OPTION_ID,
   TODAY_STATUS_BAR_ID,
   optionCss,
@@ -30,30 +40,50 @@ describe('statusBarCss', () => {
 });
 
 describe('optionCss', () => {
-  it("adds nothing for today's lines or an unknown one", () => {
-    expect(optionCss(LAB_STATUS_BAR_LINES, TODAY_OPTION_ID)).toBe('');
-    expect(optionCss(LAB_STATUS_BAR_LINES, 'gone')).toBe('');
+  it("adds nothing for today's option or an unknown one", () => {
+    expect(optionCss(LAB_FILE_PANELS, TODAY_OPTION_ID)).toBe('');
+    expect(optionCss(LAB_FILE_PANELS, 'gone')).toBe('');
+  });
+});
+
+describe('file panel options', () => {
+  it("takes away today's line, corners and gutter for the panel on the chrome", () => {
+    const chrome = optionCss(LAB_FILE_PANELS, 'chrome');
+    expect(chrome).toContain('.file-panel-body {\n  border-width: 0 !important;');
+    expect(chrome).toContain('padding-bottom: 0 !important;');
+    expect(chrome).toContain('box-shadow: inset 0 -1px 0 oklch(var(--foreground) / 0.08);');
   });
 
-  it("draws a line along the whole top of the status bar in place of the panel's", () => {
-    expect(optionCss(LAB_STATUS_BAR_LINES, 'soft')).toBe(
-      '.work-column:not(:has(.empty-work-area)) [data-status-bar] {\n  box-shadow: inset 0 1px 0 oklch(var(--foreground) / 0.06) !important;\n}\n' +
-        '.file-panel-chrome {\n  box-shadow: none !important;\n}\n'
+  it('can make the panel a card like a pane, filled or not', () => {
+    expect(optionCss(LAB_FILE_PANELS, 'card')).toContain(
+      'border-radius: var(--pane-radius) !important;'
     );
-    expect(optionCss(LAB_STATUS_BAR_LINES, 'faint')).toContain('/ 0.1)');
-  });
-
-  it("can drop the file panel's line", () => {
-    expect(optionCss(LAB_STATUS_BAR_LINES, 'none')).toBe(
-      '.file-panel-chrome {\n  box-shadow: none !important;\n}\n'
+    expect(optionCss(LAB_FILE_PANELS, 'card')).not.toContain('sidebar-muted');
+    expect(optionCss(LAB_FILE_PANELS, 'card-fill')).toContain(
+      'background-color: oklch(var(--sidebar-muted)) !important;'
     );
   });
 });
 
 describe('pane and tab options', () => {
-  it("starts each picker with today's look, which adds nothing", () => {
-    for (const options of [LAB_PANE_CORNERS, LAB_PANE_GAPS, LAB_TAB_CORNERS]) {
-      expect(options[0].id).toBe(TODAY_OPTION_ID);
+  it("gives each picker one option for today's look, which adds nothing", () => {
+    for (const options of [
+      LAB_PANE_CORNERS,
+      LAB_PANE_GAPS,
+      LAB_TAB_CORNERS,
+      LAB_PANE_BORDERS,
+      LAB_ACTIVE_TABS,
+      LAB_SIDEBAR_PANELS,
+      LAB_NEW_WORKSPACE_BUTTONS,
+      LAB_SELECTED_WORKSPACES,
+      LAB_QUICK_COMMANDS,
+      LAB_ALL_LINES,
+      LAB_FILE_PANELS,
+      LAB_FILE_PANEL_TOPS,
+      LAB_FILE_TREE_DIVIDERS,
+      LAB_TOP_ROW_DIVIDERS,
+    ]) {
+      expect(options.filter((option) => option.id === TODAY_OPTION_ID)).toHaveLength(1);
       expect(optionCss(options, TODAY_OPTION_ID)).toBe('');
       expect(new Set(options.map((option) => option.id)).size).toBe(options.length);
     }
@@ -77,5 +107,86 @@ describe('pane and tab options', () => {
     expect(optionCss(LAB_TAB_CORNERS, 'round')).toBe(
       '[data-testid="terminal-tab-row"] [data-tab-id] > [role="button"] {\n  border-radius: 9999px !important;\n}\n'
     );
+  });
+});
+
+describe('line options', () => {
+  it("offers each strength, today's as today's option", () => {
+    expect(LAB_PANE_BORDERS.map((option) => [option.id, option.name])).toEqual([
+      ['none', 'None'],
+      ['hairline', 'Hairline'],
+      ['soft', 'Soft'],
+      [TODAY_OPTION_ID, 'Clear'],
+    ]);
+    expect(LAB_SELECTED_WORKSPACES.map((option) => option.id)).toEqual([
+      'none',
+      TODAY_OPTION_ID,
+      'soft',
+      'clear',
+    ]);
+  });
+
+  it('changes only the line around panes without focus or a notification', () => {
+    expect(optionCss(LAB_PANE_BORDERS, 'soft')).toBe(
+      ".pane-outline:not([data-focused='true']):not([data-attention='true']) {\n  border-color: oklch(var(--foreground) / 0.1) !important;\n}\n"
+    );
+    expect(optionCss(LAB_PANE_BORDERS, 'none')).toContain('border-color: transparent');
+  });
+
+  it('recolors the outline drawn around the active tab, quick commands and the sidebar', () => {
+    for (const [options, selector] of [
+      [
+        LAB_ACTIVE_TABS,
+        '[data-testid="terminal-tab-row"] [data-tab-id] > [role="button"][data-active]',
+      ],
+      [LAB_QUICK_COMMANDS, '.quick-commands-control'],
+      [LAB_SIDEBAR_PANELS, '.dark .sidebar-panel'],
+      [LAB_NEW_WORKSPACE_BUTTONS, '.dark [data-new-workspace-controls]'],
+    ] as const) {
+      expect(optionCss(options, 'hairline')).toBe(
+        `${selector} {\n  outline-color: oklch(var(--foreground) / 0.06) !important;\n}\n`
+      );
+    }
+    expect(optionCss(LAB_SELECTED_WORKSPACES, 'clear')).toBe(
+      '.dark .sidebar-selected-card {\n  --tw-ring-color: oklch(var(--foreground) / 0.14) !important;\n}\n'
+    );
+  });
+
+  it('can set every line to one strength', () => {
+    const soft = optionCss(LAB_ALL_LINES, 'soft');
+    for (const options of [
+      LAB_PANE_BORDERS,
+      LAB_ACTIVE_TABS,
+      LAB_QUICK_COMMANDS,
+      LAB_SIDEBAR_PANELS,
+      LAB_NEW_WORKSPACE_BUTTONS,
+      LAB_SELECTED_WORKSPACES,
+    ]) {
+      expect(soft).toContain(optionCss(options, 'soft'));
+    }
+  });
+});
+
+describe('file panel top and divider options', () => {
+  it("can run the panel's line on up past its header, as before", () => {
+    const open = optionCss(LAB_FILE_PANEL_TOPS, 'open');
+    expect(open).toContain('border-top-width: 0 !important;');
+    expect(open).toContain(
+      '[data-testid="file-panel-header"] {\n  border-left: 1px solid oklch(var(--foreground) / 0.14);\n}\n'
+    );
+  });
+
+  it("changes the line under the file tree's header inside the panel", () => {
+    expect(optionCss(LAB_FILE_TREE_DIVIDERS, 'hairline')).toBe(
+      '.file-panel-body .file-tree-header {\n  border-bottom-color: oklch(var(--foreground) / 0.06) !important;\n}\n'
+    );
+    expect(optionCss(LAB_FILE_TREE_DIVIDERS, 'border')).toContain('oklch(var(--border))');
+  });
+
+  it('can change or take away the short line between the tabs and the file panel header', () => {
+    expect(optionCss(LAB_TOP_ROW_DIVIDERS, 'short-clear')).toBe(
+      '[data-testid="file-panel-header"]::before {\n  height: 16px !important;\n  background-color: oklch(var(--foreground) / 0.14) !important;\n}\n'
+    );
+    expect(optionCss(LAB_TOP_ROW_DIVIDERS, 'none')).toContain('content: none !important;');
   });
 });

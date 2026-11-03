@@ -14,11 +14,21 @@ import {
 } from 'react';
 
 import {
+  LAB_ACTIVE_TABS,
+  LAB_ALL_LINES,
+  LAB_FILE_PANEL_TOPS,
+  LAB_FILE_PANELS,
+  LAB_FILE_TREE_DIVIDERS,
+  LAB_NEW_WORKSPACE_BUTTONS,
+  LAB_PANE_BORDERS,
   LAB_PANE_CORNERS,
   LAB_PANE_GAPS,
-  LAB_STATUS_BAR_LINES,
+  LAB_QUICK_COMMANDS,
+  LAB_SELECTED_WORKSPACES,
+  LAB_SIDEBAR_PANELS,
   LAB_STATUS_BARS,
   LAB_TAB_CORNERS,
+  LAB_TOP_ROW_DIVIDERS,
   TODAY_OPTION_ID,
   TODAY_STATUS_BAR_ID,
   optionCss,
@@ -34,14 +44,34 @@ const FRAME_KEY = 'komla.themeLab.frame';
 interface LabChoices {
   /** A LAB_STATUS_BARS id. */
   statusBar: string;
-  /** A LAB_STATUS_BAR_LINES id. */
-  statusBarLine: string;
   /** A LAB_PANE_CORNERS id. */
   paneCorners: string;
   /** A LAB_PANE_GAPS id. */
   paneGap: string;
   /** A LAB_TAB_CORNERS id. */
   tabCorners: string;
+  /** A LAB_FILE_PANELS id. */
+  filePanel: string;
+  /** A LAB_FILE_PANEL_TOPS id. */
+  filePanelTop: string;
+  /** A LAB_FILE_TREE_DIVIDERS id. */
+  fileTreeDivider: string;
+  /** A LAB_TOP_ROW_DIVIDERS id. */
+  topRowDivider: string;
+  /** A LAB_ALL_LINES id. */
+  allLines: string;
+  /** A LAB_QUICK_COMMANDS id. */
+  quickCommands: string;
+  /** A LAB_PANE_BORDERS id. */
+  paneBorder: string;
+  /** A LAB_ACTIVE_TABS id. */
+  activeTab: string;
+  /** A LAB_SIDEBAR_PANELS id. */
+  sidebarPanels: string;
+  /** A LAB_NEW_WORKSPACE_BUTTONS id. */
+  newWorkspaceButton: string;
+  /** A LAB_SELECTED_WORKSPACES id. */
+  selectedWorkspace: string;
 }
 
 // The pickers whose options are LabOptions, in the panel's order.
@@ -50,7 +80,17 @@ const OPTION_PICKERS: readonly {
   heading: string;
   options: readonly LabOption[];
 }[] = [
-  { key: 'statusBarLine', heading: 'Status bar line', options: LAB_STATUS_BAR_LINES },
+  { key: 'filePanel', heading: 'File panel', options: LAB_FILE_PANELS },
+  { key: 'filePanelTop', heading: 'File panel top', options: LAB_FILE_PANEL_TOPS },
+  { key: 'fileTreeDivider', heading: 'File tree divider', options: LAB_FILE_TREE_DIVIDERS },
+  { key: 'topRowDivider', heading: 'Top row divider', options: LAB_TOP_ROW_DIVIDERS },
+  { key: 'allLines', heading: 'All lines', options: LAB_ALL_LINES },
+  { key: 'paneBorder', heading: 'Pane border', options: LAB_PANE_BORDERS },
+  { key: 'activeTab', heading: 'Active tab', options: LAB_ACTIVE_TABS },
+  { key: 'quickCommands', heading: 'Quick commands', options: LAB_QUICK_COMMANDS },
+  { key: 'sidebarPanels', heading: 'Sidebar panels', options: LAB_SIDEBAR_PANELS },
+  { key: 'newWorkspaceButton', heading: 'New Workspace', options: LAB_NEW_WORKSPACE_BUTTONS },
+  { key: 'selectedWorkspace', heading: 'Selected workspace', options: LAB_SELECTED_WORKSPACES },
   { key: 'paneCorners', heading: 'Pane corners', options: LAB_PANE_CORNERS },
   { key: 'paneGap', heading: 'Pane gap', options: LAB_PANE_GAPS },
   { key: 'tabCorners', heading: 'Tab corners', options: LAB_TAB_CORNERS },
@@ -58,10 +98,20 @@ const OPTION_PICKERS: readonly {
 
 const DEFAULT_CHOICES: LabChoices = {
   statusBar: TODAY_STATUS_BAR_ID,
-  statusBarLine: TODAY_OPTION_ID,
   paneCorners: TODAY_OPTION_ID,
   paneGap: TODAY_OPTION_ID,
   tabCorners: TODAY_OPTION_ID,
+  filePanel: TODAY_OPTION_ID,
+  filePanelTop: TODAY_OPTION_ID,
+  fileTreeDivider: TODAY_OPTION_ID,
+  topRowDivider: TODAY_OPTION_ID,
+  allLines: TODAY_OPTION_ID,
+  quickCommands: TODAY_OPTION_ID,
+  paneBorder: TODAY_OPTION_ID,
+  activeTab: TODAY_OPTION_ID,
+  sidebarPanels: TODAY_OPTION_ID,
+  newWorkspaceButton: TODAY_OPTION_ID,
+  selectedWorkspace: TODAY_OPTION_ID,
 };
 
 function readJson<T>(key: string, fallback: T): T {

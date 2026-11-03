@@ -192,6 +192,55 @@ function lineOptions(target: LineTarget): LabOption[] {
 
 export const LAB_PANE_BORDERS: readonly LabOption[] = lineOptions(PANE_LINE);
 
+// The focused pane's outline: today a quarter accent mixed into the muted text color, 1px wide.
+// These try more of the accent, a wider line, and a glow inside the pane.
+const FOCUSED_PANE = ".pane-outline[data-focused='true']";
+
+function focusedPane(accentPercent: number, widthPx = 1, glow = false): string {
+  const color =
+    accentPercent >= 100
+      ? 'oklch(var(--komla, var(--brand)))'
+      : `color-mix(in oklab, oklch(var(--komla, var(--brand))) ${accentPercent}%, oklch(var(--muted-foreground)))`;
+  const rules = [`  border-color: ${color} !important;`];
+  if (widthPx !== 1) rules.push(`  border-width: ${widthPx}px !important;`);
+  if (glow) {
+    rules.push(
+      `  box-shadow: inset 0 0 14px color-mix(in oklab, oklch(var(--komla, var(--brand))) 22%, transparent) !important;`
+    );
+  }
+  return `${FOCUSED_PANE} {\n${rules.join('\n')}\n}\n`;
+}
+
+export const LAB_FOCUSED_PANES: readonly LabOption[] = [
+  {
+    id: TODAY_OPTION_ID,
+    name: 'Faint',
+    description: 'The accent at 25%, mostly the muted text color, as today',
+    css: '',
+  },
+  { id: 'soft', name: 'Soft', description: 'The accent at 45%', css: focusedPane(45) },
+  { id: 'strong', name: 'Strong', description: 'The accent at 70%', css: focusedPane(70) },
+  { id: 'accent', name: 'Accent', description: 'The full accent color', css: focusedPane(100) },
+  {
+    id: 'wide',
+    name: 'Faint, 2px',
+    description: "Today's color in a 2px line",
+    css: focusedPane(25, 2),
+  },
+  {
+    id: 'accent-wide',
+    name: 'Accent, 2px',
+    description: 'The full accent color in a 2px line',
+    css: focusedPane(100, 2),
+  },
+  {
+    id: 'glow',
+    name: 'Faint, glow',
+    description: "Today's line, with a faint accent glow inside the pane's edge",
+    css: focusedPane(25, 1, true),
+  },
+];
+
 export const LAB_ACTIVE_TABS: readonly LabOption[] = [
   ...lineOptions(TAB_LINE),
   {

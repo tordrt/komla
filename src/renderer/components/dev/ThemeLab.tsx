@@ -23,6 +23,7 @@ import {
   LAB_FILE_TREE_DIVIDERS,
   LAB_NEW_WORKSPACE_BUTTONS,
   LAB_PANE_BORDERS,
+  LAB_FOCUSED_PANES,
   LAB_PANE_CORNERS,
   LAB_PANE_GAPS,
   LAB_QUICK_COMMANDS,
@@ -70,6 +71,8 @@ interface LabChoices {
   quickCommands: string;
   /** A LAB_PANE_BORDERS id. */
   paneBorder: string;
+  /** A LAB_FOCUSED_PANES id. */
+  focusedPane: string;
   /** A LAB_ACTIVE_TABS id. */
   activeTab: string;
   /** A LAB_SIDEBAR_PANELS id. */
@@ -94,6 +97,7 @@ const OPTION_PICKERS: readonly {
   { key: 'topRowDivider', heading: 'Top row divider', options: LAB_TOP_ROW_DIVIDERS },
   { key: 'allLines', heading: 'All lines', options: LAB_ALL_LINES },
   { key: 'paneBorder', heading: 'Pane border', options: LAB_PANE_BORDERS },
+  { key: 'focusedPane', heading: 'Focused pane', options: LAB_FOCUSED_PANES },
   { key: 'activeTab', heading: 'Active tab', options: LAB_ACTIVE_TABS },
   { key: 'quickCommands', heading: 'Quick commands', options: LAB_QUICK_COMMANDS },
   { key: 'sidebarPanels', heading: 'Sidebar panels', options: LAB_SIDEBAR_PANELS },
@@ -118,6 +122,7 @@ const DEFAULT_CHOICES: LabChoices = {
   allLines: TODAY_OPTION_ID,
   quickCommands: TODAY_OPTION_ID,
   paneBorder: TODAY_OPTION_ID,
+  focusedPane: TODAY_OPTION_ID,
   activeTab: TODAY_OPTION_ID,
   sidebarPanels: TODAY_OPTION_ID,
   newWorkspaceButton: TODAY_OPTION_ID,

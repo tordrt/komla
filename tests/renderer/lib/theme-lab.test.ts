@@ -8,6 +8,7 @@ import {
   LAB_FILE_TREE_DIVIDERS,
   LAB_NEW_WORKSPACE_BUTTONS,
   LAB_PANE_BORDERS,
+  LAB_FOCUSED_PANES,
   LAB_PANE_CORNERS,
   LAB_PANE_GAPS,
   LAB_QUICK_COMMANDS,
@@ -74,6 +75,7 @@ describe('pane and tab options', () => {
       LAB_PANE_GAPS,
       LAB_TAB_CORNERS,
       LAB_PANE_BORDERS,
+      LAB_FOCUSED_PANES,
       LAB_ACTIVE_TABS,
       LAB_SIDEBAR_PANELS,
       LAB_NEW_WORKSPACE_BUTTONS,
@@ -111,6 +113,16 @@ describe('pane and tab options', () => {
     expect(optionCss(LAB_TAB_CORNERS, 'round')).toBe(
       '[data-testid="terminal-tab-row"] [data-tab-id] > [role="button"] {\n  border-radius: 9999px !important;\n}\n'
     );
+  });
+
+  it("tries the focused pane's outline with more accent, wider, or with a glow", () => {
+    expect(optionCss(LAB_FOCUSED_PANES, 'soft')).toContain('var(--brand))) 45%');
+    expect(optionCss(LAB_FOCUSED_PANES, 'accent')).toContain(
+      'border-color: oklch(var(--komla, var(--brand))) !important;'
+    );
+    expect(optionCss(LAB_FOCUSED_PANES, 'accent')).not.toContain('border-width');
+    expect(optionCss(LAB_FOCUSED_PANES, 'accent-wide')).toContain('border-width: 2px !important;');
+    expect(optionCss(LAB_FOCUSED_PANES, 'glow')).toContain('box-shadow: inset 0 0 14px');
   });
 });
 

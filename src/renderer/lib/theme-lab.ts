@@ -382,3 +382,82 @@ export const LAB_TOP_ROW_DIVIDERS: readonly LabOption[] = [
     css: topRowDivider('calc(100% - 12px)', 'soft'),
   },
 ];
+
+// The bottom row: the sidebar's footer (Komla, the filter and settings menus) and the status bar,
+// one bar along the window's bottom: today a clear line along its top, and a short soft line
+// between the footer and the status bar. These try the line at other strengths, or the bar filled.
+const SIDEBAR_FOOTER = '[data-sidebar-footer]';
+const STATUS_BAR = '[data-status-bar]';
+const BOTTOM_BAR = `${SIDEBAR_FOOTER}, ${STATUS_BAR}`;
+const BAR_FILL = 'color-mix(in oklch, oklch(var(--foreground)) 3%, oklch(var(--chrome)))';
+
+function barLine(selector: string, strength: LineStrength): string {
+  return `${selector} {\n  box-shadow: inset 0 1px 0 ${line(strength)} !important;\n}\n`;
+}
+
+export const LAB_BOTTOM_BARS: readonly LabOption[] = [
+  {
+    id: TODAY_OPTION_ID,
+    name: 'Clear line',
+    description: 'A clear line along the top of the whole bottom row, as today',
+    css: '',
+  },
+  {
+    id: 'none',
+    name: 'None',
+    description: 'Nothing along the top of the bottom row',
+    css: barLine(BOTTOM_BAR, 'none'),
+  },
+  {
+    id: 'hairline',
+    name: 'Hairline',
+    description: 'A hairline along the top of the whole bottom row',
+    css: barLine(BOTTOM_BAR, 'hairline'),
+  },
+  {
+    id: 'soft',
+    name: 'Soft line',
+    description: 'A soft line along the top of the whole bottom row',
+    css: barLine(BOTTOM_BAR, 'soft'),
+  },
+  {
+    id: 'footer',
+    name: 'Footer only',
+    description: "A clear line above the sidebar's footer only, closing the workspace list",
+    css: barLine(STATUS_BAR, 'none'),
+  },
+  {
+    id: 'fill',
+    name: 'Fill and line',
+    description: 'The whole bottom row a step lighter than the chrome, with its clear line',
+    css: `${BOTTOM_BAR} {\n  background-color: ${BAR_FILL} !important;\n}\n`,
+  },
+];
+
+// Between the sidebar's footer and the status bar: today a short soft line, as in the top row.
+export const LAB_BOTTOM_ROW_DIVIDERS: readonly LabOption[] = [
+  {
+    id: TODAY_OPTION_ID,
+    name: 'Short, soft',
+    description: "A short soft line between the sidebar's footer and the status bar, as today",
+    css: '',
+  },
+  {
+    id: 'none',
+    name: 'None',
+    description: "Nothing between the sidebar's footer and the status bar",
+    css: `${SIDEBAR_FOOTER}::after {\n  content: none !important;\n}\n`,
+  },
+  {
+    id: 'short-clear',
+    name: 'Short, clear',
+    description: "A short clear line between the sidebar's footer and the status bar",
+    css: `${SIDEBAR_FOOTER}::after {\n  background-color: ${line('clear')} !important;\n}\n`,
+  },
+  {
+    id: 'full',
+    name: 'Full height',
+    description: "A soft line the bottom row's full height, the sidebar's edge carried down",
+    css: `${SIDEBAR_FOOTER}::after {\n  top: 0 !important;\n  height: 100% !important;\n  transform: none !important;\n}\n`,
+  },
+];

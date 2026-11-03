@@ -1,6 +1,8 @@
 import {
   LAB_ACTIVE_TABS,
   LAB_ALL_LINES,
+  LAB_BOTTOM_BARS,
+  LAB_BOTTOM_ROW_DIVIDERS,
   LAB_FILE_PANEL_TOPS,
   LAB_FILE_PANELS,
   LAB_FILE_TREE_DIVIDERS,
@@ -82,6 +84,8 @@ describe('pane and tab options', () => {
       LAB_FILE_PANEL_TOPS,
       LAB_FILE_TREE_DIVIDERS,
       LAB_TOP_ROW_DIVIDERS,
+      LAB_BOTTOM_BARS,
+      LAB_BOTTOM_ROW_DIVIDERS,
     ]) {
       expect(options.filter((option) => option.id === TODAY_OPTION_ID)).toHaveLength(1);
       expect(optionCss(options, TODAY_OPTION_ID)).toBe('');
@@ -188,5 +192,25 @@ describe('file panel top and divider options', () => {
       '[data-testid="file-panel-header"]::before {\n  height: 16px !important;\n  background-color: oklch(var(--foreground) / 0.14) !important;\n}\n'
     );
     expect(optionCss(LAB_TOP_ROW_DIVIDERS, 'none')).toContain('content: none !important;');
+  });
+});
+
+describe('bottom row options', () => {
+  it('changes the line along the top of the whole bottom row', () => {
+    expect(optionCss(LAB_BOTTOM_BARS, 'soft')).toBe(
+      '[data-sidebar-footer], [data-status-bar] {\n  box-shadow: inset 0 1px 0 oklch(var(--foreground) / 0.1) !important;\n}\n'
+    );
+  });
+
+  it("can keep the line above the sidebar's footer only", () => {
+    expect(optionCss(LAB_BOTTOM_BARS, 'footer')).toBe(
+      '[data-status-bar] {\n  box-shadow: inset 0 1px 0 transparent !important;\n}\n'
+    );
+  });
+
+  it("can take away the line between the sidebar's footer and the status bar", () => {
+    expect(optionCss(LAB_BOTTOM_ROW_DIVIDERS, 'none')).toBe(
+      '[data-sidebar-footer]::after {\n  content: none !important;\n}\n'
+    );
   });
 });

@@ -16,6 +16,8 @@ import {
 import {
   LAB_ACTIVE_TABS,
   LAB_ALL_LINES,
+  LAB_BOTTOM_BARS,
+  LAB_BOTTOM_ROW_DIVIDERS,
   LAB_FILE_PANEL_TOPS,
   LAB_FILE_PANELS,
   LAB_FILE_TREE_DIVIDERS,
@@ -50,6 +52,10 @@ interface LabChoices {
   paneGap: string;
   /** A LAB_TAB_CORNERS id. */
   tabCorners: string;
+  /** A LAB_BOTTOM_BARS id. */
+  bottomBar: string;
+  /** A LAB_BOTTOM_ROW_DIVIDERS id. */
+  bottomRowDivider: string;
   /** A LAB_FILE_PANELS id. */
   filePanel: string;
   /** A LAB_FILE_PANEL_TOPS id. */
@@ -80,6 +86,8 @@ const OPTION_PICKERS: readonly {
   heading: string;
   options: readonly LabOption[];
 }[] = [
+  { key: 'bottomBar', heading: 'Bottom row', options: LAB_BOTTOM_BARS },
+  { key: 'bottomRowDivider', heading: 'Bottom row divider', options: LAB_BOTTOM_ROW_DIVIDERS },
   { key: 'filePanel', heading: 'File panel', options: LAB_FILE_PANELS },
   { key: 'filePanelTop', heading: 'File panel top', options: LAB_FILE_PANEL_TOPS },
   { key: 'fileTreeDivider', heading: 'File tree divider', options: LAB_FILE_TREE_DIVIDERS },
@@ -101,6 +109,8 @@ const DEFAULT_CHOICES: LabChoices = {
   paneCorners: TODAY_OPTION_ID,
   paneGap: TODAY_OPTION_ID,
   tabCorners: TODAY_OPTION_ID,
+  bottomBar: TODAY_OPTION_ID,
+  bottomRowDivider: TODAY_OPTION_ID,
   filePanel: TODAY_OPTION_ID,
   filePanelTop: TODAY_OPTION_ID,
   fileTreeDivider: TODAY_OPTION_ID,

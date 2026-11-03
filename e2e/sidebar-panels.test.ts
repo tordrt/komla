@@ -205,6 +205,26 @@ async function createWorkspace(appWindow: import('@playwright/test').Page, branc
   await appWindow.getByRole('button', { name: 'Toggle file panel' }).click({ timeout: 20_000 });
 }
 
+type Page = import('@playwright/test').Page;
+
+/** Moves the sidebar's edge with the arrow keys, ArrowRight to narrow it, as far as it goes. */
+async function resizeSidebar(appWindow: Page, key: 'ArrowLeft' | 'ArrowRight') {
+  await appWindow.getByRole('separator', { name: 'Resize file tree panel' }).focus();
+  for (let press = 0; press < 60; press++) await appWindow.keyboard.press(key);
+}
+
+/** The sidebar's width, as its resize handle reports it. */
+function sidebarWidth(appWindow: Page) {
+  return appWindow
+    .getByRole('separator', { name: 'Resize file tree panel' })
+    .getAttribute('aria-valuenow');
+}
+
+/** The sidebar's tabs as the row shows them, by name. */
+function sidebarTabNames(appWindow: Page) {
+  return appWindow.locator('[data-sidebar-tab]').allTextContents();
+}
+
 test.describe('Sidebar panels', () => {
   test.skip(process.platform === 'win32', 'The panel runs POSIX shell commands');
   test.describe.configure({ timeout: 90_000 });
@@ -213,10 +233,16 @@ test.describe('Sidebar panels', () => {
     appWindow,
   }) => {
     await createWorkspace(appWindow, 'sidebar-panels/checks');
-    // Diff and Files keep the row's two tabs; the panels are in the menu after them.
+    // At its narrowest the sidebar shows two tabs, Diff and Files, and the panels are in the
+    // menu after them.
+    await resizeSidebar(appWindow, 'ArrowRight');
+    await expect.poll(() => sidebarTabNames(appWindow)).toEqual(['Diff', 'Files']);
+    const narrowest = await sidebarWidth(appWindow);
     await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click({ timeout: 20_000 });
     await appWindow.getByRole('menuitemradio', { name: 'Checks' }).click();
     await expect(appWindow.getByRole('button', { name: 'Checks', exact: true })).toBeVisible();
+    // A panel's tab, wider than Files, doesn't widen the sidebar.
+    expect(await sidebarWidth(appWindow)).toBe(narrowest);
 
     const panel = appWindow.locator('[data-sidebar-panel="checks"]');
     const page = panel.frameLocator('iframe');
@@ -250,6 +276,7 @@ test.describe('Sidebar panels', () => {
       .getByText('Remember', { exact: true });
     await expect(remember).toBeVisible({ timeout: 20_000 });
     await expect(remember).toHaveClass(/text-success/);
+    expect(await sidebarWidth(appWindow)).toBe(narrowest);
     if (SCREENSHOTS) {
       await appWindow.screenshot({
         path: path.join(SCREENSHOTS, 'terminal-panel.png'),
@@ -266,13 +293,37 @@ test.describe('Sidebar panels', () => {
 
     // Right-clicking a tab puts another view in its place: Diff beside Notes.
     await appWindow.getByRole('button', { name: 'Files', exact: true }).click({ button: 'right' });
-    await appWindow.getByRole('menuitem', { name: 'Replace Files with' }).click();
-    await appWindow.getByRole('menuitem', { name: 'Diff', exact: true }).hover();
+    // From the keyboard: at the window's edge the submenu opens over the menu, where a pointer
+    // on its way to Diff would close it.
+    await appWindow.getByRole('menuitem', { name: 'Replace Files with' }).focus();
+    await appWindow.keyboard.press('ArrowRight');
+    const diffItem = appWindow.getByRole('menuitem', { name: 'Diff', exact: true });
+    await expect(diffItem).toBeFocused();
     if (SCREENSHOTS)
       await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tab-replace.png') });
-    await appWindow.getByRole('menuitem', { name: 'Diff', exact: true }).click();
+    await appWindow.keyboard.press('Enter');
     await expect(appWindow.getByRole('button', { name: 'Diff', exact: true })).toBeVisible();
     await expect(appWindow.getByRole('button', { name: 'Files', exact: true })).toHaveCount(0);
+    await expect.poll(() => sidebarTabNames(appWindow)).toEqual(['Notes', 'Diff']);
+
+    // Widened, the sidebar shows more of them, in the order kept, and the rest stay in the menu.
+    await resizeSidebar(appWindow, 'ArrowLeft');
+    await expect.poll(async () => (await sidebarTabNames(appWindow)).length).toBeGreaterThan(2);
+    expect((await sidebarTabNames(appWindow)).slice(0, 2)).toEqual(['Notes', 'Diff']);
+    if (SCREENSHOTS)
+      await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tabs-wide.png') });
+
+    // Dragging Diff onto the left half of Notes moves it before Notes.
+    const notesTab = appWindow.locator('[data-sidebar-tab="panel:notes"]');
+    const notesBox = (await notesTab.boundingBox())!;
+    await appWindow
+      .locator('[data-sidebar-tab="diff"]')
+      .dragTo(notesTab, { targetPosition: { x: 4, y: notesBox.height / 2 } });
+    await expect
+      .poll(async () => (await sidebarTabNames(appWindow)).slice(0, 2))
+      .toEqual(['Diff', 'Notes']);
+    if (SCREENSHOTS)
+      await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tabs-dragged.png') });
   });
 
   test('runs a page of its own that gets data and reaches Komla through komla', async ({

@@ -329,11 +329,13 @@ Komla will show the plugin and every command it runs before anything runs, and r
 it. If the result isn't `applied`, say so and go to the wrap-up.
 
 Point out the Tour CI item in the status bar: its popover shows the CI run's page, as the script's
-item did. Then ask the user to open the sidebar and pick Tour CI from the arrow after its tabs,
-where the same page fills the panel and grows with the sidebar. The sidebar keeps two tabs, Diff
-and Files at first: Tour CI takes the place of the one that wasn't showing, and right-clicking a
-tab puts another view in its place, so they can keep Diff beside a panel. The pair stays for this
-project, and right-clicking a panel's tab also hides it in this project. When the page has its button, a click in
+item did. Then ask the user to open the sidebar and its Tour CI tab, or pick Tour CI from the
+arrow after the tabs when the sidebar is too narrow to show it, where the same page fills the panel
+and grows with the sidebar. The sidebar shows as many tabs as fit, at least two, and the rest in
+that menu, and a tab picked there takes the place of one that wasn't showing. Dragging a tab moves
+it, and right-clicking one puts another view in its place, so they can keep Diff beside a panel.
+The order stays for this project, and right-clicking a panel's tab also hides it in this project.
+When the page has its button, a click in
 either place opens the CI run page, as the plugin's `open` command says. Both show only in this
 project's workspaces, as `projects` says. Mention that **Settings → Plugins** lists the plugin with its item and panel, and turns it
 off, and that Komla stops a plugin when its files change, until the user turns it on again.

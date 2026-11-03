@@ -211,7 +211,7 @@ const appConfigUpdateSchema = z
       .optional(),
     // By project id, its sidebars' two tabs: `diff`, `files` or `panel:<id>`.
     projectSidebarTabs: z
-      .record(z.string().max(128), z.array(z.string().max(80)).max(2))
+      .record(z.string().max(128), z.array(z.string().max(80)).max(128))
       .refine((tabs) => Object.keys(tabs).length <= 256)
       .optional(),
     keepAwakeMode: z.enum(['off', 'agents', 'always']).optional(),

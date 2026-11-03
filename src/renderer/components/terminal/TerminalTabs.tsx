@@ -168,13 +168,19 @@ function topRowEndReserve(treeOpen: boolean, cornerWidthPx: number): number {
 }
 
 /**
- * The file panel's narrowest width. Its header holds the Diff/Files switch and the corner buttons
- * (and window controls), so it never gets narrower than both together, plus a sliver so the
- * switch doesn't touch the first button.
+ * The file panel's narrowest width. Its header holds the tabs and the corner buttons (and window
+ * controls), so it never gets narrower than two tabs and both together, plus a sliver so the
+ * tabs don't touch the first button.
  */
 function inlineTreeMinWidthPx(treeTabsWidthPx: number, cornerWidthPx: number): number {
-  return Math.max(INLINE_TREE_MIN_WIDTH_PX, Math.ceil(treeTabsWidthPx + cornerWidthPx + 12));
+  return Math.max(
+    INLINE_TREE_MIN_WIDTH_PX,
+    Math.ceil(treeTabsWidthPx + cornerWidthPx + TREE_HEADER_SPARE_PX)
+  );
 }
+
+/** The file panel header's padding before its tabs, and the sliver after them. */
+const TREE_HEADER_SPARE_PX = 12;
 
 /** The tab row is the top of the window: as tall as the title bar, with room for the caption buttons. */
 function topRowMetrics(): { heightPx: number; captionWidthPx: number } {
@@ -491,9 +497,14 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
 function FileTreeModeTabs({
   workspaceId,
   isGitWorkspace,
+  roomPx,
+  onNarrowestWidthChange,
 }: {
   workspaceId: string;
   isGitWorkspace: boolean;
+  /** The width the tabs may take. */
+  roomPx: number;
+  onNarrowestWidthChange?: (widthPx: number) => void;
 }) {
   // Underlined labels rather than more boxed tabs, so they don't read as part of the terminal
   // tabs' row.
@@ -505,8 +516,20 @@ function FileTreeModeTabs({
         : 'text-muted-foreground hover:text-foreground'
     );
   return (
-    <div aria-label="File panel view" className="flex items-stretch gap-3.5 self-stretch px-1">
-      <SidebarTabs workspaceId={workspaceId} isGitWorkspace={isGitWorkspace} tabClass={tabClass} />
+    // No wider than its room, so at the narrowest a panel's tab shortens its title rather than
+    // running under the corner buttons.
+    <div
+      aria-label="File panel view"
+      className="flex min-w-0 items-stretch gap-3.5 self-stretch px-1"
+      style={roomPx > 0 ? { maxWidth: roomPx } : undefined}
+    >
+      <SidebarTabs
+        workspaceId={workspaceId}
+        isGitWorkspace={isGitWorkspace}
+        tabClass={tabClass}
+        roomPx={roomPx}
+        onNarrowestWidthChange={onNarrowestWidthChange}
+      />
     </div>
   );
 }
@@ -1024,7 +1047,8 @@ export const TerminalTabs = memo(function TerminalTabs({
   // The first tab sits by the sidebar's line, unless the collapsed sidebar's buttons sit before it.
   const firstTabAtEdge = !sidebarCollapsed;
   const [topRowActionsRef, topRowActionsWidth] = useElementWidth();
-  const [treeTabsRef, treeTabsWidth] = useElementWidth();
+  // The file panel's tabs at their narrowest, two tabs, so more show as the panel widens.
+  const [treeTabsWidth, setTreeTabsWidth] = useState(0);
   const { heightPx: topRowHeightPx, captionWidthPx: topRowCaptionWidthPx } = topRowMetrics();
   // The corner buttons sit left of the Windows window controls, so the header holds both.
   const treeMinWidthPx = inlineTreeMinWidthPx(
@@ -2267,15 +2291,22 @@ export const TerminalTabs = memo(function TerminalTabs({
                 }
               >
                 {selectedWorkspaceId && (
-                  // Measured, so the panel stays wide enough for these and the corner buttons.
+                  // The panel stays wide enough for two of these and the corner buttons.
                   <SidebarTabsMenu
                     workspaceId={selectedWorkspaceId}
                     isGitWorkspace={isGitWorkspace}
                   >
-                    <div ref={treeTabsRef} className="no-drag flex items-stretch">
+                    <div className="no-drag flex min-w-0 items-stretch">
                       <FileTreeModeTabs
                         workspaceId={selectedWorkspaceId}
                         isGitWorkspace={isGitWorkspace}
+                        roomPx={
+                          resolvedTreeWidthPx -
+                          topRowActionsWidth -
+                          topRowCaptionWidthPx -
+                          TREE_HEADER_SPARE_PX
+                        }
+                        onNarrowestWidthChange={setTreeTabsWidth}
                       />
                     </div>
                   </SidebarTabsMenu>

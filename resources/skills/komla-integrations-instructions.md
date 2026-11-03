@@ -111,9 +111,10 @@ panel is as wide as the user makes the sidebar, from 150 to 520 pixels, so make 
 detail with media queries as it widens. Plain text in place of JSON shows as a terminal shows it,
 colors included, and `{"markdown": "…"}` as Markdown.
 
-The sidebar's tab row shows two of Diff, Files and the panels, the pair the user keeps for the
-project, and the rest in a menu at its end, so a new panel doesn't crowd the row; right-clicking a
-tab puts another in its place. Keep `title` to a word or two.
+The sidebar's tab row shows Diff, Files and the panels in the order the user drags them to for
+the project, as many as fit its width and at least two, and the rest in a menu at its end, so a
+new panel doesn't crowd the row; right-clicking a tab puts another in its place. Keep `title` to a
+word or two, so more fit.
 
 ### A page of its own
 

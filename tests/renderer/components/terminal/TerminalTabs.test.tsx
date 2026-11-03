@@ -1003,23 +1003,29 @@ describe('TerminalTabs', () => {
     });
 
     it.each([
-      ['darwin', '202'],
-      ['linux', '202'],
+      ['darwin', '226'],
+      ['linux', '226'],
       // The Windows window controls (138px) share the header too, right of the corner buttons.
-      ['win32', '340'],
+      ['win32', '364'],
     ] as const)('on %s, keeps the file panel wide enough for its header', (platform, minWidth) => {
       (window.api as { platform: string }).platform = platform;
-      // The Diff/Files switch measures 90px and the corner buttons 100px.
+      // The Diff/Files tabs measure 90px, the caret that adds a panel 24px and the corner buttons
+      // 100px.
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: Element
+      ) {
+        const inMeasureRow = this.parentElement?.getAttribute('aria-hidden') === 'true';
+        const width = (this as HTMLElement).dataset.measureView ? 45 : inMeasureRow ? 24 : 0;
+        return { width, height: 0, x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0 } as DOMRect;
+      });
       vi.stubGlobal(
         'ResizeObserver',
         class {
           constructor(private readonly callback: ResizeObserverCallback) {}
           observe(element: Element) {
-            const width = element.querySelector(':scope > [aria-label="File panel view"]')
-              ? 90
-              : element.querySelector(':scope > [aria-label="Toggle file panel"]')
-                ? 100
-                : 0;
+            const width = element.querySelector(':scope > [aria-label="Toggle file panel"]')
+              ? 100
+              : 0;
             this.callback(
               [{ contentRect: { width } } as ResizeObserverEntry],
               this as unknown as ResizeObserver
@@ -1033,7 +1039,7 @@ describe('TerminalTabs', () => {
       render(<TerminalTabs />);
 
       const handle = screen.getByRole('separator', { name: 'Resize file tree panel' });
-      // The switch shares the panel's header with the corner buttons: 90 + 100 + 12.
+      // The tabs share the panel's header with the corner buttons: 90 + 24 + 100 + 12.
       expect(handle).toHaveAttribute('aria-valuemin', minWidth);
     });
 

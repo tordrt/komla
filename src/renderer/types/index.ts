@@ -223,6 +223,8 @@ export interface AppConfig {
   statusBarShownItems?: string[]; // Status bar items that start hidden and the user turned on
   statusBarLeftItems?: string[]; // Status bar items the user placed at the left, in order; unplaced items keep their default spot
   statusBarRightItems?: string[]; // Status bar items the user placed at the right, in order
+  projectHiddenItems?: Record<string, string[]>; // By project id, the status bar items and sidebar panels (`panel:<id>`) the user hid in that project
+  projectSidebarTabs?: Record<string, string[]>; // By project id, the two of Diff, Files and the sidebar panels (`panel:<id>`) its sidebars' tab row shows; the rest are in its menu
   keepAwakeMode?: 'off' | 'agents' | 'always'; // Keep the computer from sleeping: never, while an agent works, or always
   restoreRunningWorkspaces?: 'ask' | 'always' | 'never'; // At launch, restart the local workspaces that were running at the last quit
   zoomLevel?: number; // Electron zoom level in half steps: -3 (58%) to 3 (173%), 0 = default

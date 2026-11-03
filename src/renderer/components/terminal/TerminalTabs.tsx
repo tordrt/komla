@@ -128,7 +128,7 @@ import { FileTreeToggleButton } from './FileTreeToggleButton';
 import { InlineFilePreviewPanel } from './InlineFilePreviewPanel';
 import { InlineFileTreePanel } from './InlineFileTreePanel';
 import { InlinePanelResizeHandle } from './InlinePanelResizeHandle';
-import { InlineSidebarPanel, SidebarPanelTabs, SidebarTabsMenu } from './InlineSidebarPanel';
+import { InlineSidebarPanel, SidebarTabs, SidebarTabsMenu } from './InlineSidebarPanel';
 import { NewTabButton } from './NewTabButton';
 import {
   getPreviewLayoutAttention,
@@ -484,8 +484,9 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
 });
 
 /**
- * The file panel's Diff and Files tabs, then its sidebar panels'. Diff needs git. Its row goes in a
- * SidebarTabsMenu, so right-clicking it offers to add a panel.
+ * The file panel's tabs: two of Diff, Files and its sidebar panels, and a menu with the rest. Diff
+ * needs git. Its row goes in a SidebarTabsMenu, so right-clicking a tab offers another view in its
+ * place.
  */
 function FileTreeModeTabs({
   workspaceId,
@@ -494,13 +495,6 @@ function FileTreeModeTabs({
   workspaceId: string;
   isGitWorkspace: boolean;
 }) {
-  const treeMode = useFileViewerStore(
-    (s) => s.inlineFileTreeByWorkspace[workspaceId]?.mode ?? 'diff'
-  );
-  const requestModeChange = useFileViewerStore((s) => s.requestInlineFilePreviewModeChange);
-  // While a sidebar panel shows, neither tree tab is the active one.
-  const { shown: panelShown } = useSidebarPanelChoice(workspaceId);
-  const mode = panelShown ? null : treeMode;
   // Underlined labels rather than more boxed tabs, so they don't read as part of the terminal
   // tabs' row.
   const tabClass = (active: boolean) =>
@@ -510,26 +504,9 @@ function FileTreeModeTabs({
         ? 'text-foreground shadow-[inset_0_-2px_0_oklch(var(--foreground)/0.75)]'
         : 'text-muted-foreground hover:text-foreground'
     );
-  // Through the store action, so a dirty preview asks before reloading in the other mode.
   return (
     <div aria-label="File panel view" className="flex items-stretch gap-3.5 self-stretch px-1">
-      {isGitWorkspace && (
-        <button
-          onClick={() => requestModeChange(workspaceId, 'diff')}
-          className={tabClass(mode === 'diff')}
-          title="Show changed files"
-        >
-          Diff
-        </button>
-      )}
-      <button
-        onClick={() => requestModeChange(workspaceId, 'browse')}
-        className={tabClass(mode === 'browse')}
-        title="Show all files"
-      >
-        Files
-      </button>
-      <SidebarPanelTabs workspaceId={workspaceId} tabClass={tabClass} />
+      <SidebarTabs workspaceId={workspaceId} isGitWorkspace={isGitWorkspace} tabClass={tabClass} />
     </div>
   );
 }
@@ -2291,7 +2268,10 @@ export const TerminalTabs = memo(function TerminalTabs({
               >
                 {selectedWorkspaceId && (
                   // Measured, so the panel stays wide enough for these and the corner buttons.
-                  <SidebarTabsMenu>
+                  <SidebarTabsMenu
+                    workspaceId={selectedWorkspaceId}
+                    isGitWorkspace={isGitWorkspace}
+                  >
                     <div ref={treeTabsRef} className="no-drag flex items-stretch">
                       <FileTreeModeTabs
                         workspaceId={selectedWorkspaceId}

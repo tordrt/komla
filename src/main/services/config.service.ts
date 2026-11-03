@@ -48,6 +48,16 @@ function stringList(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : undefined;
 }
 
+function stringListsByKey(value: unknown): Record<string, string[]> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const lists: Record<string, string[]> = {};
+  for (const [key, list] of Object.entries(value)) {
+    const strings = stringList(list);
+    if (strings?.length) lists[key] = strings;
+  }
+  return lists;
+}
+
 /** A stored choice, or off for someone who hid branch names with the setting this replaced. */
 function alwaysShowBranchName(raw: Record<string, unknown>): boolean {
   const stored = raw.alwaysShowBranchNameInWorkspaceCards;
@@ -280,6 +290,8 @@ export interface AppConfig {
   statusBarShownItems?: string[]; // Status bar items that start hidden and the user turned on
   statusBarLeftItems?: string[]; // Status bar items the user placed at the left, in order; unplaced items keep their default spot
   statusBarRightItems?: string[]; // Status bar items the user placed at the right, in order
+  projectHiddenItems?: Record<string, string[]>; // By project id, the status bar items and sidebar panels (`panel:<id>`) the user hid in that project
+  projectSidebarTabs?: Record<string, string[]>; // By project id, the two of Diff, Files and the sidebar panels (`panel:<id>`) its sidebars' tab row shows; the rest are in its menu
   keepAwakeMode?: 'off' | 'agents' | 'always'; // Keep the computer from sleeping: never, while an agent works, or always
   restoreRunningWorkspaces?: 'ask' | 'always' | 'never'; // At launch, restart the local workspaces that were running at the last quit
   agentLaunchDefaultPresetId?: string | null; // Default preset for agent-launched workspaces and tabs
@@ -536,6 +548,8 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     statusBarShownItems: stringList(rawConfig.statusBarShownItems),
     statusBarLeftItems: stringList(rawConfig.statusBarLeftItems),
     statusBarRightItems: stringList(rawConfig.statusBarRightItems),
+    projectHiddenItems: stringListsByKey(rawConfig.projectHiddenItems),
+    projectSidebarTabs: stringListsByKey(rawConfig.projectSidebarTabs),
     // Direct assignment (not pickWithDefault) so a persisted `null`
     // round-trips as `null` instead of being normalized to `undefined`.
     agentLaunchDefaultPresetId: rawConfig.agentLaunchDefaultPresetId as string | null | undefined,

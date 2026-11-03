@@ -6,7 +6,10 @@ import { commandSource, linkHost } from '@/components/command-page/command-page'
 import { CheckedIcon } from '@/components/ui/checked-icon';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useNamedActionRunner } from '@/hooks/useNamedActionRunner';
+import { useOpenProject } from '@/hooks/useProject';
 import { REFRESH_ON_SETTLE_MS, refreshesOn } from '@/hooks/useRunWhileVisible';
+import { isHiddenInProject } from '@/lib/project-hidden-items';
+import { panelView } from '@/lib/sidebar-tabs';
 import { statusItemColorProps } from '@/lib/status-item-color';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
@@ -385,20 +388,26 @@ export function useCustomStatusItems(): {
 } {
   const workspaceId = useWorkspacesStore((s) => s.selectedWorkspaceId);
   const hiddenItems = useConfigStore((s) => s.config?.statusBarHiddenItems);
+  const projectHiddenItems = useConfigStore((s) => s.config?.projectHiddenItems);
+  const projectId = useOpenProject()?.id;
+  const visibility = useMemo(
+    () => ({ statusBarHiddenItems: hiddenItems, projectHiddenItems }),
+    [hiddenItems, projectHiddenItems]
+  );
   const workspaceAgentItems = useAgentStatusItems().filter(
     (item) => item.workspaceId === workspaceId
   );
   const agentItems = workspaceAgentItems.filter((item) =>
-    isStatusBarItemShown({ statusBarHiddenItems: hiddenItems }, `agent:${item.id}`)
+    isStatusBarItemShown(visibility, `agent:${item.id}`, projectId)
   );
   const commandList = useStatusCommandList(workspaceId);
   // Hidden items don't run; memoized so the commands keep their schedule between renders.
   const commands = useMemo(
     () =>
       commandList.items.filter((command) =>
-        isStatusBarItemShown({ statusBarHiddenItems: hiddenItems }, `command:${command.id}`)
+        isStatusBarItemShown(visibility, `command:${command.id}`, projectId)
       ),
-    [commandList, hiddenItems]
+    [commandList, visibility, projectId]
   );
   useStatusCommandSchedule(workspaceId, commands);
   // Only the open workspace's items, so others' runs don't render the bar again.
@@ -476,6 +485,17 @@ export function useCustomStatusItems(): {
             if (list && !list.panels.some((each) => each.id === panel)) {
               addToast(
                 `This workspace has no sidebar panel ${panel}. Check ${commandSource('status-items.json', command.plugin)}.`,
+                'error'
+              );
+              return;
+            }
+            // The sidebar leaves out a panel hidden in the project, so opening it would do nothing.
+            const shown = list?.panels.find((each) => each.id === panel);
+            const { workspaces } = useWorkspacesStore.getState();
+            const inProject = workspaces.find((each) => each.id === workspaceId)?.projectId;
+            if (shown && isHiddenInProject({ projectHiddenItems }, inProject, panelView(panel))) {
+              addToast(
+                `${shown.title} is hidden in this project. Show it from a sidebar tab's right-click menu.`,
                 'error'
               );
               return;

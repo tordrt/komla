@@ -1,3 +1,5 @@
+import { hiddenInProjectUpdate, isHiddenInProject } from '@/lib/project-hidden-items';
+
 import type { AppConfig } from '@/types';
 
 /** Status bar items the user can show or hide from the bar's right-click menu. */
@@ -69,6 +71,7 @@ type StatusBarItemConfig = Pick<
   AppConfig,
   | 'statusBarHiddenItems'
   | 'statusBarShownItems'
+  | 'projectHiddenItems'
   | 'statusBarLeftItems'
   | 'statusBarRightItems'
   | 'showSystemMetrics'
@@ -76,10 +79,13 @@ type StatusBarItemConfig = Pick<
   | 'showEditorInToolbar'
 >;
 
+/** Whether an item shows, in the open workspace's project when given one. */
 export function isStatusBarItemShown(
   config: StatusBarItemConfig | null,
-  id: StatusBarItemId | CustomStatusItemKey
+  id: StatusBarItemId | CustomStatusItemKey,
+  projectId?: string | null
 ): boolean {
+  if (isHiddenInProject(config, projectId, id)) return false;
   // Predates the status bar and is off by default, so it keeps its own setting.
   if (id === 'system-metrics') return config?.showSystemMetrics === true;
   // Predates the status bar too; the settings menu offers Tips while it is off.
@@ -89,12 +95,19 @@ export function isStatusBarItemShown(
   return !config?.statusBarHiddenItems?.includes(id);
 }
 
-/** The config change that shows or hides one item. */
+/** The config change that shows or hides one item; showing it shows it in `projectId` too. */
 export function statusBarItemVisibilityUpdate(
   config: StatusBarItemConfig | null,
   id: StatusBarItemId | CustomStatusItemKey,
-  shown: boolean
+  shown: boolean,
+  projectId?: string | null
 ): Partial<AppConfig> {
+  if (shown && projectId && isHiddenInProject(config, projectId, id)) {
+    return {
+      ...hiddenInProjectUpdate(config, projectId, id, false),
+      ...statusBarItemVisibilityUpdate(config, id, true),
+    };
+  }
   if (id === 'system-metrics') return { showSystemMetrics: shown };
   if (id === 'tips') return { showTipsInToolbar: shown };
   if (id === 'open-in-editor') return { showEditorInToolbar: shown };
@@ -106,21 +119,37 @@ export function statusBarItemVisibilityUpdate(
   return { statusBarHiddenItems: shown ? hidden : [...hidden, id] };
 }
 
-/** The config change that puts every item back as a new install shows it. */
-export const STATUS_BAR_ITEMS_RESET: Partial<AppConfig> = {
-  statusBarHiddenItems: [],
-  statusBarShownItems: [],
-  statusBarLeftItems: [],
-  statusBarRightItems: [],
-  showSystemMetrics: false,
-  showTipsInToolbar: true,
-  showEditorInToolbar: true,
-};
+/** Sidebar panels share `projectHiddenItems` with the bar's items, as `panel:<id>`. */
+function isBarItemKey(key: string): boolean {
+  return !key.startsWith('panel:');
+}
+
+/**
+ * The config change that puts every item back as a new install shows it, in every project too.
+ * Panels the user hid in a project stay hidden there.
+ */
+export function statusBarItemsReset(config: StatusBarItemConfig | null): Partial<AppConfig> {
+  const projectHiddenItems: Record<string, string[]> = {};
+  for (const [projectId, keys] of Object.entries(config?.projectHiddenItems ?? {})) {
+    const panels = keys.filter((key) => !isBarItemKey(key));
+    if (panels.length) projectHiddenItems[projectId] = panels;
+  }
+  return {
+    statusBarHiddenItems: [],
+    statusBarShownItems: [],
+    statusBarLeftItems: [],
+    statusBarRightItems: [],
+    showSystemMetrics: false,
+    showTipsInToolbar: true,
+    showEditorInToolbar: true,
+    projectHiddenItems,
+  };
+}
 
 /**
  * Whether every item shows, and sits, as it does by default, when Reset has nothing to do. Custom
- * items count wherever they come from: a hidden one, or one another workspace's items were placed
- * around, keeps Reset on.
+ * items count wherever they come from: a hidden one, one hidden in any project, or one another
+ * workspace's items were placed around, keeps Reset on.
  */
 export function statusBarItemsAreDefault(
   config: StatusBarItemConfig | null,
@@ -138,6 +167,7 @@ export function statusBarItemsAreDefault(
       (item) => isStatusBarItemShown(config, item.id) === isStatusBarItemShown(null, item.id)
     ) &&
     !(config?.statusBarHiddenItems ?? []).some(isCustomStatusItemKey) &&
+    !Object.values(config?.projectHiddenItems ?? {}).some((keys) => keys.some(isBarItemKey)) &&
     !savedPlacement.some((id) => isCustomStatusItemKey(id) && !known.has(id)) &&
     placement.left.join() === defaultPlacement.left.join() &&
     placement.right.join() === defaultPlacement.right.join()

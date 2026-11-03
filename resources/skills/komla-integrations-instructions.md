@@ -39,6 +39,11 @@ bar, with color only where it signals state, and the details in the popover.
 }
 ```
 
+`projects` shows an item only in those projects' workspaces, by name or id; leave it out for every
+project. Ask the user which they want when the item is about one project, such as its CI; `komla
+context --json` gives this workspace's project. Sidebar panels and a plugin's items and panels take
+it too. The user can also hide any item or panel in one project by right-clicking it.
+
 Run each command yourself first where it will run, to check that it prints what the item should
 show.
 
@@ -73,7 +78,7 @@ Escape text from elsewhere, as `@html` does.
 
 ## Sidebar panels
 
-A sidebar panel is a page in the workspace's sidebar, a tab beside Diff and Files, for what needs
+A sidebar panel is a page in the workspace's sidebar, beside Diff and Files, for what needs
 more room than a popover: the last test run's failures, a CI run's jobs, the issues on the user's
 plate. Change them with `komla settings apply sidebar-panels`; `komla settings schema
 sidebar-panels` lists every field. A panel takes a status item's fields, with a `title` for its tab
@@ -100,10 +105,15 @@ in place of `label`, and its `command` prints what a popover command prints, wit
 
 Its command runs when the user opens the panel and on its interval while it stays open, never
 while it's closed, so a panel can run a slower command than an item. Make its page as under **HTML
-popovers**, in the same sandbox and theme; it fills the panel, which is as wide as the user makes
-the sidebar, often 260 to 400 pixels, and scrolls the page itself. Plain text in place of JSON shows
-as a terminal shows it, colors included, and `{"markdown": "…"}` as Markdown. With more than one
-panel, the user picks which one the tab shows.
+popovers**, in the same sandbox and theme; it fills the panel and scrolls the page itself. The
+panel is as wide as the user makes the sidebar, from 150 to 520 pixels, so make the page work at
+150 first: let a row's title truncate or wrap, its meta line wrap, and never scroll sideways; add
+detail with media queries as it widens. Plain text in place of JSON shows as a terminal shows it,
+colors included, and `{"markdown": "…"}` as Markdown.
+
+The sidebar's tab row shows two of Diff, Files and the panels, the pair the user keeps for the
+project, and the rest in a menu at its end, so a new panel doesn't crowd the row; right-clicking a
+tab puts another in its place. Keep `title` to a word or two.
 
 ### A page of its own
 
@@ -217,7 +227,7 @@ own, and start from this skeleton:
 - **Buttons.** At most one `k-primary` in view, `k-small` inside a row, and `<a class="k-button">`
   for a link to the web. The page can't load images from the web, so people get `k-avatar`
   initials, with `--k-hue` from a hash of their name.
-- **Check it** at 260 and 400 pixels wide, in a dark theme and a light one. With Development on in
+- **Check it** at 150 and 520 pixels wide, in a dark theme and a light one. With Development on in
   Settings → Plugins, the panel's inspect button opens its developer tools.
 
 The rest of `komla.css`: `k-row`, `k-stack` and `k-grow` lay out, `k-truncate` cuts a line short,

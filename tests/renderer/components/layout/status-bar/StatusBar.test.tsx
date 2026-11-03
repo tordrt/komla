@@ -3257,6 +3257,41 @@ describe('StatusBar', () => {
       });
     });
 
+    it("says so, and keeps the user's pick, when an item names a panel hidden in the project", async () => {
+      const user = userEvent.setup();
+      mockApi({
+        listStatusCommands: vi.fn(() =>
+          Promise.resolve({ items: [{ id: 'ci', intervalSeconds: 60, panel: 'ci' }] })
+        ),
+        listSidebarPanels: vi.fn(() =>
+          Promise.resolve({ panels: [{ id: 'ci', title: 'CI', intervalSeconds: 60 }] })
+        ),
+        runStatusCommand: vi.fn((workspaceId: string, id: string) =>
+          Promise.resolve({ id, workspaceId, content: { text: 'CI' }, ranAt: 1 })
+        ),
+      });
+      mockState.config = { projectHiddenItems: { 'project-1': ['panel:ci'] } };
+      setWorkspaces([
+        createWorkspace({ id: 'ws-open', windowId: WINDOW_ID, projectId: 'project-1' }),
+      ]);
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      useFileViewerStore.setState({
+        inlineSidebarPanelByWorkspace: { 'ws-open': { id: 'notes', shown: false } },
+      });
+      renderStatusBar();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'CI, opens its panel in the sidebar' })
+      );
+      expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+        "CI is hidden in this project. Show it from a sidebar tab's right-click menu."
+      );
+      expect(useFileViewerStore.getState().inlineSidebarPanelByWorkspace['ws-open']).toEqual({
+        id: 'notes',
+        shown: false,
+      });
+    });
+
     it('runs an item again when an event it refreshes on settles in its workspace', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       onTestFinished(() => {
@@ -4028,6 +4063,79 @@ describe('StatusBar', () => {
       });
     });
 
+    /** Opens a workspace of the project komla, as the bar's per-project entries need. */
+    function openProjectWorkspace() {
+      useProjectsStore.setState({ projects: [{ id: 'project-1', name: 'komla' } as never] });
+      onTestFinished(() => useProjectsStore.setState({ projects: [] }));
+      const workspace = createWorkspace({ windowId: WINDOW_ID, projectId: 'project-1' });
+      setWorkspaces([workspace]);
+      useWorkspacesStore.setState({ selectedWorkspaceId: workspace.id });
+    }
+
+    /** Right-clicks Notification sounds and picks where to hide it, from the keyboard. */
+    async function hideSoundsIn(user: ReturnType<typeof userEvent.setup>, where: string) {
+      fireEvent.contextMenu(screen.getByRole('button', { name: 'Notification sounds' }));
+      act(() => screen.getByRole('menuitem', { name: 'Hide Notification sounds' }).focus());
+      await user.keyboard('{ArrowRight}');
+      await user.click(await screen.findByRole('menuitem', { name: where }));
+    }
+
+    it("offers to hide the item everywhere or in the open workspace's project, in a submenu", async () => {
+      const user = userEvent.setup();
+      openProjectWorkspace();
+      renderStatusBar();
+
+      await hideSoundsIn(user, 'In every project');
+      expect(mockState.updateConfig).toHaveBeenCalledWith({
+        statusBarHiddenItems: ['notification-sounds'],
+      });
+    });
+
+    it("hides the item in the open workspace's project, and leaves it out there", async () => {
+      const user = userEvent.setup();
+      openProjectWorkspace();
+      const { rerender } = renderStatusBar();
+
+      await hideSoundsIn(user, 'In komla');
+
+      expect(mockState.updateConfig).toHaveBeenCalledWith({
+        projectHiddenItems: { 'project-1': ['notification-sounds'] },
+      });
+      mockState.config = { projectHiddenItems: { 'project-1': ['notification-sounds'] } };
+      rerender(
+        <TooltipProvider>
+          <StatusBar />
+        </TooltipProvider>
+      );
+      expect(screen.queryByRole('button', { name: 'Notification sounds' })).not.toBeInTheDocument();
+    });
+
+    it('says in the customize panel what the project hides, and shows it there again', async () => {
+      const user = userEvent.setup();
+      openProjectWorkspace();
+      mockState.config = {
+        projectHiddenItems: { 'project-1': ['notification-sounds', 'panel:ci'] },
+      };
+      renderStatusBar();
+
+      const panel = await openCustomizePanel(user);
+      const sounds = within(panel).getByRole('switch', { name: 'Notification sounds' });
+      expect(sounds).not.toBeChecked();
+      expect(within(panel).getByText('· Hidden in komla', { exact: false })).toBeInTheDocument();
+      await user.click(sounds);
+
+      // Showing it everywhere shows it in the project too; the project's hidden panels stay.
+      expect(mockState.updateConfig).toHaveBeenCalledWith({
+        projectHiddenItems: { 'project-1': ['panel:ci'] },
+        statusBarHiddenItems: [],
+      });
+
+      await user.click(within(panel).getByRole('button', { name: 'Reset' }));
+      expect(mockState.updateConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({ projectHiddenItems: { 'project-1': ['panel:ci'] } })
+      );
+    });
+
     it('offers no item to hide when opened on the bar itself', () => {
       renderStatusBar();
 
@@ -4490,6 +4598,7 @@ describe('StatusBar', () => {
         showSystemMetrics: false,
         showTipsInToolbar: true,
         showEditorInToolbar: true,
+        projectHiddenItems: {},
       });
       mockState.config = {};
       rerender(

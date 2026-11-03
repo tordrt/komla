@@ -209,12 +209,14 @@ test.describe('Sidebar panels', () => {
   test.skip(process.platform === 'win32', 'The panel runs POSIX shell commands');
   test.describe.configure({ timeout: 90_000 });
 
-  test('shows a panel beside Diff and Files, runs its buttons, and gives the tree back', async ({
+  test('shows a panel from the menu beside Diff and Files, runs its buttons, and gives the tree back', async ({
     appWindow,
   }) => {
     await createWorkspace(appWindow, 'sidebar-panels/checks');
-    const tab = appWindow.getByRole('button', { name: 'Checks', exact: true });
-    await tab.click({ timeout: 20_000 });
+    // Diff and Files keep the row's two tabs; the panels are in the menu after them.
+    await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click({ timeout: 20_000 });
+    await appWindow.getByRole('menuitemradio', { name: 'Checks' }).click();
+    await expect(appWindow.getByRole('button', { name: 'Checks', exact: true })).toBeVisible();
 
     const panel = appWindow.locator('[data-sidebar-panel="checks"]');
     const page = panel.frameLocator('iframe');
@@ -238,8 +240,10 @@ test.describe('Sidebar panels', () => {
       })
       .toBe('1');
 
-    // The other panel, from the tab's menu.
-    await appWindow.getByRole('button', { name: 'Sidebar panels' }).click();
+    // The other panel, from the menu at the end of the tabs.
+    await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click();
+    if (SCREENSHOTS)
+      await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tabs-menu.png') });
     await appWindow.getByRole('menuitemradio', { name: 'Notes' }).click();
     const remember = appWindow
       .locator('[data-sidebar-panel="notes"]')
@@ -252,17 +256,30 @@ test.describe('Sidebar panels', () => {
       });
     }
 
-    // Files brings the tree back; the panel's tab keeps the panel picked last.
-    await appWindow.getByRole('button', { name: 'Files', exact: true }).click();
+    // Notes took the place of the tab that wasn't showing. Files, from the menu, brings the tree
+    // back, and Notes keeps its tab beside it.
+    await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click();
+    await appWindow.getByRole('menuitemradio', { name: 'Files' }).click();
     await expect(appWindow.locator('[data-sidebar-panel]')).toHaveCount(0);
     await expect(appWindow.getByRole('button', { name: 'Notes', exact: true })).toBeVisible();
+    await expect(appWindow.getByRole('button', { name: 'Files', exact: true })).toBeVisible();
+
+    // Right-clicking a tab puts another view in its place: Diff beside Notes.
+    await appWindow.getByRole('button', { name: 'Files', exact: true }).click({ button: 'right' });
+    await appWindow.getByRole('menuitem', { name: 'Replace Files with' }).click();
+    await appWindow.getByRole('menuitem', { name: 'Diff', exact: true }).hover();
+    if (SCREENSHOTS)
+      await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tab-replace.png') });
+    await appWindow.getByRole('menuitem', { name: 'Diff', exact: true }).click();
+    await expect(appWindow.getByRole('button', { name: 'Diff', exact: true })).toBeVisible();
+    await expect(appWindow.getByRole('button', { name: 'Files', exact: true })).toHaveCount(0);
   });
 
   test('runs a page of its own that gets data and reaches Komla through komla', async ({
     appWindow,
   }) => {
     await createWorkspace(appWindow, 'sidebar-panels/board');
-    await appWindow.getByRole('button', { name: 'Sidebar panels' }).click({ timeout: 20_000 });
+    await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click({ timeout: 20_000 });
     await appWindow.getByRole('menuitemradio', { name: 'Board' }).click();
 
     const page = appWindow.locator('[data-sidebar-panel="board"]').frameLocator('iframe');

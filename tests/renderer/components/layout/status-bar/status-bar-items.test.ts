@@ -4,12 +4,40 @@ import {
   isOpenInEditorShownOutsideStatusBar,
   isStatusBarItemShown,
   statusBarItemMoveUpdate,
+  statusBarItemVisibilityUpdate,
   statusBarItemsAreDefault,
+  statusBarItemsReset,
   statusBarPlacement,
   tipsInStatusBar,
 } from '../../../../../src/renderer/components/layout/status-bar/status-bar-items';
 
 describe('status bar items', () => {
+  it('hides an item in the project the user hid it in, and only there', () => {
+    const config = { projectHiddenItems: { komla: ['agents', 'command:ci', 'panel:ci'] } };
+    expect(isStatusBarItemShown(config, 'agents', 'komla')).toBe(false);
+    expect(isStatusBarItemShown(config, 'command:ci', 'komla')).toBe(false);
+    expect(isStatusBarItemShown(config, 'agents', 'other')).toBe(true);
+    expect(isStatusBarItemShown(config, 'agents')).toBe(true);
+  });
+
+  it('shows an item hidden in a project there again when it is switched on', () => {
+    expect(
+      statusBarItemVisibilityUpdate(
+        { projectHiddenItems: { komla: ['agents'] }, statusBarHiddenItems: ['agents'] },
+        'agents',
+        true,
+        'komla'
+      )
+    ).toEqual({ projectHiddenItems: {}, statusBarHiddenItems: [] });
+  });
+
+  it('resets items hidden in projects, keeping the panels hidden there', () => {
+    const config = { projectHiddenItems: { komla: ['agents', 'panel:ci'], other: ['tips'] } };
+    expect(statusBarItemsAreDefault(config)).toBe(false);
+    expect(statusBarItemsReset(config).projectHiddenItems).toEqual({ komla: ['panel:ci'] });
+    expect(statusBarItemsAreDefault({ projectHiddenItems: { komla: ['panel:ci'] } })).toBe(true);
+  });
+
   it('brings Open in editor back outside the bar while the status bar is off', () => {
     expect(isOpenInEditorShownOutsideStatusBar({})).toBe(true);
     expect(isOpenInEditorShownOutsideStatusBar({ showEditorInToolbar: false })).toBe(false);

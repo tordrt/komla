@@ -204,6 +204,16 @@ const appConfigUpdateSchema = z
     // Komla's own items and custom items by id, in order.
     statusBarLeftItems: z.array(z.string().max(64)).max(128).optional(),
     statusBarRightItems: z.array(z.string().max(64)).max(128).optional(),
+    // By project id, status bar items and sidebar panels (`panel:<id>`) hidden in that project.
+    projectHiddenItems: z
+      .record(z.string().max(128), z.array(z.string().max(80)).max(128))
+      .refine((lists) => Object.keys(lists).length <= 256)
+      .optional(),
+    // By project id, its sidebars' two tabs: `diff`, `files` or `panel:<id>`.
+    projectSidebarTabs: z
+      .record(z.string().max(128), z.array(z.string().max(80)).max(2))
+      .refine((tabs) => Object.keys(tabs).length <= 256)
+      .optional(),
     keepAwakeMode: z.enum(['off', 'agents', 'always']).optional(),
     restoreRunningWorkspaces: z.enum(['ask', 'always', 'never']).optional(),
     agentLaunchDefaultPresetId: z.string().nullable().optional(),

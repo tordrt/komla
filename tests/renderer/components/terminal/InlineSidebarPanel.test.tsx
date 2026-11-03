@@ -10,14 +10,20 @@ vi.mock('../../../../src/renderer/lib/customize-agent', () => ({ addPanelWithAge
 
 import {
   InlineSidebarPanel,
-  SidebarPanelTabs,
+  SidebarTabs,
   SidebarTabsMenu,
 } from '../../../../src/renderer/components/terminal/InlineSidebarPanel';
 import { TooltipProvider } from '../../../../src/renderer/components/ui/tooltip';
+import { useConfigStore } from '../../../../src/renderer/stores/config.store';
 import { useFileViewerStore } from '../../../../src/renderer/stores/file-viewer.store';
+import { useProjectsStore } from '../../../../src/renderer/stores/projects.store';
 import { useSidebarPanelsStore } from '../../../../src/renderer/stores/sidebar-panels.store';
+import { useWorkspacesStore } from '../../../../src/renderer/stores/workspaces.store';
 
+import type { AppConfig } from '../../../../src/renderer/types';
 import type { KomlaEvent } from '../../../../src/shared/types/komla-events';
+import type { Project } from '../../../../src/shared/types/project';
+import type { Workspace } from '../../../../src/shared/types/workspace';
 import type {
   SidebarPanel,
   SidebarPanelList,
@@ -57,19 +63,42 @@ function renderPanel(panel: SidebarPanel) {
 
 const tabClass = (active: boolean) => (active ? 'active-tab' : 'tab');
 
-function renderTabs() {
+function renderTabs({ isGitWorkspace = true }: { isGitWorkspace?: boolean } = {}) {
   return render(
     <TooltipProvider>
-      <SidebarPanelTabs workspaceId="ws-1" tabClass={tabClass} />
+      <SidebarTabsMenu workspaceId="ws-1" isGitWorkspace={isGitWorkspace}>
+        <div data-testid="tab-row">
+          <SidebarTabs workspaceId="ws-1" isGitWorkspace={isGitWorkspace} tabClass={tabClass} />
+        </div>
+      </SidebarTabsMenu>
     </TooltipProvider>
   );
 }
 
-describe('SidebarPanelTabs', () => {
+/** The tab row's buttons, by name, without the menu's. */
+function tabNames() {
+  return [...screen.getByTestId('tab-row').querySelectorAll('[data-sidebar-tab]')].map(
+    (tab) => tab.textContent
+  );
+}
+
+const updateConfig = vi.fn(async (updates: Partial<AppConfig>) => {
+  useConfigStore.setState((state) => ({ config: { ...state.config, ...updates } as AppConfig }));
+  return { ok: true, error: null };
+});
+
+describe('SidebarTabs', () => {
   beforeEach(() => {
     addPanelWithAgent.mockClear();
+    updateConfig.mockClear();
     useFileViewerStore.setState(useFileViewerStore.getInitialState(), true);
     useSidebarPanelsStore.setState(useSidebarPanelsStore.getInitialState(), true);
+    useConfigStore.setState({ config: {} as AppConfig, updateConfig });
+    useWorkspacesStore.setState({
+      workspaces: [{ id: 'ws-1', projectId: 'p-1' } as Workspace],
+      selectedWorkspaceId: 'ws-1',
+    });
+    useProjectsStore.setState({ projects: [{ id: 'p-1', name: 'Komla' } as Project] });
   });
 
   it('shows the badge a page or plugin code set on its tab', async () => {
@@ -79,7 +108,7 @@ describe('SidebarPanelTabs', () => {
         'ws-1\0ci': { workspaceId: 'ws-1', id: 'ci', badge: { text: '3', tone: 'warning' } },
       },
     });
-    renderTabs();
+    renderTabs({ isGitWorkspace: false });
     const tab = await screen.findByRole('button', { name: /CI/ });
     expect(tab).toHaveTextContent('CI3');
     expect(tab.querySelector('[data-sidebar-panel-badge="ci"]')).toHaveClass('text-warning');
@@ -88,17 +117,25 @@ describe('SidebarPanelTabs', () => {
     expect(tab).toHaveTextContent(/^CI$/);
   });
 
-  it('shows nothing while the workspace has no panels', async () => {
+  it('shows Diff and Files, with no menu, while the workspace has no panels', async () => {
     const api = mockApi({ list: { panels: [] } });
-    const { container } = renderTabs();
+    renderTabs();
     await waitFor(() => expect(api.listSidebarPanels).toHaveBeenCalledWith('ws-1'));
-    expect(container).toBeEmptyDOMElement();
+    expect(tabNames()).toEqual(['Diff', 'Files']);
+    expect(screen.queryByRole('button', { name: 'More sidebar tabs' })).not.toBeInTheDocument();
+  });
+
+  it('shows a panel beside Files in a workspace without git', async () => {
+    mockApi({ list: { panels: [ci, usage] } });
+    renderTabs({ isGitWorkspace: false });
+    await screen.findByRole('button', { name: 'CI' });
+    expect(tabNames()).toEqual(['Files', 'CI']);
   });
 
   it('shows a panel in place of the tree from its tab, until the tree is chosen again', async () => {
     const user = userEvent.setup();
     mockApi();
-    renderTabs();
+    renderTabs({ isGitWorkspace: false });
 
     const tab = await screen.findByRole('button', { name: 'CI' });
     expect(tab).toHaveClass('tab');
@@ -117,6 +154,7 @@ describe('SidebarPanelTabs', () => {
       shown: false,
     });
     expect(screen.getByRole('button', { name: 'CI' })).toHaveClass('tab');
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveClass('active-tab');
   });
 
   it("keeps the panel when the tree's mode changes without the user, as on restore or live follow", async () => {
@@ -134,50 +172,132 @@ describe('SidebarPanelTabs', () => {
     });
   });
 
-  it('keeps one tab for many panels, with a menu to pick another', async () => {
+  it("keeps two tabs, and a picked one takes the place of the one that isn't showing, for the project", async () => {
     const user = userEvent.setup();
     mockApi({ list: { panels: [ci, usage] } });
     renderTabs();
 
-    await screen.findByRole('button', { name: 'CI' });
-    expect(screen.queryByRole('button', { name: 'Usage' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Sidebar panels' }));
-    await user.click(await screen.findByRole('menuitemradio', { name: 'Usage' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'More sidebar tabs' })).toBeVisible()
+    );
+    expect(tabNames()).toEqual(['Diff', 'Files']);
+    await user.click(screen.getByRole('button', { name: 'More sidebar tabs' }));
+    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+      'Diff',
+      'Files',
+      'CI',
+      'Usage',
+    ]);
+    await user.click(screen.getByRole('menuitemradio', { name: 'CI' }));
 
+    // Diff was showing, so CI takes Files' place.
     expect(useFileViewerStore.getState().inlineSidebarPanelByWorkspace['ws-1']).toEqual({
-      id: 'usage',
+      id: 'ci',
       shown: true,
     });
-    expect(screen.getByRole('button', { name: 'Usage' })).toHaveClass('active-tab');
+    expect(tabNames()).toEqual(['Diff', 'CI']);
+    expect(screen.getByRole('button', { name: 'CI' })).toHaveClass('active-tab');
+    expect(updateConfig).toHaveBeenCalledWith({
+      projectSidebarTabs: { 'p-1': ['diff', 'panel:ci'] },
+    });
+  });
+
+  it('shows a panel opened from elsewhere, as by a status item, in place of the last tab', async () => {
+    mockApi({ list: { panels: [ci, usage] } });
+    useConfigStore.setState({
+      config: { projectSidebarTabs: { 'p-1': ['diff', 'panel:ci'] } } as AppConfig,
+    });
+    renderTabs();
+    await screen.findByRole('button', { name: 'CI' });
+    expect(tabNames()).toEqual(['Diff', 'CI']);
+
+    act(() => useFileViewerStore.getState().showInlineSidebarPanel('ws-1', 'usage'));
+    expect(tabNames()).toEqual(['Diff', 'Usage']);
+    expect(updateConfig).not.toHaveBeenCalled();
+
+    act(() => useFileViewerStore.getState().setInlineFileTreeMode('ws-1', 'diff'));
+    expect(tabNames()).toEqual(['Diff', 'CI']);
+  });
+
+  /** Right-clicks a tab and picks a view from its Replace submenu, opened from the keyboard. */
+  async function replaceTab(user: ReturnType<typeof userEvent.setup>, tab: string, view: string) {
+    fireEvent.contextMenu(screen.getByRole('button', { name: tab }));
+    const replace = await screen.findByRole('menuitem', { name: `Replace ${tab} with` });
+    act(() => replace.focus());
+    await user.keyboard('{ArrowRight}');
+    fireEvent.click(await screen.findByRole('menuitem', { name: view }));
+  }
+
+  it('puts another view in place of a right-clicked tab, showing it if that tab was', async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [ci, usage] } });
+    renderTabs();
+    await screen.findByRole('button', { name: 'More sidebar tabs' });
+
+    // Files isn't showing: Usage takes its place, and Diff stays showing.
+    await replaceTab(user, 'Files', 'Usage');
+    expect(updateConfig).toHaveBeenLastCalledWith({
+      projectSidebarTabs: { 'p-1': ['diff', 'panel:usage'] },
+    });
+    await waitFor(() => expect(tabNames()).toEqual(['Diff', 'Usage']));
+    expect(screen.getByRole('button', { name: 'Diff' })).toHaveClass('active-tab');
+
+    // Diff is showing: CI takes its place and shows.
+    await replaceTab(user, 'Diff', 'CI');
+    await waitFor(() => expect(tabNames()).toEqual(['CI', 'Usage']));
+    expect(screen.getByRole('button', { name: 'CI' })).toHaveClass('active-tab');
+    expect(useFileViewerStore.getState().inlineSidebarPanelByWorkspace['ws-1']).toEqual({
+      id: 'ci',
+      shown: true,
+    });
+  });
+
+  it('offers no view to replace a tab with when the row shows every one', async () => {
+    mockApi({ list: { panels: [] } });
+    renderTabs();
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Diff' }));
+    expect(
+      await screen.findByRole('menuitem', { name: 'Add a panel with your agent…' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /^Replace/ })).not.toBeInTheDocument();
   });
 
   it('offers to add a panel with an agent from a right-click on the tabs, with no panel yet', async () => {
     const user = userEvent.setup();
     mockApi({ list: { panels: [] } });
-    render(
-      <TooltipProvider>
-        <SidebarTabsMenu>
-          <div>
-            <button>Files</button>
-            <SidebarPanelTabs workspaceId="ws-1" tabClass={tabClass} />
-          </div>
-        </SidebarTabsMenu>
-      </TooltipProvider>
-    );
+    renderTabs();
 
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Files' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Add a panel with your agent…' }));
     expect(addPanelWithAgent).toHaveBeenCalledOnce();
   });
 
-  it('offers to add a panel with an agent at the end of the menu that picks one', async () => {
+  it('offers to add a panel with an agent at the end of the menu with the other tabs', async () => {
     const user = userEvent.setup();
     mockApi({ list: { panels: [ci, usage] } });
     renderTabs();
 
-    await user.click(await screen.findByRole('button', { name: 'Sidebar panels' }));
+    await user.click(await screen.findByRole('button', { name: 'More sidebar tabs' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Add a panel with your agent…' }));
     expect(addPanelWithAgent).toHaveBeenCalledOnce();
+  });
+
+  it("hides a panel in the workspace's project from its tab, and shows it there again", async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [ci] } });
+    renderTabs({ isGitWorkspace: false });
+
+    fireEvent.contextMenu(await screen.findByRole('button', { name: 'CI' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Hide CI in Komla' }));
+    expect(updateConfig).toHaveBeenCalledWith({ projectHiddenItems: { 'p-1': ['panel:ci'] } });
+    await waitFor(() => expect(tabNames()).toEqual(['Files']));
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Files' }));
+    expect(screen.queryByRole('menuitem', { name: /^Hide/ })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('menuitem', { name: 'Show CI in Komla' }));
+    expect(updateConfig).toHaveBeenLastCalledWith({ projectHiddenItems: {} });
+    await waitFor(() => expect(tabNames()).toEqual(['Files', 'CI']));
   });
 
   it('falls back to the first panel once the one picked is gone', async () => {
@@ -185,9 +305,10 @@ describe('SidebarPanelTabs', () => {
     useFileViewerStore.setState({
       inlineSidebarPanelByWorkspace: { 'ws-1': { id: 'ci', shown: true } },
     });
-    renderTabs();
+    renderTabs({ isGitWorkspace: false });
 
     expect(await screen.findByRole('button', { name: 'Usage' })).toHaveClass('tab');
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveClass('active-tab');
   });
 
   it("says what's wrong with a sidebar-panels.json Komla can't read", async () => {

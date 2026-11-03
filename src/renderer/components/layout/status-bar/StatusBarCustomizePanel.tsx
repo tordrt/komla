@@ -26,7 +26,9 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { menuLabelClass } from '@/components/ui/menu-styles';
 import { Switch } from '@/components/ui/switch';
+import { useOpenProject } from '@/hooks/useProject';
 import { addStatusItemWithAgent } from '@/lib/customize-agent';
+import { isHiddenInProject } from '@/lib/project-hidden-items';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -39,11 +41,11 @@ import {
 } from './CustomStatusItemsSegment';
 import {
   STATUS_BAR_ITEMS,
-  STATUS_BAR_ITEMS_RESET,
   isStatusBarItemShown,
   statusBarItemMoveUpdate,
   statusBarItemVisibilityUpdate,
   statusBarItemsAreDefault,
+  statusBarItemsReset,
   statusBarPlacement,
   type StatusBarItemId,
   type StatusBarPlacedId,
@@ -101,7 +103,10 @@ function itemInfo(id: StatusBarPlacedId, customEntries: CustomStatusItemEntry[])
   return { label: item?.label ?? id, icon: ITEM_ICONS[id as StatusBarItemId] ?? Terminal };
 }
 
-/** An item's icon, name and switch. */
+/**
+ * An item's icon, name and switch, which says whether it shows in the open workspace's project.
+ * An item hidden only there says so, and switching it on shows it there again.
+ */
 function ItemToggle({
   config,
   id,
@@ -112,16 +117,23 @@ function ItemToggle({
   info: ItemInfo;
 }) {
   const updateConfig = useConfigStore((s) => s.updateConfig);
+  const project = useOpenProject();
+  const hiddenHere = isHiddenInProject(config, project?.id, id);
   const ItemIcon = info.icon;
   return (
     <label className="flex min-w-0 flex-1 cursor-default items-center gap-2">
       <ItemIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 truncate">{info.label}</span>
+      <span className="min-w-0 flex-1 truncate">
+        {info.label}
+        {hiddenHere && project && (
+          <span className="text-muted-foreground"> · Hidden in {project.name}</span>
+        )}
+      </span>
       <Switch
         aria-label={info.label}
-        checked={isStatusBarItemShown(config, id)}
+        checked={isStatusBarItemShown(config, id, project?.id)}
         onCheckedChange={(checked) =>
-          void updateConfig(statusBarItemVisibilityUpdate(config, id, checked))
+          void updateConfig(statusBarItemVisibilityUpdate(config, id, checked, project?.id))
         }
         className={switchClass}
       />
@@ -319,7 +331,7 @@ export function StatusBarCustomizePanel({ onClose }: { onClose: () => void }) {
             config,
             customEntries.map((entry) => entry.key)
           )}
-          onClick={() => void updateConfig(STATUS_BAR_ITEMS_RESET)}
+          onClick={() => void updateConfig(statusBarItemsReset(config))}
         >
           Reset
         </Button>

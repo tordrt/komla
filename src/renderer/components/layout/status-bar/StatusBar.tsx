@@ -1,5 +1,6 @@
 import { Fragment, useEffect } from 'react';
 
+import { useOpenProject } from '@/hooks/useProject';
 import { useConfigStore } from '@/stores/config.store';
 import { applyStatusCommandResult } from '@/stores/status-items.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -147,12 +148,13 @@ function StatusBarItems({
   const hasWorkspace = useWorkspacesStore((s) =>
     s.workspaces.some((w) => w.id === s.selectedWorkspaceId)
   );
+  const projectId = useOpenProject()?.id;
   // Custom items show once they have something to show; the branch items only for an open
-  // workspace.
+  // workspace. Either kind can be hidden in its project.
   const shown = (id: StatusBarPlacedId) =>
     isCustomStatusItemKey(id)
       ? customItems.rendered.has(id)
-      : isStatusBarItemShown(config, id) &&
+      : isStatusBarItemShown(config, id, projectId) &&
         (hasWorkspace || (id !== 'git-menu' && id !== 'target-branch'));
   const placement = statusBarPlacement(
     config,

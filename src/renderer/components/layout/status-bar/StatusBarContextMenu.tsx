@@ -5,10 +5,15 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { useOpenProject } from '@/hooks/useProject';
 import { addStatusItemWithAgent } from '@/lib/customize-agent';
+import { hiddenInProjectUpdate } from '@/lib/project-hidden-items';
 import { useConfigStore } from '@/stores/config.store';
 import { useStatusBarCustomizeStore } from '@/stores/status-bar-customize.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -87,14 +92,16 @@ export function StatusBarCustomizePopover() {
 }
 
 /**
- * The bar's right-click menu: hide the item under the pointer, open the customize panel, add an
- * item with the open workspace's agent, or hide the bar. The sidebar's footer, which continues the bar, opens it too. Without the bar showing,
- * `children` gets no menu.
+ * The bar's right-click menu: hide the item under the pointer, in the open workspace's project or
+ * every project from a submenu, open the customize panel, add an item with the open workspace's
+ * agent, or hide the bar. The sidebar's footer, which continues the bar, opens it too. Without the
+ * bar showing, `children` gets no menu.
  */
 export function StatusBarContextMenu({ children }: { children: React.ReactElement }) {
   const config = useConfigStore((s) => s.config);
   const updateConfig = useConfigStore((s) => s.updateConfig);
   const showCustomize = useStatusBarCustomizeStore((s) => s.show);
+  const project = useOpenProject();
   const [target, setTarget] = useState<HideTarget | null>(null);
   // The panel opens above the bar where it was right-clicked.
   const anchorPoint = useRef<Point>({ x: 0, y: 0 });
@@ -138,7 +145,31 @@ export function StatusBarContextMenu({ children }: { children: React.ReactElemen
         {/* The menu opens upward from the bar, so this sits farthest from the pointer. */}
         <ContextMenuItem onSelect={hideStatusBar}>Hide status bar</ContextMenuItem>
         <ContextMenuSeparator />
-        {target && (
+        {target && project && (
+          // Where to hide it: in the open workspace's project, or in every project.
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <span className="max-w-[24ch] truncate">Hide {target.label}</span>
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="min-w-40">
+              <ContextMenuItem
+                onSelect={() =>
+                  void updateConfig(hiddenInProjectUpdate(config, project.id, target.id, true))
+                }
+              >
+                <span className="max-w-[28ch] truncate">In {project.name}</span>
+              </ContextMenuItem>
+              <ContextMenuItem
+                onSelect={() =>
+                  void updateConfig(statusBarItemVisibilityUpdate(config, target.id, false))
+                }
+              >
+                In every project
+              </ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
+        {target && !project && (
           <ContextMenuItem
             onSelect={() =>
               void updateConfig(statusBarItemVisibilityUpdate(config, target.id, false))

@@ -1,5 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 
+import { useWorkspaceProjectId } from '@/hooks/useProject';
+import { isHiddenInProject } from '@/lib/project-hidden-items';
+import { panelView } from '@/lib/sidebar-tabs';
+import { useConfigStore } from '@/stores/config.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import {
   followSidebarPanelStates,
@@ -27,16 +31,27 @@ export function useSidebarPanels(workspaceId: string): SidebarPanelList {
 }
 
 /**
- * The panels a workspace's sidebar offers, the one its panel tab stands for, and whether the
- * sidebar shows it in place of the file tree. The tab stands for the panel picked last while the
- * workspace still has it, or else its first.
+ * The panels a workspace's sidebar offers, less those the user hid in its project, the one it
+ * showed last, and whether the sidebar shows that one in place of the file tree. Without a panel
+ * picked that the workspace still has, `current` is its first.
  */
 export function useSidebarPanelChoice(workspaceId: string): {
   list: SidebarPanelList;
   current: SidebarPanel | undefined;
   shown: boolean;
 } {
-  const list = useSidebarPanels(workspaceId);
+  const allPanels = useSidebarPanels(workspaceId);
+  const projectId = useWorkspaceProjectId(workspaceId);
+  const projectHiddenItems = useConfigStore((s) => s.config?.projectHiddenItems);
+  const list = useMemo(
+    () => ({
+      ...allPanels,
+      panels: allPanels.panels.filter(
+        (panel) => !isHiddenInProject({ projectHiddenItems }, projectId, panelView(panel.id))
+      ),
+    }),
+    [allPanels, projectHiddenItems, projectId]
+  );
   const picked = useFileViewerStore((s) => s.inlineSidebarPanelByWorkspace[workspaceId]);
   const chosen = picked && list.panels.find((panel) => panel.id === picked.id);
   return {

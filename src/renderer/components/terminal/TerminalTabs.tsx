@@ -128,7 +128,7 @@ import { FileTreeToggleButton } from './FileTreeToggleButton';
 import { InlineFilePreviewPanel } from './InlineFilePreviewPanel';
 import { InlineFileTreePanel } from './InlineFileTreePanel';
 import { InlinePanelResizeHandle } from './InlinePanelResizeHandle';
-import { InlineSidebarPanel, SidebarPanelTabs } from './InlineSidebarPanel';
+import { InlineSidebarPanel, SidebarPanelTabs, SidebarTabsMenu } from './InlineSidebarPanel';
 import { NewTabButton } from './NewTabButton';
 import {
   getPreviewLayoutAttention,
@@ -483,7 +483,10 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   );
 });
 
-/** The file panel's Diff and Files tabs, then its sidebar panels'. Diff needs git. */
+/**
+ * The file panel's Diff and Files tabs, then its sidebar panels'. Diff needs git. Its row goes in a
+ * SidebarTabsMenu, so right-clicking it offers to add a panel.
+ */
 function FileTreeModeTabs({
   workspaceId,
   isGitWorkspace,
@@ -2288,12 +2291,14 @@ export const TerminalTabs = memo(function TerminalTabs({
               >
                 {selectedWorkspaceId && (
                   // Measured, so the panel stays wide enough for these and the corner buttons.
-                  <div ref={treeTabsRef} className="no-drag flex items-stretch">
-                    <FileTreeModeTabs
-                      workspaceId={selectedWorkspaceId}
-                      isGitWorkspace={isGitWorkspace}
-                    />
-                  </div>
+                  <SidebarTabsMenu>
+                    <div ref={treeTabsRef} className="no-drag flex items-stretch">
+                      <FileTreeModeTabs
+                        workspaceId={selectedWorkspaceId}
+                        isGitWorkspace={isGitWorkspace}
+                      />
+                    </div>
+                  </SidebarTabsMenu>
                 )}
               </div>
             )}

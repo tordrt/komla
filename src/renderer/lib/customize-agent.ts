@@ -3,7 +3,11 @@ import { useLayoutStore } from '@/stores/layout.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
-import { ASK_FOR_STATUS_ITEM, buildCustomizePrompt } from '../../shared/constants/customize-prompt';
+import {
+  ASK_FOR_PANEL,
+  ASK_FOR_STATUS_ITEM,
+  buildCustomizePrompt,
+} from '../../shared/constants/customize-prompt';
 
 /**
  * Opens the workspace's own agent in a tab of its own with a prompt to customize Komla; the Komla
@@ -22,13 +26,19 @@ export async function openCustomizeAgent(workspaceId: string, prompt: string): P
   }
 }
 
-/**
- * Asks the open workspace's agent to make a status bar item, or, with no workspace open, starts
- * one from New Workspace with that prompt.
- */
-export function addStatusItemWithAgent(): void {
-  const prompt = buildCustomizePrompt(ASK_FOR_STATUS_ITEM);
+/** Asks the open workspace's agent, or, with no workspace open, one from New Workspace. */
+function customizeWithAgent(prompt: string): void {
   const workspaceId = useWorkspacesStore.getState().selectedWorkspaceId;
   if (workspaceId) void openCustomizeAgent(workspaceId, prompt);
   else openNewWorkspaceDialog({ prompt });
+}
+
+/** Has an agent make a status bar item. */
+export function addStatusItemWithAgent(): void {
+  customizeWithAgent(buildCustomizePrompt(ASK_FOR_STATUS_ITEM));
+}
+
+/** Has an agent make a sidebar panel, or a plugin with one. */
+export function addPanelWithAgent(): void {
+  customizeWithAgent(buildCustomizePrompt(ASK_FOR_PANEL));
 }

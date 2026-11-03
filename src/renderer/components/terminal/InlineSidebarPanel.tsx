@@ -11,16 +11,25 @@ import {
 } from '@/components/command-page/command-page';
 import { CheckedIcon } from '@/components/ui/checked-icon';
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { IconButton } from '@/components/ui/icon-button';
 import { useNamedActionRunner } from '@/hooks/useNamedActionRunner';
 import { useRunWhileVisible } from '@/hooks/useRunWhileVisible';
 import { useSidebarPanelChoice } from '@/hooks/useSidebarPanels';
+import { addPanelWithAgent } from '@/lib/customize-agent';
 import { cn } from '@/lib/utils';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import {
@@ -35,6 +44,7 @@ import { SidebarPanelPage } from './SidebarPanelPage';
 
 import type { SidebarPanel } from '../../../shared/types/sidebar-panels';
 import type { StatusItemTone } from '../../../shared/types/status-items';
+import type { ReactElement } from 'react';
 
 const SIDEBAR_PANELS_FILE = 'sidebar-panels.json';
 
@@ -76,6 +86,31 @@ export function SidebarPanelBadge({
     >
       {badge.text}
     </span>
+  );
+}
+
+const ADD_PANEL = 'Add a panel with your agent…';
+
+/**
+ * Gives the sidebar's tab row, the element that holds Diff, Files and the panels' tab, a
+ * right-click menu that adds a panel, as the status bar's adds an item.
+ */
+export function SidebarTabsMenu({ children }: { children: ReactElement }) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        asChild
+        onContextMenu={(event) => {
+          // React events bubble out of portals: a right-click in the panels' menu isn't one here.
+          if (!event.currentTarget.contains(event.target as Node)) event.preventDefault();
+        }}
+      >
+        {children}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-[190px]">
+        <ContextMenuItem onSelect={addPanelWithAgent}>{ADD_PANEL}</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -136,6 +171,8 @@ export function SidebarPanelTabs({
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={addPanelWithAgent}>{ADD_PANEL}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       )}

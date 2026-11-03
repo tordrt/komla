@@ -1,13 +1,17 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { addPanelWithAgent } = vi.hoisted(() => ({ addPanelWithAgent: vi.fn() }));
+vi.mock('../../../../src/renderer/lib/customize-agent', () => ({ addPanelWithAgent }));
 
 import {
   InlineSidebarPanel,
   SidebarPanelTabs,
+  SidebarTabsMenu,
 } from '../../../../src/renderer/components/terminal/InlineSidebarPanel';
 import { TooltipProvider } from '../../../../src/renderer/components/ui/tooltip';
 import { useFileViewerStore } from '../../../../src/renderer/stores/file-viewer.store';
@@ -63,6 +67,7 @@ function renderTabs() {
 
 describe('SidebarPanelTabs', () => {
   beforeEach(() => {
+    addPanelWithAgent.mockClear();
     useFileViewerStore.setState(useFileViewerStore.getInitialState(), true);
     useSidebarPanelsStore.setState(useSidebarPanelsStore.getInitialState(), true);
   });
@@ -144,6 +149,35 @@ describe('SidebarPanelTabs', () => {
       shown: true,
     });
     expect(screen.getByRole('button', { name: 'Usage' })).toHaveClass('active-tab');
+  });
+
+  it('offers to add a panel with an agent from a right-click on the tabs, with no panel yet', async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [] } });
+    render(
+      <TooltipProvider>
+        <SidebarTabsMenu>
+          <div>
+            <button>Files</button>
+            <SidebarPanelTabs workspaceId="ws-1" tabClass={tabClass} />
+          </div>
+        </SidebarTabsMenu>
+      </TooltipProvider>
+    );
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Files' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Add a panel with your agent…' }));
+    expect(addPanelWithAgent).toHaveBeenCalledOnce();
+  });
+
+  it('offers to add a panel with an agent at the end of the menu that picks one', async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [ci, usage] } });
+    renderTabs();
+
+    await user.click(await screen.findByRole('button', { name: 'Sidebar panels' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Add a panel with your agent…' }));
+    expect(addPanelWithAgent).toHaveBeenCalledOnce();
   });
 
   it('falls back to the first panel once the one picked is gone', async () => {

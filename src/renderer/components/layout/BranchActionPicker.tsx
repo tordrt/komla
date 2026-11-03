@@ -11,7 +11,7 @@ import {
   Trash,
   Plus,
 } from '@phosphor-icons/react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import {
   DropdownMenuItem,
@@ -110,6 +110,8 @@ function BranchRow({
   allowCompare,
   allowDelete,
 }: BranchRowProps) {
+  const inKeyDownRef = useRef(false);
+
   if (isCurrent) {
     return (
       <DropdownMenuItem disabled className="opacity-50">
@@ -127,15 +129,21 @@ function BranchRow({
     <DropdownMenuSub
       open={isActionsOpen}
       onOpenChange={(open) => {
+        // A click (below) or a key opens the actions, not hovering the row. The hover is let
+        // through rather than stopped on the row: the menu reads it to tell which way the
+        // pointer is heading, and without it, it closes actions shown on the left as the
+        // pointer leaves for them.
+        if (open && !inKeyDownRef.current) return;
         onActionsOpenChange(open);
       }}
     >
       <DropdownMenuSubTrigger
-        onPointerMove={(event) => {
-          event.preventDefault();
-        }}
-        onPointerEnter={(event) => {
-          event.preventDefault();
+        onKeyDown={() => {
+          // The menu decides which keys open the actions, in its handler after this one.
+          inKeyDownRef.current = true;
+          queueMicrotask(() => {
+            inKeyDownRef.current = false;
+          });
         }}
         onClick={(event) => {
           event.preventDefault();

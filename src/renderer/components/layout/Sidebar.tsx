@@ -208,7 +208,11 @@ export const Sidebar = memo(function Sidebar({
           workspace count, the filter and sort menu, then the settings menu in the sidebar's
           corner, on the right. The name and the settings menu stay put, and have the status bar's
           right-click menu. */}
-      <div className="flex h-[calc(var(--status-bar-row-height)+1px)] shrink-0 items-center gap-0.5 px-2">
+      <div
+        // Level with the status bar beside it: one bar along the window's bottom (globals.css).
+        data-sidebar-footer=""
+        className="relative flex h-(--status-bar-row-height) shrink-0 items-center gap-0.5 px-2"
+      >
         {/* Fills the footer's left, so right-clicking anywhere there opens the status bar's menu. */}
         <StatusBarContextMenu>
           <div

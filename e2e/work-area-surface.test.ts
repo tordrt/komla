@@ -167,6 +167,19 @@ test.describe('Work area surface', () => {
             panelBottomLine: panelBody.borderBottomWidth,
             panelCorner: panelBody.borderBottomLeftRadius,
             panelTopLine: panelBody.borderTopWidth,
+            bottomRow: (() => {
+              const footer = document.querySelector<HTMLElement>('[data-sidebar-footer]')!;
+              const bar = document.querySelector<HTMLElement>('[data-status-bar]')!;
+              return {
+                level:
+                  Math.round(footer.getBoundingClientRect().top) ===
+                  Math.round(bar.getBoundingClientRect().top),
+                lines: [footer, bar].every((el) =>
+                  getComputedStyle(el).boxShadow.includes('inset')
+                ),
+                divider: getComputedStyle(footer, '::after').height,
+              };
+            })(),
             topRowDivider: getComputedStyle(
               document.querySelector('[data-testid="file-panel-header"]')!,
               '::before'
@@ -207,6 +220,7 @@ test.describe('Work area surface', () => {
         panelBottomLine: '1px',
         panelCorner: '12px',
         panelTopLine: '1px',
+        bottomRow: { level: true, lines: true, divider: '16px' },
         topRowDivider: '16px',
         panelTopCorner: '12px',
         panelTopLevelWithPanes: true,

@@ -1385,15 +1385,15 @@ html[data-status-bar-row='large'] [data-status-bar] {
 }
 
 /* The line around a pane: a clear one on its own, so a pane without focus keeps an edge against the
-   chrome. Around the focused pane (with the focused pane border on) it is the accent muted toward
-   the secondary text color, so it reads as a soft outline rather than a colored frame. */
+   chrome. Around the focused pane (with the focused pane border on) it is a quarter accent, mostly
+   the secondary text color, so it reads as a faint outline rather than a colored frame. */
 .pane-outline {
   border-color: oklch(var(--foreground) / 0.14);
 }
 .pane-outline[data-focused='true'] {
   border-color: color-mix(
     in oklab,
-    oklch(var(--komla, var(--brand))) 45%,
+    oklch(var(--komla, var(--brand))) 25%,
     oklch(var(--muted-foreground))
   );
 }

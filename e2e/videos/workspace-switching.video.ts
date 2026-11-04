@@ -79,7 +79,7 @@ test('workspace switching', async ({ appWindow: page, electronApp, director }) =
     timeout: 20_000,
   });
   // Beside the agent rather than over it.
-  await page.getByRole('radio', { name: 'Split' }).click();
+  await page.getByRole('radio', { name: 'Beside' }).click();
 
   // Pricing Page: the page in a browser beside its agent, about to be restyled.
   await card(PRICING).click();

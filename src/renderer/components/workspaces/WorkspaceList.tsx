@@ -248,7 +248,7 @@ function GroupHeaderAction({ group, groupProject }: GroupHeaderActionProps) {
       <IconButton
         size="xs"
         // Faint so it doesn't compete with the project name.
-        className="size-5 text-muted-foreground-50 hover:text-foreground"
+        className="size-5 text-muted-foreground hover:text-foreground"
         label={`New workspace in ${groupProject.name}`}
         tooltipSide="right"
         onClick={() => openNewWorkspaceDialog({ prefill: { projectId: groupProject.id } })}
@@ -326,7 +326,7 @@ const GroupHeader = React.forwardRef<
         type="button"
         aria-expanded={expanded}
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-l-xl rounded-r-md py-1.5 pl-2 text-[13px] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-l-xl rounded-r-md py-1.5 pl-2 text-sm focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden focus-visible:ring-inset"
       >
         <GroupHeaderIcon
           isDirectory={group.isDirectory ?? false}
@@ -1403,7 +1403,9 @@ export function WorkspaceList({
             selectionMode && 'select-none'
           )}
         >
-          <div className="p-2.5">
+          {/* Little padding on the right: the panes' 6px gutter beyond the sidebar's edge makes up
+              the rest, so a panel sits as far from the pane beside it as the pane from the drawer. */}
+          <div className="py-2.5 pr-0.5 pl-2.5">
             {sections.pinned.length > 0 && (
               <section
                 aria-label="Pinned"

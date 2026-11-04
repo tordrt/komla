@@ -42,7 +42,7 @@ export function PanesSettingsCard() {
 
       <SettingsRow
         label="Focused pane border"
-        description="Outline the focused pane in the accent color"
+        description="In a split tab, outline the focused pane in the accent color"
       >
         <Switch
           checked={terminalConfig?.focusedPaneBorder ?? true}

@@ -3,8 +3,8 @@ import {
   SquareSplitHorizontal,
   SquareSplitVertical,
   TerminalWindow,
-  ArrowsInSimple,
-  ArrowsOutSimple,
+  ArrowsInLineVertical,
+  ArrowsOutLineVertical,
   ArrowSquareIn,
   ArrowSquareOut,
   CaretUp,
@@ -69,7 +69,7 @@ import { closeTerminalPane } from '@/lib/close-terminal-pane';
 import { ipcErrorMessage } from '@/lib/ipc-error-message';
 import { findNode, getAllLeaves } from '@/lib/layout-utils';
 import { UNTITLED_NOTE, useNoteTitle } from '@/lib/notes';
-import { useTerminalBackground } from '@/lib/palette-runtime';
+import { useFilePanelSurfaceStyle, useTerminalBackground } from '@/lib/palette-runtime';
 import {
   getDroppedPaneId,
   isPaneDragFromPane,
@@ -101,6 +101,7 @@ import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useLayoutStore } from '@/stores/layout.store';
 import { useNotesStore } from '@/stores/notes.store';
 import { usePaneSurfacesStore } from '@/stores/pane-surfaces.store';
+import { useShortcutsStore } from '@/stores/shortcuts.store';
 import { supportsLocalCopy } from '@/stores/ssh-command-execution-location.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useTerminalCloseStore } from '@/stores/terminal-close.store';
@@ -135,6 +136,7 @@ import {
   getPreviewLayoutOptions,
   type PreviewLayoutAttention,
 } from './preview-layout-options';
+import { RecentWorkspacesList } from './RecentWorkspacesList';
 import { SplitContainer } from './SplitContainer';
 import { TabStripScroller, type TabRoom } from './TabStripScroller';
 import {
@@ -203,7 +205,11 @@ function topRowMetrics(): { heightPx: number; captionWidthPx: number } {
 const EMPTY_TERMINALS: Terminal[] = [];
 const EMPTY_NOTES: NoteSummary[] = [];
 // A tab marks the browsers and notes among its panes, in this order; terminals go unmarked.
-const TAB_SURFACE_ICONS: { kind: PaneSurfaceKind; label: string; icon: React.ReactElement }[] = [
+const TAB_SURFACE_ICONS: {
+  kind: PaneSurfaceKind;
+  label: string;
+  icon: React.ReactElement;
+}[] = [
   { kind: 'browser', label: 'Browser', icon: <Globe className="size-3.5" /> },
   { kind: 'note', label: 'Note', icon: <NotePencil className="size-3.5" /> },
   { kind: 'file', label: 'File', icon: <FileText className="size-3.5" /> },
@@ -246,7 +252,10 @@ interface WorkspaceLayerProps {
   wsActiveTabId: string | null;
   layoutsByTab: Record<string, Record<string, unknown>>;
   previewCloseRef: React.MutableRefObject<(() => void) | null>;
-  changeNavRef: React.MutableRefObject<{ goToNext: () => void; goToPrev: () => void } | null>;
+  changeNavRef: React.MutableRefObject<{
+    goToNext: () => void;
+    goToPrev: () => void;
+  } | null>;
   setPreviewTotalChanges: (n: number) => void;
   contentWidth: number;
   treeMinWidthPx: number;
@@ -279,6 +288,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   onTreeTabsNarrowestWidthChange,
 }: WorkspaceLayerProps) {
   const terminalBackground = useTerminalBackground();
+  const filePanelSurfaceStyle = useFilePanelSurfaceStyle(terminalBackground);
   // Per-workspace store subscriptions — each layer only re-renders for its own slice
   const wsPreviewOpen = useFileViewerStore(
     (s) => s.inlineFilePreviewByWorkspace[wsId]?.open ?? false
@@ -337,7 +347,10 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
       className="absolute inset-0 flex"
       style={
         isCurrentWorkspace
-          ? { visibility: 'visible' as const, backgroundColor: terminalBackground }
+          ? {
+              visibility: 'visible' as const,
+              backgroundColor: terminalBackground,
+            }
           : { visibility: 'hidden' as const, clipPath: 'inset(100%)' }
       }
     >
@@ -400,7 +413,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
         className={cn(
           'min-h-0 pb-(--banner-inset)',
           wsPreviewOpen && !wsIsPreviewFullscreen && 'shrink-0 border-l',
-          wsIsPreviewFullscreen && 'bg-background'
+          wsIsPreviewFullscreen && fullScreenPreviewFrameClass(wsFileTreeOpen)
         )}
         style={
           !wsPreviewOpen || contentWidth <= 0
@@ -417,19 +430,27 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
               : { width: wsResolvedPreviewWidthPx, flexShrink: 0, flexGrow: 0 }
         }
       >
-        <InlineFilePreviewPanel
-          workspaceId={wsId}
-          workingDirectory={workingDirectory}
-          isGitWorkspace={isWorktree}
-          isActive={isCurrentWorkspace}
-          {...(isCurrentWorkspace
-            ? {
-                onCloseRef: previewCloseRef,
-                changeNavRef: changeNavRef,
-                onTotalChangesChange: setPreviewTotalChanges,
-              }
-            : {})}
-        />
+        <div
+          className={cn(
+            wsIsPreviewFullscreen
+              ? 'h-[calc(100%-var(--pane-gap))] overflow-hidden rounded-(--pane-radius) border border-foreground/14 bg-background'
+              : 'h-full'
+          )}
+        >
+          <InlineFilePreviewPanel
+            workspaceId={wsId}
+            workingDirectory={workingDirectory}
+            isGitWorkspace={isWorktree}
+            isActive={isCurrentWorkspace}
+            {...(isCurrentWorkspace
+              ? {
+                  onCloseRef: previewCloseRef,
+                  changeNavRef: changeNavRef,
+                  onTotalChangesChange: setPreviewTotalChanges,
+                }
+              : {})}
+          />
+        </div>
       </div>
       {/* File tree resize handle */}
       {wsFileTreeOpen && (
@@ -461,7 +482,9 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
             : { width: wsResolvedTreeWidthPx }
         }
       >
-        <div className="file-panel-body flex h-full flex-col">
+        {/* The panel's body takes the panes' surface, the terminal's color, so it reads as a
+            framed drawer beside them rather than a hole in the chrome. */}
+        <div className="file-panel-body flex h-full flex-col" style={filePanelSurfaceStyle}>
           {!treeTabsInTopRow() && (
             <div
               data-testid="file-panel-tabs"
@@ -569,6 +592,43 @@ function FileTreeModeTabs({
   );
 }
 
+/**
+ * Full screen, the preview takes the panes' place, so it is framed as a pane: a rounded block on
+ * the chrome, inset by the same gutter. Its right edge lines up with the panes', which give part
+ * of the gutter to the file tree's resize handle.
+ */
+function fullScreenPreviewFrameClass(fileTreeOpen: boolean): string {
+  return cn(
+    'bg-[oklch(var(--chrome))] pl-(--pane-gap)',
+    fileTreeOpen ? 'pr-[calc(var(--pane-gap)-4px)]' : 'pr-(--pane-gap)'
+  );
+}
+
+/** Where to pick a workspace from: the sidebar, or Jump to while it has a shortcut. */
+function NoWorkspaceSelectedHint() {
+  const hasShortcut = useShortcutsStore((s) => !!s.getDisplayShortcut('commandCenter.open'));
+  if (!hasShortcut) return <>Pick one in the sidebar.</>;
+  return (
+    <>
+      Pick one in the sidebar or press{' '}
+      <ShortcutHint action="commandCenter.open" className="align-[1px]" />
+    </>
+  );
+}
+
+/** The previewed file's path, its name in the text color so it reads as the pane's title. */
+function PreviewPathTitle({ path }: { path: string | null }) {
+  if (!path) return <>Preview</>;
+  // Windows paths may use backslashes.
+  const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return (
+    <>
+      {slash >= 0 && path.slice(0, slash + 1)}
+      <span className="text-foreground">{path.slice(slash + 1)}</span>
+    </>
+  );
+}
+
 function renderInlinePreviewHeader(params: {
   isInlinePreviewOpen: boolean;
   isInlinePreviewFullscreen: boolean;
@@ -586,7 +646,10 @@ function renderInlinePreviewHeader(params: {
   previewHideUnchanged: boolean;
   setDiffHideUnchangedRegions: (value: boolean) => void;
   previewTotalChanges: number;
-  changeNavRef: React.MutableRefObject<{ goToNext: () => void; goToPrev: () => void } | null>;
+  changeNavRef: React.MutableRefObject<{
+    goToNext: () => void;
+    goToPrev: () => void;
+  } | null>;
   inlinePreviewLayout: 'full' | 'side-by-side';
   selectedWorkspaceId: string | null;
   setInlineFilePreviewLayout: (workspaceId: string, layout: 'full' | 'side-by-side') => void;
@@ -636,7 +699,10 @@ export function InlinePreviewHeader({
   previewHideUnchanged: boolean;
   setDiffHideUnchangedRegions: (value: boolean) => void;
   previewTotalChanges: number;
-  changeNavRef: React.MutableRefObject<{ goToNext: () => void; goToPrev: () => void } | null>;
+  changeNavRef: React.MutableRefObject<{
+    goToNext: () => void;
+    goToPrev: () => void;
+  } | null>;
   inlinePreviewLayout: 'full' | 'side-by-side';
   selectedWorkspaceId: string | null;
   setInlineFilePreviewLayout: (workspaceId: string, layout: 'full' | 'side-by-side') => void;
@@ -761,7 +827,7 @@ export function InlinePreviewHeader({
       {!hideFileName && (
         <span
           className={cn(
-            'flex min-w-0 flex-1 items-center gap-1.5 truncate text-ui text-muted-foreground',
+            'flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs text-muted-foreground',
             previewNoteTitle === null && 'font-mono'
           )}
           title={previewNoteTitle ?? previewFilePath ?? undefined}
@@ -779,7 +845,9 @@ export function InlinePreviewHeader({
           ) : (
             <span className="min-w-0 truncate" style={{ direction: 'rtl', textAlign: 'left' }}>
               {/* Isolate the LTR path so RTL truncation can't move a leading "." or "/" to the end. */}
-              <bdi>{previewFilePath ?? 'Preview'}</bdi>
+              <bdi>
+                <PreviewPathTitle path={previewFilePath} />
+              </bdi>
             </span>
           )}
         </span>
@@ -842,9 +910,9 @@ export function InlinePreviewHeader({
                 onClick={() => setDiffHideUnchangedRegions(!previewHideUnchanged)}
               >
                 {previewHideUnchanged ? (
-                  <ArrowsInSimple className="size-3.5" />
+                  <ArrowsInLineVertical className="size-3.5" />
                 ) : (
-                  <ArrowsOutSimple className="size-3.5" />
+                  <ArrowsOutLineVertical className="size-3.5" />
                 )}
               </IconButton>
             </>
@@ -875,7 +943,8 @@ export function InlinePreviewHeader({
           <IconButton
             label="Close preview"
             size="xs"
-            className="rounded-md hover:bg-destructive/15 hover:text-destructive"
+            // Clear of the file panel's tabs beside it, so it reads as closing the viewer.
+            className="mr-2 rounded-md hover:bg-destructive/15 hover:text-destructive"
             onClick={(e) => {
               e.stopPropagation();
               previewCloseRef.current?.();
@@ -956,9 +1025,36 @@ function renderTerminalTabsEmptyState(params: {
     }
     if (hasActiveWorkspaces) {
       return (
-        <div className="empty-work-area relative flex h-full items-center justify-center bg-card pb-(--banner-inset) text-sm text-muted-foreground">
+        <div className="empty-work-area relative h-full bg-card pb-(--banner-inset)">
           {sidebarCollapsed && <KomlaBackdrop />}
-          <span className="relative">Select a workspace from the sidebar</span>
+          <EmptyState
+            className="relative h-full"
+            icon={<KomlaMark />}
+            iconClassName="bg-foreground/10 light:bg-popover light:shadow-xs"
+            title="No workspace selected"
+            description={<NoWorkspaceSelectedHint />}
+            action={
+              <div className="mt-2 flex flex-col items-center">
+                {onNewWorkspaceDialogChange && (
+                  <Button
+                    size="sm"
+                    aria-label="New Workspace"
+                    // As wide as the Recent list under it, so the two share one column.
+                    className="w-88 gap-2"
+                    onClick={() => onNewWorkspaceDialogChange(true)}
+                  >
+                    <Plus className="size-3.5" />
+                    New Workspace
+                    <ShortcutHint
+                      action="workspace.new"
+                      className="border-primary-foreground/25 bg-primary-foreground/15 text-primary-foreground"
+                    />
+                  </Button>
+                )}
+                <RecentWorkspacesList className="mt-8" />
+              </div>
+            }
+          />
         </div>
       );
     }
@@ -969,7 +1065,7 @@ function renderTerminalTabsEmptyState(params: {
           className="relative h-full"
           icon={<KomlaMark />}
           // Neutral, like the rest of the empty page, so the logo brings the only color.
-          iconClassName="bg-foreground/10"
+          iconClassName="bg-foreground/10 light:bg-popover light:shadow-xs"
           title={hasAnyWorkspaces ? 'No active workspaces' : 'No workspaces yet'}
           description="Give each task its own workspace: a fresh branch and folder where an agent can work on its own."
           action={
@@ -1145,7 +1241,7 @@ export const TerminalTabs = memo(function TerminalTabs({
   const { setDiffHideUnchangedRegions } = useConfigStore();
   const previewHideUnchanged = config?.diffHideUnchangedRegions ?? true;
 
-  // Toolbar Split/Full clicks: update the workspace's layout AND persist as the
+  // Toolbar Beside/Full clicks: update the workspace's layout AND persist as the
   // user's preferred default so future workspaces seed from this choice. The
   // live-follow auto-set in InlineFileTreePanel uses the raw store action and
   // intentionally does NOT touch the global preference.
@@ -1224,7 +1320,10 @@ export const TerminalTabs = memo(function TerminalTabs({
     tabId: string;
     position: 'before' | 'after';
   } | null>(null);
-  const dropTargetRef = useRef<{ tabId: string; position: 'before' | 'after' } | null>(null);
+  const dropTargetRef = useRef<{
+    tabId: string;
+    position: 'before' | 'after';
+  } | null>(null);
   // The tab currently highlighted as the drop target of a cross-tab pane drag.
   const [paneDropTabId, setPaneDropTabId] = useState<string | null>(null);
   const [paneDropOnNewTab, setPaneDropOnNewTab] = useState(false);
@@ -1243,7 +1342,10 @@ export const TerminalTabs = memo(function TerminalTabs({
     startWidthPx: number;
     workspaceId: string;
   } | null>(null);
-  const changeNavRef = useRef<{ goToNext: () => void; goToPrev: () => void } | null>(null);
+  const changeNavRef = useRef<{
+    goToNext: () => void;
+    goToPrev: () => void;
+  } | null>(null);
   const [previewTotalChanges, setPreviewTotalChanges] = useState(0);
 
   const isGitWorkspace = !!selectedWorkspace?.isWorktree;
@@ -1833,7 +1935,11 @@ export const TerminalTabs = memo(function TerminalTabs({
         INLINE_PREVIEW_MIN_WIDTH_PX,
         INLINE_PREVIEW_MAX_WIDTH_PX
       );
-      previewResizeRef.current = { startX: e.clientX, startWidthPx: widthPx, workspaceId };
+      previewResizeRef.current = {
+        startX: e.clientX,
+        startWidthPx: widthPx,
+        workspaceId,
+      };
       setIsResizingPreview(true);
     },
     [treeMinWidthPx]
@@ -1852,7 +1958,11 @@ export const TerminalTabs = memo(function TerminalTabs({
         treeMinWidthPx,
         INLINE_TREE_MAX_WIDTH_PX
       );
-      treeResizeRef.current = { startX: e.clientX, startWidthPx: widthPx, workspaceId };
+      treeResizeRef.current = {
+        startX: e.clientX,
+        startWidthPx: widthPx,
+        workspaceId,
+      };
       setIsResizingTree(true);
     },
     [treeMinWidthPx]
@@ -2132,7 +2242,8 @@ export const TerminalTabs = memo(function TerminalTabs({
                               className={cn(
                                 'relative flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2.5 text-xs transition-colors',
                                 isActive
-                                  ? 'bg-foreground/[0.075] text-foreground outline-1 -outline-offset-1 outline-foreground/[0.14]'
+                                  ? // In light themes the white of the pane it labels, not a grey under it.
+                                    'bg-foreground/[0.075] text-foreground outline-1 -outline-offset-1 outline-foreground/[0.14] light:bg-popover light:shadow-xs'
                                   : visible
                                     ? 'text-foreground/80 hover:bg-foreground/[0.045] hover:text-foreground'
                                     : 'text-muted-foreground hover:bg-foreground/[0.045] hover:text-foreground'

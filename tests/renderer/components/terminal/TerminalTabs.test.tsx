@@ -19,6 +19,7 @@ import { usePaneSurfacesStore } from '../../../../src/renderer/stores/pane-surfa
 import { useShortcutsStore } from '../../../../src/renderer/stores/shortcuts.store';
 import { useTerminalCloseStore } from '../../../../src/renderer/stores/terminal-close.store';
 import { useToastStore } from '../../../../src/renderer/stores/toast.store';
+import { useWindowStore } from '../../../../src/renderer/stores/window.store';
 import { useWorkspacesStore } from '../../../../src/renderer/stores/workspaces.store';
 import { createTerminal, createWorkspace } from '../../../factories';
 
@@ -250,6 +251,21 @@ describe('TerminalTabs', () => {
   // zustand 5 re-renders forever if a selector returns a fresh [] each call.
   it('renders with no selected workspace', () => {
     expect(() => render(<TerminalTabs />)).not.toThrow();
+  });
+
+  it('points to the sidebar alone while Jump to has no shortcut', () => {
+    const original = useShortcutsStore.getState().getDisplayShortcut;
+    useShortcutsStore.setState({ getDisplayShortcut: () => '' });
+    useWorkspacesStore.setState({
+      workspaces: [createWorkspace({ windowId: useWindowStore.getState().windowId })],
+      hasLoaded: true,
+    });
+    try {
+      render(<TerminalTabs />);
+      expect(screen.getByText('Pick one in the sidebar.')).toBeInTheDocument();
+    } finally {
+      useShortcutsStore.setState({ getDisplayShortcut: original });
+    }
   });
 
   it('offers New Workspace when there are no workspaces yet', () => {
@@ -909,18 +925,18 @@ describe('TerminalTabs', () => {
 
       expect(screen.queryByRole('button', { name: /^Tab t2/ })).not.toBeInTheDocument();
       expect(
-        screen.getByRole('radio', { name: 'Split — Agent needs your input' })
+        screen.getByRole('radio', { name: 'Beside — Agent needs your input' })
       ).toBeInTheDocument();
     });
 
-    it('leaves Split unmarked without pending input', () => {
+    it('leaves Beside unmarked without pending input', () => {
       setUpWorkspace(['t1', 't2'], {
         attention: { t2: { kind: 'turn-complete' } as WorkspaceAttention },
       });
       openFullscreenPreview();
       render(<TerminalTabs />);
 
-      expect(screen.getByRole('radio', { name: 'Split' })).toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: 'Beside' })).toBeInTheDocument();
     });
 
     it.each([

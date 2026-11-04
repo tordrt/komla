@@ -271,12 +271,14 @@ export const PALETTES: Palette[] = [
       '--muted': '0.96 0.003 286',
       '--secondary': '0.96 0.003 286',
       '--accent': '0.93 0.004 286',
-      '--border': '0.915 0.004 286',
-      '--input': '0.915 0.004 286',
+      // Dark enough to hold the panels' edges on the near-white surfaces.
+      '--border': '0.9 0.005 286',
+      '--input': '0.9 0.005 286',
       '--sidebar': '0.96 0.003 286',
       '--sidebar-accent': '0.925 0.005 286',
       '--sidebar-muted': '0.945 0.004 286',
-      '--chrome': '0.936 0.003 286',
+      // Light enough that the window doesn't look dim beside the white panes.
+      '--chrome': '0.948 0.003 286',
     },
     // A white terminal with GitHub Light's ANSI colors, which are made for white. Its yellow is
     // GitHub's attention yellow, which reads as yellow where GitHub's ANSI yellow reads as brown.

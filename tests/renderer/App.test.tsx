@@ -294,7 +294,7 @@ describe('App', () => {
       setConfig(true, true);
       render(<App />);
 
-      expect(screen.getByTestId('sidebar')).toHaveAttribute('data-width', '200');
+      expect(screen.getByTestId('sidebar')).toHaveAttribute('data-width', '232');
       const { onResize } = sidebarProps.mock.lastCall![0] as { onResize: (w: number) => void };
       act(() => onResize(280));
 

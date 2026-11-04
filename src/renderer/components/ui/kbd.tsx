@@ -9,7 +9,9 @@ export const Kbd = React.forwardRef<HTMLElement, React.HTMLAttributes<HTMLElemen
     <kbd
       ref={ref}
       className={cn(
-        'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded border border-border/70 bg-muted/60 px-1 font-sans text-2xs font-medium text-muted-foreground',
+        // Its colors are globals.css's --kbd tokens, so a light theme can give it a white cap and a
+        // caller's own border or fill still replaces them.
+        'inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded border border-(color:--kbd-border) bg-(color:--kbd-bg) px-[5px] font-sans text-2xs font-medium text-muted-foreground',
         className
       )}
       {...props}

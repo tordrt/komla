@@ -28,9 +28,9 @@
     'Roboto', 'Ubuntu', 'Cantarell', sans-serif;
 
   /* Dense app chrome: badges and meta text (2xs), labels and panel tabs (ui). */
-  --text-2xs: 10px;
+  --text-2xs: 10.5px;
   --text-2xs--line-height: 14px;
-  --text-ui: 11px;
+  --text-ui: 11.5px;
   --text-ui--line-height: 16px;
 
   --shadow-soft: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
@@ -389,7 +389,8 @@ html[data-status-bar-row='large'] [data-status-bar] {
     --info: 0.47 0.13 245;
     --info-foreground: 0.985 0 0;
     /* An agent is waiting on the user. */
-    --attention: 0.47 0.17 265;
+    /* Violet, a clear step from --info's blue, as the Violet workspace tag shows. */
+    --attention: 0.48 0.19 285;
     --attention-foreground: 0.985 0 0;
     /* Commits ahead of (cyan) and behind (blue) another branch; kept far apart in hue. */
     --ahead: 0.49 0.1 218;
@@ -427,10 +428,12 @@ html[data-status-bar-row='large'] [data-status-bar] {
     --secondary-foreground: 0.985 0 0;
     --muted: 0.357 0.01 250;
     --muted-foreground: 0.75 0 0;
-    --muted-fade-40: 0.4;
-    --muted-fade-50: 0.5;
-    --muted-fade-60: 0.6;
-    --muted-fade-70: 0.7;
+    /* The faint steps sit a little above their names, so dim meta text such as a card's age
+       still reads at 10px on the dark chrome. */
+    --muted-fade-40: 0.48;
+    --muted-fade-50: 0.6;
+    --muted-fade-60: 0.68;
+    --muted-fade-70: 0.75;
     --muted-fade-80: 0.8;
     --muted-fade-90: 0.9;
     --accent: 0.37 0.01 250;
@@ -458,7 +461,7 @@ html[data-status-bar-row='large'] [data-status-bar] {
     --error-foreground: 0.18 0.03 25;
     --info: 0.78 0.1 235;
     --info-foreground: 0.18 0.03 240;
-    --attention: 0.77 0.13 262;
+    --attention: 0.75 0.14 285;
     --attention-foreground: 0.18 0.03 265;
     --ahead: 0.79 0.15 212;
     --behind: 0.71 0.165 256;
@@ -1200,11 +1203,31 @@ html[data-status-bar-row='large'] [data-status-bar] {
   background: oklch(var(--sidebar));
   border-color: oklch(var(--foreground) / 0.15);
 }
+/* In light themes dialogs and menus are white, as the panes are, over the grey chrome. */
+.light .floating-surface {
+  background: oklch(var(--popover));
+}
+.light .new-workspace-tray {
+  background: color-mix(in oklch, oklch(var(--popover)) 97.5%, oklch(var(--foreground)));
+  border-color: oklch(var(--foreground) / 0.16);
+  box-shadow: inset 0 1px 2px oklch(var(--foreground) / 0.05);
+}
+/* In dark themes the sidebar's color is level with the terminal behind a dialog or menu, so the
+   surface floats a step lighter, with a slightly firmer edge and a shadow a dark window can show,
+   tight enough not to read as a box. */
+.dark .floating-surface {
+  background: color-mix(in oklch, oklch(var(--sidebar)) 90%, oklch(var(--foreground)));
+  border-color: oklch(var(--foreground) / 0.2);
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.7);
+}
 .new-workspace-tray {
   background: color-mix(in oklch, oklch(var(--sidebar)) 94%, oklch(var(--foreground)));
 }
+/* In dark themes a step under the card, as a drawer, but lit enough to hold its edge over the
+   dimmed window. */
 .dark .new-workspace-tray {
-  background: color-mix(in oklch, oklch(var(--sidebar)) 80%, black);
+  background: color-mix(in oklch, oklch(var(--sidebar)) 90%, oklch(var(--foreground)));
+  border-color: oklch(var(--foreground) / 0.22);
 }
 
 /* Komla blue rather than the accent, for the upgrade dialog's button, checks and Unlimited
@@ -1345,19 +1368,20 @@ html[data-status-bar-row='large'] [data-status-bar] {
    in the top row (TerminalTabs) sits on the chrome as the tab row does, and the panel below is a
    block like the panes: a clear line, as around them, across its top and down its left edge from
    a pane's rounded corner level with their tops, turning along its bottom at another, a gutter
-   above the status bar as the panes stop. It runs flush to the window's right edge. The panel
-   keeps that gutter as padding, since the side panels sit on the terminal's color, and its body
-   draws the line. Its card-colored surfaces take the chrome, as the Overview's do. */
+   above the status bar as the panes stop. It stops a gutter short of the window's right edge, as
+   the workspace sidebar does of its left, with its corners rounded there too. The panel keeps
+   those gutters as padding, since the side panels sit on the terminal's color, and its body draws
+   the line. Its card-colored surfaces take the chrome, as the Overview's do. */
 .file-panel-chrome {
   --card: var(--chrome);
   background-color: oklch(var(--chrome));
   padding-bottom: var(--pane-gap);
+  padding-right: var(--pane-gap);
 }
 .file-panel-body {
   overflow: hidden;
-  border-radius: var(--pane-radius) 0 0 var(--pane-radius);
+  border-radius: var(--pane-radius);
   border: 1px solid oklch(var(--foreground) / 0.14);
-  border-right: 0;
 }
 /* The bottom row, the sidebar's footer and the status bar, is one bar along the window's bottom:
    a clear line along its top, as around the panes, closes off the workspace list and the panes
@@ -1396,17 +1420,39 @@ html[data-status-bar-row='large'] [data-status-bar] {
   border-bottom-color: oklch(var(--foreground) / 0.1);
 }
 
+/* A <Kbd> chip: a grey cap, and in light themes a white one with a full border, as the grey cap
+   all but vanishes on their grey rows and cards. */
+:root {
+  --kbd-bg: oklch(var(--muted) / 0.6);
+  --kbd-border: oklch(var(--border) / 0.7);
+}
+:root.light {
+  --kbd-bg: oklch(var(--background));
+  --kbd-border: oklch(var(--border));
+}
+
+/* The diff overview ruler's viewport slider covers the ruler's whole height while the diff fits,
+   a solid bar beside the code. It shows while the pointer is over the diff, as a scrollbar would. */
+.monaco-diff-editor .diffViewport {
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.monaco-diff-editor:hover .diffViewport {
+  opacity: 1;
+}
+
 /* The line around a pane: a clear one on its own, so a pane without focus keeps an edge against the
-   chrome. Around the focused pane (with the focused pane border on) it is a quarter accent, mostly
-   the secondary text color, so it reads as a faint outline rather than a colored frame. */
+   chrome. Around the focused pane (with the focused pane border on) it is a little accent over a
+   line not quite twice as strong as the unfocused one, so it reads as a faint tinted edge rather than a
+   bright frame that outshines the terminal's text. */
 .pane-outline {
   border-color: oklch(var(--foreground) / 0.14);
 }
 .pane-outline[data-focused='true'] {
   border-color: color-mix(
     in oklab,
-    oklch(var(--komla, var(--brand))) 25%,
-    oklch(var(--muted-foreground))
+    oklch(var(--komla, var(--brand))) 30%,
+    oklch(var(--foreground) / 0.24)
   );
 }
 /* A notification waiting on the pane, in its color softened the same way, a little stronger so it

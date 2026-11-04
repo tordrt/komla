@@ -14,13 +14,20 @@ import {
   type WorkspaceTagTone,
 } from '../../shared/lib/workspace-tags';
 
-/** How each tone is named and drawn in tag pickers. Literal classes, so Tailwind sees them. */
+/**
+ * How each tone is named and drawn in tag pickers. Literal classes, so Tailwind sees them. Light
+ * themes' gray and amber tokens are dark enough for text, which leaves a small dot near-black and
+ * brown beside the red, so their dots take lighter ones.
+ */
 export const WORKSPACE_TAG_TONE_LABELS: Record<WorkspaceTagTone, { label: string; dot: string }> = {
-  neutral: { label: 'Gray', dot: 'bg-muted-foreground' },
+  neutral: {
+    label: 'Gray',
+    dot: 'bg-muted-foreground light:bg-[oklch(0.64_0_0)]',
+  },
   info: { label: 'Blue', dot: 'bg-info' },
   attention: { label: 'Violet', dot: 'bg-attention' },
   success: { label: 'Green', dot: 'bg-success' },
-  warning: { label: 'Amber', dot: 'bg-warning' },
+  warning: { label: 'Amber', dot: 'bg-warning light:bg-[oklch(0.74_0.16_70)]' },
   error: { label: 'Red', dot: 'bg-error' },
 };
 
@@ -60,7 +67,10 @@ export function useWorkspaceTags(): readonly WorkspaceTagDefinition[] {
  */
 export function saveWorkspaceTags(tags: readonly WorkspaceTagDefinition[]): void {
   const { config, updateConfig, loadConfig } = useConfigStore.getState();
-  if (config) useConfigStore.setState({ config: { ...config, workspaceTags: [...tags] } });
+  if (config)
+    useConfigStore.setState({
+      config: { ...config, workspaceTags: [...tags] },
+    });
   void updateConfig({ workspaceTags: [...tags] }).then(({ ok, error }) => {
     if (ok) return;
     useToastStore.getState().addToast(`Couldn't save the tags: ${error}`, 'error');

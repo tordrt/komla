@@ -1,4 +1,4 @@
-import { ImageSquare, Trash, X } from '@phosphor-icons/react';
+import { Shapes, Trash, X } from '@phosphor-icons/react';
 import { useRef, useState } from 'react';
 
 import { SettingsCard } from '@/components/layout/settings/SettingsCard';
@@ -92,8 +92,10 @@ function TagRow({ tag }: { tag: WorkspaceTagDefinition }) {
     }
   };
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <div className="flex max-w-60 min-w-40 flex-1 flex-col gap-1">
+    // Tighter than the card's other rows, so a list of tags reads as one list.
+    <div className="flex flex-col gap-0.5 py-2.5!">
+      {/* The name takes what a tag needs; its controls sit together at the row's end. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Input
           aria-label="Tag name"
           value={name}
@@ -104,27 +106,29 @@ function TagRow({ tag }: { tag: WorkspaceTagDefinition }) {
             if (event.key === 'Enter') event.currentTarget.blur();
             if (event.key === 'Escape') setName(tag.name);
           }}
-          className="h-8"
+          // Plain text until pointed at or focused, so the list reads as tags, not a form; pulled
+          // left by its padding and border, so the names line up with the card's other rows.
+          className="-ml-[9px] h-7 max-w-60 min-w-40 flex-1 border-transparent bg-transparent px-2 text-[13px] shadow-none hover:bg-foreground/[0.05] focus-visible:border-input focus-visible:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
         />
-        {tag.pullRequestState && (
-          <span className="pl-1 text-2xs text-muted-foreground">
-            {PULL_REQUEST_TAG_STATE_LABELS[tag.pullRequestState]}
-          </span>
-        )}
+        <span aria-hidden className="flex-1" />
+        <TagToneSwatches
+          label={`${tag.name} color`}
+          value={tag.tone}
+          onChange={(tone) => updateWorkspaceTag(tag.name, { tone })}
+        />
+        <TagLookButtons tag={tag} />
+        {/* Set apart from the look buttons, as it destroys the tag. */}
+        <span aria-hidden className="h-4 w-px bg-border" />
+        <IconButton label={`Delete ${tag.name}`} onClick={() => deleteWorkspaceTag(tag.name)}>
+          <Trash />
+        </IconButton>
       </div>
-      <TagToneSwatches
-        label={`${tag.name} color`}
-        value={tag.tone}
-        onChange={(tone) => updateWorkspaceTag(tag.name, { tone })}
-      />
-      <TagLookButtons tag={tag} />
-      <IconButton
-        label={`Delete ${tag.name}`}
-        className="ml-auto"
-        onClick={() => deleteWorkspaceTag(tag.name)}
-      >
-        <Trash />
-      </IconButton>
+      {/* Under the whole row, so it reads on one line and doesn't stretch the name's column. */}
+      {tag.pullRequestState && (
+        <span className="text-ui text-muted-foreground-80">
+          {PULL_REQUEST_TAG_STATE_LABELS[tag.pullRequestState]}
+        </span>
+      )}
     </div>
   );
 }
@@ -179,7 +183,7 @@ function TagLookButtons({ tag }: { tag: WorkspaceTagDefinition }) {
         label={tag.icon ? `Change ${tag.name} icon` : `Choose an icon for ${tag.name}`}
         onClick={() => input.current?.click()}
       >
-        {tag.icon ? <TagGlyph tag={{ icon: tag.icon }} className="size-4" /> : <ImageSquare />}
+        {tag.icon ? <TagGlyph tag={{ icon: tag.icon }} className="size-4" /> : <Shapes />}
       </IconButton>
       {tag.icon && (
         <IconButton
@@ -193,8 +197,12 @@ function TagLookButtons({ tag }: { tag: WorkspaceTagDefinition }) {
       <IconButton
         label={tag.spinner ? `Stop ${tag.name} spinning` : `Show a spinner on ${tag.name}`}
         aria-pressed={tag.spinner === true}
-        className={cn(!tag.spinner && 'text-muted-foreground')}
-        onClick={() => updateWorkspaceTag(tag.name, { spinner: tag.spinner ? undefined : true })}
+        className={cn(tag.spinner ? 'bg-komla/15 text-komla' : 'text-muted-foreground')}
+        onClick={() =>
+          updateWorkspaceTag(tag.name, {
+            spinner: tag.spinner ? undefined : true,
+          })
+        }
       >
         {/* Still while off, so the button doesn't read as loading. */}
         {tag.spinner ? (

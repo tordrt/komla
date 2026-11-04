@@ -45,8 +45,9 @@ const SEGMENT_CLASS =
 
 function Separator() {
   return (
+    // A dot rather than a slash, which reads like part of a path between the location and branch.
     <span aria-hidden className="text-muted-foreground-40 select-none">
-      /
+      ·
     </span>
   );
 }
@@ -307,7 +308,8 @@ function BranchNameField({
   const aiLabel = useAiBranchName ? 'Use random branch name' : 'Generate branch name with AI';
   const placeholder = `${defaultBranchPrefix}swift-fox`;
   // Size the field to its text so the segments before it are not squeezed.
-  const inputWidth = `calc(${(branchName || placeholder).length + 1}ch + 0.5rem)`;
+  // The text's width plus the field's padding (px-2 on each side).
+  const inputWidth = `calc(${(branchName || placeholder).length + 1}ch + 1rem)`;
   return (
     <span className="flex min-w-0 items-center gap-1 text-ui text-muted-foreground">
       <span aria-hidden className="shrink-0">
@@ -344,7 +346,7 @@ function BranchNameField({
           }}
           placeholder={placeholder}
           style={{ width: inputWidth }}
-          className="max-w-[16rem] min-w-0 rounded bg-transparent px-1 py-0.5 font-mono text-ui text-foreground outline-hidden placeholder:text-muted-foreground-60 focus:bg-muted/40"
+          className="max-w-[16rem] min-w-0 rounded bg-foreground/[0.04] px-2 py-0.5 font-mono text-ui text-foreground ring-transparent outline-hidden ring-inset placeholder:text-muted-foreground-60 hover:bg-foreground/[0.06] focus:bg-foreground/[0.06] focus:ring-2 focus:ring-komla/70"
         />
       )}
       {showAiToggle && (

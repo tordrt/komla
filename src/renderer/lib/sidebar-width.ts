@@ -1,4 +1,5 @@
-export const DEFAULT_SIDEBAR_WIDTH = 200;
+/** Wide enough for a typical branch name, such as feat/stripe-integration, on a card. */
+export const DEFAULT_SIDEBAR_WIDTH = 232;
 export const MIN_SIDEBAR_WIDTH = 150;
 export const MAX_SIDEBAR_WIDTH = 500;
 

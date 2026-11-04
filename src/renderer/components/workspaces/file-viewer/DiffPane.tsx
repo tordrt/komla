@@ -575,6 +575,8 @@ export function DiffPane({
             overviewRulerBorder: false,
             overviewRulerLanes: 1,
             renderIndicators: false,
+            // A highlighted current line reads as one more change in a diff.
+            renderLineHighlight: 'none',
             padding: { top: 16, bottom: 12 },
             renderValidationDecorations: hasBuiltInLanguageIntelligence(monacoLanguage)
               ? 'on'

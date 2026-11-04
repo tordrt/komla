@@ -3,8 +3,8 @@ import {
   CaretUp,
   CaretDown,
   ArrowLeft,
-  ArrowsInSimple,
-  ArrowsOutSimple,
+  ArrowsInLineVertical,
+  ArrowsOutLineVertical,
   Folder,
   GitDiff,
   X,
@@ -40,9 +40,9 @@ function HideUnchangedToggle({ hideUnchangedRegions, onToggle }: HideUnchangedTo
       onClick={onToggle}
     >
       {hideUnchangedRegions ? (
-        <ArrowsInSimple className="size-3.5" />
+        <ArrowsInLineVertical className="size-3.5" />
       ) : (
-        <ArrowsOutSimple className="size-3.5" />
+        <ArrowsOutLineVertical className="size-3.5" />
       )}
     </IconButton>
   );

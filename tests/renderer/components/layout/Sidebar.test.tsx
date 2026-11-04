@@ -6,6 +6,7 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { Sidebar } from '../../../../src/renderer/components/layout/Sidebar';
+import { DEFAULT_SIDEBAR_WIDTH } from '../../../../src/renderer/lib/sidebar-width';
 import { useConfigStore } from '../../../../src/renderer/stores/config.store';
 
 import type { AppConfig } from '../../../../src/renderer/types';
@@ -890,7 +891,7 @@ describe('Sidebar', () => {
 
     fireEvent.doubleClick(screen.getByRole('separator', { name: 'Resize sidebar' }));
 
-    expect(onResize).toHaveBeenCalledWith(200);
+    expect(onResize).toHaveBeenCalledWith(DEFAULT_SIDEBAR_WIDTH);
   });
 
   it('resizes from the keyboard with the arrow keys', () => {
@@ -913,7 +914,7 @@ describe('Sidebar', () => {
     fireEvent.keyDown(handle, { key: 'ArrowLeft' });
     expect(onResize).toHaveBeenLastCalledWith(304);
     fireEvent.keyDown(handle, { key: 'Home' });
-    expect(onResize).toHaveBeenLastCalledWith(200);
+    expect(onResize).toHaveBeenLastCalledWith(DEFAULT_SIDEBAR_WIDTH);
   });
   it('opens Command center from the top row, beside the macOS traffic lights', () => {
     window.api = { platform: 'darwin' } as typeof window.api;
@@ -925,7 +926,7 @@ describe('Sidebar', () => {
 
     expect(topRow).toHaveStyle({ paddingLeft: '80px' });
     expect(onOpenCommandCenter).toHaveBeenCalledTimes(1);
-    expect(within(topRow).queryByText('Workspace')).toBeNull();
+    expect(within(topRow).queryByText('New Workspace')).toBeNull();
   });
 
   it('keeps the Jump to shortcut at the narrowest sidebar, shortening the placeholder instead', () => {
@@ -995,7 +996,7 @@ describe('Sidebar', () => {
       fireEvent.click(within(topRow).getByRole('button', { name: /Jump to/ }));
       expect(within(topRow).queryByRole('button', { name: 'Komla Overview' })).toBeNull();
       expect(within(topRow).queryByRole('button', { name: 'Command center' })).toBeNull();
-      expect(within(topRow).queryByText('Workspace')).toBeNull();
+      expect(within(topRow).queryByText('New Workspace')).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'New Workspace' }));
       const footer = screen.getByTestId('sidebar-footer-start');
       fireEvent.click(within(footer).getByRole('button', { name: 'Komla Overview' }));

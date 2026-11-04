@@ -116,7 +116,7 @@ const PAGES: SettingsPage[] = [
   {
     value: 'general',
     label: 'General',
-    description: 'AI helpers and privacy.',
+    description: 'AI utilities, workspace tags and privacy.',
     icon: GearSix,
   },
   {
@@ -383,7 +383,7 @@ function SettingsNavRow({
       tabIndex={focusable ? 0 : -1}
       title={title}
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-lg py-1.5 text-sm whitespace-nowrap transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-hidden',
+        'flex w-full items-center gap-2.5 rounded-lg py-1 text-[13px] whitespace-nowrap transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-hidden',
         current
           ? 'bg-accent font-medium text-foreground shadow-xs ring-1 ring-foreground/8'
           : expanded
@@ -848,11 +848,12 @@ export function SettingsDialog({
                 }
               >
                 <nav aria-label="Settings" className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-5">
                     {navGroups.map((group, index) => (
                       <div key={group.label ?? `group-${index}`} className="flex flex-col gap-0.5">
                         {group.label && (
-                          <div className="px-2.5 pb-1 text-xs font-medium tracking-[0.14em] text-muted-foreground-70 uppercase">
+                          // Firmer than the rows' muted icons, so the groups read as headings.
+                          <div className="px-2.5 pb-1.5 text-[11px] font-semibold tracking-wider text-foreground/65 uppercase">
                             {group.label}
                           </div>
                         )}
@@ -1017,7 +1018,8 @@ export function SettingsDialog({
               </div>
             </div>
 
-            <div className="flex min-w-0 flex-1 flex-col bg-background">
+            {/* The page is the app's chrome, with its cards on it, as the app's panels are. */}
+            <div className="flex min-w-0 flex-1 flex-col bg-[oklch(var(--chrome))]">
               {/* Draggable top row, with room for the window controls */}
               <div
                 className="drag-region flex shrink-0 items-center justify-end px-2"
@@ -1036,7 +1038,8 @@ export function SettingsDialog({
                 className="min-h-0 flex-1 overflow-y-auto"
                 style={{ overflowAnchor: 'none' }}
               >
-                <div className="mx-auto max-w-[740px] px-8 pt-8 pb-10">
+                {/* Selects at the height of Settings' inputs and buttons, not the taller default. */}
+                <div className="mx-auto max-w-[800px] px-8 pt-8 pb-10 [&_select]:h-8 [&_select]:py-1">
                   {header && (
                     <header
                       className={cn(
@@ -1044,7 +1047,7 @@ export function SettingsDialog({
                         sectionedProject ? 'pb-0' : 'pb-5'
                       )}
                     >
-                      <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground">
+                      <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
                         <span className="truncate">{header.title}</span>
                         {header.alpha && (
                           <>

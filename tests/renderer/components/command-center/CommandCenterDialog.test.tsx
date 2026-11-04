@@ -534,7 +534,7 @@ describe('CommandCenterDialog', () => {
     window.addEventListener('open-new-workspace-dialog', newWorkspace);
     const { input, onOpenChange } = renderOpen();
 
-    fireEvent.click(screen.getByRole('option', { name: 'New workspace in...' }));
+    fireEvent.click(screen.getByRole('option', { name: 'New Workspace in...' }));
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(input).toHaveAttribute('placeholder', 'Search projects...');
     expect(optionNames()).toEqual(['api', 'web']);
@@ -542,7 +542,7 @@ describe('CommandCenterDialog', () => {
     fireEvent.keyDown(input, { key: 'Backspace' });
     expect(input).toHaveAttribute('placeholder', 'Search workspaces and commands');
 
-    fireEvent.click(screen.getByRole('option', { name: 'New workspace in...' }));
+    fireEvent.click(screen.getByRole('option', { name: 'New Workspace in...' }));
     fireEvent.change(input, { target: { value: 'web' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -564,7 +564,7 @@ describe('CommandCenterDialog', () => {
     const { input, refresh } = renderOpen();
     fireEvent.change(input, { target: { value: '>' } });
 
-    expect(optionNames()).toContain('New workspace');
+    expect(optionNames()).toContain('New Workspace');
     expect(optionNames()).not.toContain('Stop workspace');
 
     workspacesState.selectedWorkspaceId = 'folder';

@@ -284,7 +284,9 @@ export const SurfacePane = React.memo(function SurfacePane({
             <PaneDropLayer paneId={paneId} paneRef={paneRef} disabled={isLayoutLocked} />
             {/* Not on a browser: its page is a native view drawn over the window, which would hide
                 all but the outline's top edge. */}
-            {surface.kind !== 'browser' && <PaneOutline focused={focusedPaneBorder && isFocused} />}
+            {surface.kind !== 'browser' && (
+              <PaneOutline focused={focusedPaneBorder && isFocused && !isOnlyPane} />
+            )}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>

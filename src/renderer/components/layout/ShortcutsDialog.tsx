@@ -1,5 +1,5 @@
 import { MagnifyingGlass, PencilSimple, X } from '@phosphor-icons/react';
-import { Fragment, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +22,7 @@ interface ShortcutsDialogProps {
 
 const essentialShortcuts = [
   { action: 'commandCenter.open', label: 'Command center' },
-  { action: 'workspace.new', label: 'New workspace' },
+  { action: 'workspace.new', label: 'New Workspace' },
   { action: 'workspace.next', label: 'Next workspace' },
   { action: 'workspace.previous', label: 'Previous workspace' },
   { action: 'tab.newAgent', label: 'New agent tab' },
@@ -75,7 +75,7 @@ export function ShortcutsDialog({
         }}
       >
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-foreground/10 pr-2 pl-4">
-          <DialogTitle className="text-sm">Keyboard Shortcuts</DialogTitle>
+          <DialogTitle className="text-[15px]">Keyboard Shortcuts</DialogTitle>
           <DialogDescription className="sr-only">
             Browse and search keyboard shortcuts
           </DialogDescription>
@@ -87,7 +87,7 @@ export function ShortcutsDialog({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search shortcuts"
               aria-label="Search keyboard shortcuts"
-              className="h-7 w-full rounded-md border border-foreground/10 bg-foreground/[0.04] pr-2 pl-8 text-xs text-foreground placeholder:text-muted-foreground-60 focus:border-foreground/25 focus:outline-hidden"
+              className="h-7 w-full rounded-md border border-transparent bg-foreground/[0.05] pr-2 pl-8 text-xs text-foreground placeholder:text-muted-foreground-60 focus:border-foreground/20 focus:outline-hidden"
             />
           </div>
           <DialogClose className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden">
@@ -119,7 +119,7 @@ export function ShortcutsDialog({
                           className="flex flex-col items-start gap-1.5 rounded-lg border border-foreground/10 bg-foreground/[0.03] px-3 py-2"
                         >
                           <KeyCaps shortcut={keys} />
-                          <span className="text-xs text-muted-foreground">{entry.label}</span>
+                          <span className="text-xs text-foreground/90">{entry.label}</span>
                         </div>
                       );
                     })}
@@ -199,18 +199,15 @@ function ShortcutRow({ label, children }: { label: string; children: React.React
   );
 }
 
-/** One keycap per key, with "+" between them where the display form has one. */
+/** One keycap per key, side by side: the caps themselves show where one key ends. */
 function KeyCaps({ shortcut: { keys, separator } }: { shortcut: ShortcutKeys }) {
+  // Two of the same key with no "+" is a double tap; the tooltip says so.
+  const doubleTap = keys.length === 2 && keys[0] === keys[1] && separator !== '+';
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex items-center gap-1" title={doubleTap ? 'Press twice' : undefined}>
       {keys.map((key, index) => (
         // The keys up to this one, since a double tap repeats a key.
-        <Fragment key={keys.slice(0, index + 1).join(' ')}>
-          {index > 0 && separator === '+' && (
-            <span className="text-2xs text-muted-foreground-60">+</span>
-          )}
-          <KeyCap>{key}</KeyCap>
-        </Fragment>
+        <KeyCap key={keys.slice(0, index + 1).join(' ')}>{key}</KeyCap>
       ))}
     </span>
   );

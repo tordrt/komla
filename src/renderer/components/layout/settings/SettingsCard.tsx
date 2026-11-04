@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 
 /** A settings card's frame, for content elsewhere in Settings that brings its own cards. */
 export const SETTINGS_CARD_CLASS =
-  'overflow-hidden rounded-xl border border-border/50 bg-card/70 shadow-xs';
+  'overflow-hidden rounded-xl border border-border/50 bg-card/70 shadow-xs light:border-border light:bg-popover';
 
 interface SettingsCardProps {
   title?: string;
@@ -46,13 +46,15 @@ export function SettingsCard({
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 {icon}
-                <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+                <h3 className="text-base font-semibold text-foreground">{title}</h3>
               </div>
               {action && <div>{action}</div>}
             </div>
           )}
           {description && (
-            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{description}</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-pretty text-muted-foreground">
+              {description}
+            </p>
           )}
         </div>
       )}

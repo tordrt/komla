@@ -73,11 +73,20 @@ describe('InlinePreviewHeader', () => {
   it('isolates the left-truncated file path so a leading dot stays at the start', () => {
     renderHeader('.github/workflows/ci.yml');
 
-    const pathText = screen.getByText('.github/workflows/ci.yml');
+    const pathText = screen.getByText(
+      (_, element) =>
+        element?.tagName === 'BDI' && element.textContent === '.github/workflows/ci.yml'
+    );
     // The RTL container truncates from the left; the path itself must render LTR
     // inside a bidi isolate, otherwise `.github/x` displays as `github/x.`.
-    expect(pathText.tagName).toBe('BDI');
     expect(pathText.parentElement).toHaveStyle({ direction: 'rtl' });
+  });
+
+  it("titles the preview by its file's name, in the text color, after its muted folder", () => {
+    renderHeader('src/utils/helpers.ts');
+
+    expect(screen.getByText('helpers.ts')).toHaveClass('text-foreground');
+    expect(screen.getByText('src/utils/', { exact: false }).tagName).toBe('BDI');
   });
 
   it('names a note by its title and offers no full-screen file viewer for it', () => {
@@ -97,7 +106,7 @@ describe('InlinePreviewHeader', () => {
     expect(closeButton).not.toHaveClass('text-destructive');
   });
 
-  it('switches the preview layout from a Split/Full radio group', () => {
+  it('switches the preview layout from a Beside/Full radio group', () => {
     const setInlineFilePreviewLayout = vi.fn();
     renderHeader(undefined, setInlineFilePreviewLayout);
 
@@ -105,7 +114,7 @@ describe('InlinePreviewHeader', () => {
     const full = screen.getByRole('radio', { name: 'Full' });
     expect(full).toHaveAttribute('aria-checked', 'true');
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Split' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Beside' }));
     expect(setInlineFilePreviewLayout).toHaveBeenCalledWith('ws-1', 'side-by-side');
 
     setInlineFilePreviewLayout.mockClear();

@@ -689,7 +689,7 @@ describe('TerminalPane SSH reconnect', () => {
     expect(screen.getByTestId('pane-outline')).toHaveAttribute('data-focused', 'false');
   });
 
-  it('outlines a lone pane too, as every pane is a card', () => {
+  it("keeps a lone pane's outline neutral, as focus can be in no other pane", () => {
     mocks.terminalConfig = {
       colors: { background: '#282c34' },
       showPaneHeaders: false,
@@ -703,6 +703,26 @@ describe('TerminalPane SSH reconnect', () => {
         workspaceId="workspace-1"
         isTabActive={true}
         isOnlyPane
+      />
+    );
+
+    // Every pane keeps its outline, so it still reads as a card.
+    expect(screen.getByTestId('pane-outline')).toHaveAttribute('data-focused', 'false');
+  });
+
+  it('outlines the focused pane of a split tab in the accent', () => {
+    mocks.terminalConfig = {
+      colors: { background: '#282c34' },
+      showPaneHeaders: false,
+      focusedPaneBorder: true,
+    };
+
+    render(
+      <TerminalPane
+        paneId="pane-1"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
       />
     );
 

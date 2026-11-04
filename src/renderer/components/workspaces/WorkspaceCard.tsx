@@ -531,8 +531,9 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
         {projectInfo && <ProjectBadge projectInfo={projectInfo} workspace={workspace} />}
         <div
           className={cn(
-            'flex items-center gap-1.5 text-sm leading-snug',
-            isVisuallySelected ? 'font-medium' : 'font-normal'
+            // One weight whether selected or not, so a truncated title doesn't shift as the
+            // selection moves; the raised surface and text color mark the selected card.
+            'flex items-center gap-1.5 text-sm leading-snug font-normal'
           )}
         >
           <span
@@ -893,6 +894,34 @@ function StateGlyph({
       )}
       <span className="sr-only">{`${count} ${AGENT_STATES[state].label(count)}`}</span>
     </span>
+  );
+}
+
+/**
+ * A workspace's details as its card shows them on hover, for a workspace listed elsewhere while
+ * it isn't selected, such as in the empty work area's Recent list.
+ */
+export function WorkspaceDetailsCard({ workspace }: { workspace: Workspace }) {
+  const showAgentSpinner = useConfigStore((state) => state.config?.showAgentSpinner) !== false;
+  const sshHosts = useSshHostsStore((state) => state.hosts);
+  const cardStatus = workspaceCardStatus(workspace);
+  const unreadBadge = cardStatus.attention ? undefined : getUnreadBadge(workspace);
+  const attention = cardStatus.attention ?? unreadBadge?.attention;
+  const otherAgents = showAgentSpinner
+    ? cardStatus.others
+    : cardStatus.others.filter((agent) => agent.state !== 'working');
+  const sshHost =
+    isSshWorkspace(workspace) && sshHosts
+      ? (sshHosts.find((host) => host.id === workspace.backend.hostId) ?? null)
+      : null;
+  return (
+    <WorkspaceInfoCardContent workspace={workspace} sshHost={sshHost}>
+      <StatusDetails
+        workspace={workspace}
+        {...detailsStatus(workspace, attention, !!unreadBadge, otherAgents)}
+        appearance={unreadBadge?.appearance ?? getWorkspaceAttentionAppearance(attention)}
+      />
+    </WorkspaceInfoCardContent>
   );
 }
 
@@ -1292,7 +1321,7 @@ function isProvisioningOrFailed(workspace: Workspace): boolean {
 function ProvisionLine({ workspace }: { workspace: Workspace }) {
   if (workspace.provisioning) {
     return (
-      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-60">
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-70">
         <GitBranch className="mr-1 inline size-3" />
         <span className="animate-pulse truncate">
           {workspace.provisionStatus ?? 'Setting up...'}
@@ -1311,7 +1340,8 @@ function BranchLine({ workspace }: { workspace: Workspace }) {
   const isRemote = isSshWorkspace(workspace);
   const Icon = isRemote ? Cloud : workspace.branchedFrom ? GitFork : GitBranch;
   return (
-    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-80">
+    // A step under the title, so a stopped card's name still reads above its branch.
+    <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-70">
       <span className="truncate font-mono text-ui" title={workspace.branchName}>
         <Icon className="mr-1 inline size-3" />
         {workspace.branchName}
@@ -1326,7 +1356,7 @@ function WorkingClock({ since }: { since: number }) {
   return (
     <span
       title={`Working for ${elapsed}`}
-      className="ml-auto text-2xs whitespace-nowrap text-muted-foreground-70 tabular-nums"
+      className="ml-auto text-ui whitespace-nowrap text-muted-foreground-70 tabular-nums"
     >
       {elapsed}
     </span>
@@ -1346,7 +1376,7 @@ function TrashTimeLeft({ trashedAt }: { trashedAt: number }) {
   return (
     <span
       title="Deleted for good when its time in the Trash is up"
-      className="ml-auto text-2xs whitespace-nowrap text-muted-foreground-50"
+      className="ml-auto text-ui whitespace-nowrap text-muted-foreground-50"
     >
       {left} left
     </span>
@@ -1370,8 +1400,9 @@ function ActivityTime({
   const startedWorking = showWorkingClock ? workingSince(workspace) : undefined;
   if (startedWorking) return <WorkingClock since={startedWorking} />;
   if (!workspace.lastActivityAt) return null;
+  // A step above the faintest grey, so the age still reads on a stopped card in dark themes.
   return (
-    <span className="ml-auto text-2xs whitespace-nowrap text-muted-foreground-50">
+    <span className="ml-auto text-ui whitespace-nowrap text-muted-foreground-70">
       {formatRelativeTime(workspace.lastActivityAt)}
     </span>
   );

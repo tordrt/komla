@@ -8,6 +8,7 @@ import {
   Sparkle,
   Robot,
   Keyboard,
+  TerminalWindow,
 } from '@phosphor-icons/react';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -2336,7 +2337,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
         <DialogContent
           className="!top-[max(3rem,calc(50vh-12rem))] !max-w-xl !translate-y-0 !gap-0 !overflow-visible !border-0 !bg-transparent !p-0 !shadow-none !ring-0"
           // Darker than the shared scrim, so the dialog stands out over busy terminals.
-          overlayClassName="bg-black/60"
+          overlayClassName="bg-black/60 light:bg-black/12"
           showCloseButton={false}
           floating={false}
           onKeyDown={handleDialogKeyDown}
@@ -2608,19 +2609,29 @@ function HeaderToolbar({
   );
 }
 
-// Shown in place of the prompt when there is no agent to prompt.
+// Shown in place of the prompt when there is no agent to prompt: the shell a workspace opens
+// instead, and the way to an agent.
 function NoAgentNotice({ onSetUpAgent }: { onSetUpAgent: () => void }) {
   return (
-    <p className="px-4 pt-3 text-xs text-muted-foreground">
-      No agent configured — workspaces open a plain shell.{' '}
-      <button
-        type="button"
-        onClick={onSetUpAgent}
-        className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+    <div className="flex items-start gap-3 px-4 pt-3">
+      <span
+        aria-hidden
+        className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-foreground/[0.06] text-muted-foreground"
       >
-        Set up an agent →
-      </button>
-    </p>
+        <TerminalWindow className="size-4" />
+      </span>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        No agent configured — workspaces open a plain shell.
+        <br />
+        <button
+          type="button"
+          onClick={onSetUpAgent}
+          className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+        >
+          Set up an agent →
+        </button>
+      </p>
+    </div>
   );
 }
 

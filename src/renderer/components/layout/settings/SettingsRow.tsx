@@ -67,7 +67,7 @@ export function SettingsRow({ label, description, disabled, children }: Settings
           id={labelId}
           htmlFor={labelsControl ? controlId : undefined}
           className={cn(
-            'text-sm font-medium leading-tight',
+            'text-[13px] font-medium leading-tight',
             // Clicking the label toggles a switch, so it should look clickable.
             disabled
               ? 'text-muted-foreground'
@@ -77,7 +77,10 @@ export function SettingsRow({ label, description, disabled, children }: Settings
           {label}
         </label>
         {description && (
-          <p id={descriptionId} className="mt-0.5 text-[13px] leading-normal text-muted-foreground">
+          <p
+            id={descriptionId}
+            className="mt-0.5 text-xs leading-normal text-pretty text-muted-foreground"
+          >
             {description}
           </p>
         )}

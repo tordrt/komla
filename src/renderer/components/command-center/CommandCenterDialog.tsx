@@ -199,7 +199,9 @@ function featuredRank(command: CommandItem): number {
 
 function openNewWorkspaceDialog(project: Project) {
   window.dispatchEvent(
-    new CustomEvent(NEW_WORKSPACE_DIALOG_EVENT, { detail: { projectId: project.id } })
+    new CustomEvent(NEW_WORKSPACE_DIALOG_EVENT, {
+      detail: { projectId: project.id },
+    })
   );
 }
 
@@ -271,7 +273,7 @@ function buildCommands(
       ? [
           {
             id: 'workspace.newIn',
-            label: 'New workspace in...',
+            label: 'New Workspace in...',
             icon: commandIcon('workspace.newIn'),
             opensView: true,
             run: views.showProjects,
@@ -298,7 +300,10 @@ function buildCommands(
       run: () => void window.api.createWindow(),
     },
   ]
-    .map((command) => ({ ...command, featured: FEATURED_COMMANDS.includes(command.id) }))
+    .map((command) => ({
+      ...command,
+      featured: FEATURED_COMMANDS.includes(command.id),
+    }))
     .sort((a, b) => featuredRank(a) - featuredRank(b));
 }
 
@@ -318,7 +323,7 @@ function buildProjectSections(
     ? [
         {
           key: 'commands',
-          label: 'New workspace in',
+          label: 'New Workspace in',
           items: matches.map((command) => ({ kind: 'command', command })),
         },
       ]
@@ -372,7 +377,11 @@ function indexSections(sections: CommandCenterSection<CommandItem>[]): {
       options: section.items.map((item) => {
         const option: ResultOption =
           item.kind === 'workspace'
-            ? { kind: 'workspace', key: item.result.workspace.id, result: item.result }
+            ? {
+                kind: 'workspace',
+                key: item.result.workspace.id,
+                result: item.result,
+              }
             : { kind: 'command', key: item.command.id, command: item.command };
         return { option, index: options.push(option) - 1 };
       }),
@@ -396,7 +405,10 @@ const INPUT_LABELS: Record<CommandCenterMode, { label: string; placeholder: stri
   content: { label: 'Search file contents', placeholder: 'Search in files...' },
 };
 
-const PROJECTS_INPUT_LABELS = { label: 'Search projects', placeholder: 'Search projects...' };
+const PROJECTS_INPUT_LABELS = {
+  label: 'Search projects',
+  placeholder: 'Search projects...',
+};
 
 /** File search covers the open workspace's directory. */
 function availableModesFor(workspace: Workspace | undefined): CommandCenterMode[] {
@@ -568,7 +580,9 @@ function CommandCenterPanel({ mode, onModeChange, onClose }: CommandCenterPanelP
       workspace.status === 'active' &&
       workspace.windowId !== null &&
       workspace.windowId !== currentWindowId;
-    onClose({ restoreFocus: opensElsewhere || workspace.id === selectedWorkspaceId });
+    onClose({
+      restoreFocus: opensElsewhere || workspace.id === selectedWorkspaceId,
+    });
     void openWorkspace(workspace, currentWindowId);
   };
 
@@ -894,7 +908,7 @@ function WorkspaceResults({
             <div
               id={`${listboxId}-${section.key}`}
               role="presentation"
-              className="px-2 py-1.5 text-xs font-medium text-muted-foreground"
+              className="px-2 py-1.5 text-2xs font-medium tracking-wide text-muted-foreground uppercase"
             >
               {section.label}
             </div>
@@ -911,8 +925,9 @@ function WorkspaceResults({
                 onMouseMove={() => onHover(option.key)}
                 onClick={() => onPick(index)}
                 className={cn(
-                  'flex min-h-8 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5',
-                  index === active ? 'bg-accent text-accent-foreground' : 'text-foreground'
+                  'flex min-h-8 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-foreground',
+                  // Not --accent, which in light themes all but matches the palette.
+                  index === active && 'bg-foreground/[0.12]'
                 )}
               >
                 {option.kind === 'workspace' ? (
@@ -1039,8 +1054,9 @@ function WorkspaceRow({
           <span
             aria-hidden
             className={cn(
+              // The sidebar's project dot, in the same color, so a project reads as one everywhere.
               'size-2 shrink-0 rounded-full',
-              projectInfo ? 'light-darken' : 'border border-muted-foreground/60'
+              !projectInfo && 'border border-muted-foreground/60'
             )}
             style={projectInfo ? { backgroundColor: projectInfo.color } : undefined}
           />
@@ -1090,7 +1106,8 @@ function WorkspaceMeta({ result }: { result: CommandCenterWorkspaceResult }) {
         <>
           {projectInfo && <MetaDot />}
           <GitBranch aria-hidden className="size-3 shrink-0 text-muted-foreground-70" />
-          <span className="max-w-48 shrink-0 truncate">{branch}</span>
+          {/* Mono, as branch names are everywhere else. */}
+          <span className="max-w-48 shrink-0 truncate font-mono text-ui">{branch}</span>
         </>
       )}
       {workspace.customDescription && (

@@ -1108,7 +1108,8 @@ export const TerminalPane = React.memo(function TerminalPane({
             </div>
 
             <PaneOutline
-              focused={focusedPaneBorder && isFocused}
+              // A lone pane is the one with focus, so only a split tab marks it.
+              focused={focusedPaneBorder && isFocused && !isOnlyPane}
               attention={
                 showAttentionBorder ? { color: attentionAppearance.borderColor } : undefined
               }

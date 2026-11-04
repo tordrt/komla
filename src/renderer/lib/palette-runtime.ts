@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type CSSProperties } from 'react';
+import { useMemo, useSyncExternalStore, type CSSProperties } from 'react';
 
 import { useCustomizationStore } from '@/stores/customization.store';
 
@@ -15,6 +15,7 @@ import {
   type Palette,
   type PaletteTokens,
 } from './palette-presets';
+import { hexToOklchValues } from './project-colors';
 import { updateTerminalRendererPalette } from './terminal-renderer-runtime';
 import { DEFAULT_TERMINAL_THEME, configToTheme } from './terminal-theme';
 
@@ -309,6 +310,23 @@ export function useTerminalPaneScope(background: string | undefined): {
       '--ring': 'var(--dark-primary)',
     } as CSSProperties,
   };
+}
+
+/**
+ * The file panel body's surface: the terminal's color, as `--card` too for the tree's fills, so the
+ * panel reads as a framed drawer beside the panes. A terminal darker or lighter than the theme
+ * keeps the theme's surface, as the tree's text keeps the theme's colors.
+ */
+export function useFilePanelSurfaceStyle(
+  background: string | undefined
+): CSSProperties | undefined {
+  const mode = useActivePalette().mode;
+  return useMemo(() => {
+    if (background === undefined || isDarkColor(background) !== (mode === 'dark')) return undefined;
+    const surface = hexToOklchValues(background);
+    if (!surface) return undefined;
+    return { '--card': surface, backgroundColor: `oklch(${surface})` } as CSSProperties;
+  }, [background, mode]);
 }
 
 /** The terminal canvas color, so chrome drawn over a terminal can sit on the same surface. */

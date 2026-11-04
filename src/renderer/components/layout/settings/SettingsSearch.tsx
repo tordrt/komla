@@ -83,7 +83,7 @@ export function SettingsSearch({
     <>
       <div className="px-2 pt-3">
         <div className="relative">
-          <MagnifyingGlass className="pointer-events-none absolute top-1/2 left-2.5 size-4.5 -translate-y-1/2 text-muted-foreground-70" />
+          <MagnifyingGlass className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground-70" />
           <input
             ref={inputRef}
             type="text"
@@ -102,7 +102,9 @@ export function SettingsSearch({
             onKeyDown={handleKeyDown}
             placeholder="Search settings"
             spellCheck={false}
-            className="h-9 w-full rounded-lg bg-accent/60 pr-3 pl-9 text-sm text-foreground transition-colors placeholder:text-muted-foreground-70 hover:bg-accent focus:bg-accent focus:ring-1 focus:ring-ring/40 focus:outline-hidden"
+            // The app's one search field: a faint fill, shorter than the nav rows and a step fainter than the
+            // selected page's fill, with an edge only once focused.
+            className="h-8 w-full rounded-md bg-foreground/[0.04] pr-3 pl-9 text-sm text-foreground transition-colors placeholder:text-muted-foreground-70 hover:bg-foreground/[0.06] focus:bg-transparent focus:ring-1 focus:ring-foreground/25 focus:outline-hidden focus:ring-inset"
           />
         </div>
       </div>

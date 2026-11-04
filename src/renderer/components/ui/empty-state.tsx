@@ -47,7 +47,7 @@ export function EmptyState({
         </div>
       )}
       <div className="space-y-1">
-        <p className={cn('font-medium text-foreground', isSmall ? 'text-xs' : 'text-sm')}>
+        <p className={cn('font-medium text-foreground', isSmall ? 'text-xs' : 'text-[15px]')}>
           {title}
         </p>
         {description && (

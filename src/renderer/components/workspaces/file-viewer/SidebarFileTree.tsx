@@ -1,10 +1,10 @@
 import {
   AppWindow,
   ArrowCounterClockwise,
+  ArrowLineDown,
+  ArrowSquareOut,
   ArrowsInSimple,
   ArrowsOutSimple,
-  ArrowSquareOut,
-  Broadcast,
   Clipboard,
   ClockCounterClockwise,
   Copy,
@@ -338,11 +338,12 @@ interface DirectoryExpansionBatchModel {
   batch: (operation: (store: DirectoryExpansionStore) => void) => void;
 }
 
-// Hide the git lane (M/U/A/D/R letters on files, rollup dot on folders).
-// Filename color already conveys file status, and the folder dot was eating
-// ~12px of trailing space on every row without paying for itself once the
-// letters went away — filenames now get the full row width. Deleted files
-// are struck through.
+// Show a file's git status as the git lane's M/U/A/D/R letter, in its status
+// color, and keep the filename in the tree's text color: a Diff tab lists only
+// changed files, and a column of colored names is loud to read. Ignored files
+// keep their dimmed color, and the selected or focused row its own text color.
+// Folders' rollup dots stay hidden, and deleted files
+// are also struck through.
 //
 // Also keep the indent guides faintly visible rather than only on hover, and
 // set the per-level indent. The library's level indent is dominated by the
@@ -350,11 +351,32 @@ interface DirectoryExpansionBatchModel {
 // those rules directly so we don't disturb the icon/text gap that
 // --trees-item-row-gap also controls.
 const TREE_UNSAFE_CSS = `
+  /* Centered on the row, chevrons and file icons sit low beside lowercase names in this font;
+     this lifts them onto the names' x-height. */
+  [data-item-section='icon'] {
+    transform: translateY(-1.5px);
+  }
+  /* Names in the text color, as the status letter carries the status. */
+  [data-item-git-status]:not([data-item-git-status='ignored']) > [data-item-section='content'] {
+    color: var(--trees-fg);
+  }
+  /* The active row's name takes its row's text color, as rows without a status do. */
+  [data-item-focused='true']:not([data-item-git-status='ignored']) > [data-item-section='content'],
+  [data-item-selected='true']:not([data-item-git-status='ignored']) > [data-item-section='content'] {
+    color: inherit;
+  }
   [data-item-git-status='deleted'] > [data-item-section='content'] {
     text-decoration: line-through;
   }
-  [data-item-section='git'],
   [data-item-section='action'] {
+    display: none;
+  }
+  [data-item-section='git'] {
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  [data-item-contains-git-change='true'] > [data-item-section='git'] > * {
     display: none;
   }
   /* Pinned folders paint the tree background, which is transparent here
@@ -453,8 +475,8 @@ const TREE_UNSAFE_CSS = `
       opacity: 1;
     }
   }
-  /* Active file styled like a selected workspace card: no outline ring, a
-     faint edge, and a brightened neutral bg. Applies to both
+  /* Active file styled like the palette's selected row: no outline ring and
+     no edge, just a neutral fill. Applies to both
      focused (keyboard nav drives auto-preview) and selected (mouse click)
      — but only to files, so arrow-keying over directories doesn't light up.
      The library draws its outline via ::before on focus; neutralise it too. */
@@ -466,7 +488,12 @@ const TREE_UNSAFE_CSS = `
   [data-type='item'][data-item-type='file'][data-item-selected='true'] {
     background-color: oklch(var(--accent));
     color: oklch(var(--accent-foreground));
-    box-shadow: inset 0 0 0 1px oklch(var(--foreground) / 0.08);
+  }
+  /* An indent guide would cut through the active file's fill. Hidden rather than faded, as the
+     library lights the guide beside the focused row. */
+  [data-type='item'][data-item-type='file'][data-item-focused='true'] [data-item-section='spacing-item'],
+  [data-type='item'][data-item-type='file'][data-item-selected='true'] [data-item-section='spacing-item'] {
+    visibility: hidden;
   }
   /* Folders (and anything non-file) keep the library's default focus
      outline but drop the blue selection fill — clicking a folder should
@@ -480,6 +507,14 @@ const TREE_UNSAFE_CSS = `
   [data-type='item'][data-item-type='file'][data-item-focused='true'] [data-item-section='content']::after,
   [data-type='item'][data-item-type='file'][data-item-selected='true'] [data-item-section='content']::after {
     background-color: oklch(var(--accent));
+  }
+  /* In light themes the panel sits on the chrome, which --accent all but matches, so the active
+     file takes the same dark tint as the palette's selected row. */
+  :host-context(.light) [data-type='item'][data-item-type='file'][data-item-focused='true'],
+  :host-context(.light) [data-type='item'][data-item-type='file'][data-item-selected='true'],
+  :host-context(.light) [data-type='item'][data-item-type='file'][data-item-focused='true'] [data-item-section='content']::after,
+  :host-context(.light) [data-type='item'][data-item-type='file'][data-item-selected='true'] [data-item-section='content']::after {
+    background-color: color-mix(in oklch, oklch(var(--foreground)) 7%, oklch(var(--card)));
   }
 `;
 
@@ -1527,9 +1562,8 @@ export function SidebarFileTree({
         // Library default is 16px — leaves a wide gutter on each side of the
         // tree. Zero it so filenames can run edge-to-edge.
         '--trees-padding-inline-override': '0px',
-        // Collapse the git lane; we `display: none` its contents in unsafeCSS
-        // but the lane itself still reserves 12px per row by default.
-        '--trees-git-lane-width-override': '0px',
+        // Room for a status letter, which TREE_UNSAFE_CSS centers in the lane.
+        '--trees-git-lane-width-override': '18px',
         // Same story for the action lane (hover menu trigger affordance) —
         // ~18px reserved on every row's right edge that we don't use.
         '--trees-action-lane-width-override': '0px',
@@ -1805,35 +1839,38 @@ function SidebarFileTreeHeader({
       : `Show all changes since ${targetBranchName || 'target branch'}`;
   return (
     // `file-tree-header` names it for the Theme Lab.
-    <div className="file-tree-header flex h-9 shrink-0 items-center justify-between gap-0 border-b bg-card pr-1 pl-2.5 text-sm font-medium">
+    <div className="file-tree-header flex h-9 shrink-0 items-center justify-between gap-0 border-b bg-card pr-2 pl-2.5 text-sm font-medium">
       <span ref={statsRef} className="flex min-w-0 flex-1 items-center overflow-hidden">
         {showDiffSummary && diffSummary ? (
           <span
             className="flex w-max items-center gap-0.5 font-mono text-xs"
             aria-label={`${diffSummary.filesChanged} files changed, ${diffSummary.additions} additions, ${diffSummary.deletions} deletions`}
+            // The same words on hover, as the icon, counts and colors alone don't say what they count.
+            title={`${diffSummary.filesChanged} files changed, ${diffSummary.additions} additions, ${diffSummary.deletions} deletions`}
           >
             {!hideFileCount && (
               <span
                 data-file-count
                 aria-hidden="true"
-                className="inline-flex items-center gap-0.5 px-0.5 text-ui text-muted-foreground"
+                className="inline-flex items-center gap-0.5 px-0.5 text-xs text-muted-foreground"
               >
                 <FileText className="size-3" weight="bold" />
                 {diffSummary.filesChanged}
               </span>
             )}
             {diffSummary.additions > 0 && (
-              <span aria-hidden="true" className="px-0.5 text-ui text-success">
+              <span aria-hidden="true" className="px-0.5 text-xs text-success">
                 +{diffSummary.additions}
               </span>
             )}
             {diffSummary.deletions > 0 && (
-              <span aria-hidden="true" className="px-0.5 text-ui text-error">
+              <span aria-hidden="true" className="px-0.5 text-xs text-error">
                 -{diffSummary.deletions}
               </span>
             )}
           </span>
-        ) : changedFilesOnly ? (
+        ) : null}
+        {showDiffSummary ? null : changedFilesOnly ? (
           // Not "Files": under the Diff/Files switch, that names the other view.
           <span className="text-xs font-medium text-muted-foreground">Changes</span>
         ) : (
@@ -1854,7 +1891,7 @@ function SidebarFileTreeHeader({
             size="xs"
             tooltipSide="bottom"
             onClick={() => onCreateFile('')}
-            className="text-muted-foreground-60 hover:text-muted-foreground"
+            className="text-muted-foreground-80 hover:text-foreground"
           >
             <FilePlus className="size-3.5" />
           </IconButton>
@@ -1865,9 +1902,7 @@ function SidebarFileTreeHeader({
             size="xs"
             tooltipSide="bottom"
             onClick={() => toggleShowGitIgnored(workspaceId)}
-            className={cn(
-              !includeGitIgnored && 'text-muted-foreground-60 hover:text-muted-foreground'
-            )}
+            className={cn(!includeGitIgnored && 'text-muted-foreground-80 hover:text-foreground')}
           >
             {includeGitIgnored ? <Eye className="size-3.5" /> : <EyeSlash className="size-3.5" />}
           </IconButton>
@@ -1879,10 +1914,11 @@ function SidebarFileTreeHeader({
             tooltipSide="bottom"
             onClick={onToggleBranchComparison}
             disabled={diffLoading}
+            aria-pressed={!!comparisonBranch && !!useMergeBase}
             className={cn(
               comparisonBranch && useMergeBase
-                ? 'text-primary hover:text-primary/80'
-                : 'text-muted-foreground-60 hover:text-muted-foreground'
+                ? TOGGLE_ON_CLASS
+                : 'text-muted-foreground-80 hover:text-foreground'
             )}
           >
             {diffLoading ? (
@@ -1898,19 +1934,21 @@ function SidebarFileTreeHeader({
             size="xs"
             tooltipSide="bottom"
             onClick={onToggleLiveFollow}
+            aria-pressed={!!liveFollow}
             className={cn(
-              liveFollow
-                ? 'text-primary hover:text-primary/80'
-                : 'text-muted-foreground-60 hover:text-muted-foreground'
+              liveFollow ? TOGGLE_ON_CLASS : 'text-muted-foreground-80 hover:text-foreground'
             )}
           >
-            <Broadcast className="size-3.5" />
+            <ArrowLineDown className="size-3.5" />
           </IconButton>
         )}
       </div>
     </div>
   );
 }
+
+/** A header toggle that's on: pressed in, with a fill, so the state doesn't rest on color alone. */
+const TOGGLE_ON_CLASS = 'rounded-md bg-komla/15 text-komla hover:bg-komla/20 hover:text-komla';
 
 interface SidebarFileTreeSearchInputProps {
   search: ReturnType<typeof useFileTreeSearch>;
@@ -1956,7 +1994,8 @@ function SidebarFileTreeSearchInput({
     }
   };
   return (
-    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+    // A faint field, so it reads as a search box rather than a label.
+    <span className="mr-1 -ml-1 flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md bg-foreground/[0.05] px-1.5 focus-within:bg-foreground/[0.08]">
       <MagnifyingGlass className="size-3 shrink-0 text-muted-foreground-60" weight="bold" />
       <input
         ref={inputRef}

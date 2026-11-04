@@ -1955,7 +1955,7 @@ describe('SidebarFileTree context menu actions', () => {
     expect(screen.getByRole('button', { name: 'Show in File Manager' })).toBeInTheDocument();
   });
 
-  it('hides git status letters, since the file name color shows the status', () => {
+  it('shows git status letters and keeps changed file names in the text color', () => {
     render(
       <SidebarFileTree
         workspaceId="workspace-1"
@@ -1969,8 +1969,19 @@ describe('SidebarFileTree context menu actions', () => {
       />
     );
 
-    expect(latestTreeStyle?.['--trees-git-lane-width-override']).toBe('0px');
-    expect(latestUnsafeCSS).toMatch(/\[data-item-section='git'\],[^{]*\{\s*display: none/);
+    expect(latestTreeStyle?.['--trees-git-lane-width-override']).toBe('18px');
+    expect(latestUnsafeCSS).not.toMatch(/\[data-item-section='git'\][,\s]*\{\s*display: none/);
+    expect(latestUnsafeCSS).toMatch(
+      /\[data-item-git-status\]:not\(\[data-item-git-status='ignored'\]\) > \[data-item-section='content'\] \{\s*color: var\(--trees-fg\)/
+    );
+    // The active row's name keeps its row's text color over the status rules, unless ignored.
+    expect(latestUnsafeCSS).toMatch(
+      /\[data-item-selected='true'\]:not\(\[data-item-git-status='ignored'\]\) > \[data-item-section='content'\] \{\s*color: inherit/
+    );
+    // A folder's rollup dot stays hidden: its letterless lane would only add noise.
+    expect(latestUnsafeCSS).toMatch(
+      /\[data-item-contains-git-change='true'\] > \[data-item-section='git'\] > \* \{\s*display: none/
+    );
   });
 
   it('strikes through deleted files', () => {

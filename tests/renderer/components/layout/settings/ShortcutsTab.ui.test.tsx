@@ -151,7 +151,7 @@ describe('ShortcutsTab', () => {
       });
 
       record('Next effort level', { key: 'n', metaKey: true });
-      expect(screen.getByText(/Already used by/)).toHaveTextContent('New workspace');
+      expect(screen.getByText(/Already used by/)).toHaveTextContent('New Workspace');
       expect(screen.queryByRole('button', { name: 'Swap' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Replace' })).not.toBeInTheDocument();
     });

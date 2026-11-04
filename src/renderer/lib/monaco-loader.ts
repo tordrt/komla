@@ -22,7 +22,7 @@ const KOMLA_DARK_COLORS: Record<string, string> = {
   'editor.foreground': '#e4e4e7',
   'editor.lineHighlightBackground': '#ffffff0a',
   'editor.lineHighlightBorder': '#00000000',
-  'editorLineNumber.foreground': '#52525b',
+  'editorLineNumber.foreground': '#71717a',
   'editorLineNumber.activeForeground': '#a1a1aa',
   'editorCursor.foreground': '#e5e5e5',
   'editor.selectionBackground': '#3b82f655',
@@ -45,13 +45,18 @@ const KOMLA_DARK_COLORS: Record<string, string> = {
   'scrollbarSlider.background': '#79797966',
   'scrollbarSlider.hoverBackground': '#646464b3',
   'scrollbarSlider.activeBackground': '#bfbfbf66',
-  'diffEditor.insertedLineBackground': '#22c55e22',
-  'diffEditor.insertedTextBackground': '#22c55e3c',
-  'diffEditor.removedLineBackground': '#ef444422',
-  'diffEditor.removedTextBackground': '#ef44443c',
-  'diffEditorGutter.insertedLineBackground': '#22c55e26',
-  'diffEditorGutter.removedLineBackground': '#ef444426',
+  // A wholly added or removed line takes both the line and the text color, so they're kept low
+  // enough that a new block reads as a tint over the code, not a solid slab of green or red.
+  'diffEditor.insertedLineBackground': '#22c55e04',
+  'diffEditor.insertedTextBackground': '#22c55e08',
+  'diffEditor.removedLineBackground': '#ef444404',
+  'diffEditor.removedTextBackground': '#ef444408',
+  // The gutter carries the change's color, so the code's own fill can stay faint.
+  'diffEditorGutter.insertedLineBackground': '#22c55e40',
+  'diffEditorGutter.removedLineBackground': '#ef444440',
   'diffEditor.border': '#ffffff14',
+  // Monaco shades the split diff's right side with this, a second seam beside the border.
+  'scrollbar.shadow': '#00000000',
   'diffEditor.diagonalFill': '#ffffff08',
   // Default fallbacks are sideBar.background / foreground (unset in standalone
   // Monaco) and pitch-black #000000 shadow. Without overrides the unchanged-
@@ -67,7 +72,7 @@ const KOMLA_LIGHT_COLORS: Record<string, string> = {
   'editor.foreground': '#171717',
   'editor.lineHighlightBackground': '#0000000a',
   'editor.lineHighlightBorder': '#00000000',
-  'editorLineNumber.foreground': '#a1a1aa',
+  'editorLineNumber.foreground': '#8e8e96',
   'editorLineNumber.activeForeground': '#52525b',
   'editorCursor.foreground': '#171717',
   'editor.selectionBackground': '#3b82f640',
@@ -90,13 +95,15 @@ const KOMLA_LIGHT_COLORS: Record<string, string> = {
   'scrollbarSlider.background': '#0000001f',
   'scrollbarSlider.hoverBackground': '#00000033',
   'scrollbarSlider.activeBackground': '#00000044',
-  'diffEditor.insertedLineBackground': '#22c55e22',
-  'diffEditor.insertedTextBackground': '#22c55e3c',
-  'diffEditor.removedLineBackground': '#ef444422',
-  'diffEditor.removedTextBackground': '#ef44443c',
-  'diffEditorGutter.insertedLineBackground': '#22c55e26',
-  'diffEditorGutter.removedLineBackground': '#ef444426',
+  // Kept low for the same reason as the dark theme's.
+  'diffEditor.insertedLineBackground': '#22c55e08',
+  'diffEditor.insertedTextBackground': '#22c55e0e',
+  'diffEditor.removedLineBackground': '#ef444408',
+  'diffEditor.removedTextBackground': '#ef44440e',
+  'diffEditorGutter.insertedLineBackground': '#22c55e40',
+  'diffEditorGutter.removedLineBackground': '#ef444440',
   'diffEditor.border': '#0000001f',
+  'scrollbar.shadow': '#00000000',
   'diffEditor.diagonalFill': '#00000010',
   'diffEditor.unchangedRegionBackground': '#f5f5f5',
   'diffEditor.unchangedRegionForeground': '#52525b',
@@ -112,6 +119,10 @@ export const KOMLA_EDITOR_BASE_OPTIONS: monacoEditor.IEditorOptions = {
   cursorBlinking: 'smooth',
   cursorWidth: 2,
   roundedSelection: true,
+  // The cursor's mark in the overview ruler reads as a stray dash at the editor's top right.
+  hideCursorInOverviewRuler: true,
+  // A wrapped line's continuation is indented, so it can't be taken for a new line.
+  wrappingIndent: 'indent',
   scrollbar: {
     verticalScrollbarSize: 10,
     horizontalScrollbarSize: 10,

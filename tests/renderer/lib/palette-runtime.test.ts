@@ -23,6 +23,7 @@ import {
   subscribeSystemAppearance,
   syncWindowsTitleBarOverlay,
   useEditorSurfaceBackground,
+  useFilePanelSurfaceStyle,
   useTerminalPaneScope,
 } from '../../../src/renderer/lib/palette-runtime';
 import { updateTerminalRendererPalette } from '../../../src/renderer/lib/terminal-renderer-runtime';
@@ -183,6 +184,70 @@ describe('palette runtime', () => {
 
     applyPalette('default');
     expect(root.getPropertyValue('--sidebar')).toBe('');
+  });
+
+  describe('the file panel', () => {
+    const surface = (background: string | undefined) =>
+      renderHook(() => useFilePanelSurfaceStyle(background)).result.current;
+    const lightThemeWith = (terminalBackground: string) => {
+      setCustomPalette(
+        buildCustomPalette({
+          mode: 'light',
+          surfaces: {
+            background: '#ffffff',
+            card: '#fafafa',
+            muted: '#f0f0f0',
+            highlight: '#e8e8e8',
+            border: '#dddddd',
+          },
+          terminal: {
+            background: terminalBackground,
+            foreground: terminalBackground === '#ffffff' ? '#222222' : '#eeeeee',
+          },
+        }).palette!
+      );
+      applyPalette('custom');
+    };
+
+    it("takes the terminal's color, as --card too, in a dark theme", () => {
+      applyPalette('dracula');
+      const style = surface('#282a36') as Record<string, string>;
+      expect(style['--card']).toMatch(/^[\d.]+ [\d.]+ [\d.]+$/);
+      expect(style.backgroundColor).toBe(`oklch(${style['--card']})`);
+    });
+
+    it("takes the terminal's color under a light theme with a light terminal", () => {
+      lightThemeWith('#ffffff');
+      expect(surface('#ffffff')).toBeDefined();
+    });
+
+    it("keeps the theme's surface under a light theme with a dark terminal, so its text stays readable", () => {
+      lightThemeWith('#1c1c1c');
+      expect(surface('#1c1c1c')).toBeUndefined();
+    });
+
+    it("keeps the theme's surface under a dark theme with a light terminal", () => {
+      setCustomPalette(
+        buildCustomPalette({
+          mode: 'dark',
+          surfaces: {
+            background: '#111111',
+            card: '#161616',
+            muted: '#1c1c1c',
+            highlight: '#222222',
+            border: '#333333',
+          },
+          terminal: { background: '#ffffff', foreground: '#222222' },
+        }).palette!
+      );
+      applyPalette('custom');
+      expect(surface('#ffffff')).toBeUndefined();
+    });
+
+    it("keeps the theme's surface without a terminal color", () => {
+      applyPalette('dracula');
+      expect(surface(undefined)).toBeUndefined();
+    });
   });
 
   describe('terminal panes', () => {

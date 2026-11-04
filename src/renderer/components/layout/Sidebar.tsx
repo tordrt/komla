@@ -101,7 +101,7 @@ export const Sidebar = memo(function Sidebar({
         onClick={() => onNewWorkspaceDialogChange(true)}
       >
         <Plus className="size-3.5 shrink-0" />
-        <span className="truncate">Workspace</span>
+        <span className="truncate">New Workspace</span>
         {showNewWorkspaceShortcut && <ShortcutHint action="workspace.new" className="ml-auto" />}
       </button>
       <QuickCreateMenu className="size-7 rounded-none border-l border-foreground/8 focus-visible:ring-offset-0 focus-visible:ring-inset [&>svg]:size-3" />
@@ -146,7 +146,11 @@ export const Sidebar = memo(function Sidebar({
           too, so the sidebar doesn't rearrange itself on entering it. */}
       <div
         data-testid="sidebar-top-row"
-        className={cn('drag-region flex shrink-0 items-center px-1.5', titleBarHeightClass)}
+        // On the sidebar's own inset, so Jump to lines up with New Workspace and the panels below.
+        className={cn(
+          'drag-region flex shrink-0 items-center gap-1 pr-0.5 pl-2.5',
+          titleBarHeightClass
+        )}
         style={topRowInset ? { paddingLeft: topRowInset } : undefined}
       >
         {onOpenCommandCenter && (
@@ -154,11 +158,12 @@ export const Sidebar = memo(function Sidebar({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="no-drag flex h-7 min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+                className="no-drag flex h-7 min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-md bg-foreground/[0.05] px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
                 onClick={onOpenCommandCenter}
               >
-                {/* Unfilled, with the shortcut as plain text, so it stays quieter than New
-                    Workspace below it. The shortcut shows Shift as ⇧ to fit. */}
+                {/* A faint field, with the shortcut as plain text, so it reads as a search box
+                    yet stays quieter than New Workspace below it. The shortcut shows Shift as ⇧
+                    to fit. */}
                 <MagnifyingGlass className="size-3.5 shrink-0" />
                 {/* Beside the macOS traffic lights, the field can be too narrow for the whole
                     placeholder; it shortens to "Jump…", then leaves the icon and shortcut alone. */}
@@ -184,7 +189,8 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       {/* New Workspace Button */}
-      <div className="flex px-2.5 pt-0.5 pb-1.5">{newWorkspaceControls}</div>
+      {/* On the workspace list's inset, right edge included. */}
+      <div className="flex pt-0.5 pr-0.5 pb-1.5 pl-2.5">{newWorkspaceControls}</div>
 
       {/* Workspace list, where a folder dropped from outside opens */}
       <FolderDropZone className="flex-1 overflow-hidden">

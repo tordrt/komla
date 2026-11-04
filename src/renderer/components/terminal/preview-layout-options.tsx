@@ -12,7 +12,8 @@ export interface PreviewLayoutAttention {
 }
 
 const PREVIEW_LAYOUT_OPTIONS: readonly SegmentedControlOption<InlinePreviewLayout>[] = [
-  { value: 'side-by-side', label: 'Split' },
+  // Beside rather than Split, which a viewer showing a split diff would make ambiguous.
+  { value: 'side-by-side', label: 'Beside' },
   { value: 'full', label: 'Full' },
 ];
 
@@ -25,7 +26,7 @@ export function getPreviewLayoutAttention(terminals: Terminal[]): PreviewLayoutA
   return appearance ? { tooltip: appearance.tooltip, dotClassName: appearance.dotClassName } : null;
 }
 
-/** Split/Full options; Split carries a status dot while a hidden tab needs the user. */
+/** Beside/Full options; Beside carries a status dot while a hidden tab needs the user. */
 export function getPreviewLayoutOptions(
   attention: PreviewLayoutAttention | null | undefined
 ): readonly SegmentedControlOption<InlinePreviewLayout>[] {
@@ -35,14 +36,14 @@ export function getPreviewLayoutOptions(
       value: 'side-by-side',
       label: (
         <>
-          Split
+          Beside
           <span
             aria-hidden
             className={cn('size-1.5 shrink-0 rounded-full', attention.dotClassName)}
           />
         </>
       ),
-      ariaLabel: `Split — ${attention.tooltip}`,
+      ariaLabel: `Beside — ${attention.tooltip}`,
       title: `Show terminals — ${attention.tooltip}`,
     },
     PREVIEW_LAYOUT_OPTIONS[1],

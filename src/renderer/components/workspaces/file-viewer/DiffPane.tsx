@@ -1,6 +1,6 @@
 import { DiffEditor } from '@monaco-editor/react';
 import { WarningCircle, ArrowCounterClockwise, GitDiff } from '@phosphor-icons/react';
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -11,6 +11,12 @@ import { useCustomizationStore } from '@/stores/customization.store';
 
 import { isMediaFile } from '../../../../shared/image-utils';
 
+import {
+  chooseDiffModelPaths,
+  retainDiffModels,
+  type DiffModelPaths,
+  type DiffModelSource,
+} from './diff-model-cache';
 import { shouldShowDiffLoadingPlaceholder, shouldShowMissingDiffPanel } from './diff-pane-state';
 import {
   buildDiffEditorKey,
@@ -24,6 +30,7 @@ import { MediaPane } from './MediaPane';
 
 import type { ViewMode } from './types';
 import type { FileDiffContent } from '@/types';
+import type { Monaco } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
 
 interface DiffPaneProps {
@@ -52,6 +59,13 @@ interface DiffPaneProps {
 }
 
 const LARGE_FILE_THRESHOLD = 1024 * 1024;
+/**
+ * How long Monaco may refine a diff down to characters. Past it the changed lines still show,
+ * highlighted whole. Its default of 5s left a heavily rewritten file blank that long.
+ */
+const DIFF_COMPUTATION_BUDGET_MS = 1000;
+/** How long a new file's diff may keep the previous one on screen while its regions collapse. */
+const DIFF_REVEAL_DEADLINE_MS = 200;
 const INITIAL_LOADING_WIDTHS = [92, 74, 88, 67, 96, 71, 84, 78];
 const FILE_LOADING_WIDTHS = [58, 91, 44, 76, 63, 97, 52, 83, 69, 89, 47, 72];
 
@@ -394,6 +408,98 @@ function syncBackdropSnapshot(params: {
   }
 }
 
+function measureContainer(container: HTMLElement | null): monacoEditor.IDimension | undefined {
+  if (!container || container.clientWidth === 0) return undefined;
+  return { width: container.clientWidth, height: container.clientHeight };
+}
+
+/**
+ * Starts the editor at its container's size, laid out by DiffPane from then on. Monaco's own
+ * layout first measures the editor while @monaco-editor/react still hides it: 5px wide, under
+ * the inline breakpoint, so its first diff skipped moved code and a second ran once it was shown.
+ */
+function sizedOptions(
+  options: monacoEditor.IStandaloneDiffEditorConstructionOptions,
+  dimension: monacoEditor.IDimension | undefined
+): monacoEditor.IStandaloneDiffEditorConstructionOptions {
+  return dimension ? { ...options, automaticLayout: false, dimension } : options;
+}
+
+function countLines(text: string): number {
+  let lines = 1;
+  for (let index = text.indexOf('\n'); index !== -1; index = text.indexOf('\n', index + 1)) {
+    lines++;
+  }
+  return lines;
+}
+
+function buildDiffEditorOptions(params: {
+  fontSize: number;
+  readOnly: boolean;
+  viewMode: ViewMode;
+  lineNumbersMinChars: number;
+  validationDecorations: boolean;
+  hideUnchangedRegions: boolean;
+  inlineBreakpointPx: number;
+}): monacoEditor.IStandaloneDiffEditorConstructionOptions {
+  const { viewMode } = params;
+  return {
+    ...KOMLA_EDITOR_BASE_OPTIONS,
+    fontSize: params.fontSize,
+    // Hide the regular vertical scrollbar; the fat diff overview ruler
+    // is itself interactive (click/drag to scroll) and serves as the
+    // sole scroll indicator in diff mode.
+    scrollbar: {
+      ...KOMLA_EDITOR_BASE_OPTIONS.scrollbar,
+      vertical: 'hidden',
+    },
+    readOnly: params.readOnly,
+    originalEditable: false,
+    renderSideBySide: viewMode === 'split',
+    scrollBeyondLastLine: false,
+    minimap: { enabled: false },
+    wordWrap: 'on',
+    lineNumbers: 'on',
+    lineNumbersMinChars: params.lineNumbersMinChars,
+    lineDecorationsWidth: viewMode === 'split' ? 10 : 8,
+    glyphMargin: viewMode === 'split',
+    automaticLayout: true,
+    renderOverviewRuler: true,
+    overviewRulerBorder: false,
+    overviewRulerLanes: 1,
+    renderIndicators: false,
+    // A highlighted current line reads as one more change in a diff.
+    renderLineHighlight: 'none',
+    padding: { top: 16, bottom: 12 },
+    renderValidationDecorations: params.validationDecorations ? 'on' : 'off',
+    renderMarginRevertIcon: viewMode === 'split',
+    maxComputationTime: DIFF_COMPUTATION_BUDGET_MS,
+
+    // Hide unchanged regions to focus on changes
+    hideUnchangedRegions: {
+      enabled: params.hideUnchangedRegions,
+      revealLineCount: 2, // Lines to show around changes
+      minimumLineCount: 3, // Min unchanged lines before collapsing
+      contextLineCount: 2, // Context when expanded
+    },
+
+    // Auto-switch to unified view when editor is narrow
+    useInlineViewWhenSpaceIsLimited: true,
+    renderSideBySideInlineBreakpoint: params.inlineBreakpointPx,
+
+    // Sticky scroll for context (shows function/class headers)
+    stickyScroll: {
+      enabled: true,
+      maxLineCount: 3,
+    },
+
+    // Experimental moved code detection
+    experimental: {
+      showMoves: true,
+    },
+  };
+}
+
 export function DiffPane({
   workingDirectory,
   fileContent,
@@ -439,8 +545,46 @@ export function DiffPane({
     editorFontSize(state.terminalConfig?.font.size)
   );
 
+  // The models this mount shows, picked once per editor key so the editor never swaps them.
+  const modelsRef = useRef<{
+    key: string;
+    source: DiffModelSource;
+    paths: DiffModelPaths;
+    // Set when the editor starts at this size and DiffPane lays it out: see `sizedOptions`.
+    dimension: monacoEditor.IDimension | undefined;
+    baseOptions: monacoEditor.IStandaloneDiffEditorConstructionOptions;
+    options: monacoEditor.IStandaloneDiffEditorConstructionOptions;
+  } | null>(null);
+  // The editor's last size, for one that mounts after the loading placeholder took its place.
+  const lastDimensionRef = useRef<monacoEditor.IDimension | undefined>(undefined);
+
   const handleEditorMount = useCallback(
-    (editor: monacoEditor.IStandaloneDiffEditor) => {
+    (editor: monacoEditor.IStandaloneDiffEditor, monaco: Monaco) => {
+      const shown = modelsRef.current;
+      const container = diffContainerRef.current;
+      if (shown?.dimension && container) {
+        const layout = () => {
+          const dimension = measureContainer(container);
+          if (!dimension) return;
+          lastDimensionRef.current = dimension;
+          editor.layout(dimension);
+        };
+        const resizeObserver = new ResizeObserver(layout);
+        resizeObserver.observe(container);
+        editor.getModifiedEditor().onDidDispose(() => resizeObserver.disconnect());
+      }
+      const models = editor.getModel();
+      if (shown && models) {
+        const release = retainDiffModels(shown.source, shown.paths, models, () =>
+          monaco.editor.getModels()
+        );
+        editor.getModifiedEditor().onDidDispose(() => {
+          release();
+          // An editor shown again later, as after a binary file, picks its models afresh.
+          if (modelsRef.current === shown) modelsRef.current = null;
+        });
+      }
+
       // In unified mode, hide the original editor's line numbers
       if (viewMode !== 'split') {
         editor.getOriginalEditor().updateOptions({
@@ -455,8 +599,11 @@ export function DiffPane({
       addMonacoShortcutForwarding(editor.getModifiedEditor());
       addMonacoShortcutForwarding(editor.getOriginalEditor());
 
-      // Reveal after the first diff computation completes (regions are collapsed)
-      const diffDisposable = editor.onDidUpdateDiff(() => {
+      // Reveal after the first diff computation completes (regions are collapsed), or at the
+      // deadline: a slow diff shows this file uncollapsed rather than the previous one.
+      const reveal = () => {
+        clearTimeout(revealDeadline);
+        diffDisposable.dispose();
         editorReadyRef.current = true;
         if (diffContainerRef.current) {
           diffContainerRef.current.style.visibility = 'visible';
@@ -464,13 +611,51 @@ export function DiffPane({
         if (backdropRef.current) {
           backdropRef.current.innerHTML = '';
         }
+      };
+      const diffDisposable = editor.onDidUpdateDiff(reveal);
+      const revealDeadline = setTimeout(reveal, DIFF_REVEAL_DEADLINE_MS);
+      // Monaco keeps the diffs of models shown before: one may have arrived before this ran.
+      if (editor.getLineChanges() !== null) reveal();
+      editor.getModifiedEditor().onDidDispose(() => {
+        clearTimeout(revealDeadline);
         diffDisposable.dispose();
       });
-      editor.onDidDispose(() => diffDisposable.dispose());
 
       onEditorMount?.(editor);
     },
     [viewMode, onEditorMount]
+  );
+
+  // Built once per change: the editor applies a new options object on every render it gets.
+  const oldContent = fileContent?.oldContent || '';
+  const newContent = fileContent?.newContent || '';
+  const lineCount = useMemo(
+    () => Math.max(countLines(oldContent), countLines(newContent)),
+    [oldContent, newContent]
+  );
+  const monacoLanguage = fileContent ? getFileLanguage(fileContent.path) : 'plaintext';
+  const isDeleted = fileContent?.status === 'deleted';
+  const editorOptions = useMemo(
+    () =>
+      buildDiffEditorOptions({
+        fontSize,
+        readOnly: readOnly || isDeleted,
+        viewMode,
+        lineNumbersMinChars: Math.max(viewMode === 'split' ? 2 : 1, String(lineCount).length),
+        validationDecorations: hasBuiltInLanguageIntelligence(monacoLanguage),
+        hideUnchangedRegions,
+        inlineBreakpointPx,
+      }),
+    [
+      fontSize,
+      readOnly,
+      isDeleted,
+      viewMode,
+      lineCount,
+      monacoLanguage,
+      hideUnchangedRegions,
+      inlineBreakpointPx,
+    ]
   );
 
   const statusFallback = renderDiffPaneStatus({
@@ -493,11 +678,6 @@ export function DiffPane({
   // renderDiffPaneStatus returned null, so fileContent is a non-binary, renderable diff.
   if (!fileContent) return null;
 
-  const oldContent = fileContent.oldContent || '';
-  const newContent = fileContent.newContent || '';
-  const lineCount = Math.max(oldContent.split('\n').length, newContent.split('\n').length);
-  const lineNumbersMinChars = Math.max(viewMode === 'split' ? 2 : 1, String(lineCount).length);
-
   if (hasContentChanged(prevContentRef.current, oldContent, newContent)) {
     prevContentRef.current = { old: oldContent, new: newContent };
     contentVersionRef.current++;
@@ -506,12 +686,10 @@ export function DiffPane({
     cleanContentVersionRef.current = contentVersionRef.current;
   }
 
-  const monacoLanguage = getFileLanguage(fileContent.path);
   const editorLanguage =
     monacoLanguage === 'plaintext'
       ? monacoLanguage
       : getShikiLanguage(fileContent.path, monacoLanguage);
-  const isDeleted = fileContent.status === 'deleted';
   const editorInstanceKey = buildDiffEditorKey({
     selectedFile,
     filePath: fileContent.path,
@@ -519,6 +697,27 @@ export function DiffPane({
     hideUnchangedRegions,
     contentVersion: cleanContentVersionRef.current,
   });
+
+  if (modelsRef.current?.key !== editorInstanceKey) {
+    const source = {
+      workingDirectory,
+      path: fileContent.path,
+      original: oldContent,
+      modified: newContent,
+    };
+    const dimension = measureContainer(diffContainerRef.current) ?? lastDimensionRef.current;
+    modelsRef.current = {
+      key: editorInstanceKey,
+      source,
+      paths: chooseDiffModelPaths(source),
+      dimension,
+      baseOptions: editorOptions,
+      options: sizedOptions(editorOptions, dimension),
+    };
+  } else if (modelsRef.current.baseOptions !== editorOptions) {
+    modelsRef.current.baseOptions = editorOptions;
+    modelsRef.current.options = sizedOptions(editorOptions, modelsRef.current.dimension);
+  }
 
   // When the editor key changes, snapshot the current editor DOM into the backdrop
   // and hide the new editor until its diff is ready.
@@ -549,63 +748,13 @@ export function DiffPane({
               Initializing editor&hellip;
             </div>
           }
+          originalModelPath={modelsRef.current.paths.original}
+          modifiedModelPath={modelsRef.current.paths.modified}
+          // diff-model-cache owns these models, to show this diff again without rebuilding them.
+          keepCurrentOriginalModel
+          keepCurrentModifiedModel
           onMount={handleEditorMount}
-          options={{
-            ...KOMLA_EDITOR_BASE_OPTIONS,
-            fontSize,
-            // Hide the regular vertical scrollbar; the fat diff overview ruler
-            // is itself interactive (click/drag to scroll) and serves as the
-            // sole scroll indicator in diff mode.
-            scrollbar: {
-              ...KOMLA_EDITOR_BASE_OPTIONS.scrollbar,
-              vertical: 'hidden',
-            },
-            readOnly: readOnly || isDeleted,
-            originalEditable: false,
-            renderSideBySide: viewMode === 'split',
-            scrollBeyondLastLine: false,
-            minimap: { enabled: false },
-            wordWrap: 'on',
-            lineNumbers: 'on',
-            lineNumbersMinChars,
-            lineDecorationsWidth: viewMode === 'split' ? 10 : 8,
-            glyphMargin: viewMode === 'split',
-            automaticLayout: true,
-            renderOverviewRuler: true,
-            overviewRulerBorder: false,
-            overviewRulerLanes: 1,
-            renderIndicators: false,
-            // A highlighted current line reads as one more change in a diff.
-            renderLineHighlight: 'none',
-            padding: { top: 16, bottom: 12 },
-            renderValidationDecorations: hasBuiltInLanguageIntelligence(monacoLanguage)
-              ? 'on'
-              : 'off',
-            renderMarginRevertIcon: viewMode === 'split',
-
-            // Hide unchanged regions to focus on changes
-            hideUnchangedRegions: {
-              enabled: hideUnchangedRegions,
-              revealLineCount: 2, // Lines to show around changes
-              minimumLineCount: 3, // Min unchanged lines before collapsing
-              contextLineCount: 2, // Context when expanded
-            },
-
-            // Auto-switch to unified view when editor is narrow
-            useInlineViewWhenSpaceIsLimited: true,
-            renderSideBySideInlineBreakpoint: inlineBreakpointPx,
-
-            // Sticky scroll for context (shows function/class headers)
-            stickyScroll: {
-              enabled: true,
-              maxLineCount: 3,
-            },
-
-            // Experimental moved code detection
-            experimental: {
-              showMoves: true,
-            },
-          }}
+          options={modelsRef.current.options}
         />
       </div>
     </div>

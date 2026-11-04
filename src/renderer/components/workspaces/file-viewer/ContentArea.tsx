@@ -600,7 +600,9 @@ export function ContentArea({
 
   // In diff mode, show diff
   const diffNode = (
-    <ErrorBoundary key={`diff:${selectedFile}:${viewMode}`}>
+    // A reset key, not a `key`: DiffPane stays mounted from file to file, so it shows the
+    // previous diff while the next one collapses and starts each editor at its size.
+    <ErrorBoundary resetKey={`diff:${selectedFile}:${viewMode}`}>
       <Suspense fallback={editorFallback}>
         <DiffPane
           workingDirectory={workingDirectory}

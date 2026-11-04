@@ -5,30 +5,94 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DiffPane } from '../../../../../src/renderer/components/workspaces/file-viewer/DiffPane';
+import { resetDiffModelCacheForTests } from '../../../../../src/renderer/components/workspaces/file-viewer/diff-model-cache';
 import { useCustomizationStore } from '../../../../../src/renderer/stores/customization.store';
 import { DEFAULT_TERMINAL_CONFIG } from '../../../../../src/shared/constants/terminal';
 
 import type { FileDiffContent } from '../../../../../src/renderer/types';
 
-vi.mock('@monaco-editor/react', () => ({
-  DiffEditor: ({
-    options,
-  }: {
-    options?: {
-      readOnly?: boolean;
-      renderSideBySideInlineBreakpoint?: number;
-      fontSize?: number;
-    };
-  }) => (
-    <div
-      data-read-only={String(options?.readOnly)}
-      data-font-size={String(options?.fontSize)}
-      data-inline-breakpoint={String(options?.renderSideBySideInlineBreakpoint)}
-    >
-      Diff Editor
-    </div>
-  ),
+const diffEditorProps = vi.hoisted(() => ({
+  options: [] as unknown[],
+  mountEditors: false,
+  // Models by URI, as Monaco keeps them, so a diff shown again finds the ones it left.
+  models: new Map<string, unknown>(),
 }));
+
+vi.mock('@monaco-editor/react', async () => {
+  const { useEffect } = await import('react');
+  const models = diffEditorProps.models as Map<string, ReturnType<typeof fakeModel>>;
+  function fakeModel(uri: string) {
+    let disposed = false;
+    const model = {
+      uri: { scheme: uri.split(':')[0], toString: () => uri },
+      getAlternativeVersionId: () => 1,
+      isDisposed: () => disposed,
+      isAttachedToEditor: () => false,
+      dispose: () => {
+        disposed = true;
+        models.delete(uri);
+      },
+    };
+    models.set(uri, model);
+    return model;
+  }
+  const monaco = { editor: { getModels: () => [...models.values()] } };
+
+  return {
+    DiffEditor: ({
+      options,
+      originalModelPath,
+      modifiedModelPath,
+      onMount,
+    }: {
+      options?: {
+        readOnly?: boolean;
+        renderSideBySideInlineBreakpoint?: number;
+        fontSize?: number;
+      };
+      originalModelPath?: string;
+      modifiedModelPath?: string;
+      onMount?: (editor: unknown, monaco: unknown) => void;
+    }) => {
+      diffEditorProps.options.push(options);
+      useEffect(() => {
+        if (!diffEditorProps.mountEditors || !originalModelPath || !modifiedModelPath) return;
+        const find = (uri: string) => models.get(uri) ?? fakeModel(uri);
+        const disposeListeners: (() => void)[] = [];
+        const inner = {
+          updateOptions: () => {},
+          onKeyDown: () => ({ dispose: () => {} }),
+          onDidDispose: (listener: () => void) => disposeListeners.push(listener),
+        };
+        onMount?.(
+          {
+            getModel: () => ({
+              original: find(originalModelPath),
+              modified: find(modifiedModelPath),
+            }),
+            getOriginalEditor: () => inner,
+            getModifiedEditor: () => inner,
+            onDidUpdateDiff: () => ({ dispose: () => {} }),
+            getLineChanges: () => [],
+          },
+          monaco
+        );
+        return () => disposeListeners.forEach((listener) => listener());
+        // Mounts once, like the editor, which swaps models in place.
+      }, []);
+      return (
+        <div
+          data-read-only={String(options?.readOnly)}
+          data-font-size={String(options?.fontSize)}
+          data-inline-breakpoint={String(options?.renderSideBySideInlineBreakpoint)}
+          data-original-model={originalModelPath}
+        >
+          Diff Editor
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('../../../../../src/renderer/hooks/useKomlaEditorTheme', () => ({
   useKomlaEditorTheme: () => ({ base: 'vs-dark', inherit: true, rules: [], colors: {} }),
@@ -133,6 +197,8 @@ describe('DiffPane', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDiffModelCacheForTests();
+    diffEditorProps.models.clear();
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -214,6 +280,41 @@ describe('DiffPane', () => {
     });
     expect(screen.getByText('Diff Editor')).toHaveAttribute('data-font-size', '17');
     useCustomizationStore.setState({ terminalConfig: null });
+  });
+
+  // The editor applies each new options object it gets, so a re-render must not make one.
+  it('hands the editor the same options until one changes', () => {
+    const { rerender } = render(
+      <DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />
+    );
+    rerender(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />);
+    const [first, second] = diffEditorProps.options.slice(-2);
+    expect(second).toBe(first);
+
+    rerender(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} readOnly />);
+    expect(diffEditorProps.options.at(-1)).not.toBe(first);
+  });
+
+  it('never shares a diff\'s models with another pane after showing a binary file', async () => {
+    diffEditorProps.mountEditors = true;
+    try {
+      const props = { ...baseProps, selectedFile: 'demo.ts' };
+      const first = render(<DiffPane {...props} fileContent={textDiff()} />);
+      first.rerender(
+        <DiffPane {...baseProps} selectedFile="demo.mp4" fileContent={binaryDiff()} />
+      );
+      // Let the closed editor's models go back to the cache.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      const second = render(<DiffPane {...props} fileContent={textDiff()} />);
+      first.rerender(<DiffPane {...props} fileContent={textDiff()} />);
+
+      const shown = (view: typeof first) =>
+        view.container.querySelector('[data-original-model]')?.getAttribute('data-original-model');
+      expect(shown(first)).toBeTruthy();
+      expect(shown(first)).not.toBe(shown(second));
+    } finally {
+      diffEditorProps.mountEditors = false;
+    }
   });
 
   // Monaco draws split as unified at or below this editor width.

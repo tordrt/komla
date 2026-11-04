@@ -154,13 +154,13 @@ describe('NewWorkspaceContextBar', () => {
     expect(trigger).toHaveAttribute('title', 'Choose project, Ctrl+N searches');
 
     await user.click(trigger);
-    const search = await screen.findByRole('menuitem', { name: /Search projects/ });
-    expect(search).toHaveTextContent(/Search projects…\s*Ctrl\+N$/);
+    const search = await screen.findByRole('menuitem', { name: /^Search…/ });
+    expect(search).toHaveTextContent(/^Search…\s*Ctrl\+N$/);
     await user.click(search);
     await nextTick();
 
     expect(await screen.findByRole('combobox', { name: 'Search projects' })).toHaveFocus();
-    expect(screen.queryByRole('menuitem', { name: /Search projects/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /^Search…/ })).not.toBeInTheDocument();
   });
 
   it('keeps the project search open when opened from the open project dropdown', async () => {

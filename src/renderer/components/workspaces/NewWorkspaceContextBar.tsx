@@ -128,7 +128,7 @@ function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={activeMatch ? optionId(activeMatch.id) : undefined}
-          placeholder="Search projects…"
+          placeholder="Search…"
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -438,6 +438,8 @@ export function NewWorkspaceProjectPicker({
           <DropdownMenuContent
             align="start"
             collisionPadding={8}
+            // Narrower than other menus: its rows are short, and long project names widen it.
+            className="min-w-36"
             onCloseAutoFocus={(event) => {
               if (!openSearchAfterMenuRef.current) return refocusPrompt(event);
               openSearchAfterMenuRef.current = false;
@@ -450,7 +452,7 @@ export function NewWorkspaceProjectPicker({
               className="text-muted-foreground"
             >
               <MagnifyingGlass />
-              Search projects…
+              Search…
               {searchShortcut && <DropdownMenuShortcut>{searchShortcut}</DropdownMenuShortcut>}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -470,7 +472,7 @@ export function NewWorkspaceProjectPicker({
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onAddProject} className="text-muted-foreground">
               <Plus />
-              Add new project…
+              Add project…
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onOpenFolderWorkspace} className="text-muted-foreground">
               <FolderOpen />

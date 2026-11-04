@@ -476,7 +476,7 @@ describe('NewWorkspaceDialog UI fixes', () => {
     render(<NewWorkspaceDialog open={true} onOpenChange={onOpenChange} />);
     await screen.findByPlaceholderText('komla/swift-fox');
 
-    await user.click(screen.getByRole('button', { name: /add new project/i }));
+    await user.click(screen.getByRole('button', { name: /^add project…$/i }));
     await user.click(screen.getByRole('button', { name: /clone from remote/i }));
     // Pasted rather than typed: rendering the dialog for each character took long enough
     // to time out on a busy computer.

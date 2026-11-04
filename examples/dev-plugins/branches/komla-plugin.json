@@ -1,0 +1,21 @@
+{
+  "_version": 1,
+  "id": "branches",
+  "name": "Branches",
+  "version": "0.1.0",
+  "description": "The repository's local branches, most recent first, with buttons to fetch and prune. Its panel's command is a script in the plugin's folder.",
+  "contributes": {
+    "sidebarPanels": [
+      {
+        "id": "branches",
+        "title": "Branches",
+        "command": "sh \"$KOMLA_PLUGIN_DIR/bin/branches.sh\"",
+        "refreshOn": ["branch.changed"],
+        "commands": {
+          "fetch": "git fetch --all --prune",
+          "gone": "git branch -vv | awk '/: gone]/{print $1}' | xargs -r git branch -d"
+        }
+      }
+    ]
+  }
+}

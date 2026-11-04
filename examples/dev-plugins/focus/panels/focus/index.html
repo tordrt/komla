@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/__komla/komla.css" />
+    <style>
+      .clock {
+        font-size: 40px;
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+        padding: 24px 0 8px;
+      }
+      .buttons {
+        display: flex;
+        gap: 6px;
+        justify-content: center;
+      }
+    </style>
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <main class="k-stack">
+      <div id="clock" class="clock">--:--</div>
+      <div class="k-progress" id="progress" style="--value: 0"></div>
+      <div class="buttons">
+        <button id="start" class="k-button k-primary">Start</button>
+        <button id="reset" class="k-button">Reset</button>
+      </div>
+      <p id="note" class="k-muted" style="text-align: center">
+        One timer for every workspace, in the status bar too.
+      </p>
+    </main>
+  </body>
+</html>

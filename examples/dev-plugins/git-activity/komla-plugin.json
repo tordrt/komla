@@ -1,0 +1,27 @@
+{
+  "_version": 1,
+  "id": "git-activity",
+  "name": "Git activity",
+  "version": "0.1.0",
+  "description": "The branch's recent commits beside Diff and Files, and how far it is ahead of its upstream in the status bar. Shell commands only.",
+  "contributes": {
+    "sidebarPanels": [
+      {
+        "id": "commits",
+        "title": "Commits",
+        "command": "git log -25 --color=always --graph --date=relative --format='%C(auto)%h%d %Creset%s %C(dim)%an, %ad'",
+        "refreshOn": ["branch.changed"]
+      }
+    ],
+    "statusItems": [
+      {
+        "id": "ahead",
+        "label": "Commits ahead",
+        "command": "n=$(git rev-list --count @{u}..HEAD 2>/dev/null) && [ \"$n\" -gt 0 ] && printf '\\357\\201\\242 %s ahead\\nCommits on this branch not pushed yet. Click to see them.\\n' \"$n\" || true",
+        "intervalSeconds": 600,
+        "refreshOn": ["branch.changed"],
+        "panel": "commits"
+      }
+    ]
+  }
+}

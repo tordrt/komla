@@ -1,0 +1,26 @@
+{
+  "_version": 1,
+  "id": "todos",
+  "name": "TODOs",
+  "version": "0.1.0",
+  "description": "Every TODO and FIXME in the repository, by file, with a count on the panel's tab. Plugin code feeds the panel's own page.",
+  "main": "main.ts",
+  "settings": [
+    {
+      "id": "words",
+      "title": "Words to find",
+      "type": "text",
+      "default": "TODO|FIXME",
+      "description": "A regular expression, as git grep -E takes it."
+    }
+  ],
+  "contributes": {
+    "sidebarPanels": [
+      {
+        "id": "todos",
+        "title": "TODOs",
+        "page": "panels/todos"
+      }
+    ]
+  }
+}

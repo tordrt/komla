@@ -26,6 +26,7 @@
     "dev:fresh": "bash scripts/dev.sh sandbox-fresh",
     "dev:sandbox": "bash scripts/dev.sh sandbox",
     "dev:sandbox:clean": "bash scripts/dev.sh sandbox-clean",
+    "dev:plugins": "bash scripts/dev-plugins.sh",
     "preview": "bash scripts/link-deps.sh && node scripts/ensure-native-modules.cjs && env -u NODE_ENV KOMLA_DIAGNOSTICS=1 electron-vite preview",
     "build": "bash scripts/link-deps.sh && npm --workspace komla-remote-web run build:web && electron-vite build",
     "build:native": "bash scripts/build-native.sh",

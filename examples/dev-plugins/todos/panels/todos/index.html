@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/__komla/komla.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <header class="k-header">
+      <div class="k-toolbar">
+        <label class="k-search">
+          <span class="k-icon" aria-hidden="true">&#xea6d;</span>
+          <input
+            id="filter"
+            class="k-input"
+            type="search"
+            placeholder="Filter TODOs"
+            aria-label="Filter TODOs"
+          />
+        </label>
+        <button id="refresh" class="k-icon-button" title="Look again" aria-label="Look again">
+          <span class="k-icon">&#xeb37;</span>
+        </button>
+      </div>
+      <div class="k-meta"><span id="summary">Looking…</span></div>
+    </header>
+    <div id="notice" class="k-banner k-error" hidden></div>
+    <main id="list">
+      <div class="k-stack">
+        <div class="k-skeleton"></div>
+        <div class="k-skeleton"></div>
+        <div class="k-skeleton"></div>
+      </div>
+    </main>
+  </body>
+</html>

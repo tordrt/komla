@@ -1,0 +1,36 @@
+{
+  "_version": 1,
+  "id": "focus",
+  "name": "Focus timer",
+  "version": "0.2.0",
+  "description": "One focus timer for every workspace: its time left in the status bar and on the panel's tab, and a notification when it's up. Plugin code keeps the timer; the page and a status item show it.",
+  "main": "main.ts",
+  "settings": [
+    {
+      "id": "minutes",
+      "title": "Minutes",
+      "type": "number",
+      "default": 25,
+      "description": "How long a focus session lasts."
+    }
+  ],
+  "contributes": {
+    "sidebarPanels": [
+      {
+        "id": "focus",
+        "title": "Focus",
+        "page": "panels/focus"
+      }
+    ],
+    "statusItems": [
+      {
+        "id": "clock",
+        "label": "Focus timer",
+        "runOn": "local",
+        "command": "f=\"$HOME/.cache/komla-focus-timer\"; [ -f \"$f\" ] || exit 0; read state a b < \"$f\"; now=$(date +%s); case \"$state\" in running) left=$((a - now)); [ \"$left\" -lt 0 ] && left=0; printf '\\357\\200\\227 %dm\\nFocus: %d:%02d left. Click to pause or reset it.\\n' $(((left + 59) / 60)) $((left / 60)) $((left % 60)) ;; paused) printf '\\357\\201\\214 %dm\\nFocus timer paused. Click to resume it.\\n' $(((a + 59) / 60)) ;; done) [ $((now - a)) -lt 300 ] && printf '\\357\\200\\214 Break\\nFocus time is up. Take a break.\\n' ;; esac; exit 0",
+        "intervalSeconds": 10,
+        "panel": "focus"
+      }
+    ]
+  }
+}

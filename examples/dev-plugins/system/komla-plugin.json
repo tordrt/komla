@@ -1,0 +1,36 @@
+{
+  "_version": 1,
+  "id": "system",
+  "name": "System",
+  "version": "0.1.0",
+  "description": "This computer's load, disk and busiest processes, and the ports something listens on: two panels and a status item, shell commands only.",
+  "contributes": {
+    "sidebarPanels": [
+      {
+        "id": "processes",
+        "title": "Processes",
+        "runOn": "local",
+        "command": "uptime; echo; df -h . | sed 1d | awk '{print \"Disk  \" $5 \" used, \" $4 \" free\"}'; echo; ps -Ao pcpu,pmem,comm | sed 1d | sort -rn | head -12 | awk '{n = split($3, path, \"/\"); printf \"\\033[33m%5s%%\\033[0m %5s%%  %s\\n\", $1, $2, path[n]}'",
+        "intervalSeconds": 10
+      },
+      {
+        "id": "ports",
+        "title": "Ports",
+        "runOn": "local",
+        "command": "(lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null || ss -ltnp 2>/dev/null) | awk 'NR==1{print \"\\033[1m\" $0 \"\\033[0m\"; next} {print}'",
+        "intervalSeconds": 30,
+        "refreshOn": ["agent.done"]
+      }
+    ],
+    "statusItems": [
+      {
+        "id": "load",
+        "label": "Load average",
+        "runOn": "local",
+        "command": "l=$(uptime | sed 's/.*load averages*: //' | awk '{gsub(\",\",\"\"); print $1}') && printf '\\357\\203\\244 %s\\nLoad average over the last minute. Click for the busiest processes.\\n' \"$l\"",
+        "intervalSeconds": 15,
+        "panel": "processes"
+      }
+    ]
+  }
+}

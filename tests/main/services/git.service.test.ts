@@ -1030,16 +1030,21 @@ branch refs/heads/feature/branch`,
 
     it('should fail when no remote tracking branch exists', async () => {
       execFileMock.mockCommand(/git status --porcelain/, { stdout: '' });
-      execFileMock.mockCommand(/git rev-parse --abbrev-ref HEAD/, { stdout: 'local-branch' });
-      execFileMock.mockCommand(/git config --get branch\.local-branch\.remote/, {
+      execFileMock.mockCommand(/git symbolic-ref --quiet HEAD/, {
+        stdout: 'refs/heads/local-branch',
+      });
+      execFileMock.mockCommand(/git config --get branch\.local-branch\.merge/, {
         error: 'not found',
         exitCode: 1,
       });
       // Fallback check for remote ref also fails
-      execFileMock.mockCommand(/git rev-parse --verify origin\/local-branch/, {
-        error: 'not found',
-        exitCode: 128,
-      });
+      execFileMock.mockCommand(
+        /git rev-parse --verify --quiet refs\/remotes\/origin\/local-branch/,
+        {
+          error: 'not found',
+          exitCode: 128,
+        }
+      );
 
       const { gitService } = await import('../../../src/main/services/git.service');
       const result = await gitService.pull('/path/to/repo');
@@ -1050,12 +1055,12 @@ branch refs/heads/feature/branch`,
 
     it('should pull successfully when tracking branch exists via remote ref fallback', async () => {
       execFileMock.mockCommand(/git status --porcelain/, { stdout: '' });
-      execFileMock.mockCommand(/git rev-parse --abbrev-ref HEAD/, { stdout: 'topic' });
-      execFileMock.mockCommand(/git config --get branch\.topic\.remote/, {
+      execFileMock.mockCommand(/git symbolic-ref --quiet HEAD/, { stdout: 'refs/heads/topic' });
+      execFileMock.mockCommand(/git config --get branch\.topic\.merge/, {
         error: 'not found',
         exitCode: 1,
       });
-      execFileMock.mockCommand(/git rev-parse --verify origin\/topic/, {
+      execFileMock.mockCommand(/git rev-parse --verify --quiet refs\/remotes\/origin\/topic/, {
         stdout: 'abc123',
       });
 
@@ -1065,6 +1070,9 @@ branch refs/heads/feature/branch`,
       await vi.waitFor(() => {
         expect(spawnMock.spawn).toHaveBeenCalled();
       });
+      expect(spawnMock.spawn.mock.lastCall?.[1]).toEqual(
+        expect.arrayContaining(['pull', '--no-rebase', 'origin', 'topic'])
+      );
 
       const proc = spawnMock.getLatestProcess();
       expect(proc).toBeDefined();
@@ -1078,9 +1086,11 @@ branch refs/heads/feature/branch`,
 
     it('should parse pull conflicts from status output after failure', async () => {
       execFileMock.mockCommand(/git status --porcelain/, { stdout: '' });
-      execFileMock.mockCommand(/git rev-parse --abbrev-ref HEAD/, { stdout: 'feature-branch' });
-      execFileMock.mockCommand(/git config --get branch\.feature-branch\.remote/, {
-        stdout: 'origin',
+      execFileMock.mockCommand(/git symbolic-ref --quiet HEAD/, {
+        stdout: 'refs/heads/feature-branch',
+      });
+      execFileMock.mockCommand(/git config --get branch\.feature-branch\.merge/, {
+        stdout: 'refs/heads/feature-branch',
       });
 
       const baseImpl = execFileMock.execFile.getMockImplementation();

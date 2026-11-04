@@ -1135,6 +1135,14 @@ describe('GitBranchService', () => {
   });
 
   describe('pull', () => {
+    // pull() reads the live HEAD and looks up the branch's upstream itself.
+    async function setupPull({ branch }: { branch?: string } = { branch: 'feature' }) {
+      const ctx = await setup();
+      ctx.hasUncommittedChangesSpy.mockResolvedValue(false);
+      vi.spyOn(ctx.gitExec, 'getCheckedOutBranch').mockResolvedValue(branch);
+      return ctx;
+    }
+
     it('refuses with uncommitted changes', async () => {
       const { gitBranchService, hasUncommittedChangesSpy } = await setup();
       hasUncommittedChangesSpy.mockResolvedValue(true);
@@ -1143,26 +1151,30 @@ describe('GitBranchService', () => {
     });
 
     it('refuses without remote tracking branch', async () => {
-      const { gitBranchService, hasUncommittedChangesSpy, hasRemoteTrackingBranchSpy } =
-        await setup();
-      hasUncommittedChangesSpy.mockResolvedValue(false);
-      hasRemoteTrackingBranchSpy.mockResolvedValue(false);
+      const { gitBranchService, execSpy, execGitWithProgressSpy } = await setupPull();
+      execSpy
+        .mockRejectedValueOnce(new Error('no branch.feature.merge'))
+        .mockRejectedValueOnce(new Error('no origin/feature'));
       const result = await gitBranchService.pull('/repo');
       expect(result).toEqual({ success: false, message: 'No remote tracking branch configured' });
+      expect(execGitWithProgressSpy).not.toHaveBeenCalled();
+    });
+
+    // origin/HEAD would otherwise pass for origin/<branch> and merge origin's default branch.
+    it('refuses on a detached HEAD', async () => {
+      const { gitBranchService, execGitWithProgressSpy } = await setupPull({});
+      const result = await gitBranchService.pull('/repo');
+      expect(result).toEqual({ success: false, message: 'No branch is checked out to pull' });
+      expect(execGitWithProgressSpy).not.toHaveBeenCalled();
     });
 
     it('reports already up to date', async () => {
-      const {
-        gitBranchService,
-        hasUncommittedChangesSpy,
-        hasRemoteTrackingBranchSpy,
-        execGitWithProgressSpy,
-      } = await setup();
-      hasUncommittedChangesSpy.mockResolvedValue(false);
-      hasRemoteTrackingBranchSpy.mockResolvedValue(true);
+      const { gitBranchService, execSpy, execGitWithProgressSpy } = await setupPull();
+      execSpy.mockResolvedValueOnce('refs/heads/feature');
       execGitWithProgressSpy.mockResolvedValue('Already up to date.');
       const result = await gitBranchService.pull('/repo');
       expect(result).toEqual({ success: true, message: 'Already up to date' });
+      expect(execSpy).toHaveBeenCalledWith('/repo', ['config', '--get', 'branch.feature.merge']);
       expect(execGitWithProgressSpy).toHaveBeenCalledWith(
         '/repo',
         ['pull', '--no-rebase', '--progress'],
@@ -1171,19 +1183,37 @@ describe('GitBranchService', () => {
       );
     });
 
+    // Worktrees of a bare clone have origin/<branch> but no upstream config, and the Git menu
+    // offers Pull for them; a bare `git pull` would fail with "no tracking information".
+    it('pulls origin/<branch> explicitly when the branch has no upstream configured', async () => {
+      const { gitBranchService, execSpy, execGitWithProgressSpy } = await setupPull();
+      execSpy
+        .mockRejectedValueOnce(new Error('no branch.feature.merge'))
+        .mockResolvedValueOnce('abc123');
+      execGitWithProgressSpy.mockResolvedValue('');
+
+      const result = await gitBranchService.pull('/repo');
+
+      expect(result).toEqual({ success: true, message: 'Pulled changes successfully' });
+      expect(execSpy).toHaveBeenLastCalledWith('/repo', [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        'refs/remotes/origin/feature',
+      ]);
+      expect(execGitWithProgressSpy).toHaveBeenCalledWith(
+        '/repo',
+        ['pull', '--no-rebase', 'origin', 'feature', '--progress'],
+        undefined,
+        { enableAskpass: true }
+      );
+    });
+
     it('invalidates the dirty-state cache when leaving a pull conflict paused', async () => {
-      const {
-        gitBranchService,
-        hasUncommittedChangesSpy,
-        hasRemoteTrackingBranchSpy,
-        execGitWithProgressSpy,
-        execSpy,
-        invalidateCacheSpy,
-      } = await setup();
-      hasUncommittedChangesSpy.mockResolvedValue(false);
-      hasRemoteTrackingBranchSpy.mockResolvedValue(true);
+      const { gitBranchService, execGitWithProgressSpy, execSpy, invalidateCacheSpy } =
+        await setupPull();
+      execSpy.mockResolvedValueOnce('refs/heads/feature').mockResolvedValueOnce('UU file.txt\n');
       execGitWithProgressSpy.mockRejectedValue(new Error('Merge conflict'));
-      execSpy.mockResolvedValueOnce('UU file.txt\n');
 
       const result = await gitBranchService.pull('/repo');
 

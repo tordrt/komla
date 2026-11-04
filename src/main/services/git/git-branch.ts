@@ -1507,6 +1507,31 @@ class GitBranchService {
     }
   }
 
+  /**
+   * Arguments naming what `git pull` pulls from: none when the branch has upstream config, so
+   * git follows it, or `origin <branch>` when only the remote ref exists, as in worktrees of a
+   * bare clone. Null when the branch has neither.
+   */
+  private async resolvePullSource(worktreePath: string, branch: string): Promise<string[] | null> {
+    try {
+      // A plain pull needs the merge ref; git takes the remote from config or defaults to origin.
+      await gitExec.execGitAsync(worktreePath, ['config', '--get', `branch.${branch}.merge`]);
+      return [];
+    } catch {
+      try {
+        await gitExec.execGitAsync(worktreePath, [
+          'rev-parse',
+          '--verify',
+          '--quiet',
+          `refs/remotes/origin/${branch}`,
+        ]);
+        return ['origin', branch];
+      } catch {
+        return null;
+      }
+    }
+  }
+
   async pull(
     worktreePath: string,
     onProgress?: GitProgressCallback
@@ -1518,15 +1543,19 @@ class GitBranchService {
         return { success: false, message: `${UNCOMMITTED_CHANGES_PREFIX} pulling` };
       }
 
-      // Check if we have a remote tracking branch
-      const hasRemote = await gitExec.hasRemoteTrackingBranch(worktreePath);
-      if (!hasRemote) {
+      // Read HEAD live: the cached branch can be stale after a checkout in a terminal.
+      const branch = await gitExec.getCheckedOutBranch(worktreePath);
+      if (!branch) {
+        return { success: false, message: 'No branch is checked out to pull' };
+      }
+      const source = await this.resolvePullSource(worktreePath, branch);
+      if (!source) {
         return { success: false, message: 'No remote tracking branch configured' };
       }
 
       const output = await gitExec.execGitWithProgress(
         worktreePath,
-        ['pull', '--no-rebase', '--progress'],
+        ['pull', '--no-rebase', ...source, '--progress'],
         onProgress,
         { enableAskpass: true }
       );

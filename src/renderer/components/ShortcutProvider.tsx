@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { CommandCenterDialog } from '@/components/command-center/CommandCenterDialog';
 import { VoiceInputOverlay } from '@/components/VoiceInputOverlay';
@@ -19,6 +20,7 @@ import { closePaneBrowserTab } from '@/lib/pane-surfaces';
 import { registerShortcutAction, executeShortcutAction } from '@/lib/shortcut-actions';
 import { toggleSidebarCollapsed } from '@/lib/sidebar-collapsed';
 import { findNextAttentionWorkspaceId } from '@/lib/workspace-attention';
+import { useWorkspacesExceptTitles } from '@/lib/workspace-except-titles';
 import { isWorkspaceHostVisible } from '@/lib/workspace-host';
 import { orderWorkspacesForShortcuts } from '@/lib/workspace-shortcut-order';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
@@ -78,27 +80,36 @@ interface ShortcutProviderProps {
  * so they can be triggered from xterm's custom key handler.
  */
 export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: ShortcutProviderProps) {
-  const {
-    workspaces,
-    selectedWorkspaceId,
-    selectWorkspace,
-    showDashboard,
-    displayOrderedWorkspaceIds,
-    hiddenWorkspaceHostIds,
-    hideStopped,
-    hiddenProjectIds,
-    selectionMode,
-    selectedWorkspaceIds,
-    addTerminal,
-    addAgentTab,
-    stopWorkspace,
-    trashWorkspaceWithUndo,
-    trashSelectedWorkspaces,
-    deleteSelectedWorkspaces,
-  } = useWorkspacesStore();
-  const { addTab, showTabInFullPane, selectNextTab, selectPreviousTab } = useLayoutStore();
-  const { requestInlineFilePreviewClose, toggleInlineFileTree, requestFileViewerTransition } =
-    useFileViewerStore();
+  // Each a selector of its own: this wraps the whole app, and subscribed to whole stores it
+  // re-rendered, and re-registered every shortcut, on any change to them, e.g. each pane focus.
+  // The handlers show no titles, so an agent's spinner doesn't re-render it either.
+  const workspaces = useWorkspacesStore(useWorkspacesExceptTitles((s) => s.workspaces));
+  const selectedWorkspaceId = useWorkspacesStore((s) => s.selectedWorkspaceId);
+  const selectWorkspace = useWorkspacesStore((s) => s.selectWorkspace);
+  const showDashboard = useWorkspacesStore((s) => s.showDashboard);
+  const displayOrderedWorkspaceIds = useWorkspacesStore((s) => s.displayOrderedWorkspaceIds);
+  const hiddenWorkspaceHostIds = useWorkspacesStore((s) => s.hiddenWorkspaceHostIds);
+  const hideStopped = useWorkspacesStore((s) => s.hideStopped);
+  const hiddenProjectIds = useWorkspacesStore((s) => s.hiddenProjectIds);
+  const selectionMode = useWorkspacesStore((s) => s.selectionMode);
+  const selectedWorkspaceIds = useWorkspacesStore((s) => s.selectedWorkspaceIds);
+  // The bulk dialogs list these by title, so they follow title changes.
+  const bulkSelectedWorkspaces = useWorkspacesStore(
+    useShallow((s) => s.workspaces.filter((w) => s.selectedWorkspaceIds.has(w.id)))
+  );
+  const addTerminal = useWorkspacesStore((s) => s.addTerminal);
+  const addAgentTab = useWorkspacesStore((s) => s.addAgentTab);
+  const stopWorkspace = useWorkspacesStore((s) => s.stopWorkspace);
+  const trashWorkspaceWithUndo = useWorkspacesStore((s) => s.trashWorkspaceWithUndo);
+  const trashSelectedWorkspaces = useWorkspacesStore((s) => s.trashSelectedWorkspaces);
+  const deleteSelectedWorkspaces = useWorkspacesStore((s) => s.deleteSelectedWorkspaces);
+  const addTab = useLayoutStore((s) => s.addTab);
+  const showTabInFullPane = useLayoutStore((s) => s.showTabInFullPane);
+  const selectNextTab = useLayoutStore((s) => s.selectNextTab);
+  const selectPreviousTab = useLayoutStore((s) => s.selectPreviousTab);
+  const requestInlineFilePreviewClose = useFileViewerStore((s) => s.requestInlineFilePreviewClose);
+  const toggleInlineFileTree = useFileViewerStore((s) => s.toggleInlineFileTree);
+  const requestFileViewerTransition = useFileViewerStore((s) => s.requestFileViewerTransition);
   const currentWindowId = useWindowStore((s) => s.windowId);
   const [bulkTrashDialogOpen, setBulkTrashDialogOpen] = useState(false);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
@@ -760,13 +771,13 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
       <BulkTrashDialog
         open={bulkTrashDialogOpen}
         onOpenChange={setBulkTrashDialogOpen}
-        workspaces={workspaces.filter((w) => selectedWorkspaceIds.has(w.id))}
+        workspaces={bulkSelectedWorkspaces}
         onConfirm={() => void trashSelectedWorkspaces()}
       />
       <BulkDeleteDialog
         open={bulkDeleteDialogOpen}
         onOpenChange={setBulkDeleteDialogOpen}
-        workspaces={workspaces.filter((w) => selectedWorkspaceIds.has(w.id))}
+        workspaces={bulkSelectedWorkspaces}
         onConfirm={(deleteBranch) => void deleteSelectedWorkspaces(true, deleteBranch)}
       />
       <CommandCenterDialog

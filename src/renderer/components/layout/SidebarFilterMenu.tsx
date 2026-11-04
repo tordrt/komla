@@ -26,6 +26,7 @@ import { ToneDot, UntaggedDot } from '@/components/workspaces/WorkspaceTagMenu';
 import { getProjectColor } from '@/lib/project-colors';
 import { getProjectMoveIndex } from '@/lib/project-order';
 import { cn } from '@/lib/utils';
+import { useWorkspacesExceptTitles } from '@/lib/workspace-except-titles';
 import {
   getWorkspaceHostId,
   isWorkspaceHostVisible,
@@ -172,9 +173,10 @@ function useTagFilterOptions(windowWorkspaces: Workspace[]) {
  * workspaces the filters hide in this window.
  */
 export function SidebarFilterMenu() {
-  const { workspaces, grouping, hiddenProjectIds, hiddenWorkspaceHostIds } = useWorkspacesStore(
+  // It shows no titles, so an agent's spinner doesn't re-render it.
+  const workspaces = useWorkspacesStore(useWorkspacesExceptTitles((s) => s.workspaces));
+  const { grouping, hiddenProjectIds, hiddenWorkspaceHostIds } = useWorkspacesStore(
     useShallow((s) => ({
-      workspaces: s.workspaces,
       grouping: s.grouping,
       hiddenProjectIds: s.hiddenProjectIds,
       hiddenWorkspaceHostIds: s.hiddenWorkspaceHostIds,

@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
 import { useConfigStore } from '@/stores/config.store';
 import { useWorkspaceObservationStore } from '@/stores/workspace-observation.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -244,8 +245,8 @@ function PullRequestItem({ workspaceId }: { workspaceId: string }) {
 
 /** The pull request of the open workspace's branch, with how its checks stand. */
 export function PullRequestStatusSegment() {
-  const workspace = useWorkspacesStore((s) =>
-    s.workspaces.find((w) => w.id === s.selectedWorkspaceId)
+  const workspace = useWorkspacesStore(
+    useWorkspaceExceptTitles((s) => s.workspaces.find((w) => w.id === s.selectedWorkspaceId))
   );
   if (!workspace?.isWorktree) return null;
   // Keyed, so one workspace's pull request never shows under another's.

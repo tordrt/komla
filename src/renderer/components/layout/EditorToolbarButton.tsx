@@ -12,6 +12,7 @@ import {
 import { IconButton } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
 import { useConfigStore } from '@/stores/config.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { isSshWorkspace } from '@/types';
@@ -20,8 +21,11 @@ import { TITLE_BAR_ICON_BUTTON_CLASS } from './title-bar-metrics';
 
 /** The editors and file manager the selected workspace can open in, with the default first choice. */
 export function useEditorOptions() {
-  const selectedWorkspace = useWorkspacesStore((s) =>
-    s.selectedWorkspaceId ? s.workspaces.find((w) => w.id === s.selectedWorkspaceId) : null
+  // It shows no titles, so an agent's spinner doesn't re-render it.
+  const selectedWorkspace = useWorkspacesStore(
+    useWorkspaceExceptTitles((s) =>
+      s.selectedWorkspaceId ? s.workspaces.find((w) => w.id === s.selectedWorkspaceId) : undefined
+    )
   );
   const config = useConfigStore((s) => s.config);
   const [availableEditors, setAvailableEditors] = useState<{ id: string; name: string }[]>([]);

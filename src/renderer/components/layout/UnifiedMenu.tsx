@@ -53,6 +53,7 @@ import { useActionLauncher } from '@/hooks/useActionLauncher';
 import { findActionForProject } from '@/lib/action-visibility';
 import { formatRelativeTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
+import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
 import { useActionsStore } from '@/stores/actions.store';
 import { useConfigStore } from '@/stores/config.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
@@ -368,8 +369,9 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
 
   // Get active workspace info. The menu reads only the active workspace and its status, so
   // updates to other workspaces, as their agents run, don't re-render it.
-  const activeWorkspace = useWorkspacesStore((s) =>
-    s.workspaces.find((w) => w.id === s.selectedWorkspaceId)
+  // It shows no titles, so an agent's spinner doesn't re-render it.
+  const activeWorkspace = useWorkspacesStore(
+    useWorkspaceExceptTitles((s) => s.workspaces.find((w) => w.id === s.selectedWorkspaceId))
   );
   // Only this workspace's newest operation, so progress elsewhere doesn't re-render the menu.
   const gitOperation = useGitProgressStore((s) =>

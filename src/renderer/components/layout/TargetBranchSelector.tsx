@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
 import { useConfigStore } from '@/stores/config.store';
 import { useGitProgressStore } from '@/stores/git-progress.store';
 import { useGitStatusStore } from '@/stores/git-status.store';
@@ -55,8 +56,9 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
   const tooltipSide = branchTooltipSide(inStatusBar);
   // Reads only the active workspace and its status, so updates to other workspaces, as their
   // agents run, don't re-render it.
-  const activeWorkspace = useWorkspacesStore((s) =>
-    s.workspaces.find((w) => w.id === s.selectedWorkspaceId)
+  // It shows no titles, so an agent's spinner doesn't re-render it.
+  const activeWorkspace = useWorkspacesStore(
+    useWorkspaceExceptTitles((s) => s.workspaces.find((w) => w.id === s.selectedWorkspaceId))
   );
   const updateWorkspace = useWorkspacesStore((s) => s.updateWorkspace);
   const projects = useProjectsStore((s) => s.projects);

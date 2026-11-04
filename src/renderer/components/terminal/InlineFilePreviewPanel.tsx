@@ -14,6 +14,7 @@ import { getNoteName } from '@/lib/notes';
 import { hasUnsavedFilePane } from '@/lib/pane-surfaces';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { cn } from '@/lib/utils';
+import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
 import { findRenameSource, useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { usePaneSurfacesStore } from '@/stores/pane-surfaces.store';
@@ -119,7 +120,10 @@ export function InlineFilePreviewPanel({
   const lastWorktreeEventAt = useWorktreeEventsStore(
     (s) => s.lastEventByWorkspace[workspaceId] ?? 0
   );
-  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
+  // It shows no titles, so an agent's spinner doesn't re-render it.
+  const workspace = useWorkspacesStore(
+    useWorkspaceExceptTitles((s) => s.workspaces.find((w) => w.id === workspaceId))
+  );
   const isRemoteWorkspace = workspace?.backend?.kind === 'ssh';
   // A note isn't a workspace file; its editor reads and saves it.
   const noteName = previewState.open ? getNoteName(previewState.filePath) : null;

@@ -29,6 +29,7 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/compon
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openCustomizeAgent } from '@/lib/customize-agent';
 import { openKomlaGitHub } from '@/lib/komla-github';
+import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
 import { useActionsStore } from '@/stores/actions.store';
 import { offerKomlaSkillInstall } from '@/stores/agent-launch-defaults-dialog.store';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
@@ -251,8 +252,11 @@ export function GettingStartedMenu({
     )
   );
   const hideButtonOnClose = useRef(false);
-  const selectedWorkspace = useWorkspacesStore((s) =>
-    s.workspaces.find((workspace) => workspace.id === s.selectedWorkspaceId)
+  // It shows no titles, so an agent's spinner doesn't re-render it.
+  const selectedWorkspace = useWorkspacesStore(
+    useWorkspaceExceptTitles((s) =>
+      s.workspaces.find((workspace) => workspace.id === s.selectedWorkspaceId)
+    )
   );
   const selectedWorkspaceId = selectedWorkspace?.id;
   // Agent-led setup opens as tabs in the open workspace. SSH workspaces run agents

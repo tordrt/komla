@@ -14,6 +14,7 @@ import {
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
 import { formatRelativeTime } from '@/lib/format-time';
+import { useWorkspacesExceptTitles } from '@/lib/workspace-except-titles';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -117,7 +118,8 @@ function BranchGroupList({
 
 /** The SSH hosts where a project has workspaces, each of which keeps its own clone. */
 function useProjectHosts(projectId: string, hostId: string | null) {
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  // It shows no titles, so an agent's spinner doesn't re-render it.
+  const workspaces = useWorkspacesStore(useWorkspacesExceptTitles((s) => s.workspaces));
   const hosts = useSshHostsStore((s) => s.hosts);
   return useMemo(() => {
     const hostIds = new Set(

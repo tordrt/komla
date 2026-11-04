@@ -78,10 +78,11 @@ const {
 });
 
 vi.mock('../../../src/renderer/stores/workspaces.store', () => ({
-  useWorkspacesStore: Object.assign(() => workspaceState, {
-    getState: () => workspaceState,
-    setState: setWorkspaceState,
-  }),
+  useWorkspacesStore: Object.assign(
+    (selector?: (state: typeof workspaceState) => unknown) =>
+      selector ? selector(workspaceState) : workspaceState,
+    { getState: () => workspaceState, setState: setWorkspaceState }
+  ),
 }));
 
 vi.mock('../../../src/renderer/stores/window.store', () => ({
@@ -90,18 +91,25 @@ vi.mock('../../../src/renderer/stores/window.store', () => ({
 }));
 
 vi.mock('../../../src/renderer/stores/layout.store', () => ({
-  useLayoutStore: Object.assign(() => layoutActions, { getState: () => layoutState }),
+  useLayoutStore: Object.assign(
+    (selector?: (state: typeof layoutActions) => unknown) =>
+      selector ? selector(layoutActions) : layoutActions,
+    { getState: () => layoutState }
+  ),
 }));
 
 vi.mock('../../../src/renderer/stores/file-viewer.store', () => ({
   useFileViewerStore: Object.assign(
-    () => ({
-      openFileViewer: vi.fn(),
-      requestInlineFilePreviewClose: vi.fn(),
-      toggleInlineFileTree: vi.fn(),
-      requestFileViewerTransition: vi.fn(),
-      requestCloseViewer: vi.fn(),
-    }),
+    (selector?: (state: Record<string, unknown>) => unknown) => {
+      const state = {
+        openFileViewer: vi.fn(),
+        requestInlineFilePreviewClose: vi.fn(),
+        toggleInlineFileTree: vi.fn(),
+        requestFileViewerTransition: vi.fn(),
+        requestCloseViewer: vi.fn(),
+      };
+      return selector ? selector(state) : state;
+    },
     { getState: () => ({}) }
   ),
 }));

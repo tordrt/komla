@@ -24,6 +24,7 @@ import {
   openFilePane,
   type PaneSurfacePlacement,
 } from '@/lib/pane-surfaces';
+import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
 import { isImportedFilePath } from '@/lib/workspace-file-paths';
 import { useConfigStore } from '@/stores/config.store';
 import { findRenameSource, useFileListStore } from '@/stores/file-list.store';
@@ -68,7 +69,10 @@ export function InlineFileTreePanel({
   const { comparisonBranch, useMergeBase } = useDiffComparison(workspaceId, 'inline');
 
   // Resolve target branch name (same pattern as TargetBranchSelector)
-  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
+  // It shows no titles, so an agent's spinner doesn't re-render it.
+  const workspace = useWorkspacesStore(
+    useWorkspaceExceptTitles((s) => s.workspaces.find((w) => w.id === workspaceId))
+  );
   const isRemoteWorkspace = workspace?.backend?.kind === 'ssh';
   const isReconnectingRemoteWorkspace = useWorkspacesStore((s) =>
     s.reconnectingSshWorkspaceIds.has(workspaceId)

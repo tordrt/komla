@@ -47,4 +47,39 @@ describe('DeferredDialog', () => {
     expect(screen.getByLabelText('Draft')).toHaveValue('Keep my draft');
     expect(load).toHaveBeenCalledTimes(1);
   });
+
+  it('mounts closed once the app is idle, so the first open renders without suspending', async () => {
+    let runIdle: (() => void) | undefined;
+    vi.stubGlobal('requestIdleCallback', (callback: () => void) => {
+      runIdle = callback;
+      return 1;
+    });
+    vi.stubGlobal('cancelIdleCallback', vi.fn());
+    function Dialog({ open }: { open: boolean }) {
+      return open ? <input aria-label="Draft" /> : null;
+    }
+    const module = createDeferred<{ default: typeof Dialog }>();
+    const preload = vi.fn(() => module.promise);
+    const LazyDialog = lazy(preload);
+    const content = (open: boolean) => (
+      <DeferredDialog open={open} preload={preload}>
+        <LazyDialog open={open} />
+      </DeferredDialog>
+    );
+
+    try {
+      const { rerender } = render(content(false));
+      expect(preload).not.toHaveBeenCalled();
+      await act(async () => {
+        runIdle?.();
+        module.resolve({ default: Dialog });
+      });
+      expect(preload).toHaveBeenCalled();
+
+      rerender(content(true));
+      expect(screen.getByLabelText('Draft')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

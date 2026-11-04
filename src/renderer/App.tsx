@@ -86,10 +86,9 @@ const ShortcutsDialog = lazy(() =>
 const ThemeLab = import.meta.env.DEV
   ? lazy(() => import('@/components/dev/ThemeLab').then((module) => ({ default: module.ThemeLab })))
   : null;
+const loadNewWorkspaceDialog = () => import('@/components/workspaces/NewWorkspaceDialog');
 const NewWorkspaceDialog = lazy(() =>
-  import('@/components/workspaces/NewWorkspaceDialog').then((module) => ({
-    default: module.NewWorkspaceDialog,
-  }))
+  loadNewWorkspaceDialog().then((module) => ({ default: module.NewWorkspaceDialog }))
 );
 
 type WorkspacesState = ReturnType<typeof useWorkspacesStore.getState>;
@@ -390,7 +389,7 @@ export default function App() {
             />
           </div>
 
-          <DeferredDialog open={newWorkspaceDialogOpen}>
+          <DeferredDialog open={newWorkspaceDialogOpen} preload={loadNewWorkspaceDialog}>
             <NewWorkspaceDialog
               open={newWorkspaceDialogOpen}
               onOpenChange={setNewWorkspaceDialogOpen}

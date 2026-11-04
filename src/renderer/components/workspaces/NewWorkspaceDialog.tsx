@@ -2331,7 +2331,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       />
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
-          className="!top-[max(3rem,calc(50vh-12rem))] !max-w-xl !translate-y-0 !gap-0 !overflow-visible !border-0 !bg-transparent !p-0 !shadow-none !ring-0"
+          // Appears at once rather than fading in, so it's ready the moment it's asked for.
+          className="!top-[max(3rem,calc(50vh-12rem))] !max-w-xl !translate-y-0 !gap-0 !overflow-visible !border-0 !bg-transparent !p-0 !shadow-none !ring-0 data-[state=open]:!animate-none"
           // Darker than the shared scrim, so the dialog stands out over busy terminals.
           overlayClassName="bg-black/60 light:bg-black/12"
           showCloseButton={false}

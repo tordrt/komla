@@ -259,6 +259,7 @@ export const IPC = {
   PROJECT_DELETE_LEFTOVER_BRANCHES: 'project:delete-leftover-branches',
   PROJECT_CHECK_WORKSPACES_FOR_CLEANUP: 'project:check-workspaces-for-cleanup',
   PROJECT_LIST_HOST_BRANCHES: 'project:list-host-branches',
+  PROJECT_LIST_AGENT_SKILLS: 'project:list-agent-skills',
   PROJECT_LIST_ON_SSH_HOST: 'project:list-on-ssh-host',
   PROJECT_IMPORT_FROM_SSH_HOST: 'project:import-from-ssh-host',
   PROJECT_FETCH_IN_BACKGROUND: 'project:fetch-in-background',

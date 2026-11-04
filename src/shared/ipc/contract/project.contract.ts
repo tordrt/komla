@@ -19,6 +19,7 @@ import {
   projectDeleteLeftoverBranchesArgsSchema,
   projectCheckWorkspacesForCleanupArgsSchema,
   projectListHostBranchesArgsSchema,
+  projectListAgentSkillsArgsSchema,
   presetGetArgsSchema,
   presetSetActiveArgsSchema,
   presetCreateArgsSchema,
@@ -34,6 +35,7 @@ import {
 import { invoke } from './define';
 
 import type { ActivePresetEntry, AgentPreset } from '../../types/agent-preset';
+import type { AgentSkill } from '../../types/agent-skill';
 import type {
   BranchDeletionResult,
   FolderProjectMatch,
@@ -87,6 +89,7 @@ export const projectContract = {
     projectCheckWorkspacesForCleanupArgsSchema
   ).returns<WorkspaceCleanupStatus[]>(),
   [IPC.PROJECT_LIST_HOST_BRANCHES]: invoke(projectListHostBranchesArgsSchema).returns<string[]>(),
+  [IPC.PROJECT_LIST_AGENT_SKILLS]: invoke(projectListAgentSkillsArgsSchema).returns<AgentSkill[]>(),
   [IPC.PRESET_LIST_TEMPLATES]: invoke().returns<Omit<AgentPreset, 'id'>[]>(),
   [IPC.PRESET_LIST]: invoke().returns<AgentPreset[]>(),
   [IPC.PRESET_GET]: invoke(presetGetArgsSchema).returns<AgentPreset | undefined>(),

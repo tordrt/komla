@@ -23,6 +23,7 @@ import {
   SETUP_TRIGGERS,
 } from '../../types';
 import { LEVEL_PICKER_ICONS, MAX_LEVEL_PICKER_TITLE_LENGTH } from '../../types/agent-preset';
+import { AGENT_SKILL_FAMILIES } from '../../types/agent-skill';
 import { SSH_PROJECT_SETTINGS_PARTS } from '../../types/ssh-project-manifest';
 
 import { BRANCH_NAME_PATTERN, idSchema, nonEmptyStringSchema, safePathSchema } from './primitives';
@@ -705,6 +706,13 @@ export const projectFetchInBackgroundArgsSchema = z.tuple([
 export const projectListLeftoverBranchesArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectCheckWorkspacesForCleanupArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectListHostBranchesArgsSchema = z.tuple([idSchema, idSchema]);
+// The agent whose skills to list, the project or null, and the SSH host the workspace starts on or
+// null for this computer.
+export const projectListAgentSkillsArgsSchema = z.tuple([
+  z.enum(AGENT_SKILL_FAMILIES),
+  idSchema.nullable(),
+  idSchema.nullable(),
+]);
 export const projectDeleteLeftoverBranchesArgsSchema = z.tuple([
   idSchema,
   z

@@ -65,11 +65,13 @@ vi.mock('../../../../src/main/services/project.service', () => ({
   projectService: mockProjectService,
 }));
 
-const { mockScanProjectIcons, mockScanWorkspaceIcons, mockChooseProjectIconFile } = vi.hoisted(() => ({
-  mockScanProjectIcons: vi.fn(),
-  mockScanWorkspaceIcons: vi.fn(),
-  mockChooseProjectIconFile: vi.fn(),
-}));
+const { mockScanProjectIcons, mockScanWorkspaceIcons, mockChooseProjectIconFile } = vi.hoisted(
+  () => ({
+    mockScanProjectIcons: vi.fn(),
+    mockScanWorkspaceIcons: vi.fn(),
+    mockChooseProjectIconFile: vi.fn(),
+  })
+);
 vi.mock('../../../../src/main/services/project-icon.service', () => ({
   scanProjectIcons: mockScanProjectIcons,
   scanWorkspaceIcons: mockScanWorkspaceIcons,
@@ -87,6 +89,11 @@ vi.mock('../../../../src/main/services/workspace.service', () => ({
 
 vi.mock('../../../../src/main/services/agent-preset.service', () => ({
   agentPresetService: mockAgentPresetService,
+}));
+
+const { mockListAgentSkills } = vi.hoisted(() => ({ mockListAgentSkills: vi.fn() }));
+vi.mock('../../../../src/main/services/agent-skills.service', () => ({
+  listAgentSkills: mockListAgentSkills,
 }));
 
 const { mockDetectInstalledAgents } = vi.hoisted(() => ({ mockDetectInstalledAgents: vi.fn() }));
@@ -160,6 +167,12 @@ describe('project IPC behavior', () => {
   }>([
     { channel: 'project:list', args: [], method: mockProjectService.list, returns: [{ id: 'p1' }] },
     { channel: 'project:get', args: ['p1'], method: mockProjectService.get, returns: { id: 'p1' } },
+    {
+      channel: 'project:list-agent-skills',
+      args: ['codex', 'p1', 'host-1'],
+      method: mockListAgentSkills,
+      returns: [{ name: 'review', description: '', source: 'user' }],
+    },
     {
       channel: 'project:validate-repo',
       args: ['/tmp/repo'],
@@ -267,7 +280,9 @@ describe('project IPC behavior', () => {
   it("fetches a project's origin and host clone in the background when asked, refusing bad arguments", async () => {
     const ipcMain = await setup();
 
-    await expect(ipcMain._invoke('project:fetch-in-background', 123, null, false)).rejects.toThrow();
+    await expect(
+      ipcMain._invoke('project:fetch-in-background', 123, null, false)
+    ).rejects.toThrow();
     await expect(ipcMain._invoke('project:fetch-in-background', 'p1', null)).rejects.toThrow();
     expect(mockFetchProject).not.toHaveBeenCalled();
 
@@ -333,7 +348,12 @@ describe('project IPC behavior', () => {
       const newest = { workingDirectory: '/new', createdAt: 2, backend: { kind: 'ssh' } };
       mockWorkspaceService.getWorkspacesByProjectId.mockReturnValue([
         { workingDirectory: '/old', createdAt: 1, backend: { kind: 'ssh' } },
-        { workingDirectory: '/failed', createdAt: 3, backend: { kind: 'ssh' }, provisionError: 'x' },
+        {
+          workingDirectory: '/failed',
+          createdAt: 3,
+          backend: { kind: 'ssh' },
+          provisionError: 'x',
+        },
         newest,
       ]);
       mockScanProjectIcons.mockResolvedValue([]);
@@ -414,7 +434,13 @@ describe('project IPC behavior', () => {
       const ipcMain = await setup();
       mockProjectService.get.mockReturnValue({ id: 'p1', iconPromptWorkspaceId: 'w1' });
       for (const workspace of [
-        { id: 'w1', projectId: 'p1', workingDirectory: '/remote', backend: { kind: 'ssh' }, provisioning: true },
+        {
+          id: 'w1',
+          projectId: 'p1',
+          workingDirectory: '/remote',
+          backend: { kind: 'ssh' },
+          provisioning: true,
+        },
         { id: 'w1', projectId: 'p1', workingDirectory: '/wt', provisioning: true },
         { id: 'w1', projectId: 'p1', workingDirectory: '/wt', provisionError: 'failed' },
         { id: 'w1', projectId: null, workingDirectory: '/folder' },

@@ -8,6 +8,7 @@ import { createLogger } from '../../lib/logger';
 import { actionService } from '../../services/action.service';
 import { detectInstalledAgents } from '../../services/agent-detection.service';
 import { agentPresetService, AgentPreset } from '../../services/agent-preset.service';
+import { listAgentSkills } from '../../services/agent-skills.service';
 import { devPreviewService } from '../../services/dev-preview.service';
 import { gitService } from '../../services/git';
 import { gitBackgroundFetchService } from '../../services/git-background-fetch.service';
@@ -233,6 +234,10 @@ export function registerProjectHandlers(): void {
 
   handleIpc(IPC.PROJECT_LIST_HOST_BRANCHES, async (_, [projectId, hostId]): Promise<string[]> =>
     workspaceService.listHostBranches(projectId, hostId)
+  );
+
+  handleIpc(IPC.PROJECT_LIST_AGENT_SKILLS, async (_, [family, projectId, hostId]) =>
+    listAgentSkills(family, projectId, hostId)
   );
 
   // Agent preset handlers

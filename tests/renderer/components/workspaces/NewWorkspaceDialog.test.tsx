@@ -7,6 +7,7 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NewWorkspaceDialog } from '../../../../src/renderer/components/workspaces/NewWorkspaceDialog';
+import { useAgentSkillsStore } from '../../../../src/renderer/stores/agent-skills.store';
 import { useShortcuts } from '../../../../src/renderer/hooks/useShortcuts';
 import { isShortcutEventClaimed } from '../../../../src/renderer/lib/shortcut-claims';
 import { useGitStatusStore } from '../../../../src/renderer/stores/git-status.store';
@@ -575,6 +576,7 @@ describe('NewWorkspaceDialog', () => {
     mockSelectedWorkspace.id = null;
     mockWorkspaces.value = [{ id: 'ws-1', projectId: 'project-komla' }];
     global.window.api = {
+      listAgentSkills: vi.fn().mockResolvedValue([]),
       fetchProjectInBackground: vi.fn(() => Promise.resolve()),
       getWorktreeBranches: vi.fn().mockResolvedValue([]),
       getDirectoryInfo: vi.fn().mockResolvedValue(null),
@@ -2885,6 +2887,249 @@ describe('NewWorkspaceDialog', () => {
 
       expect(mockVoiceInput.cancelRecording).not.toHaveBeenCalled();
       expect(mockSetActivePreset).toHaveBeenCalledWith('preset-2');
+    });
+  });
+
+  describe('skill suggestions', () => {
+    const skills = [
+      { name: 'review-pr', description: 'Reviews a pull request', source: 'project' },
+      { name: 'deploy', description: 'Ships it', source: 'user' },
+    ];
+    // jsdom has no layout, so the menu's scroll to its highlighted entry is a no-op here
+    beforeEach(() => {
+      Element.prototype.scrollIntoView = vi.fn();
+      // Each test lists its own skills, not the ones an earlier test left in the store
+      useAgentSkillsStore.setState({ listings: {} });
+    });
+    // The Quick Commands button lists the skills too, so look for them in the suggestions only
+    const findSuggestion = async (text: string) =>
+      within(await screen.findByRole('listbox', { name: 'Suggestions' })).findByText(text);
+    const querySuggestion = (text: string) => {
+      const listbox = screen.queryByRole('listbox', { name: 'Suggestions' });
+      return listbox ? within(listbox).queryByText(text) : null;
+    };
+
+    it('completes a Codex skill typed after $ anywhere in the prompt', async () => {
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await waitFor(() =>
+        expect(window.api.listAgentSkills).toHaveBeenCalledWith('codex', 'project-komla', null)
+      );
+
+      await user.type(textarea, 'Please $rev');
+      expect(await findSuggestion('$review-pr')).toBeInTheDocument();
+      expect(querySuggestion('$deploy')).not.toBeInTheDocument();
+      await user.keyboard('{Tab}');
+
+      expect(textarea).toHaveValue('Please $review-pr ');
+      expect(querySuggestion('$review-pr')).not.toBeInTheDocument();
+    });
+
+    it('lists skills in the Quick Commands button, starting the prompt with the one picked', async () => {
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await user.type(textarea, 'fix the login bug');
+
+      await user.click(await screen.findByRole('button', { name: 'Quick Commands' }));
+      const menu = (await screen.findByText('Skills')).closest('[data-dropdown-content]');
+      const items = within(menu as HTMLElement).getAllByRole('button');
+      expect(items.map((item) => item.textContent)).toEqual([
+        '$deployShips it',
+        '$review-prReviews a pull request',
+        'Manage Quick Commands…',
+      ]);
+      await user.click(items[1]);
+
+      expect(textarea).toHaveValue('$review-pr fix the login bug');
+    });
+
+    it('suggests no skills while agents that invoke them differently start side by side', async () => {
+      mockPresetStore.presets = [
+        {
+          id: 'preset-1',
+          name: 'Codex',
+          openCommand: 'codex',
+          promptCommand: 'codex {{prompt}}',
+          launchModes: [{ id: 'mode-1', name: 'Sandbox', command: 'codex --sandbox' }],
+        },
+        {
+          id: 'preset-2',
+          name: 'Claude Code',
+          openCommand: 'claude',
+          promptCommand: 'claude {{prompt}}',
+          launchModes: [],
+        },
+      ];
+      mockPresetStore.activePreset = mockPresetStore.presets[0];
+      mockPresetStore.activePresets = [
+        { presetId: 'preset-1', lastUsedAt: 200 },
+        { presetId: 'preset-2', lastUsedAt: 100 },
+      ];
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await user.type(textarea, '$rev');
+      expect(await findSuggestion('$review-pr')).toBeInTheDocument();
+      await user.clear(textarea);
+
+      await user.click(screen.getByTitle(/click to select agent/i));
+      await user.click(screen.getByRole('button', { name: /^select multiple$/i }));
+      await user.click(screen.getByRole('checkbox', { name: /^Codex, Default$/i }));
+      await user.click(screen.getByRole('button', { name: /show claude code launch modes/i }));
+      await user.click(screen.getByRole('checkbox', { name: /^Claude Code, Default$/i }));
+      await user.type(textarea, '$rev');
+
+      expect(screen.queryByRole('listbox', { name: 'Suggestions' })).not.toBeInTheDocument();
+    });
+
+    it('suggests skills beside an agent that opens without the prompt', async () => {
+      mockPresetStore.presets = [
+        {
+          id: 'preset-1',
+          name: 'Claude Code',
+          openCommand: 'claude',
+          promptCommand: 'claude -- {{prompt}}',
+          launchModes: [{ id: 'mode-1', name: 'Plan', command: 'claude --plan' }],
+        },
+        { id: 'preset-2', name: 'Kimi Code', openCommand: 'kimi', launchModes: [] },
+      ];
+      mockPresetStore.activePreset = mockPresetStore.presets[0];
+      mockPresetStore.activePresets = [
+        { presetId: 'preset-1', lastUsedAt: 200 },
+        { presetId: 'preset-2', lastUsedAt: 100 },
+      ];
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.click(screen.getByTitle(/click to select agent/i));
+      await user.click(screen.getByRole('button', { name: /^select multiple$/i }));
+      await user.click(screen.getByRole('checkbox', { name: /^Claude Code, Default$/i }));
+      await user.click(screen.getByRole('button', { name: /show kimi code launch modes/i }));
+      await user.click(screen.getByRole('checkbox', { name: /^Kimi Code, Default$/i }));
+      await user.type(textarea, '/rev');
+
+      expect(await findSuggestion('/review-pr')).toBeInTheDocument();
+    });
+
+    it('completes the name the caret was moved into, leaving none of it behind', async () => {
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await waitFor(() => expect(window.api.listAgentSkills).toHaveBeenCalled());
+
+      await user.type(textarea, '$rev');
+      await findSuggestion('$review-pr');
+      await user.keyboard('{ArrowLeft}{Tab}');
+
+      expect(textarea).toHaveValue('$review-pr ');
+    });
+
+    it("offers another agent's skills after / wherever a word starts", async () => {
+      mockPresetStore.activePreset = {
+        id: 'preset-copilot',
+        name: 'GitHub Copilot CLI',
+        openCommand: 'copilot',
+        promptCommand: 'copilot -i {{prompt}}',
+        launchModes: [],
+      };
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await waitFor(() =>
+        expect(window.api.listAgentSkills).toHaveBeenCalledWith('agents', 'project-komla', null)
+      );
+
+      await user.type(textarea, 'Use /dep');
+      await findSuggestion('/deploy');
+      await user.keyboard('{Tab}');
+
+      expect(textarea).toHaveValue('Use /deploy ');
+    });
+
+    it('keeps the highlighted Saved Prompt when the skills listing arrives under it', async () => {
+      mockPresetStore.activePreset = {
+        id: 'preset-claude',
+        name: 'Claude Code',
+        openCommand: 'claude',
+        promptCommand: 'claude -- {{prompt}}',
+        launchModes: [],
+      };
+      mockActionsHolder.value = [
+        { id: 'prompt', title: 'Deploy notes', type: 'prompt', content: 'Write deploy notes' },
+      ];
+      let resolveListing: (listed: typeof skills) => void = () => {};
+      window.api.listAgentSkills = vi.fn(
+        () => new Promise<typeof skills>((resolve) => (resolveListing = resolve))
+      );
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await waitFor(() => expect(window.api.listAgentSkills).toHaveBeenCalled());
+
+      await user.type(textarea, '/');
+      await user.keyboard('{ArrowDown}');
+      await act(async () => resolveListing(skills));
+      await findSuggestion('/deploy');
+      await user.keyboard('{Enter}');
+
+      await waitFor(() => expect(textarea).toHaveValue('Write deploy notes'));
+    });
+
+    it('leaves Tab alone when the menu lists only Saved Prompts', async () => {
+      mockActionsHolder.value = [
+        { id: 'prompt', title: 'Deploy notes', type: 'prompt', content: 'Write deploy notes' },
+      ];
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.type(textarea, '/dep');
+      await user.keyboard('{Tab}');
+
+      expect(textarea).toHaveValue('/dep');
+    });
+
+    it('offers Claude Code skills after / beside the Saved Prompts', async () => {
+      mockPresetStore.activePreset = {
+        id: 'preset-claude',
+        name: 'Claude Code',
+        openCommand: 'claude',
+        promptCommand: 'claude -- {{prompt}}',
+        launchModes: [],
+      };
+      mockActionsHolder.value = [
+        { id: 'prompt', title: 'Deploy notes', type: 'prompt', content: 'Write deploy notes' },
+      ];
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await waitFor(() =>
+        expect(window.api.listAgentSkills).toHaveBeenCalledWith('claude', 'project-komla', null)
+      );
+
+      await user.type(textarea, '/dep');
+      const suggestions = await screen.findByRole('listbox', { name: 'Suggestions' });
+      expect(within(suggestions).getByText('/deploy')).toBeInTheDocument();
+      expect(within(suggestions).getByText('Deploy notes')).toBeInTheDocument();
+      // Each skill says what it does right after its name
+      expect(within(suggestions).getByText('Ships it')).toBeInTheDocument();
+      await user.click(within(suggestions).getByText('/deploy'));
+
+      expect(textarea).toHaveValue('/deploy ');
+      // $ isn't Claude Code's trigger
+      await user.clear(textarea);
+      await user.type(textarea, '$dep');
+      expect(querySuggestion('/deploy')).not.toBeInTheDocument();
     });
   });
 

@@ -55,6 +55,7 @@ import { PANE_DRAG_MIME, setDraggedPaneId } from '@/lib/pane-drag';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { replaceTerminal, replaceTerminalWithPaneSurface } from '@/lib/replace-terminal';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
+import { useSkillMenuGroups, workspaceSkillHostId } from '@/lib/skill-actions';
 import { addLocalCopyTerminal, addTerminalForSplit } from '@/lib/split-terminal';
 import { useTerminalHost } from '@/lib/terminal-host-tracker';
 import {
@@ -366,8 +367,14 @@ export const TerminalPane = React.memo(function TerminalPane({
 
   const projectId = actionWorkspace?.projectId;
 
-  const actionMenuGroups = getActionMenuGroups(actions, projectId);
-  const promptMenuGroups = actionMenuGroups.filter((group) => group.type === 'prompt');
+  const { skillGroups, loadSkills } = useSkillMenuGroups(
+    projectId,
+    workspaceSkillHostId(actionWorkspace)
+  );
+  const savedActionGroups = getActionMenuGroups(actions, projectId);
+  const actionMenuGroups = [...savedActionGroups, ...skillGroups];
+  // Pasted into the running agent, so not skills, which start an agent of their own.
+  const promptMenuGroups = savedActionGroups.filter((group) => group.type === 'prompt');
   // The Action run becomes the one the menu rows repeat; one that asks for input, once it's given.
   const { runAction, actionInputDialog } = useActionLauncher(actionWorkspace?.id);
 
@@ -529,6 +536,7 @@ export const TerminalPane = React.memo(function TerminalPane({
         setFocusedPane(paneId);
         void loadActions();
         void loadPresets();
+        loadSkills();
         setProgramTracksMouse(terminalRendererTracksMouse(terminalId));
         const selection = getTerminalRendererSelection(terminalId);
         if (selection) {
@@ -541,7 +549,7 @@ export const TerminalPane = React.memo(function TerminalPane({
         setContextMenuLink(null);
       }
     },
-    [loadActions, loadPresets, paneId, setFocusedPane, terminalId]
+    [loadActions, loadPresets, loadSkills, paneId, setFocusedPane, terminalId]
   );
 
   // Radix calls onOpenChange only for closes it makes itself.

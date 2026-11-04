@@ -7,8 +7,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ActionRunList } from '../../../../src/renderer/components/actions/ActionRunList';
 import { getActionMenuGroups } from '../../../../src/renderer/lib/action-menu-order';
+import { getSkillMenuGroups } from '../../../../src/renderer/lib/skill-actions';
+import { skillListingKey } from '../../../../src/renderer/stores/agent-skills.store';
 
 import type { Action, AgentPreset } from '../../../../src/shared/types';
+import type { AgentSkill } from '../../../../src/shared/types/agent-skill';
 
 const dev: Action = { id: 'dev', title: 'Dev server', type: 'command', content: 'npm run dev' };
 const tests: Action = { id: 'tests', title: 'Tests', type: 'command', content: 'npm test' };
@@ -20,6 +23,11 @@ const review: Action = {
   presetId: 'claude',
 };
 const presets = [{ id: 'claude', name: 'Claude Code' }] as AgentPreset[];
+const deploySkill: AgentSkill = {
+  name: 'deploy',
+  description: 'Ships the branch',
+  source: 'project',
+};
 
 const handlers = {
   onRun: vi.fn(),
@@ -87,6 +95,52 @@ describe('ActionRunList', () => {
     );
     await user.keyboard('{ArrowLeft}{Enter}');
     expect(handlers.onRun).toHaveBeenCalledWith(review);
+  });
+
+  it('lists skills in a tab of their own, each with its agent and what it does', async () => {
+    const user = userEvent.setup();
+    const groups = [
+      ...getActionMenuGroups([dev, review], null),
+      ...getSkillMenuGroups(
+        { [skillListingKey('claude', null, null)]: [deploySkill] },
+        null,
+        null,
+        [{ family: 'claude', preset: presets[0], launchModeId: undefined }]
+      ),
+    ];
+    render(
+      <ActionRunList groups={groups} presets={presets} initialActiveId={null} {...handlers} />
+    );
+
+    await user.click(screen.getByRole('radio', { name: 'Skills' }));
+    const skill = screen.getByRole('option', { name: /\/deploy/ });
+    expect(skill).toHaveTextContent('Ships the branch');
+    expect(skill).toHaveTextContent('Claude Code');
+    // The side arrows reach it after Commands, and come back
+    await user.click(screen.getByRole('combobox', { name: 'Search quick commands' }));
+    await user.keyboard('{ArrowLeft}');
+    expect(screen.getByRole('radio', { name: 'Commands' })).toBeChecked();
+    await user.keyboard('{ArrowRight}{Enter}');
+    expect(handlers.onRun).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '/deploy', content: '/deploy', presetId: 'claude' })
+    );
+  });
+
+  it('matches a skill by what it does', async () => {
+    const user = userEvent.setup();
+    const groups = getSkillMenuGroups(
+      { [skillListingKey('claude', null, null)]: [deploySkill, { ...deploySkill, name: 'lint' }] },
+      null,
+      null,
+      [{ family: 'claude', preset: presets[0], launchModeId: undefined }]
+    );
+    render(
+      <ActionRunList groups={groups} presets={presets} initialActiveId={null} {...handlers} />
+    );
+
+    await user.type(screen.getByRole('combobox', { name: 'Search quick commands' }), 'ships');
+
+    expect(screen.getAllByRole('option')).toHaveLength(2);
   });
 
   it('leaves the side arrows to the search box while it has text', async () => {

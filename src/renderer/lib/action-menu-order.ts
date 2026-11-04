@@ -1,7 +1,21 @@
+import type { AgentSkill, AgentSkillFamily } from '../../shared/types/agent-skill';
 import type { Action, Project } from '@/types';
 
+/**
+ * A skill listed with the Quick Commands, as a Saved Prompt that starts its agent with the
+ * skill's invocation. It isn't saved, so it has no usage to record and is no place's default.
+ */
+export interface SkillAction extends Action {
+  skill: { family: AgentSkillFamily; description: string; source: AgentSkill['source'] };
+}
+
+export function isSkillAction(action: Action): action is SkillAction {
+  return 'skill' in action;
+}
+
 export interface ActionMenuGroup {
-  type: 'command' | 'prompt';
+  /** A skill group lists an agent's skills beside the saved Actions (see skill-actions.ts). */
+  type: 'command' | 'prompt' | 'skill';
   label: string;
   actions: Action[];
 }
@@ -116,7 +130,9 @@ export function filterActionMenuGroups(
     .map((group) => ({
       ...group,
       actions: group.actions.filter((action) => {
-        const text = `${action.title}\n${action.content}`.toLowerCase();
+        // A skill's search also matches what it does.
+        const description = isSkillAction(action) ? action.skill.description : '';
+        const text = `${action.title}\n${action.content}\n${description}`.toLowerCase();
         return words.every((word) => text.includes(word));
       }),
     }))
@@ -124,12 +140,13 @@ export function filterActionMenuGroups(
 }
 
 /** The Action a workspace's run button repeats: its default while still shown, else the
- *  most recently used one shown, else the first. */
+ *  most recently used one shown, else the first. Never a skill. */
 export function getDefaultAction(
   groups: ActionMenuGroup[],
   defaultActionId?: string
 ): Action | null {
-  const shown = groups.flatMap((group) => group.actions);
+  // A skill isn't saved, so it has no usage to go by and isn't what the button repeats.
+  const shown = groups.filter((group) => group.type !== 'skill').flatMap((group) => group.actions);
   const picked = defaultActionId && shown.find((action) => action.id === defaultActionId);
   if (picked) return picked;
   let lastUsed: Action | null = null;

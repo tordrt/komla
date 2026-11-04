@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import { existsSync, lstatSync } from 'fs';
 import { readFile, readdir, stat } from 'fs/promises';
 import { join } from 'path';
 
@@ -209,6 +209,11 @@ async function readTextAtRef(
   }
 }
 
+/** Whether a path names a file, or a symlink even to nothing, as the untracked listing reads. */
+function isOnDisk(path: string): boolean {
+  return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
+}
+
 async function readWorkTreeTextSilent(fullPath: string): Promise<string | null> {
   if (!existsSync(fullPath)) return null;
   try {
@@ -221,6 +226,8 @@ async function readWorkTreeTextSilent(fullPath: string): Promise<string | null> 
 class GitDiffService {
   /** Each branch comparison's renamed paths and where they came from, for opening one. */
   private branchRenameSources = new Map<string, Map<string, string>>();
+  /** Each worktree's `git status` while files are being opened from it. */
+  private inFlightFileStatus = new Map<string, Promise<string>>();
 
   async getChangedFiles(worktreePath: string): Promise<FileChange[]> {
     // Bail out early if the worktree directory doesn't exist (e.g. during rebase or after removal).
@@ -449,7 +456,6 @@ class GitDiffService {
     branch: string,
     useMergeBase = false
   ): Promise<FileDiffContent> {
-    const diffTarget = await resolveDiffTarget(worktreePath, branch, useMergeBase);
     const fullPath = join(worktreePath, filePath);
     const existsInWorkTree = existsSync(fullPath);
     // A renamed file's content on the branch lives at its previous path.
@@ -458,11 +464,19 @@ class GitDiffService {
         .get(branchDiffKey(worktreePath, branch, useMergeBase))
         ?.get(filePath) ?? filePath;
 
-    const oldContent = await readTextAtRef(worktreePath, diffTarget, branchPath);
+    const readBranchText = async () => {
+      const target = await resolveDiffTarget(worktreePath, branch, useMergeBase);
+      return {
+        diffTarget: target,
+        oldContent: await readTextAtRef(worktreePath, target, branchPath),
+      };
+    };
+    const [{ diffTarget, oldContent }, isBinary] = await Promise.all([
+      readBranchText(),
+      this.isFileBinary(worktreePath, filePath),
+    ]);
     const existsInBranch = oldContent !== null;
     const isRenamed = branchPath !== filePath && existsInBranch && existsInWorkTree;
-
-    const isBinary = await this.isFileBinary(worktreePath, filePath);
 
     if (isBinary) {
       const binaryStatus: FileChange['status'] = isRenamed
@@ -539,8 +553,10 @@ class GitDiffService {
     filePath: string,
     _staged = false
   ): Promise<FileDiffContent> {
-    const files = await this.getChangedFiles(worktreePath);
-    const fileChange = files.find((f) => f.path === filePath);
+    const [fileChange, isBinary] = await Promise.all([
+      this.getFileChange(worktreePath, filePath),
+      this.isFileBinary(worktreePath, filePath),
+    ]);
     const status = fileChange?.status || 'modified';
     const fullPath = join(worktreePath, filePath);
     // A renamed file's HEAD content lives at its previous path.
@@ -556,21 +572,20 @@ class GitDiffService {
       };
     }
 
-    const isBinary = await this.isFileBinary(worktreePath, filePath);
-
     if (isBinary) {
       return this.buildHeadBinaryDiff(worktreePath, filePath, headPath, status);
     }
 
-    let oldContent: string | null = null;
-    let newContent: string | null = null;
-
-    if (status === 'untracked') {
-      newContent = await readWorkTreeTextSilent(fullPath);
-    } else {
-      if (status !== 'added') oldContent = await this.readHeadTextLogged(worktreePath, headPath);
-      if (status !== 'deleted') newContent = await this.readWorkTreeTextLogged(fullPath, filePath);
-    }
+    const [oldContent, newContent] = await Promise.all([
+      status === 'untracked' || status === 'added'
+        ? null
+        : this.readHeadTextLogged(worktreePath, headPath),
+      status === 'untracked'
+        ? readWorkTreeTextSilent(fullPath)
+        : status === 'deleted'
+          ? null
+          : this.readWorkTreeTextLogged(fullPath, filePath),
+    ]);
 
     return {
       path: filePath,
@@ -579,6 +594,52 @@ class GitDiffService {
       status,
       isBinary: false,
     };
+  }
+
+  /**
+   * The file's entry as `getChangedFiles` lists it, without listing the rest: a file inside an
+   * untracked folder is untracked, so the folder isn't read.
+   */
+  private async getFileChange(
+    worktreePath: string,
+    filePath: string
+  ): Promise<FileChange | undefined> {
+    if (!existsSync(worktreePath)) return undefined;
+    const output = await this.readSharedStatus(worktreePath);
+    const entries: FileChange[] = [];
+    for (const entry of readPorcelainZ(output)) {
+      if (entry.path === filePath) {
+        entries.push({ ...entry, staged: false, additions: 0, deletions: 0 });
+      } else if (
+        entry.status === 'untracked' &&
+        entry.path.endsWith('/') &&
+        filePath.startsWith(entry.path) &&
+        isOnDisk(join(worktreePath, filePath))
+      ) {
+        entries.push({
+          path: filePath,
+          status: 'untracked',
+          staged: false,
+          additions: 0,
+          deletions: 0,
+        });
+      }
+    }
+    return normalizeAggregateFiles(worktreePath, entries).normalized[0];
+  }
+
+  /**
+   * `git status` for opening files, shared by those opened while it runs: the viewer opens a
+   * file and prefetches its neighbours together, and each would otherwise run it again.
+   */
+  private readSharedStatus(worktreePath: string): Promise<string> {
+    const existing = this.inFlightFileStatus.get(worktreePath);
+    if (existing) return existing;
+    const status = gitExec
+      .execGitAsyncRaw(worktreePath, ['status', '--porcelain', '-unormal', '-z'])
+      .finally(() => this.inFlightFileStatus.delete(worktreePath));
+    this.inFlightFileStatus.set(worktreePath, status);
+    return status;
   }
 
   private async buildHeadBinaryDiff(

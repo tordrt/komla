@@ -1,4 +1,4 @@
-import { create, type StoreApi } from 'zustand';
+import { create, type StateCreator, type StoreApi } from 'zustand';
 
 import {
   DEFAULT_WORKSPACE_TAGS,
@@ -14,6 +14,7 @@ import {
   getUnsavedFileNames,
   handOffWorkspacePaneSurfaces,
 } from '../lib/pane-surfaces';
+import { replaceEqualDeep } from '../lib/replace-equal-deep';
 import {
   PINNED_GROUP_KEY,
   readStoredCollapsedGroups,
@@ -696,7 +697,30 @@ function moveProjectsBroughtIntoSight(
   })();
 }
 
-export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
+/**
+ * Every new `workspaces` list keeps the previous objects for workspaces, terminals and the like
+ * that didn't change. Most changes reload the whole list over IPC, which would otherwise hand
+ * every subscriber to any workspace or terminal a new object, re-rendering every pane.
+ */
+function shareUnchangedWorkspaces(
+  initializer: StateCreator<WorkspacesState>
+): StateCreator<WorkspacesState> {
+  return (set, get, api) => {
+    const share = (state: WorkspacesState, partial: Partial<WorkspacesState>) =>
+      partial.workspaces && partial.workspaces !== state.workspaces
+        ? { ...partial, workspaces: replaceEqualDeep(state.workspaces, partial.workspaces) }
+        : partial;
+    const setShared = ((partial, replace) =>
+      set(
+        (state) => share(state, typeof partial === 'function' ? partial(state) : partial),
+        replace as false
+      )) as typeof set;
+    api.setState = setShared;
+    return initializer(setShared, get, api);
+  };
+}
+
+const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   workspaces: [],
   selectedWorkspaceId: null,
   keyboardNavigationWorkspaceId: null,
@@ -2457,4 +2481,8 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   clearError: () => {
     set({ error: null });
   },
-}));
+});
+
+export const useWorkspacesStore = create<WorkspacesState>()(
+  shareUnchangedWorkspaces(createWorkspacesState)
+);

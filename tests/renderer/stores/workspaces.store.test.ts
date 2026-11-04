@@ -2276,11 +2276,13 @@ describe('workspaces.store', () => {
     ];
     (globalThis as { window: { api: ApiMock } }).window = { api: createApiMock() };
     useWorkspacesStore.setState({ workspaces, selectedWorkspaceId: 'ws-1' });
+    // An equal list already in the store is kept, so compare with the one it holds.
+    const before = useWorkspacesStore.getState().workspaces;
 
     await useWorkspacesStore.getState().selectWorkspace('ws-2');
 
     expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('ws-2');
-    expect(useWorkspacesStore.getState().workspaces).toBe(workspaces);
+    expect(useWorkspacesStore.getState().workspaces).toBe(before);
   });
 
   it('restarts stopped workspace during selection and refreshes selected terminal state', async () => {

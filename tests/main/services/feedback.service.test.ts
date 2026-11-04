@@ -29,16 +29,6 @@ vi.mock('../../../src/main/lib/api-urls', () => ({
   API_BASE_URL: 'https://test.komla.dev',
 }));
 
-vi.mock('../../../src/main/services/license.service', () => ({
-  licenseService: {
-    getStatus: vi.fn(() => ({
-      isLicensed: true,
-      licenseKey: 'TEST-LICENSE-KEY' as string | null,
-      customerEmail: null as string | null,
-    })),
-  },
-}));
-
 vi.mock('../../../src/main/services/agent-preset.service', () => ({
   agentPresetService: {
     getActive: vi.fn(() => ({ name: 'test-agent' })),
@@ -155,22 +145,15 @@ describe('FeedbackService', () => {
       expect(body.email).toBe('test@test.com');
     });
 
-    it('does not add cached customer email when payload email is omitted', async () => {
+    it('sends no email when the payload has none', async () => {
       const { net } = await import('electron');
-      const { licenseService } = await import('../../../src/main/services/license.service');
-      vi.mocked(licenseService.getStatus).mockReturnValue({
-        isLicensed: true,
-        licenseKey: 'TEST-LICENSE-KEY',
-        customerEmail: 'licensed@test.com',
-      } as any);
-
       const controller = createMockNetRequest();
       vi.mocked(net.request).mockReturnValue(controller.request as any);
 
       const { feedbackService } = await import('../../../src/main/services/feedback.service');
       const promise = feedbackService.sendFeedback({
         type: 'general',
-        description: 'Feedback from a licensed user',
+        description: 'Feedback without an email',
       });
       controller.simulateResponse(200);
       await promise;
@@ -180,13 +163,6 @@ describe('FeedbackService', () => {
 
     it('sends the payload email when one is provided', async () => {
       const { net } = await import('electron');
-      const { licenseService } = await import('../../../src/main/services/license.service');
-      vi.mocked(licenseService.getStatus).mockReturnValue({
-        isLicensed: true,
-        licenseKey: 'TEST-LICENSE-KEY',
-        customerEmail: 'licensed@test.com',
-      } as any);
-
       const controller = createMockNetRequest();
       vi.mocked(net.request).mockReturnValue(controller.request as any);
 
@@ -220,54 +196,8 @@ describe('FeedbackService', () => {
       expect(systemInfo.appVersion).toBe('2.0.0-test');
       expect(systemInfo.platform).toBe(process.platform);
       expect(systemInfo.arch).toBe(process.arch);
-      expect(systemInfo.isLicensed).toBe(true);
       expect(systemInfo.agentPresetName).toBe('test-agent');
-    });
-
-    it('includes license status', async () => {
-      const { net } = await import('electron');
-      const { licenseService } = await import('../../../src/main/services/license.service');
-      vi.mocked(licenseService.getStatus).mockReturnValue({
-        isLicensed: false,
-        licenseKey: null,
-      } as any);
-
-      const controller = createMockNetRequest();
-      vi.mocked(net.request).mockReturnValue(controller.request as any);
-
-      const { feedbackService } = await import('../../../src/main/services/feedback.service');
-      const promise = feedbackService.sendFeedback({
-        type: 'general',
-        description: 'Just wanted to say hello from test',
-      });
-      controller.simulateResponse(200);
-      await promise;
-
-      const body = controller.getRequestBody();
-      expect((body.systemInfo as Record<string, unknown>).isLicensed).toBe(false);
-    });
-
-    it('reports unlicensed when license key is missing despite isLicensed flag', async () => {
-      const { net } = await import('electron');
-      const { licenseService } = await import('../../../src/main/services/license.service');
-      vi.mocked(licenseService.getStatus).mockReturnValue({
-        isLicensed: true,
-        licenseKey: null,
-      } as any);
-
-      const controller = createMockNetRequest();
-      vi.mocked(net.request).mockReturnValue(controller.request as any);
-
-      const { feedbackService } = await import('../../../src/main/services/feedback.service');
-      const promise = feedbackService.sendFeedback({
-        type: 'bug',
-        description: 'Stale license state test',
-      });
-      controller.simulateResponse(200);
-      await promise;
-
-      const body = controller.getRequestBody();
-      expect((body.systemInfo as Record<string, unknown>).isLicensed).toBe(false);
+      expect(systemInfo).not.toHaveProperty('isLicensed');
     });
 
     it('encodes screenshots as base64', async () => {

@@ -12,7 +12,6 @@ vi.mock('electron', () => ({
 
 const telemetry = vi.hoisted(() => ({
   sendSshHostAdded: vi.fn(),
-  sendMonetizationEvent: vi.fn(),
   sendAgentSelected: vi.fn(),
 }));
 
@@ -51,31 +50,10 @@ describe('telemetry IPC handlers', () => {
     }
   );
 
-  it('reports a monetization event with its properties', async () => {
-    const props = { source: 'free_limit_wall', limit: 3, runningCount: 2 };
-
-    await handlers.get(IPC.TELEMETRY_TRACK_MONETIZATION)?.({}, 'free_limit_hit', props);
-    await handlers.get(IPC.TELEMETRY_TRACK_MONETIZATION)?.({}, 'license_activated');
-
-    expect(telemetry.sendMonetizationEvent).toHaveBeenCalledWith('free_limit_hit', props);
-    expect(telemetry.sendMonetizationEvent).toHaveBeenCalledWith('license_activated', undefined);
-  });
-
-  it.each([
-    [['unknown_event']],
-    [[]],
-    [[42]],
-    [['free_limit_hit', { source: 'wizard' }]],
-    [['free_limit_hit', { limit: 'many' }]],
-    [['free_limit_hit', { runningCount: -1 }]],
-    [['free_limit_hit', { source: 'free_limit_wall', secret: 'x' }]],
-    [['free_limit_hit', 'props']],
-  ])('rejects the monetization event %j', async (args) => {
-    await expect(async () =>
-      handlers.get(IPC.TELEMETRY_TRACK_MONETIZATION)?.({}, ...args)
-    ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
-
-    expect(telemetry.sendMonetizationEvent).not.toHaveBeenCalled();
+  it('registers no monetization or distinct-id channel', () => {
+    expect(
+      [...handlers.keys()].filter((channel) => /monetization|distinct-id/.test(channel))
+    ).toEqual([]);
   });
 
   it('reports the selected agent, trimmed', async () => {

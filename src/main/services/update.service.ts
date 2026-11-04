@@ -13,7 +13,6 @@ import { createLogger } from '../lib/logger';
 import { compareSemver } from '../lib/semver';
 
 import { announcementService } from './announcement.service';
-import { licenseService } from './license.service';
 import { getKomlaBasePath } from './paths';
 import { windowService } from './window.service';
 
@@ -225,12 +224,11 @@ export class UpdateService {
     }
     announcementService.refresh();
 
-    // Re-check every 4 hours (updates, announcements, license)
+    // Re-check every 4 hours (updates, announcements)
     this.checkInterval = setInterval(
       () => {
         if (autoUpdates) this.check('Periodic update check failed');
         announcementService.refresh();
-        licenseService.refreshValidation();
       },
       4 * 60 * 60 * 1000
     );

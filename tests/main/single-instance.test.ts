@@ -48,7 +48,6 @@ vi.mock('../../src/main/services/config.service', () => ({
 }));
 vi.mock('../../src/main/services/project.service', () => ({ projectService: {} }));
 vi.mock('../../src/main/services/managed-repo.service', () => ({ managedRepoService: {} }));
-vi.mock('../../src/main/services/license.service', () => ({ licenseService: {} }));
 vi.mock('../../src/main/services/http-server.service', () => ({
   httpServerService: { waitForActualPort: () => Promise.resolve(54183) },
 }));

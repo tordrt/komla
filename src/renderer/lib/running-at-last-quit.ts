@@ -1,8 +1,9 @@
 import { useWindowStore } from '@/stores/window.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
-import { isWorkspaceRestartError, type Workspace } from '@/types';
 
 import { runningTerminalCount } from '../../shared/lib/terminal-execution-state';
+
+import type { Workspace } from '@/types';
 
 /** Still waiting to be restarted: outside the Trash, with no terminal running or starting. */
 export function awaitsRestart(
@@ -41,9 +42,8 @@ export function forgetWorkspacesRunningAtLastQuit(workspaceIds: string[]): void 
 
 /**
  * Restarts the workspaces one at a time, without selecting any, skipping those the user restarted
- * or moved to the Trash meanwhile. Each start takes the workspace off main's offer. It stops at
- * the plan's workspace limit, where the first refusal already offers an upgrade, and those it never
- * reached stay on offer for the next launch. A failure is reported and the rest still start.
+ * or moved to the Trash meanwhile. Each start takes the workspace off main's offer. A failure is
+ * reported and the rest still start.
  */
 export async function restartWorkspacesRunningAtLastQuit(workspaceIds: string[]): Promise<void> {
   for (const id of workspaceIds) {
@@ -51,8 +51,7 @@ export async function restartWorkspacesRunningAtLastQuit(workspaceIds: string[])
     const workspace = workspaces.find((w) => w.id === id);
     if (!awaitsRestart(workspace, restartingWorkspaceIds)) continue;
     try {
-      const result = await restartWorkspace(id);
-      if (result && isWorkspaceRestartError(result)) return;
+      await restartWorkspace(id);
     } catch {
       // restartWorkspace reported it.
     }

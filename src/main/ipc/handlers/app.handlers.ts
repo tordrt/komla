@@ -1,13 +1,5 @@
 import { randomUUID } from 'crypto';
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  writeFileSync,
-  rmSync,
-  mkdirSync,
-  statSync,
-} from 'fs';
+import { readdirSync, writeFileSync, rmSync, mkdirSync, statSync } from 'fs';
 import { cpus, totalmem } from 'os';
 import { join } from 'path';
 
@@ -216,13 +208,6 @@ export function registerAppHandlers(): void {
 
   handleIpc(IPC.DATA_RESET_APP, async (): Promise<void> => {
     const basePath = getKomlaBasePath();
-    const licensePath = join(basePath, 'license.json');
-
-    // Preserve license.json if it exists (read before stopping anything)
-    let licenseData: string | null = null;
-    if (existsSync(licensePath)) {
-      licenseData = readFileSync(licensePath, 'utf-8');
-    }
 
     // Stop all services that hold file handles in the data directory.
     // ptyService.killAll() is awaited so node-pty's exit TSFN drains before
@@ -238,12 +223,6 @@ export function registerAppHandlers(): void {
     // Remove the entire komla data directory (maxRetries handles race conditions
     // with files being flushed by services that were just stopped)
     removePathSync(basePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-
-    // Restore license.json
-    if (licenseData) {
-      mkdirSync(basePath, { recursive: true });
-      writeFileSync(licensePath, licenseData, 'utf-8');
-    }
 
     // Relaunch the app
     app.relaunch();

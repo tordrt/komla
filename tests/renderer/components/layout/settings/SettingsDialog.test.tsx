@@ -110,9 +110,6 @@ vi.mock('../../../../../src/renderer/components/layout/settings/FilesTab', () =>
 vi.mock('../../../../../src/renderer/components/layout/settings/VoiceTab', () => ({
   VoiceTab: stubPage('Voice'),
 }));
-vi.mock('../../../../../src/renderer/components/layout/settings/LicenseTab', () => ({
-  LicenseTab: stubPage('License'),
-}));
 vi.mock('../../../../../src/renderer/components/layout/settings/ChangelogTab', () => ({
   ChangelogTab: stubPage('Changelog'),
 }));

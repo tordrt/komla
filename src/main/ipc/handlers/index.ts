@@ -8,7 +8,6 @@ import { registerCustomizationHandlers } from './customization.handlers';
 import { registerDevPreviewHandlers } from './dev-preview.handlers';
 import { registerGitHandlers } from './git.handlers';
 import { registerHooksHandlers } from './hooks.handlers';
-import { registerLicenseHandlers } from './license.handlers';
 import { registerNotesHandlers } from './notes.handlers';
 import { registerPluginsHandlers } from './plugins.handlers';
 import { registerProjectHandlers } from './project.handlers';
@@ -29,7 +28,6 @@ export function registerIpcHandlers(): void {
   registerWorkspaceHandlers();
   registerTerminalHandlers();
   registerGitHandlers();
-  registerLicenseHandlers();
   registerConfigHandlers();
   registerProjectHandlers();
   registerShellHandlers();
@@ -59,7 +57,6 @@ export {
   registerWorkspaceHandlers,
   registerTerminalHandlers,
   registerGitHandlers,
-  registerLicenseHandlers,
   registerConfigHandlers,
   registerProjectHandlers,
   registerShellHandlers,

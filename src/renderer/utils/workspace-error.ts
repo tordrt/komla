@@ -3,33 +3,12 @@ import { usePublishRepoDialogStore } from '@/stores/publish-repo-dialog.store';
 import { useToastStore } from '@/stores/toast.store';
 
 import {
-  WORKSPACE_LIMIT_ERROR_PREFIX,
   DUPLICATE_WORKSPACE_ERROR_PREFIX,
   OPENCODE_HOLDS_WORKTREE_ERROR_PREFIX,
   SshProjectNeedsRemoteError,
 } from '../../shared/types/workspace';
 
-import type { UpgradeTrigger } from '@/components/layout/UpgradeDialog';
-
-const ERROR_PREFIXES = [
-  WORKSPACE_LIMIT_ERROR_PREFIX,
-  DUPLICATE_WORKSPACE_ERROR_PREFIX,
-  OPENCODE_HOLDS_WORKTREE_ERROR_PREFIX,
-];
-
-export type UpgradeRetryAction = (() => void) & {
-  requestedWorkspaceCount?: number;
-};
-
-export interface UpgradeDialogRequest {
-  retry?: UpgradeRetryAction;
-  /** Why the dialog opens; a hit limit unless something else asks for the offer. */
-  trigger?: UpgradeTrigger;
-}
-
-export function isRunningLimitError(err: unknown): boolean {
-  return err instanceof Error && err.message.includes(WORKSPACE_LIMIT_ERROR_PREFIX);
-}
+const ERROR_PREFIXES = [DUPLICATE_WORKSPACE_ERROR_PREFIX, OPENCODE_HOLDS_WORKTREE_ERROR_PREFIX];
 
 /** A workspace delete failed because opencode's background service still uses the worktree. */
 export function isOpenCodeHoldsWorktreeError(err: unknown): boolean {
@@ -53,21 +32,8 @@ export function stripErrorPrefix(err: Error): string {
   return msg;
 }
 
-export function showUpgradeDialog(retry?: () => void, requestedWorkspaceCount = 1): void {
-  // App already carries the retry callback through to UpgradeDialog. Attach
-  // the requested capacity so the dialog can calculate multi-run slot needs
-  // without duplicating that global dialog state in App.
-  const retryAction: UpgradeRetryAction | undefined = retry
-    ? Object.assign(() => retry(), { requestedWorkspaceCount })
-    : undefined;
-  const detail: UpgradeDialogRequest = { retry: retryAction };
-  window.dispatchEvent(new CustomEvent<UpgradeDialogRequest>('show-upgrade-dialog', { detail }));
-}
-
 export function handleCreateError(err: unknown, retry?: () => void): void {
-  if (isRunningLimitError(err)) {
-    showUpgradeDialog(retry);
-  } else if (
+  if (
     err instanceof SshProjectNeedsRemoteError &&
     useProjectsStore.getState().projects.some((project) => project.id === err.detail.projectId)
   ) {

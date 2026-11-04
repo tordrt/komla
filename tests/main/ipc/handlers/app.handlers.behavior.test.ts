@@ -481,7 +481,8 @@ describe('app IPC behavior', () => {
     });
   });
 
-  it('data:reset-app preserves license, stops services, deletes dir, relaunches', async () => {
+  it('data:reset-app stops services, deletes the whole data dir, relaunches', async () => {
+    // A license.json left over from an older build goes with the rest: Komla has no licenses.
     mockExistsSync.mockImplementation((path) => path === join('/tmp/.komla/license.json'));
     mockReadFileSync.mockReturnValue('{"licenseKey":"abc"}');
 
@@ -506,12 +507,8 @@ describe('app IPC behavior', () => {
       maxRetries: 3,
       retryDelay: 100,
     });
-    expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/.komla', { recursive: true });
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      join('/tmp/.komla/license.json'),
-      '{"licenseKey":"abc"}',
-      'utf-8'
-    );
+    expect(mockReadFileSync).not.toHaveBeenCalled();
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
     expect(mockRelaunch).toHaveBeenCalledOnce();
     expect(mockQuit).toHaveBeenCalledOnce();
   });
@@ -520,8 +517,6 @@ describe('app IPC behavior', () => {
     // Regression guard: this fix relies on `await ptyService.killAll()` so the
     // node-pty exit ThreadSafeFunctions drain before app.quit() runs. If a
     // future change drops the `await`, this test should fail.
-    mockExistsSync.mockImplementation((path) => path === join('/tmp/.komla/license.json'));
-    mockReadFileSync.mockReturnValue('{"licenseKey":"abc"}');
 
     let resolveKillAll!: () => void;
     mockPtyService.killAll.mockImplementationOnce(

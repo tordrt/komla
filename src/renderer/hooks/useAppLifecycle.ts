@@ -56,7 +56,6 @@ import { openNewWorkspaceDraft, useDialogsStore } from '@/stores/dialogs.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useGitStatusStore } from '@/stores/git-status.store';
 import { useLayoutStore } from '@/stores/layout.store';
-import { useLicenseStore } from '@/stores/license.store';
 import { setLocalCopySyncStatus } from '@/stores/local-copy-sync.store';
 import { useProjectSyncStatusStore } from '@/stores/project-sync-status.store';
 import { useProjectsStore } from '@/stores/projects.store';
@@ -125,8 +124,6 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
   const setAnnouncements = useAnnouncementStore((s) => s.setAnnouncements);
   const subscribeToWindowEvents = useWindowStore((s) => s.subscribeToWindowEvents);
   const loadProjectSyncStatuses = useProjectSyncStatusStore((s) => s.loadAllStatuses);
-  const loadLicenseStatus = useLicenseStore((s) => s.loadStatus);
-  const loadQuota = useLicenseStore((s) => s.loadQuota);
   const loadSshHosts = useSshHostsStore((state) => state.loadHosts);
   const subscribeToSshHostChanges = useSshHostsStore((state) => state.subscribeToChanges);
   const loadAutomations = useAutomationsStore((state) => state.loadAutomations);
@@ -141,7 +138,6 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
         loadShortcuts(),
         loadActions(),
         loadPresets(),
-        loadQuota(),
         // Only hosts Komla connects to anyway; the rest are read when the automations list opens.
         loadAutomations({ readHosts: 'in-use' }),
       ]);
@@ -154,7 +150,6 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
     loadShortcuts,
     loadActions,
     loadPresets,
-    loadQuota,
     loadAutomations,
   ]);
 
@@ -360,10 +355,6 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
 
       window.api.onTerminalStatusChange((terminalId, status) => {
         updateTerminalStatus(terminalId, status);
-
-        // Refresh quota so the upgrade dialog's count stays accurate across all windows,
-        // even when WorkspaceQuota (sidebar) isn't mounted (e.g. dashboard view).
-        void loadQuota();
 
         if (status === 'stopped') {
           // Drop any host badge — a restart reuses the terminal ID, and the
@@ -586,23 +577,9 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
       window.api.onHookNotice((message) => {
         useToastStore.getState().addToast(message, 'error');
       }),
-
-      window.api.onLicenseRevoked(() => {
-        void loadWorkspaces();
-        void loadLicenseStatus();
-        void loadQuota();
-      }),
     ];
     return () => cleanups.forEach((fn) => fn());
-  }, [
-    updateTerminalStatus,
-    invalidateStatus,
-    fetchStatus,
-    setAttention,
-    loadWorkspaces,
-    loadLicenseStatus,
-    loadQuota,
-  ]);
+  }, [updateTerminalStatus, invalidateStatus, fetchStatus, setAttention, loadWorkspaces]);
 
   useEffect(() => {
     if (!theme) return;

@@ -156,26 +156,21 @@ describe('execution locations', () => {
     const command = { command: 'npm test' };
 
     it('spawns a local Workspace repository Terminal in its working directory', () => {
-      const releaseStartSlot = vi.fn();
-
       attached(localWorkspace()).spawn({
         workspaceId: 'ws-local',
         terminalId: 'term-1',
         command,
         keepShellOpenAfterCommand: false,
-        releaseStartSlot,
       });
 
       expect(pty.spawn).toHaveBeenCalledWith('term-1', workspaceDir, 'npm test');
-      expect(releaseStartSlot).toHaveBeenCalledTimes(1);
       expect(localCopy.ensureInitialSync).not.toHaveBeenCalled();
     });
 
-    it('releases the start slot and skips the Local copy sync when spawning fails', () => {
+    it('skips the Local copy sync when spawning fails', () => {
       pty.spawn.mockImplementationOnce(() => {
         throw new Error('invalid cwd');
       });
-      const releaseStartSlot = vi.fn();
 
       expect(() =>
         attached(sshWorkspace(), 'local-mirror').spawn({
@@ -183,23 +178,19 @@ describe('execution locations', () => {
           terminalId: 'term-1',
           command: { command: 'npm test' },
           keepShellOpenAfterCommand: false,
-          releaseStartSlot,
         })
       ).toThrow('invalid cwd');
-      expect(releaseStartSlot).toHaveBeenCalledTimes(1);
       expect(localCopy.ensureInitialSync).not.toHaveBeenCalled();
     });
 
     it('spawns and restarts Local copy Terminals in the Local copy, then starts its sync', () => {
       const location = attached(sshWorkspace(), 'local-mirror');
-      const releaseStartSlot = vi.fn();
 
       location.spawn({
         workspaceId: 'ws-ssh',
         terminalId: 'term-1',
         command: { command: 'npm test' },
         keepShellOpenAfterCommand: false,
-        releaseStartSlot,
       });
       location.restart({
         workspaceId: 'ws-ssh',
@@ -207,7 +198,6 @@ describe('execution locations', () => {
         command: { command: 'npm run dev' },
         cols: 120,
         rows: 40,
-        releaseStartSlot,
       });
 
       expect(pty.spawn).toHaveBeenCalledWith('term-1', localCopyDir, 'npm test');
@@ -219,7 +209,6 @@ describe('execution locations', () => {
         120,
         40
       );
-      expect(releaseStartSlot).toHaveBeenCalledTimes(2);
       expect(localCopy.ensureInitialSync).toHaveBeenCalledTimes(2);
     });
 
@@ -257,7 +246,6 @@ describe('execution locations', () => {
       keepShellOpenAfterCommand: true,
       cols: 100,
       rows: 30,
-      releaseStartSlot: () => undefined,
       onAuthorized: () => undefined,
     };
     const lifecycleRequest = {
@@ -266,19 +254,15 @@ describe('execution locations', () => {
       keepShellOpenAfterCommand: true,
       cols: 100,
       rows: 30,
-      releaseStartSlot: restartRequest.releaseStartSlot,
       onAuthorized: restartRequest.onAuthorized,
     };
 
     it('creates a managed session for a new Terminal', () => {
-      const releaseStartSlot = vi.fn();
-
       managed().spawn({
         workspaceId: 'ws-ssh',
         terminalId: 'term-1',
         command: { command: 'claude' },
         keepShellOpenAfterCommand: false,
-        releaseStartSlot,
       });
 
       expect(managedSessions.create).toHaveBeenCalledWith({
@@ -286,7 +270,6 @@ describe('execution locations', () => {
         terminalId: 'term-1',
         command: 'claude',
         keepShellOpenAfterCommand: false,
-        releaseStartSlot,
       });
       expect(pty.spawn).not.toHaveBeenCalled();
     });

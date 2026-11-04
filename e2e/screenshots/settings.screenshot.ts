@@ -27,10 +27,5 @@ test.describe('Settings Screenshots', () => {
     await appWindow.getByRole('tab', { name: 'Projects' }).click();
     await appWindow.waitForTimeout(200);
     await takeScreenshot('settings-projects');
-
-    // License tab
-    await appWindow.getByRole('tab', { name: 'License' }).click();
-    await appWindow.waitForTimeout(200);
-    await takeScreenshot('settings-license');
   });
 });

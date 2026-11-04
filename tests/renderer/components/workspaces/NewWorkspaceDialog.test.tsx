@@ -386,8 +386,7 @@ const mockVoiceStoreGetState = vi.hoisted(() =>
 
 vi.mock('../../../../src/renderer/stores/voice.store', () => ({
   useVoiceStore: Object.assign(
-    (selector: (state: { loadModels: () => void }) => unknown) =>
-      selector({ loadModels: vi.fn() }),
+    (selector: (state: { loadModels: () => void }) => unknown) => selector({ loadModels: vi.fn() }),
     { getState: mockVoiceStoreGetState }
   ),
 }));
@@ -502,7 +501,6 @@ vi.mock('../../../../src/renderer/stores/projects.store', () => {
 });
 
 const mockAddToast = vi.hoisted(() => vi.fn());
-const mockShowUpgradeDialog = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({
   useToastStore: Object.assign(() => ({ addToast: mockAddToast }), {
@@ -512,10 +510,6 @@ vi.mock('../../../../src/renderer/stores/toast.store', () => ({
 
 vi.mock('../../../../src/renderer/utils/workspace-error', () => ({
   handleCreateError: vi.fn((error: Error) => error.message),
-  isRunningLimitError: vi.fn(
-    (error: unknown) => error instanceof Error && error.message.includes('WORKSPACE_LIMIT:')
-  ),
-  showUpgradeDialog: mockShowUpgradeDialog,
 }));
 
 describe('NewWorkspaceDialog', () => {
@@ -1903,11 +1897,9 @@ describe('NewWorkspaceDialog', () => {
     }
   });
 
-  it('opens the multi-stop upgrade flow and retries the preserved batch', async () => {
+  it('hands a failed batch to the create-error handler, which can retry it', async () => {
     const user = userEvent.setup();
-    mockCreateWorkspaces.mockRejectedValue(
-      new Error('WORKSPACE_LIMIT: Not enough room for the complete batch.')
-    );
+    mockCreateWorkspaces.mockRejectedValue(new Error('SSH host unavailable'));
     mockPresetStore.presets = [
       {
         id: 'preset-1',
@@ -1948,10 +1940,13 @@ describe('NewWorkspaceDialog', () => {
     expect(mockCreateWorkspaces).toHaveBeenCalledTimes(1);
     expect(onDialogOpenChange).not.toHaveBeenCalled();
     expect(prompt).toHaveValue('Compare implementations');
-    expect(mockShowUpgradeDialog).toHaveBeenCalledWith(expect.any(Function), 2);
+    expect(handleCreateError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'SSH host unavailable' }),
+      expect.any(Function)
+    );
 
     mockCreateWorkspaces.mockResolvedValue([{ id: 'ws-new-1' }, { id: 'ws-new-2' }]);
-    const retry = mockShowUpgradeDialog.mock.calls[0][0] as () => void;
+    const retry = vi.mocked(handleCreateError).mock.calls[0][1] as () => void;
     retry();
 
     await waitFor(() => expect(mockCreateWorkspaces).toHaveBeenCalledTimes(2));
@@ -2435,9 +2430,9 @@ describe('NewWorkspaceDialog', () => {
     await screen.findByPlaceholderText('komla/swift-fox');
     await user.click(screen.getByRole('button', { name: 'Claude Code Effort: High' }));
     await user.click(screen.getByRole('menuitemradio', { name: 'Default' }));
-    expect(screen.getByRole('button', { name: 'Claude Code Effort: Default' })).not.toHaveTextContent(
-      'Effort'
-    );
+    expect(
+      screen.getByRole('button', { name: 'Claude Code Effort: Default' })
+    ).not.toHaveTextContent('Effort');
     expect(document.querySelector('[data-reasoning-meter]')).toBeNull();
     await user.click(getLaunchButton());
 
@@ -2513,7 +2508,9 @@ describe('NewWorkspaceDialog', () => {
     expect(screen.getByText('Claude Code Model')).toBeInTheDocument();
     await user.click(screen.getByRole('menuitemradio', { name: 'Opus' }));
 
-    expect(screen.getByRole('button', { name: 'Claude Code Model: Opus' })).toHaveTextContent('Opus');
+    expect(screen.getByRole('button', { name: 'Claude Code Model: Opus' })).toHaveTextContent(
+      'Opus'
+    );
     expect(document.querySelector('[data-reasoning-meter]')).toBeNull();
   });
 
@@ -3873,7 +3870,9 @@ describe('NewWorkspaceDialog', () => {
 
       await user.click(screen.getByRole('button', { name: /^Build Server$/i }));
 
-      expect(await screen.findByText(/komla\/feature is only on Build Server/i)).toBeInTheDocument();
+      expect(
+        await screen.findByText(/komla\/feature is only on Build Server/i)
+      ).toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: /^Push$/ }));
       expect(window.api.pushWorkspace).toHaveBeenCalledWith('ws-source');
     });
@@ -3992,7 +3991,9 @@ describe('NewWorkspaceDialog', () => {
       render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
       await user.click(await screen.findByRole('button', { name: /^Build Server$/i }));
 
-      expect(await screen.findByText(/komla\/feature is only on Build Server/i)).toBeInTheDocument();
+      expect(
+        await screen.findByText(/komla\/feature is only on Build Server/i)
+      ).toBeInTheDocument();
       expect(window.api.getWorkspaceGitBranchStatus).not.toHaveBeenCalled();
     });
   });

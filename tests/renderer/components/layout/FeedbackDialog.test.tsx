@@ -31,11 +31,6 @@ vi.mock('../../../../src/renderer/components/ui/dialog', () => ({
   DialogTitle: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }));
 
-vi.mock('../../../../src/renderer/stores/license.store', () => ({
-  useLicenseStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ status: { customerEmail: null }, loadStatus: vi.fn() }),
-}));
-
 const mockAddToast = vi.hoisted(() => vi.fn());
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({
   useToastStore: () => ({ addToast: mockAddToast }),

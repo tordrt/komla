@@ -10,7 +10,6 @@ import {
   Folder,
   GearSix,
   GitBranch,
-  Key,
   Keyboard,
   Microphone,
   NotePencil,
@@ -69,7 +68,6 @@ import { FilesTab } from './FilesTab';
 import { GeneralTab } from './GeneralTab';
 import { GitTab } from './GitTab';
 import { IntegrationsTab } from './IntegrationsTab';
-import { LicenseTab } from './LicenseTab';
 import {
   PROJECT_SECTIONS,
   projectSectionOfCard,
@@ -214,12 +212,6 @@ const PAGES: SettingsPage[] = [
     description: 'Use Komla from your phone, tablet or another computer. In alpha, so expect bugs.',
     icon: Broadcast,
     alpha: true,
-  },
-  {
-    value: 'license',
-    label: 'License',
-    description: 'Your plan, license key, and activated devices.',
-    icon: Key,
   },
   {
     value: 'changelog',
@@ -1144,13 +1136,6 @@ export function SettingsDialog({
                       />
                     )}
                   </Suspense>
-
-                  {activeTab === 'license' && (
-                    <LicenseTab
-                      onClose={handleClose}
-                      onDirtyChange={handleDirtyChange('license')}
-                    />
-                  )}
                 </div>
               </div>
             </div>

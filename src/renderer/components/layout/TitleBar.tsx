@@ -6,7 +6,6 @@ import {
   ChatCircle,
   GitDiff,
   Lightbulb,
-  Sparkle,
   Star,
   type Icon,
 } from '@phosphor-icons/react';
@@ -27,7 +26,6 @@ import { openKomlaGitHub } from '@/lib/komla-github';
 import { useCommandCenterStore } from '@/stores/command-center.store';
 import { useConfigStore } from '@/stores/config.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
-import { useLicenseStore } from '@/stores/license.store';
 import { useShortcutsStore } from '@/stores/shortcuts.store';
 import { useWindowStore } from '@/stores/window.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -85,7 +83,6 @@ interface TitleBarProps {
   onOpenSettings?: () => void;
   onOpenShortcuts?: () => void;
   onOpenFeedback?: () => void;
-  onOpenUpgrade?: () => void;
   onOpenSettingsTab?: (tab: string, target?: Omit<SettingsDialogTarget, 'tab'>) => void;
   onOpenNewWorkspace?: () => void;
   onOpenCommandCenter?: () => void;
@@ -108,7 +105,6 @@ export function TitleBar({
   onOpenSettings,
   onOpenShortcuts,
   onOpenFeedback,
-  onOpenUpgrade,
   onOpenSettingsTab,
   onOpenNewWorkspace,
   onOpenCommandCenter,
@@ -123,7 +119,6 @@ export function TitleBar({
   const fileTreeShortcut = useShortcutsStore((s) => s.getDisplayShortcut('file.tree'));
   const diffToggleShortcut = useShortcutsStore((s) => s.getDisplayShortcut('diff.toggle'));
   const fileOpenShortcut = useShortcutsStore((s) => s.getDisplayShortcut('file.open'));
-  const quota = useLicenseStore((s) => s.quota);
   const { config, updateConfig } = useConfigStore();
   const contentRef = useRef<HTMLDivElement>(null);
   const compact = useCompactTitleBar(contentRef);
@@ -278,15 +273,6 @@ export function TitleBar({
                   <Star />
                   Star on GitHub
                 </DropdownMenuItem>
-                {quota?.isLicensed === false && onOpenUpgrade && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={onOpenUpgrade}>
-                      <Sparkle />
-                      Upgrade
-                    </DropdownMenuItem>
-                  </>
-                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

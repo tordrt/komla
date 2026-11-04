@@ -134,9 +134,6 @@ beforeEach(() => {
 
   api = {
     getWorkspaces: vi.fn(async () => useWorkspacesStore.getState().workspaces),
-    getWorkspaceQuota: vi
-      .fn()
-      .mockResolvedValue({ allowed: true, count: 0, limit: 4, isLicensed: false }),
     updateWorkspace: vi.fn().mockResolvedValue(undefined),
     addTerminal: vi.fn(async () => startTerminal()),
     addAgentTab: vi.fn(async () => startTerminal()),

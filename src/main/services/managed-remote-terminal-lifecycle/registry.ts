@@ -128,7 +128,7 @@ export class ManagedRemoteTerminalRegistry {
     const pending = this.pending.get(terminalId);
     if (!pending) return undefined;
     this.pending.delete(terminalId);
-    pending.cancel();
+    pending.cancel?.();
     return pending;
   }
 

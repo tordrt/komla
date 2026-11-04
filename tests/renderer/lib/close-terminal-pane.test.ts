@@ -134,11 +134,8 @@ describe('handleTerminalExit', () => {
     const removeTerminal = vi.fn().mockResolvedValue(undefined);
     const stopWorkspace = vi.fn().mockResolvedValue(undefined);
     const getWorkspaces = vi.fn().mockResolvedValue([]);
-    const getWorkspaceQuota = vi
-      .fn()
-      .mockResolvedValue({ allowed: true, count: 0, limit: 4, isLicensed: false });
     Object.assign(window, {
-      api: { removeTerminal, stopWorkspace, getWorkspaces, getWorkspaceQuota },
+      api: { removeTerminal, stopWorkspace, getWorkspaces },
     });
     useWorkspacesStore.setState({
       workspaces: [workspace],
@@ -159,11 +156,8 @@ describe('handleTerminalExit', () => {
     const removeTerminal = vi.fn().mockResolvedValue(undefined);
     const stopWorkspace = vi.fn().mockResolvedValue(undefined);
     const getWorkspaces = vi.fn().mockResolvedValue([{ ...workspace, terminals: [] }]);
-    const getWorkspaceQuota = vi
-      .fn()
-      .mockResolvedValue({ allowed: true, count: 0, limit: 4, isLicensed: false });
     Object.assign(window, {
-      api: { removeTerminal, stopWorkspace, getWorkspaces, getWorkspaceQuota },
+      api: { removeTerminal, stopWorkspace, getWorkspaces },
     });
     useWorkspacesStore.setState({
       workspaces: [workspace],
@@ -192,11 +186,8 @@ describe('handleTerminalExit', () => {
     });
     const stopWorkspace = vi.fn().mockResolvedValue(undefined);
     const getWorkspaces = vi.fn(async () => [{ ...workspace, terminals: remainingTerminals }]);
-    const getWorkspaceQuota = vi
-      .fn()
-      .mockResolvedValue({ allowed: true, count: 0, limit: 4, isLicensed: false });
     Object.assign(window, {
-      api: { removeTerminal, stopWorkspace, getWorkspaces, getWorkspaceQuota },
+      api: { removeTerminal, stopWorkspace, getWorkspaces },
     });
     useWorkspacesStore.setState({
       workspaces: [workspace],
@@ -308,11 +299,8 @@ describe('handleTerminalExit', () => {
     const removeTerminal = vi.fn(() => removal.promise);
     const getWorkspaces = vi.fn().mockResolvedValue([{ ...workspace, terminals: [] }]);
     const stopWorkspace = vi.fn().mockResolvedValue(undefined);
-    const getWorkspaceQuota = vi
-      .fn()
-      .mockResolvedValue({ allowed: true, count: 0, limit: 4, isLicensed: false });
     Object.assign(window, {
-      api: { removeTerminal, getWorkspaces, stopWorkspace, getWorkspaceQuota },
+      api: { removeTerminal, getWorkspaces, stopWorkspace },
     });
     useWorkspacesStore.setState({ workspaces: [workspace] });
     useLayoutStore.getState().setCurrentWorkspace(workspace.id, terminal.id);

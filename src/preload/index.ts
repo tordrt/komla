@@ -6,7 +6,6 @@ import type {
   Workspace,
   WorkspaceCreateResult,
   WorkspaceCreateBatchResult,
-  WorkspaceRestartResult,
   WorkspaceObservationProjection,
   RemoteWorkingTreeChange,
   RestartTerminalOptions,
@@ -38,15 +37,10 @@ import type {
   ShortcutsConfig,
   Action,
   ActionSshExecutionLocation,
-  LicenseStatus,
-  LicenseActivation,
-  ActivationLimitError,
   BranchInfo,
   McpStatus,
   FeedbackPayload,
   FeedbackResult,
-  WorkspaceQuota,
-  PlanPrices,
   UtilityOpenRouterKeyStatus,
   CommitChangesResult,
   CommitDraftResult,
@@ -318,7 +312,7 @@ const api = {
   updateTerminal: (terminalId: string, updates: Partial<Terminal>): Promise<Terminal> =>
     ipcRenderer.invoke(IPC.WORKSPACE_UPDATE_TERMINAL, terminalId, updates),
 
-  restartWorkspace: (workspaceId: string): Promise<WorkspaceRestartResult> =>
+  restartWorkspace: (workspaceId: string): Promise<Terminal> =>
     ipcRenderer.invoke(IPC.WORKSPACE_RESTART, workspaceId),
 
   /** Local workspaces that were running when Komla last quit and are stopped now. */
@@ -1208,16 +1202,6 @@ const api = {
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.SHELL_OPEN_EXTERNAL, url),
 
   // Telemetry
-  getTelemetryDistinctId: (): Promise<string | null> =>
-    ipcRenderer.invoke(IPC.TELEMETRY_GET_DISTINCT_ID),
-  trackMonetizationEvent: (
-    event: 'free_limit_hit' | 'upgrade_clicked' | 'license_activated',
-    props?: {
-      source?: 'create_workspace' | 'start_workspace' | 'free_limit_wall';
-      limit?: number;
-      runningCount?: number;
-    }
-  ): Promise<void> => ipcRenderer.invoke(IPC.TELEMETRY_TRACK_MONETIZATION, event, props),
   trackAgentSelected: (agent: string): Promise<void> =>
     ipcRenderer.invoke(IPC.TELEMETRY_TRACK_AGENT_SELECTED, agent),
   trackSshHostAdded: (source: SshHostAddedSource): Promise<void> =>
@@ -1601,14 +1585,6 @@ const api = {
     };
     ipcRenderer.on(IPC.SERVER_PORT_CHANGED, handler);
     return () => ipcRenderer.removeListener(IPC.SERVER_PORT_CHANGED, handler);
-  },
-
-  onLicenseRevoked: (callback: () => void): (() => void) => {
-    const handler = (): void => {
-      callback();
-    };
-    ipcRenderer.on(IPC.LICENSE_REVOKED, handler);
-    return () => ipcRenderer.removeListener(IPC.LICENSE_REVOKED, handler);
   },
 
   onWorktreeChanged: (
@@ -2062,41 +2038,6 @@ const api = {
     ipcRenderer.on(IPC.AGENT_PRESETS_CHANGED, handler);
     return () => ipcRenderer.removeListener(IPC.AGENT_PRESETS_CHANGED, handler);
   },
-
-  // License operations
-  getLicenseStatus: (): Promise<LicenseStatus> => ipcRenderer.invoke(IPC.LICENSE_GET_STATUS),
-
-  refreshLicenseStatus: (): Promise<LicenseStatus> =>
-    ipcRenderer.invoke(IPC.LICENSE_REFRESH_STATUS),
-
-  activateLicense: (key: string): Promise<LicenseStatus | ActivationLimitError> =>
-    ipcRenderer.invoke(IPC.LICENSE_ACTIVATE, key),
-
-  deactivateLicense: (): Promise<LicenseStatus> => ipcRenderer.invoke(IPC.LICENSE_DEACTIVATE),
-
-  getWorkspaceQuota: (): Promise<WorkspaceQuota> =>
-    ipcRenderer.invoke(IPC.LICENSE_GET_WORKSPACE_QUOTA),
-
-  getActivations: (
-    licenseKey: string
-  ): Promise<{
-    activations: LicenseActivation[];
-    activationsUsed: number;
-    maxActivations: number;
-  }> => ipcRenderer.invoke(IPC.LICENSE_GET_ACTIVATIONS, licenseKey),
-
-  revokeActivation: (
-    activationId: string,
-    licenseKey: string
-  ): Promise<{
-    success: boolean;
-    activations: LicenseActivation[];
-  }> => ipcRenderer.invoke(IPC.LICENSE_REVOKE_ACTIVATION, activationId, licenseKey),
-
-  openBillingPortal: (): Promise<{ url: string } | { error: string }> =>
-    ipcRenderer.invoke(IPC.LICENSE_OPEN_BILLING_PORTAL),
-
-  getPlanPrices: (): Promise<PlanPrices | null> => ipcRenderer.invoke(IPC.LICENSE_GET_PRICES),
 
   // Announcement operations
   getAnnouncements: (): Promise<

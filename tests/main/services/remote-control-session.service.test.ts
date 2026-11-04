@@ -2564,7 +2564,7 @@ describe('RemoteControlSessionService', () => {
 
   it('names the request when a frame handler throws', async () => {
     const { peer, workspaces } = makeFixture();
-    workspaces.create.mockRejectedValueOnce(new Error('WORKSPACE_LIMIT:Free plan is limited'));
+    workspaces.create.mockRejectedValueOnce(new Error('worktree path already exists'));
 
     peer.emitJson({
       type: 'app:workspace:create',
@@ -2578,7 +2578,7 @@ describe('RemoteControlSessionService', () => {
       type: 'app:error',
       requestId: 'r1',
       code: 'internal',
-      message: 'WORKSPACE_LIMIT:Free plan is limited',
+      message: 'worktree path already exists',
     });
   });
 

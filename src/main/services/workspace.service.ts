@@ -74,7 +74,6 @@ import {
   listHostBranches,
 } from './workspace/branch-cleanup';
 import { WorkspaceCreation } from './workspace/creation';
-import { FreeSshSlots } from './workspace/free-ssh-slots';
 import { WorkspaceLifecycle } from './workspace/lifecycle';
 import {
   initializeLocalCopy,
@@ -304,14 +303,12 @@ class WorkspaceService {
         this.attention.persistedSources(workspaceId, terminalId),
     });
     const { attention, sshSync } = this;
-    const slots = new FreeSshSlots();
     const naming = new WorkspaceNaming();
-    const terminals = new WorkspaceTerminals({ attention, slots });
+    const terminals = new WorkspaceTerminals({ attention });
     const provisioning = new WorkspaceProvisioning({ attention, naming, terminals });
     const lifecycle = new WorkspaceLifecycle({
       attention,
       sshSync,
-      slots,
       naming,
       terminals,
       provisioning,
@@ -319,7 +316,7 @@ class WorkspaceService {
     this.naming = naming;
     this.terminals = terminals;
     this.lifecycle = lifecycle;
-    this.creation = new WorkspaceCreation({ slots, naming, terminals, provisioning });
+    this.creation = new WorkspaceCreation({ naming, terminals, provisioning });
     this.sessions = new SshSessionRecovery({ attention, sshSync });
     this.adoption = new SshWorkspaceAdoption({ attention, lifecycle });
     this.sshAttention = new SshAttentionPersistence();
@@ -967,10 +964,6 @@ class WorkspaceService {
     return workspaceStore.withPersistenceTransaction(transaction);
   }
 
-  enforceWorkspaceLimit(...args: Parameters<WorkspaceLifecycle['enforceWorkspaceLimit']>) {
-    return this.lifecycle.enforceWorkspaceLimit(...args);
-  }
-
   recoverSshSessions(...args: Parameters<SshSessionRecovery['recoverSshSessions']>) {
     return this.sessions.recoverSshSessions(...args);
   }
@@ -1027,12 +1020,6 @@ class WorkspaceService {
 
   getRunningWorkspaceCount(...args: Parameters<typeof workspaceStore.getRunningWorkspaceCount>) {
     return workspaceStore.getRunningWorkspaceCount(...args);
-  }
-
-  getRunningRemoteWorkspaceCount(
-    ...args: Parameters<typeof workspaceStore.getRunningRemoteWorkspaceCount>
-  ) {
-    return workspaceStore.getRunningRemoteWorkspaceCount(...args);
   }
 
   create(...args: Parameters<WorkspaceCreation['create']>) {

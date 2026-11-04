@@ -1659,7 +1659,7 @@ class RemoteAppClient {
           this.renderPushSettings();
         }
         this.setCreateWorkspacePending(false);
-        // Desktop errors can lead with a code, as in "WORKSPACE_LIMIT:Free plan is…".
+        // Desktop errors can lead with an uppercase code and a colon; show only the message.
         const message = frame.message.replace(/^[A-Z_]+:/, '');
         let shownInSheet = false;
         if (frame.requestId === this.pendingCreateRequestId) {

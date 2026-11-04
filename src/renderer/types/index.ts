@@ -21,7 +21,6 @@ export {
   isWorkspaceAttentionActionable,
   isWorkspaceSnoozed,
   isWorkspaceCreateError,
-  isWorkspaceRestartError,
   isLocalTerminalExecutionLocation,
   needsAttention,
   pickWorkspaceAttention,
@@ -47,7 +46,6 @@ export {
   showsRunning,
   showsTerminalRunning,
   showsWorking,
-  takesFreeSshSlot,
   type PaneOffer,
 } from '../../shared/lib/terminal-execution-state';
 
@@ -62,7 +60,6 @@ export type {
   Workspace,
   WorkspaceCreateResult,
   WorkspaceCreateBatchResult,
-  WorkspaceRestartResult,
   WorkspaceObservationProjection,
   RemoteWorkingTreeChange,
   RestartTerminalOptions,
@@ -388,55 +385,6 @@ export interface BranchInfo {
 export interface ShortcutsConfig {
   shortcuts: Record<string, string>;
   isUSKeyboardLayout?: boolean;
-}
-
-// License types
-export type LicenseFeature = 'unlimited_workspaces' | 'remote_ssh';
-
-export interface LicenseActivation {
-  id: string;
-  machineName: string | null;
-  platform: string | null;
-  lastSeen: string;
-  firstActivated?: string;
-  isCurrent?: boolean;
-}
-
-export type LicenseType = 'monthly' | 'yearly' | 'lifetime';
-
-export interface LicenseStatus {
-  isLicensed: boolean;
-  licenseKey: string | null;
-  customerEmail: string | null;
-  activatedAt: number | null;
-  features: Record<LicenseFeature, boolean>;
-  activationsUsed?: number;
-  maxActivations?: number;
-  licenseType?: LicenseType | null;
-  validUntil?: string | null;
-  cancelAtPeriodEnd?: boolean;
-}
-
-export interface ActivationLimitError {
-  error: 'activation_limit_reached';
-  activations: LicenseActivation[];
-  activationsUsed: number;
-  maxActivations: number;
-}
-
-/** Prices in minor units in one currency; lifetime is null once its early-access price has ended. */
-export interface PlanPrices {
-  currency: 'usd' | 'eur';
-  monthly: number;
-  yearly: number;
-  lifetime: number | null;
-}
-
-export interface WorkspaceQuota {
-  allowed: boolean;
-  count: number;
-  limit: number;
-  isLicensed: boolean;
 }
 
 export type { McpStatus } from '../../shared/types/mcp-status';

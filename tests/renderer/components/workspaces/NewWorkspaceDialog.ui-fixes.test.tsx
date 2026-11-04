@@ -235,8 +235,7 @@ vi.mock('../../../../src/renderer/components/workspaces/VoiceRecordingIndicator'
 
 vi.mock('../../../../src/renderer/stores/voice.store', () => ({
   useVoiceStore: Object.assign(
-    (selector: (state: { loadModels: () => void }) => unknown) =>
-      selector({ loadModels: vi.fn() }),
+    (selector: (state: { loadModels: () => void }) => unknown) => selector({ loadModels: vi.fn() }),
     { getState: () => ({ modelStatus: 'not-downloaded', loadModelStatus: vi.fn() }) }
   ),
 }));
@@ -339,8 +338,6 @@ vi.mock('../../../../src/renderer/stores/toast.store', () => ({
 
 vi.mock('../../../../src/renderer/utils/workspace-error', () => ({
   handleCreateError: vi.fn(),
-  isRunningLimitError: vi.fn(() => false),
-  showUpgradeDialog: vi.fn(),
 }));
 
 function useSinglePresetWithLaunchMode() {

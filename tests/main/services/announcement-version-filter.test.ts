@@ -15,9 +15,6 @@ vi.mock('../../../src/main/lib/logger', () => ({
 vi.mock('../../../src/main/lib/api-urls', () => ({
   API_BASE_URL: 'https://test.komla.dev',
 }));
-vi.mock('../../../src/main/services/license.service', () => ({
-  licenseService: { getStatus: () => ({ isLicensed: false }) },
-}));
 vi.mock('../../../src/main/services/window.service', () => ({
   windowService: { broadcastWhenReady: vi.fn() },
 }));

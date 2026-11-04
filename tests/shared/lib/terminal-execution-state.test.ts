@@ -14,7 +14,6 @@ import {
   isMonitored,
   isResumable,
   isRunningHere,
-  isRunningOnSshHost,
   needsHostCheck,
   paneOffer,
   persistedRemoteSessionActive,
@@ -23,7 +22,6 @@ import {
   sessionEndedHere,
   showsRunning,
   showsWorking,
-  takesFreeSshSlot,
   type PaneOffer,
   type TerminalExecutionState,
 } from '../../../src/shared/lib/terminal-execution-state';
@@ -504,26 +502,6 @@ describe('Terminal Execution State', () => {
     expect(showsRunning(ws)).toBe(true);
     expect(canStop(ws)).toBe(true);
     expect(isHiddenByHideStopped(ws)).toBe(false);
-  });
-
-  it('counts toward the free SSH limit only what runs on the host', () => {
-    const attached = workspace('ssh', [{ status: 'running' }]);
-    const detached = workspace('ssh', [{ remoteSessionActive: true }]);
-    const localCopy = workspace('ssh', [{ status: 'running', executionLocation: 'local-mirror' }]);
-    const paneOnly = workspace('ssh', [], { showsPaneSurfaces: true });
-    const local = workspace('local', [{ status: 'running' }]);
-
-    expect([attached, detached, localCopy, paneOnly, local].map(isRunningOnSshHost)).toEqual([
-      true,
-      true,
-      false,
-      false,
-      false,
-    ]);
-    expect(takesFreeSshSlot(workspace('ssh', [], { provisioning: true }))).toBe(true);
-    expect(takesFreeSshSlot(workspace('local', [], { provisioning: true }))).toBe(false);
-    expect(takesFreeSshSlot(attached)).toBe(true);
-    expect(takesFreeSshSlot(localCopy)).toBe(false);
   });
 
   it('never hides a workspace that is still being created', () => {

@@ -7,14 +7,12 @@ import { BrowserWindow } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
 import {
-  WORKSPACE_LIMIT_ERROR_PREFIX,
   DUPLICATE_WORKSPACE_ERROR_PREFIX,
   SshProjectNeedsRemoteError,
   isSshWorkspace,
   type WorkspaceCreateBatchResult,
   type WorkspaceCreateError,
   type WorkspaceCreateResult,
-  type WorkspaceRestartResult,
 } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
 import { removePath } from '../../lib/remove-path';
@@ -60,7 +58,6 @@ function sshWorkspaceBackend(workspaceId: string): SshWorkspaceBackend {
 
 function isExpectedWorkspaceCreateError(message: string): boolean {
   return (
-    message.includes(WORKSPACE_LIMIT_ERROR_PREFIX) ||
     message.includes(DUPLICATE_WORKSPACE_ERROR_PREFIX) ||
     message.includes('already open in workspace') ||
     message.includes('already has an active worktree')
@@ -455,19 +452,9 @@ export function registerWorkspaceHandlers(): void {
     return workspaceService.updateTerminal(terminalId, updates);
   });
 
-  handleIpc(IPC.WORKSPACE_RESTART, async (_, [workspaceId]): Promise<WorkspaceRestartResult> => {
-    try {
-      return await workspaceService.restartWithCleanup(workspaceId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      // Expected user-facing errors: return as values instead of throwing
-      // so Electron doesn't log them as IPC errors.
-      if (message.includes(WORKSPACE_LIMIT_ERROR_PREFIX)) {
-        return { __workspaceRestartError: true, message };
-      }
-      throw error;
-    }
-  });
+  handleIpc(IPC.WORKSPACE_RESTART, async (_, [workspaceId]): Promise<Terminal> =>
+    workspaceService.restartWithCleanup(workspaceId)
+  );
 
   handleIpc(IPC.WORKSPACE_LIST_RUNNING_AT_LAST_QUIT, () =>
     workspaceService.listRunningAtLastQuit()

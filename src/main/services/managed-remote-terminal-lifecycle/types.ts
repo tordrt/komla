@@ -114,7 +114,6 @@ export interface CreateManagedRemoteTerminalRequest {
   terminalId: string;
   command: string | null;
   keepShellOpenAfterCommand: boolean;
-  releaseStartSlot: () => void;
 }
 
 export interface ReplaceManagedRemoteTerminalRequest {
@@ -123,7 +122,6 @@ export interface ReplaceManagedRemoteTerminalRequest {
   keepShellOpenAfterCommand: boolean;
   cols?: number;
   rows?: number;
-  releaseStartSlot: () => void;
   onAuthorized?: () => void;
   explicit?: boolean;
 }
@@ -139,5 +137,5 @@ export interface ManagedRemoteTerminalRecovery {
 export interface PendingManagedRemoteTerminalIntent {
   generation: number;
   mayHaveRemoteSession: boolean;
-  cancel: () => void;
+  cancel?: () => void;
 }

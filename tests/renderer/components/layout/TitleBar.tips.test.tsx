@@ -37,9 +37,6 @@ vi.mock('../../../../src/renderer/stores/shortcuts.store', () => ({
   useShortcutsStore: (selector: (state: object) => unknown) =>
     selector({ getDisplayShortcut: (shortcut: string) => shortcut }),
 }));
-vi.mock('../../../../src/renderer/stores/license.store', () => ({
-  useLicenseStore: (selector: (state: object) => unknown) => selector({ quota: null }),
-}));
 vi.mock('../../../../src/renderer/stores/agent-presets.store', () => ({
   useAgentPresetsStore: () => ({
     presets: [],

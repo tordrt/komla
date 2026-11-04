@@ -3,7 +3,6 @@ export { GeneralTab } from './GeneralTab';
 export { AgentTab } from './AgentTab';
 export { ProjectsTab } from './ProjectsTab';
 export { ActionsTab } from './ActionsTab';
-export { LicenseTab } from './LicenseTab';
 export { SettingsCard } from './SettingsCard';
 export { SettingsRow } from './SettingsRow';
 export { FormError } from './FormError';

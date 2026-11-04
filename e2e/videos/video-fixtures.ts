@@ -25,7 +25,6 @@ import {
 } from '@playwright/test';
 
 import { IPC } from '../../src/shared/constants/ipc-channels';
-import { seedLicense } from '../demo-fixtures';
 import { firstRendererWindow } from '../electron-app';
 import {
   hostExec,
@@ -388,7 +387,6 @@ function seedWorld(world: VideoWorld): VideoSshHost | null {
     fs.rmSync(path.join(SANDBOX_DIR, entry), { recursive: true, force: true });
   }
   fs.mkdirSync(path.join(SANDBOX_DIR, 'settings'), { recursive: true });
-  seedLicense(SANDBOX_DIR);
 
   fs.writeFileSync(
     path.join(SANDBOX_DIR, 'config.json'),
@@ -1177,7 +1175,7 @@ async function launchApp(): Promise<ElectronApplication> {
       ...env,
       KOMLA_DATA_DIR: SANDBOX_DIR,
       NODE_ENV: 'test',
-      // Keep the seeded license from being revoked by the real server.
+      // Keep recordings off Komla's servers.
       KOMLA_API_URL: 'http://localhost:0',
       // Shells run zsh with the sandbox's rc, also when recording from inside
       // Komla, whose shells pass on the user's rc as __KOMLA_ORIG_ZDOTDIR.

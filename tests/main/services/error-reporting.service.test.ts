@@ -57,7 +57,6 @@ function createMockNetRequest(): MockNetRequestController {
 }
 
 const getConfig = vi.fn(() => ({ errorReportingEnabled: true }));
-const getStatus = vi.fn(() => ({ isLicensed: true }));
 const getActive = vi.fn(() => ({ name: 'Claude Code', isBuiltin: false }));
 
 const appMock = mockApp({
@@ -82,12 +81,6 @@ vi.mock('../../../src/main/services/config.service', () => ({
   },
 }));
 
-vi.mock('../../../src/main/services/license.service', () => ({
-  licenseService: {
-    getStatus,
-  },
-}));
-
 vi.mock('../../../src/main/services/agent-preset.service', () => ({
   BUILTIN_PRESETS: [{ name: 'Claude Code' }],
   agentPresetService: {
@@ -101,7 +94,6 @@ describe('ErrorReportingService', () => {
     vi.clearAllMocks();
     appMock.isPackaged = true;
     getConfig.mockReturnValue({ errorReportingEnabled: true });
-    getStatus.mockReturnValue({ isLicensed: true });
     getActive.mockReturnValue({ name: 'Claude Code', isBuiltin: false });
     vi.unstubAllEnvs();
   });
@@ -195,7 +187,7 @@ describe('ErrorReportingService', () => {
       message: string;
       stack: string;
       context: Record<string, unknown>;
-      systemInfo: { appVersion: string; isLicensed: boolean; agentPresetName: string };
+      systemInfo: { appVersion: string; agentPresetName: string };
     };
 
     expect(netRequest).toHaveBeenCalledWith({
@@ -218,9 +210,9 @@ describe('ErrorReportingService', () => {
     });
     expect(payload.systemInfo).toMatchObject({
       appVersion: '9.9.9',
-      isLicensed: true,
       agentPresetName: 'Claude Code',
     });
+    expect(payload.systemInfo).not.toHaveProperty('isLicensed');
 
     netCtrl.simulateResponse(200);
   });

@@ -62,12 +62,6 @@ vi.mock('../../../src/main/services/agent-preset.service', () => ({
   },
 }));
 
-vi.mock('../../../src/main/services/license.service', () => ({
-  licenseService: {
-    getStatus: vi.fn(() => ({ isLicensed: true, licenseType: 'lifetime' })),
-  },
-}));
-
 vi.mock('../../../src/main/services/metrics-collector.service', () => ({
   metricsCollectorService: {
     confirmFlush: vi.fn(),
@@ -79,9 +73,6 @@ vi.mock('../../../src/main/services/metrics-collector.service', () => ({
       arch: 'arm64',
       distinctId: 'app_test-id',
       agent: 'test-agent',
-      isLicensed: false,
-      licenseCohort: 'paid_lifetime',
-      licenseType: 'lifetime',
       runningWorkspacesAvg: 0,
       stoppedWorkspaces: 0,
       archivedWorkspaces: 0,
@@ -188,7 +179,6 @@ describe('TelemetryService', () => {
 
       await telemetryService.sendInstallPing();
       await telemetryService.sendDailyHeartbeat();
-      telemetryService.sendMonetizationEvent('upgrade_clicked');
       telemetryService.sendSshHostAdded('tips');
       telemetryService.sendAgentSelected('Claude Code');
       telemetryService.sendIntegrationMilestone('mcp:tool-used', { tool: 'x' });
@@ -220,32 +210,18 @@ describe('TelemetryService', () => {
       (app as any).isPackaged = true;
     });
 
-    it('still sends monetization telemetry when app is not packaged', async () => {
+    it('sends no event at all when app is not packaged', async () => {
       const { app, net } = await import('electron');
       (app as any).isPackaged = false;
-      const controller = createMockNetRequest();
-      vi.mocked(net.request).mockReturnValue(controller.request as any);
-
       const { telemetryService } = await import('../../../src/main/services/telemetry.service');
-      telemetryService.sendMonetizationEvent('upgrade_clicked', {
-        source: 'free_limit_wall',
-      });
-      controller.simulateResponse(200);
 
-      expect(net.request).toHaveBeenCalledWith({
-        method: 'POST',
-        url: 'https://test.komla.dev/api/v1/telemetry/monetization',
-      });
-      expect(controller.getRequestBody()).toMatchObject({
-        event: 'upgrade_clicked',
-        source: 'free_limit_wall',
-        distinctId: 'app_test-id',
-      });
-      expect(controller.request.setHeader).toHaveBeenCalledWith(
-        'User-Agent',
-        expect.stringContaining('Komla/1.0.0-test')
-      );
-      expect(controller.request.setHeader).toHaveBeenCalledWith('Accept-Language', 'en-US');
+      await telemetryService.sendInstallPing();
+      await telemetryService.sendDailyHeartbeat();
+      telemetryService.sendSshHostAdded('tips');
+      telemetryService.sendAgentSelected('Claude Code');
+      telemetryService.sendIntegrationMilestone('mcp:tool-used', { tool: 'x' });
+
+      expect(net.request).not.toHaveBeenCalled();
       (app as any).isPackaged = true;
     });
   });
@@ -669,11 +645,10 @@ describe('TelemetryService', () => {
       const body = heartbeatController.getRequestBody();
       expect(body).toMatchObject({
         agent: 'test-agent',
-        isLicensed: true,
         distinctId: 'app_test-id',
-        licenseCohort: 'paid_lifetime',
-        licenseType: 'lifetime',
       });
+      expect(body).not.toHaveProperty('isLicensed');
+      expect(body).not.toHaveProperty('licenseCohort');
     });
 
     it('reports a custom agent preset as Custom, never by its name', async () => {
@@ -705,11 +680,7 @@ describe('TelemetryService', () => {
       await promise;
 
       const body = heartbeatController.getRequestBody();
-      expect(body).toMatchObject({
-        agent: 'test-agent',
-        isLicensed: true,
-        licenseCohort: 'paid_lifetime',
-      });
+      expect(body).toMatchObject({ agent: 'test-agent' });
       expect(body).not.toHaveProperty('distinctId');
     });
 
@@ -730,7 +701,6 @@ describe('TelemetryService', () => {
         schemaVersion: 2,
         version: '1.0.0-test',
         distinctId: 'app_test-id',
-        licenseCohort: 'paid_lifetime',
         runningWorkspacesAvg: 0,
       });
     });
@@ -848,64 +818,6 @@ describe('TelemetryService', () => {
         expect.objectContaining({ lastHeartbeatDate: expect.any(String) })
       );
       vi.useRealTimers();
-    });
-  });
-
-  describe('sendMonetizationEvent', () => {
-    it('sends safe monetization payload with app metadata and distinct id', async () => {
-      const { net } = await import('electron');
-      const controller = createMockNetRequest();
-      vi.mocked(net.request).mockReturnValue(controller.request as any);
-
-      const { telemetryService } = await import('../../../src/main/services/telemetry.service');
-      telemetryService.sendMonetizationEvent('free_limit_hit', {
-        source: 'create_workspace',
-        limit: 4,
-        runningCount: 4,
-      });
-      controller.simulateResponse(200);
-
-      expect(net.request).toHaveBeenCalledWith({
-        method: 'POST',
-        url: 'https://test.komla.dev/api/v1/telemetry/monetization',
-      });
-      expect(controller.getRequestBody()).toMatchObject({
-        event: 'free_limit_hit',
-        appVersion: '1.0.0-test',
-        platform: process.platform,
-        arch: process.arch,
-        isLicensed: true,
-        distinctId: 'app_test-id',
-        licenseCohort: 'paid_lifetime',
-        licenseType: 'lifetime',
-        source: 'create_workspace',
-        limit: 4,
-        runningCount: 4,
-      });
-    });
-
-    it('skips monetization events when usage telemetry is not opted in', async () => {
-      const { net } = await import('electron');
-      mockConfig.usageTelemetryEnabled = false;
-      const { telemetryService } = await import('../../../src/main/services/telemetry.service');
-
-      telemetryService.sendMonetizationEvent('free_limit_hit', { source: 'create_workspace' });
-
-      expect(net.request).not.toHaveBeenCalled();
-    });
-
-    it('exposes the telemetry distinct id', async () => {
-      const { telemetryService } = await import('../../../src/main/services/telemetry.service');
-      expect(telemetryService.getDistinctId()).toBe('app_test-id');
-    });
-
-    it('withholds the distinct id when not opted in or turned off by the environment', async () => {
-      const { telemetryService } = await import('../../../src/main/services/telemetry.service');
-      vi.stubEnv('DO_NOT_TRACK', '1');
-      expect(telemetryService.getDistinctId()).toBeNull();
-      vi.stubEnv('DO_NOT_TRACK', '');
-      mockConfig.usageTelemetryEnabled = false;
-      expect(telemetryService.getDistinctId()).toBeNull();
     });
   });
 });

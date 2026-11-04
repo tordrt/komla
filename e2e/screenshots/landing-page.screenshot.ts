@@ -1,5 +1,4 @@
 import { execSync } from 'child_process';
-import { createCipheriv, createHash, randomBytes } from 'crypto';
 import fs from 'fs';
 import { homedir } from 'os';
 import path from 'path';
@@ -46,46 +45,6 @@ interface ScreenshotFixtures {
   electronApp: ElectronApplication;
   appWindow: Page;
   takeScreenshot: TakeScreenshotFn;
-}
-
-/**
- * Seeds a fake license so the app shows the licensed (non-free-plan) UI.
- * Replicates the encryption from src/main/services/license.service.ts.
- */
-function seedLicense(sandboxDir: string) {
-  // Get machine ID the same way the app does
-  const rawId = execSync('ioreg -rd1 -c IOPlatformExpertDevice | grep IOPlatformSerialNumber', {
-    encoding: 'utf-8',
-    timeout: 5000,
-  });
-  const match = rawId.match(/"IOPlatformSerialNumber"\s*=\s*"([^"]+)"/);
-  const machineId = createHash('sha256').update(`darwin:${match![1]}`).digest('hex');
-
-  // Encrypt the screenshot license key with the same algorithm the app uses
-  const ENCRYPTION_SALT = 'komla-license-v1';
-  const encKey = createHash('sha256')
-    .update(machineId + ENCRYPTION_SALT)
-    .digest();
-  const iv = randomBytes(12);
-  const licenseKey = 'KOMLA-SCRN-SH0T-TEST-KEY1';
-  const cipher = createCipheriv('aes-256-gcm', encKey, iv);
-  const encrypted = Buffer.concat([cipher.update(licenseKey, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  const encryptedKey = Buffer.concat([iv, tag, encrypted]).toString('base64');
-
-  fs.writeFileSync(
-    path.join(sandboxDir, 'license.json'),
-    JSON.stringify(
-      {
-        licenseKey: encryptedKey,
-        activatedAt: Date.now(),
-        machineId,
-        encrypted: true,
-      },
-      null,
-      2
-    )
-  );
 }
 
 function seedTheme(sandboxDir: string) {
@@ -416,7 +375,6 @@ const landingTest = base.extend<ScreenshotFixtures>({
         })
       );
       seedTheme(SANDBOX_DIR);
-      seedLicense(SANDBOX_DIR);
 
       const settingsDir = path.join(SANDBOX_DIR, 'settings');
       fs.mkdirSync(settingsDir, { recursive: true });
@@ -1131,7 +1089,6 @@ landingTest.describe('Landing Page Screenshots', () => {
       //    (xterm.js clears selection on mousedown; avoids triggering Claude Code's Escape handler)
       // 2. Click the sidebar to move focus away from terminal and resize handles
       // 3. Blur focused elements (removes focus rings on resize handles)
-      // 4. Hide the workspace quota UI (fake license gets revoked by server validation)
       const xtermCanvas = appWindow.locator('.xterm .xterm-screen canvas').first();
       const canvasBox = await xtermCanvas.boundingBox();
       if (canvasBox) {
@@ -1158,17 +1115,6 @@ landingTest.describe('Landing Page Screenshots', () => {
         // Blur any focused element to remove focus rings
         if (document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
-        }
-        // Hide the "X of Y workspaces" quota button (only in sidebar)
-        const sidebar = document.querySelector('.sidebar-surface');
-        if (sidebar) {
-          for (const btn of sidebar.querySelectorAll('button')) {
-            if (btn.textContent?.includes('workspaces')) {
-              const container = btn.closest('div');
-              if (container) (container as HTMLElement).style.display = 'none';
-              break;
-            }
-          }
         }
       });
       await appWindow.waitForTimeout(200);

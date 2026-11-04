@@ -4,8 +4,6 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { SidebarFilterMenu } from '@/components/layout/SidebarFilterMenu';
 import { StatusBarContextMenu } from '@/components/layout/status-bar/StatusBarContextMenu';
-import { type UpgradeTrigger } from '@/components/layout/UpgradeDialog';
-import { WorkspaceQuota } from '@/components/layout/WorkspaceQuota';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { Kbd, ShortcutHint } from '@/components/ui/kbd';
@@ -38,7 +36,6 @@ interface SidebarProps {
   width: number;
   onResize: (width: number) => void;
   onNewWorkspaceDialogChange: (open: boolean) => void;
-  onUpgradeNeeded: (trigger: UpgradeTrigger) => void;
   onOpenCommandCenter?: () => void;
   /** The settings menu, in the sidebar's bottom-right corner. */
   renderAppMenu?: (placement: 'sidebar') => ReactNode;
@@ -50,7 +47,6 @@ export const Sidebar = memo(function Sidebar({
   width,
   onResize,
   onNewWorkspaceDialogChange,
-  onUpgradeNeeded,
   onOpenCommandCenter,
   renderAppMenu,
 }: SidebarProps) {
@@ -210,10 +206,9 @@ export const Sidebar = memo(function Sidebar({
         </div>
       )}
 
-      {/* Bottom toolbar: Komla's name, which opens Overview, on the left; the free plan's SSH
-          workspace count, the filter and sort menu, then the settings menu in the sidebar's
-          corner, on the right. The name and the settings menu stay put, and have the status bar's
-          right-click menu. */}
+      {/* Bottom toolbar: Komla's name, which opens Overview, on the left; the filter and sort
+          menu, then the settings menu in the sidebar's corner, on the right. The name and the
+          settings menu stay put, and have the status bar's right-click menu. */}
       <div
         // Level with the status bar beside it: one bar along the window's bottom (globals.css).
         data-sidebar-footer=""
@@ -229,10 +224,6 @@ export const Sidebar = memo(function Sidebar({
           </div>
         </StatusBarContextMenu>
         <div data-testid="sidebar-footer-end" className="flex shrink-0 items-center gap-0.5">
-          <WorkspaceQuota
-            compact={!showNewWorkspaceShortcut}
-            onUpgradeClick={() => onUpgradeNeeded('settings')}
-          />
           <SidebarFilterMenu />
           <StatusBarContextMenu>
             <div className="flex items-center">{renderAppMenu?.('sidebar')}</div>

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'fs';
 import { BrowserWindow } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { isRunningHere, isRunningOnSshHost } from '../../../shared/lib/terminal-execution-state';
+import { isRunningHere } from '../../../shared/lib/terminal-execution-state';
 import { writeFileAtomic } from '../../lib/atomic-write';
 import { createLogger } from '../../lib/logger';
 import { publishRemoteWorkspaceChange } from '../remote-workspace-events';
@@ -223,11 +223,6 @@ class WorkspaceStore {
 
   getRunningWorkspaceCount(): number {
     return this.countWorkspaces(isRunningHere);
-  }
-
-  /** SSH workspaces running on their hosts, the ones the free plan limits. */
-  getRunningRemoteWorkspaceCount(): number {
-    return this.countWorkspaces(isRunningOnSshHost);
   }
 
   // Find which workspace a terminal belongs to

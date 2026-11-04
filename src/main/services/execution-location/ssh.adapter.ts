@@ -37,7 +37,6 @@ export function createSshExecution(
     keepShellOpenAfterCommand: request.keepShellOpenAfterCommand,
     cols: request.cols,
     rows: request.rows,
-    releaseStartSlot: request.releaseStartSlot,
     onAuthorized: request.onAuthorized,
   });
   const confirmStopped = async (stopping: Promise<void>): Promise<void> => {
@@ -86,13 +85,12 @@ export function createSshExecution(
         },
       };
     },
-    spawn({ workspaceId, terminalId, command, keepShellOpenAfterCommand, releaseStartSlot }) {
+    spawn({ workspaceId, terminalId, command, keepShellOpenAfterCommand }) {
       const ticket = managedSessions.create({
         workspaceId,
         terminalId,
         command: command.command,
         keepShellOpenAfterCommand,
-        releaseStartSlot,
       });
       void ticket.ready;
     },

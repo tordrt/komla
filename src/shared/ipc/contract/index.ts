@@ -8,7 +8,6 @@ import { customizationContract } from './customization.contract';
 import { devPreviewContract } from './dev-preview.contract';
 import { diagnosticsContract } from './diagnostics.contract';
 import { gitContract } from './git.contract';
-import { licenseContract } from './license.contract';
 import { notesContract } from './notes.contract';
 import { pluginsContract } from './plugins.contract';
 import { projectContract } from './project.contract';
@@ -47,7 +46,6 @@ export const ipcContract = {
   ...devPreviewContract,
   ...diagnosticsContract,
   ...gitContract,
-  ...licenseContract,
   ...notesContract,
   ...pluginsContract,
   ...projectContract,

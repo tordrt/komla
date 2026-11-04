@@ -6,7 +6,6 @@ import { createLogger } from '../lib/logger';
 import { compareSemver } from '../lib/semver';
 
 import { configService } from './config.service';
-import { licenseService } from './license.service';
 import { windowService } from './window.service';
 
 const logger = createLogger('AnnouncementService');
@@ -23,7 +22,6 @@ export interface Announcement {
   date: string;
   dismissible?: boolean;
   displayMode: 'banner' | 'dialog' | 'both';
-  audience: 'all' | 'licensed' | 'unlicensed';
   platform: 'all' | 'darwin' | 'win32' | 'linux';
   action?: {
     label: string;
@@ -59,13 +57,9 @@ class AnnouncementService {
     const config = configService.get();
     const dismissed = config.dismissedAnnouncementIds ?? [];
 
-    const licensed = licenseService.getStatus().isLicensed;
-
     return this.announcements.filter((a) => {
       if (dismissed.includes(a.id)) return false;
       if (!matchesVersion(a, appVersion)) return false;
-      if (a.audience !== 'all' && a.audience !== (licensed ? 'licensed' : 'unlicensed'))
-        return false;
       if (a.platform !== 'all' && a.platform !== process.platform) return false;
       return true;
     });

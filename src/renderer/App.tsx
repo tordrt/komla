@@ -63,15 +63,11 @@ import {
   useDialogsStore,
   type NewWorkspaceDialogPrefill,
 } from '@/stores/dialogs.store';
-import { useLicenseStore } from '@/stores/license.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import { useSshHostDialogStore } from '@/stores/ssh-host-dialog.store';
 import { useWindowStore } from '@/stores/window.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
-
-import type { UpgradeTrigger } from '@/components/layout/UpgradeDialog';
-import type { UpgradeDialogRequest } from '@/utils/workspace-error';
 
 const FeedbackDialog = lazy(() =>
   import('@/components/layout/FeedbackDialog').then((module) => ({
@@ -85,9 +81,6 @@ const ShortcutsDialog = lazy(() =>
   import('@/components/layout/ShortcutsDialog').then((module) => ({
     default: module.ShortcutsDialog,
   }))
-);
-const UpgradeDialog = lazy(() =>
-  import('@/components/layout/UpgradeDialog').then((module) => ({ default: module.UpgradeDialog }))
 );
 // Dev builds only: the import is dropped from production bundles.
 const ThemeLab = import.meta.env.DEV
@@ -189,9 +182,6 @@ export default function App() {
   const [wizardComplete, setWizardComplete] = useState(false);
   const [onboardingProjectId] = useState(readOnboardingProjectId);
   const { request: passphraseRequest, respond: handlePassphraseResponse } = useAskpassRequests();
-  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
-  const [upgradeTrigger, setUpgradeTrigger] = useState<UpgradeTrigger>('limit');
-  const [upgradeRetryAction, setUpgradeRetryAction] = useState<(() => void) | null>(null);
 
   // State rather than refs, so the project accent reaches them whenever they mount.
   const [sidebarElement, setSidebarElement] = useState<HTMLDivElement | null>(null);
@@ -228,7 +218,6 @@ export default function App() {
     hasProjects && onboardingProjectId !== null && (!projectsLoaded || onboardingProjectExists);
   const showSetupWizard =
     !configLoading && !agentSetupComplete && !wizardComplete && (!hasProjects || resumeOnboarding);
-  const quota = useLicenseStore((s) => s.quota);
   // Subscribe to worktree file change events for git status updates
   useWorktreeWatcher();
   useWorkspaceObservations();
@@ -237,21 +226,7 @@ export default function App() {
   useAgentsMenuBarItem();
   useWindowTitle();
 
-  // Listen for upgrade dialog trigger events (fired by UI when running workspace limit is hit)
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const request = (e as CustomEvent<UpgradeDialogRequest | undefined>).detail;
-      const retry = request?.retry;
-      setUpgradeTrigger(request?.trigger ?? 'limit');
-      setUpgradeRetryAction(() => retry ?? null);
-      setUpgradeDialogOpen(true);
-    };
-    window.addEventListener('show-upgrade-dialog', handler);
-    return () => window.removeEventListener('show-upgrade-dialog', handler);
-  }, []);
-
   // Open the new-workspace dialog from anywhere with optional prefill (e.g. fork from a workspace card).
-  // The free limit counts SSH workspaces only, so creating one checks it and offers the upgrade.
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as NewWorkspaceDialogPrefill | undefined;
@@ -286,11 +261,6 @@ export default function App() {
         onOpenSettings={() => openSettings()}
         onOpenShortcuts={() => setShortcutsOpen(true)}
         onOpenFeedback={() => setFeedbackOpen(true)}
-        onOpenUpgrade={() => {
-          setUpgradeTrigger('settings');
-          setUpgradeRetryAction(null);
-          setUpgradeDialogOpen(true);
-        }}
         onOpenSettingsTab={(tab, target) => openSettings({ ...target, tab })}
         onOpenNewWorkspace={() => setNewWorkspaceDialogOpen(true)}
       />
@@ -316,11 +286,6 @@ export default function App() {
   const handleSidebarResize = useCallback((width: number) => {
     setSidebarWidth(width);
     storeSidebarWidth(width);
-  }, []);
-
-  const handleUpgradeNeeded = useCallback((trigger: UpgradeTrigger) => {
-    setUpgradeTrigger(trigger);
-    setUpgradeDialogOpen(true);
   }, []);
 
   if (configLoading) {
@@ -380,7 +345,6 @@ export default function App() {
                 width={sidebarWidth}
                 onResize={handleSidebarResize}
                 onNewWorkspaceDialogChange={setNewWorkspaceDialogOpen}
-                onUpgradeNeeded={handleUpgradeNeeded}
                 onOpenCommandCenter={openCommandCenter}
                 renderAppMenu={renderAppMenu}
               />
@@ -402,11 +366,6 @@ export default function App() {
                   onOpenSettings={() => openSettings()}
                   onOpenShortcuts={() => setShortcutsOpen(true)}
                   onOpenFeedback={() => setFeedbackOpen(true)}
-                  onOpenUpgrade={() => {
-                    setUpgradeTrigger('settings');
-                    setUpgradeRetryAction(null);
-                    setUpgradeDialogOpen(true);
-                  }}
                   onOpenSettingsTab={(tab, target) => openSettings({ ...target, tab })}
                   onOpenNewWorkspace={() => setNewWorkspaceDialogOpen(true)}
                   onOpenCommandCenter={openCommandCenter}
@@ -441,19 +400,6 @@ export default function App() {
           <SshCommandExecutionLocationDialogHost />
 
           <OpenFolderDialogHost />
-
-          <DeferredDialog open={upgradeDialogOpen}>
-            <UpgradeDialog
-              open={upgradeDialogOpen}
-              onOpenChange={(open) => {
-                setUpgradeDialogOpen(open);
-                if (!open) setUpgradeRetryAction(null);
-              }}
-              trigger={upgradeTrigger}
-              workspaceLimit={quota?.limit ?? 4}
-              onRetry={upgradeRetryAction ?? undefined}
-            />
-          </DeferredDialog>
 
           <SettingsDialogHost />
 

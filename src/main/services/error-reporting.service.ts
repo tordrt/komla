@@ -23,7 +23,6 @@ interface ErrorReport {
     platform: string;
     arch: string;
     electronVersion: string;
-    isLicensed: boolean;
     agentPresetName: string;
   };
 }
@@ -106,7 +105,6 @@ class ErrorReportingService {
     if (this.reportedErrors.has(errorKey)) return;
     this.reportedErrors.add(errorKey);
 
-    const { licenseService } = await import('./license.service');
     const { agentPresetService } = await import('./agent-preset.service');
     const { telemetryAgentName } = await import('./telemetry-dimensions');
 
@@ -120,7 +118,6 @@ class ErrorReportingService {
         platform: process.platform,
         arch: process.arch,
         electronVersion: process.versions.electron,
-        isLicensed: licenseService.getStatus().isLicensed,
         agentPresetName: telemetryAgentName(agentPresetService.getActive()),
       },
     };

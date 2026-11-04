@@ -127,23 +127,6 @@ export function isRunningHere(workspace: ExecutionWorkspace | null | undefined):
   );
 }
 
-/**
- * Runs on its SSH host from this device, which the free plan limits. A Local copy or a
- * browser or note pane runs on this computer, so it doesn't count.
- */
-export function isRunningOnSshHost(workspace: ExecutionWorkspace): boolean {
-  return workspace.terminals.some(
-    (terminal) => hasManagedSession(workspace, terminal) && factsOf(workspace, terminal).runningHere
-  );
-}
-
-/** Holds one of the free plan's SSH workspace slots: running on its host, or being created. */
-export function takesFreeSshSlot(workspace: ExecutionWorkspace): boolean {
-  return (
-    isSshWorkspace(workspace) && (workspace.provisioning === true || isRunningOnSshHost(workspace))
-  );
-}
-
 /** Shown as running: also while a sync finds a session on the host, e.g. from another device. */
 export function showsRunning(workspace: ExecutionWorkspace | null | undefined): boolean {
   if (!workspace) return false;

@@ -10,10 +10,9 @@ import { telemetryDisabledByEnv } from '../lib/telemetry-env';
 
 import { agentPresetService } from './agent-preset.service';
 import { configService } from './config.service';
-import { licenseService } from './license.service';
 import { getKomlaBasePath } from './paths';
 import { projectService } from './project.service';
-import { getTelemetryCohortDimensions, telemetryAgentName } from './telemetry-dimensions';
+import { telemetryAgentName } from './telemetry-dimensions';
 import { workspaceStore } from './workspace/store';
 
 import type { UtilityProviderId } from '../../shared/types';
@@ -83,9 +82,6 @@ export interface UsageSummaryPayload {
   terminalShell: 'native' | 'powershell' | 'wsl';
   distinctId: string;
   agent: string;
-  isLicensed: boolean;
-  licenseCohort: 'free' | 'paid_monthly' | 'paid_yearly' | 'paid_lifetime';
-  licenseType?: 'monthly' | 'yearly' | 'lifetime';
 
   // Snapshot (daily average, sampled every 5 min)
   runningWorkspacesAvg: number;
@@ -309,7 +305,6 @@ class MetricsCollectorService {
 
     const activePreset = agentPresetService.getActive();
     const projects = projectService.list();
-    const cohortDimensions = getTelemetryCohortDimensions();
     // For pending retries, use the persisted workspace state; otherwise snapshot live values
     const wsState: WorkspaceStateSnapshot =
       snapshotState.workspaceState ??
@@ -334,8 +329,6 @@ class MetricsCollectorService {
       terminalShell: getTerminalShellTelemetryValue(),
       distinctId: configService.getTelemetryDistinctId(),
       agent: telemetryAgentName(activePreset),
-      isLicensed: licenseService.getStatus().isLicensed,
-      ...cohortDimensions,
 
       runningWorkspacesAvg: computeAvg(snapshotState.runningWorkspaces),
 

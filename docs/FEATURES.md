@@ -214,6 +214,6 @@ Komla updates itself with small differential downloads and asks before restartin
 
 Available for macOS (Apple Silicon and Intel), Windows (x64 and ARM64), and Linux (x64 and ARM64 AppImage).
 
-## One-Time Purchase
+## Free
 
-No subscription. The free tier gives you unlimited local workspaces and up to 4 SSH workspaces at once, with full functionality. A single one-time purchase unlocks unlimited SSH workspaces. Volume discounts available for teams.
+Komla is free, with every feature and no limits, for local and SSH workspaces alike.

@@ -29,9 +29,6 @@ const mockState = vi.hoisted(() => ({
   shortcutsStore: {
     getDisplayShortcut: vi.fn((shortcut: string) => shortcut),
   },
-  licenseStore: {
-    quota: null as { isLicensed: boolean } | null,
-  },
 }));
 
 vi.mock('../../../../src/renderer/stores/window.store', () => ({
@@ -56,12 +53,6 @@ vi.mock('../../../../src/renderer/stores/shortcuts.store', () => ({
   useShortcutsStore: (selector: (state: typeof mockState.shortcutsStore) => unknown) =>
     selector(mockState.shortcutsStore),
 }));
-
-vi.mock('../../../../src/renderer/stores/license.store', () => ({
-  useLicenseStore: (selector: (state: typeof mockState.licenseStore) => unknown) =>
-    selector(mockState.licenseStore),
-}));
-
 
 vi.mock('../../../../src/renderer/components/workspaces/SetupActivityPanel', () => ({
   SetupActivityIndicator: ({ workspace }: { workspace: { id: string } }) => (
@@ -173,7 +164,6 @@ describe('TitleBar', { timeout: 30000 }, () => {
     mockState.configStore.config = {};
     mockState.workspacesStore.selectedWorkspaceId = null;
     mockState.workspacesStore.workspaces = [];
-    mockState.licenseStore.quota = null;
   });
 
   it('uses 80px left padding on macOS when windowed', async () => {
@@ -354,7 +344,6 @@ describe('TitleBar', { timeout: 30000 }, () => {
     expect(onOpenSettings).toHaveBeenCalledOnce();
     expect(onOpenShortcuts).toHaveBeenCalledOnce();
     expect(onOpenFeedback).toHaveBeenCalledOnce();
-    expect(screen.queryByRole('button', { name: 'Upgrade' })).not.toBeInTheDocument();
   });
 
   it('offers Tips even when the legacy dismissed flag is set', () => {
@@ -374,22 +363,13 @@ describe('TitleBar', { timeout: 30000 }, () => {
     expect(screen.getByTestId('getting-started-menu')).toBeInTheDocument();
   });
 
-  it('shows Upgrade only for unlicensed users', () => {
+  it('offers no paid upgrade in the settings menu', () => {
     setWindowApi('darwin');
-    mockState.licenseStore.quota = { isLicensed: false };
-    const onOpenUpgrade = vi.fn();
 
-    const { rerender } = render(
-      <TitleBar onOpenSettings={vi.fn()} onOpenUpgrade={onOpenUpgrade} />
-    );
+    render(<TitleBar onOpenSettings={vi.fn()} />);
 
-    fireEvent.click(screen.getByText('Upgrade', { selector: 'div' }));
-    expect(onOpenUpgrade).toHaveBeenCalledOnce();
-
-    mockState.licenseStore.quota = { isLicensed: true };
-    rerender(<TitleBar onOpenSettings={vi.fn()} onOpenUpgrade={onOpenUpgrade} />);
-
-    expect(screen.queryByText('Upgrade', { selector: 'div' })).not.toBeInTheDocument();
+    expect(screen.getByText('Star on GitHub', { selector: 'div' })).toBeInTheDocument();
+    expect(screen.queryByText(/Upgrade/)).toBeNull();
   });
 
   describe('when the window is narrow', () => {

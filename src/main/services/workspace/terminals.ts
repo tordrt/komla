@@ -26,7 +26,6 @@ import { resolveAgentCommand, resolveLaunchModeId, resolvePreset } from './agent
 import { moveFolderIntoProject } from './projects';
 import { workspaceStore } from './store';
 
-import type { FreeSshSlots } from './free-ssh-slots';
 import type { ManagedTmuxFindResult } from '../../../shared/lib/ssh-tmux-attach';
 import type {
   AddAgentTabOptions,
@@ -44,28 +43,22 @@ const TERMINAL_ID_RANDOM_BYTES = 9;
 
 export interface WorkspaceTerminalsDeps {
   attention: TerminalAttention;
-  slots: FreeSshSlots;
 }
 
 /** Starts, restarts and stops the Terminals of workspaces, including launches waiting on a Local copy. */
 export class WorkspaceTerminals {
   private deferredTerminalLaunches = new Map<
     string,
-    { token: symbol; mayHaveRemoteSession: boolean; onCancel: () => void }
+    { token: symbol; mayHaveRemoteSession: boolean }
   >();
   constructor(private readonly deps: WorkspaceTerminalsDeps) {}
 
-  private beginDeferredTerminalLaunch(
-    terminalId: string,
-    mayHaveRemoteSession: boolean,
-    onCancel: () => void
-  ): symbol {
+  private beginDeferredTerminalLaunch(terminalId: string, mayHaveRemoteSession: boolean): symbol {
     this.cancelDeferredTerminalLaunch(terminalId);
     const token = Symbol(terminalId);
     this.deferredTerminalLaunches.set(terminalId, {
       token,
       mayHaveRemoteSession,
-      onCancel,
     });
     return token;
   }
@@ -86,7 +79,6 @@ export class WorkspaceTerminals {
     const pending = this.deferredTerminalLaunches.get(terminalId);
     if (!pending) return undefined;
     this.deferredTerminalLaunches.delete(terminalId);
-    pending.onCancel();
     return { mayHaveRemoteSession: pending.mayHaveRemoteSession };
   }
 
@@ -154,23 +146,11 @@ export class WorkspaceTerminals {
     const terminalId = this.generateTerminalId();
 
     // Resolve the spawn command FIRST — if this throws, we must not leave
-    // behind a phantom terminal, inflated pendingRemoteStarts, or a saved
-    // auto-activation that never actually started a PTY.
+    // behind a phantom terminal or a saved auto-activation that never
+    // actually started a PTY.
     const resolved = location.buildCommand(command ?? null, { commandKind, terminalId });
 
-    // Check if the running workspace limit allows it (before auto-activating dormant state).
-    const reservedStartSlot = this.deps.slots.reserveWorkspaceStartSlot(
-      workspace,
-      executionLocation
-    );
-    let startSlotReleased = false;
-    const releaseStartSlot = () => {
-      if (!reservedStartSlot || startSlotReleased) return;
-      startSlotReleased = true;
-      this.deps.slots.releaseStartSlot();
-    };
-
-    // Auto-activate dormant workspaces when starting (after license check passes)
+    // Auto-activate dormant workspaces when starting
     if (workspace.status !== 'active') {
       workspace.status = 'active';
       moveFolderIntoProject(workspace);
@@ -210,7 +190,6 @@ export class WorkspaceTerminals {
       terminalId,
       command: resolved,
       keepShellOpenAfterCommand: commandKind === 'host',
-      releaseStartSlot,
     };
 
     if (location.managesSession) {
@@ -261,7 +240,7 @@ export class WorkspaceTerminals {
     const deferredPreparation = prepareBeforeLaunch;
 
     if (deferredPreparation) {
-      const launchToken = this.beginDeferredTerminalLaunch(terminal.id, false, releaseStartSlot);
+      const launchToken = this.beginDeferredTerminalLaunch(terminal.id, false);
       void deferredPreparation().then(
         () => {
           if (
@@ -270,14 +249,12 @@ export class WorkspaceTerminals {
             !workspace.terminals.includes(terminal) ||
             terminal.status !== 'starting'
           ) {
-            releaseStartSlot();
             return terminal;
           }
           this.finishDeferredTerminalLaunch(terminal.id, launchToken);
           return launchTerminal(true);
         },
         (error) => {
-          releaseStartSlot();
           if (
             !this.isDeferredTerminalLaunchCurrent(terminal.id, launchToken) ||
             workspaceStore.workspaces.get(workspaceId) !== workspace ||
@@ -511,16 +488,6 @@ export class WorkspaceTerminals {
     }
     const location = executionLocations.resolve(workspace, terminal.executionLocation);
 
-    const shouldCountAsStart = this.deps.slots.reserveWorkspaceStartSlot(
-      workspace,
-      terminal.executionLocation
-    );
-    let startSlotReleased = false;
-    const releaseStartSlot = () => {
-      if (!shouldCountAsStart || startSlotReleased) return;
-      startSlotReleased = true;
-      this.deps.slots.releaseStartSlot();
-    };
     const activePreset = options.plainShell
       ? null
       : options.command !== undefined && !presetId
@@ -565,7 +532,6 @@ export class WorkspaceTerminals {
             command: resolved,
             cols,
             rows,
-            releaseStartSlot,
           });
         } catch (error) {
           terminal.status = 'stopped';
@@ -576,7 +542,7 @@ export class WorkspaceTerminals {
       };
 
       if (location.prepare) {
-        const launchToken = this.beginDeferredTerminalLaunch(terminal.id, false, releaseStartSlot);
+        const launchToken = this.beginDeferredTerminalLaunch(terminal.id, false);
         return location
           .prepare(resolved.command)
           .then(() => {
@@ -586,7 +552,6 @@ export class WorkspaceTerminals {
               !workspace.terminals.includes(terminal) ||
               terminal.status !== 'starting'
             ) {
-              releaseStartSlot();
               return terminal;
             }
             this.finishDeferredTerminalLaunch(terminal.id, launchToken);
@@ -598,7 +563,6 @@ export class WorkspaceTerminals {
               terminal.status = 'stopped';
               terminal.startupError = error instanceof Error ? error.message : String(error);
             }
-            releaseStartSlot();
             throw error;
           });
       }
@@ -611,7 +575,6 @@ export class WorkspaceTerminals {
       keepShellOpenAfterCommand: options.commandKind === 'host',
       cols,
       rows,
-      releaseStartSlot,
       onAuthorized: applyRestartMetadata,
     };
     const launch =

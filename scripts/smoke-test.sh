@@ -104,9 +104,9 @@ end_section() {
 should_run_section() {
   local num="$1"
   if [[ "$CRITICAL_ONLY" == "true" ]]; then
-    # Critical sections: 1 (Launch), 2 (Workspace Creation), 8 (Multi-Window), 9 (Lifecycle), 11 (License Limit)
+    # Critical sections: 1 (Launch), 2 (Workspace Creation), 8 (Multi-Window), 9 (Lifecycle)
     case "$num" in
-      1|2|8|9|11) return 0 ;;
+      1|2|8|9) return 0 ;;
       *) return 1 ;;
     esac
   fi
@@ -342,18 +342,9 @@ if should_run_section 10; then
   end_section
 fi
 
-# ─── 11. License Limit UX ──────────────────────────────────────────────────
+# ─── 11. MCP Server ────────────────────────────────────────────────────────
 if should_run_section 11; then
-  begin_section 11 "License Limit UX"
-  run_step "Create workspaces up to free tier limit (4 total)"
-  run_step "Attempt to create a 5th workspace"
-  run_step "Upgrade dialog appears and blocks creation"
-  end_section
-fi
-
-# ─── 12. MCP Server ────────────────────────────────────────────────────────
-if should_run_section 12; then
-  begin_section 12 "MCP Server"
+  begin_section 11 "MCP Server"
   echo ""
   MCP_PORT_FILE="$SANDBOX_DIR/port"
   if [[ -f "$MCP_PORT_FILE" ]]; then
@@ -372,9 +363,9 @@ if should_run_section 12; then
   end_section
 fi
 
-# ─── 13. Search ─────────────────────────────────────────────────────────────
-if should_run_section 13; then
-  begin_section 13 "Search"
+# ─── 12. Search ─────────────────────────────────────────────────────────────
+if should_run_section 12; then
+  begin_section 12 "Search"
   run_step "Open file search in a workspace"
   run_step "Search for a file by name — results appear"
   run_step "Search for content within files — results appear"

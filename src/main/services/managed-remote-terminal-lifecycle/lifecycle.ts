@@ -47,7 +47,7 @@ export class ManagedRemoteTerminalLifecycleService {
   }
 
   create(request: CreateManagedRemoteTerminalRequest): ManagedRemoteTerminalCreationTicket {
-    this.assertAttachmentAllowed(request.terminalId, request.releaseStartSlot, request.workspaceId);
+    this.assertAttachmentAllowed(request.terminalId, request.workspaceId);
     const context = this.requireContext(request.terminalId, request.workspaceId);
     const generation = this.nextGeneration(request.terminalId);
     const state: ManagedRemoteTerminalState = {
@@ -80,10 +80,7 @@ export class ManagedRemoteTerminalLifecycleService {
     this.registry.beginPending(request.terminalId, {
       generation,
       mayHaveRemoteSession: false,
-      cancel: () => {
-        request.releaseStartSlot();
-        settleSuperseded?.();
-      },
+      cancel: () => settleSuperseded?.(),
     });
     void this.prepareAndSpawn(context, request, state).then(settlePrepared);
 
@@ -419,7 +416,7 @@ export class ManagedRemoteTerminalLifecycleService {
   reconnect(
     request: Omit<ReplaceManagedRemoteTerminalRequest, 'explicit'>
   ): ManagedRemoteTerminalAttachmentResult | Promise<ManagedRemoteTerminalAttachmentResult> {
-    this.assertAttachmentAllowed(request.terminalId, request.releaseStartSlot);
+    this.assertAttachmentAllowed(request.terminalId);
     const context = this.requireContext(request.terminalId);
     const current = this.currentOrHydratedState(context);
     if (current.persistence === 'supported') {
@@ -463,7 +460,6 @@ export class ManagedRemoteTerminalLifecycleService {
       await Promise.resolve();
       if (persistenceDetection.failure) throw persistenceDetection.failure.error;
       if (!this.isCurrent(context.terminal.id, initialState.generation)) {
-        request.releaseStartSlot();
         return {
           kind: 'superseded',
           state: this.registry.optionalState(context.terminal.id) ?? initialState,
@@ -489,12 +485,10 @@ export class ManagedRemoteTerminalLifecycleService {
       });
       this.adapters.workspace.prepareObservationInBackground(context.workspaceId);
       this.finishPending(context.terminal.id, initialState.generation);
-      request.releaseStartSlot();
       return { kind: 'ready', state: initialState };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!this.isCurrent(context.terminal.id, initialState.generation)) {
-        request.releaseStartSlot();
         return {
           kind: 'superseded',
           state: this.registry.optionalState(context.terminal.id) ?? initialState,
@@ -508,7 +502,6 @@ export class ManagedRemoteTerminalLifecycleService {
       this.commit(context, failed);
       this.finishPending(context.terminal.id, initialState.generation);
       this.adapters.workspace.reconcileObservation();
-      request.releaseStartSlot();
       return { kind: 'failed', state: failed, message };
     }
   }
@@ -558,7 +551,7 @@ export class ManagedRemoteTerminalLifecycleService {
     request: ReplaceManagedRemoteTerminalRequest,
     action: 'reconnect' | 'replace'
   ): Promise<ManagedRemoteTerminalAttachmentResult> {
-    this.assertAttachmentAllowed(request.terminalId, request.releaseStartSlot);
+    this.assertAttachmentAllowed(request.terminalId);
     const context = this.requireContext(request.terminalId);
     let previous = this.currentOrHydratedState(context);
     if (action === 'replace' && !request.explicit && previous.remoteSession.kind === 'unknown') {
@@ -566,7 +559,6 @@ export class ManagedRemoteTerminalLifecycleService {
       try {
         activeIds = await this.adapters.session.observe(context.backend, [request.terminalId]);
       } catch (error) {
-        request.releaseStartSlot();
         throw new Error(
           `Could not confirm the remote agent state; terminal replacement was cancelled. ${String(error)}`
         );
@@ -574,7 +566,6 @@ export class ManagedRemoteTerminalLifecycleService {
       if (activeIds.has(request.terminalId)) {
         previous = { ...previous, remoteSession: { kind: 'present' } };
         this.commit(context, previous);
-        request.releaseStartSlot();
         throw new Error(
           'A running remote session was recovered; reconnect to it instead of replacing it.'
         );
@@ -595,7 +586,6 @@ export class ManagedRemoteTerminalLifecycleService {
     this.registry.beginPending(request.terminalId, {
       generation,
       mayHaveRemoteSession: previous.remoteSession.kind === 'present' || action === 'reconnect',
-      cancel: request.releaseStartSlot,
     });
 
     let authorized = false;
@@ -605,7 +595,6 @@ export class ManagedRemoteTerminalLifecycleService {
       }
       const supported = await this.adapters.session.supportsPersistence(context.backend);
       if (!this.isCurrent(request.terminalId, generation)) {
-        request.releaseStartSlot();
         return {
           kind: 'superseded',
           state: this.registry.optionalState(request.terminalId) ?? starting,
@@ -642,7 +631,6 @@ export class ManagedRemoteTerminalLifecycleService {
         this.adapters.workspace.prepareObservationInBackground(context.workspaceId);
       }
       this.finishPending(request.terminalId, generation);
-      request.releaseStartSlot();
       return { kind: 'ready', state: prepared };
     } catch (error) {
       if (this.isCurrent(request.terminalId, generation)) {
@@ -654,7 +642,6 @@ export class ManagedRemoteTerminalLifecycleService {
         this.finishPending(request.terminalId, generation);
         this.adapters.workspace.reconcileObservation();
       }
-      request.releaseStartSlot();
       throw error;
     }
   }
@@ -695,11 +682,9 @@ export class ManagedRemoteTerminalLifecycleService {
         localLoginShell: launch.localLoginShell,
       });
       this.adapters.workspace.prepareObservationInBackground(context.workspaceId);
-      request.releaseStartSlot();
       return { kind: 'ready', state: starting };
     } catch (error) {
       this.commit(context, { ...starting, attachment: { kind: 'absent' } });
-      request.releaseStartSlot();
       throw error;
     }
   }
@@ -789,21 +774,14 @@ export class ManagedRemoteTerminalLifecycleService {
     return context;
   }
 
-  private assertAttachmentAllowed(
-    terminalId: string,
-    releaseStartSlot: () => void,
-    workspaceId?: string
-  ): void {
+  private assertAttachmentAllowed(terminalId: string, workspaceId?: string): void {
     if (workspaceId && this.stoppingWorkspaceCounts.has(workspaceId)) {
-      releaseStartSlot();
       throw new Error(`Managed remote workspace ${workspaceId} is being stopped`);
     }
     if (this.releasingTerminalIds.has(terminalId)) {
-      releaseStartSlot();
       throw new Error(`Managed remote terminal ${terminalId} is being released`);
     }
     if (this.stoppingTerminalCounts.has(terminalId)) {
-      releaseStartSlot();
       throw new Error(`Managed remote terminal ${terminalId} is being stopped`);
     }
   }

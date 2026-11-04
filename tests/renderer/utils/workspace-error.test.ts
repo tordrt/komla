@@ -6,40 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useProjectsStore } from '../../../src/renderer/stores/projects.store';
 import { usePublishRepoDialogStore } from '../../../src/renderer/stores/publish-repo-dialog.store';
 import { useToastStore } from '../../../src/renderer/stores/toast.store';
-import {
-  handleCreateError,
-  showUpgradeDialog,
-  type UpgradeDialogRequest,
-} from '../../../src/renderer/utils/workspace-error';
+import { handleCreateError } from '../../../src/renderer/utils/workspace-error';
 import { SshProjectNeedsRemoteError } from '../../../src/shared/types/workspace';
 import { createProject } from '../../factories';
-
-describe('showUpgradeDialog', () => {
-  const listeners: Array<(event: Event) => void> = [];
-
-  afterEach(() => {
-    for (const listener of listeners) {
-      window.removeEventListener('show-upgrade-dialog', listener);
-    }
-    listeners.length = 0;
-  });
-
-  it('carries the requested workspace count with the retry action', () => {
-    const retry = vi.fn();
-    let request: UpgradeDialogRequest | undefined;
-    const listener = (event: Event) => {
-      request = (event as CustomEvent<UpgradeDialogRequest>).detail;
-    };
-    listeners.push(listener);
-    window.addEventListener('show-upgrade-dialog', listener);
-
-    showUpgradeDialog(retry, 2);
-
-    expect(request?.retry?.requestedWorkspaceCount).toBe(2);
-    request?.retry?.();
-    expect(retry).toHaveBeenCalledTimes(1);
-  });
-});
 
 describe('handleCreateError', () => {
   afterEach(() => {

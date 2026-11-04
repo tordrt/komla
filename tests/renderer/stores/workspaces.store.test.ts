@@ -33,7 +33,6 @@ import { usePaneSurfacesStore } from '../../../src/renderer/stores/pane-surfaces
 import { useDevServerPreviewStore } from '../../../src/renderer/stores/dev-server-preview.store';
 import { useLayoutStore } from '../../../src/renderer/stores/layout.store';
 import { useGitStatusStore } from '../../../src/renderer/stores/git-status.store';
-import { useLicenseStore } from '../../../src/renderer/stores/license.store';
 import { useProjectsStore } from '../../../src/renderer/stores/projects.store';
 import { useSshHostsStore } from '../../../src/renderer/stores/ssh-hosts.store';
 import { useSshCommandExecutionLocationStore } from '../../../src/renderer/stores/ssh-command-execution-location.store';
@@ -68,7 +67,6 @@ interface ApiMock {
   moveWorkspaceToWindow: ReturnType<typeof vi.fn>;
   updateConfig: ReturnType<typeof vi.fn>;
   updateTerminal: ReturnType<typeof vi.fn>;
-  getWorkspaceQuota: ReturnType<typeof vi.fn>;
   listFiles: ReturnType<typeof vi.fn>;
   listWorkspaceFiles: ReturnType<typeof vi.fn>;
   getDiff: ReturnType<typeof vi.fn>;
@@ -100,9 +98,6 @@ function createApiMock(overrides: Partial<ApiMock> = {}): ApiMock {
     moveWorkspaceToWindow: vi.fn().mockResolvedValue(undefined),
     updateConfig: vi.fn().mockResolvedValue(undefined),
     updateTerminal: vi.fn().mockResolvedValue(undefined),
-    getWorkspaceQuota: vi
-      .fn()
-      .mockResolvedValue({ allowed: true, count: 0, limit: 4, isLicensed: false }),
     listFiles: vi.fn().mockResolvedValue({ files: [], gitIgnoredFiles: [], emptyDirs: [] }),
     listWorkspaceFiles: vi
       .fn()
@@ -123,7 +118,6 @@ function resetAllStores(): void {
   useDevServerPreviewStore.setState(useDevServerPreviewStore.getInitialState(), true);
   useLayoutStore.setState(useLayoutStore.getInitialState(), true);
   useGitStatusStore.setState(useGitStatusStore.getInitialState(), true);
-  useLicenseStore.setState(useLicenseStore.getInitialState(), true);
   useFileListStore.setState(useFileListStore.getInitialState(), true);
   useWorktreeEventsStore.setState(useWorktreeEventsStore.getInitialState(), true);
   useProjectsStore.setState(useProjectsStore.getInitialState(), true);
@@ -574,23 +568,6 @@ describe('workspaces.store', () => {
     useWorkspacesStore.getState().deleteWorkspace('ws-1');
 
     expect(useWorktreeEventsStore.getState().lastEventByWorkspace['ws-1']).toBeUndefined();
-  });
-
-  it('refreshes workspace quota after a workspace is deleted', async () => {
-    vi.useFakeTimers();
-    const ws1 = createWorkspace({ id: 'ws-1', terminals: [createTerminal({ id: 't-1' })] });
-    const api = createApiMock();
-    (globalThis as { window: { api: ApiMock } }).window = { api };
-
-    const loadQuotaSpy = vi.fn().mockResolvedValue(undefined);
-    useLicenseStore.setState({ loadQuota: loadQuotaSpy });
-    useWorkspacesStore.setState({ workspaces: [ws1], selectedWorkspaceId: 'ws-1' });
-
-    useWorkspacesStore.getState().deleteWorkspace('ws-1');
-    await flushTimersAndMicrotasks();
-
-    expect(api.deleteWorkspace).toHaveBeenCalledWith('ws-1', false, false);
-    expect(loadQuotaSpy).toHaveBeenCalledTimes(1);
   });
 
   it('reports when main has finished deleting, or failed to', async () => {
@@ -1349,8 +1326,13 @@ describe('workspaces.store', () => {
     const api = createApiMock();
     (globalThis as { window: { api: ApiMock } }).window = { api };
     const unread = { reason: 'marked', at: 1_000 } as const;
+    // Running, so selecting them doesn't restart them.
+    const running = (id: string) => [createTerminal({ id, status: 'running' })];
     useWorkspacesStore.setState({
-      workspaces: [createWorkspace({ id: 'ws-1', unread }), createWorkspace({ id: 'ws-2' })],
+      workspaces: [
+        createWorkspace({ id: 'ws-1', unread, terminals: running('t-1') }),
+        createWorkspace({ id: 'ws-2', terminals: running('t-2') }),
+      ],
       selectedWorkspaceId: 'ws-2',
     });
 
@@ -2138,36 +2120,6 @@ describe('workspaces.store', () => {
     ]);
   });
 
-  it('offers the upgrade dialog when the free limit stops reconnecting one SSH pane', async () => {
-    const api = createApiMock({
-      reconnectSshTerminal: vi
-        .fn()
-        .mockRejectedValue(
-          new Error(
-            "Error invoking remote method 'workspace:reconnect-ssh-terminal': Error: WORKSPACE_LIMIT:Free plan is limited to 4 running SSH workspaces."
-          )
-        ),
-    });
-    const dispatchEvent = vi.fn();
-    (globalThis as { window: { api: ApiMock; dispatchEvent: typeof dispatchEvent } }).window = {
-      api,
-      dispatchEvent,
-    };
-    useWorkspacesStore.setState({ error: null });
-
-    await useWorkspacesStore.getState().reconnectSshTerminal('term-1', 120, 30);
-
-    expect(useToastStore.getState().toasts).toEqual([]);
-    expect(useWorkspacesStore.getState().error).toBeNull();
-    expect(dispatchEvent).toHaveBeenCalledOnce();
-    const event = dispatchEvent.mock.calls[0][0] as CustomEvent<{ retry?: () => void }>;
-    expect(event.type).toBe('show-upgrade-dialog');
-
-    api.reconnectSshTerminal.mockResolvedValue({ id: 'term-1' });
-    event.detail.retry?.();
-    expect(api.reconnectSshTerminal).toHaveBeenLastCalledWith('term-1', 120, 30);
-  });
-
   it('forwards explicit pane replacement and surfaces restart failures', async () => {
     const failure = new Error('remote session could not be stopped');
     const api = createApiMock({ restartTerminal: vi.fn().mockRejectedValue(failure) });
@@ -2228,50 +2180,6 @@ describe('workspaces.store', () => {
     expect(api.reconnectSshTerminal).toHaveBeenCalledWith('term-1', undefined, undefined);
     expect(api.reconnectSshTerminal).toHaveBeenCalledWith('term-2', undefined, undefined);
     expect(api.reconnectSshTerminal).not.toHaveBeenCalledWith('term-ended', undefined, undefined);
-  });
-
-  it('offers the upgrade dialog when the free limit stops a reconnect to a session on the host', async () => {
-    const workspace = createSshWorkspace({
-      id: 'ssh-ws',
-      terminals: [
-        createTerminal({
-          id: 'term-elsewhere',
-          status: 'stopped',
-          remoteSessionOnHost: true,
-          remoteSessionResumable: true,
-        }),
-      ],
-    });
-    const api = createApiMock({
-      getWorkspaces: vi.fn().mockResolvedValue([workspace]),
-      reconnectSshTerminal: vi
-        .fn()
-        .mockRejectedValue(
-          new Error(
-            "Error invoking remote method 'workspace:reconnect-ssh-terminal': Error: WORKSPACE_LIMIT:Free plan is limited to 4 running SSH workspaces."
-          )
-        ),
-    });
-    const dispatchEvent = vi.fn();
-    (globalThis as { window: { api: ApiMock; dispatchEvent: typeof dispatchEvent } }).window = {
-      api,
-      dispatchEvent,
-    };
-    useWorkspacesStore.setState({ workspaces: [workspace], error: null });
-    const addToast = vi.spyOn(useToastStore.getState(), 'addToast');
-
-    await useWorkspacesStore.getState().reconnectAllSshTerminals(workspace.id);
-
-    expect(addToast).not.toHaveBeenCalled();
-    expect(useWorkspacesStore.getState().error).toBeNull();
-    expect(dispatchEvent).toHaveBeenCalledOnce();
-    const event = dispatchEvent.mock.calls[0][0] as CustomEvent<{ retry?: () => void }>;
-    expect(event.type).toBe('show-upgrade-dialog');
-
-    const selectWorkspace = vi.fn();
-    useWorkspacesStore.setState({ selectWorkspace });
-    event.detail.retry?.();
-    expect(selectWorkspace).toHaveBeenCalledWith(workspace.id);
   });
 
   describe('reconnectAfterNetworkReturns', () => {

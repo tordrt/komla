@@ -372,8 +372,7 @@ html[data-status-bar-row='large'] [data-status-bar] {
     --sidebar-border: 0.922 0 0;
     /* The workspace sidebar and the window around the work area card, a step under the card. */
     --chrome: 0.955 0 0;
-    /* Komla blue (#339fee in dark): the logo under a gray accent, and the upgrade dialog. Darker
-       here to read on white. */
+    /* Komla blue (#339fee in dark): the logo under a gray accent. Darker here to read on white. */
     --brand: 0.54 0.15 245;
     --radius: 0.5rem;
     --file-viewer-surface: oklch(var(--card));
@@ -1228,13 +1227,6 @@ html[data-status-bar-row='large'] [data-status-bar] {
 .dark .new-workspace-tray {
   background: color-mix(in oklch, oklch(var(--sidebar)) 90%, oklch(var(--foreground)));
   border-color: oklch(var(--foreground) / 0.22);
-}
-
-/* Komla blue rather than the accent, for the upgrade dialog's button, checks and Unlimited
-   row. */
-.welcome-brand {
-  --primary: var(--brand);
-  --ring: var(--brand);
 }
 
 /* Workspace card hover. Only hovering fades the background: a selection change shows at

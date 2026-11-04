@@ -7,7 +7,7 @@ import {
   Image,
   X,
 } from '@phosphor-icons/react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
@@ -24,7 +24,6 @@ import { Input } from '@/components/ui/input';
 import { SegmentedControl, type SegmentedControlOption } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
 import { openKomlaGitHub } from '@/lib/komla-github';
-import { useLicenseStore } from '@/stores/license.store';
 import { useToastStore } from '@/stores/toast.store';
 
 import type { FeedbackType } from '@/types';
@@ -47,34 +46,15 @@ export function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
   const [screenshots, setScreenshots] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasPrefilledEmail = useRef(false);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
   const { addToast } = useToastStore();
-  const licenseStatus = useLicenseStore((state) => state.status);
-  const loadLicenseStatus = useLicenseStore((state) => state.loadStatus);
-  const contactEmail = licenseStatus?.customerEmail ?? null;
-
-  useEffect(() => {
-    if (open && !licenseStatus) {
-      void loadLicenseStatus();
-    }
-  }, [open, licenseStatus, loadLicenseStatus]);
-
-  useEffect(() => {
-    if (open && contactEmail && !email && !hasPrefilledEmail.current) {
-      setEmail(contactEmail);
-      hasPrefilledEmail.current = true;
-    }
-  }, [open, contactEmail, email]);
-
   const resetForm = () => {
     setType('general');
     setDescription('');
     setEmail('');
     setScreenshots([]);
     setError(null);
-    hasPrefilledEmail.current = false;
   };
 
   // Keep the draft when the dialog is dismissed; it is cleared only after a successful send.

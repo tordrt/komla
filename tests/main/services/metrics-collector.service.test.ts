@@ -41,10 +41,6 @@ const mockAgentPresetService = {
   get: vi.fn().mockReturnValue({ id: '1', name: 'Claude Code' }),
 };
 
-const mockLicenseService = {
-  getStatus: vi.fn().mockReturnValue({ isLicensed: true, licenseType: 'monthly' }),
-};
-
 const mockProjectService = {
   list: vi.fn().mockReturnValue([
     { id: 'p1', name: 'Project 1', setupSteps: [{ id: 's1', command: 'npm install' }] },
@@ -61,9 +57,6 @@ vi.mock('../../../src/main/services/config.service', () => ({
 vi.mock('../../../src/main/services/agent-preset.service', () => ({
   agentPresetService: mockAgentPresetService,
   BUILTIN_PRESETS: [{ name: 'Claude Code' }],
-}));
-vi.mock('../../../src/main/services/license.service', () => ({
-  licenseService: mockLicenseService,
 }));
 vi.mock('../../../src/main/services/project.service', () => ({
   projectService: mockProjectService,
@@ -185,9 +178,8 @@ describe('MetricsCollectorService', () => {
       expect(payload.terminalShell).toBe(process.platform === 'win32' ? 'powershell' : 'native');
       expect(payload.distinctId).toBe('app_test-id');
       expect(payload.agent).toBe('Claude Code');
-      expect(payload.isLicensed).toBe(true);
-      expect(payload.licenseCohort).toBe('paid_monthly');
-      expect(payload.licenseType).toBe('monthly');
+      expect(payload).not.toHaveProperty('isLicensed');
+      expect(payload).not.toHaveProperty('licenseCohort');
 
       // Snapshot
       expect(typeof payload.runningWorkspacesAvg).toBe('number');

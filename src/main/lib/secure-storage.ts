@@ -7,8 +7,8 @@ const logger = createLogger('SecureStorage');
 /**
  * On Linux, Electron falls back to the `basic_text` backend when there is no
  * keyring. It uses a hardcoded password and offers no real protection, so
- * treat it as unavailable and let callers pick a stronger fallback (e.g.
- * machineId-keyed AES) instead of storing plaintext-equivalent data.
+ * treat it as unavailable and let callers pick a stronger fallback instead
+ * of storing plaintext-equivalent data.
  */
 function selectedBasicTextBackend(): boolean {
   const storage = safeStorage as typeof safeStorage & {

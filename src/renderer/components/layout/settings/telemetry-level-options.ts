@@ -14,7 +14,7 @@ export const TELEMETRY_LEVEL_OPTIONS: ReadonlyArray<{
   {
     value: 'anonymous',
     label: 'Anonymous counts',
-    description: 'A daily ping with the app version, OS, agent and license tier. No install ID.',
+    description: 'A daily ping with the app version, OS and agent. No install ID.',
   },
   {
     value: 'usage',

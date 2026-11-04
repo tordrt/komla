@@ -1,13 +1,10 @@
 import { execSync } from 'child_process';
-import { createCipheriv, createHash, randomBytes } from 'crypto';
 import fs from 'fs';
 import { homedir } from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { test as base, type ElectronApplication, type Page, _electron } from '@playwright/test';
-
-import { getMachineId } from '../src/main/lib/machine-id';
 
 import { firstRendererWindow } from './electron-app';
 
@@ -129,36 +126,6 @@ interface DemoFixtures {
   nativeDoubleTapShift: (tapMs?: number, gapMs?: number) => void;
 }
 
-/**
- * Seeds a fake license so the app runs as licensed (unlimited workspaces).
- * Replicates the encryption from src/main/services/license.service.ts.
- */
-export function seedLicense(sandboxDir: string) {
-  // The same id the app derives on this platform, so the license decrypts.
-  const machineId = getMachineId();
-
-  const ENCRYPTION_SALT = 'komla-license-v1';
-  const encKey = createHash('sha256')
-    .update(machineId + ENCRYPTION_SALT)
-    .digest();
-  const iv = randomBytes(12);
-  const licenseKey = 'KOMLA-DEMO-V1D0-TEST-KEY1';
-  const cipher = createCipheriv('aes-256-gcm', encKey, iv);
-  const encrypted = Buffer.concat([cipher.update(licenseKey, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  const encryptedKey = Buffer.concat([iv, tag, encrypted]).toString('base64');
-
-  fs.writeFileSync(
-    path.join(sandboxDir, 'license.json'),
-    JSON.stringify({
-      licenseKey: encryptedKey,
-      activatedAt: Date.now(),
-      machineId,
-      encrypted: true,
-    })
-  );
-}
-
 function launchApp() {
   return _electron.launch({
     args: [path.join(__dirname, '..', 'out', 'main', 'index.js')],
@@ -167,14 +134,14 @@ function launchApp() {
       KOMLA_DATA_DIR: SANDBOX_DIR,
       NODE_ENV: 'test',
       IS_DEMO: '1',
-      // Point license server to nowhere so the fake license isn't invalidated
+      // Keep demo runs off Komla's servers.
       KOMLA_API_URL: 'http://localhost:0',
     },
   });
 }
 
 /**
- * Seeds the sandbox with all demo data: license, config, projects, repos,
+ * Seeds the sandbox with all demo data: config, projects, repos,
  * workspaces, and agent presets.
  */
 // ⚡ renders as 2 columns; pad by visual width so the right wall aligns.
@@ -203,7 +170,6 @@ function seedDemoSandbox() {
   }
 
   compileDoubleTapShiftHelper();
-  seedLicense(SANDBOX_DIR);
 
   // Skip setup wizard and set dark theme.
   fs.writeFileSync(

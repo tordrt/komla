@@ -49,7 +49,6 @@ import { HTML_PREVIEW_PROTOCOL_SCHEME, htmlPreviewService } from './services/htm
 import { httpServerService } from './services/http-server.service';
 import { keepAwakeService, keepAwakeWhileAgentsWork } from './services/keep-awake.service';
 import { komlaSkillService } from './services/komla-skill.service';
-import { licenseService } from './services/license.service';
 import { metricsCollectorService } from './services/metrics-collector.service';
 import { notesService } from './services/notes.service';
 import {
@@ -821,17 +820,6 @@ void app.whenReady().then(async () => {
 
   // Send daily heartbeat with agent usage (fire-and-forget, once per calendar day)
   void telemetryService.sendDailyHeartbeat();
-
-  // When license is revoked, enforce workspace limits and notify renderer
-  licenseService.onRevoked(() => {
-    void workspaceService.enforceWorkspaceLimit().catch((error) => {
-      logger.error('Failed to enforce workspace limit after license revocation', error);
-    });
-    windowService.broadcastToAll(IPC.LICENSE_REVOKED);
-  });
-
-  // Verify license on launch (periodic re-checks handled by update service interval)
-  void licenseService.startPeriodicValidation();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

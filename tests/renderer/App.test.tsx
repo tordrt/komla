@@ -135,10 +135,6 @@ vi.mock('../../src/renderer/stores/window.store', () => ({
   useWindowStore: (selector: (state: { windowId: string }) => unknown) =>
     selector({ windowId: 'window-1' }),
 }));
-const licenseState = vi.hoisted(() => ({ quota: null as Record<string, unknown> | null }));
-vi.mock('../../src/renderer/stores/license.store', () => ({
-  useLicenseStore: (selector: (state: typeof licenseState) => unknown) => selector(licenseState),
-}));
 
 const projectsState = {
   hasLoaded: true,
@@ -177,7 +173,6 @@ describe('App', () => {
     workspacesState.restartingWorkspaceIds = new Set();
     projectsState.hasLoaded = true;
     projectsState.projects = [{ id: 'project-1' }];
-    licenseState.quota = null;
     useDialogsStore.getState().setNewWorkspaceDialogPrefill(null);
   });
 
@@ -256,29 +251,6 @@ describe('App', () => {
     expect(sidebarProps.mock.calls.length).toBeGreaterThan(renders);
     expect(changedProps(sidebarProps, sidebarBefore)).toEqual([]);
     expect(changedProps(terminalTabsProps, tabsBefore)).toEqual([]);
-  });
-
-  describe('free workspace limit', () => {
-    const trackMonetizationEvent = vi.fn();
-
-    beforeEach(() => {
-      licenseState.quota = { isLicensed: false, count: 4, limit: 4 };
-      trackMonetizationEvent.mockReset().mockResolvedValue(undefined);
-      window.api = { trackMonetizationEvent } as unknown as typeof window.api;
-    });
-
-    // The limit counts SSH workspaces only, and creating one checks it in main.
-    it('opens New Workspace at the SSH limit, since local workspaces are unlimited', () => {
-      setConfig(true, true);
-      render(<App />);
-
-      act(() => openNewWorkspaceDialog({ prefill: { projectId: 'project-1' } }));
-
-      expect(useDialogsStore.getState().newWorkspaceDialogPrefill).toEqual({
-        projectId: 'project-1',
-      });
-      expect(trackMonetizationEvent).not.toHaveBeenCalled();
-    });
   });
 
   describe('sidebar width', () => {

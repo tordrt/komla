@@ -151,7 +151,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
       terminalId: 'term-1',
       command: 'claude',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot: vi.fn(),
     });
 
     expect(ticket.initialState).toMatchObject({
@@ -182,7 +181,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
       terminalId: 'term-1',
       command: 'claude',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot: vi.fn(),
     });
 
     expect(harness.adapters.session.supportsPersistence).toHaveBeenCalledWith(backend);
@@ -201,7 +199,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
       terminalId: 'term-1',
       command: null,
       keepShellOpenAfterCommand: false,
-      releaseStartSlot: vi.fn(),
       onAuthorized,
     });
 
@@ -234,7 +231,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
       terminalId: 'term-1',
       command: 'claude',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot: vi.fn(),
     });
     await expect(ticket.ready).resolves.toMatchObject({
       kind: 'failed',
@@ -283,7 +279,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
       terminalId: 'term-1',
       command: 'claude --resume',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot: vi.fn(),
     });
     expect(harness.terminal.status).toBe('starting');
     harness.adapters.session.stopAndConfirmAbsent = vi.fn(() =>
@@ -345,7 +340,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
       terminalId: 'term-1',
       command: 'claude',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot: vi.fn(),
     });
 
     await harness.lifecycle.stop({ terminalId: 'term-1' });
@@ -372,12 +366,10 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     const stop = harness.lifecycle.stop({ terminalId: 'term-1' });
     await vi.waitFor(() => expect(finishRemoteStop).toBeTypeOf('function'));
 
-    const releaseStartSlot = vi.fn();
     const replacement = harness.lifecycle.replace({
       terminalId: 'term-1',
       command: 'claude --new',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot,
       explicit: true,
     });
     const replacementRejected = expect(replacement).rejects.toThrow('being stopped');
@@ -386,7 +378,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     await stop;
 
     await replacementRejected;
-    expect(releaseStartSlot).toHaveBeenCalledOnce();
     expect(harness.adapters.attachment.replace).not.toHaveBeenCalled();
     expect(harness.terminal.status).toBe('stopped');
   });
@@ -440,7 +431,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     const stop = harness.lifecycle.stop({ workspaceId: 'ws-1' });
     await vi.waitFor(() => expect(finishRemoteStop).toBeTypeOf('function'));
 
-    const releaseStartSlot = vi.fn();
     let creationError: unknown;
     try {
       harness.lifecycle.create({
@@ -448,7 +438,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
         terminalId: 'term-2',
         command: 'claude --new',
         keepShellOpenAfterCommand: false,
-        releaseStartSlot,
       });
     } catch (error) {
       creationError = error;
@@ -459,7 +448,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     }
 
     expect(creationError).toEqual(new Error('Managed remote workspace ws-1 is being stopped'));
-    expect(releaseStartSlot).toHaveBeenCalledOnce();
     expect(harness.adapters.attachment.spawn).not.toHaveBeenCalled();
   });
 
@@ -485,7 +473,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
       terminalId: 'term-1',
       command: 'claude --new',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot: vi.fn(),
       explicit: true,
     });
     const replacementRejected = expect(replacement).rejects.toThrow('being stopped');
@@ -515,7 +502,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     finishRemoteStops[1]();
     await secondStop;
 
-    const releaseStartSlot = vi.fn();
     let creationError: unknown;
     try {
       harness.lifecycle.create({
@@ -523,7 +509,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
         terminalId: 'term-2',
         command: 'claude --new',
         keepShellOpenAfterCommand: false,
-        releaseStartSlot,
       });
     } catch (error) {
       creationError = error;
@@ -534,7 +519,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     }
 
     expect(creationError).toEqual(new Error('Managed remote workspace ws-1 is being stopped'));
-    expect(releaseStartSlot).toHaveBeenCalledOnce();
     expect(harness.adapters.attachment.spawn).not.toHaveBeenCalled();
   });
 
@@ -546,7 +530,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
       terminalId: 'term-1',
       command: 'claude --resume',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot: vi.fn(),
       explicit: true,
       cols: 120,
       rows: 30,
@@ -572,7 +555,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
         terminalId: 'term-1',
         command: 'claude',
         keepShellOpenAfterCommand: false,
-        releaseStartSlot: vi.fn(),
         explicit: true,
       })
     ).rejects.toThrow('invalid launch');
@@ -581,14 +563,12 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     expect(harness.adapters.workspace.reconcileObservation).toHaveBeenCalled();
   });
 
-  it('releases the start slot when an attachment exit supersedes replacement preparation', async () => {
+  it('supersedes replacement preparation when an attachment exits', async () => {
     const harness = createHarness();
-    const releaseStartSlot = vi.fn();
     const replacement = harness.lifecycle.replace({
       terminalId: 'term-1',
       command: 'claude --new',
       keepShellOpenAfterCommand: false,
-      releaseStartSlot,
       explicit: true,
     });
 
@@ -596,7 +576,6 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     harness.finishPreparation();
 
     await expect(replacement).resolves.toMatchObject({ kind: 'superseded' });
-    expect(releaseStartSlot).toHaveBeenCalled();
     expect(harness.adapters.attachment.replace).not.toHaveBeenCalled();
   });
 
@@ -626,19 +605,16 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
 
     const release = harness.lifecycle.release({ terminalId: 'term-1' });
     await vi.waitFor(() => expect(finishAttachmentRelease).toBeTypeOf('function'));
-    const releaseStartSlot = vi.fn();
 
     await expect(
       harness.lifecycle.replace({
         terminalId: 'term-1',
         command: 'claude --new',
         keepShellOpenAfterCommand: false,
-        releaseStartSlot,
         explicit: true,
       })
     ).rejects.toThrow('being released');
 
-    expect(releaseStartSlot).toHaveBeenCalledOnce();
     finishAttachmentRelease();
     await release;
     expect(harness.adapters.attachment.replace).not.toHaveBeenCalled();

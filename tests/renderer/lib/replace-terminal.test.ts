@@ -93,9 +93,6 @@ describe('replaceTerminal', () => {
         restartTerminal,
         setActivePreset,
         getWorkspaces: vi.fn(async () => useWorkspacesStore.getState().workspaces),
-        getWorkspaceQuota: vi
-          .fn()
-          .mockResolvedValue({ allowed: true, count: 0, limit: 4, isLicensed: false }),
       },
     });
   });

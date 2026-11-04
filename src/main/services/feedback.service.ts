@@ -7,7 +7,6 @@ import { app, dialog, net } from 'electron';
 import { API_BASE_URL } from '../lib/api-urls';
 
 import { agentPresetService } from './agent-preset.service';
-import { licenseService } from './license.service';
 
 export type FeedbackType = 'bug' | 'feature' | 'general';
 
@@ -49,7 +48,6 @@ class FeedbackService {
   }
 
   async sendFeedback(payload: FeedbackPayload): Promise<FeedbackResult> {
-    const licenseStatus = licenseService.getStatus();
     const activePreset = agentPresetService.getActive();
 
     // Prepare screenshots as base64
@@ -94,7 +92,6 @@ class FeedbackService {
         platform: process.platform,
         arch: process.arch,
         osVersion: os.release(),
-        isLicensed: licenseStatus.isLicensed && licenseStatus.licenseKey !== null,
         agentPresetName: activePreset?.name || null,
       },
     };

@@ -23,8 +23,6 @@ export type {
   WorkspaceCreateError,
   WorkspaceCreateResult,
   WorkspaceCreateBatchResult,
-  WorkspaceRestartError,
-  WorkspaceRestartResult,
   WorkspaceAttention,
   WorkspaceAttentionEvent,
   WorkspaceAttentionKind,
@@ -48,7 +46,6 @@ export type {
 } from './workspace';
 export {
   COMMAND_ATTENTION_SOURCE,
-  WORKSPACE_LIMIT_ERROR_PREFIX,
   DUPLICATE_WORKSPACE_ERROR_PREFIX,
   attentionOutranks,
   attentionWakesSnooze,
@@ -60,7 +57,6 @@ export {
   isWorkspaceAttentionActionable,
   isWorkspaceSnoozed,
   isWorkspaceCreateError,
-  isWorkspaceRestartError,
   needsAttention,
   pickWorkspaceAttention,
   resolveWorkspaceTargetBranch,

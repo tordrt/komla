@@ -11,11 +11,9 @@ const logger = createLogger('TelemetryService');
 
 import { agentPresetService } from './agent-preset.service';
 import { configService } from './config.service';
-import { licenseService } from './license.service';
 import { metricsCollectorService } from './metrics-collector.service';
-import { getTelemetryCohortDimensions, telemetryAgentName } from './telemetry-dimensions';
+import { telemetryAgentName } from './telemetry-dimensions';
 
-import type { MonetizationTelemetryEvent } from './license.service';
 import type { UsageSummaryPayload } from './metrics-collector.service';
 import type { TelemetryLevel } from '../../shared/lib/telemetry-level';
 import type { SshHostAddedSource } from '../../shared/types/ssh';
@@ -27,7 +25,6 @@ function isDev(): boolean {
 const TELEMETRY_URL = `${API_BASE_URL}/api/v1/telemetry/install`;
 const HEARTBEAT_URL = `${API_BASE_URL}/api/v1/telemetry/heartbeat`;
 const USAGE_URL = `${API_BASE_URL}/api/v1/telemetry/usage-v2`;
-const MONETIZATION_URL = `${API_BASE_URL}/api/v1/telemetry/monetization`;
 const AGENT_SELECTED_URL = `${API_BASE_URL}/api/v1/telemetry/agent-selected`;
 const MILESTONE_URL = `${API_BASE_URL}/api/v1/telemetry/milestone`;
 const SSH_HOST_ADDED_URL = `${API_BASE_URL}/api/v1/telemetry/ssh-host-added`;
@@ -99,11 +96,6 @@ class TelemetryService {
   // Milestones whose ping is currently in flight — guards against concurrent
   // first-occurrences double-sending before the config dedup list is updated.
   private inFlightMilestones = new Set<string>();
-
-  /** The install ID, only while usage analytics are on; it links checkout to in-app activity. */
-  getDistinctId(): string | null {
-    return usageTelemetryOptedIn() ? configService.getTelemetryDistinctId() : null;
-  }
 
   async sendInstallPing(): Promise<void> {
     if (isDev()) {
@@ -502,8 +494,6 @@ class TelemetryService {
         request.on('error', fail);
 
         const agentName = telemetryAgentName(agentPresetService.getActive());
-        const isLicensed = licenseService.getStatus().isLicensed;
-        const cohortDimensions = getTelemetryCohortDimensions();
 
         request.write(
           JSON.stringify({
@@ -512,10 +502,8 @@ class TelemetryService {
             arch: process.arch,
             distribution: getBuildDistribution(),
             agent: agentName,
-            isLicensed,
             ...periods,
             ...optedInDistinctId(),
-            ...cohortDimensions,
           })
         );
         request.end();
@@ -531,66 +519,6 @@ class TelemetryService {
         const request = net.request({
           method: 'POST',
           url: USAGE_URL,
-        });
-
-        setTelemetryHeaders(request);
-
-        request.on('response', (response) => {
-          response.on('data', () => {});
-          response.on('end', () => {
-            if (response.statusCode === 200) {
-              resolve();
-            } else {
-              reject(new Error(`Server returned ${response.statusCode}`));
-            }
-          });
-        });
-
-        request.on('error', (error) => {
-          reject(error);
-        });
-
-        request.write(JSON.stringify(payload));
-        request.end();
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  sendMonetizationEvent(
-    name: MonetizationTelemetryEvent,
-    props: {
-      source?: 'create_workspace' | 'start_workspace' | 'free_limit_wall';
-      limit?: number;
-      runningCount?: number;
-    } = {}
-  ): void {
-    if (!usageTelemetryOptedIn()) return;
-
-    const payload = {
-      event: name,
-      appVersion: app.getVersion(),
-      platform: process.platform,
-      arch: process.arch,
-      distribution: getBuildDistribution(),
-      isLicensed: licenseService.getStatus().isLicensed,
-      distinctId: configService.getTelemetryDistinctId(),
-      ...getTelemetryCohortDimensions(),
-      ...props,
-    };
-
-    void this.postMonetizationEvent(payload).catch((error) => {
-      logger.debug(`Failed to send monetization telemetry (${name}):`, error);
-    });
-  }
-
-  private postMonetizationEvent(payload: Record<string, unknown>): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        const request = net.request({
-          method: 'POST',
-          url: MONETIZATION_URL,
         });
 
         setTelemetryHeaders(request);

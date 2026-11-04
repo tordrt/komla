@@ -384,17 +384,7 @@ vi.mock('../../../src/main/services/worktree-watcher.service', () => ({
   worktreeWatcherService: mockWorktreeWatcherService,
 }));
 
-const mockLicenseService = {
-  canStartWorkspace: vi.fn(() => ({ allowed: true })),
-  getStatus: vi.fn(() => ({ isLicensed: true })),
-};
-vi.mock('../../../src/main/services/license.service', () => ({
-  licenseService: mockLicenseService,
-  FREE_WORKSPACE_LIMIT: 4,
-}));
-
 const mockTelemetryService = {
-  sendMonetizationEvent: vi.fn(),
   sendIntegrationMilestone: vi.fn(),
 };
 vi.mock('../../../src/main/services/telemetry.service', () => ({
@@ -778,8 +768,6 @@ describe('WorkspaceService', () => {
     mockRealpathSync.mockImplementation((path: string) => path);
 
     // Reset mocks to defaults
-    mockLicenseService.canStartWorkspace.mockReturnValue({ allowed: true });
-    mockLicenseService.getStatus.mockReturnValue({ isLicensed: true });
     mockGitService.createWorktree.mockResolvedValue({
       path: '/mock/home/.komla/worktrees/project/agent-branch',
       createdBranch: true,
@@ -1246,9 +1234,7 @@ describe('WorkspaceService', () => {
       expect(mockSshWorkspaceService.findTerminalSessions).not.toHaveBeenCalled();
     });
 
-    it('should load all workspaces regardless of license status', async () => {
-      mockLicenseService.getStatus.mockReturnValue({ isLicensed: false });
-
+    it('should load every persisted workspace', async () => {
       const persistedWorkspaces = Array.from({ length: 6 }, (_, i) => ({
         id: `ws-${i + 1}`,
         name: `Workspace ${i + 1}`,
@@ -2525,6 +2511,22 @@ describe('WorkspaceService', () => {
       vi.advanceTimersByTime(30_000);
       expect(badge).toHaveBeenLastCalledWith(1);
     });
+
+    it('takes a workspace off the dock badge while it is trashed', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([persistedWorkspace]));
+      const { electronAttentionWindows } =
+        await import('../../../src/main/services/terminal-attention/windows');
+      const badge = vi.spyOn(electronAttentionWindows, 'badge');
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const terminal = workspaceService.addTerminal('ws-1', 'Terminal 1');
+      await hookTerminal(workspaceService, terminal.id, { kind: 'turn-complete', source: 'codex' });
+      expect(badge).toHaveBeenLastCalledWith(1);
+
+      workspaceService.update('ws-1', { status: 'trashed' });
+      expect(badge).toHaveBeenLastCalledWith(0);
+      workspaceService.update('ws-1', { status: 'active' });
+      expect(badge).toHaveBeenLastCalledWith(1);
+    });
   });
 
   describe('color persistence', () => {
@@ -3097,369 +3099,6 @@ describe('WorkspaceService', () => {
       await workspaceService.update('trashed', { status: 'active' });
 
       expect(workspaceService.listRunningAtLastQuit()).toEqual([]);
-    });
-  });
-
-  // ============================================================================
-  // enforceWorkspaceLimit Tests
-  // ============================================================================
-
-  describe('enforceWorkspaceLimit', () => {
-    const sshBackend = (i: number) => ({
-      kind: 'ssh',
-      hostId: 'ssh-dev',
-      remoteDirectory: `/home/dev/worktree-${i}`,
-      remoteRepoPath: '/home/dev/repo.git',
-      remoteProjectRoot: '/home/dev',
-      gitUrl: 'git@example.com:repo.git',
-    });
-
-    it('should stop terminals in excess running workspaces', async () => {
-      mockLicenseService.getStatus.mockReturnValue({ isLicensed: true });
-
-      const persistedWorkspaces = Array.from({ length: 6 }, (_, i) => ({
-        id: `ws-${i + 1}`,
-        name: `Workspace ${i + 1}`,
-        workingDirectory: `ssh://ssh-dev/home/dev/worktree-${i + 1}`,
-        backend: sshBackend(i + 1),
-        isWorktree: true,
-        projectId: null,
-        windowId: null,
-        categoryId: null,
-        createdAt: 1000 + i,
-        lastActivityAt: 2000 + i, // ws-6 is most recent (2005), ws-1 is oldest (2000)
-        order: i,
-      }));
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
-
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-      // All 6 loaded
-      expect(workspaceService.list()).toHaveLength(6);
-
-      // Add running terminals to all 6 workspaces
-      for (let i = 1; i <= 6; i++) {
-        const ws = workspaceService.get(`ws-${i}`)!;
-        ws.terminals = [{ id: `term-${i}`, name: 'T', status: 'running', createdAt: Date.now() }];
-      }
-
-      // Enforce limit
-      await workspaceService.enforceWorkspaceLimit();
-
-      // All 6 should still be in the list (not hidden/removed)
-      expect(workspaceService.list()).toHaveLength(6);
-
-      // Terminals on the 2 least recently active (ws-1, ws-2) should be killed
-      expect(mockPtyService.kill).toHaveBeenCalledWith('term-1');
-      expect(mockPtyService.kill).toHaveBeenCalledWith('term-2');
-      // The 4 most recent should NOT have their terminals killed
-      expect(mockPtyService.kill).not.toHaveBeenCalledWith('term-3');
-      expect(mockPtyService.kill).not.toHaveBeenCalledWith('term-4');
-      expect(mockPtyService.kill).not.toHaveBeenCalledWith('term-5');
-      expect(mockPtyService.kill).not.toHaveBeenCalledWith('term-6');
-    });
-
-    it('keeps a stopped workspace in the dock badge while its card shows attention', async () => {
-      mockLicenseService.getStatus.mockReturnValue({ isLicensed: true });
-
-      const persistedWorkspaces = Array.from({ length: 6 }, (_, i) => ({
-        id: `ws-${i + 1}`,
-        name: `Workspace ${i + 1}`,
-        workingDirectory: `ssh://ssh-dev/home/dev/worktree-${i + 1}`,
-        backend: sshBackend(i + 1),
-        isWorktree: true,
-        projectId: null,
-        windowId: null,
-        categoryId: null,
-        createdAt: 1000 + i,
-        lastActivityAt: 2000 + i,
-        order: i,
-      }));
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
-      const { electronAttentionWindows } =
-        await import('../../../src/main/services/terminal-attention/windows');
-      const badge = vi.spyOn(electronAttentionWindows, 'badge');
-
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      for (let i = 1; i <= 6; i++) {
-        const ws = workspaceService.get(`ws-${i}`)!;
-        ws.terminals = [{ id: `term-${i}`, name: 'T', status: 'running', createdAt: Date.now() }];
-      }
-      await hookTerminal(workspaceService, 'term-1', { kind: 'input-required', source: 'codex' });
-      expect(badge).toHaveBeenLastCalledWith(1);
-      // The other workspaces were in use after the agent asked.
-      for (let i = 2; i <= 6; i++) {
-        workspaceService.get(`ws-${i}`)!.lastActivityAt = Date.now() + i;
-      }
-
-      await workspaceService.enforceWorkspaceLimit();
-
-      expect(mockPtyService.kill).toHaveBeenCalledWith('term-1');
-      expect(workspaceService.get('ws-1')?.attention).toMatchObject({ kind: 'input-required' });
-      expect(badge).toHaveBeenLastCalledWith(1);
-    });
-
-    it('takes a workspace off the dock badge while it is trashed', async () => {
-      vfs.setFile(
-        '/mock/home/.komla/workspaces.json',
-        JSON.stringify([
-          {
-            id: 'ws-1',
-            name: 'Workspace 1',
-            workingDirectory: '/mock/ws1',
-            isWorktree: false,
-            projectId: null,
-            windowId: null,
-            categoryId: null,
-            createdAt: 1000,
-            lastActivityAt: 2000,
-            order: 0,
-          },
-        ])
-      );
-      const { electronAttentionWindows } =
-        await import('../../../src/main/services/terminal-attention/windows');
-      const badge = vi.spyOn(electronAttentionWindows, 'badge');
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      const terminal = workspaceService.addTerminal('ws-1', 'Terminal 1');
-      await hookTerminal(workspaceService, terminal.id, { kind: 'turn-complete', source: 'codex' });
-      expect(badge).toHaveBeenLastCalledWith(1);
-
-      workspaceService.update('ws-1', { status: 'trashed' });
-      expect(badge).toHaveBeenLastCalledWith(0);
-      workspaceService.update('ws-1', { status: 'active' });
-      expect(badge).toHaveBeenLastCalledWith(1);
-    });
-
-    it('should stop file watchers on excess running workspaces', async () => {
-      mockLicenseService.getStatus.mockReturnValue({ isLicensed: true });
-
-      const persistedWorkspaces = Array.from({ length: 6 }, (_, i) => ({
-        id: `ws-${i + 1}`,
-        name: `Workspace ${i + 1}`,
-        workingDirectory: `ssh://ssh-dev/home/dev/worktree-${i + 1}`,
-        backend: sshBackend(i + 1),
-        isWorktree: true,
-        projectId: null,
-        windowId: null,
-        categoryId: null,
-        createdAt: 1000 + i,
-        lastActivityAt: 2000 + i,
-        order: i,
-      }));
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
-
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-      // Add running terminals to all 6 workspaces
-      for (let i = 1; i <= 6; i++) {
-        const ws = workspaceService.get(`ws-${i}`)!;
-        ws.terminals = [{ id: `term-${i}`, name: 'T', status: 'running', createdAt: Date.now() }];
-      }
-
-      await workspaceService.enforceWorkspaceLimit();
-
-      // ws-1 and ws-2 are the least recently active running workspaces
-      expect(mockWorktreeWatcherService.stopWatching).toHaveBeenCalledWith('ws-1');
-      expect(mockWorktreeWatcherService.stopWatching).toHaveBeenCalledWith('ws-2');
-    });
-
-    it('should do nothing when running count is at or under the limit', async () => {
-      mockLicenseService.getStatus.mockReturnValue({ isLicensed: true });
-
-      const persistedWorkspaces = Array.from({ length: 6 }, (_, i) => ({
-        id: `ws-${i + 1}`,
-        name: `Workspace ${i + 1}`,
-        workingDirectory: `ssh://ssh-dev/home/dev/worktree-${i + 1}`,
-        backend: sshBackend(i + 1),
-        isWorktree: true,
-        projectId: null,
-        windowId: null,
-        categoryId: null,
-        createdAt: 1000 + i,
-        lastActivityAt: 2000 + i,
-        order: i,
-      }));
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
-
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-      // Only add running terminals to 4 workspaces (at the limit)
-      for (let i = 1; i <= 4; i++) {
-        const ws = workspaceService.get(`ws-${i}`)!;
-        ws.terminals = [{ id: `term-${i}`, name: 'T', status: 'running', createdAt: Date.now() }];
-      }
-
-      await workspaceService.enforceWorkspaceLimit();
-
-      // All 6 should still be there
-      expect(workspaceService.list()).toHaveLength(6);
-      expect(mockPtyService.kill).not.toHaveBeenCalled();
-      expect(mockWorktreeWatcherService.stopWatching).not.toHaveBeenCalled();
-    });
-
-    it('leaves running local workspaces alone, since the free plan only limits SSH ones', async () => {
-      const persistedWorkspaces = Array.from({ length: 6 }, (_, i) => ({
-        id: `ws-${i + 1}`,
-        name: `Workspace ${i + 1}`,
-        workingDirectory: `/mock/ws${i + 1}`,
-        isWorktree: false,
-        projectId: null,
-        windowId: null,
-        categoryId: null,
-        createdAt: 1000 + i,
-        lastActivityAt: 2000 + i,
-        order: i,
-      }));
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
-
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      for (let i = 1; i <= 6; i++) {
-        const ws = workspaceService.get(`ws-${i}`)!;
-        ws.terminals = [{ id: `term-${i}`, name: 'T', status: 'running', createdAt: Date.now() }];
-      }
-
-      await workspaceService.enforceWorkspaceLimit();
-
-      expect(mockPtyService.kill).not.toHaveBeenCalled();
-      expect(mockWorktreeWatcherService.stopWatching).not.toHaveBeenCalled();
-    });
-
-    it('should stop detached SSH sessions in excess workspaces', async () => {
-      mockPtyService.getStatus.mockReturnValue(undefined);
-      const persistedWorkspaces = [
-        {
-          id: 'ssh-oldest',
-          name: 'Remote Workspace',
-          workingDirectory: 'ssh://ssh-dev/home/dev/.komla/worktrees/project/branch',
-          backend: {
-            kind: 'ssh',
-            hostId: 'ssh-dev',
-            remoteDirectory: '/home/dev/.komla/worktrees/project/branch',
-            remoteRepoPath: '/home/dev/.komla/repos/project/repo.git',
-            remoteProjectRoot: '/home/dev/.komla/worktrees/project',
-            gitUrl: 'git@example.com:repo.git',
-          },
-          isWorktree: true,
-          projectId: 'project-1',
-          windowId: null,
-          categoryId: null,
-          createdAt: 1000,
-          lastActivityAt: 1000,
-          order: 0,
-          terminals: [
-            {
-              id: 'term-remote',
-              name: 'Remote',
-              status: 'stopped',
-              createdAt: 1000,
-              remoteSessionActive: true,
-            },
-            {
-              id: 'term-local-copy',
-              name: 'Local',
-              status: 'running',
-              createdAt: 1001,
-              executionLocation: 'local-mirror',
-            },
-          ],
-        },
-        ...Array.from({ length: 4 }, (_, index) => ({
-          id: `local-${index}`,
-          name: `Newer ${index}`,
-          workingDirectory: `ssh://ssh-dev/home/dev/worktree-${index}`,
-          backend: sshBackend(index),
-          isWorktree: true,
-          projectId: null,
-          windowId: null,
-          categoryId: null,
-          createdAt: 2000 + index,
-          lastActivityAt: 2000 + index,
-          order: index + 1,
-        })),
-      ];
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      workspaceService
-        .get('ssh-oldest')!
-        .terminals.find((terminal) => terminal.id === 'term-remote')!.remoteSessionActive = true;
-      workspaceService.get('ssh-oldest')!.terminals.push({
-        id: 'term-local-copy',
-        name: 'Local',
-        status: 'running',
-        createdAt: 1001,
-        executionLocation: 'local-mirror',
-      });
-      for (let index = 0; index < 4; index++) {
-        workspaceService.get(`local-${index}`)!.terminals = [
-          {
-            id: `local-term-${index}`,
-            name: 'T',
-            status: 'running',
-            createdAt: 2000 + index,
-          },
-        ];
-      }
-
-      await workspaceService.enforceWorkspaceLimit();
-
-      expect(mockSshWorkspaceService.killTerminalSessions).toHaveBeenCalledWith(
-        persistedWorkspaces[0].backend,
-        ['term-remote']
-      );
-      expect(mockPtyService.kill).toHaveBeenCalledWith('term-remote');
-      expect(mockPtyService.kill).toHaveBeenCalledWith('term-local-copy');
-      expect(
-        workspaceService
-          .get('ssh-oldest')
-          ?.terminals.find((terminal) => terminal.id === 'term-remote')?.remoteSessionActive
-      ).toBe(false);
-    });
-
-    it('should preserve SSH session state when remote limit enforcement fails', async () => {
-      mockPtyService.getStatus.mockReturnValue(undefined);
-      const persistedWorkspaces = Array.from({ length: 5 }, (_, index) => ({
-        id: `ssh-${index}`,
-        name: `Remote ${index}`,
-        workingDirectory: `ssh://ssh-dev/home/dev/worktree-${index}`,
-        backend: {
-          kind: 'ssh',
-          hostId: 'ssh-dev',
-          remoteDirectory: `/home/dev/worktree-${index}`,
-          remoteRepoPath: '/home/dev/repo.git',
-          remoteProjectRoot: '/home/dev',
-          gitUrl: 'git@example.com:repo.git',
-        },
-        isWorktree: true,
-        projectId: null,
-        windowId: null,
-        categoryId: null,
-        createdAt: 1000 + index,
-        lastActivityAt: 1000 + index,
-        order: index,
-        terminals: [
-          {
-            id: `remote-${index}`,
-            name: 'Remote',
-            status: 'stopped',
-            createdAt: 1000 + index,
-            remoteSessionActive: true,
-          },
-        ],
-      }));
-      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
-      mockSshWorkspaceService.killTerminalSessions.mockRejectedValueOnce(new Error('offline'));
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      for (let index = 0; index < 5; index++) {
-        workspaceService.get(`ssh-${index}`)!.terminals[0]!.remoteSessionActive = true;
-      }
-
-      await expect(workspaceService.enforceWorkspaceLimit()).rejects.toThrow(
-        'Could not stop all remote agents'
-      );
-
-      expect(mockPtyService.kill).not.toHaveBeenCalledWith('remote-0');
-      expect(workspaceService.get('ssh-0')?.terminals[0]?.remoteSessionActive).toBe(true);
     });
   });
 
@@ -6320,7 +5959,7 @@ describe('WorkspaceService', () => {
         );
       });
 
-      it('keeps a failed asynchronous SSH terminal visible and releases its quota slot', async () => {
+      it('keeps a failed asynchronous SSH terminal visible', async () => {
         const existingWorkspaces = [
           {
             id: 'ssh-ws-1',
@@ -6352,11 +5991,6 @@ describe('WorkspaceService', () => {
         mockSshWorkspaceService.supportsPersistentTerminalSessions
           .mockRejectedValueOnce(new Error('host unreachable'))
           .mockResolvedValueOnce(true);
-        mockLicenseService.canStartWorkspace.mockImplementation((count: number) =>
-          count === 0
-            ? { allowed: true }
-            : { allowed: false, reason: 'WORKSPACE_LIMIT: pending slot leaked' }
-        );
         const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
         const failedTerminal = workspaceService.addTerminal('ssh-ws-1', 'First agent', 'npm test');
@@ -6365,7 +5999,6 @@ describe('WorkspaceService', () => {
 
         const secondTerminal = workspaceService.addTerminal('ssh-ws-1', 'Second agent', 'npm test');
         expect(secondTerminal).toEqual(expect.objectContaining({ name: 'Second agent' }));
-        expect(mockLicenseService.canStartWorkspace).toHaveBeenLastCalledWith(0);
         expect(workspaceService.get('ssh-ws-1')?.terminals).toHaveLength(2);
       });
 
@@ -6897,7 +6530,7 @@ describe('WorkspaceService', () => {
       });
     });
 
-    describe('license enforcement', () => {
+    describe('SSH workspaces', () => {
       const sshParams = (branchName: string) => ({
         mode: 'worktree' as const,
         projectId: 'project-1',
@@ -6906,374 +6539,25 @@ describe('WorkspaceService', () => {
         location: { kind: 'ssh' as const, hostId: 'ssh-dev' },
       });
 
-      it('should allow workspace creation regardless of license status', async () => {
+      // Komla has no limit on how many SSH workspaces run at once.
+      it('creates, starts and restarts more than four SSH workspaces at once', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.getStatus.mockReturnValue({ isLicensed: false });
-
         const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
-        const workspace = await workspaceService.create({
-          mode: 'directory',
-          directoryPath: '/some/path',
-        });
-
-        expect(workspace).toBeDefined();
-        expect(workspace.workingDirectory).toBe('/some/path');
-      });
-
-      it('should throw when creating workspace at running limit', async () => {
-        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.canStartWorkspace.mockReturnValue({
-          allowed: false,
-          reason: 'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces',
-        });
-
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-        await expect(workspaceService.create(sshParams('agent/remote'))).rejects.toThrow(
-          'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces'
-        );
-        expect(mockTelemetryService.sendMonetizationEvent).toHaveBeenCalledWith('free_limit_hit', {
-          source: 'create_workspace',
-          limit: 4,
-          runningCount: 0,
-        });
-      });
-
-      it('should create, start and restart local workspaces without checking the limit', async () => {
-        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.canStartWorkspace.mockReturnValue({
-          allowed: false,
-          reason: 'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces',
-        });
-
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-        const [workspace] = await workspaceService.createBatch([
-          { mode: 'directory', directoryPath: '/some/path' },
+        for (let i = 0; i < 5; i++) await workspaceService.create(sshParams(`agent/remote-${i}`));
+        const batch = await workspaceService.createBatch([
+          sshParams('agent/batch-a'),
+          sshParams('agent/batch-b'),
         ]);
-        await workspaceService.create({ mode: 'directory', directoryPath: '/other/path' });
-        workspace.terminals = [];
-        workspaceService.addTerminal(workspace.id, 'Terminal');
-        workspace.terminals = [];
-        workspaceService.restart(workspace.id);
+        await vi.advanceTimersByTimeAsync(0);
 
-        expect(mockLicenseService.canStartWorkspace).not.toHaveBeenCalled();
-        expect(workspaceService.getRunningRemoteWorkspaceCount()).toBe(0);
-      });
+        const workspaces = workspaceService.list();
+        expect(workspaces).toHaveLength(7);
+        expect(workspaces.filter((workspace) => workspace.provisionError)).toEqual([]);
 
-      it('should reserve slots only for the SSH members of a batch', async () => {
-        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-        await workspaceService.create({ mode: 'directory', directoryPath: '/running/local' });
-
-        await workspaceService.createBatch([
-          { mode: 'directory', directoryPath: '/batch/local' },
-          sshParams('agent/batch-remote'),
-        ]);
-
-        // Counting the local workspaces would have checked 1 + 2 - 1.
-        expect(mockLicenseService.canStartWorkspace).toHaveBeenNthCalledWith(1, 0);
-        expect(workspaceService.getRunningRemoteWorkspaceCount()).toBe(1);
-      });
-
-      it('should throw when adding terminal to stopped workspace at running limit', async () => {
-        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.canStartWorkspace.mockReturnValue({ allowed: true });
-
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-        const workspace = await workspaceService.create(sshParams('agent/remote'));
-
-        // Remove all terminals to make workspace stopped
-        workspace.terminals = [];
-
-        // Now limit is reached
-        mockLicenseService.canStartWorkspace.mockReturnValue({
-          allowed: false,
-          reason: 'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces',
-        });
-
-        expect(() => workspaceService.addTerminal(workspace.id, 'Terminal')).toThrow(
-          'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces'
-        );
-        expect(mockTelemetryService.sendMonetizationEvent).toHaveBeenCalledWith('free_limit_hit', {
-          source: 'start_workspace',
-          limit: 4,
-          runningCount: 0,
-        });
-      });
-
-      it('starts a Local copy shell in a stopped SSH workspace at the limit', async () => {
-        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-        const workspace = await workspaceService.create(sshParams('agent/remote'));
-        workspace.terminals = [];
-        mockLicenseService.canStartWorkspace.mockClear().mockReturnValue({
-          allowed: false,
-          reason: 'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces',
-        });
-
-        await workspaceService.addTerminal(
-          workspace.id,
-          'Local',
-          null,
-          undefined,
-          'host-shell',
-          'local-mirror'
-        );
-
-        // It runs on this computer, so it takes no SSH slot.
-        expect(mockLicenseService.canStartWorkspace).not.toHaveBeenCalled();
-        expect(workspace.terminals.map((terminal) => terminal.executionLocation)).toEqual([
-          'local-mirror',
-        ]);
-        expect(workspaceService.getRunningRemoteWorkspaceCount()).toBe(0);
-      });
-
-      it('should allow adding terminal to already-running workspace at limit', async () => {
-        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.canStartWorkspace.mockReturnValue({ allowed: true });
-
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-        const workspace = await workspaceService.create({
-          mode: 'directory',
-          directoryPath: '/some/path',
-        });
-
-        // Workspace already has a running terminal from create
-        expect(workspace.terminals.length).toBeGreaterThan(0);
-
-        // Now limit is reached
-        mockLicenseService.canStartWorkspace.mockReturnValue({
-          allowed: false,
-          reason: 'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces',
-        });
-
-        // Should succeed because workspace already has running terminals
-        const terminal = workspaceService.addTerminal(workspace.id, 'Terminal 2');
-        expect(terminal).toBeDefined();
-        expect(terminal.name).toBe('Terminal 2');
-      });
-
-      it('should throw when restarting stopped workspace at running limit', async () => {
-        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.canStartWorkspace.mockReturnValue({ allowed: true });
-
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-        const workspace = await workspaceService.create(sshParams('agent/remote'));
-
-        // Stop the workspace (clear terminals)
-        workspace.terminals = [];
-
-        // Now limit is reached
-        mockLicenseService.canStartWorkspace.mockReturnValue({
-          allowed: false,
-          reason: 'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces',
-        });
-
-        expect(() => workspaceService.restart(workspace.id)).toThrow(
-          'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces'
-        );
-      });
-
-      it('should allow restarting already-running workspace at limit', async () => {
-        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.canStartWorkspace.mockReturnValue({ allowed: true });
-
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-        const workspace = await workspaceService.create({
-          mode: 'directory',
-          directoryPath: '/some/path',
-        });
-
-        // Workspace has running terminals from create
-        expect(workspace.terminals.length).toBeGreaterThan(0);
-
-        // Limit is reached — but this workspace is already counted
-        mockLicenseService.canStartWorkspace.mockImplementation((count: number) => {
-          if (count >= 4) {
-            return { allowed: false, reason: 'WORKSPACE_LIMIT: limit reached' };
-          }
-          return { allowed: true };
-        });
-
-        // Should succeed because restart of a running workspace doesn't add to the count
-        const terminal = workspaceService.restart(workspace.id);
-        expect(terminal).toBeDefined();
-      });
-
-      it('should count provisioning workspaces against the workspace limit', async () => {
-        const persistedWorkspaces = Array.from({ length: 4 }, (_, i) => ({
-          id: `ws-provisioning-${i}`,
-          name: `Provisioning ${i}`,
-          workingDirectory: '',
-          backend: {
-            kind: 'ssh',
-            hostId: 'ssh-dev',
-            remoteDirectory: `/home/dev/worktree-${i}`,
-            remoteRepoPath: '/home/dev/repo.git',
-            remoteProjectRoot: '/home/dev',
-            gitUrl: 'git@example.com:repo.git',
-          },
-          isWorktree: true,
-          projectId: 'project-1',
-          windowId: null,
-          categoryId: null,
-          createdAt: 1000 + i,
-          lastActivityAt: 2000 + i,
-          order: i,
-          provisioning: true,
-          provisioningRepoPath: '/mock/repo',
-        }));
-        vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(persistedWorkspaces));
-        mockLicenseService.canStartWorkspace.mockImplementation((count: number) => {
-          if (count >= 4) {
-            return {
-              allowed: false,
-              reason: 'WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces',
-            };
-          }
-          return { allowed: true };
-        });
-
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-        await expect(
-          workspaceService.create({
-            mode: 'worktree',
-            projectId: 'project-1',
-            initialPrompt: 'Prompt 5',
-            deferBranchNaming: true,
-            location: { kind: 'ssh', hostId: 'ssh-dev' },
-          })
-        ).rejects.toThrow('WORKSPACE_LIMIT: Free plan is limited to 4 running workspaces');
-      });
-
-      it('should reject an entire batch when provisioning workspaces leave too few slots', async () => {
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-        await workspaceService.create(sshParams('agent/running-one'));
-        await workspaceService.create(sshParams('agent/running-two'));
-        mockSshWorkspaceService.ensureWorkspaceReady.mockReturnValue(new Promise(() => {}));
-        const provisioning = await workspaceService.create({
-          ...sshParams('agent/provisioning'),
-          deferBranchNaming: true,
-        });
-        expect(provisioning.provisioning).toBe(true);
-
-        mockLicenseService.canStartWorkspace.mockImplementation((count: number) =>
-          count >= 4
-            ? { allowed: false, reason: 'WORKSPACE_LIMIT: limit reached' }
-            : { allowed: true }
-        );
-
-        await expect(
-          workspaceService.createBatch([sshParams('agent/batch-one'), sshParams('agent/batch-two')])
-        ).rejects.toThrow('WORKSPACE_LIMIT: limit reached');
-
-        expect(workspaceService.list()).toHaveLength(3);
-        expect(mockLicenseService.canStartWorkspace).toHaveBeenLastCalledWith(4);
-      });
-
-      it('should release a failed batch member reservation while siblings are pending', async () => {
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-        // Only the batch member on ssh-slow waits, here for its host's base path.
-        let resolveBasePath!: (path: string) => void;
-        const slowBasePath = new Promise<string>((resolve) => {
-          resolveBasePath = resolve;
-        });
-        mockSshWorkspaceService.resolveWorkspaceBasePath.mockImplementation((hostId: string) =>
-          hostId === 'ssh-slow' ? slowBasePath : Promise.resolve('/home/dev/.komla')
-        );
-        const stillRunning = {
-          ...sshParams('agent/still-running'),
-          location: { kind: 'ssh' as const, hostId: 'ssh-slow' },
-        };
-        mockLicenseService.canStartWorkspace.mockImplementation((count: number) =>
-          count >= 2
-            ? { allowed: false, reason: 'WORKSPACE_LIMIT: limit reached' }
-            : { allowed: true }
-        );
-
-        let batchSettled = false;
-        let batchError: unknown;
-        const batchResult = workspaceService
-          .createBatch([
-            { ...sshParams('agent/invalid'), projectId: 'missing-project' },
-            stillRunning,
-          ])
-          .then(
-            () => {
-              batchSettled = true;
-            },
-            (error) => {
-              batchSettled = true;
-              batchError = error;
-            }
-          );
-
-        for (let i = 0; i < 5; i++) {
-          await Promise.resolve();
-        }
-
-        expect(batchSettled).toBe(false);
-        const competingWorkspace = await workspaceService.create(sshParams('agent/competing'));
-        expect(competingWorkspace.branchName).toBe('agent/competing');
-
-        resolveBasePath('/home/dev/.komla');
-        await batchResult;
-
-        expect(batchError).toEqual(new Error('Project missing-project not found'));
-        expect(workspaceService.list()).toHaveLength(2);
-        await expect(workspaceService.create(sshParams('agent/after-batch'))).rejects.toThrow(
-          'WORKSPACE_LIMIT: limit reached'
-        );
-      });
-
-      it('should not double-count a completed batch member as still pending', async () => {
-        const { workspaceService } = await import('../../../src/main/services/workspace.service');
-        // Only the batch member on ssh-slow waits, here for its host's base path.
-        let resolveBasePath!: (path: string) => void;
-        const slowBasePath = new Promise<string>((resolve) => {
-          resolveBasePath = resolve;
-        });
-        mockSshWorkspaceService.resolveWorkspaceBasePath.mockImplementation((hostId: string) =>
-          hostId === 'ssh-slow' ? slowBasePath : Promise.resolve('/home/dev/.komla')
-        );
-        const stillRunning = {
-          ...sshParams('agent/still-running'),
-          location: { kind: 'ssh' as const, hostId: 'ssh-slow' },
-        };
-        mockLicenseService.canStartWorkspace.mockImplementation((count: number) =>
-          count >= 3
-            ? { allowed: false, reason: 'WORKSPACE_LIMIT: limit reached' }
-            : { allowed: true }
-        );
-
-        const batchResult = workspaceService.createBatch([
-          sshParams('agent/complete'),
-          stillRunning,
-        ]);
-
-        for (let i = 0; i < 5; i++) {
-          await Promise.resolve();
-        }
-
-        await expect(workspaceService.create(sshParams('agent/competing'))).resolves.toEqual(
-          expect.objectContaining({ branchName: 'agent/competing' })
-        );
-
-        resolveBasePath('/home/dev/.komla');
-        await expect(batchResult).resolves.toHaveLength(2);
-
-        expect(workspaceService.list()).toHaveLength(3);
-        await expect(workspaceService.create(sshParams('agent/after-batch'))).rejects.toThrow(
-          'WORKSPACE_LIMIT: limit reached'
-        );
+        batch[0].terminals = [];
+        expect(() => workspaceService.addTerminal(batch[0].id, 'Terminal')).not.toThrow();
+        expect(await workspaceService.restart(batch[1].id)).toBeDefined();
       });
     });
 
@@ -7848,9 +7132,11 @@ describe('WorkspaceService', () => {
 
       it('cleans up remote state before discarding an SSH workspace that fails after setup', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.canStartWorkspace
-          .mockReturnValueOnce({ allowed: true })
-          .mockReturnValueOnce({ allowed: false, reason: 'terminal limit reached' });
+        const { workspaceSetupService } =
+          await import('../../../src/main/services/workspace-setup.service');
+        vi.spyOn(workspaceSetupService, 'start').mockImplementationOnce(() => {
+          throw new Error('terminal failed to start');
+        });
 
         const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
@@ -7901,9 +7187,11 @@ describe('WorkspaceService', () => {
 
       it('retains a failed SSH workspace when its remote cleanup fails', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
-        mockLicenseService.canStartWorkspace
-          .mockReturnValueOnce({ allowed: true })
-          .mockReturnValueOnce({ allowed: false, reason: 'terminal limit reached' });
+        const { workspaceSetupService } =
+          await import('../../../src/main/services/workspace-setup.service');
+        vi.spyOn(workspaceSetupService, 'start').mockImplementationOnce(() => {
+          throw new Error('terminal failed to start');
+        });
         mockSshWorkspaceService.deleteWorkspace.mockRejectedValueOnce(new Error('host offline'));
 
         const { workspaceService } = await import('../../../src/main/services/workspace.service');

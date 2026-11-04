@@ -3,7 +3,6 @@ import { resolve } from 'path';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
-  WORKSPACE_LIMIT_ERROR_PREFIX,
   DUPLICATE_WORKSPACE_ERROR_PREFIX,
 } from '../../../../src/shared/types/workspace';
 import { mockElectron } from '../../../mocks/electron';
@@ -234,17 +233,6 @@ describe('workspace IPC behavior', () => {
       expect(result).toEqual(created);
     });
 
-    it('returns workspace limit error as value instead of throwing', async () => {
-      const ipcMain = await setup();
-      const params = { mode: 'worktree' as const, name: 'Test' };
-      const errorMsg = `${WORKSPACE_LIMIT_ERROR_PREFIX}Free plan is limited to 4 running workspaces.`;
-      mockWorkspaceService.create.mockRejectedValue(new Error(errorMsg));
-
-      const result = await ipcMain._invoke('workspace:create', params);
-
-      expect(result).toEqual({ __workspaceCreateError: true, message: errorMsg });
-    });
-
     it('returns duplicate workspace error as value instead of throwing', async () => {
       const ipcMain = await setup();
       const params = { mode: 'directory' as const, directoryPath: '/tmp/foo' };
@@ -321,9 +309,9 @@ describe('workspace IPC behavior', () => {
       expect(result).toEqual(created);
     });
 
-    it('returns workspace limit errors without starting individual creates', async () => {
+    it('returns expected batch errors as values without starting individual creates', async () => {
       const ipcMain = await setup();
-      const errorMsg = `${WORKSPACE_LIMIT_ERROR_PREFIX}Not enough slots for the batch.`;
+      const errorMsg = `${DUPLICATE_WORKSPACE_ERROR_PREFIX}A workspace already exists for this directory: "one"`;
       mockWorkspaceService.createBatch.mockRejectedValue(new Error(errorMsg));
 
       const result = await ipcMain._invoke('workspace:create-batch', [
@@ -1172,16 +1160,6 @@ describe('workspace IPC behavior', () => {
 
       expect(mockWorkspaceService.restartWithCleanup).toHaveBeenCalledWith('ws-1');
       expect(result).toEqual(terminal);
-    });
-
-    it('returns workspace limit error as value instead of throwing', async () => {
-      const ipcMain = await setup();
-      const errorMsg = `${WORKSPACE_LIMIT_ERROR_PREFIX}Free plan is limited to 4 running workspaces.`;
-      mockWorkspaceService.restartWithCleanup.mockRejectedValue(new Error(errorMsg));
-
-      const result = await ipcMain._invoke('workspace:restart', 'ws-1');
-
-      expect(result).toEqual({ __workspaceRestartError: true, message: errorMsg });
     });
 
     it('rethrows unexpected errors', async () => {

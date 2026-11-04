@@ -1,7 +1,7 @@
 import { existsSync } from 'fs';
 import { dirname } from 'path';
 
-import { isRunningHere, isRunningOnSshHost } from '../../../shared/lib/terminal-execution-state';
+import { isRunningHere } from '../../../shared/lib/terminal-execution-state';
 import { normalizeSshBasePath, type SshHost } from '../../../shared/types/ssh';
 import { canDeleteWorkspaceBranch, isSshWorkspace } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
@@ -10,7 +10,6 @@ import { agentPresetService } from '../agent-preset.service';
 import { configService } from '../config.service';
 import { executionLocations } from '../execution-location';
 import { gitService } from '../git.service';
-import { FREE_WORKSPACE_LIMIT } from '../license.service';
 import { localCopyService } from '../local-copy.service';
 import { notesService } from '../notes.service';
 import { projectService } from '../project.service';
@@ -29,7 +28,6 @@ import { resolvePreset } from './agent-launch';
 import { moveFolderIntoProject, workspaceProject } from './projects';
 import { workspaceStore } from './store';
 
-import type { FreeSshSlots } from './free-ssh-slots';
 import type { WorkspaceNaming } from './naming';
 import type { WorkspaceProvisioning } from './provisioning';
 import type { WorkspaceTerminals } from './terminals';
@@ -42,7 +40,6 @@ const logger = createLogger('WorkspaceService');
 export interface WorkspaceLifecycleDeps {
   attention: TerminalAttention;
   sshSync: SshWorkspaceSync;
-  slots: FreeSshSlots;
   naming: WorkspaceNaming;
   terminals: WorkspaceTerminals;
   provisioning: WorkspaceProvisioning;
@@ -117,50 +114,6 @@ export class WorkspaceLifecycle {
       await workspaceLinksService.unlinkAll(id);
     } catch (error) {
       logger.warn(`Failed to unlink stale workspace ${id}:`, error);
-    }
-  }
-
-  /**
-   * Enforce workspace limit after license revocation.
-   * Stops terminals in excess running SSH workspaces (keeps all workspaces loaded).
-   */
-  async enforceWorkspaceLimit(): Promise<void> {
-    const running = Array.from(workspaceStore.workspaces.values()).filter(isRunningOnSshHost);
-
-    if (running.length <= FREE_WORKSPACE_LIMIT) return;
-
-    const sorted = running.sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
-
-    const toStop = sorted.slice(FREE_WORKSPACE_LIMIT);
-    const failures: string[] = [];
-    let stoppedCount = 0;
-    for (const workspace of toStop) {
-      try {
-        const stopping = executionLocations.stopSessions(workspace);
-        if (stopping) await stopping;
-      } catch (error) {
-        failures.push(`${workspace.name}: ${String(error)}`);
-        logger.error('Failed to stop remote agents while enforcing workspace limit', error, {
-          workspaceId: workspace.id,
-        });
-        continue;
-      }
-      executionLocations.stopAttached(workspace);
-      worktreeWatcherService.stopWatching(workspace.id).catch(() => {});
-      stoppedCount++;
-    }
-
-    if (toStop.length > 0) {
-      workspaceStore.saveWorkspaces();
-      workspaceStore.broadcastWorkspacesChanged();
-      void remoteWorkspaceObservationService.reconcile();
-    }
-
-    logger.warn(
-      `License revoked: stopped terminals in ${stoppedCount} workspace(s) — free plan limit of ${FREE_WORKSPACE_LIMIT} running SSH workspaces reached.`
-    );
-    if (failures.length > 0) {
-      throw new Error(`Could not stop all remote agents: ${failures.join('; ')}`);
     }
   }
 
@@ -261,8 +214,6 @@ export class WorkspaceLifecycle {
         return setupCleanup.then(() => this.restart(workspaceId, true));
       }
     }
-
-    if (isSshWorkspace(workspace)) this.deps.slots.assertRestartSlot(workspace);
 
     // Restart should clean up the same terminal resources as stop before
     // setup steps and the continue command create fresh terminals.

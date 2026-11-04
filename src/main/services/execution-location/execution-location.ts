@@ -24,8 +24,6 @@ export interface SpawnTerminalRequest {
   command: LaunchCommand;
   /** Keep a remote shell open after the command exits. */
   keepShellOpenAfterCommand: boolean;
-  /** Called once the launch no longer needs its start slot, whether it succeeded or not. */
-  releaseStartSlot: () => void;
 }
 
 export interface RestartTerminalRequest {
@@ -34,8 +32,6 @@ export interface RestartTerminalRequest {
   command: LaunchCommand;
   cols?: number;
   rows?: number;
-  /** Called once the launch no longer needs its start slot, whether it succeeded or not. */
-  releaseStartSlot: () => void;
 }
 
 export interface ManagedRestartRequest extends RestartTerminalRequest {

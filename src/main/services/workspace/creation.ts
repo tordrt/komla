@@ -60,7 +60,6 @@ import {
   withBranchPrefix,
 } from './worktree-branches';
 
-import type { FreeSshSlots } from './free-ssh-slots';
 import type { WorkspaceNaming } from './naming';
 import type { WorkspaceProvisioning } from './provisioning';
 import type { WorkspaceTerminals } from './terminals';
@@ -108,7 +107,6 @@ function computeBranchedFrom(params: CreateWorkspaceParams, project: Project): s
 }
 
 export interface WorkspaceCreationDeps {
-  slots: FreeSshSlots;
   naming: WorkspaceNaming;
   terminals: WorkspaceTerminals;
   provisioning: WorkspaceProvisioning;
@@ -192,30 +190,13 @@ export class WorkspaceCreation {
   }
 
   async create(params: CreateWorkspaceParams): Promise<Workspace> {
-    params = this.resolveWorkspaceCreationParams(params);
-    const remote = params.location?.kind === 'ssh';
-    if (remote) this.deps.slots.reserveWorkspaceCreateSlots(1);
-    try {
-      return await this.createReserved(params);
-    } finally {
-      if (remote) this.deps.slots.releaseCreateSlot();
-    }
+    return this.createResolved(this.resolveWorkspaceCreationParams(params));
   }
 
   async createBatch(params: CreateWorkspaceParams[]): Promise<Workspace[]> {
     if (params.length === 0) return [];
     params = params.map((entry) => this.resolveWorkspaceCreationParams(entry));
-    const remoteCount = params.filter((entry) => entry.location?.kind === 'ssh').length;
-    if (remoteCount > 0) this.deps.slots.reserveWorkspaceCreateSlots(remoteCount);
-    const results = await Promise.allSettled(
-      params.map(async (entry) => {
-        try {
-          return await this.createReserved(entry);
-        } finally {
-          if (entry.location?.kind === 'ssh') this.deps.slots.releaseCreateSlot();
-        }
-      })
-    );
+    const results = await Promise.allSettled(params.map((entry) => this.createResolved(entry)));
     const workspaces: Workspace[] = [];
     for (const result of results) {
       if (result.status === 'rejected') {
@@ -227,7 +208,7 @@ export class WorkspaceCreation {
   }
 
   /** Creates from params `resolveWorkspaceCreationParams` already resolved. */
-  private async createReserved(params: CreateWorkspaceParams): Promise<Workspace> {
+  private async createResolved(params: CreateWorkspaceParams): Promise<Workspace> {
     await assertPromptAttachmentsExist(params);
     let workingDirectory: string;
     let branchName: string | undefined;

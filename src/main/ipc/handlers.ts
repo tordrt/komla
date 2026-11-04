@@ -4,7 +4,6 @@ export {
   registerWorkspaceHandlers,
   registerTerminalHandlers,
   registerGitHandlers,
-  registerLicenseHandlers,
   registerConfigHandlers,
   registerProjectHandlers,
   registerShellHandlers,

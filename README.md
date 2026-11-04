@@ -18,7 +18,7 @@ Komla is a desktop app for running AI coding agent CLIs side by side. Each works
 
 [docs/FEATURES.md](docs/FEATURES.md) describes everything Komla does.
 
-Komla is free with up to 4 workspaces running at once. A [license](https://komla.dev/pricing) unlocks unlimited workspaces and pays for Komla's development.
+Komla is free, with every feature and no limits.
 
 ## Build from source
 
@@ -37,7 +37,7 @@ Builds from source don't update themselves. Komla's AI helpers, which name works
 
 ## Privacy
 
-By default Komla sends an anonymous install ping and a daily heartbeat (app version, OS, agent and license tier, no install ID), plus crash reports. Usage analytics tied to a random install ID are opt-in. Settings → General → Privacy changes either. `DO_NOT_TRACK=1` turns all of it off when it's set in the environment Komla starts in, such as a terminal you launch it from; a shell profile doesn't reach an app opened from the Dock or Start menu. [docs/ANALYTICS.md](docs/ANALYTICS.md) lists every event.
+By default Komla sends an anonymous install ping and a daily heartbeat (app version, OS and agent, no install ID), plus crash reports. Usage analytics tied to a random install ID are opt-in. Settings → General → Privacy changes either. `DO_NOT_TRACK=1` turns all of it off when it's set in the environment Komla starts in, such as a terminal you launch it from; a shell profile doesn't reach an app opened from the Dock or Start menu. [docs/ANALYTICS.md](docs/ANALYTICS.md) lists every event.
 
 ## Contributing
 

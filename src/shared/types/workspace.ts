@@ -632,10 +632,9 @@ export function pickWorkspaceAttention(
 export const COMMAND_ATTENTION_SOURCE = 'command';
 
 /**
- * Error prefixes used to classify expected workspace creation errors.
- * Keep in sync: these are matched by the IPC handler to return errors as values.
+ * Error prefix used to classify an expected workspace creation error.
+ * Keep in sync: it is matched by the IPC handler to return the error as a value.
  */
-export const WORKSPACE_LIMIT_ERROR_PREFIX = 'WORKSPACE_LIMIT:';
 export const DUPLICATE_WORKSPACE_ERROR_PREFIX = 'DUPLICATE_WORKSPACE:';
 
 /** A workspace delete failed because opencode's background service still uses the worktree. */
@@ -684,21 +683,4 @@ export function isWorkspaceCreateError(
   result: WorkspaceCreateResult | WorkspaceCreateBatchResult
 ): result is WorkspaceCreateError {
   return '__workspaceCreateError' in result && result.__workspaceCreateError === true;
-}
-
-/**
- * Expected (non-exceptional) errors from workspace restart.
- * Returned as values instead of thrown so Electron doesn't log them as IPC errors.
- */
-export interface WorkspaceRestartError {
-  __workspaceRestartError: true;
-  message: string;
-}
-
-export type WorkspaceRestartResult = Terminal | WorkspaceRestartError;
-
-export function isWorkspaceRestartError(
-  result: WorkspaceRestartResult
-): result is WorkspaceRestartError {
-  return '__workspaceRestartError' in result && result.__workspaceRestartError === true;
 }

@@ -86,16 +86,6 @@ describe('RunningAtLastQuitBanner', () => {
     expect(banner()).toBeNull();
   });
 
-  it('stops restarting at the workspace limit', async () => {
-    restartWorkspace.mockResolvedValueOnce({ __workspaceRestartError: true, message: 'limit' });
-    setup();
-    fireEvent.click(await screen.findByRole('button', { name: 'Restart all' }));
-
-    await waitFor(() => expect(restartWorkspace).toHaveBeenCalledTimes(1));
-    await act(async () => {});
-    expect(restartWorkspace).toHaveBeenCalledTimes(1);
-  });
-
   it('forgets them when dismissed, without restarting', async () => {
     setup();
     fireEvent.click(await screen.findByLabelText('Dismiss workspaces running at last quit'));

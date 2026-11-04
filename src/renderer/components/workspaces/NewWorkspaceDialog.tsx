@@ -99,7 +99,7 @@ import { useToastStore } from '@/stores/toast.store';
 import { useVoiceStore } from '@/stores/voice.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { isSshWorkspace } from '@/types';
-import { handleCreateError, isRunningLimitError, showUpgradeDialog } from '@/utils/workspace-error';
+import { handleCreateError } from '@/utils/workspace-error';
 
 import { resolveWorkspaceCreationEnvironment } from '../../../shared/lib/agent-environment';
 import { canStartWithPrompt } from '../../../shared/lib/agent-preset-prompt';
@@ -1309,11 +1309,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     } catch (error) {
       // Retry like a fresh Launch, so the dialog blocks a second Launch while it runs.
       const retry = () => void submitCreates(createParams, actionUsage, launchedProjectId, undo);
-      if (isRunningLimitError(error)) {
-        showUpgradeDialog(retry, createParams.length);
-      } else {
-        handleCreateError(error, retry);
-      }
+      handleCreateError(error, retry);
       return false;
     }
 

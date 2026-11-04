@@ -71,13 +71,6 @@ vi.mock('../../../src/main/services/announcement.service', () => ({
   },
 }));
 
-// Mock license service
-vi.mock('../../../src/main/services/license.service', () => ({
-  licenseService: {
-    refreshValidation: vi.fn(),
-  },
-}));
-
 // Mock logger
 vi.mock('../../../src/main/lib/logger', () => ({
   createLogger: () => mockLogger,
@@ -321,11 +314,10 @@ describe('UpdateService', () => {
       expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledTimes(2); // Initial + 1 periodic
     });
 
-    it('should skip the auto-updater in a build from source but keep announcements and license checks', async () => {
+    it('should skip the auto-updater in a build from source but keep announcements', async () => {
       buildInfo.getBuildDistribution.mockReturnValueOnce('source');
       const { announcementService } =
         await import('../../../src/main/services/announcement.service');
-      const { licenseService } = await import('../../../src/main/services/license.service');
 
       updateService.init();
       vi.advanceTimersByTime(4 * 60 * 60 * 1000 + 100);
@@ -334,7 +326,6 @@ describe('UpdateService', () => {
       expect(mockAutoUpdater.setFeedURL).not.toHaveBeenCalled();
       expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled();
       expect(announcementService.refresh).toHaveBeenCalledTimes(2); // Launch + 1 periodic
-      expect(licenseService.refreshValidation).toHaveBeenCalledTimes(1);
     });
 
     it('should set channel to latest-arm64 on ARM64 Windows', async () => {

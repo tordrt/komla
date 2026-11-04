@@ -102,20 +102,12 @@ export function createLocalExecution(
       });
       return { stop: () => process.stop() };
     },
-    spawn({ terminalId, command, releaseStartSlot }) {
-      try {
-        dependencies.pty.spawn(terminalId, spawnCwd(), command.command);
-      } finally {
-        releaseStartSlot();
-      }
+    spawn({ terminalId, command }) {
+      dependencies.pty.spawn(terminalId, spawnCwd(), command.command);
       afterLaunch();
     },
-    restart({ workspaceId, terminalId, command, cols, rows, releaseStartSlot }) {
-      try {
-        dependencies.pty.restart(terminalId, spawnCwd(), command.command, workspaceId, cols, rows);
-      } finally {
-        releaseStartSlot();
-      }
+    restart({ workspaceId, terminalId, command, cols, rows }) {
+      dependencies.pty.restart(terminalId, spawnCwd(), command.command, workspaceId, cols, rows);
       afterLaunch();
     },
     stop: (terminalId) => dependencies.pty.kill(terminalId),

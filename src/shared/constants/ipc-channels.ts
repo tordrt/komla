@@ -286,23 +286,7 @@ export const IPC = {
   // Agent preset events (main → renderer)
   AGENT_PRESETS_CHANGED: 'agent-presets:changed',
 
-  // License
-  LICENSE_GET_STATUS: 'license:get-status',
-  LICENSE_REFRESH_STATUS: 'license:refresh-status',
-  LICENSE_ACTIVATE: 'license:activate',
-  LICENSE_DEACTIVATE: 'license:deactivate',
-  LICENSE_GET_WORKSPACE_QUOTA: 'license:get-workspace-quota',
-  LICENSE_GET_ACTIVATIONS: 'license:get-activations',
-  LICENSE_REVOKE_ACTIVATION: 'license:revoke-activation',
-  LICENSE_OPEN_BILLING_PORTAL: 'license:open-billing-portal',
-  LICENSE_GET_PRICES: 'license:get-prices',
-
-  // License events (main → renderer)
-  LICENSE_REVOKED: 'license:revoked',
-
   // Telemetry
-  TELEMETRY_GET_DISTINCT_ID: 'telemetry:get-distinct-id',
-  TELEMETRY_TRACK_MONETIZATION: 'telemetry:track-monetization',
   TELEMETRY_TRACK_AGENT_SELECTED: 'telemetry:track-agent-selected',
   TELEMETRY_TRACK_SSH_HOST_ADDED: 'telemetry:track-ssh-host-added',
 

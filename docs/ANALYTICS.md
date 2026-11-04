@@ -2,9 +2,9 @@
 
 ## Overview
 
-App telemetry goes to `/api/v1/telemetry/*` on the license worker, which forwards it to Umami. The Worker forwards the client IP (`X-Forwarded-For`), `User-Agent`, and `Accept-Language` so Umami can derive sessions and location; Umami does not store raw IPs. The website's own analytics are documented with the site, outside this repo.
+App telemetry goes to `/api/v1/telemetry/*` on Komla's API worker, which forwards it to Umami. The Worker forwards the client IP (`X-Forwarded-For`), `User-Agent`, and `Accept-Language` so Umami can derive sessions and location; Umami does not store raw IPs. The website's own analytics are documented with the site, outside this repo.
 
-`src/main/services/telemetry.service.ts` sends every event; crash reports go through `src/main/services/error-reporting.service.ts`. Unpackaged builds (`npm run dev`) send no crash reports and, of the events below, only monetization events, to the staging API.
+`src/main/services/telemetry.service.ts` sends every event; crash reports go through `src/main/services/error-reporting.service.ts`. Unpackaged builds (`npm run dev`) send no telemetry and no crash reports.
 
 ## Controls
 
@@ -30,10 +30,10 @@ An `agent` field is a built-in agent preset's name; a preset the user made is se
 
 **Anonymous level:**
 
-| Event       | Source                | Payload                                                                                        |
-| ----------- | --------------------- | ---------------------------------------------------------------------------------------------- |
-| `install`   | One-time install ping | The common fields.                                                                             |
-| `heartbeat` | Daily heartbeat       | Adds `agent`, `isLicensed`, `licenseCohort`, `licenseType`, `firstThisWeek`, `firstThisMonth`. |
+| Event       | Source                | Payload                                          |
+| ----------- | --------------------- | ------------------------------------------------ |
+| `install`   | One-time install ping | The common fields.                               |
+| `heartbeat` | Daily heartbeat       | Adds `agent`, `firstThisWeek`, `firstThisMonth`. |
 
 ### Active installs
 
@@ -41,18 +41,16 @@ The heartbeat goes out at most once per install per UTC day, so daily active ins
 
 **Usage level only (opt-in):**
 
-| Event                                | Source                                                   | Notes                                                                                                                                                                                                                                                                                                  |
-| ------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Monetization events                  | `free_limit_hit`, `upgrade_clicked`, `license_activated` | Event name, cohort dimensions, `source`, counts.                                                                                                                                                                                                                                                       |
-| `ssh_host_added`                     | SSH host added                                           | `source`: where adding started — `tips` (Tips menu, or Settings opened from it), `new_workspace` (New Workspace's environment menu, or Settings opened from it), `onboarding` (picked “A machine I can SSH into” in the setup wizard) or `settings` (anything else). Never the host's name or address. |
-| `agent_selected`                     | Default agent chosen by the setup wizard                 | Carries the default agent's `agent` name: the first of the installed agents Komla found that was left ticked on the agent step, else the one picked on the agent picker, which only shows when none were found. A custom agent is sent as `Custom`. Fires once per wizard run.                         |
-| `integration_milestone`              | First time an integration is exercised                   | Fires once ever per `milestone`: `notification:<kind>:<source>` (first notification hook received per kind per agent) and `mcp:tool-used` (first MCP tool call). The `agent` is the notification's `source`, falling back to the active preset. Also carries `notificationKind` / `tool`.              |
-| `usage_summary` / `usage_summary_v2` | Daily usage summary                                      | Workspace/action/project counts plus a `utilityRequests` block — daily AI labeling utility counts by provider (`managed` / `custom`) plus `failuresByReason`.                                                                                                                                          |
-| Checkout `#aid=`                     | `UpgradeDialog` → `/buy`                                 | Links the in-app journey to `checkout_started` / `purchase` via Stripe `metadata.analytics_id`.                                                                                                                                                                                                        |
+| Event                                | Source                                   | Notes                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ssh_host_added`                     | SSH host added                           | `source`: where adding started — `tips` (Tips menu, or Settings opened from it), `new_workspace` (New Workspace's environment menu, or Settings opened from it), `onboarding` (picked “A machine I can SSH into” in the setup wizard) or `settings` (anything else). Never the host's name or address. |
+| `agent_selected`                     | Default agent chosen by the setup wizard | Carries the default agent's `agent` name: the first of the installed agents Komla found that was left ticked on the agent step, else the one picked on the agent picker, which only shows when none were found. A custom agent is sent as `Custom`. Fires once per wizard run.                         |
+| `integration_milestone`              | First time an integration is exercised   | Fires once ever per `milestone`: `notification:<kind>:<source>` (first notification hook received per kind per agent) and `mcp:tool-used` (first MCP tool call). The `agent` is the notification's `source`, falling back to the active preset. Also carries `notificationKind` / `tool`.              |
+| `usage_summary` / `usage_summary_v2` | Daily usage summary                      | Workspace/action/project counts plus a `utilityRequests` block — daily AI labeling utility counts by provider (`managed` / `custom`) plus `failuresByReason`.                                                                                                                                          |
 
 ## Crash Reports
 
-`POST /api/v1/errors` with uncaught exceptions and unhandled rejections in the main process, React error-boundary errors, and renderer or child process crashes. Messages and stacks are scrubbed of home paths, the host name, emails, URL credentials and common token formats (`scrubErrorText`), stacks are cut to 10 lines, and context is limited to an allowlist of keys. Each report adds `appVersion`, `platform`, `arch`, `electronVersion`, `isLicensed` and the agent preset name (built-in, or `Custom`). Errors that are only logged are not reported.
+`POST /api/v1/errors` with uncaught exceptions and unhandled rejections in the main process, React error-boundary errors, and renderer or child process crashes. Messages and stacks are scrubbed of home paths, the host name, emails, URL credentials and common token formats (`scrubErrorText`), stacks are cut to 10 lines, and context is limited to an allowlist of keys. Each report adds `appVersion`, `platform`, `arch`, `electronVersion` and the agent preset name (built-in, or `Custom`). Errors that are only logged are not reported.
 
 ## Privacy
 

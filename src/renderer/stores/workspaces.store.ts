@@ -34,7 +34,6 @@ import {
   canStop,
   isWorkspaceAttentionActionable,
   isWorkspaceCreateError,
-  isWorkspaceRestartError,
   isSshWorkspace,
   isHiddenByHideStopped,
   isRunningHere,
@@ -42,12 +41,7 @@ import {
   probesOnSelect,
   reconnectableTerminals,
 } from '../types';
-import {
-  isOpenCodeHoldsWorktreeError,
-  isRunningLimitError,
-  showUpgradeDialog,
-  stripErrorPrefix,
-} from '../utils/workspace-error';
+import { isOpenCodeHoldsWorktreeError, stripErrorPrefix } from '../utils/workspace-error';
 
 import { nudgeAgentSetup } from './agent-setup-nudge.store';
 import { useConfigStore } from './config.store';
@@ -55,7 +49,6 @@ import { useDevServerPreviewStore } from './dev-server-preview.store';
 import { useFileListStore } from './file-list.store';
 import { useFileViewerStore } from './file-viewer.store';
 import { useLayoutStore } from './layout.store';
-import { useLicenseStore } from './license.store';
 import { useProjectsStore } from './projects.store';
 import { useSshCommandExecutionLocationStore } from './ssh-command-execution-location.store';
 import { useSshHostsStore } from './ssh-hosts.store';
@@ -74,7 +67,6 @@ import type {
   TerminalLaunchLocation,
   CreateWorkspaceParams,
   WorkspaceAttention,
-  WorkspaceRestartResult,
   RestartTerminalOptions,
   AddAgentTabOptions,
 } from '../types';
@@ -145,10 +137,6 @@ function clearAttentionForSelected(
   });
   // The same array when nothing changed, so a switch doesn't re-render every workspace subscriber.
   return changed ? next : workspaces;
-}
-
-function refreshWorkspaceQuota(): void {
-  void useLicenseStore.getState().loadQuota();
 }
 
 // Pre-fetch file list cache for a workspace directory
@@ -278,7 +266,7 @@ interface WorkspacesState {
   /** Removes an SSH workspace whose files are gone from its host from this device only. */
   removeMissingSshWorkspace: (workspaceId: string) => Promise<void>;
   /** Resolves undefined when unsaved edits in its file panes stay. */
-  restartWorkspace: (workspaceId: string) => Promise<WorkspaceRestartResult | undefined>;
+  restartWorkspace: (workspaceId: string) => Promise<Terminal | undefined>;
   reorderWorkspace: (workspaceId: string, newOrder: number) => Promise<void>;
   updateTerminalStatus: (terminalId: string, status: TerminalStatus) => void;
   updateWorkspace: (workspaceId: string, updates: Partial<Workspace>) => void;
@@ -572,7 +560,7 @@ function reinitializeLayoutForRestart(workspaceId: string, restartedWorkspace: W
 }
 
 // Restart a stopped workspace and drive the full selection flow — including
-// rollback on error/upgrade-dialog, layout re-init, and window assignment.
+// rollback on error, layout re-init, and window assignment.
 async function restartStoppedWorkspace(
   workspaceId: string,
   set: WorkspacesSet,
@@ -601,14 +589,7 @@ async function restartStoppedWorkspace(
       showDashboard: false,
     }));
 
-    const result = await window.api.restartWorkspace(workspaceId);
-
-    // Handle expected user-facing errors (workspace limit)
-    if (isWorkspaceRestartError(result)) {
-      rollbackSelection();
-      showUpgradeDialog(() => get().selectWorkspace(workspaceId));
-      return;
-    }
+    await window.api.restartWorkspace(workspaceId);
     useDevServerPreviewStore.getState().clearSshPreviewForwardState(workspaceId);
 
     // Reload to get the new terminal
@@ -623,7 +604,6 @@ async function restartStoppedWorkspace(
 
     if (!isStillSelected || !restartedWorkspace) {
       set({ workspaces });
-      refreshWorkspaceQuota();
       return;
     }
 
@@ -635,7 +615,6 @@ async function restartStoppedWorkspace(
       selectedWorkspaceId: workspaceId,
       showDashboard: false,
     });
-    refreshWorkspaceQuota();
 
     assignWorkspaceToCurrentWindow(workspaceId, restartedWorkspace, set);
     reinitializeLayoutForRestart(workspaceId, restartedWorkspace);
@@ -816,8 +795,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
       } else {
         set({ workspaces, selectedWorkspaceId, isLoading: false, hasLoaded: true });
       }
-
-      refreshWorkspaceQuota();
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false, hasLoaded: true });
     }
@@ -865,7 +842,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         selectedWorkspaceId: targetId,
       });
       moveProjectsBroughtIntoSight(get(), projectIdsInSight, [workspace]);
-      refreshWorkspaceQuota();
 
       // Pre-fetch file list for the new workspace (skip if still provisioning)
       const freshWorkspace = workspaces.find((w) => w.id === workspace.id);
@@ -946,7 +922,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces, isLoading: false });
-      refreshWorkspaceQuota();
 
       // Apply layout hint if specified
       if (layoutHint) {
@@ -1002,7 +977,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces, isLoading: false });
-      refreshWorkspaceQuota();
       return terminal;
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false });
@@ -1020,7 +994,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces });
-      refreshWorkspaceQuota();
     } catch (error) {
       set({ error: (error as Error).message });
       throw error;
@@ -1074,7 +1047,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         workspaces,
         selectedWorkspaceId: newSelectedId,
       });
-      refreshWorkspaceQuota();
     } catch (error) {
       if (!stopCompleted && wasSelected && get().selectedWorkspaceId === null) {
         const workspace = get().workspaces.find((candidate) => candidate.id === workspaceId);
@@ -1102,7 +1074,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces });
-      refreshWorkspaceQuota();
     } catch (error) {
       set({ error: (error as Error).message });
     }
@@ -1117,7 +1088,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces });
-      refreshWorkspaceQuota();
       return true;
     } catch (error) {
       set({ error: (error as Error).message });
@@ -1134,12 +1104,7 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces });
-      refreshWorkspaceQuota();
     } catch (error) {
-      if (isRunningLimitError(error)) {
-        showUpgradeDialog(() => void get().reconnectSshTerminal(terminalId, cols, rows));
-        return;
-      }
       reportFailure(set, `Could not reconnect: ${ipcErrorMessage(error)}`);
     }
   },
@@ -1162,19 +1127,13 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
       await window.api.getWorkspaces(),
       get().selectedWorkspaceId
     );
-    const rejected = results.filter((result) => result.status === 'rejected');
-    // A session another device runs takes a free plan slot once this device attaches to it.
-    const failures = rejected.filter((result) => !isRunningLimitError(result.reason));
-    if (failures.length < rejected.length) {
-      showUpgradeDialog(() => get().selectWorkspace(workspaceId));
-    }
+    const failures = results.filter((result) => result.status === 'rejected');
     const error =
       failures.length > 0
         ? `Could not reconnect ${failures.length} of ${terminals.length} remote panes: ${ipcErrorMessage(failures[0].reason)}`
         : null;
     set({ workspaces, error });
     if (error) useToastStore.getState().addToast(error, 'error');
-    refreshWorkspaceQuota();
   },
 
   reconnectAfterNetworkReturns: async () => {
@@ -1228,7 +1187,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         } catch (error) {
           set({ error: (error as Error).message });
         }
-        refreshWorkspaceQuota();
       })
       .catch((error) => {
         console.error('Failed to delete workspace:', error);
@@ -1279,7 +1237,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
       pendingDeletions.delete(workspaceId);
     }
     useDevServerPreviewStore.getState().clearSshPreviewForwardState(workspaceId);
-    refreshWorkspaceQuota();
     await window.api.notifyWorkspacesChanged();
   },
 
@@ -1337,19 +1294,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
       }
 
       const result = await window.api.restartWorkspace(workspaceId);
-
-      // Handle expected user-facing errors (workspace limit) — revert optimistic update
-      if (isWorkspaceRestartError(result)) {
-        if (wasDormant) {
-          set((state) => ({
-            workspaces: state.workspaces.map((w) =>
-              w.id === workspaceId ? { ...w, status: prevStatus! } : w
-            ),
-          }));
-        }
-        showUpgradeDialog(() => void get().restartWorkspace(workspaceId));
-        return result;
-      }
       useDevServerPreviewStore.getState().clearSshPreviewForwardState(workspaceId);
 
       // Reload workspaces to get updated state
@@ -1358,7 +1302,6 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         get().selectedWorkspaceId
       );
       set({ workspaces });
-      refreshWorkspaceQuota();
       disposeTerminalRenderers(terminalIds);
 
       // Apply layout hints for setup step terminals (tab/split)

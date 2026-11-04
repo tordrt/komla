@@ -121,10 +121,6 @@ vi.mock('../../../../src/renderer/components/workspaces/QuickCreateMenu', () => 
   QuickCreateMenu: () => null,
 }));
 
-vi.mock('../../../../src/renderer/components/layout/WorkspaceQuota', () => ({
-  WorkspaceQuota: () => <span data-testid="workspace-quota" />,
-}));
-
 vi.mock('../../../../src/renderer/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: React.PropsWithChildren) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: React.PropsWithChildren) => <>{children}</>,
@@ -264,7 +260,6 @@ describe('Sidebar', () => {
         width={240}
         onResize={vi.fn()}
         onNewWorkspaceDialogChange={vi.fn()}
-        onUpgradeNeeded={vi.fn()}
         onOpenCommandCenter={onOpenCommandCenter}
       />
     );
@@ -288,7 +283,9 @@ describe('Sidebar', () => {
 
     expect(screen.getByRole('menuitem', { name: 'Workspace card options' })).toBeTruthy();
     const submenu = within(screen.getByTestId('submenu'));
-    expect(submenu.getByRole('menuitemcheckbox', { name: 'Always show branch names' })).toBeTruthy();
+    expect(
+      submenu.getByRole('menuitemcheckbox', { name: 'Always show branch names' })
+    ).toBeTruthy();
     expect(submenu.getByRole('menuitemcheckbox', { name: 'Compact list' })).toBeTruthy();
   });
 
@@ -716,14 +713,7 @@ describe('Sidebar', () => {
     expect(workspaceState.setHideStopped).toHaveBeenCalledWith(true);
 
     workspaceState.hideStopped = true;
-    rerender(
-      <Sidebar
-        width={240}
-        onResize={vi.fn()}
-        onNewWorkspaceDialogChange={vi.fn()}
-        onUpgradeNeeded={vi.fn()}
-      />
-    );
+    rerender(<Sidebar width={240} onResize={vi.fn()} onNewWorkspaceDialogChange={vi.fn()} />);
 
     // The Stopped shelf lists them, so the filter button counts nothing hidden.
     expect(filterButton()).toHaveAccessibleName('Filter workspaces');
@@ -742,14 +732,7 @@ describe('Sidebar', () => {
     expect(workspaceState.setHideWorking).toHaveBeenCalledWith(true);
 
     workspaceState.hideWorking = true;
-    rerender(
-      <Sidebar
-        width={240}
-        onResize={vi.fn()}
-        onNewWorkspaceDialogChange={vi.fn()}
-        onUpgradeNeeded={vi.fn()}
-      />
-    );
+    rerender(<Sidebar width={240} onResize={vi.fn()} onNewWorkspaceDialogChange={vi.fn()} />);
 
     // The Working shelf lists them, so the filter button counts nothing hidden.
     expect(filterButton()).toHaveAccessibleName('Filter workspaces');
@@ -774,14 +757,7 @@ describe('Sidebar', () => {
     const { Sidebar: FreshSidebar } =
       await import('../../../../src/renderer/components/layout/Sidebar');
     try {
-      render(
-        <FreshSidebar
-          width={240}
-          onResize={vi.fn()}
-          onNewWorkspaceDialogChange={vi.fn()}
-          onUpgradeNeeded={vi.fn()}
-        />
-      );
+      render(<FreshSidebar width={240} onResize={vi.fn()} onNewWorkspaceDialogChange={vi.fn()} />);
       const topRow = screen.getByTestId('sidebar-top-row');
 
       fireEvent.click(within(topRow).getByRole('button', { name: 'Collapse sidebar' }));
@@ -806,7 +782,6 @@ describe('Sidebar', () => {
           width={240}
           onResize={vi.fn()}
           onNewWorkspaceDialogChange={vi.fn()}
-          onUpgradeNeeded={vi.fn()}
           renderAppMenu={() => <button type="button">Settings</button>}
         />
       );
@@ -863,31 +838,26 @@ describe('Sidebar', () => {
     });
   });
 
-  it('keeps the SSH workspace count in the footer row, beside the filter and settings', () => {
+  it('keeps the filter menu, then the settings menu, in the footer row', () => {
     render(
       <Sidebar
         width={240}
         onResize={vi.fn()}
         onNewWorkspaceDialogChange={vi.fn()}
-        onUpgradeNeeded={vi.fn()}
+        renderAppMenu={() => <button type="button">Settings</button>}
       />
     );
 
     const footerEnd = screen.getByTestId('sidebar-footer-end');
-    expect(footerEnd).toContainElement(screen.getByTestId('workspace-quota'));
-    expect(footerEnd.firstElementChild).toBe(screen.getByTestId('workspace-quota'));
+    const filter = screen.getByRole('button', { name: /^Filter workspaces/ });
+    const settings = screen.getByRole('button', { name: 'Settings' });
+    expect(footerEnd.firstElementChild).toContainElement(filter);
+    expect(footerEnd.lastElementChild).toContainElement(settings);
   });
 
   it('resets to the default width when the resize handle is double-clicked', () => {
     const onResize = vi.fn();
-    render(
-      <Sidebar
-        width={320}
-        onResize={onResize}
-        onNewWorkspaceDialogChange={vi.fn()}
-        onUpgradeNeeded={vi.fn()}
-      />
-    );
+    render(<Sidebar width={320} onResize={onResize} onNewWorkspaceDialogChange={vi.fn()} />);
 
     fireEvent.doubleClick(screen.getByRole('separator', { name: 'Resize sidebar' }));
 
@@ -896,14 +866,7 @@ describe('Sidebar', () => {
 
   it('resizes from the keyboard with the arrow keys', () => {
     const onResize = vi.fn();
-    render(
-      <Sidebar
-        width={320}
-        onResize={onResize}
-        onNewWorkspaceDialogChange={vi.fn()}
-        onUpgradeNeeded={vi.fn()}
-      />
-    );
+    render(<Sidebar width={320} onResize={onResize} onNewWorkspaceDialogChange={vi.fn()} />);
 
     const handle = screen.getByRole('separator', { name: 'Resize sidebar' });
     expect(handle).toHaveAttribute('tabindex', '0');
@@ -936,7 +899,6 @@ describe('Sidebar', () => {
         width={150}
         onResize={vi.fn()}
         onNewWorkspaceDialogChange={vi.fn()}
-        onUpgradeNeeded={vi.fn()}
         onOpenCommandCenter={vi.fn()}
       />
     );
@@ -958,7 +920,6 @@ describe('Sidebar', () => {
         width={150}
         onResize={vi.fn()}
         onNewWorkspaceDialogChange={vi.fn()}
-        onUpgradeNeeded={vi.fn()}
         onOpenCommandCenter={vi.fn()}
       />
     );
@@ -987,7 +948,6 @@ describe('Sidebar', () => {
           width={240}
           onResize={vi.fn()}
           onNewWorkspaceDialogChange={onNewWorkspaceDialogChange}
-          onUpgradeNeeded={vi.fn()}
           onOpenCommandCenter={onOpenCommandCenter}
         />
       );

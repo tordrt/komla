@@ -1,41 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const mockGetStatus = vi.fn();
-
-vi.mock('../../../src/main/services/license.service', () => ({
-  licenseService: { getStatus: mockGetStatus },
-}));
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../src/main/services/agent-preset.service', () => ({
-  BUILTIN_PRESETS: [],
+  BUILTIN_PRESETS: [{ name: 'Claude Code' }],
 }));
 
-const { getTelemetryCohortDimensions } =
-  await import('../../../src/main/services/telemetry-dimensions');
+const { telemetryAgentName } = await import('../../../src/main/services/telemetry-dimensions');
 
-describe('getTelemetryCohortDimensions', () => {
-  beforeEach(() => {
-    mockGetStatus.mockReset();
+describe('telemetryAgentName', () => {
+  it('names a built-in preset', () => {
+    expect(telemetryAgentName({ name: 'Claude Code' })).toBe('Claude Code');
   });
 
-  it('reports only the free cohort when unlicensed', () => {
-    mockGetStatus.mockReturnValue({ isLicensed: false, licenseType: null });
-
-    expect(getTelemetryCohortDimensions()).toEqual({ licenseCohort: 'free' });
+  it('sends any other preset as Custom, never by its name', () => {
+    expect(telemetryAgentName({ name: 'acme-internal-bot' })).toBe('Custom');
   });
 
-  it('reports a lapsed subscription as free', () => {
-    mockGetStatus.mockReturnValue({ isLicensed: false, licenseType: 'monthly' });
-
-    expect(getTelemetryCohortDimensions()).toEqual({ licenseCohort: 'free' });
-  });
-
-  it('reports the paid cohort and license type when licensed', () => {
-    mockGetStatus.mockReturnValue({ isLicensed: true, licenseType: 'yearly' });
-
-    expect(getTelemetryCohortDimensions()).toEqual({
-      licenseCohort: 'paid_yearly',
-      licenseType: 'yearly',
-    });
+  it('reports a missing preset as unknown', () => {
+    expect(telemetryAgentName(undefined)).toBe('unknown');
   });
 });

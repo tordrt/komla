@@ -255,7 +255,6 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
     card('SSH hosts', 'ssh tailscale phone direct access only'),
     card('Devices', 'pair paired phone tablet qr code passkey'),
   ],
-  license: [card('Plan', 'subscription'), card('Active machines', 'devices')],
 };
 
 interface ProjectSearchEntry extends SettingsSearchEntry {
@@ -312,7 +311,6 @@ const PAGE_KEYWORDS: Record<string, string> = {
   files: 'diff file tree editor',
   voice: 'dictation speech microphone transcription',
   shortcuts: 'keyboard keybindings hotkeys reset',
-  license: 'plan subscription',
 };
 
 export interface SettingsSearchPage {

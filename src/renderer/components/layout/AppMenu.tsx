@@ -1,4 +1,4 @@
-import { ChatCircle, Command, GearSix, Lightbulb, Sparkle, Star } from '@phosphor-icons/react';
+import { ChatCircle, Command, GearSix, Lightbulb, Star } from '@phosphor-icons/react';
 import { useRef, useState } from 'react';
 
 import {
@@ -12,7 +12,6 @@ import { IconButton } from '@/components/ui/icon-button';
 import { openKomlaGitHub } from '@/lib/komla-github';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
-import { useLicenseStore } from '@/stores/license.store';
 
 import { GettingStartedMenu } from './GettingStartedMenu';
 import { tipsInStatusBar } from './status-bar/status-bar-items';
@@ -25,26 +24,23 @@ interface AppMenuProps {
   onOpenSettings: () => void;
   onOpenShortcuts: () => void;
   onOpenFeedback: () => void;
-  onOpenUpgrade: () => void;
   onOpenSettingsTab: (tab: string, target?: Omit<SettingsDialogTarget, 'tab'>) => void;
   onOpenNewWorkspace: () => void;
 }
 
 /**
  * The sidebar's settings menu, behind a gear in the sidebar's bottom-right corner: Settings,
- * Shortcuts, Feedback, Star on GitHub and Upgrade. While the status bar doesn't show Tips, Tips
- * is here too and opens beside the gear. While the sidebar is collapsed, the tab row shows it.
+ * Shortcuts, Feedback and Star on GitHub. While the status bar doesn't show Tips, Tips is here
+ * too and opens beside the gear. While the sidebar is collapsed, the tab row shows it.
  */
 export function AppMenu({
   placement = 'sidebar',
   onOpenSettings,
   onOpenShortcuts,
   onOpenFeedback,
-  onOpenUpgrade,
   onOpenSettingsTab,
   onOpenNewWorkspace,
 }: AppMenuProps) {
-  const quota = useLicenseStore((s) => s.quota);
   const tipsInMenu = useConfigStore((s) => !tipsInStatusBar(s.config));
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [tipsOpen, setTipsOpen] = useState(false);
@@ -122,15 +118,6 @@ export function AppMenu({
             <Star />
             Star on GitHub
           </DropdownMenuItem>
-          {quota?.isLicensed === false && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onOpenUpgrade}>
-                <Sparkle />
-                Upgrade
-              </DropdownMenuItem>
-            </>
-          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </>

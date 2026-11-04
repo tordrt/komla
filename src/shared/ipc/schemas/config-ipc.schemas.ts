@@ -693,6 +693,13 @@ export const projectFetchInBackgroundArgsSchema = z.tuple([
 export const projectListLeftoverBranchesArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectCheckWorkspacesForCleanupArgsSchema = z.tuple([idSchema]);
 export const projectListHostBranchesArgsSchema = z.tuple([idSchema, idSchema]);
+// The agent whose skills to list, the project or null, and the SSH host the workspace starts on or
+// null for this computer.
+export const projectListAgentSkillsArgsSchema = z.tuple([
+  z.enum(['claude', 'codex']),
+  idSchema.nullable(),
+  idSchema.nullable(),
+]);
 export const projectDeleteLeftoverBranchesArgsSchema = z.tuple([
   idSchema,
   z

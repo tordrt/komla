@@ -5,6 +5,7 @@ import {
   Plus,
   Folder,
   NotePencil,
+  PuzzlePiece,
   Sparkle,
   Robot,
   Keyboard,
@@ -51,6 +52,7 @@ import {
 } from '@/components/workspaces/NewWorkspacePromptAttachments';
 import { VoiceRecordingIndicator } from '@/components/workspaces/VoiceRecordingIndicator';
 import { NEW_WORKSPACE_SHORTCUTS_GROUP } from '@/constants/shortcut-entries';
+import { useAgentSkills } from '@/hooks/useAgentSkills';
 import { useDetectedMainBranch } from '@/hooks/useDetectedMainBranch';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import {
@@ -103,6 +105,13 @@ import { handleCreateError } from '@/utils/workspace-error';
 
 import { resolveWorkspaceCreationEnvironment } from '../../../shared/lib/agent-environment';
 import { canStartWithPrompt } from '../../../shared/lib/agent-preset-prompt';
+import {
+  filterSkills,
+  findSkillQuery,
+  insertSkill,
+  SKILL_TRIGGERS,
+  skillFamilyForPreset,
+} from '../../../shared/lib/agent-skills';
 import { levelPickerOf } from '../../../shared/lib/level-picker';
 import { resolveBranchPrefix } from '../../../shared/lib/project-git-defaults';
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
@@ -110,6 +119,7 @@ import { generateBranchSuffix, branchSuffixToName } from '../../../shared/lib/ra
 import { orderByRecentUse, withRecentProject } from '../../../shared/lib/recent-projects';
 
 import type { NewWorkspaceDialogAction } from '../../../shared/constants/shortcut-scopes';
+import type { AgentSkill, AgentSkillFamily } from '../../../shared/types/agent-skill';
 import type { BranchPickerMeta } from '@/components/workspaces/WorkspaceBranchPicker';
 import type { LevelHistory } from '@/lib/level-history';
 import type {
@@ -490,11 +500,15 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const prefillOnLaunchRef = useRef<((presetIds: string[]) => void) | null>(null);
   const observedRetainedPromptRef = useRef('');
 
-  // Slash command menu state
+  // Slash command menu state: Saved Prompts while the prompt starts with `/`, and the agent's
+  // skills while a skill name is typed after its trigger character.
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
-  const [slashFilter, setSlashFilter] = useState('');
-  const [slashMenuIndex, setSlashMenuIndex] = useState(0);
-  const [slashMenuNavigated, setSlashMenuNavigated] = useState(false);
+  const [slashFilter, setSlashFilter] = useState<string | null>(null);
+  // Read for the agent selected when it was typed, so another agent's menu doesn't use it.
+  const [skillQuery, setSkillQuery] = useState<SkillQuery | null>(null);
+  // The entry the arrow keys or the mouse highlighted, kept by key so it stays on that entry
+  // when a listing arriving changes the menu; null before any is highlighted.
+  const [highlightedMenuKey, setHighlightedMenuKey] = useState<string | null>(null);
 
   // Select just the suffix portion of a generated branch name so the user can quickly type over it
   const selectBranchSuffix = (fullBranchName: string, prefix: string) => {
@@ -509,6 +523,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
 
   // Slash-filtered prompt actions
   const slashFilteredActions = React.useMemo(() => {
+    if (slashFilter === null) return [];
     const promptActions = actions.filter((a) => a.type !== 'command');
     if (!slashFilter) return promptActions;
     const lower = slashFilter.toLowerCase();
@@ -638,6 +653,27 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       mode === 'worktree' &&
       branchMode === 'new' &&
       !selectedProjectIsDirectory);
+
+  // The skills the selected agent can invoke, suggested as their names are typed
+  const skillFamily =
+    selectedPreset && canStartWithPrompt(selectedPreset)
+      ? skillFamilyForPreset(selectedPreset)
+      : null;
+  const agentSkills = useAgentSkills(
+    skillFamily,
+    selectedProject?.id ?? null,
+    isSshLaunch && effectiveSshHostId ? effectiveSshHostId : null,
+    open
+  );
+  const promptMenuItems = useMemo(
+    () => buildPromptMenuItems(agentSkills, skillFamily, skillQuery, slashFilteredActions),
+    [agentSkills, skillFamily, skillQuery, slashFilteredActions]
+  );
+  const highlightedMenuIndex = promptMenuItems.findIndex((item) => item.key === highlightedMenuKey);
+  const slashMenuNavigated = highlightedMenuIndex >= 0;
+  const slashMenuIndex = Math.max(highlightedMenuIndex, 0);
+  const setSlashMenuIndex = (index: number) =>
+    setHighlightedMenuKey(promptMenuItems[index]?.key ?? null);
 
   // Compute available launch modes from selected preset
   const availableModes = React.useMemo(() => selectedPreset?.launchModes ?? [], [selectedPreset]);
@@ -1779,9 +1815,9 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setActionInputDialogOpen(false);
     setPendingActionForInput(null);
     setSlashMenuOpen(false);
-    setSlashFilter('');
-    setSlashMenuIndex(0);
-    setSlashMenuNavigated(false);
+    setSlashFilter(null);
+    setSkillQuery(null);
+    setHighlightedMenuKey(null);
     setAiBranchNameOverride(null);
     setSelectedPresetId(null);
   };
@@ -1880,15 +1916,35 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setReasoningLevelOverrides((current) => ({ ...current, [presetId]: levelId }));
   };
 
+  // The skill name typed before the caret, for the agent selected now
+  const readSkillQuery = (value: string, caret: number): SkillQuery | null => {
+    const found = skillFamily ? findSkillQuery(value, caret, skillFamily) : null;
+    return found && skillFamily ? { ...found, family: skillFamily } : null;
+  };
+
+  // A caret moved without typing leaves the name it was in, or moves to another one
+  const handlePromptSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    if (!skillQuery) return;
+    const { value, selectionStart } = e.currentTarget;
+    const next = readSkillQuery(value, selectionStart);
+    if (next?.start === skillQuery.start && next.query === skillQuery.query) return;
+    setSkillQuery(next);
+    setHighlightedMenuKey(null);
+    if (!next && slashFilter === null) setSlashMenuOpen(false);
+  };
+
   const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setInitialPromptText(value);
 
-    // Slash command detection: open menu when text starts with "/"
-    if (value.startsWith('/') && !value.includes('\n')) {
-      setSlashFilter(value.slice(1));
-      setSlashMenuIndex(0);
-      setSlashMenuNavigated(false);
+    // Slash command detection: Saved Prompts while the text starts with "/", and skills
+    // while the word at the caret starts with the agent's trigger character
+    const actionFilter = value.startsWith('/') && !value.includes('\n') ? value.slice(1) : null;
+    const nextSkillQuery = readSkillQuery(value, e.target.selectionStart ?? value.length);
+    setSlashFilter(actionFilter);
+    setSkillQuery(nextSkillQuery);
+    if (actionFilter !== null || nextSkillQuery) {
+      setHighlightedMenuKey(null);
       setSlashMenuOpen(true);
     } else {
       setSlashMenuOpen(false);
@@ -1974,40 +2030,62 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     handlePresetChange(presetIds[nextIndex]);
   };
 
-  const handleSlashSelect = (action: (typeof actions)[number]) => {
+  const handleSlashSelect = (item: PromptMenuItem) => {
     setSlashMenuOpen(false);
-    setSlashFilter('');
+    setSlashFilter(null);
+    setSkillQuery(null);
+    if (item.kind === 'skill') {
+      // Read again, as the caret or the agent may have changed since the name was typed
+      const caret = promptTextareaRef.current?.selectionStart ?? initialPromptText.length;
+      const query = readSkillQuery(initialPromptText, caret);
+      if (!query) return;
+      const next = insertSkill(
+        initialPromptText,
+        caret,
+        query.start,
+        query.family,
+        item.skill.name
+      );
+      setInitialPromptText(next.text);
+      requestAnimationFrame(() => {
+        promptTextareaRef.current?.focus();
+        promptTextareaRef.current?.setSelectionRange(next.caret, next.caret);
+      });
+      return;
+    }
     // Use the same flow as action selection from the dropdown
     setInitialPromptText('');
-    void handleActionSelect(action.id);
+    void handleActionSelect(item.action.id);
   };
 
   // Returns true when the key was consumed by the slash menu (caller should stop).
   const handleSlashMenuKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (!slashMenuOpen || slashFilteredActions.length === 0) return false;
+    if (!slashMenuOpen || promptMenuItems.length === 0) return false;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (!slashMenuNavigated) {
-        setSlashMenuNavigated(true);
-        setSlashMenuIndex(0);
-      } else {
-        setSlashMenuIndex((i) => Math.min(i + 1, slashFilteredActions.length - 1));
-      }
+      setSlashMenuIndex(
+        slashMenuNavigated ? Math.min(slashMenuIndex + 1, promptMenuItems.length - 1) : 0
+      );
       return true;
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (!slashMenuNavigated) {
-        setSlashMenuNavigated(true);
-        setSlashMenuIndex(slashFilteredActions.length - 1);
-      } else {
-        setSlashMenuIndex((i) => Math.max(i - 1, 0));
-      }
+      setSlashMenuIndex(
+        slashMenuNavigated ? Math.max(slashMenuIndex - 1, 0) : promptMenuItems.length - 1
+      );
       return true;
     }
     if (e.key === 'Enter' && slashMenuNavigated) {
       e.preventDefault();
-      handleSlashSelect(slashFilteredActions[slashMenuIndex]);
+      handleSlashSelect(promptMenuItems[slashMenuIndex]);
+      return true;
+    }
+    // Tab completes the highlighted skill, or the first one before any is highlighted. It
+    // leaves a Saved Prompt alone, since loading one replaces the prompt.
+    const tabTarget = promptMenuItems[slashMenuNavigated ? slashMenuIndex : 0];
+    if (e.key === 'Tab' && !e.shiftKey && tabTarget.kind === 'skill') {
+      e.preventDefault();
+      handleSlashSelect(tabTarget);
       return true;
     }
     if (e.key === 'Escape') {
@@ -2371,6 +2449,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                   initialPromptText={initialPromptText}
                   onPromptChange={handlePromptChange}
                   onPromptKeyDown={handlePromptKeyDown}
+                  onPromptSelect={handlePromptSelect}
                   onPromptPaste={handlePromptPaste}
                   attachments={attachments}
                   onRemoveAttachment={(path) =>
@@ -2386,12 +2465,11 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                     window.dispatchEvent(new CustomEvent('open-settings', { detail: 'actions' }));
                   }}
                   slashMenuOpen={slashMenuOpen}
-                  slashFilteredActions={slashFilteredActions}
+                  promptMenuItems={promptMenuItems}
                   slashMenuRef={slashMenuRef}
                   slashMenuIndex={slashMenuIndex}
                   slashMenuNavigated={slashMenuNavigated}
                   setSlashMenuIndex={setSlashMenuIndex}
-                  setSlashMenuNavigated={setSlashMenuNavigated}
                   onSlashSelect={handleSlashSelect}
                 />
               )}
@@ -2623,10 +2701,49 @@ function NoAgentNotice({ onSetUpAgent }: { onSetUpAgent: () => void }) {
   );
 }
 
+/** A skill name typed after a trigger character, and the agent it was read for. */
+interface SkillQuery {
+  start: number;
+  query: string;
+  family: AgentSkillFamily;
+}
+
+/** An entry in the prompt's menu: a skill to invoke, or a Saved Prompt to load. */
+type PromptMenuItem =
+  | { kind: 'skill'; key: string; skill: AgentSkill; trigger: '/' | '$' }
+  | { kind: 'action'; key: string; action: Action };
+
+/** The skills matching the typed name, then the Saved Prompts matching the `/` filter. */
+function buildPromptMenuItems(
+  skills: AgentSkill[],
+  family: AgentSkillFamily | null,
+  query: SkillQuery | null,
+  actions: Action[]
+): PromptMenuItem[] {
+  const skillItems =
+    family && query?.family === family
+      ? filterSkills(skills, query.query).map((skill): PromptMenuItem => ({
+          kind: 'skill',
+          key: `skill:${skill.name}`,
+          skill,
+          trigger: SKILL_TRIGGERS[family],
+        }))
+      : [];
+  return [
+    ...skillItems,
+    ...actions.map((action): PromptMenuItem => ({
+      kind: 'action',
+      key: `action:${action.id}`,
+      action,
+    })),
+  ];
+}
+
 interface PromptAreaProps {
   initialPromptText: string;
   onPromptChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onPromptKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPromptSelect: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   onPromptPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   attachments: string[];
   onRemoveAttachment: (path: string) => void;
@@ -2637,13 +2754,12 @@ interface PromptAreaProps {
   onActionSelect: (id: string) => void | Promise<void>;
   onOpenActionsSettings: () => void;
   slashMenuOpen: boolean;
-  slashFilteredActions: Action[];
+  promptMenuItems: PromptMenuItem[];
   slashMenuRef: React.RefObject<HTMLDivElement | null>;
   slashMenuIndex: number;
   slashMenuNavigated: boolean;
   setSlashMenuIndex: (i: number) => void;
-  setSlashMenuNavigated: (v: boolean) => void;
-  onSlashSelect: (action: Action) => void;
+  onSlashSelect: (item: PromptMenuItem) => void;
   /** Off while the project picker heads the composer */
   showLabel: boolean;
   /** The selected agent, when it can't start with a prompt */
@@ -2656,6 +2772,7 @@ function PromptArea({
   initialPromptText,
   onPromptChange,
   onPromptKeyDown,
+  onPromptSelect,
   onPromptPaste,
   attachments,
   onRemoveAttachment,
@@ -2666,12 +2783,11 @@ function PromptArea({
   onActionSelect,
   onOpenActionsSettings,
   slashMenuOpen,
-  slashFilteredActions,
+  promptMenuItems,
   slashMenuRef,
   slashMenuIndex,
   slashMenuNavigated,
   setSlashMenuIndex,
-  setSlashMenuNavigated,
   onSlashSelect,
 }: PromptAreaProps) {
   const promptActions = actions.filter((a) => a.type !== 'command');
@@ -2703,6 +2819,7 @@ function PromptArea({
             value={initialPromptText}
             onChange={onPromptChange}
             onKeyDown={onPromptKeyDown}
+            onSelect={onPromptSelect}
             onPaste={onPromptPaste}
             onBlur={() => {
               // Delay to allow mouseDown on slash menu items to fire first
@@ -2774,37 +2891,50 @@ function PromptArea({
         </div>
         <PromptAttachmentList attachments={attachments} onRemove={onRemoveAttachment} />
 
-        {slashMenuOpen && slashFilteredActions.length > 0 && (
+        {slashMenuOpen && promptMenuItems.length > 0 && (
           <div
             ref={slashMenuRef}
             className="floating-surface absolute top-full right-2 left-2 z-50 mt-1 max-h-[200px] overflow-y-auto rounded-md border py-1 shadow-xl"
           >
-            {slashFilteredActions.map((a, i) => (
-              <button
-                key={a.id}
-                type="button"
-                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-                  i === slashMenuIndex && slashMenuNavigated
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground hover:bg-muted/50'
-                }`}
-                onMouseEnter={() => {
-                  setSlashMenuIndex(i);
-                  setSlashMenuNavigated(true);
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault(); // keep textarea focused
-                  onSlashSelect(a);
-                }}
-              >
-                <Sparkle className="size-3 shrink-0 text-muted-foreground" />
-                <span className="truncate">{a.title}</span>
-                <span className="ml-auto max-w-[180px] truncate text-2xs text-muted-foreground-60">
-                  {a.content.slice(0, 60)}
-                  {a.content.length > 60 ? '…' : ''}
-                </span>
-              </button>
-            ))}
+            {promptMenuItems.map((item, i) => {
+              const detail = item.kind === 'skill' ? item.skill.description : item.action.content;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
+                    i === slashMenuIndex && slashMenuNavigated
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-foreground hover:bg-muted/50'
+                  }`}
+                  onMouseEnter={() => {
+                    setSlashMenuIndex(i);
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault(); // keep textarea focused
+                    onSlashSelect(item);
+                  }}
+                >
+                  {item.kind === 'skill' ? (
+                    <PuzzlePiece className="size-3 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <Sparkle className="size-3 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate">
+                    {item.kind === 'skill'
+                      ? `${item.trigger}${item.skill.name}`
+                      : item.action.title}
+                  </span>
+                  {item.kind === 'skill' && item.skill.source === 'project' && (
+                    <span className="shrink-0 text-2xs text-muted-foreground-60">Project</span>
+                  )}
+                  <span className="ml-auto max-w-[180px] truncate text-2xs text-muted-foreground-60">
+                    {detail.slice(0, 60)}
+                    {detail.length > 60 ? '…' : ''}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

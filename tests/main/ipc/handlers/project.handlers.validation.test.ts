@@ -77,6 +77,11 @@ vi.mock('../../../../src/main/services/agent-preset.service', () => ({
   agentPresetService: mockAgentPresetService,
 }));
 
+const mockListAgentSkills = vi.fn().mockResolvedValue([]);
+vi.mock('../../../../src/main/services/agent-skills.service', () => ({
+  listAgentSkills: mockListAgentSkills,
+}));
+
 vi.mock('../../../../src/main/services/agent-detection.service', () => ({
   detectInstalledAgents: vi.fn(),
 }));
@@ -164,6 +169,31 @@ describe('project IPC validation', () => {
     });
     expect(mockSshProjectSync.importFromHost).toHaveBeenCalledTimes(1);
     expect(mockSshProjectSync.listOnHost).not.toHaveBeenCalled();
+  });
+
+  it('project:list-agent-skills takes a known agent, and a project and host or null', async () => {
+    const { registerProjectHandlers } =
+      await import('../../../../src/main/ipc/handlers/project.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+
+    registerProjectHandlers();
+
+    for (const args of [
+      ['gemini', null, null],
+      ['claude', '', null],
+      ['claude', null, 42],
+      ['claude', null],
+    ]) {
+      await expect(ipcMain._invoke('project:list-agent-skills', ...args)).rejects.toMatchObject({
+        code: 'IPC_VALIDATION_ERROR',
+      });
+    }
+    expect(mockListAgentSkills).not.toHaveBeenCalled();
+
+    await ipcMain._invoke('project:list-agent-skills', 'claude', 'p1', null);
+    expect(mockListAgentSkills).toHaveBeenCalledWith('claude', 'p1', null);
   });
 
   it('project:get rejects empty id', async () => {
@@ -275,9 +305,9 @@ describe('project IPC validation', () => {
 
     registerProjectHandlers();
 
-    await expect(ipcMain._invoke('project:choose-icon-file', '/etc/passwd')).rejects.toMatchObject(
-      { code: 'IPC_VALIDATION_ERROR' }
-    );
+    await expect(ipcMain._invoke('project:choose-icon-file', '/etc/passwd')).rejects.toMatchObject({
+      code: 'IPC_VALIDATION_ERROR',
+    });
   });
 
   it('project:update accepts unconfigured aheadTargetAction', async () => {

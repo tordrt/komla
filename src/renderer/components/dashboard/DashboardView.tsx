@@ -555,7 +555,7 @@ export const DashboardView = memo(function DashboardView({
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-destructive"
+              className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-error"
               onClick={() =>
                 openBulkDialog(
                   'delete',
@@ -572,7 +572,7 @@ export const DashboardView = memo(function DashboardView({
           <Button
             variant="ghost"
             size="sm"
-            className="ml-auto h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-destructive"
+            className="ml-auto h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-error"
             onClick={() =>
               openBulkDialog(
                 'empty-trash',
@@ -623,7 +623,8 @@ export const DashboardView = memo(function DashboardView({
                 }
               }}
               placeholder="Filter by title, branch, or prompt"
-              className="h-8 pr-7 pl-8 text-sm"
+              // It has focus whenever the overview opens, so a quiet ring, not the bold offset one.
+              className="h-8 pr-7 pl-8 text-sm focus-visible:border-foreground/30 focus-visible:ring-[3px] focus-visible:ring-foreground/10 focus-visible:ring-offset-0"
             />
             {searchQuery && (
               <button
@@ -798,7 +799,7 @@ export const DashboardView = memo(function DashboardView({
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 gap-1 px-2 text-xs text-destructive hover:text-destructive"
+              className="h-6 gap-1 px-2 text-xs text-error hover:text-error"
               disabled={selectedWorkspaces.length === 0}
               onClick={() => openBulkDialog('delete', null)}
             >

@@ -145,28 +145,31 @@ function RowStatus({
     const detail = attentionAppearance.detail;
     return (
       <div className="flex min-w-0 items-center gap-2 text-xs">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge
-              tone={attentionAppearance.tone}
-              className="max-w-40 shrink-0"
-              style={attentionAppearance.badgeStyle}
-            >
-              <AttentionGlyph
-                attention={attention}
-                aria-hidden="true"
-                weight="bold"
-                className="size-2.5 shrink-0"
-              />
-              <span className="truncate">{attentionAppearance.label}</span>
-            </Badge>
-          </TooltipTrigger>
-          <AttentionTooltipContent attention={attention} appearance={attentionAppearance} />
-        </Tooltip>
-        {/* Another agent can still work, or this one after a notice mid-turn. */}
-        {showAgentSpinner && workingCount > 0 && (
-          <WorkingAgentsGlyph count={workingCount} commands={workingCommands} />
-        )}
+        {/* As wide as a badge and a spinner, so what each agent said starts in one column. */}
+        <span className="flex min-w-[4.5rem] shrink-0 items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge
+                tone={attentionAppearance.tone}
+                className="max-w-40 shrink-0"
+                style={attentionAppearance.badgeStyle}
+              >
+                <AttentionGlyph
+                  attention={attention}
+                  aria-hidden="true"
+                  weight="bold"
+                  className="size-2.5 shrink-0"
+                />
+                <span className="truncate">{attentionAppearance.label}</span>
+              </Badge>
+            </TooltipTrigger>
+            <AttentionTooltipContent attention={attention} appearance={attentionAppearance} />
+          </Tooltip>
+          {/* Another agent can still work, or this one after a notice mid-turn. */}
+          {showAgentSpinner && workingCount > 0 && (
+            <WorkingAgentsGlyph count={workingCount} commands={workingCommands} />
+          )}
+        </span>
         {detail && detail !== attentionAppearance.label && (
           <RowStatusText className="text-foreground/90">{detail}</RowStatusText>
         )}

@@ -97,10 +97,29 @@ const STEPS: StepDef[] = [
 
 const MORE_TIPS: MoreTipDef[] = [
   {
+    id: 'demo',
+    title: 'Komla CLI demo',
+    subtitle: 'Watch an agent try Komla’s CLI commands',
+    icon: Sparkle,
+  },
+  {
     id: 'komla-skill',
     title: 'Komla skill',
     subtitle: 'Teach your agents how to use the Komla CLI',
     icon: BookOpenText,
+  },
+  {
+    id: 'panels',
+    title: 'Custom sidebar panels',
+    subtitle:
+      'Have an agent build a rich panel, with its own pages and buttons, or a plugin for your tools',
+    icon: SidebarSimple,
+  },
+  {
+    id: 'status-bar',
+    title: 'Custom status bar items',
+    subtitle: 'Add live items of your own, or show Claude Code or Codex usage',
+    icon: Layout,
   },
   {
     id: 'customize',
@@ -122,18 +141,6 @@ const MORE_TIPS: MoreTipDef[] = [
     alpha: true,
   },
   {
-    id: 'status-bar',
-    title: 'Status bar items',
-    subtitle: 'Show Claude Code or Codex usage, or add your own',
-    icon: Layout,
-  },
-  {
-    id: 'panels',
-    title: 'Panels and plugins',
-    subtitle: 'Have an agent build a sidebar panel or plugin for your tools',
-    icon: SidebarSimple,
-  },
-  {
     id: 'dictation',
     title: 'Voice dictation',
     subtitle: 'Dictate prompts instead of typing them',
@@ -150,12 +157,6 @@ const MORE_TIPS: MoreTipDef[] = [
     title: 'New window',
     subtitle: 'Work across several Komla windows at once',
     icon: Browsers,
-  },
-  {
-    id: 'demo',
-    title: 'Komla CLI demo',
-    subtitle: 'Watch an agent try Komla’s CLI commands',
-    icon: Sparkle,
   },
 ];
 

@@ -485,7 +485,7 @@ describe('GettingStartedMenu', () => {
 
     it('has the agent build a panel or plugin from the panels tip, reading both guides first', async () => {
       await renderComponent();
-      fireEvent.click(rowFor('Panels and plugins')!);
+      fireEvent.click(rowFor('Custom sidebar panels')!);
 
       await waitFor(() =>
         expect(useLayoutStore.getState().tabsByWorkspace['ws-1']).toEqual(['terminal-customize'])
@@ -503,7 +503,7 @@ describe('GettingStartedMenu', () => {
       });
       await renderComponent();
       openPopover();
-      await waitFor(() => expect(isDone('Panels and plugins')).toBe(true));
+      await waitFor(() => expect(isDone('Custom sidebar panels')).toBe(true));
       expect((window as any).api.listSidebarPanels).toHaveBeenCalledWith('ws-1');
     });
 
@@ -619,7 +619,7 @@ describe('GettingStartedMenu', () => {
     mockConfigState.config = { showStatusBar: false };
     await renderComponent();
 
-    fireEvent.click(rowFor('Status bar items')!);
+    fireEvent.click(rowFor('Custom status bar items')!);
 
     expect(mockConfigState.updateConfig).toHaveBeenCalledWith({ showStatusBar: true });
     expect(useStatusBarCustomizeStore.getState()).toMatchObject({ open: true, anchor: null });
@@ -769,16 +769,16 @@ describe('GettingStartedMenu', () => {
         .getAllByRole('button')
         .map((tile) => tile.textContent)
     ).toEqual([
+      'Komla CLI demo',
       'Komla skill',
+      'Custom sidebar panels',
+      'Custom status bar items',
       'Customize with an agent',
       'Automations',
       'Phone accessAlpha',
-      'Status bar items',
-      'Panels and plugins',
       'Voice dictation',
       'Keyboard shortcuts',
       'New window',
-      'Komla CLI demo',
     ]);
     expect(within(more).getByText('Teach your agents how to use the Komla CLI')).toBeTruthy();
   });
@@ -954,10 +954,10 @@ describe('GettingStartedMenu', () => {
     ]);
     await renderComponent();
     openPopover();
-    await waitFor(() => expect(isDone('Panels and plugins')).toBe(true));
+    await waitFor(() => expect(isDone('Custom sidebar panels')).toBe(true));
   });
 
-  it('leaves panels and plugins to do with only a plugin Komla can’t read, and no workspace', async () => {
+  it('leaves custom sidebar panels to do with only a plugin Komla can’t read, and no workspace', async () => {
     (window as any).api.listPlugins.mockResolvedValueOnce([
       { id: 'broken', name: 'broken', folder: 'broken', state: 'invalid', contributions: [] },
     ]);
@@ -965,7 +965,7 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => expect(isDone('Voice dictation')).toBe(true));
-    expect(isDone('Panels and plugins')).toBe(false);
+    expect(isDone('Custom sidebar panels')).toBe(false);
     expect((window as any).api.listSidebarPanels).not.toHaveBeenCalled();
   });
 

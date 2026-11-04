@@ -258,6 +258,24 @@ function fitAfterFontLoad(fontSize: number, fontFamily: string, fit: () => void)
     .catch(() => undefined);
 }
 
+/** Whether two themes have the same colors; xterm takes a new object as a new theme. */
+function sameTheme(a: ITheme | undefined, b: ITheme | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => {
+    const value = left[key];
+    const other = right[key];
+    if (Array.isArray(value) && Array.isArray(other)) {
+      return value.length === other.length && value.every((color, index) => color === other[index]);
+    }
+    return value === other;
+  });
+}
+
 export class TerminalRendererRuntime {
   private readonly entries = new Map<string, TerminalRendererEntry>();
   private parkingContainer: HTMLDivElement | null = null;
@@ -321,8 +339,12 @@ export class TerminalRendererRuntime {
     entry.visible = false;
     entry.visibleRepairCleanup?.();
     entry.visibleRepairCleanup = undefined;
-    this.disposeWebgl(entry);
     this.detachHost(entry, true);
+    // A pane React only moves, e.g. a split's other pane, attaches again in this task. Giving up
+    // its WebGL renderer meanwhile drew it once with xterm's DOM renderer and built a new context.
+    queueMicrotask(() => {
+      if (entry.parked && !entry.disposed) this.disposeWebgl(entry);
+    });
   }
 
   dispose(terminalId: string): void {
@@ -493,14 +515,30 @@ export class TerminalRendererRuntime {
     const entry = this.entries.get(terminalId);
     if (!entry || entry.disposed || !entry.terminal.element) return;
     const { terminal } = entry;
-    terminal.options.fontSize = configuration.fontSize;
-    terminal.options.fontFamily = configuration.fontFamily;
-    terminal.options.lineHeight = configuration.lineHeight;
-    terminal.options.cursorBlink = configuration.cursorBlink;
-    terminal.options.cursorStyle = configuration.cursorStyle;
-    terminal.options.scrollback = configuration.scrollback;
-    terminal.options.theme = configuration.theme;
+    const { options } = terminal;
     entry.sendRightClickToPrograms = configuration.sendRightClickToPrograms;
+    // Each pane sends this as it mounts, e.g. both panes of a split, with a theme built afresh.
+    // Unchanged, it would only repaint the terminal, rebuild its glyphs for the "new" theme and
+    // measure it again.
+    const themeChanged = !sameTheme(options.theme, configuration.theme);
+    if (
+      options.fontSize === configuration.fontSize &&
+      options.fontFamily === configuration.fontFamily &&
+      options.lineHeight === configuration.lineHeight &&
+      options.cursorBlink === configuration.cursorBlink &&
+      options.cursorStyle === configuration.cursorStyle &&
+      options.scrollback === configuration.scrollback &&
+      !themeChanged
+    ) {
+      return;
+    }
+    options.fontSize = configuration.fontSize;
+    options.fontFamily = configuration.fontFamily;
+    options.lineHeight = configuration.lineHeight;
+    options.cursorBlink = configuration.cursorBlink;
+    options.cursorStyle = configuration.cursorStyle;
+    options.scrollback = configuration.scrollback;
+    if (themeChanged) options.theme = configuration.theme;
     terminal.refresh(0, terminal.rows - 1);
     this.fit(entry);
     fitAfterFontLoad(configuration.fontSize, configuration.fontFamily, () => this.fit(entry));

@@ -318,6 +318,8 @@ describe('TerminalRendererRuntime', () => {
     terminal.buffer.active.viewportY = 42;
     terminal.buffer.active.baseY = 100;
     runtime.detach('term-1');
+    // A parked renderer gives up its WebGL context once the detaching task is done.
+    await Promise.resolve();
 
     expect(runtime.diagnostics()).toEqual({
       runtimeCount: 1,
@@ -497,7 +499,9 @@ describe('TerminalRendererRuntime', () => {
     // A terminal left out keeps its output for the next scan.
     expect(runtime.outputSinceLastScan('workspace-1', 100, 'files', () => false)).toEqual([]);
     // Each scanner reads from where it last did.
-    expect(runtime.outputSinceLastScan('workspace-1', 100, 'files')[0].logicalLines).toHaveLength(7);
+    expect(runtime.outputSinceLastScan('workspace-1', 100, 'files')[0].logicalLines).toHaveLength(
+      7
+    );
   });
 
   it('deduplicates the PTY snapshot against live output', async () => {
@@ -890,6 +894,43 @@ describe('TerminalRendererRuntime', () => {
     expect(xtermState.fit).toHaveBeenCalled();
   });
 
+  it('leaves the terminal alone when its configuration is unchanged, as each new pane sends it', () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-same', makeHost());
+    const terminal = xtermState.terminals[0];
+    const configuration = {
+      fontSize: 18,
+      fontFamily: 'Fira Code',
+      lineHeight: 1.4,
+      cursorBlink: true,
+      cursorStyle: 'underline' as const,
+      scrollback: 9000,
+      theme: { background: '#000000', extendedAnsi: ['#111111'] },
+      sendRightClickToPrograms: false,
+    };
+    runtime.updateConfiguration('term-same', configuration);
+    const theme = terminal.options.theme;
+    xtermState.fit.mockClear();
+    terminal.refresh.mockClear();
+
+    // The pane builds the theme afresh each time, so equal colors arrive as a new object.
+    runtime.updateConfiguration('term-same', {
+      ...configuration,
+      theme: { background: '#000000', extendedAnsi: ['#111111'] },
+    });
+
+    expect(terminal.options.theme).toBe(theme);
+    expect(terminal.refresh).not.toHaveBeenCalled();
+    expect(xtermState.fit).not.toHaveBeenCalled();
+
+    runtime.updateConfiguration('term-same', {
+      ...configuration,
+      theme: { background: '#000000', extendedAnsi: ['#222222'] },
+    });
+    expect(terminal.options.theme).toEqual({ background: '#000000', extendedAnsi: ['#222222'] });
+    expect(terminal.refresh).toHaveBeenCalledWith(0, 23);
+  });
+
   it('keeps right-button presses from programs unless right-clicks go to them', () => {
     const runtime = new TerminalRendererRuntime();
     attach(runtime, 'term-right-click', makeHost());
@@ -1184,6 +1225,29 @@ describe('TerminalRendererRuntime', () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(api.resizePty.mock.calls).toEqual([['term-split', 68, 24]]);
     runtime.dispose('term-split');
+  });
+
+  it('keeps the WebGL renderer of a pane re-mounted in the same task, as a split does', async () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'term-moved', makeHost());
+    await vi.advanceTimersByTimeAsync(0);
+    const [webgl] = xtermState.webglInstances;
+
+    // React shows the new mount, detaches the old one, then attaches the new one.
+    runtime.setVisible('term-moved', true);
+    runtime.detach('term-moved');
+    attach(runtime, 'term-moved', makeHost());
+    await Promise.resolve();
+
+    expect(xtermState.webglInstances).toEqual([webgl]);
+    expect(webgl.dispose).not.toHaveBeenCalled();
+    expect(runtime.diagnostics().activeWebglContexts).toBe(1);
+
+    runtime.detach('term-moved');
+    await Promise.resolve();
+    expect(webgl.dispose).toHaveBeenCalledOnce();
+    expect(runtime.diagnostics().activeWebglContexts).toBe(0);
+    runtime.dispose('term-moved');
   });
 
   it('sizes the PTY at once when a pane detached while shown comes back later', async () => {

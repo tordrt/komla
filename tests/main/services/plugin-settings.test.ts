@@ -165,6 +165,21 @@ describe('PluginSettingsStore', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it('forgets every setting of a plugin, secrets too, as when it is deleted', async () => {
+    const settings = await store();
+    await settings.set('prs', FIELDS, { repo: 'cli/cli', token: 'ghp_123' });
+    await settings.set('other', FIELDS, { repo: 'kept' });
+    const listener = vi.fn();
+    settings.onChange(listener);
+
+    await settings.forget('prs');
+
+    expect(settings.values('prs', FIELDS)).toEqual({ limit: 30, drafts: true });
+    expect(settings.values('other', FIELDS).repo).toBe('kept');
+    expect(JSON.parse(readFileSync(path, 'utf-8')).plugins).not.toHaveProperty('prs');
+    expect(listener).toHaveBeenCalledWith('prs');
+  });
+
   it('tells listeners which plugin changed', async () => {
     const settings = await store();
     const listener = vi.fn();

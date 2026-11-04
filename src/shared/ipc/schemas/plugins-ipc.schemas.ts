@@ -28,6 +28,8 @@ export const pluginsSetSettingsArgsSchema = z.tuple([
   z.string().regex(PLUGIN_ID_PATTERN),
   pluginSettingChangesSchema,
 ]);
+/** A plugin's folder, by its name in the plugins folder, which main checks it lists. */
+export const pluginsDeleteArgsSchema = z.tuple([z.string().min(1).max(255)]);
 /** A plugin that is on, and whether it runs as its files change. */
 export const pluginsSetDevelopmentArgsSchema = z.tuple([
   z.string().regex(PLUGIN_ID_PATTERN),

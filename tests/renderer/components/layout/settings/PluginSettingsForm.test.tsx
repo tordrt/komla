@@ -19,7 +19,12 @@ const plugin: PluginInfo = {
     { id: 'repo', title: 'Repository', type: 'text', value: 'cli/cli' },
     { id: 'limit', title: 'Limit', type: 'number', default: 30 },
     { id: 'drafts', title: 'Show drafts', type: 'boolean', default: true },
-    { id: 'sort', title: 'Sort', type: 'choice', options: ['updated', 'created'] },
+    {
+      id: 'sort',
+      title: 'Sort',
+      type: 'choice',
+      options: ['updated', 'created'],
+    },
     { id: 'token', title: 'Token', type: 'secret', isSet: true },
   ],
   secretStorage: 'keychain',
@@ -53,7 +58,7 @@ describe('PluginSettingsForm', () => {
       'placeholder',
       'Set. Type a new one to replace it'
     );
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
   it('saves only what the user changed', async () => {
@@ -74,8 +79,8 @@ describe('PluginSettingsForm', () => {
       sort: 'created',
       token: 'ghp_new',
     });
-    // Saved, so nothing is left to save.
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    // Saved, so there's nothing left to save.
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
   it('keeps the secret when the user erases what they typed, and clears it with Clear', async () => {
@@ -83,7 +88,7 @@ describe('PluginSettingsForm', () => {
 
     await user.type(screen.getByLabelText('Token'), 'oops');
     await user.clear(screen.getByLabelText('Token'));
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Clear' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));

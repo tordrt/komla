@@ -297,6 +297,24 @@ export class PluginSettingsStore {
     return run;
   }
 
+  /** Forgets every setting of a plugin, secrets too, as when it's deleted. */
+  forget(pluginId: string): Promise<void> {
+    const loaded = this.loading ?? this.load();
+    const run = this.saving
+      .then(() => loaded)
+      .then(() => {
+        if (!Object.hasOwn(this.stored.plugins, pluginId)) return;
+        const { [pluginId]: _, ...plugins } = this.stored.plugins;
+        const next: StoredFile = { ...this.stored, plugins };
+        this.write(next);
+        this.stored = next;
+        this.secrets.delete(pluginId);
+        this.changed(pluginId);
+      });
+    this.saving = run.catch(() => {});
+    return run;
+  }
+
   private async apply(
     pluginId: string,
     fields: PluginSettingField[],

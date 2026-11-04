@@ -31,7 +31,10 @@ export function PluginSettingsForm({
   onSave: (changes: Draft) => Promise<boolean>;
 }) {
   // `cleared`: settings the user cleared, which erasing a secret typed in after clears again.
-  const [{ draft }, setForm] = useState<{ draft: Draft; cleared: ReadonlySet<string> }>({
+  const [{ draft }, setForm] = useState<{
+    draft: Draft;
+    cleared: ReadonlySet<string>;
+  }>({
     draft: {},
     cleared: new Set(),
   });
@@ -79,14 +82,16 @@ export function PluginSettingsForm({
 
   return (
     <form
-      className="space-y-2 rounded-md border border-foreground/10 p-3"
+      className="space-y-2.5"
       aria-label={`${plugin.name} settings`}
       onSubmit={(event) => {
         event.preventDefault();
         if (dirty) void save();
       }}
     >
-      <p className="text-xs font-medium text-foreground/80">Settings</p>
+      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        Settings
+      </p>
       {settings.map((setting) => (
         <SettingField
           key={setting.id}
@@ -102,16 +107,17 @@ export function PluginSettingsForm({
           only you can read.
         </p>
       )}
-      <div className="flex justify-end gap-2 pt-1">
-        {dirty && (
+      {/* Only what the user changed has anything to save. */}
+      {dirty && (
+        <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" size="sm" onClick={discard}>
             Discard
           </Button>
-        )}
-        <Button type="submit" size="sm" disabled={!dirty || saving}>
-          Save
-        </Button>
-      </div>
+          <Button type="submit" size="sm" disabled={saving}>
+            Save
+          </Button>
+        </div>
+      )}
     </form>
   );
 }

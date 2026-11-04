@@ -78,6 +78,14 @@ export function registerPluginsHandlers(): void {
     return listPlugins();
   });
 
+  // Settings asks first; the folder goes to the computer's trash, so it can be put back.
+  handleIpc(IPC.PLUGINS_DELETE, async (_, [folder]): Promise<PluginInfo[]> => {
+    await pluginsService.scan();
+    const forgotten = await pluginsService.remove(folder, (dir) => shell.trashItem(dir));
+    if (forgotten) await pluginSettingsStore.forget(forgotten);
+    return listPlugins();
+  });
+
   handleIpc(IPC.PLUGINS_OPEN_FOLDER, async () => {
     const path = getPluginsPath();
     mkdirSync(path, { recursive: true });

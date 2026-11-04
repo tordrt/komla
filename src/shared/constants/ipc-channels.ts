@@ -573,6 +573,7 @@ export const IPC = {
   PLUGINS_OPEN_FOLDER: 'plugins:open-folder',
   PLUGINS_SET_DEVELOPMENT: 'plugins:set-development',
   PLUGINS_SET_SETTINGS: 'plugins:set-settings',
+  PLUGINS_DELETE: 'plugins:delete',
   // Plugin events (main → renderer)
   PLUGINS_CHANGED: 'plugins:changed',
 

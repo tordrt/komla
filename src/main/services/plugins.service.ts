@@ -616,6 +616,26 @@ export class PluginsService {
   }
 
   /**
+   * Deletes a plugin's folder with `trash`, which moves it to the computer's trash, and forgets
+   * it was on unless another folder has its id. Resolves with the id it forgot, whose settings
+   * the caller forgets too.
+   */
+  async remove(folder: string, trash: (dir: string) => Promise<void>): Promise<string | undefined> {
+    // Only a folder the plugins folder lists, so a name can't lead out of it.
+    const plugin = this.plugins().find((each) => each.scanned.folder === folder);
+    if (!plugin) throw new Error(`There is no plugin folder ${folder}`);
+    await trash(plugin.scanned.dir);
+    await this.scan();
+    if (this.plugins().some((each) => each.id === plugin.id)) return undefined;
+    if (this.enabled.has(plugin.id)) {
+      const enabled = new Map(this.enabled);
+      enabled.delete(plugin.id);
+      this.writeSettings(enabled);
+    }
+    return plugin.id;
+  }
+
+  /**
    * Runs a plugin that is on as its files change, without the user turning it on again, or, with
    * false, only as they were when the user turned it on. For a plugin the user is writing.
    */

@@ -1,5 +1,6 @@
 import { IPC } from '../../constants/ipc-channels';
 import {
+  pluginsDeleteArgsSchema,
   pluginsSetDevelopmentArgsSchema,
   pluginsSetEnabledArgsSchema,
   pluginsSetSettingsArgsSchema,
@@ -15,4 +16,5 @@ export const pluginsContract = {
   [IPC.PLUGINS_OPEN_FOLDER]: invoke().returns<void>(),
   [IPC.PLUGINS_SET_DEVELOPMENT]: invoke(pluginsSetDevelopmentArgsSchema).returns<PluginInfo[]>(),
   [IPC.PLUGINS_SET_SETTINGS]: invoke(pluginsSetSettingsArgsSchema).returns<PluginInfo[]>(),
+  [IPC.PLUGINS_DELETE]: invoke(pluginsDeleteArgsSchema).returns<PluginInfo[]>(),
 } as const;

@@ -1,8 +1,26 @@
-import { FolderOpen } from '@phosphor-icons/react';
+import {
+  CaretRight,
+  Code,
+  FolderOpen,
+  Layout,
+  Lightning,
+  SidebarSimple,
+  Trash,
+} from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { IconButton } from '@/components/ui/icon-button';
+import { InfoTip } from '@/components/ui/info-tip';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useToastStore } from '@/stores/toast.store';
@@ -12,6 +30,8 @@ import { PluginSettingsForm } from './PluginSettingsForm';
 import { SettingsCard } from './SettingsCard';
 
 import type { PluginContributionInfo, PluginInfo } from '../../../../shared/types/plugins';
+import type { Icon } from '@phosphor-icons/react';
+import type { ReactNode } from 'react';
 
 /** Electron wraps main-process errors as "Error invoking remote method '<channel>': Error: <message>". */
 function ipcErrorMessage(error: unknown): string {
@@ -19,10 +39,10 @@ function ipcErrorMessage(error: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
 }
 
-const KIND_LABELS: Record<PluginContributionInfo['kind'], string> = {
-  'status-item': 'Status bar item',
-  hook: 'Hook',
-  'sidebar-panel': 'Sidebar panel',
+const KINDS: Record<PluginContributionInfo['kind'], { label: string; icon: Icon }> = {
+  'status-item': { label: 'Status bar item', icon: Layout },
+  hook: { label: 'Hook', icon: Lightning },
+  'sidebar-panel': { label: 'Sidebar panel', icon: SidebarSimple },
 };
 
 /**
@@ -56,6 +76,16 @@ export function PluginsCard() {
       return true;
     } catch (error) {
       addToast(`Couldn’t save ${plugin.name}’s settings: ${ipcErrorMessage(error)}`, 'error');
+      return false;
+    }
+  };
+
+  const deletePlugin = async (plugin: PluginInfo): Promise<boolean> => {
+    try {
+      setPlugins(await window.api.deletePlugin(plugin.folder));
+      return true;
+    } catch (error) {
+      addToast(`Couldn’t delete ${plugin.name}: ${ipcErrorMessage(error)}`, 'error');
       return false;
     }
   };
@@ -114,6 +144,7 @@ export function PluginsCard() {
           onToggle={(enabled) => void toggle(plugin, enabled)}
           onDevelopment={(development) => void setDevelopment(plugin, development)}
           onSaveSettings={(changes) => saveSettings(plugin, changes)}
+          onDelete={() => deletePlugin(plugin)}
         />
       ))}
     </SettingsCard>
@@ -145,6 +176,7 @@ function PluginRow({
   onToggle,
   onDevelopment,
   onSaveSettings,
+  onDelete,
 }: {
   cardId?: string;
   plugin: PluginInfo;
@@ -152,136 +184,314 @@ function PluginRow({
   onToggle: (enabled: boolean) => void;
   onDevelopment: (development: boolean) => void;
   onSaveSettings: (changes: Record<string, string | number | boolean | null>) => Promise<boolean>;
+  onDelete: () => Promise<boolean>;
 }) {
   const on = plugin.state === 'on';
+  const [deleting, setDeleting] = useState(false);
+  const commands = pluginCommands(plugin);
   return (
     <div
       id={cardId}
       data-plugin={plugin.id}
-      className="flex scroll-mt-6 items-start gap-3 rounded-lg !py-3 !pl-4 transition-shadow duration-300 data-[search-target]:ring-2 data-[search-target]:ring-primary/40"
+      className="scroll-mt-6 space-y-3 rounded-lg transition-shadow duration-300 data-[search-target]:ring-2 data-[search-target]:ring-primary/40"
     >
-      <Switch
-        className="mt-0.5"
-        checked={on}
-        disabled={busy || plugin.state === 'invalid'}
-        onCheckedChange={onToggle}
-        aria-label={`${on ? 'Turn off' : 'Turn on'} ${plugin.name}`}
-      />
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <div className="space-y-0.5">
-          <p className={cn('truncate text-sm font-medium', !on && 'text-muted-foreground')}>
-            {plugin.name}
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-baseline gap-1.5 text-sm font-medium">
+            <span className="truncate">{plugin.name}</span>
             {plugin.version && (
-              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                {plugin.version}
+              <span className="shrink-0 font-mono text-2xs font-normal text-muted-foreground">
+                v{plugin.version}
               </span>
             )}
           </p>
           {plugin.description && (
-            <p className="text-xs text-muted-foreground">{plugin.description}</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              {plugin.description}
+            </p>
           )}
         </div>
-        {plugin.state === 'invalid' && (
-          <Callout tone="error" size="sm">
-            {plugin.folder} {plugin.problem ?? 'can’t be read'}.
-          </Callout>
-        )}
-        {plugin.state === 'changed' && (
-          <Callout tone="warning" size="sm">
-            Its files changed since you turned it on, so it doesn’t run. Turn it on again to run it
-            as it is now.
-          </Callout>
-        )}
-        {(plugin.contributions.length > 0 || plugin.main) && (
-          <ul className="space-y-1">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <IconButton
+            label={`Delete ${plugin.name}`}
+            size="xs"
+            className="rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+            disabled={busy}
+            onClick={() => setDeleting(true)}
+          >
+            <Trash className="size-3.5" />
+          </IconButton>
+          <Switch
+            checked={on}
+            disabled={busy || plugin.state === 'invalid'}
+            onCheckedChange={onToggle}
+            aria-label={`${on ? 'Turn off' : 'Turn on'} ${plugin.name}`}
+          />
+        </div>
+      </div>
+      <DeletePluginDialog
+        plugin={plugin}
+        open={deleting}
+        onOpenChange={setDeleting}
+        onDelete={onDelete}
+      />
+      {plugin.state === 'invalid' && (
+        <Callout tone="error" size="sm">
+          {plugin.folder} {plugin.problem ?? 'can’t be read'}.
+        </Callout>
+      )}
+      {plugin.state === 'changed' && (
+        <Callout tone="warning" size="sm">
+          Its files changed since you turned it on, so it doesn’t run. Turn it on again to run it as
+          it is now.
+        </Callout>
+      )}
+      {(plugin.contributions.length > 0 || plugin.main) && (
+        <div className="overflow-hidden rounded-md border border-border/50">
+          <ul className="divide-y divide-border/40">
             {plugin.main && <CodeLine plugin={plugin} />}
             {plugin.contributions.map((contribution) => (
               <ContributionLine key={contribution.id} contribution={contribution} />
             ))}
           </ul>
-        )}
-        {plugin.state !== 'invalid' && plugin.settings && plugin.settings.length > 0 && (
-          <PluginSettingsForm plugin={plugin} onSave={onSaveSettings} />
-        )}
-        {on && (
-          <label className="flex items-start gap-2 pt-1 text-xs text-muted-foreground">
-            <Switch
-              className="mt-0.5 scale-75"
-              checked={Boolean(plugin.development)}
-              onCheckedChange={onDevelopment}
-              aria-label={`Run ${plugin.name} as its files change`}
+          {commands.length > 0 && (
+            <CommandsDisclosure
+              commands={commands}
+              // What turning it on approves is in view until it's on.
+              approving={!on}
             />
-            <span>
-              <span className="text-foreground/80">Development</span> · Runs its files as they
-              change, without asking again, and its panels can be inspected and loaded again. Only
-              for a plugin you’re writing.
-            </span>
-          </label>
-        )}
-      </div>
+          )}
+        </div>
+      )}
+      {plugin.state !== 'invalid' && plugin.settings && plugin.settings.length > 0 && (
+        <PluginSettingsForm plugin={plugin} onSave={onSaveSettings} />
+      )}
+      {on && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Switch
+            id={`plugin-development-${plugin.id}`}
+            className="-mr-1.5 origin-left scale-75"
+            checked={Boolean(plugin.development)}
+            onCheckedChange={onDevelopment}
+            aria-label={`Run ${plugin.name} as its files change`}
+          />
+          <label htmlFor={`plugin-development-${plugin.id}`}>Development</label>
+          <InfoTip ariaLabel="About development">
+            Runs its files as they change, without asking again, and its panels can be inspected and
+            loaded again. Only for a plugin you’re writing.
+          </InfoTip>
+        </div>
+      )}
     </div>
   );
 }
 
-const HOST_STATES = { starting: 'Starting', running: 'Running', failed: 'Stopped' } as const;
+function DeletePluginDialog({
+  plugin,
+  open,
+  onOpenChange,
+  onDelete,
+}: {
+  plugin: PluginInfo;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDelete: () => Promise<boolean>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const confirm = async () => {
+    setBusy(true);
+    try {
+      if (await onDelete()) onOpenChange(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete {plugin.name}?</DialogTitle>
+          <DialogDescription>
+            Its folder, {plugin.folder}, moves to your computer’s trash, and Komla forgets that you
+            turned it on and what you set for its settings.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={() => void confirm()} disabled={busy}>
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Each command a plugin runs once, with what runs it, as the same one may run for several. */
+function pluginCommands(plugin: PluginInfo): { label: string; command: string }[] {
+  const seen = new Set<string>();
+  const commands: { label: string; command: string }[] = [];
+  for (const contribution of plugin.contributions) {
+    const title = `${KINDS[contribution.kind].label} ${contribution.title}`;
+    const own = [
+      ...(contribution.command ? [{ label: title, command: contribution.command }] : []),
+      ...(contribution.moreCommands ?? []).map((c) => ({
+        label: `${title}, ${c.label}`,
+        command: c.command,
+      })),
+    ];
+    for (const entry of own) {
+      if (seen.has(entry.command)) continue;
+      seen.add(entry.command);
+      commands.push(entry);
+    }
+  }
+  return commands;
+}
+
+function CommandsDisclosure({
+  commands,
+  approving,
+}: {
+  commands: { label: string; command: string }[];
+  approving: boolean;
+}) {
+  const [open, setOpen] = useState(approving);
+  // Turning it on or off shows or hides them again.
+  const [wasApproving, setWasApproving] = useState(approving);
+  if (wasApproving !== approving) {
+    setWasApproving(approving);
+    setOpen(approving);
+  }
+  return (
+    <div className="border-t border-border/40 bg-muted/20">
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        onClick={() => setOpen(!open)}
+      >
+        <CaretRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
+        {commands.length === 1 ? 'The command it runs' : `The ${commands.length} commands it runs`}
+      </button>
+      {open && (
+        <ul className="space-y-2 px-3 pb-2.5">
+          {commands.map(({ label, command }) => (
+            <li key={command} className="min-w-0">
+              <p className="text-[11px] text-muted-foreground">{label}</p>
+              <code
+                className="mt-0.5 block truncate rounded bg-background/60 px-2 py-1 font-mono text-[11px] text-foreground/80"
+                title={command}
+              >
+                {command}
+              </code>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const HOST_STATES = {
+  starting: 'Starting',
+  running: 'Running',
+  failed: 'Stopped',
+} as const;
+const HOST_DOTS = {
+  starting: 'bg-warning',
+  running: 'bg-success',
+  failed: 'bg-error',
+} as const;
+
+function Line({
+  icon: KindIcon,
+  label,
+  title,
+  aside,
+  children,
+}: {
+  icon: Icon;
+  label: string;
+  title?: string;
+  aside?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <li className="flex items-start gap-2.5 px-3 py-2 text-xs">
+      <KindIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <p className="min-w-0 truncate">
+            <span className="text-muted-foreground">{label}</span>
+            {title && <span className="ml-1.5 font-medium text-foreground/90">{title}</span>}
+          </p>
+          {aside && <div className="ml-auto shrink-0">{aside}</div>}
+        </div>
+        {children}
+      </div>
+    </li>
+  );
+}
 
 /** A plugin's code, with how it runs and what it printed last. */
 function CodeLine({ plugin }: { plugin: PluginInfo }) {
   const host = plugin.host;
   return (
-    <li className="text-xs text-muted-foreground">
-      <span className="text-foreground/80">Code {plugin.main}</span>
-      <span aria-hidden="true"> · </span>
-      While the plugin is on, with what Komla’s operations and your shell can do
-      {host && (
-        <span
-          className={cn('block', host.state === 'failed' && 'text-destructive')}
-          data-plugin-host-state={host.state}
-        >
-          {HOST_STATES[host.state]}
-          {host.error && `: ${host.error}`}
-        </span>
-      )}
+    <Line
+      icon={Code}
+      label="Code"
+      title={plugin.main}
+      aside={
+        host && (
+          <span
+            className={cn(
+              'flex items-center gap-1.5 text-[11px] text-muted-foreground',
+              host.state === 'failed' && 'text-destructive'
+            )}
+            data-plugin-host-state={host.state}
+          >
+            <span className={cn('size-1.5 rounded-full', HOST_DOTS[host.state])} />
+            {HOST_STATES[host.state]}
+          </span>
+        )
+      }
+    >
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
+        While the plugin is on, with what Komla’s operations and your shell can do
+      </p>
+      {host?.error && <p className="mt-0.5 text-[11px] text-destructive">{host.error}</p>}
       {host && host.log.length > 0 && (
-        <details className="mt-0.5">
-          <summary className="cursor-pointer select-none">Output</summary>
+        <details className="group mt-1 text-[11px] text-muted-foreground">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <CaretRight className="size-3 transition-transform group-open:rotate-90" />
+            Output
+          </summary>
           <pre className="thin-scrollbar mt-1 max-h-40 overflow-auto rounded bg-muted/50 p-2 font-mono text-[11px] whitespace-pre-wrap">
             {host.log.join('\n')}
           </pre>
         </details>
       )}
-    </li>
+    </Line>
   );
 }
 
 function ContributionLine({ contribution }: { contribution: PluginContributionInfo }) {
-  const commands = [
-    ...(contribution.command ? [contribution.command] : []),
-    ...(contribution.moreCommands ?? []).map((c) => c.command),
-  ];
+  const kind = KINDS[contribution.kind];
   return (
-    <li className="text-xs text-muted-foreground">
-      <span className="text-foreground/80">
-        {KIND_LABELS[contribution.kind]} {contribution.title}
-      </span>
-      <span aria-hidden="true"> · </span>
-      {contribution.when}
-      {contribution.runOn === 'local' && ', on this computer'}
+    <Line icon={kind.icon} label={kind.label} title={contribution.title}>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
+        {contribution.when}
+        {contribution.runOn === 'local' && ', on this computer'}
+      </p>
       {contribution.page && (
-        <span className="block">
-          Page {contribution.page}
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          Page <span className="font-mono">{contribution.page}</span>
           {contribution.capabilities && `, which may use ${contribution.capabilities.join(', ')}`}
-        </span>
+        </p>
       )}
-      {commands.map((command, index) => (
-        <code
-          key={index}
-          className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground-90"
-          title={command}
-        >
-          {command}
-        </code>
-      ))}
-    </li>
+    </Line>
   );
 }

@@ -31,7 +31,12 @@ const prManifest = {
   version: '1.0.0',
   contributes: {
     statusItems: [
-      { id: 'pr', label: 'PR', command: 'node "$KOMLA_PLUGIN_DIR/pr.js"', popoverCommand: 'gh pr view' },
+      {
+        id: 'pr',
+        label: 'PR',
+        command: 'node "$KOMLA_PLUGIN_DIR/pr.js"',
+        popoverCommand: 'gh pr view',
+      },
     ],
     hooks: [{ id: 'ping', event: 'agent.done', command: 'echo done' }],
   },
@@ -221,7 +226,10 @@ describe('PluginsService', () => {
     writePlugin('checks', { id: 'checks', name: 'Checks', contributes });
     await service.scan();
 
-    expect(service.list()[0]).toMatchObject({ state: 'invalid', problem: expect.stringMatching(problem) });
+    expect(service.list()[0]).toMatchObject({
+      state: 'invalid',
+      problem: expect.stringMatching(problem),
+    });
   });
 
   it.each([
@@ -244,7 +252,10 @@ describe('PluginsService', () => {
     writePlugin('checks', { id: 'checks', name: 'Checks', ...fields });
     await service.scan();
 
-    expect(service.list()[0]).toMatchObject({ state: 'invalid', problem: expect.stringMatching(problem) });
+    expect(service.list()[0]).toMatchObject({
+      state: 'invalid',
+      problem: expect.stringMatching(problem),
+    });
   });
 
   it('runs code of its own, which may be all a plugin adds, once turned on', async () => {
@@ -257,14 +268,20 @@ describe('PluginsService', () => {
         main: 'src/main.ts',
         contributes: {
           sidebarPanels: [{ id: 'list', title: 'PRs', page: 'panels/list' }],
-          statusItems: [{ id: 'count', command: 'echo 1', panel: 'list', refreshOn: ['agent.done'] }],
+          statusItems: [
+            { id: 'count', command: 'echo 1', panel: 'list', refreshOn: ['agent.done'] },
+          ],
         },
       },
       { 'src/main.ts': 'export function activate() {}', 'panels/list/index.html': '<p>' }
     );
-    writePlugin('bare', { id: 'bare', name: 'Bare', main: 'main.mjs', contributes: {} }, {
-      'main.mjs': 'export function activate() {}',
-    });
+    writePlugin(
+      'bare',
+      { id: 'bare', name: 'Bare', main: 'main.mjs', contributes: {} },
+      {
+        'main.mjs': 'export function activate() {}',
+      }
+    );
     await service.scan();
     expect(service.list().find((plugin) => plugin.id === 'prs')).toMatchObject({
       state: 'off',
@@ -316,8 +333,40 @@ describe('PluginsService', () => {
     const parsed = pluginManifestSchema.safeParse({ ...prManifest, settings: [field, field] });
 
     expect(parsed.error?.issues).toEqual([
-      expect.objectContaining({ path: ['settings', 1, 'id'], message: 'repo is already in the list' }),
+      expect.objectContaining({
+        path: ['settings', 1, 'id'],
+        message: 'repo is already in the list',
+      }),
     ]);
+  });
+
+  it("deletes a plugin's folder and forgets it was on", async () => {
+    const dir = writePlugin('prs', prManifest);
+    await service.scan();
+    turnOn('github-prs');
+    const trash = vi.fn(async (path: string) => rmSync(path, { recursive: true }));
+
+    await expect(service.remove('prs', trash)).resolves.toBe('github-prs');
+
+    expect(trash).toHaveBeenCalledWith(dir);
+    expect(service.list()).toEqual([]);
+    const saved = JSON.parse(readFileSync(join(settingsPath, 'plugins.json'), 'utf-8'));
+    expect(saved.enabled).toEqual([]);
+  });
+
+  it('keeps what another folder with the same id was given, and deletes only folders it lists', async () => {
+    writePlugin('prs', prManifest);
+    writePlugin('prs-copy', prManifest);
+    await service.scan();
+    turnOn('github-prs');
+    const trash = vi.fn(async (path: string) => rmSync(path, { recursive: true }));
+
+    await expect(service.remove('prs-copy', trash)).resolves.toBeUndefined();
+    expect(service.list()).toEqual([expect.objectContaining({ folder: 'prs', state: 'on' })]);
+
+    await expect(service.remove('../settings', trash)).rejects.toThrow(/no plugin folder/);
+    await expect(service.remove('missing', trash)).rejects.toThrow(/no plugin folder/);
+    expect(trash).toHaveBeenCalledTimes(1);
   });
 
   it('runs a plugin in development as its files change, until that is turned off', async () => {
@@ -414,7 +463,9 @@ describe('PluginsService', () => {
       {
         ...prManifest,
         id: 'a-rather-long-plugin-id',
-        contributes: { hooks: [{ id: 'and-a-long-hook-id-too', event: 'agent.done', command: 'x' }] },
+        contributes: {
+          hooks: [{ id: 'and-a-long-hook-id-too', event: 'agent.done', command: 'x' }],
+        },
       },
       /longer than 40 characters/,
     ],
@@ -433,7 +484,11 @@ describe('PluginsService', () => {
     await service.scan();
 
     expect(service.list()).toEqual([
-      expect.objectContaining({ id: 'notes', state: 'invalid', problem: 'has no komla-plugin.json' }),
+      expect.objectContaining({
+        id: 'notes',
+        state: 'invalid',
+        problem: 'has no komla-plugin.json',
+      }),
     ]);
   });
 
@@ -565,12 +620,16 @@ describe('PluginsService', () => {
     await service.scan();
     turnOn('github-prs');
 
-    expect(service.list().map(({ folder, state, problem }) => ({ folder, state, problem }))).toEqual(
-      [
-        { folder: 'a-prs', state: 'on', problem: undefined },
-        { folder: 'b-prs', state: 'invalid', problem: 'has the id github-prs, as the plugin in a-prs does' },
-      ]
-    );
+    expect(
+      service.list().map(({ folder, state, problem }) => ({ folder, state, problem }))
+    ).toEqual([
+      { folder: 'a-prs', state: 'on', problem: undefined },
+      {
+        folder: 'b-prs',
+        state: 'invalid',
+        problem: 'has the id github-prs, as the plugin in a-prs does',
+      },
+    ]);
     expect(service.statusItems()).toHaveLength(1);
   });
 
@@ -599,14 +658,17 @@ describe('PluginsService', () => {
 });
 
 describe('the example plugins', () => {
-  it.each(['pull-requests'])('%s has a manifest Komla reads, and the pages it names', async (id) => {
-    const dir = join('examples', 'plugins', id);
-    const manifest = pluginManifestSchema.parse(
-      JSON.parse(readFileSync(join(dir, 'komla-plugin.json'), 'utf-8'))
-    );
-    expect(manifest.id).toBe(id);
-    for (const panel of manifest.contributes.sidebarPanels ?? []) {
-      if (panel.page) expect(await findPanelPage(join(dir, panel.page))).toBeDefined();
+  it.each(['pull-requests'])(
+    '%s has a manifest Komla reads, and the pages it names',
+    async (id) => {
+      const dir = join('examples', 'plugins', id);
+      const manifest = pluginManifestSchema.parse(
+        JSON.parse(readFileSync(join(dir, 'komla-plugin.json'), 'utf-8'))
+      );
+      expect(manifest.id).toBe(id);
+      for (const panel of manifest.contributes.sidebarPanels ?? []) {
+        if (panel.page) expect(await findPanelPage(join(dir, panel.page))).toBeDefined();
+      }
     }
-  });
+  );
 });

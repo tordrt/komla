@@ -1963,6 +1963,13 @@ const api = {
     changes: Record<string, string | number | boolean | null>
   ): Promise<PluginInfo[]> => ipcRenderer.invoke(IPC.PLUGINS_SET_SETTINGS, id, changes),
 
+  /**
+   * Moves a plugin's folder, by its name in the plugins folder, to the computer's trash, and
+   * forgets its approval and settings; resolves with every plugin.
+   */
+  deletePlugin: (folder: string): Promise<PluginInfo[]> =>
+    ipcRenderer.invoke(IPC.PLUGINS_DELETE, folder),
+
   onPluginsChange: (callback: (plugins: PluginInfo[]) => void): (() => void) => {
     const handler = (_: Electron.IpcRendererEvent, plugins: PluginInfo[]): void =>
       callback(plugins);

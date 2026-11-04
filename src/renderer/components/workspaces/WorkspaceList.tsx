@@ -700,7 +700,7 @@ function ShelfDock({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2.5 text-2xs text-muted-foreground hover:text-destructive"
+                className="h-6 px-2.5 text-2xs text-muted-foreground hover:text-error"
                 onClick={onEmptyTrash}
               >
                 Empty Trash

@@ -1112,7 +1112,7 @@ function PortForwardsEditor({
                 <IconButton
                   label={`Remove ${forward.name || 'port forward'}`}
                   size="md"
-                  className="hover:text-destructive"
+                  className="hover:text-error"
                   onClick={() => onRemove(forward.id)}
                 >
                   <Trash className="size-3.5" />

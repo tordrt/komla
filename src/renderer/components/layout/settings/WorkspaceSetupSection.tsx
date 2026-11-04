@@ -445,7 +445,7 @@ export function WorkspaceSetupSection({
                           <IconButton
                             label={`Remove ${s.name || 'step'}`}
                             size="xs"
-                            className="hover:text-destructive"
+                            className="hover:text-error"
                             onClick={() => deleteStep(currentStepId)}
                           >
                             <X className="size-3.5" />

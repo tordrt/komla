@@ -240,7 +240,7 @@ export function PairedDeviceRow({
             <IconButton
               label="Remove device"
               size="md"
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              className="text-muted-foreground hover:bg-error/10 hover:text-error"
               onClick={onRemove}
             >
               <Trash className="size-3.5" />

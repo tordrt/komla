@@ -377,7 +377,7 @@ export function AutomationEditorDialog({
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground hover:text-destructive"
+                className="text-muted-foreground hover:text-error"
                 onClick={onRequestDelete}
                 disabled={isSaving}
               >
@@ -681,7 +681,7 @@ function AgentFields({
           className="h-9 font-mono text-[13px]"
         />
         {extraArgumentsError ? (
-          <p className="text-xs text-destructive">{extraArgumentsError}</p>
+          <p className="text-xs text-error">{extraArgumentsError}</p>
         ) : (
           <AutomationCommandPreviewLine
             params={{

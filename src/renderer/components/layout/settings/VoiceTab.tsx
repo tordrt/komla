@@ -261,7 +261,7 @@ function VoiceModelRow({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs text-muted-foreground hover:text-destructive"
+            className="h-7 text-xs text-muted-foreground hover:text-error"
             onClick={() => void onDelete(model.id)}
           >
             Delete

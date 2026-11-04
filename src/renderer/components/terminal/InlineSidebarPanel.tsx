@@ -757,7 +757,7 @@ function CommandSidebarPanel({ workspaceId, panel }: { workspaceId: string; pane
               <p className="text-muted-foreground">The panel's command failed: {error}</p>
             )}
             {buttonError && (
-              <p role="alert" className="text-destructive">
+              <p role="alert" className="text-error">
                 {buttonError}
               </p>
             )}

@@ -15,7 +15,9 @@ const menuRowClass =
 // Leading icons are muted unless they bring their own color.
 const mutedIconClass = "[&_svg:not([class*='text-'])]:text-muted-foreground";
 
-export const menuItemClass = `${menuRowClass} ${mutedIconClass} px-2 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:[&_svg]:text-destructive!`;
+// Destructive rows take the error red, which each theme tunes to read as text; the destructive
+// token is a button fill, too dark to read on a dark menu.
+export const menuItemClass = `${menuRowClass} ${mutedIconClass} px-2 data-[variant=destructive]:text-error data-[variant=destructive]:focus:bg-error/10 data-[variant=destructive]:[&_svg]:text-error!`;
 
 export const menuSubTriggerClass = `${menuRowClass} ${mutedIconClass} px-2 data-[state=open]:bg-foreground/8`;
 

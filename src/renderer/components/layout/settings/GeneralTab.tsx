@@ -620,7 +620,7 @@ export function GeneralTab({ onClose: _onClose, onDirtyChange: _onDirtyChange }:
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Warning className="size-5 text-destructive" />
+              <Warning className="size-5 text-error" />
               Delete all workspaces
             </DialogTitle>
             <DialogDescription>
@@ -725,13 +725,13 @@ function DangerZone({ open, onToggle, onDeleteAll, onClearLogs, komlaDirName }: 
         onClick={onToggle}
       >
         <div className="flex items-center gap-2">
-          <Warning className="size-4 text-destructive/70" />
-          <h3 className="text-sm font-semibold text-destructive/70">Danger zone</h3>
+          <Warning className="size-4 text-error/70" />
+          <h3 className="text-sm font-semibold text-error/70">Danger zone</h3>
         </div>
         {open ? (
-          <CaretUp className="size-3.5 text-destructive/50" />
+          <CaretUp className="size-3.5 text-error/50" />
         ) : (
-          <CaretDown className="size-3.5 text-destructive/50" />
+          <CaretDown className="size-3.5 text-error/50" />
         )}
       </button>
 

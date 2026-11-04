@@ -102,8 +102,13 @@ describe('InlinePreviewHeader', () => {
     renderHeader();
 
     const closeButton = screen.getByRole('button', { name: 'Close preview' });
-    expect(closeButton).toHaveClass('text-muted-foreground', 'hover:text-destructive');
-    expect(closeButton).not.toHaveClass('text-destructive');
+    // The tint behind the red matches it, as on a destructive menu row.
+    expect(closeButton).toHaveClass(
+      'text-muted-foreground',
+      'hover:text-error',
+      'hover:bg-error/10'
+    );
+    expect(closeButton).not.toHaveClass('text-error');
   });
 
   it('switches the preview layout from a Beside/Full radio group', () => {

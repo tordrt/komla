@@ -204,7 +204,7 @@ export function BulkDeleteDialog({
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Warning className="size-5 text-destructive" />
+            <Warning className="size-5 text-error" />
             {titleCount === 0
               ? 'Nothing to delete'
               : `Delete ${titleCount} ${titleCount === 1 ? 'workspace' : 'workspaces'}?`}
@@ -213,7 +213,7 @@ export function BulkDeleteDialog({
             <div>
               <DeleteSummary checking={checking} toDelete={toDelete} />
               {runningCount > 0 && (
-                <span className="mt-2 block font-medium text-destructive">
+                <span className="mt-2 block font-medium text-error">
                   {runningCount} of these {runningCount === 1 ? 'workspace is' : 'workspaces are'}{' '}
                   currently running and will be stopped.
                 </span>

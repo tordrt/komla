@@ -385,7 +385,7 @@ export function CommandItemPopover({
           </p>
         )}
         {buttonError && (
-          <p role="alert" className="mt-2 text-xs break-words text-destructive">
+          <p role="alert" className="mt-2 text-xs break-words text-error">
             {buttonError}
           </p>
         )}

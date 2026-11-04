@@ -660,7 +660,7 @@ export function AgentTab({
                           ? 'At least one active preset is required'
                           : 'Delete preset'
                       }
-                      className="hover:text-destructive"
+                      className="hover:text-error"
                       onClick={async () => {
                         const confirmed = await window.api.showMessageBox({
                           type: 'warning',

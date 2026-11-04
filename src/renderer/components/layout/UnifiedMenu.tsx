@@ -233,7 +233,7 @@ function DeleteBranchDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Warning className="size-5 text-destructive" />
+            <Warning className="size-5 text-error" />
             {state.isRemote ? 'Delete Remote Branch' : 'Delete Unmerged Branch'}
           </DialogTitle>
           <DialogDescription>

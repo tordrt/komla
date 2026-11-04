@@ -944,7 +944,7 @@ export function InlinePreviewHeader({
             label="Close preview"
             size="xs"
             // Clear of the file panel's tabs beside it, so it reads as closing the viewer.
-            className="mr-2 rounded-md hover:bg-destructive/15 hover:text-destructive"
+            className="mr-2 rounded-md hover:bg-error/10 hover:text-error"
             onClick={(e) => {
               e.stopPropagation();
               previewCloseRef.current?.();

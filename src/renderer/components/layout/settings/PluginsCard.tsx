@@ -215,7 +215,7 @@ function PluginRow({
           <IconButton
             label={`Delete ${plugin.name}`}
             size="xs"
-            className="rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+            className="rounded-md text-muted-foreground hover:bg-error/10 hover:text-error"
             disabled={busy}
             onClick={() => setDeleting(true)}
           >
@@ -449,7 +449,7 @@ function CodeLine({ plugin }: { plugin: PluginInfo }) {
           <span
             className={cn(
               'flex items-center gap-1.5 text-[11px] text-muted-foreground',
-              host.state === 'failed' && 'text-destructive'
+              host.state === 'failed' && 'text-error'
             )}
             data-plugin-host-state={host.state}
           >
@@ -462,7 +462,7 @@ function CodeLine({ plugin }: { plugin: PluginInfo }) {
       <p className="mt-0.5 text-[11px] text-muted-foreground">
         While the plugin is on, with what Komla’s operations and your shell can do
       </p>
-      {host?.error && <p className="mt-0.5 text-[11px] text-destructive">{host.error}</p>}
+      {host?.error && <p className="mt-0.5 text-[11px] text-error">{host.error}</p>}
       {host && host.log.length > 0 && (
         <details className="group mt-1 text-[11px] text-muted-foreground">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 select-none hover:text-foreground [&::-webkit-details-marker]:hidden">

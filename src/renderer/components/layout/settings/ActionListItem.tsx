@@ -89,7 +89,7 @@ export function ActionListItem({
         </IconButton>
         <IconButton
           label={`Delete ${action.title}`}
-          className="hover:text-destructive"
+          className="hover:text-error"
           onClick={() => onDelete(action.id)}
           disabled={deleteDisabled}
         >

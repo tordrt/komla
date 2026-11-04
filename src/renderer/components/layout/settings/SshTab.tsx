@@ -519,12 +519,7 @@ function HostActions({
       <IconButton label={labels.edit} size="md" onClick={onEdit}>
         <PencilSimple className="size-4" />
       </IconButton>
-      <IconButton
-        label={labels.remove}
-        size="md"
-        className="hover:text-destructive"
-        onClick={onDelete}
-      >
+      <IconButton label={labels.remove} size="md" className="hover:text-error" onClick={onDelete}>
         <Trash className="size-4" />
       </IconButton>
     </>

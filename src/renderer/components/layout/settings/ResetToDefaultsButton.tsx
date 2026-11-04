@@ -17,7 +17,7 @@ export function ResetToDefaultsButton({ label, isResetting, onClick }: ResetToDe
       <Button
         variant="ghost"
         size="sm"
-        className="text-muted-foreground hover:text-destructive"
+        className="text-muted-foreground hover:text-error"
         onClick={onClick}
         disabled={isResetting}
       >

@@ -312,7 +312,7 @@ export function ProjectSettingsPage({
         <Button
           variant="outline"
           size="sm"
-          className="text-destructive hover:text-destructive"
+          className="text-error hover:text-error"
           onClick={() => setDeleteDialogOpen(true)}
         >
           Delete project
@@ -436,7 +436,7 @@ export function ProjectSettingsPage({
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Warning className="size-4 text-destructive" />
+              <Warning className="size-4 text-error" />
               Delete project
             </DialogTitle>
             <DialogDescription>

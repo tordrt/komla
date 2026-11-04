@@ -173,7 +173,7 @@ export function AutomationsTab({ onClose }: AutomationsTabProps) {
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Warning className="size-4 text-destructive" />
+            <Warning className="size-4 text-error" />
             Delete automation
           </DialogTitle>
           <DialogDescription>
@@ -471,7 +471,7 @@ function AutomationRow({
         </IconButton>
         <IconButton
           label={`Delete ${automation.name}`}
-          className="hover:text-destructive"
+          className="hover:text-error"
           onClick={() => onDelete(automation)}
         >
           <Trash className="size-3.5" />

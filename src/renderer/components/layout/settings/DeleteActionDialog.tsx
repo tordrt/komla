@@ -30,7 +30,7 @@ export function DeleteActionDialog({
       <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Warning className="size-4 text-destructive" />
+            <Warning className="size-4 text-error" />
             Delete quick command
           </DialogTitle>
           <DialogDescription>

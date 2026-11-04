@@ -4,7 +4,7 @@ import type { CSSProperties } from 'react';
 const THEME_COLOR_CLASS: Record<StatusItemThemeColor, string> = {
   success: 'text-success',
   warning: 'text-warning',
-  error: 'text-destructive',
+  error: 'text-error',
   info: 'text-info',
   muted: 'text-muted-foreground',
   foreground: 'text-foreground',

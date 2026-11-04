@@ -268,7 +268,7 @@ function AgentLaunchMenu({
           ) : policy === 'isolated' ? (
             <ShieldCheck className="size-4 text-foreground" weight="fill" />
           ) : (
-            <RobotSlash className="size-4 text-destructive" />
+            <RobotSlash className="size-4 text-error" />
           )}
         </IconButton>
       </DropdownMenuTrigger>

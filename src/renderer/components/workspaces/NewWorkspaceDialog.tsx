@@ -1880,15 +1880,6 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setReasoningLevelOverrides((current) => ({ ...current, [presetId]: levelId }));
   };
 
-  // Auto-resize prompt textarea whenever content changes (typed or programmatic)
-  useEffect(() => {
-    const el = promptTextareaRef.current;
-    if (el) {
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-    }
-  }, [initialPromptText]);
-
   const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setInitialPromptText(value);
@@ -2728,7 +2719,7 @@ function PromptArea({
                 ? `${promptlessAgentName} can't start with a prompt, so it opens without one`
                 : 'What should the agent work on? (optional)'
             }
-            className="max-h-[200px] min-h-[40px] flex-1 resize-none overflow-y-auto bg-transparent text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60 disabled:opacity-50"
+            className="field-sizing-content max-h-[min(40vh,calc(50vh-8rem))] min-h-[40px] flex-1 resize-none overflow-y-auto bg-transparent text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60 disabled:opacity-50"
             rows={1}
             autoFocus
           />

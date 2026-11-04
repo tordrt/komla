@@ -314,6 +314,7 @@ const COMMANDS: &[Command] = &[
         ],
         options: &[
             ("--tone <tone>", "A dot of success, warning, error or info."),
+            ("--style pill", "Shows the item on a tinted pill, as the agents item is."),
             ("--color <color>", "The text's color: success, warning, error, info, muted, foreground or a hex color."),
             ("--icon <file|svg>", "An image before the text: SVG, PNG, WebP, GIF or JPEG, up to 32 KB, or SVG markup."),
             ("--icon-color <color>", "The icon's shape in a color, such as foreground for a one-color logo."),
@@ -323,7 +324,7 @@ const COMMANDS: &[Command] = &[
             ("--popover-file <path|->", "The popover's page from a file, or stdin with -."),
             ("--popover-markdown <markdown>", "Plain Markdown in place of a page, for a line or two of text."),
             ("--popover-markdown-file <path|->", "The popover's Markdown from a file, or stdin with -."),
-            ("--segments <json>", "Parts in place of the text, to put icons anywhere, such as [{\"icon\":\"logo.svg\"},{\"text\":\" CI\",\"color\":\"success\"}]."),
+            ("--segments <json>", "Parts in place of the text, to put icons anywhere, such as [{\"icon\":\"logo.svg\"},{\"text\":\" CI\",\"color\":\"success\"}]. {\"gap\":true} spaces groups of parts apart, as between counts on a pill."),
             ("--segments-file <path|->", "The segments from a file, or stdin with -."),
             JSON,
         ],

@@ -10,6 +10,7 @@ import {
   MAX_STATUS_ITEM_SEGMENTS,
   MAX_STATUS_ITEM_TEXT,
   MAX_STATUS_ITEM_TOOLTIP,
+  STATUS_ITEM_STYLES,
   STATUS_ITEM_TONES,
   type StatusButtonRunResult,
   type StatusCommand,
@@ -26,6 +27,7 @@ import {
   ANSI_ESCAPE,
   statusItemSegmentsText,
   statusItemText,
+  tidyGaps,
   truncate,
   visibleStatusText,
   withLeadingIcon,
@@ -168,6 +170,12 @@ const outputSegmentSchema = z.union([
     icon: z.string().meta({ description: ICON_DESCRIPTION }),
     color: outputColorSchema.meta({ description: `The icon's color: ${COLOR_DESCRIPTION}.` }),
   }),
+  z.object({
+    gap: z.literal(true).meta({
+      description:
+        "Space between groups of parts, as between the agents item's counts, in place of spaces in the text.",
+    }),
+  }),
 ]);
 /** What a status item's command can print as JSON, which `komla settings schema` shows. */
 export const commandOutputSchema = z
@@ -183,7 +191,7 @@ export const commandOutputSchema = z
       .optional()
       .catch(undefined)
       .meta({
-        description: `Parts in place of \`text\`, up to ${MAX_STATUS_ITEM_SEGMENTS}, to color parts or put icons anywhere, such as \`[{"text": "\\uf00c", "color": "success"}, {"text": " 2", "bold": true}]\`. An item shows at most ${MAX_STATUS_ITEM_ICONS} icons. \`color\` then applies to the parts without one.`,
+        description: `Parts in place of \`text\`, up to ${MAX_STATUS_ITEM_SEGMENTS}, to color parts, put icons anywhere or space groups of parts apart with \`{"gap": true}\`, such as \`[{"text": "\\uf00c", "color": "success"}, {"text": " 2", "bold": true}, {"gap": true}, {"text": "\\uf00d", "color": "error"}, {"text": " 1"}]\`. An item shows at most ${MAX_STATUS_ITEM_ICONS} icons. \`color\` then applies to the parts without one.`,
       }),
     icon: z
       .string()
@@ -196,6 +204,10 @@ export const commandOutputSchema = z
       .optional()
       .catch(undefined)
       .meta({ description: 'Adds a dot of that color.' }),
+    style: z.enum(STATUS_ITEM_STYLES).optional().catch(undefined).meta({
+      description:
+        '`pill` shows the item on a tinted pill, as the agents item is, such as for counts spaced apart by gaps.',
+    }),
     color: z
       .string()
       .refine(isStatusItemColor)
@@ -217,8 +229,8 @@ export const commandOutputSchema = z
 
 /**
  * What a command's output shows: a JSON object with `text`, which may carry terminal colors, or
- * `segments` of text in colors of their own and icons, and optionally `icon` and `iconColor`,
- * `tone`, `color`, `tooltip` and `link`; or plain text whose first line is the item, in the colors it printed, and
+ * `segments` of text in colors of their own, icons and gaps, and optionally `icon` and `iconColor`,
+ * `tone`, `style`, `color`, `tooltip` and `link`; or plain text whose first line is the item, in the colors it printed, and
  * the rest its tooltip. Nothing shows for empty output, so a command can hide its item. `icon`, or
  * else the item's own, goes before the text; icons stay as the output names them, for
  * resolveStatusIcons to read.
@@ -248,6 +260,7 @@ export function parseStatusCommandOutput(
       text,
       ...(segments && { segments }),
       ...(parsed.data.tone && { tone: parsed.data.tone }),
+      ...(parsed.data.style && { style: parsed.data.style }),
       ...(parsed.data.color && { color: parsed.data.color }),
       ...(tooltip && { tooltip: truncate(tooltip, MAX_STATUS_ITEM_TOOLTIP) }),
       ...(link && isBrowserUrl(link) && { link }),
@@ -287,7 +300,8 @@ export async function resolveStatusIcons(
     segments.push({ ...segment, icon });
   }
   if (!content.text && icons === 0) return null;
-  return { ...content, segments };
+  // An icon left out can leave a gap at an end or beside another.
+  return { ...content, segments: tidyGaps(segments) };
 }
 
 function itemTimeoutMs(item: StatusCommandItem): number {

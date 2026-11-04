@@ -27,10 +27,14 @@ import {
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
-import { isStatusIconSegment } from '../../../../shared/types/status-items';
+import {
+  isStatusGapSegment,
+  isStatusIconSegment,
+  isStatusTextSegment,
+} from '../../../../shared/types/status-items';
 
 import { isStatusBarItemShown } from './status-bar-items';
-import { StatusBarButton } from './StatusBarButton';
+import { STATUS_BAR_PILL_CLASS, StatusBarButton } from './StatusBarButton';
 import {
   AgentItemPopover,
   CommandItemPopover,
@@ -172,7 +176,11 @@ function StatusIcon({ icon }: { icon: StatusIconSegment }) {
 function segmentKeys(segments: StatusItemSegment[]): string[] {
   const seen = new Map<string, number>();
   return segments.map((segment) => {
-    const shows = isStatusIconSegment(segment) ? `icon:${segment.icon}` : `text:${segment.text}`;
+    const shows = isStatusTextSegment(segment)
+      ? `text:${segment.text}`
+      : isStatusIconSegment(segment)
+        ? `icon:${segment.icon}`
+        : 'gap';
     const count = seen.get(shows) ?? 0;
     seen.set(shows, count + 1);
     return `${shows}:${count}`;
@@ -189,6 +197,10 @@ function StatusItemText({ content }: { content: StatusItemContent }) {
         ? segments.map((segment, index) => {
             const key = keys![index];
             if (isStatusIconSegment(segment)) return <StatusIcon key={key} icon={segment} />;
+            // The agents item's space between its counts.
+            if (isStatusGapSegment(segment)) {
+              return <span key={key} aria-hidden="true" className="inline-block w-2.5" />;
+            }
             const colors = statusItemColorProps(segment.color);
             return (
               <span
@@ -235,7 +247,12 @@ const StatusItemButton = React.forwardRef<HTMLButtonElement, StatusItemButtonPro
             {hint && <div className="text-muted-foreground first-letter:uppercase">{hint}</div>}
           </div>
         }
-        className={cn(!hint && 'cursor-default', staleReason && 'opacity-60', className)}
+        className={cn(
+          content.style === 'pill' && STATUS_BAR_PILL_CLASS,
+          !hint && 'cursor-default',
+          staleReason && 'opacity-60',
+          className
+        )}
         {...props}
       >
         {tone && (

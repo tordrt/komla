@@ -233,6 +233,64 @@ describe('parseStatusCommandOutput', () => {
     ).toEqual({ text: '', segments: [{ icon: 'icons/a.svg' }] });
   });
 
+  it('shows a pill, with gaps between groups of parts, dropping gaps at the ends and repeats', () => {
+    expect(
+      parseStatusCommandOutput(
+        JSON.stringify({
+          style: 'pill',
+          segments: [
+            { gap: true },
+            { icon: 'icons/a.svg', color: 'success' },
+            { text: ' 12' },
+            { gap: true },
+            { gap: true },
+            { icon: 'icons/b.svg', color: 'error' },
+            { text: ' 2' },
+            { gap: true },
+          ],
+        })
+      )
+    ).toEqual({
+      text: '12 2',
+      style: 'pill',
+      segments: [
+        { icon: 'icons/a.svg', color: 'success' },
+        { text: ' 12' },
+        { gap: true },
+        { icon: 'icons/b.svg', color: 'error' },
+        { text: ' 2' },
+      ],
+    });
+    // A style it can't show is left out, as is a gap that isn't one.
+    expect(
+      parseStatusCommandOutput(
+        JSON.stringify({ style: 'neon', segments: [{ text: 'a', bold: true }, { gap: 'yes' }] })
+      )
+    ).toEqual({ text: 'a', segments: [{ text: 'a', bold: true }] });
+    // A gap is the space beside it, and counts as one character of the text.
+    expect(
+      parseStatusCommandOutput(
+        JSON.stringify({ segments: [{ text: '12 ', bold: true }, { gap: true }, { text: ' 2' }] })
+      )
+    ).toEqual({ text: '12 2', segments: [{ text: '12', bold: true }, { gap: true }, { text: '2' }] });
+    const half = 'x'.repeat(30);
+    const long = parseStatusCommandOutput(
+      JSON.stringify({ segments: [{ text: half, bold: true }, { gap: true }, { text: half }] })
+    );
+    expect(long?.text).toBe(`${half} ${'x'.repeat(28)}…`);
+    expect(long?.segments?.[2]).toEqual({ text: `${'x'.repeat(28)}…` });
+    // A cut doesn't leave a gap at the end.
+    expect(
+      parseStatusCommandOutput(
+        JSON.stringify({
+          segments: [{ text: 'x'.repeat(58), bold: true }, { gap: true }, { text: 'more' }],
+        })
+      )?.segments
+    ).toEqual([{ text: `${'x'.repeat(58)}…`, bold: true }]);
+    // Only gaps leave nothing to show.
+    expect(parseStatusCommandOutput(JSON.stringify({ segments: [{ gap: true }] }))).toBeNull();
+  });
+
   it('shows nothing for empty output and shortens long text', () => {
     expect(parseStatusCommandOutput('  \n')).toBeNull();
     expect(parseStatusCommandOutput(JSON.stringify({ text: ' ' }))).toBeNull();
@@ -369,6 +427,36 @@ describe('StatusCommandsService', () => {
     await expect(
       resolveStatusIcons({ text: '', segments: [{ icon: 'bad' }] }, readIcon)
     ).resolves.toBeNull();
+    // A gap left at an end, or beside another, by an icon it leaves out goes too.
+    await expect(
+      resolveStatusIcons(
+        {
+          text: '4 1',
+          segments: [
+            { icon: 'bad' },
+            { gap: true },
+            { text: '4' },
+            { gap: true },
+            { icon: 'bad' },
+            { gap: true },
+            { text: '1' },
+          ],
+        },
+        readIcon
+      )
+    ).resolves.toEqual({
+      text: '4 1',
+      segments: [{ text: '4' }, { gap: true }, { text: '1' }],
+    });
+    await expect(
+      resolveStatusIcons(
+        { text: '4 1', segments: [{ text: '4' }, { gap: true }, { icon: 'bad' }, { text: ' 1' }] },
+        readIcon
+      )
+    ).resolves.toEqual({
+      text: '4 1',
+      segments: [{ text: '4' }, { gap: true }, { text: '1' }],
+    });
   });
 
   it("shows the item's icon before its output", async () => {

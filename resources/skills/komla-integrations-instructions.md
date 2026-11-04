@@ -20,6 +20,9 @@ issues assigned to the user, in a popover.
 The user sees an item all day, so make it feel like part of Komla: an icon and a few words in the
 bar, with color only where it signals state, and the details in the popover.
 
+An item can also sit on a tinted pill, as the agents item does, with `"style": "pill"`, and a
+`{"gap": true}` segment spaces groups of parts apart.
+
 ```json
 {
   "_version": 1,

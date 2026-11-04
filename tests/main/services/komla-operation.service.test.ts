@@ -3123,9 +3123,59 @@ describe('KomlaOperationService', () => {
       segments: [{ text: '\uf071 2', color: 'warning', bold: true }, { text: ' lint' }],
     });
 
+    await service.execute(
+      { terminalId: 'terminal-1' },
+      {
+        type: 'status.set',
+        id: 'ci',
+        style: 'pill',
+        segments: [{ text: '\uf00c 4', color: 'success' }, { gap: true }, { text: '\uf00d 1' }],
+      }
+    );
+    expect(setStatusItem).toHaveBeenLastCalledWith('workspace-1', 'ci', {
+      text: '\uf00c 4 \uf00d 1',
+      style: 'pill',
+      segments: [{ text: '\uf00c 4', color: 'success' }, { gap: true }, { text: '\uf00d 1' }],
+    });
+
     await expect(
       service.execute({ terminalId: 'terminal-1' }, { type: 'status.set', id: 'ci' })
     ).rejects.toMatchObject({ code: 'INVALID_STATUS_TEXT', statusCode: 400 });
+  });
+
+  it('takes a pill style and gaps between segments, and nothing else of the kind', () => {
+    expect(
+      parseKomlaOperation({
+        type: 'status.set',
+        id: 'ci',
+        style: 'pill',
+        segments: [{ text: 'a' }, { gap: true }, { text: 'b' }],
+      })
+    ).toMatchObject({ style: 'pill', segments: [{ text: 'a' }, { gap: true }, { text: 'b' }] });
+    // Space beside a gap, and a gap repeated, are counted as the bar shows them.
+    expect(() =>
+      parseKomlaOperation({
+        type: 'status.set',
+        id: 'ci',
+        segments: [{ text: `${'x'.repeat(30)} ` }, { gap: true }, { gap: true }, { text: 'x'.repeat(29) }],
+      })
+    ).not.toThrow();
+    for (const invalid of [
+      { type: 'status.set', id: 'ci', text: 'a', style: 'neon' },
+      { type: 'status.set', id: 'ci', segments: [{ text: 'a' }, { gap: false }] },
+      { type: 'status.set', id: 'ci', segments: [{ text: 'a' }, { gap: true, text: 'b' }] },
+      { type: 'status.set', id: 'ci', segments: [{ gap: true }] },
+      // A gap counts as a character of the text.
+      {
+        type: 'status.set',
+        id: 'ci',
+        segments: [{ text: 'x'.repeat(30) }, { gap: true }, { text: 'x'.repeat(30) }],
+      },
+    ]) {
+      expect(() => parseKomlaOperation(invalid), JSON.stringify(invalid)).toThrow(
+        expect.objectContaining({ code: 'INVALID_OPERATION' })
+      );
+    }
   });
 
   it('shows icons before the text or where segments put them', async () => {

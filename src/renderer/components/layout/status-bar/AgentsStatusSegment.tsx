@@ -17,7 +17,7 @@ import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { agentCountsSummary } from '../../../../shared/lib/agent-state';
 
 import { AgentsPanel, agentStateCounts, listAgents } from './AgentsPanel';
-import { StatusBarButton } from './StatusBarButton';
+import { STATUS_BAR_PILL_CLASS, StatusBarButton } from './StatusBarButton';
 
 /**
  * The agents in this window's sidebar workspaces that need input, failed, finished or are
@@ -67,7 +67,7 @@ export function AgentsStatusSegment() {
           aria-label={summary}
           tooltip={`Agents: ${summary}`}
           // Every state in one pill, still, as in the menu bar.
-          className="gap-2.5 rounded-full bg-foreground/8 px-2 tabular-nums hover:bg-foreground/14 data-[state=open]:bg-foreground/14"
+          className={cn('gap-2.5 tabular-nums', STATUS_BAR_PILL_CLASS)}
         >
           {shown.map(({ state, className, label, count }) => (
             <span key={state} className={cn('flex items-center gap-1', className)}>

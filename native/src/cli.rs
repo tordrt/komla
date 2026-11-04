@@ -114,7 +114,7 @@ const SETTINGS_USAGE: &str = "usage: komla settings <get|apply> \
 const SETTINGS_SCHEMA_USAGE: &str =
     "usage: komla settings schema <status-items|sidebar-panels|hooks|plugins|shortcuts|terminal|agents> [--json]";
 const STATUS_USAGE: &str =
-    "usage: komla status set <id> <text> [--icon <file|svg>] [--icon-color <color>] [--tone <success|warning|error|info>] \
+    "usage: komla status set <id> <text> [--icon <file|svg>] [--icon-color <color>] [--tone <success|warning|error|info>] [--style pill] \
 [--color <color>] [--tooltip <text>] [--link <url>] [--popover <html> | --popover-file <path|->] \
 [--popover-markdown <markdown> | --popover-markdown-file <path|->] [--json]\n       komla status set <id> --segments <json> | --segments-file <path|-> [options]\n       \
 komla status clear [id] [--json]\n       komla status refresh <id> [--json]";
@@ -1079,6 +1079,7 @@ fn option_arguments(args: &[String]) -> impl Iterator<Item = (usize, &str)> {
                     | "--badge"
                     | "--kind"
                     | "--tone"
+                    | "--style"
                     | "--tooltip"
                     | "--link"
                     | "--popover"
@@ -1731,6 +1732,14 @@ fn status_segments(json_text: &str) -> anyhow::Result<Value> {
         let Some(fields) = segment.as_object_mut() else {
             bail!("each segment is an object, such as {EXAMPLE}");
         };
+        if fields.contains_key("gap") {
+            if fields.len() != 1 || fields["gap"] != Value::Bool(true) {
+                bail!(r#"a gap segment is {{"gap": true}}, space between groups of parts"#);
+            }
+            // A gap reads as a space in the item's text.
+            text.push(' ');
+            continue;
+        }
         if let Some(color) = fields.get("color") {
             if !color.as_str().is_some_and(is_status_color) {
                 bail!("segment colors are success, warning, error, info, muted, foreground or a hex color such as #e5c07b");
@@ -1764,7 +1773,7 @@ fn status_segments(json_text: &str) -> anyhow::Result<Value> {
     let visible = visible_status_text(&text);
     let visible = visible.trim();
     if visible.is_empty() || visible.encode_utf16().count() > MAX_STATUS_TEXT {
-        bail!("segments must have 1 to {MAX_STATUS_TEXT} characters of text together");
+        bail!("segments must have 1 to {MAX_STATUS_TEXT} characters of text together, each gap counting as one");
     }
     Ok(segments)
 }
@@ -1790,6 +1799,7 @@ fn status_command(
     let operation = match args.first().map(String::as_str) {
         Some("set") => {
             let tone = take_option(&mut options, "--tone")?;
+            let style = take_option(&mut options, "--style")?;
             let color = take_option(&mut options, "--color")?;
             let tooltip = take_option(&mut options, "--tooltip")?;
             let link = take_option(&mut options, "--link")?;
@@ -1858,6 +1868,9 @@ fn status_command(
                     bail!("--tone must be success, warning, error or info");
                 }
             }
+            if style.as_deref().is_some_and(|style| style != "pill") {
+                bail!("--style must be pill");
+            }
             if let Some(color) = &color {
                 if !is_status_color(color) {
                     bail!("--color must be success, warning, error, info, muted, foreground or a hex color such as #e5c07b");
@@ -1899,6 +1912,7 @@ fn status_command(
             insert_json_optional(&mut operation, "icon", icon);
             insert_json_optional(&mut operation, "iconColor", icon_color);
             insert_json_optional(&mut operation, "tone", tone);
+            insert_json_optional(&mut operation, "style", style);
             insert_json_optional(&mut operation, "color", color);
             insert_json_optional(&mut operation, "tooltip", tooltip);
             insert_json_optional(&mut operation, "link", link);
@@ -5958,6 +5972,31 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
     }
 
     #[test]
+    fn status_set_sends_a_pill_with_gaps_between_segments() {
+        let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+        let segments = json!([{"text": "4", "color": "success"}, {"gap": true}, {"text": "1"}]);
+        run_with(
+            &mut api,
+            &[
+                "status",
+                "set",
+                "ci",
+                "--segments",
+                &segments.to_string(),
+                "--style",
+                "pill",
+            ],
+            "",
+        )
+        .unwrap();
+        let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+        assert_eq!(
+            body,
+            json!({"type": "status.set", "id": "ci", "segments": segments, "style": "pill"})
+        );
+    }
+
+    #[test]
     fn status_set_checks_segments_and_icons_before_asking_komla() {
         let directory = TempDir::new().unwrap();
         let big = directory.path().join("big.png");
@@ -6023,6 +6062,51 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
             (
                 vec!["status", "set", "ci", "--segments", &five_icons],
                 "at most 4 icons",
+            ),
+            (
+                vec![
+                    "status",
+                    "set",
+                    "ci",
+                    "--segments",
+                    r#"[{"text":"x"},{"gap":false}]"#,
+                ],
+                r#"a gap segment is {"gap": true}"#,
+            ),
+            (
+                vec![
+                    "status",
+                    "set",
+                    "ci",
+                    "--segments",
+                    r#"[{"text":"x"},{"gap":true,"text":"y"}]"#,
+                ],
+                r#"a gap segment is {"gap": true}"#,
+            ),
+            (
+                vec![
+                    "status",
+                    "set",
+                    "ci",
+                    "--segments",
+                    r#"[{"text":"x"},{"gap":true,"color":"nope"}]"#,
+                ],
+                r#"a gap segment is {"gap": true}"#,
+            ),
+            (
+                vec!["status", "set", "ci", "CI", "--style", "neon"],
+                "--style must be pill",
+            ),
+            (
+                vec![
+                    "status",
+                    "set",
+                    "ci",
+                    "--segments",
+                    &json!([{"text": "x".repeat(30)}, {"gap": true}, {"text": "x".repeat(30)}])
+                        .to_string(),
+                ],
+                "characters of text",
             ),
         ] {
             let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));

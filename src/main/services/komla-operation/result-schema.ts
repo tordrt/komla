@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { PULL_REQUEST_TAG_STATES, WORKSPACE_TAG_TONES } from '../../../shared/lib/workspace-tags';
-import { STATUS_ITEM_TONES } from '../../../shared/types/status-items';
+import { STATUS_ITEM_STYLES, STATUS_ITEM_TONES } from '../../../shared/types/status-items';
 import { WORKSPACE_ATTENTION_KINDS } from '../../../shared/types/workspace';
 
 import type { KomlaOperation } from './operation';
@@ -24,6 +24,7 @@ const statusSegment = z.union([
     .object({ text: z.string(), color: z.string().optional(), bold: z.boolean().optional() })
     .strict(),
   z.object({ icon: z.string(), color: z.string().optional() }).strict(),
+  z.object({ gap: z.literal(true) }).strict(),
 ]);
 
 const agentSelection = z
@@ -319,6 +320,7 @@ export const komlaOperationResultSchemas = {
           text: z.string(),
           segments: z.array(statusSegment).optional(),
           tone: z.enum(STATUS_ITEM_TONES).optional(),
+          style: z.enum(STATUS_ITEM_STYLES).optional(),
           color: z.string().optional(),
           tooltip: z.string().optional(),
           link: z.string().optional(),

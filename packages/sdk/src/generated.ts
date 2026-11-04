@@ -361,11 +361,15 @@ export interface StatusSetRequest {
     /** @maxLength 98304 */
     icon: string;
     color?: string;
+  } | {
+    gap: true;
   }>;
   /** @maxLength 98304 */
   icon?: string;
   iconColor?: string;
   tone?: 'success' | 'warning' | 'error' | 'info';
+  /** `pill` shows the item on a tinted pill, as the agents item is. */
+  style?: 'pill';
   color?: string;
   /**
    * @minLength 1
@@ -782,8 +786,11 @@ export interface StatusSetResult {
     } | {
       icon: string;
       color?: string;
+    } | {
+      gap: true;
     }>;
     tone?: 'success' | 'warning' | 'error' | 'info';
+    style?: 'pill';
     color?: string;
     tooltip?: string;
     link?: string;

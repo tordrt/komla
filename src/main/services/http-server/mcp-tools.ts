@@ -2,7 +2,11 @@ import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/m
 import { z } from 'zod';
 
 import { isMcpToolEnabled } from '../../../shared/constants/mcp-built-in-tools';
-import { MAX_STATUS_ITEM_TOOLTIP, STATUS_ITEM_TONES } from '../../../shared/types/status-items';
+import {
+  MAX_STATUS_ITEM_TOOLTIP,
+  STATUS_ITEM_STYLES,
+  STATUS_ITEM_TONES,
+} from '../../../shared/types/status-items';
 import { createLogger } from '../../lib/logger';
 import { configService } from '../config.service';
 import {
@@ -156,7 +160,7 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
       segments: statusItemSegmentsSchema
         .optional()
         .describe(
-          'The text in parts with colors of their own, and icons anywhere in it, in place of text, such as [{"icon":"<svg …>"},{"text":" 142/150 tests","color":"success"}]. Text parts take color and bold; an icon part with a color shows its shape in that color.'
+          'The text in parts with colors of their own, and icons anywhere in it, in place of text, such as [{"icon":"<svg …>"},{"text":" 142/150 tests","color":"success"}]. Text parts take color and bold; an icon part with a color shows its shape in that color; {"gap":true} spaces groups of parts apart, as between counts.'
         ),
       icon: statusIconSchema
         .optional()
@@ -172,6 +176,12 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
         .enum(STATUS_ITEM_TONES)
         .optional()
         .describe('Theme color for the dot before the item: success, warning, error or info.'),
+      style: z
+        .enum(STATUS_ITEM_STYLES)
+        .optional()
+        .describe(
+          'pill shows the item on a tinted pill, as the agents item is, such as for counts spaced apart by gaps.'
+        ),
       color: statusItemColorSchema
         .optional()
         .describe(
@@ -207,6 +217,7 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
       icon,
       iconColor,
       tone,
+      style,
       color,
       tooltip,
       link,
@@ -226,6 +237,7 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
               icon,
               iconColor,
               tone,
+              style,
               color,
               tooltip,
               link,

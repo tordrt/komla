@@ -65,6 +65,7 @@ import type { VirtualDesktopViewer } from '../../../shared/types/dev-preview';
 import type { SshHost } from '../../../shared/types/ssh';
 import type {
   StatusItemContent,
+  StatusItemStyle,
   StatusItemTone,
   StatusItemSegment,
 } from '../../../shared/types/status-items';
@@ -517,6 +518,7 @@ export type KomlaOperation =
       icon?: string;
       iconColor?: string;
       tone?: StatusItemTone;
+      style?: StatusItemStyle;
       color?: string;
       tooltip?: string;
       link?: string;
@@ -1311,6 +1313,7 @@ export class KomlaOperationService {
       icon: iconInput,
       iconColor,
       tone,
+      style,
       color,
       tooltip,
       link,
@@ -1363,6 +1366,7 @@ export class KomlaOperationService {
       text,
       ...(segments && { segments }),
       ...(tone !== undefined && { tone }),
+      ...(style !== undefined && { style }),
       ...(color !== undefined && { color }),
       ...(tooltip !== undefined && { tooltip }),
       ...(link !== undefined && { link }),

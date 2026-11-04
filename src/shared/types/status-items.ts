@@ -50,11 +50,28 @@ export interface StatusIconSegment {
   color?: string;
 }
 
-export type StatusItemSegment = StatusTextSegment | StatusIconSegment;
+/** Space between groups of parts, as between the agents item's counts. */
+export interface StatusGapSegment {
+  gap: true;
+}
+
+export type StatusItemSegment = StatusTextSegment | StatusIconSegment | StatusGapSegment;
 
 export function isStatusIconSegment(segment: StatusItemSegment): segment is StatusIconSegment {
   return 'icon' in segment;
 }
+
+export function isStatusGapSegment(segment: StatusItemSegment): segment is StatusGapSegment {
+  return 'gap' in segment;
+}
+
+export function isStatusTextSegment(segment: StatusItemSegment): segment is StatusTextSegment {
+  return !isStatusIconSegment(segment) && !isStatusGapSegment(segment);
+}
+
+/** Looks a status item can take besides the bar's plain one: `pill` sits on a tinted pill. */
+export const STATUS_ITEM_STYLES = ['pill'] as const;
+export type StatusItemStyle = (typeof STATUS_ITEM_STYLES)[number];
 
 /** What a status item shows; clicking it opens its popover, or else `link`. */
 export interface StatusItemContent {
@@ -62,6 +79,7 @@ export interface StatusItemContent {
   /** The text in colored runs and icons, when parts of it have colors of their own or icons. */
   segments?: StatusItemSegment[];
   tone?: StatusItemTone;
+  style?: StatusItemStyle;
   /** A theme color from STATUS_ITEM_THEME_COLORS, or a hex color. */
   color?: string;
   tooltip?: string;

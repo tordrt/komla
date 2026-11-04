@@ -2516,6 +2516,43 @@ describe('StatusBar', () => {
       expect(logo.querySelector('img')).toHaveAttribute('src', png);
     });
 
+    it('shows an item on a pill when it asks, with gaps between its groups of parts', async () => {
+      mockApi({
+        listStatusItems: vi.fn(() =>
+          Promise.resolve([item({ id: 'plain', text: 'Plain' })])
+        ),
+        listStatusCommands: vi.fn(() =>
+          Promise.resolve({ items: [{ id: 'checks', intervalSeconds: 60 }] })
+        ),
+        runStatusCommand: vi.fn((workspaceId: string, id: string) =>
+          Promise.resolve({
+            id,
+            workspaceId,
+            content: {
+              text: '\uf00c 4 \uf00d 1',
+              style: 'pill',
+              segments: [
+                { text: '\uf00c 4', color: 'success' },
+                { gap: true },
+                { text: '\uf00d 1', color: 'error' },
+              ],
+            },
+            ranAt: 1,
+          })
+        ),
+      });
+      useWorkspacesStore.setState({ selectedWorkspaceId: 'ws-open' });
+      renderStatusBar();
+
+      const checks = await screen.findByRole('button', { name: '\uf00c 4 \uf00d 1' });
+      expect(checks).toHaveClass('rounded-full', 'bg-foreground/8');
+      const parts = [...checks.querySelectorAll('.font-status > *')];
+      expect(parts).toHaveLength(3);
+      expect(parts[1]).toHaveAttribute('aria-hidden', 'true');
+      expect(parts[1]).toBeEmptyDOMElement();
+      expect(screen.getByRole('button', { name: 'Plain' })).not.toHaveClass('rounded-full');
+    });
+
     it("opens an agent item's Markdown in a popover, with its link as a button", async () => {
       const user = userEvent.setup();
       const openExternal = vi.fn(() => Promise.resolve());

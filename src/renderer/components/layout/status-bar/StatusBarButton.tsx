@@ -10,6 +10,10 @@ export const STATUS_BAR_BUTTON_CLASS = cn(
   'focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden'
 );
 
+/** A status bar item on a tinted pill, as the agents item and custom items with `style: pill`. */
+export const STATUS_BAR_PILL_CLASS =
+  'rounded-full bg-foreground/8 px-2 hover:bg-foreground/14 data-[state=open]:bg-foreground/14';
+
 /** A branch trigger's look in the status bar, or the title bar's ghost button. */
 export function branchTriggerClass(inStatusBar: boolean): string {
   return inStatusBar

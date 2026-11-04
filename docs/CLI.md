@@ -575,6 +575,7 @@ Show a short status in Komla's status bar while the calling workspace is open, s
 | `id`              | Yes      | Up to 40 letters, digits, dots, dashes and underscores, such as `tests`                   |
 | `text`            | No       | What the item shows, up to 60 characters. Omit it to clear the item                       |
 | `tone`            | No       | `success`, `warning`, `error` or `info`, shown as a dot in the theme's color              |
+| `style`           | No       | `pill` shows the item on a tinted pill, as the agents item is                             |
 | `tooltip`         | No       | Longer detail shown on hover, up to 500 characters                                        |
 | `link`            | No       | HTTP(S) URL the item opens in the default browser when clicked                            |
 | `popover`         | No       | A sandboxed HTML page shown in a popover on click; `link` then shows as a button below it |

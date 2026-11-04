@@ -21,11 +21,12 @@ import {
   MAX_STATUS_POPOVER_MARKDOWN,
   isStatusItemColor,
   STATUS_ITEM_ID_PATTERN,
+  STATUS_ITEM_STYLES,
   STATUS_ITEM_TONES,
 } from '../../../shared/types/status-items';
 import { NOTIFY_KINDS } from '../../../shared/types/workspace';
 import { statusIconDataUrl } from '../../lib/status-icon';
-import { visibleStatusText } from '../../lib/status-item-text';
+import { segmentsPlainText, visibleStatusText } from '../../lib/status-item-text';
 import { MAX_TERMINAL_TEXT_HISTORY } from '../../lib/terminal-text';
 
 import { KomlaOperationError, type KomlaOperation } from './operation';
@@ -102,14 +103,17 @@ export const statusItemSegmentsSchema = z
         })
         .strict(),
       z.object({ icon: statusIconSchema, color: statusItemColorSchema.optional() }).strict(),
+      z
+        .object({ gap: z.literal(true) })
+        .strict()
+        .describe("Space between groups of parts, as between the agents item's counts."),
     ])
   )
   .min(1)
   .max(MAX_STATUS_ITEM_SEGMENTS)
   .refine(
-    (segments) =>
-      fitsStatusItem(segments.map((segment) => ('text' in segment ? segment.text : '')).join('')),
-    `Status item segments are 1 to ${MAX_STATUS_ITEM_TEXT} characters together.`
+    (segments) => fitsStatusItem(segmentsPlainText(segments)),
+    `Status item segments are 1 to ${MAX_STATUS_ITEM_TEXT} characters together, each gap counting as one.`
   )
   .refine(
     (segments) => segments.filter((segment) => 'icon' in segment).length <= MAX_STATUS_ITEM_ICONS,
@@ -400,6 +404,10 @@ export const komlaOperationSchema = z.discriminatedUnion('type', [
       icon: statusIconSchema.optional(),
       iconColor: statusItemColorSchema.optional(),
       tone: z.enum(STATUS_ITEM_TONES).optional(),
+      style: z
+        .enum(STATUS_ITEM_STYLES)
+        .optional()
+        .describe('`pill` shows the item on a tinted pill, as the agents item is.'),
       color: statusItemColorSchema.optional(),
       tooltip: z.string().trim().min(1).max(MAX_STATUS_ITEM_TOOLTIP).optional(),
       link: z.string().min(1).max(MAX_PATH_LEN).optional(),

@@ -1,5 +1,5 @@
 import { Cloud, DesktopTower, DotsSixVertical, Funnel, GearSix } from '@phosphor-icons/react';
-import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useMemo, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { ProjectMark } from '@/components/projects/ProjectMark';
@@ -206,6 +206,9 @@ export function SidebarFilterMenu() {
     projectOptions.length + (hasOtherGroups ? 1 : 0) > 1 ||
     projectOptions.some((p) => hiddenProjectIds.has(p.id));
   const showHosts = hostOptions.length > 1;
+  // Project order only shows while workspaces are grouped by project. Project rows then end in a
+  // drag handle, so tag rows leave its room and every count ends at one edge.
+  const canReorder = showProjects && grouping === 'project' && projectOptions.length > 1;
 
   return (
     <DropdownMenu>
@@ -217,10 +220,7 @@ export function SidebarFilterMenu() {
         </div>
         {(showProjects || showHosts || showTags) && <DropdownMenuSeparator />}
         {showProjects && (
-          <ProjectFilterItems
-            projectOptions={projectOptions}
-            reorderable={grouping === 'project'}
-          />
+          <ProjectFilterItems projectOptions={projectOptions} canReorder={canReorder} />
         )}
         {showHosts && (
           <>
@@ -228,7 +228,7 @@ export function SidebarFilterMenu() {
             <HostFilterItems hostOptions={hostOptions} />
           </>
         )}
-        {showTags && <TagFilterItems {...tagFilter} />}
+        {showTags && <TagFilterItems {...tagFilter} handleSpace={canReorder} />}
         <DropdownMenuSeparator />
         <FoldAwayItems stoppedCount={hidden.stopped} />
         <ShowAllItem hidden={hidden} tagsFiltered={tagsFiltered} offeredTagKeys={offeredTagKeys} />
@@ -431,11 +431,10 @@ function FilterTrigger({
 
 function ProjectFilterItems({
   projectOptions,
-  reorderable,
+  canReorder,
 }: {
   projectOptions: ReturnType<typeof getProjectOptions>['projectOptions'];
-  /** Project order only shows while workspaces are grouped by project. */
-  reorderable: boolean;
+  canReorder: boolean;
 }) {
   const hiddenProjectIds = useWorkspacesStore((s) => s.hiddenProjectIds);
   const hideProjectGroup = useWorkspacesStore((s) => s.hideProjectGroup);
@@ -447,7 +446,6 @@ function ProjectFilterItems({
     id: string;
     position: 'before' | 'after';
   } | null>(null);
-  const canReorder = reorderable && projectOptions.length > 1;
 
   const hideProjectGroups = useWorkspacesStore((s) => s.hideProjectGroups);
   const showOnly = (projectId: string) => {
@@ -518,7 +516,6 @@ function ProjectFilterItems({
         aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
         className={cn(
           'group',
-          canReorder && 'pr-1',
           draggingId === project.id && 'opacity-50',
           dropPosition === 'before' && 'shadow-[inset_0_2px_0_0_var(--color-primary)]',
           dropPosition === 'after' && 'shadow-[inset_0_-2px_0_0_var(--color-primary)]'
@@ -571,6 +568,11 @@ function ProjectFilterItems({
   );
 }
 
+/** A tag's dot in a box of a project icon's size, so tag names line up with project names. */
+function DotBox({ children }: { children: ReactNode }) {
+  return <span className="flex size-3.5 shrink-0 items-center justify-center">{children}</span>;
+}
+
 /**
  * Unchecked, a tag's workspaces move to the Filtered shelf, as hidden working ones do. Untagged
  * does the same for workspaces without a tag, so the list can hold just one tag's workspaces.
@@ -580,10 +582,15 @@ function TagFilterItems({
   untaggedCount,
   offeredTagKeys,
   tagsFiltered,
+  handleSpace,
 }: Pick<
   ReturnType<typeof useTagFilterOptions>,
   'tagOptions' | 'untaggedCount' | 'offeredTagKeys' | 'tagsFiltered'
->) {
+> & {
+  /** Leaves the room of the project rows' drag handles after each count. */
+  handleSpace: boolean;
+}) {
+  const spacer = handleSpace && <span data-handle-space aria-hidden className="w-5 shrink-0" />;
   const hiddenWorkspaceTags = useWorkspacesStore((s) => s.hiddenWorkspaceTags);
   const toggleWorkspaceTagShown = useWorkspacesStore((s) => s.toggleWorkspaceTagShown);
   const setHiddenWorkspaceTags = useWorkspacesStore((s) => s.setHiddenWorkspaceTags);
@@ -618,9 +625,12 @@ function TagFilterItems({
           onSelect={(event) => event.preventDefault()}
           onCheckedChange={() => toggleWorkspaceTagShown(tag.key)}
         >
-          <ToneDot tone={tag.tone} />
+          <DotBox>
+            <ToneDot tone={tag.tone} />
+          </DotBox>
           <span className="truncate">{tag.name}</span>
           <CountWithOnly name={tag.name} count={tag.count} onOnly={onlyFor(tag.key)} />
+          {spacer}
         </DropdownMenuCheckboxItem>
       ))}
       {(untaggedCount > 0 || untaggedHidden) && (
@@ -631,13 +641,16 @@ function TagFilterItems({
           onSelect={(event) => event.preventDefault()}
           onCheckedChange={() => toggleWorkspaceTagShown(UNTAGGED_WORKSPACE_TAG_KEY)}
         >
-          <UntaggedDot />
+          <DotBox>
+            <UntaggedDot />
+          </DotBox>
           <span className="truncate">Untagged</span>
           <CountWithOnly
             name="untagged workspaces"
             count={untaggedCount}
             onOnly={onlyFor(UNTAGGED_WORKSPACE_TAG_KEY)}
           />
+          {spacer}
         </DropdownMenuCheckboxItem>
       )}
     </>

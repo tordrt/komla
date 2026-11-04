@@ -521,6 +521,37 @@ describe('Sidebar', () => {
     expect(projectsState.reorderProject).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps every project's drag handle in place, and leaves tag rows its room, so counts line up", () => {
+    workspaceState.hiddenProjectIds = new Set();
+    workspaceState.workspaces = [
+      { ...activeWorkspace('workspace-1', 'project-1'), tag: 'Blocked' },
+      activeWorkspace('workspace-2', 'project-2'),
+    ];
+
+    renderSidebar();
+
+    // A handle that comes and goes with the highlight would vanish mid-drag and shift its count.
+    expect(screen.getByTestId('drag-project-project-1')).not.toHaveClass('hidden');
+    const projectRow = screen.getByRole('menuitemcheckbox', { name: 'Project One (1)' });
+    expect(projectRow.className).not.toMatch(/data-highlighted:pr-/);
+    const tagRow = screen.getByRole('menuitemcheckbox', { name: 'Blocked (1)' });
+    expect(tagRow.querySelector('[data-handle-space]')).not.toBeNull();
+  });
+
+  it('leaves tag rows no handle room while projects cannot be reordered', () => {
+    workspaceState.hiddenProjectIds = new Set();
+    workspaceState.grouping = 'none';
+    workspaceState.workspaces = [
+      { ...activeWorkspace('workspace-1', 'project-1'), tag: 'Blocked' },
+      activeWorkspace('workspace-2', 'project-2'),
+    ];
+
+    renderSidebar();
+
+    const tagRow = screen.getByRole('menuitemcheckbox', { name: 'Blocked (1)' });
+    expect(tagRow.querySelector('[data-handle-space]')).toBeNull();
+  });
+
   it('offers no project reordering while workspaces are not grouped by project', () => {
     workspaceState.hiddenProjectIds = new Set();
     workspaceState.grouping = 'none';

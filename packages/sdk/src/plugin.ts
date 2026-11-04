@@ -12,13 +12,6 @@ import type {
   KomlaOperationRequest,
 } from './generated.js';
 
-/** A short mark on a panel's tab, such as a count: text or a number, or null for none. */
-export type KomlaPanelBadge =
-  | null
-  | number
-  | string
-  | { text: string | number; tone?: 'success' | 'warning' | 'error' | 'info' };
-
 /** Which workspace something is for; without one, every workspace's. */
 export interface KomlaWorkspaceOptions {
   workspace?: string;
@@ -36,8 +29,6 @@ export interface KomlaPluginPanels {
    * one workspace or every one. Komla keeps the last for pages that open later.
    */
   post(panel: string, data: unknown, options?: KomlaWorkspaceOptions): void;
-  /** Sets or, with null, clears the badge on a panel's tab, in one workspace or every one. */
-  setBadge(panel: string, badge: KomlaPanelBadge, options?: KomlaWorkspaceOptions): void;
   /**
    * Answers what a panel's page sends with `komla.send`. What the handler returns, or the promise
    * resolves to, is the page's reply; what it throws, the page's error. The message comes from a
@@ -130,8 +121,6 @@ export type KomlaPanelPage<C extends KomlaCapability = never> = KomlaClient<C> &
   run(name: string): Promise<void>;
   /** Sends a message to the plugin's code, which answers it with `komla.panels.onMessage`. */
   send(message: unknown): Promise<unknown>;
-  /** Sets or, with null, clears the badge on the panel's tab. */
-  setBadge(badge: KomlaPanelBadge): Promise<void>;
   /**
    * Opens Settings → Plugins at the panel's plugin, where the user fills in its settings, such as
    * a token. Only from a click or key press in the page, and only in a plugin's panel.

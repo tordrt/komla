@@ -1,27 +1,17 @@
 import type { KomlaEventType } from './komla-events';
-import type { StatusItemTone, StatusPopoverContent } from './status-items';
+import type { StatusPopoverContent } from './status-items';
 import type { AgentCapabilityId } from '../constants/agent-capabilities';
 
 /** The longest title a sidebar panel's tab shows. */
 export const MAX_SIDEBAR_PANEL_TITLE = 24;
-/** The longest badge a panel's tab shows, such as a count. */
-export const MAX_SIDEBAR_PANEL_BADGE = 12;
-
-/** A short mark on a panel's tab, such as how many pull requests wait on a review. */
-export interface SidebarPanelBadge {
-  text: string;
-  tone?: StatusItemTone;
-}
-
 /**
- * What a panel's page or its plugin's code set for a panel, beside what its command prints: its
- * badge, and the data its plugin's code posted for its page. `workspaceId` is empty for every
+ * What a panel's plugin's code set for a panel, beside what its command prints: the data it
+ * posted for its page. `workspaceId` is empty for every
  * workspace, as for a panel that runs on this computer.
  */
 export interface SidebarPanelState {
   workspaceId: string;
   id: string;
-  badge?: SidebarPanelBadge;
   /** What the plugin's code posted last, which the page gets as its command's output. */
   data?: SidebarPanelData;
   /** Changes each time the plugin's code posts other data, so windows needn't compare it. */
@@ -36,10 +26,6 @@ export interface SidebarPanelState {
 export interface SidebarPanel {
   id: string;
   title: string;
-  /** The tab's icon, as an image data URL Komla read and checked. */
-  icon?: string;
-  /** Shows the icon's shape in this color: a theme color or a hex color. */
-  iconColor?: string;
   intervalSeconds: number;
   /** The panel has a page of its own, which Komla serves with `komla` in it. */
   page?: true;

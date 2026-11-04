@@ -180,7 +180,7 @@ function inlineTreeMinWidthPx(treeTabsWidthPx: number, cornerWidthPx: number): n
 }
 
 /** The file panel header's padding before its tabs, and the sliver after them. */
-const TREE_HEADER_SPARE_PX = 12;
+const TREE_HEADER_SPARE_PX = 8;
 
 /** The tab row is the top of the window: as tall as the title bar, with room for the caption buttons. */
 function topRowMetrics(): { heightPx: number; captionWidthPx: number } {
@@ -520,7 +520,8 @@ function FileTreeModeTabs({
     // running under the corner buttons.
     <div
       aria-label="File panel view"
-      className="flex min-w-0 items-stretch gap-3.5 self-stretch px-1"
+      // `sidebar-tab-row` names it for the Theme Lab.
+      className="sidebar-tab-row flex min-w-0 items-stretch gap-3.5 self-stretch pl-1"
       style={roomPx > 0 ? { maxWidth: roomPx } : undefined}
     >
       <SidebarTabs
@@ -1862,12 +1863,15 @@ export const TerminalTabs = memo(function TerminalTabs({
     window.addEventListener('mouseup', onMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    // Frames, such as a sidebar panel's page, would keep the mouse's events, and its release.
+    document.body.dataset.panelResizing = '';
 
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      delete document.body.dataset.panelResizing;
     };
   }, [isResizingPreview, setInlineFilePreviewWidth, treeMinWidthPx]);
 
@@ -1918,12 +1922,15 @@ export const TerminalTabs = memo(function TerminalTabs({
     window.addEventListener('mouseup', onMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    // Frames, such as a sidebar panel's page, would keep the mouse's events, and its release.
+    document.body.dataset.panelResizing = '';
 
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      delete document.body.dataset.panelResizing;
     };
   }, [isResizingTree, setInlineFileTreeWidth]);
 

@@ -31,7 +31,7 @@ cp -R examples/plugins/pull-requests ~/.komla/plugins/
 - `main.ts` runs in a process of its own while the plugin is on, as TypeScript without a build.
   When a window opens the panel, it runs the `gh` query with `komla.exec` where that workspace's
   files are, on its SSH host too, and gives every workspace of the repository the result with
-  `komla.panels.post` and the count with `komla.panels.setBadge`. `komla.on('branch.changed')` and
+  `komla.panels.post`. `komla.on('branch.changed')` and
   `komla.on('agent.done')` ask again once a burst of them settles, and `komla.panels.onMessage`
   answers the page's refresh button.
 - Its setting, Hide drafts, shows under the plugin in Settings → Plugins. `main.ts` reads it

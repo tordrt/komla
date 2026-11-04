@@ -555,7 +555,6 @@ export const IPC = {
   SIDEBAR_PANEL_DATA: 'sidebar-panels:data',
   SIDEBAR_PANEL_OPERATION: 'sidebar-panels:operation',
   SIDEBAR_PANEL_STATES: 'sidebar-panels:states',
-  SIDEBAR_PANEL_BADGE: 'sidebar-panels:badge',
   SIDEBAR_PANEL_MESSAGE: 'sidebar-panels:message',
   SIDEBAR_PANEL_INSPECT: 'sidebar-panels:inspect',
   // Sidebar panel events (main → renderer)

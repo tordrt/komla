@@ -95,8 +95,6 @@ function makeKomla(info: Extract<ToPluginHost, { type: 'activate' }>['plugin']):
   const panels: KomlaPluginPanels = {
     post: (panel, data, options) =>
       post({ type: 'panel-post', panel: String(panel), workspace: options?.workspace, data }),
-    setBadge: (panel, badge, options) =>
-      post({ type: 'panel-badge', panel: String(panel), workspace: options?.workspace, badge }),
     onMessage: (panel, handler) => {
       messageHandlers.set(String(panel), handler);
       return () => {

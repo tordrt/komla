@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { CSSProperties } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -18,6 +18,7 @@ import { TooltipProvider } from '../../../../src/renderer/components/ui/tooltip'
 import { useConfigStore } from '../../../../src/renderer/stores/config.store';
 import { useFileViewerStore } from '../../../../src/renderer/stores/file-viewer.store';
 import { useProjectsStore } from '../../../../src/renderer/stores/projects.store';
+import { useSettingsDialogStore } from '../../../../src/renderer/stores/settings-dialog.store';
 import { useSidebarPanelsStore } from '../../../../src/renderer/stores/sidebar-panels.store';
 import { useWorkspacesStore } from '../../../../src/renderer/stores/workspaces.store';
 
@@ -98,24 +99,14 @@ function renderTabs(options: Parameters<typeof tabRow>[0] = {}) {
   return render(tabRow(options));
 }
 
-/**
- * Lays out the unseen row the tabs measure, by each view's width without a badge, as a browser
- * would: a badge adds its own width to its tab.
- */
-function layOutTabs(widths: Record<string, number>, caret = 24, badge = 0) {
+/** Lays out the unseen row the tabs measure, by each view's width, as a browser would. */
+function layOutTabs(widths: Record<string, number>, caret = 24) {
   return vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: Element
   ) {
     const view = (this as HTMLElement).dataset.measureView;
     const inMeasureRow = this.parentElement?.getAttribute('aria-hidden') === 'true';
-    const hasBadge = this.querySelector('[data-sidebar-panel-badge]') !== null;
-    const width = view
-      ? (widths[view] ?? 0) + (hasBadge ? badge : 0)
-      : inMeasureRow
-        ? caret
-        : this.closest('[aria-hidden]') && this.matches('[data-sidebar-panel-badge]')
-          ? badge
-          : 0;
+    const width = view ? (widths[view] ?? 0) : inMeasureRow ? caret : 0;
     return { width, height: 0, x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0 } as DOMRect;
   });
 }
@@ -135,6 +126,19 @@ function tabDrag() {
     dropEffect: 'none',
   };
 }
+
+/** The caret with the menu of every view. */
+const MENU = { name: 'Sidebar tabs' };
+
+/** The menu's lines, in order: its items, the line where the row ends, and its last separator. */
+function menuLines() {
+  const menu = screen.getByRole('menu', MENU);
+  return [...menu.querySelectorAll('[role="menuitem"], [role="separator"]')].map(
+    (line) => line.textContent ?? ''
+  );
+}
+
+const MENU_END = ['', 'Add a panel with your agent…', 'Manage plugins…'];
 
 /** The tab row's buttons, by name, without the menu's. */
 function tabNames() {
@@ -162,33 +166,16 @@ describe('SidebarTabs', () => {
     useProjectsStore.setState({ projects: [{ id: 'p-1', name: 'Komla' } as Project] });
   });
 
-  it('shows the badge a page or plugin code set on its tab', async () => {
-    mockApi();
-    useSidebarPanelsStore.setState({
-      states: {
-        'ws-1\0ci': { workspaceId: 'ws-1', id: 'ci', badge: { text: '3', tone: 'warning' } },
-      },
-    });
-    renderTabs({ isGitWorkspace: false });
-    const tab = await screen.findByRole('button', { name: /CI/ });
-    expect(tab).toHaveTextContent('CI3');
-    expect(tab.querySelector('[data-sidebar-panel-badge="ci"]')).toHaveClass('text-warning');
-
-    act(() => useSidebarPanelsStore.setState({ states: {} }));
-    expect(tab).toHaveTextContent(/^CI$/);
-  });
-
   it('shows Diff and Files, and a menu that adds a panel, while the workspace has none', async () => {
     const user = userEvent.setup();
     const api = mockApi({ list: { panels: [] } });
     renderTabs();
     await waitFor(() => expect(api.listSidebarPanels).toHaveBeenCalledWith('ws-1'));
     expect(tabNames()).toEqual(['Diff', 'Files']);
-    expect(screen.queryByRole('button', { name: 'More sidebar tabs' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Add a sidebar panel' }));
-    expect(screen.queryByRole('menuitemradio')).not.toBeInTheDocument();
-    await user.click(await screen.findByRole('menuitem', { name: 'Add a panel with your agent…' }));
+    await user.click(screen.getByRole('button', MENU));
+    expect(menuLines()).toEqual(['Diff', 'Files', ...MENU_END]);
+    await user.click(screen.getByRole('menuitem', { name: 'Add a panel with your agent…' }));
     expect(addPanelWithAgent).toHaveBeenCalledOnce();
   });
 
@@ -239,35 +226,95 @@ describe('SidebarTabs', () => {
     });
   });
 
-  it("shows two tabs unmeasured, and a picked one takes the place of the one that isn't showing, for the project", async () => {
+  it('shows two tabs unmeasured, and every view in the menu with where the row ends', async () => {
     const user = userEvent.setup();
     mockApi({ list: { panels: [ci, usage] } });
     renderTabs();
 
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'More sidebar tabs' })).toBeVisible()
-    );
-    expect(tabNames()).toEqual(['Diff', 'Files']);
-    await user.click(screen.getByRole('button', { name: 'More sidebar tabs' }));
-    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
-      'Diff',
-      'Files',
-      'CI',
-      'Usage',
-    ]);
-    await user.click(screen.getByRole('menuitemradio', { name: 'CI' }));
+    await waitFor(() => expect(tabNames()).toEqual(['Diff', 'Files']));
+    await user.click(screen.getByRole('button', MENU));
+    expect(menuLines()).toEqual(['Diff', 'Files', "Doesn't fit", 'CI', 'Usage', ...MENU_END]);
+    expect(screen.getByRole('menuitem', { name: 'Diff' })).toHaveAttribute('aria-current', 'true');
+  });
 
-    // Diff was showing, so CI takes Files' place.
+  it("shows a view picked from the menu in the last tab's place, and leaves the order alone", async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [ci, usage] } });
+    renderTabs();
+    await screen.findByRole('button', { name: 'Diff' });
+    await user.click(screen.getByRole('button', MENU));
+    await user.click(screen.getByRole('menuitem', { name: 'CI' }));
+
     expect(useFileViewerStore.getState().inlineSidebarPanelByWorkspace['ws-1']).toEqual({
       id: 'ci',
       shown: true,
     });
     expect(tabNames()).toEqual(['Diff', 'CI']);
     expect(screen.getByRole('button', { name: 'CI' })).toHaveClass('active-tab');
-    // The row as it shows first, then the rest in their order.
-    expect(updateConfig).toHaveBeenCalledWith({
-      projectSidebarTabs: { 'p-1': ['diff', 'panel:ci', 'files', 'panel:usage'] },
+    expect(screen.queryByRole('menu', MENU)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', MENU));
+    expect(menuLines()).toEqual(['Diff', 'Files', "Doesn't fit", 'CI', 'Usage', ...MENU_END]);
+    expect(screen.getByRole('menuitem', { name: 'CI' })).toHaveAttribute('aria-current', 'true');
+    await user.click(screen.getByRole('menuitem', { name: 'Usage' }));
+    expect(tabNames()).toEqual(['Diff', 'Usage']);
+
+    // Files gets its tab back once the tree shows.
+    await user.click(screen.getByRole('button', { name: 'Diff' }));
+    expect(tabNames()).toEqual(['Diff', 'Files']);
+    expect(updateConfig).not.toHaveBeenCalled();
+  });
+
+  it('moves a view in the menu with Alt+Up and Alt+Down, into the row and before the order is saved', async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [ci, usage] } });
+    // Files shows, which keeps its tab wherever it is in the order.
+    act(() => useFileViewerStore.getState().setInlineFileTreeMode('ws-1', 'browse'));
+    renderTabs();
+    await screen.findByRole('button', { name: 'Diff' });
+    await user.click(screen.getByRole('button', MENU));
+    expect(screen.getByRole('menuitem', { name: 'Diff' })).toHaveFocus();
+
+    // Saving takes a round trip to the main process, and the next move starts from this one.
+    updateConfig.mockImplementationOnce(() => new Promise(() => {}));
+    await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
+    expect(updateConfig).toHaveBeenLastCalledWith({
+      projectSidebarTabs: { 'p-1': ['files', 'diff', 'panel:ci', 'panel:usage'] },
     });
+    expect(tabNames()).toEqual(['Files', 'Diff']);
+    expect(screen.getByRole('menuitem', { name: 'Diff' })).toHaveFocus();
+
+    // Down alone goes to the next view; CI moves up above the line, into the row.
+    await user.keyboard('{ArrowDown}{Alt>}{ArrowUp}{/Alt}');
+    expect(updateConfig).toHaveBeenLastCalledWith({
+      projectSidebarTabs: { 'p-1': ['files', 'panel:ci', 'diff', 'panel:usage'] },
+    });
+    expect(tabNames()).toEqual(['Files', 'CI']);
+    expect(menuLines()).toEqual(['Files', 'CI', "Doesn't fit", 'Diff', 'Usage', ...MENU_END]);
+    expect(screen.getByRole('menuitem', { name: 'CI' })).toHaveFocus();
+  });
+
+  it('moves a view dragged in the menu', async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [ci, usage] } });
+    renderTabs();
+    await screen.findByRole('button', { name: 'Diff' });
+    await user.click(screen.getByRole('button', MENU));
+
+    const usageItem = screen.getByRole('menuitem', { name: 'Usage' });
+    const files = screen.getByRole('menuitem', { name: 'Files' });
+    expect(usageItem).toHaveAttribute('draggable', 'true');
+    const dataTransfer = tabDrag();
+    fireEvent.dragStart(usageItem, { dataTransfer });
+    // Over Files' top half, so before it.
+    fireEvent.dragOver(files, { dataTransfer, clientY: -1 });
+    expect(files).toHaveClass('drop-indicator-before');
+    fireEvent.drop(files, { dataTransfer, clientY: -1 });
+
+    expect(updateConfig).toHaveBeenCalledWith({
+      projectSidebarTabs: { 'p-1': ['diff', 'panel:usage', 'files', 'panel:ci'] },
+    });
+    await waitFor(() => expect(tabNames()).toEqual(['Diff', 'Usage']));
   });
 
   it('shows a panel opened from elsewhere, as by a status item, in place of the last tab', async () => {
@@ -300,12 +347,12 @@ describe('SidebarTabs', () => {
     const user = userEvent.setup();
     mockApi({ list: { panels: [ci, usage] } });
     renderTabs();
-    await screen.findByRole('button', { name: 'More sidebar tabs' });
+    await screen.findByRole('button', { name: 'Diff' });
 
-    // Files isn't showing: Usage takes its place, and Diff stays showing.
+    // Files isn't showing: Usage takes its place, Files Usage's, and Diff stays showing.
     await replaceTab(user, 'Files', 'Usage');
     expect(updateConfig).toHaveBeenLastCalledWith({
-      projectSidebarTabs: { 'p-1': ['diff', 'panel:usage', 'files', 'panel:ci'] },
+      projectSidebarTabs: { 'p-1': ['diff', 'panel:usage', 'panel:ci', 'files'] },
     });
     await waitFor(() => expect(tabNames()).toEqual(['Diff', 'Usage']));
     expect(screen.getByRole('button', { name: 'Diff' })).toHaveClass('active-tab');
@@ -320,7 +367,24 @@ describe('SidebarTabs', () => {
     });
   });
 
-  it('shows as many tabs as fit, and the rest in the menu', async () => {
+  it('keeps a replacement in the row when the tab it replaces only stood in for the last', async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [ci, usage] } });
+    renderTabs();
+    await screen.findByRole('button', { name: 'Diff' });
+    act(() => useFileViewerStore.getState().showInlineSidebarPanel('ws-1', 'usage'));
+    expect(tabNames()).toEqual(['Diff', 'Usage']);
+
+    await replaceTab(user, 'Usage', 'CI');
+    expect(updateConfig).toHaveBeenLastCalledWith({
+      projectSidebarTabs: { 'p-1': ['diff', 'panel:ci', 'files', 'panel:usage'] },
+    });
+    act(() => useFileViewerStore.getState().setInlineFileTreeMode('ws-1', 'diff'));
+    await waitFor(() => expect(tabNames()).toEqual(['Diff', 'CI']));
+  });
+
+  it('shows as many tabs as fit beside the caret, and the menu marks where they end', async () => {
+    const user = userEvent.setup();
     const layout = layOutTabs({ diff: 40, files: 40, 'panel:ci': 40, 'panel:usage': 40 });
     mockApi({ list: { panels: [ci, usage] } });
     const onNarrowestWidthChange = vi.fn();
@@ -328,17 +392,21 @@ describe('SidebarTabs', () => {
 
     // Three tabs and the caret take 144 pixels; four would take 160.
     await waitFor(() => expect(tabNames()).toEqual(['Diff', 'Files', 'CI']));
-    expect(screen.getByRole('button', { name: 'More sidebar tabs' })).toBeInTheDocument();
     // At its narrowest the row is two tabs and the caret.
     expect(onNarrowestWidthChange).toHaveBeenLastCalledWith(104);
+    await user.click(screen.getByRole('button', MENU));
+    expect(menuLines()).toEqual(['Diff', 'Files', 'CI', "Doesn't fit", 'Usage', ...MENU_END]);
+    await user.keyboard('{Escape}');
 
-    rerender(tabRow({ roomPx: 160, onNarrowestWidthChange }));
+    // The caret shows beside every tab too.
+    rerender(tabRow({ roomPx: 184, onNarrowestWidthChange }));
     expect(tabNames()).toEqual(['Diff', 'Files', 'CI', 'Usage']);
-    expect(screen.queryByRole('button', { name: 'More sidebar tabs' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', MENU));
+    expect(menuLines()).toEqual(['Diff', 'Files', 'CI', 'Usage', ...MENU_END]);
 
-    // Narrower than two tabs and the caret, it shows the one showing.
+    // Narrower than two tabs and the caret, it still shows two.
     rerender(tabRow({ roomPx: 60, onNarrowestWidthChange }));
-    expect(tabNames()).toEqual(['Diff']);
+    expect(tabNames()).toEqual(['Diff', 'Files']);
     layout.mockRestore();
   });
 
@@ -357,62 +425,37 @@ describe('SidebarTabs', () => {
     rerender(tabRow({ roomPx: 181, onNarrowestWidthChange, rowStyle }));
     expect(tabNames()).toEqual(['Diff', 'Files']);
 
-    // Four tabs, three gaps and the padding, with no caret.
-    rerender(tabRow({ roomPx: 198, onNarrowestWidthChange, rowStyle }));
+    // Four tabs, the caret, four gaps and the padding.
+    rerender(tabRow({ roomPx: 232, onNarrowestWidthChange, rowStyle }));
     expect(tabNames()).toEqual(['Diff', 'Files', 'CI', 'Usage']);
     layout.mockRestore();
   });
 
-  it('keeps its narrowest width whichever view shows, and whatever its badges', async () => {
+  it('keeps its narrowest width whichever view shows, with room for any tab beside Diff', async () => {
     const user = userEvent.setup();
-    // CI's badge makes its tab wider.
-    const layout = layOutTabs({ diff: 40, files: 40, 'panel:ci': 40, 'panel:usage': 40 }, 24, 40);
-    useSidebarPanelsStore.setState({
-      states: { 'ws-1\0ci': { workspaceId: 'ws-1', id: 'ci', badge: { text: '…' } } },
-    });
+    const layout = layOutTabs({ diff: 40, files: 40, 'panel:ci': 60, 'panel:usage': 40 });
     mockApi({ list: { panels: [ci, usage] } });
     const onNarrowestWidthChange = vi.fn();
     const { rerender } = renderTabs({ roomPx: 150, onNarrowestWidthChange });
-    await waitFor(() => expect(onNarrowestWidthChange).toHaveBeenLastCalledWith(104));
+    // Diff, CI, the widest tab, and the caret.
+    await waitFor(() => expect(onNarrowestWidthChange).toHaveBeenLastCalledWith(124));
 
-    await user.click(screen.getByRole('button', { name: 'More sidebar tabs' }));
-    await user.click(await screen.findByRole('menuitemradio', { name: /^CI/ }));
-    await waitFor(() => expect(tabNames()).toContain('CI…'));
-    // The two widest tabs without their badges, and the caret: the sidebar doesn't resize.
-    expect(onNarrowestWidthChange).toHaveBeenLastCalledWith(104);
+    await user.click(screen.getByRole('button', MENU));
+    await user.click(await screen.findByRole('menuitem', { name: 'Usage' }));
+    await waitFor(() => expect(tabNames()).toContain('Usage'));
+    expect(onNarrowestWidthChange).toHaveBeenLastCalledWith(124);
 
-    // At the narrowest, CI's badge would leave no room for Diff beside it, so it shows as a dot.
-    rerender(tabRow({ roomPx: 104, onNarrowestWidthChange }));
+    // At the narrowest, CI fits whole beside Diff.
+    act(() => useFileViewerStore.getState().showInlineSidebarPanel('ws-1', 'ci'));
+    rerender(tabRow({ roomPx: 124, onNarrowestWidthChange }));
     expect(tabNames()).toEqual(['Diff', 'CI']);
-    const ciTab = screen.getByRole('button', { name: /^CI/ });
-    expect(within(ciTab).getByRole('img', { name: '…' })).toHaveClass('rounded-full');
-
-    // With room for it, it shows in full again.
-    rerender(tabRow({ roomPx: 150, onNarrowestWidthChange }));
-    expect(tabNames()).toEqual(['Diff', 'CI…']);
     layout.mockRestore();
-  });
-
-  it('moves the tabs once, before the order is saved', async () => {
-    const user = userEvent.setup();
-    mockApi({ list: { panels: [ci, usage] } });
-    act(() => useFileViewerStore.getState().setInlineFileTreeMode('ws-1', 'browse'));
-    renderTabs();
-    await screen.findByRole('button', { name: 'More sidebar tabs' });
-    expect(tabNames()).toEqual(['Diff', 'Files']);
-
-    // Saving takes a round trip to the main process.
-    updateConfig.mockImplementationOnce(() => new Promise(() => {}));
-    await user.click(screen.getByRole('button', { name: 'More sidebar tabs' }));
-    await user.click(await screen.findByRole('menuitemradio', { name: 'Usage' }));
-    // Usage takes Diff's place, as Files was showing, without first taking Files'.
-    expect(tabNames()).toEqual(['Usage', 'Files']);
   });
 
   it('moves a dragged tab and keeps the order for the project', async () => {
     mockApi({ list: { panels: [ci, usage] } });
     renderTabs();
-    await screen.findByRole('button', { name: 'More sidebar tabs' });
+    await screen.findByRole('button', { name: 'Diff' });
 
     const files = screen.getByRole('button', { name: 'Files' });
     const diff = screen.getByRole('button', { name: 'Diff' });
@@ -431,12 +474,18 @@ describe('SidebarTabs', () => {
     expect(diff).not.toHaveClass('drop-indicator-left');
   });
 
-  it("doesn't drag tabs in a workspace without a project to keep their order for", async () => {
+  it("doesn't move tabs in a workspace without a project to keep their order for", async () => {
+    const user = userEvent.setup();
     mockApi({ list: { panels: [ci] } });
     useWorkspacesStore.setState({ workspaces: [{ id: 'ws-1' } as Workspace] });
     renderTabs();
-    await screen.findByRole('button', { name: 'More sidebar tabs' });
+    await screen.findByRole('button', { name: 'Diff' });
     expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('draggable', 'false');
+
+    await user.click(screen.getByRole('button', MENU));
+    expect(screen.getByRole('menuitem', { name: 'Files' })).toHaveAttribute('draggable', 'false');
+    await user.keyboard('{Alt>}{ArrowDown}{/Alt}');
+    expect(updateConfig).not.toHaveBeenCalled();
   });
 
   it('offers no view to replace a tab with when the row shows every one', async () => {
@@ -465,9 +514,22 @@ describe('SidebarTabs', () => {
     mockApi({ list: { panels: [ci, usage] } });
     renderTabs();
 
-    await user.click(await screen.findByRole('button', { name: 'More sidebar tabs' }));
+    await user.click(await screen.findByRole('button', MENU));
     await user.click(await screen.findByRole('menuitem', { name: 'Add a panel with your agent…' }));
     expect(addPanelWithAgent).toHaveBeenCalledOnce();
+  });
+
+  it('opens Settings at Plugins from the menu with the other tabs', async () => {
+    const user = userEvent.setup();
+    mockApi({ list: { panels: [ci, usage] } });
+    renderTabs();
+
+    await user.click(await screen.findByRole('button', MENU));
+    await user.click(await screen.findByRole('menuitem', { name: 'Manage plugins…' }));
+    expect(useSettingsDialogStore.getState()).toMatchObject({
+      open: true,
+      target: { tab: 'integrations', card: 'Plugins' },
+    });
   });
 
   it("hides a panel in the workspace's project from its tab, and shows it there again", async () => {
@@ -641,7 +703,6 @@ describe('A panel with a page of its own', () => {
       runSidebarPanelData: vi.fn(async () => ({ data: { count: 1 } })),
       runSidebarPanelOperation: vi.fn(async () => ({ ok: true as const, result: { tags: [] } })),
       sendSidebarPanelMessage: vi.fn(async () => ({ ok: true as const, result: 'started' })),
-      setSidebarPanelBadge: vi.fn(async () => {}),
       onKomlaEvent: vi.fn((listener: (event: KomlaEvent) => void) => {
         eventListeners.push(listener);
         return () => {
@@ -770,21 +831,16 @@ describe('A panel with a page of its own', () => {
     expect(api.getSidebarPanelPage).toHaveBeenCalledTimes(1);
   });
 
-  it("sets its tab's badge and sends its plugin's code messages, saying whether from a click", async () => {
+  it("sends its plugin's code messages, saying whether from a click", async () => {
     const api = mockPageApi();
     const { posted, fromPage } = await renderPage();
     await fromPage({ komlaPanel: 'hello', token: 'secret' });
 
-    await fromPage({ komlaPanel: 'badge', id: 1, badge: { text: 3, tone: 'warning' } });
-    await fromPage({ komlaPanel: 'badge', id: 2, badge: { html: '<b>' } });
+    // Its tab has no badge to set.
+    await fromPage({ komlaPanel: 'badge', id: 2, badge: 3 });
     await fromPage({ komlaPanel: 'send', id: 3, message: { want: 'review' }, token: 'secret' });
     await fromPage({ komlaPanel: 'send', id: 4, message: 'hi' });
 
-    expect(api.setSidebarPanelBadge).toHaveBeenCalledTimes(1);
-    expect(api.setSidebarPanelBadge).toHaveBeenCalledWith('ws-1', 'board', {
-      text: 3,
-      tone: 'warning',
-    });
     expect(api.sendSidebarPanelMessage.mock.calls).toEqual([
       ['ws-1', 'board', { want: 'review' }, { activated: true }],
       ['ws-1', 'board', 'hi', { activated: false }],

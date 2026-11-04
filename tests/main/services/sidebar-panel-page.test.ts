@@ -21,7 +21,6 @@ interface Komla {
   transport: { send(request: unknown, options?: unknown): Promise<unknown> };
   on(type: string, listener: (event: unknown) => void): () => void;
   send(message: unknown): Promise<unknown>;
-  setBadge(badge: unknown): Promise<unknown>;
   openSettings(): Promise<unknown>;
   workspace: { list(input?: unknown, options?: unknown): Promise<unknown> };
   agent: { launch(input: unknown): Promise<unknown> };
@@ -230,14 +229,10 @@ describe("the page's komla", () => {
     ]);
   });
 
-  it("sends messages to the plugin's code and sets the tab's badge", async () => {
+  it("sends messages to the plugin's code", async () => {
     const answered = komla.send({ want: 'review', number: 7 });
-    void komla.setBadge({ text: 3, tone: 'warning' });
-    void komla.setBadge(undefined);
     expect(posted).toEqual([
       { komlaPanel: 'send', id: expect.any(Number), message: { want: 'review', number: 7 } },
-      { komlaPanel: 'badge', id: expect.any(Number), badge: { text: 3, tone: 'warning' } },
-      { komlaPanel: 'badge', id: expect.any(Number), badge: null },
     ]);
     fromKomla({ komlaPanel: 'reply', id: posted[0]!.id, ok: true, result: 'started' });
     await expect(answered).resolves.toBe('started');

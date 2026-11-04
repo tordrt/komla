@@ -1,6 +1,5 @@
 import { IPC } from '../../constants/ipc-channels';
 import {
-  sidebarPanelBadgeArgsSchema,
   sidebarPanelButtonRunArgsSchema,
   sidebarPanelMessageArgsSchema,
   sidebarPanelDataArgsSchema,
@@ -36,7 +35,6 @@ export const sidebarPanelsContract = {
     sidebarPanelOperationArgsSchema
   ).returns<SidebarPanelOperationResult>(),
   [IPC.SIDEBAR_PANEL_STATES]: invoke().returns<SidebarPanelState[]>(),
-  [IPC.SIDEBAR_PANEL_BADGE]: invoke(sidebarPanelBadgeArgsSchema).returns<void>(),
   [IPC.SIDEBAR_PANEL_INSPECT]: invoke().returns<void>(),
   [IPC.SIDEBAR_PANEL_MESSAGE]: invoke(
     sidebarPanelMessageArgsSchema

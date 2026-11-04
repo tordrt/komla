@@ -548,12 +548,12 @@ describe('TerminalTabs', () => {
           },
         },
       });
-      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
-        function (this: HTMLElement) {
-          if (this === strip) return new DOMRect(0, 0, 200, 28);
-          return new DOMRect(tabs.indexOf(this) * 100 - scrollLeft, 0, 100, 28);
-        }
-      );
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: HTMLElement
+      ) {
+        if (this === strip) return new DOMRect(0, 0, 200, 28);
+        return new DOMRect(tabs.indexOf(this) * 100 - scrollLeft, 0, 100, 28);
+      });
 
       act(() => {
         useLayoutStore.getState().selectNextTab();
@@ -1003,20 +1003,29 @@ describe('TerminalTabs', () => {
     });
 
     it.each([
-      ['darwin', '226'],
-      ['linux', '226'],
+      ['darwin', '222'],
+      ['linux', '222'],
       // The Windows window controls (138px) share the header too, right of the corner buttons.
-      ['win32', '364'],
+      ['win32', '360'],
     ] as const)('on %s, keeps the file panel wide enough for its header', (platform, minWidth) => {
       (window.api as { platform: string }).platform = platform;
-      // The Diff/Files tabs measure 90px, the caret that adds a panel 24px and the corner buttons
-      // 100px.
+      // The Diff/Files tabs measure 90px, the caret 24px, the corner buttons 100px, and the header
+      // keeps 8px of padding and sliver.
       vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
         this: Element
       ) {
         const inMeasureRow = this.parentElement?.getAttribute('aria-hidden') === 'true';
         const width = (this as HTMLElement).dataset.measureView ? 45 : inMeasureRow ? 24 : 0;
-        return { width, height: 0, x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0 } as DOMRect;
+        return {
+          width,
+          height: 0,
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: width,
+          bottom: 0,
+        } as DOMRect;
       });
       vi.stubGlobal(
         'ResizeObserver',
@@ -1106,6 +1115,17 @@ describe('TerminalTabs', () => {
 
       fireEvent.doubleClick(handle);
       expect(useFileViewerStore.getState().inlineFileTreeWidthByWorkspace[WORKSPACE_ID]).toBe(0.22);
+    });
+
+    it("lets a drag's mouse events past frames while it lasts, so letting go over a panel's page ends it", () => {
+      setUpWorkspace(['t1']);
+      render(<TerminalTabs />);
+
+      const handle = screen.getByRole('separator', { name: 'Resize file tree panel' });
+      fireEvent.mouseDown(handle, { clientX: 780 });
+      expect(document.body).toHaveAttribute('data-panel-resizing');
+      fireEvent.mouseUp(window);
+      expect(document.body).not.toHaveAttribute('data-panel-resizing');
     });
 
     it('resizes a side-by-side preview from the keyboard', () => {

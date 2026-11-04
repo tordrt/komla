@@ -510,3 +510,67 @@ export const LAB_BOTTOM_ROW_DIVIDERS: readonly LabOption[] = [
     css: `${SIDEBAR_FOOTER}::after {\n  top: 0 !important;\n  height: 100% !important;\n  transform: none !important;\n}\n`,
   },
 ];
+
+// The tabs' look. `sidebar-tab-row`, `sidebar-tab` and `data-active` name them for the lab; the
+// hidden row that measures the tabs has the same names, so the row still fits what it shows.
+const SIDEBAR_TAB_ROW = '.sidebar-tab-row';
+const SIDEBAR_TAB = '.sidebar-tab';
+const SIDEBAR_TAB_ACTIVE = `${SIDEBAR_TAB}[data-active]`;
+
+function sidebarTabLook(row: string, tab: string, active: string, hover = ''): string {
+  return [
+    row && `${SIDEBAR_TAB_ROW} {\n${row}}\n`,
+    `${SIDEBAR_TAB} {\n${tab}}\n`,
+    hover && `${SIDEBAR_TAB}:not([data-active]):hover {\n${hover}}\n`,
+    `${SIDEBAR_TAB_ACTIVE} {\n${active}}\n`,
+  ].join('');
+}
+
+const PILL_TAB =
+  '  box-shadow: none !important;\n  margin: auto 0;\n  height: 22px;\n  padding: 0 8px !important;\n  border-radius: 6px;\n';
+
+export const LAB_SIDEBAR_TAB_LOOKS: readonly LabOption[] = [
+  {
+    id: TODAY_OPTION_ID,
+    name: 'Underline',
+    description: 'Labels, the one showing underlined, as today',
+    css: '',
+  },
+  {
+    id: 'pill',
+    name: 'Pill',
+    description: 'The one showing in a soft rounded wash, like the terminal tabs but lighter',
+    css: sidebarTabLook(
+      '  column-gap: 2px !important;\n',
+      PILL_TAB,
+      '  background-color: oklch(var(--foreground) / 0.08);\n',
+      '  background-color: oklch(var(--foreground) / 0.04);\n'
+    ),
+  },
+  {
+    id: 'segmented',
+    name: 'Segmented',
+    description: 'One rounded track, the one showing raised in it',
+    css: sidebarTabLook(
+      '  column-gap: 2px !important;\n  margin: auto 0;\n  height: 26px;\n  padding: 2px !important;\n  border-radius: 8px;\n  background-color: oklch(var(--foreground) / 0.05);\n',
+      PILL_TAB,
+      '  background-color: oklch(var(--card));\n  box-shadow: 0 1px 2px oklch(0 0 0 / 0.18), 0 0 0 1px oklch(var(--foreground) / 0.08) !important;\n'
+    ),
+  },
+  {
+    id: 'bold',
+    name: 'Bold only',
+    description: 'No underline: the one showing in the full text color',
+    css: sidebarTabLook('', '  box-shadow: none !important;\n', '  font-weight: 600;\n'),
+  },
+  {
+    id: 'accent',
+    name: 'Accent line',
+    description: 'The underline in the accent color',
+    css: sidebarTabLook(
+      '',
+      '',
+      '  box-shadow: inset 0 -2px 0 oklch(var(--komla, var(--brand))) !important;\n'
+    ),
+  },
+];

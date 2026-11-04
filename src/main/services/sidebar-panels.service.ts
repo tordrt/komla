@@ -16,19 +16,14 @@ import {
   type SidebarPanelResult,
 } from '../../shared/types/sidebar-panels';
 import { parseSettingsFile, readSettingsFile } from '../lib/settings-file';
-import { readStatusIcon } from '../lib/status-icon';
 import { ANSI_ESCAPE } from '../lib/status-item-text';
 
 import {
-  COLOR_DESCRIPTION,
   commandRunnerDependencies,
   CommandEntries,
   commandSchema,
   entryIdSchema,
   failureMessage,
-  ICON_DESCRIPTION,
-  iconColorSchema,
-  iconSchema,
   intervalSecondsSchema,
   NAMED_COMMANDS_DESCRIPTION,
   namedCommandsSchema,
@@ -69,7 +64,8 @@ export const sidebarPanelSchema = z
   .object({
     id: entryIdSchema.meta({ description: 'Unique in the file.' }),
     title: z.string().trim().min(1).max(MAX_SIDEBAR_PANEL_TITLE).meta({
-      description: "The panel's tab, beside Diff and Files. Keep it to a word or two.",
+      description:
+        "The panel's tab, beside Diff and Files. Keep it to one short word, as short as theirs where it can be, such as `PRs` rather than `Pull requests`: the sidebar at its narrowest keeps room for the widest tab.",
     }),
     command: commandSchema.optional().meta({
       description:
@@ -108,10 +104,6 @@ export const sidebarPanelSchema = z
     projects: projectsSchema.meta({
       description: 'Project names or ids to show it in; every workspace when left out.',
     }),
-    icon: iconSchema.meta({ description: `An icon before the tab's title: ${ICON_DESCRIPTION}.` }),
-    iconColor: iconColorSchema.meta({
-      description: `Shows the icon's shape in a color: ${COLOR_DESCRIPTION}. Without it, the icon keeps its own colors.`,
-    }),
     commands: namedCommandsSchema.meta({ description: NAMED_COMMANDS_DESCRIPTION }),
   })
   .strict()
@@ -149,8 +141,6 @@ export function parseSidebarPanelsFile(content: string): {
 
 export interface SidebarPanelsDependencies extends CommandRunnerDependencies {
   readFile(): string | undefined;
-  /** A panel's icon as an image; a plugin's icon files are in its folder. */
-  readIcon(value: string, pluginDir?: string): Promise<string | undefined>;
   servePage: ServePage;
   /**
    * Where a panel's own page is: the folder it may load from and its HTML file in it, unless it
@@ -215,39 +205,24 @@ export class SidebarPanelsService {
     this.panels.setPluginEntries(panels);
   }
 
-  /** The panels a workspace shows, with their icons read, and any problem reading the file. */
+  /** The panels a workspace shows, and any problem reading the file. */
   async list(workspaceId: string): Promise<SidebarPanelList> {
     const panels = await Promise.all(
       this.panels
         .forWorkspace(workspaceId)
-        .map(
-          async ({
+        .map(async ({ id, title, intervalSeconds, runOn, plugin, page, command, refreshOn }) => {
+          return {
             id,
             title,
-            icon,
-            iconColor,
             intervalSeconds,
-            runOn,
-            plugin,
-            page,
-            command,
-            refreshOn,
-          }) => {
-            const image = icon && (await this.dependencies.readIcon(icon, plugin?.dir));
-            return {
-              id,
-              title,
-              intervalSeconds,
-              ...(page && { page: true as const, ...(command && { command: true as const }) }),
-              ...(image && { icon: image, ...(iconColor && { iconColor }) }),
-              ...(runOn === 'local' && { runOn }),
-              ...(command && refreshOn && { refreshOn }),
-              ...(plugin && { plugin: plugin.name, pluginId: plugin.id }),
-              ...(page && plugin?.revision && { revision: plugin.revision }),
-              ...(plugin?.development && { development: true as const }),
-            } satisfies SidebarPanel;
-          }
-        )
+            ...(page && { page: true as const, ...(command && { command: true as const }) }),
+            ...(runOn === 'local' && { runOn }),
+            ...(command && refreshOn && { refreshOn }),
+            ...(plugin && { plugin: plugin.name, pluginId: plugin.id }),
+            ...(page && plugin?.revision && { revision: plugin.revision }),
+            ...(plugin?.development && { development: true as const }),
+          } satisfies SidebarPanel;
+        })
     );
     const { problem } = this.panels;
     return { panels, ...(problem && { problem }) };
@@ -291,7 +266,7 @@ export class SidebarPanelsService {
   }
 
   /**
-   * Where a panel's badge and posted data belong in a workspace: the workspace, or '' for every
+   * Where a panel's posted data belongs in a workspace: the workspace, or '' for every
    * one, as for a panel that runs on this computer or without a workspace.
    */
   scope(id: string, workspaceId: string | undefined): string {
@@ -358,7 +333,6 @@ const sidebarPanelsPath = join(settingsPath, 'sidebar-panels.json');
 export const sidebarPanelsService = new SidebarPanelsService({
   ...commandRunnerDependencies(MAX_OUTPUT),
   readFile: () => readSettingsFile(sidebarPanelsPath, DEFAULT_CONTENT),
-  readIcon: (value, pluginDir) => readStatusIcon(pluginDir ?? settingsPath, value),
   servePage: serveCommandPage,
   findPage: (page, pluginDir) => findPanelPage(join(pluginDir ?? settingsPath, page)),
   servePanelPage: (key, { root, entry }, theme) =>

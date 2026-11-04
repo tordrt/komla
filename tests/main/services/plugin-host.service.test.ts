@@ -325,10 +325,10 @@ describe('PluginHostService', () => {
     ).toEqual(['ws-2', 'ws-3', 'ws-4', 'ws-5', 'ws-6', 'ws-7', 'ws-8', 'ws-9', 'ws-10']);
   });
 
-  it('gives its own panels data and badges, and nothing to panels it lacks', () => {
+  it('gives its own panels data, and nothing to panels it lacks', () => {
     const process = started();
     process.send({ type: 'panel-post', panel: 'list', workspace: 'ws-1', data: { prs: [1] } });
-    process.send({ type: 'panel-badge', panel: 'list', badge: { text: 3, tone: 'warning' } });
+    process.send({ type: 'panel-post', panel: 'list', data: { prs: [2] } });
     expect(states.get('ws-1', 'prs.list')).toEqual({
       workspaceId: 'ws-1',
       id: 'prs.list',
@@ -339,11 +339,11 @@ describe('PluginHostService', () => {
     expect(states.get('ws-2', 'prs.list')).toEqual({
       workspaceId: '',
       id: 'prs.list',
-      badge: { text: '3', tone: 'warning' },
+      data: { data: { prs: [2] } },
+      revision: 1,
     });
 
     process.send({ type: 'panel-post', panel: 'other', data: 1 });
-    process.send({ type: 'panel-badge', panel: 'list', badge: { html: '<b>' } });
     process.send({
       type: 'panel-post',
       panel: 'list',
@@ -354,7 +354,6 @@ describe('PluginHostService', () => {
     expect(states.all()).toHaveLength(2);
     expect(service.status().prs.log).toEqual([
       'Komla: the plugin has no panel other.',
-      "Komla: panel list's badge isn't text or a number.",
       `Komla: left out panel list's data, ${MAX_PANEL_POST_BYTES + 3} bytes of JSON, past ${MAX_PANEL_POST_BYTES}.`,
       `Komla: left out panel list's data, ${MAX_PANEL_POST_BYTES + 2} bytes of JSON, past ${MAX_PANEL_POST_BYTES}.`,
     ]);
@@ -405,7 +404,7 @@ describe('PluginHostService', () => {
 
   it('stops code whose plugin is off or changed, and forgets what it set', () => {
     const process = started();
-    process.send({ type: 'panel-badge', panel: 'list', workspace: 'ws-1', badge: 2 });
+    process.send({ type: 'panel-post', panel: 'list', workspace: 'ws-1', data: 2 });
 
     service.sync([{ ...prs, digest: 'b'.repeat(64) }]);
     expect(process.last('deactivate')).toEqual({ type: 'deactivate' });

@@ -12,7 +12,6 @@ import {
   useSidebarPanelsStore,
 } from '@/stores/sidebar-panels.store';
 
-import { sidebarPanelBadgeInputSchema } from '../../../shared/ipc/schemas/sidebar-panels-ipc.schemas';
 import { isBrowserUrl } from '../../../shared/lib/browser-tabs';
 
 import { SidebarPanelHeader } from './SidebarPanelHeader';
@@ -32,7 +31,6 @@ type PageMessage = {
   workspace?: unknown;
   url?: unknown;
   message?: unknown;
-  badge?: unknown;
 };
 
 type Reply = { ok: true; result?: unknown } | Extract<SidebarPanelOperationResult, { ok: false }>;
@@ -50,8 +48,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * while the panel shows. Its command's output, or what its plugin's code posts, comes to it as
  * data when it opens, on its interval and the events it refreshes on while the window can be
  * seen, and when it asks; the window's theme as it changes, and the workspace's events. `komla`
- * in the page asks Komla for the rest: commands the panel names, from a click, links, its tab's
- * badge, messages to its plugin's code, and Komla Operations, which Komla checks against what
+ * in the page asks Komla for the rest: commands the panel names, from a click, links, messages
+ * to its plugin's code, and Komla Operations, which Komla checks against what
  * the panel declares.
  */
 export function SidebarPanelPage({
@@ -197,14 +195,6 @@ export function SidebarPanelPage({
           .getState()
           .openSettings({ tab: 'integrations', cardId: pluginCardId(panel.pluginId) });
         return { ok: true };
-      case 'badge': {
-        const badge = sidebarPanelBadgeInputSchema.safeParse(message.badge);
-        if (!badge.success) {
-          return failed('INVALID_BADGE', 'A badge is text or a number, with a tone, or null.');
-        }
-        await window.api.setSidebarPanelBadge(workspaceId, panel.id, badge.data);
-        return { ok: true };
-      }
       case 'call': {
         if (!isRecord(message.request)) {
           return failed('INVALID_OPERATION', 'An operation is an object with a type.');

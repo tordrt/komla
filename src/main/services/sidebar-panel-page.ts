@@ -146,8 +146,6 @@ const BRIDGE_SCRIPT = `(() => {
     },
     /** Sends a message to the plugin's code, and resolves to its answer. */
     send: (message) => ask({ komlaPanel: 'send', message }),
-    /** Sets the badge on the panel's tab: text or a number, with a tone; null clears it. */
-    setBadge: (badge) => ask({ komlaPanel: 'badge', badge: badge ?? null }),
     /** Opens Settings at the panel's plugin, to fill in its settings. Only from a click or key press. */
     openSettings: () =>
       clicking()

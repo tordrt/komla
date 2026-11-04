@@ -22,23 +22,15 @@ describe('sidebar panel states', () => {
     });
   });
 
-  it("keeps a panel's data the same object while only its badge changes", async () => {
+  it("keeps a panel's data the same object when the same revision comes again", async () => {
     const { followSidebarPanelStates, useSidebarPanelsStore } =
       await import('../../../src/renderer/stores/sidebar-panels.store');
     followSidebarPanelStates();
     changed({ workspaceId: 'ws-1', id: 'prs', data: { data: { prs: [7] } }, revision: 1 });
     const data = useSidebarPanelsStore.getState().states['ws-1\0prs']!.data;
 
-    changed({
-      workspaceId: 'ws-1',
-      id: 'prs',
-      badge: { text: '1' },
-      data: { data: { prs: [7] } },
-      revision: 1,
-    });
-    const after = useSidebarPanelsStore.getState().states['ws-1\0prs']!;
-    expect(after.badge).toEqual({ text: '1' });
-    expect(after.data).toBe(data);
+    changed({ workspaceId: 'ws-1', id: 'prs', data: { data: { prs: [7] } }, revision: 1 });
+    expect(useSidebarPanelsStore.getState().states['ws-1\0prs']!.data).toBe(data);
 
     changed({ workspaceId: 'ws-1', id: 'prs', data: { data: { prs: [8] } }, revision: 2 });
     expect(useSidebarPanelsStore.getState().states['ws-1\0prs']!.data).toEqual({

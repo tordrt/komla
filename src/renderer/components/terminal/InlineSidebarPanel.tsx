@@ -1,4 +1,4 @@
-import { CaretDown, Warning } from '@phosphor-icons/react';
+import { CaretDown, Check, DotsSixVertical, Warning } from '@phosphor-icons/react';
 import { useLayoutEffect, useState } from 'react';
 
 import {
@@ -10,7 +10,6 @@ import {
   commandSource,
   useCommandPage,
 } from '@/components/command-page/command-page';
-import { CheckedIcon } from '@/components/ui/checked-icon';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -21,16 +20,14 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { IconButton } from '@/components/ui/icon-button';
+import {
+  menuContentClass,
+  menuItemClass,
+  menuLabelClass,
+  menuSeparatorClass,
+} from '@/components/ui/menu-styles';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useNamedActionRunner } from '@/hooks/useNamedActionRunner';
 import { useWorkspaceProjectId } from '@/hooks/useProject';
 import { useRunWhileVisible } from '@/hooks/useRunWhileVisible';
@@ -38,12 +35,13 @@ import { useSidebarPanelChoice, useSidebarPanels } from '@/hooks/useSidebarPanel
 import { addPanelWithAgent } from '@/lib/customize-agent';
 import { hiddenInProjectUpdate, isHiddenInProject } from '@/lib/project-hidden-items';
 import {
-  fittingSidebarTabs,
+  fittingSidebarTabCount,
+  fittingSidebarTabRow,
   keptSidebarTabOrder,
   moveSidebarTab,
+  replaceSidebarTab,
   narrowestSidebarTabRowWidth,
   panelView,
-  pickSidebarTab,
   sidebarTabOrder,
   viewPanelId,
   type SidebarView,
@@ -52,90 +50,28 @@ import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useProjectsStore } from '@/stores/projects.store';
+import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import {
   cachedSidebarPanelPage,
   keepSidebarPanelPage,
   sidebarPanelKey,
-  useSidebarPanelState,
 } from '@/stores/sidebar-panels.store';
 
 import { SidebarPanelHeader } from './SidebarPanelHeader';
 import { SidebarPanelPage } from './SidebarPanelPage';
 
 import type { SidebarPanel } from '../../../shared/types/sidebar-panels';
-import type { StatusItemTone } from '../../../shared/types/status-items';
 import type { ReactElement } from 'react';
 
 const SIDEBAR_PANELS_FILE = 'sidebar-panels.json';
 
-function PanelIcon({ panel }: { panel: SidebarPanel }) {
-  if (!panel.icon) return null;
-  return (
-    <CheckedIcon
-      src={panel.icon}
-      color={panel.iconColor}
-      className={cn('shrink-0', panel.iconColor ? 'size-3.5' : 'h-3.5 w-auto max-w-7')}
-    />
-  );
-}
-
-const BADGE_TONES: Record<StatusItemTone, string> = {
-  success: 'bg-success/15 text-success',
-  warning: 'bg-warning/15 text-warning',
-  error: 'bg-destructive/15 text-destructive',
-  info: 'bg-info/15 text-info',
-};
-
-const BADGE_DOT_TONES: Record<StatusItemTone, string> = {
-  success: 'bg-success',
-  warning: 'bg-warning',
-  error: 'bg-destructive',
-  info: 'bg-info',
-};
-
-/**
- * The badge a panel's page or plugin code set on its tab, such as a count. As a `dot`, it marks the
- * tab's corner in its tone, taking no room, with its text on hover.
- */
-export function SidebarPanelBadge({
-  workspaceId,
-  panelId,
-  dot = false,
-}: {
-  workspaceId: string;
-  panelId: string;
-  dot?: boolean;
-}) {
-  const badge = useSidebarPanelState(workspaceId, panelId)?.badge;
-  if (!badge) return null;
-  if (dot) {
-    return (
-      <span
-        data-sidebar-panel-badge={panelId}
-        role="img"
-        aria-label={badge.text}
-        title={badge.text}
-        className={cn(
-          'absolute top-1/2 -right-1.5 size-1.5 -translate-y-2.5 rounded-full',
-          badge.tone ? BADGE_DOT_TONES[badge.tone] : 'bg-muted-foreground'
-        )}
-      />
-    );
-  }
-  return (
-    <span
-      data-sidebar-panel-badge={panelId}
-      className={cn(
-        'shrink-0 rounded-full px-1.5 text-[10px] leading-4 font-medium tabular-nums',
-        badge.tone ? BADGE_TONES[badge.tone] : 'bg-muted text-muted-foreground'
-      )}
-    >
-      {badge.text}
-    </span>
-  );
-}
-
 const ADD_PANEL = 'Add a panel with your agent…';
+const MANAGE_PLUGINS = 'Manage plugins…';
+
+/** Settings at its Plugins card, where plugins' panels are turned on, set up or deleted. */
+function openPluginsSettings() {
+  useSettingsDialogStore.getState().openSettings({ tab: 'integrations', card: 'Plugins' });
+}
 
 const TREE_VIEWS: Record<'diff' | 'files', { label: string; title: string }> = {
   diff: { label: 'Diff', title: 'Show changed files' },
@@ -189,9 +125,10 @@ function useSidebarViews(workspaceId: string, isGitWorkspace: boolean) {
     if (panelId) showPanel(workspaceId, panelId);
     else requestModeChange(workspaceId, view === 'diff' ? 'diff' : 'browse');
   };
-  const keep = (row: readonly SidebarView[]) => {
+  /** Keeps the views in `first`'s order, then the rest in the order they had. */
+  const keep = (first: readonly SidebarView[]) => {
     if (!projectId) return;
-    const next = keptSidebarTabOrder(row, order, kept);
+    const next = keptSidebarTabOrder(first, order, kept);
     if (next.join() === (kept ?? []).join()) return;
     const pending = { projectId, order: next };
     setSaving(pending);
@@ -210,14 +147,11 @@ function useSidebarViews(workspaceId: string, isGitWorkspace: boolean) {
     show,
     /** Whether the user can arrange the tabs, which needs a project to keep their order for. */
     canKeep: projectId !== null,
-    /** From the menu: shows the view, in place of the last tab that isn't showing. */
-    pick: (row: readonly SidebarView[], view: SidebarView) => {
-      keep(pickSidebarTab(row, view, showing));
-      show(view);
-    },
-    /** From a tab's right-click: puts the view in that tab's place, showing it if that tab was. */
+    /** From the menu with every view: keeps `next` as the order. */
+    reorder: (next: readonly SidebarView[]) => keep(next),
+    /** From a tab's right-click: the view takes that tab's place, showing if that tab was. */
     replace: (row: readonly SidebarView[], tab: SidebarView, view: SidebarView) => {
-      keep(row.map((placed) => (placed === tab ? view : placed)));
+      keep(replaceSidebarTab(row, order, tab, view));
       if (tab === showing) show(view);
     },
     /** From dragging a tab: moves the one at `from` to before the one at `to`, or to the end. */
@@ -319,42 +253,208 @@ export function SidebarTabsMenu({
           ))}
         {(target || hiddenHere.length > 0) && <ContextMenuSeparator />}
         <ContextMenuItem onSelect={addPanelWithAgent}>{ADD_PANEL}</ContextMenuItem>
+        <ContextMenuItem onSelect={openPluginsSettings}>{MANAGE_PLUGINS}</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
 }
 
-/** What a tab shows: a panel's icon, title and badge, or Diff or Files. */
-function SidebarTabLabel({
-  workspaceId,
-  view,
-  panel,
-  dotBadge = false,
-}: {
-  workspaceId: string;
-  view: SidebarView;
-  panel: SidebarPanel | undefined;
-  dotBadge?: boolean;
-}) {
+/** What a tab shows: a panel's title, or Diff or Files. */
+function SidebarTabLabel({ view, panel }: { view: SidebarView; panel: SidebarPanel | undefined }) {
   if (!panel) return <>{TREE_VIEWS[view as 'diff' | 'files'].label}</>;
-  return (
-    <>
-      <PanelIcon panel={panel} />
-      <span className="truncate">{panel.title}</span>
-      <SidebarPanelBadge workspaceId={workspaceId} panelId={panel.id} dot={dotBadge} />
-    </>
-  );
+  return <span className="truncate">{panel.title}</span>;
 }
 
 const SIDEBAR_TAB_DRAG_MIME = 'application/x-komla-sidebar-tab';
+const SIDEBAR_VIEW_DRAG_MIME = 'application/x-komla-sidebar-view';
+
+/**
+ * The caret's menu: every view in the order the user keeps, with a line where the ones that fit
+ * in the row end, then adding a panel and managing plugins. Clicking a view shows it, in the last
+ * tab's place when it has no tab, and leaves the order alone; dragging a view, or Alt+Up and
+ * Alt+Down on it, moves it in the order, and above the line into the row.
+ */
+function SidebarViewsMenu({
+  order,
+  fits,
+  showing,
+  canKeep,
+  labelOf,
+  onShow,
+  onReorder,
+}: {
+  order: readonly SidebarView[];
+  /** How many views at the start of the order the row has room for. */
+  fits: number;
+  showing: SidebarView;
+  canKeep: boolean;
+  labelOf: (view: SidebarView) => string;
+  onShow: (view: SidebarView) => void;
+  onReorder: (next: SidebarView[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<HTMLElement | null>(null);
+  const [dragged, setDragged] = useState<SidebarView | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ index: number; after: boolean } | null>(null);
+  // The view moved from the keyboard, to keep focus on once the list shows it in its new place.
+  const [moved, setMoved] = useState<SidebarView | null>(null);
+  const endDrag = () => {
+    setDragged(null);
+    setDropTarget(null);
+  };
+  useLayoutEffect(() => {
+    if (!moved || !list) return;
+    list.querySelector<HTMLElement>(`[data-sidebar-view="${CSS.escape(moved)}"]`)?.focus();
+  }, [moved, list, order]);
+
+  const items = () => [...(list?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+  const focusBy = (from: HTMLElement, step: number) => {
+    const all = items();
+    all[(all.indexOf(from) + step + all.length) % all.length]?.focus();
+  };
+  const choose = (action: () => void) => {
+    setOpen(false);
+    action();
+  };
+  const item = (label: string, action: () => void) => (
+    <button
+      type="button"
+      role="menuitem"
+      tabIndex={-1}
+      className={cn(menuItemClass, 'w-full pl-[26px] text-left')}
+      onClick={() => choose(action)}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          focusBy(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1);
+        }
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        setMoved(null);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <IconButton
+          label="Sidebar tabs"
+          size="xs"
+          variant="ghost"
+          // Beside the last tab rather than a whole gap after it.
+          className="my-auto -ml-2.5 shrink-0 text-muted-foreground"
+        >
+          <CaretDown />
+        </IconButton>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className={cn(menuContentClass, 'w-auto max-w-72 min-w-48')}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          list?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+        }}
+      >
+        <div ref={setList} role="menu" aria-label="Sidebar tabs">
+          {order.map((view, index) => (
+            <div key={view}>
+              {index === fits && (
+                <div role="separator" className={cn(menuLabelClass, 'flex items-center gap-2')}>
+                  <span className="h-px flex-1 bg-foreground/10" />
+                  Doesn't fit
+                  <span className="h-px flex-1 bg-foreground/10" />
+                </div>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                data-sidebar-view={view}
+                aria-current={view === showing ? 'true' : undefined}
+                aria-keyshortcuts={canKeep ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
+                draggable={canKeep && order.length > 1}
+                onClick={() => choose(() => onShow(view))}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                  event.preventDefault();
+                  const step = event.key === 'ArrowDown' ? 1 : -1;
+                  if (!event.altKey) {
+                    focusBy(event.currentTarget, step);
+                    return;
+                  }
+                  const to = index + step;
+                  if (!canKeep || to < 0 || to >= order.length) return;
+                  setMoved(view);
+                  onReorder(moveSidebarTab(order, index, step > 0 ? to + 1 : to));
+                }}
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData(SIDEBAR_VIEW_DRAG_MIME, view);
+                  setDragged(view);
+                }}
+                onDragEnd={endDrag}
+                onDragOver={(event) => {
+                  if (!dragged || !event.dataTransfer.types.includes(SIDEBAR_VIEW_DRAG_MIME))
+                    return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const after = event.clientY > rect.top + rect.height / 2;
+                  if (dropTarget?.index !== index || dropTarget.after !== after) {
+                    setDropTarget({ index, after });
+                  }
+                }}
+                onDragLeave={() => setDropTarget(null)}
+                onDrop={(event) => {
+                  if (!dragged) return;
+                  event.preventDefault();
+                  const from = order.indexOf(dragged);
+                  const to = dropTarget?.after ? index + 1 : index;
+                  endDrag();
+                  if (from !== -1 && to !== from && to !== from + 1) {
+                    onReorder(moveSidebarTab(order, from, to));
+                  }
+                }}
+                className={cn(
+                  menuItemClass,
+                  'group w-full pr-2 pl-1 text-left',
+                  dragged === view && 'opacity-50',
+                  dropTarget?.index === index &&
+                    (dropTarget.after ? 'drop-indicator-after' : 'drop-indicator-before')
+                )}
+              >
+                <DotsSixVertical
+                  aria-hidden
+                  className={cn(
+                    'size-3.5 text-muted-foreground',
+                    canKeep ? 'cursor-grab opacity-60 group-hover:opacity-100' : 'invisible'
+                  )}
+                />
+                <span className="min-w-0 flex-1 truncate">{labelOf(view)}</span>
+                {view === showing && <Check aria-hidden className="size-3.5" />}
+              </button>
+            </div>
+          ))}
+          <div role="separator" className={menuSeparatorClass} />
+          {item(ADD_PANEL, addPanelWithAgent)}
+          {item(MANAGE_PLUGINS, openPluginsSettings)}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 /** The warning a sidebar-panels.json Komla can't read shows after the tabs. */
 const PROBLEM_ICON_WIDTH_PX = 14;
 
 interface SidebarTabWidths {
   /** Each view's tab, with the gap after it. */
   tabs: Record<string, number>;
-  /** Each view's tab without its badge, with the gap after it. */
-  labels: Record<string, number>;
   /** The menu's caret, with the gap after it. */
   caret: number;
   /** The gap between the row's items. */
@@ -369,14 +469,13 @@ function pixels(value: string): number {
 
 /**
  * Each view's tab width and the caret's, measured from a row of them all that no one sees, again
- * whenever that row's size changes, as when a badge does, with the gap and padding of the row
+ * whenever that row's size changes, as when fonts load, with the gap and padding of the row
  * they sit in. Empty until laid out.
  */
 function useSidebarTabWidths(viewsKey: string) {
   const [measureRow, setMeasureRow] = useState<HTMLElement | null>(null);
   const [widths, setWidths] = useState<SidebarTabWidths>({
     tabs: {},
-    labels: {},
     caret: 0,
     gap: 0,
     padding: 0,
@@ -388,7 +487,6 @@ function useSidebarTabWidths(viewsKey: string) {
       const gap = style ? pixels(style.columnGap) : 0;
       const padding = style ? pixels(style.paddingLeft) + pixels(style.paddingRight) : 0;
       const tabs: Record<string, number> = {};
-      const labels: Record<string, number> = {};
       let caret = 0;
       for (const element of measureRow.children) {
         const view = (element as HTMLElement).dataset.measureView;
@@ -398,13 +496,6 @@ function useSidebarTabWidths(viewsKey: string) {
           continue;
         }
         tabs[view] = width && width + gap;
-        // The badge and the gap before it.
-        const badge = element.querySelector('[data-sidebar-panel-badge]');
-        const badgeWidth = badge
-          ? badge.getBoundingClientRect().width +
-            pixels(getComputedStyle(badge.parentElement ?? badge).columnGap)
-          : 0;
-        labels[view] = width && width - badgeWidth + gap;
       }
       const same = (a: Record<string, number>, b: Record<string, number>) =>
         Object.keys(a).length === Object.keys(b).length &&
@@ -413,10 +504,9 @@ function useSidebarTabWidths(viewsKey: string) {
         previous.caret === caret &&
         previous.gap === gap &&
         previous.padding === padding &&
-        same(tabs, previous.tabs) &&
-        same(labels, previous.labels)
+        same(tabs, previous.tabs)
           ? previous
-          : { tabs, labels, caret, gap, padding }
+          : { tabs, caret, gap, padding }
       );
     };
     measure();
@@ -430,11 +520,11 @@ function useSidebarTabWidths(viewsKey: string) {
 
 /**
  * The sidebar's tabs: Diff (which needs git), Files and its panels, in the order the user keeps
- * for the workspace's project, as many whole tabs as fit in `roomPx`, and a menu with every one of
- * them when some don't fit, or to add a panel while there's none. Picking one from the menu shows
- * it in place of the last tab that isn't showing, so the one the user came from stays; dragging a
- * tab moves it, and right-clicking one puts another view in its place. A sidebar-panels.json Komla
- * can't read shows as a warning with what's wrong.
+ * for the workspace's project, as many whole tabs as fit in `roomPx`, and a caret's menu with
+ * every view in that order. Only the user changes the order: by dragging a tab, by moving a view
+ * in the menu, or by right-clicking a tab to put another view in its place. A view shown without
+ * a tab, as from the menu, takes the last tab's place until another shows. A sidebar-panels.json
+ * Komla can't read shows as a warning with what's wrong.
  */
 export function SidebarTabs({
   workspaceId,
@@ -452,7 +542,7 @@ export function SidebarTabs({
   /** Called with the row's width with only two tabs, for the sidebar's narrowest. */
   onNarrowestWidthChange?: (widthPx: number) => void;
 }) {
-  const { list, views, order, showing, panelOf, show, pick, move, canKeep } = useSidebarViews(
+  const { list, order, showing, panelOf, labelOf, show, reorder, move, canKeep } = useSidebarViews(
     workspaceId,
     isGitWorkspace
   );
@@ -461,21 +551,14 @@ export function SidebarTabs({
   );
   // Each item's width counts the gap after it, which the last one doesn't have.
   const besides = (list.problem ? PROBLEM_ICON_WIDTH_PX + widths.gap : 0) + widths.padding;
-  // Without panels, the caret's menu offers to add one.
-  const alwaysCaret = list.panels.length === 0;
-  // Badges become dots rather than leave out a tab the narrowest row has.
-  const { row, dotBadges } = fittingSidebarTabs(order, showing, {
-    widthOf: (view) => widths.tabs[view] ?? 0,
-    titleWidthOf: (view) => widths.labels[view] ?? 0,
+  const measures = {
+    widthOf: (view: SidebarView) => widths.tabs[view] ?? 0,
     caret: widths.caret,
-    alwaysCaret,
-    room: roomPx - besides + widths.gap,
-  });
-  const narrowest = narrowestSidebarTabRowWidth(order, {
-    widthOf: (view) => widths.labels[view] ?? 0,
-    caret: widths.caret,
-    alwaysCaret,
-  });
+  };
+  const room = { ...measures, room: roomPx - besides + widths.gap };
+  const row = fittingSidebarTabRow(order, showing, room);
+  const fits = fittingSidebarTabCount(order, room);
+  const narrowest = narrowestSidebarTabRowWidth(order, measures);
   useLayoutEffect(() => {
     onNarrowestWidthChange?.(narrowest ? narrowest + besides - widths.gap : 0);
   }, [narrowest, besides, widths.gap, onNarrowestWidthChange]);
@@ -495,106 +578,71 @@ export function SidebarTabs({
         : panel.title;
   };
 
+  /** A tab in `tabs`, the row it can be dragged along, at `index`. */
+  const renderTab = (view: SidebarView, index: number, tabs: readonly SidebarView[]) => {
+    const panel = panelOf(view);
+    return (
+      <button
+        key={view}
+        data-sidebar-tab={view}
+        data-active={view === showing ? '' : undefined}
+        onClick={() => show(view)}
+        draggable={canKeep && tabs.length > 1}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData(SIDEBAR_TAB_DRAG_MIME, view);
+          setDragged(view);
+        }}
+        onDragEnd={endDrag}
+        onDragOver={(event) => {
+          if (!dragged || !event.dataTransfer.types.includes(SIDEBAR_TAB_DRAG_MIME)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          const rect = event.currentTarget.getBoundingClientRect();
+          const after = event.clientX > rect.left + rect.width / 2;
+          if (dropTarget?.index !== index || dropTarget.after !== after) {
+            setDropTarget({ index, after });
+          }
+        }}
+        onDragLeave={() => setDropTarget(null)}
+        onDrop={(event) => {
+          if (!dragged) return;
+          event.preventDefault();
+          const from = tabs.indexOf(dragged);
+          const to = dropTarget?.after ? index + 1 : index;
+          endDrag();
+          if (from !== -1 && to !== from && to !== from + 1) move(tabs, from, to);
+        }}
+        className={cn(
+          tabClass(view === showing),
+          'sidebar-tab',
+          // For the drop indicator.
+          'relative',
+          // A panel's title shortens when its tab alone is wider than the narrowest row.
+          panel && 'flex max-w-40 min-w-0 items-center',
+          dragged === view && 'opacity-50',
+          dropTarget?.index === index &&
+            (dropTarget.after ? 'drop-indicator-right' : 'drop-indicator-left')
+        )}
+        title={titleOf(view)}
+      >
+        <SidebarTabLabel view={view} panel={panel} />
+      </button>
+    );
+  };
+
   return (
     <>
-      {row.map((view, index) => {
-        const panel = panelOf(view);
-        return (
-          <button
-            key={view}
-            data-sidebar-tab={view}
-            onClick={() => show(view)}
-            draggable={canKeep && row.length > 1}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = 'move';
-              event.dataTransfer.setData(SIDEBAR_TAB_DRAG_MIME, view);
-              setDragged(view);
-            }}
-            onDragEnd={endDrag}
-            onDragOver={(event) => {
-              if (!dragged || !event.dataTransfer.types.includes(SIDEBAR_TAB_DRAG_MIME)) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = 'move';
-              const rect = event.currentTarget.getBoundingClientRect();
-              const after = event.clientX > rect.left + rect.width / 2;
-              if (dropTarget?.index !== index || dropTarget.after !== after) {
-                setDropTarget({ index, after });
-              }
-            }}
-            onDragLeave={() => setDropTarget(null)}
-            onDrop={(event) => {
-              if (!dragged) return;
-              event.preventDefault();
-              const from = row.indexOf(dragged);
-              const to = dropTarget?.after ? index + 1 : index;
-              endDrag();
-              if (from !== -1 && to !== from && to !== from + 1) move(row, from, to);
-            }}
-            className={cn(
-              tabClass(view === showing),
-              // For the drop indicator.
-              'relative',
-              panel && 'flex max-w-40 min-w-0 items-center gap-1.5',
-              dragged === view && 'opacity-50',
-              dropTarget?.index === index &&
-                (dropTarget.after ? 'drop-indicator-right' : 'drop-indicator-left')
-            )}
-            title={titleOf(view)}
-          >
-            <SidebarTabLabel
-              workspaceId={workspaceId}
-              view={view}
-              panel={panel}
-              dotBadge={dotBadges}
-            />
-          </button>
-        );
-      })}
-      {(alwaysCaret || row.length < views.length) && (
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <IconButton
-              label={row.length < views.length ? 'More sidebar tabs' : 'Add a sidebar panel'}
-              size="xs"
-              variant="ghost"
-              className="my-auto shrink-0 text-muted-foreground"
-            >
-              <CaretDown />
-            </IconButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-40">
-            {row.length < views.length && (
-              <>
-                <DropdownMenuRadioGroup
-                  value={showing}
-                  onValueChange={(view) => pick(row, view as SidebarView)}
-                >
-                  {order.map((view) => {
-                    const panel = panelOf(view);
-                    return (
-                      <DropdownMenuRadioItem key={view} value={view} className="gap-2">
-                        {panel ? (
-                          <>
-                            <PanelIcon panel={panel} />
-                            <span className="truncate">{panel.title}</span>
-                            <span className="ml-auto">
-                              <SidebarPanelBadge workspaceId={workspaceId} panelId={panel.id} />
-                            </span>
-                          </>
-                        ) : (
-                          TREE_VIEWS[view as 'diff' | 'files'].label
-                        )}
-                      </DropdownMenuRadioItem>
-                    );
-                  })}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <DropdownMenuItem onSelect={addPanelWithAgent}>{ADD_PANEL}</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      {row.map((view, index) => renderTab(view, index, row))}
+      <SidebarViewsMenu
+        order={order}
+        fits={fits}
+        showing={showing}
+        canKeep={canKeep}
+        labelOf={labelOf}
+        onShow={show}
+        onReorder={reorder}
+      />
       {list.problem && (
         <span
           role="img"
@@ -609,22 +657,25 @@ export function SidebarTabs({
       <div
         ref={setMeasureRow}
         aria-hidden
-        className="pointer-events-none invisible absolute top-0 left-0 flex h-full"
+        // As wide as its tabs, however narrow the header, so none shrinks as it is measured.
+        className="pointer-events-none invisible absolute top-0 left-0 flex h-full w-max"
       >
         {order.map((view) => (
-          <div key={view} data-measure-view={view} className="flex">
+          <div key={view} data-measure-view={view} className="flex shrink-0">
             <span
+              data-active={view === showing ? '' : undefined}
               className={cn(
                 tabClass(view === showing),
-                panelOf(view) && 'flex max-w-40 min-w-0 items-center gap-1.5'
+                'sidebar-tab',
+                panelOf(view) && 'flex max-w-40 min-w-0 items-center'
               )}
             >
-              <SidebarTabLabel workspaceId={workspaceId} view={view} panel={panelOf(view)} />
+              <SidebarTabLabel view={view} panel={panelOf(view)} />
             </span>
           </div>
         ))}
         <div className="flex">
-          <span className="my-auto inline-flex size-6 shrink-0" />
+          <span className="my-auto -ml-2.5 inline-flex size-6 shrink-0" />
         </div>
       </div>
     </>

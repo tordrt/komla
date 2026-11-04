@@ -1,8 +1,8 @@
 # Komla Integrations: Status Bar Items, Sidebar Panels and Plugins
 
 What Komla shows of the user's own tools: a status bar item for a glance, a sidebar panel for a
-list or a board beside their work, and a plugin that bundles them, with code of its own when
-commands fall short. Each section below builds on the one before.
+list or a board beside their work, and a plugin that bundles them, run by shell commands, by
+TypeScript code of its own, or by both. Each section below builds on the one before.
 
 A status bar item shows a few words from a command, refreshed on an interval, in every workspace or
 a project's, and can open a popover with more and buttons that run commands. Change them with
@@ -82,7 +82,7 @@ A sidebar panel is a page in the workspace's sidebar, beside Diff and Files, for
 more room than a popover: the last test run's failures, a CI run's jobs, the issues on the user's
 plate. Change them with `komla settings apply sidebar-panels`; `komla settings schema
 sidebar-panels` lists every field. A panel takes a status item's fields, with a `title` for its tab
-in place of `label`, and its `command` prints what a popover command prints, with the same buttons:
+in place of `label` and no icon, and its `command` prints what a popover command prints, with the same buttons:
 
 ```json
 {
@@ -113,8 +113,10 @@ colors included, and `{"markdown": "…"}` as Markdown.
 
 The sidebar's tab row shows Diff, Files and the panels in the order the user drags them to for
 the project, as many as fit its width and at least two, and the rest in a menu at its end, so a
-new panel doesn't crowd the row; right-clicking a tab puts another in its place. Keep `title` to a
-word or two, so more fit.
+new panel doesn't crowd the row; picking one there or right-clicking a tab puts it in a tab's
+place. Keep `title` to one short word, as short as Diff and Files where it can be: `PRs` rather
+than `Pull requests`, `CI` rather than `Build status`. The sidebar at its narrowest keeps room for
+the widest tab, and shorter titles let more fit.
 
 ### A page of its own
 
@@ -146,15 +148,13 @@ scripts run:
   runs the command again.
 - `komla.workspace.list()`, `komla.agent.launch({ destination: "workspace", prompt })` and one such
   method for each Komla Operation, as `komla` commands have them, send it to Komla, with `{
-  workspace }` as a second argument to act on another workspace. `komla.call(request)` sends one as
+workspace }` as a second argument to act on another workspace. `komla.call(request)` sends one as
   it is. Reading and notifying need nothing; anything else needs its capability in `capabilities`.
   Before it launches an agent, moves a workspace to the Trash, links workspaces or opens a folder,
   Komla asks the user, and only from a click in the page. Add `draft: true` to a workspace launch
   to open New Workspace with the prompt, project, agent and mode filled in instead: the user reads
   the prompt there, changes it and starts it, so Komla doesn't ask first. Prefer a draft for a
   button that hands an agent a task from what the page shows, such as "Fix this check".
-- `komla.setBadge(3)` or `komla.setBadge({ text: "Failing", tone: "error" })` marks the panel's
-  tab, as with a count; `null` or `0` clears it.
 - `komla.on("agent.done", event => …)` follows what happens in the workspace, as `refreshOn` names
   it below; `"*"` follows every event.
 - The theme's colors are CSS variables, such as `var(--success)`, which change with the user's
@@ -182,7 +182,8 @@ own, and start from this skeleton:
 <header class="k-header">
   <div class="k-toolbar">
     <label class="k-search">
-      <span class="k-icon">&#xea6d;</span><input class="k-input" type="search" placeholder="Filter runs" />
+      <span class="k-icon">&#xea6d;</span
+      ><input class="k-input" type="search" placeholder="Filter runs" />
     </label>
     <button class="k-icon-button" title="Refresh" aria-label="Refresh">
       <span class="k-icon">&#xeb37;</span>
@@ -192,21 +193,27 @@ own, and start from this skeleton:
 </header>
 <div class="k-banner k-error" hidden></div>
 <details class="k-section" open>
-  <summary class="k-section-header"><span>Failing</span><span class="k-count k-error">2</span></summary>
+  <summary class="k-section-header">
+    <span>Failing</span><span class="k-count k-error">2</span>
+  </summary>
   <ul class="k-list">
     <li>
       <button class="k-item" aria-expanded="false">
         <span class="k-avatar" style="--k-hue: 210">TD</span>
         <span class="k-grow">
           <span class="k-clamp">A title, set with textContent</span>
-          <span class="k-meta"><span>#123</span><span class="k-sep"></span><span>5d ago</span></span>
+          <span class="k-meta"
+            ><span>#123</span><span class="k-sep"></span><span>5d ago</span></span
+          >
         </span>
         <span class="k-icon k-error" title="2 checks failing">&#xf00d;</span>
       </button>
     </li>
   </ul>
 </details>
-<div class="k-empty"><span class="k-icon">&#xeab2;</span><strong>All clear</strong><span>Nothing fails on main.</span></div>
+<div class="k-empty">
+  <span class="k-icon">&#xeab2;</span><strong>All clear</strong><span>Nothing fails on main.</span>
+</div>
 ```
 
 - **The panel's tab and header already name it.** Don't repeat the title. The page's header holds
@@ -266,9 +273,17 @@ An item is one part of what Komla can show; combine it with the rest:
 
 A plugin can have code of its own: a `main` in its `komla-plugin.json`, a JavaScript or TypeScript
 module in its folder such as `main.ts`. Komla runs it without a build step, in a process of its
-own, while the plugin is on, and calls its `activate(komla)`. Give a plugin code when commands on
-an interval fall short: to ask a service once for every workspace that shows it, keep state, or
-answer what its panel's page sends.
+own, while the plugin is on, and calls its `activate(komla)`.
+
+Commands and code are both fine ways to build a plugin, and one plugin can mix them. Pick with the
+user rather than for them, telling them what each gives:
+
+- **Commands** are a line of shell each, in the manifest, which each workspace that shows the item
+  or panel runs on its interval and `refreshOn` events. They need nothing else and are quick to
+  read, but each workspace asks again, and they keep no state between runs.
+- **Code** is TypeScript with the Komla SDK's types. It runs once for every workspace, so it can ask
+  a service once, keep state, follow events, and answer what its panel's page sends. Status bar
+  items still run commands; code feeds panels.
 
 ```ts
 import type { KomlaPlugin } from '@komla/sdk/plugin';
@@ -277,8 +292,6 @@ export function activate(komla: KomlaPlugin) {
   komla.panels.onOpen('ci', async ({ workspace }) => {
     const runs = JSON.parse(await komla.exec('gh run list --json name,conclusion', { workspace }));
     komla.panels.post('ci', runs, { workspace });
-    const failing = runs.filter((run) => run.conclusion === 'failure').length;
-    komla.panels.setBadge('ci', failing && { text: failing, tone: 'error' }, { workspace });
   });
 }
 ```
@@ -287,8 +300,7 @@ export function activate(komla: KomlaPlugin) {
   SSH host for an SSH workspace, and resolves to what it printed; without a workspace, in the
   plugin's folder on this computer.
 - `komla.panels.post(panel, data, { workspace })` gives the plugin's panel's page data, which it
-  gets from `komla.onData`, and `komla.panels.setBadge` marks its tab. Without a workspace, they're
-  for every workspace. `komla.panels.onOpen` says when a window opens the panel, and
+  gets from `komla.onData`; without a workspace, every workspace's page gets it. `komla.panels.onOpen` says when a window opens the panel, and
   `komla.panels.onMessage(panel, (message, { workspace, activated }) => answer)` answers the page's
   `komla.send`. The page shows outside text, so check its messages, and act past the page only
   when `activated`, from a click; the page can launch an agent itself, which Komla asks about, or
@@ -311,7 +323,13 @@ in under the plugin in Settings → Plugins:
   "settings": [
     { "id": "team", "title": "Team", "type": "text", "placeholder": "ENG" },
     { "id": "token", "title": "API token", "type": "secret" },
-    { "id": "sort", "title": "Sort by", "type": "choice", "options": ["updated", "created"], "default": "updated" }
+    {
+      "id": "sort",
+      "title": "Sort by",
+      "type": "choice",
+      "options": ["updated", "created"],
+      "default": "updated"
+    }
   ]
 }
 ```
@@ -322,7 +340,7 @@ in under the plugin in Settings → Plugins:
   `komla.settings.get()`, and follows changes with `komla.settings.onChange(settings => …)`.
 - Its commands get them as variables, `KOMLA_SETTING_TEAM` and so on. On an SSH host they get
   every setting but the secrets, so a command there that needs a token runs with `"runOn":
-  "local"`, or the plugin's code calls the service itself.
+"local"`, or the plugin's code calls the service itself.
 - A secret is encrypted with the OS keychain. You can't read or set one: once the plugin is
   ready, tell the user which secret to enter in Settings → Plugins, and never ask them to paste
   it into the chat.
@@ -335,7 +353,7 @@ in under the plugin in Settings → Plugins:
   since the secret passes through the page; the code checks `activated` before saving.
 
 The Pull requests example in Komla's repository, `examples/plugins/pull-requests`, has code, a
-page, a badge, a setting and a status item that opens the panel.
+page, a setting and a status item that opens the panel.
 
 ## While you work
 

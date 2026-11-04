@@ -30,12 +30,12 @@ for panel pages on the Komla SDK; this records how they're built.
   its command again once a burst of them settles (750 ms). The window runs it, as it runs items on
   their interval, so only what someone can see runs, rather than every workspace's items on every
   file save.
-- **Panel state.** A panel's badge and the data plugin code posts for it live in the main process,
-  per workspace or for every workspace, for as long as Komla runs. They aren't persisted: the code
-  that set them sets them again. A plugin's state goes when its code stops.
+- **Panel state.** The data plugin code posts for a panel lives in the main process, per
+  workspace or for every workspace, for as long as Komla runs. It isn't persisted: the code that
+  posted it posts it again. A plugin's state goes when its code stops.
 - **One surface for pages.** A popover's page and a panel's page share Komla's theme variables,
   fonts and `komla.css`. A panel's page also gets `komla`: one method for each Komla Operation, as
-  the SDK client has them, `on`, `setBadge` and `send`. What a page asks still goes through Komla's
+  the SDK client has them, `on` and `send`. What a page asks still goes through Komla's
   checks (ADR 0008): its manifest's capabilities, a confirmation for risky ones, and only from a
   click. `send` reaches the plugin's code with `activated`, whether it came from a click, and the
   page can't make plugin code act past it unless the code checks that; for an agent launch the

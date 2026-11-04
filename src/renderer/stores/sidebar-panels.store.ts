@@ -35,8 +35,8 @@ interface SidebarPanelsState {
   /** Each page panel's last data, by sidebarPanelKey. */
   data: Record<string, SidebarPanelPageData>;
   /**
-   * What pages and plugin code set for panels, by sidebarPanelStateKey: badges, and data plugin
-   * code posted. An empty workspace id stands for every workspace.
+   * The data plugin code posted for panels, by sidebarPanelStateKey. An empty workspace id stands
+   * for every workspace.
    */
   states: Record<string, SidebarPanelState>;
 }
@@ -55,8 +55,8 @@ function keepSidebarPanelState(state: SidebarPanelState): void {
     const states = { ...current.states };
     const key = sidebarPanelStateKey(state.workspaceId, state.id);
     const before = states[key];
-    if (state.badge === undefined && state.data === undefined) delete states[key];
-    // The same data as before stays the same object, so a badge's change doesn't send it again.
+    if (state.data === undefined) delete states[key];
+    // The same data as before stays the same object, so the page isn't sent it again.
     else if (before?.data && before.revision === state.revision) {
       states[key] = { ...state, data: before.data };
     } else states[key] = state;
@@ -66,7 +66,7 @@ function keepSidebarPanelState(state: SidebarPanelState): void {
 
 let followingStates = false;
 
-/** Follows what pages and plugin code set for panels, from the first window that asks. */
+/** Follows the data plugin code posts for panels, from the first window that asks. */
 export function followSidebarPanelStates(): void {
   if (followingStates) return;
   followingStates = true;

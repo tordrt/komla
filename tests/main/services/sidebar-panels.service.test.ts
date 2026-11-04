@@ -41,9 +41,6 @@ function createService(file: unknown, overrides: Partial<SidebarPanelsDependenci
     canRun: () => true,
     run: vi.fn(async () => '# Tests\n\nAll pass'),
     runLocal: vi.fn(async () => 'local'),
-    readIcon: vi.fn(async (value: string) =>
-      value === 'icons/missing.svg' ? undefined : `data:image/png;base64,${value}`
-    ),
     servePage: vi.fn(async () => 'komla-preview://token/popover.html'),
     findPage: vi.fn(async (page: string, pluginDir?: string) =>
       page === 'panels/missing'
@@ -127,26 +124,18 @@ describe('parseSidebarPanelsFile', () => {
 });
 
 describe('SidebarPanelsService', () => {
-  it("lists the panels for a workspace's project with their icons, and the file's problem", async () => {
+  it("lists the panels for a workspace's project, and the file's problem", async () => {
     const service = createService({
       panels: [
-        { id: 'ci', title: 'CI', command: 'x', icon: 'icons/ci.svg', iconColor: 'success' },
+        { id: 'ci', title: 'CI', command: 'x' },
         { id: 'usage', title: 'Usage', command: 'y', runOn: 'local', intervalSeconds: 300 },
-        { id: 'no-icon', title: 'Odd', command: 'z', icon: 'icons/missing.svg', iconColor: 'info' },
         { id: 'other', title: 'Other', command: 'z', projects: ['elsewhere'] },
       ],
     });
     await expect(service.list('ws-1')).resolves.toEqual({
       panels: [
-        {
-          id: 'ci',
-          title: 'CI',
-          intervalSeconds: 60,
-          icon: 'data:image/png;base64,icons/ci.svg',
-          iconColor: 'success',
-        },
+        { id: 'ci', title: 'CI', intervalSeconds: 60 },
         { id: 'usage', title: 'Usage', intervalSeconds: 300, runOn: 'local' },
-        { id: 'no-icon', title: 'Odd', intervalSeconds: 60 },
       ],
     });
     await expect(service.list('missing')).resolves.toEqual({ panels: [] });
@@ -444,17 +433,12 @@ describe('SidebarPanelsService with plugins', () => {
     title: 'Checks',
     command: 'sh "$KOMLA_PLUGIN_DIR/checks.sh"',
     intervalSeconds: 60,
-    icon: 'icons/checks.svg',
     commands: { rerun: 'sh "$KOMLA_PLUGIN_DIR/rerun.sh"' },
     plugin,
   };
 
-  it("lists a plugin's panels after the file's, naming the plugin, and reads its icon from its folder", async () => {
-    const readIcon = vi.fn(async () => 'data:image/svg+xml;base64,x');
-    const service = createService(
-      { panels: [{ id: 'mine', title: 'Mine', command: 'x' }] },
-      { readIcon }
-    );
+  it("lists a plugin's panels after the file's, naming the plugin", async () => {
+    const service = createService({ panels: [{ id: 'mine', title: 'Mine', command: 'x' }] });
     service.setPluginPanels([pluginPanel]);
     expect(
       (await service.list('ws-1')).panels.map(({ id, plugin, pluginId }) => [id, plugin, pluginId])
@@ -462,7 +446,6 @@ describe('SidebarPanelsService with plugins', () => {
       ['mine', undefined, undefined],
       ['ci.checks', 'CI tools', 'ci'],
     ]);
-    expect(readIcon).toHaveBeenCalledWith('icons/checks.svg', plugin.dir);
   });
 
   it("leaves out a plugin's panel when sidebar-panels.json has its id", async () => {

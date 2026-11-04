@@ -29,6 +29,7 @@ import {
   LAB_QUICK_COMMANDS,
   LAB_SELECTED_WORKSPACES,
   LAB_SIDEBAR_PANELS,
+  LAB_SIDEBAR_TAB_LOOKS,
   LAB_STATUS_BARS,
   LAB_TAB_CORNERS,
   LAB_TOP_ROW_DIVIDERS,
@@ -81,6 +82,8 @@ interface LabChoices {
   newWorkspaceButton: string;
   /** A LAB_SELECTED_WORKSPACES id. */
   selectedWorkspace: string;
+  /** A LAB_SIDEBAR_TAB_LOOKS id. */
+  sidebarTabLook: string;
 }
 
 // The pickers whose options are LabOptions, in the panel's order.
@@ -89,6 +92,7 @@ const OPTION_PICKERS: readonly {
   heading: string;
   options: readonly LabOption[];
 }[] = [
+  { key: 'sidebarTabLook', heading: 'Sidebar tab look', options: LAB_SIDEBAR_TAB_LOOKS },
   { key: 'bottomBar', heading: 'Bottom row', options: LAB_BOTTOM_BARS },
   { key: 'bottomRowDivider', heading: 'Bottom row divider', options: LAB_BOTTOM_ROW_DIVIDERS },
   { key: 'filePanel', heading: 'File panel', options: LAB_FILE_PANELS },
@@ -127,6 +131,7 @@ const DEFAULT_CHOICES: LabChoices = {
   sidebarPanels: TODAY_OPTION_ID,
   newWorkspaceButton: TODAY_OPTION_ID,
   selectedWorkspace: TODAY_OPTION_ID,
+  sidebarTabLook: TODAY_OPTION_ID,
 };
 
 function readJson<T>(key: string, fallback: T): T {

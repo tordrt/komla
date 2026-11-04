@@ -461,7 +461,8 @@ Komla also has built-in items, such as the branch's pull request with its CI che
     {
       "id": "pr",
       "command": "gh pr view --json number,url --jq '{text: \\"PR #\\\\(.number)\\", link: .url}'",
-      "intervalSeconds": 120,
+      "intervalSeconds": 600,
+      "refreshOn": ["branch.changed"],
       "label": "Pull request",
       "projects": ["komla"]
     }
@@ -473,6 +474,7 @@ Field reference:
 - \`id\` — up to 40 letters, digits, dots, dashes and underscores; unique in the file
 - \`command\` — run with the user's shell; plain output shows its first line, with the rest as the tooltip, or print JSON \`{"text", "tone", "tooltip", "link"}\` where \`tone\` is \`success\`, \`warning\`, \`error\` or \`info\` and \`link\` an http(s) URL the item opens; empty output hides the item
 - \`intervalSeconds\` — how often it runs while the workspace is open, 10 or more (default 60); \`komla status refresh <id>\`, as from a hook, runs it again at once
+- \`refreshOn\` — events in the workspace that run it again at once, besides its interval: \`agent.done\`, \`agent.needs-input\`, \`agent.error\`, \`agent.prompt\`, \`workspace.created\`, \`workspace.trashed\`, \`working-tree.changed\` (its uncommitted changes) or \`branch.changed\` (a checkout or commit). Prefer them to a short interval
 - \`timeoutSeconds\` — how long the command and popover command may run, 1 to 600 (default 15)
 - \`runOn\` — \`workspace\` (default) runs it where the workspace's files are; \`local\` runs it on this computer in the home folder, showing the same output in every workspace, for items that don't depend on the workspace
 - \`label\` — shown in place of the output while the command fails
@@ -495,6 +497,7 @@ A panel can instead have a page of its own, \`"page": "panels/<file or folder>"\
       "title": "CI",
       "command": "sh ~/.config/komla/ci-panel.sh",
       "intervalSeconds": 120,
+      "refreshOn": ["branch.changed"],
       "commands": { "rerun": "gh run rerun --failed" },
       "projects": ["komla"]
     }
@@ -508,7 +511,7 @@ Field reference:
 - \`command\` — run with the user's shell; prints \`{"html": "<page>", "buttons": [...]}\` or plain Markdown
 - \`intervalSeconds\` — how often it runs while the panel is open, 10 or more (default 60); it doesn't run while the panel is closed
 - \`timeoutSeconds\` — how long the command may run, 1 to 600 (default 30)
-- \`runOn\`, \`projects\`, \`icon\`, \`iconColor\` and \`commands\` — as for status bar items; \`commands\` are what the page's buttons run
+- \`refreshOn\`, \`runOn\`, \`projects\` and \`commands\` — as for status bar items, while the panel is open; \`commands\` are what the page's buttons run
 
 At most 20 panels. A file Komla can't read shows what is wrong in the sidebar. \`komla skill integrations\` says how to make the page fit Komla's theme.
 
@@ -521,11 +524,10 @@ Commands Komla runs when something happens in a workspace, or on an interval: in
   "_version": 1,
   "hooks": [
     {
-      "id": "lint-after-turn",
-      "event": "agent.done",
-      "command": "if npm run lint --silent; then komla status set lint 'Lint passes' --tone success; else komla status set lint 'Lint fails' --tone error; fi",
-      "timeoutSeconds": 120,
-      "projects": ["komla"]
+      "id": "needs-input-to-phone",
+      "event": "agent.needs-input",
+      "command": "curl -s -d \\"$KOMLA_WORKSPACE_NAME needs input\\" ntfy.sh/my-komla-topic",
+      "runOn": "local"
     }
   ]
 }

@@ -3,15 +3,14 @@ import { join } from 'path';
 import { utilityProcess } from 'electron';
 
 import { pluginSettingChangesSchema } from '../../shared/ipc/schemas/plugins-ipc.schemas';
-import { sidebarPanelBadgeInputSchema } from '../../shared/ipc/schemas/sidebar-panels-ipc.schemas';
 import { MAX_PLUGIN_SETTING_ID, MAX_PLUGIN_SETTINGS } from '../../shared/types/plugins';
 import { createLogger } from '../lib/logger';
 import { MAIN_BUNDLE_DIR } from '../lib/module-path';
 
 import { KomlaOperationError } from './komla-operation/operation';
-import { sidebarPanelBadge, type SidebarPanelStates } from './sidebar-panel-states';
 
 import type { PluginSource } from './plugins.service';
+import type { SidebarPanelStates } from './sidebar-panel-states';
 import type { KomlaEvent } from '../../shared/types/komla-events';
 import type {
   PluginHostState,
@@ -49,7 +48,7 @@ export interface HostedPlugin {
   version?: string;
   /** Its `main`, as an absolute path in its folder. */
   main: string;
-  /** Its panels' ids in the plugin, which its code may post to and badge. */
+  /** Its panels' ids in the plugin, which its code may post to. */
   panels: string[];
   /** Changes whenever its files do, so a changed plugin starts again. */
   digest: string;
@@ -79,7 +78,7 @@ export interface PluginHostDependencies {
     workspaceId: string | undefined,
     timeoutMs: number
   ): Promise<string> | undefined;
-  states: Pick<SidebarPanelStates, 'post' | 'setBadge' | 'forget'>;
+  states: Pick<SidebarPanelStates, 'post' | 'forget'>;
   /**
    * Where a panel's state belongs in a workspace: the workspace, or '' for every one, as without a
    * workspace or for a panel that runs on this computer.
@@ -129,7 +128,7 @@ function failure(error: unknown): PluginHostFailure {
 /**
  * Runs the code of the plugins that have a `main`, each in a utility process of its own (ADR
  * 0009), while they're turned on and their files are as the user saw them. It carries their Komla
- * Operations, commands, panel data and badges to Komla, and Komla's events and their panels'
+ * Operations, commands and panel data to Komla, and Komla's events and their panels'
  * messages to them.
  */
 export class PluginHostService {
@@ -492,9 +491,6 @@ export class PluginHostService {
       case 'panel-post':
         this.postPanelData(running, message);
         return;
-      case 'panel-badge':
-        this.setPanelBadge(running, message);
-        return;
       case 'reply': {
         const waiting = running.pending.get(message.id);
         if (!waiting) return;
@@ -554,25 +550,6 @@ export class PluginHostService {
       this.dependencies.panelScope(panel, stringOrUndefined(message.workspace)),
       panel,
       { data: message.data }
-    );
-  }
-
-  /** Sets the badge on the plugin's panel's tab, if it's text or a number. */
-  private setPanelBadge(
-    running: Running,
-    message: Extract<FromPluginHost, { type: 'panel-badge' }>
-  ): void {
-    const panel = this.panelId(running, message.panel);
-    const badge = sidebarPanelBadgeInputSchema.safeParse(message.badge);
-    if (!panel) return;
-    if (!badge.success) {
-      this.keepOutput(running, `Komla: panel ${message.panel}'s badge isn't text or a number.\n`);
-      return;
-    }
-    this.dependencies.states.setBadge(
-      this.dependencies.panelScope(panel, stringOrUndefined(message.workspace)),
-      panel,
-      sidebarPanelBadge(badge.data)
     );
   }
 

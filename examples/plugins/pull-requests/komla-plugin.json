@@ -9,7 +9,7 @@
     {
       "id": "hide_drafts",
       "title": "Hide drafts",
-      "description": "Leave draft pull requests out of the panel and its badge.",
+      "description": "Leave draft pull requests out of the panel.",
       "type": "boolean",
       "default": false
     }
@@ -18,7 +18,7 @@
     "sidebarPanels": [
       {
         "id": "prs",
-        "title": "Pull requests",
+        "title": "PRs",
         "page": "panels/pull-requests",
         "capabilities": [
           "agent.launch.workspace"

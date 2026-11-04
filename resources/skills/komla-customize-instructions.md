@@ -60,21 +60,22 @@ komla tag "Testing" --spinner --tone info; if komla notify -- npm run test:e2e; 
 ## Hooks
 
 A hook runs a command when an agent finishes, needs input or fails, when a prompt is sent to it,
-when a workspace is created or moved to the Trash, or on a timer. Some ideas: lint after each turn
-and show the result in the status bar; play a sound on this computer when an agent needs input
-(`"runOn": "local"`); tag each workspace while its pull request's checks run, and notify how they
-ended.
+when a workspace is created or moved to the Trash, or on a timer. Use one to act outside what Komla
+already shows, such as telling a phone or a team chat that an agent needs input
+(`"runOn": "local"`), or tagging each workspace while its pull request's checks run and notifying
+how they ended. To update a status bar item or sidebar panel when something happens, give it
+`refreshOn` with the events instead of a hook or a short interval; `komla skill integrations` says
+how.
 
 ```json
 {
   "_version": 1,
   "hooks": [
     {
-      "id": "lint-after-turn",
-      "event": "agent.done",
-      "command": "if npm run lint --silent; then komla status set lint 'Lint passes' --tone success; else komla status set lint 'Lint fails' --tone error; fi",
-      "timeoutSeconds": 120,
-      "projects": ["my-project"]
+      "id": "needs-input-to-phone",
+      "event": "agent.needs-input",
+      "command": "curl -s -d \"$KOMLA_WORKSPACE_NAME needs input\" ntfy.sh/my-komla-topic",
+      "runOn": "local"
     }
   ]
 }

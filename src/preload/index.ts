@@ -83,7 +83,6 @@ import type {
   SettingsApprovalDecision,
 } from '../renderer/types';
 import type { TypedIpcRenderer } from '../shared/ipc/contract';
-import type { SidebarPanelBadgeInput } from '../shared/ipc/schemas/sidebar-panels-ipc.schemas';
 import type { ManagedTmuxFindResult } from '../shared/lib/ssh-tmux-attach';
 import type {
   AskpassRequest,
@@ -1898,7 +1897,7 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.SIDEBAR_PANELS_CHANGED, handler);
   },
 
-  /** What pages and plugin code set for panels: their badges, and data plugin code posted. */
+  /** The data plugin code posted for panels' pages. */
   listSidebarPanelStates: (): Promise<SidebarPanelState[]> =>
     ipcRenderer.invoke(IPC.SIDEBAR_PANEL_STATES),
 
@@ -1908,13 +1907,6 @@ const api = {
     ipcRenderer.on(IPC.SIDEBAR_PANEL_STATE_CHANGED, handler);
     return () => ipcRenderer.removeListener(IPC.SIDEBAR_PANEL_STATE_CHANGED, handler);
   },
-
-  /** The badge a panel's page set on its tab, or null for none. */
-  setSidebarPanelBadge: (
-    workspaceId: string,
-    id: string,
-    badge: SidebarPanelBadgeInput
-  ): Promise<void> => ipcRenderer.invoke(IPC.SIDEBAR_PANEL_BADGE, workspaceId, id, badge),
 
   /** Opens the window's developer tools, to inspect a panel's page. */
   inspectSidebarPanel: (): Promise<void> => ipcRenderer.invoke(IPC.SIDEBAR_PANEL_INSPECT),

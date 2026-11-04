@@ -80,7 +80,7 @@ export const pluginManifestSchema = z
       .optional()
       .meta({
         description:
-          "The plugin's code: a JavaScript or TypeScript module in its folder, such as `main.ts`, which Komla runs without a build step in a process of its own while the plugin is on, and calls as `activate(komla)`. `komla` calls Komla Operations, follows events, runs commands in a workspace, and gives the plugin's panels data and badges, as `komla skill integrations` describes. For an integration that keeps state, or feeds a panel and a status item from one query.",
+          "The plugin's code: a JavaScript or TypeScript module in its folder, such as `main.ts`, which Komla runs without a build step in a process of its own while the plugin is on, and calls as `activate(komla)`. `komla` calls Komla Operations, follows events, runs commands in a workspace, and gives the plugin's panels data, as `komla skill integrations` describes. For an integration that keeps state, or feeds a panel and a status item from one query.",
       }),
     settings: z.array(pluginSettingFieldSchema).max(MAX_PLUGIN_SETTINGS).optional().meta({
       description:
@@ -153,7 +153,7 @@ export const pluginManifestSchema = z
     }
   })
   .meta({
-    description: `A plugin's \`${PLUGIN_MANIFEST}\`, in its own folder in the plugins folder. Its commands get \`KOMLA_PLUGIN_DIR\`, the plugin's folder, when they run on this computer; an SSH workspace's run on its host, where that folder isn't. Its items' and panels' \`icons/<file>\` are in the plugin's folder. Keep state outside that folder: any change to its files stops the plugin. Its links must lead to files in its folder, and the folder itself can't be a link.`,
+    description: `A plugin's \`${PLUGIN_MANIFEST}\`, in its own folder in the plugins folder. Its commands get \`KOMLA_PLUGIN_DIR\`, the plugin's folder, when they run on this computer; an SSH workspace's run on its host, where that folder isn't. Its items' \`icons/<file>\` are in the plugin's folder. Keep state outside that folder: any change to its files stops the plugin. Its links must lead to files in its folder, and the folder itself can't be a link.`,
   });
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;

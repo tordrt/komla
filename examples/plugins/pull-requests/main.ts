@@ -1,7 +1,7 @@
 // The Pull requests plugin's code. Komla runs it in a process of its own while the plugin is on.
 // It asks GitHub once for each repository, however many workspaces show it, and gives each
-// workspace's panel the pull requests and a badge with how many wait on the user's review. It asks
-// again every three minutes, and soon after a workspace's branch changes or an agent finishes there.
+// workspace's panel the pull requests. It asks again every three minutes, and soon after a
+// workspace's branch changes or an agent finishes there.
 import type { KomlaPlugin } from '@komla/sdk/plugin';
 
 const PANEL = 'prs';
@@ -19,7 +19,7 @@ const QUERY = [
 interface PullRequests {
   me: string;
   repo: { nameWithOwner: string; url: string };
-  prs: { author?: { login: string }; reviewRequests?: { login?: string }[]; isDraft?: boolean }[];
+  prs: { isDraft?: boolean }[];
 }
 
 /** The workspaces whose panel opened, by the repository they show, as their project. */
@@ -27,13 +27,6 @@ const watched = new Map<string, Set<string>>();
 const repoOf = new Map<string, string>();
 const settling = new Map<string, ReturnType<typeof setTimeout>>();
 const running = new Map<string, Promise<void>>();
-
-function waitingOnMe({ me, prs }: PullRequests): number {
-  return prs.filter(
-    (pr) =>
-      pr.author?.login !== me && (pr.reviewRequests ?? []).some((request) => request.login === me)
-  ).length;
-}
 
 export function activate(komla: KomlaPlugin) {
   /** Asks GitHub for a repository's pull requests where one of its workspaces is. */
@@ -51,11 +44,7 @@ export function activate(komla: KomlaPlugin) {
         if (komla.settings.get('hide_drafts') === true) {
           data.prs = data.prs.filter((pr) => !pr.isDraft);
         }
-        const waiting = waitingOnMe(data);
-        for (const workspace of workspaces) {
-          komla.panels.post(PANEL, data, { workspace });
-          komla.panels.setBadge(PANEL, waiting && { text: waiting, tone: 'warning' }, { workspace });
-        }
+        for (const workspace of workspaces) komla.panels.post(PANEL, data, { workspace });
       } catch (error) {
         // The page shows what went wrong, such as gh missing or signed out, with what to do.
         const message = error instanceof Error ? error.message : String(error);

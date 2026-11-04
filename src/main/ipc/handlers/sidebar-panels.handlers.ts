@@ -12,7 +12,7 @@ import {
   runSidebarPanelOperation,
   type PanelOperationQuestion,
 } from '../../services/sidebar-panel-operations';
-import { sidebarPanelBadge, sidebarPanelStates } from '../../services/sidebar-panel-states';
+import { sidebarPanelStates } from '../../services/sidebar-panel-states';
 import { sidebarPanelsService } from '../../services/sidebar-panels.service';
 import { windowService } from '../../services/window.service';
 import { handleIpc } from '../validation/ipc-validators';
@@ -70,15 +70,6 @@ export function registerSidebarPanelsHandlers(): void {
   onKomlaEvent((event) => windowService.broadcastToAll(IPC.KOMLA_EVENT, pageEvent(event)));
 
   handleIpc(IPC.SIDEBAR_PANEL_STATES, (): SidebarPanelState[] => sidebarPanelStates.all());
-
-  handleIpc(IPC.SIDEBAR_PANEL_BADGE, (_, [workspaceId, id, badge]): void => {
-    if (!sidebarPanelsService.find(workspaceId, id)) return;
-    sidebarPanelStates.setBadge(
-      sidebarPanelsService.scope(id, workspaceId),
-      id,
-      sidebarPanelBadge(badge)
-    );
-  });
 
   handleIpc(
     IPC.SIDEBAR_PANEL_MESSAGE,

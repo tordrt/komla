@@ -56,7 +56,7 @@ const PAGE = `<style>
 <div class="row"><span class="pass">\uf00c</span><span>Lint</span><span class="muted">40s</span></div>
 <div class="row"><span class="fail">\uf00d</span><span id="e2e">End-to-end</span><span class="muted">6m</span></div>`;
 
-// A plugin with code of its own, in TypeScript, which feeds its panel and badges its tab.
+// A plugin with code of its own, in TypeScript, which feeds its panel.
 const PLUGIN_MAIN = `
 import type { KomlaPlugin } from '@komla/sdk/plugin';
 
@@ -68,7 +68,6 @@ export function activate(komla: KomlaPlugin) {
     const printed = (await komla.exec('echo from-the-workspace', { workspace })).trim();
     const { workspaces } = await komla.workspace.list();
     komla.panels.post('code', { from: 'code', printed, workspaces: workspaces.length } satisfies Hello, { workspace });
-    komla.panels.setBadge('code', { text: 2, tone: 'warning' }, { workspace });
   });
   komla.panels.onMessage('code', async (message, { activated }) => {
     // The page asks for a token while there is none, and the code keeps it in its settings.
@@ -238,8 +237,8 @@ test.describe('Sidebar panels', () => {
     await resizeSidebar(appWindow, 'ArrowRight');
     await expect.poll(() => sidebarTabNames(appWindow)).toEqual(['Diff', 'Files']);
     const narrowest = await sidebarWidth(appWindow);
-    await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click({ timeout: 20_000 });
-    await appWindow.getByRole('menuitemradio', { name: 'Checks' }).click();
+    await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click({ timeout: 20_000 });
+    await appWindow.getByRole('menuitem', { name: 'Checks' }).click();
     await expect(appWindow.getByRole('button', { name: 'Checks', exact: true })).toBeVisible();
     // A panel's tab, wider than Files, doesn't widen the sidebar.
     expect(await sidebarWidth(appWindow)).toBe(narrowest);
@@ -267,10 +266,10 @@ test.describe('Sidebar panels', () => {
       .toBe('1');
 
     // The other panel, from the menu at the end of the tabs.
-    await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click();
+    await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click();
     if (SCREENSHOTS)
       await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tabs-menu.png') });
-    await appWindow.getByRole('menuitemradio', { name: 'Notes' }).click();
+    await appWindow.getByRole('menuitem', { name: 'Notes' }).click();
     const remember = appWindow
       .locator('[data-sidebar-panel="notes"]')
       .getByText('Remember', { exact: true });
@@ -283,55 +282,76 @@ test.describe('Sidebar panels', () => {
       });
     }
 
-    // Notes took the place of the tab that wasn't showing. Files, from the menu, brings the tree
-    // back, and Notes keeps its tab beside it.
-    await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click();
-    await appWindow.getByRole('menuitemradio', { name: 'Files' }).click();
-    await expect(appWindow.locator('[data-sidebar-panel]')).toHaveCount(0);
-    await expect(appWindow.getByRole('button', { name: 'Notes', exact: true })).toBeVisible();
-    await expect(appWindow.getByRole('button', { name: 'Files', exact: true })).toBeVisible();
-
-    // Right-clicking a tab puts another view in its place: Diff beside Notes.
-    await appWindow.getByRole('button', { name: 'Files', exact: true }).click({ button: 'right' });
-    // From the keyboard: at the window's edge the submenu opens over the menu, where a pointer
-    // on its way to Diff would close it.
-    await appWindow.getByRole('menuitem', { name: 'Replace Files with' }).focus();
-    await appWindow.keyboard.press('ArrowRight');
-    const diffItem = appWindow.getByRole('menuitem', { name: 'Diff', exact: true });
-    await expect(diffItem).toBeFocused();
-    if (SCREENSHOTS)
-      await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tab-replace.png') });
-    await appWindow.keyboard.press('Enter');
-    await expect(appWindow.getByRole('button', { name: 'Diff', exact: true })).toBeVisible();
-    await expect(appWindow.getByRole('button', { name: 'Files', exact: true })).toHaveCount(0);
-    await expect.poll(() => sidebarTabNames(appWindow)).toEqual(['Notes', 'Diff']);
-
-    // Widened, the sidebar shows more of them, in the order kept, and the rest stay in the menu.
+    // Notes took the last tab's place while it shows, and left the order alone, so widened, the
+    // sidebar shows Diff and Files first as before.
     await resizeSidebar(appWindow, 'ArrowLeft');
     await expect.poll(async () => (await sidebarTabNames(appWindow)).length).toBeGreaterThan(2);
-    expect((await sidebarTabNames(appWindow)).slice(0, 2)).toEqual(['Notes', 'Diff']);
+    expect((await sidebarTabNames(appWindow)).slice(0, 2)).toEqual(['Diff', 'Files']);
     if (SCREENSHOTS)
       await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tabs-wide.png') });
 
-    // Dragging Diff onto the left half of Notes moves it before Notes.
-    const notesTab = appWindow.locator('[data-sidebar-tab="panel:notes"]');
-    const notesBox = (await notesTab.boundingBox())!;
+    // At the narrowest, dragging Notes in the menu to the top puts it first in the row.
+    await resizeSidebar(appWindow, 'ArrowRight');
+    await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click();
+    const views = appWindow.getByRole('menu', { name: 'Sidebar tabs' });
+    await expect(views.getByRole('separator').first()).toHaveText("Doesn't fit");
+    const firstView = views.getByRole('menuitem').first();
+    await views
+      .getByRole('menuitem', { name: 'Notes' })
+      .dragTo(firstView, { targetPosition: { x: 8, y: 2 } });
+    await expect(firstView).toHaveText('Notes');
+    if (SCREENSHOTS)
+      await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tabs-menu-dragged.png') });
+    await appWindow.keyboard.press('Escape');
+    await expect.poll(() => sidebarTabNames(appWindow)).toEqual(['Notes', 'Diff']);
+
+    // Right-clicking Notes puts another view in its place: the first one its submenu has.
+    await appWindow.getByRole('button', { name: 'Notes', exact: true }).click({ button: 'right' });
+    // From the keyboard: at the window's edge the submenu opens over the menu, where a pointer
+    // on its way to an item would close it.
+    await appWindow.getByRole('menuitem', { name: 'Replace Notes with' }).focus();
+    await appWindow.keyboard.press('ArrowRight');
+    const firstItem = appWindow.locator('[role="menuitem"]:focus');
+    await expect(firstItem).toHaveCount(1);
+    const replacement = (await firstItem.textContent())!;
+    if (SCREENSHOTS)
+      await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tab-replace.png') });
+    await appWindow.keyboard.press('Enter');
+    await expect.poll(() => sidebarTabNames(appWindow)).toContain(replacement);
+    await expect(appWindow.getByRole('button', { name: 'Notes', exact: true })).toHaveCount(0);
+
+    // Widened, dragging the second tab onto the left half of the first moves it before that one.
+    await resizeSidebar(appWindow, 'ArrowLeft');
+    await expect.poll(async () => (await sidebarTabNames(appWindow)).length).toBeGreaterThan(2);
+    const [first, second] = await sidebarTabNames(appWindow);
+    const firstTab = appWindow.locator('[data-sidebar-tab]').first();
+    const firstBox = (await firstTab.boundingBox())!;
     await appWindow
-      .locator('[data-sidebar-tab="diff"]')
-      .dragTo(notesTab, { targetPosition: { x: 4, y: notesBox.height / 2 } });
+      .locator('[data-sidebar-tab]')
+      .nth(1)
+      .dragTo(firstTab, { targetPosition: { x: 4, y: firstBox.height / 2 } });
     await expect
       .poll(async () => (await sidebarTabNames(appWindow)).slice(0, 2))
-      .toEqual(['Diff', 'Notes']);
+      .toEqual([second, first]);
     if (SCREENSHOTS)
       await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'sidebar-tabs-dragged.png') });
+
+    // Files, from its tab or the menu, gives the tree back.
+    const filesTab = appWindow.getByRole('button', { name: 'Files', exact: true });
+    if (await filesTab.count()) await filesTab.click();
+    else {
+      await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click();
+      await appWindow.getByRole('menuitem', { name: 'Files', exact: true }).click();
+    }
+    await expect(appWindow.locator('[data-sidebar-panel]')).toHaveCount(0);
   });
 
   test('runs a page of its own that gets data and reaches Komla through komla', async ({
     appWindow,
   }) => {
     await createWorkspace(appWindow, 'sidebar-panels/board');
-    await appWindow.getByRole('button', { name: 'More sidebar tabs' }).click({ timeout: 20_000 });
-    await appWindow.getByRole('menuitemradio', { name: 'Board' }).click();
+    await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click({ timeout: 20_000 });
+    await appWindow.getByRole('menuitem', { name: 'Board' }).click();
 
     const page = appWindow.locator('[data-sidebar-panel="board"]').frameLocator('iframe');
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', {
@@ -369,7 +389,7 @@ test.describe('Sidebar panels', () => {
       });
   });
 
-  test("runs a plugin's code, which feeds its panel, badges its tab and answers its page", async ({
+  test("runs a plugin's code, which feeds its panel and answers its page", async ({
     appWindow,
   }) => {
     await createWorkspace(appWindow, 'sidebar-panels/code');
@@ -383,9 +403,6 @@ test.describe('Sidebar panels', () => {
     await expect(page.locator('#data')).toHaveText(
       JSON.stringify({ from: 'code', printed: 'from-the-workspace', workspaces: 1 }),
       { timeout: 30_000 }
-    );
-    await expect(appWindow.locator('[data-sidebar-panel-badge="coded.code"]').first()).toHaveText(
-      '2'
     );
 
     await page.locator('#ping').click();

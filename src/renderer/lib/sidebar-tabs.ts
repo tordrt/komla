@@ -1,7 +1,7 @@
 /** What the sidebar shows: the changed files, all files, or a sidebar panel by its id. */
 export type SidebarView = 'diff' | 'files' | `panel:${string}`;
 
-/** The tabs the row shows until it's measured, and the sidebar's narrowest keeps room for. */
+/** The fewest tabs the row shows, and the sidebar's narrowest keeps room for. */
 export const SIDEBAR_MIN_TABS = 2;
 
 /** The most views a project keeps the order of. */
@@ -48,84 +48,71 @@ export function sidebarTabRow(
 
 interface SidebarTabMeasures {
   widthOf: (view: SidebarView) => number;
+  /** The caret of the menu with every view, which always shows after the tabs. */
   caret: number;
-  /** Whether the menu's caret shows beside every tab, as to add a panel when there's none. */
-  alwaysCaret?: boolean;
+}
+
+/** The room `row` takes, with the menu's caret after it. */
+function sidebarTabRowWidth(row: readonly SidebarView[], { widthOf, caret }: SidebarTabMeasures) {
+  return row.reduce((sum, view) => sum + widthOf(view), 0) + caret;
+}
+
+function measured(order: readonly SidebarView[], { widthOf, caret }: SidebarTabMeasures): boolean {
+  return caret > 0 && order.every((view) => widthOf(view) > 0);
 }
 
 /**
- * The row that fits in `room` pixels, with the menu's caret when some views are left out: as many
- * whole tabs as fit, and at least the one showing, so a badge never shortens a title. Unmeasured,
- * before layout or in tests, it shows SIDEBAR_MIN_TABS.
+ * How many views at the start of the order fit in `room` pixels as whole tabs, beside the menu's
+ * caret, and never fewer than SIDEBAR_MIN_TABS: the menu marks where they end.
+ */
+export function fittingSidebarTabCount(
+  order: readonly SidebarView[],
+  measures: SidebarTabMeasures & { room: number }
+): number {
+  const fewest = Math.min(SIDEBAR_MIN_TABS, order.length);
+  if (measures.room <= 0 || !measured(order, measures)) return fewest;
+  let count = order.length;
+  while (count > fewest && sidebarTabRowWidth(order.slice(0, count), measures) > measures.room) {
+    count--;
+  }
+  return count;
+}
+
+/**
+ * The row that fits in `room` pixels beside the menu's caret: as many whole tabs as fit, and never
+ * fewer than SIDEBAR_MIN_TABS, the last of them the one showing when it has no tab, which shortens
+ * its title when it's too wide for that place.
  */
 export function fittingSidebarTabRow(
   order: readonly SidebarView[],
   showing: SidebarView | null,
-  { widthOf, caret, alwaysCaret = false, room }: SidebarTabMeasures & { room: number }
+  measures: SidebarTabMeasures & { room: number }
 ): SidebarView[] {
-  if (room <= 0 || order.some((view) => widthOf(view) <= 0)) {
-    return sidebarTabRow(order, Math.min(SIDEBAR_MIN_TABS, order.length), showing);
+  const fewest = Math.min(SIDEBAR_MIN_TABS, order.length);
+  if (measures.room > 0 && measured(order, measures)) {
+    for (let count = order.length; count > fewest; count--) {
+      const row = sidebarTabRow(order, count, showing);
+      if (sidebarTabRowWidth(row, measures) <= measures.room) return row;
+    }
   }
-  for (let count = order.length; count > 1; count--) {
-    const row = sidebarTabRow(order, count, showing);
-    const width = row.reduce((sum, view) => sum + widthOf(view), 0);
-    if (width + (alwaysCaret || count < order.length ? caret : 0) <= room) return row;
-  }
-  return sidebarTabRow(order, 1, showing);
+  return sidebarTabRow(order, fewest, showing);
 }
 
 /**
- * The row at its narrowest: the SIDEBAR_MIN_TABS widest of the views and the caret, or every view
- * when they take less. `widthOf` leaves out their badges. Its width is 0 until every view is
- * measured.
- */
-function narrowestSidebarTabRow(
-  order: readonly SidebarView[],
-  { widthOf, caret, alwaysCaret = false }: SidebarTabMeasures
-): { width: number; count: number } {
-  const widths = order.map(widthOf).sort((a, b) => b - a);
-  const count = Math.min(SIDEBAR_MIN_TABS, order.length);
-  const more = order.length > count;
-  if (widths.some((width) => width <= 0) || ((more || alwaysCaret) && caret <= 0)) {
-    return { width: 0, count };
-  }
-  const sum = (some: number[]) => some.reduce((total, width) => total + width, 0);
-  const every = sum(widths) + (alwaysCaret ? caret : 0);
-  const fewest = sum(widths.slice(0, count)) + (more || alwaysCaret ? caret : 0);
-  return every <= fewest ? { width: every, count: order.length } : { width: fewest, count };
-}
-
-/**
- * The width the row needs at its narrowest. It doesn't depend on which views come first, which one
- * shows or their badges, so the sidebar doesn't resize as they change. 0 until every view is
- * measured.
+ * The width the row needs at its narrowest: the first tab in the order, whole, the widest of the
+ * rest, as any of them may show beside it, and the caret. It doesn't depend on the one showing,
+ * so the sidebar doesn't resize as views show; only moving the first tab changes it. 0 until
+ * every view is measured.
  */
 export function narrowestSidebarTabRowWidth(
   order: readonly SidebarView[],
   measures: SidebarTabMeasures
 ): number {
-  return narrowestSidebarTabRow(order, measures).width;
-}
-
-/**
- * The row that fits in `room`, and whether its badges show in full or as dots. Badges show in full
- * unless they'd leave fewer whole tabs than the narrowest row has, as when one comes at the
- * narrowest; `widthOf` counts them and `titleWidthOf` doesn't.
- */
-export function fittingSidebarTabs(
-  order: readonly SidebarView[],
-  showing: SidebarView | null,
-  {
-    titleWidthOf,
-    ...measures
-  }: SidebarTabMeasures & { room: number; titleWidthOf: (view: SidebarView) => number }
-): { row: SidebarView[]; dotBadges: boolean } {
-  const full = fittingSidebarTabRow(order, showing, measures);
-  const titles = fittingSidebarTabRow(order, showing, { ...measures, widthOf: titleWidthOf });
-  const promised = narrowestSidebarTabRow(order, { ...measures, widthOf: titleWidthOf }).count;
-  return full.length >= Math.min(titles.length, promised)
-    ? { row: full, dotBadges: false }
-    : { row: titles, dotBadges: true };
+  if (!measured(order, measures)) return 0;
+  const [first, ...rest] = order;
+  if (!first) return measures.caret;
+  const widest = Math.max(0, ...rest.map(measures.widthOf));
+  return measures.widthOf(first) + widest + measures.caret;
 }
 
 /**
@@ -144,19 +131,22 @@ export function keptSidebarTabOrder(
 }
 
 /**
- * The row after the user picks a view from the menu: it takes the place of the last tab that isn't
- * showing, so the one they came from stays.
+ * The order after the user puts `view` in place of the row's `tab`: the view takes the tab's place
+ * in the row as it shows, and the tab the view's place among the rest, so a narrower view doesn't
+ * bring it back into the row.
  */
-export function pickSidebarTab(
+export function replaceSidebarTab(
   row: readonly SidebarView[],
-  picked: SidebarView,
-  showing: SidebarView | null
+  order: readonly SidebarView[],
+  tab: SidebarView,
+  view: SidebarView
 ): SidebarView[] {
-  if (row.includes(picked)) return [...row];
-  const next = [...row];
-  const slot = row.findLastIndex((view) => view !== showing);
-  next[slot === -1 ? row.length - 1 : slot] = picked;
-  return next;
+  const next = row.map((each) => (each === tab ? view : each));
+  const rest = order
+    .filter((each) => each !== tab)
+    .map((each) => (each === view ? tab : each))
+    .filter((each) => !next.includes(each));
+  return [...next, ...rest];
 }
 
 /** The row after the user drags the tab at `from` to before the one at `to`, or to the end. */

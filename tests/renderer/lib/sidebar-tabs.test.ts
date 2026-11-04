@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  fittingSidebarTabCount,
   fittingSidebarTabRow,
-  fittingSidebarTabs,
   keptSidebarTabOrder,
   moveSidebarTab,
   narrowestSidebarTabRowWidth,
-  pickSidebarTab,
+  replaceSidebarTab,
   sidebarTabOrder,
   sidebarTabRow,
   type SidebarView,
@@ -64,8 +64,9 @@ describe('fittingSidebarTabRow', () => {
       'diff',
       'files',
     ]);
-    // Without the caret, as no view is left out.
-    expect(fittingSidebarTabRow(git, 'diff', { widthOf, caret: 24, room: 220 })).toEqual(git);
+    // The caret shows beside every tab too.
+    expect(fittingSidebarTabRow(git, 'diff', { widthOf, caret: 24, room: 244 })).toEqual(git);
+    expect(fittingSidebarTabRow(git, 'diff', { widthOf, caret: 24, room: 243 })).toHaveLength(3);
   });
 
   it('counts the view that shows in place of the last tab', () => {
@@ -76,17 +77,18 @@ describe('fittingSidebarTabRow', () => {
     ]);
   });
 
-  it('shows only whole tabs, at least the one showing, and two until measured', () => {
-    // Usage and the caret fit, but not Diff beside them.
+  it('shows at least the first two tabs, the last of them the one showing, and two until measured', () => {
+    // Usage doesn't fit beside Diff whole, so it shortens its title.
     expect(fittingSidebarTabRow(git, 'panel:usage', { widthOf, caret: 24, room: 110 })).toEqual([
+      'diff',
       'panel:usage',
     ]);
-    expect(fittingSidebarTabRow(git, 'diff', { widthOf, caret: 24, room: 10 })).toEqual(['diff']);
-    // The caret for adding a panel needs room beside every tab.
+    expect(fittingSidebarTabRow(git, 'diff', { widthOf, caret: 24, room: 10 })).toEqual([
+      'diff',
+      'files',
+    ]);
     const tree: SidebarView[] = ['diff', 'files'];
-    const withCaret = { widthOf, caret: 24, alwaysCaret: true };
-    expect(fittingSidebarTabRow(tree, 'diff', { ...withCaret, room: 103 })).toEqual(['diff']);
-    expect(fittingSidebarTabRow(tree, 'diff', { ...withCaret, room: 104 })).toEqual(tree);
+    expect(fittingSidebarTabRow(tree, 'diff', { widthOf, caret: 24, room: 103 })).toEqual(tree);
     expect(fittingSidebarTabRow(git, 'diff', { widthOf: () => 0, caret: 0, room: 500 })).toEqual([
       'diff',
       'files',
@@ -96,49 +98,28 @@ describe('fittingSidebarTabRow', () => {
     ]);
   });
 
-  it('measures the narrowest row as the two widest tabs and the caret', () => {
-    expect(narrowestSidebarTabRowWidth(git, { widthOf, caret: 24 })).toBe(164);
-    expect(narrowestSidebarTabRowWidth(['diff', 'files'], { widthOf, caret: 24 })).toBe(80);
-    // Whichever views come first.
+  it('measures the narrowest row as the first tab, the widest of the rest and the caret', () => {
+    // Diff (40), Usage (80) and the caret, whichever of the rest shows beside Diff.
+    expect(narrowestSidebarTabRowWidth(git, { widthOf, caret: 24 })).toBe(144);
+    expect(narrowestSidebarTabRowWidth(['diff', 'files'], { widthOf, caret: 24 })).toBe(104);
+    // Usage (80) first, then CI (60), the widest of the rest.
     const panelsFirst: SidebarView[] = ['panel:usage', 'panel:ci', 'files', 'diff'];
     expect(narrowestSidebarTabRowWidth(panelsFirst, { widthOf, caret: 24 })).toBe(164);
-    // Every tab, when they take less room than two and the caret.
-    const short = (view: SidebarView) => (view === 'panel:ci' ? 10 : widthOf(view));
-    const three: SidebarView[] = ['diff', 'files', 'panel:ci'];
-    expect(narrowestSidebarTabRowWidth(three, { widthOf: short, caret: 24 })).toBe(90);
-    // With the caret for adding a panel, which shows with every tab.
-    const tree: SidebarView[] = ['diff', 'files'];
-    expect(narrowestSidebarTabRowWidth(tree, { widthOf, caret: 24, alwaysCaret: true })).toBe(104);
+    expect(narrowestSidebarTabRowWidth(['files'], { widthOf, caret: 24 })).toBe(64);
     expect(narrowestSidebarTabRowWidth(git, { widthOf: () => 0, caret: 24 })).toBe(0);
     expect(narrowestSidebarTabRowWidth(git, { widthOf, caret: 0 })).toBe(0);
   });
 });
 
-describe('fittingSidebarTabs', () => {
-  // Diff, Files and CI's title take 40 pixels each, and CI's badge 40 more.
-  const titleWidthOf = () => 40;
-  const widthOf = (view: SidebarView) => (view === 'panel:ci' ? 80 : 40);
-  const three: SidebarView[] = ['diff', 'files', 'panel:ci'];
-  const measures = { widthOf, titleWidthOf, caret: 24 };
+describe('fittingSidebarTabCount', () => {
+  const widthOf = (view: SidebarView) => (view === 'panel:usage' ? 80 : 40);
 
-  it('shows badges as dots rather than leave out a tab the narrowest row has', () => {
-    expect(fittingSidebarTabs(three, 'panel:ci', { ...measures, room: 120 })).toEqual({
-      row: three,
-      dotBadges: true,
-    });
-    expect(fittingSidebarTabs(three, 'panel:ci', { ...measures, room: 160 })).toEqual({
-      row: three,
-      dotBadges: false,
-    });
-  });
-
-  it('shows badges in full with as many tabs as the narrowest row has, though dots fit more', () => {
-    const four: SidebarView[] = [...three, 'panel:usage'];
-    // Titles alone fit three and the caret; with CI's badge, two do.
-    expect(fittingSidebarTabs(four, 'panel:ci', { ...measures, room: 150 })).toEqual({
-      row: ['diff', 'panel:ci'],
-      dotBadges: false,
-    });
+  it('counts the views at the start of the order that fit beside the caret, at least two', () => {
+    expect(fittingSidebarTabCount(git, { widthOf, caret: 24, room: 224 })).toBe(4);
+    expect(fittingSidebarTabCount(git, { widthOf, caret: 24, room: 223 })).toBe(3);
+    expect(fittingSidebarTabCount(git, { widthOf, caret: 24, room: 10 })).toBe(2);
+    expect(fittingSidebarTabCount(git, { widthOf: () => 0, caret: 24, room: 500 })).toBe(2);
+    expect(fittingSidebarTabCount(['files'], { widthOf, caret: 24, room: 10 })).toBe(1);
   });
 });
 
@@ -150,19 +131,21 @@ describe('keptSidebarTabOrder', () => {
   });
 });
 
-describe('pickSidebarTab', () => {
-  it("puts the picked view in place of the last tab that isn't showing", () => {
-    expect(pickSidebarTab(['diff', 'files'], 'panel:ci', 'diff')).toEqual(['diff', 'panel:ci']);
-    expect(pickSidebarTab(['diff', 'files'], 'panel:ci', 'files')).toEqual(['panel:ci', 'files']);
-    expect(pickSidebarTab(['diff', 'files', 'panel:ci'], 'panel:usage', 'panel:ci')).toEqual([
+describe('replaceSidebarTab', () => {
+  it("puts the view in the tab's place in the row, and the tab in the view's among the rest", () => {
+    expect(replaceSidebarTab(['diff', 'files'], git, 'files', 'panel:usage')).toEqual([
       'diff',
       'panel:usage',
       'panel:ci',
+      'files',
     ]);
-  });
-
-  it('leaves the row as it is for a view already in it', () => {
-    expect(pickSidebarTab(['diff', 'panel:ci'], 'panel:ci', 'diff')).toEqual(['diff', 'panel:ci']);
+    // Usage showed in the last tab's place, ahead of where the order has it.
+    expect(replaceSidebarTab(['diff', 'panel:usage'], git, 'panel:usage', 'panel:ci')).toEqual([
+      'diff',
+      'panel:ci',
+      'files',
+      'panel:usage',
+    ]);
   });
 });
 

@@ -515,6 +515,11 @@ html[data-status-bar-row='large'] [data-status-bar] {
        restyles every element. OutsidePointerShield blocks those clicks instead. */
     pointer-events: auto !important;
   }
+  /* While a panel is resized by dragging, frames such as a sidebar panel's page let the drag's
+     mouse events through to the window, so letting go over one ends the drag. */
+  body[data-panel-resizing] :is(iframe, webview) {
+    pointer-events: none;
+  }
   /* Replace the platform-default focus ring (yellow on macOS w/ yellow accent)
      with our own ring color so all focusable elements look consistent. */
   *:focus {

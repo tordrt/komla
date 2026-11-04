@@ -841,7 +841,6 @@ export function createSettingsFiles({
             ...(panel.runOn === 'local'
               ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
               : []),
-            ...(panel.icon ? [{ label: 'Icon', value: describeIcon(panel.icon) }] : []),
             { label: 'Projects', value: projectsLabel(panel.projects) },
             { label: 'Id', value: panel.id },
           ],

@@ -6,12 +6,14 @@ import userEvent from '@testing-library/user-event';
 import { Profiler } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { branchPickerProps, commitComposerProps, requestRebaseAbort, gitState } = vi.hoisted(() => ({
-  branchPickerProps: vi.fn(),
-  commitComposerProps: vi.fn(),
-  requestRebaseAbort: vi.fn(),
-  gitState: { rebaseInProgress: false },
-}));
+const { branchPickerProps, commitComposerProps, requestRebaseAbort, addToast, gitState } =
+  vi.hoisted(() => ({
+    branchPickerProps: vi.fn(),
+    commitComposerProps: vi.fn(),
+    requestRebaseAbort: vi.fn(),
+    addToast: vi.fn(),
+    gitState: { rebaseInProgress: false, behindRemote: 0 },
+  }));
 const rebaseWorkspaceOnBranch = vi.fn().mockResolvedValue({
   success: true,
   message: 'Rebased on main successfully',
@@ -119,7 +121,7 @@ vi.mock('../../../../src/renderer/stores/git-status.store', () => ({
             hasRemote: true,
             hasOriginRemote: true,
             unpushedCommits: 0,
-            behindRemote: 0,
+            behindRemote: gitState.behindRemote,
             currentBranch: 'feature',
             targetBranchHasRemote: true,
             targetBranchAheadRemote: 0,
@@ -139,7 +141,7 @@ vi.mock('../../../../src/renderer/utils/rebase-abort', () => ({
 }));
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({
   useToastStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ addToast: vi.fn() }),
+    selector({ addToast }),
 }));
 vi.mock('../../../../src/renderer/stores/config.store', () => ({
   useConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -177,7 +179,9 @@ describe('UnifiedMenu commit entry', () => {
     rebaseWorkspaceOnBranch.mockClear();
     fetchStatus.mockClear();
     requestRebaseAbort.mockClear();
+    addToast.mockClear();
     gitState.rebaseInProgress = false;
+    gitState.behindRemote = 0;
     useGitProgressStore.setState(useGitProgressStore.getInitialState(), true);
     useWorkspacesStore.setState(initialWorkspacesState, true);
     window.api = {
@@ -317,5 +321,35 @@ describe('UnifiedMenu commit entry', () => {
     const { container } = render(<UnifiedMenu />);
 
     expect(container.querySelector('[aria-busy]')).not.toBeInTheDocument();
+  });
+
+  // Pull fetches first, so it needs no separate Fetch to reveal it.
+  it('offers Pull before a fetch has found new commits, and reports when nothing came in', async () => {
+    const pullWorkspace = vi.fn().mockResolvedValue({ success: true, message: 'Already up to date' });
+    window.api = { pullWorkspace } as unknown as typeof window.api;
+    const user = userEvent.setup();
+    render(<UnifiedMenu />);
+
+    const pull = screen.getByRole('button', { name: /^pull$/i });
+    expect(pull).not.toHaveTextContent('↓');
+
+    await user.click(pull);
+
+    await waitFor(() => expect(pullWorkspace).toHaveBeenCalledWith('ws'));
+    expect(addToast).toHaveBeenCalledWith('Already up to date', 'success');
+  });
+
+  it('shows how far behind origin the branch is on Pull', () => {
+    gitState.behindRemote = 3;
+    render(<UnifiedMenu />);
+
+    expect(screen.getByRole('button', { name: /^pull/i })).toHaveTextContent('↓3');
+  });
+
+  it('holds back Pull while a rebase is paused', () => {
+    gitState.rebaseInProgress = true;
+    render(<UnifiedMenu />);
+
+    expect(screen.queryByRole('button', { name: /^pull/i })).not.toBeInTheDocument();
   });
 });

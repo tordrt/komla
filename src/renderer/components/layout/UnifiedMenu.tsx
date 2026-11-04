@@ -550,7 +550,7 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
       const result = isRemoteWorkspace
         ? await window.api.pullWorkspace(activeWorkspace.id)
         : await window.api.pull(activeWorkspace.workingDirectory);
-      if (!result.success) addToast(result.message, 'error');
+      addToast(result.message, result.success ? 'success' : 'error');
       await refreshActiveGitStatus();
     } catch (error) {
       addToast((error as Error).message, 'error');
@@ -1240,12 +1240,14 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
                 <DropdownMenuSeparator />
               )}
 
-              {/* Sync: Pull (only when behind remote) and Push */}
-              {showSyncActions && hasRemote && behindRemote > 0 && (
+              {/* Sync: Pull fetches first, so offer it before a fetch has found anything */}
+              {showSyncActions && hasRemote && (
                 <DropdownMenuItem onClick={handlePull} disabled={isPulling}>
                   {isPulling ? <Spinner /> : <ArrowLineDown />}
                   <span>Pull</span>
-                  <span className="ml-auto text-xs text-behind">↓{behindRemote}</span>
+                  {behindRemote > 0 && (
+                    <span className="ml-auto text-xs text-behind">↓{behindRemote}</span>
+                  )}
                 </DropdownMenuItem>
               )}
 

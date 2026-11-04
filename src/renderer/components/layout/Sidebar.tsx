@@ -154,21 +154,26 @@ export const Sidebar = memo(function Sidebar({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="no-drag flex h-7 min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-md bg-foreground/[0.05] px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+                className="no-drag flex h-7 min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
                 onClick={onOpenCommandCenter}
               >
-                {/* A faint field, with the shortcut as plain text, so it reads as a search box
-                    yet stays quieter than New Workspace below it. The shortcut shows Shift as ⇧
-                    to fit. */}
+                {/* No fill, so it blends into the sidebar until hovered, with the shortcut as plain
+                    text so it stays quieter than New Workspace below it. The shortcut shows Shift
+                    as ⇧ to fit. */}
                 <MagnifyingGlass className="size-3.5 shrink-0" />
                 {/* Beside the macOS traffic lights, the field can be too narrow for the whole
-                    placeholder; it shortens to "Jump…", then leaves the icon and shortcut alone. */}
-                <TruncatingLabel>Jump to…</TruncatingLabel>
-                <ShortcutHint
-                  action="commandCenter.open"
-                  compact
-                  className="ml-auto shrink-0 border-0 bg-transparent px-0 text-muted-foreground-60"
-                />
+                    placeholder. The shortcut gives way first: it wraps onto a second line the
+                    button hides, and the placeholder then shortens, down to "Jump…". */}
+                <span className="flex h-full min-w-0 flex-1 flex-wrap content-start items-center overflow-hidden">
+                  <span className="h-full min-w-0 grow basis-[3em] truncate text-left leading-7">
+                    Jump to…
+                  </span>
+                  <ShortcutHint
+                    action="commandCenter.open"
+                    compact
+                    className="ml-auto border-0 bg-transparent pr-0 pl-1 text-muted-foreground-60"
+                  />
+                </span>
               </button>
             </TooltipTrigger>
             <TooltipContent>Search workspaces and commands</TooltipContent>

@@ -6,6 +6,7 @@ import {
 } from '../../shared/types/status-items';
 
 import { KOMLA_FONT_FACES, KOMLA_SCROLLBARS, themeStyle } from './komla-page-styles';
+import { pageLinkGuard } from './page-link-guard';
 
 /*
  * What a sidebar panel's own page gets from Komla, before its own HTML: Komla's theme colors as
@@ -17,23 +18,18 @@ import { KOMLA_FONT_FACES, KOMLA_SCROLLBARS, themeStyle } from './komla-page-sty
 export const KOMLA_STYLESHEET_PATH = '/__komla/komla.css';
 
 // `komla`, made before the page's own scripts run, so they get the one Komla made. It keeps what
-// it reads a click with from then, as the popover's script does, since a page script could
-// replace them. A page can ask for anything `komla` offers, but `run` and the operations Komla asks
-// the user about carry a token the page's scripts can't read, and only while the user is clicking
-// or typing in the page, so a script outside text slipped into the page can't press them alone.
+// it tells a click by from then, since a page script could replace it. A page can ask for
+// anything `komla` offers, but `run` and the operations Komla asks the user about carry a token
+// the page's scripts can't read, and only while the user is clicking or typing in the page, so a
+// script outside text slipped into the page can't press them alone.
 // Only messages from Komla's window count.
 const BRIDGE_SCRIPT = `(() => {
   const target = parent;
   const post = (message) => target.postMessage(message, '*');
   const apply = Reflect.apply;
   const getter = (prototype, name) => Object.getOwnPropertyDescriptor(prototype, name).get;
-  const eventTarget = getter(Event.prototype, 'target');
   const eventSource = getter(MessageEvent.prototype, 'source');
   const eventData = getter(MessageEvent.prototype, 'data');
-  const preventDefault = Event.prototype.preventDefault;
-  const closest = Element.prototype.closest;
-  const href = getter(HTMLAnchorElement.prototype, 'href');
-  const protocol = getter(HTMLAnchorElement.prototype, 'protocol');
   const activation = navigator.userActivation;
   const isActive = activation ? getter(UserActivation.prototype, 'isActive') : undefined;
   const clicking = () => isActive !== undefined && apply(isActive, activation, []);
@@ -167,24 +163,7 @@ const BRIDGE_SCRIPT = `(() => {
   Object.freeze(komla);
   Object.defineProperty(window, 'komla', { value: komla, enumerable: true });
   post({ komlaPanel: 'hello', token });
-  addEventListener('click', (event) => {
-    let link;
-    try {
-      link = apply(closest, apply(eventTarget, event, []), ['a[href]']);
-    } catch {
-      return;
-    }
-    if (!link) return;
-    let scheme;
-    try {
-      scheme = apply(protocol, link, []);
-    } catch {
-      return;
-    }
-    if (scheme !== 'https:' && scheme !== 'http:') return;
-    apply(preventDefault, event, []);
-    if (event.isTrusted) post({ komlaPanel: 'open-link', url: apply(href, link, []), token });
-  }, true);
+  ${pageLinkGuard("(url) => post({ komlaPanel: 'open-link', url, token })")}
 })();`;
 
 /**

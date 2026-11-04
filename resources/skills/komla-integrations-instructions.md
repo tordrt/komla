@@ -168,8 +168,11 @@ workspace }` as a second argument to act on another workspace. `komla.call(reque
 - The page can't submit a form or open a popup: handle the button's `click`, or Enter in a field,
   instead of a form's `submit`.
 
-Data can carry text from elsewhere, such as a pull request title: put it in the page with
-`textContent` or your framework's text, never as HTML.
+Data can carry text from elsewhere, such as a pull request title. It's best put in the page with
+`textContent` or your framework's text rather than as HTML, so it can't run script in the page. A
+link opens in the browser when its URL is `https:` or `http:`, and a `#` link moves within the
+page, as a hash router's do; Komla follows no other, so a `javascript:` one from that text can't
+run either.
 
 ## Pages that look like Komla
 

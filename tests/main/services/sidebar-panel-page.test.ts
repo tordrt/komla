@@ -263,6 +263,26 @@ describe("the page's komla", () => {
     expect(posted).toEqual([]);
   });
 
+  it('keeps links from leaving the page or running script, and follows # links itself', () => {
+    const clicked = (href: string) => {
+      const link = document.createElement('a');
+      link.href = href;
+      document.body.append(link);
+      const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+      link.dispatchEvent(click);
+      link.remove();
+      return click.defaultPrevented;
+    };
+    expect(clicked('javascript:alert(1)')).toBe(true);
+    expect(clicked('https://example.com')).toBe(true);
+    // A page loads once and stays, so its other files don't replace it.
+    expect(clicked('other.html')).toBe(true);
+    expect(clicked('#details')).toBe(true);
+    expect(location.hash).toBe('#details');
+    location.hash = '';
+    expect(posted).toEqual([]);
+  });
+
   it('runs a command only from a click, and refreshes when asked', async () => {
     await expect(komla.run('rerun')).rejects.toMatchObject({
       code: 'NEEDS_USER_ACTION',

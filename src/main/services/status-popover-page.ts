@@ -6,25 +6,17 @@ import {
   KOMLA_STYLESHEET,
   themeStyle,
 } from './komla-page-styles';
+import { pageLinkGuard } from './page-link-guard';
 
 // Reports the page's height, so the popover fits it; Komla caps it and the page scrolls past that.
 // The root's box is as tall as what it holds, where its scrollHeight never drops below the frame.
 // Escape reaches the page, not Komla, while it has focus, so it asks Komla to close the popover.
 // Komla blocks the frame from leaving its page, which would leave an error page, so a click on an
 // http(s) link asks Komla to open it in the browser instead. That ask carries a token this script
-// sends first, before the page's own scripts run, so they can't open links without a click. It
-// keeps what it reads a click with from then, as a page script could replace parent, the event's
-// target, closest or a link's href and open a link of its choosing on any click.
+// sends first, before the page's own scripts run, so they can't open links without a click.
 const PAGE_SCRIPT = `(() => {
   const target = parent;
   const post = (message) => target.postMessage(message, '*');
-  const apply = Reflect.apply;
-  const getter = (prototype, name) => Object.getOwnPropertyDescriptor(prototype, name).get;
-  const eventTarget = getter(Event.prototype, 'target');
-  const preventDefault = Event.prototype.preventDefault;
-  const closest = Element.prototype.closest;
-  const href = getter(HTMLAnchorElement.prototype, 'href');
-  const protocol = getter(HTMLAnchorElement.prototype, 'protocol');
   const token = crypto.randomUUID();
   post({ komlaPopoverToken: token });
   const report = () =>
@@ -34,26 +26,7 @@ const PAGE_SCRIPT = `(() => {
   addEventListener('keydown', (event) => {
     if (event.key === 'Escape') post({ komlaPopoverClose: true });
   });
-  addEventListener('click', (event) => {
-    let link;
-    try {
-      link = apply(closest, apply(eventTarget, event, []), ['a[href]']);
-    } catch {
-      return;
-    }
-    if (!link) return;
-    apply(preventDefault, event, []);
-    // An SVG link has no protocol to read; it stays put.
-    let scheme;
-    try {
-      scheme = apply(protocol, link, []);
-    } catch {
-      return;
-    }
-    if (event.isTrusted && (scheme === 'https:' || scheme === 'http:')) {
-      post({ komlaPopoverOpenLink: apply(href, link, []), token });
-    }
-  }, true);
+  ${pageLinkGuard('(url) => post({ komlaPopoverOpenLink: url, token })')}
 })();`;
 
 /**

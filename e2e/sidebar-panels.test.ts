@@ -21,6 +21,14 @@ const BOARD_HTML = `<!doctype html>
   <ul id="workspaces" class="k-list"></ul>
   <button id="bump" class="k-button k-primary">Bump</button>
   <button id="title" class="k-button">Set title</button>
+  <div id="links" class="k-row">
+    <a id="web" class="k-link" href="https://example.com/pull/1">Pull request</a>
+    <a id="script" class="k-link" href="javascript:document.body.dataset.ran = 'html'">Script</a>
+    <svg width="16" height="16"><a id="svg" href="https://example.com/pull/2"><rect width="16" height="16" fill="currentColor"/></a></svg>
+    <span id="shadow"></span>
+    <a id="swap" class="k-link" href="data:text/html,<p id=swapped>Swapped</p>">Data</a>
+  </div>
+  <a id="anchor" class="k-link" href="#links">Back to the links</a>
 </div>
 </body>
 </html>`;
@@ -41,6 +49,12 @@ document.querySelector('#bump').addEventListener('click', () => komla.run('bump'
 document.querySelector('#title').addEventListener('click', () =>
   komla.call({ type: 'workspace.title', title: 'Titled by a panel' })
 );
+// A link inside a web component's shadow root, as Lit or Shoelace render them.
+const shadowLink = document.createElement('a');
+shadowLink.id = 'in-shadow';
+shadowLink.href = 'https://example.com/pull/3';
+shadowLink.textContent = 'Shadow';
+document.querySelector('#shadow').attachShadow({ mode: 'open' }).append(shadowLink);
 document.body.dataset.ready = 'true';
 `;
 
@@ -386,6 +400,53 @@ test.describe('Sidebar panels', () => {
     if (SCREENSHOTS)
       await appWindow.screenshot({
         path: path.join(SCREENSHOTS, 'page-panel.png'),
+      });
+  });
+
+  test("opens a page's web links in the browser, SVG and shadow DOM ones too, and keeps others in the page", async ({
+    appWindow,
+    electronApp,
+  }) => {
+    await electronApp.evaluate(({ shell }) => {
+      const opened: string[] = [];
+      (globalThis as { e2eOpenedUrls?: string[] }).e2eOpenedUrls = opened;
+      shell.openExternal = async (url: string) => {
+        opened.push(url);
+      };
+    });
+    const openedUrls = () =>
+      electronApp.evaluate(() => (globalThis as { e2eOpenedUrls?: string[] }).e2eOpenedUrls);
+    await createWorkspace(appWindow, 'sidebar-panels/links');
+    await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click({ timeout: 20_000 });
+    await appWindow.getByRole('menuitem', { name: 'Board' }).click();
+    const page = appWindow.locator('[data-sidebar-panel="board"]').frameLocator('iframe');
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', {
+      timeout: 20_000,
+    });
+
+    // Links in SVG and in a shadow root open as others do, and one to anything but the web stays
+    // put rather than leaving an error page in the panel.
+    await page.locator('#svg rect').click();
+    await page.locator('#in-shadow').click();
+    await page.locator('#script').click();
+    await page.locator('#swap').click();
+    await page.locator('#web').click();
+    // The page's own links work as usual.
+    await page.locator('#anchor').click();
+    await expect.poll(() => page.locator('body').evaluate(() => location.hash)).toBe('#links');
+
+    await expect
+      .poll(openedUrls)
+      .toEqual([
+        'https://example.com/pull/2',
+        'https://example.com/pull/3',
+        'https://example.com/pull/1',
+      ]);
+    await expect(page.locator('#count')).toBeVisible();
+    await expect(page.locator('body')).not.toHaveAttribute('data-ran');
+    if (SCREENSHOTS)
+      await appWindow.screenshot({
+        path: path.join(SCREENSHOTS, 'page-links.png'),
       });
   });
 

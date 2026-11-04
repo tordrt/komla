@@ -240,7 +240,7 @@ describe('TerminalTabs', () => {
     const { container } = render(<TerminalTabs />);
 
     const painted: Element[] = [];
-    for (let el = screen.getByText(text).parentElement; el && el !== container; ) {
+    for (let el = screen.getByText(text).parentElement; el && el !== container;) {
       if ([...el.classList].some((name) => name.startsWith('bg-'))) painted.push(el);
       el = el.parentElement;
     }
@@ -964,17 +964,30 @@ describe('TerminalTabs', () => {
       vi.unstubAllGlobals();
     });
 
-    it.each(['darwin', 'linux', 'win32'] as const)(
-      "on %s, sits in the panel's header in the top row",
+    it("on darwin, sits in the panel's header in the top row", () => {
+      (window.api as { platform: string }).platform = 'darwin';
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+      setUpWorkspace(['t1']);
+      render(<TerminalTabs />);
+
+      const header = screen.getByTestId('file-panel-header');
+      expect(screen.getByTestId('workspace-top-row')).toContainElement(header);
+      expect(header).toContainElement(screen.getByTitle('Show all files'));
+    });
+
+    // The window controls share the top row's corner there, so the tabs get the panel's width.
+    it.each(['linux', 'win32'] as const)(
+      'on %s, sits at the top of the panel, below the top row',
       (platform) => {
         (window.api as { platform: string }).platform = platform;
         vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
         setUpWorkspace(['t1']);
         render(<TerminalTabs />);
 
-        const header = screen.getByTestId('file-panel-header');
-        expect(screen.getByTestId('workspace-top-row')).toContainElement(header);
-        expect(header).toContainElement(screen.getByTitle('Show all files'));
+        const tabs = screen.getByTestId('file-panel-tabs');
+        expect(tabs).toContainElement(screen.getByTitle('Show all files'));
+        expect(screen.getByTestId('workspace-top-row')).not.toContainElement(tabs);
+        expect(screen.queryByTestId('file-panel-header')).not.toBeInTheDocument();
       }
     );
 
@@ -1003,11 +1016,12 @@ describe('TerminalTabs', () => {
     });
 
     it.each([
+      // The tabs share the panel's header with the corner buttons: 90 + 24 + 100 + 8.
       ['darwin', '222'],
-      ['linux', '222'],
-      // The Windows window controls (138px) share the header too, right of the corner buttons.
-      ['win32', '360'],
-    ] as const)('on %s, keeps the file panel wide enough for its header', (platform, minWidth) => {
+      // The tabs, 90 + 24 + 8, are narrower than the panel's own minimum.
+      ['linux', '150'],
+      ['win32', '150'],
+    ] as const)('on %s, keeps the file panel wide enough for its tabs', (platform, minWidth) => {
       (window.api as { platform: string }).platform = platform;
       // The Diff/Files tabs measure 90px, the caret 24px, the corner buttons 100px, and the header
       // keeps 8px of padding and sliver.
@@ -1048,11 +1062,11 @@ describe('TerminalTabs', () => {
       render(<TerminalTabs />);
 
       const handle = screen.getByRole('separator', { name: 'Resize file tree panel' });
-      // The tabs share the panel's header with the corner buttons: 90 + 24 + 100 + 12.
       expect(handle).toHaveAttribute('aria-valuemin', minWidth);
     });
 
     it("collapses the file panel's header to nothing until the work area is measured", () => {
+      (window.api as { platform: string }).platform = 'darwin';
       vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
       setUpWorkspace(['t1']);
       render(<TerminalTabs />);
@@ -1064,9 +1078,14 @@ describe('TerminalTabs', () => {
       expect(header).not.toHaveClass('pl-1.5');
     });
 
-    it.each(['darwin', 'linux'] as const)(
-      "on %s, ends the terminal tab row at the file panel's header",
-      (platform) => {
+    it.each([
+      // The corner buttons sit in the panel's header, so the tab row keeps no room for them.
+      ['darwin', '0px'],
+      // The tab row runs on over the panel, and keeps room for the corner buttons: 100 + 8.
+      ['linux', '108px'],
+    ] as const)(
+      'on %s, keeps room at the end of the terminal tab row for the corner buttons where needed',
+      (platform, paddingRight) => {
         (window.api as { platform: string }).platform = platform;
         // The corner buttons measure 100px.
         vi.stubGlobal(
@@ -1089,8 +1108,7 @@ describe('TerminalTabs', () => {
         setUpWorkspace(['t1']);
         render(<TerminalTabs />);
 
-        // The corner buttons sit in the panel's header, so the tab row keeps no room for them.
-        expect(screen.getByTestId('terminal-tab-row')).toHaveStyle({ paddingRight: '0px' });
+        expect(screen.getByTestId('terminal-tab-row')).toHaveStyle({ paddingRight });
       }
     );
   });

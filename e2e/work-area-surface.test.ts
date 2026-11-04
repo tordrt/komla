@@ -180,10 +180,11 @@ test.describe('Work area surface', () => {
                 divider: getComputedStyle(footer, '::after').height,
               };
             })(),
-            topRowDivider: getComputedStyle(
-              document.querySelector('[data-testid="file-panel-header"]')!,
-              '::before'
-            ).height,
+            // The panel's header in the top row is macOS's; elsewhere its tabs sit in the panel.
+            topRowDivider: (() => {
+              const header = document.querySelector('[data-testid="file-panel-header"]');
+              return header && getComputedStyle(header, '::before').height;
+            })(),
             panelTopCorner: panelBody.borderTopLeftRadius,
             panelTopLevelWithPanes: Math.round(panelBodyBox.top) === Math.round(box.top),
             panelBottom: Math.round(statusBar.top - panelBodyBox.bottom),
@@ -203,9 +204,10 @@ test.describe('Work area surface', () => {
             selectedWorkspaceLine: getComputedStyle(
               document.querySelector('.sidebar-selected-card')!
             ).boxShadow.includes('inset'),
-            headerLine: getComputedStyle(
-              document.querySelector('[data-testid="file-panel-header"]')!
-            ).borderLeftWidth,
+            headerLine: (() => {
+              const header = document.querySelector('[data-testid="file-panel-header"]');
+              return header && getComputedStyle(header).borderLeftWidth;
+            })(),
           };
         })
       )
@@ -221,7 +223,7 @@ test.describe('Work area surface', () => {
         panelCorner: '12px',
         panelTopLine: '1px',
         bottomRow: { level: true, lines: true, divider: '16px' },
-        topRowDivider: '16px',
+        topRowDivider: process.platform === 'darwin' ? '16px' : null,
         panelTopCorner: '12px',
         panelTopLevelWithPanes: true,
         panelBottom: 6,
@@ -230,7 +232,7 @@ test.describe('Work area surface', () => {
         sidebarPanelLine: 'solid 1px -1px',
         newWorkspaceLine: 'solid 1px -1px',
         selectedWorkspaceLine: true,
-        headerLine: '0px',
+        headerLine: process.platform === 'darwin' ? '0px' : null,
       });
   });
 

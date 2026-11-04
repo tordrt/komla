@@ -159,23 +159,34 @@ interface TerminalTabsProps {
 const EMPTY_TAB_IDS: string[] = [];
 
 /**
- * The room the top row's last header keeps at its right for the corner buttons (and window
- * controls). With the file panel open they sit in its header, so it keeps none.
+ * On macOS the file panel's tabs sit in the top row, its stretch of the row being the panel's
+ * header, beside the corner buttons. On Windows and Linux the window controls share that corner,
+ * so the tabs sit at the panel's top, below the row, where they get its whole width.
  */
-function topRowEndReserve(treeOpen: boolean, cornerWidthPx: number): number {
-  if (treeOpen) return 0;
-  return cornerWidthPx + 8;
+function treeTabsInTopRow(): boolean {
+  return window.api.platform === 'darwin';
 }
 
 /**
- * The file panel's narrowest width. Its header holds the tabs and the corner buttons (and window
- * controls), so it never gets narrower than two tabs and both together, plus a sliver so the
+ * The room the top row's last header keeps at its right for the corner buttons (and window
+ * controls), less what the file panel's stretch of the row already gives them. On macOS they
+ * sit in the panel's header, so it keeps none.
+ */
+function topRowEndReserve(treeOpen: boolean, treeWidthPx: number, cornerWidthPx: number): number {
+  if (treeOpen && treeTabsInTopRow()) return 0;
+  return Math.max(0, cornerWidthPx + 8 - (treeOpen ? treeWidthPx : 0));
+}
+
+/**
+ * The file panel's narrowest width: never narrower than its first two tabs and the caret. On
+ * macOS they share its header with the corner buttons, so it holds both, with a sliver so the
  * tabs don't touch the first button.
  */
 function inlineTreeMinWidthPx(treeTabsWidthPx: number, cornerWidthPx: number): number {
+  const besides = treeTabsInTopRow() ? cornerWidthPx : 0;
   return Math.max(
     INLINE_TREE_MIN_WIDTH_PX,
-    Math.ceil(treeTabsWidthPx + cornerWidthPx + TREE_HEADER_SPARE_PX)
+    Math.ceil(treeTabsWidthPx + besides + TREE_HEADER_SPARE_PX)
   );
 }
 
@@ -243,6 +254,8 @@ interface WorkspaceLayerProps {
   onPreviewResizeStart: (e: React.MouseEvent, workspaceId: string) => void;
   isResizingTree: boolean;
   onTreeResizeStart: (e: React.MouseEvent, workspaceId: string) => void;
+  /** The narrowest the panel's tabs can be, where they sit in the panel (Windows and Linux). */
+  onTreeTabsNarrowestWidthChange: (widthPx: number) => void;
 }
 
 /** Renders a single workspace's panel layout. Memoized so each layer only re-renders for its own state changes. */
@@ -263,6 +276,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   onPreviewResizeStart,
   isResizingTree,
   onTreeResizeStart,
+  onTreeTabsNarrowestWidthChange,
 }: WorkspaceLayerProps) {
   const terminalBackground = useTerminalBackground();
   // Per-workspace store subscriptions — each layer only re-renders for its own slice
@@ -435,8 +449,8 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
           className="bg-[oklch(var(--chrome))]"
         />
       )}
-      {/* File tree panel — always rendered, collapses to width 0 when closed. Its Diff/Files
-           switch is in its header, in the top row above. */}
+      {/* File tree panel — always rendered, collapses to width 0 when closed. Its tabs are in
+           its header in the top row above on macOS, and at its top elsewhere. */}
       <div
         // Escape from the tree closes the preview, like Escape inside the panel.
         data-inline-file-preview-scope={wsId}
@@ -448,6 +462,26 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
         }
       >
         <div className="file-panel-body flex h-full flex-col">
+          {!treeTabsInTopRow() && (
+            <div
+              data-testid="file-panel-tabs"
+              className="file-tree-header relative flex h-8 shrink-0 items-stretch border-b px-1.5"
+            >
+              {/* Only the workspace that shows measures its tabs, for the panel's width. */}
+              {isCurrentWorkspace && contentWidth > 0 && (
+                <SidebarTabsMenu workspaceId={wsId} isGitWorkspace={isWorktree}>
+                  <div className="flex min-w-0 items-stretch">
+                    <FileTreeModeTabs
+                      workspaceId={wsId}
+                      isGitWorkspace={isWorktree}
+                      roomPx={wsResolvedTreeWidthPx - TREE_HEADER_SPARE_PX}
+                      onNarrowestWidthChange={onTreeTabsNarrowestWidthChange}
+                    />
+                  </div>
+                </SidebarTabsMenu>
+              )}
+            </div>
+          )}
           <div className="relative min-h-0 flex-1">
             <div
               className={cn(
@@ -1222,10 +1256,14 @@ export const TerminalTabs = memo(function TerminalTabs({
       )
     : 0;
   const availableForPreviewParent = contentWidth - resolvedTreeWidthPx;
-  // The file panel runs from the top of the window: its stretch of the top row is its header, with
-  // the Diff/Files switch and the corner buttons.
+  // On macOS the file panel's stretch of the top row is its header, with its tabs and the corner
+  // buttons. Elsewhere it keeps that stretch only under a file preview, whose header sits over the
+  // preview pane; otherwise the terminal tab row runs on into it.
+  const treeTabsOnTop = treeTabsInTopRow();
+  const isTreeInTopRow = isFileTreeOpen && (treeTabsOnTop || isInlinePreviewOpen);
   const topRowEndReservePx = topRowEndReserve(
-    isFileTreeOpen,
+    isTreeInTopRow,
+    resolvedTreeWidthPx,
     topRowActionsWidth + topRowCaptionWidthPx
   );
   const resolvedPreviewWidthPx = isInlinePreviewOpen
@@ -2279,7 +2317,7 @@ export const TerminalTabs = memo(function TerminalTabs({
               previewCloseRef,
               layoutAttention: previewLayoutAttention,
             })}
-            {isFileTreeOpen && (
+            {isTreeInTopRow && (
               <div
                 // The file panel's header: the top of the panel below, on the same chrome, so the
                 // panel reads as a sidebar on the right, as the workspace sidebar does on the left.
@@ -2297,7 +2335,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                     : { width: 0, overflow: 'hidden' }
                 }
               >
-                {selectedWorkspaceId && (
+                {treeTabsOnTop && selectedWorkspaceId && (
                   // The panel stays wide enough for two of these and the corner buttons.
                   <SidebarTabsMenu
                     workspaceId={selectedWorkspaceId}
@@ -2385,6 +2423,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                 onPreviewResizeStart={handlePreviewResizeStart}
                 isResizingTree={isResizingTree}
                 onTreeResizeStart={handleTreeResizeStart}
+                onTreeTabsNarrowestWidthChange={setTreeTabsWidth}
               />
             );
           })}

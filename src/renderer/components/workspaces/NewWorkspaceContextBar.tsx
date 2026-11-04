@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { IconButton } from '@/components/ui/icon-button';
+import { Kbd } from '@/components/ui/kbd';
 import { menuItemClass } from '@/components/ui/menu-styles';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { type NewWorkspaceMenu, useProjectSearchShortcutLabel } from '@/lib/agent-dialog-shortcuts';
@@ -486,7 +487,7 @@ export function NewWorkspaceProjectPicker({
         <button
           ref={projectTriggerRef}
           type="button"
-          className={cn(SEGMENT_CLASS, '-ml-1.5 max-w-[16rem] font-medium text-foreground')}
+          className={cn(SEGMENT_CLASS, 'group/project -ml-1.5 font-medium text-foreground')}
           title={searchShortcut ? `Choose project (${searchShortcut})` : 'Choose project'}
           // Opens on ArrowDown too, like the context bar's menus.
           onKeyDown={(event) => {
@@ -499,7 +500,8 @@ export function NewWorkspaceProjectPicker({
             // Keyed so picking another project that isn't the selected workspace's flashes again.
             key={selectedProject?.id}
             className={cn(
-              '-mx-1 flex min-w-0 items-center gap-1.5 rounded px-1',
+              // The name's limit, not the button's, so the shortcut chip doesn't take its room.
+              '-mx-1 flex max-w-[16rem] min-w-0 items-center gap-1.5 rounded px-1',
               flash && 'animate-project-attention'
             )}
             style={
@@ -512,6 +514,16 @@ export function NewWorkspaceProjectPicker({
             <span className="truncate">{selectedProject?.name || 'Select project'}</span>
           </span>
           <SegmentCaret />
+          {/* Pressing New workspace again is the quickest way here, so the keys show on hover,
+              on keyboard focus and while open. Hidden, not removed, so the button keeps its width. */}
+          {searchShortcut && (
+            <Kbd
+              aria-hidden
+              className="ml-0.5 opacity-0 transition-opacity group-hover/project:opacity-60 group-focus-visible/project:opacity-60 group-data-[state=open]/project:opacity-60"
+            >
+              {searchShortcut}
+            </Kbd>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent

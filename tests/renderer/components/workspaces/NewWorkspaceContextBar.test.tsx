@@ -161,6 +161,8 @@ describe('NewWorkspaceContextBar', () => {
     render(<ContextBar />);
     const trigger = screen.getByRole('button', { name: /Project one/ });
     expect(trigger).toHaveAttribute('title', 'Choose project (Ctrl+N)');
+    // Shown on the button, so pressing New workspace again can be discovered.
+    expect(trigger.querySelector('kbd')).toHaveTextContent('Ctrl+N');
 
     await user.click(trigger);
 

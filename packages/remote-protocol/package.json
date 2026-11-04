@@ -1,6 +1,7 @@
 {
   "name": "@komla/remote-protocol",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Authenticated encrypted channel protocol between a Komla desktop and a trusted remote browser. Pure WebCrypto, no DOM, no Node-only APIs.",
   "type": "module",

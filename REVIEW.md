@@ -133,7 +133,7 @@ setting or other input, or runs a command on an SSH host, wherever that code is.
 
 Prose that nothing runs and no agent follows as instructions:
 
-- `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CLA.md`, `TRADEMARK.md`
+- `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `TRADEMARK.md`
 - `docs/FEATURES.md` and `docs/BRAND.md`
 - `.github/pull_request_template.md`
 - A change to code comments only, in a file that no `high` list names

@@ -3,7 +3,7 @@
   "version": "1.0.0-staging.5",
   "description": "Run multiple AI coding agent CLIs in parallel",
   "author": "Tafjord Invest AS",
-  "license": "AGPL-3.0-only",
+  "license": "MIT",
   "private": true,
   "homepage": "https://komla.dev",
   "repository": "github:tordrt/komla",

@@ -23,9 +23,9 @@ Follow [Build from source](README.md#build-from-source). `npm run dev` runs Koml
 - Run the checks AGENTS.md lists for the parts you changed. `npm test` covers most changes.
 - Komla runs on macOS, Windows and Linux. Say which of them you tested on.
 
-## Contributor License Agreement
+## License
 
-Before we can merge your first pull request, you need to sign our [Contributor License Agreement](CLA.md). A bot asks you on the pull request, and you sign by replying with one comment. You keep the copyright to your work. The agreement lets Tafjord Invest AS distribute your contribution under other terms as well as the AGPL, for example under a commercial license for companies that can't use AGPL software.
+By submitting a pull request, you agree to license your contribution under the [MIT License](LICENSE), the same license as the rest of Komla.
 
 ## Security issues
 

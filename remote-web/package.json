@@ -1,6 +1,7 @@
 {
   "name": "komla-remote-web",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "//": "vite is intentionally not a direct devDependency here — the root workspace's electron-rebuild lifecycle hook fires on any install in this folder, which fails outside the Electron app. We rely on the hoisted root devDep until that hook is scoped to the root workspace.",
   "scripts": {

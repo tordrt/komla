@@ -20,6 +20,21 @@ import { useSshHostDialogStore } from '../../../../src/renderer/stores/ssh-host-
 
 const getLaunchButton = () => screen.getByRole('button', { name: /^launch(?: \d+)? ↵$/i });
 
+/** Opens the project dropdown and picks the row named `name`. */
+async function pickFromProjectDropdown(
+  user: ReturnType<typeof userEvent.setup>,
+  name: RegExp
+): Promise<void> {
+  await user.click(screen.getByTitle(/^choose project/i));
+  await user.click(await screen.findByRole('option', { name }));
+}
+
+/** The rows of the open project dropdown, projects first, then the ways to add one. */
+const projectDropdownRows = () =>
+  within(screen.getByRole('listbox'))
+    .getAllByRole('option')
+    .map((option) => option.textContent);
+
 const mockProjects = [
   {
     id: 'project-komla',
@@ -513,6 +528,15 @@ vi.mock('../../../../src/renderer/utils/workspace-error', () => ({
 }));
 
 describe('NewWorkspaceDialog', () => {
+  // jsdom has no scrollIntoView, which the project dropdown calls to keep its selection in view.
+  const originalScrollIntoView = Element.prototype.scrollIntoView;
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => {
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+  });
+
   // A launch's Undo falls back to its toast after a moment, which would land in the next test.
   afterEach(() => dismissLaunchUndo());
 
@@ -1151,7 +1175,7 @@ describe('NewWorkspaceDialog', () => {
       const user = userEvent.setup();
       render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
 
-      await user.click(screen.getByRole('button', { name: /^open folder…$/i }));
+      await pickFromProjectDropdown(user, /^open folder…$/i);
 
       await waitFor(() =>
         expect(mockCreateWorkspace).toHaveBeenCalledWith(
@@ -1170,20 +1194,12 @@ describe('NewWorkspaceDialog', () => {
     const branchInput = await screen.findByPlaceholderText('komla/swift-fox');
     await waitFor(() => expect(branchInput).toHaveValue('komla/swift-fox'));
 
-    await user.click(screen.getByRole('button', { name: /empty prefix project/i }));
+    await pickFromProjectDropdown(user, /empty prefix project/i);
 
     await waitFor(() => {
       expect(branchInput).toHaveValue('swift-fox');
       expect(branchInput).toHaveAttribute('placeholder', 'swift-fox');
     });
-  });
-
-  it('uses a non-modal project picker inside the workspace dialog', async () => {
-    render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
-
-    const [projectPicker] = await screen.findAllByRole('button', { name: /Komla Project/i });
-
-    expect(projectPicker.closest('[data-modal]')).toHaveAttribute('data-modal', 'false');
   });
 
   it('keeps the branch name empty while the user replaces the generated name', async () => {
@@ -2029,7 +2045,7 @@ describe('NewWorkspaceDialog', () => {
 
     render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
 
-    await user.click(screen.getByRole('button', { name: /^open folder…$/i }));
+    await pickFromProjectDropdown(user, /^open folder…$/i);
 
     await waitFor(() => {
       expect(window.api.selectAnyDirectory).toHaveBeenCalled();
@@ -2050,7 +2066,7 @@ describe('NewWorkspaceDialog', () => {
     });
 
     render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: /^open folder…$/i }));
+    await pickFromProjectDropdown(user, /^open folder…$/i);
 
     await waitFor(() => expect(useOpenFolderStore.getState().open).toBe(true));
     expect(useOpenFolderStore.getState().folder).toBe('/plain/folder');
@@ -2068,7 +2084,7 @@ describe('NewWorkspaceDialog', () => {
     });
 
     render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: /^open folder…$/i }));
+    await pickFromProjectDropdown(user, /^open folder…$/i);
 
     await waitFor(() => expect(window.api.findProjectForFolder).toHaveBeenCalled());
     expect(mockCreateWorkspace).not.toHaveBeenCalled();
@@ -4000,7 +4016,6 @@ describe('NewWorkspaceDialog', () => {
 
   describe('project shortcuts', () => {
     const OriginalResizeObserver = globalThis.ResizeObserver;
-    const originalScrollIntoView = Element.prototype.scrollIntoView;
 
     beforeEach(() => {
       // The project search is a real Radix popover, which measures its anchor.
@@ -4009,7 +4024,6 @@ describe('NewWorkspaceDialog', () => {
         unobserve() {}
         disconnect() {}
       } as unknown as typeof ResizeObserver;
-      Element.prototype.scrollIntoView = vi.fn();
       useShortcutsStore.setState({
         config: {
           shortcuts: {
@@ -4023,7 +4037,6 @@ describe('NewWorkspaceDialog', () => {
 
     afterEach(() => {
       globalThis.ResizeObserver = OriginalResizeObserver;
-      Element.prototype.scrollIntoView = originalScrollIntoView;
       useShortcutsStore.setState({ config: null });
     });
 
@@ -4053,10 +4066,12 @@ describe('NewWorkspaceDialog', () => {
 
       fireEvent.keyDown(textarea, { key: 'n', ctrlKey: true });
       await screen.findByRole('combobox', { name: /search projects/i });
-      const names = within(screen.getByRole('listbox'))
-        .getAllByRole('option')
-        .map((option) => option.textContent);
-      expect(names).toEqual(['Empty Prefix Project', 'Komla Project']);
+      expect(projectDropdownRows()).toEqual([
+        'Empty Prefix Project',
+        'Komla Project',
+        'Add project…',
+        'Open folder…',
+      ]);
       await user.keyboard('{Escape}');
 
       fireEvent.keyDown(textarea, nextProject);
@@ -4176,7 +4191,7 @@ describe('NewWorkspaceDialog', () => {
         render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
         await screen.findByPlaceholderText('komla/swift-fox');
 
-        await user.click(screen.getByRole('button', { name: /Downloads/ }));
+        await pickFromProjectDropdown(user, /Downloads/);
         await waitFor(() => expect(screen.queryByText('Build Server')).not.toBeInTheDocument());
         await user.click(getLaunchButton());
 
@@ -4274,10 +4289,12 @@ describe('NewWorkspaceDialog', () => {
       fireEvent.keyDown(textarea, { key: 'n', ctrlKey: true });
       await screen.findByRole('combobox', { name: /search projects/i });
 
-      const names = within(screen.getByRole('listbox'))
-        .getAllByRole('option')
-        .map((option) => option.textContent);
-      expect(names).toEqual(['Empty Prefix Project', 'Komla Project']);
+      expect(projectDropdownRows()).toEqual([
+        'Empty Prefix Project',
+        'Komla Project',
+        'Add project…',
+        'Open folder…',
+      ]);
     });
 
     it('opens a project search when the New workspace shortcut is pressed again', async () => {
@@ -4287,10 +4304,19 @@ describe('NewWorkspaceDialog', () => {
 
       const search = await screen.findByRole('combobox', { name: /search projects/i });
       await waitFor(() => expect(search).toHaveFocus());
-      expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(2);
+      expect(projectDropdownRows()).toEqual([
+        'Komla Project',
+        'Empty Prefix Project',
+        'Add project…',
+        'Open folder…',
+      ]);
 
       await user.type(search, 'empty');
-      expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(1);
+      expect(projectDropdownRows()).toEqual([
+        'Empty Prefix Project',
+        'Add project…',
+        'Open folder…',
+      ]);
       await user.keyboard('{Enter}');
 
       await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());

@@ -6,12 +6,11 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
-  MagnifyingGlass,
   Plus,
   Sparkle,
   X,
 } from '@phosphor-icons/react';
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 
 import { ProjectMark } from '@/components/projects/ProjectMark';
 import {
@@ -20,11 +19,11 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { IconButton } from '@/components/ui/icon-button';
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { menuItemClass } from '@/components/ui/menu-styles';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { type NewWorkspaceMenu, useProjectSearchShortcutLabel } from '@/lib/agent-dialog-shortcuts';
 import { focusPromptOnMenuClose } from '@/lib/dialog-menus';
 import { stopWheelPropagation } from '@/lib/dialog-scroll-lock';
@@ -72,51 +71,127 @@ function SegmentCaret() {
   return <CaretDown className="size-2.5 shrink-0 opacity-50" />;
 }
 
+function matchingProjects(projects: Project[], query: string): Project[] {
+  const lowerQuery = query.trim().toLowerCase();
+  return projects.filter((project) => project.name.toLowerCase().includes(lowerQuery));
+}
+
 interface ProjectSearchProps {
   projects: Project[];
   projectId: string;
   onSelect: (id: string) => void;
+  onAddProject: () => void;
+  onOpenFolderWorkspace: () => void;
+}
+
+interface ProjectSearchOption {
+  key: string;
+  run: () => void;
+  content: React.ReactNode;
+  className?: string;
 }
 
 /**
- * Type-to-filter project list, in the dropdown's order. Arrow keys move the
- * selection and Enter picks it.
+ * The project dropdown: a search field over the projects, in the dropdown's
+ * order, then the ways to add one. Focus stays in the search field; arrow keys
+ * move the selection and Enter picks it.
  */
-function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
+function ProjectSearch({
+  projects,
+  projectId,
+  onSelect,
+  onAddProject,
+  onOpenFolderWorkspace,
+}: ProjectSearchProps) {
   const [query, setQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(() =>
-    Math.max(
-      projects.findIndex((project) => project.id === projectId),
-      0
-    )
-  );
-  const listRef = useRef<HTMLDivElement>(null);
+  // The selected row by key, so it stays put when the projects change while open. A row no
+  // longer listed selects the first matching project.
+  const [selectedKey, setSelectedKey] = useState<string | null>(projectId);
   const listId = useId();
-  const lowerQuery = query.trim().toLowerCase();
-  const matches = projects.filter((project) => project.name.toLowerCase().includes(lowerQuery));
-  const activeMatch = matches[activeIndex];
-  const optionId = (id: string) => `${listId}-${id}`;
+  const matches = matchingProjects(projects, query);
+  const projectOptions: ProjectSearchOption[] = matches.map((project) => ({
+    key: project.id,
+    run: () => onSelect(project.id),
+    className: 'justify-between',
+    content: (
+      <>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <ProjectMark project={project} />
+          <span className="truncate font-mono text-ui">{project.name}</span>
+        </span>
+        {project.id === projectId && <Check className="ml-3 size-4 shrink-0" />}
+      </>
+    ),
+  }));
+  const actionOptions: ProjectSearchOption[] = [
+    {
+      key: 'add-project',
+      run: onAddProject,
+      className: 'text-muted-foreground',
+      content: (
+        <>
+          <Plus />
+          Add project…
+        </>
+      ),
+    },
+    {
+      key: 'open-folder',
+      run: onOpenFolderWorkspace,
+      className: 'text-muted-foreground',
+      content: (
+        <>
+          <FolderOpen />
+          Open folder…
+        </>
+      ),
+    },
+  ];
+  const options = [...projectOptions, ...actionOptions];
+  const listedIndex = options.findIndex((option) => option.key === selectedKey);
+  // With no project matching, nothing is selected, so Enter after a typo doesn't add a project.
+  const activeIndex = listedIndex >= 0 ? listedIndex : matches.length > 0 ? 0 : -1;
+  const activeOption = activeIndex >= 0 ? options[activeIndex] : undefined;
+  const optionId = (key: string) => `${listId}-${key}`;
+  const activeId = activeOption && optionId(activeOption.key);
 
-  // Keep the selection in view, starting with the current project on open.
+  // Keep the selection in view, starting with the current project on open, and when the
+  // projects reorder under it.
   useEffect(() => {
-    listRef.current?.children[activeIndex]?.scrollIntoView({ block: 'nearest' });
-  }, [activeIndex, query]);
-
-  const moveSelection = (offset: number) => {
-    setActiveIndex(Math.min(Math.max(activeIndex + offset, 0), matches.length - 1));
-  };
+    if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' });
+  }, [activeId, activeIndex, query]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     // Enter that confirms an input method's text must not pick a project.
     if (event.nativeEvent.isComposing) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
-      if (matches.length > 0) moveSelection(event.key === 'ArrowDown' ? 1 : -1);
+      const offset = event.key === 'ArrowDown' ? 1 : -1;
+      const next = Math.min(Math.max(activeIndex + offset, 0), options.length - 1);
+      setSelectedKey(options[next].key);
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      if (activeMatch) onSelect(activeMatch.id);
+      activeOption?.run();
     }
   };
+
+  const renderOption = (option: ProjectSearchOption) => (
+    <div
+      key={option.key}
+      id={optionId(option.key)}
+      role="option"
+      aria-selected={option === activeOption}
+      // Pointer moves only: rows scrolling under a resting pointer by
+      // keyboard also fire mouseenter, which would steal the selection.
+      onPointerMove={() => setSelectedKey(option.key)}
+      // Keep focus in the search field, which owns keyboard selection.
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={option.run}
+      className={cn(menuItemClass, option === activeOption && 'bg-foreground/8', option.className)}
+    >
+      {option.content}
+    </div>
+  );
 
   return (
     <>
@@ -128,51 +203,40 @@ function ProjectSearch({ projects, projectId, onSelect }: ProjectSearchProps) {
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={activeMatch ? optionId(activeMatch.id) : undefined}
-          placeholder="Search…"
+          aria-activedescendant={activeId}
+          placeholder="Search projects…"
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
-            setActiveIndex(0);
+            // Typing selects the best match, and keeps it if the projects reorder. A cleared
+            // search goes back to the current project.
+            setSelectedKey(
+              event.target.value.trim()
+                ? (matchingProjects(projects, event.target.value)[0]?.id ?? null)
+                : projectId
+            );
           }}
           onKeyDown={handleKeyDown}
           className="w-full bg-transparent px-2 py-1.5 text-[13px] outline-hidden placeholder:text-muted-foreground"
         />
       </div>
-      {matches.length === 0 && (
-        <p className="px-3 py-2 text-xs text-muted-foreground">No matching projects</p>
-      )}
-      <div
-        ref={listRef}
-        id={listId}
-        role="listbox"
-        aria-label="Projects"
-        className="max-h-64 overflow-y-auto p-1 empty:hidden"
-      >
-        {matches.map((project, matchIndex) => (
+      <div className="min-h-0 flex-1 overflow-y-auto p-1">
+        {matches.length === 0 && (
+          <p className="px-2 py-1 text-[12px] leading-[17px] text-muted-foreground">
+            No matching projects
+          </p>
+        )}
+        <div id={listId} role="listbox" aria-label="Projects">
+          {projectOptions.length > 0 && <div role="group">{projectOptions.map(renderOption)}</div>}
+          {/* A border rather than a separator element, which a listbox can't hold. */}
           <div
-            key={project.id}
-            id={optionId(project.id)}
-            role="option"
-            aria-selected={matchIndex === activeIndex}
-            // Pointer moves only: rows scrolling under a resting pointer by
-            // keyboard also fire mouseenter, which would steal the selection.
-            onPointerMove={() => setActiveIndex(matchIndex)}
-            // Keep focus in the search field, which owns keyboard selection.
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => onSelect(project.id)}
-            className={cn(
-              'flex cursor-default items-center justify-between rounded-md px-2 py-1 text-[13px] leading-[18px]',
-              matchIndex === activeIndex && 'bg-foreground/8'
-            )}
+            role="group"
+            aria-label="Add"
+            className={cn(projectOptions.length > 0 && 'mt-1 border-t border-foreground/10 pt-1')}
           >
-            <span className="flex min-w-0 items-center gap-1.5">
-              <ProjectMark project={project} />
-              <span className="truncate font-mono text-ui">{project.name}</span>
-            </span>
-            {project.id === projectId && <Check className="ml-3 size-4 shrink-0" />}
+            {actionOptions.map(renderOption)}
           </div>
-        ))}
+        </div>
       </div>
     </>
   );
@@ -221,7 +285,10 @@ function EnvironmentSegment(props: EnvironmentSegmentProps) {
   // With a single alternative to Local, clicking switches directly.
   const onlyEnvironment =
     sshHosts.length === 1
-      ? { select: () => selectSsh(sshHosts[0].id), name: sshHosts[0].name ?? 'SSH' }
+      ? {
+          select: () => selectSsh(sshHosts[0].id),
+          name: sshHosts[0].name ?? 'SSH',
+        }
       : null;
   const toggleOnlyEnvironment = () => {
     if (value === 'local') onlyEnvironment?.select();
@@ -374,7 +441,7 @@ export interface NewWorkspaceProjectPickerProps {
   projectId: string;
   setProjectId: (id: string) => void;
   selectedProject: Project | undefined;
-  /** The project search, opened by pressing the New workspace shortcut again */
+  /** The project dropdown, also opened by pressing the New workspace shortcut again */
   projectPickerOpen: boolean;
   onProjectPickerOpenChange: (open: boolean) => void;
   onAddProject: () => void;
@@ -402,91 +469,55 @@ export function NewWorkspaceProjectPicker({
   branchInputRef,
 }: NewWorkspaceProjectPickerProps) {
   const searchShortcut = useProjectSearchShortcutLabel();
-  // The search opens once the project menu has closed, so returning focus doesn't dismiss it.
-  const openSearchAfterMenuRef = useRef(false);
-  const refocusPrompt = (event: Event) =>
+  const refocusPrompt = (event: Event) => {
+    // Closed with its own button, which took focus: return it to the prompt as a menu does.
+    if (document.activeElement === projectTriggerRef.current) projectTriggerRef.current?.blur();
     refocusComposer(event, { promptTextareaRef, branchInputRef, projectTriggerRef });
+  };
+  // Add project and Open folder close the dropdown, as picking a project does.
+  const runAndClose = (action: () => void) => () => {
+    onProjectPickerOpenChange(false);
+    action();
+  };
 
   return (
     <Popover open={projectPickerOpen} onOpenChange={onProjectPickerOpenChange}>
-      <PopoverAnchor className="flex min-w-0">
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <button
-              ref={projectTriggerRef}
-              type="button"
-              className={cn(SEGMENT_CLASS, '-ml-1.5 max-w-[16rem] font-medium text-foreground')}
-              title={searchShortcut ? `Choose project, ${searchShortcut} searches` : undefined}
-            >
-              <span
-                // Keyed so picking another project that isn't the selected workspace's flashes again.
-                key={selectedProject?.id}
-                className={cn(
-                  '-mx-1 flex min-w-0 items-center gap-1.5 rounded px-1',
-                  flash && 'animate-project-attention'
-                )}
-                style={
-                  {
-                    '--project-color': selectedProject?.color || 'oklch(var(--muted-foreground))',
-                  } as React.CSSProperties
-                }
-              >
-                <ProjectMark project={selectedProject} iconClassName="size-3" />
-                <span className="truncate">{selectedProject?.name || 'Select project'}</span>
-              </span>
-              <SegmentCaret />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            collisionPadding={8}
-            // Narrower than other menus: its rows are short, and long project names widen it.
-            className="min-w-36"
-            onCloseAutoFocus={(event) => {
-              if (!openSearchAfterMenuRef.current) return refocusPrompt(event);
-              openSearchAfterMenuRef.current = false;
-              event.preventDefault();
-              onProjectPickerOpenChange(true);
-            }}
+      <PopoverTrigger asChild>
+        <button
+          ref={projectTriggerRef}
+          type="button"
+          className={cn(SEGMENT_CLASS, '-ml-1.5 max-w-[16rem] font-medium text-foreground')}
+          title={searchShortcut ? `Choose project (${searchShortcut})` : 'Choose project'}
+          // Opens on ArrowDown too, like the context bar's menus.
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowDown' || event.metaKey || event.ctrlKey || event.altKey) return;
+            event.preventDefault();
+            onProjectPickerOpenChange(true);
+          }}
+        >
+          <span
+            // Keyed so picking another project that isn't the selected workspace's flashes again.
+            key={selectedProject?.id}
+            className={cn(
+              '-mx-1 flex min-w-0 items-center gap-1.5 rounded px-1',
+              flash && 'animate-project-attention'
+            )}
+            style={
+              {
+                '--project-color': selectedProject?.color || 'oklch(var(--muted-foreground))',
+              } as React.CSSProperties
+            }
           >
-            <DropdownMenuItem
-              onClick={() => (openSearchAfterMenuRef.current = true)}
-              className="text-muted-foreground"
-            >
-              <MagnifyingGlass />
-              Search…
-              {searchShortcut && <DropdownMenuShortcut>{searchShortcut}</DropdownMenuShortcut>}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {projects.map((project) => (
-              <DropdownMenuItem
-                key={project.id}
-                onClick={() => setProjectId(project.id)}
-                className="flex items-center justify-between"
-              >
-                <span className="flex items-center gap-1.5 truncate">
-                  <ProjectMark project={project} />
-                  <span className="truncate font-mono text-ui">{project.name}</span>
-                </span>
-                {project.id === projectId && <Check className="ml-3 size-4 shrink-0" />}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onAddProject} className="text-muted-foreground">
-              <Plus />
-              Add project…
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onOpenFolderWorkspace} className="text-muted-foreground">
-              <FolderOpen />
-              Open folder…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </PopoverAnchor>
+            <ProjectMark project={selectedProject} iconClassName="size-3" />
+            <span className="truncate">{selectedProject?.name || 'Select project'}</span>
+          </span>
+          <SegmentCaret />
+        </button>
+      </PopoverTrigger>
       <PopoverContent
         align="start"
         collisionPadding={8}
-        className="w-[min(18rem,calc(100vw-2rem))] p-0"
+        className="flex max-h-[min(28rem,var(--radix-popover-content-available-height))] w-[min(18rem,calc(100vw-2rem))] flex-col p-0"
         onWheel={stopWheelPropagation}
         onCloseAutoFocus={refocusPrompt}
       >
@@ -497,6 +528,8 @@ export function NewWorkspaceProjectPicker({
             setProjectId(id);
             onProjectPickerOpenChange(false);
           }}
+          onAddProject={runAndClose(onAddProject)}
+          onOpenFolderWorkspace={runAndClose(onOpenFolderWorkspace)}
         />
       </PopoverContent>
     </Popover>

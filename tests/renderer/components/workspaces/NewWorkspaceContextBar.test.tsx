@@ -27,14 +27,20 @@ const projects = Array.from({ length: 11 }, (_, index) => ({
 })) as Project[];
 
 function ContextBar({
+  projectList = projects,
   initialPickerOpen = false,
   initialProjectId = projects[0].id,
   onSelectProject,
+  onAddProject = vi.fn(),
+  onOpenFolderWorkspace = vi.fn(),
   onSetUpSshHost = vi.fn(),
 }: {
+  projectList?: Project[];
   initialPickerOpen?: boolean;
   initialProjectId?: string;
   onSelectProject?: (id: string) => void;
+  onAddProject?: () => void;
+  onOpenFolderWorkspace?: () => void;
   onSetUpSshHost?: () => void;
 }) {
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -43,7 +49,7 @@ function ContextBar({
   const [projectId, setProjectId] = useState(initialProjectId);
   const [projectPickerOpen, setProjectPickerOpen] = useState(initialPickerOpen);
   const [openMenu, setOpenMenu] = useState<NewWorkspaceMenu | null>(null);
-  const selectedProject = projects.find((project) => project.id === projectId);
+  const selectedProject = projectList.find((project) => project.id === projectId);
 
   return (
     // Opens the project search like the dialog's New workspace shortcut.
@@ -53,7 +59,7 @@ function ContextBar({
       }}
     >
       <NewWorkspaceProjectPicker
-        projects={projects}
+        projects={projectList}
         projectId={projectId}
         setProjectId={(id) => {
           onSelectProject?.(id);
@@ -62,8 +68,8 @@ function ContextBar({
         selectedProject={selectedProject}
         projectPickerOpen={projectPickerOpen}
         onProjectPickerOpenChange={setProjectPickerOpen}
-        onAddProject={vi.fn()}
-        onOpenFolderWorkspace={vi.fn()}
+        onAddProject={onAddProject}
+        onOpenFolderWorkspace={onOpenFolderWorkspace}
         flash={false}
         projectTriggerRef={projectTriggerRef}
         promptTextareaRef={promptTextareaRef}
@@ -109,7 +115,9 @@ function ContextBar({
   );
 }
 
-const getOptions = () => within(screen.getByRole('listbox')).getAllByRole('option');
+// The project rows, without Add project and Open folder after them.
+const getOptions = () =>
+  within(screen.getByRole('listbox')).getAllByRole('option', { name: /^Project / });
 // Lets a menu's close-autofocus timer run.
 const nextTick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -141,42 +149,81 @@ describe('NewWorkspaceContextBar', () => {
 
     await user.click(screen.getByRole('button', { name: /Project two/ }));
 
-    const items = await screen.findAllByRole('menuitem', { name: /^Project / });
+    await screen.findByRole('listbox');
+    const items = getOptions();
     expect(items.map((item) => item.textContent)).toEqual(projects.map(({ name }) => name));
     expect(items[1].querySelector('svg')).not.toBeNull();
     expect(items[0].querySelector('svg')).toBeNull();
   });
 
-  it('offers the project search in the project dropdown with the New workspace keys', async () => {
+  it('focuses the search when the project dropdown is opened with a click', async () => {
     const user = userEvent.setup();
     render(<ContextBar />);
     const trigger = screen.getByRole('button', { name: /Project one/ });
-    expect(trigger).toHaveAttribute('title', 'Choose project, Ctrl+N searches');
+    expect(trigger).toHaveAttribute('title', 'Choose project (Ctrl+N)');
 
     await user.click(trigger);
-    const search = await screen.findByRole('menuitem', { name: /^Search…/ });
-    expect(search).toHaveTextContent(/^Search…\s*Ctrl\+N$/);
-    await user.click(search);
-    await nextTick();
 
-    expect(await screen.findByRole('combobox', { name: 'Search projects' })).toHaveFocus();
-    expect(screen.queryByRole('menuitem', { name: /^Search…/ })).not.toBeInTheDocument();
+    const search = await screen.findByRole('combobox', { name: 'Search projects' });
+    await waitFor(() => expect(search).toHaveFocus());
+    await user.keyboard('elev');
+    expect(getOptions().map((option) => option.textContent)).toEqual(['Project eleven']);
   });
 
-  it('keeps the project search open when opened from the open project dropdown', async () => {
+  it('opens the project dropdown with ArrowDown on the project button', async () => {
+    const user = userEvent.setup();
+    render(<ContextBar />);
+    screen.getByRole('button', { name: /Project one/ }).focus();
+
+    // Ctrl+ArrowDown is Next workspace, not a way into the dropdown.
+    await user.keyboard('{Control>}{ArrowDown}{/Control}');
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    await user.keyboard('{ArrowDown}');
+
+    const search = await screen.findByRole('combobox', { name: /search projects/i });
+    await waitFor(() => expect(search).toHaveFocus());
+  });
+
+  it('keeps the project dropdown open when New workspace is pressed with it open', async () => {
     const user = userEvent.setup();
     render(<ContextBar />);
     await user.click(screen.getByRole('button', { name: /Project one/ }));
-    await screen.findAllByRole('menuitem', { name: /^Project / });
+    const search = await screen.findByRole('combobox', { name: /search projects/i });
+    await waitFor(() => expect(search).toHaveFocus());
 
     await user.keyboard('{Control>}n{/Control}');
-
-    const search = await screen.findByRole('combobox', { name: /search projects/i });
-    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
-    // The closing dropdown returns focus on a timer; it must not take it from the search.
     await nextTick();
-    expect(search).toBeInTheDocument();
+
+    expect(screen.getAllByRole('combobox')).toEqual([search]);
     expect(search).toHaveFocus();
+  });
+
+  it.each([
+    ['Add project…', 'onAddProject'],
+    ['Open folder…', 'onOpenFolderWorkspace'],
+  ] as const)('offers %s after the projects', async (name, handler) => {
+    const user = userEvent.setup();
+    const callbacks = { onAddProject: vi.fn(), onOpenFolderWorkspace: vi.fn() };
+    render(<ContextBar {...callbacks} />);
+    await user.click(screen.getByRole('button', { name: /Project one/ }));
+
+    await user.click(await screen.findByRole('option', { name }));
+
+    expect(callbacks[handler]).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
+  });
+
+  it('reaches Add project and Open folder with the arrow keys', async () => {
+    const user = userEvent.setup();
+    const onOpenFolderWorkspace = vi.fn();
+    render(<ContextBar initialPickerOpen onOpenFolderWorkspace={onOpenFolderWorkspace} />);
+    const search = await screen.findByRole('combobox', { name: /search projects/i });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    await user.type(search, 'ten');
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{Enter}');
+
+    expect(onOpenFolderWorkspace).toHaveBeenCalledOnce();
   });
 
   it('focuses the project search, listing every project', async () => {
@@ -235,7 +282,10 @@ describe('NewWorkspaceContextBar', () => {
   it('says when no project matches', async () => {
     const user = userEvent.setup();
     const onSelectProject = vi.fn();
-    render(<ContextBar initialPickerOpen onSelectProject={onSelectProject} />);
+    const onAddProject = vi.fn();
+    render(
+      <ContextBar initialPickerOpen onSelectProject={onSelectProject} onAddProject={onAddProject} />
+    );
     const search = await screen.findByRole('combobox', { name: /search projects/i });
     await waitFor(() => expect(search).toHaveFocus());
 
@@ -243,8 +293,72 @@ describe('NewWorkspaceContextBar', () => {
     expect(screen.getByText('No matching projects')).toBeInTheDocument();
     await user.keyboard('{Enter}');
 
+    // Enter after a typo must not run Add project, the first row left.
     expect(onSelectProject).not.toHaveBeenCalled();
+    expect(onAddProject).not.toHaveBeenCalled();
     expect(search).toBeInTheDocument();
+  });
+
+  it('keeps the same project selected when the projects change while open', async () => {
+    const user = userEvent.setup();
+    const onSelectProject = vi.fn();
+    const { rerender } = render(<ContextBar initialPickerOpen onSelectProject={onSelectProject} />);
+    const search = await screen.findByRole('combobox', { name: /search projects/i });
+    await waitFor(() => expect(search).toHaveFocus());
+    await user.keyboard('{ArrowDown}{ArrowDown}');
+    expect(getOptions()[2]).toHaveTextContent('Project three');
+    expect(getOptions()[2]).toHaveAttribute('aria-selected', 'true');
+
+    // Another window launches in Project eleven, which moves to the top.
+    rerender(
+      <ContextBar
+        initialPickerOpen
+        onSelectProject={onSelectProject}
+        projectList={[projects[10], ...projects.slice(0, 10)]}
+      />
+    );
+    await user.keyboard('{Enter}');
+
+    expect(onSelectProject).toHaveBeenCalledWith('project-3');
+  });
+
+  it('keeps the best match selected when the projects reorder after typing', async () => {
+    const user = userEvent.setup();
+    const onSelectProject = vi.fn();
+    const { rerender } = render(<ContextBar initialPickerOpen onSelectProject={onSelectProject} />);
+    const search = await screen.findByRole('combobox', { name: /search projects/i });
+    await waitFor(() => expect(search).toHaveFocus());
+    await user.type(search, 'e');
+    expect(getOptions()[0]).toHaveTextContent('Project one');
+
+    rerender(
+      <ContextBar
+        initialPickerOpen
+        onSelectProject={onSelectProject}
+        projectList={[projects[10], ...projects.slice(0, 10)]}
+      />
+    );
+    await user.keyboard('{Enter}');
+
+    expect(onSelectProject).toHaveBeenCalledWith('project-1');
+  });
+
+  it('goes back to the current project when the search is cleared', async () => {
+    const user = userEvent.setup();
+    const onSelectProject = vi.fn();
+    render(
+      <ContextBar
+        initialPickerOpen
+        initialProjectId="project-11"
+        onSelectProject={onSelectProject}
+      />
+    );
+    const search = await screen.findByRole('combobox', { name: /search projects/i });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    await user.type(search, 'x{Backspace}{Enter}');
+
+    expect(onSelectProject).toHaveBeenCalledWith('project-11');
   });
 
   it('ignores Enter while an input method is composing', async () => {
@@ -300,11 +414,11 @@ describe('NewWorkspaceContextBar', () => {
     render(<ContextBar />);
     const projectButton = screen.getByRole('button', { name: /Project one/ });
     await user.click(projectButton);
-    await screen.findAllByRole('menuitem', { name: /^Project / });
+    await screen.findByRole('combobox', { name: /search projects/i });
 
     await user.click(projectButton);
 
-    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
     await nextTick();
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveFocus();
   });

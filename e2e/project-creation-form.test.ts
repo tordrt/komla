@@ -257,7 +257,7 @@ test.describe('ProjectCreationForm', () => {
 
     const dialog = appWindow.getByRole('dialog', { name: 'Create Workspace' });
     await dialog.getByRole('button', { name: /seed-repo/i }).click();
-    await appWindow.getByRole('menuitem', { name: /^add project…$/i }).click();
+    await appWindow.getByRole('option', { name: /^add project…$/i }).click();
 
     const inlineForm = dialog.getByRole('heading', { name: 'Add New Project' }).locator('../..');
     const selectedProjectPath =

@@ -4,7 +4,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NewWorkspaceDialog } from '../../../../src/renderer/components/workspaces/NewWorkspaceDialog';
 import { useSettingsDialogStore } from '../../../../src/renderer/stores/settings-dialog.store';
@@ -379,6 +379,15 @@ function useTwoPresets() {
 }
 
 describe('NewWorkspaceDialog UI fixes', () => {
+  // jsdom has no scrollIntoView, which the project dropdown calls to keep its selection in view.
+  const originalScrollIntoView = Element.prototype.scrollIntoView;
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+  afterEach(() => {
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     seedShortcuts();
@@ -473,7 +482,8 @@ describe('NewWorkspaceDialog UI fixes', () => {
     render(<NewWorkspaceDialog open={true} onOpenChange={onOpenChange} />);
     await screen.findByPlaceholderText('komla/swift-fox');
 
-    await user.click(screen.getByRole('button', { name: /^add project…$/i }));
+    await user.click(screen.getByTitle(/^choose project/i));
+    await user.click(await screen.findByRole('option', { name: /^add project…$/i }));
     await user.click(screen.getByRole('button', { name: /clone from remote/i }));
     // Pasted rather than typed: rendering the dialog for each character took long enough
     // to time out on a busy computer.

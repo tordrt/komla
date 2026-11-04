@@ -31,7 +31,8 @@ interface SplitContainerProps {
 
 export function SplitContainer({ tabId, isActive, workspaceId }: SplitContainerProps) {
   // Use individual selectors to minimize re-renders
-  const currentWorkspaceId = useLayoutStore((s) => s.currentWorkspaceId);
+  // Only a fallback: subscribed, every switch between workspaces would re-render every tab's.
+  const currentWorkspaceId = useLayoutStore((s) => (workspaceId ? null : s.currentWorkspaceId));
   const splitPane = useLayoutStore((s) => s.splitPane);
   const handleFocusNext = useLayoutStore((s) => s.focusNextPane);
   const handleFocusPrev = useLayoutStore((s) => s.focusPreviousPane);

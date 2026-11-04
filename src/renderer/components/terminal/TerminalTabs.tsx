@@ -250,7 +250,8 @@ interface WorkspaceLayerProps {
   isWorktree: boolean;
   wsTabs: string[];
   wsActiveTabId: string | null;
-  layoutsByTab: Record<string, Record<string, unknown>>;
+  /** This workspace's layouts by tab: the whole map would re-render every layer on any split. */
+  wsLayouts: Record<string, unknown> | undefined;
   previewCloseRef: React.MutableRefObject<(() => void) | null>;
   changeNavRef: React.MutableRefObject<{
     goToNext: () => void;
@@ -267,6 +268,17 @@ interface WorkspaceLayerProps {
   onTreeTabsNarrowestWidthChange: (widthPx: number) => void;
 }
 
+/**
+ * A workspace or tab that stays mounted but out of sight. `content-visibility` hides it without
+ * restyling what's inside: `visibility` is inherited, so toggling it restyled every element of
+ * both workspaces on each switch. The browser skips style and layout inside it, and it takes no
+ * focus or pointer. clip-path lets xterm's IntersectionObserver pause rendering for its terminals.
+ */
+const HIDDEN_LAYER_STYLE: React.CSSProperties = {
+  contentVisibility: 'hidden',
+  clipPath: 'inset(100%)',
+};
+
 /** Renders a single workspace's panel layout. Memoized so each layer only re-renders for its own state changes. */
 const WorkspaceLayer = memo(function WorkspaceLayer({
   wsId,
@@ -275,7 +287,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   isWorktree,
   wsTabs,
   wsActiveTabId,
-  layoutsByTab,
+  wsLayouts,
   previewCloseRef,
   changeNavRef,
   setPreviewTotalChanges,
@@ -345,14 +357,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
     // The terminal's color behind the side panels; the panes sit on the chrome.
     <div
       className="absolute inset-0 flex"
-      style={
-        isCurrentWorkspace
-          ? {
-              visibility: 'visible' as const,
-              backgroundColor: terminalBackground,
-            }
-          : { visibility: 'hidden' as const, clipPath: 'inset(100%)' }
-      }
+      style={isCurrentWorkspace ? { backgroundColor: terminalBackground } : HIDDEN_LAYER_STYLE}
     >
       {/* Terminal area — keeps its dimensions even when preview is fullscreen,
            so Allotment split panes don't recalculate to zero-width sizes. The panes are rounded
@@ -360,7 +365,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
            (the tab row's own padding is the gap above). */}
       <div className="relative min-h-0 overflow-clip bg-[oklch(var(--chrome))]" style={{ flex: 1 }}>
         {wsTabs.map((tabId) => {
-          const tabLayout = layoutsByTab[wsId]?.[tabId];
+          const tabLayout = wsLayouts?.[tabId];
           if (!tabLayout) return null;
 
           const isTabActive = isCurrentWorkspace && tabId === wsActiveTabId;
@@ -372,13 +377,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
                 'absolute top-0 bottom-(--pane-gap) left-(--pane-gap)',
                 handleAfterPanes ? 'right-[calc(var(--pane-gap)-3px)]' : 'right-(--pane-gap)'
               )}
-              // clip-path (like inactive workspaces above) lets xterm's IntersectionObserver
-              // pause rendering for hidden tabs; visibility alone still counts as on-screen.
-              style={
-                isTabActive
-                  ? { visibility: 'visible' }
-                  : { visibility: 'hidden', clipPath: 'inset(100%)' }
-              }
+              style={isTabActive ? undefined : HIDDEN_LAYER_STYLE}
             >
               <SplitContainer tabId={tabId} isActive={isTabActive} workspaceId={wsId} />
             </div>
@@ -2524,7 +2523,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                 isWorktree={!!ws.isWorktree}
                 wsTabs={wsTabs}
                 wsActiveTabId={activeTabByWorkspace[wsId] || null}
-                layoutsByTab={layoutsByTab}
+                wsLayouts={layoutsByTab[wsId]}
                 previewCloseRef={previewCloseRef}
                 changeNavRef={changeNavRef}
                 setPreviewTotalChanges={setPreviewTotalChanges}

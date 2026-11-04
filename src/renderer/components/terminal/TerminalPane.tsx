@@ -22,6 +22,7 @@ import {
   X,
 } from '@phosphor-icons/react';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { QuickCommandMenuItem } from '@/components/actions/QuickCommandMenuItem';
 import { Badge } from '@/components/ui/badge';
@@ -194,11 +195,12 @@ export const TerminalPane = React.memo(function TerminalPane({
   const hostInfo = useTerminalHost(terminalId);
   const sshHosts = useSshHostsStore((state) => state.hosts);
 
-  // Use individual selectors to minimize re-renders
-  const currentWorkspaceId = useLayoutStore((s) => s.currentWorkspaceId);
+  // Use individual selectors to minimize re-renders. The shown workspace is read only as a
+  // fallback, and the selected one only when a handler runs: subscribed, every switch between
+  // workspaces would re-render every pane in every workspace.
+  const currentWorkspaceId = useLayoutStore((s) => (workspaceId ? null : s.currentWorkspaceId));
   const setFocusedPane = useLayoutStore((s) => s.setFocusedPane);
   const splitPane = useLayoutStore((s) => s.splitPane);
-  const selectedWorkspaceId = useWorkspacesStore((s) => s.selectedWorkspaceId);
   const addTerminal = useWorkspacesStore((s) => s.addTerminal);
   const setTerminalDynamicTitle = useWorkspacesStore((s) => s.setTerminalDynamicTitle);
   const setPrimaryTerminal = useWorkspacesStore((s) => s.setPrimaryTerminal);
@@ -269,12 +271,26 @@ export const TerminalPane = React.memo(function TerminalPane({
   // A browser or note takes the pane by closing its terminal; a local terminal swaps in place.
   const canReplaceWithSurface = !!effectiveWorkspaceId && !isLayoutMutationDisabled;
 
-  const actionWorkspace = useWorkspacesStore((s) => {
-    if (effectiveWorkspaceId) {
-      return s.workspaces.find((w) => w.id === effectiveWorkspaceId);
-    }
-    return s.workspaces.find((w) => w.id === s.selectedWorkspaceId);
-  });
+  // Only the fields the pane shows: the workspace object is replaced whenever any of its
+  // terminals changes, e.g. on each title an agent sets, which would re-render all its panes.
+  const actionWorkspace = useWorkspacesStore(
+    useShallow((s) => {
+      const workspace = s.workspaces.find(
+        (w) => w.id === (effectiveWorkspaceId || s.selectedWorkspaceId)
+      );
+      if (!workspace) return undefined;
+      const { id, backend, workingDirectory, projectId, defaultActionId, paneDefaultActionId } =
+        workspace;
+      return { id, backend, workingDirectory, projectId, defaultActionId, paneDefaultActionId };
+    })
+  );
+  // One of a few fixed offers, so it changes only when the pane's offer does.
+  const offer = useWorkspacesStore((s) =>
+    paneOffer(
+      s.workspaces.find((w) => w.id === (effectiveWorkspaceId || s.selectedWorkspaceId)),
+      terminal
+    )
+  );
   const remoteWorkspace =
     actionWorkspace && isSshWorkspace(actionWorkspace) ? actionWorkspace : null;
   const revealableTerminalFilePath = (() => {
@@ -290,7 +306,6 @@ export const TerminalPane = React.memo(function TerminalPane({
     const root = actionWorkspace.workingDirectory.replace(/[\\/]$/, '');
     return `${root}/${contextMenuLink.filePath}`;
   })();
-  const offer = paneOffer(actionWorkspace, terminal);
   const usesManagedTmux = offer.managedSession;
   const isRemoteConnectionPending =
     offer.connecting ||
@@ -404,7 +419,8 @@ export const TerminalPane = React.memo(function TerminalPane({
 
   const handleSplitHorizontal = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (isLayoutMutationDisabled || !selectedWorkspaceId || !getSelectedWorkspace()) return;
+    const selectedWorkspaceId = getSelectedWorkspace()?.id;
+    if (isLayoutMutationDisabled || !selectedWorkspaceId) return;
 
     try {
       // Focus this pane first so the split happens here, not on another focused pane
@@ -422,7 +438,8 @@ export const TerminalPane = React.memo(function TerminalPane({
 
   const handleSplitVertical = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (isLayoutMutationDisabled || !selectedWorkspaceId || !getSelectedWorkspace()) return;
+    const selectedWorkspaceId = getSelectedWorkspace()?.id;
+    if (isLayoutMutationDisabled || !selectedWorkspaceId) return;
 
     try {
       // Focus this pane first so the split happens here, not on another focused pane
@@ -439,7 +456,8 @@ export const TerminalPane = React.memo(function TerminalPane({
   };
 
   const handleSplitLocalCopy = async (direction: 'vertical' | 'horizontal') => {
-    if (isLayoutMutationDisabled || !selectedWorkspaceId || !getSelectedWorkspace()) return;
+    const selectedWorkspaceId = getSelectedWorkspace()?.id;
+    if (isLayoutMutationDisabled || !selectedWorkspaceId) return;
 
     try {
       setFocusedPane(paneId);
@@ -454,7 +472,8 @@ export const TerminalPane = React.memo(function TerminalPane({
   };
 
   const handleSplitSshTerminal = async (direction: 'vertical' | 'horizontal') => {
-    if (isLayoutMutationDisabled || !selectedWorkspaceId || !getSelectedWorkspace()) return;
+    const selectedWorkspaceId = getSelectedWorkspace()?.id;
+    if (isLayoutMutationDisabled || !selectedWorkspaceId) return;
 
     try {
       setFocusedPane(paneId);
@@ -686,6 +705,7 @@ export const TerminalPane = React.memo(function TerminalPane({
   }, [terminalId]);
 
   const handleSetPrimary = async () => {
+    const selectedWorkspaceId = useWorkspacesStore.getState().selectedWorkspaceId;
     if (!selectedWorkspaceId || isPrimary) return;
     await setPrimaryTerminal(selectedWorkspaceId, terminalId);
   };

@@ -28,6 +28,8 @@ export interface DashboardProjectInfo {
   name: string;
   color: string;
   icon?: string;
+  /** Directory projects without an icon show a folder, as in the sidebar. */
+  kind?: 'directory';
 }
 
 export interface DashboardWorkspaceItem {
@@ -106,6 +108,7 @@ export function getProjectInfo(
         name: project.name,
         color: project.color || getProjectColor(project.name),
         ...(project.icon && { icon: project.icon }),
+        ...(project.kind === 'directory' && { kind: 'directory' as const }),
       };
     }
   }

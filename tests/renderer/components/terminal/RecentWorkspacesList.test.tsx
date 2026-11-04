@@ -6,8 +6,9 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RecentWorkspacesList } from '../../../../src/renderer/components/terminal/RecentWorkspacesList';
+import { useProjectsStore } from '../../../../src/renderer/stores/projects.store';
 import { useWorkspacesStore } from '../../../../src/renderer/stores/workspaces.store';
-import { createWorkspace } from '../../../factories';
+import { createProject, createWorkspace } from '../../../factories';
 
 vi.mock('../../../../src/renderer/stores/window.store', () => {
   const state = { windowId: 'window-1' };
@@ -17,7 +18,10 @@ vi.mock('../../../../src/renderer/stores/window.store', () => {
 const originalSelect = useWorkspacesStore.getState().selectWorkspace;
 
 afterEach(() => {
-  act(() => useWorkspacesStore.setState({ workspaces: [], selectWorkspace: originalSelect }));
+  act(() => {
+    useWorkspacesStore.setState({ workspaces: [], selectWorkspace: originalSelect });
+    useProjectsStore.setState({ projects: [] });
+  });
 });
 
 describe('RecentWorkspacesList', () => {
@@ -117,6 +121,38 @@ describe('RecentWorkspacesList', () => {
 
     const details = await screen.findByRole('dialog', {}, { timeout: 2000 });
     expect(within(details).getByText('Sign-in with passkeys')).toBeInTheDocument();
+  });
+
+  it("shows a project's icon beside its name, as the sidebar does", () => {
+    const icon = 'data:image/png;base64,iVBORw0KGgo=';
+    act(() => {
+      useProjectsStore.setState({
+        projects: [createProject({ id: 'p1', name: 'acme', icon })],
+      });
+      useWorkspacesStore.setState({
+        workspaces: [createWorkspace({ id: 'a', name: 'a', projectId: 'p1', lastActivityAt: 1 })],
+      });
+    });
+
+    const { container } = render(<RecentWorkspacesList />);
+
+    expect(container.querySelector(`img[src="${icon}"]`)).not.toBeNull();
+  });
+
+  it('shows a folder for a directory project without an icon, as its sidebar header does', () => {
+    act(() => {
+      useProjectsStore.setState({
+        projects: [createProject({ id: 'p1', name: 'notes', kind: 'directory' })],
+      });
+      useWorkspacesStore.setState({
+        workspaces: [createWorkspace({ id: 'a', name: 'a', projectId: 'p1', lastActivityAt: 1 })],
+      });
+    });
+
+    const { container } = render(<RecentWorkspacesList />);
+
+    expect(container.querySelector('svg')).not.toBeNull();
+    expect(container.querySelector('.rounded-full')).toBeNull();
   });
 
   it('renders nothing without workspaces', () => {

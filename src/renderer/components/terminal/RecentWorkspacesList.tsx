@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { getProjectInfo } from '@/components/dashboard/dashboard-view-model';
+import { ProjectMark } from '@/components/projects/ProjectMark';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { WorkspaceDetailsCard } from '@/components/workspaces/WorkspaceCard';
 import { getWorkspaceDisplayTitle } from '@/components/workspaces/WorkspaceInfoCard';
@@ -93,11 +94,7 @@ function RecentWorkspaceMeta({
     <span className="flex w-full min-w-0 items-center gap-1.5 text-ui text-muted-foreground-70">
       {project && (
         <>
-          <span
-            aria-hidden
-            className="size-2 shrink-0 rounded-full"
-            style={{ backgroundColor: project.color }}
-          />
+          <ProjectMark project={project} iconClassName="size-3" />
           <span className="max-w-[40%] shrink-0 truncate">{project.name}</span>
         </>
       )}

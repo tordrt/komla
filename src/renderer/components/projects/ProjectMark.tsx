@@ -4,7 +4,10 @@ import { cn } from '@/lib/utils';
 
 import type { Project } from '@/types';
 
-/** A project's icon, otherwise its color dot, or a folder icon for directory projects. */
+/**
+ * A project's icon, otherwise its color dot in a box of the icon's size, or a folder icon for
+ * directory projects.
+ */
 export function ProjectMark({
   project,
   iconClassName = 'size-3.5',
@@ -30,9 +33,12 @@ export function ProjectMark({
   return project?.kind === 'directory' ? (
     <FolderOpen className={cn('shrink-0', iconClassName)} style={{ color }} />
   ) : (
-    <span
-      className={cn('shrink-0 rounded-full', dotClassName)}
-      style={{ backgroundColor: color }}
-    />
+    // The dot sits in an icon-sized box, so names line up beside projects that have icons.
+    <span className={cn('flex shrink-0 items-center justify-center', iconClassName)}>
+      <span
+        className={cn('shrink-0 rounded-full', dotClassName)}
+        style={{ backgroundColor: color }}
+      />
+    </span>
   );
 }

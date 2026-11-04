@@ -121,11 +121,16 @@ function popoverParking(): HTMLElement {
   return parking;
 }
 
-/** Moves an element in, keeping the frames in it loaded, which a plain move would reload. */
-function moveInto(parent: Element, node: Element): void {
-  const { moveBefore } = parent as Element & { moveBefore?: (node: Node, child: null) => void };
-  if (moveBefore && node.isConnected && parent.isConnected) moveBefore.call(parent, node, null);
-  else parent.append(node);
+/**
+ * Moves an element in, last or before `before`, keeping the frames in it loaded and its focus,
+ * which a plain move would reload and drop.
+ */
+export function moveInto(parent: Element, node: Element, before: Node | null = null): void {
+  const { moveBefore } = parent as Element & {
+    moveBefore?: (node: Node, child: Node | null) => void;
+  };
+  if (moveBefore && node.isConnected && parent.isConnected) moveBefore.call(parent, node, before);
+  else parent.insertBefore(node, before);
 }
 
 /** Where a kept popover shows while its popover is open. */

@@ -1,4 +1,4 @@
-import { Fragment, useEffect } from 'react';
+import { useEffect } from 'react';
 
 import { useOpenProject } from '@/hooks/useProject';
 import { useConfigStore } from '@/stores/config.store';
@@ -37,6 +37,7 @@ import {
   StatusBarCustomizePopover,
   StatusBarItem,
 } from './StatusBarContextMenu';
+import { StatusBarSides, type StatusBarEntry } from './StatusBarOverflow';
 import { TipsStatusSegment } from './TipsStatusSegment';
 import { UpdateStatusSegment } from './UpdateStatusSegment';
 
@@ -82,61 +83,52 @@ function progressAnchor(placed: StatusBarPlacement): StatusBarPlacedId | undefin
 }
 
 /**
- * The items shown on one side, in the user's order, custom items among them, with git progress
- * after `progressAfter`. The left side opens with that progress when the branch isn't
- * on screen and closes with a warning about status-items.json; the right side opens with update
- * notices. The right side takes all the room the left doesn't use; when both overflow, the
- * left keeps up to 40%. That floor comes from its `w-[40%]`: `overflow-clip`, unlike `hidden`,
- * leaves its automatic minimum width at min(width, content).
+ * The entries on each side, in the user's order, custom items among them, with git progress
+ * after `progressAfter`. The left side opens with that progress when the branch isn't on screen
+ * and closes with a warning about status-items.json; the right side opens with update notices.
  */
-function SideItems({
-  side,
-  items,
+function sideEntries({
+  placed,
   progressAfter,
-  showGitProgress,
+  progress,
   customItems,
   tipsActions,
 }: {
-  side: StatusBarSide;
-  items: StatusBarPlacedId[];
+  placed: StatusBarPlacement;
   progressAfter: StatusBarPlacedId | undefined;
-  showGitProgress: boolean;
+  progress: React.ReactNode;
   customItems: CustomItems;
   tipsActions?: TipsActions;
-}) {
-  const hasWorkspace = useWorkspacesStore((s) =>
-    s.workspaces.some((w) => w.id === s.selectedWorkspaceId)
-  );
-  const progress = hasWorkspace && showGitProgress && <GitProgressIndicator />;
-
-  return (
-    <div
-      className={
-        side === 'left'
-          ? 'flex w-[40%] flex-1 items-center gap-1 overflow-clip'
-          : 'flex items-center gap-1 overflow-hidden'
-      }
-    >
-      {side === 'left' && !progressAfter && progress}
-      {side === 'right' && <UpdateStatusSegment />}
-      {items.map((id) => (
-        <Fragment key={id}>
-          {id === 'tips' ? (
-            tipsActions && <TipsStatusSegment {...tipsActions} />
-          ) : isCustomStatusItemKey(id) ? (
-            customItems.rendered.get(id)
-          ) : (
-            <StatusBarItem id={id}>{SEGMENTS[id]()}</StatusBarItem>
-          )}
-          {id === progressAfter && progress}
-        </Fragment>
-      ))}
-      {side === 'left' && customItems.extras}
-    </div>
-  );
+}): Record<StatusBarSide, StatusBarEntry[]> {
+  const entry = (id: StatusBarPlacedId): StatusBarEntry => ({
+    key: id,
+    node: (
+      <>
+        {id === 'tips' ? (
+          tipsActions && <TipsStatusSegment {...tipsActions} />
+        ) : isCustomStatusItemKey(id) ? (
+          customItems.rendered.get(id)
+        ) : (
+          <StatusBarItem id={id}>{SEGMENTS[id]()}</StatusBarItem>
+        )}
+        {id === progressAfter && progress}
+      </>
+    ),
+  });
+  return {
+    left: [
+      ...(progressAfter ? [] : [{ key: 'git-progress', node: progress }]),
+      ...placed.left.map(entry),
+      { key: 'status-items-warning', node: customItems.extras },
+    ],
+    right: [{ key: 'update', node: <UpdateStatusSegment /> }, ...placed.right.map(entry)],
+  };
 }
 
-/** Both halves of the bar, sharing the open workspace's custom items, run only while it shows. */
+/**
+ * Both halves of the bar, sharing the open workspace's custom items, run only while it shows.
+ * Items that don't fit go behind a button at the end of their side.
+ */
 function StatusBarItems({
   config,
   tipsActions,
@@ -161,28 +153,16 @@ function StatusBarItems({
     customItems.entries.map((entry) => entry.key)
   );
   const placed = { left: placement.left.filter(shown), right: placement.right.filter(shown) };
-  const progressAfter = progressAnchor(placed);
+  // Git progress shows on its own only while the git menu, which shows it, is hidden.
   const showGitProgress = ![...placed.left, ...placed.right].includes('git-menu');
-  return (
-    <>
-      <SideItems
-        side="left"
-        items={placed.left}
-        progressAfter={progressAfter}
-        showGitProgress={showGitProgress}
-        customItems={customItems}
-        tipsActions={tipsActions}
-      />
-      <SideItems
-        side="right"
-        items={placed.right}
-        progressAfter={progressAfter}
-        showGitProgress={showGitProgress}
-        customItems={customItems}
-        tipsActions={tipsActions}
-      />
-    </>
-  );
+  const { left, right } = sideEntries({
+    placed,
+    progressAfter: progressAnchor(placed),
+    progress: hasWorkspace && showGitProgress && <GitProgressIndicator />,
+    customItems,
+    tipsActions,
+  });
+  return <StatusBarSides left={left} right={right} />;
 }
 
 /** The thin bar along the bottom of the window. Items hide themselves while they have nothing to show. */

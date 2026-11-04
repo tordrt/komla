@@ -4063,6 +4063,34 @@ describe('StatusBar', () => {
       });
     });
 
+    it('offers to hide an item from the menu of items that did not fit', async () => {
+      const user = userEvent.setup();
+      // jsdom has no layout: a narrow bar, and items 100 wide, so some go behind the more button.
+      const widthOf = (element: Element): number =>
+        element.matches('[data-status-bar]')
+          ? 150
+          : element.tagName === 'BUTTON'
+            ? 100
+            : [...element.children].reduce((sum, child) => sum + widthOf(child), 0);
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: HTMLElement
+      ) {
+        return new DOMRect(0, 0, widthOf(this), 0);
+      });
+      mockState.config = { statusBarShownItems: ['keep-awake'] };
+      openProjectWorkspace();
+      renderStatusBar();
+
+      await user.click(screen.getByRole('button', { name: /^\d+ more items?$/ }));
+      const menu = await screen.findByRole('dialog', { name: 'More status bar items' });
+      const item = within(menu).getAllByRole('button')[0];
+      fireEvent.contextMenu(item);
+
+      expect(
+        await screen.findByRole('menuitem', { name: `Hide ${item.getAttribute('aria-label')}` })
+      ).toBeInTheDocument();
+    });
+
     /** Opens a workspace of the project komla, as the bar's per-project entries need. */
     function openProjectWorkspace() {
       useProjectsStore.setState({ projects: [{ id: 'project-1', name: 'komla' } as never] });

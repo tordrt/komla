@@ -25,6 +25,7 @@ import {
   type CustomStatusItemKey,
   type StatusBarItemId,
 } from './status-bar-items';
+import { OVERFLOW_MENU_ATTRIBUTE } from './status-bar-overflow';
 import { StatusBarCustomizePanel } from './StatusBarCustomizePanel';
 
 import type * as React from 'react';
@@ -109,12 +110,17 @@ export function StatusBarContextMenu({ children }: { children: React.ReactElemen
   if (!config || config.showStatusBar === false) return children;
 
   const onContextMenu = (event: React.MouseEvent<HTMLElement>) => {
-    // React events bubble out of portals: a right-click inside an item's menu is not one on the bar.
-    if (!event.currentTarget.contains(event.target as Node)) {
+    // React events bubble out of portals: a right-click inside an item's menu is not one on the
+    // bar. One on an item in the menu of items that didn't fit is.
+    const target = event.target as Element;
+    if (
+      !event.currentTarget.contains(target) &&
+      !target.closest?.(`[${OVERFLOW_MENU_ATTRIBUTE}]`)
+    ) {
       event.preventDefault();
       return;
     }
-    setTarget(hideTargetAt(event.target as Element));
+    setTarget(hideTargetAt(target));
     anchorPoint.current = { x: event.clientX, y: event.currentTarget.getBoundingClientRect().top };
   };
 

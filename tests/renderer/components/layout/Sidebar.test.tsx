@@ -841,8 +841,8 @@ describe('Sidebar', () => {
       ).toBeNull();
       expect(button).toHaveTextContent('Komla');
       // Squeezed by the footer's other controls, the name drops rather than going to "K…".
-      expect(within(button).getByText('Komla').parentElement).toHaveClass('flex-wrap');
       expect(within(button).getByText('Komla')).toHaveClass('basis-auto');
+      expect(within(button).getByText('Komla').parentElement).toHaveClass('flex-wrap');
       fireEvent.click(button);
 
       expect(workspaceState.selectWorkspace).toHaveBeenCalledWith(null);
@@ -923,7 +923,7 @@ describe('Sidebar', () => {
     expect(within(topRow).queryByText('New Workspace')).toBeNull();
   });
 
-  it('keeps the Jump to shortcut at the narrowest sidebar, shortening the placeholder instead', () => {
+  it('keeps the Jump to shortcut at a narrow sidebar, dropping the placeholder first', () => {
     window.api = { platform: 'darwin' } as typeof window.api;
     render(
       <Sidebar
@@ -935,16 +935,17 @@ describe('Sidebar', () => {
     );
 
     const jumpButton = screen.getByRole('button', { name: /Jump to/ });
-    expect(within(jumpButton).getByText('⌘K')).toBeTruthy();
-    // The placeholder truncates to a few characters, as "Jump…", then wraps onto a line the
-    // field hides, leaving the icon and shortcut rather than a stub like "Ju…". Hidden that way,
-    // it still names the button.
+    // The placeholder shortens to "Jump…", then wraps onto a line the field hides, and the
+    // shortcut, ahead of it in line order, moves left beside the icon. Hidden that way, the
+    // placeholder still names the button.
     const placeholder = within(jumpButton).getByText('Jump to…');
-    expect(placeholder).toHaveClass('truncate', 'basis-[3em]');
-    expect(placeholder.parentElement).toHaveClass('flex-wrap', 'overflow-hidden');
+    expect(placeholder).toHaveClass('basis-[3.5em]', 'order-last');
+    const row = placeholder.parentElement!;
+    expect(row).toHaveClass('flex-row-reverse', 'flex-wrap', 'justify-end', 'overflow-hidden');
+    expect(row).toContainElement(within(jumpButton).getByText('⌘K'));
   });
 
-  it('on linux, keeps Ctrl+Shift+P in the Jump to field as Ctrl⇧P, dropping the placeholder', () => {
+  it('on linux, shows Ctrl+Shift+P in the Jump to field as Ctrl⇧P, and in its tooltip', () => {
     window.api = { platform: 'linux' } as typeof window.api;
     render(
       <Sidebar
@@ -957,7 +958,10 @@ describe('Sidebar', () => {
 
     const jumpButton = screen.getByRole('button', { name: /Jump to/ });
     expect(within(jumpButton).getByText('Ctrl⇧P').tagName).toBe('KBD');
-    expect(within(jumpButton).getByText('Jump to…').parentElement).toHaveClass('flex-wrap');
+    // The tooltip, rendered in place here, shows it too, for a sidebar too narrow to show it in
+    // the field.
+    const tooltip = screen.getByText(/^Search workspaces and commands/);
+    expect(within(tooltip).getByText('Ctrl+Shift+P').tagName).toBe('KBD');
   });
 
   it('leaves no traffic-light room in full screen', () => {

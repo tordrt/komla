@@ -1,14 +1,15 @@
 import { shellEscape } from '../../lib/workspace-launch-variables';
 
-import { resolveLaunchVariables } from './launch-variables';
+import { commandValuesOf, resolveLaunchVariables } from './launch-variables';
 
 import type { ManagedRestartRequest, ManagedSessionExecutionLocation } from './execution-location';
+import type { CommandValuesDependencies } from './launch-variables';
 import type { SshWorkspaceBackend, Workspace } from '../../../shared/types/workspace';
 import type { ManagedRemoteTerminalLifecycleService } from '../managed-remote-terminal-lifecycle/lifecycle';
 import type { sshHostService } from '../ssh-host.service';
 import type { sshWorkspaceService } from '../ssh-workspace.service';
 
-export interface SshExecutionDependencies {
+export interface SshExecutionDependencies extends CommandValuesDependencies {
   managedSessions: Pick<
     ManagedRemoteTerminalLifecycleService,
     'create' | 'reconnect' | 'replace' | 'stop' | 'release'
@@ -26,11 +27,13 @@ export interface SshExecutionDependencies {
  */
 export function createSshExecution(
   workspace: Workspace & { backend: SshWorkspaceBackend },
-  { managedSessions, hosts, ssh }: SshExecutionDependencies
+  dependencies: SshExecutionDependencies
 ): ManagedSessionExecutionLocation {
+  const { managedSessions, hosts, ssh } = dependencies;
   const workspacePath = () => workspace.backend.remoteDirectory;
+  const commandValues = commandValuesOf(workspace, dependencies);
   const resolveVariables = (command: string | null) =>
-    resolveLaunchVariables(command, workspacePath, 'posix');
+    resolveLaunchVariables(command, workspacePath, 'posix', commandValues);
   const toLifecycleRequest = (request: ManagedRestartRequest) => ({
     terminalId: request.terminalId,
     command: request.command.command,
@@ -55,7 +58,15 @@ export function createSshExecution(
     workingDirectory: workspacePath,
     workspacePath,
     resolveLaunchVariables: resolveVariables,
-    buildCommand: (command) => ({ command: resolveVariables(command) }),
+    // An agent's prompt keeps the workspace's values as typed; only commands get them quoted.
+    buildCommand: (command, { commandKind = 'agent' } = {}) => ({
+      command: resolveLaunchVariables(
+        command,
+        workspacePath,
+        'posix',
+        commandKind === 'agent' ? undefined : commandValues
+      ),
+    }),
     runBackground({ command, onData, onExit, onError }) {
       const host = hosts.get(workspace.backend.hostId);
       if (!host) throw new Error(`SSH host ${workspace.backend.hostId} is not configured`);

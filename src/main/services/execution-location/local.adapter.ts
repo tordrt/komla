@@ -3,14 +3,15 @@ import { basename, dirname, join } from 'path';
 
 import { createLogger } from '../../lib/logger';
 
-import { resolveLaunchVariables } from './launch-variables';
+import { commandValuesOf, resolveLaunchVariables } from './launch-variables';
 
 import type { AttachedExecutionLocation } from './execution-location';
+import type { CommandValuesDependencies } from './launch-variables';
 import type { SshWorkspaceBackend, Workspace } from '../../../shared/types/workspace';
 
 const logger = createLogger('ExecutionLocation');
 
-export interface LocalExecutionDependencies {
+export interface LocalExecutionDependencies extends CommandValuesDependencies {
   getLocalCopyPath(workspace: SshWorkspace): string;
   prepareLocalCopy(workspace: SshWorkspace): Promise<unknown>;
   initializeLocalCopy(workspace: SshWorkspace): Promise<unknown>;
@@ -69,14 +70,21 @@ export function createLocalExecution(
     return dependencies.isWslMode() ? dependencies.windowsPathToWsl(launchPath) : launchPath;
   };
 
+  const commandValues = commandValuesOf(workspace, dependencies);
   const resolveVariables = (command: string | null) =>
-    resolveLaunchVariables(command, workspacePath, 'desktop');
+    resolveLaunchVariables(command, workspacePath, 'desktop', commandValues);
 
   const buildCommand: AttachedExecutionLocation['buildCommand'] = (
     rawCommand,
     { commandKind = 'agent' } = {}
   ) => {
-    const command = resolveVariables(rawCommand);
+    // An agent's prompt keeps the workspace's values as typed; only commands get them quoted.
+    const command = resolveLaunchVariables(
+      rawCommand,
+      workspacePath,
+      'desktop',
+      commandKind === 'agent' ? undefined : commandValues
+    );
     if (root.kind === 'local-copy') return { command };
     return commandKind === 'host-shell' ? { command: null } : { command };
   };

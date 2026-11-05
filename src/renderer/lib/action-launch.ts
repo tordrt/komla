@@ -85,7 +85,7 @@ export async function launchAction(request: ActionLaunchRequest): Promise<Action
     workspaces.setDefaultAction(workspace.id, action.id);
   }
 
-  const text = resolveActionText(action, workspace, input);
+  const text = resolveActionText(action, workspace, input, place.kind === 'type');
   let outcome: ActionLaunchOutcome;
   try {
     // A background Terminal Command runs without a Terminal wherever it's launched; typed, it's
@@ -140,17 +140,27 @@ async function launchAtPlace(
 
 /**
  * The text an Action runs in a workspace: its launch context filled in, the workspace's own
- * values before the user's input, so braces typed into the input stay as typed.
+ * values before the user's input, so braces typed into the input stay as typed. A Terminal
+ * Command that runs keeps `{{worktreePath}}`, `{{branchName}}` and `{{projectName}}` for the
+ * terminal it starts in to fill in, quoted for its shell; pasted, it shows them as they are.
  */
-export function resolveActionText(action: Action, workspace: Workspace, input?: string): string {
+export function resolveActionText(
+  action: Action,
+  workspace: Workspace,
+  input?: string,
+  pasted = false
+): string {
   const project = workspace.projectId
     ? useProjectsStore.getState().projects.find((p) => p.id === workspace.projectId)
     : undefined;
-  const content = substituteCommandVars(action.content, {
-    worktreePath: workspace.workingDirectory,
-    branchName: workspace.branchName || '',
-    projectName: project?.name || '',
-  });
+  const content =
+    action.type === 'command' && !pasted
+      ? action.content
+      : substituteCommandVars(action.content, {
+          worktreePath: workspace.workingDirectory,
+          branchName: workspace.branchName || '',
+          projectName: project?.name || '',
+        });
   const targetBranch = content.includes(ACTION_TARGET_BRANCH_TOKEN)
     ? resolveTargetBranch(workspace, project)
     : undefined;

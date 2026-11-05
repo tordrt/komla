@@ -2,6 +2,7 @@ import { isWslMode, windowsPathToWsl } from '../../lib/wsl';
 import { backgroundProcessService } from '../background-process.service';
 import { localCopyService } from '../local-copy.service';
 import { managedRemoteTerminalLifecycleService } from '../managed-remote-terminal-lifecycle.service';
+import { projectService } from '../project.service';
 import { ptyService } from '../pty.service';
 import { sshHostService } from '../ssh-host.service';
 import { sshWorkspaceService } from '../ssh-workspace.service';
@@ -52,4 +53,6 @@ export const executionLocations = createExecutionLocations({
     runStreaming: (...args) => sshWorkspaceService.runStreaming(...args),
     komlaCliSetup: remoteKomlaCliSetup,
   },
+  projectName: (workspace) =>
+    (workspace.projectId && projectService.get(workspace.projectId)?.name) || '',
 });

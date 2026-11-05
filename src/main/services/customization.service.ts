@@ -4,6 +4,7 @@ import { join } from 'path';
 import { BrowserWindow } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
+import { buildSkillFetchInstruction } from '../../shared/constants/skill-fetch-instruction';
 import { DEFAULT_TERMINAL_CONFIG } from '../../shared/constants/terminal';
 import {
   CUSTOM_PALETTE_ID,
@@ -44,40 +45,6 @@ const TERMINAL_MIGRATIONS: Record<
   number,
   (data: Record<string, unknown>) => Record<string, unknown>
 > = {};
-
-/**
- * Convert an OKLCH color string to an ANSI true-color escape sequence.
- * Falls back to a default blue if parsing fails.
- */
-function oklchToAnsi(oklchStr: string): string {
-  const match = oklchStr.match(/oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)/);
-  if (!match) return '\x1b[38;2;100;149;237m'; // fallback: cornflower blue
-
-  const L = parseFloat(match[1]);
-  const C = parseFloat(match[2]);
-  const h = parseFloat(match[3]) * (Math.PI / 180);
-
-  // OKLCH → OKLab
-  const a = C * Math.cos(h);
-  const b = C * Math.sin(h);
-
-  // OKLab → linear sRGB
-  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-  const l3 = l_ * l_ * l_;
-  const m3 = m_ * m_ * m_;
-  const s3 = s_ * s_ * s_;
-  const lr = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
-  const lg = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
-  const lb = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.707614701 * s3;
-
-  // Linear sRGB → sRGB (gamma)
-  const gamma = (x: number) => (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055);
-  const clamp = (x: number) => Math.max(0, Math.min(255, Math.round(gamma(x) * 255)));
-
-  return `\x1b[38;2;${clamp(lr)};${clamp(lg)};${clamp(lb)}m`;
-}
 
 // The custom theme's accent while the theme, or the light theme while following the system, is
 // the custom theme.
@@ -131,457 +98,26 @@ const DEFAULT_THEME: ThemeConfig = {
   },
 };
 
-const README_CONTENT = `# Komla Settings
-
-This folder contains customization settings for Komla.
-Open Workspace from Komla Settings to edit these files manually or with an AI assistant.
-
-## ⚠️ Important: Do Not Delete Files
-
-**Never delete files in this folder - only edit them.**
-
-The application expects these files to exist. If you want to reset settings to defaults,
-copy the contents from the \`defaults/\` folder instead of deleting files.
-
-## Quick Commands for AI
-
-The AI can edit one file or multiple files together in a single request.
-
-Tell the AI assistant things like:
-- "Give Komla a retro-futuristic Fallout theme for both UI and terminal"
-- "Make everything cozy for night coding with warmer colors and softer contrast"
-- "Use Fira Code at 16 and rebalance spacing so everything still feels compact"
-- "Suggest better shortcuts for pane splitting and tab navigation"
-- "Propose three shortcut layouts optimized for laptop keyboards"
-- "Create a quick command named Bug Scan with grounding rules"
-- "Update my PR review quick command to compare changes against {{target_branch}}"
-- "Reset to defaults" (copy from defaults/ folder)
-
-## Folder Structure
-
-\`\`\`
-settings/
-├── theme.json          # Your current theme settings
-├── terminal.json       # Your current terminal settings
-├── shortcuts.json      # Your keyboard shortcuts
-├── actions.json        # Your quick commands (Saved Prompts and Terminal Commands)
-├── status-items.json   # Your custom status bar items (commands run on an interval)
-├── sidebar-panels.json # Your sidebar panels (pages beside Diff and Files)
-├── panels/             # Sidebar panels' own pages, as panels/<name>/index.html
-├── hooks.json          # Commands run on agent and workspace events, or on a timer
-├── plugins.json        # Which plugins in ../plugins/ run, as their files were when turned on
-├── README.md           # This documentation
-├── AGENTS.md           # AI context (open standard)
-├── GEMINI.md           # AI context for Gemini CLI
-├── CLAUDE.md           # AI context for Claude Code
-└── defaults/           # Default settings (read-only reference)
-    ├── theme.json      # Default theme - copy to reset
-    ├── terminal.json   # Default terminal - copy to reset
-    ├── shortcuts.json  # Default shortcuts - copy to reset
-    └── actions.json    # Default quick commands - copy to reset
-\`\`\`
-
-## Resetting to Defaults
-
-To reset settings to defaults, copy the files from the \`defaults/\` folder:
-- Copy \`defaults/theme.json\` to \`theme.json\` to reset theme
-- Copy \`defaults/terminal.json\` to \`terminal.json\` to reset terminal
-- Copy \`defaults/shortcuts.json\` to \`shortcuts.json\` to reset shortcuts
-- Copy \`defaults/actions.json\` to \`actions.json\` to reset quick commands
-
-## Files
-
-### theme.json
-
-Controls the application's visual appearance. See \`defaults/theme.json\` for all available properties and their default values.
-
-Colors use the OKLCH color space: \`"oklch(L C H)"\`
-- **L** (Lightness): 0-1, where 0 is black and 1 is white
-- **C** (Chroma): 0-0.4, color intensity (0 = gray, higher = more vibrant)
-- **H** (Hue): 0-360, the color angle (0/360 = red, 120 = green, 240 = blue)
-
-Color examples: \`"oklch(0.65 0.15 250)"\` (blue), \`"oklch(0.65 0.15 142)"\` (green), \`"oklch(0.60 0.18 300)"\` (purple)
-
-### terminal.json
-
-Controls the terminal emulator appearance. See \`defaults/terminal.json\` for all available properties and their default values.
-
-**Popular Terminal Fonts:** Menlo, Fira Code, JetBrains Mono, SF Mono, Cascadia Code
-
-### shortcuts.json
-
-Controls keyboard shortcuts. Use "Cmd" in the config file - it becomes the Meta key (⌘) on Mac and Ctrl on Windows/Linux.
-
-| Action | Default | Description |
-|--------|---------|-------------|
-| workspace.next | Cmd+ArrowDown | Switch to next running workspace |
-| workspace.previous | Cmd+ArrowUp | Switch to previous running workspace |
-| workspace.select.1-9 | Cmd+1-9 | Jump to workspace by position |
-| workspace.new | Cmd+N | Open new workspace dialog |
-| workspace.openFolder | Cmd+O (macOS), unbound (Windows/Linux) | Open a folder as a workspace |
-| workspace.overview | Cmd+Shift+O | Show workspace overview |
-| diff.toggle | Cmd+Shift+G (macOS), Cmd+Shift+D (Windows/Linux) | Toggle diff viewer |
-| history.toggle | Cmd+Shift+H | Toggle commit history |
-| pane.close | Cmd+W (macOS), Cmd+Alt+W (Windows/Linux) | Close current pane |
-| pane.splitRight | Cmd+D (macOS), Cmd+\\ (Windows/Linux) | Split pane vertically |
-| pane.splitDown | Cmd+Shift+D (macOS), Cmd+Shift+\\ (Windows/Linux) | Split pane horizontally |
-| pane.focusNext | Cmd+K (macOS), Cmd+Shift+K (Windows/Linux) | Focus next pane, moving on to the next tab after a tab's last pane |
-| pane.focusPrev | Cmd+J (macOS), Cmd+Shift+J (Windows/Linux) | Focus previous pane, moving back to the previous tab before a tab's first pane |
-| terminal.new | Cmd+T | New terminal in workspace |
-| tab.next | Cmd+Shift+] | Switch to next tab |
-| tab.previous | Cmd+Shift+[ | Switch to previous tab |
-| file.open | DoubleTap+Shift | Open file search |
-| file.tree | Cmd+Shift+E | Toggle file tree |
-| terminal.scrollToBottom | Cmd+Shift+ArrowDown | Scroll terminal to bottom |
-| terminal.search | Cmd+F | Open terminal search |
-| newWorkspace.cycleAgent | Ctrl+Tab (macOS), Cmd+. (Windows/Linux) | Next agent, in the new workspace dialog |
-| newWorkspace.cycleLaunchMode | Shift+Tab | Next launch mode, from the dialog's prompt |
-| newWorkspace.cycleEffort, cycleProject, cycleEnvironment | unbound | Next effort level, project or environment, in the dialog |
-| newWorkspace.agentMenu, effortMenu, environmentMenu, branchMenu, projectSearch | unbound | Open that menu, in the dialog |
-
-\`newWorkspace.*\` shortcuts act only in the new workspace dialog, so they can reuse keys used elsewhere, and may use Shift+Tab. An empty string (\`""\`) leaves an action unbound.
-
-**Note:** \`workspace.next\` and \`workspace.previous\` only cycle through running workspaces (not stopped ones). Use \`Cmd+1-9\` to jump to any workspace by position.
-
-**🌍 International Keyboard Layouts**
-
-On first run, Komla detects your keyboard layout. For non-US layouts (AZERTY, QWERTZ, Nordic, etc.), different defaults are used because brackets and backslash are hard to access. macOS split-pane shortcuts stay on Cmd+D / Cmd+Shift+D because D is layout-friendly:
-
-| US Default | International Default |
-|------------|----------------------|
-| Cmd+[ / Cmd+] | Cmd+, / Cmd+. |
-| Cmd+\\ | Cmd+/ |
-| Cmd+Shift+[ / Cmd+Shift+] | Cmd+Shift+, / Cmd+Shift+. |
-| Cmd+Shift+\\ | Cmd+Shift+/ |
-
-Your actual defaults are in \`shortcuts.json\`. The \`defaults/shortcuts.json\` file shows the platform/layout-aware defaults created on first run.
-
-**⚠️ Avoid Terminal Conflicts**
-
-When customizing shortcuts, avoid key combinations that conflict with common terminal input:
-- \`Ctrl+C\` (interrupt/SIGINT)
-- \`Ctrl+D\` (EOF/logout)
-- \`Ctrl+Z\` (suspend)
-- \`Ctrl+L\` (clear screen)
-- \`Ctrl+R\` (reverse search)
-- \`Ctrl+A/E\` (line navigation)
-
-The default shortcuts use \`Cmd\` (Meta on Mac, Ctrl on Windows) specifically to avoid these conflicts on macOS. On Windows/Linux, the defaults may conflict with some terminal operations.
-
-**Example customization:**
-\`\`\`json
-{
-  "shortcuts": {
-    "workspace.next": "Cmd+]",
-    "workspace.previous": "Cmd+[",
-    "diff.toggle": "Cmd+Shift+D"
-  }
+function writeIfChanged(path: string, content: string): void {
+  if (existsSync(path) && readFileSync(path, 'utf-8') === content) return;
+  writeFileSync(path, content, 'utf-8');
 }
-\`\`\`
 
-### actions.json
+// Komla owns these files, so an agent that finds its way here learns to use the CLI instead.
+const AGENTS_CONTENT = `# Komla Settings
 
-Stores reusable quick commands (Saved Prompts and Terminal Commands) shown when creating workspaces.
+Komla keeps its settings in this folder. Don't edit, create or delete files here: Komla applies a
+write here without the user seeing it first.
 
-Create or edit quick commands in the app via:
-- \`Settings → Quick Commands → New quick command\` — built-in editor
-- \`Settings → Quick Commands → Create with AI\` — describe what you need, AI writes the quick command
-
-Supported placeholders:
-- \`{{user_input}}\` — prompts for text input at launch time (e.g., ticket number, topic)
-- \`{{target_branch}}\` — resolves to the workspace/project target branch when available
-
-**Quick command types:**
-- \`"prompt"\` (default) — Saved Prompt; the content is sent to the AI agent when the workspace launches
-- \`"command"\` — Terminal Command; the content is executed as a raw command (no AI agent involved)
-
-Full example with all supported fields:
-\`\`\`json
-{
-  "actions": [
-    {
-      "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-      "type": "prompt",
-      "title": "PR Review",
-      "content": "Review the changes in this workspace against {{target_branch}}. Summarise what changed and flag any concerns.",
-      "projectIds": [],
-      "order": 0,
-      "lastUsedAt": null
-    },
-    {
-      "id": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
-      "type": "command",
-      "title": "Ticket Investigation",
-      "content": "Investigate issue {{user_input}} and propose a fix. Start by searching for relevant code.",
-      "projectIds": [],
-      "order": 1,
-      "lastUsedAt": null
-    }
-  ]
-}
-\`\`\`
-
-Field reference:
-- \`id\` — unique UUID (generate one or let the app create it)
-- \`type\` — \`"prompt"\` for a Saved Prompt or \`"command"\` for a Terminal Command
-- \`title\` — short label shown in menus
-- \`content\` — the prompt text sent to the agent, or the terminal command to run
-- \`projectIds\` — array of project IDs this quick command is scoped to (empty array = available everywhere)
-- \`order\` — display order (lower numbers appear first)
-- \`lastUsedAt\` — ISO timestamp updated automatically when the quick command is used
-- \`lastUserInput\` — last value the user entered for \`{{user_input}}\`, auto-managed
-
-Quick AI commands for this file:
-- "Create a quick command for reviewing security vulnerabilities in new code"
-- "Add a quick command that asks for a {{user_input}} ticket number and writes a focused branch review"
-
-Changes to these files are applied immediately — no restart required!
+Change Komla's settings with the \`komla\` CLI instead, which shows the user each change before it
+applies. ${buildSkillFetchInstruction('customize')} It explains \`komla settings get|apply|schema\`
+for each part of Komla's settings.
 `;
-
-const AGENTS_CONTENT = `# Komla Settings — AI Context
-
-You are operating inside the Komla settings directory. This folder contains JSON configuration files that control the appearance and behaviour of the Komla application.
-
-## Important Rules
-
-- **Never delete files** — only edit them. The application expects all files to exist.
-- To reset a file to its defaults, copy the contents from the \`defaults/\` folder.
-- Changes are applied immediately — no restart required.
-- Komla records every change to these files. The user can revert any of them from Settings → General → Settings history, so tell them your change can be undone there.
-
-## Files
-
-### theme.json
-
-Controls the application's visual appearance. Read \`defaults/theme.json\` to see the full schema and all available properties. Colors use the OKLCH color space: \`"oklch(L C H)"\` where L=lightness (0-1), C=chroma (0-0.4), H=hue (0-360).
-
-### terminal.json
-
-Controls the terminal emulator appearance. Read \`defaults/terminal.json\` to see the full schema and all available properties.
-
-### shortcuts.json
-
-Controls keyboard shortcuts. Use "Cmd" in the config — it maps to ⌘ on Mac and Ctrl on Windows/Linux.
-
-| Action | Default | Description |
-|--------|---------|-------------|
-| workspace.next | Cmd+ArrowDown | Switch to next running workspace |
-| workspace.previous | Cmd+ArrowUp | Switch to previous running workspace |
-| workspace.select.1-9 | Cmd+1-9 | Jump to workspace by position |
-| workspace.new | Cmd+N | Open new workspace dialog |
-| workspace.openFolder | Cmd+O (macOS), unbound (Windows/Linux) | Open a folder as a workspace |
-| workspace.overview | Cmd+Shift+O | Show workspace overview |
-| diff.toggle | Cmd+Shift+G (macOS), Cmd+Shift+D (Windows/Linux) | Toggle diff viewer |
-| history.toggle | Cmd+Shift+H | Toggle commit history |
-| pane.close | Cmd+W (macOS), Cmd+Alt+W (Windows/Linux) | Close current pane |
-| pane.splitRight | Cmd+D (macOS), Cmd+\\ (Windows/Linux) | Split pane vertically |
-| pane.splitDown | Cmd+Shift+D (macOS), Cmd+Shift+\\ (Windows/Linux) | Split pane horizontally |
-| pane.focusNext | Cmd+K (macOS), Cmd+Shift+K (Windows/Linux) | Focus next pane, moving on to the next tab after a tab's last pane |
-| pane.focusPrev | Cmd+J (macOS), Cmd+Shift+J (Windows/Linux) | Focus previous pane, moving back to the previous tab before a tab's first pane |
-| terminal.new | Cmd+T | New terminal in workspace |
-| tab.next | Cmd+Shift+] | Switch to next tab |
-| tab.previous | Cmd+Shift+[ | Switch to previous tab |
-| file.open | DoubleTap+Shift | Open file search |
-| file.tree | Cmd+Shift+E | Toggle file tree |
-| terminal.scrollToBottom | Cmd+Shift+ArrowDown | Scroll terminal to bottom |
-| terminal.search | Cmd+F | Open terminal search |
-| newWorkspace.cycleAgent | Ctrl+Tab (macOS), Cmd+. (Windows/Linux) | Next agent, in the new workspace dialog |
-| newWorkspace.cycleLaunchMode | Shift+Tab | Next launch mode, from the dialog's prompt |
-| newWorkspace.cycleEffort, cycleProject, cycleEnvironment | unbound | Next effort level, project or environment, in the dialog |
-| newWorkspace.agentMenu, effortMenu, environmentMenu, branchMenu, projectSearch | unbound | Open that menu, in the dialog |
-
-\`newWorkspace.*\` shortcuts act only in the new workspace dialog, so they can reuse keys used elsewhere, and may use Shift+Tab. An empty string (\`""\`) leaves an action unbound.
-
-Avoid key combinations that conflict with terminal signals: Ctrl+C, Ctrl+D, Ctrl+Z, Ctrl+L, Ctrl+R, Ctrl+A/E.
-
-### actions.json
-
-Stores reusable quick commands (Saved Prompts and Terminal Commands) shown when creating workspaces.
-
-**Quick command types:**
-- \`"prompt"\` (default) — Saved Prompt; the content is sent to the AI agent when the workspace launches
-- \`"command"\` — Terminal Command; the content is executed as a raw command (no AI agent involved)
-
-Supported placeholders:
-- \`{{user_input}}\` — prompts the user for text input at workspace launch
-- \`{{target_branch}}\` — resolves to the workspace/project target branch
-
-Schema — full example with both types:
-\`\`\`json
-{
-  "actions": [
-    {
-      "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-      "type": "prompt",
-      "title": "PR Review",
-      "content": "Review the changes in this workspace against {{target_branch}}.",
-      "projectIds": [],
-      "order": 0,
-      "lastUsedAt": null
-    },
-    {
-      "id": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
-      "type": "command",
-      "title": "Run Tests",
-      "content": "npm test",
-      "projectIds": [],
-      "order": 1,
-      "lastUsedAt": null
-    }
-  ]
-}
-\`\`\`
-
-Field reference:
-- \`id\` — unique UUID (generate one or let the app create it)
-- \`type\` — \`"prompt"\` for a Saved Prompt or \`"command"\` for a Terminal Command
-- \`title\` — short label shown in menus
-- \`content\` — the prompt text sent to the agent, or the terminal command to run
-- \`projectIds\` — array of project IDs this quick command is scoped to (empty array = available everywhere)
-- \`order\` — display order (lower numbers appear first)
-- \`lastUsedAt\` — ISO timestamp, updated automatically (do not set manually)
-- \`lastUserInput\` — last value the user entered for \`{{user_input}}\`, auto-managed (do not set manually)
-
-**How to create or edit quick commands:**
-1. Read the current \`actions.json\` file
-2. Parse the JSON to get the existing \`actions\` array
-3. Append a new quick command object (or edit an existing one) — generate a new UUID for the \`id\`
-4. Write the full JSON back to \`actions.json\`
-
-### status-items.json
-
-Defines custom status bar items: commands Komla runs on an interval in the open workspace, locally in its folder or on its SSH host, or with \`runOn: "local"\` on this computer for every workspace, whose output becomes the item.
-
-Komla also has built-in items, such as the branch's pull request with its CI checks (it can notify the workspace when CI finishes), Claude Code and Codex plan usage, the commit graph or resource usage; the user turns them on from the status bar's right-click menu. Suggest a built-in item when one shows what the user asks for, and write an item here when none does.
-
-\`\`\`json
-{
-  "_version": 1,
-  "items": [
-    {
-      "id": "pr",
-      "command": "gh pr view --json number,url --jq '{text: \\"PR #\\\\(.number)\\", link: .url}'",
-      "intervalSeconds": 600,
-      "refreshOn": ["branch.changed"],
-      "label": "Pull request",
-      "projects": ["komla"]
-    }
-  ]
-}
-\`\`\`
-
-Field reference:
-- \`id\` — up to 40 letters, digits, dots, dashes and underscores; unique in the file
-- \`command\` — run with the user's shell; plain output shows its first line, with the rest as the tooltip, or print JSON \`{"text", "tone", "tooltip", "link"}\` where \`tone\` is \`success\`, \`warning\`, \`error\` or \`info\` and \`link\` an http(s) URL the item opens; empty output hides the item
-- \`intervalSeconds\` — how often it runs while the workspace is open, 10 or more (default 60); \`komla status refresh <id>\`, as from a hook, runs it again at once
-- \`refreshOn\` — events in the workspace that run it again at once, besides its interval: \`agent.done\`, \`agent.needs-input\`, \`agent.error\`, \`agent.prompt\`, \`workspace.created\`, \`workspace.trashed\`, \`working-tree.changed\` (its uncommitted changes) or \`branch.changed\` (a checkout or commit). Prefer them to a short interval
-- \`timeoutSeconds\` — how long the command and popover command may run, 1 to 600 (default 15)
-- \`runOn\` — \`workspace\` (default) runs it where the workspace's files are; \`local\` runs it on this computer in the home folder, showing the same output in every workspace, for items that don't depend on the workspace
-- \`label\` — shown in place of the output while the command fails
-- \`projects\` — project names or ids it runs in; leave it out to run in every workspace
-
-At most 30 items. A file Komla can't read shows a warning item in the status bar saying what is wrong. Agents can also set an item for their own workspace without this file: \`komla status set <id> <text>\`.
-
-### sidebar-panels.json
-
-Defines panels in the workspace sidebar, as tabs beside Diff and Files: pages a command prints, which Komla runs when the panel opens and on an interval while it stays open. A panel takes a status item's fields and runs where they do; its \`command\` prints what a status item's \`popoverCommand\` prints, an HTML page or Markdown with buttons, shown in the same sandbox, or plain text, shown as a terminal shows it.
-
-A panel can instead have a page of its own, \`"page": "panels/<file or folder>"\`, such as a built React app, which loads once and gets what its \`command\` prints as data. It reaches Komla through \`komla\` in the page, and may change only what its \`capabilities\` name. \`komla skill integrations\` describes it.
-
-\`\`\`json
-{
-  "_version": 1,
-  "panels": [
-    {
-      "id": "ci",
-      "title": "CI",
-      "command": "sh ~/.config/komla/ci-panel.sh",
-      "intervalSeconds": 120,
-      "refreshOn": ["branch.changed"],
-      "commands": { "rerun": "gh run rerun --failed" },
-      "projects": ["komla"]
-    }
-  ]
-}
-\`\`\`
-
-Field reference:
-- \`id\` — up to 40 letters, digits, dots, dashes and underscores; unique in the file
-- \`title\` — the panel's tab, up to 24 characters
-- \`command\` — run with the user's shell; prints \`{"html": "<page>", "buttons": [...]}\` or plain Markdown
-- \`intervalSeconds\` — how often it runs while the panel is open, 10 or more (default 60); it doesn't run while the panel is closed
-- \`timeoutSeconds\` — how long the command may run, 1 to 600 (default 30)
-- \`refreshOn\`, \`runOn\`, \`projects\` and \`commands\` — as for status bar items, while the panel is open; \`commands\` are what the page's buttons run
-
-At most 20 panels. A file Komla can't read shows what is wrong in the sidebar. \`komla skill integrations\` says how to make the page fit Komla's theme.
-
-### hooks.json
-
-Commands Komla runs when something happens in a workspace, or on an interval: in the workspace's folder or on its SSH host, or once on this computer.
-
-\`\`\`json
-{
-  "_version": 1,
-  "hooks": [
-    {
-      "id": "needs-input-to-phone",
-      "event": "agent.needs-input",
-      "command": "curl -s -d \\"$KOMLA_WORKSPACE_NAME needs input\\" ntfy.sh/my-komla-topic",
-      "runOn": "local"
-    }
-  ]
-}
-\`\`\`
-
-Field reference:
-- \`id\` — up to 40 letters, digits, dots, dashes and underscores; unique in the file
-- \`event\` — \`agent.done\` (an agent finished its turn), \`agent.needs-input\` (it asks for permission or an answer), \`agent.error\` (it reported an error), \`agent.prompt\` (a prompt was sent to it), \`workspace.created\` (a new workspace's terminals started and it has its name; setup steps may still be running), \`workspace.trashed\` (it moved to the Trash) or \`interval\` (on a timer)
-- \`intervalSeconds\` — \`interval\` hooks only: how often they run, 10 to 86,400; also when Komla starts and after this file changes, a few at a time
-- \`runOn\` — \`workspace\` (default) runs it in the workspace's folder, so an \`interval\` hook runs in every workspace outside the Trash; \`local\` runs it on this computer in the home folder, once for an \`interval\` hook. Scripts act on other workspaces with \`komla workspace list --json\` and \`--workspace <id>\`
-- \`command\` — run with the user's shell, which has the \`komla\` CLI, such as \`komla tag "CI running" --spinner\`, which keeps a tag on the card until it's replaced (a new tag joins the user's list); output is discarded, and its own notifications set off no hooks. It gets \`KOMLA_EVENT\`, \`KOMLA_HOOK_ID\`, and for a workspace \`KOMLA_WORKSPACE_ID\`, \`KOMLA_WORKSPACE_NAME\`, \`KOMLA_BRANCH\`, \`KOMLA_PROJECT\`, and for agent events \`KOMLA_TERMINAL_ID\`, \`KOMLA_AGENT\` and \`KOMLA_MESSAGE\` (the agent's last answer, what it asks for, or the prompt, up to 4,000 characters) when Komla has them
-- \`timeoutSeconds\` — how long it may run, 1 to 3,600 (default 60); past it, Komla stops the hook and everything it started
-- \`projects\` — project names or ids it runs in; leave it out to run in every workspace
-
-At most 50 hooks. A hook still running for a terminal isn't started again for it. Komla says once why a hook failed in a workspace or why it can't read the file, until that's fixed.
-`;
-
-function buildWelcomeContent(accentColor: string): string {
-  const a = oklchToAnsi(accentColor);
-  const ab = '\x1b[1m' + oklchToAnsi(accentColor);
-  const r = '\x1b[0m';
-  const d = '\x1b[90m';
-  const di = '\x1b[3;90m';
-
-  return `
-  ${ab}Komla Settings${r}
-  ${d}Edit the files directly or describe what you want.${r}
-
-  ${a}▸${r} ${ab}Styling${r}
-    ${di}"Fallout-style terminal + UI theme"${r}
-    ${di}"Cozy late-night coding with warm colors"${r}
-
-  ${a}▸${r} ${ab}Shortcuts${r}
-    ${di}"Shortcuts for pane and tab navigation"${r}
-    ${di}"Alternative layouts for a Norwegian keyboard"${r}
-
-  ${a}▸${r} ${ab}Quick Commands${r}  ${d}Saved Prompts & Terminal Commands${r}
-    ${di}"Standup summary quick command using {{user_input}}"${r}
-    ${di}"Terminal Command that runs 'npm test'"${r}
-
-  ${a}▸${r} ${ab}Resetting${r}
-    ${di}"Reset my theme to defaults"${r}
-
-  ${d}Changes apply immediately · See README.md for details${r}
-
-`;
-}
 
 class CustomizationService {
   private settingsPath: string;
   private themePath: string;
   private terminalPath: string;
-  private readmePath: string;
-  private welcomePath: string;
   private agentsMdPath: string;
   private geminiMdPath: string;
   private claudeMdPath: string;
@@ -600,8 +136,6 @@ class CustomizationService {
     this.settingsPath = join(getKomlaBasePath(), 'settings');
     this.themePath = join(this.settingsPath, 'theme.json');
     this.terminalPath = join(this.settingsPath, 'terminal.json');
-    this.readmePath = join(this.settingsPath, 'README.md');
-    this.welcomePath = join(this.settingsPath, 'WELCOME');
     this.agentsMdPath = join(this.settingsPath, 'AGENTS.md');
     this.geminiMdPath = join(this.settingsPath, 'GEMINI.md');
     this.claudeMdPath = join(this.settingsPath, 'CLAUDE.md');
@@ -657,38 +191,10 @@ class CustomizationService {
       this.writeTerminal(DEFAULT_TERMINAL_CONFIG);
     }
 
-    // Write docs/context files on first run only.
-    if (!existsSync(this.readmePath)) {
-      writeFileSync(this.readmePath, README_CONTENT, 'utf-8');
+    // Rewritten on every start, so a folder from an earlier version gets the current guidance.
+    for (const path of [this.agentsMdPath, this.geminiMdPath, this.claudeMdPath]) {
+      writeIfChanged(path, AGENTS_CONTENT);
     }
-    if (!existsSync(this.welcomePath)) {
-      const accentColor = this.readAccentColor();
-      writeFileSync(this.welcomePath, buildWelcomeContent(accentColor), 'utf-8');
-    }
-    if (!existsSync(this.agentsMdPath)) {
-      writeFileSync(this.agentsMdPath, AGENTS_CONTENT, 'utf-8');
-    }
-    if (!existsSync(this.geminiMdPath)) {
-      writeFileSync(this.geminiMdPath, AGENTS_CONTENT, 'utf-8');
-    }
-    if (!existsSync(this.claudeMdPath)) {
-      writeFileSync(this.claudeMdPath, AGENTS_CONTENT, 'utf-8');
-    }
-  }
-
-  private readAccentColor(): string {
-    try {
-      if (existsSync(this.themePath)) {
-        const data = readFileSync(this.themePath, 'utf-8');
-        const parsed = JSON.parse(data);
-        if (typeof parsed?.colors?.accent === 'string') {
-          return parsed.colors.accent;
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    return DEFAULT_THEME.colors.accent;
   }
 
   private loadTheme(): ThemeConfig {

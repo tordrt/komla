@@ -523,39 +523,19 @@ describe('CustomizationService', () => {
     expect(watcherInstance?.stop).toHaveBeenCalledTimes(1);
   });
 
-  it('writes onboarding docs with Open Workspace guidance', async () => {
-    await import('../../../src/main/services/customization.service');
+  it('tells agents in the settings folder to change settings with the CLI, not these files', async () => {
+    vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
+    vfs.mock.writeFileSync('/mock/home/.komla/settings/CLAUDE.md', 'Edit actions.json directly.');
 
-    const readme = vfs.mock.readFileSync('/mock/home/.komla/settings/README.md', 'utf-8');
-    expect(readme).toContain('Open Workspace from Komla Settings');
-    expect(readme).not.toContain('Edit with AI');
-    expect(readme).toContain('| workspace.next | Cmd+ArrowDown |');
-    expect(readme).toContain('| workspace.previous | Cmd+ArrowUp |');
-    expect(readme).toContain('| terminal.scrollToBottom | Cmd+Shift+ArrowDown |');
-    expect(readme).toContain('| terminal.search | Cmd+F |');
-    expect(readme).not.toContain('| workspace.next | Cmd+] |');
-    expect(readme).toContain(
-      '`type` — `"prompt"` for a Saved Prompt or `"command"` for a Terminal Command'
-    );
-
-    const welcome = vfs.mock.readFileSync('/mock/home/.komla/settings/WELCOME', 'utf-8');
-    expect(welcome).toContain('Edit the files directly or describe what you want.');
-    expect(welcome).toContain("Terminal Command that runs 'npm test'");
-    expect(welcome).not.toMatch(/\b(?:command|prompt|terminal)[ -]actions?\b/i);
-    expect(welcome).toContain('Changes apply immediately');
-  });
-
-  it('writes AGENTS.md, GEMINI.md, and CLAUDE.md with AI context on first run', async () => {
     await import('../../../src/main/services/customization.service');
 
     const agents = vfs.mock.readFileSync('/mock/home/.komla/settings/AGENTS.md', 'utf-8');
-    const gemini = vfs.mock.readFileSync('/mock/home/.komla/settings/GEMINI.md', 'utf-8');
-    const claude = vfs.mock.readFileSync('/mock/home/.komla/settings/CLAUDE.md', 'utf-8');
-
-    // All three should exist and contain the same AI context content
-    expect(agents).toContain('Komla Settings — AI Context');
-    expect(agents).toContain('Never delete files');
-    expect(gemini).toBe(agents);
-    expect(claude).toBe(agents);
+    expect(agents).toContain('komla settings');
+    expect(agents).toContain('komla skill customize');
+    expect(agents).toMatch(/don't edit/i);
+    expect(vfs.mock.readFileSync('/mock/home/.komla/settings/GEMINI.md', 'utf-8')).toBe(agents);
+    expect(vfs.mock.readFileSync('/mock/home/.komla/settings/CLAUDE.md', 'utf-8')).toBe(agents);
+    expect(vfs.hasFile('/mock/home/.komla/settings/README.md')).toBe(false);
+    expect(vfs.hasFile('/mock/home/.komla/settings/WELCOME')).toBe(false);
   });
 });

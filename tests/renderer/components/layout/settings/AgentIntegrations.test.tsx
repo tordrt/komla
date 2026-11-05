@@ -198,14 +198,14 @@ async function waitForLoad(): Promise<void> {
 }
 
 // Helper: an agent's row in a tier, so callers can scope queries to it.
-function agentRow(tier: 'Hooks' | 'MCP server', agent: string): HTMLElement {
+function agentRow(tier: 'Hooks' | 'MCP', agent: string): HTMLElement {
   return within(screen.getByRole('group', { name: tier }))
     .getByText(agent, { selector: 'span' })
     .closest('div.space-y-2') as HTMLElement;
 }
 
 // Helper: expand a collapsed tier or row by clicking its header button.
-async function expand(group: 'MCP server' | 'Other agents'): Promise<HTMLElement> {
+async function expand(group: 'MCP' | 'Other agents'): Promise<HTMLElement> {
   const container = screen.getByRole('group', { name: group });
   await userEvent.click(within(container).getAllByRole('button')[0]);
   return container;
@@ -517,21 +517,21 @@ describe('AgentIntegrationsPanel', () => {
       const tiers = screen
         .getAllByRole('group')
         .filter((group) =>
-          ['Hooks', 'Komla CLI', 'MCP server'].includes(group.getAttribute('aria-label') ?? '')
+          ['Hooks', 'Komla CLI', 'MCP'].includes(group.getAttribute('aria-label') ?? '')
         );
       expect(tiers.map((tier) => tier.getAttribute('aria-label'))).toEqual([
         'Hooks',
         'Komla CLI',
-        'MCP server',
+        'MCP',
       ]);
       expect(within(tiers[0]).getByText('Recommended')).toBeInTheDocument();
       // Each tier is named by a heading; the MCP tier's heading holds its toggle.
-      for (const name of ['Hooks', 'Komla CLI', 'MCP server']) {
+      for (const name of ['Hooks', 'Komla CLI', 'MCP']) {
         expect(screen.getByRole('heading', { name })).toBeInTheDocument();
       }
       expect(
-        within(screen.getByRole('heading', { name: 'MCP server' })).getByRole('button', {
-          name: 'MCP server',
+        within(screen.getByRole('heading', { name: 'MCP' })).getByRole('button', {
+          name: 'MCP',
         })
       ).toHaveAttribute('aria-expanded', 'false');
     });
@@ -553,17 +553,17 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      const mcp = screen.getByRole('group', { name: 'MCP server' });
+      const mcp = screen.getByRole('group', { name: 'MCP' });
       expect(within(mcp).getByRole('button')).toHaveAttribute('aria-expanded', 'false');
       expect(mcp).toHaveTextContent('1 on');
       expect(within(mcp).queryByText('Claude Code')).not.toBeInTheDocument();
 
-      await expand('MCP server');
+      await expand('MCP');
       expect(
-        within(agentRow('MCP server', 'Claude Code')).getByRole('button', { name: /^Remove$/ })
+        within(agentRow('MCP', 'Claude Code')).getByRole('button', { name: /^Remove$/ })
       ).toBeInTheDocument();
       expect(
-        within(agentRow('MCP server', 'Codex CLI')).getByRole('button', { name: /^Enable$/ })
+        within(agentRow('MCP', 'Codex CLI')).getByRole('button', { name: /^Enable$/ })
       ).toBeInTheDocument();
     });
 
@@ -575,7 +575,7 @@ describe('AgentIntegrationsPanel', () => {
       const row = agentRow('Hooks', 'Claude Code');
       expect(within(row).getByText(/Configured/)).toBeInTheDocument();
       expect(within(row).getByRole('button', { name: /^Remove$/ })).toBeInTheDocument();
-      expect(screen.getByRole('group', { name: 'MCP server' })).toHaveTextContent('Off');
+      expect(screen.getByRole('group', { name: 'MCP' })).toHaveTextContent('Off');
     });
   });
 
@@ -600,8 +600,8 @@ describe('AgentIntegrationsPanel', () => {
       render(<AgentIntegrationsPanel />);
       await waitForLoad();
 
-      expect(screen.getByRole('group', { name: 'MCP server' })).toHaveTextContent('Unavailable');
-      const mcp = await expand('MCP server');
+      expect(screen.getByRole('group', { name: 'MCP' })).toHaveTextContent('Unavailable');
+      const mcp = await expand('MCP');
       // The reason, once for the tier, in place of rows that would offer Enable.
       expect(within(mcp).getAllByText('no MCP')).toHaveLength(1);
       expect(within(mcp).queryByText('Claude Code')).not.toBeInTheDocument();
@@ -652,16 +652,16 @@ describe('AgentIntegrationsPanel', () => {
       const api = setupMockApi();
       render(<AgentIntegrationsPanel agentFilter="codex" />);
       await waitForLoad();
-      await expand('MCP server');
+      await expand('MCP');
 
       api.getMcpStatus.mockRejectedValue(new Error('no MCP'));
       await userEvent.click(
-        within(agentRow('MCP server', 'Codex CLI')).getByRole('button', { name: /^Enable$/ })
+        within(agentRow('MCP', 'Codex CLI')).getByRole('button', { name: /^Enable$/ })
       );
 
       // Claude Code isn't shown here, so the reason can't go on its row.
       expect(
-        await within(screen.getByRole('group', { name: 'MCP server' })).findByText('no MCP')
+        await within(screen.getByRole('group', { name: 'MCP' })).findByText('no MCP')
       ).toBeInTheDocument();
     });
   });
@@ -670,9 +670,9 @@ describe('AgentIntegrationsPanel', () => {
     setupMockApi();
     render(<AgentIntegrationsPanel />);
     await waitForLoad();
-    await expand('MCP server');
+    await expand('MCP');
 
-    const row = agentRow('MCP server', 'OpenCode');
+    const row = agentRow('MCP', 'OpenCode');
     expect(within(row).getByText('opencode mcp add komla ...')).toBeInTheDocument();
     expect(within(row).queryByRole('button', { name: 'Show command' })).not.toBeInTheDocument();
   });
@@ -683,9 +683,9 @@ describe('AgentIntegrationsPanel', () => {
     });
     render(<AgentIntegrationsPanel />);
     await waitForLoad();
-    await expand('MCP server');
+    await expand('MCP');
 
-    const row = agentRow('MCP server', 'OpenCode');
+    const row = agentRow('MCP', 'OpenCode');
     expect(within(row).queryByText('opencode mcp add komla ...')).not.toBeInTheDocument();
     await userEvent.click(within(row).getByRole('button', { name: 'Show command' }));
     expect(within(row).getByText('opencode mcp add komla ...')).toBeInTheDocument();
@@ -701,7 +701,7 @@ describe('AgentIntegrationsPanel', () => {
       await waitForLoad();
 
       expect(await skillRow()).toHaveTextContent(
-        'Agents can also look up any command with komla --help or komla <command> --help.'
+        'Agents can also run komla --help, or --help after any command.'
       );
     });
 
@@ -767,9 +767,9 @@ describe('AgentIntegrationsPanel', () => {
       expect(
         within(agentRow('Hooks', 'Antigravity CLI')).getByRole('button', { name: /^Enable$/ })
       ).toBeInTheDocument();
-      await expand('MCP server');
+      await expand('MCP');
       expect(
-        within(agentRow('MCP server', 'Antigravity CLI')).getByRole('button', { name: /^Enable$/ })
+        within(agentRow('MCP', 'Antigravity CLI')).getByRole('button', { name: /^Enable$/ })
       ).toBeInTheDocument();
     });
 
@@ -897,8 +897,8 @@ describe('AgentIntegrationsPanel', () => {
       expect(
         within(agentRow('Hooks', 'OpenCode')).getByRole('button', { name: /^Enable$/ })
       ).toBeInTheDocument();
-      await expand('MCP server');
-      const mcp = agentRow('MCP server', 'OpenCode');
+      await expand('MCP');
+      const mcp = agentRow('MCP', 'OpenCode');
       expect(within(mcp).queryByRole('button', { name: /^Enable$/ })).not.toBeInTheDocument();
       expect(within(mcp).getByRole('button', { name: /Copy command/ })).toBeInTheDocument();
     });
@@ -933,8 +933,8 @@ describe('AgentIntegrationsPanel', () => {
       expect(other).not.toHaveTextContent('/api/v1/notify');
       expect(other).not.toHaveTextContent('komla mcp');
 
-      await expand('MCP server');
-      const mcp = agentRow('MCP server', 'Other agents');
+      await expand('MCP');
+      const mcp = agentRow('MCP', 'Other agents');
       expect(within(mcp).getByText('komla mcp')).toBeInTheDocument();
       // Its MCP server is a command to copy rather than Enable/Remove.
       expect(within(mcp).getByRole('button', { name: /Copy command/ })).toBeInTheDocument();

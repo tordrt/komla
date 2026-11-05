@@ -6,12 +6,14 @@ import type { ReactNode } from 'react';
 
 /** A settings card's frame, for content elsewhere in Settings that brings its own cards. */
 export const SETTINGS_CARD_CLASS =
-  'overflow-hidden rounded-xl border border-border/50 bg-card/70 shadow-xs light:border-border light:bg-popover';
+  'overflow-clip rounded-xl border border-border/50 bg-card/70 shadow-xs light:border-border light:bg-popover';
 
 interface SettingsCardProps {
   title?: string;
   /** Shown before the title, e.g. a project's color dot. */
   icon?: ReactNode;
+  /** Shown right after the title, e.g. a Recommended badge. */
+  badge?: ReactNode;
   description?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -25,6 +27,7 @@ interface SettingsCardProps {
 export function SettingsCard({
   title,
   icon,
+  badge,
   description,
   children,
   className,
@@ -47,6 +50,7 @@ export function SettingsCard({
               <div className="flex items-center gap-2">
                 {icon}
                 <h3 className="text-base font-semibold text-foreground">{title}</h3>
+                {badge}
               </div>
               {action && <div>{action}</div>}
             </div>

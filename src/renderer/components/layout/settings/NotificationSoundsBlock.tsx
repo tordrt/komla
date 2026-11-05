@@ -1,4 +1,4 @@
-import { CaretDown, FolderOpen, SpeakerHigh } from '@phosphor-icons/react';
+import { CaretDown, FolderOpen, Play, SpeakerHigh } from '@phosphor-icons/react';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { IconButton } from '@/components/ui/icon-button';
 import { Switch } from '@/components/ui/switch';
 import {
   CUSTOM_PREFIX,
@@ -69,7 +70,7 @@ export function NotificationSoundsBlock({ config, onUpdate }: NotificationSounds
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium">Notification sounds</div>
-          <p className="mt-0.5 text-[13px] leading-normal text-muted-foreground">
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
             Play a sound when agents finish or need input.
           </p>
         </div>
@@ -101,7 +102,7 @@ export function NotificationSoundsBlock({ config, onUpdate }: NotificationSounds
           </div>
 
           {/* Per-event sound rows */}
-          <div className="space-y-1.5">
+          <div className="space-y-3">
             <SoundRow
               label="Done"
               description="Agent finished processing"
@@ -169,15 +170,14 @@ function SoundRow({
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium">{label}</span>
-          <button
-            type="button"
-            className="text-ui text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground"
-            aria-label={`Preview ${label} sound`}
+          <span className="text-[13px] font-medium">{label}</span>
+          <IconButton
+            label={`Preview ${label} sound`}
+            size="xs"
             onClick={() => previewNotificationSound(soundId, volume)}
           >
-            preview
-          </button>
+            <Play weight="fill" className="size-3" />
+          </IconButton>
         </div>
         <p className="text-xs text-muted-foreground">{description}</p>
       </div>

@@ -110,7 +110,7 @@ export function NetworkOptions({
         </p>
       </div>
       <p className="text-ui text-muted-foreground">
-        Publishing runs <code className="font-mono">{command}</code>
+        Publishing runs <code className="font-mono break-words !whitespace-normal">{command}</code>
       </p>
       {localOrigin && (
         <p className="text-ui text-muted-foreground">

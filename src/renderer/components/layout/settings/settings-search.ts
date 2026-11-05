@@ -112,7 +112,7 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
     ...rows('Notifications', 'Hooks endpoint', 'Activity spinner', 'Notification sounds'),
     card('Plugins', 'plugin extensions extension add-ons status bar items hooks'),
     card('MCP and CLI access', 'capabilities'),
-    ...rows('MCP and CLI access', 'Komla CLI', 'MCP server'),
+    ...rows('MCP and CLI access', 'Komla CLI', 'Komla MCP server'),
     {
       kind: 'row',
       label: 'Agent actions',

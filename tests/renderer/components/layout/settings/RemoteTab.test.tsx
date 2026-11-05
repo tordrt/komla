@@ -644,7 +644,7 @@ describe('RemoteTab direct remote controls', () => {
     installApi({ server: null, pairingOffer: null, portChange: null });
     render(<RemoteTab />);
 
-    expect(await screen.findByText('Off')).toBeInTheDocument();
+    expect(await screen.findByText('Remote control is off')).toBeInTheDocument();
     expect(screen.getByText('No devices yet')).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /Network options/ })).toBeInTheDocument()

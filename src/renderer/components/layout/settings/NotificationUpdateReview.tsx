@@ -26,7 +26,7 @@ export function NotificationUpdateReview({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button size="sm" disabled={loading} onClick={() => setOpen(true)}>
+      <Button variant="outline" size="sm" disabled={loading} onClick={() => setOpen(true)}>
         Review update
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

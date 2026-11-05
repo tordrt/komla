@@ -86,7 +86,7 @@ describe('RemoteHostAccessCard', () => {
 
     render(<RemoteHostAccessCard remoteEnabled={false} />);
 
-    expect(await screen.findByText('Turn on remote control above first.')).toBeTruthy();
+    expect(await screen.findByText(/Turn on remote control above to use them/)).toBeTruthy();
     expect(
       (screen.getByRole('switch', { name: 'Direct access to devbox' }) as HTMLButtonElement)
         .disabled

@@ -1,12 +1,4 @@
-import {
-  Bell,
-  Plus,
-  PencilSimple,
-  Trash,
-  Warning,
-  CaretUp,
-  CaretDown,
-} from '@phosphor-icons/react';
+import { Bell, Plus, Trash, Warning, CaretUp, CaretDown, CaretRight } from '@phosphor-icons/react';
 import { useState, useEffect, useMemo } from 'react';
 
 import { AgentPresetIcon } from '@/components/terminal/AgentPresetIcon';
@@ -100,12 +92,15 @@ interface AgentTabProps {
   onClose: () => void;
   onSaveClose?: () => void;
   onDirtyChange?: (isDirty: boolean) => void;
+  /** Called with whether an editor or picker replaces the list, which then heads the page. */
+  onSubpageChange?: (open: boolean) => void;
 }
 
 export function AgentTab({
   onClose: _onClose,
   onSaveClose: _onSaveClose,
   onDirtyChange,
+  onSubpageChange,
 }: AgentTabProps) {
   const {
     presets,
@@ -124,6 +119,11 @@ export function AgentTab({
 
   // View state: 'list' shows preset list, 'edit' shows preset detail, 'add' shows template picker
   const [view, setView] = useState<'list' | 'edit' | 'add'>('list');
+  const subpageOpen = view !== 'list';
+  useEffect(() => {
+    onSubpageChange?.(subpageOpen);
+  }, [subpageOpen, onSubpageChange]);
+  useEffect(() => () => onSubpageChange?.(false), [onSubpageChange]);
   const [editingPresetId, setEditingPresetId] = useState<string>('');
   const [pendingTemplate, setPendingTemplate] = useState<Omit<AgentPreset, 'id'> | null>(null);
 
@@ -692,9 +692,19 @@ export function AgentTab({
             resolvedActivePresets.map((item, index) => {
               const preset = item.preset;
               return (
+                // The whole row opens the editor; its buttons keep their own clicks.
                 <div
                   key={item.presetId}
-                  className="flex items-center justify-between gap-4 !py-3 transition-colors hover:bg-accent/50"
+                  className="group flex cursor-pointer items-center justify-between gap-4 !py-3 transition-colors hover:bg-accent/50"
+                  onClick={(event) => {
+                    // Not for clicks from a portal (a tooltip), on the row's controls (a disabled one
+                    // passes its click to them), or ending a text selection.
+                    const target = event.target as HTMLElement;
+                    if (!event.currentTarget.contains(target)) return;
+                    if (target.closest('button, [data-row-actions]')) return;
+                    if (window.getSelection()?.toString()) return;
+                    navigateToEdit(item.presetId);
+                  }}
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <AgentPresetIcon preset={preset} className="size-4 shrink-0" />
@@ -705,8 +715,13 @@ export function AgentTab({
                       </div>
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-0.5">
+                  {/* Reorder and delete show on hover or focus; Edit stays, as the row's main action. */}
+                  <div
+                    data-row-actions=""
+                    className="flex shrink-0 items-center gap-0.5 [&>[data-row-extra]]:opacity-0 [&>[data-row-extra]]:transition-opacity group-hover:[&>[data-row-extra]]:opacity-100 [&>[data-row-extra]]:focus-visible:opacity-100 [&>[data-row-extra]:disabled]:!opacity-0 group-hover:[&>[data-row-extra]:disabled]:!opacity-25"
+                  >
                     <IconButton
+                      data-row-extra=""
                       label="Move preset up"
                       onClick={() => moveActivePreset(item.presetId, index, -1)}
                       disabled={index === 0}
@@ -714,16 +729,15 @@ export function AgentTab({
                       <CaretUp className="size-3.5" />
                     </IconButton>
                     <IconButton
+                      data-row-extra=""
                       label="Move preset down"
                       onClick={() => moveActivePreset(item.presetId, index, 1)}
                       disabled={index === resolvedActivePresets.length - 1}
                     >
                       <CaretDown className="size-3.5" />
                     </IconButton>
-                    <IconButton label="Edit preset" onClick={() => navigateToEdit(item.presetId)}>
-                      <PencilSimple className="size-3.5" />
-                    </IconButton>
                     <IconButton
+                      data-row-extra=""
                       label={
                         resolvedActivePresets.length <= 1
                           ? 'At least one active preset is required'
@@ -754,6 +768,9 @@ export function AgentTab({
                       disabled={resolvedActivePresets.length <= 1}
                     >
                       <Trash className="size-3.5" />
+                    </IconButton>
+                    <IconButton label="Edit preset" onClick={() => navigateToEdit(item.presetId)}>
+                      <CaretRight className="size-3.5" />
                     </IconButton>
                   </div>
                 </div>
@@ -931,7 +948,8 @@ export function AgentTab({
               )}
             </div>
 
-            <div className="space-y-3">
+            {/* Stays in view at the bottom of the page while a long editor scrolls under it. */}
+            <div className="sticky bottom-0 z-10 space-y-3 bg-[color-mix(in_oklch,oklch(var(--card))_70%,oklch(var(--chrome)))] light:bg-popover">
               <FormError message={presetError} />
               <div className="flex justify-end gap-2">
                 <Button variant="outline" size="sm" onClick={navigateToList}>

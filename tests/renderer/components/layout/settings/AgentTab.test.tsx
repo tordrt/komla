@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -199,7 +199,7 @@ describe('AgentTab', () => {
     expect(screen.queryByText('Low · High')).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('claude --resume').closest('[inert]')).toBeNull();
     expect(
-      screen.getByText('Command to resume or choose an existing session in this worktree')
+      screen.getByText('Resumes, or picks, an existing session in this worktree.')
     ).toBeInTheDocument();
   });
 
@@ -419,6 +419,29 @@ describe('AgentTab', () => {
     expect(screen.getByDisplayValue('gemini --resume latest').closest('[inert]')).toBeNull();
   });
 
+  it('opens a preset from its row, but not from its controls or a text selection', async () => {
+    const user = userEvent.setup();
+    mockPresets = [existingPreset];
+    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+    render(<AgentTab onClose={vi.fn()} />);
+    const editorOpen = () => screen.queryByDisplayValue('gemini --resume latest') !== null;
+
+    // A disabled control passes its click through to the controls around it.
+    fireEvent.click(screen.getByRole('button', { name: 'Move preset up' }).parentElement!);
+    expect(editorOpen()).toBe(false);
+
+    const name = screen.getByText(existingPreset.name, { selector: '.font-medium' });
+    const selection = vi.spyOn(window, 'getSelection').mockReturnValue({
+      toString: () => existingPreset.name,
+    } as Selection);
+    fireEvent.click(name);
+    expect(editorOpen()).toBe(false);
+
+    selection.mockRestore();
+    await user.click(name);
+    expect(editorOpen()).toBe(true);
+  });
+
   it('renders active presets in preset order and reorders with move buttons', async () => {
     const user = userEvent.setup();
     mockPresets = [
@@ -526,7 +549,7 @@ describe('AgentTab', () => {
     await user.click(screen.getByRole('button', { name: /Add preset/i }));
     await user.click(screen.getByRole('button', { name: /Custom/i }));
     await user.type(screen.getByPlaceholderText('e.g., claude {{launchMode}}'), 'claude');
-    await user.click(screen.getByRole('button', { name: /Add mode/i }));
+    await user.click(screen.getByRole('button', { name: 'Add mode' }));
     await user.type(screen.getByPlaceholderText('e.g., Plan'), 'Plan');
     await user.type(screen.getByPlaceholderText('e.g., --permission-mode plan'), '--plan');
     await user.click(screen.getByRole('button', { name: /^Save$/i }));
@@ -753,7 +776,7 @@ describe('AgentTab', () => {
     await user.click(screen.getByRole('button', { name: 'Edit preset' }));
     expect(screen.queryByText('Model name')).toBeNull();
     await user.click(screen.getByRole('button', { name: /Add level/i }));
-    await user.click(screen.getByRole('button', { name: 'Add a model' }));
+    await user.click(screen.getByRole('button', { name: 'Add model' }));
 
     expect(screen.getByText('Level name')).toBeInTheDocument();
     expect(screen.getByText('Model name')).toBeInTheDocument();
@@ -770,7 +793,7 @@ describe('AgentTab', () => {
     render(<AgentTab onClose={vi.fn()} />);
 
     await user.click(screen.getByRole('button', { name: 'Edit preset' }));
-    await user.click(screen.getByRole('button', { name: 'Add a model' }));
+    await user.click(screen.getByRole('button', { name: 'Add model' }));
     await user.click(screen.getByRole('button', { name: /^Save$/i }));
 
     expect(mockUpdatePreset).toHaveBeenCalled();

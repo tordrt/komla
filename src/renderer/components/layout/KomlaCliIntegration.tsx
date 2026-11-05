@@ -51,15 +51,28 @@ function SkillInstallCommand({ command }: { command: string | null }) {
 const SKILL_SUMMARY_CLASS =
   'flex w-fit cursor-pointer list-none items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden';
 
-export function KomlaCliIntegration({ komlaBasePath }: { komlaBasePath: string | null }) {
+export function KomlaCliIntegration({
+  komlaBasePath,
+  compact = false,
+}: {
+  komlaBasePath: string | null;
+  /** Under the Komla CLI tier on the same page, which already says what the CLI and skill do. */
+  compact?: boolean;
+}) {
   return (
     <div className="space-y-2">
       <div>
         <p className="text-sm font-medium">Komla CLI</p>
         <p className="mt-0.5 text-[13px] leading-normal text-muted-foreground">
-          Already available in Komla terminals, locally and on SSH hosts. The Komla skill teaches
-          your agent to use <code>komla</code> to launch agents, open previews, and manage
-          workspaces and settings; turn it on for each agent under Agent integrations.{' '}
+          {compact ? (
+            'In every Komla terminal, locally and on SSH hosts.'
+          ) : (
+            <>
+              Already available in Komla terminals, locally and on SSH hosts. The Komla skill
+              teaches your agent to use <code>komla</code> to launch agents, open previews, and
+              manage workspaces and settings; turn it on for each agent under Agent integrations.
+            </>
+          )}{' '}
           <a
             href={`${window.api.websiteUrl}/komla-cli`}
             className="whitespace-nowrap underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground"

@@ -29,6 +29,7 @@ import {
   LAUNCH_MODE_DOT_CLASSES,
 } from '@/lib/launch-mode-colors';
 import { LEVEL_PICKER_ICON_COMPONENTS } from '@/lib/level-picker-icons';
+import { cn } from '@/lib/utils';
 
 import { agentLaunchPolicy } from '../../../../shared/lib/launch-mode-permissions';
 import {
@@ -50,6 +51,8 @@ import {
   type ModelOption,
   type LevelPicker,
 } from '../../../../shared/types/agent-preset';
+
+import type { ReactNode } from 'react';
 
 interface CommandInputsProps {
   openCommand: string;
@@ -99,47 +102,51 @@ function LevelPickerLook({
 }) {
   const PickerIcon = LEVEL_PICKER_ICON_COMPONENTS[icon];
   return (
-    <div className="flex items-center gap-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="size-8 shrink-0 p-0"
-            title={`Icon: ${icon}`}
-            aria-label={`Icon: ${icon}`}
-          >
-            <PickerIcon className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="grid grid-cols-6 gap-1 p-2">
-          {LEVEL_PICKER_ICONS.map((name) => {
-            const Option = LEVEL_PICKER_ICON_COMPONENTS[name];
-            return (
-              <button
-                key={name}
-                type="button"
-                aria-label={name}
-                aria-pressed={name === icon}
-                title={name}
-                className={`flex size-7 items-center justify-center rounded transition-colors hover:bg-muted ${name === icon ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => onChange({ ...picker, icon: name })}
-              >
-                <Option className="size-4" />
-              </button>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <Input
-        value={picker.title ?? ''}
-        onChange={(e) => onChange({ ...picker, title: e.target.value })}
-        placeholder={defaultTitle}
-        aria-label={titleLabel}
-        maxLength={MAX_LEVEL_PICKER_TITLE_LENGTH}
-        className="flex-1"
-      />
+    <div className="grid gap-1.5">
+      {/* Names what the two controls set: the pill's look in the new workspace dialog. */}
+      <span className="text-xs text-muted-foreground">Pill icon and label</span>
+      <div className="flex items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="size-9 shrink-0 p-0"
+              title={`Icon: ${icon}`}
+              aria-label={`Icon: ${icon}`}
+            >
+              <PickerIcon className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="grid grid-cols-6 gap-1 p-2">
+            {LEVEL_PICKER_ICONS.map((name) => {
+              const Option = LEVEL_PICKER_ICON_COMPONENTS[name];
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  aria-label={name}
+                  aria-pressed={name === icon}
+                  title={name}
+                  className={`flex size-7 items-center justify-center rounded transition-colors hover:bg-muted ${name === icon ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
+                  onClick={() => onChange({ ...picker, icon: name })}
+                >
+                  <Option className="size-4" />
+                </button>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Input
+          value={picker.title ?? ''}
+          onChange={(e) => onChange({ ...picker, title: e.target.value })}
+          placeholder={defaultTitle}
+          aria-label={titleLabel}
+          maxLength={MAX_LEVEL_PICKER_TITLE_LENGTH}
+          className="h-9 flex-1"
+        />
+      </div>
     </div>
   );
 }
@@ -285,9 +292,9 @@ function AgentLaunchMenu({
       <DropdownMenuTrigger asChild>
         <IconButton label={current.status} size="md">
           {policy === 'always' ? (
-            <Robot className="size-4 text-foreground" weight="fill" />
+            <Robot className="size-4" />
           ) : policy === 'isolated' ? (
-            <ShieldCheck className="size-4 text-foreground" weight="fill" />
+            <ShieldCheck className="size-4" />
           ) : (
             <RobotSlash className="size-4 text-error" />
           )}
@@ -314,16 +321,33 @@ const NO_MODELS: ModelOption[] = [];
 const IGNORE_MODELS = () => {};
 
 // Names the two inputs of a level or model row, lined up with them.
-function RowColumnHeaders({ nameLabel }: { nameLabel: string }) {
+function RowColumnHeaders({
+  nameLabel,
+  leading = 1,
+  trailing = 1,
+}: {
+  nameLabel: string;
+  /** The small controls before the name, such as the drag grip and a color dot. */
+  leading?: number;
+  /** The buttons after the arguments. */
+  trailing?: number;
+}) {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-hidden>
-      <span className="size-4 shrink-0" />
+      {Array.from({ length: leading }, (_, index) => (
+        <span key={`lead-${index}`} className="size-4 shrink-0" />
+      ))}
       <span className="flex-[2]">{nameLabel}</span>
       <span className="flex-[3]">Arguments</span>
-      <span className="size-8 shrink-0" />
+      {Array.from({ length: trailing }, (_, index) => (
+        <span key={`trail-${index}`} className="size-8 shrink-0" />
+      ))}
     </div>
   );
 }
+
+/** Each group after the commands starts under a hairline, so the groups read apart. */
+const SECTION_CLASS = 'border-t border-border/50 pt-5';
 
 export function CommandInputs({
   openCommand,
@@ -347,6 +371,7 @@ export function CommandInputs({
   pinnedLaunchModeId,
 }: CommandInputsProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const fieldId = useId();
   const cycleLaunchModeShortcut = useNewWorkspaceShortcutLabel('cycleLaunchMode');
   const modeReorder = useRowReorder(launchModes, onLaunchModesChange);
   const levelReorder = useRowReorder(reasoningLevels, onReasoningLevelsChange);
@@ -395,52 +420,78 @@ export function CommandInputs({
     onModelsChange?.((models ?? []).map((m) => (m.id === id ? { ...m, [field]: value } : m)));
   };
 
+  const commandField = (
+    key: string,
+    label: string,
+    value: string,
+    onChange: (value: string) => void,
+    placeholder: string,
+    help: ReactNode
+  ) => (
+    <div className="grid gap-1.5">
+      <label htmlFor={`${fieldId}-${key}`} className="text-[13px] font-medium">
+        {label}
+      </label>
+      <Input
+        id={`${fieldId}-${key}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        spellCheck={false}
+        className="h-9 font-mono text-[13px]"
+      />
+      <p className="text-xs text-muted-foreground">{help}</p>
+    </div>
+  );
+
   const inputs = (
     <>
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Open Command</label>
-        <Input
-          value={openCommand}
-          onChange={(e) => onOpenCommandChange(e.target.value)}
-          placeholder="e.g., claude {{launchMode}}"
-        />
-        <p className="text-xs text-muted-foreground">Command to start a new session</p>
+      <div className="grid gap-4">
+        {commandField(
+          'open',
+          'Open command',
+          openCommand,
+          onOpenCommandChange,
+          'e.g., claude {{launchMode}}',
+          'Starts a new session.'
+        )}
+        {commandField(
+          'continue',
+          'Continue command',
+          continueCommand,
+          onContinueCommandChange,
+          'e.g., claude --resume {{launchMode}}',
+          'Resumes, or picks, an existing session in this worktree.'
+        )}
+        {commandField(
+          'prompt',
+          'Prompt command',
+          promptCommand,
+          onPromptCommandChange,
+          'e.g., claude {{launchMode}} {{prompt}}',
+          <>
+            Starts with an initial prompt, placed at{' '}
+            <code className="font-mono">{'{{prompt}}'}</code>.
+          </>
+        )}
       </div>
 
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Continue Command</label>
-        <Input
-          value={continueCommand}
-          onChange={(e) => onContinueCommandChange(e.target.value)}
-          placeholder="e.g., claude --resume {{launchMode}}"
-        />
-        <p className="text-xs text-muted-foreground">
-          Command to resume or choose an existing session in this worktree
-        </p>
-      </div>
-
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Prompt Command</label>
-        <Input
-          value={promptCommand}
-          onChange={(e) => onPromptCommandChange(e.target.value)}
-          placeholder="e.g., claude {{launchMode}} {{prompt}}"
-        />
-        <p className="text-xs text-muted-foreground">
-          Command to start with an initial prompt. Use {'{{prompt}}'} to place it
-        </p>
-      </div>
-
-      <div id={AGENT_OPTION_CARD_IDS.launchModes} className="grid scroll-mt-4 gap-2">
-        <label className="text-sm font-medium">Launch Modes</label>
-        <p className="text-xs text-muted-foreground">
-          Reusable arguments applied when opening, prompting, or continuing an agent
+      <div
+        id={AGENT_OPTION_CARD_IDS.launchModes}
+        className={cn('grid scroll-mt-4 gap-2', SECTION_CLASS)}
+      >
+        <h3 className="text-sm font-semibold">Launch modes</h3>
+        <p className="-mt-1 text-xs leading-relaxed text-pretty text-muted-foreground">
+          Arguments to switch between when starting the agent
           {cycleLaunchModeShortcut &&
-            ` (cycle with ${cycleLaunchModeShortcut} in the new workspace dialog)`}
-          . Use {'{{launchMode}}'} in a command to control their position; otherwise they are
-          appended. The robot button sets where agents can start a mode in new tabs and workspaces;
-          modes that skip permission prompts start out allowed only on an SSH host marked isolated.
+            `, with ${cycleLaunchModeShortcut} in the new workspace dialog`}
+          . They go at <code className="font-mono">{'{{launchMode}}'}</code>, or at the end. The
+          button before the × sets where agents may start that mode; ones that skip permission
+          prompts start out limited to SSH hosts marked isolated.
         </p>
+        {launchModes.length > 0 && (
+          <RowColumnHeaders nameLabel="Mode name" leading={2} trailing={2} />
+        )}
         {launchModes.map((mode, index) => {
           const currentColor = getLaunchModeColor(mode.color, index);
           const exampleNames = ['e.g., Plan', 'e.g., Accept edits', 'e.g., Full auto'];
@@ -481,7 +532,7 @@ export function CommandInputs({
                 value={mode.name}
                 onChange={(e) => handleUpdateMode(mode.id, 'name', e.target.value)}
                 placeholder={showExamplePlaceholders ? exampleNames[index] || 'Name' : 'Name'}
-                className="flex-[2]"
+                className="h-9 flex-[2]"
               />
               <Input
                 value={mode.arguments ?? ''}
@@ -489,9 +540,12 @@ export function CommandInputs({
                 placeholder={
                   showExamplePlaceholders
                     ? exampleArguments[index] || 'e.g., --permission-mode plan'
-                    : 'e.g., --permission-mode plan'
+                    : index === 0
+                      ? 'e.g., --permission-mode plan'
+                      : undefined
                 }
-                className="flex-[3]"
+                spellCheck={false}
+                className="h-9 flex-[3] font-mono text-[13px]"
               />
               {mode.id === pinnedLaunchModeId ? (
                 <IconButton
@@ -500,7 +554,7 @@ export function CommandInputs({
                   // aria-disabled, not disabled, so the tooltip still says why.
                   aria-disabled
                 >
-                  <Robot className="size-4 text-foreground" weight="fill" />
+                  <Robot className="size-4" />
                 </IconButton>
               ) : (
                 <AgentLaunchMenu
@@ -520,9 +574,12 @@ export function CommandInputs({
         </Button>
       </div>
 
-      <div id={AGENT_OPTION_CARD_IDS.effort} className="grid scroll-mt-4 gap-2">
+      <div
+        id={AGENT_OPTION_CARD_IDS.effort}
+        className={cn('grid scroll-mt-4 gap-2', SECTION_CLASS)}
+      >
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-medium">Effort Picker</span>
+          <h3 className="text-sm font-semibold">Effort picker</h3>
           {levelPicker && onLevelPickerChange && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               Show in the new workspace dialog
@@ -533,10 +590,8 @@ export function CommandInputs({
             </label>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Levels for the effort pill in the new workspace dialog, lowest first. A level&apos;s
-          arguments go wherever launch mode arguments go, and the level is reused when the workspace
-          resumes.
+        <p className="-mt-1 text-xs leading-relaxed text-pretty text-muted-foreground">
+          Levels for the effort pill in the new workspace dialog, lowest first. Resumes keep them.
         </p>
         {levelPicker && onLevelPickerChange && (
           <LevelPickerLook
@@ -565,13 +620,14 @@ export function CommandInputs({
               onChange={(e) => handleUpdateLevel(level.id, 'name', e.target.value)}
               placeholder="e.g., High"
               maxLength={MAX_REASONING_LEVEL_NAME_LENGTH}
-              className="flex-[2]"
+              className="h-9 flex-[2]"
             />
             <Input
               value={level.arguments}
               onChange={(e) => handleUpdateLevel(level.id, 'arguments', e.target.value)}
               placeholder="e.g., --effort high"
-              className="flex-[3]"
+              spellCheck={false}
+              className="h-9 flex-[3] font-mono text-[13px]"
             />
             <Button
               type="button"
@@ -599,9 +655,12 @@ export function CommandInputs({
       </div>
 
       {models && onModelsChange && (
-        <div id={AGENT_OPTION_CARD_IDS.models} className="grid scroll-mt-4 gap-2">
+        <div
+          id={AGENT_OPTION_CARD_IDS.models}
+          className={cn('grid scroll-mt-4 gap-2', SECTION_CLASS)}
+        >
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium">Model Picker</span>
+            <h3 className="text-sm font-semibold">Model picker</h3>
             {modelPicker && onModelPickerChange && (
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 Show in the new workspace dialog
@@ -615,9 +674,8 @@ export function CommandInputs({
               </label>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Models for the model pill in the new workspace dialog. A model&apos;s arguments go
-            wherever launch mode arguments go, and the model is reused when the workspace resumes.
+          <p className="-mt-1 text-xs leading-relaxed text-pretty text-muted-foreground">
+            Models for the model pill in the new workspace dialog. Resumes keep them.
           </p>
           {modelPicker && onModelPickerChange && (
             <LevelPickerLook
@@ -646,13 +704,14 @@ export function CommandInputs({
                 onChange={(e) => handleUpdateModel(model.id, 'name', e.target.value)}
                 placeholder="e.g., Sonnet"
                 maxLength={MAX_REASONING_LEVEL_NAME_LENGTH}
-                className="flex-[2]"
+                className="h-9 flex-[2]"
               />
               <Input
                 value={model.arguments}
                 onChange={(e) => handleUpdateModel(model.id, 'arguments', e.target.value)}
                 placeholder="e.g., --model sonnet"
-                className="flex-[3]"
+                spellCheck={false}
+                className="h-9 flex-[3] font-mono text-[13px]"
               />
               <Button
                 type="button"
@@ -684,7 +743,7 @@ export function CommandInputs({
             }
           >
             <Plus className="mr-1 size-3.5" />
-            {models.length === 0 ? 'Add a model' : 'Another model'}
+            Add model
           </Button>
         </div>
       )}
@@ -692,7 +751,7 @@ export function CommandInputs({
   );
 
   if (alwaysExpanded) {
-    return <>{inputs}</>;
+    return <div className="flex flex-col gap-6">{inputs}</div>;
   }
 
   return (

@@ -37,9 +37,9 @@ export function IntegrationsTab() {
 
       <SettingsCard
         title="MCP and CLI access"
-        description="Agents control Komla through the komla CLI, built into every Komla terminal, which gets new features first. The MCP server stays for agents that only work through MCP."
+        description="What agents may do in Komla, through the komla CLI or, for agents that only work through MCP, the MCP server."
       >
-        <KomlaCliIntegration komlaBasePath={komlaBasePath} />
+        <KomlaCliIntegration komlaBasePath={komlaBasePath} compact />
         <AgentCapabilitiesBlock
           config={config}
           onToggle={(capabilityId, enabled) => {

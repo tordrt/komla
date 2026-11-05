@@ -435,6 +435,7 @@ export function SettingsDialog({
   const [projectsView, setProjectsView] = useState<ProjectsView>({ kind: 'list' });
   // Whether the nav lists the projects; follows being on Projects until toggled.
   const [projectsNavOverride, setProjectsNavOverride] = useState<boolean | null>(null);
+  const [agentSubpageOpen, setAgentSubpageOpen] = useState(false);
   const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
   const [discardPrompt, setDiscardPrompt] = useState<DiscardPrompt>({ kind: 'close' });
   const [discardPromptOpen, setDiscardPromptOpen] = useState(false);
@@ -805,7 +806,7 @@ export function SettingsDialog({
 
           <div className="flex min-h-0 flex-1 flex-row">
             {/* Sidebar, on the workspace sidebar's surface so Settings reads as part of the app */}
-            <div className="sidebar-surface flex min-h-0 w-[256px] shrink-0 flex-col border-r">
+            <div className="sidebar-surface flex min-h-0 w-[256px] shrink-0 flex-col border-r light:border-foreground/12">
               {/* Top row, level with the content's and draggable, beside the macOS traffic lights */}
               <div
                 className="drag-region flex shrink-0 items-center px-2"
@@ -906,7 +907,7 @@ export function SettingsDialog({
                                     <div
                                       role="group"
                                       aria-label={`${project.name} settings`}
-                                      className="ml-10 flex flex-col gap-0.5 border-l border-foreground/12 pl-1.5"
+                                      className="mb-1.5 ml-10 flex flex-col gap-0.5 border-l border-foreground/12 pl-1.5"
                                     >
                                       {PROJECT_SECTIONS.map(
                                         ({ value, label, icon: SectionIcon }) => (
@@ -1027,12 +1028,12 @@ export function SettingsDialog({
               {/* Content — overflow-anchor:none prevents scroll jumps when async content changes height */}
               <div
                 ref={contentRef}
-                className="min-h-0 flex-1 overflow-y-auto"
+                className="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto"
                 style={{ overflowAnchor: 'none' }}
               >
                 {/* Selects at the height of Settings' inputs and buttons, not the taller default. */}
-                <div className="mx-auto max-w-[800px] px-8 pt-8 pb-10 [&_select]:h-8 [&_select]:py-1">
-                  {header && (
+                <div className="mx-auto max-w-[800px] px-8 pt-8 pb-10 [&_p_code]:whitespace-nowrap [&_select]:h-8 [&_select]:py-1">
+                  {header && !(activeTab === 'agent' && agentSubpageOpen) && (
                     <header
                       className={cn(
                         'mb-6 border-b border-border/60',
@@ -1093,6 +1094,7 @@ export function SettingsDialog({
                       onClose={handleClose}
                       onSaveClose={handleSaveClose}
                       onDirtyChange={handleDirtyChange('agent')}
+                      onSubpageChange={setAgentSubpageOpen}
                     />
                   )}
 

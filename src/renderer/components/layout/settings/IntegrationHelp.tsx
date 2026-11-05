@@ -11,9 +11,9 @@ import type { AgentIntegrationFilter } from './AgentIntegrations';
 
 // What each tier of the Agent Integrations menu adds, under its name.
 export const HOOKS_DESCRIPTION =
-  'Komla knows when an agent is really done or needs you, and keeps every workspace named after what you’re working on.';
+  'Komla knows when an agent is really done or needs you, and names each workspace after what you’re working on.';
 export const KOMLA_CLI_DESCRIPTION =
-  'Every Komla terminal has the komla command, for starting agents, opening previews and more. The Komla skill teaches your agents to use it.';
+  'Every Komla terminal has the komla command, for agents and previews. The Komla skill teaches agents to use it.';
 export const MCP_DESCRIPTION =
   'Only for agents that work through MCP alone: new features go to the komla CLI and skill instead.';
 
@@ -21,8 +21,8 @@ export const MCP_DESCRIPTION =
 export function KomlaCliHelpNote() {
   return (
     <>
-      Agents can also look up any command with <code className="font-mono">komla --help</code> or{' '}
-      <code className="font-mono">komla &lt;command&gt; --help</code>.
+      Agents can also run <code className="font-mono">komla --help</code>, or{' '}
+      <code className="font-mono">--help</code> after any command.
     </>
   );
 }
@@ -31,10 +31,10 @@ export function KomlaCliHelpNote() {
 export function CodexHookApproval() {
   return (
     <Callout
-      tone="warning"
+      tone="neutral"
       size="sm"
       icon={<Info className="size-3.5" />}
-      className="ml-6 gap-2 py-2 text-xs"
+      className="ml-6 gap-2 border-border/50 bg-foreground/[0.025] py-2 text-xs leading-relaxed text-muted-foreground [&_.font-medium]:text-foreground"
     >
       <span className="font-medium">
         Codex won&rsquo;t run the Komla hooks until you approve them.
@@ -119,8 +119,9 @@ export function KomlaSkillHelp() {
       <p>Komla keeps the skill up to date. Turning it off removes it again.</p>
       <p>
         In Komla’s terminals, agents can use the CLI without the skill too, when you mention it:{' '}
-        <code className="font-mono">komla --help</code> lists every command, and{' '}
-        <code className="font-mono">komla skill &lt;name&gt;</code> prints a guide.
+        <code className="font-mono whitespace-nowrap">komla --help</code> lists every command, and{' '}
+        <code className="font-mono whitespace-nowrap">komla skill &lt;name&gt;</code> prints a
+        guide.
       </p>
     </InfoTip>
   );

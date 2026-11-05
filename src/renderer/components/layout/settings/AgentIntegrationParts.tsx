@@ -59,9 +59,9 @@ function TierHeading({
   return (
     <div
       className={cn(
-        'flex items-center gap-3 bg-foreground/[0.06] px-4 py-3',
-        open && 'border-b border-border/70',
-        toggle && 'relative transition-colors hover:bg-foreground/[0.09]'
+        'flex items-center gap-3 px-4 py-3.5',
+        open && 'border-b border-border/40',
+        toggle && 'relative transition-colors hover:bg-foreground/[0.04]'
       )}
     >
       <div className="min-w-0 flex-1">
@@ -85,7 +85,9 @@ function TierHeading({
           </h4>
           {badge}
         </div>
-        <p className="mt-1 pl-8.5 text-xs leading-relaxed text-muted-foreground">{description}</p>
+        <p className="mt-1 pl-8.5 text-xs leading-relaxed text-pretty text-muted-foreground">
+          {description}
+        </p>
       </div>
       {trailing}
     </div>
@@ -252,6 +254,7 @@ export function NotificationUpdateAction({
 }) {
   return (
     <>
+      <span className="text-xs font-medium text-warning">Update available</span>
       <NotificationUpdateReview
         update={update}
         preview={preview}
@@ -273,7 +276,7 @@ export function EnableButton({
   disabled?: boolean;
 }) {
   return (
-    <Button size="sm" onClick={onClick} disabled={disabled ?? loading}>
+    <Button variant="outline" size="sm" onClick={onClick} disabled={disabled ?? loading}>
       {loading && <Spinner size="xs" className="mr-1" />}
       Enable
     </Button>
@@ -327,7 +330,7 @@ export function IntegrationItem({
   return (
     <div className="space-y-2 px-3 py-2.5">
       <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
             <span className="text-[13px] font-medium">{label}</span>
@@ -335,9 +338,10 @@ export function IntegrationItem({
             {description && (
               <span className="hidden text-ui text-muted-foreground sm:inline">{description}</span>
             )}
+            {/* What enabling writes, as a quiet disclosure on the name's line. */}
+            {detailToggle && <span className="ml-1">{detailToggle}</span>}
           </div>
           {note && <p className="mt-0.5 ml-6 text-xs text-muted-foreground">{note}</p>}
-          {detailToggle}
         </div>
         <div className="flex shrink-0 items-center gap-2">{action}</div>
       </div>

@@ -506,7 +506,7 @@ describe('SshTab', () => {
       const hooks = within(await screen.findByRole('group', { name: 'Hooks' }));
       expect(await hooks.findAllByRole('button', { name: 'Enable' })).toHaveLength(2);
       expect(hooks.getAllByText(/Configured/)).toHaveLength(2);
-      expect(screen.getByRole('group', { name: 'MCP server' })).toHaveTextContent('1 on');
+      expect(screen.getByRole('group', { name: 'MCP' })).toHaveTextContent('1 on');
     });
   });
 

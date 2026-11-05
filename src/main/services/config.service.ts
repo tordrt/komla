@@ -58,12 +58,6 @@ function stringListsByKey(value: unknown): Record<string, string[]> | undefined 
   return lists;
 }
 
-/** A stored choice, or off for someone who hid branch names with the setting this replaced. */
-function alwaysShowBranchName(raw: Record<string, unknown>): boolean {
-  const stored = raw.alwaysShowBranchNameInWorkspaceCards;
-  return typeof stored === 'boolean' ? stored : raw.hideBranchNameInWorkspaceCards !== true;
-}
-
 function normalizeUtilityProvider(value: unknown): UtilityProviderId {
   if (value === 'komla-managed' || value === 'custom') return value;
   return DEFAULT_CONFIG.utilityProvider;
@@ -529,7 +523,10 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     preferredCloneProtocol: pickWithDefault(rawConfig, 'preferredCloneProtocol'),
     autoNameWorkspaces: normalizeAutoNameWorkspaces(rawConfig.autoNameWorkspaces),
     autoNameBranches: pickWithDefault(rawConfig, 'autoNameBranches'),
-    alwaysShowBranchNameInWorkspaceCards: alwaysShowBranchName(rawConfig),
+    alwaysShowBranchNameInWorkspaceCards:
+      typeof rawConfig.alwaysShowBranchNameInWorkspaceCards === 'boolean'
+        ? rawConfig.alwaysShowBranchNameInWorkspaceCards
+        : DEFAULT_CONFIG.alwaysShowBranchNameInWorkspaceCards,
     compactWorkspaceList: pickWithDefault(rawConfig, 'compactWorkspaceList'),
     defaultSearchOpenMode: pickWithDefault(rawConfig, 'defaultSearchOpenMode'),
     hiddenProjectIds: pickWithDefault(rawConfig, 'hiddenProjectIds'),
@@ -591,9 +588,7 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     aiHelpersOffDismissed: pickWithDefault(rawConfig, 'aiHelpersOffDismissed'),
     lastWorkspaceEnvironment: workspaceEnvironment(rawConfig.lastWorkspaceEnvironment),
     defaultSshWorkspaceMode:
-      rawConfig.defaultSshWorkspaceMode === 'local-mirror-actions'
-        ? 'local-mirror-actions'
-        : 'remote',
+      rawConfig.defaultSshWorkspaceMode === 'local-copy-actions' ? 'local-copy-actions' : 'remote',
     gitDefaults: normalizeGitDefaults(rawConfig.gitDefaults),
     gitBackgroundFetch:
       typeof rawConfig.gitBackgroundFetch === 'boolean' ? rawConfig.gitBackgroundFetch : undefined,

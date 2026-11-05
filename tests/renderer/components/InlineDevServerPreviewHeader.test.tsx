@@ -38,7 +38,7 @@ let navigationStateCallback:
   | undefined;
 let menuCloseAutoFocus: ((event: Event) => void) | undefined;
 let scannerResult: string[] = [];
-let scannerExecutionLocation: 'workspace' | 'local-mirror' = 'workspace';
+let scannerExecutionLocation: 'workspace' | 'local-copy' = 'workspace';
 
 let remoteForwardState: any;
 let configState: {
@@ -49,7 +49,7 @@ let configState: {
   defaultDevServerPreviewAutoReload: true,
 };
 let workspaceDevServerUrl: string | undefined = 'http://localhost:5173';
-let workspaceDevServerExecutionLocation: 'workspace' | 'local-mirror' | undefined;
+let workspaceDevServerExecutionLocation: 'workspace' | 'local-copy' | undefined;
 let workspaceBackend: { kind: 'ssh' } | undefined;
 let recentLinks: Array<{ url: string; openedAt?: number; printedAt?: number }> | undefined;
 let autoReload: boolean | undefined;
@@ -107,13 +107,13 @@ vi.mock('../../../src/renderer/stores/workspaces.store', () => {
 });
 
 /** The browser pane's tabs once the test's tab points at a URL. */
-function tabUpdate(url: string, location: 'workspace' | 'local-mirror' = 'workspace') {
+function tabUpdate(url: string, location: 'workspace' | 'local-copy' = 'workspace') {
   return {
     browserTabs: [
       {
         id: TAB_1,
         url,
-        ...(location === 'local-mirror' ? { urlExecutionLocation: location } : {}),
+        ...(location === 'local-copy' ? { urlExecutionLocation: location } : {}),
       },
     ],
     activeBrowserTabId: TAB_1,
@@ -798,7 +798,7 @@ describe('InlineDevServerPreviewHeader', () => {
 
     it('reclassifies a saved local-copy preview when selecting a remote terminal URL', async () => {
       workspaceBackend = { kind: 'ssh' };
-      workspaceDevServerExecutionLocation = 'local-mirror';
+      workspaceDevServerExecutionLocation = 'local-copy';
       scannerResult = ['http://localhost:3001/dashboard'];
       render(header());
 
@@ -820,7 +820,7 @@ describe('InlineDevServerPreviewHeader', () => {
 
     it('opens a selected local-copy URL directly in an SSH workspace', async () => {
       workspaceBackend = { kind: 'ssh' };
-      scannerExecutionLocation = 'local-mirror';
+      scannerExecutionLocation = 'local-copy';
       scannerResult = ['http://localhost:3001/dashboard'];
       render(header());
 
@@ -829,13 +829,13 @@ describe('InlineDevServerPreviewHeader', () => {
 
       expect(startSshPreviewForward).not.toHaveBeenCalled();
       expect(tabWrites).toContainEqual(
-        tabUpdate('http://localhost:3001/dashboard', 'local-mirror')
+        tabUpdate('http://localhost:3001/dashboard', 'local-copy')
       );
     });
 
     it('hides SSH forwarding actions for a saved local-copy URL', () => {
       workspaceBackend = { kind: 'ssh' };
-      workspaceDevServerExecutionLocation = 'local-mirror';
+      workspaceDevServerExecutionLocation = 'local-copy';
       render(header());
 
       fireEvent.click(screen.getByLabelText('More preview actions'));

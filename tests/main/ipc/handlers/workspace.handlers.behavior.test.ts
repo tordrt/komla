@@ -1324,7 +1324,7 @@ describe('workspace IPC behavior', () => {
       mockWorkspaceService.restartTerminal.mockReturnValue({ id: 'term-1' });
 
       await ipcMain._invoke('workspace:restart-terminal', 'term-1', undefined, undefined, 120, 30, {
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
       });
 
       expect(mockWorkspaceService.restartTerminal).toHaveBeenCalledWith(
@@ -1333,7 +1333,7 @@ describe('workspace IPC behavior', () => {
         undefined,
         120,
         30,
-        { executionLocation: 'local-mirror', sshAction: undefined }
+        { executionLocation: 'local-copy', sshAction: undefined }
       );
     });
 

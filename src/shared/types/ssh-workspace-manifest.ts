@@ -52,8 +52,9 @@ export interface SshWorkspaceManifest {
    */
   syncs?: boolean;
   /**
-   * The installation that wrote this copy syncs how tabs and panes are
-   * arranged. Older ones keep their own, so others don't take theirs.
+   * An installation that syncs arranged this copy's tabs and panes. The host
+   * keeps it as it was when it edits the copy, so others take only a layout
+   * kept in step.
    */
   syncsLayout?: boolean;
   /**

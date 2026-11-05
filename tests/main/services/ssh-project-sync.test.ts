@@ -189,7 +189,7 @@ describe('SshProjectSync', () => {
         project({
           icon: ICON,
           baseBranch: 'develop',
-          sshWorkspaceMode: 'local-mirror-actions',
+          sshWorkspaceMode: 'local-copy-actions',
           aheadTargetActionId: 'action-1',
           trashCleanupScript: 'docker compose down',
           setupSteps: [
@@ -541,7 +541,7 @@ describe('SshProjectSync', () => {
       content: 'npm test',
       type: 'command',
       projectIds: ['project-b', 'project-a'],
-      sshExecutionLocation: 'local-mirror',
+      sshExecutionLocation: 'local-copy',
     };
     const here = installation(files, {
       projects: [

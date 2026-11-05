@@ -35,11 +35,10 @@ const attention = (updatedAt: number) => ({
 });
 
 describe('parseCollapsedSections', () => {
-  it('starts with Stopped and the Trash collapsed, the Trash too for a list saved before it', () => {
-    expect([...parseCollapsedSections(null, null)]).toEqual(['stopped', 'trash']);
-    expect([...parseCollapsedSections(null, '["idle"]')]).toEqual(['idle', 'trash']);
-    expect([...parseCollapsedSections('["idle"]', '["stopped"]')]).toEqual(['idle']);
-    expect([...parseCollapsedSections('not json', null)]).toEqual(['stopped', 'trash']);
+  it('starts with Stopped and the Trash collapsed, and keeps a saved list', () => {
+    expect([...parseCollapsedSections(null)]).toEqual(['stopped', 'trash']);
+    expect([...parseCollapsedSections('["idle", "unknown"]')]).toEqual(['idle']);
+    expect([...parseCollapsedSections('not json')]).toEqual(['stopped', 'trash']);
   });
 });
 

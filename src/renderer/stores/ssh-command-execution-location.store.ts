@@ -41,7 +41,7 @@ interface SshCommandExecutionLocationState {
 }
 
 export function supportsLocalCopy(host: SshHost): boolean {
-  const localCopy = host.capabilities?.localMirror;
+  const localCopy = host.capabilities?.localCopy;
   return (
     localCopy?.platform === 'supported' &&
     localCopy.localRsync === 'available' &&
@@ -50,7 +50,7 @@ export function supportsLocalCopy(host: SshHost): boolean {
 }
 
 function projectExecutionLocation(mode: SshWorkspaceMode): TerminalLaunchLocation {
-  return mode === 'local-mirror-actions' ? 'local-mirror' : 'remote';
+  return mode === 'local-copy-actions' ? 'local-copy' : 'remote';
 }
 
 function findProject(projectId: string | null | undefined) {
@@ -124,7 +124,7 @@ export const useSshCommandExecutionLocationStore = create<SshCommandExecutionLoc
       if (!host) return 'remote';
 
       if (!supportsLocalCopy(host)) return 'remote';
-      if (actionLocation === 'local-mirror') return 'local-mirror';
+      if (actionLocation === 'local-copy') return 'local-copy';
 
       // Read through persistence because another window may have saved the project choice while
       // host/project loading was pending but its renderer notification may not have arrived yet.

@@ -26,5 +26,5 @@ export function addTerminalForSplit(
 
 /** Create a shell on this computer in an SSH workspace's local copy. */
 export function addLocalCopyTerminal(addTerminal: AddTerminal, workspaceId: string) {
-  return addTerminal(workspaceId, 'Local terminal', null, undefined, 'host-shell', 'local-mirror');
+  return addTerminal(workspaceId, 'Local terminal', null, undefined, 'host-shell', 'local-copy');
 }

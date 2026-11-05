@@ -126,7 +126,7 @@ export class WorkspaceCreation {
     return params.defaultActionId ?? lastUsedActionId(projectId);
   }
 
-  /** Normalize new environment intent and legacy fields before creation branches. */
+  /** Resolves environment, or a location set in the main process, before creation branches. */
   private resolveWorkspaceCreationParams(params: CreateWorkspaceParams): CreateWorkspaceParams {
     const config = configService.get();
     const configuredSshHosts = sshHostService.list();

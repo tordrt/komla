@@ -167,7 +167,7 @@ describe('ProjectSettingsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(mocks.updateProject).toHaveBeenCalledWith(
       project.id,
-      expect.objectContaining({ sshWorkspaceMode: 'local-mirror-actions' })
+      expect.objectContaining({ sshWorkspaceMode: 'local-copy-actions' })
     );
   });
 

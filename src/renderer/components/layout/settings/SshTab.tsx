@@ -72,9 +72,9 @@ function hostWarnings(capabilities: SshHostCapabilities | undefined): string[] {
   }
   if (capabilities.monitoring?.status === 'missing') warnings.push('Utilities missing');
   if (
-    capabilities.localMirror.platform === 'supported' &&
-    (capabilities.localMirror.localRsync !== 'available' ||
-      capabilities.localMirror.remoteRsync !== 'available')
+    capabilities.localCopy.platform === 'supported' &&
+    (capabilities.localCopy.localRsync !== 'available' ||
+      capabilities.localCopy.remoteRsync !== 'available')
   ) {
     warnings.push('Local copies need rsync');
   }

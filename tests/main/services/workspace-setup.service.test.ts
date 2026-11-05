@@ -393,7 +393,7 @@ describe('Workspace Setup Automation', () => {
           executionLocation,
         ])
       ).toEqual([
-        ['copy', 'local-mirror'],
+        ['copy', 'local-copy'],
         ['host', 'workspace'],
       ]);
     });

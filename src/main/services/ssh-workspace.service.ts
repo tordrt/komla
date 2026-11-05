@@ -1273,7 +1273,7 @@ class SshWorkspaceService {
       prepared: false,
       resolvedBasePath: basePath,
       git,
-      localMirror: {
+      localCopy: {
         platform: process.platform === 'win32' ? 'unsupported' : 'supported',
         localRsync,
         remoteRsync: remoteSupportTools.remoteRsync,

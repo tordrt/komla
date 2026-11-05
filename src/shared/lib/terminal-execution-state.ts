@@ -75,7 +75,7 @@ const FACTS: Record<TerminalExecutionState, StateFacts> = {
 type ExecutionBackend = Pick<Workspace, 'backend'>;
 
 function hasManagedSession(workspace: ExecutionBackend, terminal: ExecutionTerminal): boolean {
-  return isSshWorkspace(workspace) && terminal.executionLocation !== 'local-mirror';
+  return isSshWorkspace(workspace) && terminal.executionLocation !== 'local-copy';
 }
 
 export function classifyTerminalExecution(

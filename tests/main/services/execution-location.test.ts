@@ -120,7 +120,7 @@ describe('execution locations', () => {
     root = realpathSync(mkdtempSync(join(tmpdir(), 'komla-execution-location-')));
     workspaceDir = join(root, 'workspace');
     mkdirSync(workspaceDir);
-    localCopyDir = join(root, 'mirrors', 'ws-ssh');
+    localCopyDir = join(root, 'local-copies', 'ws-ssh');
     wslMode = false;
   });
 
@@ -132,7 +132,7 @@ describe('execution locations', () => {
 
   describe('resolve', () => {
     it('rejects a Local copy location for a local workspace', () => {
-      expect(() => locations.resolve(localWorkspace(), 'local-mirror')).toThrow(
+      expect(() => locations.resolve(localWorkspace(), 'local-copy')).toThrow(
         'Local terminals require an SSH workspace'
       );
     });
@@ -141,15 +141,15 @@ describe('execution locations', () => {
       expect(locations.managesSession(localWorkspace())).toBe(false);
       expect(locations.managesSession(sshWorkspace())).toBe(true);
       expect(locations.managesSession(sshWorkspace(), 'workspace')).toBe(true);
-      expect(locations.managesSession(sshWorkspace(), 'local-mirror')).toBe(false);
+      expect(locations.managesSession(sshWorkspace(), 'local-copy')).toBe(false);
       expect(locations.resolve(sshWorkspace()).managesSession).toBe(true);
-      expect(locations.resolve(sshWorkspace(), 'local-mirror').managesSession).toBe(false);
+      expect(locations.resolve(sshWorkspace(), 'local-copy').managesSession).toBe(false);
       expect(locations.resolve(localWorkspace()).managesSession).toBe(false);
     });
   });
 
   describe('Terminal execution on this computer', () => {
-    const attached = (workspace: Workspace, location?: 'workspace' | 'local-mirror') => {
+    const attached = (workspace: Workspace, location?: 'workspace' | 'local-copy') => {
       const resolved = locations.resolve(workspace, location);
       if (resolved.managesSession) throw new Error('expected attached execution');
       return resolved;
@@ -174,7 +174,7 @@ describe('execution locations', () => {
       });
 
       expect(() =>
-        attached(sshWorkspace(), 'local-mirror').spawn({
+        attached(sshWorkspace(), 'local-copy').spawn({
           workspaceId: 'ws-ssh',
           terminalId: 'term-1',
           command: { command: 'npm test' },
@@ -185,7 +185,7 @@ describe('execution locations', () => {
     });
 
     it('spawns and restarts Local copy Terminals in the Local copy, then starts its sync', () => {
-      const location = attached(sshWorkspace(), 'local-mirror');
+      const location = attached(sshWorkspace(), 'local-copy');
 
       location.spawn({
         workspaceId: 'ws-ssh',
@@ -214,7 +214,7 @@ describe('execution locations', () => {
     });
 
     it('prepares a Local copy for a command and only initializes it for a shell', async () => {
-      const location = attached(sshWorkspace(), 'local-mirror');
+      const location = attached(sshWorkspace(), 'local-copy');
 
       await expect(location.prepare?.('npm test')).resolves.toBeUndefined();
       await expect(location.prepare?.('  ')).resolves.toBeUndefined();
@@ -319,7 +319,7 @@ describe('execution locations', () => {
     const terminals = () =>
       [
         { id: 'remote-1' },
-        { id: 'copy-1', executionLocation: 'local-mirror' },
+        { id: 'copy-1', executionLocation: 'local-copy' },
         { id: 'remote-2', executionLocation: 'workspace' },
       ] as Workspace['terminals'];
 
@@ -412,12 +412,12 @@ describe('execution locations', () => {
     it('canonicalizes a not-yet-created Local copy through its existing parent', () => {
       const linkedRoot = join(root, 'linked');
       symlinkSync(root, linkedRoot);
-      localCopyDir = join(linkedRoot, 'mirrors', 'ws-ssh');
-      const location = locations.resolve(sshWorkspace(), 'local-mirror');
+      localCopyDir = join(linkedRoot, 'local-copies', 'ws-ssh');
+      const location = locations.resolve(sshWorkspace(), 'local-copy');
 
       expect(location.shellFamily).toBe('desktop');
       expect(location.buildCommand('codex --cd "{{workspacePath}}"')).toEqual({
-        command: `codex --cd '${join(root, 'mirrors', 'ws-ssh')}'`,
+        command: `codex --cd '${join(root, 'local-copies', 'ws-ssh')}'`,
       });
     });
   });
@@ -553,7 +553,7 @@ describe('execution locations', () => {
     });
 
     it('spawns in the Local copy', () => {
-      locations.resolve(sshWorkspace(), 'local-mirror').runBackground({
+      locations.resolve(sshWorkspace(), 'local-copy').runBackground({
         name: 'Install',
         command: 'npm ci',
         ...handlers(),

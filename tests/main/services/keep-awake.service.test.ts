@@ -135,7 +135,7 @@ describe('KeepAwakeService', () => {
           createTerminal({
             status: 'running',
             agentActive: true,
-            executionLocation: 'local-mirror',
+            executionLocation: 'local-copy',
           }),
         ],
       },

@@ -952,7 +952,7 @@ describe('TerminalView resize repair', () => {
     {
       name: 'an SSH local-copy terminal, from this computer',
       terminalId: 'term-file-link-local-copy',
-      props: { workspaceBackendKind: 'ssh' as const, executionLocation: 'local-mirror' as const },
+      props: { workspaceBackendKind: 'ssh' as const, executionLocation: 'local-copy' as const },
       hostPath: '/tmp/migrate.py',
     },
   ])(
@@ -1346,7 +1346,7 @@ describe('TerminalView resize repair', () => {
         isTabActive={true}
         workingDirectory="ssh://ssh-dev/home/dev/project"
         workspaceId="workspace-1"
-        executionLocation="local-mirror"
+        executionLocation="local-copy"
         workspaceBackendKind="ssh"
       />
     );
@@ -1366,7 +1366,7 @@ describe('TerminalView resize repair', () => {
       'workspace-1',
       '/tmp/notes.txt',
       'notes.txt',
-      'local-mirror'
+      'local-copy'
     );
     expect(sendInput).toHaveBeenCalledWith('term-local-copy-drop', '@.komla-files/notes.txt ');
     vi.runOnlyPendingTimers();

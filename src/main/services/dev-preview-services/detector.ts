@@ -298,7 +298,7 @@ export function createDevPreviewServiceDetector(
       if (pid) roots.set(pid, { terminalId: terminal.id, executionLocation });
     }
     // Background runs on this machine run in an SSH workspace's Local copy.
-    const backgroundLocation = workspace.backend?.kind === 'ssh' ? 'local-mirror' : 'workspace';
+    const backgroundLocation = workspace.backend?.kind === 'ssh' ? 'local-copy' : 'workspace';
     for (const pid of deps.getBackgroundPids(workspaceId)) {
       roots.set(pid, { executionLocation: backgroundLocation });
     }

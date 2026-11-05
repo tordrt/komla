@@ -105,13 +105,13 @@ const backend = {
   branchName: 'agent/local-preview',
 };
 
-const LOCAL_COPIES = '/tmp/komla-test/mirrors';
+const LOCAL_COPIES = '/tmp/komla-test/local-copies';
 
 function directory(name: string) {
   return { name, isDirectory: () => true };
 }
 
-/** Lays out mirrors/<project>/<branch> folders, each with the owner its marker names, if any. */
+/** Lays out local-copies/<project>/<branch> folders, each with the owner its marker names. */
 function layOut(folders: Record<string, string | undefined>): void {
   const children = new Map<string, Array<{ name: string; isDirectory: () => boolean }>>();
   for (const path of Object.keys(folders)) {
@@ -133,7 +133,7 @@ function layOut(folders: Record<string, string | undefined>): void {
       folders[
         String(path)
           .slice(LOCAL_COPIES.length + 1)
-          .replace(/\/\.komla-local-mirror$/, '')
+          .replace(/\/\.komla-local-copy$/, '')
       ];
     if (owner === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
     return `${owner}\n`;
@@ -199,10 +199,10 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
   });
 
   it('recognizes an existing copy after restart', async () => {
-    const localCopyPath = '/tmp/komla-test/mirrors/Project-App/agent-local-preview';
+    const localCopyPath = '/tmp/komla-test/local-copies/Project-App/agent-local-preview';
     mocks.existsSync.mockImplementation((path) => String(path) === localCopyPath);
     mocks.readFileSync.mockImplementation((path) =>
-      String(path) === `${localCopyPath}/.komla-local-mirror` ? 'workspace-1' : undefined
+      String(path) === `${localCopyPath}/.komla-local-copy` ? 'workspace-1' : undefined
     );
     const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
@@ -213,7 +213,7 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
 
   it("does not sync another workspace's copy", async () => {
     mocks.existsSync.mockImplementation(
-      (path) => String(path) === '/tmp/komla-test/mirrors/Project-App/agent-local-preview'
+      (path) => String(path) === '/tmp/komla-test/local-copies/Project-App/agent-local-preview'
     );
     mocks.readFileSync.mockReturnValue('another-workspace');
     const { localCopyService } = await import('../../../src/main/services/local-copy.service');
@@ -236,11 +236,11 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
 
     expect(mocks.ensureWorkspaceReady).not.toHaveBeenCalled();
     expect(mocks.mkdir).toHaveBeenCalledWith(
-      '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
+      '/tmp/komla-test/local-copies/Project-App/agent-local-preview',
       { recursive: true }
     );
     expect(mocks.writeFile).toHaveBeenCalledWith(
-      '/tmp/komla-test/mirrors/Project-App/agent-local-preview/.komla-local-mirror',
+      '/tmp/komla-test/local-copies/Project-App/agent-local-preview/.komla-local-copy',
       'workspace-1',
       'utf8'
     );
@@ -252,11 +252,11 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
         '--delete-after',
         '--safe-links',
         '--exclude=/.git',
-        '--exclude=/.komla-local-mirror',
+        '--exclude=/.komla-local-copy',
         '--exclude=/.komla-files',
         '--filter=:- .gitignore',
         'dev@example.com:/home/dev/work trees/project/',
-        '/tmp/komla-test/mirrors/Project-App/agent-local-preview/',
+        '/tmp/komla-test/local-copies/Project-App/agent-local-preview/',
       ]),
       expect.anything(),
       expect.any(Function)
@@ -385,9 +385,9 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
 
     const localCopyPath = await localCopyService.initialize('workspace-1', backend);
 
-    expect(localCopyPath).toBe('/tmp/komla-test/mirrors/Project-App/agent-local-preview');
+    expect(localCopyPath).toBe('/tmp/komla-test/local-copies/Project-App/agent-local-preview');
     expect(mocks.mkdir).toHaveBeenCalledWith(
-      '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
+      '/tmp/komla-test/local-copies/Project-App/agent-local-preview',
       { recursive: true }
     );
     expect(mocks.rsync).not.toHaveBeenCalled();
@@ -745,7 +745,7 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
     const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
     expect(localCopyService.getLocalCopyPath('3e2fc13d-71e2-424c-85cd-3ffb8b9bc86d', backend)).toBe(
-      '/tmp/komla-test/mirrors/Project-App/agent-local-preview-2'
+      '/tmp/komla-test/local-copies/Project-App/agent-local-preview-2'
     );
   });
 
@@ -763,7 +763,7 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
     const { localCopyService } = await import('../../../src/main/services/local-copy.service');
 
     expect(localCopyService.getLocalCopyPath('workspace-1', backend)).toBe(
-      '/tmp/komla-test/mirrors/Project-App/agent-local-preview-3'
+      '/tmp/komla-test/local-copies/Project-App/agent-local-preview-3'
     );
   });
 
@@ -783,8 +783,8 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
     finishMkdir?.();
 
     await expect(Promise.all([first, second])).resolves.toEqual([
-      '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
-      '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
+      '/tmp/komla-test/local-copies/Project-App/agent-local-preview',
+      '/tmp/komla-test/local-copies/Project-App/agent-local-preview',
     ]);
     expect(mocks.mkdir).toHaveBeenCalledTimes(1);
   });
@@ -799,7 +799,7 @@ describe.skipIf(process.platform === 'win32')('LocalCopyService', () => {
     await localCopyService.remove('workspace-1', backend);
 
     expect(mocks.rm).toHaveBeenCalledWith(
-      '/tmp/komla-test/mirrors/Project-App/agent-local-preview',
+      '/tmp/komla-test/local-copies/Project-App/agent-local-preview',
       { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }
     );
   });

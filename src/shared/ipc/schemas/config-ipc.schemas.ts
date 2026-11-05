@@ -41,7 +41,7 @@ const sshHostCapabilitiesSchema = z
       status: z.enum(['available', 'missing']),
       version: z.string().optional(),
     }),
-    localMirror: z.object({
+    localCopy: z.object({
       platform: z.enum(['supported', 'unsupported']),
       localRsync: z.enum(['available', 'missing']),
       remoteRsync: z.enum(['available', 'missing']),
@@ -257,7 +257,7 @@ const appConfigUpdateSchema = z
     tipsIntroPending: z.boolean().optional(),
     aiHelpersOffDismissed: z.boolean().optional(),
     lastWorkspaceEnvironment: workspaceEnvironmentSchema.optional(),
-    defaultSshWorkspaceMode: z.enum(['remote', 'local-mirror-actions']).optional(),
+    defaultSshWorkspaceMode: z.enum(['remote', 'local-copy-actions']).optional(),
     gitDefaults: z
       .object({
         branchPrefix: z.string().optional(),
@@ -399,7 +399,7 @@ const projectUpdateSchema = z
     autoPushAfterMerge: z.boolean().optional(),
     aheadTargetActionId: z.string().optional(),
     behindTargetAction: behindTargetActionSchema.optional(),
-    sshWorkspaceMode: z.enum(['remote', 'local-mirror-actions']).optional(),
+    sshWorkspaceMode: z.enum(['remote', 'local-copy-actions']).optional(),
     keepSshSettingsInSync: z.boolean().optional(),
     ...autoModeFields,
   })
@@ -674,7 +674,7 @@ export const projectGetArgsSchema = z.tuple([idSchema]);
 export const projectUpdateArgsSchema = z.tuple([idSchema, projectUpdateSchema]);
 export const projectSetSshWorkspaceModeIfUnsetArgsSchema = z.tuple([
   idSchema,
-  z.enum(['remote', 'local-mirror-actions']),
+  z.enum(['remote', 'local-copy-actions']),
 ]);
 export const projectDeleteArgsSchema = z.tuple([idSchema]);
 export const projectValidateRepoArgsSchema = z.tuple([safePathSchema]);

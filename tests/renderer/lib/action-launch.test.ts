@@ -320,7 +320,7 @@ describe('launchAction', () => {
         const requestExecutionLocation = vi.mocked(
           useSshCommandExecutionLocationStore.getState().requestExecutionLocation
         );
-        requestExecutionLocation.mockResolvedValue('local-mirror');
+        requestExecutionLocation.mockResolvedValue('local-copy');
 
         await expect(launch(runTests, replace())).resolves.toBe('launched');
 
@@ -337,7 +337,7 @@ describe('launchAction', () => {
       });
 
       it('restarts its Local copy with a Terminal Command that runs where it does', async () => {
-        seed({ backend: createSshWorkspace().backend }, { executionLocation: 'local-mirror' });
+        seed({ backend: createSshWorkspace().backend }, { executionLocation: 'local-copy' });
         vi.mocked(
           useSshCommandExecutionLocationStore.getState().requestExecutionLocation
         ).mockResolvedValue('remote');
@@ -359,14 +359,14 @@ describe('launchAction', () => {
         const requestExecutionLocation = vi.mocked(
           useSshCommandExecutionLocationStore.getState().requestExecutionLocation
         );
-        requestExecutionLocation.mockResolvedValue('local-mirror');
-        const action = { ...runTests, sshExecutionLocation: 'local-mirror' as const };
+        requestExecutionLocation.mockResolvedValue('local-copy');
+        const action = { ...runTests, sshExecutionLocation: 'local-copy' as const };
 
         await expect(launch(action, replace())).resolves.toBe('launched');
 
         expect(requestExecutionLocation).toHaveBeenCalledWith(
           expect.objectContaining({ id: 'ws-1' }),
-          'local-mirror'
+          'local-copy'
         );
         expect(api.addTerminal).toHaveBeenCalledWith(
           'ws-1',
@@ -374,7 +374,7 @@ describe('launchAction', () => {
           'npm test',
           undefined,
           'host',
-          'local-mirror'
+          'local-copy'
         );
         expect(useLayoutStore.getState().tabsByWorkspace['ws-1']).toEqual(['term-1', 'started-1']);
         expect(useLayoutStore.getState().activeTabByWorkspace['ws-1']).toBe('started-1');
@@ -416,22 +416,22 @@ describe('launchAction', () => {
 
     describe('in an SSH workspace', () => {
       it("splits off a Terminal Command where the pane runs, over the project's choice", async () => {
-        seed({ backend: createSshWorkspace().backend }, { executionLocation: 'local-mirror' });
+        seed({ backend: createSshWorkspace().backend }, { executionLocation: 'local-copy' });
         const requestExecutionLocation = vi.mocked(
           useSshCommandExecutionLocationStore.getState().requestExecutionLocation
         );
-        requestExecutionLocation.mockResolvedValue('local-mirror');
+        requestExecutionLocation.mockResolvedValue('local-copy');
 
         await expect(launch(runTests, split())).resolves.toBe('launched');
 
         expect(requestExecutionLocation).toHaveBeenCalledWith(
           expect.objectContaining({ id: 'ws-1' }),
-          'local-mirror'
+          'local-copy'
         );
       });
 
       it('splits off a Terminal Command where it names, wherever the pane runs', async () => {
-        seed({ backend: createSshWorkspace().backend }, { executionLocation: 'local-mirror' });
+        seed({ backend: createSshWorkspace().backend }, { executionLocation: 'local-copy' });
         const requestExecutionLocation = vi.mocked(
           useSshCommandExecutionLocationStore.getState().requestExecutionLocation
         );

@@ -6,7 +6,9 @@ import { join, normalize, resolve, sep } from 'path';
 import { app } from 'electron';
 
 import {
-  classifyRelayFrame,
+  classifyHeartbeatFrame,
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
   Peer,
   REMOTE_CAPABILITIES,
   SESSION_CLOSE,
@@ -220,10 +222,10 @@ class DirectPeerSession {
 
   private handleSocketMessage(data: string): void {
     this.lastInboundMs = Date.now();
-    const relay = classifyRelayFrame(data);
-    if (relay === 'pong') return;
-    if (relay === 'ping') {
-      this.conn.send(JSON.stringify({ type: 'relay:pong' }));
+    const heartbeat = classifyHeartbeatFrame(data);
+    if (heartbeat === 'pong') return;
+    if (heartbeat === 'ping') {
+      this.conn.send(HEARTBEAT_PONG_FRAME);
       return;
     }
     this.peer.handleMessage(data);
@@ -249,7 +251,7 @@ class DirectPeerSession {
       now - this.lastPingSentMs >= this.opts.heartbeatPingMs
     ) {
       this.lastPingSentMs = now;
-      this.conn.send(JSON.stringify({ type: 'relay:ping' }));
+      this.conn.send(HEARTBEAT_PING_FRAME);
     }
     const nextStalenessMs = Date.now() - this.lastInboundMs;
     const nextDelay = Math.max(

@@ -42,7 +42,7 @@ function renderDialog(choice: SshWorkspaceMode, hostName?: string) {
 describe('SshCommandExecutionLocationDialog', () => {
   it('keeps the already-selected location when it is clicked again', async () => {
     const user = userEvent.setup();
-    const { onChoiceChange } = renderDialog('local-mirror-actions');
+    const { onChoiceChange } = renderDialog('local-copy-actions');
 
     await user.click(screen.getByText('This computer', { selector: 'button, button *' }));
 
@@ -59,10 +59,10 @@ describe('SshCommandExecutionLocationDialog', () => {
     expect(local).toHaveAttribute('aria-pressed', 'false');
 
     await user.click(remote);
-    expect(onChoiceChange).not.toHaveBeenCalledWith('local-mirror-actions');
+    expect(onChoiceChange).not.toHaveBeenCalledWith('local-copy-actions');
 
     await user.click(local);
-    expect(onChoiceChange).toHaveBeenLastCalledWith('local-mirror-actions');
+    expect(onChoiceChange).toHaveBeenLastCalledWith('local-copy-actions');
   });
 
   it('styles the selected location the same whichever option it is', () => {
@@ -70,7 +70,7 @@ describe('SshCommandExecutionLocationDialog', () => {
     const remoteSelectedClass = screen.getByRole('button', { name: 'Remote machine' }).className;
     unmount();
 
-    renderDialog('local-mirror-actions');
+    renderDialog('local-copy-actions');
     expect(screen.getByRole('button', { name: 'This computer' }).className).toBe(
       remoteSelectedClass
     );
@@ -93,7 +93,7 @@ describe('SshCommandExecutionLocationDialog', () => {
     expect(screen.getByRole('button', { name: 'Run remotely' })).toBeInTheDocument();
     unmount();
 
-    renderDialog('local-mirror-actions');
+    renderDialog('local-copy-actions');
     expect(screen.getByRole('button', { name: 'Run on this computer' })).toBeInTheDocument();
   });
 
@@ -102,7 +102,7 @@ describe('SshCommandExecutionLocationDialog', () => {
     expect(screen.queryByText('How the local copy works')).not.toBeInTheDocument();
     unmount();
 
-    renderDialog('local-mirror-actions');
+    renderDialog('local-copy-actions');
     expect(screen.getByText('How the local copy works')).toBeInTheDocument();
     expect(screen.getByText(/Gitignored files/)).toBeInTheDocument();
   });

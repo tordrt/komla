@@ -198,7 +198,7 @@ describe('replaceTerminal', () => {
 
     it.each([
       ['an SSH Workspace repository', 'workspace'],
-      ['a Local copy', 'local-mirror'],
+      ['a Local copy', 'local-copy'],
     ] as const)(
       'replaces the remote session when an agent starts from %s',
       async (_label, executionLocation) => {
@@ -220,7 +220,7 @@ describe('replaceTerminal', () => {
 
     it.each([
       ['an SSH Workspace repository', sshBackend, 'workspace', true],
-      ['a Local copy', sshBackend, 'local-mirror', false],
+      ['a Local copy', sshBackend, 'local-copy', false],
       ['a local workspace', undefined, 'workspace', false],
     ] as const)(
       'replaces the remote session for a Terminal Command in %s: %s',
@@ -243,12 +243,12 @@ describe('replaceTerminal', () => {
       await replaceTerminal('term-1', { kind: 'local-copy-shell' }, answer(true));
 
       expect(restartTerminal).toHaveBeenCalledWith('term-1', undefined, undefined, 120, 30, {
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
       });
     });
 
     it('moves a Local copy terminal back to a shell on the SSH host', async () => {
-      seed({ executionLocation: 'local-mirror' }, { backend: sshBackend });
+      seed({ executionLocation: 'local-copy' }, { backend: sshBackend });
 
       await replaceTerminal('term-1', { kind: 'ssh-shell' }, answer(true));
 
@@ -336,7 +336,7 @@ describe('replaceTerminal', () => {
     });
 
     it('lets another replacement take over one that is still starting', async () => {
-      seed({ executionLocation: 'local-mirror' }, { backend: sshBackend });
+      seed({ executionLocation: 'local-copy' }, { backend: sshBackend });
       const restart = createDeferred<unknown>();
       restartTerminal.mockReturnValueOnce(restart.promise);
 

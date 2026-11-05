@@ -352,7 +352,7 @@ describe('SettingsManagementService', () => {
 
   it('reports when project command Actions run in the SSH Local copy', () => {
     const { service, projects } = fixture();
-    projects[0].sshWorkspaceMode = 'local-mirror-actions';
+    projects[0].sshWorkspaceMode = 'local-copy-actions';
 
     expect(
       service.readWorkspaceSetup({ terminalId: 'terminal-1' }).setupCapabilities.ssh
@@ -374,7 +374,7 @@ describe('SettingsManagementService', () => {
       service.readWorkspaceSetup({ terminalId: 'terminal-1' }).setupCapabilities.currentEnvironment
     ).toEqual({ kind: 'ssh' });
 
-    workspace.terminals[0]!.executionLocation = 'local-mirror';
+    workspace.terminals[0]!.executionLocation = 'local-copy';
     expect(
       service.readWorkspaceSetup({ terminalId: 'terminal-1' }).setupCapabilities.currentEnvironment
     ).toEqual({ kind: 'ssh-local-copy' });
@@ -461,7 +461,7 @@ describe('SettingsManagementService', () => {
             title: 'Global',
             content: 'review',
             type: 'prompt',
-            sshExecutionLocation: 'local-mirror',
+            sshExecutionLocation: 'local-copy',
           },
         ],
       })

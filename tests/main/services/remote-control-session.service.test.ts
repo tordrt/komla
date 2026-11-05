@@ -666,7 +666,7 @@ describe('RemoteControlSessionService', () => {
       name: 'Local copy',
       status: 'running',
       createdAt: 3,
-      executionLocation: 'local-mirror',
+      executionLocation: 'local-copy',
     });
 
     peer.emitJson({ type: 'app:workspaces:list', requestId: 'r1' });
@@ -771,7 +771,7 @@ describe('RemoteControlSessionService', () => {
     const { peer, config, workspaces, secondWorkspace } = makeFixture();
     config.get.mockReturnValue({
       directRemoteLocalAccess: false,
-      defaultSshWorkspaceMode: 'local-mirror-actions',
+      defaultSshWorkspaceMode: 'local-copy-actions',
     });
     secondWorkspace.backend = {
       kind: 'ssh',
@@ -822,7 +822,7 @@ describe('RemoteControlSessionService', () => {
       name: 'Local copy',
       status: 'running',
       createdAt: 3,
-      executionLocation: 'local-mirror',
+      executionLocation: 'local-copy',
       attention: {
         kind: 'input-required',
         source: 'claude-code',

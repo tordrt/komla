@@ -199,9 +199,10 @@ export function sshWorkspaceManifestSyncedFieldsEqual(
   local: SshWorkspaceManifest,
   remote: SshWorkspaceManifest
 ): boolean {
-  // Installations that predate status don't write one.
+  // A copy without a status says nothing about it.
   const status = remote.status !== undefined;
-  // Nor do ones that predate layout sync keep theirs in step. A tab one hasn't placed yet, e.g.
+  // Nor does one whose layout no syncing installation wrote, such as one the host edited after
+  // an installation that doesn't sync. A tab one hasn't placed yet, e.g.
   // opened moments before it wrote, may have any place in the other.
   const placed = remote.syncsLayout
     ? intersection(placedTerminalIds(local), placedTerminalIds(remote))

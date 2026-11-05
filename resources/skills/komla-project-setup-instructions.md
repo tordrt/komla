@@ -64,7 +64,7 @@ Read `setupCapabilities`. Prioritize `currentEnvironment`, then the `selectedFor
 environment. Mention a configured-only SSH environment only when the
 repository would benefit from it.
 `ssh.actionsRunInLocalCopy` means Terminal Commands (Quick Commands with `type: "command"`) use the
-desktop copy in SSH Workspaces. A Terminal Command's `sshExecutionLocation` (`remote` or `local-mirror`) overrides that for the one Quick Command.
+desktop copy in SSH Workspaces. A Terminal Command's `sshExecutionLocation` (`remote` or `local-copy`) overrides that for the one Quick Command.
 
 ## 3. Propose a compact recommendation
 
@@ -91,7 +91,7 @@ covering each dependency root; otherwise use project bootstrap or a conditional 
 Keep it simple when setup or bootstrap covers its dependencies. A Local copy syncs only tracked
 files, so it lacks ignored dependencies such as `node_modules` even when the SSH host has them. When
 `ssh.actionsRunInLocalCopy` is true or a Quick Command runs in the Local copy
-(`"sshExecutionLocation": "local-mirror"`), add `ssh-local-copy` dependency setup or, if that's
+(`"sshExecutionLocation": "local-copy"`), add `ssh-local-copy` dependency setup or, if that's
 quick and safe on every start, install in the command, as in `npm install && npm run dev`. Keep
 remote dependency setup for agents on the SSH host.
 

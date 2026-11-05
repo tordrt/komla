@@ -6273,7 +6273,7 @@ describe('sshWorkspaceService', () => {
       resolvedBasePath: '/home/devuser/.komla',
       notifyScriptPath: '/home/devuser/.komla/helpers/notify.sh',
       git: { status: 'available', version: 'git version 2.43.0' },
-      localMirror: {
+      localCopy: {
         platform: 'supported',
         localRsync: 'available',
         remoteRsync: 'available',
@@ -6694,7 +6694,7 @@ describe('sshWorkspaceService', () => {
       user: 'dev',
     });
 
-    expect(result.localMirror).toEqual({
+    expect(result.localCopy).toEqual({
       // Komla keeps no Local copy on a Windows client.
       platform: process.platform === 'win32' ? 'unsupported' : 'supported',
       localRsync: 'missing',

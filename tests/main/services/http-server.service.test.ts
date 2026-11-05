@@ -734,7 +734,7 @@ describe('HttpServerService', () => {
       mockAgentPresetService.getActivePresets.mockReturnValue([{ presetId: 'preset-1' }]);
       mockSshHostService.list.mockReturnValue([{ id: 'ssh-1' }]);
       mockConfigService.get.mockReturnValue({
-        defaultSshWorkspaceMode: 'local-mirror-actions',
+        defaultSshWorkspaceMode: 'local-copy-actions',
         lastWorkspaceEnvironment: { kind: 'ssh', hostId: 'ssh-1' },
       });
       httpServerService.start();

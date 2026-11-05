@@ -131,7 +131,7 @@ describe('createDevPreviewServiceDetector', () => {
   it('lists Local copy ports on this machine and remote terminal ports on the SSH host', async () => {
     workspace = {
       backend: sshBackend,
-      terminals: [terminal('remote-a'), terminal('terminal-b', 'local-mirror')],
+      terminals: [terminal('remote-a'), terminal('terminal-b', 'local-copy')],
     };
     const detector = createDevPreviewServiceDetector(deps);
 
@@ -144,7 +144,7 @@ describe('createDevPreviewServiceDetector', () => {
         expect.objectContaining({
           port: 8000,
           terminalId: 'terminal-b',
-          executionLocation: 'local-mirror',
+          executionLocation: 'local-copy',
         }),
         {
           port: 3000,
@@ -273,7 +273,7 @@ describe('createDevPreviewServiceDetector', () => {
       scheme: null,
       pid: 201,
       processName: 'python3',
-      executionLocation: 'local-mirror',
+      executionLocation: 'local-copy',
     });
   });
 
@@ -335,7 +335,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('lists HTTP servers outside Komla on the SSH host, even with no terminal there', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('terminal-b', 'local-mirror')] };
+    workspace = { backend: sshBackend, terminals: [terminal('terminal-b', 'local-copy')] };
     deps.collectRemoteListeningPorts.mockResolvedValueOnce({
       ...remoteSnapshot,
       processes: [

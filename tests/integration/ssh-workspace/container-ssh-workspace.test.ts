@@ -376,7 +376,7 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
         git: { status: 'available' },
         monitoring: { status: 'available', missingRequirements: [] },
         tmux: { status: 'available' },
-        localMirror: { localRsync: 'available', remoteRsync: 'available' },
+        localCopy: { localRsync: 'available', remoteRsync: 'available' },
       });
       expect(setup.notifyScriptPath).toBe(`${target.resolvedBasePath}/helpers/notify.sh`);
 

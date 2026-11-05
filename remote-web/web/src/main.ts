@@ -13,18 +13,18 @@
 import {
   buildDeviceProof,
   buildPasskeyChallenge,
-  classifyRelayFrame,
+  classifyHeartbeatFrame,
   decodeBinaryAppFrame,
   encodeBase64,
   encodeBinaryTerminalInput,
   FrameTooLargeError,
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
   isValidFingerprint,
   PAIR_PROTOCOL_VERSION,
   parsePairFrame,
   parseRemoteAppFrame,
   Peer,
-  RELAY_PING_FRAME,
-  RELAY_PONG_FRAME,
   REMOTE_CAPABILITIES,
   SESSION_CLOSE,
   signDeviceProof,
@@ -154,8 +154,6 @@ const REMOTE_LAUNCH_PREFERENCES_KEY = 'komla.remote.launchPreferences';
 const REMOTE_RECONNECT_ATTEMPT_KEY = 'komla.remote.reconnectAttempt';
 const REMOTE_RESUME_GRANT_KEY = 'komla.remote.resumeGrant';
 const REMOTE_COLLAPSED_SECTIONS_KEY = 'komla.remote.collapsedSections.v2';
-// Saved before the Trash section; read once for a page that has no list under the key above.
-const REMOTE_LEGACY_COLLAPSED_SECTIONS_KEY = 'komla.remote.collapsedSections';
 const REMOTE_REQUEST_TIMEOUT_MS = 15_000;
 const TERMINAL_ENTER = '\r';
 const PHONE_LAYOUT_QUERY = '(max-width: 760px)';
@@ -730,9 +728,9 @@ function handleSocketMessage(
     return;
   }
   const text = typeof evt.data === 'string' ? evt.data : '';
-  const heartbeat = classifyRelayFrame(text);
+  const heartbeat = classifyHeartbeatFrame(text);
   if (heartbeat === 'ping') {
-    ws.send(RELAY_PONG_FRAME);
+    ws.send(HEARTBEAT_PONG_FRAME);
     return;
   }
   if (heartbeat === 'pong') return;
@@ -1162,7 +1160,7 @@ class RemoteAppClient {
     this.watchdog?.stop();
     this.watchdog = new ConnectionWatchdog({
       sendPing: () => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(RELAY_PING_FRAME);
+        if (ws.readyState === WebSocket.OPEN) ws.send(HEARTBEAT_PING_FRAME);
       },
       onDead: () => {
         if (peer !== this.peer) return;
@@ -4637,13 +4635,10 @@ function pushTestNote(outcome: 'delivered' | 'gone' | 'failed' | 'not-subscribed
 
 function readCollapsedSections(): Set<WorkspaceSectionId> {
   try {
-    return parseCollapsedSections(
-      localStorage.getItem(REMOTE_COLLAPSED_SECTIONS_KEY),
-      localStorage.getItem(REMOTE_LEGACY_COLLAPSED_SECTIONS_KEY)
-    );
+    return parseCollapsedSections(localStorage.getItem(REMOTE_COLLAPSED_SECTIONS_KEY));
   } catch {
     // Unreadable storage falls back to the default.
-    return parseCollapsedSections(null, null);
+    return parseCollapsedSections(null);
   }
 }
 
@@ -5564,7 +5559,7 @@ async function openListLink(
   });
   watchdog = new ConnectionWatchdog({
     sendPing: () => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(RELAY_PING_FRAME);
+      if (ws.readyState === WebSocket.OPEN) ws.send(HEARTBEAT_PING_FRAME);
     },
     // A half-open socket may not report closing for minutes.
     onDead: () => {

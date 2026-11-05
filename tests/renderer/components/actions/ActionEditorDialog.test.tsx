@@ -130,7 +130,7 @@ describe('ActionEditorDialog', () => {
         title: 'Desktop',
         content: 'npm run dev',
         type: 'command',
-        sshExecutionLocation: 'local-mirror',
+        sshExecutionLocation: 'local-copy',
       },
     });
 

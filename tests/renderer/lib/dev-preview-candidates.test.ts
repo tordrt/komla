@@ -60,7 +60,7 @@ describe('getCandidatePorts', () => {
   it('separates SSH host URLs from Local copy URLs in an SSH workspace', () => {
     expect(
       getCandidatePorts(
-        [scanned('http://localhost:3000/'), scanned('http://localhost:4000/', 'local-mirror')],
+        [scanned('http://localhost:3000/'), scanned('http://localhost:4000/', 'local-copy')],
         true
       )
     ).toEqual({ local: [4000], remote: [3000] });
@@ -154,10 +154,10 @@ describe('mergeDetectedServices', () => {
       [
         scanned('http://localhost:5173/'),
         scanned('http://localhost:3000/'),
-        scanned('http://localhost:3000/', 'local-mirror'),
+        scanned('http://localhost:3000/', 'local-copy'),
       ],
       {
-        services: [service(5173, 'http', 'local-mirror'), service(8000, 'http', 'workspace')],
+        services: [service(5173, 'http', 'local-copy'), service(8000, 'http', 'workspace')],
         otherServers: [],
         openPorts: [],
         remoteOpenPorts: [5173],
@@ -181,7 +181,7 @@ describe('mergeDetectedServices', () => {
       },
       {
         url: 'http://localhost:5173/',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
         live: true,
         listenerOnly: true,
       },
@@ -199,7 +199,7 @@ describe('mergeDetectedServices', () => {
       },
       {
         url: 'http://localhost:3000/',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
         live: false,
         listenerOnly: undefined,
       },

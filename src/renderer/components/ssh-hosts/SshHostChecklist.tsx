@@ -89,7 +89,7 @@ function checkItems(result: SshHostSetupResult): CheckItem[] {
     );
   }
 
-  if (result.localMirror.platform === 'supported') {
+  if (result.localCopy.platform === 'supported') {
     const reason = getLocalCopyDisabledReason(result);
     items.push(
       reason

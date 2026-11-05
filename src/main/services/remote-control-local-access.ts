@@ -37,7 +37,7 @@ export function remoteMayOpenTerminal(
 ): boolean {
   return (
     remoteLocalAccessAllowed(config) ||
-    (isSshWorkspace(workspace) && terminal.executionLocation !== 'local-mirror')
+    (isSshWorkspace(workspace) && terminal.executionLocation !== 'local-copy')
   );
 }
 
@@ -64,6 +64,6 @@ export function remoteMayRunActionCommand(
     remoteLocalAccessAllowed(config) ||
     (isSshWorkspace(workspace) &&
       resolveSshWorkspaceMode(config.defaultSshWorkspaceMode, project?.sshWorkspaceMode) !==
-        'local-mirror-actions')
+        'local-copy-actions')
   );
 }

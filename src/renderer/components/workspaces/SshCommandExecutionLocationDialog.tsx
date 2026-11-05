@@ -43,7 +43,7 @@ export function SshCommandExecutionLocationDialog({
   onCancel,
   onConfirm,
 }: SshCommandExecutionLocationDialogProps) {
-  const local = choice === 'local-mirror-actions';
+  const local = choice === 'local-copy-actions';
 
   return (
     <Dialog open={open} onOpenChange={(choiceOpen) => !choiceOpen && onCancel()}>
@@ -78,7 +78,7 @@ export function SshCommandExecutionLocationDialog({
               title="This computer"
               hint="Best for desktop, mobile, and locally interactive apps"
               selected={local}
-              onSelect={() => onChoiceChange('local-mirror-actions')}
+              onSelect={() => onChoiceChange('local-copy-actions')}
             >
               Runs in a disposable local copy synced from the SSH workspace, so you can try the app
               by hand.

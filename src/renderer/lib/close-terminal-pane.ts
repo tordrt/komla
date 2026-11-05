@@ -154,7 +154,7 @@ export async function closeTerminalPane(terminalId: string): Promise<void> {
 
   const terminal = workspace.terminals.find((candidate) => candidate.id === terminalId);
   const isRemoteSshTerminal =
-    workspace.backend?.kind === 'ssh' && terminal?.executionLocation !== 'local-mirror';
+    workspace.backend?.kind === 'ssh' && terminal?.executionLocation !== 'local-copy';
 
   setTerminalClosing(terminalId, true);
   const optimisticClose = beginOptimisticClose(workspace.id, terminalId);

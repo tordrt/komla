@@ -17,7 +17,7 @@ export function isOnSshHost(
   if (!workspace || !isSshWorkspace(workspace)) return false;
   if (source.kind === 'workspace') return true;
   const terminal = workspace.terminals.find((candidate) => candidate.id === terminalId);
-  return terminal !== undefined && terminal.executionLocation !== 'local-mirror';
+  return terminal !== undefined && terminal.executionLocation !== 'local-copy';
 }
 
 /**

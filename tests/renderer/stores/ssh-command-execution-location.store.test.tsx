@@ -20,7 +20,7 @@ const host = {
   capabilities: {
     checkedAt: "2026-09-02T00:00:00.000Z",
     git: { status: "available" as const },
-    localMirror: {
+    localCopy: {
       platform: "supported" as const,
       localRsync: "available" as const,
       remoteRsync: "available" as const,
@@ -39,8 +39,8 @@ const hostMissingRemoteRsync = {
   ...host,
   capabilities: {
     ...host.capabilities,
-    localMirror: {
-      ...host.capabilities.localMirror,
+    localCopy: {
+      ...host.capabilities.localCopy,
       remoteRsync: "missing" as const,
     },
   },
@@ -307,7 +307,7 @@ describe("ssh-command-execution-location.store", () => {
         {
           id: "project-1",
           name: "Project",
-          sshWorkspaceMode: "local-mirror-actions",
+          sshWorkspaceMode: "local-copy-actions",
         } as never,
       ],
       hasLoaded: true,
@@ -329,7 +329,7 @@ describe("ssh-command-execution-location.store", () => {
     const localCopyProject = {
       id: "project-1",
       name: "Project",
-      sshWorkspaceMode: "local-mirror-actions",
+      sshWorkspaceMode: "local-copy-actions",
     };
     useProjectsStore.setState({ projects: [localCopyProject as never], hasLoaded: true });
     window.api.getProjects = vi.fn().mockResolvedValue([localCopyProject]);
@@ -351,8 +351,8 @@ describe("ssh-command-execution-location.store", () => {
     await expect(
       useSshCommandExecutionLocationStore
         .getState()
-        .requestExecutionLocation(workspace, "local-mirror"),
-    ).resolves.toBe("local-mirror");
+        .requestExecutionLocation(workspace, "local-copy"),
+    ).resolves.toBe("local-copy");
 
     useProjectsStore.setState({
       projects: [{ id: "project-1", name: "Project" } as never],
@@ -362,8 +362,8 @@ describe("ssh-command-execution-location.store", () => {
     await expect(
       useSshCommandExecutionLocationStore
         .getState()
-        .requestExecutionLocation(workspace, "local-mirror"),
-    ).resolves.toBe("local-mirror");
+        .requestExecutionLocation(workspace, "local-copy"),
+    ).resolves.toBe("local-copy");
     expect(useSshCommandExecutionLocationStore.getState().pending).toBeNull();
   });
 
@@ -375,8 +375,8 @@ describe("ssh-command-execution-location.store", () => {
     await expect(
       useSshCommandExecutionLocationStore
         .getState()
-        .requestExecutionLocation(workspace, "local-mirror"),
-    ).resolves.toBe("local-mirror");
+        .requestExecutionLocation(workspace, "local-copy"),
+    ).resolves.toBe("local-copy");
     expect(window.api.getProjects).not.toHaveBeenCalled();
   });
 
@@ -386,7 +386,7 @@ describe("ssh-command-execution-location.store", () => {
     await expect(
       useSshCommandExecutionLocationStore
         .getState()
-        .requestExecutionLocation(workspace, "local-mirror"),
+        .requestExecutionLocation(workspace, "local-copy"),
     ).resolves.toBe("remote");
     expect(useSshCommandExecutionLocationStore.getState().pending).toBeNull();
   });
@@ -413,8 +413,8 @@ describe("ssh-command-execution-location.store", () => {
     await expect(
       useSshCommandExecutionLocationStore
         .getState()
-        .requestExecutionLocation(secondWorkspace, "local-mirror"),
-    ).resolves.toBe("local-mirror");
+        .requestExecutionLocation(secondWorkspace, "local-copy"),
+    ).resolves.toBe("local-copy");
 
     useSshCommandExecutionLocationStore.getState().cancel();
     await expect(chosen).resolves.toBeNull();
@@ -476,12 +476,12 @@ describe("ssh-command-execution-location.store", () => {
       {
         id: "project-1",
         name: "Project",
-        sshWorkspaceMode: "local-mirror-actions",
+        sshWorkspaceMode: "local-copy-actions",
       } as never,
     ]);
     hosts.resolve([host]);
 
-    await expect(resolution).resolves.toBe("local-mirror");
+    await expect(resolution).resolves.toBe("local-copy");
     expect(window.api.getProjects).toHaveBeenCalledOnce();
     expect(window.api.verifySshHost).not.toHaveBeenCalled();
     expect(useSshCommandExecutionLocationStore.getState().pending).toBeNull();
@@ -503,7 +503,7 @@ describe("ssh-command-execution-location.store", () => {
       {
         id: "project-1",
         name: "Project",
-        sshWorkspaceMode: "local-mirror-actions",
+        sshWorkspaceMode: "local-copy-actions",
       } as never,
     ]);
 
@@ -511,7 +511,7 @@ describe("ssh-command-execution-location.store", () => {
       useSshCommandExecutionLocationStore
         .getState()
         .requestExecutionLocation(workspace),
-    ).resolves.toBe("local-mirror");
+    ).resolves.toBe("local-copy");
     expect(window.api.getProjects).toHaveBeenCalled();
     expect(window.api.verifySshHost).not.toHaveBeenCalled();
   });
@@ -530,10 +530,10 @@ describe("ssh-command-execution-location.store", () => {
     await user.click(screen.getByRole("button", { name: "This computer" }));
     await user.click(screen.getByRole("button", { name: "Run on this computer" }));
 
-    await expect(resolution).resolves.toBe("local-mirror");
+    await expect(resolution).resolves.toBe("local-copy");
     expect(window.api.setProjectSshWorkspaceModeIfUnset).toHaveBeenCalledWith(
       "project-1",
-      "local-mirror-actions",
+      "local-copy-actions",
     );
   });
 
@@ -552,7 +552,7 @@ describe("ssh-command-execution-location.store", () => {
       .mockReturnValue(savedProject.promise);
     useSshCommandExecutionLocationStore
       .getState()
-      .setChoice("local-mirror-actions");
+      .setChoice("local-copy-actions");
     const confirmation = useSshCommandExecutionLocationStore
       .getState()
       .confirm();
@@ -561,14 +561,14 @@ describe("ssh-command-execution-location.store", () => {
     savedProject.resolve({
       id: "project-1",
       name: "Project",
-      sshWorkspaceMode: "local-mirror-actions",
+      sshWorkspaceMode: "local-copy-actions",
     } as never);
     await confirmation;
 
-    await expect(resolution).resolves.toBe("local-mirror");
+    await expect(resolution).resolves.toBe("local-copy");
     expect(window.api.setProjectSshWorkspaceModeIfUnset).toHaveBeenCalledWith(
       "project-1",
-      "local-mirror-actions",
+      "local-copy-actions",
     );
   });
 
@@ -587,14 +587,14 @@ describe("ssh-command-execution-location.store", () => {
     } as never);
     useSshCommandExecutionLocationStore
       .getState()
-      .setChoice("local-mirror-actions");
+      .setChoice("local-copy-actions");
 
     await useSshCommandExecutionLocationStore.getState().confirm();
 
     await expect(resolution).resolves.toBe("remote");
     expect(window.api.setProjectSshWorkspaceModeIfUnset).toHaveBeenCalledWith(
       "project-1",
-      "local-mirror-actions",
+      "local-copy-actions",
     );
   });
 
@@ -608,7 +608,7 @@ describe("ssh-command-execution-location.store", () => {
     );
     useSshCommandExecutionLocationStore
       .getState()
-      .setChoice("local-mirror-actions");
+      .setChoice("local-copy-actions");
 
     useProjectsStore.setState({
       projects: [

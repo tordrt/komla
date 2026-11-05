@@ -8,12 +8,12 @@ describe('resolveSshWorkspaceMode', () => {
   });
 
   it('uses the global mode when the project inherits', () => {
-    expect(resolveSshWorkspaceMode('local-mirror-actions', undefined)).toBe(
-      'local-mirror-actions'
+    expect(resolveSshWorkspaceMode('local-copy-actions', undefined)).toBe(
+      'local-copy-actions'
     );
   });
 
   it('lets the project override the global mode', () => {
-    expect(resolveSshWorkspaceMode('local-mirror-actions', 'remote')).toBe('remote');
+    expect(resolveSshWorkspaceMode('local-copy-actions', 'remote')).toBe('remote');
   });
 });

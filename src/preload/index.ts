@@ -844,7 +844,7 @@ const api = {
     workspaceId: string,
     sourcePath: string,
     preferredName?: string,
-    executionLocation?: 'workspace' | 'local-mirror'
+    executionLocation?: 'workspace' | 'local-copy'
   ): Promise<string> =>
     ipcRenderer.invoke(
       IPC.WORKSPACE_IMPORT_EXTERNAL_FILE,
@@ -2652,7 +2652,7 @@ const api = {
   readFromClipboard: (): Promise<string> => ipcRenderer.invoke(IPC.CLIPBOARD_READ_TEXT),
   importClipboardImage: (
     workspaceId: string,
-    executionLocation?: 'workspace' | 'local-mirror'
+    executionLocation?: 'workspace' | 'local-copy'
   ): Promise<string | null> =>
     ipcRenderer.invoke(IPC.CLIPBOARD_IMPORT_IMAGE, workspaceId, executionLocation),
   /** Saves the clipboard image to a temporary file and returns its path. */

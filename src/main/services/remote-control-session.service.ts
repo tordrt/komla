@@ -1728,7 +1728,7 @@ class RemoteControlAppSession implements RemoteControlSession {
     workspace: Workspace,
     terminal: Terminal
   ): Pick<RemoteWorkspaceSummary['terminals'][number], 'environment'> {
-    if (terminal.executionLocation === 'local-mirror') return {};
+    if (terminal.executionLocation === 'local-copy') return {};
     const hostInfo = this.deps.pty.getHostInfo?.(terminal.id);
     if (hostInfo && !hostInfo.isLocal) {
       return {

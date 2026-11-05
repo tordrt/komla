@@ -190,6 +190,8 @@ impl Editable {
     }
 
     /// Publishes the change as this host's, so the desktop merges it instead of overwriting it.
+    /// `syncsLayout` stays as the last installation left it: the host never arranges tabs, so a
+    /// desktop takes this copy's layout only when one that syncs it wrote it.
     fn save(mut self, base: &Path, workspace_id: &str, now_ms: u64) -> anyhow::Result<()> {
         self.manifest["updatedAt"] = json!(now_ms);
         self.manifest["writtenBy"] = json!(WRITTEN_BY);
@@ -466,6 +468,23 @@ mod tests {
         assert_eq!(after["updatedAt"], 9_000);
         assert!(after.get("terminalLayout").is_none());
         assert_eq!(after["name"], "First task");
+    }
+
+    #[test]
+    fn leaves_whether_a_syncing_installation_arranged_the_tabs_as_it_was() {
+        for stored in [None, Some(true)] {
+            let (_temp, caller) = host();
+            let mut written = manifest(&caller, "ws-1");
+            if let Some(value) = stored {
+                written["syncsLayout"] = json!(value);
+            }
+            write_manifest(&caller.base, "ws-1", &written).unwrap();
+
+            start(&caller, "ws-1", &mut RecordingLauncher::new(), 9_000).unwrap();
+
+            let after = manifest(&caller, "ws-1");
+            assert_eq!(after.get("syncsLayout").and_then(Value::as_bool), stored);
+        }
     }
 
     #[test]

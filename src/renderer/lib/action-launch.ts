@@ -325,7 +325,7 @@ function sshTerminalLocation(
 ): ActionSshExecutionLocation | undefined {
   if (!terminalId || !isSshWorkspace(workspace)) return undefined;
   const terminal = workspace.terminals.find((candidate) => candidate.id === terminalId);
-  return isLocalTerminalExecutionLocation(terminal?.executionLocation) ? 'local-mirror' : 'remote';
+  return isLocalTerminalExecutionLocation(terminal?.executionLocation) ? 'local-copy' : 'remote';
 }
 
 async function launchInSplit(
@@ -393,7 +393,7 @@ async function launchInPlace(
         useToastStore
           .getState()
           .addToast(
-            `${action.title} runs ${location === 'local-mirror' ? 'in the Local copy' : 'on the SSH host'}, so it opened in a new tab`,
+            `${action.title} runs ${location === 'local-copy' ? 'in the Local copy' : 'on the SSH host'}, so it opened in a new tab`,
             'info'
           );
         return 'launched';

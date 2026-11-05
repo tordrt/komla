@@ -8,7 +8,7 @@ import type { Socket } from 'net';
 import {
   Peer,
   buildDeviceProof,
-  classifyRelayFrame,
+  classifyHeartbeatFrame,
   deviceIdFromPublicKey,
   encodeBase64,
   exportDevicePublicKey,
@@ -355,7 +355,7 @@ async function startResumablePhone(webAssetDir: string) {
         return;
       }
       const data = String(event.data);
-      if (classifyRelayFrame(data) === null) peer.handleMessage(data);
+      if (classifyHeartbeatFrame(data) === null) peer.handleMessage(data);
     });
     const closed = new Promise<number>((resolve) =>
       ws.addEventListener('close', (event) => resolve(event.code), { once: true })
@@ -998,7 +998,7 @@ describe('RemoteControlDirectService', () => {
     await new Promise((resolve) => response.socket?.on('close', resolve));
 
     // One late pong on a phone's radio isn't a dead link (Orca Mobile #12790).
-    expect(received.split('relay:ping').length - 1).toBeGreaterThanOrEqual(3);
+    expect(received.split('{"type":"ping"}').length - 1).toBeGreaterThanOrEqual(3);
     await localService.stop();
   });
 

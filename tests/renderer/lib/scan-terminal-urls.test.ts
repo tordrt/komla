@@ -120,8 +120,8 @@ describe('scanWorkspaceTerminalsForLocalhostUrls', () => {
       const cached = makeCachedFromLines(
         [{ text: 'Local: http://localhost:5173/' }],
         'ws-1'
-      ) as ReturnType<typeof getCached> & { executionLocation?: 'workspace' | 'local-mirror' };
-      cached.executionLocation = id === 'local' ? 'local-mirror' : 'workspace';
+      ) as ReturnType<typeof getCached> & { executionLocation?: 'workspace' | 'local-copy' };
+      cached.executionLocation = id === 'local' ? 'local-copy' : 'workspace';
       return cached;
     });
 
@@ -134,7 +134,7 @@ describe('scanWorkspaceTerminalsForLocalhostUrls', () => {
       {
         url: 'http://localhost:5173/',
         terminalId: 'local',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
       },
     ]);
   });
@@ -399,7 +399,7 @@ describe('scanWorkspaceTerminalsForLocalhostUrlCandidates', () => {
         setupActivities: [
           run({
             actionId: 'dev',
-            executionLocation: 'local-mirror',
+            executionLocation: 'local-copy',
             output: 'http://localhost:3000/\r\n',
           }),
           run({
@@ -410,7 +410,7 @@ describe('scanWorkspaceTerminalsForLocalhostUrlCandidates', () => {
         ],
       })
     ).toEqual([
-      { url: 'http://localhost:3000/', executionLocation: 'local-mirror' },
+      { url: 'http://localhost:3000/', executionLocation: 'local-copy' },
       { url: 'http://localhost:8080/', executionLocation: 'workspace' },
     ]);
   });

@@ -1,7 +1,7 @@
 // Notices a dead connection while the page is open. A phone that sleeps, or roams between Wi-Fi
 // and cellular, can leave a WebSocket half-open: no close event, no data, for minutes. Orca Mobile
 // probes after 20 s of silence with an 8 s deadline (issue 5049); the desktop answers
-// `relay:ping` with `relay:pong`, and any inbound frame counts as proof of life.
+// `ping` with `pong`, and any inbound frame counts as proof of life.
 //
 // Also after Orca: an idle link is declared dead only after two unanswered probes in a row, since
 // one late pong on a slow radio isn't a dead link (#12790), and a probe window the page was

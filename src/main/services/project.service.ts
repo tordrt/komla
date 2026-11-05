@@ -124,7 +124,7 @@ function isValidProject(obj: unknown): obj is Project {
     typeof p['managed'] === 'boolean' &&
     (!('sshWorkspaceMode' in p) ||
       p['sshWorkspaceMode'] === 'remote' ||
-      p['sshWorkspaceMode'] === 'local-mirror-actions') &&
+      p['sshWorkspaceMode'] === 'local-copy-actions') &&
     (!('kind' in p) || p['kind'] === 'git' || p['kind'] === 'directory') &&
     (!('setupSteps' in p) || Array.isArray(p['setupSteps']))
   );

@@ -66,9 +66,7 @@ A disposable, writable copy used to run a remote workspace's application on the 
 syncs one way from the remote when Komla detects source changes; the remote remains authoritative
 for source and Git, while ignored dependencies, secrets, caches, and other runtime state may remain
 local. Moving its remote workspace to the Trash discards it; Komla recreates it on demand.
-_Avoid_: Local mirror, local checkout, local workspace. Saved data keeps the old name:
-`local-mirror`, `local-mirror-actions`, `capabilities.localMirror`, `.komla-local-mirror` and the
-`mirrors` folder.
+_Avoid_: Local mirror, local checkout, local workspace.
 
 **Execution location**:
 Where a terminal or Setup step runs: the workspace itself (on the host or an SSH host) or, for an

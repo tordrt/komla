@@ -162,7 +162,7 @@ function withUrl(
   return {
     ...rest,
     url,
-    ...(location === 'local-mirror' ? { urlExecutionLocation: location } : {}),
+    ...(location === 'local-copy' ? { urlExecutionLocation: location } : {}),
     // A title describes the page it came from.
     ...(url === tab.url && title !== undefined ? { title } : {}),
   };
@@ -309,7 +309,7 @@ export function normalizeBrowserTabs(value: unknown): WorkspaceBrowserTab[] | un
     tabs.push({
       id,
       url,
-      ...(urlExecutionLocation === 'local-mirror' ? { urlExecutionLocation } : {}),
+      ...(urlExecutionLocation === 'local-copy' ? { urlExecutionLocation } : {}),
       ...(typeof title === 'string' && title
         ? { title: title.slice(0, MAX_BROWSER_TAB_TITLE_LENGTH) }
         : {}),

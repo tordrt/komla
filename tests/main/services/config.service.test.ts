@@ -462,11 +462,10 @@ describe('ConfigService', () => {
     });
 
     it.each([
-      [{ hideBranchNameInWorkspaceCards: true }, false],
-      [{ hideBranchNameInWorkspaceCards: false }, true],
-      [{ hideBranchNameInWorkspaceCards: true, alwaysShowBranchNameInWorkspaceCards: true }, true],
       [{ alwaysShowBranchNameInWorkspaceCards: false }, false],
-    ])('should carry over the old hide branch names choice: %j', async (stored, expected) => {
+      [{ alwaysShowBranchNameInWorkspaceCards: 'false' }, true],
+      [{}, true],
+    ])('should read whether cards always show branch names: %j', async (stored, expected) => {
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue(JSON.stringify(stored));
 

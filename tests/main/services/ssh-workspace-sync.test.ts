@@ -210,7 +210,7 @@ describe('SSH workspace manifest', () => {
       sshWorkspace({
         terminals: [
           terminal('t1'),
-          terminal('localCopy', { executionLocation: 'local-mirror' }),
+          terminal('localCopy', { executionLocation: 'local-copy' }),
           terminal('plain', { remoteSessionResumable: false }),
         ],
       }),
@@ -489,7 +489,7 @@ describe('mergeSshWorkspaceManifest', () => {
     });
   });
 
-  it('keeps the layout here over one from a device that predates layout sync', () => {
+  it('keeps the layout here over one no syncing device arranged', () => {
     const remote = { ...base, syncsLayout: undefined, terminalLayout: layout('t2', 't1') };
 
     expect(merge(base, base, remote).terminalLayout).toEqual(layout('t1', 't2'));

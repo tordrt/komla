@@ -112,8 +112,8 @@ export interface SshHostCapabilities {
     status: 'available' | 'missing';
     version?: string;
   };
-  /** Whether the host can keep a Local copy. Saved in ssh-hosts.json, so it keeps the old name. */
-  localMirror: {
+  /** Whether the host can keep a Local copy. */
+  localCopy: {
     platform: 'supported' | 'unsupported';
     localRsync: 'available' | 'missing';
     remoteRsync: 'available' | 'missing';

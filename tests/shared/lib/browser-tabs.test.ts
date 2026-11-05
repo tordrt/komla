@@ -139,7 +139,7 @@ describe('opening a URL in a tab of its own', () => {
       openUrlInNewBrowserTab(
         workspaceWith(tabs, 'b'),
         'http://localhost:3000/',
-        'local-mirror',
+        'local-copy',
         'new'
       ).activeBrowserTabId
     ).toBe('new');
@@ -169,7 +169,7 @@ describe('opening a URL in a tab of its own', () => {
 
   it('shows the tab at a website URL whichever machine the link came from', () => {
     const tabs: WorkspaceBrowserTab[] = [
-      { id: 'a', url: 'https://example.com/docs', urlExecutionLocation: 'local-mirror' },
+      { id: 'a', url: 'https://example.com/docs', urlExecutionLocation: 'local-copy' },
       { id: 'b', url: 'http://localhost:3000/' },
     ];
     expect(
@@ -207,11 +207,11 @@ describe('changing tabs', () => {
 
   it('keeps a tab on its machine unless told otherwise', () => {
     const workspace = workspaceWith(
-      [{ id: 'a', url: 'http://localhost:3000/', urlExecutionLocation: 'local-mirror' }],
+      [{ id: 'a', url: 'http://localhost:3000/', urlExecutionLocation: 'local-copy' }],
       'a'
     );
     expect(setBrowserTabUrl(workspace, 'a', 'http://localhost:4000/').browserTabs).toEqual([
-      { id: 'a', url: 'http://localhost:4000/', urlExecutionLocation: 'local-mirror' },
+      { id: 'a', url: 'http://localhost:4000/', urlExecutionLocation: 'local-copy' },
     ]);
     expect(
       setBrowserTabUrl(workspace, 'a', 'http://localhost:4000/', 'workspace').browserTabs
@@ -290,7 +290,7 @@ describe('saved tabs', () => {
   it('drops invalid, duplicate and non-web entries', () => {
     expect(
       normalizeBrowserTabs([
-        { id: 'a', url: 'http://localhost:3000/', urlExecutionLocation: 'local-mirror' },
+        { id: 'a', url: 'http://localhost:3000/', urlExecutionLocation: 'local-copy' },
         { id: 'a', url: 'https://duplicate.example/' },
         { id: 'b', url: 'file:///etc/passwd' },
         { id: '', url: '' },
@@ -298,7 +298,7 @@ describe('saved tabs', () => {
         'not a tab',
       ])
     ).toEqual([
-      { id: 'a', url: 'http://localhost:3000/', urlExecutionLocation: 'local-mirror' },
+      { id: 'a', url: 'http://localhost:3000/', urlExecutionLocation: 'local-copy' },
       { id: 'c', url: '', title: 'x'.repeat(300) },
     ]);
     expect(normalizeBrowserTabs([])).toBeUndefined();

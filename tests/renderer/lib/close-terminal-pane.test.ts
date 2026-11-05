@@ -81,7 +81,7 @@ describe('handleTerminalExit', () => {
 
   it('closes a local copy terminal in an SSH workspace after a clean exit', () => {
     const close = vi.fn().mockResolvedValue(undefined);
-    const terminal = createTerminal({ id: 'term-1', executionLocation: 'local-mirror' });
+    const terminal = createTerminal({ id: 'term-1', executionLocation: 'local-copy' });
     useWorkspacesStore.setState({
       workspaces: [
         createWorkspace({

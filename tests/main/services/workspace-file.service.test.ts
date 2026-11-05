@@ -153,7 +153,7 @@ describe('workspaceFileService', () => {
     },
     terminals: [
       { id: 'term-ssh', executionLocation: 'workspace' as const },
-      { id: 'term-local-copy', executionLocation: 'local-mirror' as const },
+      { id: 'term-local-copy', executionLocation: 'local-copy' as const },
     ],
   };
   const linkedSshWorkspace = {
@@ -169,7 +169,7 @@ describe('workspaceFileService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     configServiceMock.get.mockReturnValue({});
-    localCopyServiceMock.getLocalCopyPath.mockReturnValue('/tmp/komla/mirrors/project/branch');
+    localCopyServiceMock.getLocalCopyPath.mockReturnValue('/tmp/komla/local-copies/project/branch');
     ptyServiceMock.getBuffer.mockReturnValue({ buffer: '', seq: 0 });
     sshWorkspaceServiceMock.getHost.mockReturnValue({ id: 'ssh-dev', name: 'SSH Dev' });
     workspaceStatusServiceMock.change.mockResolvedValue({ disposition: 'applied' });
@@ -313,14 +313,14 @@ describe('workspaceFileService', () => {
       await import('../../../src/main/services/workspace-file.service');
 
     await expect(
-      workspaceFileService.importExternalFile('ws-ssh', sourcePath, 'report.pdf', 'local-mirror')
+      workspaceFileService.importExternalFile('ws-ssh', sourcePath, 'report.pdf', 'local-copy')
     ).resolves.toBe('.komla-files/report.pdf');
     expect(localCopyServiceMock.getLocalCopyPath).toHaveBeenCalledWith(
       'ws-ssh',
       sshWorkspace.backend
     );
     expect(gitServiceMock.importExternalFile).toHaveBeenCalledWith(
-      '/tmp/komla/mirrors/project/branch',
+      '/tmp/komla/local-copies/project/branch',
       sourcePath,
       'report.pdf'
     );

@@ -1769,7 +1769,7 @@ export class SettingsManagementService {
           resolveSshWorkspaceMode(
             configuration.defaultSshWorkspaceMode,
             project.sshWorkspaceMode
-          ) === 'local-mirror-actions',
+          ) === 'local-copy-actions',
       },
     };
   }

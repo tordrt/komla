@@ -56,7 +56,7 @@ const mockSshWorkspaceService = {
     prepared: false,
     resolvedBasePath: '/home/devuser/.komla',
     git: { status: 'available' as const, version: 'git version 2.43.0' },
-    localMirror: {
+    localCopy: {
       platform: 'supported' as const,
       localRsync: 'available' as const,
       remoteRsync: 'available' as const,
@@ -74,7 +74,7 @@ const mockSshWorkspaceService = {
     resolvedBasePath: '/home/devuser/.komla',
     notifyScriptPath: '/home/devuser/.komla/helpers/notify.sh',
     git: { status: 'available' as const, version: 'git version 2.43.0' },
-    localMirror: {
+    localCopy: {
       platform: 'supported' as const,
       localRsync: 'available' as const,
       remoteRsync: 'available' as const,
@@ -210,7 +210,7 @@ describe('config IPC handlers', () => {
       resolvedBasePath: '/home/devuser/.komla',
       notifyScriptPath: '/home/devuser/.komla/helpers/notify.sh',
       git: { status: 'available', version: 'git version 2.43.0' },
-      localMirror: {
+      localCopy: {
         platform: 'supported',
         localRsync: 'available',
         remoteRsync: 'available',

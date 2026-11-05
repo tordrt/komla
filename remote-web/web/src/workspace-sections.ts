@@ -155,26 +155,15 @@ export function buildWorkspaceSections(
   });
 }
 
-/**
- * The sections collapsed in the saved list, Stopped and the Trash by default. A list saved before
- * the Trash existed, under the earlier key, keeps its sections with the Trash collapsed.
- */
-export function parseCollapsedSections(
-  raw: string | null,
-  legacyRaw: string | null
-): Set<WorkspaceSectionId> {
-  const parse = (text: string | null): Set<WorkspaceSectionId> | null => {
-    try {
-      const parsed: unknown = text ? JSON.parse(text) : null;
-      return Array.isArray(parsed)
-        ? new Set(parsed.filter((id): id is WorkspaceSectionId => SECTION_ORDER.includes(id)))
-        : null;
-    } catch {
-      return null;
+/** The sections collapsed in the saved list, Stopped and the Trash by default. */
+export function parseCollapsedSections(raw: string | null): Set<WorkspaceSectionId> {
+  try {
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((id): id is WorkspaceSectionId => SECTION_ORDER.includes(id)));
     }
-  };
-  const saved = parse(raw);
-  if (saved) return saved;
-  const legacy = parse(legacyRaw);
-  return legacy ? legacy.add('trash') : new Set(['stopped', 'trash']);
+  } catch {
+    // An unreadable list falls back to the default.
+  }
+  return new Set(['stopped', 'trash']);
 }

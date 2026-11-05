@@ -138,7 +138,7 @@ const ROWS: Record<string, Row> = {
   },
   'Local copy, running': {
     kind: 'ssh',
-    terminal: { status: 'running', executionLocation: 'local-mirror' },
+    terminal: { status: 'running', executionLocation: 'local-copy' },
     state: 'unmanaged-running',
     runningHere: T,
     showsRunning: T,
@@ -158,7 +158,7 @@ const ROWS: Record<string, Row> = {
   },
   'Local copy, stopped': {
     kind: 'ssh',
-    terminal: { status: 'stopped', executionLocation: 'local-mirror' },
+    terminal: { status: 'stopped', executionLocation: 'local-copy' },
     state: 'unmanaged-stopped',
     runningHere: F,
     showsRunning: F,
@@ -643,7 +643,7 @@ describe('agentsWorkingHere', () => {
           'ssh',
           [
             { ...running, agentActive: true },
-            { ...running, agentActive: true, executionLocation: 'local-mirror' },
+            { ...running, agentActive: true, executionLocation: 'local-copy' },
             { remoteSessionOnHost: true, agentActive: true },
           ],
           { agentActive: true }

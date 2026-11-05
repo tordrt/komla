@@ -179,7 +179,7 @@ const DESTINATION_EXAMPLES: Record<SetupDestination, string> = {
   'workspace-repository': '/home/alex/.komla/worktrees/acme/feature-login',
   'local-workspace-repository': '/Users/alex/.komla/worktrees/acme/feature-login',
   'ssh-workspace-repository': '/home/alex/.komla/worktrees/acme/feature-login',
-  'ssh-local-copy': '/Users/alex/.komla/mirrors/acme/feature-login',
+  'ssh-local-copy': '/Users/alex/.komla/local-copies/acme/feature-login',
 };
 
 interface WorkspaceSetupSectionProps {

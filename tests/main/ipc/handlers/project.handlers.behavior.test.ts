@@ -476,12 +476,12 @@ describe('project IPC behavior', () => {
       const result = await ipcMain._invoke(
         'project:set-ssh-workspace-mode-if-unset',
         'p1',
-        'local-mirror-actions'
+        'local-copy-actions'
       );
 
       expect(mockProjectService.setSshWorkspaceModeIfUnset).toHaveBeenCalledWith(
         'p1',
-        'local-mirror-actions'
+        'local-copy-actions'
       );
       expect(result).toEqual(project);
     });

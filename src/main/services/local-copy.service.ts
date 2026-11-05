@@ -21,7 +21,7 @@ import type { LocalCopySyncStatus } from '../../shared/types/local-copy';
 
 const logger = createLogger('LocalCopyService');
 const SYNC_TIMEOUT_MS = 5 * 60_000;
-const LOCAL_COPY_OWNER_FILE = '.komla-local-mirror';
+const LOCAL_COPY_OWNER_FILE = '.komla-local-copy';
 const LOCAL_COPY_PATH_MAX_ATTEMPTS = 25;
 const LOCAL_COPY_REMOVE_OPTIONS = {
   recursive: true,
@@ -418,7 +418,7 @@ class LocalCopyService {
   }
 
   private localCopyRoot(): string {
-    return resolve(getKomlaBasePath(), 'mirrors');
+    return resolve(getKomlaBasePath(), 'local-copies');
   }
 
   private validateWorkspaceId(workspaceId: string): void {
@@ -515,7 +515,7 @@ function ownerFromMarker(content: string): string | undefined {
 
 async function readDirectoryNames(path: string): Promise<string[]> {
   const entries = await readdir(path, { withFileTypes: true }).catch(() => []);
-  // Not following links keeps removal inside the mirrors folder.
+  // Not following links keeps removal inside the local-copies folder.
   return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
 }
 

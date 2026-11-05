@@ -601,7 +601,7 @@ export class WorkspaceSetupService {
       command: '',
       placement: 'background',
       actionId: action.id,
-      destination: executionLocation === 'local-mirror' ? 'ssh-local-copy' : 'workspace-repository',
+      destination: executionLocation === 'local-copy' ? 'ssh-local-copy' : 'workspace-repository',
     };
     const launched = command === undefined ? undefined : { ...action, content: command };
     const resolved = this.resolver.resolve(step, workspace, project, true, launched);

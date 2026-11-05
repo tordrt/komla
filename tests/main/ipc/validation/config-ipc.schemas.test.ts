@@ -133,9 +133,9 @@ describe('configUpdateArgsSchema', () => {
 
   it('preserves the default SSH workspace runtime mode', () => {
     const [updates] = configUpdateArgsSchema.parse([
-      { defaultSshWorkspaceMode: 'local-mirror-actions' },
+      { defaultSshWorkspaceMode: 'local-copy-actions' },
     ]);
-    expect(updates).toEqual({ defaultSshWorkspaceMode: 'local-mirror-actions' });
+    expect(updates).toEqual({ defaultSshWorkspaceMode: 'local-copy-actions' });
   });
 
   it('preserves the last-used workspace environment', () => {
@@ -225,7 +225,7 @@ describe('configUpdateArgsSchema', () => {
         capabilities: {
           checkedAt: '2026-08-06T12:00:00.000Z',
           git: { status: 'available', version: 'git version 2.43.0' },
-          localMirror: {
+          localCopy: {
             platform: 'supported',
             localRsync: 'available',
             remoteRsync: 'available',

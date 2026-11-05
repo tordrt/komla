@@ -127,7 +127,7 @@ describe('openTerminalUrl in the default browser', () => {
     openTerminalUrl('https://example.com/docs', 'external', { workspaceId: 'ssh-ws' });
     openTerminalUrl('http://localhost:5173', 'external', {
       workspaceId: 'ssh-ws',
-      executionLocation: 'local-mirror',
+      executionLocation: 'local-copy',
     });
     openTerminalUrl('http://localhost:3000', 'external', { workspaceId: 'local-ws' });
     openTerminalUrl('http://localhost:4000', 'external', {});

@@ -93,7 +93,7 @@ describe('useVirtualDesktopHint', () => {
         workspace('local-ws', {}, ['local-term']),
         {
           ...workspace('ssh-ws', { backend: sshBackend }, []),
-          terminals: [{ id: 'local-copy-term', executionLocation: 'local-mirror' }],
+          terminals: [{ id: 'local-copy-term', executionLocation: 'local-copy' }],
         } as Workspace,
       ],
     });

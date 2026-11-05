@@ -50,7 +50,7 @@ const mockPresets = [
   },
 ];
 let mockConfig: {
-  defaultSshWorkspaceMode: 'remote' | 'local-mirror-actions';
+  defaultSshWorkspaceMode: 'remote' | 'local-copy-actions';
 } = { defaultSshWorkspaceMode: 'remote' };
 let mockHosts: SshHost[] = [host];
 let mockWorkspaces: Record<string, unknown>[] = [];
@@ -59,7 +59,7 @@ let mockProjects: Array<{
   name: string;
   color?: string;
   kind?: 'git' | 'directory';
-  sshWorkspaceMode?: 'remote' | 'local-mirror-actions';
+  sshWorkspaceMode?: 'remote' | 'local-copy-actions';
 }> = [];
 
 vi.mock('../../../../../src/renderer/stores/config.store', () => ({
@@ -228,7 +228,7 @@ describe('SshTab', () => {
         prepared: Boolean(options?.prepare),
         resolvedBasePath: '/home/dev/.komla',
         git: { status: 'available', version: 'git version 2.43.0' },
-        localMirror: {
+        localCopy: {
           platform: window.api.platform === 'win32' ? 'unsupported' : 'supported',
           localRsync: 'available',
           remoteRsync: 'available',
@@ -282,7 +282,7 @@ describe('SshTab', () => {
             git: { status: 'available', version: 'git version 2.43.0' },
             tmux: { status: 'available', version: 'tmux 3.3a' },
             monitoring: { status: 'available', missingRequirements: [] },
-            localMirror: { platform: 'supported', localRsync: 'available', remoteRsync: 'missing' },
+            localCopy: { platform: 'supported', localRsync: 'available', remoteRsync: 'missing' },
           },
         },
       ];
@@ -910,7 +910,7 @@ describe('SshTab', () => {
         git: { status: 'missing' },
         tmux: { status: 'available', version: 'tmux 3.4' },
         monitoring: { status: 'available', missingRequirements: [] },
-        localMirror: {
+        localCopy: {
           platform: 'supported',
           localRsync: 'missing',
           remoteRsync: 'missing',
@@ -953,7 +953,7 @@ describe('SshTab', () => {
         git: { status: 'available', version: 'git version 2.43.0' },
         tmux,
         monitoring: { status: 'available', missingRequirements: [] },
-        localMirror: {
+        localCopy: {
           platform: 'supported',
           localRsync: 'available',
           remoteRsync: 'available',
@@ -983,7 +983,7 @@ describe('SshTab', () => {
         git: { status: 'available', version: 'git version 2.43.0' },
         tmux: { status: 'available', version: 'tmux 3.3a' },
         monitoring: { status: 'available', missingRequirements: [] },
-        localMirror: {
+        localCopy: {
           platform: 'supported',
           localRsync: 'available',
           remoteRsync: 'available',
@@ -1014,7 +1014,7 @@ describe('SshTab', () => {
           status: 'missing',
           missingRequirements: ['awk', 'curl or wget'],
         },
-        localMirror: {
+        localCopy: {
           platform: 'supported',
           localRsync: 'available',
           remoteRsync: 'available',
@@ -1041,7 +1041,7 @@ describe('SshTab', () => {
         git: { status: 'available', version: 'git version 2.43.0' },
         tmux: { status: 'available', version: 'tmux 3.4' },
         monitoring: { status: 'available', missingRequirements: [] },
-        localMirror: {
+        localCopy: {
           platform: 'supported',
           localRsync: 'available',
           remoteRsync: 'available',

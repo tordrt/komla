@@ -4,7 +4,7 @@ import { idSchema } from './primitives';
 
 export const clipboardImportImageArgsSchema = z.tuple([
   idSchema,
-  z.enum(['workspace', 'local-mirror']).optional(),
+  z.enum(['workspace', 'local-copy']).optional(),
 ]);
 
 export const agentUsageRefreshArgsSchema = z.tuple([

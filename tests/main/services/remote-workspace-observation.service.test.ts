@@ -131,7 +131,7 @@ describe('RemoteWorkspaceObservationService', () => {
 
   it('derives monitored workspaces and prepares the companion and tunnel', async () => {
     const localTerminal = sshWorkspace('workspace-2', {
-      executionLocation: 'local-mirror',
+      executionLocation: 'local-copy',
     });
     const stoppedTerminal = sshWorkspace('workspace-3', { status: 'stopped' });
     const restoredTerminal = sshWorkspace('workspace-4', {
@@ -193,7 +193,7 @@ describe('RemoteWorkspaceObservationService', () => {
       sshWorkspace('workspace-1'),
       sshWorkspace('workspace-2', { status: 'stopped', remoteSessionActive: true }),
       sshWorkspace('stopped', { status: 'stopped' }),
-      sshWorkspace('local', { executionLocation: 'local-mirror' }),
+      sshWorkspace('local', { executionLocation: 'local-copy' }),
     ]);
     await harness.service.reconcile();
     await vi.advanceTimersByTimeAsync(0);

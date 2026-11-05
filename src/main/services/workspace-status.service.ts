@@ -167,11 +167,11 @@ function activityFingerprint(workingTree: WorkingTreeSnapshot): string {
     .join('\n');
 }
 
-// Remote Companions that predate these fields leave them out, so anything may have changed.
+// What changed, when a Remote Companion knows; without it, anything may have changed.
 function remoteWorkingTreeChange(
   snapshot: RemoteCompanionWorkspaceStatusSnapshot | LocalWorkspaceStatusSnapshot
 ): RemoteWorkingTreeChange | undefined {
-  if (!('stateHash' in snapshot)) return undefined;
+  if (!isRemoteCompanionSnapshot(snapshot)) return undefined;
   const { fileListHash, changedPaths } = snapshot;
   return fileListHash || changedPaths ? { fileListHash, changedPaths } : undefined;
 }
@@ -422,7 +422,7 @@ export class WorkspaceStatusService {
       };
     }
 
-    if (isRemoteCompanionSnapshot(snapshot) && 'stateHash' in snapshot) {
+    if (isRemoteCompanionSnapshot(snapshot)) {
       const floor = this.remoteObservationFloors.get(workspace.id);
       if (floor !== undefined && snapshot.observedAt <= floor) {
         const syncLocalCopy =

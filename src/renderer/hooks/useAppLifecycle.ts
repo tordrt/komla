@@ -565,7 +565,7 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
           .workspaces.find((candidate) => candidate.id === workspaceId);
         // Its URL already loads on this computer, even through a tunnel.
         const location =
-          workspace && isSshWorkspace(workspace) && isLoopbackUrl(url) ? 'local-mirror' : undefined;
+          workspace && isSshWorkspace(workspace) && isLoopbackUrl(url) ? 'local-copy' : undefined;
         const paneSurfaceId = getPaneSurfaceIdOfTab(tabId);
         if (paneSurfaceId) {
           updatePaneBrowserTabs(paneSurfaceId, (tabs) => addBrowserTab(tabs, url, location));

@@ -241,7 +241,7 @@ export class SshWorkspaceSync {
     for (const workspace of workspaces) {
       // The host's copy keeps its title until the interval is up, as after any other write, and
       // until the agent here retitles, as another device may have written it since. One with no
-      // title yet, e.g. written by an older version, takes this installation's then.
+      // title yet takes this installation's then.
       const title = saved.get(workspace.id)?.agentTitle;
       this.agentTitles.set(workspace.id, {
         title,
@@ -771,7 +771,7 @@ export class SshWorkspaceSync {
       return false;
     }
     // Without sync, a newer copy from another installation is overwritten. So is one from an
-    // installation without sync or an older version: it may predate changes made here.
+    // installation without sync: it may predate changes made here.
     if (!this.dependencies.syncsWith(hostId) || !remote.syncs) return false;
     const tabsBefore = new Set(this.workspace(workspaceId)?.terminals.map(({ id }) => id));
     const workspace = await this.applyChanges(workspaceId, remote, base);

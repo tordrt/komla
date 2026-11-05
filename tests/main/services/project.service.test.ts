@@ -164,12 +164,12 @@ describe('ProjectService', () => {
     );
     const { projectService } = await import('../../../src/main/services/project.service');
 
-    const first = projectService.setSshWorkspaceModeIfUnset('project-1', 'local-mirror-actions');
+    const first = projectService.setSshWorkspaceModeIfUnset('project-1', 'local-copy-actions');
     const second = projectService.setSshWorkspaceModeIfUnset('project-1', 'remote');
 
-    expect(first.sshWorkspaceMode).toBe('local-mirror-actions');
-    expect(second.sshWorkspaceMode).toBe('local-mirror-actions');
-    expect(projectService.get('project-1')?.sshWorkspaceMode).toBe('local-mirror-actions');
+    expect(first.sshWorkspaceMode).toBe('local-copy-actions');
+    expect(second.sshWorkspaceMode).toBe('local-copy-actions');
+    expect(projectService.get('project-1')?.sshWorkspaceMode).toBe('local-copy-actions');
   });
 
   it('rolls back the first SSH command mode when persistence fails', async () => {
@@ -198,7 +198,7 @@ describe('ProjectService', () => {
     });
 
     expect(() =>
-      projectService.setSshWorkspaceModeIfUnset('project-1', 'local-mirror-actions')
+      projectService.setSshWorkspaceModeIfUnset('project-1', 'local-copy-actions')
     ).toThrow(writeError);
     expect(projectService.get('project-1')?.sshWorkspaceMode).toBeUndefined();
   });
@@ -257,7 +257,7 @@ describe('ProjectService', () => {
 
   it.each([
     ['an unknown destination', { destination: 'ssh-local-projet' }],
-    ['a trigger Komla no longer has', { trigger: 'workspace-stop' }],
+    ['an unknown trigger', { trigger: 'workspace-pause' }],
   ])('skips a persisted Setup step with %s, keeping its project', async (_case, field) => {
     vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
     vfs.mock.writeFileSync(

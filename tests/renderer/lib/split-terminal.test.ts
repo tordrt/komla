@@ -24,9 +24,9 @@ describe('addTerminalForSplit', () => {
   });
 
   it('creates a host shell in the local copy when the source terminal is local', async () => {
-    const addTerminal = vi.fn().mockResolvedValue(terminal('local-mirror'));
+    const addTerminal = vi.fn().mockResolvedValue(terminal('local-copy'));
 
-    await addTerminalForSplit(addTerminal, 'workspace-1', terminal('local-mirror'));
+    await addTerminalForSplit(addTerminal, 'workspace-1', terminal('local-copy'));
 
     expect(addTerminal).toHaveBeenCalledWith(
       'workspace-1',
@@ -34,7 +34,7 @@ describe('addTerminalForSplit', () => {
       null,
       undefined,
       'host-shell',
-      'local-mirror'
+      'local-copy'
     );
   });
 });

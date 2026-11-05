@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const require = createRequire(import.meta.url);
 const deps = require('../../../scripts/worktree-deps.cjs') as {
   depsKey(wtRoot: string): string;
-  gc(wtRoot: string, storeDir: string, options?: { legacy?: boolean }): void;
+  gc(wtRoot: string, storeDir: string): void;
   link(wtRoot: string, storeDir: string, prepare: (wtRoot: string) => void): boolean;
   postinstall(
     wtRoot: string,
@@ -296,25 +296,7 @@ describe('worktree dependency store', () => {
     expect(readFileSync(join(a, 'node_modules/react/index.js'), 'utf8')).toBe('react for lock-v2');
   });
 
-  it('keeps the old shared node_modules until no worktree links to it', () => {
-    const { type, machine } = require('node:os') as typeof import('node:os');
-    const legacyRoot = join(parent, `_${type().toLowerCase()}_${machine()}`);
-    write(join(legacyRoot, 'node_modules/react/index.js'), 'legacy react');
-    const a = makeWorktree('a', 'lock-v1', false);
-    symlinkSync(
-      join('..', `_${type().toLowerCase()}_${machine()}`, 'node_modules'),
-      join(a, 'node_modules')
-    );
-
-    deps.gc(a, storeDir, { legacy: true });
-    expect(existsSync(legacyRoot)).toBe(true);
-
-    rmSync(join(a, 'node_modules'));
-    deps.gc(a, storeDir, { legacy: true });
-    expect(existsSync(legacyRoot)).toBe(false);
-  });
-
-  it('replaces a node_modules symlink from the old shared layout', () => {
+  it('replaces a node_modules symlink', () => {
     const a = makeWorktree('a');
     deps.postinstall(a, { storeDir, rebuild });
     const b = makeWorktree('b', 'lock-v1', false);

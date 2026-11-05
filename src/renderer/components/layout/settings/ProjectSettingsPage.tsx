@@ -78,7 +78,7 @@ const SSH_MODE_DESCRIPTIONS: Record<SshWorkspaceMode | 'inherit', string> = {
     'Komla asks the first time you run one in an SSH workspace, with Remote machine preselected.',
   remote:
     'They run on the remote machine. You can still open a local terminal when rsync is available on both machines.',
-  'local-mirror-actions':
+  'local-copy-actions':
     'Source syncs one way from each SSH workspace when Komla detects changes, and Terminal Commands run in a disposable local copy.',
 };
 
@@ -110,11 +110,11 @@ function SshCommandsCard({
           onValueChange={onChange}
           options={[
             { value: 'remote', label: 'Remote machine' },
-            { value: 'local-mirror-actions', label: 'This computer' },
+            { value: 'local-copy-actions', label: 'This computer' },
           ]}
         />
       </SettingsRow>
-      {mode === 'local-mirror-actions' && (
+      {mode === 'local-copy-actions' && (
         <div>
           <Callout tone="warning" className="leading-relaxed">
             Local copies require <code className="font-mono">rsync</code> on this computer and the

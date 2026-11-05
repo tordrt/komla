@@ -156,7 +156,7 @@ export class SetupStepResolver {
     }
     if (destination === 'ssh-local-copy') {
       const localCopyCapability = this.dependencies.hosts.get(workspace.backend.hostId)
-        ?.capabilities?.localMirror;
+        ?.capabilities?.localCopy;
       const unsupported =
         process.platform === 'win32' ||
         localCopyCapability?.platform === 'unsupported' ||
@@ -165,8 +165,8 @@ export class SetupStepResolver {
       const unsupportedReason = 'SSH Local copy requires rsync on this computer and the SSH host';
       return {
         destination,
-        cwd: this.dependencies.locations.resolve(workspace, 'local-mirror').workingDirectory(),
-        executionLocation: 'local-mirror',
+        cwd: this.dependencies.locations.resolve(workspace, 'local-copy').workingDirectory(),
+        executionLocation: 'local-copy',
         shellFamily: 'desktop',
         prepare: unsupported
           ? () => Promise.reject(new Error(unsupportedReason))

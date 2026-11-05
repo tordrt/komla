@@ -1614,7 +1614,7 @@ export const TerminalTabs = memo(function TerminalTabs({
         null,
         undefined,
         'host-shell',
-        'local-mirror'
+        'local-copy'
       );
       addTab(selectedWorkspaceId, terminal.id);
       showTabInFullPane(terminal.id);

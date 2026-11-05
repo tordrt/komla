@@ -46,21 +46,10 @@ const browserTabSchema = z
       .refine((value) => value === '' || isBrowserUrl(value), {
         message: 'must be empty or an http(s) URL',
       }),
-    urlExecutionLocation: z.enum(['workspace', 'local-mirror']).optional(),
+    urlExecutionLocation: z.enum(['workspace', 'local-copy']).optional(),
     title: z.string().max(MAX_BROWSER_TAB_TITLE_LENGTH).optional(),
   })
   .strip();
-
-const workspaceLocationSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('local') }).strip(),
-  z
-    .object({
-      kind: z.literal('ssh'),
-      hostId: idSchema,
-      gitUrl: z.string().min(1).optional(),
-    })
-    .strip(),
-]);
 
 const workspaceEnvironmentSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('local') }).strip(),
@@ -95,7 +84,6 @@ export const createWorkspaceParamsSchema = z
     checkoutExistingBranch: z.boolean().optional(),
     presetId: idSchema.optional(),
     environment: workspaceEnvironmentSchema.optional(),
-    location: workspaceLocationSchema.optional(),
     defaultActionId: idSchema.optional(),
   })
   .strip();
@@ -224,7 +212,7 @@ export const workspaceAddTerminalArgsSchema = z
     layoutHintSchema.optional(),
     z.enum(['agent', 'host', 'host-shell']).optional(),
   ])
-  .rest(z.enum(['workspace', 'local-mirror', 'remote']).optional());
+  .rest(z.enum(['workspace', 'local-copy', 'remote']).optional());
 export const workspaceAddAgentTabArgsSchema = z.tuple([
   idSchema,
   z.string().optional(),
@@ -260,7 +248,7 @@ export const workspaceRunBackgroundActionArgsSchema = z.tuple([
   z
     .object({
       command: nonEmptyStringSchema.optional(),
-      executionLocation: z.enum(['workspace', 'local-mirror']).optional(),
+      executionLocation: z.enum(['workspace', 'local-copy']).optional(),
     })
     .strict()
     .optional(),
@@ -276,7 +264,7 @@ const restartTerminalOptionsSchema = z.union([
     .object({
       plainShell: z.boolean().optional(),
       replaceSession: z.boolean().optional(),
-      executionLocation: z.enum(['local-mirror', 'workspace']).optional(),
+      executionLocation: z.enum(['local-copy', 'workspace']).optional(),
     })
     .strict(),
 ]);

@@ -290,13 +290,13 @@ export class WorkspaceTerminals {
       executionLocation === 'remote'
         ? 'workspace'
         : isSshWorkspace(workspace) &&
-            (executionLocation === 'local-mirror' ||
-              (this.getSshWorkspaceMode(workspace) === 'local-mirror-actions' &&
+            (executionLocation === 'local-copy' ||
+              (this.getSshWorkspaceMode(workspace) === 'local-copy-actions' &&
                 commandKind === 'host'))
-          ? 'local-mirror'
+          ? 'local-copy'
           : executionLocation;
     const localCopyPreparation =
-      effectiveLocation === 'local-mirror'
+      effectiveLocation === 'local-copy'
         ? () => {
             const location = executionLocations.resolve(workspace, effectiveLocation);
             return location.managesSession
@@ -463,14 +463,14 @@ export class WorkspaceTerminals {
     if (!terminal) {
       throw new Error(`Terminal ${terminalId} not found`);
     }
-    if (options.executionLocation === 'local-mirror') {
+    if (options.executionLocation === 'local-copy') {
       return this.restartTerminalInLocalCopy(workspace, terminal, cols, rows);
     }
     // An agent always runs on the SSH host, so it moves a Local copy terminal back there, as
     // does a shell asked for there.
     if (
       isSshWorkspace(workspace) &&
-      terminal.executionLocation === 'local-mirror' &&
+      terminal.executionLocation === 'local-copy' &&
       (options.executionLocation === 'workspace' ||
         (options.sshAction === 'replace' && !options.plainShell))
     ) {
@@ -606,14 +606,14 @@ export class WorkspaceTerminals {
         workspaceStore.workspaces.get(workspace.id) === workspace &&
         workspace.terminals.includes(terminal);
       // Prepare first so a Local copy that cannot start leaves the remote session running.
-      const localCopy = executionLocations.resolve(workspace, 'local-mirror');
+      const localCopy = executionLocations.resolve(workspace, 'local-copy');
       if (!localCopy.managesSession) await localCopy.prepare?.(null);
       if (!isCurrent()) return terminal;
       await executionLocations.resolve(workspace, terminal.executionLocation).stop(terminal.id, {
         skipTrackedAbsentSession: true,
       });
       if (!isCurrent()) return terminal;
-      terminal.executionLocation = 'local-mirror';
+      terminal.executionLocation = 'local-copy';
       Object.assign(terminal, encodeTerminalExecution({ kind: 'moved-to-local-copy' }));
       workspaceStore.saveWorkspaces();
       void remoteWorkspaceObservationService.reconcile();

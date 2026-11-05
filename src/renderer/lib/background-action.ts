@@ -21,7 +21,7 @@ export async function runBackgroundAction(
     await window.api.runBackgroundAction(workspace.id, action.id, {
       command,
       // `remote` only bypasses the project's Local copy; a background run there uses the host.
-      executionLocation: executionLocation === 'local-mirror' ? 'local-mirror' : 'workspace',
+      executionLocation: executionLocation === 'local-copy' ? 'local-copy' : 'workspace',
     });
     return true;
   } catch (error) {

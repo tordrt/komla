@@ -1040,7 +1040,7 @@ describe('terminal clipboard image fallback', () => {
 
     await pasteClipboardIntoTerminal('remote-terminal', {
       workspaceId: 'workspace-1',
-      executionLocation: 'local-mirror',
+      executionLocation: 'local-copy',
       canImportClipboardImage: true,
     });
 

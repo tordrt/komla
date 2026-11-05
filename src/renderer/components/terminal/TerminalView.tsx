@@ -241,7 +241,7 @@ export function resolveTerminalFileOpenTarget(
   workspaceBackendKind: 'local' | 'ssh' = 'local',
   executionLocation?: TerminalExecutionLocation
 ): TerminalFileOpenTarget | null {
-  const isHostLocalPath = workspaceBackendKind === 'local' || executionLocation === 'local-mirror';
+  const isHostLocalPath = workspaceBackendKind === 'local' || executionLocation === 'local-copy';
   const workspacePath = normalizeTerminalFileLinkPath(
     rawPath,
     workingDirectory,
@@ -309,7 +309,7 @@ export function terminalLinkViewerItem(
     };
   }
   const isHostTerminal =
-    context.workspaceBackendKind === 'local' || context.executionLocation === 'local-mirror';
+    context.workspaceBackendKind === 'local' || context.executionLocation === 'local-copy';
   return {
     path,
     terminalId,

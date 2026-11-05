@@ -20,9 +20,7 @@
 //                npm install`
 //   postinstall  rebuild native modules and publish the install, or swap in
 //                the store's copy when another worktree already published it
-//   gc [--legacy]  drop store entries no sibling worktree uses; --legacy also
-//                removes the old shared _<platform>/node_modules once no
-//                worktree links to it
+//   gc           drop store entries no sibling worktree uses
 //
 // Outside a git worktree, postinstall only rebuilds native modules and link
 // only fixes workspace links.
@@ -416,7 +414,7 @@ function siblingWorktrees(wtRoot) {
     .map((entry) => path.join(parent, entry.name));
 }
 
-function gc(wtRoot, storeDir = storeDirFor(wtRoot), { legacy = false } = {}) {
+function gc(wtRoot, storeDir = storeDirFor(wtRoot)) {
   const platform = path.basename(storeDir);
   const keep = new Set();
   for (const sibling of siblingWorktrees(wtRoot)) {
@@ -444,34 +442,12 @@ function gc(wtRoot, storeDir = storeDirFor(wtRoot), { legacy = false } = {}) {
       fs.rmSync(path.join(tmpRoot, name), { recursive: true, force: true, maxRetries: 3 });
     }
   }
-  if (legacy) removeLegacySharedDir(wtRoot);
-}
-
-function removeLegacySharedDir(wtRoot) {
-  const legacyRoot = path.join(path.dirname(wtRoot), `_${os.type().toLowerCase()}_${os.machine()}`);
-  const legacyDir = path.join(legacyRoot, 'node_modules');
-  if (!fs.existsSync(legacyDir)) return;
-  const real = fs.realpathSync(legacyDir);
-  const users = siblingWorktrees(wtRoot).filter((sibling) => {
-    const nodeModules = path.join(sibling, 'node_modules');
-    try {
-      return fs.lstatSync(nodeModules).isSymbolicLink() && fs.realpathSync(nodeModules) === real;
-    } catch {
-      return false;
-    }
-  });
-  if (users.length > 0) {
-    log(`Keeping ${legacyDir}: still linked from ${users.map((u) => path.basename(u)).join(', ')}`);
-    return;
-  }
-  fs.rmSync(legacyRoot, { recursive: true, force: true, maxRetries: 3 });
-  log(`Removed ${legacyRoot}`);
 }
 
 module.exports = { cloneTree, depsKey, gc, link, postinstall, storeDirFor };
 
 function main() {
-  const [command, ...args] = process.argv.slice(2);
+  const [command] = process.argv.slice(2);
   const wtRoot = detectWorktreeRoot();
   if (command === 'link') {
     if (wtRoot) link(wtRoot);
@@ -480,9 +456,9 @@ function main() {
   } else if (command === 'postinstall') {
     postinstall(path.resolve(__dirname, '..'), { worktree: Boolean(wtRoot) });
   } else if (command === 'gc') {
-    if (wtRoot) gc(wtRoot, undefined, { legacy: args.includes('--legacy') });
+    if (wtRoot) gc(wtRoot);
   } else {
-    console.error('Usage: worktree-deps.cjs {link|setup|postinstall|gc [--legacy]}');
+    console.error('Usage: worktree-deps.cjs {link|setup|postinstall|gc}');
     process.exit(1);
   }
 }

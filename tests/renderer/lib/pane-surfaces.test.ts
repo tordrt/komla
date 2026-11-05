@@ -1356,7 +1356,7 @@ describe('replacePaneSurface', () => {
       null,
       undefined,
       'host-shell',
-      'local-mirror'
+      'local-copy'
     );
     expect(leafIds('term-1')).toEqual(['term-1', 'term-2']);
     expect(usePaneSurfacesStore.getState().surfaces[note.id]).toBeUndefined();

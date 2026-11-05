@@ -58,8 +58,8 @@ const MAX_HELD_BYTES: usize = 8 * 1024 * 1024;
 const TERMINAL_EVENT_QUEUE: usize = 256;
 /// How long a rejected phone gets to read why before the server closes.
 const REJECTION_GRACE_MS: u64 = 1_000;
-const RELAY_PING: &str = r#"{"type":"relay:ping"}"#;
-const RELAY_PONG: &str = r#"{"type":"relay:pong"}"#;
+const HEARTBEAT_PING: &str = r#"{"type":"ping"}"#;
+const HEARTBEAT_PONG: &str = r#"{"type":"pong"}"#;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -547,7 +547,7 @@ impl Connection<'_> {
             && now.saturating_sub(self.last_ping) >= HEARTBEAT_PING_MS
         {
             self.last_ping = now;
-            self.queue_raw(RELAY_PING.to_owned());
+            self.queue_raw(HEARTBEAT_PING.to_owned());
         }
 
         self.drain_outbox();
@@ -584,11 +584,11 @@ impl Connection<'_> {
         if self.closing_at.is_some() {
             return Ok(Flow::Continue);
         }
-        if text == RELAY_PING {
-            self.queue_raw(RELAY_PONG.to_owned());
+        if text == HEARTBEAT_PING {
+            self.queue_raw(HEARTBEAT_PONG.to_owned());
             return Ok(Flow::Continue);
         }
-        if text == RELAY_PONG {
+        if text == HEARTBEAT_PONG {
             return Ok(Flow::Continue);
         }
         let event = match self.peer.handle_frame(text, &self.shared.identity) {

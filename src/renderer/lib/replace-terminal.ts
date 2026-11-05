@@ -215,7 +215,7 @@ function restartArguments(
         },
       };
     case 'local-copy-shell':
-      return { options: { executionLocation: 'local-mirror' } };
+      return { options: { executionLocation: 'local-copy' } };
     case 'ssh-shell':
       return {
         options: { plainShell: true, replaceSession: true, executionLocation: 'workspace' },

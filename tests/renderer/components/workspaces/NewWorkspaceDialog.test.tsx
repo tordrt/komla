@@ -593,7 +593,7 @@ describe('NewWorkspaceDialog', () => {
         prepared: false,
         resolvedBasePath: '/home/dev/.komla',
         git: { status: 'available', version: 'git version 2.43.0' },
-        localMirror: {
+        localCopy: {
           platform: 'supported',
           localRsync: 'available',
           remoteRsync: 'available',

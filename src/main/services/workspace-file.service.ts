@@ -1018,7 +1018,7 @@ class WorkspaceFileService {
     workspace: Workspace,
     terminal: Workspace['terminals'][number]
   ): ((script: string) => Promise<string>) | null {
-    if (isSshWorkspace(workspace) && terminal.executionLocation !== 'local-mirror') {
+    if (isSshWorkspace(workspace) && terminal.executionLocation !== 'local-copy') {
       return (script) => this.runSsh(workspace, script);
     }
     return null;

@@ -151,7 +151,7 @@ export function createExecutionLocations(
   dependencies: ExecutionLocationDependencies
 ): ExecutionLocations {
   const managesSession = (workspace: Workspace, location?: TerminalExecutionLocation) =>
-    isSshWorkspace(workspace) && location !== 'local-mirror';
+    isSshWorkspace(workspace) && location !== 'local-copy';
   const attachedTerminals = (workspace: Workspace) =>
     workspace.terminals.filter(
       (terminal) => !managesSession(workspace, terminal.executionLocation)
@@ -160,12 +160,12 @@ export function createExecutionLocations(
   return {
     resolve(workspace, location = 'workspace') {
       if (!isSshWorkspace(workspace)) {
-        if (location === 'local-mirror') {
+        if (location === 'local-copy') {
           throw new Error('Local terminals require an SSH workspace');
         }
         return createLocalExecution(workspace, { kind: 'workspace' }, dependencies);
       }
-      if (location === 'local-mirror') {
+      if (location === 'local-copy') {
         return createLocalExecution(
           workspace,
           {

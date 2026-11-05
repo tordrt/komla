@@ -459,7 +459,7 @@ describe('TerminalPane SSH reconnect', () => {
         id: 'terminal-1',
         name: 'Local copy',
         status: 'running',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
         remoteSessionActive: false,
       },
     ];
@@ -485,7 +485,7 @@ describe('TerminalPane SSH reconnect', () => {
         id: 'terminal-1',
         name: 'Local copy',
         status: 'running',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
         remoteSessionActive: false,
       },
     ];
@@ -550,7 +550,7 @@ describe('TerminalPane SSH reconnect', () => {
         id: 'terminal-1',
         name: 'Local copy',
         status: 'running',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
         remoteSessionActive: false,
       },
     ];
@@ -932,7 +932,7 @@ describe('TerminalPane SSH reconnect', () => {
         id: 'terminal-1',
         name: 'Local copy',
         status: 'running',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
         remoteSessionActive: false,
       },
     ];
@@ -981,7 +981,7 @@ describe('TerminalPane SSH reconnect', () => {
         id: 'terminal-1',
         name: 'Local copy',
         status: 'running',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
         remoteSessionActive: false,
       },
     ];
@@ -1095,7 +1095,7 @@ describe('TerminalPane SSH reconnect', () => {
         id: 'terminal-1',
         name: 'Local copy',
         status: 'running',
-        executionLocation: 'local-mirror',
+        executionLocation: 'local-copy',
         remoteSessionActive: false,
       },
     ];
@@ -1518,7 +1518,7 @@ describe('TerminalPane SSH reconnect', () => {
   });
 
   it('reveals absolute snapshot links from SSH local-copy terminals', () => {
-    workspace.terminals[0].executionLocation = 'local-mirror';
+    workspace.terminals[0].executionLocation = 'local-copy';
 
     render(
       <TerminalPane
@@ -1547,7 +1547,7 @@ describe('TerminalPane SSH reconnect', () => {
 
   it('inherits the local-copy location when splitting from the pane header', async () => {
     mocks.terminalConfig = { colors: { background: '#282c34' }, showPaneHeaders: true };
-    workspace.terminals[0].executionLocation = 'local-mirror';
+    workspace.terminals[0].executionLocation = 'local-copy';
     mocks.addTerminal.mockResolvedValue({ id: 'terminal-2' });
 
     render(
@@ -1569,7 +1569,7 @@ describe('TerminalPane SSH reconnect', () => {
       null,
       undefined,
       'host-shell',
-      'local-mirror'
+      'local-copy'
     );
   });
 
@@ -1870,7 +1870,7 @@ describe('TerminalPane SSH reconnect', () => {
   });
 
   it('disables context-menu image imports for local copy terminals', () => {
-    workspace.terminals[0].executionLocation = 'local-mirror';
+    workspace.terminals[0].executionLocation = 'local-copy';
 
     render(
       <TerminalPane
@@ -1885,13 +1885,13 @@ describe('TerminalPane SSH reconnect', () => {
 
     expect(mocks.pasteClipboardIntoTerminal).toHaveBeenCalledWith('terminal-1', {
       workspaceId: 'workspace-1',
-      executionLocation: 'local-mirror',
+      executionLocation: 'local-copy',
       canImportClipboardImage: false,
     });
   });
 
   it('resolves terminal data from the pane workspace when another workspace is selected', () => {
-    workspace.terminals[0].executionLocation = 'local-mirror';
+    workspace.terminals[0].executionLocation = 'local-copy';
     workspaceStoreState.selectedWorkspaceId = 'workspace-2';
     workspaceStoreState.workspaces = [
       workspace,
@@ -1911,11 +1911,11 @@ describe('TerminalPane SSH reconnect', () => {
       />
     );
 
-    expect(mocks.terminalViewProps?.executionLocation).toBe('local-mirror');
+    expect(mocks.terminalViewProps?.executionLocation).toBe('local-copy');
     fireEvent.click(screen.getByRole('button', { name: /^Paste(?! Prompt)/ }));
     expect(mocks.pasteClipboardIntoTerminal).toHaveBeenCalledWith('terminal-1', {
       workspaceId: 'workspace-1',
-      executionLocation: 'local-mirror',
+      executionLocation: 'local-copy',
       canImportClipboardImage: false,
     });
   });
@@ -2405,7 +2405,7 @@ describe('TerminalPane SSH reconnect', () => {
         null,
         undefined,
         'host-shell',
-        'local-mirror'
+        'local-copy'
       );
       expect(mocks.splitPane).toHaveBeenCalledWith('horizontal', 'terminal-2');
     });
@@ -2426,7 +2426,7 @@ describe('TerminalPane SSH reconnect', () => {
         undefined,
         120,
         30,
-        { executionLocation: 'local-mirror' }
+        { executionLocation: 'local-copy' }
       );
       expect(mocks.splitPane).not.toHaveBeenCalled();
     });

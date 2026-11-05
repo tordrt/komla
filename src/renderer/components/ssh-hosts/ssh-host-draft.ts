@@ -42,11 +42,11 @@ export const EMPTY_DRAFT: HostDraft = {
 };
 
 export function getLocalCopyDisabledReason(result: SshHostSetupResult): string | null {
-  if (result.localMirror.platform === 'unsupported') {
+  if (result.localCopy.platform === 'unsupported') {
     return 'local copies are not supported on Windows.';
   }
-  const missingLocal = result.localMirror.localRsync === 'missing';
-  const missingRemote = result.localMirror.remoteRsync === 'missing';
+  const missingLocal = result.localCopy.localRsync === 'missing';
+  const missingRemote = result.localCopy.remoteRsync === 'missing';
   if (missingLocal && missingRemote) {
     return 'rsync is missing on this computer and the SSH host.';
   }
@@ -76,7 +76,7 @@ export function capabilitySnapshot(result: SshHostSetupResult): SshHostCapabilit
   return {
     checkedAt: new Date().toISOString(),
     git: result.git,
-    localMirror: result.localMirror,
+    localCopy: result.localCopy,
     tmux: result.tmux,
     monitoring: result.monitoring,
   };

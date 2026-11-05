@@ -100,11 +100,11 @@ export type { DecodedMessage, DecodedJsonMessage, DecodedBinaryMessage } from '.
 
 // Liveness heartbeat that runs on the same socket as the e2e Peer
 export {
-  classifyRelayFrame,
-  RELAY_PING_FRAME,
-  RELAY_PONG_FRAME,
-  type RelayFrameKind,
-} from './relay/heartbeat';
+  classifyHeartbeatFrame,
+  HEARTBEAT_PING_FRAME,
+  HEARTBEAT_PONG_FRAME,
+  type HeartbeatFrameKind,
+} from './wire/heartbeat';
 
 // Pair ceremony (application-layer frames inside the encrypted channel)
 export {

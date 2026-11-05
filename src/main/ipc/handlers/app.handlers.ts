@@ -103,7 +103,7 @@ export async function stageClipboardImage(now = new Date()): Promise<string | nu
 
 export async function importClipboardImage(
   workspaceId: string,
-  executionLocation: 'workspace' | 'local-mirror' = 'workspace'
+  executionLocation: 'workspace' | 'local-copy' = 'workspace'
 ): Promise<string | null> {
   const image = await readClipboardImage();
   if (!image || image.isEmpty()) return null;

@@ -82,7 +82,7 @@ vi.mock('../../../../src/renderer/stores/workspaces.store', () => {
     workspaces: [
       {
         id: 'workspace-1',
-        terminals: [{ id: 'terminal-1', executionLocation: 'local-mirror' as const }],
+        terminals: [{ id: 'terminal-1', executionLocation: 'local-copy' as const }],
       },
     ],
     addTerminal: mocks.addTerminal,
@@ -136,7 +136,7 @@ describe('SplitContainer', () => {
       null,
       undefined,
       'host-shell',
-      'local-mirror'
+      'local-copy'
     );
   });
   describe('closing the focused pane', () => {

@@ -13,12 +13,10 @@ import { writeFileAtomicSync } from '../lib/atomic-write';
 import { createLogger } from '../lib/logger';
 
 import { ensureKomlaBasePath } from './paths';
-import { readLegacySshHosts } from './ssh-host-legacy-database';
 
 const logger = createLogger('SshHostService');
 
 const FILE_NAME = 'ssh-hosts.json';
-const LEGACY_DATABASE_FILE_NAME = 'komla.db';
 const FILE_MODE = 0o600;
 const FILE_VERSION = 1;
 
@@ -165,12 +163,10 @@ function parseCapabilities(value: unknown): SshHostCapabilities | undefined {
     (parsed.tmux?.status === 'available' ||
       parsed.tmux?.status === 'missing' ||
       parsed.tmux?.status === 'unusable') &&
-    (parsed.localMirror?.platform === 'supported' ||
-      parsed.localMirror?.platform === 'unsupported') &&
-    (parsed.localMirror?.localRsync === 'available' ||
-      parsed.localMirror?.localRsync === 'missing') &&
-    (parsed.localMirror?.remoteRsync === 'available' ||
-      parsed.localMirror?.remoteRsync === 'missing') &&
+    (parsed.localCopy?.platform === 'supported' || parsed.localCopy?.platform === 'unsupported') &&
+    (parsed.localCopy?.localRsync === 'available' || parsed.localCopy?.localRsync === 'missing') &&
+    (parsed.localCopy?.remoteRsync === 'available' ||
+      parsed.localCopy?.remoteRsync === 'missing') &&
     (parsed.monitoring === undefined ||
       ((parsed.monitoring?.status === 'available' || parsed.monitoring?.status === 'missing') &&
         Array.isArray(parsed.monitoring.missingRequirements) &&
@@ -311,7 +307,7 @@ export class SshHostService {
   }
 
   private readStored(): SshHost[] {
-    return fileExists(this.filePath) ? this.readFile() : this.moveFromLegacyDatabase();
+    return fileExists(this.filePath) ? this.readFile() : [];
   }
 
   private readFile(): SshHost[] {
@@ -335,27 +331,6 @@ export class SshHostService {
       logger.error('SSH hosts file is unreadable', { error: String(error) });
       throw new Error(`Could not read SSH hosts from ${path}: ${String(error)}`);
     }
-  }
-
-  /**
-   * Moves the hosts of an install that kept them in komla.db, the first time it runs without it.
-   * The hosts file, even with no hosts in it, marks the move as done; until the file is complete
-   * there isn't one, so a failure here tries again on the next read. The database stays behind for
-   * a build rolled back to the last release that reads it.
-   */
-  private moveFromLegacyDatabase(): SshHost[] {
-    const databasePath = join(this.directory, LEGACY_DATABASE_FILE_NAME);
-    if (!fileExists(databasePath)) return [];
-    let hosts: SshHost[];
-    try {
-      hosts = readLegacySshHosts(databasePath).map(parseStoredHost);
-    } catch (error) {
-      logger.error('could not move SSH hosts out of the legacy database', { error: String(error) });
-      throw new Error(`Could not read SSH hosts from ${databasePath}: ${String(error)}`);
-    }
-    this.persist(hosts);
-    logger.info('moved SSH hosts out of the legacy database', { count: hosts.length });
-    return hosts;
   }
 
   private persist(hosts: SshHost[]): void {

@@ -257,7 +257,7 @@ export const TerminalPane = React.memo(function TerminalPane({
   );
   // A sync's percent changes often, and only Local copy panes show it.
   const localCopySyncStatus = useLocalCopySyncStore((s) =>
-    terminal?.executionLocation === 'local-mirror' && effectiveWorkspaceId
+    terminal?.executionLocation === 'local-copy' && effectiveWorkspaceId
       ? s.statusesByWorkspaceId.get(effectiveWorkspaceId)
       : undefined
   );
@@ -364,7 +364,7 @@ export const TerminalPane = React.memo(function TerminalPane({
   // pane, or any pane with pane headers turned off, needs no header. Its SSH and
   // local-copy status gets a slim strip instead, and it gets a grip to drag it by, which
   // moves even a lone pane onto another tab when there is one.
-  const isLocalCopy = terminal?.executionLocation === 'local-mirror';
+  const isLocalCopy = terminal?.executionLocation === 'local-copy';
   const hasPaneStatus =
     (isLocalCopy &&
       (!!remoteWorkspace ||
@@ -764,7 +764,7 @@ export const TerminalPane = React.memo(function TerminalPane({
   const stripBadgeClassName = showStatusStrip ? 'px-0 ring-0' : undefined;
   const paneStatus = (
     <>
-      {!!remoteWorkspace && terminal?.executionLocation === 'local-mirror' && (
+      {!!remoteWorkspace && terminal?.executionLocation === 'local-copy' && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Badge
@@ -1030,7 +1030,7 @@ export const TerminalPane = React.memo(function TerminalPane({
                 isTabActive={isTabActive}
                 workingDirectory={actionWorkspace?.workingDirectory}
                 fileLinkWorkspaceRoot={
-                  remoteWorkspace && terminal?.executionLocation !== 'local-mirror'
+                  remoteWorkspace && terminal?.executionLocation !== 'local-copy'
                     ? remoteWorkspace.backend.remoteDirectory
                     : actionWorkspace?.workingDirectory
                 }
@@ -1069,7 +1069,7 @@ export const TerminalPane = React.memo(function TerminalPane({
                 >
                   <div className="max-w-md text-center">
                     <p className="text-sm font-medium">
-                      {terminal.executionLocation === 'local-mirror'
+                      {terminal.executionLocation === 'local-copy'
                         ? 'Couldn’t prepare the local copy'
                         : 'Couldn’t connect to the remote workspace'}
                     </p>

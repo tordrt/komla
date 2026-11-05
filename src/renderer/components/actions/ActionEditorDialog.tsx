@@ -527,7 +527,7 @@ function ProjectScopeField({
 
 const SSH_LOCATION_LABELS: Record<ActionSshExecutionLocation, string> = {
   remote: 'Remote machine',
-  'local-mirror': 'This computer',
+  'local-copy': 'This computer',
 };
 
 function SshExecutionLocationField({
@@ -554,7 +554,7 @@ function SshExecutionLocationField({
       >
         <option value="">Project setting</option>
         <option value="remote">{SSH_LOCATION_LABELS.remote}</option>
-        <option value="local-mirror">{SSH_LOCATION_LABELS['local-mirror']}</option>
+        <option value="local-copy">{SSH_LOCATION_LABELS['local-copy']}</option>
       </Select>
       <p className="text-xs text-muted-foreground">{renderSshLocationSummary(location)}</p>
     </div>
@@ -565,7 +565,7 @@ function renderSshLocationSummary(location: ActionSshExecutionLocation | undefin
   if (location === 'remote') {
     return 'Runs on the SSH host, even when this project runs Terminal Commands in the Local copy.';
   }
-  if (location === 'local-mirror') {
+  if (location === 'local-copy') {
     return 'Runs in the Local copy on this computer, even when this project runs Terminal Commands remotely. Runs remotely when the host can’t keep a Local copy.';
   }
   return 'Follows the project’s setting.';

@@ -82,7 +82,7 @@ export const workspaceImportExternalFileArgsSchema = z.tuple([
     .refine((value) => !value.includes('\0'), { message: 'must not contain null bytes' })
     .refine((value) => value.trim().length > 0, { message: 'path must not be empty' }),
   safePathSchema.optional(),
-  z.enum(['workspace', 'local-mirror']).optional(),
+  z.enum(['workspace', 'local-copy']).optional(),
 ]);
 const terminalSourcePathSchema = z
   .string()

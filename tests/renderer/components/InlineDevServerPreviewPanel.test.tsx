@@ -62,7 +62,7 @@ afterEach(() => {
 });
 
 let scannerResult: string[] = [];
-let scannerExecutionLocation: 'workspace' | 'local-mirror' = 'workspace';
+let scannerExecutionLocation: 'workspace' | 'local-copy' = 'workspace';
 
 vi.mock('../../../src/renderer/stores/workspaces.store', () => {
   const state = () => ({
@@ -87,13 +87,13 @@ vi.mock('../../../src/renderer/components/terminal/InlineDevServerPreviewHeader'
 }));
 
 /** The browser pane's tabs once the test's tab points at a URL. */
-function tabUpdate(url: string, location: 'workspace' | 'local-mirror' = 'workspace') {
+function tabUpdate(url: string, location: 'workspace' | 'local-copy' = 'workspace') {
   return {
     browserTabs: [
       {
         id: TAB_1,
         url,
-        ...(location === 'local-mirror' ? { urlExecutionLocation: location } : {}),
+        ...(location === 'local-copy' ? { urlExecutionLocation: location } : {}),
       },
     ],
     activeBrowserTabId: TAB_1,
@@ -883,7 +883,7 @@ describe('InlineDevServerPreviewPanel', () => {
     it('opens a URL detected in a local-copy terminal without SSH forwarding', async () => {
       workspaceBackend = { kind: 'ssh' };
       workspaceDevServerUrl = undefined;
-      scannerExecutionLocation = 'local-mirror';
+      scannerExecutionLocation = 'local-copy';
       scannerResult = ['http://localhost:5173/'];
 
       render(panel());
@@ -892,7 +892,7 @@ describe('InlineDevServerPreviewPanel', () => {
       expect(screen.getByTitle('HTTP server preview')).toBeTruthy();
       expect(screen.queryByText('Forward remote port 5173')).toBeNull();
       expect(startSshPreviewForward).not.toHaveBeenCalled();
-      expect(tabWrites).toContainEqual(tabUpdate('http://localhost:5173/', 'local-mirror'));
+      expect(tabWrites).toContainEqual(tabUpdate('http://localhost:5173/', 'local-copy'));
     });
 
     it('forwards the selected candidate for SSH workspaces', async () => {

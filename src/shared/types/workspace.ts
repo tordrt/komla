@@ -115,10 +115,10 @@ export interface RestartTerminalOptions {
   plainShell?: boolean;
   replaceSession?: boolean;
   /**
-   * `local-mirror` replaces an SSH terminal's remote session with a plain Local copy shell;
+   * `local-copy` replaces an SSH terminal's remote session with a plain Local copy shell;
    * `workspace` moves a Local copy terminal back to a shell on the SSH host.
    */
-  executionLocation?: 'local-mirror' | 'workspace';
+  executionLocation?: 'local-copy' | 'workspace';
 }
 
 export interface AddAgentTabOptions {
@@ -517,8 +517,10 @@ export interface CreateWorkspaceParams {
   checkoutExistingBranch?: boolean;
   // Internal: skip recording preset/launch-mode usage (e.g. MCP-created workspaces)
   skipRecordUsage?: boolean;
-  // Preferred creation interface. Legacy callers may still use location.
+  // Where the workspace goes. The renderer names only this.
   environment?: DesiredWorkspaceEnvironment;
+  // Internal: the resolved placement, which creation derives from environment. Main-process
+  // callers may set it to name an SSH clone's Git URL or a source workspace's repository roots.
   location?:
     | { kind: 'local' }
     | {

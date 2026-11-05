@@ -110,6 +110,25 @@ describe('workspace IPC validation', () => {
     );
   });
 
+  it('drops a location from the renderer, which only main-process callers set', async () => {
+    const { registerWorkspaceHandlers } =
+      await import('../../../../src/main/ipc/handlers/workspace.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+
+    registerWorkspaceHandlers();
+    await ipcMain._invoke('workspace:create', {
+      mode: 'worktree',
+      projectId: 'project-1',
+      location: { kind: 'ssh', hostId: 'ssh-dev', gitUrl: 'git@example.com:a.git' },
+    });
+
+    expect(mockWorkspaceService.create).toHaveBeenCalledWith(
+      expect.not.objectContaining({ location: expect.anything() })
+    );
+  });
+
   it('passes prompt attachments through workspace creation', async () => {
     const { registerWorkspaceHandlers } =
       await import('../../../../src/main/ipc/handlers/workspace.handlers');
@@ -670,7 +689,7 @@ describe('workspace IPC validation', () => {
                 leaf({
                   kind: 'browser',
                   browserTabs: [
-                    { id: 'a', url: 'http://localhost:5173', urlExecutionLocation: 'local-mirror' },
+                    { id: 'a', url: 'http://localhost:5173', urlExecutionLocation: 'local-copy' },
                     { id: 'b', url: 'https://example.com/docs', title: 'Docs' },
                     { id: 'c', url: '' },
                   ],

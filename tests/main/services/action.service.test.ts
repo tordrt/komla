@@ -321,8 +321,8 @@ describe('ActionService', () => {
     });
     expect(created.sshExecutionLocation).toBe('remote');
 
-    const updated = actionService.update(created.id, { sshExecutionLocation: 'local-mirror' });
-    expect(updated.sshExecutionLocation).toBe('local-mirror');
+    const updated = actionService.update(created.id, { sshExecutionLocation: 'local-copy' });
+    expect(updated.sshExecutionLocation).toBe('local-copy');
 
     expect(
       actionService.update(created.id, { sshExecutionLocation: null }).sshExecutionLocation

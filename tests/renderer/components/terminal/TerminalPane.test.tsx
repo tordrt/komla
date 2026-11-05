@@ -19,6 +19,10 @@ import {
   pasteIntoTerminalRenderer,
 } from '../../../../src/renderer/lib/terminal-renderer-runtime';
 import { useActionEditorStore } from '../../../../src/renderer/stores/action-editor.store';
+import {
+  skillListingKey,
+  useAgentSkillsStore,
+} from '../../../../src/renderer/stores/agent-skills.store';
 import { useDevServerPreviewStore } from '../../../../src/renderer/stores/dev-server-preview.store';
 import {
   setLocalCopySyncStatus,
@@ -253,7 +257,13 @@ vi.mock('../../../../src/renderer/stores/agent-presets.store', () => ({
         activePresets: mocks.activePresets,
         loadPresets: vi.fn(),
       }),
-    { getState: () => ({ setActivePreset: vi.fn() }) }
+    {
+      getState: () => ({
+        presets: mocks.presets,
+        activePresets: mocks.activePresets,
+        setActivePreset: vi.fn(),
+      }),
+    }
   ),
 }));
 
@@ -421,6 +431,7 @@ describe('TerminalPane SSH reconnect', () => {
     useTerminalCloseStore.setState(useTerminalCloseStore.getInitialState(), true);
     useTerminalBusyStore.setState(useTerminalBusyStore.getInitialState(), true);
     useToastStore.setState(useToastStore.getInitialState(), true);
+    useAgentSkillsStore.setState(useAgentSkillsStore.getInitialState(), true);
     useLocalCopySyncStore.setState(useLocalCopySyncStore.getInitialState(), true);
     useDevServerPreviewStore.setState(useDevServerPreviewStore.getInitialState(), true);
     Object.defineProperty(window, 'api', {
@@ -836,7 +847,7 @@ describe('TerminalPane SSH reconnect', () => {
       });
     }
 
-    it("moves the tab beside this pane, on the side nearest the pointer", () => {
+    it('moves the tab beside this pane, on the side nearest the pointer', () => {
       dropTab();
       expect(mocks.moveTabToEdge).toHaveBeenCalledWith('tab-2', 'pane-1', 'left');
     });
@@ -2547,6 +2558,62 @@ describe('TerminalPane SSH reconnect', () => {
 
         expect(mocks.launchAction).toHaveBeenCalledWith(
           expect.objectContaining({ place: { kind: 'type', terminalId: 'terminal-1' } })
+        );
+      });
+
+      it("pastes a skill's invocation from Paste Prompt's Skills tab, which opens on Prompts", async () => {
+        useAgentSkillsStore.setState({
+          listings: {
+            [skillListingKey('claude', { kind: 'workspace', workspaceId: 'workspace-1' })]: [
+              { name: 'deploy', description: 'Ships it', source: 'user' },
+            ],
+          },
+        });
+        renderPane();
+        // A closed menu doesn't follow the skills
+        fireEvent.contextMenu(screen.getByTestId('terminal-view'));
+
+        const pastePrompt = submenuOf(screen.getByRole('button', { name: /Paste$/ }));
+        expect(within(pastePrompt).getByRole('radio', { name: 'Prompts' })).toBeChecked();
+        expect(within(pastePrompt).queryByRole('radio', { name: 'Commands' })).toBeNull();
+        fireEvent.click(within(pastePrompt).getByRole('radio', { name: 'Skills' }));
+        await act(async () => {
+          fireEvent.click(within(pastePrompt).getByRole('option', { name: /\/deploy/ }));
+        });
+
+        expect(mocks.launchAction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: expect.objectContaining({ content: '/deploy' }),
+            place: { kind: 'type', terminalId: 'terminal-1' },
+          })
+        );
+      });
+
+      it('lists skills in Paste Prompt before there are Saved Prompts', async () => {
+        mocks.actions.splice(0);
+        useAgentSkillsStore.setState({
+          listings: {
+            [skillListingKey('claude', { kind: 'workspace', workspaceId: 'workspace-1' })]: [
+              { name: 'deploy', description: 'Ships it', source: 'user' },
+            ],
+          },
+        });
+        renderPane();
+        // A closed menu doesn't follow the skills
+        fireEvent.contextMenu(screen.getByTestId('terminal-view'));
+
+        const pastePrompt = submenuOf(
+          screen.getByText((_, element) => element?.textContent === 'SkillsPaste')
+        );
+        await act(async () => {
+          fireEvent.click(within(pastePrompt).getByRole('option', { name: /\/deploy/ }));
+        });
+
+        expect(mocks.launchAction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: expect.objectContaining({ content: '/deploy' }),
+            place: { kind: 'type', terminalId: 'terminal-1' },
+          })
         );
       });
 

@@ -24,6 +24,13 @@ export interface ReasoningLevel {
   arguments: string; // e.g. "--effort high"
 }
 
+// Optional model flags, composed alongside the launch mode and reasoning level arguments.
+export interface ModelOption {
+  id: string;
+  name: string; // Display label in the model picker
+  arguments: string; // e.g. "--model sonnet"
+}
+
 // Icons the level picker can show. The gauge shows a meter of the picked level instead.
 export const LEVEL_PICKER_ICONS = [
   'gauge',
@@ -44,6 +51,7 @@ export type LevelPickerIcon = (typeof LEVEL_PICKER_ICONS)[number];
 export const MAX_LEVEL_PICKER_TITLE_LENGTH = 24;
 export const MAX_REASONING_LEVEL_NAME_LENGTH = 40;
 export const MAX_REASONING_LEVELS = 12;
+export const MAX_MODEL_OPTIONS = 12;
 
 // How the level picker in the new workspace dialog looks, such as for a model instead of effort.
 export interface LevelPicker {
@@ -61,6 +69,8 @@ export interface AgentPreset {
   launchModes: LaunchMode[];
   reasoningLevels?: ReasoningLevel[];
   levelPicker?: LevelPicker;
+  models?: ModelOption[];
+  modelPicker?: LevelPicker;
   isBuiltin: boolean;
 }
 
@@ -69,4 +79,5 @@ export interface ActivePresetEntry {
   lastUsedAt: number;
   lastLaunchModeId?: string | null;
   lastReasoningLevelId?: string | null;
+  lastModelId?: string | null;
 }

@@ -2,6 +2,7 @@ import { Check } from '@phosphor-icons/react';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 
 import { SettingsCard } from './SettingsCard';
 
@@ -74,7 +75,8 @@ export function TrashCleanupCard({ script, onScriptChange }: TrashCleanupCardPro
       description="Shell command run from the workspace directory before a git worktree workspace moves to the Trash. Directory-mode workspaces are skipped."
     >
       <div className="space-y-2">
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-xs text-muted-foreground">Include</span>
           {TRASH_CLEANUP_PRESETS.map((preset) => {
             const active = isPresetActive(preset);
             return (
@@ -82,7 +84,11 @@ export function TrashCleanupCard({ script, onScriptChange }: TrashCleanupCardPro
                 key={preset.label}
                 variant="outline"
                 size="sm"
-                className="h-7 text-xs"
+                aria-pressed={active}
+                className={cn(
+                  'h-7 rounded-full px-3 text-xs',
+                  active && 'border-komla/50 bg-komla/15 text-foreground hover:bg-komla/20'
+                )}
                 disabled={isCustomScript}
                 onClick={() => togglePreset(preset)}
                 title={
@@ -103,7 +109,7 @@ export function TrashCleanupCard({ script, onScriptChange }: TrashCleanupCardPro
           aria-label="Trash cleanup command"
           value={script}
           onChange={(event) => onScriptChange(event.target.value)}
-          placeholder="rm -rf node_modules .next dist"
+          placeholder="e.g., rm -rf node_modules .next dist"
           spellCheck={false}
           rows={1}
           className="block field-sizing-content max-h-[200px] min-h-0 resize-none py-1.5 font-mono text-xs leading-5"

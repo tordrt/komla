@@ -21,6 +21,7 @@ import { useFileViewerStore } from '../../../../../src/renderer/stores/file-view
 import { useLayoutStore } from '../../../../../src/renderer/stores/layout.store';
 import { resetNotesStore } from '../../../../../src/renderer/stores/notes.store';
 import { useProjectsStore } from '../../../../../src/renderer/stores/projects.store';
+import { usePromptDraftStore } from '../../../../../src/renderer/stores/prompt-draft.store';
 import { useSettingsDialogStore } from '../../../../../src/renderer/stores/settings-dialog.store';
 import { useSshHostDialogStore } from '../../../../../src/renderer/stores/ssh-host-dialog.store';
 import { useSshHostsStore } from '../../../../../src/renderer/stores/ssh-hosts.store';
@@ -307,7 +308,13 @@ describe('StatusBar', () => {
     renderStatusBar();
     await user.click(screen.getByRole('button', { name: '1 needs input, 1 working' }));
 
-    expect(agentRows()).toEqual(['Needs input:waiting5m', 'Working:busy']);
+    // Each group under a header with its count, and what an agent that needs you asked.
+    expect(agentRows()).toEqual([
+      'Needs you1',
+      'Needs input:waiting5mClaude needs your permission',
+      'Working1',
+      'Working:busy',
+    ]);
 
     await user.click(screen.getByRole('button', { name: 'Working:busy' }));
     expect(selectWorkspace).toHaveBeenCalledWith(busy.id);
@@ -1958,73 +1965,39 @@ describe('StatusBar', () => {
     });
   });
 
-  describe('notes', () => {
+  describe('prompt draft', () => {
     beforeEach(() => {
-      mockState.config = { statusBarShownItems: ['notes'] };
+      usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
     });
 
+    /** The open workspace, which the window's draft shows for. */
     function openWorkspace() {
-      const workspace = createWorkspace({
-        windowId: WINDOW_ID,
-        name: 'login-fix',
-        projectId: 'p1',
+      const workspace = createWorkspace({ windowId: WINDOW_ID, name: 'login-fix' });
+      act(() => {
+        setWorkspaces([workspace]);
+        useWorkspacesStore.setState({ selectedWorkspaceId: workspace.id });
+        usePromptDraftStore.getState().addHost('window', workspace.id);
       });
-      setWorkspaces([workspace]);
-      useWorkspacesStore.setState({ selectedWorkspaceId: workspace.id });
       return workspace;
     }
 
-    it('shows only while a workspace is open', () => {
-      renderStatusBar();
-      expect(screen.queryByRole('button', { name: /^Notes/ })).not.toBeInTheDocument();
-    });
-
-    it("lists the workspace's notes, opens one, and starts a new one", async () => {
+    it('shows by default while a workspace is open, and opens and closes its draft', async () => {
       const user = userEvent.setup();
-      const workspace = openWorkspace();
-      const listNotes = vi.fn(() =>
-        Promise.resolve([
-          { name: 'b.md', title: 'Prompt for the login fix', path: '/n/b.md', modifiedMs: 2 },
-          { name: 'a.md', title: '', path: '/n/a.md', modifiedMs: 1 },
-        ])
-      );
-      mockApi({ listNotes });
-
       renderStatusBar();
-      await user.click(await screen.findByRole('button', { name: 'Notes, 2 notes' }));
+      expect(screen.queryByRole('button', { name: 'Prompt draft' })).not.toBeInTheDocument();
 
-      expect(listNotes).toHaveBeenCalledWith(workspace.id);
-      expect(screen.getByText('Notes in login-fix')).toBeInTheDocument();
-      const items = screen.getAllByRole('menuitem').map((item) => item.textContent);
-      expect(items[0]).toBe('New note');
-      expect(items[1]).toContain('Prompt for the login fix');
-      expect(items[2]).toContain('Untitled note');
-
-      await user.click(screen.getByRole('menuitem', { name: /Prompt for the login fix/ }));
-      expect(notesMocks.openNote).toHaveBeenCalledWith(workspace.id, 'b.md');
-
-      await user.click(screen.getByRole('button', { name: 'Notes, 2 notes' }));
-      await user.click(screen.getByRole('menuitem', { name: 'New note' }));
-      expect(notesMocks.createNote).toHaveBeenCalledWith(workspace.id);
-    });
-
-    it('says what notes are before there is one', async () => {
-      const user = userEvent.setup();
       openWorkspace();
+      const button = await screen.findByRole('button', { name: 'Prompt draft' });
+      expect(button).toHaveAttribute('aria-expanded', 'false');
 
-      renderStatusBar();
-      await user.click(screen.getByRole('button', { name: 'Notes' }));
+      await user.click(button);
+      expect(usePromptDraftStore.getState().isOpen).toBe(true);
+      expect(button).toHaveAttribute('aria-expanded', 'true');
 
-      expect(screen.getByRole('menu')).toHaveTextContent('kept outside the repository');
-    });
-
-    it('starts hidden', () => {
-      mockState.config = {};
-      openWorkspace();
-
-      renderStatusBar();
-
-      expect(screen.queryByRole('button', { name: /^Notes/ })).not.toBeInTheDocument();
+      // From the keyboard too, with focus on the button rather than in the draft.
+      button.focus();
+      await user.keyboard('{Enter}');
+      expect(usePromptDraftStore.getState().isOpen).toBe(false);
     });
   });
 
@@ -2084,7 +2057,7 @@ describe('StatusBar', () => {
 
       const fix = await screen.findByRole('menuitem', { name: /Fix the login redirect/ });
       expect(getWorkspaceCommitGraph).toHaveBeenCalledWith(workspace.id, { limit: 100 });
-      expect(screen.getByText('Commits on login-fix')).toBeInTheDocument();
+      expect(screen.getByText('login-fix', { selector: '.font-mono' })).toBeInTheDocument();
       expect(within(fix).getByText('login-fix')).toBeInTheDocument();
       // The target branch first; origin/main only repeats main; one more ref than fits.
       const initial = screen.getByRole('menuitem', { name: /Initial commit/ });
@@ -3909,8 +3882,8 @@ describe('StatusBar', () => {
 
     it('shows each item on the side and in the order the user placed it', () => {
       mockState.config = {
-        statusBarShownItems: ['notes'],
-        statusBarLeftItems: ['notification-sounds', 'notes'],
+        statusBarShownItems: ['file-search'],
+        statusBarLeftItems: ['notification-sounds', 'file-search'],
         statusBarRightItems: ['git-menu'],
       };
       openWorkspace();
@@ -3918,9 +3891,9 @@ describe('StatusBar', () => {
 
       const [left, right] = screen.getByTestId('status-bar').children;
       const sounds = screen.getByRole('button', { name: 'Notification sounds' });
-      const notes = screen.getByRole('button', { name: 'Notes' });
+      const search = screen.getByRole('button', { name: 'Search files' });
       expect(left).toContainElement(sounds);
-      expect(sounds.compareDocumentPosition(notes)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(sounds.compareDocumentPosition(search)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
       expect(right).toContainElement(screen.getByText('git menu'));
       expect(left).toContainElement(screen.getByText('target branch'));
     });
@@ -4215,7 +4188,7 @@ describe('StatusBar', () => {
 
     it('lists the items on each side of the bar in the order it shows them', async () => {
       const user = userEvent.setup();
-      mockState.config = { statusBarRightItems: ['tips', 'notes'] };
+      mockState.config = { statusBarRightItems: ['tips', 'commit-graph'] };
       renderStatusBar();
 
       const panel = await openCustomizePanel(user);
@@ -4226,7 +4199,7 @@ describe('StatusBar', () => {
 
       expect(handles('Right')).toEqual([
         'Tips',
-        'Notes',
+        'Commit graph',
         'Agent activity',
         'Claude Code usage',
         'Codex usage',
@@ -4244,7 +4217,7 @@ describe('StatusBar', () => {
         'File search',
         'Files (full window)',
         'Diff (full window)',
-        'Commit graph',
+        'Prompt draft',
       ]);
       expect(within(panel).queryByRole('region', { name: 'Sidebar' })).not.toBeInTheDocument();
     });
@@ -4274,7 +4247,7 @@ describe('StatusBar', () => {
         top: 100,
         height: 28,
       } as DOMRect);
-      fireEvent.dragStart(row('Notes'), { dataTransfer: { setData: vi.fn() } });
+      fireEvent.dragStart(row('Commit graph'), { dataTransfer: { setData: vi.fn() } });
       // jsdom has no DragEvent to carry the pointer's position.
       const dragOver = createEvent.dragOver(row('Agent activity'), { dataTransfer: {} });
       Object.defineProperty(dragOver, 'clientY', { value: 120 });
@@ -4290,11 +4263,11 @@ describe('StatusBar', () => {
           'file-search',
           'file-viewer',
           'diff-viewer',
-          'commit-graph',
+          'prompt-draft',
         ],
         statusBarRightItems: [
           'agents',
-          'notes',
+          'commit-graph',
           'claude-code-usage',
           'codex-usage',
           'automations',
@@ -4352,7 +4325,7 @@ describe('StatusBar', () => {
           'file-search',
           'file-viewer',
           'diff-viewer',
-          'notes',
+          'prompt-draft',
           'commit-graph',
         ],
       });
@@ -4392,7 +4365,7 @@ describe('StatusBar', () => {
       const panel = await openCustomizePanel(user);
       const heading = within(panel).getByRole('heading', { name: 'Right' });
       fireEvent.dragStart(
-        within(panel).getByRole('button', { name: 'Move Notes' }).parentElement!,
+        within(panel).getByRole('button', { name: 'Move Commit graph' }).parentElement!,
         {
           dataTransfer: { setData: vi.fn() },
         }
@@ -4403,7 +4376,7 @@ describe('StatusBar', () => {
       expect(mockState.updateConfig).toHaveBeenCalledWith(
         expect.objectContaining({
           statusBarRightItems: [
-            'notes',
+            'commit-graph',
             'agents',
             'claude-code-usage',
             'codex-usage',
@@ -4501,7 +4474,7 @@ describe('StatusBar', () => {
           'file-search',
           'file-viewer',
           'diff-viewer',
-          'notes',
+          'prompt-draft',
           'commit-graph',
         ],
         statusBarRightItems: [
@@ -4626,12 +4599,12 @@ describe('StatusBar', () => {
       renderStatusBar();
 
       const panel = await openCustomizePanel(user);
-      const notes = within(panel).getByRole('switch', { name: 'Notes' });
-      expect(notes).not.toBeChecked();
-      await user.click(notes);
+      const commits = within(panel).getByRole('switch', { name: 'Commit graph' });
+      expect(commits).not.toBeChecked();
+      await user.click(commits);
 
       expect(mockState.updateConfig).toHaveBeenCalledWith({
-        statusBarShownItems: ['keep-awake', 'notes'],
+        statusBarShownItems: ['keep-awake', 'commit-graph'],
       });
     });
 

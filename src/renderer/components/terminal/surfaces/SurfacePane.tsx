@@ -24,6 +24,7 @@ import {
   requestClosePaneSurface,
   splitTerminalBesidePane,
 } from '@/lib/pane-surfaces';
+import { useSkillMenuGroups } from '@/lib/skill-actions';
 import { cn } from '@/lib/utils';
 import { openNewActionEditor } from '@/stores/action-editor.store';
 import { useActionsStore } from '@/stores/actions.store';
@@ -120,6 +121,7 @@ export const SurfacePane = React.memo(function SurfacePane({
     contextMenuOpen && workspaceId ? (s.activeTabByWorkspace[workspaceId] ?? null) : null
   );
   const { runAction, actionInputDialog } = useActionLauncher(workspaceId);
+  const { skillGroups, loadSkills } = useSkillMenuGroups(workspace?.id, contextMenuOpen);
   // Kept stable so the toolbars that drag the pane don't re-render as the pointer nears its top.
   const drag = useMemo(
     () => ({
@@ -198,6 +200,7 @@ export const SurfacePane = React.memo(function SurfacePane({
     if (!open) return;
     void useActionsStore.getState().loadActions();
     void useAgentPresetsStore.getState().loadPresets();
+    loadSkills();
   };
   // Radix calls onOpenChange only for closes it makes itself.
   const closeContextMenuThen = (run: () => void) => {
@@ -209,7 +212,7 @@ export const SurfacePane = React.memo(function SurfacePane({
   const quickCommandMenuItem = (place: ActionPlace) => (
     <QuickCommandMenuItem
       menuType="context"
-      groups={getActionMenuGroups(actions, workspace.projectId)}
+      groups={[...getActionMenuGroups(actions, workspace.projectId), ...skillGroups]}
       defaultActionId={workspace.defaultActionId}
       presets={presets}
       onRun={(action) =>

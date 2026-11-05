@@ -79,6 +79,7 @@ export const createWorkspaceParamsSchema = z
     attachments: z.array(untrimmedSafePathSchema).max(MAX_PROMPT_ATTACHMENTS).optional(),
     launchModeId: idSchema.optional(),
     reasoningLevelId: idSchema.nullable().optional(),
+    modelId: idSchema.nullable().optional(),
     initialCommand: z.string().optional(),
     baseBranch: z.string().optional(),
     startFromOrigin: z.boolean().optional(),

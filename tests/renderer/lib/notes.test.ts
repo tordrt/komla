@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  closeNote,
   createNote,
   getNoteFileName,
   getNoteName,
@@ -69,7 +70,7 @@ describe('createNote', () => {
 
     await createNote('w1');
 
-    expect(createNoteApi).toHaveBeenCalledWith('w1');
+    expect(createNoteApi).toHaveBeenCalledWith('w1', undefined);
     expect(useNotesStore.getState().byScope.w1).toEqual([NOTE]);
     expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace.w1).toMatchObject({
       open: true,
@@ -78,25 +79,60 @@ describe('createNote', () => {
     });
   });
 
-  it('leaves the full-screen file viewer for the file panel', async () => {
+  it('opens in the full-screen file viewer, over its file, while that is open', async () => {
     createNoteApi.mockResolvedValue(NOTE);
     useFileViewerStore.setState({ fileViewerWorkspaceId: 'w1' });
 
     await createNote('w1');
 
-    expect(useFileViewerStore.getState().pendingFileViewerTransition).toEqual({
-      kind: 'inline-preview',
-      workspaceId: 'w1',
-      filePath: getNotePath(NOTE.name),
-    });
+    const store = useFileViewerStore.getState();
+    expect(store.fileViewerNoteName).toBe(NOTE.name);
+    expect(store.fileViewerWorkspaceId).toBe('w1');
+    expect(store.pendingFileViewerTransition).toBeNull();
+  });
+
+  it('writes what it starts with before it opens, as a prompt draft saved as a note', async () => {
+    createNoteApi.mockResolvedValue(NOTE);
+
+    expect(await createNote('w1', 'A plan to keep')).toBe(true);
+
+    // Made with it, so it never takes over the workspace's blank note.
+    expect(createNoteApi).toHaveBeenCalledWith('w1', 'A plan to keep');
+    expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace.w1?.filePath).toBe(
+      getNotePath(NOTE.name)
+    );
   });
 
   it('says why when it cannot make a note', async () => {
     createNoteApi.mockRejectedValue(new Error('disk full'));
     const addToast = vi.spyOn(useToastStore.getState(), 'addToast');
 
-    await createNote('w1');
+    expect(await createNote('w1', 'A plan to keep')).toBe(false);
 
     expect(addToast).toHaveBeenCalledWith("Couldn't create a note: disk full", 'error');
+  });
+});
+
+describe('closeNote', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    useFileViewerStore.setState({ fileViewerWorkspaceId: null, fileViewerNoteName: null });
+  });
+
+  it("goes back to the full-screen file viewer's file, which stays open", () => {
+    useFileViewerStore.setState({ fileViewerWorkspaceId: 'w1', fileViewerNoteName: NOTE.name });
+    closeNote('w1');
+    expect(useFileViewerStore.getState().fileViewerNoteName).toBeNull();
+    expect(useFileViewerStore.getState().fileViewerWorkspaceId).toBe('w1');
+  });
+
+  it('closes the file panel showing it, asking about edits unless discarding', () => {
+    const store = useFileViewerStore.getState();
+    const requestClose = vi.spyOn(store, 'requestInlineFilePreviewClose');
+    const close = vi.spyOn(store, 'closeInlineFilePreview');
+    closeNote('w1');
+    expect(requestClose).toHaveBeenCalledWith('w1');
+    closeNote('w1', { discard: true });
+    expect(close).toHaveBeenCalledWith('w1');
   });
 });

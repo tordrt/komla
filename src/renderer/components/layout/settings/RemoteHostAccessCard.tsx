@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 import { useToastStore } from '@/stores/toast.store';
 
 import { SettingsCard } from './SettingsCard';
@@ -99,19 +100,22 @@ export function RemoteHostAccessCard({ remoteEnabled }: { remoteEnabled: boolean
   return (
     <SettingsCard
       title="SSH hosts"
-      action={
+      badge={
         statuses.some((status) => !status.enabled) ? (
           <Badge tone="primary">Recommended</Badge>
         ) : undefined
       }
-      description="Devices open these hosts directly, so terminals keep working while this computer sleeps or needs a new SSH login. Komla publishes each host with Tailscale Serve."
+      description={
+        <>
+          Devices open these hosts directly, so terminals keep working while this computer sleeps or
+          needs a new SSH login. Komla publishes each host with Tailscale Serve.
+          {!remoteEnabled && ' Turn on remote control above to use them.'}
+        </>
+      }
     >
-      {!remoteEnabled && (
-        <p className="text-xs text-muted-foreground">Turn on remote control above first.</p>
-      )}
       {statuses.map((status) => (
         <div key={status.hostId} className="flex items-center justify-between gap-4">
-          <div className="min-w-0 flex-1">
+          <div className={cn('min-w-0 flex-1', !remoteEnabled && !status.enabled && 'opacity-60')}>
             <p className="truncate text-sm font-medium text-foreground">{status.hostName}</p>
             <div className="mt-0.5 text-ui text-muted-foreground">
               <StatusLine status={status} />
@@ -121,6 +125,7 @@ export function RemoteHostAccessCard({ remoteEnabled }: { remoteEnabled: boolean
             aria-label={`Direct access to ${status.hostName}`}
             checked={status.enabled}
             disabled={busyHostId === status.hostId || (!remoteEnabled && !status.enabled)}
+            title={!remoteEnabled && !status.enabled ? 'Turn on remote control first' : undefined}
             onCheckedChange={(checked) => void setEnabled(status.hostId, checked)}
           />
         </div>

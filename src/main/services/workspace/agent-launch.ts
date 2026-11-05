@@ -42,6 +42,13 @@ export function resolveReasoningLevelId(
     : null;
 }
 
+export function resolveModelId(
+  preset: AgentPreset | null | undefined,
+  modelId?: string | null
+): string | null {
+  return modelId && preset?.models?.some((model) => model.id === modelId) ? modelId : null;
+}
+
 /**
  * Resolve the spawn command for an agent tab from a preset + optional
  * launchMode + optional prompt. The non-obvious bit: when `launchModeId`
@@ -55,7 +62,8 @@ export function resolveAgentCommand(
   launchModeId: string | undefined,
   shellFamily?: 'posix',
   reasoningLevelId?: string | null,
-  extraArguments?: string
+  extraArguments?: string,
+  modelId?: string | null
 ): string | null {
   if (!preset) return null;
   const resolve = (text: string | undefined) =>
@@ -66,7 +74,8 @@ export function resolveAgentCommand(
       text,
       shellFamily,
       reasoningLevelId,
-      extraArguments
+      extraArguments,
+      modelId
     );
   // An agent that can't start with a prompt still opens.
   return resolve(prompt) || (prompt && resolve(undefined)) || null;
@@ -100,7 +109,8 @@ export function resolveInitialCommand(
     params.launchModeId,
     isSshWorkspace(workspace) ? 'posix' : undefined,
     workspace.reasoningLevelId,
-    params.extraArguments
+    params.extraArguments,
+    workspace.modelId
   );
 }
 

@@ -1,9 +1,14 @@
+import { X } from '@phosphor-icons/react';
+
 import { LinuxWindowControlsEnd } from '@/components/layout/LinuxWindowControls';
 import { WorkspaceBranchControls } from '@/components/layout/TabRowBranchControls';
+import { PromptDraftButton } from '@/components/prompt-draft/PromptDraft';
+import { IconButton } from '@/components/ui/icon-button';
 import { SetupActivityIndicator } from '@/components/workspaces/SetupActivityPanel';
 import { hasUnsavedFilePane } from '@/lib/pane-surfaces';
 import { cn } from '@/lib/utils';
 import { usePaneSurfacesStore } from '@/stores/pane-surfaces.store';
+import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import { isBrowserPreviewableFile, isPdfFile } from '../../../../shared/image-utils';
@@ -12,6 +17,7 @@ import { CommitDetailsPanel } from './CommitDetailsPanel';
 import { ContentArea } from './ContentArea';
 import { FileViewerSidebar } from './FileViewerSidebar';
 import { FileViewerToolbar } from './FileViewerToolbar';
+import { NoteEditor } from './notes/NoteEditor';
 
 import type { CommitHistorySidebarProps } from './CommitHistorySidebar';
 import type { MarkdownEditorHandle } from './markdown/RichMarkdownEditor';
@@ -38,6 +44,9 @@ interface FileViewerMainPaneProps {
   onResizeStart: (e: React.MouseEvent) => void;
   setSidebarOpen: (updater: (prev: boolean) => boolean) => void;
   sidebarCurrentFile: string | null;
+  /** The note open over the file or diff, which stays underneath it. */
+  noteName: string | null;
+  onCloseNote: () => void;
   focusAlignmentSignal?: number;
   changedFiles: FileTreeItem[];
   diffFileStatuses: Map<string, FileChange['status']> | undefined;
@@ -118,8 +127,10 @@ function selectHistorySidebarProps(params: {
   targetBranch: string;
   onExitHistory: () => void;
   onShowFileHistory: ((path: string) => void) | undefined;
+  /** Goes back from a note over the diff, as a pick here shows another. */
+  onCloseNote: () => void;
 }): CommitHistorySidebarProps {
-  const { workspace, diff, targetBranch, onExitHistory, onShowFileHistory } = params;
+  const { workspace, diff, targetBranch, onExitHistory, onShowFileHistory, onCloseNote } = params;
   return {
     workspaceId: workspace.id,
     workingDirectory: workspace.workingDirectory,
@@ -133,8 +144,14 @@ function selectHistorySidebarProps(params: {
     commitDiff: diff.commitDiff,
     loadingCommitDiff: diff.loadingCommitDiff,
     selectedFilePath: diff.historySelectedFile,
-    onSelectCommit: (hash) => void diff.selectCommit(hash),
-    onSelectFile: (path) => void diff.selectHistoryFile(path),
+    onSelectCommit: (hash) => {
+      onCloseNote();
+      void diff.selectCommit(hash);
+    },
+    onSelectFile: (path) => {
+      onCloseNote();
+      void diff.selectHistoryFile(path);
+    },
     onLoadMore: () => void diff.loadMoreCommits(),
     onToggleHistory: onExitHistory,
     filterPath: diff.historyFilterPath,
@@ -196,6 +213,37 @@ function BranchMenus({ workspace, inDiff }: { workspace: Workspace; inDiff: bool
   );
 }
 
+/** A note over the viewer's file or diff, with a button back to it. A new note takes focus. */
+function ViewerNote({
+  workspace,
+  name,
+  onClose,
+}: {
+  workspace: Workspace;
+  name: string;
+  onClose: () => void;
+}) {
+  const closeShortcut = formatShortcutForDisplay('Cmd+W', window.api?.platform);
+  return (
+    <NoteEditor
+      workspace={workspace}
+      name={name}
+      onClose={onClose}
+      trailingActions={
+        <IconButton
+          label="Close note"
+          shortcut={closeShortcut}
+          size="xs"
+          tooltipSide="bottom"
+          onClick={onClose}
+        >
+          <X className="size-3.5" />
+        </IconButton>
+      }
+    />
+  );
+}
+
 export function FileViewerMainPane(props: FileViewerMainPaneProps) {
   const {
     workspace,
@@ -210,6 +258,8 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
     onResizeStart,
     setSidebarOpen,
     sidebarCurrentFile,
+    noteName,
+    onCloseNote,
     focusAlignmentSignal,
     changedFiles,
     diffFileStatuses,
@@ -294,6 +344,14 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
     return path;
   })();
 
+  // The toolbar's controls for the file or diff show it again from under a note.
+  const showingFile =
+    <Args extends unknown[]>(act: (...args: Args) => unknown) =>
+    (...args: Args) => {
+      if (noteName) onCloseNote();
+      act(...args);
+    };
+
   return (
     <>
       <FileViewerToolbar
@@ -303,7 +361,12 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         onClose={onClose}
-        trailing={<BranchMenus workspace={workspace} inDiff={isDiffMode} />}
+        trailing={
+          <>
+            <PromptDraftButton />
+            <BranchMenus workspace={workspace} inDiff={isDiffMode} />
+          </>
+        }
         windowControls={<LinuxWindowControlsEnd />}
         browseTabs={{
           tabs,
@@ -311,8 +374,12 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
           activeFilePath: state.editor.filePath,
           isDirty: state.editor.isDirty,
           onSwitchTab: handleSwitchTab,
-          onCloseTab: handleCloseTab,
-          onDoubleClickTab: handleFileDoubleClick,
+          // Closing the tab under the note shows what comes next; another just goes.
+          onCloseTab: (path) => {
+            if (path === state.editor.filePath) onCloseNote();
+            handleCloseTab(path);
+          },
+          onDoubleClickTab: showingFile(handleFileDoubleClick),
         }}
         selectedFile={state.diff.selectedFile}
         isDirty={state.editor.isDirty}
@@ -327,10 +394,14 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
         availableBranches={state.diff.availableBranches}
         loadingBranches={state.diff.loadingBranches}
         comparisonLoading={state.diff.comparisonLoading}
-        onBranchChange={(branch) => state.diff.setComparisonBranch(branch, false)}
+        onBranchChange={showingFile((branch: string | null) =>
+          state.diff.setComparisonBranch(branch, false)
+        )}
         onLoadBranches={state.diff.loadBranches}
         onFetchBranches={state.diff.fetchBranches}
-        onCompareSinceTarget={() => void state.diff.setComparisonBranch(targetBranch, true)}
+        onCompareSinceTarget={showingFile(
+          () => void state.diff.setComparisonBranch(targetBranch, true)
+        )}
         workingDirectory={workspace.workingDirectory}
         workspaceId={workspace.id}
         isRemoteWorkspace={isRemoteWorkspace}
@@ -339,18 +410,18 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
         }}
         targetBranch={targetBranch}
         hideUnchangedRegions={state.diff.hideUnchangedRegions}
-        onToggleHideUnchanged={() =>
+        onToggleHideUnchanged={showingFile(() =>
           state.diff.setHideUnchangedRegions(!state.diff.hideUnchangedRegions)
-        }
+        )}
         viewMode={contentAreaProps.viewMode}
         splitViewAvailable={
           isHistory ? state.diff.historySplitViewAvailable : state.diff.splitViewAvailable
         }
-        onViewModeChange={state.diff.setViewMode}
+        onViewModeChange={showingFile(state.diff.setViewMode)}
         totalChanges={totalChanges}
         currentChangeIndex={currentChangeIndex}
-        goToPreviousChange={goToPreviousChange}
-        goToNextChange={goToNextChange}
+        goToPreviousChange={showingFile(goToPreviousChange)}
+        goToNextChange={showingFile(goToNextChange)}
       />
 
       {state.diff.error && isDiffMode && (
@@ -377,6 +448,7 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
               targetBranch,
               onExitHistory,
               onShowFileHistory,
+              onCloseNote,
             })}
             workspaceId={workspace.id}
             workingDirectory={workspace.workingDirectory}
@@ -407,86 +479,104 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
             onOpenHtmlInBrowser={handleOpenInBrowserPreview}
           />
         )}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          {isDiffMode && isHistory && state.diff.selectedCommitHash && (
-            <CommitDetailsPanel
-              commit={state.diff.commits.find(
-                (commit) => commit.hash === state.diff.selectedCommitHash
-              )}
-              commitDiff={state.diff.commitDiff}
-              roles={{ ...state.diff.historyBranchRoles, targetBranch }}
-              onSelectCommit={(hash) => void state.diff.selectCommit(hash)}
-            />
-          )}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {/* Out of reach while a note covers it, but kept, with its edits and scroll, for when
+              the note closes. */}
+          <div
+            data-file-viewer-content
+            inert={noteName !== null}
+            className="isolate flex min-h-0 flex-1 flex-col"
+          >
+            {isDiffMode && isHistory && state.diff.selectedCommitHash && (
+              <CommitDetailsPanel
+                commit={state.diff.commits.find(
+                  (commit) => commit.hash === state.diff.selectedCommitHash
+                )}
+                commitDiff={state.diff.commitDiff}
+                roles={{ ...state.diff.historyBranchRoles, targetBranch }}
+                onSelectCommit={(hash) => void state.diff.selectCommit(hash)}
+              />
+            )}
 
-          <ContentArea
-            mode={state.mode}
-            workingDirectory={workspace.workingDirectory}
-            workspaceId={workspace.id}
-            // Browse props
-            filePath={state.editor.filePath}
-            fileContent={state.editor.fileContent}
-            savedContent={state.editor.diskContent}
-            loadingFile={
-              state.editor.loadingFile ||
-              (!state.editor.isBrowserPreviewable &&
-                !state.editor.isUnsupportedBinary &&
-                !isMonacoReady)
-            }
-            fileError={
-              state.editor.isBrowserPreviewable || state.editor.isUnsupportedBinary
-                ? state.editor.error
-                : (monacoLoadError ?? state.editor.error)
-            }
-            missingOnDisk={state.editor.missingOnDisk && !state.editor.isDirty}
-            readOnly={isBrowseMode && editedInFilePane && !state.editor.isDirty}
-            onChange={handleEditorChange}
-            onEditorMount={handleEditorMount}
-            onMarkdownEditorMount={handleMarkdownEditorMount}
-            onCloseMissing={() => {
-              if (state.mode === 'browse' && state.editor.filePath) {
-                handleCloseTab(state.editor.filePath);
-              } else {
-                onClose();
+            <ContentArea
+              mode={state.mode}
+              workingDirectory={workspace.workingDirectory}
+              workspaceId={workspace.id}
+              // Browse props
+              filePath={state.editor.filePath}
+              fileContent={state.editor.fileContent}
+              savedContent={state.editor.diskContent}
+              loadingFile={
+                state.editor.loadingFile ||
+                (!state.editor.isBrowserPreviewable &&
+                  !state.editor.isUnsupportedBinary &&
+                  !isMonacoReady)
               }
-            }}
-            onRefreshMissingDiff={() =>
-              void (isHistory ? state.diff.refreshHistory() : state.diff.refresh())
-            }
-            // Blame props
-            blameEnabled={blame.blameEnabled && isBrowseMode}
-            blameAnnotations={blame.blameAnnotations}
-            blameLineMap={blame.blameLineMap}
-            blameLoading={blame.blameLoading}
-            onBlameHunkClick={handleBlameHunkClick}
-            onBlameHide={blame.toggleBlame}
-            // Image props
-            browserPreviewFilePath={
-              state.editor.isBrowserPreviewable ? state.editor.filePath : null
-            }
-            browserPreviewVersion={state.editor.diskContent}
-            isImage={state.editor.isImage}
-            imageData={state.editor.imageData}
-            imageMimeType={state.editor.imageMimeType}
-            isMedia={state.editor.isMedia}
-            mediaData={state.editor.mediaData}
-            mediaMimeType={state.editor.mediaMimeType}
-            mediaKind={state.editor.mediaKind}
-            mediaSize={state.editor.mediaSize}
-            mediaPreviewLoading={state.editor.mediaPreviewLoading}
-            mediaPreviewError={state.editor.mediaPreviewError}
-            onLoadMediaPreview={() => void state.editor.loadMediaPreview()}
-            // Diff props
-            {...contentAreaProps}
-            hideUnchangedRegions={state.diff.hideUnchangedRegions}
-            // The toolbar's Split/Unified toggle picks the layout; only a
-            // window too narrow for two columns still falls back to unified.
-            inlineBreakpointPx={500}
-            onDiffEditorMount={handleDiffEditorMount}
-            isDirty={state.editor.isDirty}
-            diffBrowserPreviewFilePath={diffBrowserPreviewFilePath}
-            diffBrowserPreviewVersion={state.diff.browserPreviewVersion}
-          />
+              fileError={
+                state.editor.isBrowserPreviewable || state.editor.isUnsupportedBinary
+                  ? state.editor.error
+                  : (monacoLoadError ?? state.editor.error)
+              }
+              missingOnDisk={state.editor.missingOnDisk && !state.editor.isDirty}
+              readOnly={isBrowseMode && editedInFilePane && !state.editor.isDirty}
+              onChange={handleEditorChange}
+              onEditorMount={handleEditorMount}
+              onMarkdownEditorMount={handleMarkdownEditorMount}
+              onCloseMissing={() => {
+                if (state.mode === 'browse' && state.editor.filePath) {
+                  handleCloseTab(state.editor.filePath);
+                } else {
+                  onClose();
+                }
+              }}
+              onRefreshMissingDiff={() =>
+                void (isHistory ? state.diff.refreshHistory() : state.diff.refresh())
+              }
+              // Blame props
+              blameEnabled={blame.blameEnabled && isBrowseMode}
+              blameAnnotations={blame.blameAnnotations}
+              blameLineMap={blame.blameLineMap}
+              blameLoading={blame.blameLoading}
+              onBlameHunkClick={handleBlameHunkClick}
+              onBlameHide={blame.toggleBlame}
+              // Image props
+              browserPreviewFilePath={
+                state.editor.isBrowserPreviewable ? state.editor.filePath : null
+              }
+              browserPreviewVersion={state.editor.diskContent}
+              isImage={state.editor.isImage}
+              imageData={state.editor.imageData}
+              imageMimeType={state.editor.imageMimeType}
+              isMedia={state.editor.isMedia}
+              mediaData={state.editor.mediaData}
+              mediaMimeType={state.editor.mediaMimeType}
+              mediaKind={state.editor.mediaKind}
+              mediaSize={state.editor.mediaSize}
+              mediaPreviewLoading={state.editor.mediaPreviewLoading}
+              mediaPreviewError={state.editor.mediaPreviewError}
+              onLoadMediaPreview={() => void state.editor.loadMediaPreview()}
+              // Diff props
+              {...contentAreaProps}
+              hideUnchangedRegions={state.diff.hideUnchangedRegions}
+              // The toolbar's Split/Unified toggle picks the layout; only a
+              // window too narrow for two columns still falls back to unified.
+              inlineBreakpointPx={500}
+              onDiffEditorMount={handleDiffEditorMount}
+              isDirty={state.editor.isDirty}
+              diffBrowserPreviewFilePath={diffBrowserPreviewFilePath}
+              diffBrowserPreviewVersion={state.diff.browserPreviewVersion}
+            />
+          </div>
+          {noteName && (
+            <div className="absolute inset-0 z-10 flex min-h-0 flex-col bg-background">
+              <ViewerNote
+                key={noteName}
+                workspace={workspace}
+                name={noteName}
+                onClose={onCloseNote}
+              />
+            </div>
+          )}
         </div>
       </div>
     </>

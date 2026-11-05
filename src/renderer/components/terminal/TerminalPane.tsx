@@ -55,6 +55,7 @@ import { PANE_DRAG_MIME, setDraggedPaneId } from '@/lib/pane-drag';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { replaceTerminal, replaceTerminalWithPaneSurface } from '@/lib/replace-terminal';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
+import { useSkillMenuGroups } from '@/lib/skill-actions';
 import { addLocalCopyTerminal, addTerminalForSplit } from '@/lib/split-terminal';
 import { useTerminalHost } from '@/lib/terminal-host-tracker';
 import {
@@ -108,6 +109,8 @@ import type { ActionPlace } from '@/lib/action-launch';
 import type { AgentPreset, PaneId } from '@/types';
 
 // URL regex pattern (matches http, https, and common URLs)
+// Paste Prompt pastes text, so its list has no Commands tab.
+const PASTE_MENU_TYPES = ['prompt', 'skill'] as const;
 const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
 
 function getAgentPresetName(presets: AgentPreset[], presetId: string | undefined): string {
@@ -366,8 +369,12 @@ export const TerminalPane = React.memo(function TerminalPane({
 
   const projectId = actionWorkspace?.projectId;
 
-  const actionMenuGroups = getActionMenuGroups(actions, projectId);
-  const promptMenuGroups = actionMenuGroups.filter((group) => group.type === 'prompt');
+  const { skillGroups, loadSkills } = useSkillMenuGroups(actionWorkspace?.id, contextMenuOpen);
+  const savedActionGroups = getActionMenuGroups(actions, projectId);
+  const actionMenuGroups = [...savedActionGroups, ...skillGroups];
+  // Pasted into the running agent: Saved Prompts, and in a tab of their own, skills to invoke.
+  const promptMenuGroups = savedActionGroups.filter((group) => group.type === 'prompt');
+  const pasteMenuGroups = [...promptMenuGroups, ...skillGroups];
   // The Action run becomes the one the menu rows repeat; one that asks for input, once it's given.
   const { runAction, actionInputDialog } = useActionLauncher(actionWorkspace?.id);
 
@@ -529,6 +536,7 @@ export const TerminalPane = React.memo(function TerminalPane({
         setFocusedPane(paneId);
         void loadActions();
         void loadPresets();
+        loadSkills();
         setProgramTracksMouse(terminalRendererTracksMouse(terminalId));
         const selection = getTerminalRendererSelection(terminalId);
         if (selection) {
@@ -541,7 +549,7 @@ export const TerminalPane = React.memo(function TerminalPane({
         setContextMenuLink(null);
       }
     },
-    [loadActions, loadPresets, paneId, setFocusedPane, terminalId]
+    [loadActions, loadPresets, loadSkills, paneId, setFocusedPane, terminalId]
   );
 
   // Radix calls onOpenChange only for closes it makes itself.
@@ -1290,10 +1298,11 @@ export const TerminalPane = React.memo(function TerminalPane({
             </ContextMenuSubContent>
           </ContextMenuSub>
           {/* Saved Prompts typed into this terminal, ready to send, with a default of their own. */}
-          {promptMenuGroups.length > 0 ? (
+          {pasteMenuGroups.length > 0 ? (
             <QuickCommandMenuItem
               menuType="context"
-              groups={promptMenuGroups}
+              groups={pasteMenuGroups}
+              types={PASTE_MENU_TYPES}
               defaultActionId={actionWorkspace?.paneDefaultActionId}
               presets={presets}
               hint="Paste"

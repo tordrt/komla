@@ -1,3 +1,4 @@
+import { isSkillAction } from '@/lib/action-menu-order';
 import { resolveDefaultLaunchTarget, resolveLaunchablePresets } from '@/lib/agent-launch';
 import { runBackgroundAction } from '@/lib/background-action';
 import { ipcErrorMessage } from '@/lib/ipc-error-message';
@@ -75,9 +76,11 @@ export async function launchAction(request: ActionLaunchRequest): Promise<Action
   if (!workspace) return 'failed';
   if (input === undefined && actionNeedsInjection(action.content)) return 'needs-input';
 
+  // A skill isn't saved, so it's no place's default and has no usage to record.
+  const saved = !isSkillAction(action);
   const workspaces = useWorkspacesStore.getState();
-  if (place.kind === 'type') workspaces.setPaneDefaultAction(workspace.id, action.id);
-  else if (place.kind !== 'tab' || place.setsDefault !== false) {
+  if (saved && place.kind === 'type') workspaces.setPaneDefaultAction(workspace.id, action.id);
+  else if (saved && (place.kind !== 'tab' || place.setsDefault !== false)) {
     workspaces.setDefaultAction(workspace.id, action.id);
   }
 
@@ -97,7 +100,7 @@ export async function launchAction(request: ActionLaunchRequest): Promise<Action
     return 'failed';
   }
 
-  if (outcome === 'launched') {
+  if (outcome === 'launched' && saved) {
     try {
       await useActionsStore.getState().recordActionUsage(action.id, input, place.kind === 'type');
     } catch (error) {

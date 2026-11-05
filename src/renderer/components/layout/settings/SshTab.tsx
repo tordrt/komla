@@ -2,9 +2,11 @@ import {
   ArrowClockwise,
   CaretDown,
   CaretUp,
+  FolderSimple,
   HardDrives,
   PencilSimple,
   Plus,
+  Stack,
   Trash,
   Warning,
 } from '@phosphor-icons/react';
@@ -226,7 +228,7 @@ export function SshTab() {
         />
       ) : (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <h3 className="text-[13px] font-medium text-muted-foreground">
               {hosts.length} host{hosts.length === 1 ? '' : 's'}
             </h3>
@@ -251,6 +253,10 @@ export function SshTab() {
                 onDelete={() => startDeleteHost(host.id)}
               />
             ))}
+            <p className="!py-2.5 text-xs leading-relaxed text-muted-foreground">
+              Hosts need Linux or macOS, a POSIX shell, Git, tmux and the standard Unix tools, plus
+              rsync for local mode.
+            </p>
           </SettingsCard>
         </div>
       )}
@@ -327,13 +333,6 @@ export function SshTab() {
         </>
       )}
 
-      {hosts.length > 0 && (
-        <div className="rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-          SSH hosts require Linux or macOS, a POSIX shell, Git, tmux, and standard Unix tools. rsync
-          is required for local mode.
-        </div>
-      )}
-
       <Dialog open={deleteHostTarget !== null} onOpenChange={closeDeleteHostDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -361,6 +360,12 @@ export function SshTab() {
               onCheckedChange={setDeleteRemoteData}
             />
           </div>
+          {!deleteRemoteData && deleteHostWorkspaceCount > 0 && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Agents running in them keep running on the host, where other devices can keep using
+              them. To end them, stop the workspaces first.
+            </p>
+          )}
           {otherDeviceWorkspaces.length > 0 && (
             <Callout tone="warning" className="leading-relaxed">
               {otherDeviceWorkspaces.length === 1
@@ -468,22 +473,28 @@ function HostRow({
           <Button
             variant={isBrowsing ? 'secondary' : 'ghost'}
             size="sm"
+            className={cn('h-8 gap-1.5 px-2.5 text-[13px]', !isBrowsing && 'text-muted-foreground')}
             aria-label={`Workspaces on ${host.name}`}
             aria-expanded={isBrowsing}
             onClick={onBrowse}
           >
+            <Stack className="size-4" />
             Workspaces
           </Button>
           <Button
             variant="ghost"
             size="sm"
+            className="h-8 gap-1.5 px-2.5 text-[13px] text-muted-foreground"
             aria-label={`Projects on ${host.name}`}
             onClick={() => useSshHostProjectsDialogStore.getState().openFor(host.id)}
           >
+            <FolderSimple className="size-4" />
             Projects
           </Button>
+          <span aria-hidden="true" className="mx-1 h-4 w-px bg-border/70" />
           <HostActions
             labelSuffix={labelSuffix}
+            unreachable={status?.state === 'unreachable'}
             isChecking={isChecking}
             onCheck={onCheck}
             onEdit={onEdit}
@@ -499,11 +510,15 @@ function HostRow({
 
 function HostActions({
   labelSuffix,
+  unreachable,
   isChecking,
   onCheck,
   onEdit,
   onDelete,
-}: Pick<HostRowProps, 'labelSuffix' | 'isChecking' | 'onCheck' | 'onEdit' | 'onDelete'>) {
+}: Pick<HostRowProps, 'labelSuffix' | 'isChecking' | 'onCheck' | 'onEdit' | 'onDelete'> & {
+  /** Spells the check out as Retry, the way back for a host that didn't answer. */
+  unreachable: boolean;
+}) {
   const labels = labelSuffix
     ? {
         check: `Check ${labelSuffix}`,
@@ -513,9 +528,23 @@ function HostActions({
     : { check: 'Check connection', edit: 'Edit SSH host', remove: 'Delete host' };
   return (
     <>
-      <IconButton label={labels.check} size="md" disabled={isChecking} onClick={onCheck}>
-        {isChecking ? <Spinner size="sm" /> : <ArrowClockwise className="size-4" />}
-      </IconButton>
+      {unreachable ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 px-2.5"
+          aria-label={labels.check}
+          disabled={isChecking}
+          onClick={onCheck}
+        >
+          {isChecking ? <Spinner size="sm" /> : <ArrowClockwise className="size-3.5" />}
+          Retry
+        </Button>
+      ) : (
+        <IconButton label={labels.check} size="md" disabled={isChecking} onClick={onCheck}>
+          {isChecking ? <Spinner size="sm" /> : <ArrowClockwise className="size-4" />}
+        </IconButton>
+      )}
       <IconButton label={labels.edit} size="md" onClick={onEdit}>
         <PencilSimple className="size-4" />
       </IconButton>
@@ -533,7 +562,9 @@ function HostNotes({ host, status }: { host: SshHost; status: SshHostStatus | un
   if (!error && warnings.length === 0) return null;
   return (
     <div className="space-y-1 pl-11 text-xs leading-relaxed">
-      {error && <p className="break-words text-error">{error}</p>}
+      {error && (
+        <p className="font-mono text-[11.5px] break-words text-muted-foreground">{error}</p>
+      )}
       {warnings.length > 0 && (
         <p className="flex items-start gap-1.5 text-warning">
           <Warning className="mt-0.5 size-3.5 shrink-0" />

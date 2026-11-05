@@ -19,6 +19,7 @@ import { findRenameSource, useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { usePaneSurfacesStore } from '@/stores/pane-surfaces.store';
 import { useToastStore } from '@/stores/toast.store';
+import { useViewedFile } from '@/stores/viewed-file.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { useWorktreeEventsStore } from '@/stores/worktree-events.store';
 
@@ -26,6 +27,7 @@ import { ContentArea } from '../workspaces/file-viewer/ContentArea';
 import {
   COPY_AT_PATH_KEYBINDING,
   formatAtPathWithLine,
+  formatFileReference,
   getFlatFileKeys,
   getNextChangeAction,
   getPrevChangeAction,
@@ -1061,6 +1063,18 @@ export function InlineFilePreviewPanel({
     return () => window.removeEventListener('keydown', handler);
   }, [isActive, previewState.open, saveFile, handleClose, unsavedConfirmOpen, workspaceId]);
 
+  // A note has no path in the project to refer to.
+  const viewedFileProps = useViewedFile(
+    workspaceId,
+    previewState.open && isActive && !noteName ? currentFilePath : null,
+    () =>
+      formatFileReference(
+        currentFilePathRef.current ?? '',
+        // A diff's changed side, the working tree's file the agent reads.
+        mode === 'browse' ? editorRef.current : diffEditorRef.current?.getModifiedEditor()
+      )
+  );
+
   if (!previewState.open && !unsavedConfirmOpen) return null;
 
   // Diff-mode browser toggle: same gating as the full dialog — only
@@ -1088,6 +1102,7 @@ export function InlineFilePreviewPanel({
       <div
         ref={panelRef}
         tabIndex={-1}
+        {...viewedFileProps}
         className={cn(
           'flex h-full min-h-0 flex-col overflow-hidden outline-hidden',
           !previewState.open && 'hidden'

@@ -41,29 +41,44 @@ export function getNoteFileName(title: string): string {
   return `${slug || 'note'}.md`;
 }
 
-/** Opens a note in the workspace's file panel, leaving the full-screen file viewer if it's open. */
+/**
+ * Opens a note in the workspace's full-screen file viewer if it's open, over its file or diff,
+ * or else in the file panel.
+ */
 export function openNote(workspaceId: string, name: string): void {
   const store = useFileViewerStore.getState();
-  const filePath = getNotePath(name);
-  if (store.fileViewerWorkspaceId === workspaceId) {
-    store.requestFileViewerTransition({ kind: 'inline-preview', workspaceId, filePath });
-  } else {
-    store.requestInlineFilePreviewNav(workspaceId, 'browse', filePath);
-  }
+  if (store.fileViewerWorkspaceId === workspaceId) store.showFileViewerNote(name);
+  else store.requestInlineFilePreviewNav(workspaceId, 'browse', getNotePath(name));
 }
 
-/** Starts a note in the workspace and opens it, without asking for a name. */
-export async function createNote(workspaceId: string): Promise<void> {
+/**
+ * Closes the note open in the workspace's full-screen file viewer, going back to its file or
+ * diff, or else the file panel showing it. `discard` closes the file panel without asking about
+ * its unsaved edits, as for a note that was deleted.
+ */
+export function closeNote(workspaceId: string, { discard = false } = {}): void {
+  const store = useFileViewerStore.getState();
+  if (store.fileViewerWorkspaceId === workspaceId) store.showFileViewerNote(null);
+  else if (discard) store.closeInlineFilePreview(workspaceId);
+  else store.requestInlineFilePreviewClose(workspaceId);
+}
+
+/**
+ * Starts a note in the workspace and opens it, without asking for a name, holding `content` if
+ * given; returns whether it did.
+ */
+export async function createNote(workspaceId: string, content?: string): Promise<boolean> {
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
-  if (!workspace) return;
+  if (!workspace) return false;
   try {
-    const note = await useNotesStore.getState().create(workspace.id);
+    const note = await useNotesStore.getState().create(workspace.id, content);
     // A collapsed section would hide the new note's row, so it wouldn't show where the note lives.
     const fileViewer = useFileViewerStore.getState();
     if (fileViewer.notesCollapsedByWorkspace[workspace.id]) {
       fileViewer.setNotesCollapsed(workspace.id, false);
     }
     openNote(workspace.id, note.name);
+    return true;
   } catch (error) {
     useToastStore
       .getState()
@@ -71,5 +86,6 @@ export async function createNote(workspaceId: string): Promise<void> {
         `Couldn't create a note: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'error'
       );
+    return false;
   }
 }

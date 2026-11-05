@@ -99,7 +99,10 @@ Badge.displayName = 'Badge';
 /** Marks a feature still in alpha, wherever it is offered. */
 export function AlphaBadge() {
   return (
-    <Badge tone="warning" className="px-1.5 text-[10px] font-semibold tracking-wide uppercase">
+    <Badge
+      tone="warning"
+      className="px-1.5 text-[10px] font-semibold tracking-wide uppercase opacity-80"
+    >
       Alpha
     </Badge>
   );

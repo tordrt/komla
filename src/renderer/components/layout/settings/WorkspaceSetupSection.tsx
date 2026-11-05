@@ -131,10 +131,10 @@ const AGENT_PRESETS: SetupPreset[] = [
 
 const PRESET_CATEGORIES = [
   { label: 'Dependencies', presets: INSTALL_PRESETS },
-  { label: 'Dev Servers', presets: DEV_SERVER_PRESETS },
-  { label: 'Agents & Quick Commands', presets: AGENT_PRESETS },
+  { label: 'Dev servers', presets: DEV_SERVER_PRESETS },
+  { label: 'Agents and Quick Commands', presets: AGENT_PRESETS },
   { label: 'Layout', presets: LAYOUT_PRESETS },
-  { label: 'Files & Config', presets: FILES_CONFIG_PRESETS },
+  { label: 'Files and config', presets: FILES_CONFIG_PRESETS },
 ];
 
 // Words that usually start a process that never exits, such as `npm run dev` or `docker compose up`.
@@ -287,13 +287,14 @@ export function WorkspaceSetupSection({
       >
         <div className="mb-3">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-foreground">Setup steps</h3>
+            <h3 className="text-base font-semibold text-foreground">Setup steps</h3>
             {action}
           </div>
-          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-            Steps start in this order whenever a workspace starts and never block it. Creation-only
-            steps run once, when the workspace is first created. Splits attach to the previous
-            terminal; a new tab starts a new group.
+          <p className="mt-1 text-[13px] leading-relaxed text-pretty text-muted-foreground">
+            Steps run in this order each time a workspace starts, without holding it up.
+            Creation-only steps run once, when the workspace is first created.
+            {steps.length > 0 &&
+              ' A split joins the terminal before it; a new tab starts a new group.'}
           </p>
         </div>
         {steps.length > 0 ? (
@@ -639,10 +640,10 @@ export function WorkspaceSetupSection({
         ) : (
           <EmptyState
             size="sm"
-            className="rounded-lg border border-dashed border-border/60"
+            className="rounded-lg border border-dashed border-border/60 light:border-foreground/20"
             icon={<ListChecks weight="duotone" />}
             title="No setup steps yet"
-            description="Pick a common step from Quick add below, or add your own."
+            description="Add one from Quick add below, or write your own."
             action={
               <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addCustomStep}>
                 <Plus className="mr-1 size-3" />
@@ -669,12 +670,10 @@ export function WorkspaceSetupSection({
         title="Quick add"
         description="Common steps, added to the end of the setup order."
       >
-        <div className="space-y-2.5">
+        <div className="space-y-4">
           {PRESET_CATEGORIES.map(({ label, presets }) => (
             <div key={label}>
-              <span className="mb-1 block text-ui font-medium text-muted-foreground-70">
-                {label}
-              </span>
+              <span className="mb-2 block text-xs font-medium text-foreground/80">{label}</span>
               <div className="flex flex-wrap gap-1.5">
                 {presets.map((preset) =>
                   (localCopyAvailable || preset.destination !== 'ssh-local-copy') &&
@@ -685,20 +684,22 @@ export function WorkspaceSetupSection({
                       key={preset.label}
                       variant="outline"
                       size="sm"
-                      className="h-7 text-xs"
+                      className="h-7 gap-1 pl-2 text-xs"
                       onClick={() => addPresetStep(preset)}
                     >
+                      <Plus className="size-3 text-muted-foreground" />
                       {preset.label}
                     </Button>
                   ) : null
                 )}
-                {label === 'Agents & Quick Commands' && (
+                {label === 'Agents and Quick Commands' && (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 text-xs"
+                    className="h-7 gap-1 pl-2 text-xs"
                     onClick={addActionStep}
                   >
+                    <Plus className="size-3 text-muted-foreground" />
                     Run quick command
                   </Button>
                 )}

@@ -86,7 +86,7 @@ export function TerminalTab() {
       <SettingsCard title="Links">
         <SettingsRow
           label="Open links in"
-          description="Where a click on a link to a web page opens. Automatic opens localhost pages in Komla and other sites in your default browser, where you're signed in. Sign-in pages open in your default browser either way. Shift+click opens a link the other way."
+          description="Where a click on a link to a web page opens. Automatic opens localhost pages in Komla and other sites in your default browser. Sign-in pages always open in your default browser, where you're signed in. Shift+click opens a link the other way."
         >
           <SegmentedControl
             aria-label="Open links in"

@@ -28,7 +28,10 @@ import type { BehindTargetAction, DirectoryInfo, Project, ProjectIconCandidate }
 
 type CloneProgress = { percent: number; stage: string };
 
-const CLONE_PROTOCOL_LABELS: Record<CloneProtocol, string> = { ssh: 'SSH', https: 'HTTPS' };
+const CLONE_PROTOCOL_LABELS: Record<CloneProtocol, string> = {
+  ssh: 'SSH',
+  https: 'HTTPS',
+};
 
 const CLONE_PROTOCOL_OPTIONS: SegmentedControlOption<CloneProtocol>[] = (
   ['ssh', 'https'] as const
@@ -46,16 +49,12 @@ function projectNameFromRemoteUrl(url: string): string {
 
 interface LocalPathFieldsProps {
   projectPath: string;
-  onSwitchToNewRepo: () => void;
-  disabled: boolean;
   directoryInfo: DirectoryInfo | null;
   isCheckingDirectory: boolean;
 }
 
 function LocalPathFields({
   projectPath,
-  onSwitchToNewRepo,
-  disabled,
   directoryInfo,
   isCheckingDirectory,
 }: LocalPathFieldsProps) {
@@ -73,19 +72,6 @@ function LocalPathFields({
         </div>
       )}
 
-      <div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 px-2.5 text-xs"
-          onClick={onSwitchToNewRepo}
-          disabled={disabled}
-        >
-          <Plus className="mr-1 size-3.5" />
-          Create empty repo
-        </Button>
-      </div>
       {selectedNonGitDirectory && (
         <Callout tone="warning" role="status" title="This folder is not a Git repository">
           It will be added as a fixed directory project. All workspaces will share this folder
@@ -483,6 +469,8 @@ interface SubmitActionsProps {
   cloneProgress: CloneProgress | null;
   backButton?: React.ReactNode;
   skipLabel?: string;
+  /** Classes for the Skip and submit row, as setup draws it as its card's footer. */
+  actionsClassName?: string;
   onSave: () => void;
   onCancel?: () => void;
   onSkip?: () => void;
@@ -498,6 +486,7 @@ function SubmitActions({
   cloneProgress,
   backButton,
   skipLabel,
+  actionsClassName,
   onSave,
   onCancel,
   onSkip,
@@ -525,11 +514,14 @@ function SubmitActions({
     );
   }
 
-  return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        {backButton}
-        <Button type="button" onClick={onSave} className="flex-1" disabled={isSubmitDisabled}>
+  // Setup's Project step: Skip on the left and the primary on the right, as on every other step.
+  if (skipLabel && onSkip) {
+    return (
+      <div className={cn('flex items-center justify-between gap-3', actionsClassName)}>
+        <Button type="button" variant="ghost" onClick={onSkip} disabled={isFormDisabled}>
+          {skipLabel}
+        </Button>
+        <Button type="button" onClick={onSave} className="min-w-36" disabled={isSubmitDisabled}>
           <PrimarySubmitLabel
             mode={creationMode}
             isNewRepo={isNewRepo}
@@ -538,16 +530,20 @@ function SubmitActions({
           />
         </Button>
       </div>
-      {skipLabel && onSkip && (
-        <button
-          type="button"
-          className="w-full text-sm text-muted-foreground transition-colors hover:text-foreground"
-          onClick={onSkip}
-          disabled={isFormDisabled}
-        >
-          {skipLabel}
-        </button>
-      )}
+    );
+  }
+
+  return (
+    <div className="flex gap-2">
+      {backButton}
+      <Button type="button" onClick={onSave} className="flex-1" disabled={isSubmitDisabled}>
+        <PrimarySubmitLabel
+          mode={creationMode}
+          isNewRepo={isNewRepo}
+          isCreating={isCreating}
+          cloneProgress={cloneProgress}
+        />
+      </Button>
     </div>
   );
 }
@@ -560,26 +556,59 @@ interface SourceOptionProps {
   icon: React.ReactNode;
   label: string;
   description: string;
+  /** The button's name, where it should be the label alone. */
+  ariaLabel?: string;
+  /** Drawn as a roomy row, as on a page of its own rather than inline in a dialog. */
+  large?: boolean;
 }
 
-function SourceOption({ onClick, pressed, disabled, icon, label, description }: SourceOptionProps) {
+function SourceOption({
+  onClick,
+  pressed,
+  disabled,
+  icon,
+  label,
+  description,
+  ariaLabel,
+  large = false,
+}: SourceOptionProps) {
   return (
     <Button
       type="button"
       variant="outline"
       size="sm"
+      aria-label={ariaLabel}
       aria-pressed={pressed}
       className={cn(
-        'h-auto min-h-12 flex-1 justify-start px-2.5 py-2 text-left hover:shadow-none',
+        'h-auto flex-1 justify-start text-left hover:shadow-none',
+        large
+          ? 'min-h-14 gap-3 rounded-xl bg-background/40 px-3.5 py-2.5 hover:bg-muted/40'
+          : 'min-h-12 px-2.5 py-2',
         pressed && 'border-primary/50 bg-primary/5 ring-1 ring-primary/50 hover:bg-primary/10'
       )}
       onClick={onClick}
       disabled={disabled}
     >
-      <span className="mr-2 shrink-0">{icon}</span>
+      <span
+        className={cn(
+          'shrink-0',
+          large
+            ? 'flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground'
+            : 'mr-2'
+        )}
+      >
+        {icon}
+      </span>
       <span className="min-w-0">
-        <span className="block truncate text-xs leading-4">{label}</span>
-        <span className="block truncate text-2xs font-normal text-muted-foreground">
+        <span className={cn('block truncate', large ? 'text-sm leading-5' : 'text-xs leading-4')}>
+          {label}
+        </span>
+        <span
+          className={cn(
+            'block truncate font-normal text-muted-foreground',
+            large ? 'text-xs' : 'text-2xs'
+          )}
+        >
           {description}
         </span>
       </span>
@@ -646,6 +675,8 @@ interface ProjectCreationFormProps {
   compact?: boolean; // For inline use in NewWorkspaceDialog
   defaultBranchPrefix?: string; // Override the default branch prefix
   skipLabel?: string; // If provided, shows a skip button with this label
+  actionsClassName?: string; // Classes for the Skip and submit row, with skipLabel
+  className?: string; // Classes for the form's outer element
   onSkip?: () => void; // Called when skip is clicked
   disabled?: boolean; // Disable all form fields (e.g., during external operations)
   backButton?: React.ReactNode; // Optional back button to render in the action area
@@ -680,6 +711,8 @@ export function ProjectCreationForm({
   compact,
   defaultBranchPrefix,
   skipLabel,
+  actionsClassName,
+  className,
   onSkip,
   disabled,
   backButton,
@@ -933,6 +966,11 @@ export function ProjectCreationForm({
     handleSelectLocalMode();
     void handleSelectProjectPath();
   };
+  const handleSelectNewRepoMode = () => {
+    setCreationMode('local');
+    setIsNewRepo(true);
+    setProjectBaseBranch('');
+  };
   const handleSelectRemoteMode = () => {
     setCreationMode('remote');
     setIsNewRepo(false);
@@ -952,7 +990,7 @@ export function ProjectCreationForm({
     <div
       role="region"
       aria-label="Add project"
-      className={`space-y-4 ${compact ? 'rounded-lg border bg-muted/30 p-4' : ''}`}
+      className={cn('space-y-4', compact && 'rounded-lg border bg-muted/30 p-4', className)}
       onKeyDown={handleKeyDown}
     >
       {compact && (
@@ -961,14 +999,17 @@ export function ProjectCreationForm({
         </div>
       )}
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className={cn('grid gap-2', compact ? 'sm:grid-cols-3' : 'grid-cols-1')}>
         <SourceOption
           onClick={handleBrowseForFolder}
           pressed={creationMode === 'local' && !isNewRepo && Boolean(projectPath)}
           disabled={isFormDisabled}
           icon={<Folder className="size-4" />}
           label="Browse for folder"
-          description="Folder on disk"
+          description={
+            compact ? 'Folder on disk' : 'A repository or folder already on this computer'
+          }
+          large={!compact}
         />
         <SourceOption
           onClick={handleSelectRemoteMode}
@@ -976,18 +1017,24 @@ export function ProjectCreationForm({
           disabled={isFormDisabled}
           icon={<Download className="size-4" />}
           label="Clone from remote"
-          description="Git URL"
+          description={compact ? 'Git URL' : 'Clone a Git URL from GitHub, GitLab or anywhere'}
+          large={!compact}
+        />
+        <SourceOption
+          onClick={handleSelectNewRepoMode}
+          pressed={creationMode === 'local' && isNewRepo}
+          disabled={isFormDisabled}
+          icon={<Plus className="size-4" />}
+          label="Create empty repo"
+          description={compact ? 'New Git repository' : 'Start a new Git repository from scratch'}
+          ariaLabel="Create empty repo"
+          large={!compact}
         />
       </div>
 
       {creationMode === 'local' && !isNewRepo && (
         <LocalPathFields
           projectPath={projectPath}
-          onSwitchToNewRepo={() => {
-            setIsNewRepo(true);
-            setProjectBaseBranch('');
-          }}
-          disabled={isFormDisabled}
           directoryInfo={directoryInfo}
           isCheckingDirectory={isCheckingDirectory}
         />
@@ -1100,6 +1147,7 @@ export function ProjectCreationForm({
       )}
 
       <SubmitActions
+        actionsClassName={actionsClassName}
         compact={compact}
         creationMode={creationMode}
         isNewRepo={isNewRepo}

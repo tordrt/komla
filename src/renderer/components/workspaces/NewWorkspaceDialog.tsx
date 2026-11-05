@@ -5,14 +5,17 @@ import {
   Plus,
   Folder,
   NotePencil,
+  PuzzlePiece,
   Sparkle,
   Robot,
   Keyboard,
+  PencilSimple,
   TerminalWindow,
 } from '@phosphor-icons/react';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
+import { CopyRowButton } from '@/components/actions/CopyRowButton';
 import { ProjectCreationForm } from '@/components/projects/ProjectCreationForm';
 import { AgentLaunchPickerMatrix } from '@/components/terminal/AgentLaunchPickerMatrix';
 import { AgentPresetIcon } from '@/components/terminal/AgentPresetIcon';
@@ -33,6 +36,7 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { Kbd } from '@/components/ui/kbd';
+import { menuSeparatorClass } from '@/components/ui/menu-styles';
 import { Spinner } from '@/components/ui/spinner';
 import { ActionInputDialog } from '@/components/workspaces/ActionInputDialog';
 import {
@@ -51,8 +55,10 @@ import {
 } from '@/components/workspaces/NewWorkspacePromptAttachments';
 import { VoiceRecordingIndicator } from '@/components/workspaces/VoiceRecordingIndicator';
 import { NEW_WORKSPACE_SHORTCUTS_GROUP } from '@/constants/shortcut-entries';
+import { useAgentSkills } from '@/hooks/useAgentSkills';
 import { useDetectedMainBranch } from '@/hooks/useDetectedMainBranch';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
+import { getActionPreview } from '@/lib/action-menu-order';
 import {
   getNewWorkspaceDialogAction,
   isWorkspaceSelectShortcut,
@@ -66,6 +72,11 @@ import {
   type LaunchTarget,
   type WorkspaceEnvironmentTarget,
 } from '@/lib/agent-launch';
+import {
+  AGENT_OPTION_CARD_IDS,
+  missingPickersOf,
+  type AddableAgentOption,
+} from '@/lib/agent-option-cards';
 import { focusPromptOnMenuClose } from '@/lib/dialog-menus';
 import { stopWheelPropagation } from '@/lib/dialog-scroll-lock';
 import { getLaunchModeColor, LAUNCH_MODE_PILL_CLASSES } from '@/lib/launch-mode-colors';
@@ -73,6 +84,7 @@ import { LEVEL_PICKER_ICON_COMPONENTS } from '@/lib/level-picker-icons';
 import { pickFolder } from '@/lib/open-folder';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
+import { readSkillText } from '@/lib/skill-actions';
 import { cn } from '@/lib/utils';
 import { useActionsStore } from '@/stores/actions.store';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
@@ -103,13 +115,22 @@ import {
 } from '../../../shared/lib/action-injection';
 import { resolveWorkspaceCreationEnvironment } from '../../../shared/lib/agent-environment';
 import { canStartWithPrompt } from '../../../shared/lib/agent-preset-prompt';
-import { levelPickerOf } from '../../../shared/lib/level-picker';
+import {
+  filterSkills,
+  findSkillQuery,
+  insertSkill,
+  skillFamilyForPreset,
+  skillInvocation,
+  startPromptWithSkill,
+} from '../../../shared/lib/agent-skills';
+import { levelPickerOf, modelPickerOf, shownModels } from '../../../shared/lib/level-picker';
 import { resolveBranchPrefix } from '../../../shared/lib/project-git-defaults';
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
 import { generateBranchSuffix, branchSuffixToName } from '../../../shared/lib/random-names';
 import { orderByRecentUse, withRecentProject } from '../../../shared/lib/recent-projects';
 
 import type { NewWorkspaceDialogAction } from '../../../shared/constants/shortcut-scopes';
+import type { AgentSkill, AgentSkillFamily } from '../../../shared/types/agent-skill';
 import type { BranchPickerMeta } from '@/components/workspaces/WorkspaceBranchPicker';
 import type { LevelHistory } from '@/lib/level-history';
 import type {
@@ -149,6 +170,26 @@ function resolveReasoningLevelId(
   if (presetId in overrides && isAvailable(override)) return override;
   const remembered =
     activePresets.find((entry) => entry.presetId === presetId)?.lastReasoningLevelId ?? null;
+  return isAvailable(remembered) ? remembered : null;
+}
+
+// Model for a preset: the one picked in this dialog, else the one remembered from its last
+// launch, else the agent default (null).
+function resolveModelId(
+  presets: AgentPreset[],
+  activePresets: ActivePresetEntry[],
+  overrides: Record<string, string | null>,
+  presetId: string | undefined
+): string | null {
+  if (!presetId) return null;
+  const preset = presets.find((candidate) => candidate.id === presetId);
+  const models = preset ? shownModels(preset) : [];
+  const isAvailable = (modelId: string | null | undefined): modelId is string | null =>
+    modelId === null || models.some((model) => model.id === modelId);
+  const override = overrides[presetId];
+  if (presetId in overrides && isAvailable(override)) return override;
+  const remembered =
+    activePresets.find((entry) => entry.presetId === presetId)?.lastModelId ?? null;
   return isAvailable(remembered) ? remembered : null;
 }
 
@@ -271,6 +312,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const [reasoningLevelOverrides, setReasoningLevelOverrides] = useState<
     Record<string, string | null>
   >({});
+  // Model picked in this dialog, per preset (null = agent default).
+  const [modelOverrides, setModelOverrides] = useState<Record<string, string | null>>({});
   const [selectedLaunchTargets, setSelectedLaunchTargets] = useState<LaunchTarget[]>([]);
   // AI branch naming picked in this dialog (null = the saved setting)
   const [aiBranchNameOverride, setAiBranchNameOverride] = useState<boolean | null>(null);
@@ -490,11 +533,15 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const prefillOnLaunchRef = useRef<((presetIds: string[]) => void) | null>(null);
   const observedRetainedPromptRef = useRef('');
 
-  // Slash command menu state
+  // Slash command menu state: Saved Prompts while the prompt starts with `/`, and the agent's
+  // skills while a skill name is typed after its trigger character.
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
-  const [slashFilter, setSlashFilter] = useState('');
-  const [slashMenuIndex, setSlashMenuIndex] = useState(0);
-  const [slashMenuNavigated, setSlashMenuNavigated] = useState(false);
+  const [slashFilter, setSlashFilter] = useState<string | null>(null);
+  // Read for the agent selected when it was typed, so another agent's menu doesn't use it.
+  const [skillQuery, setSkillQuery] = useState<SkillQuery | null>(null);
+  // The entry the arrow keys or the mouse highlighted, kept by key so it stays on that entry
+  // when a listing arriving changes the menu; null before any is highlighted.
+  const [highlightedMenuKey, setHighlightedMenuKey] = useState<string | null>(null);
 
   // Select just the suffix portion of a generated branch name so the user can quickly type over it
   const selectBranchSuffix = (fullBranchName: string, prefix: string) => {
@@ -509,6 +556,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
 
   // Slash-filtered prompt actions
   const slashFilteredActions = React.useMemo(() => {
+    if (slashFilter === null) return [];
     const promptActions = actions.filter((a) => a.type !== 'command');
     if (!slashFilter) return promptActions;
     const lower = slashFilter.toLowerCase();
@@ -639,12 +687,36 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       branchMode === 'new' &&
       !selectedProjectIsDirectory);
 
+  // The skills the agents to start can invoke, suggested as their names are typed. Agents that
+  // invoke skills differently, like Claude Code and Codex started side by side, get none.
+  const skillFamily = commonSkillFamily(
+    canLaunchMultiple && selectedLaunchTargets.length > 0
+      ? selectedLaunchTargets.map((target) => presets.find((p) => p.id === target.presetId))
+      : [selectedPreset]
+  );
+  const skillProjectId = selectedProject?.id ?? null;
+  const skillHostId = isSshLaunch && effectiveSshHostId ? effectiveSshHostId : null;
+  const agentSkills = useAgentSkills(skillFamily, skillProjectId, skillHostId, open);
+  const promptMenuItems = useMemo(
+    () => buildPromptMenuItems(agentSkills, skillFamily, skillQuery, slashFilteredActions),
+    [agentSkills, skillFamily, skillQuery, slashFilteredActions]
+  );
+  const highlightedMenuIndex = promptMenuItems.findIndex((item) => item.key === highlightedMenuKey);
+  const slashMenuNavigated = highlightedMenuIndex >= 0;
+  const slashMenuIndex = Math.max(highlightedMenuIndex, 0);
+  const setSlashMenuIndex = (index: number) =>
+    setHighlightedMenuKey(promptMenuItems[index]?.key ?? null);
+
   // Compute available launch modes from selected preset
   const availableModes = React.useMemo(() => selectedPreset?.launchModes ?? [], [selectedPreset]);
   const availableReasoningLevels = shownReasoningLevels(selectedPreset);
   const getReasoningLevelId = (presetId: string | undefined): string | null =>
     resolveReasoningLevelId(presets, activePresets, reasoningLevelOverrides, presetId);
   const effectiveReasoningLevelId = getReasoningLevelId(selectedPreset?.id);
+  const availableModels = selectedPreset ? shownModels(selectedPreset) : [];
+  const getModelId = (presetId: string | undefined): string | null =>
+    resolveModelId(presets, activePresets, modelOverrides, presetId);
+  const effectiveModelId = getModelId(selectedPreset?.id);
 
   const effectiveEnvironment: DesiredWorkspaceEnvironment = isSshLaunch
     ? { kind: 'ssh', hostId: effectiveSshHostId }
@@ -1078,7 +1150,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   // Scroll selected slash menu item into view
   useEffect(() => {
     if (slashMenuOpen && slashMenuRef.current) {
-      const selected = slashMenuRef.current.children[slashMenuIndex] as HTMLElement | undefined;
+      const selected = slashMenuRef.current.querySelector(`[data-menu-index="${slashMenuIndex}"]`);
       selected?.scrollIntoView({ block: 'nearest' });
     }
   }, [slashMenuOpen, slashMenuIndex]);
@@ -1207,11 +1279,14 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       isSingleAgentLaunch && availableReasoningLevels.length > 0
         ? effectiveReasoningLevelId
         : undefined;
+    const modelId =
+      isSingleAgentLaunch && availableModels.length > 0 ? effectiveModelId : undefined;
     return launchTargets.map((target) => ({
       ...params,
       presetId: target.presetId,
       launchModeId: target.launchModeId ?? undefined,
       reasoningLevelId,
+      modelId,
       environment: effectiveEnvironment,
     }));
   };
@@ -1577,6 +1652,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
         launchModeId: effectiveLaunchModeId ?? undefined,
         reasoningLevelId:
           availableReasoningLevels.length > 0 ? effectiveReasoningLevelId : undefined,
+        modelId: availableModels.length > 0 ? effectiveModelId : undefined,
         presetId: effectiveSelectedPresetId ?? undefined,
         // The folder is on this computer, even when an SSH host was picked.
         environment: isSshLaunch ? { kind: 'local' } : effectiveEnvironment,
@@ -1666,6 +1742,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       presetId: effectiveSelectedPresetId ?? null,
       launchModeId: effectiveLaunchModeId,
       reasoningLevelOverrides,
+      modelOverrides,
       launchTargets: selectedLaunchTargets,
       aiBranchNameOverride,
       sourceWorkspaceId,
@@ -1743,6 +1820,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setSelectedPresetId(draft.presetId);
     setLaunchModeId(draft.launchModeId);
     setReasoningLevelOverrides(draft.reasoningLevelOverrides);
+    setModelOverrides(draft.modelOverrides);
     setSelectedLaunchTargets(draft.launchTargets);
     setAiBranchNameOverride(draft.aiBranchNameOverride);
     setSourceWorkspaceId(draft.sourceWorkspaceId);
@@ -1775,13 +1853,14 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setAttachments([]);
     setLaunchModeId(null);
     setReasoningLevelOverrides({});
+    setModelOverrides({});
     setSelectedLaunchTargets([]);
     setActionInputDialogOpen(false);
     setPendingActionForInput(null);
     setSlashMenuOpen(false);
-    setSlashFilter('');
-    setSlashMenuIndex(0);
-    setSlashMenuNavigated(false);
+    setSlashFilter(null);
+    setSkillQuery(null);
+    setHighlightedMenuKey(null);
     setAiBranchNameOverride(null);
     setSelectedPresetId(null);
   };
@@ -1820,6 +1899,16 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const handleManageAgents = () => {
     handleOpenChange(false);
     useSettingsDialogStore.getState().openSettings({ tab: 'agent' });
+  };
+
+  // Opens one agent's editor, scrolled to its models or effort levels when given one.
+  const handleEditAgentOption = (presetId: string, option?: AddableAgentOption) => {
+    handleOpenChange(false);
+    useSettingsDialogStore.getState().openSettings({
+      tab: 'agent',
+      editPresetId: presetId,
+      cardId: option && AGENT_OPTION_CARD_IDS[option],
+    });
   };
 
   const handleSelectBaseBranch = (branch: string, meta: BranchPickerMeta) => {
@@ -1880,15 +1969,39 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setReasoningLevelOverrides((current) => ({ ...current, [presetId]: levelId }));
   };
 
+  const handleModelChange = (presetId: string, modelId: string | null) => {
+    setModelOverrides((current) => ({ ...current, [presetId]: modelId }));
+  };
+
+  // The skill name typed before the caret, for the agent selected now
+  const readSkillQuery = (value: string, caret: number): SkillQuery | null => {
+    const found = skillFamily ? findSkillQuery(value, caret, skillFamily) : null;
+    return found && skillFamily ? { ...found, family: skillFamily } : null;
+  };
+
+  // A caret moved without typing leaves the name it was in, or moves to another one
+  const handlePromptSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    if (!skillQuery) return;
+    const { value, selectionStart } = e.currentTarget;
+    const next = readSkillQuery(value, selectionStart);
+    if (next?.start === skillQuery.start && next.query === skillQuery.query) return;
+    setSkillQuery(next);
+    setHighlightedMenuKey(null);
+    if (!next && slashFilter === null) setSlashMenuOpen(false);
+  };
+
   const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setInitialPromptText(value);
 
-    // Slash command detection: open menu when text starts with "/"
-    if (value.startsWith('/') && !value.includes('\n')) {
-      setSlashFilter(value.slice(1));
-      setSlashMenuIndex(0);
-      setSlashMenuNavigated(false);
+    // Slash command detection: Saved Prompts while the text starts with "/", and skills
+    // while the word at the caret starts with the agent's trigger character
+    const actionFilter = value.startsWith('/') && !value.includes('\n') ? value.slice(1) : null;
+    const nextSkillQuery = readSkillQuery(value, e.target.selectionStart ?? value.length);
+    setSlashFilter(actionFilter);
+    setSkillQuery(nextSkillQuery);
+    if (actionFilter !== null || nextSkillQuery) {
+      setHighlightedMenuKey(null);
       setSlashMenuOpen(true);
     } else {
       setSlashMenuOpen(false);
@@ -1974,40 +2087,85 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     handlePresetChange(presetIds[nextIndex]);
   };
 
-  const handleSlashSelect = (action: (typeof actions)[number]) => {
+  const closePromptMenu = () => {
     setSlashMenuOpen(false);
-    setSlashFilter('');
+    setSlashFilter(null);
+    setSkillQuery(null);
+  };
+
+  // Closes the menu and puts the prompt with the skill in it, caret after the skill or at the end
+  const putSkillInPrompt = (next: { text: string; caret: number }, caretAtEnd = false) => {
+    closePromptMenu();
+    const nextCaret = caretAtEnd ? next.text.length : next.caret;
+    setInitialPromptText(next.text);
+    requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+      promptTextareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const readSkill = (skill: AgentSkill) =>
+    skillFamily
+      ? readSkillText({
+          family: skillFamily,
+          name: skill.name,
+          place: { kind: 'new-workspace', projectId: skillProjectId, hostId: skillHostId },
+        })
+      : Promise.resolve(null);
+
+  // A skill picked from the prompt's menu button starts the prompt, where every agent invokes it
+  const handleSkillPick = (skill: AgentSkill) => {
+    if (skillFamily) {
+      putSkillInPrompt(startPromptWithSkill(initialPromptText, skillFamily, skill.name), true);
+    }
+  };
+
+  const handleSlashSelect = (item: PromptMenuItem) => {
+    if (item.kind === 'skill') {
+      // Read again, as the caret or the agent may have changed since the name was typed
+      const caret = promptTextareaRef.current?.selectionStart ?? initialPromptText.length;
+      const query = readSkillQuery(initialPromptText, caret);
+      if (query) {
+        putSkillInPrompt(
+          insertSkill(initialPromptText, caret, query.start, query.family, item.skill.name)
+        );
+      } else closePromptMenu();
+      return;
+    }
+    closePromptMenu();
     // Use the same flow as action selection from the dropdown
     setInitialPromptText('');
-    void handleActionSelect(action.id);
+    void handleActionSelect(item.action.id);
   };
 
   // Returns true when the key was consumed by the slash menu (caller should stop).
   const handleSlashMenuKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (!slashMenuOpen || slashFilteredActions.length === 0) return false;
+    if (!slashMenuOpen || promptMenuItems.length === 0) return false;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (!slashMenuNavigated) {
-        setSlashMenuNavigated(true);
-        setSlashMenuIndex(0);
-      } else {
-        setSlashMenuIndex((i) => Math.min(i + 1, slashFilteredActions.length - 1));
-      }
+      setSlashMenuIndex(
+        slashMenuNavigated ? Math.min(slashMenuIndex + 1, promptMenuItems.length - 1) : 0
+      );
       return true;
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (!slashMenuNavigated) {
-        setSlashMenuNavigated(true);
-        setSlashMenuIndex(slashFilteredActions.length - 1);
-      } else {
-        setSlashMenuIndex((i) => Math.max(i - 1, 0));
-      }
+      setSlashMenuIndex(
+        slashMenuNavigated ? Math.max(slashMenuIndex - 1, 0) : promptMenuItems.length - 1
+      );
       return true;
     }
     if (e.key === 'Enter' && slashMenuNavigated) {
       e.preventDefault();
-      handleSlashSelect(slashFilteredActions[slashMenuIndex]);
+      handleSlashSelect(promptMenuItems[slashMenuIndex]);
+      return true;
+    }
+    // Tab completes the highlighted skill, or the first one before any is highlighted. It
+    // leaves a Saved Prompt alone, since loading one replaces the prompt.
+    const tabTarget = promptMenuItems[slashMenuNavigated ? slashMenuIndex : 0];
+    if (e.key === 'Tab' && !e.shiftKey && tabTarget.kind === 'skill') {
+      e.preventDefault();
+      handleSlashSelect(tabTarget);
       return true;
     }
     if (e.key === 'Escape') {
@@ -2087,6 +2245,12 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const showAgentLaunchPicker = showPresetPicker || hasAgent;
   const showReasoningLevelPill =
     hasAgent && selectedLaunchTargets.length === 0 && availableReasoningLevels.length > 0;
+  const showAddPicker =
+    hasAgent &&
+    selectedLaunchTargets.length === 0 &&
+    Boolean(selectedPreset && missingPickersOf(selectedPreset).length > 0);
+  const showModelPill =
+    hasAgent && selectedLaunchTargets.length === 0 && availableModels.length > 0;
   const showBranchPicker =
     showContextBar && Boolean(selectedProject) && !selectedProjectIsDirectory && !existingBranch;
   const environmentOptions: DesiredWorkspaceEnvironment[] = [
@@ -2096,6 +2260,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const menuShown: Record<NewWorkspaceMenu, boolean> = {
     agent: showAgentLaunchPicker,
     effort: showReasoningLevelPill,
+    model: showModelPill,
+    addPicker: showAddPicker,
     environment: showContextBar,
     branch: showBranchPicker,
   };
@@ -2371,6 +2537,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                   initialPromptText={initialPromptText}
                   onPromptChange={handlePromptChange}
                   onPromptKeyDown={handlePromptKeyDown}
+                  onPromptSelect={handlePromptSelect}
                   onPromptPaste={handlePromptPaste}
                   attachments={attachments}
                   onRemoveAttachment={(path) =>
@@ -2386,13 +2553,16 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                     window.dispatchEvent(new CustomEvent('open-settings', { detail: 'actions' }));
                   }}
                   slashMenuOpen={slashMenuOpen}
-                  slashFilteredActions={slashFilteredActions}
+                  promptMenuItems={promptMenuItems}
                   slashMenuRef={slashMenuRef}
                   slashMenuIndex={slashMenuIndex}
                   slashMenuNavigated={slashMenuNavigated}
                   setSlashMenuIndex={setSlashMenuIndex}
-                  setSlashMenuNavigated={setSlashMenuNavigated}
                   onSlashSelect={handleSlashSelect}
+                  skills={agentSkills}
+                  skillFamily={skillFamily}
+                  onSkillPick={handleSkillPick}
+                  readSkill={readSkill}
                 />
               )}
               {!hasAgent && !showPresetPicker && (
@@ -2422,10 +2592,13 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
 
               <FooterSection
                 hasAgent={hasAgent}
+                showAddPicker={showAddPicker}
                 launchModeId={effectiveLaunchModeId}
                 selectedPreset={selectedPreset ?? undefined}
                 getReasoningLevelId={getReasoningLevelId}
                 onReasoningLevelChange={handleReasoningLevelChange}
+                getModelId={getModelId}
+                onModelChange={handleModelChange}
                 promptTextareaRef={promptTextareaRef}
                 resolvedActivePresets={resolvedActivePresets}
                 multiLaunchPresets={multiLaunchPresets}
@@ -2436,6 +2609,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                 onLaunchTargetsChange={setSelectedLaunchTargets}
                 canLaunchMultiple={canLaunchMultiple}
                 onManageAgents={handleManageAgents}
+                onEditAgentOption={handleEditAgentOption}
                 onCustomizeShortcuts={handleCustomizeShortcuts}
                 isSubmitting={isSubmitting}
                 launchBlocked={isPushingSourceBranch}
@@ -2623,10 +2797,67 @@ function NoAgentNotice({ onSetUpAgent }: { onSetUpAgent: () => void }) {
   );
 }
 
+/** A menu row's copy button, shown while the row is highlighted. */
+function MenuRowCopy(props: React.ComponentProps<typeof CopyRowButton>) {
+  return (
+    <span className="-my-1 -mr-1 shrink-0 opacity-0 group-data-highlighted:opacity-100 focus-within:opacity-100">
+      <CopyRowButton {...props} />
+    </span>
+  );
+}
+
+/** How all the agents to start with the prompt invoke skills, or null if they don't share one. */
+function commonSkillFamily(presets: (AgentPreset | null | undefined)[]): AgentSkillFamily | null {
+  // An agent that opens without a prompt never reads a skill's invocation
+  const families = new Set(
+    presets.filter((preset) => preset && canStartWithPrompt(preset)).map(skillFamilyForPreset)
+  );
+  return families.size === 1 ? ([...families][0] ?? null) : null;
+}
+
+/** A skill name typed after a trigger character, and the agent it was read for. */
+interface SkillQuery {
+  start: number;
+  query: string;
+  family: AgentSkillFamily;
+}
+
+/** An entry in the prompt's menu: a skill to invoke, or a Saved Prompt to load. */
+type PromptMenuItem =
+  | { kind: 'skill'; key: string; skill: AgentSkill; invocation: string }
+  | { kind: 'action'; key: string; action: Action };
+
+/** The skills matching the typed name, then the Saved Prompts matching the `/` filter. */
+function buildPromptMenuItems(
+  skills: AgentSkill[],
+  family: AgentSkillFamily | null,
+  query: SkillQuery | null,
+  actions: Action[]
+): PromptMenuItem[] {
+  const skillItems =
+    family && query?.family === family
+      ? filterSkills(skills, query.query).map((skill): PromptMenuItem => ({
+          kind: 'skill',
+          key: `skill:${skill.name}`,
+          skill,
+          invocation: skillInvocation(family, skill.name),
+        }))
+      : [];
+  return [
+    ...skillItems,
+    ...actions.map((action): PromptMenuItem => ({
+      kind: 'action',
+      key: `action:${action.id}`,
+      action,
+    })),
+  ];
+}
+
 interface PromptAreaProps {
   initialPromptText: string;
   onPromptChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onPromptKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPromptSelect: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   onPromptPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   attachments: string[];
   onRemoveAttachment: (path: string) => void;
@@ -2637,13 +2868,18 @@ interface PromptAreaProps {
   onActionSelect: (id: string) => void | Promise<void>;
   onOpenActionsSettings: () => void;
   slashMenuOpen: boolean;
-  slashFilteredActions: Action[];
+  promptMenuItems: PromptMenuItem[];
   slashMenuRef: React.RefObject<HTMLDivElement | null>;
   slashMenuIndex: number;
   slashMenuNavigated: boolean;
   setSlashMenuIndex: (i: number) => void;
-  setSlashMenuNavigated: (v: boolean) => void;
-  onSlashSelect: (action: Action) => void;
+  onSlashSelect: (item: PromptMenuItem) => void;
+  /** The skills every agent to start with the prompt can invoke, listed in the menu button */
+  skills: AgentSkill[];
+  skillFamily: AgentSkillFamily | null;
+  onSkillPick: (skill: AgentSkill) => void;
+  /** A skill's instructions, which its row's copy button copies */
+  readSkill: (skill: AgentSkill) => Promise<string | null>;
   /** Off while the project picker heads the composer */
   showLabel: boolean;
   /** The selected agent, when it can't start with a prompt */
@@ -2656,6 +2892,7 @@ function PromptArea({
   initialPromptText,
   onPromptChange,
   onPromptKeyDown,
+  onPromptSelect,
   onPromptPaste,
   attachments,
   onRemoveAttachment,
@@ -2666,15 +2903,22 @@ function PromptArea({
   onActionSelect,
   onOpenActionsSettings,
   slashMenuOpen,
-  slashFilteredActions,
+  promptMenuItems,
   slashMenuRef,
   slashMenuIndex,
   slashMenuNavigated,
   setSlashMenuIndex,
-  setSlashMenuNavigated,
   onSlashSelect,
+  skills,
+  skillFamily,
+  onSkillPick,
+  readSkill,
 }: PromptAreaProps) {
   const promptActions = actions.filter((a) => a.type !== 'command');
+  const sortedSkills = useMemo(
+    () => [...skills].sort((a, b) => a.name.localeCompare(b.name)),
+    [skills]
+  );
   const closeSlashMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -2703,6 +2947,7 @@ function PromptArea({
             value={initialPromptText}
             onChange={onPromptChange}
             onKeyDown={onPromptKeyDown}
+            onSelect={onPromptSelect}
             onPaste={onPromptPaste}
             onBlur={() => {
               // Delay to allow mouseDown on slash menu items to fire first
@@ -2723,7 +2968,7 @@ function PromptArea({
             rows={1}
             autoFocus
           />
-          {promptActions.length > 0 && (
+          {(promptActions.length > 0 || (skillFamily && sortedSkills.length > 0)) && (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <IconButton
@@ -2742,6 +2987,7 @@ function PromptArea({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
+                className="max-h-[min(60vh,420px)] max-w-[min(420px,calc(100vw-2rem))] overflow-y-auto"
                 onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
               >
                 {actionId && (
@@ -2750,18 +2996,55 @@ function PromptArea({
                     <DropdownMenuSeparator />
                   </>
                 )}
-                <DropdownMenuLabel className="flex items-center gap-1.5">
-                  <Sparkle className="size-3" />
-                  Saved Prompts
-                </DropdownMenuLabel>
-                {promptActions.map((a) => (
-                  <DropdownMenuItem key={a.id} onSelect={() => onActionSelect(a.id)}>
-                    <Sparkle />
-                    {a.title}
-                    {a.id === actionId && <Check className="ml-auto" />}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
+                {promptActions.length > 0 && (
+                  <>
+                    <DropdownMenuLabel className="flex items-center gap-1.5">
+                      <Sparkle className="size-3" />
+                      Saved Prompts
+                    </DropdownMenuLabel>
+                    {promptActions.map((a) => (
+                      <DropdownMenuItem
+                        key={a.id}
+                        className="group"
+                        onSelect={() => onActionSelect(a.id)}
+                      >
+                        <Sparkle />
+                        <span className="min-w-0 flex-1 truncate">{a.title}</span>
+                        <MenuRowCopy title={a.title} getText={() => a.content} />
+                        {a.id === actionId && <Check />}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                {skillFamily && sortedSkills.length > 0 && (
+                  <>
+                    <DropdownMenuLabel className="flex items-center gap-1.5">
+                      <PuzzlePiece className="size-3" />
+                      Skills
+                    </DropdownMenuLabel>
+                    {sortedSkills.map((skill) => (
+                      <DropdownMenuItem
+                        key={skill.name}
+                        className="group"
+                        title={skill.description || undefined}
+                        onSelect={() => onSkillPick(skill)}
+                      >
+                        <span className="max-w-[60%] shrink-0 truncate">
+                          {skillInvocation(skillFamily, skill.name)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                          {skill.description}
+                        </span>
+                        <MenuRowCopy
+                          title={skillInvocation(skillFamily, skill.name)}
+                          getText={() => readSkill(skill)}
+                        />
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onSelect={onOpenActionsSettings}
                   className="text-muted-foreground"
@@ -2774,37 +3057,57 @@ function PromptArea({
         </div>
         <PromptAttachmentList attachments={attachments} onRemove={onRemoveAttachment} />
 
-        {slashMenuOpen && slashFilteredActions.length > 0 && (
+        {slashMenuOpen && promptMenuItems.length > 0 && (
           <div
             ref={slashMenuRef}
-            className="floating-surface absolute top-full right-2 left-2 z-50 mt-1 max-h-[200px] overflow-y-auto rounded-md border py-1 shadow-xl"
+            role="listbox"
+            aria-label="Suggestions"
+            className="prompt-suggestions floating-surface absolute top-full right-2 left-2 z-50 mt-1 max-h-[232px] overflow-y-auto rounded-[calc(var(--radius)+2px)] border p-1"
           >
-            {slashFilteredActions.map((a, i) => (
-              <button
-                key={a.id}
-                type="button"
-                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-                  i === slashMenuIndex && slashMenuNavigated
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground hover:bg-muted/50'
-                }`}
-                onMouseEnter={() => {
-                  setSlashMenuIndex(i);
-                  setSlashMenuNavigated(true);
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault(); // keep textarea focused
-                  onSlashSelect(a);
-                }}
-              >
-                <Sparkle className="size-3 shrink-0 text-muted-foreground" />
-                <span className="truncate">{a.title}</span>
-                <span className="ml-auto max-w-[180px] truncate text-2xs text-muted-foreground-60">
-                  {a.content.slice(0, 60)}
-                  {a.content.length > 60 ? '…' : ''}
-                </span>
-              </button>
-            ))}
+            {promptMenuItems.map((item, i) => {
+              const startsSavedPrompts =
+                item.kind === 'action' && promptMenuItems[i - 1]?.kind === 'skill';
+              return (
+                <React.Fragment key={item.key}>
+                  {startsSavedPrompts && <div role="separator" className={menuSeparatorClass} />}
+                  <div
+                    role="option"
+                    aria-selected={i === slashMenuIndex && slashMenuNavigated}
+                    data-menu-index={i}
+                    className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[12px] leading-[17px] font-[450] text-foreground aria-selected:bg-foreground/8"
+                    onMouseEnter={() => {
+                      setSlashMenuIndex(i);
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // keep textarea focused
+                      onSlashSelect(item);
+                    }}
+                  >
+                    {item.kind === 'skill' ? (
+                      <>
+                        <span className="max-w-[60%] shrink-0 truncate">{item.invocation}</span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                          {item.skill.description}
+                        </span>
+                        {item.skill.source === 'project' && (
+                          <span className="shrink-0 text-[11px] text-muted-foreground-60">
+                            Project
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Sparkle className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="max-w-[60%] shrink-0 truncate">{item.action.title}</span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                          {getActionPreview(item.action)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </React.Fragment>
+              );
+            })}
           </div>
         )}
       </div>
@@ -2954,10 +3257,14 @@ function ConfigSection({
 
 interface FooterSectionProps {
   hasAgent: boolean;
+  /** The agent lacks a model or effort picker, so the "+" after the pills offers to add one. */
+  showAddPicker: boolean;
   launchModeId: string | null;
   selectedPreset: AgentPreset | undefined;
   getReasoningLevelId: (presetId: string) => string | null;
   onReasoningLevelChange: (presetId: string, levelId: string | null) => void;
+  getModelId: (presetId: string) => string | null;
+  onModelChange: (presetId: string, modelId: string | null) => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   resolvedActivePresets: AgentPreset[];
   multiLaunchPresets: AgentPreset[];
@@ -2968,6 +3275,7 @@ interface FooterSectionProps {
   onLaunchTargetsChange: (targets: LaunchTarget[]) => void;
   canLaunchMultiple: boolean;
   onManageAgents: () => void;
+  onEditAgentOption: (presetId: string, option?: AddableAgentOption) => void;
   onCustomizeShortcuts: () => void;
   isSubmitting: boolean;
   /** Launch waits, e.g. while the branch it starts from is being pushed. */
@@ -2979,10 +3287,13 @@ interface FooterSectionProps {
 
 function FooterSection({
   hasAgent,
+  showAddPicker,
   launchModeId,
   selectedPreset,
   getReasoningLevelId,
   onReasoningLevelChange,
+  getModelId,
+  onModelChange,
   promptTextareaRef,
   resolvedActivePresets,
   multiLaunchPresets,
@@ -2993,6 +3304,7 @@ function FooterSection({
   onLaunchTargetsChange,
   canLaunchMultiple,
   onManageAgents,
+  onEditAgentOption,
   onCustomizeShortcuts,
   isSubmitting,
   launchBlocked,
@@ -3018,6 +3330,7 @@ function FooterSection({
             onLaunchTargetsChange={onLaunchTargetsChange}
             canLaunchMultiple={canLaunchMultiple}
             onManageAgents={onManageAgents}
+            onEditAgentOption={onEditAgentOption}
             onCustomizeShortcuts={onCustomizeShortcuts}
             promptTextareaRef={promptTextareaRef}
             open={openMenu === 'agent'}
@@ -3029,9 +3342,30 @@ function FooterSection({
             preset={selectedPreset}
             getReasoningLevelId={getReasoningLevelId}
             onReasoningLevelChange={onReasoningLevelChange}
+            onEdit={() => selectedPreset && onEditAgentOption(selectedPreset.id, 'effort')}
             promptTextareaRef={promptTextareaRef}
             open={openMenu === 'effort'}
             onOpenChange={menuOpenChange('effort')}
+          />
+        )}
+        {hasAgent && selectedLaunchTargets.length === 0 && (
+          <ModelPill
+            preset={selectedPreset}
+            getModelId={getModelId}
+            onModelChange={onModelChange}
+            onEdit={() => selectedPreset && onEditAgentOption(selectedPreset.id, 'models')}
+            promptTextareaRef={promptTextareaRef}
+            open={openMenu === 'model'}
+            onOpenChange={menuOpenChange('model')}
+          />
+        )}
+        {showAddPicker && selectedPreset && (
+          <AddPickerButton
+            preset={selectedPreset}
+            onAdd={(option) => onEditAgentOption(selectedPreset.id, option)}
+            promptTextareaRef={promptTextareaRef}
+            open={openMenu === 'addPicker'}
+            onOpenChange={menuOpenChange('addPicker')}
           />
         )}
       </span>
@@ -3057,6 +3391,7 @@ interface ReasoningLevelPillProps {
   preset: AgentPreset | undefined;
   getReasoningLevelId: (presetId: string) => string | null;
   onReasoningLevelChange: (presetId: string, levelId: string | null) => void;
+  onEdit: () => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -3064,14 +3399,62 @@ interface ReasoningLevelPillProps {
 
 const DEFAULT_REASONING_VALUE = '__default__';
 
+// The composer's pills share one quiet look: muted at the agent's default, the text color once
+// something is chosen, and a soft fill while hovered or open.
+const composerPillClass =
+  'inline-flex h-6 items-center gap-1.5 rounded-md px-1.5 text-ui outline-hidden transition-colors hover:bg-foreground/6 focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-foreground/8 data-[state=open]:text-foreground';
+
+function ComposerPillCaret() {
+  return <CaretDown aria-hidden className="-ml-0.5 size-2.5 opacity-50" />;
+}
+
+// Bars for one effort level, filled up to it, as the pill and its menu rows draw it.
+function LevelMeter({
+  count,
+  filled,
+  inPill,
+}: {
+  count: number;
+  filled: number;
+  inPill?: boolean;
+}) {
+  return (
+    <span className="inline-flex items-end gap-[1.5px]" data-reasoning-meter={inPill || undefined}>
+      {Array.from({ length: count }, (_, index) => (
+        <span
+          key={index}
+          aria-hidden
+          className={cn('h-2.5 w-[3px] rounded-[1px] bg-current', index >= filled && 'opacity-25')}
+        />
+      ))}
+    </span>
+  );
+}
+
+const pickerRowClass = 'min-h-7 text-xs';
+
+function PickerMenuEditItem({ title, onEdit }: { title: string; onEdit: () => void }) {
+  return (
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem className={cn(pickerRowClass, 'text-muted-foreground')} onSelect={onEdit}>
+        <PencilSimple className="size-3.5" />
+        Edit {title.toLowerCase()} picker…
+      </DropdownMenuItem>
+    </>
+  );
+}
+
 // Effort pill next to the agent pill. Agents define their own number of
 // levels, and can give the pill another title and icon, such as for a model.
 // At the default level the pill shows only the icon; the title stays in its
-// tooltip and menu. The gauge's bar meter replaces the icon once a level is chosen.
+// tooltip and menu. The gauge's bar meter replaces the icon once a level is chosen,
+// and each of the menu's levels shows its own.
 function ReasoningLevelPill({
   preset,
   getReasoningLevelId,
   onReasoningLevelChange,
+  onEdit,
   promptTextareaRef,
   open,
   onOpenChange,
@@ -3084,6 +3467,9 @@ function ReasoningLevelPill({
   const level = levelIndex >= 0 ? levels[levelIndex] : undefined;
   const picker = levelPickerOf(preset);
   const PickerIcon = LEVEL_PICKER_ICON_COMPONENTS[picker.icon];
+  const isGauge = picker.icon === 'gauge';
+  // The meters line up their names; Default's icon sits in the same slot.
+  const meterWidth = `${Math.max(14, levels.length * 3 + (levels.length - 1) * 1.5)}px`;
 
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
@@ -3093,61 +3479,219 @@ function ReasoningLevelPill({
           aria-label={`${preset.name} ${picker.title}: ${level?.name ?? 'Default'}`}
           title={cycleShortcut ? `${picker.title}, ${cycleShortcut} cycles` : picker.title}
           className={cn(
-            'inline-flex h-6 items-center gap-1 rounded-md px-2 text-ui transition-colors',
-            level
-              ? 'bg-muted font-medium text-foreground hover:bg-muted/80'
-              : 'text-muted-foreground-70 hover:bg-muted/60 hover:text-foreground'
+            composerPillClass,
+            level ? 'font-medium text-foreground' : 'text-muted-foreground-70 hover:text-foreground'
           )}
         >
-          {level && picker.icon === 'gauge' ? (
-            <span className="inline-flex items-end gap-px" data-reasoning-meter>
-              {levels.map((item, index) => (
-                <span
-                  key={item.id}
-                  aria-hidden
-                  className={cn(
-                    'h-2 w-[3px] rounded-[1px] bg-current',
-                    index > levelIndex && 'opacity-30'
-                  )}
-                />
-              ))}
-            </span>
+          {level && isGauge ? (
+            <LevelMeter count={levels.length} filled={levelIndex + 1} inPill />
           ) : (
-            <PickerIcon className="size-3" />
+            <PickerIcon className="size-3.5" />
           )}
           {level?.name}
-          <CaretDown className="size-2.5" />
+          <ComposerPillCaret />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
         collisionPadding={8}
-        className="min-w-36"
+        className="w-max max-w-72 min-w-48"
         onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
       >
-        <DropdownMenuLabel>
-          {preset.name} {picker.title}
-        </DropdownMenuLabel>
+        <DropdownMenuLabel>{picker.title}</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={reasoningLevelId ?? DEFAULT_REASONING_VALUE}
           onValueChange={(value) =>
             onReasoningLevelChange(preset.id, value === DEFAULT_REASONING_VALUE ? null : value)
           }
         >
-          <DropdownMenuRadioItem value={DEFAULT_REASONING_VALUE} className="text-xs">
+          <DropdownMenuRadioItem
+            value={DEFAULT_REASONING_VALUE}
+            indicator="check"
+            className={pickerRowClass}
+          >
+            {isGauge && (
+              <span className="flex shrink-0 text-muted-foreground" style={{ width: meterWidth }}>
+                <PickerIcon className="size-3.5" />
+              </span>
+            )}
             Default
           </DropdownMenuRadioItem>
-          {levels.map((item) => (
+          <DropdownMenuSeparator />
+          {levels.map((item, index) => (
             <DropdownMenuRadioItem
               key={item.id}
               value={item.id}
-              className="text-xs"
+              indicator="check"
+              className={pickerRowClass}
               title={item.arguments}
             >
-              {item.name}
+              {isGauge && (
+                <span
+                  className="flex shrink-0 text-muted-foreground in-data-[state=checked]:text-foreground"
+                  style={{ width: meterWidth }}
+                >
+                  <LevelMeter count={levels.length} filled={index + 1} />
+                </span>
+              )}
+              <span className="truncate">{item.name}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        <PickerMenuEditItem title={picker.title} onEdit={onEdit} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+interface ModelPillProps {
+  preset: AgentPreset | undefined;
+  getModelId: (presetId: string) => string | null;
+  onModelChange: (presetId: string, modelId: string | null) => void;
+  onEdit: () => void;
+  promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+// Model pill beside the effort pill, for agents that define models. At the default model the
+// pill shows only the icon; the model's name joins it once one is chosen.
+function ModelPill({
+  preset,
+  getModelId,
+  onModelChange,
+  onEdit,
+  promptTextareaRef,
+  open,
+  onOpenChange,
+}: ModelPillProps) {
+  const models = preset ? shownModels(preset) : [];
+  if (!preset || models.length === 0) return null;
+  const modelId = getModelId(preset.id);
+  const model = models.find((item) => item.id === modelId);
+  const picker = modelPickerOf(preset);
+  const PickerIcon = LEVEL_PICKER_ICON_COMPONENTS[picker.icon];
+
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${preset.name} ${picker.title}: ${model?.name ?? 'Default'}`}
+          title={picker.title}
+          className={cn(
+            composerPillClass,
+            model ? 'font-medium text-foreground' : 'text-muted-foreground-70 hover:text-foreground'
+          )}
+        >
+          <PickerIcon className="size-3.5" />
+          {model?.name}
+          <ComposerPillCaret />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        collisionPadding={8}
+        className="w-max max-w-72 min-w-48"
+        onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
+      >
+        <DropdownMenuLabel>{picker.title}</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={modelId ?? DEFAULT_REASONING_VALUE}
+          onValueChange={(value) =>
+            onModelChange(preset.id, value === DEFAULT_REASONING_VALUE ? null : value)
+          }
+        >
+          <DropdownMenuRadioItem
+            value={DEFAULT_REASONING_VALUE}
+            indicator="check"
+            className={pickerRowClass}
+          >
+            Default
+          </DropdownMenuRadioItem>
+          <DropdownMenuSeparator />
+          {models.map((item) => (
+            <DropdownMenuRadioItem
+              key={item.id}
+              value={item.id}
+              indicator="check"
+              className={pickerRowClass}
+              title={item.arguments}
+            >
+              <span className="truncate">{item.name}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <PickerMenuEditItem title={picker.title} onEdit={onEdit} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// Each with the icon its pill gets by default.
+const ADD_PICKER_ITEMS = {
+  effort: { label: 'Add effort picker…', icon: LEVEL_PICKER_ICON_COMPONENTS.gauge },
+  models: { label: 'Add model picker…', icon: LEVEL_PICKER_ICON_COMPONENTS.cpu },
+} satisfies Record<AddableAgentOption, { label: string; icon: unknown }>;
+
+interface AddPickerButtonProps {
+  preset: AgentPreset;
+  onAdd: (option: AddableAgentOption) => void;
+  promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+// A quiet "+" after the pills, where a missing model or effort pill would sit, so an agent's
+// pickers can be found before it has them. Gone once the agent has both.
+function AddPickerButton({
+  preset,
+  onAdd,
+  promptTextareaRef,
+  open,
+  onOpenChange,
+}: AddPickerButtonProps) {
+  const missing = missingPickersOf(preset);
+  if (missing.length === 0) return null;
+  const label =
+    missing.length === 2
+      ? 'Add a model or effort picker'
+      : missing[0] === 'models'
+        ? 'Add a model picker'
+        : 'Add an effort picker';
+
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          title={label}
+          className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground-70 opacity-60 outline-hidden transition-colors hover:bg-foreground/6 hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-foreground/8 data-[state=open]:text-foreground data-[state=open]:opacity-100"
+          data-add-picker
+        >
+          <Plus className="size-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        collisionPadding={8}
+        onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
+      >
+        <DropdownMenuLabel>{preset.name}</DropdownMenuLabel>
+        {missing.map((option) => {
+          const { label: itemLabel, icon: ItemIcon } = ADD_PICKER_ITEMS[option];
+          return (
+            <DropdownMenuItem
+              key={option}
+              className="min-h-7 text-xs"
+              onSelect={() => onAdd(option)}
+            >
+              <ItemIcon className="size-3.5" />
+              {itemLabel}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -3164,6 +3708,7 @@ interface AgentLaunchPickerPillProps {
   onLaunchTargetsChange: (targets: LaunchTarget[]) => void;
   canLaunchMultiple: boolean;
   onManageAgents: () => void;
+  onEditAgentOption: (presetId: string, option?: AddableAgentOption) => void;
   onCustomizeShortcuts: () => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   open: boolean;
@@ -3181,6 +3726,7 @@ function AgentLaunchPickerPill({
   onLaunchTargetsChange,
   canLaunchMultiple,
   onManageAgents,
+  onEditAgentOption,
   onCustomizeShortcuts,
   promptTextareaRef,
   open: isPickerOpen,
@@ -3285,10 +3831,11 @@ function AgentLaunchPickerPill({
         <button
           type="button"
           className={cn(
-            'group inline-flex h-6 items-center rounded-md px-2 text-ui transition-colors',
+            composerPillClass,
+            'group gap-0',
             isParallelSelection
-              ? 'gap-1 bg-primary/10 font-medium text-primary hover:bg-primary/15'
-              : 'text-muted-foreground-70 hover:text-muted-foreground'
+              ? 'gap-1 bg-primary/10 font-medium text-primary hover:bg-primary/15 data-[state=open]:bg-primary/15 data-[state=open]:text-primary'
+              : 'text-muted-foreground hover:text-foreground'
           )}
           title={
             isParallelSelection
@@ -3298,7 +3845,7 @@ function AgentLaunchPickerPill({
                     ? 'Click to select agent and launch mode'
                     : hasLaunchModes
                       ? 'Click to select launch mode'
-                      : 'Click to manage agents',
+                      : `Click to edit ${selectedPreset?.name ?? 'the agent'}`,
                   hasMultiplePresets && cycleAgentShortcut && `${cycleAgentShortcut} cycles agents`,
                   launchModeShortcut && `${launchModeShortcut} cycles launch modes`,
                 ]
@@ -3328,7 +3875,7 @@ function AgentLaunchPickerPill({
               )}
             </>
           )}
-          <CaretDown className="ml-1 size-2.5" />
+          <CaretDown aria-hidden className="ml-1 size-2.5 opacity-50" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -3355,7 +3902,8 @@ function AgentLaunchPickerPill({
           onToggleTarget={handleToggleTarget}
           getPreferredLaunchModeId={(preset) => getPreferredLaunchModeId(preset.id)}
           heightPresets={resolvedActivePresets}
-          onManageAgents={isMultiSelectMode ? undefined : onManageAgents}
+          onManageAgents={onManageAgents}
+          onEditAgent={onEditAgentOption}
         />
         {isMultiSelectMode ? (
           <MultiSelectFooter
@@ -3370,13 +3918,13 @@ function AgentLaunchPickerPill({
             <span className="min-w-0 truncate text-2xs text-muted-foreground-70">
               {hasMultiplePresets && cycleAgentShortcut && (
                 <>
-                  <Kbd>{cycleAgentShortcut}</Kbd> cycle agent
+                  <Kbd>{cycleAgentShortcut}</Kbd> agent
                   {launchModeShortcut && ' · '}
                 </>
               )}
               {launchModeShortcut && (
                 <>
-                  <Kbd>{launchModeShortcut}</Kbd> cycle launch mode
+                  <Kbd>{launchModeShortcut}</Kbd> mode
                 </>
               )}
             </span>

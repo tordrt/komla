@@ -88,12 +88,12 @@ describe('AgentLaunchDefaultsDialog', () => {
     render(<AgentLaunchDefaultsDialog />);
     act(() => offerKomlaSkillInstall());
     await user.click(await screen.findByRole('button', { name: 'Show advanced' }));
-    expect(screen.getByRole('switch', { name: 'MCP server' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Komla MCP server' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     act(() => offerKomlaSkillInstall());
     expect(await screen.findByRole('button', { name: 'Show advanced' })).toBeInTheDocument();
-    expect(screen.queryByRole('switch', { name: 'MCP server' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Komla MCP server' })).not.toBeInTheDocument();
   });
 
   it('turns agent launches off and back on, leaving other capabilities alone', async () => {
@@ -166,7 +166,7 @@ describe('AgentLaunchDefaultsDialog', () => {
     expect(useConfigStore.getState().config?.agentDisabledCapabilities).toEqual([
       'workspace.snooze',
     ]);
-    expect(screen.getByRole('switch', { name: 'MCP server' })).toBeChecked();
+    expect(screen.getByRole('switch', { name: 'Komla MCP server' })).toBeChecked();
   });
 
   describe('from Tips', () => {

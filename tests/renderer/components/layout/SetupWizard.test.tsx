@@ -87,7 +87,7 @@ import { useSshHostDialogStore } from '../../../../src/renderer/stores/ssh-host-
 // Leaves the Project step and waits for the agent picker Komla shows when it finds no agents.
 async function toAgentStep(projectButton: 'Create project' | 'Skip project' = 'Skip project') {
   fireEvent.click(screen.getByRole('button', { name: projectButton }));
-  await screen.findByText('Choose Your AI Agent');
+  await screen.findByText('Choose your AI agent');
 }
 
 // Continues from the agent step to the Connect step.
@@ -450,7 +450,7 @@ describe('SetupWizard', () => {
     expect(custom).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('centres Continue without an empty spacer beside it', async () => {
+  it('keeps Continue to the right without an empty spacer beside it', async () => {
     render(<SetupWizard />);
     await toAgentStep('Create project');
 
@@ -517,77 +517,27 @@ describe('SetupWizard', () => {
         'href',
         'https://komla.dev/remote-workspaces#no-machine'
       );
-      expect(screen.getByText(/You connect the agents on it then/)).toBeVisible();
+      expect(screen.getByText(/After setup, Komla connects over your ssh/)).toBeVisible();
       expect(useSshHostDialogStore.getState().open).toBe(false);
       fireEvent.click(screen.getByRole('button', { name: 'Start working' }));
 
       await waitFor(() => expect(onComplete).toHaveBeenCalled());
       expect(useSshHostDialogStore.getState()).toMatchObject({
         open: true,
-        request: { kind: 'add', source: 'onboarding', configHost: undefined },
+        request: { kind: 'add', source: 'onboarding' },
       });
     });
 
-    it('reads ~/.ssh/config only once an SSH machine is picked', async () => {
-      render(<SetupWizard />);
-      await toAgentStep();
-      await toMachineStep();
-      expect(window.api.listSshConfigHosts).not.toHaveBeenCalled();
-
-      fireEvent.click(screen.getByRole('button', { name: /A machine I can SSH into/ }));
-      fireEvent.click(screen.getByRole('button', { name: /This computer/ }));
-      fireEvent.click(screen.getByRole('button', { name: /A machine I can SSH into/ }));
-
-      await waitFor(() => expect(window.api.listSshConfigHosts).toHaveBeenCalledOnce());
-    });
-
-    it('leaves out the ~/.ssh/config hosts Komla already has', async () => {
-      vi.mocked(window.api.listSshConfigHosts).mockResolvedValue([
-        { alias: 'gpu', hostname: '10.0.0.5' },
-        { alias: 'build' },
-      ]);
-      vi.mocked(window.api.listSshHosts).mockResolvedValue([
-        { id: 'ssh-1', name: 'GPU', hostname: '10.0.0.5' },
-      ] as Awaited<ReturnType<typeof window.api.listSshHosts>>);
+    it('leaves ~/.ssh/config to the add-host dialog', async () => {
       render(<SetupWizard />);
       await toAgentStep();
       await toMachineStep();
 
       fireEvent.click(screen.getByRole('button', { name: /A machine I can SSH into/ }));
 
-      const list = await screen.findByRole('list', { name: 'Hosts in ~/.ssh/config' });
-      expect(
-        within(list)
-          .getAllByRole('button')
-          .map((chip) => chip.textContent)
-      ).toEqual(['build']);
-    });
-
-    it('offers the hosts in ~/.ssh/config to start from', async () => {
-      const gpu = { alias: 'gpu', hostname: '10.0.0.5', user: 'devuser' };
-      vi.mocked(window.api.listSshConfigHosts).mockResolvedValue([gpu, { alias: 'build' }]);
-      render(<SetupWizard onComplete={vi.fn()} />);
-      await toAgentStep();
-      await toMachineStep();
+      expect(screen.getByText(/After setup, Komla connects over your ssh/)).toBeVisible();
       expect(screen.queryByRole('list', { name: 'Hosts in ~/.ssh/config' })).toBeNull();
-
-      fireEvent.click(screen.getByRole('button', { name: /A machine I can SSH into/ }));
-      const list = await screen.findByRole('list', { name: 'Hosts in ~/.ssh/config' });
-      fireEvent.click(within(list).getByRole('button', { name: 'build' }));
-      fireEvent.click(within(list).getByRole('button', { name: 'gpu' }));
-      expect(within(list).getByRole('button', { name: 'gpu' })).toHaveAttribute(
-        'aria-pressed',
-        'true'
-      );
-      expect(within(list).getByRole('button', { name: 'build' })).toHaveAttribute(
-        'aria-pressed',
-        'false'
-      );
-      fireEvent.click(screen.getByRole('button', { name: 'Start working' }));
-
-      await waitFor(() =>
-        expect(useSshHostDialogStore.getState().request).toMatchObject({ configHost: gpu })
-      );
+      expect(window.api.listSshConfigHosts).not.toHaveBeenCalled();
     });
   });
 
@@ -601,7 +551,7 @@ describe('SetupWizard', () => {
       expect(stepLabels()).toEqual(['Project', 'Agent', 'Connect', 'Machine']);
       await toFoundAgents();
 
-      expect(screen.queryByText('Choose Your AI Agent')).toBeNull();
+      expect(screen.queryByText('Choose your AI agent')).toBeNull();
       const installed = screen.getByRole('list', { name: 'Installed agents' });
       expect(within(installed).getByRole('checkbox', { name: 'Claude Code' })).toBeChecked();
       expect(within(installed).getByRole('checkbox', { name: 'Cursor CLI' })).toBeChecked();
@@ -610,7 +560,7 @@ describe('SetupWizard', () => {
           .getAllByRole('listitem')
           .map((item) => item.textContent)
       ).toEqual(['Amp']);
-      expect(screen.getByText(/added as a custom agent later in Settings → Agents/)).toBeVisible();
+      expect(screen.getByText(/added as a custom agent in Settings → Agents/)).toBeVisible();
     });
 
     it('adds only the agents left ticked, the first as the default', async () => {
@@ -659,7 +609,7 @@ describe('SetupWizard', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'pick another agent' }));
 
-      expect(await screen.findByText('Choose Your AI Agent')).toBeVisible();
+      expect(await screen.findByText('Choose your AI agent')).toBeVisible();
       expect(screen.queryByText(/Komla didn’t find an agent CLI/)).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: /^Amp/ }));
       await finishSetup();

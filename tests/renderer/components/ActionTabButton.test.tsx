@@ -43,7 +43,7 @@ vi.mock('../../../src/renderer/components/workspaces/SetupActivityPanel', () => 
 
 vi.mock('../../../src/renderer/stores/agent-presets.store', () => ({
   useAgentPresetsStore: (selector: any) =>
-    selector({ presets: [{ id: 'claude', name: 'Claude Code' }] }),
+    selector({ presets: [{ id: 'claude', name: 'Claude Code' }], activePresets: [] }),
 }));
 
 vi.mock('../../../src/renderer/stores/actions.store', () => ({

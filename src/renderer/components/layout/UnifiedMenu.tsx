@@ -1123,7 +1123,7 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
         </Tooltip>
         <DropdownMenuContent
           align="start"
-          className="w-56 max-w-[calc(100vw-1rem)]"
+          className="w-72 max-w-[calc(100vw-1rem)]"
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
           {/* Branch-specific section */}

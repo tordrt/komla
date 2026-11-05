@@ -26,7 +26,7 @@ export function AgentCapabilitiesBlock({
   return (
     <>
       <SettingsRow
-        label="MCP server"
+        label="Komla MCP server"
         description="Let agents connect to Komla over MCP. Turning it off leaves the komla CLI working."
       >
         <Switch

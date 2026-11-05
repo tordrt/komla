@@ -74,7 +74,7 @@ describe('status bar items', () => {
       'file-search',
       'file-viewer',
       'diff-viewer',
-      'notes',
+      'prompt-draft',
       'commit-graph',
     ];
     const DEFAULT_RIGHT = [
@@ -96,11 +96,11 @@ describe('status bar items', () => {
     it("follows the user's order, skipping unknown and repeated items", () => {
       const placement = statusBarPlacement({
         statusBarLeftItems: ['tips', 'future-item', 'git-menu', 'agent:elsewhere'],
-        statusBarRightItems: ['tips', 'notes', 'agents'],
+        statusBarRightItems: ['tips', 'commit-graph', 'agents'],
       });
 
       expect(placement.left.slice(0, 2)).toEqual(['tips', 'git-menu']);
-      expect(placement.right.slice(0, 2)).toEqual(['notes', 'agents']);
+      expect(placement.right.slice(0, 2)).toEqual(['commit-graph', 'agents']);
       expect(placement.left.filter((id) => id === 'tips')).toHaveLength(1);
       expect([...placement.left, ...placement.right]).toHaveLength(
         DEFAULT_LEFT.length + DEFAULT_RIGHT.length
@@ -109,12 +109,13 @@ describe('status bar items', () => {
 
     it('puts an item the user never placed after the one it follows by default', () => {
       const placement = statusBarPlacement({
-        statusBarLeftItems: ['notes', 'git-menu'],
+        statusBarLeftItems: ['diff-viewer', 'git-menu'],
         statusBarRightItems: ['tips', 'agents'],
       });
 
       expect(placement.left).toEqual([
-        'notes',
+        'diff-viewer',
+        'prompt-draft',
         'commit-graph',
         'git-menu',
         'target-branch',
@@ -122,7 +123,6 @@ describe('status bar items', () => {
         'open-in-editor',
         'file-search',
         'file-viewer',
-        'diff-viewer',
       ]);
       expect(placement.right).toEqual([
         'tips',
@@ -142,9 +142,9 @@ describe('status bar items', () => {
         statusBarLeftItems: DEFAULT_LEFT,
         statusBarRightItems: ['tips', ...DEFAULT_RIGHT.slice(0, -1)],
       });
-      expect(statusBarItemMoveUpdate({}, [], 'notes', 'right', 99)).toEqual({
-        statusBarLeftItems: DEFAULT_LEFT.filter((id) => id !== 'notes'),
-        statusBarRightItems: [...DEFAULT_RIGHT, 'notes'],
+      expect(statusBarItemMoveUpdate({}, [], 'diff-viewer', 'right', 99)).toEqual({
+        statusBarLeftItems: DEFAULT_LEFT.filter((id) => id !== 'diff-viewer'),
+        statusBarRightItems: [...DEFAULT_RIGHT, 'diff-viewer'],
       });
     });
 
@@ -163,7 +163,7 @@ describe('status bar items', () => {
         'file-search',
         'file-viewer',
         'diff-viewer',
-        'notes',
+        'prompt-draft',
         'commit-graph',
         'command:deploy',
       ]);

@@ -27,6 +27,7 @@ const mockProjectService = {
 const mockWorkspaceService = {
   propagateProjectBaseBranch: vi.fn(),
   assignSshWorkspaceProjects: vi.fn().mockResolvedValue(undefined),
+  get: vi.fn(),
 };
 
 const mockAgentPresetService = {
@@ -75,6 +76,11 @@ vi.mock('../../../../src/main/services/workspace-file.service', () => ({
 
 vi.mock('../../../../src/main/services/agent-preset.service', () => ({
   agentPresetService: mockAgentPresetService,
+}));
+
+const mockListAgentSkills = vi.fn().mockResolvedValue([]);
+vi.mock('../../../../src/main/services/agent-skills.service', () => ({
+  listAgentSkills: mockListAgentSkills,
 }));
 
 vi.mock('../../../../src/main/services/agent-detection.service', () => ({
@@ -164,6 +170,97 @@ describe('project IPC validation', () => {
     });
     expect(mockSshProjectSync.importFromHost).toHaveBeenCalledTimes(1);
     expect(mockSshProjectSync.listOnHost).not.toHaveBeenCalled();
+  });
+
+  it('project:list-agent-skills takes a known agent, and a new workspace or a workspace', async () => {
+    const { registerProjectHandlers } =
+      await import('../../../../src/main/ipc/handlers/project.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+
+    registerProjectHandlers();
+
+    const newWorkspace = { kind: 'new-workspace', projectId: null, hostId: null };
+    for (const args of [
+      ['gemini', newWorkspace],
+      ['claude', { ...newWorkspace, projectId: '' }],
+      ['claude', { ...newWorkspace, hostId: 42 }],
+      ['claude', { kind: 'new-workspace', projectId: null }],
+      ['claude', { kind: 'workspace', workspaceId: 'w1', path: '/etc' }],
+      ['claude', 'p1', null],
+    ]) {
+      await expect(ipcMain._invoke('project:list-agent-skills', ...args)).rejects.toMatchObject({
+        code: 'IPC_VALIDATION_ERROR',
+      });
+    }
+    expect(mockListAgentSkills).not.toHaveBeenCalled();
+
+    mockProjectService.get.mockReturnValue({ repositoryPath: '/repos/app', managed: false });
+    await ipcMain._invoke('project:list-agent-skills', 'claude', {
+      kind: 'new-workspace',
+      projectId: 'p1',
+      hostId: 'host-1',
+    });
+    // A new workspace's project skills are read from this computer's clone
+    expect(mockListAgentSkills).toHaveBeenLastCalledWith('claude', {
+      hostId: 'host-1',
+      projectDir: '/repos/app',
+      projectDirOnHost: false,
+    });
+
+    mockProjectService.get.mockReturnValue({
+      repositoryPath: '/komla/repos/app',
+      managed: true,
+      managedRepoPath: '/komla/repos/app/.git',
+      baseBranch: 'develop',
+    });
+    await ipcMain._invoke('project:list-agent-skills', 'claude', {
+      kind: 'new-workspace',
+      projectId: 'p1',
+      hostId: null,
+    });
+    // A managed project's clone is bare: its skills are the ones committed on its base branch
+    expect(mockListAgentSkills).toHaveBeenLastCalledWith('claude', {
+      hostId: null,
+      projectDir: '/komla/repos/app/.git',
+      projectDirOnHost: false,
+      projectBranch: 'develop',
+    });
+  });
+
+  it("project:list-agent-skills reads a workspace's skills in its own folder", async () => {
+    const { registerProjectHandlers } =
+      await import('../../../../src/main/ipc/handlers/project.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+    registerProjectHandlers();
+
+    mockWorkspaceService.get.mockReturnValueOnce({
+      workingDirectory: '/remote/feature',
+      backend: { kind: 'ssh', hostId: 'host-1', remoteDirectory: '/remote/feature' },
+    });
+    await ipcMain._invoke('project:list-agent-skills', 'codex', {
+      kind: 'workspace',
+      workspaceId: 'w1',
+    });
+    expect(mockListAgentSkills).toHaveBeenLastCalledWith('codex', {
+      hostId: 'host-1',
+      projectDir: '/remote/feature',
+      projectDirOnHost: true,
+    });
+
+    mockWorkspaceService.get.mockReturnValueOnce({ workingDirectory: '/worktrees/feature' });
+    await ipcMain._invoke('project:list-agent-skills', 'codex', {
+      kind: 'workspace',
+      workspaceId: 'w2',
+    });
+    expect(mockListAgentSkills).toHaveBeenLastCalledWith('codex', {
+      hostId: null,
+      projectDir: '/worktrees/feature',
+      projectDirOnHost: false,
+    });
   });
 
   it('project:get rejects empty id', async () => {
@@ -275,9 +372,9 @@ describe('project IPC validation', () => {
 
     registerProjectHandlers();
 
-    await expect(ipcMain._invoke('project:choose-icon-file', '/etc/passwd')).rejects.toMatchObject(
-      { code: 'IPC_VALIDATION_ERROR' }
-    );
+    await expect(ipcMain._invoke('project:choose-icon-file', '/etc/passwd')).rejects.toMatchObject({
+      code: 'IPC_VALIDATION_ERROR',
+    });
   });
 
   it('project:update accepts unconfigured aheadTargetAction', async () => {

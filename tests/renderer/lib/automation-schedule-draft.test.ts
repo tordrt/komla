@@ -5,6 +5,7 @@ import {
   describeSchedule,
   draftToCron,
   formatRunTime,
+  formatRunTimes,
   type ScheduleDraft,
 } from '../../../src/renderer/lib/automation-schedule-draft';
 
@@ -65,5 +66,29 @@ describe('automation schedule drafts', () => {
     expect(formatRunTime(Date.parse('2026-10-20T09:00:00Z'), 'UTC', now)).toBe(
       'Tue, Oct 20, 09:00'
     );
+  });
+});
+
+describe('formatRunTimes', () => {
+  const now = Date.parse('2026-10-15T12:00:00Z');
+
+  it('names a shared time of day once', () => {
+    expect(
+      formatRunTimes(
+        [Date.parse('2026-10-16T09:00:00Z'), Date.parse('2026-10-19T09:00:00Z')],
+        'UTC',
+        now
+      )
+    ).toBe('at 09:00: Tomorrow · Mon, Oct 19');
+  });
+
+  it('gives each run its own time when they differ', () => {
+    expect(
+      formatRunTimes(
+        [Date.parse('2026-10-15T21:00:00Z'), Date.parse('2026-10-16T09:00:00Z')],
+        'UTC',
+        now
+      )
+    ).toBe('Today 21:00 · Tomorrow 09:00');
   });
 });

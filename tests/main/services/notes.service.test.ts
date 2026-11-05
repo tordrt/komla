@@ -79,6 +79,17 @@ describe('NotesService', () => {
     expect(readFileSync(notePath(note.name), 'utf-8')).toBe('');
   });
 
+  it('makes a new note holding the text it starts with, leaving the blank one be', async () => {
+    const blank = await service.create(SCOPE);
+    now = new Date(2026, 9, 15, 15, 0, 0);
+    const note = await service.create(SCOPE, 'Plan for the login fix\n');
+
+    expect(note.name).not.toBe(blank.name);
+    expect(note.title).toBe('Plan for the login fix');
+    expect(readFileSync(notePath(note.name), 'utf-8')).toBe('Plan for the login fix\n');
+    expect(readFileSync(notePath(blank.name), 'utf-8')).toBe('');
+  });
+
   it('reuses the blank note rather than piling up empty ones', async () => {
     const first = await service.create(SCOPE);
     now = new Date(2026, 9, 15, 15, 0, 0);

@@ -37,6 +37,7 @@ import {
   createWorkspace,
 } from '../../factories';
 
+import type { SkillAction } from '../../../src/renderer/lib/action-menu-order';
 import type { Action, Terminal, Workspace } from '../../../src/renderer/types';
 
 const runTests: Action = {
@@ -614,6 +615,27 @@ describe('launchAction', () => {
         'codex',
         { keepWorkspaceAgent: true }
       );
+    });
+
+    it("starts a skill's agent with its name, keeping no default and recording no usage", async () => {
+      seed({ presetId: 'claude-code' });
+      const skill: SkillAction = {
+        id: 'skill:codex:review',
+        title: '$review',
+        content: '$review',
+        type: 'prompt',
+        presetId: 'codex',
+        skill: { family: 'codex', description: 'Reviews', source: 'project' },
+      };
+
+      await expect(launch(skill, { kind: 'tab' })).resolves.toBe('launched');
+
+      expect(api.addAgentTab).toHaveBeenCalledWith('ws-1', '$review', undefined, 'codex', {
+        keepWorkspaceAgent: true,
+      });
+      // It isn't saved, so the run button keeps repeating a saved Action.
+      expect(workspace().defaultActionId).toBeUndefined();
+      expect(api.recordActionUsage).not.toHaveBeenCalled();
     });
 
     it('fills in the tokens of a Terminal Command, asking for its input first', async () => {

@@ -109,6 +109,7 @@ export type PersistedWorkspace = {
   presetId?: string | null;
   launchModeId?: string | null;
   reasoningLevelId?: string | null;
+  modelId?: string | null;
   linkedWorkspaceIds?: string[];
   browserPanes?: WorkspaceBrowserPane[];
   recentLinks?: WorkspaceRecentLink[];
@@ -495,6 +496,7 @@ export function serializeWorkspace(
     presetId: w.presetId,
     launchModeId: w.launchModeId,
     reasoningLevelId: w.reasoningLevelId || undefined,
+    modelId: w.modelId || undefined,
     linkedWorkspaceIds:
       w.linkedWorkspaceIds && w.linkedWorkspaceIds.length > 0 ? w.linkedWorkspaceIds : undefined,
     browserPanes: w.browserPanes && w.browserPanes.length > 0 ? w.browserPanes : undefined,

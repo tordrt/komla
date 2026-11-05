@@ -1,4 +1,4 @@
-import { Play, Sparkle } from '@phosphor-icons/react';
+import { Play, PuzzlePiece, Sparkle } from '@phosphor-icons/react';
 
 import { ActionRunMenuList, keepEscapeForActionSearch } from '@/components/actions/ActionRunList';
 import { MENU_PARTS } from '@/components/ui/menu-parts';
@@ -14,12 +14,17 @@ interface QuickCommandMenuItemProps {
   presets: AgentPreset[];
   /** Says what the row does with its Action, where the menu around it doesn't. */
   hint?: string;
-  /** Greys out the row and its list, leaving New quick command when there is no Action yet. */
+  /**
+   * Greys out the row and its list, leaving New quick command when there is no Action or skill
+   * yet.
+   */
   disabled?: boolean;
   /** Runs an Action, which makes it this place's default. */
   onRun: (action: Action) => void;
   onNew: () => void;
   onManage: () => void;
+  /** The tabs its list can show (see ActionRunList). */
+  types?: readonly ActionMenuGroup['type'][];
 }
 
 /**
@@ -37,16 +42,48 @@ export function QuickCommandMenuItem({
   onRun,
   onNew,
   onManage,
+  types,
 }: QuickCommandMenuItemProps) {
   const { Item, Shortcut, Sub, SubContent, SubTrigger } = MENU_PARTS[menuType];
   const defaultAction = getDefaultAction(groups, defaultActionId);
 
+  const list = (
+    <SubContent className="w-80 p-0" onEscapeKeyDown={keepEscapeForActionSearch}>
+      <ActionRunMenuList
+        groups={groups}
+        presets={presets}
+        initialActiveId={defaultAction?.id ?? null}
+        onRun={onRun}
+        onNew={onNew}
+        onManage={onManage}
+        types={types}
+      />
+    </SubContent>
+  );
+
   if (!defaultAction) {
+    // Skills, which the row doesn't repeat, are listed before there's an Action to repeat.
+    const hasSkills = groups.some(
+      (group) =>
+        group.type === 'skill' && group.actions.length > 0 && (!types || types.includes('skill'))
+    );
+    if (!hasSkills) {
+      return (
+        <Item onSelect={onNew}>
+          <Play weight="fill" />
+          New quick command
+        </Item>
+      );
+    }
     return (
-      <Item onSelect={onNew}>
-        <Play weight="fill" />
-        New quick command
-      </Item>
+      <Sub>
+        <SubTrigger disabled={disabled}>
+          <PuzzlePiece />
+          <span className="flex-1 truncate">Skills</span>
+          {hint && <Shortcut>{hint}</Shortcut>}
+        </SubTrigger>
+        {list}
+      </Sub>
     );
   }
 
@@ -64,16 +101,7 @@ export function QuickCommandMenuItem({
           className="ml-0.5 flex-none px-1.5"
         />
       </div>
-      <SubContent className="w-80 p-0" onEscapeKeyDown={keepEscapeForActionSearch}>
-        <ActionRunMenuList
-          groups={groups}
-          presets={presets}
-          initialActiveId={defaultAction.id}
-          onRun={onRun}
-          onNew={onNew}
-          onManage={onManage}
-        />
-      </SubContent>
+      {list}
     </Sub>
   );
 }

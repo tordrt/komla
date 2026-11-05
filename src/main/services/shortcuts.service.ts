@@ -115,6 +115,8 @@ const DEFAULT_SHORTCUTS: ShortcutsConfig = {
     'inline.file.tree': 'Cmd+B',
     // As in Orca. Not Cmd+Shift+N, which opens a new window.
     'note.new': 'Cmd+Shift+M',
+    // Not a key Monaco takes with Cmd+Shift, so it works from a file's editor too.
+    'promptDraft.toggle': 'Cmd+Shift+Y',
     'tab.next': 'Cmd+]',
     'tab.previous': 'Cmd+[',
     'terminal.scrollToBottom': 'Cmd+Shift+ArrowDown',

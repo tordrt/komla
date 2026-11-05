@@ -269,7 +269,7 @@ export function RemoteAgentIntegrationsPanel({
         </IntegrationGroup>
         <CollapsibleIntegrationGroup
           icon={<Plugs />}
-          title="MCP server"
+          title="MCP"
           description={
             <>
               {MCP_DESCRIPTION}{' '}

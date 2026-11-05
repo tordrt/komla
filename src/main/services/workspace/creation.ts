@@ -42,6 +42,7 @@ import {
   resolveLaunchModeId,
   resolvePreset,
   resolveReasoningLevelId,
+  resolveModelId,
 } from './agent-launch';
 import { workspaceStore } from './store';
 import {
@@ -366,6 +367,7 @@ export class WorkspaceCreation {
     workspace.presetId = activePreset?.id ?? null;
     workspace.launchModeId = resolveLaunchModeId(activePreset, params.launchModeId);
     workspace.reasoningLevelId = resolveReasoningLevelId(activePreset, params.reasoningLevelId);
+    workspace.modelId = resolveModelId(activePreset, params.modelId);
     if (prepareCreatedSshWorkspace) {
       await prepareCreatedSshWorkspace(workspace);
     }
@@ -379,7 +381,8 @@ export class WorkspaceCreation {
       agentPresetService.recordPresetUsage?.(
         activePreset.id,
         params.launchModeId,
-        params.reasoningLevelId
+        params.reasoningLevelId,
+        params.modelId
       );
     }
 
@@ -548,6 +551,7 @@ export class WorkspaceCreation {
             presetId: placeholderPreset.id,
             launchModeId: resolveLaunchModeId(placeholderPreset, params.launchModeId),
             reasoningLevelId: resolveReasoningLevelId(placeholderPreset, params.reasoningLevelId),
+            modelId: resolveModelId(placeholderPreset, params.modelId),
           }
         : {}),
       provisioning: true,
@@ -681,6 +685,7 @@ export class WorkspaceCreation {
             presetId: placeholderPreset.id,
             launchModeId: resolveLaunchModeId(placeholderPreset, params.launchModeId),
             reasoningLevelId: resolveReasoningLevelId(placeholderPreset, params.reasoningLevelId),
+            modelId: resolveModelId(placeholderPreset, params.modelId),
           }
         : {}),
       provisioning: true,

@@ -34,6 +34,7 @@ const FORWARDED_ACTIONS = new Set([
   'tab.newAgent',
   'commandCenter.open',
   'note.new',
+  'promptDraft.toggle',
 ]);
 
 /**

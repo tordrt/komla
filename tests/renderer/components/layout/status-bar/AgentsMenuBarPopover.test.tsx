@@ -92,7 +92,8 @@ describe('AgentsMenuBarPopover', () => {
     expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument();
     const rows = within(screen.getByRole('list', { name: 'Agents' })).getAllByRole('listitem');
     expect(rows.map((row) => row.textContent)).toEqual([
-      'Needs input:waiting5mkomla/push-fix',
+      // What the agent asked, under its workspace's place.
+      'Needs input:waiting5mkomla/push-fixAllow git push?',
       'Working:busy',
     ]);
     expect(api.resizeAgentsMenuBar).toHaveBeenCalled();
@@ -119,9 +120,10 @@ describe('AgentsMenuBarPopover', () => {
       render(<AgentsMenuBarPopover />);
       act(() => sendState(state({ workspaces: [working, finished] })));
 
-      const [finishedRow, workingRow] = within(
-        screen.getByRole('list', { name: 'Agents' })
-      ).getAllByRole('button');
+      // Leaving out the Done group's Clear done.
+      const [finishedRow, workingRow] = within(screen.getByRole('list', { name: 'Agents' }))
+        .getAllByRole('button')
+        .filter((button) => button.textContent !== 'Clear done');
       // A stopwatch stands before the time an agent has worked.
       expect(within(finishedRow).getByText('5m').querySelector('svg')).toBeNull();
       expect(within(workingRow).getByText('7m').querySelector('svg')).not.toBeNull();
@@ -133,6 +135,22 @@ describe('AgentsMenuBarPopover', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('offers Clear done while a done agent sits in a workspace that needs the user', () => {
+    const mixed = createWorkspace({
+      name: 'mixed',
+      terminals: [
+        createTerminal({ id: 'asks', status: 'running', attention: attention('input-required') }),
+        createTerminal({ id: 'done', status: 'running', attention: attention('turn-complete') }),
+      ],
+    });
+    render(<AgentsMenuBarPopover />);
+    act(() => sendState(state({ workspaces: [mixed, busy] })));
+
+    // No Done group heads the finished agent, so the button sits under the list and counts it.
+    expect(screen.queryByText('Done')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Clear 1 done' })).toBeInTheDocument();
   });
 
   it("opens an agent's pane through main", async () => {

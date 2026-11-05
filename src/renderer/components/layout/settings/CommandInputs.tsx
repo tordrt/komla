@@ -22,25 +22,37 @@ import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useNewWorkspaceShortcutLabel } from '@/lib/agent-dialog-shortcuts';
+import { AGENT_OPTION_CARD_IDS } from '@/lib/agent-option-cards';
 import {
   getLaunchModeColor,
   LAUNCH_MODE_COLORS,
   LAUNCH_MODE_DOT_CLASSES,
 } from '@/lib/launch-mode-colors';
 import { LEVEL_PICKER_ICON_COMPONENTS } from '@/lib/level-picker-icons';
+import { cn } from '@/lib/utils';
 
 import { agentLaunchPolicy } from '../../../../shared/lib/launch-mode-permissions';
-import { DEFAULT_LEVEL_PICKER_TITLE, levelPickerOf } from '../../../../shared/lib/level-picker';
+import {
+  DEFAULT_LEVEL_PICKER_TITLE,
+  DEFAULT_MODEL_PICKER_TITLE,
+  levelPickerOf,
+  modelPickerOf,
+} from '../../../../shared/lib/level-picker';
 import {
   LEVEL_PICKER_ICONS,
   MAX_LEVEL_PICKER_TITLE_LENGTH,
   MAX_REASONING_LEVEL_NAME_LENGTH,
   MAX_REASONING_LEVELS,
+  MAX_MODEL_OPTIONS,
   type AgentLaunchPolicy,
   type LaunchMode,
+  type LevelPickerIcon,
   type ReasoningLevel,
+  type ModelOption,
   type LevelPicker,
 } from '../../../../shared/types/agent-preset';
+
+import type { ReactNode } from 'react';
 
 interface CommandInputsProps {
   openCommand: string;
@@ -56,6 +68,12 @@ interface CommandInputsProps {
   /** The level picker's title, icon and visibility; left out, they aren't editable here. */
   levelPicker?: LevelPicker;
   onLevelPickerChange?: (picker: LevelPicker) => void;
+  /** The models the new workspace dialog offers; left out, they aren't editable here. */
+  models?: ModelOption[];
+  onModelsChange?: (models: ModelOption[]) => void;
+  /** The model picker's title, icon and visibility. */
+  modelPicker?: LevelPicker;
+  onModelPickerChange?: (picker: LevelPicker) => void;
   /** If true, always show inputs. If false, show as collapsible "Advanced" section */
   alwaysExpanded?: boolean;
   /** Show example placeholders for launch mode inputs (useful for Custom preset) */
@@ -70,55 +88,65 @@ type DropTarget = { id: string; position: 'before' | 'after' };
 // default.
 function LevelPickerLook({
   picker,
+  icon,
+  defaultTitle,
+  titleLabel = 'Picker title',
   onChange,
 }: {
   picker: LevelPicker;
+  /** The icon shown: the picker's own, else the default for this kind of picker. */
+  icon: LevelPickerIcon;
+  defaultTitle: string;
+  titleLabel?: string;
   onChange: (picker: LevelPicker) => void;
 }) {
-  const { icon } = levelPickerOf({ levelPicker: picker });
   const PickerIcon = LEVEL_PICKER_ICON_COMPONENTS[icon];
   return (
-    <div className="flex items-center gap-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="size-8 shrink-0 p-0"
-            title={`Icon: ${icon}`}
-            aria-label={`Icon: ${icon}`}
-          >
-            <PickerIcon className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="grid grid-cols-6 gap-1 p-2">
-          {LEVEL_PICKER_ICONS.map((name) => {
-            const Option = LEVEL_PICKER_ICON_COMPONENTS[name];
-            return (
-              <button
-                key={name}
-                type="button"
-                aria-label={name}
-                aria-pressed={name === icon}
-                title={name}
-                className={`flex size-7 items-center justify-center rounded transition-colors hover:bg-muted ${name === icon ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
-                onClick={() => onChange({ ...picker, icon: name })}
-              >
-                <Option className="size-4" />
-              </button>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <Input
-        value={picker.title ?? ''}
-        onChange={(e) => onChange({ ...picker, title: e.target.value })}
-        placeholder={DEFAULT_LEVEL_PICKER_TITLE}
-        aria-label="Picker title"
-        maxLength={MAX_LEVEL_PICKER_TITLE_LENGTH}
-        className="flex-1"
-      />
+    <div className="grid gap-1.5">
+      {/* Names what the two controls set: the pill's look in the new workspace dialog. */}
+      <span className="text-xs text-muted-foreground">Pill icon and label</span>
+      <div className="flex items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="size-9 shrink-0 p-0"
+              title={`Icon: ${icon}`}
+              aria-label={`Icon: ${icon}`}
+            >
+              <PickerIcon className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="grid grid-cols-6 gap-1 p-2">
+            {LEVEL_PICKER_ICONS.map((name) => {
+              const Option = LEVEL_PICKER_ICON_COMPONENTS[name];
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  aria-label={name}
+                  aria-pressed={name === icon}
+                  title={name}
+                  className={`flex size-7 items-center justify-center rounded transition-colors hover:bg-muted ${name === icon ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
+                  onClick={() => onChange({ ...picker, icon: name })}
+                >
+                  <Option className="size-4" />
+                </button>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Input
+          value={picker.title ?? ''}
+          onChange={(e) => onChange({ ...picker, title: e.target.value })}
+          placeholder={defaultTitle}
+          aria-label={titleLabel}
+          maxLength={MAX_LEVEL_PICKER_TITLE_LENGTH}
+          className="h-9 flex-1"
+        />
+      </div>
     </div>
   );
 }
@@ -264,9 +292,9 @@ function AgentLaunchMenu({
       <DropdownMenuTrigger asChild>
         <IconButton label={current.status} size="md">
           {policy === 'always' ? (
-            <Robot className="size-4 text-foreground" weight="fill" />
+            <Robot className="size-4" />
           ) : policy === 'isolated' ? (
-            <ShieldCheck className="size-4 text-foreground" weight="fill" />
+            <ShieldCheck className="size-4" />
           ) : (
             <RobotSlash className="size-4 text-error" />
           )}
@@ -289,6 +317,38 @@ function AgentLaunchMenu({
   );
 }
 
+const NO_MODELS: ModelOption[] = [];
+const IGNORE_MODELS = () => {};
+
+// Names the two inputs of a level or model row, lined up with them.
+function RowColumnHeaders({
+  nameLabel,
+  leading = 1,
+  trailing = 1,
+}: {
+  nameLabel: string;
+  /** The small controls before the name, such as the drag grip and a color dot. */
+  leading?: number;
+  /** The buttons after the arguments. */
+  trailing?: number;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-hidden>
+      {Array.from({ length: leading }, (_, index) => (
+        <span key={`lead-${index}`} className="size-4 shrink-0" />
+      ))}
+      <span className="flex-[2]">{nameLabel}</span>
+      <span className="flex-[3]">Arguments</span>
+      {Array.from({ length: trailing }, (_, index) => (
+        <span key={`trail-${index}`} className="size-8 shrink-0" />
+      ))}
+    </div>
+  );
+}
+
+/** Each group after the commands starts under a hairline, so the groups read apart. */
+const SECTION_CLASS = 'border-t border-border/50 pt-5';
+
 export function CommandInputs({
   openCommand,
   continueCommand,
@@ -302,14 +362,20 @@ export function CommandInputs({
   onReasoningLevelsChange,
   levelPicker,
   onLevelPickerChange,
+  models,
+  onModelsChange,
+  modelPicker,
+  onModelPickerChange,
   alwaysExpanded = false,
   showExamplePlaceholders = false,
   pinnedLaunchModeId,
 }: CommandInputsProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const fieldId = useId();
   const cycleLaunchModeShortcut = useNewWorkspaceShortcutLabel('cycleLaunchMode');
   const modeReorder = useRowReorder(launchModes, onLaunchModesChange);
   const levelReorder = useRowReorder(reasoningLevels, onReasoningLevelsChange);
+  const modelReorder = useRowReorder(models ?? NO_MODELS, onModelsChange ?? IGNORE_MODELS);
 
   const handleAddMode = () => {
     onLaunchModesChange([...launchModes, { id: crypto.randomUUID(), name: '', arguments: '' }]);
@@ -332,7 +398,11 @@ export function CommandInputs({
   const handleAddLevel = () => {
     onReasoningLevelsChange([
       ...reasoningLevels,
-      { id: crypto.randomUUID(), name: '', arguments: '' },
+      {
+        id: crypto.randomUUID(),
+        name: '',
+        arguments: '',
+      },
     ]);
   };
 
@@ -346,52 +416,82 @@ export function CommandInputs({
     );
   };
 
+  const handleUpdateModel = (id: string, field: 'name' | 'arguments', value: string) => {
+    onModelsChange?.((models ?? []).map((m) => (m.id === id ? { ...m, [field]: value } : m)));
+  };
+
+  const commandField = (
+    key: string,
+    label: string,
+    value: string,
+    onChange: (value: string) => void,
+    placeholder: string,
+    help: ReactNode
+  ) => (
+    <div className="grid gap-1.5">
+      <label htmlFor={`${fieldId}-${key}`} className="text-[13px] font-medium">
+        {label}
+      </label>
+      <Input
+        id={`${fieldId}-${key}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        spellCheck={false}
+        className="h-9 font-mono text-[13px]"
+      />
+      <p className="text-xs text-muted-foreground">{help}</p>
+    </div>
+  );
+
   const inputs = (
     <>
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Open Command</label>
-        <Input
-          value={openCommand}
-          onChange={(e) => onOpenCommandChange(e.target.value)}
-          placeholder="e.g., claude {{launchMode}}"
-        />
-        <p className="text-xs text-muted-foreground">Command to start a new session</p>
+      <div className="grid gap-4">
+        {commandField(
+          'open',
+          'Open command',
+          openCommand,
+          onOpenCommandChange,
+          'e.g., claude {{launchMode}}',
+          'Starts a new session.'
+        )}
+        {commandField(
+          'continue',
+          'Continue command',
+          continueCommand,
+          onContinueCommandChange,
+          'e.g., claude --resume {{launchMode}}',
+          'Resumes, or picks, an existing session in this worktree.'
+        )}
+        {commandField(
+          'prompt',
+          'Prompt command',
+          promptCommand,
+          onPromptCommandChange,
+          'e.g., claude {{launchMode}} {{prompt}}',
+          <>
+            Starts with an initial prompt, placed at{' '}
+            <code className="font-mono">{'{{prompt}}'}</code>.
+          </>
+        )}
       </div>
 
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Continue Command</label>
-        <Input
-          value={continueCommand}
-          onChange={(e) => onContinueCommandChange(e.target.value)}
-          placeholder="e.g., claude --resume {{launchMode}}"
-        />
-        <p className="text-xs text-muted-foreground">
-          Command to resume or choose an existing session in this worktree
-        </p>
-      </div>
-
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Prompt Command</label>
-        <Input
-          value={promptCommand}
-          onChange={(e) => onPromptCommandChange(e.target.value)}
-          placeholder="e.g., claude {{launchMode}} {{prompt}}"
-        />
-        <p className="text-xs text-muted-foreground">
-          Command to start with an initial prompt. Use {'{{prompt}}'} to place it
-        </p>
-      </div>
-
-      <div className="grid gap-2">
-        <label className="text-sm font-medium">Launch Modes</label>
-        <p className="text-xs text-muted-foreground">
-          Reusable arguments applied when opening, prompting, or continuing an agent
+      <div
+        id={AGENT_OPTION_CARD_IDS.launchModes}
+        className={cn('grid scroll-mt-4 gap-2', SECTION_CLASS)}
+      >
+        <h3 className="text-sm font-semibold">Launch modes</h3>
+        <p className="-mt-1 text-xs leading-relaxed text-pretty text-muted-foreground">
+          Arguments to switch between when starting the agent
           {cycleLaunchModeShortcut &&
-            ` (cycle with ${cycleLaunchModeShortcut} in the new workspace dialog)`}
-          . Use {'{{launchMode}}'} in a command to control their position; otherwise they are
-          appended. The robot button sets where agents can start a mode in new tabs and workspaces;
-          modes that skip permission prompts start out allowed only on an SSH host marked isolated.
+            `, with ${cycleLaunchModeShortcut} in the new workspace dialog`}
+          . They go at <code className="font-mono">{'{{launchMode}}'}</code>, or at the end. The
+          button before the × sets where agents may start that mode; ones that skip permission
+          prompts start out limited to SSH hosts marked isolated.
         </p>
+        {launchModes.length > 0 && (
+          <RowColumnHeaders nameLabel="Mode name" leading={2} trailing={2} />
+        )}
         {launchModes.map((mode, index) => {
           const currentColor = getLaunchModeColor(mode.color, index);
           const exampleNames = ['e.g., Plan', 'e.g., Accept edits', 'e.g., Full auto'];
@@ -432,7 +532,7 @@ export function CommandInputs({
                 value={mode.name}
                 onChange={(e) => handleUpdateMode(mode.id, 'name', e.target.value)}
                 placeholder={showExamplePlaceholders ? exampleNames[index] || 'Name' : 'Name'}
-                className="flex-[2]"
+                className="h-9 flex-[2]"
               />
               <Input
                 value={mode.arguments ?? ''}
@@ -440,9 +540,12 @@ export function CommandInputs({
                 placeholder={
                   showExamplePlaceholders
                     ? exampleArguments[index] || 'e.g., --permission-mode plan'
-                    : 'e.g., --permission-mode plan'
+                    : index === 0
+                      ? 'e.g., --permission-mode plan'
+                      : undefined
                 }
-                className="flex-[3]"
+                spellCheck={false}
+                className="h-9 flex-[3] font-mono text-[13px]"
               />
               {mode.id === pinnedLaunchModeId ? (
                 <IconButton
@@ -451,7 +554,7 @@ export function CommandInputs({
                   // aria-disabled, not disabled, so the tooltip still says why.
                   aria-disabled
                 >
-                  <Robot className="size-4 text-foreground" weight="fill" />
+                  <Robot className="size-4" />
                 </IconButton>
               ) : (
                 <AgentLaunchMenu
@@ -471,9 +574,12 @@ export function CommandInputs({
         </Button>
       </div>
 
-      <div className="grid gap-2">
+      <div
+        id={AGENT_OPTION_CARD_IDS.effort}
+        className={cn('grid scroll-mt-4 gap-2', SECTION_CLASS)}
+      >
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-medium">Level Picker</span>
+          <h3 className="text-sm font-semibold">Effort picker</h3>
           {levelPicker && onLevelPickerChange && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               Show in the new workspace dialog
@@ -484,14 +590,25 @@ export function CommandInputs({
             </label>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Levels for the pill next to the agent in the new workspace dialog, such as reasoning
-          effort or a model, lowest first. A level&apos;s arguments go wherever launch mode
-          arguments go, and the level is reused when the workspace resumes.
+        <p className="-mt-1 text-xs leading-relaxed text-pretty text-muted-foreground">
+          Levels for the effort pill in the new workspace dialog, lowest first. Resumes keep them.
         </p>
         {levelPicker && onLevelPickerChange && (
-          <LevelPickerLook picker={levelPicker} onChange={onLevelPickerChange} />
+          <LevelPickerLook
+            picker={levelPicker}
+            icon={levelPickerOf({ levelPicker }).icon}
+            defaultTitle={DEFAULT_LEVEL_PICKER_TITLE}
+            onChange={onLevelPickerChange}
+          />
         )}
+        {reasoningLevels.length === 0 && (
+          <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            No levels yet. Add the flag your agent uses for how hard it thinks, such as{' '}
+            <code>--effort high</code>, <code>--thinking high</code> or{' '}
+            <code>--reasoning high</code>.
+          </p>
+        )}
+        {reasoningLevels.length > 0 && <RowColumnHeaders nameLabel="Level name" />}
         {reasoningLevels.map((level) => (
           <div key={level.id} {...levelReorder.rowProps(level.id)}>
             <DotsSixVertical
@@ -503,13 +620,14 @@ export function CommandInputs({
               onChange={(e) => handleUpdateLevel(level.id, 'name', e.target.value)}
               placeholder="e.g., High"
               maxLength={MAX_REASONING_LEVEL_NAME_LENGTH}
-              className="flex-[2]"
+              className="h-9 flex-[2]"
             />
             <Input
               value={level.arguments}
               onChange={(e) => handleUpdateLevel(level.id, 'arguments', e.target.value)}
               placeholder="e.g., --effort high"
-              className="flex-[3]"
+              spellCheck={false}
+              className="h-9 flex-[3] font-mono text-[13px]"
             />
             <Button
               type="button"
@@ -535,11 +653,105 @@ export function CommandInputs({
           Add level
         </Button>
       </div>
+
+      {models && onModelsChange && (
+        <div
+          id={AGENT_OPTION_CARD_IDS.models}
+          className={cn('grid scroll-mt-4 gap-2', SECTION_CLASS)}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">Model picker</h3>
+            {modelPicker && onModelPickerChange && (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                Show in the new workspace dialog
+                <Switch
+                  aria-label="Show model picker in the new workspace dialog"
+                  checked={!modelPickerOf({ modelPicker }).hidden}
+                  onCheckedChange={(shown) =>
+                    onModelPickerChange({ ...modelPicker, hidden: !shown })
+                  }
+                />
+              </label>
+            )}
+          </div>
+          <p className="-mt-1 text-xs leading-relaxed text-pretty text-muted-foreground">
+            Models for the model pill in the new workspace dialog. Resumes keep them.
+          </p>
+          {modelPicker && onModelPickerChange && (
+            <LevelPickerLook
+              picker={modelPicker}
+              icon={modelPickerOf({ modelPicker }).icon}
+              defaultTitle={DEFAULT_MODEL_PICKER_TITLE}
+              titleLabel="Model picker title"
+              onChange={onModelPickerChange}
+            />
+          )}
+          {models.length === 0 && (
+            <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+              No models yet. Add the flag your agent uses to pick one, such as{' '}
+              <code>--model opus</code> or <code>-m gpt-5</code>.
+            </p>
+          )}
+          {models.length > 0 && <RowColumnHeaders nameLabel="Model name" />}
+          {models.map((model) => (
+            <div key={model.id} {...modelReorder.rowProps(model.id)}>
+              <DotsSixVertical
+                className="size-4 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing"
+                {...modelReorder.gripProps(model.id)}
+              />
+              <Input
+                value={model.name}
+                onChange={(e) => handleUpdateModel(model.id, 'name', e.target.value)}
+                placeholder="e.g., Sonnet"
+                maxLength={MAX_REASONING_LEVEL_NAME_LENGTH}
+                className="h-9 flex-[2]"
+              />
+              <Input
+                value={model.arguments}
+                onChange={(e) => handleUpdateModel(model.id, 'arguments', e.target.value)}
+                placeholder="e.g., --model sonnet"
+                spellCheck={false}
+                className="h-9 flex-[3] font-mono text-[13px]"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-8 shrink-0 p-0"
+                title={`Remove model${model.name ? ` ${model.name}` : ''}`}
+                onClick={() => onModelsChange(models.filter((m) => m.id !== model.id))}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit"
+            disabled={models.length >= MAX_MODEL_OPTIONS}
+            onClick={() =>
+              onModelsChange([
+                ...models,
+                {
+                  id: crypto.randomUUID(),
+                  name: '',
+                  arguments: '',
+                },
+              ])
+            }
+          >
+            <Plus className="mr-1 size-3.5" />
+            Add model
+          </Button>
+        </div>
+      )}
     </>
   );
 
   if (alwaysExpanded) {
-    return <>{inputs}</>;
+    return <div className="flex flex-col gap-6">{inputs}</div>;
   }
 
   return (

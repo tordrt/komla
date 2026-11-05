@@ -506,7 +506,7 @@ describe('SshTab', () => {
       const hooks = within(await screen.findByRole('group', { name: 'Hooks' }));
       expect(await hooks.findAllByRole('button', { name: 'Enable' })).toHaveLength(2);
       expect(hooks.getAllByText(/Configured/)).toHaveLength(2);
-      expect(screen.getByRole('group', { name: 'MCP server' })).toHaveTextContent('1 on');
+      expect(screen.getByRole('group', { name: 'MCP' })).toHaveTextContent('1 on');
     });
   });
 
@@ -543,6 +543,21 @@ describe('SshTab', () => {
       ).not.toBeChecked();
       await user.click(screen.getByRole('button', { name: 'Delete Host' }));
       expect(mockDeleteHost).toHaveBeenCalledWith('ssh-dev', { deleteRemoteData: false });
+    });
+
+    it('says the agents of workspaces left on the host keep running', async () => {
+      mockWorkspaces = [sshWorkspace('one')];
+      const user = userEvent.setup();
+      renderSsh();
+
+      await user.click(screen.getByRole('button', { name: 'Delete host' }));
+      const keepRunning = /Agents running in them keep running on the host/;
+      expect(screen.getByText(keepRunning)).toBeVisible();
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Delete all Komla data from this host' })
+      );
+      expect(screen.queryByText(keepRunning)).not.toBeInTheDocument();
     });
 
     it('warns when it cannot check the host for workspaces from other devices', async () => {
@@ -683,15 +698,18 @@ describe('SshTab', () => {
       expect(within(dialog).getByLabelText('User')).not.toHaveAttribute('placeholder');
       expect(within(dialog).queryByLabelText('Identity file')).not.toBeInTheDocument();
       expect(within(dialog).getByText(/Agents on the machine can use your SSH keys/)).toBeVisible();
-      const forwardingDetails = within(dialog).getByText('Learn more').closest('details');
-      expect(forwardingDetails).not.toHaveAttribute('open');
-      await user.click(within(dialog).getByText('Learn more'));
-      expect(forwardingDetails).toHaveAttribute('open');
+      expect(screen.queryByText(/Set up a dedicated SSH key/)).not.toBeInTheDocument();
+      await user.click(
+        within(dialog).getByRole('button', { name: 'About forwarding your SSH agent' })
+      );
       expect(
-        within(dialog).getByText(
-          /Agents kept running in tmux lose the keys after Komla disconnects/
-        )
-      ).toBeInTheDocument();
+        await screen.findByText(/any other process on the machine use every key/)
+      ).toBeVisible();
+      expect(
+        screen.getByText(/Set up a dedicated SSH key on the machine with access to your Git repositories instead/)
+      ).toBeVisible();
+      await user.keyboard('{Escape}');
+      expect(within(dialog).getByRole('heading', { name: 'Add SSH host' })).toBeInTheDocument();
       expect(within(dialog).getByRole('switch', { name: 'Treat as isolated' })).toBeChecked();
       await user.click(within(dialog).getByRole('switch', { name: 'Forward SSH agent' }));
       expect(
@@ -1198,63 +1216,6 @@ describe('SshTab', () => {
       expect(window.api.trackSshHostAdded).toHaveBeenCalledExactlyOnceWith('new_workspace');
     });
 
-    it('starts from the ~/.ssh/config host the opener picked', async () => {
-      const user = userEvent.setup();
-      render(<SshHostDialogHost />);
-
-      act(() =>
-        useSshHostDialogStore.getState().openAdd('onboarding', {
-          configHost: { alias: 'gpu', hostname: '10.0.0.5', user: 'devuser' },
-        })
-      );
-      const dialog = await screen.findByRole('dialog');
-      expect(within(dialog).getByLabelText('Host or alias')).toHaveValue('gpu');
-      expect(within(dialog).getByLabelText('Name')).toHaveValue('gpu');
-      expect(
-        within(dialog).getByText('Uses the settings for gpu in ~/.ssh/config: devuser@10.0.0.5.')
-      ).toBeInTheDocument();
-      await user.click(within(dialog).getByRole('button', { name: 'Check machine' }));
-      await user.click(await within(dialog).findByRole('button', { name: 'Set up machine' }));
-
-      await waitFor(() =>
-        expect(window.api.trackSshHostAdded).toHaveBeenCalledExactlyOnceWith('onboarding')
-      );
-    });
-
-    it('keeps a dialog started from ~/.ssh/config open on a click outside', async () => {
-      const user = userEvent.setup();
-      render(<SshHostDialogHost />);
-
-      act(() =>
-        useSshHostDialogStore.getState().openAdd('onboarding', { configHost: { alias: 'gpu' } })
-      );
-      const dialog = await screen.findByRole('dialog');
-      await user.click(document.querySelector('[data-native-overlay="dialog"]:not([role])')!);
-
-      expect(screen.getByRole('dialog')).toBe(dialog);
-    });
-
-    it('keeps the starting host summary when ~/.ssh/config fails to read', async () => {
-      vi.mocked(window.api.listSshConfigHosts).mockRejectedValue(new Error('Permission denied'));
-      const user = userEvent.setup();
-      render(<SshHostDialogHost />);
-
-      act(() =>
-        useSshHostDialogStore.getState().openAdd('onboarding', {
-          configHost: { alias: 'gpu', hostname: '10.0.0.5', user: 'devuser' },
-        })
-      );
-      const dialog = await screen.findByRole('dialog');
-      await user.click(within(dialog).getByRole('button', { name: 'Fill from ~/.ssh/config…' }));
-      expect(await within(dialog).findByText(/Permission denied/)).toBeInTheDocument();
-      expect(within(dialog).queryByRole('button', { name: /^gpu/ })).not.toBeInTheDocument();
-      await user.click(within(dialog).getByRole('button', { name: 'Back' }));
-
-      expect(
-        within(dialog).getByText('Uses the settings for gpu in ~/.ssh/config: devuser@10.0.0.5.')
-      ).toBeInTheDocument();
-    });
-
     it('links more info about SSH hosts', async () => {
       render(<SshHostDialogHost />);
 
@@ -1563,7 +1524,7 @@ describe('SshTab', () => {
       });
     });
 
-    it('describes key access only while forwarding is on', async () => {
+    it('describes key access while forwarding is on and keeps the forwarding warning', async () => {
       const user = userEvent.setup();
       renderSsh();
 
@@ -1577,6 +1538,10 @@ describe('SshTab', () => {
       expect(
         screen.queryByText(/can use your SSH keys while Komla is connected/)
       ).not.toBeInTheDocument();
+      // The warning stays, so the advice to use a dedicated key is still there with forwarding off.
+      expect(
+        screen.getByRole('button', { name: 'About forwarding your SSH agent' })
+      ).toBeInTheDocument();
       expect(screen.getByText(/needs its own Git credentials/)).toBeInTheDocument();
     });
 

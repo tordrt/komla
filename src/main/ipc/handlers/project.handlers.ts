@@ -8,6 +8,11 @@ import { createLogger } from '../../lib/logger';
 import { actionService } from '../../services/action.service';
 import { detectInstalledAgents } from '../../services/agent-detection.service';
 import { agentPresetService, AgentPreset } from '../../services/agent-preset.service';
+import {
+  listAgentSkills,
+  readAgentSkill,
+  type AgentSkillFolders,
+} from '../../services/agent-skills.service';
 import { devPreviewService } from '../../services/dev-preview.service';
 import { gitService } from '../../services/git';
 import { gitBackgroundFetchService } from '../../services/git-background-fetch.service';
@@ -31,6 +36,7 @@ import type {
   WorkspaceCleanupStatus,
 } from '../../../shared/types';
 import type { ActivePresetEntry } from '../../../shared/types/agent-preset';
+import type { AgentSkillPlace } from '../../../shared/types/agent-skill';
 import type {
   SshHostProject,
   SshHostProjectImportResult,
@@ -67,6 +73,36 @@ async function findIcons(source: ProjectIconSource): Promise<ProjectIconCandidat
       (a, b) => Number(isSshWorkspace(a)) - Number(isSshWorkspace(b)) || b.createdAt - a.createdAt
     )[0];
   return workspace ? scanWorkspaceIcons(workspace) : [];
+}
+
+/**
+ * Where an agent finds skills at a place: in a new workspace, the project's clone on this
+ * computer, since an SSH host keeps only a bare repo until the workspace's own checkout exists,
+ * and in a managed project's bare clone, the skills committed on its base branch; in a
+ * workspace, its own folder, on its SSH host for an SSH workspace.
+ */
+async function skillFolders(place: AgentSkillPlace): Promise<AgentSkillFolders> {
+  if (place.kind === 'new-workspace') {
+    const project = place.projectId ? projectService.get(place.projectId) : undefined;
+    const folders = { hostId: place.hostId, projectDir: null, projectDirOnHost: false };
+    if (!project) return folders;
+    if (project.managed && project.managedRepoPath) {
+      const projectBranch =
+        project.baseBranch || (await gitService.getMainBranch(project.managedRepoPath));
+      return { ...folders, projectDir: project.managedRepoPath, projectBranch };
+    }
+    return { ...folders, projectDir: project.repositoryPath };
+  }
+  const workspace = workspaceService.get(place.workspaceId);
+  if (!workspace) return { hostId: null, projectDir: null, projectDirOnHost: false };
+  if (isSshWorkspace(workspace)) {
+    return {
+      hostId: workspace.backend.hostId,
+      projectDir: workspace.backend.remoteDirectory,
+      projectDirOnHost: true,
+    };
+  }
+  return { hostId: null, projectDir: workspace.workingDirectory, projectDirOnHost: false };
 }
 
 export function registerProjectHandlers(): void {
@@ -233,6 +269,14 @@ export function registerProjectHandlers(): void {
 
   handleIpc(IPC.PROJECT_LIST_HOST_BRANCHES, async (_, [projectId, hostId]): Promise<string[]> =>
     workspaceService.listHostBranches(projectId, hostId)
+  );
+
+  handleIpc(IPC.PROJECT_LIST_AGENT_SKILLS, async (_, [family, place]) =>
+    listAgentSkills(family, await skillFolders(place))
+  );
+
+  handleIpc(IPC.PROJECT_READ_AGENT_SKILL, async (_, [family, place, name]) =>
+    readAgentSkill(family, await skillFolders(place), name)
   );
 
   // Agent preset handlers

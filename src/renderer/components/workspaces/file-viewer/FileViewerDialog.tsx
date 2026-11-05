@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState, useMemo } from 'react';
 
+import { PromptDraftOutlet } from '@/components/prompt-draft/PromptDraft';
 import {
   Dialog,
   DialogContent,
@@ -21,17 +22,20 @@ import {
 } from '@/lib/file-viewer-transition';
 import { joinAbsPath } from '@/lib/fs-path';
 import { ensureMonacoInitialized } from '@/lib/monaco-loader';
+import { getNotePath } from '@/lib/notes';
 import { useActivePalette } from '@/lib/palette-runtime';
 import { followMovedFilePanes, getUnsavedFilePanePaths } from '@/lib/pane-surfaces';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { primaryForMode } from '@/lib/primary-color';
 import { colorToOklchValues, getProjectColor } from '@/lib/project-colors';
+import { isInPromptDraft } from '@/lib/prompt-draft';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
 import { findRenameSource, useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useGitStatusStore } from '@/stores/git-status.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useToastStore } from '@/stores/toast.store';
+import { useViewedFile } from '@/stores/viewed-file.store';
 import {
   resolveWorkspaceTargetBranch,
   type Workspace,
@@ -45,6 +49,7 @@ import {
   computeEditorChangeEffects,
   getFlatFileKeys,
   formatAtPathWithLine,
+  formatFileReference,
   readMountedEditor,
   getAncestorPaths,
   removeNonFunctionalActions,
@@ -85,6 +90,11 @@ interface FileViewerDialogProps {
   initialFilePath?: string | null;
   initialLineNumber?: number;
   initialHistoryFilterPath?: string | null;
+}
+
+/** Goes back to the viewer's file or diff from a note open over it. */
+function closeViewerNote() {
+  useFileViewerStore.getState().showFileViewerNote(null);
 }
 
 export function FileViewerDialog({
@@ -318,6 +328,8 @@ export function FileViewerDialog({
         setUnsavedConfirmOpen(true);
         return false;
       }
+      // Back to the file or diff from a note open over it, as picking one does.
+      closeViewerNote();
       if (state.mode !== newMode) {
         state.setMode(newMode);
         useFileViewerStore.getState().setFileViewerMode(newMode);
@@ -332,11 +344,20 @@ export function FileViewerDialog({
   // Handle tab switching (browse mode only)
   const handleSwitchTab = useCallback(
     (filePath: string) => {
+      // The tab under the note shows again as it was, its unsaved edits kept.
+      if (
+        useFileViewerStore.getState().fileViewerNoteName !== null &&
+        filePath === state.editor.filePath
+      ) {
+        closeViewerNote();
+        return;
+      }
       if (state.editor.isDirty) {
         setPendingTransition({ kind: 'file', filePath, browseAction: 'persistent' });
         setUnsavedConfirmOpen(true);
         return;
       }
+      closeViewerNote();
       setActiveTab(workspace.id, filePath);
       void state.editor.openFile(filePath);
     },
@@ -715,6 +736,25 @@ export function FileViewerDialog({
   const handleSidebarFileClickRef = useRef(handleSidebarFileClickImpl);
   handleSidebarFileClickRef.current = handleSidebarFileClickImpl;
   const handleSidebarFileClick = useCallback((path: string) => {
+    handleSidebarFileClickRef.current(path);
+  }, []);
+  // A click in the tree, unlike a file the viewer picks itself, goes back from a note to the file;
+  // with unsaved edits, once they're discarded.
+  const isDirtyRef = useRef(state.editor.isDirty);
+  isDirtyRef.current = state.editor.isDirty;
+  const coveredFileRef = useRef<string | null>(null);
+  coveredFileRef.current =
+    state.mode === 'browse' ? state.editor.filePath : state.diff.selectedFile;
+  const handleTreeFileClick = useCallback((path: string) => {
+    // The file under the note shows again as it was, its unsaved edits kept.
+    if (
+      useFileViewerStore.getState().fileViewerNoteName !== null &&
+      path === coveredFileRef.current
+    ) {
+      closeViewerNote();
+      return;
+    }
+    if (!isDirtyRef.current) closeViewerNote();
     handleSidebarFileClickRef.current(path);
   }, []);
 
@@ -1669,6 +1709,8 @@ export function FileViewerDialog({
         showToast: (message, variant) => useToastStore.getState().addToast(message, variant),
         getSelection: () => window.getSelection()?.toString() ?? '',
         getActiveElement: () => document.activeElement,
+        noteShown: useFileViewerStore.getState().fileViewerNoteName !== null,
+        closeNote: closeViewerNote,
       });
     };
 
@@ -1749,6 +1791,9 @@ export function FileViewerDialog({
   useEffect(() => {
     if (!open || !requestedTransition || requestedTransition.workspaceId !== workspace.id) return;
     useFileViewerStore.getState().clearPendingFileViewerTransition();
+    // A file asked for, as from the file search, shows rather than a note over it; with unsaved
+    // edits, once they're discarded.
+    if (!state.editor.isDirty) closeViewerNote();
 
     if (requestedTransition.kind === 'mode') {
       handleModeChange(
@@ -1835,6 +1880,8 @@ export function FileViewerDialog({
     setUnsavedConfirmOpen(false);
     clearPendingTransition();
     state.editor.setIsDirty(false);
+    // Whatever was asked for goes ahead, from under a note too.
+    closeViewerNote();
 
     if (!pendingTransition) return;
     if (pendingTransition.kind === 'inline-preview') {
@@ -1917,6 +1964,49 @@ export function FileViewerDialog({
     state.diff.selectedFile,
     state.editor.filePath
   );
+  // The file on screen, which in History is the commit's file rather than the one in Changes.
+  const viewedFile = showsHistory ? state.diff.historySelectedFile : sidebarCurrentFile;
+  // A note isn't a file the agent can read.
+  const noteName = useFileViewerStore((s) => (open ? s.fileViewerNoteName : null));
+  const promptFile = open && !noteName ? viewedFile : null;
+  const promptReference = () =>
+    formatFileReference(
+      viewedFile ?? '',
+      // Lines of the working tree's file, which the agent reads: the editor or a diff's changed
+      // side, not an old commit's. The other mode's ref may hold an editor left behind.
+      showsHistory
+        ? null
+        : state.mode === 'browse'
+          ? editorRef.current
+          : diffEditorRef.current?.getModifiedEditor()
+    );
+  useViewedFile(workspace.id, promptFile, promptReference);
+
+  // A note that closed with focus took it along: back to the file's editor underneath.
+  const showedNote = useRef(false);
+  useEffect(() => {
+    if (noteName) {
+      showedNote.current = true;
+      return;
+    }
+    if (!showedNote.current) return;
+    showedNote.current = false;
+    // Once the note's editor has gone, with its own focus handling.
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const editor =
+        state.mode === 'browse' ? editorRef.current : diffEditorRef.current?.getModifiedEditor();
+      if (editor?.getModel()) {
+        editor.focus();
+        return;
+      }
+      // A Markdown file in its rich text view.
+      document
+        .querySelector<HTMLElement>('[data-file-viewer-content] [contenteditable="true"]')
+        ?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [noteName, state.mode]);
 
   return (
     <>
@@ -1936,9 +2026,11 @@ export function FileViewerDialog({
             e.preventDefault();
             // This runs before the editor sees the key. Escape aimed at the editor closes the
             // viewer from the window keydown handler, once the find bar, suggestions and vim
-            // have had their turn.
-            if (isEditorEscapeTarget(e.target)) return;
-            handleOpenChange(false);
+            // have had their turn. The prompt draft over the viewer closes on its own Escape.
+            if (isEditorEscapeTarget(e.target) || isInPromptDraft(e.target)) return;
+            // A note over the file closes first, back to the file.
+            if (useFileViewerStore.getState().fileViewerNoteName !== null) closeViewerNote();
+            else handleOpenChange(false);
           }}
           onPointerDownOutside={(e) => {
             // Fullscreen viewers close explicitly (Close/Escape), never from menu interactions.
@@ -1967,7 +2059,9 @@ export function FileViewerDialog({
             isResizingSidebar={isResizingSidebar}
             onResizeStart={handleSidebarResizeStart}
             setSidebarOpen={setSidebarOpen}
-            sidebarCurrentFile={sidebarCurrentFile}
+            sidebarCurrentFile={noteName ? getNotePath(noteName) : sidebarCurrentFile}
+            noteName={noteName}
+            onCloseNote={closeViewerNote}
             focusAlignmentSignal={focusAlignmentSignal}
             onExitHistory={() => {
               handleModeChange('diff', 'changes', { kind: 'history-file', filePath: null });
@@ -1977,7 +2071,7 @@ export function FileViewerDialog({
             liveFollow={liveFollow}
             copiedPath={copiedPath}
             targetBranch={targetBranch}
-            handleSidebarFileClick={handleSidebarFileClick}
+            handleSidebarFileClick={handleTreeFileClick}
             handleFileDoubleClick={handleFileDoubleClick}
             handleDeleteFile={handleDeleteFile}
             handleRestoreFile={handleRestoreFile}
@@ -2010,6 +2104,9 @@ export function FileViewerDialog({
             handleDiffEditorMount={handleDiffEditorMount}
             handleBlameHunkClick={handleBlameHunkClick}
           />
+          {/* Inside the viewer, which covers the window's own. Gone as soon as the viewer
+              closes, not once it has faded out, so the draft goes back to the window. */}
+          {open && <PromptDraftOutlet workspaceId={workspace.id} />}
         </DialogContent>
       </Dialog>
 

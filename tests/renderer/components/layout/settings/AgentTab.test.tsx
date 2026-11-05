@@ -1,10 +1,11 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useSettingsDialogStore } from '../../../../../src/renderer/stores/settings-dialog.store';
 import { AgentTab } from '../../../../../src/renderer/components/layout/settings/AgentTab';
 
 const mockCreatePreset = vi.fn();
@@ -198,7 +199,7 @@ describe('AgentTab', () => {
     expect(screen.queryByText('Low · High')).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('claude --resume').closest('[inert]')).toBeNull();
     expect(
-      screen.getByText('Command to resume or choose an existing session in this worktree')
+      screen.getByText('Resumes, or picks, an existing session in this worktree.')
     ).toBeInTheDocument();
   });
 
@@ -418,6 +419,29 @@ describe('AgentTab', () => {
     expect(screen.getByDisplayValue('gemini --resume latest').closest('[inert]')).toBeNull();
   });
 
+  it('opens a preset from its row, but not from its controls or a text selection', async () => {
+    const user = userEvent.setup();
+    mockPresets = [existingPreset];
+    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+    render(<AgentTab onClose={vi.fn()} />);
+    const editorOpen = () => screen.queryByDisplayValue('gemini --resume latest') !== null;
+
+    // A disabled control passes its click through to the controls around it.
+    fireEvent.click(screen.getByRole('button', { name: 'Move preset up' }).parentElement!);
+    expect(editorOpen()).toBe(false);
+
+    const name = screen.getByText(existingPreset.name, { selector: '.font-medium' });
+    const selection = vi.spyOn(window, 'getSelection').mockReturnValue({
+      toString: () => existingPreset.name,
+    } as Selection);
+    fireEvent.click(name);
+    expect(editorOpen()).toBe(false);
+
+    selection.mockRestore();
+    await user.click(name);
+    expect(editorOpen()).toBe(true);
+  });
+
   it('renders active presets in preset order and reorders with move buttons', async () => {
     const user = userEvent.setup();
     mockPresets = [
@@ -525,7 +549,7 @@ describe('AgentTab', () => {
     await user.click(screen.getByRole('button', { name: /Add preset/i }));
     await user.click(screen.getByRole('button', { name: /Custom/i }));
     await user.type(screen.getByPlaceholderText('e.g., claude {{launchMode}}'), 'claude');
-    await user.click(screen.getByRole('button', { name: /Add mode/i }));
+    await user.click(screen.getByRole('button', { name: 'Add mode' }));
     await user.type(screen.getByPlaceholderText('e.g., Plan'), 'Plan');
     await user.type(screen.getByPlaceholderText('e.g., --permission-mode plan'), '--plan');
     await user.click(screen.getByRole('button', { name: /^Save$/i }));
@@ -632,6 +656,30 @@ describe('AgentTab', () => {
     );
   });
 
+  it('shows each picker title, the default one included, and keeps it after saving', async () => {
+    const user = userEvent.setup();
+    mockPresets = [
+      { ...existingPreset, models: [{ id: 'm', name: 'Opus', arguments: '--model opus' }] },
+    ];
+    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+    mockUpdatePreset.mockResolvedValue(existingPreset);
+    render(<AgentTab onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Edit preset' }));
+    const title = screen.getByRole('textbox', { name: 'Picker title' });
+    expect(title).toHaveValue('Effort');
+    expect(screen.getByRole('textbox', { name: 'Model picker title' })).toHaveValue('Model');
+
+    await user.clear(title);
+    await user.type(title, 'Effort');
+    await user.click(screen.getByRole('button', { name: /^Save$/i }));
+    await waitFor(() => expect(mockUpdatePreset).toHaveBeenCalled());
+    expect(mockUpdatePreset.mock.calls[0][1]).not.toHaveProperty('levelPicker');
+
+    await user.click(screen.getByRole('button', { name: 'Edit preset' }));
+    expect(screen.getByRole('textbox', { name: 'Picker title' })).toHaveValue('Effort');
+  });
+
   it('saves a hidden level picker, keeping its levels', async () => {
     const user = userEvent.setup();
     mockPresets = [{ ...existingPreset, reasoningLevels: claudeLevels }];
@@ -688,4 +736,90 @@ describe('AgentTab', () => {
       expect(mockUpdatePreset).not.toHaveBeenCalled();
     }
   );
+
+  it('opens the editor of the agent a link asked for', async () => {
+    mockPresets = [existingPreset];
+    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+    useSettingsDialogStore
+      .getState()
+      .openSettings({ tab: 'agent', editPresetId: 'preset-1', cardId: 'agent-models' });
+    render(<AgentTab onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/No models yet/)).toBeInTheDocument();
+    expect(document.getElementById('agent-models')).not.toBeNull();
+    expect(document.getElementById('agent-effort')).not.toBeNull();
+    useSettingsDialogStore.getState().closeSettings();
+  });
+
+  it('opens the editor a link asked for only once, not again when the tab comes back', async () => {
+    mockPresets = [existingPreset];
+    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+    useSettingsDialogStore
+      .getState()
+      .openSettings({ tab: 'agent', editPresetId: 'preset-1', cardId: 'agent-models' });
+    const { unmount } = render(<AgentTab onClose={vi.fn()} />);
+    expect(await screen.findByText(/No models yet/)).toBeInTheDocument();
+    unmount();
+
+    render(<AgentTab onClose={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: 'Edit preset' })).toBeInTheDocument();
+    expect(screen.queryByText(/No models yet/)).toBeNull();
+    useSettingsDialogStore.getState().closeSettings();
+  });
+
+  it('titles the columns of the levels and models, and shows a whole flag as the example', async () => {
+    const user = userEvent.setup();
+    mockPresets = [existingPreset];
+    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+    render(<AgentTab onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Edit preset' }));
+    expect(screen.queryByText('Model name')).toBeNull();
+    await user.click(screen.getByRole('button', { name: /Add level/i }));
+    await user.click(screen.getByRole('button', { name: 'Add model' }));
+
+    expect(screen.getByText('Level name')).toBeInTheDocument();
+    expect(screen.getByText('Model name')).toBeInTheDocument();
+    expect(screen.getAllByText('Arguments').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByPlaceholderText('e.g., --effort high')).toHaveValue('');
+    expect(screen.getByPlaceholderText('e.g., --model sonnet')).toHaveValue('');
+  });
+
+  it('saves without a new model the user added and left empty', async () => {
+    const user = userEvent.setup();
+    mockPresets = [existingPreset];
+    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+    mockUpdatePreset.mockResolvedValue(existingPreset);
+    render(<AgentTab onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Edit preset' }));
+    await user.click(screen.getByRole('button', { name: 'Add model' }));
+    await user.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    expect(mockUpdatePreset).toHaveBeenCalled();
+    expect(mockUpdatePreset.mock.calls[0][1]).not.toHaveProperty('models');
+  });
+
+  it('saves the model picker title, icon and visibility apart from the effort picker', async () => {
+    const user = userEvent.setup();
+    mockPresets = [
+      { ...existingPreset, models: [{ id: 'm', name: 'Opus', arguments: '--model opus' }] },
+    ];
+    mockActivePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+    mockUpdatePreset.mockResolvedValue(existingPreset);
+    render(<AgentTab onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Edit preset' }));
+    const modelTitle = screen.getByRole('textbox', { name: 'Model picker title' });
+    await user.clear(modelTitle);
+    await user.type(modelTitle, 'Brain');
+    await user.click(
+      screen.getByRole('switch', { name: 'Show model picker in the new workspace dialog' })
+    );
+    await user.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    const update = mockUpdatePreset.mock.calls[0][1];
+    expect(update.modelPicker).toEqual({ title: 'Brain', hidden: true });
+    expect(update).not.toHaveProperty('levelPicker');
+  });
 });

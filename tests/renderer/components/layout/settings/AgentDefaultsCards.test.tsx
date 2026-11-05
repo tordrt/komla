@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentLaunchDefaultsCard } from '../../../../../src/renderer/components/layout/settings/AgentLaunchDefaultsCard';
 import { AgentNotificationsCard } from '../../../../../src/renderer/components/layout/settings/AgentNotificationsCard';
+import { TooltipProvider } from '../../../../../src/renderer/components/ui/tooltip';
 import { useAgentPresetsStore } from '../../../../../src/renderer/stores/agent-presets.store';
 import { useConfigStore } from '../../../../../src/renderer/stores/config.store';
 import { useSshHostsStore } from '../../../../../src/renderer/stores/ssh-hosts.store';
@@ -29,7 +30,11 @@ describe('AgentNotificationsCard', () => {
 
   it('keeps the spinner and sound switches while the hooks endpoint is off', () => {
     setConfig({ disableNotificationEndpoint: true });
-    render(<AgentNotificationsCard />);
+    render(
+      <TooltipProvider>
+        <AgentNotificationsCard />
+      </TooltipProvider>
+    );
 
     const [endpoint, spinner, sounds] = screen.getAllByRole('switch');
     expect(endpoint).toHaveAccessibleName('Hooks endpoint');
@@ -43,7 +48,11 @@ describe('AgentNotificationsCard', () => {
   it('disables them while the endpoint is off on Windows, where no status reports arrive', () => {
     window.api.platform = 'win32';
     setConfig({ disableNotificationEndpoint: true });
-    render(<AgentNotificationsCard />);
+    render(
+      <TooltipProvider>
+        <AgentNotificationsCard />
+      </TooltipProvider>
+    );
 
     const [, spinner, sounds] = screen.getAllByRole('switch');
     expect(spinner).toBeDisabled();
@@ -52,7 +61,11 @@ describe('AgentNotificationsCard', () => {
 
   it('enables them while the endpoint is on', () => {
     setConfig({});
-    render(<AgentNotificationsCard />);
+    render(
+      <TooltipProvider>
+        <AgentNotificationsCard />
+      </TooltipProvider>
+    );
 
     const [endpoint, spinner, sounds] = screen.getAllByRole('switch');
     expect(endpoint).toBeChecked();

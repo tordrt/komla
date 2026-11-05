@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { reportsOwnStatus } from '@/lib/agent-status-reports';
 import { listAgentNames } from '@/utils/agent-name';
 
+import { OnboardingStepHeader } from './OnboardingChrome';
 import { agentNotificationStatus, setAgentNotifications } from './settings/agent-notifications';
 import { HooksHelp } from './settings/IntegrationHelp';
 
@@ -24,7 +25,7 @@ export interface LaunchAgent {
 export interface AgentConnection {
   agent: AgentIntegrationFilter;
   notifications: boolean;
-  /** What turning on its notifications changes, for "What changes?". */
+  /** What turning on its notifications changes, shown under its name. */
   changes: { label: string; value: string }[];
 }
 
@@ -33,7 +34,9 @@ async function loadConnection(agent: AgentIntegrationFilter): Promise<AgentConne
   return {
     agent,
     notifications: notifications.isConfigured,
-    changes: notifications.isConfigured ? [] : [{ label: 'Hooks in', value: notifications.path }],
+    changes: notifications.isConfigured
+      ? []
+      : [{ label: 'Adds hooks to', value: notifications.path }],
   };
 }
 
@@ -57,9 +60,10 @@ async function loadConnections(agents: AgentIntegrationFilter[]): Promise<AgentC
  */
 export function useAgentConnections(agents: readonly AgentIntegrationFilter[], enabled: boolean) {
   const key = agents.join(',');
-  const [loaded, setLoaded] = useState<{ key: string; connections: AgentConnection[] } | null>(
-    null
-  );
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    connections: AgentConnection[];
+  } | null>(null);
   const [pending, setPending] = useState<AgentIntegrationFilter | null>(null);
   const [errors, setErrors] = useState<Partial<Record<AgentIntegrationFilter, string>>>({});
 
@@ -135,13 +139,13 @@ function connectSummary(
   others: LaunchAgent[]
 ): string {
   if (others.length > 0 || !agents.every((agent) => reportsOwnStatus(agent.filter))) {
-    return 'Leave agents running and come back when one needs you, with every workspace named after what you’re working on. We highly recommend hooks for the best experience.';
+    return 'Hooks tell Komla when an agent finishes or needs you, and name each workspace after its task. We recommend turning them on.';
   }
   const status =
     agents.length > 1
       ? 'They already tell Komla when they finish or need you.'
       : 'It already tells Komla when it finishes or needs you.';
-  return `${status} For the best experience, we highly recommend hooks: they keep every workspace named after what you’re working on, and show done only once a turn has really finished.`;
+  return `${status} Hooks add workspace names that follow your task, and mark done only once a turn has really finished. Recommended.`;
 }
 
 interface OnboardingConnectStepProps {
@@ -165,40 +169,40 @@ export function OnboardingConnectStep({
   errors,
   onToggle,
 }: OnboardingConnectStepProps) {
-  const [showChanges, setShowChanges] = useState(false);
   const total = agents.length + others.length;
   const othersNames = listAgentNames(others.map((agent) => agent.label));
   const othersTitle = `${othersNames} can set ${others.length > 1 ? 'themselves' : 'itself'} up`;
-  const pendingChanges = (connections ?? [])
-    .map((connection) => ({
-      key: connection.agent,
-      title: agents.find((agent) => agent.filter === connection.agent)?.label,
-      changes: connection.changes,
-    }))
-    .filter((entry) => entry.changes.length > 0);
 
   return (
     <div className="space-y-5">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold">Connect your {total > 1 ? 'agents' : 'agent'}</h2>
-        <p className="text-sm text-muted-foreground">{connectSummary(agents, others)}</p>
-      </div>
+      <OnboardingStepHeader
+        title={`Connect your ${total > 1 ? 'agents' : 'agent'}`}
+        description={connectSummary(agents, others)}
+      />
 
       {agents.length > 0 && (
         <div className="space-y-2">
           <ul
             aria-label="Agents with one-click setup"
-            className="divide-y divide-border rounded-lg border border-border"
+            className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-background/40"
           >
             {agents.map((agent) => {
               const connection = connections?.find((c) => c.agent === agent.filter);
               const error = errors[agent.filter];
               const switchDisabled = !connection || pending !== null;
               return (
-                <li key={agent.name} className="flex items-center gap-3 px-4 py-3">
+                <li key={agent.name} className="flex min-h-12 items-center gap-3 px-4 py-2.5">
                   <AgentPresetIcon preset={agent.preset} className="size-4 shrink-0" />
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <p className="text-sm font-medium">{agent.label}</p>
+                    {connection?.changes.map((change) => (
+                      <p key={change.label} className="text-xs text-muted-foreground">
+                        {change.label}{' '}
+                        <code className="font-mono break-all text-foreground/80">
+                          {change.value}
+                        </code>
+                      </p>
+                    ))}
                     {agent.filter === 'codex' && (
                       <p className="text-xs text-muted-foreground">
                         Codex asks you to approve Komla’s hooks: run{' '}
@@ -221,30 +225,6 @@ export function OnboardingConnectStep({
               );
             })}
           </ul>
-          {pendingChanges.length > 0 && (
-            <button
-              type="button"
-              aria-expanded={showChanges}
-              className="text-xs text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground"
-              onClick={() => setShowChanges(!showChanges)}
-            >
-              What changes?
-            </button>
-          )}
-          {showChanges && pendingChanges.length > 0 && (
-            <ul className="space-y-2 rounded-md bg-muted/50 px-3 py-2.5 text-xs">
-              {pendingChanges.map((entry) => (
-                <li key={entry.key}>
-                  <p className="font-medium">{entry.title}</p>
-                  {entry.changes.map((change) => (
-                    <p key={change.label} className="text-muted-foreground">
-                      {change.label} <code className="font-mono break-all">{change.value}</code>
-                    </p>
-                  ))}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       )}
 
@@ -255,20 +235,18 @@ export function OnboardingConnectStep({
           title={othersTitle}
           icon={<Lightbulb className="size-4" weight="fill" />}
         >
-          Komla can’t connect {others.length > 1 ? 'them' : 'it'} for you. After setup, open Tips
-          and run “Integrate {othersNames} with Komla”. Komla starts{' '}
-          {others.length > 1 ? 'each agent' : 'the agent'} with a setup prompt, and it adds Komla’s
-          hooks itself, asking before it changes a file.
+          After setup, open Tips and run “Integrate {othersNames} with Komla”.{' '}
+          {others.length > 1 ? 'Each agent adds' : 'The agent adds'} Komla’s hooks itself, asking
+          before it changes a file.
         </Callout>
       )}
 
-      <p className="text-xs text-muted-foreground">
-        Every Komla terminal has the <code className="font-mono text-foreground">komla</code>{' '}
-        command for starting agents, opening previews and more. To teach your agents about it,
-        install the Komla skill from Tips later.{' '}
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Every terminal also has the <code className="font-mono text-foreground">komla</code> command
+        for agents to use; install the Komla skill from Tips later to teach it to them.{' '}
         <a
           href={`${window.api.websiteUrl}/komla-cli`}
-          className="underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground"
+          className="font-medium whitespace-nowrap text-foreground/85 underline decoration-foreground/25 underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/60"
           target="_blank"
           rel="noopener noreferrer"
         >

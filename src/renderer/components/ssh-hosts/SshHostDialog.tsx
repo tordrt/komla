@@ -1,4 +1,14 @@
-import { CaretDown, CheckCircle, Info, Plus, Trash, Warning, XCircle } from '@phosphor-icons/react';
+import {
+  CaretDown,
+  CaretRight,
+  CheckCircle,
+  FileText,
+  Info,
+  Plus,
+  Trash,
+  Warning,
+  XCircle,
+} from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -14,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
+import { InfoTip } from '@/components/ui/info-tip';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
@@ -83,12 +94,10 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
   const beginPendingSetup = useSshHostsStore((s) => s.beginPendingSetup);
   const updateConfig = useConfigStore((s) => s.updateConfig);
 
-  const startingConfigHost = request.kind === 'add' ? request.configHost : undefined;
   const [initialDraft] = useState<HostDraft>(() => {
     const host =
       request.kind === 'edit' ? hosts.find((candidate) => candidate.id === request.hostId) : null;
-    if (host) return hostToDraft(host);
-    return startingConfigHost ? withConfigHost(EMPTY_DRAFT, startingConfigHost) : EMPTY_DRAFT;
+    return host ? hostToDraft(host) : EMPTY_DRAFT;
   });
   const [draft, setDraft] = useState(initialDraft);
   const [view, setView] = useState<View>(() => (request.kind === 'ready' ? 'ready' : 'form'));
@@ -110,7 +119,7 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
   const checkAttempt = useRef(0);
   const [saving, setSaving] = useState(false);
   const configHosts = useSshConfigHosts();
-  const [configAlias, setConfigAlias] = useState(startingConfigHost?.alias ?? null);
+  const [configAlias, setConfigAlias] = useState<string | null>(null);
   const returnFocus = useReturnFocus();
   // The integrations step holds the launch defaults until the dialog has closed, rather than
   // stacking them on it: a first host's setup is pending until then, and the defaults can't pin
@@ -264,11 +273,9 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
     setView('form');
   };
 
-  // A click outside shouldn't throw away typed details, details the opener filled in, or a
-  // check in progress.
-  const hasDetails = isDirty || startingConfigHost !== undefined;
+  // A click outside shouldn't throw away typed details or a check in progress.
   const guardOutsideDismiss = (event: Event) => {
-    if (busy || (view !== 'ready' && hasDetails)) event.preventDefault();
+    if (busy || (view !== 'ready' && isDirty)) event.preventDefault();
   };
   // Escape in the ~/.ssh/config list goes back to the form, like Back.
   const handleEscape = (event: KeyboardEvent) => {
@@ -277,12 +284,7 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
     setView('form');
   };
 
-  // The entry the dialog started from still describes its alias if reading the file fails.
-  const hostHint = configAliasHint(
-    configAlias,
-    draft.hostname,
-    startingConfigHost ? [...(configHosts.hosts ?? []), startingConfigHost] : configHosts.hosts
-  );
+  const hostHint = configAliasHint(configAlias, draft.hostname, configHosts.hosts);
   const fromConfig = hostHint !== undefined;
 
   return (
@@ -492,11 +494,13 @@ function FormFooter({
       {!isEdit ? (
         <Button
           type="button"
-          variant="link"
-          className="h-auto justify-start p-0 text-xs text-muted-foreground hover:text-foreground"
+          variant="ghost"
+          size="sm"
+          className="-ml-2 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
           onClick={onFillFromConfig}
           disabled={busy}
         >
+          <FileText className="size-3.5" />
           Fill from ~/.ssh/config…
         </Button>
       ) : (
@@ -505,13 +509,14 @@ function FormFooter({
       <div className="flex gap-2">
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
+          size="sm"
           onClick={onCancel}
           disabled={setupState === 'preparing'}
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" size="sm" disabled={busy}>
           {busy && <Spinner size="sm" className="mr-1.5" />}
           {primaryLabel(setupState, canSetUp, isEdit)}
         </Button>
@@ -709,7 +714,7 @@ function ConnectionFields({
             value={draft.hostname}
             onChange={(e) => onChange('hostname', e.target.value)}
             onBlur={onHostBlur}
-            placeholder="user@devbox.example.com"
+            placeholder="devbox.example.com"
             disabled={locked}
             autoFocus={!isEdit}
           />
@@ -928,28 +933,29 @@ function ForwardAgentRow({
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="min-w-0 text-xs leading-relaxed">
-        <label htmlFor={id} className="cursor-pointer text-sm font-medium">
-          Forward SSH agent
-        </label>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor={id} className="cursor-pointer text-sm font-medium">
+            Forward SSH agent
+          </label>
+          <InfoTip tone="warning" ariaLabel="About forwarding your SSH agent">
+            <InfoTip.Section label="Risk">
+              Forwarding lets agents and any other process on the machine use every key in your
+              local SSH agent while Komla is connected, not only the ones for Git. Agents kept
+              running in tmux lose them once Komla disconnects.
+            </InfoTip.Section>
+            <InfoTip.Section label="Recommended">
+              Set up a dedicated SSH key on the machine with access to your Git repositories instead
+              of forwarding. Agents can then use Git remotes while you&apos;re disconnected, and
+              can&apos;t reach your other keys, including any without a passphrase.
+            </InfoTip.Section>
+          </InfoTip>
+        </div>
         <div id={`${id}-description`} className="mt-0.5 text-muted-foreground">
           {checked ? (
-            <details className="group">
-              <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                Agents on the machine can use your SSH keys while Komla is connected. Keys are never
-                copied.{' '}
-                <span className="text-foreground underline underline-offset-2 group-open:hidden">
-                  Learn more
-                </span>
-                <span className="hidden text-foreground underline underline-offset-2 group-open:inline">
-                  Hide details
-                </span>
-              </summary>
-              <p className="mt-1">
-                So can other processes there. Agents kept running in tmux lose the keys after Komla
-                disconnects, so give the remote user its own Git credentials if they need Git
-                unattended.
-              </p>
-            </details>
+            <p>
+              Agents on the machine can use your SSH keys while Komla is connected. Keys are never
+              copied.
+            </p>
           ) : (
             <p>
               The machine needs its own Git credentials to create workspaces from your repositories.
@@ -1005,13 +1011,13 @@ function SetupExplainer({ isEdit }: { isEdit: boolean }) {
   return (
     <details className="group text-xs leading-relaxed text-muted-foreground">
       <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-        Checking changes nothing on the machine.{' '}
-        <span className="text-foreground underline underline-offset-2 group-open:hidden">
-          See what setup changes
-        </span>
-        <span className="hidden text-foreground underline underline-offset-2 group-open:inline">
-          Hide setup details
-        </span>
+        <CaretRight
+          aria-hidden="true"
+          className="mr-1 inline size-3 align-[-1px] transition-transform group-open:rotate-90"
+        />
+        <span className="text-foreground group-open:hidden">See what setup changes</span>
+        <span className="hidden text-foreground group-open:inline">Hide setup details</span>
+        <span> · Checking changes nothing on the machine.</span>
       </summary>
       <ul className="mt-2 list-disc space-y-1 pl-4">
         <li>Checks the remote OS, Git, required utilities, tmux, rsync, and Git identity.</li>

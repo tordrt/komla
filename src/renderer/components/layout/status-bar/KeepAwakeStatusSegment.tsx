@@ -3,12 +3,12 @@ import { Coffee } from '@phosphor-icons/react';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { MenuHeader } from '@/components/ui/menu-header';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -76,18 +76,19 @@ export function KeepAwakeStatusSegment() {
           {awake && <span className="@max-3xl:hidden">Awake</span>}
         </StatusBarButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="end" className="w-72 min-w-0">
-        <DropdownMenuLabel className="flex items-center justify-between gap-3">
-          Keep this computer awake
-          <span className={cn('flex items-center gap-1.5 font-normal', awake && 'text-foreground')}>
-            <span
-              aria-hidden="true"
-              className={cn('size-1.5 rounded-full', awake ? 'bg-success' : 'bg-foreground/25')}
-            />
-            {awake ? 'Awake' : mode === 'off' ? 'Off' : 'No agents working'}
-          </span>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
+      <DropdownMenuContent side="top" align="end" collisionPadding={8} className="w-72 min-w-0">
+        <MenuHeader title="Keep awake">
+          {/* Only while agents work does the picked mode leave whether it's awake open. */}
+          {mode === 'agents' && (
+            <span className={cn('flex items-center gap-1.5', awake && 'text-success')}>
+              <span
+                aria-hidden="true"
+                className={cn('size-1.5 rounded-full', awake ? 'bg-success' : 'bg-foreground/25')}
+              />
+              {awake ? 'Awake now' : 'No agents working'}
+            </span>
+          )}
+        </MenuHeader>
         <DropdownMenuRadioGroup
           value={mode}
           onValueChange={(value) => void updateConfig({ keepAwakeMode: value as KeepAwakeMode })}
@@ -111,8 +112,7 @@ export function KeepAwakeStatusSegment() {
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
         <p className="px-2 py-1 text-ui text-muted-foreground">
-          The display can still turn off. Agents on SSH hosts keep working in tmux while this
-          computer sleeps.
+          The display can still sleep. Agents on SSH hosts keep running in tmux either way.
         </p>
       </DropdownMenuContent>
     </DropdownMenu>

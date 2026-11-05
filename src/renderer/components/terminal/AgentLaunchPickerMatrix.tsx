@@ -23,6 +23,26 @@ interface AgentLaunchPickerMatrixProps {
   heightPresets?: AgentPreset[];
   /** Adds a "Manage agents…" item under the agents, e.g. to open Settings → Agents. */
   onManageAgents?: () => void;
+  /**
+   * With only one agent, shows "Edit <agent>…" in place of "Manage agents…", e.g. to open that
+   * agent's editor in Settings → Agents.
+   */
+  onEditAgent?: (presetId: string) => void;
+}
+
+// The tallest column any agent could need, so moving between agents never resizes the menu.
+// The agent column ends in "Manage agents…", as the mode column does with only one agent.
+function stableRowCount(
+  presets: AgentPreset[],
+  options: { isSinglePreset: boolean; hasManageRow: boolean }
+): number {
+  const { isSinglePreset, hasManageRow } = options;
+  const modeColumnRows = (preset: AgentPreset) =>
+    preset.launchModes.length + 1 + Number(isSinglePreset && hasManageRow);
+  return Math.max(
+    isSinglePreset ? 0 : presets.length + Number(hasManageRow),
+    ...presets.map(modeColumnRows)
+  );
 }
 
 export function AgentLaunchPickerMatrix({
@@ -37,6 +57,7 @@ export function AgentLaunchPickerMatrix({
   menuType = 'dropdown',
   heightPresets = presets,
   onManageAgents,
+  onEditAgent,
 }: AgentLaunchPickerMatrixProps) {
   const isMultiSelect = selectedTargets !== undefined;
   const isSinglePreset = presets.length === 1;
@@ -44,12 +65,15 @@ export function AgentLaunchPickerMatrix({
     presets.find((preset) => preset.id === inspectedPresetId) ??
     presets.find((preset) => preset.id === selectedTarget?.presetId) ??
     presets[0];
-  const stablePickerRowCount = Math.max(
-    heightPresets.length,
-    ...heightPresets.map((preset) => preset.launchModes.length + 1)
-  );
+  // Sized from heightPresets alone, so switching to multi-select, which may list fewer agents and
+  // drops the manage row, keeps the menu's height.
+  const isSingleHeightPreset = heightPresets.length === 1;
+  const stablePickerRowCount = stableRowCount(heightPresets, {
+    isSinglePreset: isSingleHeightPreset,
+    hasManageRow: Boolean(onManageAgents || (isSingleHeightPreset && onEditAgent)),
+  });
   const stablePickerHeightRem =
-    stablePickerRowCount * 2 + Math.max(0, stablePickerRowCount - 1) * 0.125;
+    stablePickerRowCount * 1.75 + Math.max(0, stablePickerRowCount - 1) * 0.125;
   const MenuItem = menuType === 'context' ? ContextMenuItem : DropdownMenuItem;
   const CheckboxItem = isMultiSelect
     ? menuType === 'context'
@@ -67,13 +91,17 @@ export function AgentLaunchPickerMatrix({
             }
           : null
       : null;
-  const manageAgentsItem = onManageAgents && (
+  // With one agent, its own editor is the useful way in; the agent list is a step back from it.
+  const editSinglePreset = isSinglePreset && onEditAgent && inspectedPreset;
+  const manageAgentsItem = !isMultiSelect && (editSinglePreset || onManageAgents) && (
     <MenuItem
-      className="mt-auto min-h-8 w-full justify-start gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground"
-      onSelect={onManageAgents}
+      className="mt-auto min-h-7 w-full justify-start gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground"
+      onSelect={() => (editSinglePreset ? onEditAgent(inspectedPreset.id) : onManageAgents?.())}
     >
       <GearSix className="size-3.5 shrink-0" />
-      <span className="truncate">Manage agents…</span>
+      <span className="truncate">
+        {editSinglePreset ? `Edit ${inspectedPreset.name}…` : 'Manage agents…'}
+      </span>
     </MenuItem>
   );
 
@@ -83,7 +111,7 @@ export function AgentLaunchPickerMatrix({
         'grid min-w-0 px-1',
         isSinglePreset
           ? 'grid-cols-1'
-          : 'w-[min(22rem,calc(100vw-2rem))] grid-cols-[minmax(7.5rem,1fr)_minmax(9rem,1fr)] group-data-[side=left]/agent-launch-picker:grid-cols-[minmax(9rem,1fr)_minmax(7.5rem,1fr)] group-data-[side=left]/agent-launch-picker:[&>[data-agent-launch-modes]]:order-1 group-data-[side=left]/agent-launch-picker:[&>[data-agent-launch-modes]]:pl-0 group-data-[side=left]/agent-launch-picker:[&>[data-agent-launch-modes]]:pr-1 group-data-[side=left]/agent-launch-picker:[&_[data-agent-preset-caret]]:rotate-180 group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:order-2 group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:border-l group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:border-r-0 group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:pl-1 group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:pr-0'
+          : 'w-[calc(min(22rem,100vw-2rem)-10px)] grid-cols-[minmax(7.5rem,1fr)_minmax(9rem,1fr)] group-data-[side=left]/agent-launch-picker:grid-cols-[minmax(9rem,1fr)_minmax(7.5rem,1fr)] group-data-[side=left]/agent-launch-picker:[&>[data-agent-launch-modes]]:order-1 group-data-[side=left]/agent-launch-picker:[&>[data-agent-launch-modes]]:pl-0 group-data-[side=left]/agent-launch-picker:[&>[data-agent-launch-modes]]:pr-1 group-data-[side=left]/agent-launch-picker:[&_[data-agent-preset-caret]]:rotate-180 group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:order-2 group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:border-l group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:border-r-0 group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:pl-1 group-data-[side=left]/agent-launch-picker:[&>[data-agent-presets]]:pr-0'
       )}
       data-agent-launch-matrix
       data-agent-launch-layout={isSinglePreset ? 'compact' : 'matrix'}
@@ -111,7 +139,7 @@ export function AgentLaunchPickerMatrix({
                 key={preset.id}
                 aria-label={presetActionLabel}
                 className={cn(
-                  'min-h-8 w-full justify-start gap-2 rounded-md px-2 py-1 text-xs',
+                  'min-h-7 w-full justify-start gap-2 rounded-md px-2 py-1 text-xs',
                   !isMultiSelect &&
                     selectedTarget?.presetId === preset.id &&
                     'font-medium text-foreground',
@@ -122,7 +150,10 @@ export function AgentLaunchPickerMatrix({
                 onFocus={() => onInspectPreset(preset.id)}
                 onSelect={(event) => {
                   if (!isMultiSelect && getPreferredLaunchModeId && onSelectTarget) {
-                    onSelectTarget({ presetId: preset.id, launchModeId: preferredLaunchModeId });
+                    onSelectTarget({
+                      presetId: preset.id,
+                      launchModeId: preferredLaunchModeId,
+                    });
                     return;
                   }
                   event.preventDefault();
@@ -150,7 +181,10 @@ export function AgentLaunchPickerMatrix({
         </div>
       )}
       {inspectedPreset && (
-        <div className={cn('min-w-0', !isSinglePreset && 'pl-1')} data-agent-launch-modes>
+        <div
+          className={cn('flex min-w-0 flex-col gap-0.5', !isSinglePreset && 'pl-1')}
+          data-agent-launch-modes
+        >
           <div className="space-y-0.5">
             {[{ id: null, name: 'Default', color: undefined }, ...inspectedPreset.launchModes].map(
               (candidateMode, candidateModeIndex) => {
@@ -193,7 +227,7 @@ export function AgentLaunchPickerMatrix({
                       aria-label={label}
                       checked={isSelected}
                       className={cn(
-                        'min-h-8 w-full rounded-md py-1 pr-2 text-xs',
+                        'min-h-7 w-full rounded-md py-1 pr-2 text-xs',
                         isSelected && 'bg-foreground/8'
                       )}
                       onCheckedChange={() => onToggleTarget?.(target)}
@@ -209,7 +243,7 @@ export function AgentLaunchPickerMatrix({
                     key={candidateMode.id ?? 'default'}
                     aria-label={label}
                     className={cn(
-                      'min-h-8 w-full justify-start gap-2 rounded-md px-2 py-1 text-xs',
+                      'min-h-7 w-full justify-start gap-2 rounded-md px-2 py-1 text-xs',
                       isSelected && 'bg-foreground/8'
                     )}
                     onSelect={() => onSelectTarget?.(target)}
@@ -226,8 +260,8 @@ export function AgentLaunchPickerMatrix({
                 );
               }
             )}
-            {isSinglePreset && manageAgentsItem}
           </div>
+          {isSinglePreset && manageAgentsItem && <div className="mt-auto">{manageAgentsItem}</div>}
         </div>
       )}
     </div>

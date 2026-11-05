@@ -14,9 +14,10 @@ import { useShortcuts, useDoubleTapShortcuts } from '@/hooks/useShortcuts';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { resolveDefaultLaunchTarget } from '@/lib/agent-launch';
 import { getFocusedPromptTerminalId } from '@/lib/focused-terminal';
-import { createNote } from '@/lib/notes';
+import { closeNote, createNote } from '@/lib/notes';
 import { openFolder } from '@/lib/open-folder';
 import { closePaneBrowserTab } from '@/lib/pane-surfaces';
+import { closeFocusedPromptDraft, togglePromptDraft } from '@/lib/prompt-draft';
 import { registerShortcutAction, executeShortcutAction } from '@/lib/shortcut-actions';
 import { toggleSidebarCollapsed } from '@/lib/sidebar-collapsed';
 import { findNextAttentionWorkspaceId } from '@/lib/workspace-attention';
@@ -613,6 +614,8 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
         closePaneBrowserTab(page.workspaceId, page.tabId);
         return;
       }
+      // The prompt draft floats over the viewers below, so it closes first.
+      if (closeFocusedPromptDraft()) return;
       const quickLook = useQuickLookStore.getState();
       if (quickLook.session) {
         quickLook.close();
@@ -624,7 +627,13 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
         return;
       }
       const { currentWorkspaceId } = useLayoutStore.getState();
-      const { fileViewerWorkspaceId, inlineFilePreviewByWorkspace } = useFileViewerStore.getState();
+      const { fileViewerWorkspaceId, fileViewerNoteName, inlineFilePreviewByWorkspace } =
+        useFileViewerStore.getState();
+      // A note over the file viewer closes as its tab would, back to the file underneath.
+      if (fileViewerWorkspaceId && fileViewerNoteName) {
+        closeNote(fileViewerWorkspaceId);
+        return;
+      }
       const inlinePreviewOpen = currentWorkspaceId
         ? (inlineFilePreviewByWorkspace[currentWorkspaceId]?.open ?? false)
         : false;
@@ -689,6 +698,7 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
       registerShortcutAction('file.tree', toggleTree),
       registerShortcutAction('inline.file.tree', toggleInlineTree),
       registerShortcutAction('note.new', newNote),
+      registerShortcutAction('promptDraft.toggle', togglePromptDraft),
       registerShortcutAction('tab.newAgent', openNewAgentTab),
       registerShortcutAction('terminal.new', () => {
         void createTerminal();
@@ -757,6 +767,7 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
     'file.tree': toggleTree,
     'inline.file.tree': toggleInlineTree,
     'note.new': newNote,
+    'promptDraft.toggle': togglePromptDraft,
     'terminal.new': () => {
       void createTerminal();
     },

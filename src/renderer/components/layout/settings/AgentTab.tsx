@@ -1,12 +1,4 @@
-import {
-  Bell,
-  Plus,
-  PencilSimple,
-  Trash,
-  Warning,
-  CaretUp,
-  CaretDown,
-} from '@phosphor-icons/react';
+import { Bell, Plus, Trash, Warning, CaretUp, CaretDown, CaretRight } from '@phosphor-icons/react';
 import { useState, useEffect, useMemo } from 'react';
 
 import { AgentPresetIcon } from '@/components/terminal/AgentPresetIcon';
@@ -21,6 +13,7 @@ import { reportsOwnStatus } from '@/lib/agent-status-reports';
 import { getLaunchModeColor, LAUNCH_MODE_DOT_CLASSES } from '@/lib/launch-mode-colors';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { useConfigStore } from '@/stores/config.store';
+import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import { useToastStore } from '@/stores/toast.store';
 import { deriveAgentName } from '@/utils/agent-name';
 
@@ -28,7 +21,9 @@ import { POPULAR_OTHER_AGENTS, RECOMMENDED_AGENTS } from '../../../../shared/con
 import {
   hasDuplicateLevelNames,
   levelPickerOf,
+  modelPickerOf,
   storedLevelPicker,
+  storedModelPicker,
 } from '../../../../shared/lib/level-picker';
 
 import {
@@ -49,12 +44,15 @@ import type {
   AgentPreset,
   LaunchMode,
   ReasoningLevel,
+  ModelOption,
   LevelPicker,
 } from '@/types';
 
 // Compares pickers as they look, so a title typed and cleared again isn't a change.
 const pickerJson = (picker: LevelPicker | undefined) =>
   JSON.stringify(levelPickerOf({ levelPicker: picker }));
+const modelPickerJson = (picker: LevelPicker | undefined) =>
+  JSON.stringify(modelPickerOf({ modelPicker: picker }));
 
 const TEMPLATE_INFO: Record<string, string> = {
   'Claude Code': 'AI coding assistant by Anthropic',
@@ -94,12 +92,15 @@ interface AgentTabProps {
   onClose: () => void;
   onSaveClose?: () => void;
   onDirtyChange?: (isDirty: boolean) => void;
+  /** Called with whether an editor or picker replaces the list, which then heads the page. */
+  onSubpageChange?: (open: boolean) => void;
 }
 
 export function AgentTab({
   onClose: _onClose,
   onSaveClose: _onSaveClose,
   onDirtyChange,
+  onSubpageChange,
 }: AgentTabProps) {
   const {
     presets,
@@ -118,6 +119,11 @@ export function AgentTab({
 
   // View state: 'list' shows preset list, 'edit' shows preset detail, 'add' shows template picker
   const [view, setView] = useState<'list' | 'edit' | 'add'>('list');
+  const subpageOpen = view !== 'list';
+  useEffect(() => {
+    onSubpageChange?.(subpageOpen);
+  }, [subpageOpen, onSubpageChange]);
+  useEffect(() => () => onSubpageChange?.(false), [onSubpageChange]);
   const [editingPresetId, setEditingPresetId] = useState<string>('');
   const [pendingTemplate, setPendingTemplate] = useState<Omit<AgentPreset, 'id'> | null>(null);
 
@@ -155,6 +161,8 @@ export function AgentTab({
   const [launchModes, setLaunchModes] = useState<LaunchMode[]>([]);
   const [reasoningLevels, setReasoningLevels] = useState<ReasoningLevel[]>([]);
   const [levelPicker, setLevelPicker] = useState<LevelPicker>({});
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelPicker, setModelPicker] = useState<LevelPicker>({});
   const [presetError, setPresetError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   // Self-integration prompt for custom agents — surfaced in the custom edit view.
@@ -170,6 +178,8 @@ export function AgentTab({
     launchModesJson: string;
     reasoningLevelsJson: string;
     levelPickerJson: string;
+    modelsJson: string;
+    modelPickerJson: string;
   } | null>(null);
 
   // Load templates on mount (intentional one-shot — deps intentionally empty)
@@ -202,7 +212,9 @@ export function AgentTab({
       promptCommand !== initialState.promptCommand ||
       JSON.stringify(launchModes) !== initialState.launchModesJson ||
       JSON.stringify(reasoningLevels) !== initialState.reasoningLevelsJson ||
-      pickerJson(levelPicker) !== initialState.levelPickerJson;
+      pickerJson(levelPicker) !== initialState.levelPickerJson ||
+      JSON.stringify(models) !== initialState.modelsJson ||
+      modelPickerJson(modelPicker) !== initialState.modelPickerJson;
 
     onDirtyChange?.(isDirty);
   }, [
@@ -215,9 +227,25 @@ export function AgentTab({
     launchModes,
     reasoningLevels,
     levelPicker,
+    models,
+    modelPicker,
     initialState,
     onDirtyChange,
   ]);
+
+  // Open the agent a link such as "Add model picker…" asked for, then forget the request, so
+  // coming back to this tab later shows the list.
+  const requestedPresetId = useSettingsDialogStore((s) => s.target.editPresetId);
+  useEffect(() => {
+    if (!requestedPresetId) return;
+    const preset = presets.find((p) => p.id === requestedPresetId);
+    if (!preset) return;
+    useSettingsDialogStore.setState((state) => ({
+      target: { ...state.target, editPresetId: undefined },
+    }));
+    navigateToEdit(preset.id, preset);
+    // oxlint-disable-next-line react/exhaustive-deps
+  }, [requestedPresetId, presets]);
 
   // Navigate to edit view for a preset (accepts optional preset data for newly created presets
   // that may not be in the store yet)
@@ -232,7 +260,9 @@ export function AgentTab({
       setPromptCommand(preset.promptCommand);
       setLaunchModes(preset.launchModes);
       setReasoningLevels(preset.reasoningLevels ?? []);
-      setLevelPicker(preset.levelPicker ?? {});
+      setLevelPicker(levelPickerOf(preset));
+      setModels(preset.models ?? []);
+      setModelPicker(modelPickerOf(preset));
       setInitialState({
         presetId: preset.id,
         name: preset.name,
@@ -242,6 +272,8 @@ export function AgentTab({
         launchModesJson: JSON.stringify(preset.launchModes),
         reasoningLevelsJson: JSON.stringify(preset.reasoningLevels ?? []),
         levelPickerJson: pickerJson(preset.levelPicker),
+        modelsJson: JSON.stringify(preset.models ?? []),
+        modelPickerJson: modelPickerJson(preset.modelPicker),
       });
     }
     setIsCustomPreset(false);
@@ -358,6 +390,15 @@ export function AgentTab({
       return;
     }
 
+    if (models.some((model) => !model.name.trim() !== !model.arguments.trim())) {
+      rejectCommands('Every model needs a name and arguments');
+      return;
+    }
+    if (hasDuplicateLevelNames(models)) {
+      rejectCommands('Every model needs its own name');
+      return;
+    }
+
     setIsSaving(true);
     try {
       const trimmedOpenCommand = openCommand.trim();
@@ -385,6 +426,20 @@ export function AgentTab({
       const reasoningLevelsUpdate =
         trimmedReasoningLevelsJson !== initialState?.reasoningLevelsJson
           ? { reasoningLevels: trimmedReasoningLevels }
+          : {};
+      const trimmedModels = models.flatMap((model) => {
+        const name = model.name.trim();
+        const args = model.arguments.trim();
+        return name || args ? [{ ...model, name, arguments: args }] : [];
+      });
+      const trimmedModelsJson = JSON.stringify(trimmedModels);
+      const modelsUpdate =
+        trimmedModelsJson !== initialState?.modelsJson ? { models: trimmedModels } : {};
+      const trimmedModelPicker = storedModelPicker(modelPickerOf({ modelPicker }));
+      const trimmedModelPickerJson = modelPickerJson(trimmedModelPicker);
+      const modelPickerUpdate =
+        trimmedModelPickerJson !== initialState?.modelPickerJson
+          ? { modelPicker: trimmedModelPicker }
           : {};
       const trimmedLevelPicker = storedLevelPicker(levelPickerOf({ levelPicker }));
       const trimmedLevelPickerJson = pickerJson(trimmedLevelPicker);
@@ -435,6 +490,8 @@ export function AgentTab({
           launchModes: trimmedLaunchModes,
           ...reasoningLevelsUpdate,
           ...levelPickerUpdate,
+          ...modelsUpdate,
+          ...modelPickerUpdate,
         });
         await addActivePreset(newPreset.id);
         if (enablingNotificationsFor) {
@@ -454,6 +511,8 @@ export function AgentTab({
           launchModes: trimmedLaunchModes,
           ...reasoningLevelsUpdate,
           ...levelPickerUpdate,
+          ...modelsUpdate,
+          ...modelPickerUpdate,
         });
       }
 
@@ -467,6 +526,8 @@ export function AgentTab({
         launchModesJson: JSON.stringify(trimmedLaunchModes),
         reasoningLevelsJson: trimmedReasoningLevelsJson,
         levelPickerJson: trimmedLevelPickerJson,
+        modelsJson: trimmedModelsJson,
+        modelPickerJson: trimmedModelPickerJson,
       });
       setPresetName(trimmedName);
       setOpenCommand(trimmedOpenCommand);
@@ -474,7 +535,9 @@ export function AgentTab({
       setPromptCommand(trimmedPromptCommand);
       setLaunchModes(trimmedLaunchModes);
       setReasoningLevels(trimmedReasoningLevels);
-      setLevelPicker(trimmedLevelPicker);
+      setLevelPicker(levelPickerOf({ levelPicker: trimmedLevelPicker }));
+      setModels(trimmedModels);
+      setModelPicker(modelPickerOf({ modelPicker: trimmedModelPicker }));
 
       if (notificationsError) addToast(`Agent preset saved. ${notificationsError}`, 'error');
       else addToast('Agent preset saved', 'success');
@@ -531,6 +594,8 @@ export function AgentTab({
       launchModes: template.launchModes,
       reasoningLevels: template.reasoningLevels,
       levelPicker: template.levelPicker,
+      models: template.models,
+      modelPicker: template.modelPicker,
       isBuiltin: false,
     };
     // Custom agents have no meaningful template name — leave the display name
@@ -553,7 +618,9 @@ export function AgentTab({
     setPromptCommand(templateData.promptCommand);
     setLaunchModes(templateData.launchModes);
     setReasoningLevels(templateData.reasoningLevels ?? []);
-    setLevelPicker(templateData.levelPicker ?? {});
+    setLevelPicker(levelPickerOf(templateData));
+    setModels(templateData.models ?? []);
+    setModelPicker(modelPickerOf(templateData));
     setInitialState({
       presetId: '',
       name: initialName,
@@ -563,6 +630,8 @@ export function AgentTab({
       launchModesJson: JSON.stringify(templateData.launchModes),
       reasoningLevelsJson: JSON.stringify(templateData.reasoningLevels ?? []),
       levelPickerJson: pickerJson(templateData.levelPicker),
+      modelsJson: JSON.stringify(templateData.models ?? []),
+      modelPickerJson: modelPickerJson(templateData.modelPicker),
     });
     setPresetError(null);
     setView('edit');
@@ -623,9 +692,19 @@ export function AgentTab({
             resolvedActivePresets.map((item, index) => {
               const preset = item.preset;
               return (
+                // The whole row opens the editor; its buttons keep their own clicks.
                 <div
                   key={item.presetId}
-                  className="flex items-center justify-between gap-4 !py-3 transition-colors hover:bg-accent/50"
+                  className="group flex cursor-pointer items-center justify-between gap-4 !py-3 transition-colors hover:bg-accent/50"
+                  onClick={(event) => {
+                    // Not for clicks from a portal (a tooltip), on the row's controls (a disabled one
+                    // passes its click to them), or ending a text selection.
+                    const target = event.target as HTMLElement;
+                    if (!event.currentTarget.contains(target)) return;
+                    if (target.closest('button, [data-row-actions]')) return;
+                    if (window.getSelection()?.toString()) return;
+                    navigateToEdit(item.presetId);
+                  }}
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <AgentPresetIcon preset={preset} className="size-4 shrink-0" />
@@ -636,8 +715,13 @@ export function AgentTab({
                       </div>
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-0.5">
+                  {/* Reorder and delete show on hover or focus; Edit stays, as the row's main action. */}
+                  <div
+                    data-row-actions=""
+                    className="flex shrink-0 items-center gap-0.5 [&>[data-row-extra]]:opacity-0 [&>[data-row-extra]]:transition-opacity group-hover:[&>[data-row-extra]]:opacity-100 [&>[data-row-extra]]:focus-visible:opacity-100 [&>[data-row-extra]:disabled]:!opacity-0 group-hover:[&>[data-row-extra]:disabled]:!opacity-25"
+                  >
                     <IconButton
+                      data-row-extra=""
                       label="Move preset up"
                       onClick={() => moveActivePreset(item.presetId, index, -1)}
                       disabled={index === 0}
@@ -645,16 +729,15 @@ export function AgentTab({
                       <CaretUp className="size-3.5" />
                     </IconButton>
                     <IconButton
+                      data-row-extra=""
                       label="Move preset down"
                       onClick={() => moveActivePreset(item.presetId, index, 1)}
                       disabled={index === resolvedActivePresets.length - 1}
                     >
                       <CaretDown className="size-3.5" />
                     </IconButton>
-                    <IconButton label="Edit preset" onClick={() => navigateToEdit(item.presetId)}>
-                      <PencilSimple className="size-3.5" />
-                    </IconButton>
                     <IconButton
+                      data-row-extra=""
                       label={
                         resolvedActivePresets.length <= 1
                           ? 'At least one active preset is required'
@@ -685,6 +768,9 @@ export function AgentTab({
                       disabled={resolvedActivePresets.length <= 1}
                     >
                       <Trash className="size-3.5" />
+                    </IconButton>
+                    <IconButton label="Edit preset" onClick={() => navigateToEdit(item.presetId)}>
+                      <CaretRight className="size-3.5" />
                     </IconButton>
                   </div>
                 </div>
@@ -809,6 +895,8 @@ export function AgentTab({
                   launchModes={launchModes}
                   reasoningLevels={reasoningLevels}
                   levelPicker={levelPicker}
+                  models={models}
+                  modelPicker={modelPicker}
                   bestEffort={isBestEffortTemplate}
                 >
                   {isBestEffortTemplate && (
@@ -844,6 +932,10 @@ export function AgentTab({
                     onReasoningLevelsChange={setReasoningLevels}
                     levelPicker={levelPicker}
                     onLevelPickerChange={setLevelPicker}
+                    models={models}
+                    onModelsChange={setModels}
+                    modelPicker={modelPicker}
+                    onModelPickerChange={setModelPicker}
                     alwaysExpanded
                     showExamplePlaceholders={isCustomPreset}
                     pinnedLaunchModeId={
@@ -856,7 +948,8 @@ export function AgentTab({
               )}
             </div>
 
-            <div className="space-y-3">
+            {/* Stays in view at the bottom of the page while a long editor scrolls under it. */}
+            <div className="sticky bottom-0 z-10 space-y-3 bg-[color-mix(in_oklch,oklch(var(--card))_70%,oklch(var(--chrome)))] light:bg-popover">
               <FormError message={presetError} />
               <div className="flex justify-end gap-2">
                 <Button variant="outline" size="sm" onClick={navigateToList}>
@@ -904,6 +997,8 @@ function CollapsibleCommands({
   launchModes,
   reasoningLevels,
   levelPicker,
+  models,
+  modelPicker,
   bestEffort,
   children,
 }: {
@@ -914,12 +1009,16 @@ function CollapsibleCommands({
   launchModes: LaunchMode[];
   reasoningLevels: ReasoningLevel[];
   levelPicker: LevelPicker;
+  models: ModelOption[];
+  modelPicker: LevelPicker;
   bestEffort: boolean;
   children: React.ReactNode;
 }) {
   if (!collapsible) return <>{children}</>;
   const picker = levelPickerOf({ levelPicker });
   const levels = picker.hidden ? [] : reasoningLevels.filter((level) => level.name.trim());
+  const modelLook = modelPickerOf({ modelPicker });
+  const namedModels = modelLook.hidden ? [] : models.filter((model) => model.name.trim());
   // Colored by place in the full list, as the editor and launch menus do.
   const modes = launchModes
     .map((mode, index) => ({ mode, color: getLaunchModeColor(mode.color, index) }))
@@ -957,6 +1056,12 @@ function CollapsibleCommands({
                 <>
                   <dt className="text-muted-foreground">{picker.title}</dt>
                   <dd className="text-xs">{levels.map((level) => level.name).join(' · ')}</dd>
+                </>
+              )}
+              {namedModels.length > 0 && (
+                <>
+                  <dt className="text-muted-foreground">{modelLook.title}</dt>
+                  <dd className="text-xs">{namedModels.map((model) => model.name).join(' · ')}</dd>
                 </>
               )}
             </dl>

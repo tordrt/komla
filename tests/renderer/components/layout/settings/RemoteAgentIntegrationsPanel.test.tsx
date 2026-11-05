@@ -103,13 +103,13 @@ describe('RemoteAgentIntegrationsPanel', () => {
     const tiers = screen
       .getAllByRole('group')
       .map((group) => group.getAttribute('aria-label'))
-      .filter((label) => ['Hooks', 'Komla CLI', 'MCP server'].includes(label ?? ''));
-    expect(tiers).toEqual(['Hooks', 'Komla CLI', 'MCP server']);
+      .filter((label) => ['Hooks', 'Komla CLI', 'MCP'].includes(label ?? ''));
+    expect(tiers).toEqual(['Hooks', 'Komla CLI', 'MCP']);
     const hooks = screen.getByRole('group', { name: 'Hooks' });
     expect(within(hooks).getByText('Recommended')).toBeInTheDocument();
     // One Enable per agent, with nothing to expand first.
     expect(within(hooks).getAllByRole('button', { name: 'Enable' })).toHaveLength(4);
-    const mcp = screen.getByRole('group', { name: 'MCP server' });
+    const mcp = screen.getByRole('group', { name: 'MCP' });
     expect(within(mcp).getByRole('button')).toHaveAttribute('aria-expanded', 'false');
     expect(mcp).toHaveTextContent('Off');
   });
@@ -169,7 +169,7 @@ describe('RemoteAgentIntegrationsPanel', () => {
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
 
     expect(screen.getByRole('group', { name: 'Komla CLI' })).toHaveTextContent(
-      'Agents can also look up any command with komla --help or komla <command> --help.'
+      'Agents can also run komla --help, or --help after any command.'
     );
   });
 
@@ -222,11 +222,11 @@ describe('RemoteAgentIntegrationsPanel', () => {
     expect(onLaunchIntegrationChange).toHaveBeenCalledOnce();
 
     await user.click(
-      within(screen.getByRole('group', { name: 'MCP server' })).getAllByRole('button')[0]
+      within(screen.getByRole('group', { name: 'MCP' })).getAllByRole('button')[0]
     );
     status.claude = { notifications: false, mcp: false };
     await user.click(
-      within(await row('MCP server', 'Claude Code')).getByRole('button', { name: 'Remove' })
+      within(await row('MCP', 'Claude Code')).getByRole('button', { name: 'Remove' })
     );
     await waitFor(() => expect(onLaunchIntegrationChange).toHaveBeenLastCalledWith(false));
     expect(mockOfferAgentLaunchDefaults).not.toHaveBeenCalled();
@@ -250,11 +250,11 @@ describe('RemoteAgentIntegrationsPanel', () => {
     const api = setupMockApi();
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
 
-    const mcp = screen.getByRole('group', { name: 'MCP server' });
+    const mcp = screen.getByRole('group', { name: 'MCP' });
     expect(mcp).toHaveTextContent('Available while a Komla SSH terminal for this host is open.');
     await user.click(within(mcp).getByRole('button'));
     await user.click(
-      await within(await row('MCP server', 'Codex CLI')).findByRole('button', { name: 'Enable' })
+      await within(await row('MCP', 'Codex CLI')).findByRole('button', { name: 'Enable' })
     );
 
     await waitFor(() =>
@@ -268,10 +268,10 @@ describe('RemoteAgentIntegrationsPanel', () => {
     api.getSshIntegrationStatus.mockRejectedValue(new Error('connection refused'));
     render(<RemoteAgentIntegrationsPanel target={{ kind: 'ssh', host }} />);
 
-    const mcp = screen.getByRole('group', { name: 'MCP server' });
+    const mcp = screen.getByRole('group', { name: 'MCP' });
     await waitFor(() => expect(mcp).toHaveTextContent('Unavailable'));
     await user.click(within(mcp).getByRole('button'));
-    const codex = await row('MCP server', 'Codex CLI');
+    const codex = await row('MCP', 'Codex CLI');
     expect(within(codex).getByText('Unavailable')).toBeInTheDocument();
     expect(within(codex).queryByRole('button', { name: 'Enable' })).not.toBeInTheDocument();
   });
@@ -296,7 +296,7 @@ describe('RemoteAgentIntegrationsPanel', () => {
 });
 
 // An agent's row in a tier.
-async function row(tier: 'Hooks' | 'MCP server', agent: string): Promise<HTMLElement> {
+async function row(tier: 'Hooks' | 'MCP', agent: string): Promise<HTMLElement> {
   const label = await within(screen.getByRole('group', { name: tier })).findByText(agent, {
     selector: 'span',
   });

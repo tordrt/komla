@@ -205,7 +205,7 @@ describe('OnboardingConnectStep', () => {
 
   it('says hooks bring notifications when an agent may not report its own status', () => {
     renderStep();
-    expect(screen.getByText(/Leave agents running and come back when one needs you/)).toBeVisible();
+    expect(screen.getByText(/Hooks tell Komla when an agent finishes or needs you/)).toBeVisible();
   });
 
   it('waits on other changes while one runs', () => {
@@ -232,19 +232,17 @@ describe('OnboardingConnectStep', () => {
     expect(screen.queryByRole('switch')).toBeNull();
     expect(screen.queryByRole('button', { name: 'What changes?' })).toBeNull();
     expect(
-      screen.getByText(/To teach your agents about it, install the Komla skill from Tips later/)
+      screen.getByText(/install the Komla skill from Tips later/)
     ).toBeVisible();
   });
 
-  it('shows what turning things on changes, on request', () => {
+  it('shows what turning hooks on changes on the agent’s row', () => {
     renderStep();
-    const toggle = screen.getByRole('button', { name: 'What changes?' });
-    expect(screen.queryByText('/home/me/.codex/settings.json')).toBeNull();
+    const [, codexRow] = within(
+      screen.getByRole('list', { name: 'Agents with one-click setup' })
+    ).getAllByRole('listitem');
 
-    fireEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('/home/me/.codex/settings.json')).toBeVisible();
+    expect(within(codexRow).getByText('/home/me/.codex/settings.json')).toBeVisible();
     expect(screen.queryByText('/home/me/.claude/settings.json')).toBeNull();
   });
 
@@ -253,7 +251,7 @@ describe('OnboardingConnectStep', () => {
 
     const note = screen.getByRole('note', { name: 'Cursor CLI can set itself up' });
     expect(note).toHaveTextContent(
-      'Komla can’t connect it for you. After setup, open Tips and run “Integrate Cursor CLI with Komla”. Komla starts the agent with a setup prompt, and it adds Komla’s hooks itself, asking before it changes a file.'
+      'After setup, open Tips and run “Integrate Cursor CLI with Komla”. The agent adds Komla’s hooks itself, asking before it changes a file.'
     );
     expect(screen.queryByRole('button', { name: /^Set up/ })).toBeNull();
     expect(screen.queryByRole('checkbox')).toBeNull();
@@ -266,7 +264,7 @@ describe('OnboardingConnectStep', () => {
     expect(
       screen.getByRole('note', { name: 'Cursor CLI, Pi, and 2 others can set themselves up' })
     ).toHaveTextContent(
-      'run “Integrate Cursor CLI, Pi, and 2 others with Komla”. Komla starts each agent with a setup prompt'
+      'run “Integrate Cursor CLI, Pi, and 2 others with Komla”. Each agent adds Komla’s hooks itself'
     );
   });
 

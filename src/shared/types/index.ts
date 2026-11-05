@@ -109,6 +109,7 @@ export type {
   AgentPreset,
   LaunchMode,
   ReasoningLevel,
+  ModelOption,
   LevelPicker,
   LevelPickerIcon,
   ActivePresetEntry,

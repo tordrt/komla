@@ -2,6 +2,7 @@ import {
   ArrowRight,
   ArrowLineDown,
   CaretDown,
+  Check,
   CaretRight,
   Cloud,
   CloudArrowUp,
@@ -9,7 +10,7 @@ import {
   GitMerge,
   Plus,
   ArrowsClockwise,
-  X,
+  ArrowCounterClockwise,
   Star,
 } from '@phosphor-icons/react';
 import React, { useState, useCallback, useMemo } from 'react';
@@ -29,6 +30,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { MenuHeader } from '@/components/ui/menu-header';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
@@ -417,16 +419,6 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent className="w-80 max-w-[calc(100vw-1rem)]" align="start">
-          {/* Publish repo when no origin remote, or one with none of the branches */}
-          {showPublishRepo && (
-            <>
-              <DropdownMenuItem onClick={() => setPublishRepoDialogOpen(true)}>
-                <CloudArrowUp />
-                <span>Publish repo</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          )}
           {/* Sync section: Sync unless a specific Pull replaces it, plus Merge/Push when counts are known */}
           {hasOriginRemote && (
             <>
@@ -473,11 +465,15 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
               <DropdownMenuSeparator />
             </>
           )}
-          {/* Change target branch section */}
-          <DropdownMenuLabel className="flex items-center gap-1.5">
-            <GitBranch className="size-3" />
-            Target branch for this workspace
-          </DropdownMenuLabel>
+          {/* Change target branch section: the menu's header, unless sync goes first */}
+          {hasOriginRemote ? (
+            <DropdownMenuLabel className="flex items-center gap-1.5">
+              <GitBranch className="size-3" />
+              Target branch for this workspace
+            </DropdownMenuLabel>
+          ) : (
+            <MenuHeader title="Target branch">for this workspace</MenuHeader>
+          )}
           <div className="space-y-1 px-2 pb-1.5">
             <input
               type="text"
@@ -503,10 +499,10 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
                   void handleTargetBranchChange('');
                 }}
               >
-                <X className="size-3" />
+                <ArrowCounterClockwise className="size-3" />
                 {followedTarget === effectiveDefault
-                  ? `Use project target (${followedTarget})`
-                  : `Use default (${followedTarget})`}
+                  ? `Reset to project target (${followedTarget})`
+                  : `Reset to default (${followedTarget})`}
               </div>
             )}
           </div>
@@ -560,7 +556,11 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
                       {branch.name}
                     </span>
                     {isSelected && (
-                      <span className="shrink-0 text-xs text-muted-foreground">target</span>
+                      <Check
+                        aria-label="This workspace's target"
+                        weight="bold"
+                        className="shrink-0 text-primary!"
+                      />
                     )}
                     {isCheckedOut && (
                       <span className="shrink-0 text-xs text-muted-foreground">checked out</span>
@@ -655,6 +655,17 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
               );
             })()}
           </div>
+          {/* Publish repo when no origin remote, or one with none of the branches: last, as
+              picking the target is what this menu is for. */}
+          {showPublishRepo && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setPublishRepoDialogOpen(true)}>
+                <CloudArrowUp />
+                <span>Publish repo</span>
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       {showPublishRepo && (

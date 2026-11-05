@@ -75,6 +75,7 @@ export type {
   ActivePresetEntry,
   LaunchMode,
   ReasoningLevel,
+  ModelOption,
   LevelPicker,
   Action,
   ActionType,

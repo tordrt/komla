@@ -1,10 +1,8 @@
-import { CaretDown, CaretUp, Check, Plus } from '@phosphor-icons/react';
-import React, { useState, useEffect, useCallback } from 'react';
+import { ArrowLeft, CaretDown, CaretUp, Check, Plus } from '@phosphor-icons/react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 import { ProjectCreationForm } from '@/components/projects/ProjectCreationForm';
-import { addedConfigAliases } from '@/components/ssh-hosts/SshConfigHostPicker';
 import { AgentPresetIcon, hasAgentPresetLogo } from '@/components/terminal/AgentPresetIcon';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
 import { Input } from '@/components/ui/input';
@@ -27,6 +25,13 @@ import {
 import { hasDuplicateLevelNames } from '../../../shared/lib/level-picker';
 
 import { OnboardingAnalyticsStep } from './OnboardingAnalyticsStep';
+import {
+  ChoiceCheck,
+  choiceClass,
+  OnboardingSectionLabel,
+  OnboardingStepHeader,
+  OnboardingStepper,
+} from './OnboardingChrome';
 import { OnboardingConnectStep, useAgentConnections } from './OnboardingConnectStep';
 import { OnboardingFoundAgents } from './OnboardingFoundAgents';
 import { OnboardingLaunchStep } from './OnboardingLaunchStep';
@@ -37,7 +42,7 @@ import { CommandInputs } from './settings/CommandInputs';
 
 import type { LaunchAgent } from './OnboardingConnectStep';
 import type { AgentMachine } from './OnboardingMachineStep';
-import type { AgentPreset, LaunchMode, Project, ReasoningLevel, SshConfigHost } from '@/types';
+import type { AgentPreset, LaunchMode, Project, ReasoningLevel } from '@/types';
 
 // Featured agent card (the four with one-click setup).
 function FeaturedAgentCard({
@@ -54,25 +59,28 @@ function FeaturedAgentCard({
       onClick={onSelect}
       aria-pressed={isSelected}
       className={cn(
-        'relative flex items-center justify-between gap-2 rounded-lg border p-3 text-left transition-all',
-        isSelected
-          ? 'border-primary/50 bg-primary/5 ring-2 ring-primary/50'
-          : 'border-border hover:bg-muted/50'
+        'flex h-14 items-center gap-3 rounded-lg px-3.5 text-left text-sm',
+        choiceClass(isSelected)
       )}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <AgentPresetIcon preset={preset} className="size-4 shrink-0" />
-        <span className="truncate font-medium">{preset.name}</span>
-      </div>
-      {isSelected && (
-        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary">
-          <Check className="size-3 text-primary-foreground" />
-        </div>
-      )}
-      {RECOMMENDED_AGENTS.includes(preset.name) && (
-        <Badge tone="primary" variant="solid" className="absolute -top-2 right-2">
-          Recommended
-        </Badge>
+      <AgentPresetIcon preset={preset} className="size-5 shrink-0" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium">{preset.name}</span>
+        {RECOMMENDED_AGENTS.includes(preset.name) && (
+          <span
+            className={cn(
+              'block text-2xs font-medium',
+              isSelected ? 'text-komla' : 'text-muted-foreground'
+            )}
+          >
+            Recommended
+          </span>
+        )}
+      </span>
+      {isSelected ? (
+        <ChoiceCheck />
+      ) : (
+        <span className="size-4 shrink-0 rounded-full ring-1 ring-border ring-inset" />
       )}
     </button>
   );
@@ -94,15 +102,13 @@ function AgentChip({
       aria-pressed={isSelected}
       title={preset.name}
       className={cn(
-        'flex items-center justify-start gap-1.5 rounded-md border px-2.5 py-2 text-left text-sm transition-all',
-        isSelected
-          ? 'border-primary/50 bg-primary/5 ring-2 ring-primary/50'
-          : 'border-border hover:bg-muted/50'
+        'flex h-9 items-center justify-start gap-2 rounded-md px-2.5 text-left text-[13px]',
+        choiceClass(isSelected)
       )}
     >
-      {isSelected && <Check className="size-3 shrink-0 text-primary" />}
       <AgentPresetIcon preset={preset} className="size-3.5 shrink-0" />
-      <span className="truncate font-medium">{preset.name}</span>
+      <span className="min-w-0 flex-1 truncate font-medium">{preset.name}</span>
+      {isSelected && <Check className="size-3.5 shrink-0 text-komla" weight="bold" />}
     </button>
   );
 }
@@ -119,6 +125,10 @@ const connectStep = 3;
 const machineStep = 4;
 const analyticsStep = 5;
 const stepLabels = ['Project', 'Agent', 'Connect', 'Machine'];
+
+// Every step's Back and Continue, in a band along the bottom of the card.
+const WIZARD_FOOTER_CLASS =
+  'flex shrink-0 items-center justify-between gap-3 border-t border-foreground/8 px-7 py-4';
 
 type AgentTemplate = Omit<AgentPreset, 'id'>;
 
@@ -169,6 +179,11 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
   const [displayName, setDisplayName] = useState('');
   const [displayNameTouched, setDisplayNameTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Scrolled to when it changes, as it can come from the footer pinned far below it.
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [error]);
   const [isCreating, setIsCreating] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showAllAgents, setShowAllAgents] = useState(false);
@@ -183,9 +198,6 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
   const [pickingOtherAgent, setPickingOtherAgent] = useState(false);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [machine, setMachine] = useState<AgentMachine>('local');
-  const [sshConfigHosts, setSshConfigHosts] = useState<SshConfigHost[]>([]);
-  const [pickedSshAlias, setPickedSshAlias] = useState<string | null>(null);
-  const sshConfigHostsRequestedRef = React.useRef(false);
   // Usage analytics are asked once; setup asks, on a step of its own, unless the user already
   // answered. Decided as setup opens, so saving the answer doesn't take the step away mid-way.
   const [askAnalytics] = useState(() => config?.usageTelemetryConsentAnswered !== true);
@@ -297,19 +309,6 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
     setError(null);
   };
 
-  const handleMachineChange = (next: AgentMachine) => {
-    setMachine(next);
-    if (next !== 'ssh' || sshConfigHostsRequestedRef.current) return;
-    sshConfigHostsRequestedRef.current = true;
-    // Hosts the user already reaches over SSH, leaving out the ones Komla already has.
-    Promise.all([window.api.listSshConfigHosts(), window.api.listSshHosts().catch(() => [])])
-      .then(([entries, hosts]) => {
-        const added = addedConfigAliases(entries, hosts);
-        setSshConfigHosts(entries.filter((entry) => !added.has(entry.alias.toLowerCase())));
-      })
-      .catch(() => {});
-  };
-
   const handleCompleteWithProject = (project: Project) => {
     createdProjectIdRef.current = project.id;
     setSkippedProject(false);
@@ -358,6 +357,10 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
       promptCommand: promptCommand.trim(),
       launchModes: trimmedModes,
       reasoningLevels: hasLevels ? trimmedLevels : undefined,
+      // The wizard doesn't edit models, so the template's carry over.
+      models: isCustomPreset
+        ? undefined
+        : templates.find((t) => t.name === selectedTemplateName)?.models,
       isBuiltin: false,
     };
   };
@@ -378,9 +381,13 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
 
       const { ok } = await updateConfig({
         agentSetupComplete: true,
-        ...(createdProjectIdRef.current && { defaultProjectId: createdProjectIdRef.current }),
+        ...(createdProjectIdRef.current && {
+          defaultProjectId: createdProjectIdRef.current,
+        }),
         // Tips offers the self-integration skill to agents without one-click setup.
-        ...(selfIntegratingAgents.length > 0 && { selfIntegrationTipCreated: true }),
+        ...(selfIntegratingAgents.length > 0 && {
+          selfIntegrationTipCreated: true,
+        }),
         // The first launch of an agent that can't notify Komla yet points at its setup.
         notificationsNudgePending: true,
         selfSetupNudgePending: true,
@@ -408,9 +415,7 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
 
       // The SSH host is added once setup is done, so a failed check never holds it up.
       if (machine === 'ssh') {
-        useSshHostDialogStore.getState().openAdd('onboarding', {
-          configHost: sshConfigHosts.find((host) => host.alias === pickedSshAlias),
-        });
+        useSshHostDialogStore.getState().openAdd('onboarding');
       }
 
       // Notify parent that setup is complete (avoids full page reload)
@@ -459,399 +464,385 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
     step === agentStep && !detecting && !templatesFailed && !usesDetectedAgents;
 
   return (
-    <div className="relative flex h-full items-center justify-center p-8">
+    <div className="relative flex h-full justify-center overflow-hidden px-8 pt-[calc(1.25rem+var(--wizard-top-inset,0px))] pb-5">
       <KomlaBackdrop />
-      <div className="relative flex max-h-full w-full max-w-xl flex-col gap-6 overflow-hidden">
-        {/* Header */}
-        <div className="shrink-0 text-center">
-          <h1 className="flex items-center justify-center gap-2.5 text-3xl font-semibold">
-            Welcome to{' '}
-            <span className="flex items-center gap-2 rounded-full bg-komla/15 py-1.5 pr-4.5 pl-2.5 ring-1 ring-komla/30 ring-inset">
-              <KomlaMark className="size-7" />
-              Komla
-            </span>
+      <OnboardingZoomControl className="absolute bottom-4 left-4" />
+      {/* One card holds the header and the step, centered in the window. Every step shares a
+          height, so it stays put from step to step. */}
+      <div className="wizard-card floating-surface relative flex max-h-full min-h-0 w-full max-w-[35rem] flex-col items-stretch gap-5 self-center overflow-hidden rounded-2xl border pt-7">
+        <div className="flex shrink-0 flex-col items-center gap-4">
+          <h1 className="flex items-center gap-2.5 text-2xl font-semibold tracking-tight">
+            <KomlaMark className="size-7" />
+            Welcome to Komla
           </h1>
+          <OnboardingStepper labels={labels} step={step} />
         </div>
 
-        {/* Progress indicator with labels */}
-        <div className="flex shrink-0 justify-center gap-4">
-          {labels.map((label, i) => {
-            const s = i + 1;
-            return (
-              <div key={label} className="flex flex-col items-center gap-1">
-                <div
-                  className={cn(
-                    'h-1.5 w-8 rounded-full transition-colors',
-                    s <= step ? 'bg-primary' : 'bg-muted'
-                  )}
+        <div
+          className={cn(
+            'flex min-h-0 flex-col border-t border-foreground/6',
+            // Every step shares a height, so Back and Continue stay put.
+            'min-h-[min(29rem,100%)]'
+          )}
+        >
+          <div
+            key={step}
+            className="wizard-step-enter flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pt-6"
+          >
+            {step === agentStep && detecting && (
+              <p
+                role="status"
+                className="flex items-center justify-center gap-2 text-sm text-muted-foreground"
+              >
+                <Spinner size="xs" />
+                Looking for agents on this computer…
+              </p>
+            )}
+
+            {step === agentStep && templatesFailed && (
+              <Callout
+                tone="error"
+                role="alert"
+                action={
+                  <Button size="sm" variant="outline" onClick={handleRetryTemplates}>
+                    Try again
+                  </Button>
+                }
+              >
+                Komla couldn’t load its list of agents.
+              </Callout>
+            )}
+
+            {step === agentStep && !detecting && usesDetectedAgents && (
+              <OnboardingFoundAgents
+                found={detectedTemplates}
+                notInstalled={agentTemplates.filter(
+                  (t) => t.name !== 'Custom' && !detectedNames.has(t.name)
+                )}
+                excluded={excludedAgentNames}
+                onToggle={handleToggleAgent}
+                onCheckAgain={handleCheckAgain}
+                onPickOther={() => setPickingOtherAgent(true)}
+              />
+            )}
+
+            {showAgentPicker && (
+              <div className="space-y-5">
+                <OnboardingStepHeader
+                  title="Choose your AI agent"
+                  description="Pick the agent CLI you use. You can add more in Settings anytime."
                 />
-                <span
-                  className={cn(
-                    'text-2xs font-medium transition-colors',
-                    s === step ? 'text-primary' : 'text-muted-foreground-60'
-                  )}
-                >
-                  {label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
 
-        <div key={step} className="wizard-step-enter min-h-0 flex-1 overflow-y-auto p-6">
-          {step === agentStep && detecting && (
-            <p
-              role="status"
-              className="flex items-center justify-center gap-2 text-sm text-muted-foreground"
-            >
-              <Spinner size="xs" />
-              Looking for agents on this computer…
-            </p>
-          )}
-
-          {step === agentStep && templatesFailed && (
-            <Callout
-              tone="error"
-              role="alert"
-              action={
-                <Button size="sm" variant="outline" onClick={handleRetryTemplates}>
-                  Try again
-                </Button>
-              }
-            >
-              Komla couldn’t load its list of agents.
-            </Callout>
-          )}
-
-          {step === agentStep && !detecting && usesDetectedAgents && (
-            <OnboardingFoundAgents
-              found={detectedTemplates}
-              notInstalled={agentTemplates.filter(
-                (t) => t.name !== 'Custom' && !detectedNames.has(t.name)
-              )}
-              excluded={excludedAgentNames}
-              onToggle={handleToggleAgent}
-              onCheckAgain={handleCheckAgain}
-              onPickOther={() => setPickingOtherAgent(true)}
-            />
-          )}
-
-          {showAgentPicker && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-lg font-semibold">Choose Your AI Agent</h2>
-                <p className="text-sm text-muted-foreground">
-                  You can always add more agents in Settings later.
-                </p>
-              </div>
-
-              {pickingOtherAgent ? (
-                <Callout
-                  tone="info"
-                  action={
-                    <Button size="sm" variant="outline" onClick={() => setPickingOtherAgent(false)}>
-                      Show found agents
-                    </Button>
-                  }
-                >
-                  Pick the agent you use instead of the ones Komla found.
-                </Callout>
-              ) : (
-                <Callout
-                  tone="info"
-                  action={
-                    <Button size="sm" variant="outline" onClick={handleCheckAgain}>
-                      Check again
-                    </Button>
-                  }
-                >
-                  Komla didn’t find an agent CLI on this computer, and it doesn’t install them.
-                  Install one and check again, or pick the agent you use.
-                </Callout>
-              )}
-
-              {/* Featured agents — one-click Komla integration */}
-              <div className="space-y-2">
-                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  One-click setup
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  {featuredTemplates.map((template) => (
-                    <FeaturedAgentCard
-                      key={template.name}
-                      preset={template}
-                      isSelected={template.name === selectedTemplateName}
-                      onSelect={() => handleTemplateChange(template.name)}
-                    />
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">One-click hooks setup.</p>
-              </div>
-
-              {/* Other agents — compact chips, self-integration */}
-              <div className="space-y-2">
-                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Other agents
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  {(showAllAgents
-                    ? orderedOtherTemplates
-                    : orderedOtherTemplates.slice(0, popularOtherTemplates.length)
-                  ).map((template) => (
-                    <AgentChip
-                      key={template.name}
-                      preset={template}
-                      isSelected={template.name === selectedTemplateName}
-                      onSelect={() => handleTemplateChange(template.name)}
-                    />
-                  ))}
-                </div>
-                {restOtherTemplates.length > 0 && (
+                {pickingOtherAgent ? (
                   <button
                     type="button"
-                    onClick={() => setShowAllAgents(!showAllAgents)}
-                    className="flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    className="-mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground/85 transition-colors hover:text-foreground"
+                    onClick={() => setPickingOtherAgent(false)}
                   >
-                    {showAllAgents ? (
-                      <CaretUp className="size-3.5" />
-                    ) : (
-                      <CaretDown className="size-3.5" />
-                    )}
-                    {showAllAgents ? 'Show fewer' : `Show ${restOtherTemplates.length} more`}
+                    <ArrowLeft className="size-3" />
+                    Show found agents
                   </button>
-                )}
-                {customTemplate && (
-                  <button
-                    onClick={() => handleTemplateChange('Custom')}
-                    aria-pressed={isCustomPreset}
-                    className={cn(
-                      'flex w-full items-center justify-start gap-1.5 rounded-md border px-2.5 py-2 text-left text-sm transition-all',
-                      isCustomPreset
-                        ? 'border-primary/50 bg-primary/5 ring-2 ring-primary/50'
-                        : 'border-border hover:bg-muted/50'
-                    )}
+                ) : (
+                  <Callout
+                    tone="info"
+                    action={
+                      <Button size="sm" variant="outline" onClick={handleCheckAgain}>
+                        Check again
+                      </Button>
+                    }
                   >
-                    <Plus className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="font-medium">Custom agent</span>
-                  </button>
+                    Komla didn’t find an agent CLI on this computer, and it doesn’t install them.
+                    Install one and check again, or pick the agent you use.
+                  </Callout>
                 )}
-              </div>
 
-              {/* Command customization */}
-              {isCustomPreset ? (
-                <div className="space-y-3 pt-2">
-                  <p className="text-xs text-muted-foreground">
-                    Tell Komla how to start, resume, and prompt your agent. These commands run in
-                    the workspace terminal.
-                  </p>
-                  <CommandInputs
-                    openCommand={openCommand}
-                    onOpenCommandChange={(value) => {
-                      setOpenCommand(value);
-                      if (!displayNameTouched) setDisplayName(deriveAgentName(value));
-                    }}
-                    continueCommand={continueCommand}
-                    onContinueCommandChange={setContinueCommand}
-                    promptCommand={promptCommand}
-                    onPromptCommandChange={setPromptCommand}
-                    launchModes={launchModes}
-                    onLaunchModesChange={setLaunchModes}
-                    reasoningLevels={reasoningLevels}
-                    onReasoningLevelsChange={setReasoningLevels}
-                    alwaysExpanded
-                    showExamplePlaceholders
-                  />
-
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium">Display name</label>
-                    <Input
-                      value={displayName}
-                      onChange={(e) => {
-                        setDisplayName(e.target.value);
-                        setDisplayNameTouched(true);
-                      }}
-                      placeholder="e.g., Aider"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Auto-filled from the open command — shown when picking this agent
-                    </p>
+                {/* Featured agents — one-click Komla integration */}
+                <div className="space-y-2">
+                  <OnboardingSectionLabel>One-click hooks setup</OnboardingSectionLabel>
+                  <div className="grid grid-cols-2 gap-2">
+                    {featuredTemplates.map((template) => (
+                      <FeaturedAgentCard
+                        key={template.name}
+                        preset={template}
+                        isSelected={template.name === selectedTemplateName}
+                        onSelect={() => handleTemplateChange(template.name)}
+                      />
+                    ))}
                   </div>
                 </div>
-              ) : (
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-primary"
-                    onClick={() => setShowAdvanced(!showAdvanced)}
-                  >
-                    {showAdvanced ? (
-                      <CaretUp className="size-4" />
-                    ) : (
-                      <CaretDown className="size-4" />
-                    )}
-                    Customize commands
-                  </button>
 
-                  <div
-                    className="wizard-collapsible"
-                    data-open={showAdvanced}
-                    inert={!showAdvanced}
-                  >
-                    <div>
-                      <div className="space-y-3 pt-3">
-                        <p className="text-xs text-muted-foreground">
-                          {AGENTS_WITH_AUTO_INTEGRATIONS.includes(selectedTemplateName) ? (
-                            <>
-                              Komla runs these to start, resume, and prompt {selectedTemplateName}.
-                              Edit them or add launch modes and effort levels to match how you run
-                              the agent.
-                            </>
-                          ) : (
-                            <>
-                              Komla runs these to start, resume, and prompt {selectedTemplateName}.
-                              These are best-effort defaults — give them a look and confirm they
-                              match the version you have installed.
-                            </>
-                          )}
-                        </p>
-                        <CommandInputs
-                          openCommand={openCommand}
-                          onOpenCommandChange={setOpenCommand}
-                          continueCommand={continueCommand}
-                          onContinueCommandChange={setContinueCommand}
-                          promptCommand={promptCommand}
-                          onPromptCommandChange={setPromptCommand}
-                          launchModes={launchModes}
-                          onLaunchModesChange={setLaunchModes}
-                          reasoningLevels={reasoningLevels}
-                          onReasoningLevelsChange={setReasoningLevels}
-                          alwaysExpanded
-                        />
+                {/* Other agents — compact chips, self-integration */}
+                <div className="space-y-2">
+                  <OnboardingSectionLabel>Other agents</OnboardingSectionLabel>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(showAllAgents
+                      ? orderedOtherTemplates
+                      : orderedOtherTemplates.slice(0, popularOtherTemplates.length)
+                    ).map((template) => (
+                      <AgentChip
+                        key={template.name}
+                        preset={template}
+                        isSelected={template.name === selectedTemplateName}
+                        onSelect={() => handleTemplateChange(template.name)}
+                      />
+                    ))}
+                    {customTemplate && (
+                      <button
+                        type="button"
+                        onClick={() => handleTemplateChange('Custom')}
+                        aria-pressed={isCustomPreset}
+                        className={cn(
+                          'flex h-9 items-center justify-start gap-2 rounded-md border-dashed px-2.5 text-left text-[13px]',
+                          choiceClass(isCustomPreset)
+                        )}
+                      >
+                        <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate font-medium">Custom agent</span>
+                      </button>
+                    )}
+                  </div>
+                  {restOtherTemplates.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllAgents(!showAllAgents)}
+                      className="flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      {showAllAgents ? (
+                        <CaretUp className="size-3.5" />
+                      ) : (
+                        <CaretDown className="size-3.5" />
+                      )}
+                      {showAllAgents ? 'Show fewer' : `Show ${restOtherTemplates.length} more`}
+                    </button>
+                  )}
+                </div>
+
+                {/* Command customization */}
+                {isCustomPreset ? (
+                  <div className="space-y-3 pt-2">
+                    <p className="text-xs text-muted-foreground">
+                      Tell Komla how to start, resume, and prompt your agent. These commands run in
+                      the workspace terminal.
+                    </p>
+                    <CommandInputs
+                      openCommand={openCommand}
+                      onOpenCommandChange={(value) => {
+                        setOpenCommand(value);
+                        if (!displayNameTouched) setDisplayName(deriveAgentName(value));
+                      }}
+                      continueCommand={continueCommand}
+                      onContinueCommandChange={setContinueCommand}
+                      promptCommand={promptCommand}
+                      onPromptCommandChange={setPromptCommand}
+                      launchModes={launchModes}
+                      onLaunchModesChange={setLaunchModes}
+                      reasoningLevels={reasoningLevels}
+                      onReasoningLevelsChange={setReasoningLevels}
+                      alwaysExpanded
+                      showExamplePlaceholders
+                    />
+
+                    <div className="grid gap-2">
+                      <label className="text-sm font-medium">Display name</label>
+                      <Input
+                        value={displayName}
+                        onChange={(e) => {
+                          setDisplayName(e.target.value);
+                          setDisplayNameTouched(true);
+                        }}
+                        placeholder="e.g., Aider"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Auto-filled from the open command — shown when picking this agent
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 text-sm font-medium text-foreground transition-colors hover:text-primary"
+                      onClick={() => setShowAdvanced(!showAdvanced)}
+                    >
+                      {showAdvanced ? (
+                        <CaretUp className="size-4" />
+                      ) : (
+                        <CaretDown className="size-4" />
+                      )}
+                      Customize commands
+                    </button>
+
+                    <div
+                      className="wizard-collapsible"
+                      data-open={showAdvanced}
+                      inert={!showAdvanced}
+                    >
+                      <div>
+                        <div className="space-y-3 pt-3">
+                          <p className="text-xs text-muted-foreground">
+                            {AGENTS_WITH_AUTO_INTEGRATIONS.includes(selectedTemplateName) ? (
+                              <>
+                                Komla runs these to start, resume, and prompt {selectedTemplateName}
+                                . Edit them or add launch modes and effort levels to match how you
+                                run the agent.
+                              </>
+                            ) : (
+                              <>
+                                Komla runs these to start, resume, and prompt {selectedTemplateName}
+                                . These are best-effort defaults — give them a look and confirm they
+                                match the version you have installed.
+                              </>
+                            )}
+                          </p>
+                          <CommandInputs
+                            openCommand={openCommand}
+                            onOpenCommandChange={setOpenCommand}
+                            continueCommand={continueCommand}
+                            onContinueCommandChange={setContinueCommand}
+                            promptCommand={promptCommand}
+                            onPromptCommandChange={setPromptCommand}
+                            launchModes={launchModes}
+                            onLaunchModesChange={setLaunchModes}
+                            reasoningLevels={reasoningLevels}
+                            onReasoningLevelsChange={setReasoningLevels}
+                            alwaysExpanded
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {error && <p className="text-sm text-error">{error}</p>}
-            </div>
-          )}
-
-          {step === connectStep && (
-            <OnboardingConnectStep
-              agents={integrationAgents}
-              others={selfIntegratingAgents}
-              connections={connections}
-              pending={pending}
-              errors={errors}
-              onToggle={(agent, on) => void toggle(agent, on)}
-            />
-          )}
-
-          {step === machineStep && (
-            <OnboardingMachineStep
-              machine={machine}
-              onMachineChange={handleMachineChange}
-              configHosts={sshConfigHosts}
-              pickedAlias={pickedSshAlias}
-              onPickAlias={setPickedSshAlias}
-            />
-          )}
-
-          {step === analyticsStep && (
-            <OnboardingAnalyticsStep
-              share={shareAnalytics}
-              onShareChange={setShareAnalytics}
-              crashReports={crashReports}
-              onCrashReportsChange={setCrashReports}
-            />
-          )}
-
-          {step === projectStep && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-lg font-semibold">Add Your First Project</h2>
+                {error && <p className="text-sm text-error">{error}</p>}
               </div>
+            )}
 
-              <ProjectCreationForm
-                onSuccess={handleCompleteWithProject}
-                onCreatingChange={setIsCreating}
-                defaultBranchPrefix={getDefaultBranchPrefix(selectedTemplateName)}
-                skipLabel="Skip for now"
-                onSkip={handleSkipProject}
-                disabled={isCreating}
-                hideProjectColor
-                hideAdvanced
+            {step === connectStep && (
+              <OnboardingConnectStep
+                agents={integrationAgents}
+                others={selfIntegratingAgents}
+                connections={connections}
+                pending={pending}
+                errors={errors}
+                onToggle={(agent, on) => void toggle(agent, on)}
               />
+            )}
 
-              {error && <p className="text-sm text-error">{error}</p>}
-            </div>
-          )}
-        </div>
+            {step === machineStep && (
+              <OnboardingMachineStep machine={machine} onMachineChange={setMachine} />
+            )}
 
-        {/* Pinned nav for the Agent step — stays in view so selecting an agent
+            {step === analyticsStep && (
+              <OnboardingAnalyticsStep
+                share={shareAnalytics}
+                onShareChange={setShareAnalytics}
+                crashReports={crashReports}
+                onCrashReportsChange={setCrashReports}
+              />
+            )}
+
+            {step === projectStep && (
+              <div className="flex flex-1 flex-col space-y-5">
+                <OnboardingStepHeader
+                  title="Add your first project"
+                  description="A project is a repository or folder. Each task gets its own workspace inside it."
+                />
+
+                {error && (
+                  <p ref={errorRef} className="text-sm text-error">
+                    {error}
+                  </p>
+                )}
+
+                <ProjectCreationForm
+                  onSuccess={handleCompleteWithProject}
+                  onCreatingChange={setIsCreating}
+                  defaultBranchPrefix={getDefaultBranchPrefix(selectedTemplateName)}
+                  skipLabel="Skip for now"
+                  className="flex flex-1 flex-col"
+                  // Pinned to the card's bottom as the other steps' footers are, over the card's
+                  // color, so a clone or new repo form scrolls under it.
+                  actionsClassName={cn(
+                    '-mx-7 mt-auto',
+                    WIZARD_FOOTER_CLASS,
+                    'sticky bottom-0 z-10 bg-[color:var(--wizard-card-bg)]'
+                  )}
+                  onSkip={handleSkipProject}
+                  disabled={isCreating}
+                  hideProjectColor
+                  hideAdvanced
+                />
+              </div>
+            )}
+            {/* Bottom padding that fades out what scrolls under the footer. */}
+            {step !== projectStep && <div aria-hidden="true" className="wizard-scroll-fade" />}
+          </div>
+
+          {/* Pinned nav for the Agent step — stays in view so selecting an agent
             never requires scrolling to reach Continue. Back shows only when the
             Project step was skipped: going back after one has been created leaves
             an orphaned project in storage. */}
-        {step === agentStep && !detecting && !templatesFailed && (
-          <div className="flex shrink-0 gap-3 px-6 pb-6">
-            {skippedProject && (
-              <Button variant="ghost" onClick={() => setStep(projectStep)}>
+          {step === agentStep && !detecting && !templatesFailed && (
+            <div className={WIZARD_FOOTER_CLASS}>
+              {skippedProject && (
+                <Button variant="ghost" onClick={() => setStep(projectStep)}>
+                  Back
+                </Button>
+              )}
+              <Button
+                onClick={handleNext}
+                disabled={usesDetectedAgents && chosenTemplates.length === 0}
+                className="ml-auto min-w-36"
+              >
+                Continue
+              </Button>
+            </div>
+          )}
+
+          {/* Pinned like the Agent step nav, so a long list of agents never scrolls the buttons
+            out of view. */}
+          {step === connectStep && (
+            <div className={WIZARD_FOOTER_CLASS}>
+              <Button
+                variant="ghost"
+                onClick={() => setStep(agentStep)}
+                disabled={pending !== null}
+              >
                 Back
               </Button>
-            )}
-            <Button
-              onClick={handleNext}
-              disabled={usesDetectedAgents && chosenTemplates.length === 0}
-              className="flex-1"
-            >
-              Continue
-            </Button>
-          </div>
-        )}
+              <Button
+                onClick={() => setStep(machineStep)}
+                disabled={pending !== null}
+                className="min-w-36"
+              >
+                Continue
+              </Button>
+            </div>
+          )}
 
-        {/* Pinned like the Agent step nav, so expanding "What changes?" never
-            scrolls the buttons out of view. */}
-        {step === connectStep && (
-          <div className="flex shrink-0 items-center justify-between gap-3 px-6 pb-6">
-            <Button variant="ghost" onClick={() => setStep(agentStep)} disabled={pending !== null}>
-              Back
-            </Button>
-            <Button
-              onClick={() => setStep(machineStep)}
-              disabled={pending !== null}
-              className="min-w-36"
-            >
-              Continue
-            </Button>
-          </div>
-        )}
+          {step === machineStep && askAnalytics && (
+            <div className={WIZARD_FOOTER_CLASS}>
+              <Button variant="ghost" onClick={() => setStep(connectStep)}>
+                Back
+              </Button>
+              <Button onClick={() => setStep(analyticsStep)} className="min-w-36">
+                Continue
+              </Button>
+            </div>
+          )}
 
-        {step === machineStep && askAnalytics && (
-          <div className="flex shrink-0 items-center justify-between gap-3 px-6 pb-6">
-            <Button variant="ghost" onClick={() => setStep(connectStep)}>
-              Back
-            </Button>
-            <Button onClick={() => setStep(analyticsStep)} className="min-w-36">
-              Continue
-            </Button>
-          </div>
-        )}
-
-        {/* Setup finishes on the last step: Analytics, or Machine once analytics were answered. */}
-        {(step === analyticsStep || (step === machineStep && !askAnalytics)) && (
-          <div className="shrink-0 px-6 pb-6">
+          {/* Setup finishes on the last step: Analytics, or Machine once analytics were answered. */}
+          {(step === analyticsStep || (step === machineStep && !askAnalytics)) && (
             <OnboardingLaunchStep
+              className={WIZARD_FOOTER_CLASS}
               isCreating={isCreating}
               error={error}
               onBack={() => setStep(step === analyticsStep ? machineStep : connectStep)}
               onFinish={() => handleComplete()}
               finishDisabled={step === analyticsStep && shareAnalytics === null}
             />
-          </div>
-        )}
-
-        <OnboardingZoomControl className="shrink-0 self-center" />
+          )}
+        </div>
       </div>
     </div>
   );

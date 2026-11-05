@@ -27,7 +27,7 @@ import {
   RemoteStatusDot,
   TailscaleSignInPrompt,
 } from './RemoteTabParts';
-import { SettingsCard } from './SettingsCard';
+import { SETTINGS_CARD_CLASS, SettingsCard } from './SettingsCard';
 
 import type {
   PairedDeviceRecord,
@@ -74,6 +74,10 @@ export function secureStoragePromptNote(platform = window.api?.platform): string
   }
   return 'When you turn it on, your desktop may ask you to unlock its keyring, where Komla keeps its keys.';
 }
+
+/** Settings that apply once remote control is on: quieter while it's off, yet still editable. */
+const DEPENDENT_ROW_OFF_CLASS =
+  'opacity-75 transition-[opacity,filter] hover:opacity-100 focus-within:opacity-100 [&_[role=switch]]:saturate-[.35] hover:[&_[role=switch]]:saturate-100';
 
 export function RemoteTab() {
   const { config, updateConfig } = useConfigStore();
@@ -388,10 +392,10 @@ export function RemoteTab() {
       >
         <div className="space-y-3">
           <div className="flex items-center gap-4">
-            <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-foreground">
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium text-foreground">
               <RemoteStatusDot tone={!server ? 'off' : published ? 'ok' : 'warn'} />
               {!server ? (
-                <span>Off</span>
+                <span>Remote control is off</span>
               ) : published ? (
                 <>
                   <span className="shrink-0">On</span>
@@ -435,7 +439,12 @@ export function RemoteTab() {
           </div>
 
           {!server && storagePromptNote && (
-            <p className="text-xs text-muted-foreground">{storagePromptNote}</p>
+            <p className="-mt-1.5 text-xs text-muted-foreground">{storagePromptNote}</p>
+          )}
+          {!server && (
+            <p className="text-xs text-muted-foreground">
+              The settings below apply while remote control is on.
+            </p>
           )}
 
           {!server && tailscaleStatus?.installed === false && (
@@ -524,12 +533,17 @@ export function RemoteTab() {
         </div>
         {/* Off only makes sense with an SSH host to open; kept while off, so it can go back on. */}
         {(hostAccess.statuses.length > 0 || !localAccess) && (
-          <div className="flex items-center justify-between gap-4">
+          <div
+            className={cn(
+              'flex items-center justify-between gap-4',
+              !server && DEPENDENT_ROW_OFF_CLASS
+            )}
+          >
             <div className="min-w-0 flex-1">
               <p className="text-sm text-foreground">Allow access to this computer</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Off: devices open only SSH workspaces. This computer still pairs them and vouches
-                for your hosts.
+                Lets devices open workspaces on this computer. Off, they open only SSH workspaces,
+                and this computer still pairs them.
               </p>
             </div>
             <Switch
@@ -539,7 +553,12 @@ export function RemoteTab() {
             />
           </div>
         )}
-        <div className="flex items-center justify-between gap-4">
+        <div
+          className={cn(
+            'flex items-center justify-between gap-4',
+            !server && DEPENDENT_ROW_OFF_CLASS
+          )}
+        >
           <div className="min-w-0 flex-1">
             <p className="text-sm text-foreground">Keep computer awake</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -553,7 +572,12 @@ export function RemoteTab() {
             aria-label="Keep computer awake while remote access is enabled"
           />
         </div>
-        <div className="flex items-center justify-between gap-4">
+        <div
+          className={cn(
+            'flex items-center justify-between gap-4',
+            !server && DEPENDENT_ROW_OFF_CLASS
+          )}
+        >
           <div className="min-w-0 flex-1">
             <p className="text-sm text-foreground">Ask for passkey again after</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -586,7 +610,13 @@ export function RemoteTab() {
       <SettingsCard
         title="Devices"
         action={
-          <Button size="sm" onClick={handleDirectStartPairing} disabled={directBusy}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={handleDirectStartPairing}
+            disabled={directBusy}
+          >
             {directBusy ? <Spinner size="sm" /> : <QrCode className="size-3.5" />}
             Pair a device
           </Button>
@@ -627,21 +657,31 @@ export function RemoteTab() {
       </SettingsCard>
 
       {tailscaleInstalled && !needsSignIn && (
-        <div>
+        <div className={cn(SETTINGS_CARD_CLASS, 'px-5 py-4')}>
           <button
             type="button"
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            className="flex w-full items-center justify-between gap-4 text-left"
+            aria-label="Network options"
+            aria-describedby="remote-network-options-description"
             aria-expanded={networkOptionsOpen}
             onClick={() => setNetworkOptionsOpen((open) => !open)}
           >
-            Network options
+            <span className="min-w-0">
+              <span className="block text-sm text-foreground">Network options</span>
+              <span
+                id="remote-network-options-description"
+                className="mt-0.5 block text-xs text-muted-foreground"
+              >
+                Choose the Tailscale address and port your devices connect to.
+              </span>
+            </span>
             <CaretDown
-              className={cn('size-3 transition-transform', networkOptionsOpen && 'rotate-180')}
+              className={cn(
+                'size-4 shrink-0 text-muted-foreground transition-transform',
+                networkOptionsOpen && 'rotate-180'
+              )}
             />
           </button>
-          <p className="mt-0.5 text-ui text-muted-foreground">
-            Choose the Tailscale address and port your devices connect to.
-          </p>
           {networkOptionsOpen && (
             <NetworkOptions
               origin={directPublicOrigin}

@@ -118,7 +118,7 @@ export function PluginsCard() {
       description="Status bar items, sidebar panels, hooks and code bundled as a folder in the plugins folder, to share and turn on or off as one. A plugin runs what’s below only while it’s on, and stops when its files change until you turn it on again."
       action={
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           className="gap-1.5"
           onClick={() => void window.api.openPluginsFolder()}
@@ -130,8 +130,8 @@ export function PluginsCard() {
     >
       {plugins?.length === 0 && (
         <p className="!py-3 !pl-4 text-xs text-muted-foreground">
-          No plugins yet. Copy or clone a plugin’s folder, with its komla-plugin.json, into the
-          plugins folder.
+          No plugins yet. Copy a plugin’s folder, with its komla-plugin.json, into the plugins
+          folder.
         </p>
       )}
       {plugins?.map((plugin, index) => (

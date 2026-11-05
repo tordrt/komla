@@ -21,7 +21,7 @@ export function SettingsSaveBar({
   if (!isDirty && !isSaving) return null;
 
   return (
-    <div className="sticky bottom-0 z-10 -mx-8 -mb-6 flex items-center justify-end gap-2 border-t border-border/50 bg-background/95 px-8 py-3 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 reduce-effects:bg-background">
+    <div className="sticky bottom-0 z-10 -mb-6 flex items-center justify-end gap-2 border-t border-border/50 bg-[oklch(var(--chrome)/0.95)] py-3 backdrop-blur-sm supports-[backdrop-filter]:bg-[oklch(var(--chrome)/0.8)] reduce-effects:bg-[oklch(var(--chrome))]">
       {onDiscard && (
         <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={isSaving}>
           Discard

@@ -238,7 +238,8 @@ export class SetupStepResolver {
           preset,
           undefined,
           launchModeId,
-          inheritsWorkspace ? workspace.reasoningLevelId : undefined
+          inheritsWorkspace ? workspace.reasoningLevelId : undefined,
+          inheritsWorkspace ? workspace.modelId : undefined
         ) ?? '';
       return { ...step, command, commandKind: 'agent' };
     }
@@ -299,7 +300,9 @@ export class SetupStepResolver {
       launchModeId,
       actionContent,
       shellFamily,
-      inheritsWorkspace ? workspace.reasoningLevelId : undefined
+      inheritsWorkspace ? workspace.reasoningLevelId : undefined,
+      undefined,
+      inheritsWorkspace ? workspace.modelId : undefined
     );
   }
 }

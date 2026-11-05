@@ -129,20 +129,34 @@ DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displa
 
 const DropdownMenuRadioItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
-  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem> & {
+    /** `check` draws a check at the row's end, as a picker whose rows carry their own lead. */
+    indicator?: 'dot' | 'check';
+  }
+>(({ className, children, indicator = 'dot', ...props }, ref) => (
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
-    className={cn(menuCheckRowClass, className)}
+    className={cn(indicator === 'check' ? menuItemClass : menuCheckRowClass, className)}
     {...props}
     onPointerUp={ignorePressFromElsewhere(props.onPointerUp)}
   >
-    <span className={menuIndicatorClass}>
-      <DropdownMenuPrimitive.ItemIndicator>
-        <Circle weight="fill" className="size-2" />
-      </DropdownMenuPrimitive.ItemIndicator>
-    </span>
-    {children}
+    {indicator === 'check' ? (
+      <>
+        {children}
+        <DropdownMenuPrimitive.ItemIndicator className="ml-auto flex pl-3">
+          <Check weight="bold" className="size-3 text-foreground!" />
+        </DropdownMenuPrimitive.ItemIndicator>
+      </>
+    ) : (
+      <>
+        <span className={menuIndicatorClass}>
+          <DropdownMenuPrimitive.ItemIndicator>
+            <Circle weight="fill" className="size-2" />
+          </DropdownMenuPrimitive.ItemIndicator>
+        </span>
+        {children}
+      </>
+    )}
   </DropdownMenuPrimitive.RadioItem>
 ));
 DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName;

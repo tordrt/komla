@@ -22,7 +22,10 @@ export function AgentTime({ agent, className }: { agent: Agent; className?: stri
   const when = agentWhen(agent, useNow());
   if (!when) return null;
   return (
-    <span className={cn('shrink-0 text-2xs text-muted-foreground tabular-nums', className)}>
+    <span
+      title={agent.state === 'working' ? `Working for ${when}` : undefined}
+      className={cn('shrink-0 text-2xs text-muted-foreground tabular-nums', className)}
+    >
       {agent.state === 'working' && (
         <Timer aria-hidden className="mr-0.5 inline size-3 align-[-2px]" />
       )}

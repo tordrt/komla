@@ -14,7 +14,12 @@ export function ProjectSetupSkillButton() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="outline" size="sm" onClick={handleLaunch}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground hover:text-foreground"
+          onClick={handleLaunch}
+        >
           <Wrench className="mr-2 size-4" />
           Run setup skill
         </Button>

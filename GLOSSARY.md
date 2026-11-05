@@ -31,6 +31,13 @@ into a terminal or attached to a new workspace's prompt. Git ignores them, so th
 content: the file panel lists them in a section of their own, not in the file tree.
 _Avoid_: Attachments, which a Terminal Attachment already names
 
+**Prompt draft**:
+A floating window for writing a prompt while looking at files, to copy into an agent, with `@`
+references to the file on screen. There's one per window, kept in memory until copied over or
+Komla quits, and it floats over Quick Look and the file viewer too. A note is the lasting kind:
+a file Komla keeps for the workspace outside the repository, which a draft can be saved as.
+_Avoid_: Scratchpad, prompt composer
+
 ## Terminals
 
 **Terminal replacement**:

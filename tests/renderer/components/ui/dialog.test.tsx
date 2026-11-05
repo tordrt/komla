@@ -56,7 +56,7 @@ describe('DialogContent', () => {
     );
 
     const overlay = document.querySelector('[data-native-overlay="dialog"]:not([role="dialog"])');
-    expect(overlay).toHaveClass('bg-black/50', 'light:bg-black/12');
+    expect(overlay).toHaveClass('bg-black/70', 'light:bg-black/20');
     expect(overlay?.className).not.toMatch(/backdrop-blur/);
   });
 });

@@ -1174,6 +1174,72 @@ describe('AgentPresetService', () => {
       ).toBe('claude --resume --permission-mode plan --effort high');
     });
 
+    it('composes model arguments after the launch mode and reasoning arguments', () => {
+      const preset = {
+        id: 'claude',
+        name: 'Claude Code',
+        openCommand: 'claude {{launchMode}}',
+        continueCommand: 'claude --resume {{launchMode}}',
+        promptCommand: 'claude {{launchMode}} {{prompt}}',
+        launchModes: [{ id: 'plan', name: 'Plan', arguments: '--permission-mode plan' }],
+        reasoningLevels: [{ id: 'high', name: 'High', arguments: '--effort high' }],
+        models: [{ id: 'sonnet', name: 'Sonnet', arguments: '--model sonnet' }],
+        isBuiltin: false,
+      };
+
+      expect(
+        agentPresetService.resolvePresetCommand(
+          preset,
+          'prompt',
+          'plan',
+          'go',
+          undefined,
+          'high',
+          '--debug',
+          'sonnet'
+        )
+      ).toBe(
+        `claude --permission-mode plan --effort high --model sonnet --debug "$(printf -- 'go')"`
+      );
+      expect(
+        agentPresetService.resolvePresetCommand(
+          preset,
+          'continue',
+          null,
+          undefined,
+          undefined,
+          null,
+          undefined,
+          'sonnet'
+        )
+      ).toBe('claude --resume --model sonnet');
+      // A model the preset no longer has launches with the agent default.
+      expect(
+        agentPresetService.resolvePresetCommand(
+          preset,
+          'open',
+          null,
+          undefined,
+          undefined,
+          null,
+          undefined,
+          'gone'
+        )
+      ).toBe('claude');
+    });
+
+    it('offers Claude Code models', () => {
+      const claude = agentPresetService
+        .listTemplates()
+        .find((template: any) => template.name === 'Claude Code');
+      expect(claude?.models?.map((model: any) => model.arguments)).toEqual([
+        '--model haiku',
+        '--model sonnet',
+        '--model opus',
+        '--model fable',
+      ]);
+    });
+
     it('adds extra arguments after the launch mode and reasoning arguments', () => {
       const preset = {
         id: 'gemini',

@@ -259,9 +259,11 @@ describe('showNote', () => {
     useLayoutStore.getState().addTab(WS, 'term-2');
     useLayoutStore.getState().showTabInFullPane('term-2');
     const beside = openPaneSurface(WS, NOTE, { kind: 'split', direction: 'vertical' });
-    useLayoutStore.getState().setFocusedPane(
-      findPaneByTerminalId(useLayoutStore.getState().layoutsByTab[WS]['term-2'], 'term-2')!.id
-    );
+    useLayoutStore
+      .getState()
+      .setFocusedPane(
+        findPaneByTerminalId(useLayoutStore.getState().layoutsByTab[WS]['term-2'], 'term-2')!.id
+      );
 
     showNote(WS, 'a.md');
 
@@ -344,17 +346,17 @@ describe('showNote', () => {
     });
   });
 
-  it('opens the note in the file panel from the full-screen file viewer', () => {
+  it('opens the note in the full-screen file viewer, rather than its pane behind it', () => {
     openPaneSurface(WS, NOTE, { kind: 'tab' });
     useLayoutStore.getState().showTabInFullPane('term-1');
     useFileViewerStore.getState().openFileViewer(WS, 'browse');
 
-    showNote(WS, 'a.md');
+    expect(showNote(WS, 'a.md')).toBe(false);
 
-    expect(useFileViewerStore.getState().pendingFileViewerTransition).toMatchObject({
-      kind: 'inline-preview',
-      filePath: getNotePath('a.md'),
-    });
+    const store = useFileViewerStore.getState();
+    expect(store.fileViewerNoteName).toBe('a.md');
+    expect(store.fileViewerWorkspaceId).toBe(WS);
+    expect(store.pendingFileViewerTransition).toBeNull();
     expect(useLayoutStore.getState().getActiveTabId()).toBe('term-1');
   });
 });

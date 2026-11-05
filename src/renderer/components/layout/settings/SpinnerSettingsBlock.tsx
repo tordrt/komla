@@ -16,10 +16,10 @@ export function SpinnerSettingsBlock({ config, onToggle }: SpinnerSettingsBlockP
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium">Activity spinner</div>
-          <p className="mt-0.5 text-[13px] leading-normal text-muted-foreground">
-            Show a loading spinner on workspace cards, in the Overview, and in the Command Center
-            while an agent is working. Works for agents with Komla notifications and for agents that
-            report their own status, like Pi and Grok Build.
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+            Spins on workspace cards, the Overview and the Command Center while an agent works. For
+            agents with Komla notifications, and ones that report their own status, like Pi and Grok
+            Build.
           </p>
         </div>
         <Switch

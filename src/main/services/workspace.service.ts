@@ -354,8 +354,16 @@ class WorkspaceService {
       broadcastWorkspaceUpdate: (workspace) => workspaceStore.broadcastWorkspaceUpdate(workspace),
       addTerminal: (...args) => this.terminals.addTerminal(...args),
       resolvePreset: (presetId, workspace) => resolvePreset(presetId, workspace),
-      resolveAgentCommand: (preset, prompt, launchModeId, reasoningLevelId) =>
-        resolveAgentCommand(preset, prompt, launchModeId, undefined, reasoningLevelId),
+      resolveAgentCommand: (preset, prompt, launchModeId, reasoningLevelId, modelId) =>
+        resolveAgentCommand(
+          preset,
+          prompt,
+          launchModeId,
+          undefined,
+          reasoningLevelId,
+          undefined,
+          modelId
+        ),
       locations: executionLocations,
       prepareLocalCopy: (workspaceId) => prepareLocalCopy(workspaceId),
       projects: projectService,

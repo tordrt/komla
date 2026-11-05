@@ -1,6 +1,7 @@
 import {
   BellRinging,
   Check,
+  CaretRight,
   Cloud,
   Copy,
   Desktop,
@@ -19,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { lastUsedIntegrationTarget, type IntegrationTarget } from '@/lib/integration-target';
 import { cn } from '@/lib/utils';
 import { offerAgentLaunchDefaults } from '@/stores/agent-launch-defaults-dialog.store';
+import { useConfigStore } from '@/stores/config.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -142,6 +144,8 @@ export function AgentIntegrationsPanel({
 } = {}) {
   const sshHosts = useSshHostsStore((state) => state.hosts);
   const addToast = useToastStore((s) => s.addToast);
+  // Hooks on this computer report to the hooks endpoint, which Notifications can turn off.
+  const hooksEndpointOff = useConfigStore((s) => s.config?.disableNotificationEndpoint === true);
   // Open on where the user last launched a workspace; it falls back to this
   // computer until that SSH host is known.
   const [ownTarget, setOwnTarget] = useState<IntegrationTarget>(
@@ -659,7 +663,19 @@ export function AgentIntegrationsPanel({
               icon={<BellRinging />}
               title="Hooks"
               badge={<RecommendedBadge />}
-              description={HOOKS_DESCRIPTION}
+              description={
+                hooksEndpointOff ? (
+                  <>
+                    {HOOKS_DESCRIPTION}{' '}
+                    <span className="text-warning">
+                      The hooks endpoint is off under Notifications, so Komla doesn&rsquo;t receive
+                      them.
+                    </span>
+                  </>
+                ) : (
+                  HOOKS_DESCRIPTION
+                )
+              }
             >
               {shows('claude') &&
                 (notificationInfo ? (
@@ -768,9 +784,18 @@ export function AgentIntegrationsPanel({
             </IntegrationGroup>
             <CollapsibleIntegrationGroup
               icon={<Plugs />}
-              title="MCP server"
+              title="MCP"
               description={MCP_DESCRIPTION}
-              summary={mcpSummary(mcpChecking, mcpStatus, shows)}
+              summary={
+                mcpChecking ? (
+                  <span className="flex items-center gap-1.5">
+                    <Spinner size="xs" />
+                    {mcpSummary(mcpChecking, mcpStatus, shows)}
+                  </span>
+                ) : (
+                  mcpSummary(mcpChecking, mcpStatus, shows)
+                )
+              }
               expanded={mcpExpanded}
               onToggle={() => setMcpExpanded((current) => !current)}
             >
@@ -871,7 +896,7 @@ function mcpSummary(
   status: McpStatus | null,
   shows: (agent: AgentIntegrationFilter) => boolean
 ): string {
-  if (checking) return 'Checking...';
+  if (checking) return 'Checking…';
   if (!status) return 'Unavailable';
   return enabledSummary([
     shows('claude') && status.isConfigured,
@@ -897,30 +922,29 @@ function CopyIconButton({ text, field, copy }: { text: string; field: string; co
   );
 }
 
-/** Shows or hides a row's details, under its label unless `className` places it elsewhere. */
+/** Shows or hides a row's details, as a small caret link. */
 function DetailToggle({
   active,
   onClick,
   showLabel = 'Show what this changes',
   hideLabel = 'Hide details',
-  className,
 }: {
   active: boolean;
   onClick: () => void;
   showLabel?: string;
   hideLabel?: string;
-  className?: string;
 }) {
   return (
     <button
       type="button"
-      className={cn(
-        'mt-1 ml-6 text-xs text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:text-foreground',
-        className
-      )}
+      className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
       aria-expanded={active}
       onClick={onClick}
     >
+      <CaretRight
+        aria-hidden="true"
+        className={cn('size-3 transition-transform', active && 'rotate-90')}
+      />
       {active ? hideLabel : showLabel}
     </button>
   );
@@ -1649,7 +1673,6 @@ function ManualHookCommands({
         onClick={() => setExpandedDetail(isOpen ? null : detailKey)}
         showLabel="Or wire up its hooks yourself"
         hideLabel="Hide hook commands"
-        className="mt-0 ml-0"
       />
       {isOpen && (
         <div className="space-y-2">
@@ -1738,7 +1761,6 @@ function GenericMcpItem({
             onClick={() => setExpandedDetail(isOpen ? null : detailKey)}
             showLabel="Show JSON config"
             hideLabel="Hide JSON config"
-            className="mt-0 ml-0"
           />
           {isOpen && (
             <pre className="max-h-24 overflow-x-auto rounded bg-muted/50 p-2 font-mono text-ui">

@@ -23,6 +23,7 @@ import {
   SETUP_TRIGGERS,
 } from '../../types';
 import { LEVEL_PICKER_ICONS, MAX_LEVEL_PICKER_TITLE_LENGTH } from '../../types/agent-preset';
+import { AGENT_SKILL_FAMILIES } from '../../types/agent-skill';
 import { SSH_PROJECT_SETTINGS_PARTS } from '../../types/ssh-project-manifest';
 
 import { BRANCH_NAME_PATTERN, idSchema, nonEmptyStringSchema, safePathSchema } from './primitives';
@@ -413,6 +414,14 @@ const reasoningLevelSchema = z
   })
   .strip();
 
+const modelOptionSchema = z
+  .object({
+    id: idSchema,
+    name: z.string(),
+    arguments: z.string(),
+  })
+  .strip();
+
 // What a preset stores for its level picker; `komla settings apply agents` takes it too.
 export const levelPickerFields = {
   title: z.string().trim().min(1).max(MAX_LEVEL_PICKER_TITLE_LENGTH).optional(),
@@ -431,6 +440,8 @@ const presetCreateSchema = z
     launchModes: z.array(launchModeSchema).default([]),
     reasoningLevels: z.array(reasoningLevelSchema).optional(),
     levelPicker: levelPickerSchema.optional(),
+    models: z.array(modelOptionSchema).optional(),
+    modelPicker: levelPickerSchema.optional(),
     isBuiltin: z.boolean(),
   })
   .strip();
@@ -444,6 +455,8 @@ const presetUpdateSchema = z
     launchModes: z.array(launchModeSchema).optional(),
     reasoningLevels: z.array(reasoningLevelSchema).optional(),
     levelPicker: levelPickerSchema.optional(),
+    models: z.array(modelOptionSchema).optional(),
+    modelPicker: levelPickerSchema.optional(),
     isBuiltin: z.boolean().optional(),
   })
   .strip();
@@ -693,6 +706,29 @@ export const projectFetchInBackgroundArgsSchema = z.tuple([
 export const projectListLeftoverBranchesArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectCheckWorkspacesForCleanupArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectListHostBranchesArgsSchema = z.tuple([idSchema, idSchema]);
+// Where an agent will run: a new workspace of the project or none, on the SSH host or null for this
+// computer, or an existing workspace.
+const agentSkillPlaceSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('new-workspace'),
+      projectId: idSchema.nullable(),
+      hostId: idSchema.nullable(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('workspace'), workspaceId: idSchema }).strict(),
+]);
+// The agent whose skills to list, and where it will run.
+export const projectListAgentSkillsArgsSchema = z.tuple([
+  z.enum(AGENT_SKILL_FAMILIES),
+  agentSkillPlaceSchema,
+]);
+// The same, then the name of the skill to read.
+export const projectReadAgentSkillArgsSchema = z.tuple([
+  z.enum(AGENT_SKILL_FAMILIES),
+  agentSkillPlaceSchema,
+  z.string().min(1).max(256),
+]);
 export const projectDeleteLeftoverBranchesArgsSchema = z.tuple([
   idSchema,
   z

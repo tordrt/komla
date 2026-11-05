@@ -12,6 +12,8 @@ const noteContentSchema = safeStringSchema.refine((value) => value.length <= 5_0
 });
 
 export const notesScopeArgsSchema = z.tuple([scopeIdSchema]);
+/** A workspace, and the text a new note starts with, such as a prompt draft saved as one. */
+export const noteCreateArgsSchema = z.tuple([scopeIdSchema, noteContentSchema.optional()]);
 export const noteArgsSchema = z.tuple([scopeIdSchema, noteNameSchema]);
 export const noteDeleteArgsSchema = z.tuple([scopeIdSchema, noteNameSchema, z.boolean()]);
 export const noteWriteArgsSchema = z.tuple([scopeIdSchema, noteNameSchema, noteContentSchema]);

@@ -42,6 +42,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { TruncatedText } from '@/components/ui/truncated-text';
 import {
   WorkingAgentsGlyph,
+  workspaceAgents,
   workingAgentCount,
   workingCommandCount,
 } from '@/components/workspaces/agent-state';
@@ -95,6 +96,9 @@ function shouldShowDescriptionContext(
 
 const ROW_SELECTOR = '[data-dashboard-row]';
 
+// The state each row leads its status with, one width for all, so what follows lines up.
+const STATE_SLOT_CLASS = 'flex min-w-[5.5rem] shrink-0 items-center gap-2';
+
 // Agent messages and prompts can run long, so their tooltip scrolls and keeps line breaks.
 function RowStatusText({ children, className }: { children: string; className?: string }) {
   return (
@@ -143,10 +147,12 @@ function RowStatus({
 
   if (attention && attentionAppearance) {
     const detail = attentionAppearance.detail;
+    const othersWorking =
+      workingCount > 0 && workspaceAgents(workspace).some((agent) => agent.state === 'working');
     return (
-      <div className="flex min-w-0 items-center gap-2 text-xs">
+      <div className="flex min-w-0 items-center gap-3 text-xs">
         {/* As wide as a badge and a spinner, so what each agent said starts in one column. */}
-        <span className="flex min-w-[4.5rem] shrink-0 items-center gap-2">
+        <span className={STATE_SLOT_CLASS}>
           <Tooltip>
             <TooltipTrigger asChild>
               <Badge
@@ -165,8 +171,8 @@ function RowStatus({
             </TooltipTrigger>
             <AttentionTooltipContent attention={attention} appearance={attentionAppearance} />
           </Tooltip>
-          {/* Another agent can still work, or this one after a notice mid-turn. */}
-          {showAgentSpinner && workingCount > 0 && (
+          {/* Another agent can still work; one waiting on you isn't also shown working. */}
+          {showAgentSpinner && othersWorking && (
             <WorkingAgentsGlyph count={workingCount} commands={workingCommands} />
           )}
         </span>
@@ -183,41 +189,69 @@ function RowStatus({
     const doing =
       dynamicTitle && dynamicTitle !== displayTitle
         ? stripAgentTitleGlyphs(dynamicTitle)
-        : 'Working…';
+        : undefined;
+    // Without a title of what it's doing, what it was asked.
+    const lastPrompt = doing ? undefined : workspace.promptSubmits?.at(-1)?.prompt;
     return (
-      <div className="flex min-w-0 items-center gap-2 text-xs text-foreground/90">
-        {showAgentSpinner && <WorkingAgentsGlyph count={workingCount} decorative />}
-        <RowStatusText>{doing}</RowStatusText>
+      <div className="flex min-w-0 items-center gap-3 text-xs text-foreground/90">
+        <span className={STATE_SLOT_CLASS}>
+          <span className="inline-flex h-5 items-center gap-1.5 rounded-md bg-foreground/6 px-1.5 text-2xs font-medium text-muted-foreground">
+            {showAgentSpinner && <WorkingAgentsGlyph count={workingCount} decorative />}
+            Working
+          </span>
+        </span>
+        {doing && <RowStatusText>{doing}</RowStatusText>}
+        {lastPrompt && (
+          <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+            <span title="Your last prompt" className="flex shrink-0">
+              <ArrowElbowDownRight aria-label="Your last prompt" className="size-3 opacity-60" />
+            </span>
+            <RowStatusText>{lastPrompt}</RowStatusText>
+          </span>
+        )}
       </div>
     );
   }
 
-  const idleStatus = (
-    <IdleRowStatus workspace={workspace} displayTitle={displayTitle} searchQuery={searchQuery} />
-  );
-  if (!workspace.tag) return idleStatus;
+  if (!workspace.tag) {
+    return (
+      <IdleRowStatus workspace={workspace} displayTitle={displayTitle} searchQuery={searchQuery} />
+    );
+  }
   return (
-    <div className="flex min-w-0 items-center gap-2">
-      <WorkspaceTagPill
-        tag={workspace.tag}
-        fromPullRequest={workspace.tagSource === 'pull-request'}
-        tooltip={workspace.tagTooltip}
-        className="max-w-40"
+    <div className="flex min-w-0 items-center gap-3">
+      <span className={STATE_SLOT_CLASS}>
+        <WorkspaceTagPill
+          tag={workspace.tag}
+          fromPullRequest={workspace.tagSource === 'pull-request'}
+          tooltip={workspace.tagTooltip}
+          className="max-w-40"
+        />
+      </span>
+      <IdleRowStatus
+        workspace={workspace}
+        displayTitle={displayTitle}
+        searchQuery={searchQuery}
+        tagged
       />
-      {idleStatus}
     </div>
   );
 }
 
-/** What the workspace is about, or else what you last asked it. */
+/**
+ * What the workspace is about, or else what you last asked it. Untagged, a workspace not asked
+ * anything yet says it's idle, as a tag would stand in that place.
+ */
 function IdleRowStatus({
   workspace,
   displayTitle,
   searchQuery,
+  tagged = false,
 }: {
   workspace: Workspace;
   displayTitle: string;
   searchQuery: string | null | undefined;
+  tagged?: boolean;
 }) {
   if (
     workspace.customDescription &&
@@ -231,10 +265,36 @@ function IdleRowStatus({
   }
 
   const lastPrompt = workspace.promptSubmits?.at(-1)?.prompt;
-  if (!lastPrompt) return <span />;
+  if (!lastPrompt && (tagged || !showsRunning(workspace))) {
+    return workspace.customDescription ? (
+      <RowStatusText className="text-xs text-muted-foreground">
+        {workspace.customDescription}
+      </RowStatusText>
+    ) : (
+      <span />
+    );
+  }
+  if (!lastPrompt) {
+    return (
+      <div className="flex min-w-0 items-center gap-3 text-xs">
+        <span className={STATE_SLOT_CLASS}>
+          <span className="inline-flex h-5 items-center rounded-md bg-foreground/4 px-1.5 text-2xs font-medium text-muted-foreground-60">
+            Idle
+          </span>
+        </span>
+        {workspace.customDescription && (
+          <RowStatusText className="text-muted-foreground">
+            {workspace.customDescription}
+          </RowStatusText>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <ArrowElbowDownRight aria-label="Your last prompt" className="size-3 shrink-0 opacity-60" />
+      <span title="Your last prompt" className="flex shrink-0">
+        <ArrowElbowDownRight aria-label="Your last prompt" className="size-3 opacity-60" />
+      </span>
       <RowStatusText>{lastPrompt}</RowStatusText>
     </div>
   );
@@ -564,7 +624,7 @@ export function DashboardRow({
       onContextMenu={handleContextMenu}
       onKeyDown={handleKeyDown}
       className={cn(
-        'group grid cursor-default grid-cols-[minmax(0,17rem)_minmax(0,1fr)_auto] items-center gap-4 rounded-md px-3 py-2 text-left transition-colors',
+        'group grid cursor-default grid-cols-[minmax(0,16rem)_minmax(0,1fr)_auto] items-center gap-5 rounded-lg px-3 py-2 text-left transition-colors',
         // A foreground wash: light themes' accents sit too close to Overview's --chrome to show.
         'hover:bg-foreground/5 focus-visible:bg-foreground/6 focus-visible:outline-hidden',
         isMultiSelected && 'bg-foreground/8 ring-1 ring-border',
@@ -588,9 +648,20 @@ export function DashboardRow({
             <span
               data-running-indicator
               aria-hidden="true"
-              className={cn('h-8 w-[3px] shrink-0 rounded-full', !isRunning && 'opacity-40')}
+              className={cn(
+                'h-7 w-0.5 shrink-0 rounded-full',
+                isRunning ? 'opacity-80' : 'opacity-30'
+              )}
               style={{ backgroundColor: projectInfo?.color ?? 'oklch(var(--border))' }}
             />
+            <span className="flex size-4 shrink-0 items-center justify-center">
+              {preset && (
+                <AgentPresetIcon
+                  preset={preset}
+                  className={cn('size-3.5', isRunning ? 'opacity-60' : 'opacity-35 grayscale')}
+                />
+              )}
+            </span>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-medium">{displayTitle}</span>
@@ -650,7 +721,6 @@ export function DashboardRow({
             inactive={!isRunning}
           />
         )}
-        {preset && <AgentPresetIcon preset={preset} className="size-3.5 shrink-0" />}
         <span className="w-10 text-right text-2xs tabular-nums group-focus-within:hidden group-hover:hidden">
           {formatRelativeTime(lastActivity)}
         </span>

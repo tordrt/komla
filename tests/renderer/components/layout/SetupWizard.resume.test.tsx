@@ -70,7 +70,7 @@ describe('SetupWizard onboarding resume', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create project' }));
 
-    expect(await screen.findByText('Choose Your AI Agent')).toBeInTheDocument();
+    expect(await screen.findByText('Choose your AI agent')).toBeInTheDocument();
     expect(window.localStorage.getItem(ONBOARDING_KEY)).toBe('project-1');
   });
 
@@ -79,8 +79,8 @@ describe('SetupWizard onboarding resume', () => {
     const onComplete = vi.fn();
     render(<SetupWizard resumeProjectId="project-1" onComplete={onComplete} />);
 
-    expect(await screen.findByText('Choose Your AI Agent')).toBeInTheDocument();
-    expect(screen.queryByText('Add Your First Project')).toBeNull();
+    expect(await screen.findByText('Choose your AI agent')).toBeInTheDocument();
+    expect(screen.queryByText('Add your first project')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     // Connect step.

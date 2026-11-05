@@ -49,6 +49,30 @@ Automatic warnings are logged for:
 - `src/main/services/diagnostics.service.ts`
 - `src/main/index.ts`
 
+## Startup Time
+
+`npm run startup-time` builds the app, then launches it repeatedly on a seeded sandbox (a
+project with six worktree workspaces) and prints the median, minimum, and p90 time from spawning
+Electron to each startup milestone, ending with the sidebar's workspace cards drawn. Pass options
+after `--`:
+
+```bash
+npm run startup-time -- --runs 20 --json before.json
+# change something, then:
+npm run startup-time -- --runs 20 --compare before.json
+```
+
+`node scripts/measure-startup.mjs --help` lists every option; it measures the existing `out/`
+build without rebuilding. On Linux without a display it runs under `xvfb-run`. Timings on a
+shared machine are noisy, so compare medians of many runs, and alternate builds when a change is
+small.
+
+The main process prints its milestones to stdout with `KOMLA_STARTUP_TIMING=1`
+(`src/main/lib/startup-timing.ts`); without it, marking does nothing. The renderer's are read
+over the DevTools protocol. To see what the main process spends its startup on, profile it with
+`NODE_OPTIONS="--cpu-prof --cpu-prof-dir=<dir>"` and quit the app normally, so the profile is
+written.
+
 ## SSH Local Copy Sync Triggers
 
 `KOMLA_DIAGNOSTICS=1` also enables sync-trigger diagnostics. Rebuild the remote

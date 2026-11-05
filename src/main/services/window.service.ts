@@ -8,6 +8,7 @@ import { IPC } from '../../shared/constants/ipc-channels';
 import { describeUnsavedFiles } from '../../shared/lib/unsaved-files';
 import { MAIN_BUNDLE_DIR } from '../lib/module-path';
 import { interceptPaneCloseShortcut } from '../lib/pane-close-shortcut';
+import { markStartup } from '../lib/startup-timing';
 
 import { configService } from './config.service';
 import { errorReportingService } from './error-reporting.service';
@@ -136,6 +137,7 @@ class WindowService {
     });
 
     window.on('ready-to-show', () => {
+      markStartup('ready-to-show');
       // Apply saved zoom level from config
       const zoomLevel = configService.get().zoomLevel ?? 0;
       window.webContents.setZoomLevel(zoomLevel);

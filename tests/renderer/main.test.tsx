@@ -27,6 +27,9 @@ vi.mock('../../src/renderer/lib/renderer-diagnostics', () => ({
 }));
 vi.mock('../../src/renderer/styles/globals.css', () => ({}));
 
+// jsdom has no User Timing, which the entry marks its startup with.
+performance.mark ??= vi.fn();
+
 describe('renderer entry', () => {
   it('wraps the app in a root error boundary that offers a reload', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});

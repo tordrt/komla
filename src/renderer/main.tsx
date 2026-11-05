@@ -13,6 +13,9 @@ import App from './App';
 
 import './styles/globals.css';
 
+// For scripts/measure-startup.mjs: every module above has been evaluated.
+performance.mark('komla:modules-loaded');
+
 // Restore the experimental palette and accent before React mounts so the initial
 // paint uses the chosen surface tokens. applyPalette also sets the `dark`/`light`
 // class on documentElement based on the palette's mode.

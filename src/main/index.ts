@@ -1,3 +1,7 @@
+// First, so its mark is taken before the rest of the bundle is evaluated.
+// eslint-disable-next-line import/order
+import { markStartup } from './lib/startup-timing';
+
 import { existsSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, sep } from 'path';
@@ -103,6 +107,8 @@ import { workspaceService } from './services/workspace.service';
 import { worktreeWatcherService } from './services/worktree-watcher.service';
 
 declare const __KOMLA_ENV__: string;
+
+markStartup('modules-loaded');
 
 const isStaging = typeof __KOMLA_ENV__ !== 'undefined' && __KOMLA_ENV__ === 'staging';
 const logger = createLogger('Main');
@@ -545,6 +551,7 @@ function buildAppMenu(): void {
 }
 
 void app.whenReady().then(async () => {
+  markStartup('app-ready');
   // If a pending-update relaunch is scheduled, skip all initialization.
   if (pendingRelaunch) return;
   // Check that git is installed on first launch only; skip on subsequent starts
@@ -703,6 +710,7 @@ void app.whenReady().then(async () => {
   });
 
   const { windowId: mainWindowId } = openNewWindow();
+  markStartup('window-created');
   for (const folder of foldersInCommandLine(process.argv, process.cwd(), app.getAppPath())) {
     requestOpenFolder(folder, mainWindowId);
   }
@@ -826,6 +834,7 @@ void app.whenReady().then(async () => {
       openNewWindow();
     }
   });
+  markStartup('ready-handler-done');
 });
 
 app.on('window-all-closed', () => {

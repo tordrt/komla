@@ -197,28 +197,20 @@ describe('opening and closing the draft', () => {
     vi.resetAllMocks();
   });
 
-  const isOpen = () => !!usePromptDraftStore.getState().openByWorkspace['ws-1'];
+  const isOpen = () => usePromptDraftStore.getState().isOpen;
 
-  it('opens the draft of the workspace on screen, asking for focus', () => {
+  it('opens over the workspace on screen, asking for focus', () => {
     togglePromptDraft();
     expect(isOpen()).toBe(true);
-    expect(usePromptDraftStore.getState().focusRequest).toEqual({
-      workspaceId: 'ws-1',
-    });
-  });
-
-  it('acts on the draft of the top host, such as a viewer over the window', () => {
-    usePromptDraftStore.getState().addHost('viewer', 'ws-2');
-    togglePromptDraft();
-    expect(usePromptDraftStore.getState().openByWorkspace).toEqual({
-      'ws-2': true,
-    });
+    expect(usePromptDraftStore.getState().focusRequested).toBe(true);
   });
 
   it('does nothing without a workspace on screen', () => {
     usePromptDraftStore.getState().updateHost('window', null);
     togglePromptDraft();
-    expect(usePromptDraftStore.getState().openByWorkspace).toEqual({});
+    openPromptDraft();
+    expect(isOpen()).toBe(false);
+    expect(usePromptDraftStore.getState().focusRequested).toBe(false);
   });
 
   it('gives an open draft focus rather than closing it, unless it has focus', () => {
@@ -226,9 +218,7 @@ describe('opening and closing the draft', () => {
     usePromptDraftStore.getState().clearFocusRequest();
     togglePromptDraft();
     expect(isOpen()).toBe(true);
-    expect(usePromptDraftStore.getState().focusRequest).toEqual({
-      workspaceId: 'ws-1',
-    });
+    expect(usePromptDraftStore.getState().focusRequested).toBe(true);
 
     draft.focus();
     togglePromptDraft();
@@ -237,22 +227,30 @@ describe('opening and closing the draft', () => {
 
   it('gives focus back to what had it when the draft opened', () => {
     before.focus();
-    openPromptDraft('ws-1');
+    openPromptDraft();
     draft.focus();
-    closePromptDraft('ws-1');
+    closePromptDraft();
     expect(document.activeElement).toBe(before);
   });
 
-  it("gives focus back to what had it in the draft's own workspace", () => {
+  it("leaves what had focus in another workspace, hidden now, for this one's terminal", () => {
+    getFocusedPromptTerminalId.mockReturnValue('term-2');
     before.focus();
-    openPromptDraft('ws-1');
-    const inOtherWorkspace = document.createElement('button');
-    document.body.append(inOtherWorkspace);
-    inOtherWorkspace.focus();
-    openPromptDraft('ws-2');
+    openPromptDraft();
+    usePromptDraftStore.getState().updateHost('window', 'ws-2');
     draft.focus();
-    closePromptDraft('ws-1');
-    expect(document.activeElement).toBe(before);
+    closePromptDraft();
+    expect(getFocusedPromptTerminalId).toHaveBeenCalledWith('ws-2');
+    expect(focusTerminalRenderer).toHaveBeenCalledWith('term-2');
+  });
+
+  it('remembers a copy for the next open, which selects the text to type over', () => {
+    openPromptDraft();
+    closePromptDraft({ copied: true });
+    expect(usePromptDraftStore.getState().copied).toBe(true);
+    openPromptDraft();
+    closePromptDraft();
+    expect(usePromptDraftStore.getState().copied).toBe(false);
   });
 
   it("gives focus to the workspace's terminal when what had it is gone, as a menu", () => {
@@ -261,10 +259,10 @@ describe('opening and closing the draft', () => {
     menuItem.tabIndex = -1;
     document.body.append(menuItem);
     menuItem.focus();
-    openPromptDraft('ws-1');
+    openPromptDraft();
     menuItem.remove();
     draft.focus();
-    closePromptDraft('ws-1');
+    closePromptDraft();
     expect(getFocusedPromptTerminalId).toHaveBeenCalledWith('ws-1');
     expect(focusTerminalRenderer).toHaveBeenCalledWith('term-1');
   });
@@ -275,31 +273,32 @@ describe('opening and closing the draft', () => {
     viewer.setAttribute('role', 'dialog');
     viewer.append(draft.parentElement!);
     document.body.append(viewer);
-    openPromptDraft('ws-1');
+    openPromptDraft();
     draft.focus();
-    closePromptDraft('ws-1');
+    closePromptDraft();
     expect(focusTerminalRenderer).not.toHaveBeenCalled();
   });
 
   it('leaves focus alone when the draft closes without it', () => {
     before.focus();
-    openPromptDraft('ws-1');
+    openPromptDraft();
     const elsewhere = document.createElement('input');
     document.body.append(elsewhere);
     elsewhere.focus();
-    closePromptDraft('ws-1');
+    closePromptDraft();
     expect(document.activeElement).toBe(elsewhere);
   });
 
-  it('keeps the text when it closes', () => {
-    usePromptDraftStore.getState().setText('ws-1', 'Fix the bug');
-    openPromptDraft('ws-1');
-    closePromptDraft('ws-1');
-    expect(usePromptDraftStore.getState().textByWorkspace['ws-1']).toBe('Fix the bug');
+  it('keeps the text when it closes, whichever workspace is on screen next', () => {
+    usePromptDraftStore.getState().setText('Fix the bug');
+    openPromptDraft();
+    closePromptDraft();
+    usePromptDraftStore.getState().updateHost('window', 'ws-2');
+    expect(usePromptDraftStore.getState().text).toBe('Fix the bug');
   });
 
   it('closes on Cmd+W only while it has focus', () => {
-    openPromptDraft('ws-1');
+    openPromptDraft();
     before.focus();
     expect(closeFocusedPromptDraft()).toBe(false);
     expect(isOpen()).toBe(true);

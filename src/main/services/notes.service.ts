@@ -79,17 +79,22 @@ export class NotesService {
       .sort((a, b) => b.modifiedMs - a.modifiedMs || b.name.localeCompare(a.name));
   }
 
-  /** Makes a blank note, or returns the workspace's blank note if it already has one. */
-  async create(scopeId: string): Promise<NoteSummary> {
-    return this.inOrder(scopeId, () => this.createNow(scopeId));
+  /**
+   * Makes a blank note, or returns the workspace's blank note if it already has one. With
+   * `content`, it's always a new note, which starts with that text.
+   */
+  async create(scopeId: string, content?: string): Promise<NoteSummary> {
+    return this.inOrder(scopeId, () => this.createNow(scopeId, content));
   }
 
-  private async createNow(scopeId: string): Promise<NoteSummary> {
+  private async createNow(scopeId: string, content?: string): Promise<NoteSummary> {
     const dir = this.scopeDir(scopeId);
-    const blank = (await this.list(scopeId)).find((note) => note.title === '');
-    // Something else may have deleted it since the listing.
-    const blankText = blank ? await readNoteFile(blank.path).catch(() => null) : null;
-    if (blank && blankText !== null && isBlank(blankText)) return blank;
+    if (!content) {
+      const blank = (await this.list(scopeId)).find((note) => note.title === '');
+      // Something else may have deleted it since the listing.
+      const blankText = blank ? await readNoteFile(blank.path).catch(() => null) : null;
+      if (blank && blankText !== null && isBlank(blankText)) return blank;
+    }
 
     await mkdir(dir, { recursive: true });
     const base = timestampName(this.now());
@@ -98,7 +103,11 @@ export class NotesService {
       try {
         // 'wx' fails rather than reuse a note made at the same second.
         const handle = await open(join(dir, name), 'wx');
-        await handle.close();
+        try {
+          if (content) await handle.writeFile(content, 'utf-8');
+        } finally {
+          await handle.close();
+        }
         return this.summarize(dir, name);
       } catch (error) {
         if (!isErrorCode(error, 'EEXIST')) throw error;

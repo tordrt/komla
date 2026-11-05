@@ -63,18 +63,22 @@ export function closeNote(workspaceId: string, { discard = false } = {}): void {
   else store.requestInlineFilePreviewClose(workspaceId);
 }
 
-/** Starts a note in the workspace and opens it, without asking for a name. */
-export async function createNote(workspaceId: string): Promise<void> {
+/**
+ * Starts a note in the workspace and opens it, without asking for a name, holding `content` if
+ * given; returns whether it did.
+ */
+export async function createNote(workspaceId: string, content?: string): Promise<boolean> {
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
-  if (!workspace) return;
+  if (!workspace) return false;
   try {
-    const note = await useNotesStore.getState().create(workspace.id);
+    const note = await useNotesStore.getState().create(workspace.id, content);
     // A collapsed section would hide the new note's row, so it wouldn't show where the note lives.
     const fileViewer = useFileViewerStore.getState();
     if (fileViewer.notesCollapsedByWorkspace[workspace.id]) {
       fileViewer.setNotesCollapsed(workspace.id, false);
     }
     openNote(workspace.id, note.name);
+    return true;
   } catch (error) {
     useToastStore
       .getState()
@@ -82,5 +86,6 @@ export async function createNote(workspaceId: string): Promise<void> {
         `Couldn't create a note: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'error'
       );
+    return false;
   }
 }

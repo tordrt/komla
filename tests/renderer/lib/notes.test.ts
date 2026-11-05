@@ -70,7 +70,7 @@ describe('createNote', () => {
 
     await createNote('w1');
 
-    expect(createNoteApi).toHaveBeenCalledWith('w1');
+    expect(createNoteApi).toHaveBeenCalledWith('w1', undefined);
     expect(useNotesStore.getState().byScope.w1).toEqual([NOTE]);
     expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace.w1).toMatchObject({
       open: true,
@@ -91,11 +91,23 @@ describe('createNote', () => {
     expect(store.pendingFileViewerTransition).toBeNull();
   });
 
+  it('writes what it starts with before it opens, as a prompt draft saved as a note', async () => {
+    createNoteApi.mockResolvedValue(NOTE);
+
+    expect(await createNote('w1', 'A plan to keep')).toBe(true);
+
+    // Made with it, so it never takes over the workspace's blank note.
+    expect(createNoteApi).toHaveBeenCalledWith('w1', 'A plan to keep');
+    expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace.w1?.filePath).toBe(
+      getNotePath(NOTE.name)
+    );
+  });
+
   it('says why when it cannot make a note', async () => {
     createNoteApi.mockRejectedValue(new Error('disk full'));
     const addToast = vi.spyOn(useToastStore.getState(), 'addToast');
 
-    await createNote('w1');
+    expect(await createNote('w1', 'A plan to keep')).toBe(false);
 
     expect(addToast).toHaveBeenCalledWith("Couldn't create a note: disk full", 'error');
   });

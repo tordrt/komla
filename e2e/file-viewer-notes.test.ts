@@ -131,7 +131,7 @@ test('opens a note inside the full-screen file and diff viewer, leaving it open'
   await appWindow.screenshot({ path: test.info().outputPath('prompt-draft-over-diff.png') });
 
   // Its edges leave the header's buttons alone, right up to their corners.
-  const close = draft.getByRole('button', { name: 'Close' });
+  const close = draft.getByRole('button', { name: 'Close', exact: true });
   const closeBox = (await close.boundingBox())!;
   await close.click({ position: { x: closeBox.width - 3, y: 3 } });
   await expect(draft).toBeHidden();

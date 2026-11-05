@@ -386,7 +386,7 @@ function QuickLookContent({
             )}
           </div>
         </ReferenceMenu>
-        <PromptDraftButton workspaceId={workspaceId} />
+        <PromptDraftButton />
         {(kind === 'html' || kind === 'markdown') && (
           // A click leaves focus on the viewer, so the arrows still step through the files.
           <div onMouseDown={(event) => event.preventDefault()}>

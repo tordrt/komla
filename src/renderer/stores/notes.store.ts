@@ -10,7 +10,8 @@ interface NotesState {
   byScope: Record<string, NoteSummary[]>;
   /** Lists a workspace's notes, and keeps the list current as notes change on disk. */
   load: (scopeId: string) => Promise<void>;
-  create: (scopeId: string) => Promise<NoteSummary>;
+  /** Makes a note, or hands out the blank one; with `content`, always a new one holding it. */
+  create: (scopeId: string, content?: string) => Promise<NoteSummary>;
   trash: (scopeId: string, name: string) => Promise<void>;
   /** Shows a note's title as it's typed, ahead of the saved file. */
   setTitle: (scopeId: string, name: string, title: string) => void;
@@ -34,8 +35,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set((state) => ({ byScope: { ...state.byScope, [scopeId]: notes } }));
   },
 
-  create: async (scopeId) => {
-    const note = await window.api.createNote(scopeId);
+  create: async (scopeId, content) => {
+    const note = await window.api.createNote(scopeId, content);
     set((state) => {
       const notes = state.byScope[scopeId] ?? [];
       if (notes.some((existing) => existing.name === note.name)) return state;

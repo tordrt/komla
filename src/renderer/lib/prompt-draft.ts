@@ -14,25 +14,35 @@ function isPromptDraftFocused(): boolean {
   return isInPromptDraft(document.activeElement);
 }
 
-// What had focus when each workspace's draft opened, which gets it back when that draft closes.
-// Weakly held, as a workspace can go with its draft still open.
-const returnFocusTo = new Map<string, WeakRef<HTMLElement>>();
+// What had focus when the draft opened, and the workspace on screen then, which gets it back when
+// the draft closes over that workspace. Weakly held, as a pane can go with the draft still open.
+let returnFocusTo: { element: WeakRef<HTMLElement>; workspaceId: string } | null = null;
 
-/** Shows the workspace's prompt draft and gives it focus. */
-export function openPromptDraft(workspaceId: string): void {
+/** Shows the prompt draft and gives it focus, while a workspace is on screen for it to show over. */
+export function openPromptDraft(): void {
+  const store = usePromptDraftStore.getState();
+  const workspaceId = selectPromptDraftWorkspace(store);
+  if (!workspaceId) return;
   const active = document.activeElement;
   if (active instanceof HTMLElement && active !== document.body && !isInPromptDraft(active)) {
-    returnFocusTo.set(workspaceId, new WeakRef(active));
+    returnFocusTo = { element: new WeakRef(active), workspaceId };
   }
-  usePromptDraftStore.getState().open(workspaceId);
+  store.show();
 }
 
-/** Hides the workspace's prompt draft, keeping its text, and gives focus back if it had it. */
-export function closePromptDraft(workspaceId: string): void {
+/**
+ * Hides the prompt draft, keeping its text, and gives focus back if it had it. Once `copied`, it
+ * shows next with its text selected.
+ */
+export function closePromptDraft(options?: { copied?: boolean }): void {
+  const store = usePromptDraftStore.getState();
   const draft = document.activeElement?.closest(`[${PROMPT_DRAFT_ATTRIBUTE}]`);
-  const target = returnFocusTo.get(workspaceId)?.deref();
-  returnFocusTo.delete(workspaceId);
-  usePromptDraftStore.getState().close(workspaceId);
+  // The workspace on screen, as the draft closes: what had focus in another one is hidden now.
+  const workspaceId = selectPromptDraftWorkspace(store);
+  const target =
+    returnFocusTo?.workspaceId === workspaceId ? returnFocusTo.element.deref() : undefined;
+  returnFocusTo = null;
+  store.hide(options);
   if (!draft) return;
   if (target?.isConnected) {
     target.focus();
@@ -40,29 +50,21 @@ export function closePromptDraft(workspaceId: string): void {
   }
   // Opened from a menu or the Command Center, which are gone: to the workspace's terminal, unless
   // the draft was over a viewer, which covers the terminals or traps focus.
-  if (draft.parentElement?.closest('[role="dialog"]')) return;
+  if (draft.parentElement?.closest('[role="dialog"]') || !workspaceId) return;
   const terminalId = getFocusedPromptTerminalId(workspaceId);
   if (terminalId) focusTerminalRenderer(terminalId);
 }
 
-/**
- * Shows the prompt draft of the workspace on screen, or gives it focus if it's open; closes it if
- * it has focus.
- */
+/** Shows the prompt draft, or gives it focus if it's open; closes it if it has focus. */
 export function togglePromptDraft(): void {
-  const store = usePromptDraftStore.getState();
-  const workspaceId = selectPromptDraftWorkspace(store);
-  if (!workspaceId) return;
-  if (store.openByWorkspace[workspaceId] && isPromptDraftFocused()) closePromptDraft(workspaceId);
-  else openPromptDraft(workspaceId);
+  if (usePromptDraftStore.getState().isOpen && isPromptDraftFocused()) closePromptDraft();
+  else openPromptDraft();
 }
 
 /** Closes the prompt draft if it has focus, as Cmd+W does; returns whether it did. */
 export function closeFocusedPromptDraft(): boolean {
   if (!isPromptDraftFocused()) return false;
-  const workspaceId = selectPromptDraftWorkspace(usePromptDraftStore.getState());
-  if (!workspaceId) return false;
-  closePromptDraft(workspaceId);
+  closePromptDraft();
   return true;
 }
 

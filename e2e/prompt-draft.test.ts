@@ -65,12 +65,14 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
   await appWindow.keyboard.press(`${mod}+Z`);
   await expect(prompt).toHaveValue('Explain @server.ts:1-3 ');
 
-  // Cmd+C copies the text selected in the draft, not the viewer's @path.
-  await appWindow.keyboard.press(`${mod}+A`);
+  // Cmd+C with a part selected copies just that, not the viewer's @path, and stays open.
+  await appWindow.keyboard.press('Home');
+  for (let i = 0; i < 'Explain'.length; i++) await appWindow.keyboard.press('Shift+ArrowRight');
   await appWindow.keyboard.press(`${mod}+C`);
   await expect
     .poll(() => electronApp.evaluate(({ clipboard }) => clipboard.readText()))
-    .toBe('Explain @server.ts:1-3 ');
+    .toBe('Explain');
+  await expect(draft).toBeVisible();
   await appWindow.keyboard.press('End');
 
   // A click in the draft keeps the viewer open, as its focus stays inside the viewer.
@@ -79,15 +81,39 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
 
   await appWindow.screenshot({ path: test.info().outputPath('prompt-draft.png') });
 
+  const editorFocused = () =>
+    appWindow.evaluate(() => !!document.activeElement?.closest('.monaco-editor'));
+
   // Escape closes the draft, leaving the viewer and giving focus back to the editor.
   await appWindow.keyboard.press('Escape');
   await expect(draft).toBeHidden();
   await expect(viewer).toBeVisible();
-  await expect
-    .poll(() => appWindow.evaluate(() => !!document.activeElement?.closest('.monaco-editor')))
-    .toBe(true);
+  await expect.poll(editorFocused).toBe(true);
 
   // The text stays for the next time.
   await appWindow.keyboard.press(`${mod}+Shift+Y`);
   await expect(prompt).toHaveValue('Explain @server.ts:1-3 ');
+
+  // Cmd+C with nothing selected copies all of it and closes, back to the editor.
+  await appWindow.keyboard.press(`${mod}+C`);
+  await expect
+    .poll(() => electronApp.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe('Explain @server.ts:1-3');
+  await expect(draft).toBeHidden();
+  await expect.poll(editorFocused).toBe(true);
+
+  // Next time it's all selected, for the next prompt to replace as it's typed.
+  await appWindow.keyboard.press(`${mod}+Shift+Y`);
+  await appWindow.keyboard.type('Keep this plan');
+  await expect(prompt).toHaveValue('Keep this plan');
+
+  // Saved as a note, it opens in the viewer and the draft starts empty.
+  await draft.getByRole('button', { name: 'Save as note' }).click();
+  await expect(draft).toBeHidden();
+  await expect(viewer.locator('[contenteditable="true"]')).toHaveText('Keep this plan', {
+    timeout: 10_000,
+  });
+  await expect(viewer.getByRole('region', { name: 'Notes' })).toContainText('Keep this plan');
+  await appWindow.keyboard.press(`${mod}+Shift+Y`);
+  await expect(prompt).toHaveValue('');
 });

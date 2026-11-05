@@ -68,7 +68,7 @@ export function NotesStatusSegment() {
         <DropdownMenuItem
           onSelect={() => {
             shownInPane.current = true;
-            openPromptDraft(workspace.id);
+            openPromptDraft();
           }}
         >
           <ChatText />

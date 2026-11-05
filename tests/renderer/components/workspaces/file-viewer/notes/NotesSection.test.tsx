@@ -105,7 +105,7 @@ describe('NotesSection', () => {
 
     await act(async () => createNote('w1'));
 
-    expect(api.createNote).toHaveBeenCalledWith('w1');
+    expect(api.createNote).toHaveBeenCalledWith('w1', undefined);
     expect(screen.getByRole('button', { name: /Fresh idea/ })).toBeInTheDocument();
   });
 

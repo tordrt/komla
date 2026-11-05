@@ -363,7 +363,7 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
         onClose={onClose}
         trailing={
           <>
-            <PromptDraftButton workspaceId={workspace.id} />
+            <PromptDraftButton />
             <BranchMenus workspace={workspace} inDiff={isDiffMode} />
           </>
         }

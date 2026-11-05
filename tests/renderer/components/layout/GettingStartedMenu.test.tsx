@@ -641,7 +641,7 @@ describe('GettingStartedMenu', () => {
     expect(screen.queryByRole('button', { name: 'Local VM' })).toBeNull();
   });
 
-  it("opens the open workspace's prompt draft from its tip, offered only with one open", async () => {
+  it('opens the prompt draft from its tip, offered only with a workspace open for it', async () => {
     usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
     useWorkspacesStore.setState({ workspaces: [], selectedWorkspaceId: null });
     onTestFinished(() => {
@@ -656,9 +656,10 @@ describe('GettingStartedMenu', () => {
       workspaces: [{ id: 'ws-1', name: 'login-fix' } as never],
       selectedWorkspaceId: 'ws-1',
     });
+    usePromptDraftStore.getState().addHost('window', 'ws-1');
     await renderComponent();
     fireEvent.click(rowFor('Prompt draft')!);
-    expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ 'ws-1': true });
+    expect(usePromptDraftStore.getState().isOpen).toBe(true);
   });
 
   it('opens a new window when multi-window tip is clicked', async () => {

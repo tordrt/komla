@@ -1,4 +1,4 @@
-import { At, ChatText, Copy, Eraser, X } from '@phosphor-icons/react';
+import { At, ChatText, Copy, NotePencil, X } from '@phosphor-icons/react';
 import {
   useEffect,
   useId,
@@ -16,6 +16,7 @@ import { IconButton, ignoreFocusAfterPointer } from '@/components/ui/icon-button
 import { Kbd } from '@/components/ui/kbd';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { forwardAppShortcut } from '@/lib/monaco-shortcut-forwarding';
+import { createNote } from '@/lib/notes';
 import {
   clampDraftRect,
   closePromptDraft,
@@ -39,9 +40,9 @@ import { selectViewedFile, useViewedFileStore, type ViewedFile } from '@/stores/
 
 const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Shift', 'Alt']);
 
-// Where the cursor was in each workspace's draft, for when it shows again: it remounts as it
-// moves between the window and a viewer over it.
-const selections = new Map<string, { start: number; end: number }>();
+// Where the cursor was in the draft, for when it shows again: it remounts as it moves between the
+// window and a viewer over it.
+let selection: { start: number; end: number } | null = null;
 
 /**
  * Where the prompt draft shows while this is the top of what's on screen: the window, or a viewer
@@ -60,20 +61,20 @@ export function PromptDraftOutlet({ workspaceId }: { workspaceId: string | null 
     usePromptDraftStore.getState().updateHost(id, workspace);
   }, [id, workspace]);
   const isTop = usePromptDraftStore((s) => s.hosts.at(-1)?.id === id);
-  const open = usePromptDraftStore((s) => workspace !== null && !!s.openByWorkspace[workspace]);
+  const open = usePromptDraftStore((s) => s.isOpen);
   if (!isTop || !open || !workspace) return null;
-  return <PromptDraftWindow key={workspace} workspaceId={workspace} />;
+  return <PromptDraftWindow workspaceId={workspace} />;
 }
 
 /** A viewer's button that opens the prompt draft, which has its own button for the file shown. */
-export function PromptDraftButton({ workspaceId }: { workspaceId: string }) {
+export function PromptDraftButton() {
   const shortcut = useShortcutsStore((s) => s.getDisplayShortcut('promptDraft.toggle'));
   return (
     <IconButton
       label="Prompt draft"
       shortcut={shortcut}
       onMouseDown={keepFocus}
-      onClick={() => openPromptDraft(workspaceId)}
+      onClick={openPromptDraft}
     >
       <ChatText className="size-4" />
     </IconButton>
@@ -116,16 +117,17 @@ function keepFocus(event: ReactMouseEvent) {
 }
 
 /**
- * A floating window for writing a prompt while looking at files, to copy into an agent. Its text
- * stays, per workspace, until cleared or Komla quits.
+ * A floating window for writing a prompt while looking at files, to copy into an agent. There's
+ * one per window, across its workspaces, whose text stays until copied over or Komla quits.
+ * `workspaceId` is the workspace on screen, whose file it refers to and where it's saved as a
+ * note.
  */
 function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
-  const text = usePromptDraftStore((s) => s.textByWorkspace[workspaceId] ?? '');
-  const focusRequest = usePromptDraftStore((s) =>
-    s.focusRequest?.workspaceId === workspaceId ? s.focusRequest : null
-  );
+  const text = usePromptDraftStore((s) => s.text);
+  const focusRequested = usePromptDraftStore((s) => s.focusRequested);
   const viewed = useViewedFileStore((s) => selectViewedFile(s, workspaceId));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [saving, setSaving] = useState(false);
   const [rect, setRect] = useState(initialRect);
   const rectRef = useRef(rect);
   useLayoutEffect(() => {
@@ -136,25 +138,32 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
   const copyShortcut = formatShortcutForDisplay('Cmd+Enter', platform);
   const insertShortcut = formatShortcutForDisplay('Cmd+Shift+C', platform);
 
-  // Back where the cursor was, or at the end.
+  // Back where the cursor was, or at the end. Once copied, all of it, for the next prompt to
+  // replace as it's typed.
   useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-    const selection = selections.get(workspaceId) ?? {
-      start: textarea.value.length,
-      end: textarea.value.length,
-    };
-    textarea.setSelectionRange(selection.start, selection.end);
+    const store = usePromptDraftStore.getState();
+    if (store.copied) {
+      store.clearCopied();
+      textarea.select();
+    } else {
+      const { start, end } = selection ?? {
+        start: textarea.value.length,
+        end: textarea.value.length,
+      };
+      textarea.setSelectionRange(start, end);
+    }
     return () => {
-      selections.set(workspaceId, { start: textarea.selectionStart, end: textarea.selectionEnd });
+      selection = { start: textarea.selectionStart, end: textarea.selectionEnd };
     };
-  }, [workspaceId]);
+  }, []);
 
   useEffect(() => {
-    if (!focusRequest) return;
+    if (!focusRequested) return;
     usePromptDraftStore.getState().clearFocusRequest();
     textareaRef.current?.focus();
-  }, [focusRequest]);
+  }, [focusRequested]);
 
   useEffect(() => {
     const onResize = () => setRect((current) => viewportRect(current));
@@ -162,7 +171,7 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  const setText = (value: string) => usePromptDraftStore.getState().setText(workspaceId, value);
+  const setText = (value: string) => usePromptDraftStore.getState().setText(value);
 
   /**
    * Replaces the selection of the textarea, which has focus. execCommand is deprecated, but it is
@@ -188,22 +197,37 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
     );
   };
 
-  const copy = () => {
+  /** Copies the whole prompt and closes, for it to be pasted where focus goes back to. */
+  const copyAndClose = () => {
     const prompt = (textareaRef.current?.value ?? text).trimEnd();
     if (!prompt.trim()) return;
     window.api.copyToClipboard(prompt);
     useToastStore.getState().addToast('Copied the prompt', 'success');
+    closePromptDraft({ copied: true });
   };
 
-  const clear = () => {
-    const textarea = textareaRef.current;
-    if (!textarea || !textarea.value) return;
-    textarea.focus();
-    textarea.select();
-    replaceSelection(textarea, '');
+  /**
+   * Moves the prompt into a new note in the workspace, for one to keep or keep working on. The
+   * draft takes no typing meanwhile, which the note wouldn't have.
+   */
+  const saveAsNote = async () => {
+    const content = textareaRef.current?.value ?? text;
+    if (saving || !content.trim()) return;
+    setSaving(true);
+    const saved = await createNote(workspaceId, content);
+    setSaving(false);
+    if (!saved) return;
+    usePromptDraftStore.getState().setText('');
+    closePromptDraft();
   };
 
-  const close = () => closePromptDraft(workspaceId);
+  const close = () => closePromptDraft();
+
+  /** Whether Cmd+C takes the whole prompt: with nothing, or all of it, selected. */
+  const copiesWhole = (textarea: HTMLTextAreaElement) => {
+    const { selectionStart: start, selectionEnd: end, value } = textarea;
+    return start === end || (start === 0 && end === value.length);
+  };
 
   const onKeyDown = (event: ReactKeyboardEvent) => {
     const native = event.nativeEvent;
@@ -227,9 +251,20 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
     // The viewers behind take keys like these for their own shortcuts, such as Cmd+C copying a
     // file's @path; here they edit the draft.
     event.stopPropagation();
-    if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+    const plain = !event.shiftKey && !event.altKey;
+    const textarea = textareaRef.current;
+    // Cmd+C as the platform has it, in the text: on a button it's no copy.
+    const copyKey = platform === 'darwin' ? event.metaKey && !event.ctrlKey : event.ctrlKey;
+    if (
+      (event.key === 'Enter' && plain) ||
+      (plain &&
+        copyKey &&
+        event.key.toLowerCase() === 'c' &&
+        event.target === textarea &&
+        copiesWhole(textarea))
+    ) {
       event.preventDefault();
-      copy();
+      copyAndClose();
     } else if (event.shiftKey && !event.altKey && event.key.toLowerCase() === 'c') {
       event.preventDefault();
       insertReference();
@@ -304,23 +339,23 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
           <h2 className="mr-1 ml-1.5 min-w-0 flex-1 truncate text-xs font-medium">Prompt draft</h2>
           <ReferenceButton viewed={viewed} shortcut={insertShortcut} onInsert={insertReference} />
           <IconButton
-            label="Copy prompt"
+            label="Save as note"
+            size="xs"
+            disabled={saving || !text.trim()}
+            onMouseDown={keepFocus}
+            onClick={() => void saveAsNote()}
+          >
+            <NotePencil className="size-3.5" />
+          </IconButton>
+          <IconButton
+            label="Copy and close"
             shortcut={copyShortcut}
             size="xs"
             disabled={!text.trim()}
             onMouseDown={keepFocus}
-            onClick={copy}
+            onClick={copyAndClose}
           >
             <Copy className="size-3.5" />
-          </IconButton>
-          <IconButton
-            label="Clear"
-            size="xs"
-            disabled={!text}
-            onMouseDown={keepFocus}
-            onClick={clear}
-          >
-            <Eraser className="size-3.5" />
           </IconButton>
           <IconButton
             label="Close"
@@ -336,6 +371,7 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
           ref={textareaRef}
           aria-label="Prompt"
           value={text}
+          readOnly={saving}
           onChange={(event) => setText(event.target.value)}
           // Paths and code would be underlined as misspelled.
           spellCheck={false}

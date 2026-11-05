@@ -1235,8 +1235,8 @@ const api = {
   // Notes
   listNotes: (scopeId: string): Promise<NoteSummary[]> =>
     ipcRenderer.invoke(IPC.NOTES_LIST, scopeId),
-  createNote: (scopeId: string): Promise<NoteSummary> =>
-    ipcRenderer.invoke(IPC.NOTES_CREATE, scopeId),
+  createNote: (scopeId: string, content?: string): Promise<NoteSummary> =>
+    ipcRenderer.invoke(IPC.NOTES_CREATE, scopeId, content),
   readNote: (scopeId: string, name: string): Promise<string> =>
     ipcRenderer.invoke(IPC.NOTES_READ, scopeId, name),
   writeNote: (scopeId: string, name: string, content: string): Promise<void> =>

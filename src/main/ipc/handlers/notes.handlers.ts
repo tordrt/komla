@@ -16,9 +16,9 @@ export function registerNotesHandlers(): void {
     return notesService.list(scopeId);
   });
 
-  handleIpc(IPC.NOTES_CREATE, (_, [scopeId]): Promise<NoteSummary> => {
+  handleIpc(IPC.NOTES_CREATE, (_, [scopeId, content]): Promise<NoteSummary> => {
     watchNotes();
-    return notesService.create(scopeId);
+    return notesService.create(scopeId, content);
   });
 
   handleIpc(IPC.NOTES_READ, (_, [scopeId, name]): Promise<string> =>

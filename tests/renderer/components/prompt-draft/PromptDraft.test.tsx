@@ -16,6 +16,9 @@ import { useViewedFileStore } from '../../../../src/renderer/stores/viewed-file.
 
 const api = { copyToClipboard: vi.fn(), platform: 'linux' };
 
+const { createNote } = vi.hoisted(() => ({ createNote: vi.fn(() => Promise.resolve(true)) }));
+vi.mock('../../../../src/renderer/lib/notes', () => ({ createNote }));
+
 function renderDraft(workspaceId: string | null = 'ws-1', onParentKeyDown = vi.fn()) {
   const view = render(
     <TooltipProvider>
@@ -29,8 +32,7 @@ function renderDraft(workspaceId: string | null = 'ws-1', onParentKeyDown = vi.f
 
 const prompt = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Prompt' });
 const queryDraft = () => screen.queryByRole('dialog', { name: 'Prompt draft' });
-const draftText = (workspaceId = 'ws-1') =>
-  usePromptDraftStore.getState().textByWorkspace[workspaceId];
+const draftText = () => usePromptDraftStore.getState().text;
 
 /** A file on screen in ws-1, as a viewer reports it. */
 function view(name: string, reference: string) {
@@ -54,21 +56,21 @@ describe('PromptDraft', () => {
   it('shows once opened, with focus, ready to type', async () => {
     renderDraft();
     expect(queryDraft()).toBeNull();
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     expect(queryDraft()).toBeInTheDocument();
     expect(prompt()).toHaveFocus();
     await userEvent.type(prompt(), 'Fix the login bug');
     expect(draftText()).toBe('Fix the login bug');
   });
 
-  it("keeps the text when closed, and shows each workspace's own", async () => {
+  it('keeps the text when closed, one across workspaces', async () => {
     const { rerender } = renderDraft();
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     await userEvent.type(prompt(), 'For one');
     await userEvent.keyboard('{Escape}');
     expect(queryDraft()).toBeNull();
 
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     expect(prompt()).toHaveValue('For one');
 
     rerender(
@@ -76,9 +78,7 @@ describe('PromptDraft', () => {
         <PromptDraftOutlet workspaceId="ws-2" />
       </TooltipProvider>
     );
-    expect(queryDraft()).toBeNull();
-    act(() => openPromptDraft('ws-2'));
-    expect(prompt()).toHaveValue('');
+    expect(prompt()).toHaveValue('For one');
   });
 
   it('shows only in the host on top, such as a viewer over the window', () => {
@@ -89,7 +89,7 @@ describe('PromptDraft', () => {
         </div>
       </TooltipProvider>
     );
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     const viewer = render(
       <TooltipProvider>
         <div data-testid="viewer">
@@ -106,7 +106,7 @@ describe('PromptDraft', () => {
 
   it('puts in a reference to the file on screen at the cursor, spaced from the words', async () => {
     renderDraft();
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     await userEvent.type(prompt(), 'Look at');
     expect(screen.getByRole('button', { name: 'Open a file to refer to it' })).toBeDisabled();
 
@@ -120,35 +120,101 @@ describe('PromptDraft', () => {
     expect(prompt()).toHaveValue('Look at @src/main.ts:4-8 and @src/main.ts:4-8 ');
   });
 
-  it('copies the prompt, without the space a reference left at its end', async () => {
+  it('copies the prompt and closes, without the space a reference left at its end', async () => {
     renderDraft();
-    act(() => openPromptDraft('ws-1'));
-    expect(screen.getByRole('button', { name: 'Copy prompt' })).toBeDisabled();
+    act(() => openPromptDraft());
+    expect(screen.getByRole('button', { name: 'Copy and close' })).toBeDisabled();
     await userEvent.type(prompt(), 'Explain @a.ts ');
     await userEvent.keyboard('{Control>}{Enter}{/Control}');
     expect(api.copyToClipboard).toHaveBeenCalledWith('Explain @a.ts');
     expect(useToastStore.getState().toasts.map((toast) => toast.message)).toEqual([
       'Copied the prompt',
     ]);
+    expect(queryDraft()).toBeNull();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Copy prompt' }));
+    // Back with the text kept, all of it selected, for the next prompt to replace.
+    act(() => openPromptDraft());
+    expect(prompt()).toHaveValue('Explain @a.ts ');
+    expect([prompt().selectionStart, prompt().selectionEnd]).toEqual([0, 14]);
+    await userEvent.click(screen.getByRole('button', { name: 'Copy and close' }));
     expect(api.copyToClipboard).toHaveBeenCalledTimes(2);
+    expect(queryDraft()).toBeNull();
   });
 
-  it('clears the draft', async () => {
+  it('copies all of it and closes on Cmd+C with nothing or everything selected', async () => {
     renderDraft();
-    act(() => openPromptDraft('ws-1'));
-    await userEvent.type(prompt(), 'Scrap this');
-    await userEvent.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(prompt()).toHaveValue('');
+    act(() => openPromptDraft());
+    await userEvent.type(prompt(), 'Fix the bug');
+    await userEvent.keyboard('{Control>}c{/Control}');
+    expect(api.copyToClipboard).toHaveBeenCalledWith('Fix the bug');
+    expect(queryDraft()).toBeNull();
+
+    act(() => openPromptDraft());
+    await userEvent.keyboard('{Control>}a{/Control}{Control>}c{/Control}');
+    expect(api.copyToClipboard).toHaveBeenCalledTimes(2);
+    expect(queryDraft()).toBeNull();
+  });
+
+  it('leaves Cmd+C on its buttons alone', async () => {
+    renderDraft();
+    act(() => openPromptDraft());
+    await userEvent.type(prompt(), 'Fix the bug');
+    screen.getByRole('button', { name: 'Close' }).focus();
+    await userEvent.keyboard('{Control>}c{/Control}');
+    expect(api.copyToClipboard).not.toHaveBeenCalled();
+    expect(queryDraft()).toBeInTheDocument();
+  });
+
+  it('copies only a part selected on Cmd+C, as usual, staying open', async () => {
+    renderDraft();
+    act(() => openPromptDraft());
+    await userEvent.type(prompt(), 'Fix the bug');
+    prompt().setSelectionRange(4, 7);
+    await userEvent.keyboard('{Control>}c{/Control}');
+    expect(api.copyToClipboard).not.toHaveBeenCalled();
+    expect(queryDraft()).toBeInTheDocument();
+  });
+
+  it('saves the prompt as a note in the workspace, emptying the draft', async () => {
+    renderDraft();
+    act(() => openPromptDraft());
+    expect(screen.getByRole('button', { name: 'Save as note' })).toBeDisabled();
+    await userEvent.type(prompt(), 'A plan to keep');
+    await userEvent.click(screen.getByRole('button', { name: 'Save as note' }));
+    expect(createNote).toHaveBeenCalledWith('ws-1', 'A plan to keep');
+    expect(queryDraft()).toBeNull();
     expect(draftText()).toBe('');
+  });
+
+  it('takes no typing while it saves, which the note would miss', async () => {
+    let finish!: (saved: boolean) => void;
+    createNote.mockReturnValueOnce(new Promise<boolean>((resolve) => (finish = resolve)));
+    renderDraft();
+    act(() => openPromptDraft());
+    await userEvent.type(prompt(), 'A plan');
+    await userEvent.click(screen.getByRole('button', { name: 'Save as note' }));
+    expect(prompt()).toHaveAttribute('readonly');
+    expect(screen.getByRole('button', { name: 'Save as note' })).toBeDisabled();
+    await act(async () => finish(true));
+    expect(createNote).toHaveBeenCalledTimes(1);
+    expect(queryDraft()).toBeNull();
+  });
+
+  it('keeps the prompt when the note could not be made', async () => {
+    createNote.mockResolvedValueOnce(false);
+    renderDraft();
+    act(() => openPromptDraft());
+    await userEvent.type(prompt(), 'A plan to keep');
+    await userEvent.click(screen.getByRole('button', { name: 'Save as note' }));
+    expect(queryDraft()).toBeInTheDocument();
+    expect(draftText()).toBe('A plan to keep');
   });
 
   it('keeps Escape and Cmd keys from the viewer behind, which has shortcuts of its own', async () => {
     const { onParentKeyDown } = renderDraft();
     const keysReachingViewer = () =>
       onParentKeyDown.mock.calls.map(([event]: [{ key: string }]) => event.key);
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     await userEvent.keyboard('{Control>}b{/Control}{Control>}c{/Control}');
     // Typing and modifier presses alone still reach it, for double-tap shortcuts.
     await userEvent.keyboard('x');
@@ -168,7 +234,7 @@ describe('PromptDraft', () => {
     const unregister = registerShortcutAction('note.new', newNote);
     try {
       const { onParentKeyDown } = renderDraft();
-      act(() => openPromptDraft('ws-1'));
+      act(() => openPromptDraft());
       await userEvent.keyboard('{Alt>}n{/Alt}');
       expect(newNote).not.toHaveBeenCalled();
       onParentKeyDown.mockClear();
@@ -186,7 +252,7 @@ describe('PromptDraft', () => {
 
   it('closes from its close button', async () => {
     renderDraft();
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     await userEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(queryDraft()).toBeNull();
   });
@@ -194,7 +260,7 @@ describe('PromptDraft', () => {
   it('resizes from any edge or corner, remembering its size', () => {
     Object.assign(window, { innerWidth: 1200, innerHeight: 800 });
     renderDraft();
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     const draft = queryDraft() as HTMLElement;
     const rect = () => ({
       left: draft.style.left,
@@ -225,7 +291,7 @@ describe('PromptDraft', () => {
   it('stays under the title bar, where the window has its own controls', () => {
     Object.assign(window, { innerWidth: 1200, innerHeight: 800 });
     renderDraft();
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     const draft = queryDraft() as HTMLElement;
     const header = screen.getByRole('heading', { name: 'Prompt draft' }).parentElement!;
     fireEvent.pointerDown(header, { button: 0, clientX: 800, clientY: 480, pointerId: 1 });
@@ -243,7 +309,7 @@ describe('PromptDraft', () => {
 
   it('marks its handles, which reach outside it, as part of it for drag regions and previews', () => {
     renderDraft();
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     const draft = queryDraft() as HTMLElement;
     const handles = [...draft.querySelectorAll('[data-resize-edge]')];
     expect(handles).toHaveLength(8);
@@ -257,7 +323,7 @@ describe('PromptDraft', () => {
   it('moves with its header and stays inside the window, remembering where it was put', () => {
     Object.assign(window, { innerWidth: 1200, innerHeight: 800 });
     renderDraft();
-    act(() => openPromptDraft('ws-1'));
+    act(() => openPromptDraft());
     const draft = queryDraft() as HTMLElement;
     const header = screen.getByRole('heading', { name: 'Prompt draft' }).parentElement!;
     const start = { left: draft.style.left, top: draft.style.top };

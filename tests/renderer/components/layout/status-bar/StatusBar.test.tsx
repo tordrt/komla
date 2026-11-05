@@ -1980,28 +1980,18 @@ describe('StatusBar', () => {
       renderStatusBar();
       expect(screen.queryByRole('button', { name: 'Prompt draft' })).not.toBeInTheDocument();
 
-      const workspace = openWorkspace();
+      openWorkspace();
       const button = await screen.findByRole('button', { name: 'Prompt draft' });
       expect(button).toHaveAttribute('aria-expanded', 'false');
 
       await user.click(button);
-      expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ [workspace.id]: true });
+      expect(usePromptDraftStore.getState().isOpen).toBe(true);
       expect(button).toHaveAttribute('aria-expanded', 'true');
 
       // From the keyboard too, with focus on the button rather than in the draft.
       button.focus();
       await user.keyboard('{Enter}');
-      expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ [workspace.id]: false });
-    });
-
-    it('acts on the draft a viewer on top shows, as the shortcut does', async () => {
-      const user = userEvent.setup();
-      openWorkspace();
-      act(() => usePromptDraftStore.getState().addHost('viewer', 'ws-other'));
-      renderStatusBar();
-
-      await user.click(screen.getByRole('button', { name: 'Prompt draft' }));
-      expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ 'ws-other': true });
+      expect(usePromptDraftStore.getState().isOpen).toBe(false);
     });
   });
 
@@ -2056,16 +2046,17 @@ describe('StatusBar', () => {
       expect(notesMocks.createNote).toHaveBeenCalledWith(workspace.id);
     });
 
-    it('opens the prompt draft of the workspace', async () => {
+    it('opens the prompt draft over the workspace', async () => {
       usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
       const user = userEvent.setup();
       const workspace = openWorkspace();
+      usePromptDraftStore.getState().addHost('window', workspace.id);
 
       renderStatusBar();
       await user.click(screen.getByRole('button', { name: 'Notes' }));
       await user.click(screen.getByRole('menuitem', { name: 'Prompt draft' }));
 
-      expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ [workspace.id]: true });
+      expect(usePromptDraftStore.getState().isOpen).toBe(true);
     });
 
     it('says what notes are before there is one', async () => {

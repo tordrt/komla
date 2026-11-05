@@ -483,7 +483,7 @@ export function GettingStartedMenu({
         break;
       case 'prompt-draft':
         setOpen(false);
-        if (selectedWorkspace) openPromptDraft(selectedWorkspace.id);
+        openPromptDraft();
         break;
       case 'remote-control':
         setOpen(false);

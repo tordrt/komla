@@ -8,16 +8,13 @@ import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import { StatusBarButton } from './StatusBarButton';
 
-/**
- * Shows or hides the prompt draft: the one the window shows, as its shortcut opens, which is the
- * open workspace's.
- */
+/** Shows or hides the prompt draft, while a workspace is on screen for it to show over. */
 export function PromptDraftStatusSegment() {
   const hasWorkspace = useWorkspacesStore((s) =>
     s.workspaces.some((w) => w.id === s.selectedWorkspaceId)
   );
   const workspaceId = usePromptDraftStore(selectPromptDraftWorkspace);
-  const open = usePromptDraftStore((s) => !!workspaceId && !!s.openByWorkspace[workspaceId]);
+  const open = usePromptDraftStore((s) => s.isOpen);
   const shortcut = useShortcutsStore((s) => s.getDisplayShortcut('promptDraft.toggle'));
   if (!hasWorkspace || !workspaceId) return null;
 
@@ -34,7 +31,7 @@ export function PromptDraftStatusSegment() {
       }
       // Leaves focus where it is, such as in a terminal, for the draft to give back once it closes.
       onMouseDown={(event) => event.preventDefault()}
-      onClick={() => (open ? closePromptDraft(workspaceId) : openPromptDraft(workspaceId))}
+      onClick={() => (open ? closePromptDraft() : openPromptDraft())}
     >
       <ChatText aria-hidden="true" className="size-3.5" />
     </StatusBarButton>

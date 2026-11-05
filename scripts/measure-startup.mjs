@@ -113,6 +113,7 @@ const MILESTONES = [
   ['main:ready-handler-done', 'main startup code returned'],
   ['renderer:navigation-start', 'renderer page navigation starts'],
   ['renderer:modules-loaded', "renderer's modules evaluated"],
+  ['renderer:launch-data', "config, workspaces and projects in"],
   ['renderer:first-contentful-paint', 'first contentful paint'],
   ['main:ready-to-show', 'window shown'],
   ['renderer:app-shell', 'app shell drawn (past Loading...)'],

@@ -65,7 +65,7 @@ const launchData = Promise.all([
   useConfigStore.getState().loadConfig(),
   useWorkspacesStore.getState().loadWorkspaces(),
   useProjectsStore.getState().loadProjects(),
-]);
+]).then(() => performance.mark('komla:launch-data'));
 void Promise.race([
   launchData,
   new Promise((resolve) => setTimeout(resolve, LAUNCH_DATA_WAIT_MS)),

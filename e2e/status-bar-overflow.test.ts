@@ -15,7 +15,7 @@ const test = base.extend({
       JSON.stringify({
         ...config,
         // The workspace's tools too, so a narrow window can't fit every item.
-        statusBarShownItems: ['file-search', 'file-viewer', 'diff-viewer', 'notes', 'commit-graph'],
+        statusBarShownItems: ['file-search', 'file-viewer', 'diff-viewer', 'commit-graph'],
       })
     );
     await provide();

@@ -11,7 +11,6 @@ export type StatusBarItemId =
   | 'file-search'
   | 'file-viewer'
   | 'diff-viewer'
-  | 'notes'
   | 'prompt-draft'
   | 'commit-graph'
   | 'agents'
@@ -36,7 +35,6 @@ export const STATUS_BAR_ITEMS: { id: StatusBarItemId; label: string; group: Stat
     { id: 'file-search', label: 'File search', group: 'tools' },
     { id: 'file-viewer', label: 'Files (full window)', group: 'tools' },
     { id: 'diff-viewer', label: 'Diff (full window)', group: 'tools' },
-    { id: 'notes', label: 'Notes', group: 'tools' },
     { id: 'prompt-draft', label: 'Prompt draft', group: 'tools' },
     { id: 'commit-graph', label: 'Commit graph', group: 'tools' },
     { id: 'agents', label: 'Agent activity', group: 'app' },
@@ -62,7 +60,6 @@ const HIDDEN_BY_DEFAULT: ReadonlySet<string> = new Set<StatusBarItemId>([
   'file-search',
   'file-viewer',
   'diff-viewer',
-  'notes',
   'commit-graph',
   'claude-code-usage',
   'codex-usage',

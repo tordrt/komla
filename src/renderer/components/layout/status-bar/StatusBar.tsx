@@ -18,7 +18,6 @@ import { EditorStatusSegment } from './EditorStatusSegment';
 import { FileSearchStatusSegment } from './FileSearchStatusSegment';
 import { FileViewerStatusSegment } from './FileViewerStatusSegment';
 import { KeepAwakeStatusSegment } from './KeepAwakeStatusSegment';
-import { NotesStatusSegment } from './NotesStatusSegment';
 import { NotificationSoundsStatusSegment } from './NotificationSoundsStatusSegment';
 import { PromptDraftStatusSegment } from './PromptDraftStatusSegment';
 import { PullRequestStatusSegment } from './PullRequestStatusSegment';
@@ -58,7 +57,6 @@ const SEGMENTS: Record<Exclude<StatusBarItemId, 'tips'>, () => React.ReactNode> 
   'file-search': () => <FileSearchStatusSegment />,
   'file-viewer': () => <FileViewerStatusSegment mode="browse" />,
   'diff-viewer': () => <FileViewerStatusSegment mode="diff" />,
-  notes: () => <NotesStatusSegment />,
   'prompt-draft': () => <PromptDraftStatusSegment />,
   'commit-graph': () => <CommitGraphStatusSegment />,
   agents: () => <AgentsStatusSegment />,

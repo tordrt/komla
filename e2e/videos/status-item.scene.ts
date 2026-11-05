@@ -1,8 +1,8 @@
 /**
- * The status-item video's world: the agent that added team invites makes a
- * status bar item for the migrations its branch's database hasn't run, whose
- * Run migrations button tags the workspace while they run and notifies once
- * they're applied.
+ * The status-item video's world: the agent that added team invites makes, in one plugin, a status
+ * bar item that counts the migrations its branch's database hasn't run and a sidebar panel that
+ * lists them. Clicking the item opens the panel, whose Run migrations button tags the workspace
+ * while they run and notifies once they're applied.
  */
 import fs from 'fs';
 import path from 'path';
@@ -14,7 +14,7 @@ import { ACME_API, ACME_WEB, BACKGROUND_WORKSPACES, DEVBOX } from './worlds';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const PROMPT =
-  'Add a status bar item for this branch’s pending migrations, with a button to run them';
+  'Add a status bar item and a sidebar panel for this branch’s pending migrations, with a button to run them';
 
 /** Where we look while the migrations run. */
 export const CHECKOUT = BACKGROUND_WORKSPACES[0];
@@ -34,17 +34,47 @@ const API: VideoProject = {
 };
 
 const SCRIPT = 'scripts/migrations.sh';
-const ITEMS_FILE = 'status-items.json';
-const STATUS_ITEMS = {
-  _version: 1,
-  items: [
+const PLUGIN_FILE = 'migrations-plugin.json';
+const PLUGIN_ID = 'migrations';
+const PANEL_ID = 'migrations';
+/** The plugin's panel as the sidebar knows it, `<plugin>.<panel>`. */
+export const PANEL = `${PLUGIN_ID}.${PANEL_ID}`;
+/** Its tab's title, which also names its page's frame. */
+export const PANEL_TITLE = 'DB';
+// One plugin, applied as one change: a count in the bar, with the list in the panel.
+const PLUGIN = {
+  plugins: [
     {
-      id: 'migrations',
-      label: 'Migrations',
-      command: `sh ${SCRIPT} status`,
-      popoverCommand: `sh ${SCRIPT} popover`,
-      commands: { migrate: `sh ${SCRIPT} migrate` },
-      projects: [API.name],
+      id: PLUGIN_ID,
+      enabled: true,
+      manifest: {
+        _version: 1,
+        id: PLUGIN_ID,
+        name: 'Migrations',
+        description: "This branch's pending database migrations, and a button to run them.",
+        contributes: {
+          statusItems: [
+            {
+              id: 'pending',
+              label: 'Migrations',
+              command: `sh ${SCRIPT} status`,
+              panel: PANEL_ID,
+              refreshOn: ['branch.changed'],
+              projects: [API.name],
+            },
+          ],
+          sidebarPanels: [
+            {
+              id: PANEL_ID,
+              title: PANEL_TITLE,
+              command: `sh ${SCRIPT} panel`,
+              commands: { migrate: `sh ${SCRIPT} migrate` },
+              refreshOn: ['branch.changed'],
+              projects: [API.name],
+            },
+          ],
+        },
+      },
     },
   ],
 };
@@ -92,8 +122,8 @@ export const INVITES: VideoWorkspace = {
         events: [
           {
             tool: 'Bash',
-            arg: 'komla skill status-items',
-            result: ['# Komla Status Bar Items', '…'],
+            arg: 'komla skill integrations',
+            result: ['# Komla Integrations: Status Bar Items, Sidebar Panels and Plugins', '…'],
             delay: 600,
           },
           {
@@ -108,13 +138,13 @@ export const INVITES: VideoWorkspace = {
             delay: 900,
           },
           {
-            write: ITEMS_FILE,
-            content: `${JSON.stringify(STATUS_ITEMS, null, 2)}\n`,
+            write: PLUGIN_FILE,
+            content: `${JSON.stringify(PLUGIN, null, 2)}\n`,
             delay: 700,
           },
-          { settings: 'status-items', file: ITEMS_FILE, delay: 500 },
+          { settings: 'plugins', file: PLUGIN_FILE, delay: 500 },
           {
-            say: 'Added a **Migrations** item to the status bar. It counts the migrations this branch’s database hasn’t run, and its **Run migrations** button tags this workspace while they run, then notifies you.',
+            say: 'Added a **Migrations** plugin. Its status bar item counts the migrations this branch’s database hasn’t run, and clicking it opens the **DB** panel, which lists them. Its **Run migrations** button tags this workspace while they run, then notifies you.',
             delay: 300,
           },
         ],

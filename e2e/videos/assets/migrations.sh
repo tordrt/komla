@@ -1,11 +1,16 @@
 #!/bin/sh
-# This branch's database migrations, for the status bar: `status`, `popover` or `migrate`.
+# This branch's database migrations, for a status bar item and a sidebar panel: `status`, `panel`
+# or `migrate`.
 dir=db/migrations
 db="acme_$(git branch --show-current | tr -c 'a-z0-9\n' _)"
 # The demo's stand-in for the database's schema_migrations table. A branch's database starts as a
 # copy of main's, so main's migrations have run there.
 applied="$(git rev-parse --git-dir)/schema-migrations"
-[ -f "$applied" ] || git ls-tree --name-only main "$dir/" | sed 's|.*/||; s|\.sql$||' >"$applied"
+# Written whole, so a failed or concurrent first run doesn't leave it empty.
+if [ ! -f "$applied" ]; then
+  names=$(git ls-tree --name-only main "$dir/") || exit 1
+  echo "$names" | sed '/^$/d; s|.*/||; s|\.sql$||' >"$applied.$$" && mv "$applied.$$" "$applied"
+fi
 
 pending() {
   for file in "$dir"/*.sql; do
@@ -37,7 +42,7 @@ case $1 in
       printf '{"segments": [{"text": "\\uf1c0", "color": "warning"}, {"text": " %s migrations pending"}]}\n' "$count"
     fi
     ;;
-  popover)
+  panel)
     todo=$(pending)
     ran=$(grep -c . "$applied")
     left=$(echo "$todo" | grep -c .)
@@ -69,6 +74,7 @@ case $1 in
       .applied .name{color:var(--muted-foreground)}
       .sub{margin-top:1px;font-size:11px;color:var(--muted-foreground)}
       .when{flex:none;font-size:11px;color:var(--muted-foreground);font-variant-numeric:tabular-nums}
+      @media (max-width:260px){.row{flex-wrap:wrap;row-gap:0}.main{flex-basis:calc(100% - 16px)}.when{margin-left:16px}}
     </style>"
     bar=""
     for _ in $(cat "$applied"); do bar="$bar<i></i>"; done
@@ -109,6 +115,7 @@ case $1 in
       echo "$name" >>"$applied"
     done
     komla untag "Migrating"
+    komla status refresh migrations.pending
     komla notify "Migrations applied" --body "$db is up to date" --color success
     ;;
 esac

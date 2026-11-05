@@ -139,14 +139,38 @@ function runTimeFormatter(timeZone: string) {
   return formatter;
 }
 
+/** `Today`, `Tomorrow`, or `Tue, Oct 20`, in the schedule's time zone; relative for the first two. */
+function formatRunDay(
+  formatter: ReturnType<typeof runTimeFormatter>,
+  instant: number,
+  now: number
+): { label: string; relative: boolean } {
+  const day = (value: number) => formatter.day.format(value);
+  if (day(instant) === day(now)) return { label: 'Today', relative: true };
+  if (day(instant) === day(now + 24 * 60 * 60 * 1000)) return { label: 'Tomorrow', relative: true };
+  return { label: formatter.date.format(instant), relative: false };
+}
+
 /** `Today 09:00`, `Tomorrow 09:00`, or `Tue, Oct 20, 09:00`, in the schedule's time zone. */
 export function formatRunTime(instant: number, timeZone: string, now = Date.now()): string {
   const formatter = runTimeFormatter(timeZone);
-  const day = (value: number) => formatter.day.format(value);
+  const day = formatRunDay(formatter, instant, now);
   const time = formatter.time.format(instant);
-  if (day(instant) === day(now)) return `Today ${time}`;
-  if (day(instant) === day(now + 24 * 60 * 60 * 1000)) return `Tomorrow ${time}`;
-  return `${formatter.date.format(instant)}, ${time}`;
+  return day.relative ? `${day.label} ${time}` : `${day.label}, ${time}`;
+}
+
+/**
+ * Upcoming runs in one line. Runs at the same time of day name it once, as in
+ * "at 09:00: Tomorrow · Mon, Oct 19"; otherwise each run says its own time.
+ */
+export function formatRunTimes(instants: number[], timeZone: string, now = Date.now()): string {
+  const formatter = runTimeFormatter(timeZone);
+  const times = instants.map((instant) => formatter.time.format(instant));
+  if (instants.length < 2 || new Set(times).size > 1) {
+    return instants.map((instant) => formatRunTime(instant, timeZone, now)).join(' · ');
+  }
+  const days = instants.map((instant) => formatRunDay(formatter, instant, now).label);
+  return `at ${times[0]}: ${days.join(' · ')}`;
 }
 
 export function localTimeZone(): string {

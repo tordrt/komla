@@ -1,4 +1,14 @@
-import { CaretDown, CheckCircle, Info, Plus, Trash, Warning, XCircle } from '@phosphor-icons/react';
+import {
+  CaretDown,
+  CaretRight,
+  CheckCircle,
+  FileText,
+  Info,
+  Plus,
+  Trash,
+  Warning,
+  XCircle,
+} from '@phosphor-icons/react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -484,11 +494,13 @@ function FormFooter({
       {!isEdit ? (
         <Button
           type="button"
-          variant="link"
-          className="h-auto justify-start p-0 text-xs text-muted-foreground hover:text-foreground"
+          variant="ghost"
+          size="sm"
+          className="-ml-2 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
           onClick={onFillFromConfig}
           disabled={busy}
         >
+          <FileText className="size-3.5" />
           Fill from ~/.ssh/config…
         </Button>
       ) : (
@@ -497,13 +509,14 @@ function FormFooter({
       <div className="flex gap-2">
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
+          size="sm"
           onClick={onCancel}
           disabled={setupState === 'preparing'}
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" size="sm" disabled={busy}>
           {busy && <Spinner size="sm" className="mr-1.5" />}
           {primaryLabel(setupState, canSetUp, isEdit)}
         </Button>
@@ -701,7 +714,7 @@ function ConnectionFields({
             value={draft.hostname}
             onChange={(e) => onChange('hostname', e.target.value)}
             onBlur={onHostBlur}
-            placeholder="user@devbox.example.com"
+            placeholder="devbox.example.com"
             disabled={locked}
             autoFocus={!isEdit}
           />
@@ -998,13 +1011,13 @@ function SetupExplainer({ isEdit }: { isEdit: boolean }) {
   return (
     <details className="group text-xs leading-relaxed text-muted-foreground">
       <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-        Checking changes nothing on the machine.{' '}
-        <span className="text-foreground underline underline-offset-2 group-open:hidden">
-          See what setup changes
-        </span>
-        <span className="hidden text-foreground underline underline-offset-2 group-open:inline">
-          Hide setup details
-        </span>
+        <CaretRight
+          aria-hidden="true"
+          className="mr-1 inline size-3 align-[-1px] transition-transform group-open:rotate-90"
+        />
+        <span className="text-foreground group-open:hidden">See what setup changes</span>
+        <span className="hidden text-foreground group-open:inline">Hide setup details</span>
+        <span> · Checking changes nothing on the machine.</span>
       </summary>
       <ul className="mt-2 list-disc space-y-1 pl-4">
         <li>Checks the remote OS, Git, required utilities, tmux, rsync, and Git identity.</li>

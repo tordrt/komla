@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Select } from '@/components/ui/select';
 import {
-  formatRunTime,
+  formatRunTimes,
   timeZoneOptions,
   WEEKDAY_ORDER,
   WEEKDAY_SHORT_NAMES,
@@ -108,7 +108,7 @@ export const AutomationScheduleSection = memo(function AutomationScheduleSection
       ) : (
         upcoming.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            Next runs: {upcoming.map((instant) => formatRunTime(instant, timeZone)).join(' · ')}
+            Next runs {formatRunTimes(upcoming, timeZone)}
           </p>
         )
       )}

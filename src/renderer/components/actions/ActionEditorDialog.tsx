@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Kbd } from '@/components/ui/kbd';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
@@ -200,40 +201,40 @@ export function ActionEditorDialog({
             <DialogTitle className="text-base">
               {isCreateMode ? 'New quick command' : 'Edit quick command'}
             </DialogTitle>
-            <DialogDescription className="text-xs">
+            <DialogDescription className="text-[13px]">
               Run it from the ▶ button in the tab bar or from a terminal's right-click menu.
             </DialogDescription>
           </DialogHeader>
 
           <DialogBody className="space-y-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="grid min-w-48 flex-1 gap-1.5">
-                <label htmlFor={`${fieldId}-title`} className="text-[13px] font-medium">
-                  Title
-                </label>
-                <Input
-                  id={`${fieldId}-title`}
-                  ref={titleInputRef}
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder={type === 'command' ? 'e.g., Dev server' : 'e.g., Review my changes'}
-                  className="h-9"
-                />
-              </div>
-              <SegmentedControl
-                aria-label="Type"
-                size="md"
-                value={type}
-                onValueChange={setType}
+            <SegmentedControl
+              aria-label="Type"
+              size="md"
+              value={type}
+              onValueChange={setType}
+              fill
+              className="h-9"
+              options={[
+                {
+                  value: 'command',
+                  label: 'Terminal Command',
+                  icon: <Terminal className="size-3" />,
+                },
+                { value: 'prompt', label: 'Saved Prompt', icon: <Sparkle className="size-3" /> },
+              ]}
+            />
+
+            <div className="grid gap-1.5">
+              <label htmlFor={`${fieldId}-title`} className="text-[13px] font-medium">
+                Title
+              </label>
+              <Input
+                id={`${fieldId}-title`}
+                ref={titleInputRef}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={type === 'command' ? 'e.g., Dev server' : 'e.g., Review my changes'}
                 className="h-9"
-                options={[
-                  {
-                    value: 'command',
-                    label: 'Terminal Command',
-                    icon: <Terminal className="size-3" />,
-                  },
-                  { value: 'prompt', label: 'Saved Prompt', icon: <Sparkle className="size-3" /> },
-                ]}
               />
             </div>
 
@@ -284,6 +285,7 @@ export function ActionEditorDialog({
             )}
 
             <ActionContentField
+              fieldId={fieldId}
               type={type}
               content={content}
               background={background}
@@ -291,7 +293,7 @@ export function ActionEditorDialog({
             />
 
             {type === 'command' && (
-              <label className="flex cursor-pointer items-start gap-2 text-xs">
+              <label className="flex cursor-pointer items-start gap-2.5 text-xs">
                 <Checkbox
                   checked={background}
                   onChange={(e) => setBackground(e.target.checked)}
@@ -302,8 +304,8 @@ export function ActionEditorDialog({
                     Run in background
                   </span>
                   <span className="block text-muted-foreground">
-                    No terminal tab: Komla notifies you when the command finishes or fails. For
-                    commands that end on their own, such as tests or a CI watch, not dev servers.
+                    No terminal tab. Komla tells you when it finishes or fails. For commands that
+                    end on their own, like tests, not dev servers.
                   </span>
                 </span>
               </label>
@@ -331,7 +333,7 @@ export function ActionEditorDialog({
                   />
                 </button>
                 {advancedOpen && (
-                  <div className="mt-2 space-y-4">
+                  <div className="mt-2 ml-1 space-y-4 border-l border-border/60 py-1 pl-4">
                     {projects.length > 0 && (
                       <ProjectScopeField
                         projects={projects}
@@ -421,11 +423,13 @@ function scopeSummary(projectIds: string[], projects: Project[]): string {
 }
 
 function ActionContentField({
+  fieldId,
   type,
   content,
   background,
   onChange,
 }: {
+  fieldId: string;
   type: ActionType;
   content: string;
   background: boolean;
@@ -433,10 +437,12 @@ function ActionContentField({
 }) {
   const label = type === 'command' ? 'Terminal Command' : 'Saved Prompt';
   return (
-    <div className="overflow-hidden rounded-md border border-input transition-colors focus-within:border-foreground/30">
-      <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-        <span className="font-medium tracking-wide uppercase">{label}</span>
-        <span>
+    <div className="grid gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <label htmlFor={`${fieldId}-content`} className="text-[13px] font-medium">
+          {label}
+        </label>
+        <span className="text-xs text-muted-foreground">
           {type !== 'command'
             ? 'Markdown'
             : background
@@ -446,28 +452,29 @@ function ActionContentField({
       </div>
       {type === 'command' ? (
         // A textarea, so a command saved with several lines keeps them.
-        <textarea
-          aria-label={label}
+        <Textarea
+          id={`${fieldId}-content`}
           value={content}
           onChange={(e) => onChange(e.target.value)}
           placeholder="e.g., npm run dev"
           spellCheck={false}
           rows={1}
-          className="block field-sizing-content max-h-48 min-h-10 w-full resize-none bg-transparent px-3 py-2.5 font-mono text-[13px] outline-hidden placeholder:text-muted-foreground-60"
+          className="field-sizing-content max-h-48 min-h-9 resize-none py-2 font-mono text-[13px]"
         />
       ) : (
         <>
-          <textarea
-            aria-label={label}
+          <Textarea
+            id={`${fieldId}-content`}
             value={content}
             onChange={(e) => onChange(e.target.value)}
             placeholder="Write prompt content in markdown..."
             rows={10}
-            className="block max-h-[45vh] min-h-40 w-full resize-y bg-transparent px-3 py-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60"
+            className="max-h-[45vh] min-h-40 resize-y py-2.5 leading-relaxed"
           />
-          <p className="border-t border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-            <code>{'{{user_input}}'}</code> asks for text when you run it.{' '}
-            <code>{'{{target_branch}}'}</code> is the workspace's target branch.
+          <p className="text-xs text-muted-foreground">
+            <code className="font-mono">{'{{user_input}}'}</code> asks for text when you run it.{' '}
+            <code className="font-mono">{'{{target_branch}}'}</code> is the workspace's target
+            branch.
           </p>
         </>
       )}
@@ -561,5 +568,5 @@ function renderSshLocationSummary(location: ActionSshExecutionLocation | undefin
   if (location === 'local-mirror') {
     return 'Runs in the Local copy on this computer, even when this project runs Terminal Commands remotely. Runs remotely when the host can’t keep a Local copy.';
   }
-  return 'Follows the project’s Run Terminal Commands on setting.';
+  return 'Follows the project’s setting.';
 }

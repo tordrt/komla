@@ -23,6 +23,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Kbd } from '@/components/ui/kbd';
 import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { resolveLaunchModeForPreset } from '@/lib/agent-launch';
 import {
   cronToDraft,
@@ -259,49 +260,61 @@ export function AutomationEditorDialog({
               <DialogTitle className="text-base">
                 {isCreateMode ? 'New automation' : 'Edit automation'}
               </DialogTitle>
-              <DialogDescription className="text-xs">
+              <DialogDescription className="text-[13px]">
                 Each run starts the agent in a new workspace with this prompt.
               </DialogDescription>
             </div>
             {isCreateMode && <TemplateMenu onSelect={applyTemplate} />}
           </DialogHeader>
 
-          <DialogBody className="space-y-4">
-            <div className="grid gap-1.5">
-              <label htmlFor={`${fieldId}-name`} className="text-[13px] font-medium">
-                Name
-              </label>
-              <Input
-                id={`${fieldId}-name`}
-                ref={nameInputRef}
-                value={name}
-                maxLength={200}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="e.g., Nightly dependency check"
-                className="h-9"
-              />
+          {/* What runs, where, with which agent, and when: each under a hairline. */}
+          <DialogBody className="space-y-5 [mask-image:linear-gradient(to_bottom,black_calc(100%-14px),transparent)] pb-4 [&>*+*:not([data-no-divider])]:border-t [&>*+*:not([data-no-divider])]:border-border/50 [&>*+*:not([data-no-divider])]:pt-5">
+            <div className="grid gap-4">
+              <div className="grid gap-1.5">
+                <label htmlFor={`${fieldId}-name`} className="text-[13px] font-medium">
+                  Name
+                </label>
+                <Input
+                  id={`${fieldId}-name`}
+                  ref={nameInputRef}
+                  value={name}
+                  maxLength={200}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="e.g., Nightly dependency check"
+                  className="h-9"
+                />
+              </div>
+
+              <div className="grid gap-1.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <label htmlFor={`${fieldId}-prompt`} className="text-[13px] font-medium">
+                    Prompt
+                  </label>
+                  <span className="text-xs text-muted-foreground">
+                    Sent to the agent when each run starts
+                  </span>
+                </div>
+                <Textarea
+                  id={`${fieldId}-prompt`}
+                  value={prompt}
+                  maxLength={32_000}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  placeholder="e.g., Check for outdated dependencies, update the safe ones, run the tests, and commit the updates on this branch."
+                  rows={6}
+                  className="max-h-[40vh] min-h-28 resize-y py-2.5 leading-relaxed"
+                />
+              </div>
             </div>
 
-            <div className="overflow-hidden rounded-md border border-input transition-colors focus-within:border-foreground/30">
-              <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-                <label
-                  htmlFor={`${fieldId}-prompt`}
-                  className="font-medium tracking-wide uppercase"
-                >
-                  Prompt
-                </label>
-                <span>Sent to the agent when each run starts</span>
-              </div>
-              <textarea
-                id={`${fieldId}-prompt`}
-                value={prompt}
-                maxLength={32_000}
-                onChange={(event) => setPrompt(event.target.value)}
-                placeholder="e.g., Check for outdated dependencies, update the safe ones, run the tests, and commit the updates on this branch."
-                rows={8}
-                className="block max-h-[40vh] min-h-32 w-full resize-y bg-transparent px-3 py-2.5 text-sm leading-relaxed outline-hidden placeholder:text-muted-foreground-60"
-              />
-            </div>
+            <AutomationScheduleSection
+              fieldId={fieldId}
+              draft={draft}
+              cron={cron}
+              timeZone={timeZone}
+              scheduleError={scheduleError}
+              onDraftChange={updateDraft}
+              onTimeZoneChange={setTimeZone}
+            />
 
             <ProjectTargetFields
               fieldId={fieldId}
@@ -344,16 +357,6 @@ export function AutomationEditorDialog({
               onExtraArgumentsChange={setExtraArguments}
             />
 
-            <AutomationScheduleSection
-              fieldId={fieldId}
-              draft={draft}
-              cron={cron}
-              timeZone={timeZone}
-              scheduleError={scheduleError}
-              onDraftChange={updateDraft}
-              onTimeZoneChange={setTimeZone}
-            />
-
             <AdvancedFields
               fieldId={fieldId}
               project={gitProject}
@@ -365,7 +368,7 @@ export function AutomationEditorDialog({
             />
 
             {showMissing && missingFields.length > 0 && (
-              <Callout tone="error" size="sm">
+              <Callout tone="error" size="sm" data-no-divider="">
                 Add {missingFields.join(', ').replace(/, ([^,]*)$/, ' and $1')} to save this
                 automation.
               </Callout>
@@ -758,7 +761,7 @@ function ProjectTargetFields({
       <p className="text-xs text-muted-foreground sm:col-span-2">
         {target === LOCAL_TARGET_VALUE
           ? 'Runs start only while Komla is open on this computer and it’s awake.'
-          : 'The host starts each run itself, even while this computer is off. Every device connected to the host sees this automation and its runs.'}
+          : 'The host starts each run, even while this computer is off. Every device connected to it sees them.'}
       </p>
     </div>
   );

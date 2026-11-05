@@ -49,13 +49,13 @@ export function AutomationCommandPreviewLine({
     return <p className="text-xs text-muted-foreground">{preview.problem}</p>;
   }
   return (
-    <div className="grid gap-1">
-      <span className="text-xs text-muted-foreground">
+    <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
+      <span className="shrink-0">
         {params.target.kind === 'ssh' ? 'Each run starts on the host' : 'Each run starts'}
       </span>
       <code
         data-testid="automation-command-preview"
-        className="block rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5 font-mono text-xs break-all whitespace-pre-wrap text-foreground"
+        className="min-w-0 rounded-sm bg-foreground/[0.06] px-1.5 py-0.5 font-mono text-xs break-all whitespace-pre-wrap text-foreground/90"
       >
         {preview.command}
       </code>

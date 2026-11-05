@@ -16,6 +16,9 @@
 //                      (so it finds node_modules) or a packaged executable, and print its
 //                      medians next to these. Alternating keeps machine load out of the change.
 //   --keep-going       Don't stop at the first run that misses a milestone.
+//   --cpu-profile <dir>  Write a CPU profile of each measured launch's renderer to <dir>, and of
+//                      its main process too when launching out/. Profiling slows startup, so
+//                      read it for where time goes, not for timings; --runs 1 is enough.
 //   --app <path>       Launch this packaged Komla executable instead of out/ with Electron. A
 //                      packaged build doesn't run Electron's default app first, as out/ does.
 //
@@ -51,6 +54,7 @@ function parseArgs(argv) {
     app: null,
     saveBaseline: false,
     baseline: null,
+    cpuProfile: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -69,6 +73,7 @@ function parseArgs(argv) {
     else if (arg === '--app') options.app = path.resolve(value());
     else if (arg === '--save-baseline') options.saveBaseline = true;
     else if (arg === '--baseline') options.baseline = path.resolve(value());
+    else if (arg === '--cpu-profile') options.cpuProfile = path.resolve(value());
     else if (arg === '--help' || arg === '-h') {
       const header = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\nimport ')[0];
       console.log(header.replace(/^#!.*\n/, '').replace(/^\/\/ ?/gm, ''));
@@ -146,7 +151,7 @@ function electronEnv(extra = {}) {
     if (key.startsWith('KOMLA_') && !(key in extra) && key !== 'KOMLA_DATA_DIR') delete env[key];
   }
   delete env.ELECTRON_RUN_AS_NODE;
-  delete env.NODE_OPTIONS;
+  if (!('NODE_OPTIONS' in extra)) delete env.NODE_OPTIONS;
   delete env.ELECTRON_RENDERER_URL;
   return env;
 }
@@ -197,7 +202,7 @@ async function connectCdp(url) {
  * Spawns Electron and attaches to its pages as they open, paused until the renderer probe is
  * added, so no milestone is missed however early the window loads.
  */
-async function launch({ env, target }) {
+async function launch({ env, target, profile = false }) {
   const args = [
     `--user-data-dir=${PROFILE_DIR}`,
     '--remote-debugging-port=0',
@@ -246,6 +251,11 @@ async function launch({ env, target }) {
     if (targetInfo.type === 'page') {
       pages.push({ sessionId, targetId: targetInfo.targetId });
       await cdp.send('Page.enable', {}, sessionId).catch(() => {});
+      if (profile) {
+        await cdp.send('Profiler.enable', {}, sessionId).catch(() => {});
+        await cdp.send('Profiler.setSamplingInterval', { interval: 200 }, sessionId).catch(() => {});
+        await cdp.send('Profiler.start', {}, sessionId).catch(() => {});
+      }
       await cdp
         .send('Page.addScriptToEvaluateOnNewDocument', { source: RENDERER_PROBE }, sessionId)
         .catch(() => {});
@@ -429,8 +439,16 @@ const COLLECT_MARKS = `(() => {
   return marks;
 })()`;
 
-async function measureOnce(target, timeoutMs = 30_000) {
-  const app = await launch({ env: electronEnv({ KOMLA_STARTUP_TIMING: '1' }), target });
+let profiledRuns = 0;
+
+async function measureOnce(target, { timeoutMs = 30_000, profile = false } = {}) {
+  const profileMain = profile && target.command === require('electron');
+  const env = electronEnv({
+    KOMLA_STARTUP_TIMING: '1',
+    // Node writes the main process's profile when it quits.
+    ...(profileMain && { NODE_OPTIONS: `--cpu-prof --cpu-prof-dir=${options.cpuProfile}` }),
+  });
+  const app = await launch({ env, target, profile });
   try {
     const rendererMarks = await waitFor(app, COLLECT_MARKS, { timeoutMs }).catch(async () => {
       const reached = await waitFor(app, 'JSON.stringify(window.__komlaStartupProbe ?? null)', {
@@ -455,6 +473,7 @@ async function measureOnce(target, timeoutMs = 30_000) {
     while (!('main:ready-to-show' in app.marks) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+    if (profile) await saveRendererProfile(app);
     const relative = {};
     for (const [name, at] of Object.entries({ ...app.marks, ...rendererMarks })) {
       relative[name] = at - app.spawnedAt;
@@ -465,6 +484,22 @@ async function measureOnce(target, timeoutMs = 30_000) {
     throw error;
   } finally {
     await stop(app);
+  }
+}
+
+async function saveRendererProfile(app) {
+  for (const page of app.pages) {
+    const isRenderer = await evaluate(
+      app,
+      page.sessionId,
+      `location.pathname.endsWith('/renderer/index.html')`
+    ).catch(() => false);
+    if (!isRenderer) continue;
+    const { profile } = await app.cdp.send('Profiler.stop', {}, page.sessionId);
+    fs.mkdirSync(options.cpuProfile, { recursive: true });
+    const file = path.join(options.cpuProfile, `renderer-${++profiledRuns}.cpuprofile`);
+    fs.writeFileSync(file, JSON.stringify(profile));
+    console.log(`Wrote ${file}`);
   }
 }
 
@@ -564,7 +599,9 @@ async function main() {
     for (const target of order) {
       const name = targets.length > 1 ? `${label} ${target.label}` : label;
       try {
-        const run = await measureOnce(target);
+        const run = await measureOnce(target, {
+          profile: !warmup && options.cpuProfile !== null && target === targets[0],
+        });
         const finals = FINAL_MILESTONES.map(
           (milestone) => `${milestone.split(':')[1]} ${run[milestone].toFixed(0)}`
         );

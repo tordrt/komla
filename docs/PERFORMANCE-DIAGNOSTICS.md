@@ -72,9 +72,10 @@ small.
 
 The main process prints its milestones to stdout with `KOMLA_STARTUP_TIMING=1`
 (`src/main/lib/startup-timing.ts`); without it, marking does nothing. The renderer's are read
-over the DevTools protocol. To see what the main process spends its startup on, profile it with
-`NODE_OPTIONS="--cpu-prof --cpu-prof-dir=<dir>"` and quit the app normally, so the profile is
-written.
+over the DevTools protocol. `--cpu-profile <dir>` writes a CPU profile of the renderer, and of
+the main process when measuring `out/`, for each measured launch; open them in Chrome DevTools'
+Performance panel. Profiling slows startup, so read them for where the time goes, not for
+timings.
 
 ## SSH Local Copy Sync Triggers
 

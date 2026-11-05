@@ -2835,6 +2835,13 @@ describe('NewWorkspaceDialog', () => {
     beforeEach(() => {
       Element.prototype.scrollIntoView = vi.fn();
     });
+    // The Quick Commands button lists the skills too, so look for them in the suggestions only
+    const findSuggestion = async (text: string) =>
+      within(await screen.findByRole('listbox', { name: 'Suggestions' })).findByText(text);
+    const querySuggestion = (text: string) => {
+      const listbox = screen.queryByRole('listbox', { name: 'Suggestions' });
+      return listbox ? within(listbox).queryByText(text) : null;
+    };
 
     it('completes a Codex skill typed after $ anywhere in the prompt', async () => {
       window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
@@ -2846,12 +2853,32 @@ describe('NewWorkspaceDialog', () => {
       );
 
       await user.type(textarea, 'Please $rev');
-      expect(await screen.findByText('$review-pr')).toBeInTheDocument();
-      expect(screen.queryByText('$deploy')).not.toBeInTheDocument();
+      expect(await findSuggestion('$review-pr')).toBeInTheDocument();
+      expect(querySuggestion('$deploy')).not.toBeInTheDocument();
       await user.keyboard('{Tab}');
 
       expect(textarea).toHaveValue('Please $review-pr ');
-      expect(screen.queryByText('$review-pr')).not.toBeInTheDocument();
+      expect(querySuggestion('$review-pr')).not.toBeInTheDocument();
+    });
+
+    it('lists skills in the Quick Commands button, starting the prompt with the one picked', async () => {
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await user.type(textarea, 'fix the login bug');
+
+      await user.click(await screen.findByRole('button', { name: 'Quick Commands' }));
+      const menu = (await screen.findByText('Skills')).closest('[data-dropdown-content]');
+      const items = within(menu as HTMLElement).getAllByRole('button');
+      expect(items.map((item) => item.textContent)).toEqual([
+        '$deployShips it',
+        '$review-prReviews a pull request',
+        'Manage Quick Commands…',
+      ]);
+      await user.click(items[1]);
+
+      expect(textarea).toHaveValue('$review-pr fix the login bug');
     });
 
     it('completes the name the caret was moved into, leaving none of it behind', async () => {
@@ -2862,7 +2889,7 @@ describe('NewWorkspaceDialog', () => {
       await waitFor(() => expect(window.api.listAgentSkills).toHaveBeenCalled());
 
       await user.type(textarea, '$rev');
-      await screen.findByText('$review-pr');
+      await findSuggestion('$review-pr');
       await user.keyboard('{ArrowLeft}{Tab}');
 
       expect(textarea).toHaveValue('$review-pr ');
@@ -2885,7 +2912,7 @@ describe('NewWorkspaceDialog', () => {
       );
 
       await user.type(textarea, 'Use /dep');
-      await screen.findByText('/deploy');
+      await findSuggestion('/deploy');
       await user.keyboard('{Tab}');
 
       expect(textarea).toHaveValue('Use /deploy ');
@@ -2914,7 +2941,7 @@ describe('NewWorkspaceDialog', () => {
       await user.type(textarea, '/');
       await user.keyboard('{ArrowDown}');
       await act(async () => resolveListing(skills));
-      await screen.findByText('/deploy');
+      await findSuggestion('/deploy');
       await user.keyboard('{Enter}');
 
       await waitFor(() => expect(textarea).toHaveValue('Write deploy notes'));
@@ -2959,13 +2986,13 @@ describe('NewWorkspaceDialog', () => {
       expect(within(suggestions).getByText('Deploy notes')).toBeInTheDocument();
       // Each skill says what it does right after its name
       expect(within(suggestions).getByText('Ships it')).toBeInTheDocument();
-      await user.click(screen.getByText('/deploy'));
+      await user.click(within(suggestions).getByText('/deploy'));
 
       expect(textarea).toHaveValue('/deploy ');
       // $ isn't Claude Code's trigger
       await user.clear(textarea);
       await user.type(textarea, '$dep');
-      expect(screen.queryByText('/deploy')).not.toBeInTheDocument();
+      expect(querySuggestion('/deploy')).not.toBeInTheDocument();
     });
   });
 

@@ -5,6 +5,7 @@ import {
   Plus,
   Folder,
   NotePencil,
+  PuzzlePiece,
   Sparkle,
   Robot,
   Keyboard,
@@ -2031,6 +2032,20 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     handlePresetChange(presetIds[nextIndex]);
   };
 
+  // A skill picked from the prompt's menu button starts the prompt, where every agent invokes it
+  const handleSkillPick = (skill: AgentSkill) => {
+    if (!skillFamily) return;
+    setSlashMenuOpen(false);
+    setSlashFilter(null);
+    setSkillQuery(null);
+    const next = insertSkill(initialPromptText, 0, 0, skillFamily, skill.name);
+    setInitialPromptText(next.text);
+    requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+      promptTextareaRef.current?.setSelectionRange(next.text.length, next.text.length);
+    });
+  };
+
   const handleSlashSelect = (item: PromptMenuItem) => {
     setSlashMenuOpen(false);
     setSlashFilter(null);
@@ -2472,6 +2487,9 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                   slashMenuNavigated={slashMenuNavigated}
                   setSlashMenuIndex={setSlashMenuIndex}
                   onSlashSelect={handleSlashSelect}
+                  skills={skillFamily ? agentSkills : []}
+                  skillFamily={skillFamily}
+                  onSkillPick={handleSkillPick}
                 />
               )}
               {!hasAgent && !showPresetPicker && (
@@ -2761,6 +2779,10 @@ interface PromptAreaProps {
   slashMenuNavigated: boolean;
   setSlashMenuIndex: (i: number) => void;
   onSlashSelect: (item: PromptMenuItem) => void;
+  /** The selected agent's skills, listed in the menu button to start the prompt with */
+  skills: AgentSkill[];
+  skillFamily: AgentSkillFamily | null;
+  onSkillPick: (skill: AgentSkill) => void;
   /** Off while the project picker heads the composer */
   showLabel: boolean;
   /** The selected agent, when it can't start with a prompt */
@@ -2790,8 +2812,15 @@ function PromptArea({
   slashMenuNavigated,
   setSlashMenuIndex,
   onSlashSelect,
+  skills,
+  skillFamily,
+  onSkillPick,
 }: PromptAreaProps) {
   const promptActions = actions.filter((a) => a.type !== 'command');
+  const sortedSkills = useMemo(
+    () => [...skills].sort((a, b) => a.name.localeCompare(b.name)),
+    [skills]
+  );
   const closeSlashMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -2841,7 +2870,7 @@ function PromptArea({
             rows={1}
             autoFocus
           />
-          {promptActions.length > 0 && (
+          {(promptActions.length > 0 || (skillFamily && sortedSkills.length > 0)) && (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <IconButton
@@ -2860,6 +2889,7 @@ function PromptArea({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
+                className="max-h-[min(60vh,420px)] max-w-[min(420px,calc(100vw-2rem))] overflow-y-auto"
                 onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
               >
                 {actionId && (
@@ -2868,18 +2898,45 @@ function PromptArea({
                     <DropdownMenuSeparator />
                   </>
                 )}
-                <DropdownMenuLabel className="flex items-center gap-1.5">
-                  <Sparkle className="size-3" />
-                  Saved Prompts
-                </DropdownMenuLabel>
-                {promptActions.map((a) => (
-                  <DropdownMenuItem key={a.id} onSelect={() => onActionSelect(a.id)}>
-                    <Sparkle />
-                    {a.title}
-                    {a.id === actionId && <Check className="ml-auto" />}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
+                {promptActions.length > 0 && (
+                  <>
+                    <DropdownMenuLabel className="flex items-center gap-1.5">
+                      <Sparkle className="size-3" />
+                      Saved Prompts
+                    </DropdownMenuLabel>
+                    {promptActions.map((a) => (
+                      <DropdownMenuItem key={a.id} onSelect={() => onActionSelect(a.id)}>
+                        <Sparkle />
+                        {a.title}
+                        {a.id === actionId && <Check className="ml-auto" />}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                {skillFamily && sortedSkills.length > 0 && (
+                  <>
+                    <DropdownMenuLabel className="flex items-center gap-1.5">
+                      <PuzzlePiece className="size-3" />
+                      Skills
+                    </DropdownMenuLabel>
+                    {sortedSkills.map((skill) => (
+                      <DropdownMenuItem
+                        key={skill.name}
+                        title={skill.description || undefined}
+                        onSelect={() => onSkillPick(skill)}
+                      >
+                        <span className="max-w-[60%] shrink-0 truncate">
+                          {skillInvocation(skillFamily, skill.name)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                          {skill.description}
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onSelect={onOpenActionsSettings}
                   className="text-muted-foreground"

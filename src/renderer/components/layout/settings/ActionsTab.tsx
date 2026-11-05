@@ -12,6 +12,8 @@ import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useToastStore } from '@/stores/toast.store';
 
+import { setupStepsUsingAction } from '../../../../shared/lib/action-references';
+
 import { ActionListItem } from './ActionListItem';
 import { DeleteActionDialog } from './DeleteActionDialog';
 import { ProjectSetupSkillButton } from './ProjectSetupSkillButton';
@@ -170,6 +172,7 @@ export function ActionsTab({ onClose: _onClose }: ActionsTabProps) {
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         actionTitle={deleteTargetAction?.title}
+        usedBy={deleteActionId ? setupStepsUsingAction(projects, deleteActionId) : []}
         onConfirm={() => void handleDeleteAction()}
         isBusy={isSavingAction}
       />

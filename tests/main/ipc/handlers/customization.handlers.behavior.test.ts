@@ -27,6 +27,11 @@ const mockActionService = {
   recordUsage: vi.fn(),
 };
 
+const mockProjectService = { list: vi.fn(() => [] as unknown[]) };
+vi.mock('../../../../src/main/services/project.service', () => ({
+  projectService: mockProjectService,
+}));
+
 vi.mock('../../../../src/main/services/customization.service', () => ({
   customizationService: mockCustomizationService,
 }));
@@ -194,6 +199,18 @@ describe('customization IPC behavior', () => {
     await ipcMain._invoke('action:delete', 't1');
 
     expect(mockActionService.delete).toHaveBeenCalledWith('t1');
+  });
+
+  it('action:delete refuses a Quick Command a Setup step runs, naming the step', async () => {
+    const ipcMain = await setup();
+    mockProjectService.list.mockReturnValueOnce([
+      { id: 'p1', name: 'Komla', setupSteps: [{ id: 's1', name: 'Tests', actionId: 't1' }] },
+    ]);
+
+    await expect(ipcMain._invoke('action:delete', 't1')).rejects.toThrow(
+      'Workspace Setup runs this quick command: Komla › Tests'
+    );
+    expect(mockActionService.delete).not.toHaveBeenCalled();
   });
 
   it('action:record-usage extracts id and userInput from params object', async () => {

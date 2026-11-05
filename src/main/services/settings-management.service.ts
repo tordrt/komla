@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 
+import { setupStepsUsingAction } from '../../shared/lib/action-references';
 import { resolveWorkspaceCreationEnvironment } from '../../shared/lib/agent-environment';
 import {
   BUILT_IN_THEMES,
@@ -1581,23 +1582,13 @@ export class SettingsManagementService {
     const deleted = new Map(
       before.filter((action) => !remaining.has(action.id)).map((action) => [action.id, action])
     );
-    const details: Array<{
-      action: { id: string; title: string };
-      project: { id: string; name: string };
-      step: { id: string; name: string };
-    }> = [];
-    for (const project of this.deps.projects.list()) {
-      for (const step of project.setupSteps ?? []) {
-        if (step.actionId && deleted.has(step.actionId)) {
-          const action = deleted.get(step.actionId)!;
-          details.push({
-            action: { id: action.id, title: action.title },
-            project: { id: project.id, name: project.name },
-            step: { id: step.id, name: step.name },
-          });
-        }
-      }
-    }
+    const projects = this.deps.projects.list();
+    const details = [...deleted.values()].flatMap((action) =>
+      setupStepsUsingAction(projects, action.id).map((usage) => ({
+        action: { id: action.id, title: action.title },
+        ...usage,
+      }))
+    );
     if (details.length) {
       throw new SettingsManagementError(
         'ACTION_STILL_REFERENCED',

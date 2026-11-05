@@ -39,6 +39,10 @@ vi.mock('../../../../src/main/services/action.service', () => ({
   actionService: mockActionService,
 }));
 
+vi.mock('../../../../src/main/services/project.service', () => ({
+  projectService: { list: () => [] },
+}));
+
 vi.mock('../../../../src/main/lib/logger', () => ({
   createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })),
 }));

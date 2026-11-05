@@ -1,10 +1,15 @@
 import { IPC } from '../../../shared/constants/ipc-channels';
+import {
+  describeSetupStepsUsingAction,
+  setupStepsUsingAction,
+} from '../../../shared/lib/action-references';
 import { actionService } from '../../services/action.service';
 import {
   customizationService,
   ThemeConfig,
   TerminalConfig,
 } from '../../services/customization.service';
+import { projectService } from '../../services/project.service';
 import { shortcutsService, ShortcutsConfig } from '../../services/shortcuts.service';
 import { handleIpc } from '../validation/ipc-validators';
 
@@ -63,6 +68,12 @@ export function registerCustomizationHandlers(): void {
   });
 
   handleIpc(IPC.ACTION_DELETE, async (_, [id]): Promise<void> => {
+    const usages = setupStepsUsingAction(projectService.list(), id);
+    if (usages.length) {
+      throw new Error(
+        `Workspace Setup runs this quick command: ${describeSetupStepsUsingAction(usages)}`
+      );
+    }
     actionService.delete(id);
   });
 

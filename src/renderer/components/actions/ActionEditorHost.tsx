@@ -7,6 +7,8 @@ import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useToastStore } from '@/stores/toast.store';
 
+import { setupStepsUsingAction } from '../../../shared/lib/action-references';
+
 import { ActionEditorDialog, type ActionEditorValues } from './ActionEditorDialog';
 
 /** Renders the shared Action editor and delete confirmation for the whole window. */
@@ -128,6 +130,7 @@ export function ActionEditorHost() {
         open={pendingDeleteId !== null}
         onOpenChange={(open) => !open && cancelActionDelete()}
         actionTitle={pendingDeleteAction?.title}
+        usedBy={pendingDeleteId ? setupStepsUsingAction(projects, pendingDeleteId) : []}
         onConfirm={() => void handleDelete()}
         isBusy={isSaving}
       />

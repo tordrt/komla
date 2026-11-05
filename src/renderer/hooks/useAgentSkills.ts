@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+
+import { skillListingKey, useAgentSkillsStore } from '@/stores/agent-skills.store';
 
 import type { AgentSkill, AgentSkillFamily } from '../../shared/types/agent-skill';
 
-// The last listing of each agent, project and host, shown while the dialog lists them again.
-const listings = new Map<string, AgentSkill[]>();
 // One empty list, so a dialog with no skills doesn't rebuild what it derives from them.
 const NO_SKILLS: AgentSkill[] = [];
 
@@ -17,24 +17,13 @@ export function useAgentSkills(
   hostId: string | null,
   enabled: boolean
 ): AgentSkill[] {
-  const key = family && enabled ? JSON.stringify([family, projectId, hostId]) : null;
-  const [listed, setListed] = useState<{ key: string; skills: AgentSkill[] } | null>(null);
+  const key = family && enabled ? skillListingKey(family, projectId, hostId) : null;
+  const skills = useAgentSkillsStore((state) => (key ? state.listings[key] : undefined));
 
   useEffect(() => {
-    if (!key || !family) return;
-    let cancelled = false;
-    window.api
-      .listAgentSkills(family, projectId, hostId)
-      .then((skills) => {
-        listings.set(key, skills);
-        if (!cancelled) setListed({ key, skills });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [key, family, projectId, hostId]);
+    if (!family || !enabled) return;
+    void useAgentSkillsStore.getState().loadSkills(family, projectId, hostId);
+  }, [family, projectId, hostId, enabled]);
 
-  if (!key) return NO_SKILLS;
-  return listed?.key === key ? listed.skills : (listings.get(key) ?? NO_SKILLS);
+  return skills ?? NO_SKILLS;
 }

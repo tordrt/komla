@@ -1,5 +1,7 @@
-/** The agents whose skills the new workspace dialog suggests, each reading its own folders. */
-export type AgentSkillFamily = 'claude' | 'codex';
+/** The agents whose skills Komla suggests: each invokes one typed in a prompt, by name. */
+export const AGENT_SKILL_FAMILIES = ['claude', 'codex', 'copilot', 'cursor'] as const;
+
+export type AgentSkillFamily = (typeof AGENT_SKILL_FAMILIES)[number];
 
 /** A skill an AI coding agent can invoke, read from a SKILL.md's frontmatter. */
 export interface AgentSkill {

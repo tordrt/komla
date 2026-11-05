@@ -1,31 +1,72 @@
 import type { AgentPreset } from '../types/agent-preset';
 import type { AgentSkill, AgentSkillFamily } from '../types/agent-skill';
 
-/** The character a prompt invokes a skill with: Claude Code takes `/name`, Codex `$name`. */
-export const SKILL_TRIGGERS: Record<AgentSkillFamily, '/' | '$'> = {
-  claude: '/',
-  codex: '$',
-};
+type Folders = readonly (readonly string[])[];
+
+/** How an agent finds the skills it can invoke, and how a prompt invokes one. */
+export interface SkillAgent {
+  /** Typed before a skill's name: `/name`, or Codex's `$name`. */
+  trigger: '/' | '$';
+  /** Claude Code runs a skill only at the prompt's start; the others wherever a word starts. */
+  onlyAtStart: boolean;
+  /** The skills folders it reads, as path segments under the project's folder. */
+  project: Folders;
+  /** And under the home folder. */
+  user: Folders;
+  /** Skips a skill whose frontmatter has `user-invocable: false`, keeping it out of its menu. */
+  honorsUserInvocable: boolean;
+  /** Of a user's skill and a project skill with one name, the one it runs. */
+  prefers: 'user' | 'project';
+}
+
+const dirs = (...names: string[]): Folders => names.map((name) => [name, 'skills']);
 
 /**
- * The skills folders each agent reads, as path segments under the project's folder and under
- * the home folder. Codex reads ~/.agents/skills and, from before that, ~/.codex/skills.
+ * The agents that invoke a skill named in a prompt, from their docs. OpenCode and Gemini CLI read
+ * skills too, but only the model starts one, so a name typed in a prompt doesn't run it.
  */
-export const SKILL_FOLDERS: Record<
-  AgentSkillFamily,
-  { project: readonly (readonly string[])[]; user: readonly (readonly string[])[] }
-> = {
-  claude: { project: [['.claude', 'skills']], user: [['.claude', 'skills']] },
+export const SKILL_AGENTS: Record<AgentSkillFamily, SkillAgent> = {
+  claude: {
+    trigger: '/',
+    onlyAtStart: true,
+    project: dirs('.claude'),
+    user: dirs('.claude'),
+    honorsUserInvocable: true,
+    prefers: 'user',
+  },
+  // ~/.codex/skills is where Codex read skills before ~/.agents/skills.
   codex: {
-    project: [['.agents', 'skills']],
-    user: [
-      ['.agents', 'skills'],
-      ['.codex', 'skills'],
-    ],
+    trigger: '$',
+    onlyAtStart: false,
+    project: dirs('.agents'),
+    user: dirs('.agents', '.codex'),
+    honorsUserInvocable: false,
+    prefers: 'project',
+  },
+  copilot: {
+    trigger: '/',
+    onlyAtStart: false,
+    project: dirs('.github', '.claude', '.agents'),
+    user: dirs('.copilot', '.agents'),
+    honorsUserInvocable: true,
+    prefers: 'project',
+  },
+  cursor: {
+    trigger: '/',
+    onlyAtStart: false,
+    project: dirs('.agents', '.cursor', '.claude', '.codex'),
+    user: dirs('.agents', '.cursor', '.claude', '.codex'),
+    honorsUserInvocable: false,
+    prefers: 'project',
   },
 };
 
-const AGENT_EXECUTABLES: Record<string, AgentSkillFamily> = { claude: 'claude', codex: 'codex' };
+const AGENT_EXECUTABLES = new Map<string, AgentSkillFamily>([
+  ['claude', 'claude'],
+  ['codex', 'codex'],
+  ['copilot', 'copilot'],
+  ['cursor-agent', 'cursor'],
+]);
 
 /** The agent whose skills a preset's prompt can invoke, from the executable its command starts. */
 export function skillFamilyForPreset(
@@ -37,7 +78,12 @@ export function skillFamilyForPreset(
     .replace(/^["']|["']$/g, '')
     .replace(/\.(exe|cmd|ps1)$/i, '')
     .toLowerCase();
-  return AGENT_EXECUTABLES[name] ?? null;
+  return AGENT_EXECUTABLES.get(name) ?? null;
+}
+
+/** How a prompt invokes the agent's skill of that name. */
+export function skillInvocation(family: AgentSkillFamily, name: string): string {
+  return `${SKILL_AGENTS[family].trigger}${name}`;
 }
 
 /** A character a skill name a prompt can type may hold. */
@@ -50,19 +96,19 @@ const NAME_REST_PATTERN = new RegExp(`^${SKILL_NAME_CHAR}*[ \\t]*`);
 
 /**
  * The skill name typed so far before the caret, and where its trigger character is, or null.
- * Claude Code runs a skill only when the prompt starts with it, so `/` counts only there;
- * Codex takes `$name` anywhere a word starts.
+ * Claude Code runs a skill only when the prompt starts with it, so `/` counts only there; the
+ * other agents take one anywhere a word starts.
  */
 export function findSkillQuery(
   text: string,
   caret: number,
   family: AgentSkillFamily
 ): { start: number; query: string } | null {
-  const trigger = SKILL_TRIGGERS[family];
+  const { trigger, onlyAtStart } = SKILL_AGENTS[family];
   const before = text.slice(0, caret);
   const start = before.lastIndexOf(trigger);
   if (start < 0) return null;
-  if (family === 'claude' ? start !== 0 : start > 0 && !/\s/.test(before[start - 1])) return null;
+  if (onlyAtStart ? start !== 0 : start > 0 && !/\s/.test(before[start - 1])) return null;
   const query = before.slice(start + 1);
   return SKILL_QUERY_PATTERN.test(query) ? { start, query } : null;
 }
@@ -89,7 +135,7 @@ export function insertSkill(
   family: AgentSkillFamily,
   name: string
 ): { text: string; caret: number } {
-  const inserted = `${SKILL_TRIGGERS[family]}${name} `;
+  const inserted = `${skillInvocation(family, name)} `;
   const rest = text.slice(caret);
   const after =
     caret > start + 1 ? rest.replace(NAME_REST_PATTERN, '') : rest.replace(/^[ \t]+/, '');

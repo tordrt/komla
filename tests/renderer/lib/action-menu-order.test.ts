@@ -95,6 +95,20 @@ describe('getDefaultAction', () => {
     expect(getDefaultAction(getActionMenuGroups(actions, null))?.id).toBe('b');
   });
 
+  it('never picks a skill, which is no saved Action', () => {
+    const groups = [
+      {
+        type: 'skill' as const,
+        label: 'Skills',
+        actions: [{ id: 's', title: '/s', content: '/s' }],
+      },
+      ...getActionMenuGroups([{ id: 'a', title: 'A', type: 'command', content: 'a' }], null),
+    ];
+
+    expect(getDefaultAction(groups)?.id).toBe('a');
+    expect(getDefaultAction(groups.slice(0, 1))).toBeNull();
+  });
+
   it('ignores Actions scoped to another project', () => {
     const actions: Action[] = [
       { id: 'a', title: 'A', type: 'command', content: 'a', lastUsedAt: 10 },

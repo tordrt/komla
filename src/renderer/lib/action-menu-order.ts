@@ -1,7 +1,9 @@
+import type { SkillAction } from '@/lib/skill-actions';
 import type { Action, Project } from '@/types';
 
 export interface ActionMenuGroup {
-  type: 'command' | 'prompt';
+  /** A skill group lists an agent's skills beside the saved Actions (see skill-actions.ts). */
+  type: 'command' | 'prompt' | 'skill';
   label: string;
   actions: Action[];
 }
@@ -116,7 +118,9 @@ export function filterActionMenuGroups(
     .map((group) => ({
       ...group,
       actions: group.actions.filter((action) => {
-        const text = `${action.title}\n${action.content}`.toLowerCase();
+        // A skill's search also matches what it does.
+        const description = 'skill' in action ? (action as SkillAction).skill.description : '';
+        const text = `${action.title}\n${action.content}\n${description}`.toLowerCase();
         return words.every((word) => text.includes(word));
       }),
     }))
@@ -124,12 +128,13 @@ export function filterActionMenuGroups(
 }
 
 /** The Action a workspace's run button repeats: its default while still shown, else the
- *  most recently used one shown, else the first. */
+ *  most recently used one shown, else the first. Never a skill. */
 export function getDefaultAction(
   groups: ActionMenuGroup[],
   defaultActionId?: string
 ): Action | null {
-  const shown = groups.flatMap((group) => group.actions);
+  // A skill isn't saved, so it has no usage to go by and isn't what the button repeats.
+  const shown = groups.filter((group) => group.type !== 'skill').flatMap((group) => group.actions);
   const picked = defaultActionId && shown.find((action) => action.id === defaultActionId);
   if (picked) return picked;
   let lastUsed: Action | null = null;

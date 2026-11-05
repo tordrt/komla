@@ -24,11 +24,21 @@ describe('skillFamilyForPreset', () => {
     );
   });
 
+  it('knows GitHub Copilot CLI and Cursor CLI', () => {
+    expect(skillFamilyForPreset({ openCommand: 'copilot', promptCommand: '' })).toBe('copilot');
+    expect(skillFamilyForPreset({ openCommand: 'cursor-agent --force', promptCommand: '' })).toBe(
+      'cursor'
+    );
+  });
+
   it('is null for other agents and for no preset', () => {
     expect(skillFamilyForPreset({ openCommand: 'grok', promptCommand: 'grok -- {{prompt}}' })).toBe(
       null
     );
     expect(skillFamilyForPreset({ openCommand: 'claudette', promptCommand: '' })).toBe(null);
+    // OpenCode reads skills, but only its model starts one
+    expect(skillFamilyForPreset({ openCommand: 'opencode', promptCommand: '' })).toBe(null);
+    expect(skillFamilyForPreset({ openCommand: 'constructor', promptCommand: '' })).toBe(null);
     expect(skillFamilyForPreset(null)).toBe(null);
   });
 });
@@ -44,6 +54,12 @@ describe('findSkillQuery', () => {
     expect(findSkillQuery('$rev', 4, 'codex')).toEqual({ start: 0, query: 'rev' });
     expect(findSkillQuery('please $rev', 11, 'codex')).toEqual({ start: 7, query: 'rev' });
     expect(findSkillQuery('cost a$rev', 10, 'codex')).toBeNull();
+  });
+
+  it('takes a GitHub Copilot CLI or Cursor CLI skill where any word starts', () => {
+    expect(findSkillQuery('use /rev', 8, 'copilot')).toEqual({ start: 4, query: 'rev' });
+    expect(findSkillQuery('use /rev', 8, 'cursor')).toEqual({ start: 4, query: 'rev' });
+    expect(findSkillQuery('src/rev', 7, 'copilot')).toBeNull();
   });
 
   it('stops at a space or a path, and reads only up to the caret', () => {

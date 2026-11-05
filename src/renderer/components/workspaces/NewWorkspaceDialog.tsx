@@ -5,7 +5,6 @@ import {
   Plus,
   Folder,
   NotePencil,
-  PuzzlePiece,
   Sparkle,
   Robot,
   Keyboard,
@@ -34,6 +33,7 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { Kbd } from '@/components/ui/kbd';
+import { menuSeparatorClass } from '@/components/ui/menu-styles';
 import { Spinner } from '@/components/ui/spinner';
 import { ActionInputDialog } from '@/components/workspaces/ActionInputDialog';
 import {
@@ -60,6 +60,7 @@ import {
   ACTION_TARGET_BRANCH_TOKEN,
   actionNeedsInjection,
 } from '@/lib/action-injection';
+import { getActionPreview } from '@/lib/action-menu-order';
 import {
   getNewWorkspaceDialogAction,
   isWorkspaceSelectShortcut,
@@ -109,8 +110,8 @@ import {
   filterSkills,
   findSkillQuery,
   insertSkill,
-  SKILL_TRIGGERS,
   skillFamilyForPreset,
+  skillInvocation,
 } from '../../../shared/lib/agent-skills';
 import { levelPickerOf } from '../../../shared/lib/level-picker';
 import { resolveBranchPrefix } from '../../../shared/lib/project-git-defaults';
@@ -1114,7 +1115,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   // Scroll selected slash menu item into view
   useEffect(() => {
     if (slashMenuOpen && slashMenuRef.current) {
-      const selected = slashMenuRef.current.children[slashMenuIndex] as HTMLElement | undefined;
+      const selected = slashMenuRef.current.querySelector(`[data-menu-index="${slashMenuIndex}"]`);
       selected?.scrollIntoView({ block: 'nearest' });
     }
   }, [slashMenuOpen, slashMenuIndex]);
@@ -2710,7 +2711,7 @@ interface SkillQuery {
 
 /** An entry in the prompt's menu: a skill to invoke, or a Saved Prompt to load. */
 type PromptMenuItem =
-  | { kind: 'skill'; key: string; skill: AgentSkill; trigger: '/' | '$' }
+  | { kind: 'skill'; key: string; skill: AgentSkill; invocation: string }
   | { kind: 'action'; key: string; action: Action };
 
 /** The skills matching the typed name, then the Saved Prompts matching the `/` filter. */
@@ -2726,7 +2727,7 @@ function buildPromptMenuItems(
           kind: 'skill',
           key: `skill:${skill.name}`,
           skill,
-          trigger: SKILL_TRIGGERS[family],
+          invocation: skillInvocation(family, skill.name),
         }))
       : [];
   return [
@@ -2894,45 +2895,52 @@ function PromptArea({
         {slashMenuOpen && promptMenuItems.length > 0 && (
           <div
             ref={slashMenuRef}
-            className="floating-surface absolute top-full right-2 left-2 z-50 mt-1 max-h-[200px] overflow-y-auto rounded-md border py-1 shadow-xl"
+            role="listbox"
+            aria-label="Suggestions"
+            className="prompt-suggestions floating-surface absolute top-full right-2 left-2 z-50 mt-1 max-h-[232px] overflow-y-auto rounded-[calc(var(--radius)+2px)] border p-1"
           >
             {promptMenuItems.map((item, i) => {
-              const detail = item.kind === 'skill' ? item.skill.description : item.action.content;
+              const startsSavedPrompts =
+                item.kind === 'action' && promptMenuItems[i - 1]?.kind === 'skill';
               return (
-                <button
-                  key={item.key}
-                  type="button"
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-                    i === slashMenuIndex && slashMenuNavigated
-                      ? 'bg-accent text-accent-foreground'
-                      : 'text-foreground hover:bg-muted/50'
-                  }`}
-                  onMouseEnter={() => {
-                    setSlashMenuIndex(i);
-                  }}
-                  onMouseDown={(e) => {
-                    e.preventDefault(); // keep textarea focused
-                    onSlashSelect(item);
-                  }}
-                >
-                  {item.kind === 'skill' ? (
-                    <PuzzlePiece className="size-3 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <Sparkle className="size-3 shrink-0 text-muted-foreground" />
-                  )}
-                  <span className="truncate">
-                    {item.kind === 'skill'
-                      ? `${item.trigger}${item.skill.name}`
-                      : item.action.title}
-                  </span>
-                  {item.kind === 'skill' && item.skill.source === 'project' && (
-                    <span className="shrink-0 text-2xs text-muted-foreground-60">Project</span>
-                  )}
-                  <span className="ml-auto max-w-[180px] truncate text-2xs text-muted-foreground-60">
-                    {detail.slice(0, 60)}
-                    {detail.length > 60 ? '…' : ''}
-                  </span>
-                </button>
+                <React.Fragment key={item.key}>
+                  {startsSavedPrompts && <div role="separator" className={menuSeparatorClass} />}
+                  <div
+                    role="option"
+                    aria-selected={i === slashMenuIndex && slashMenuNavigated}
+                    data-menu-index={i}
+                    className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-[12px] leading-[17px] font-[450] text-foreground aria-selected:bg-foreground/8"
+                    onMouseEnter={() => {
+                      setSlashMenuIndex(i);
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // keep textarea focused
+                      onSlashSelect(item);
+                    }}
+                  >
+                    {item.kind === 'skill' ? (
+                      <>
+                        <span className="max-w-[60%] shrink-0 truncate">{item.invocation}</span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                          {item.skill.description}
+                        </span>
+                        {item.skill.source === 'project' && (
+                          <span className="shrink-0 text-[11px] text-muted-foreground-60">
+                            Project
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Sparkle className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="max-w-[60%] shrink-0 truncate">{item.action.title}</span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                          {getActionPreview(item.action)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </React.Fragment>
               );
             })}
           </div>

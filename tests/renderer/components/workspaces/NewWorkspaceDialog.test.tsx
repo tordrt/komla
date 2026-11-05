@@ -2868,6 +2868,29 @@ describe('NewWorkspaceDialog', () => {
       expect(textarea).toHaveValue('$review-pr ');
     });
 
+    it('offers GitHub Copilot CLI skills after / wherever a word starts', async () => {
+      mockPresetStore.activePreset = {
+        id: 'preset-copilot',
+        name: 'GitHub Copilot CLI',
+        openCommand: 'copilot',
+        promptCommand: 'copilot -i {{prompt}}',
+        launchModes: [],
+      };
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+      await waitFor(() =>
+        expect(window.api.listAgentSkills).toHaveBeenCalledWith('copilot', 'project-komla', null)
+      );
+
+      await user.type(textarea, 'Use /dep');
+      await screen.findByText('/deploy');
+      await user.keyboard('{Tab}');
+
+      expect(textarea).toHaveValue('Use /deploy ');
+    });
+
     it('keeps the highlighted Saved Prompt when the skills listing arrives under it', async () => {
       mockPresetStore.activePreset = {
         id: 'preset-claude',
@@ -2931,8 +2954,11 @@ describe('NewWorkspaceDialog', () => {
       );
 
       await user.type(textarea, '/dep');
-      const skillEntry = (await screen.findByText('/deploy')).closest('button')!;
-      expect(within(skillEntry.parentElement!).getByText('Deploy notes')).toBeInTheDocument();
+      const suggestions = await screen.findByRole('listbox', { name: 'Suggestions' });
+      expect(within(suggestions).getByText('/deploy')).toBeInTheDocument();
+      expect(within(suggestions).getByText('Deploy notes')).toBeInTheDocument();
+      // Each skill says what it does right after its name
+      expect(within(suggestions).getByText('Ships it')).toBeInTheDocument();
       await user.click(screen.getByText('/deploy'));
 
       expect(textarea).toHaveValue('/deploy ');

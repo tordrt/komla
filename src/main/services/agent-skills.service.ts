@@ -4,7 +4,7 @@ import { join } from 'path';
 
 import { load } from 'js-yaml';
 
-import { SKILL_FOLDERS, SKILL_NAME_CHAR } from '../../shared/lib/agent-skills';
+import { SKILL_AGENTS, SKILL_NAME_CHAR } from '../../shared/lib/agent-skills';
 import { projectRepoPath } from '../../shared/lib/project-repo-path';
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import { createLogger } from '../lib/logger';
@@ -25,8 +25,8 @@ const SKILL_NAME_PATTERN = new RegExp(`^${SKILL_NAME_CHAR}+$`);
 
 /**
  * A skill from a SKILL.md's frontmatter, named as its `name` says, else as its folder is.
- * Null for a file without frontmatter, with a name a prompt can't type, or that Claude Code's
- * `user-invocable: false` keeps out of the user's menu.
+ * Null for a file without frontmatter, with a name a prompt can't type, or that `user-invocable:
+ * false` keeps out of the menu of an agent that reads that field.
  */
 export function parseSkillFile(
   content: string,
@@ -47,7 +47,7 @@ export function parseSkillFile(
     string,
     unknown
   >;
-  if (family === 'claude' && fields['user-invocable'] === false) return null;
+  if (SKILL_AGENTS[family].honorsUserInvocable && fields['user-invocable'] === false) return null;
   const name = typeof fields.name === 'string' && fields.name.trim() ? fields.name : folderName;
   if (!SKILL_NAME_PATTERN.test(name.trim())) return null;
   const description =
@@ -74,7 +74,7 @@ export function parseHostSkillListing(output: string, family: AgentSkillFamily):
  * host doesn't send whole skills: up to the line closing it, and nothing for a file without one.
  */
 export function hostSkillListingScript(family: AgentSkillFamily): string {
-  const globs = SKILL_FOLDERS[family].user
+  const globs = SKILL_AGENTS[family].user
     .map((dirs) => `"$HOME"/${shellQuotePosix(dirs.join('/'))}/*/SKILL.md`)
     .join(' ');
   return [
@@ -140,8 +140,8 @@ function uniqueByName(skills: AgentSkill[]): AgentSkill[] {
 /**
  * The skills an agent can invoke in a new workspace of the project: the user's, from the SSH
  * host's home folder when the workspace starts there and from this computer's otherwise, then
- * the project's own, read from this computer's clone. Of two skills with one name, Claude Code
- * runs the user's, and Codex looks in the project first.
+ * the project's own, read from this computer's clone. Of two skills with one name, it lists the
+ * one the agent runs.
  */
 export async function listAgentSkills(
   family: AgentSkillFamily,
@@ -151,16 +151,18 @@ export async function listAgentSkills(
   const project = projectId ? projectService.get(projectId) : undefined;
   const repoPath = project ? projectRepoPath(project) : null;
   const projectSkills = repoPath
-    ? SKILL_FOLDERS[family].project.map((dirs) =>
+    ? SKILL_AGENTS[family].project.map((dirs) =>
         readSkillsFolder(join(repoPath, ...dirs), 'project', family)
       )
     : [];
   const userSkills = hostId
     ? [listHostSkills(hostId, family)]
-    : SKILL_FOLDERS[family].user.map((dirs) =>
+    : SKILL_AGENTS[family].user.map((dirs) =>
         readSkillsFolder(join(homedir(), ...dirs), 'user', family)
       );
   const ordered =
-    family === 'claude' ? [...userSkills, ...projectSkills] : [...projectSkills, ...userSkills];
+    SKILL_AGENTS[family].prefers === 'user'
+      ? [...userSkills, ...projectSkills]
+      : [...projectSkills, ...userSkills];
   return uniqueByName((await Promise.all(ordered)).flat());
 }

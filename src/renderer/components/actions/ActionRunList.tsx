@@ -4,6 +4,7 @@ import {
   GearSix,
   MagnifyingGlass,
   Plus,
+  PuzzlePiece,
   Sparkle,
   Terminal,
 } from '@phosphor-icons/react';
@@ -24,6 +25,8 @@ import {
   getActionPreview,
   type ActionMenuGroup,
 } from '@/lib/action-menu-order';
+import { isSkillAction } from '@/lib/skill-actions';
+import { cn } from '@/lib/utils';
 
 import type { Action, AgentPreset } from '@/types';
 
@@ -42,6 +45,7 @@ type ActionType = ActionMenuGroup['type'];
 const TABS: { type: ActionType; label: string; Icon: typeof Sparkle }[] = [
   { type: 'prompt', label: 'Prompts', Icon: Sparkle },
   { type: 'command', label: 'Commands', Icon: Terminal },
+  { type: 'skill', label: 'Skills', Icon: PuzzlePiece },
 ];
 
 /**
@@ -87,7 +91,8 @@ export function ActionRunMenuList(props: ActionRunListProps) {
  * at a time, starting on the run button Action's type; the left and right arrows switch
  * them while the search is empty, and a search with no matches in the tab shows the other.
  * Each row shows its title and, for a prompt, its agent; hovering shows what it runs, which
- * the search also matches, and offers copy. Editing and deleting live in Settings.
+ * the search also matches, and offers copy. Skills, when the agents have any, get a tab of their
+ * own, each row with what the skill does. Editing and deleting live in Settings.
  */
 export function ActionRunList({
   groups,
@@ -114,6 +119,10 @@ export function ActionRunList({
   const total = groups.reduce((count, group) => count + group.actions.length, 0);
   const showSearch = total > 1;
   const showTabs = groups.length > 1;
+  // Skills only once an agent has some; Prompts and Commands always, to say where each goes.
+  const tabs = TABS.filter(
+    ({ type }) => type !== 'skill' || groups.some((group) => group.type === 'skill')
+  );
   const matchingGroups = filterActionMenuGroups(groups, query);
   const tabGroup = matchingGroups.find((group) => group.type === tab) ?? matchingGroups[0];
   const filteredGroups = showTabs ? (tabGroup ? [tabGroup] : []) : matchingGroups;
@@ -159,6 +168,16 @@ export function ActionRunList({
     setActiveId(initialActiveId);
   };
 
+  // The next tab with something in it, that way, or the tab shown when there's none.
+  const adjacentTab = (step: 1 | -1): ActionType => {
+    const index = tabs.findIndex(({ type }) => type === shownTab);
+    for (let next = index + step; next >= 0 && next < tabs.length; next += step) {
+      const type = tabs[next].type;
+      if (groups.some((group) => group.type === type)) return type;
+    }
+    return shownTab;
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     // Enter and the arrows belong to an input method while it composes text.
     if (event.nativeEvent.isComposing) return;
@@ -179,7 +198,7 @@ export function ActionRunList({
         // With text in the search box, the arrows move its caret.
         if (!showTabs || query) return;
         event.preventDefault();
-        showTab(event.key === 'ArrowLeft' ? TABS[0].type : TABS[1].type);
+        showTab(adjacentTab(event.key === 'ArrowLeft' ? -1 : 1));
         break;
       case 'Enter':
         if (!active) return;
@@ -234,7 +253,7 @@ export function ActionRunList({
             showTab(type);
             searchRef.current?.focus({ preventScroll: true });
           }}
-          options={TABS.map(({ type, label, Icon }) => {
+          options={tabs.map(({ type, label, Icon }) => {
             const count = matchingGroups.find((group) => group.type === type)?.actions.length ?? 0;
             return {
               value: type,
@@ -270,6 +289,7 @@ export function ActionRunList({
               </div>
             )}
             {group.actions.map((action) => {
+              const skill = isSkillAction(action) ? action.skill : null;
               const Icon = action.type === 'command' ? Terminal : Sparkle;
               const preset = action.type === 'command' ? undefined : presetName(action.presetId);
               return (
@@ -281,13 +301,23 @@ export function ActionRunList({
                   onMouseDown={(event) => event.preventDefault()}
                   onMouseMove={() => setActiveId(action.id)}
                   onClick={() => onRun(action)}
-                  title={getActionPreview(action)}
+                  title={skill?.description || getActionPreview(action)}
                   className="group/action-row flex cursor-default items-center gap-2 rounded-md px-2 py-1 aria-selected:bg-foreground/8"
                 >
-                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-[13px] leading-[18px] text-foreground">
+                  {!skill && <Icon className="size-3.5 shrink-0 text-muted-foreground" />}
+                  <span
+                    className={cn(
+                      'min-w-0 truncate text-[13px] leading-[18px] text-foreground',
+                      skill ? 'max-w-[60%] shrink-0' : 'flex-1'
+                    )}
+                  >
                     {action.title}
                   </span>
+                  {skill && (
+                    <span className="min-w-0 flex-1 truncate text-[12px] leading-[18px] text-muted-foreground">
+                      {skill.description}
+                    </span>
+                  )}
                   {preset && (
                     <span className="max-w-28 shrink-0 truncate text-[11px] leading-4 text-muted-foreground">
                       {preset}

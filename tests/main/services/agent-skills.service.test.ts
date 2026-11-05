@@ -181,6 +181,23 @@ describe('listAgentSkills on this computer', () => {
     expect(names.sort()).toEqual(['linked', 'lint', 'old']);
   });
 
+  it("reads GitHub Copilot CLI's folders", async () => {
+    const repo = join(root, 'repo');
+    state.project = { repositoryPath: repo, managed: false };
+    writeSkill(join(repo, '.github', 'skills'), 'gh', '---\nname: gh\n---\n');
+    writeSkill(join(repo, '.claude', 'skills'), 'shared', '---\nname: shared\n---\n');
+    writeSkill(join(state.home, '.copilot', 'skills'), 'mine', '---\nname: mine\n---\n');
+    writeSkill(
+      join(state.home, '.claude', 'skills'),
+      'claude-only',
+      '---\nname: claude-only\n---\n'
+    );
+
+    const names = (await listAgentSkills('copilot', 'project-1', null)).map((s) => s.name);
+
+    expect(names.sort()).toEqual(['gh', 'mine', 'shared']);
+  });
+
   it('lists nothing when no folders exist', async () => {
     expect(await listAgentSkills('claude', null, null)).toEqual([]);
   });

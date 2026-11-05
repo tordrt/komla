@@ -1222,6 +1222,17 @@ html[data-status-bar-row='large'] [data-status-bar] {
 .new-workspace-tray {
   background: color-mix(in oklch, oklch(var(--sidebar)) 94%, oklch(var(--foreground)));
 }
+/* The prompt's suggestions open over the new workspace card, itself a floating surface, so they
+   lift a step further off it, with a firmer edge and a deeper shadow, to read as a layer on top. */
+.prompt-suggestions {
+  border-color: oklch(var(--foreground) / 0.2);
+  box-shadow: 0 16px 36px -10px oklch(var(--foreground) / 0.28);
+}
+.dark .prompt-suggestions {
+  background: color-mix(in oklch, oklch(var(--sidebar)) 82%, oklch(var(--foreground)));
+  border-color: oklch(var(--foreground) / 0.26);
+  box-shadow: 0 18px 40px -10px rgb(0 0 0 / 0.85);
+}
 /* In dark themes a step under the card, as a drawer, but lit enough to hold its edge over the
    dimmed window. */
 .dark .new-workspace-tray {

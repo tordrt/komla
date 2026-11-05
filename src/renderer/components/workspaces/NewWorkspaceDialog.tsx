@@ -15,6 +15,7 @@ import {
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
+import { CopyRowButton } from '@/components/actions/CopyRowButton';
 import { ProjectCreationForm } from '@/components/projects/ProjectCreationForm';
 import { AgentLaunchPickerMatrix } from '@/components/terminal/AgentLaunchPickerMatrix';
 import { AgentPresetIcon } from '@/components/terminal/AgentPresetIcon';
@@ -83,6 +84,7 @@ import { LEVEL_PICKER_ICON_COMPONENTS } from '@/lib/level-picker-icons';
 import { pickFolder } from '@/lib/open-folder';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
+import { readSkillText } from '@/lib/skill-actions';
 import { cn } from '@/lib/utils';
 import { useActionsStore } from '@/stores/actions.store';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
@@ -692,12 +694,9 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       ? selectedLaunchTargets.map((target) => presets.find((p) => p.id === target.presetId))
       : [selectedPreset]
   );
-  const agentSkills = useAgentSkills(
-    skillFamily,
-    selectedProject?.id ?? null,
-    isSshLaunch && effectiveSshHostId ? effectiveSshHostId : null,
-    open
-  );
+  const skillProjectId = selectedProject?.id ?? null;
+  const skillHostId = isSshLaunch && effectiveSshHostId ? effectiveSshHostId : null;
+  const agentSkills = useAgentSkills(skillFamily, skillProjectId, skillHostId, open);
   const promptMenuItems = useMemo(
     () => buildPromptMenuItems(agentSkills, skillFamily, skillQuery, slashFilteredActions),
     [agentSkills, skillFamily, skillQuery, slashFilteredActions]
@@ -2105,6 +2104,15 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     });
   };
 
+  const readSkill = (skill: AgentSkill) =>
+    skillFamily
+      ? readSkillText({
+          family: skillFamily,
+          name: skill.name,
+          place: { kind: 'new-workspace', projectId: skillProjectId, hostId: skillHostId },
+        })
+      : Promise.resolve(null);
+
   // A skill picked from the prompt's menu button starts the prompt, where every agent invokes it
   const handleSkillPick = (skill: AgentSkill) => {
     if (skillFamily) {
@@ -2554,6 +2562,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                   skills={agentSkills}
                   skillFamily={skillFamily}
                   onSkillPick={handleSkillPick}
+                  readSkill={readSkill}
                 />
               )}
               {!hasAgent && !showPresetPicker && (
@@ -2788,6 +2797,15 @@ function NoAgentNotice({ onSetUpAgent }: { onSetUpAgent: () => void }) {
   );
 }
 
+/** A menu row's copy button, shown while the row is highlighted. */
+function MenuRowCopy(props: React.ComponentProps<typeof CopyRowButton>) {
+  return (
+    <span className="-my-1 -mr-1 shrink-0 opacity-0 group-data-highlighted:opacity-100 focus-within:opacity-100">
+      <CopyRowButton {...props} />
+    </span>
+  );
+}
+
 /** How all the agents to start with the prompt invoke skills, or null if they don't share one. */
 function commonSkillFamily(presets: (AgentPreset | null | undefined)[]): AgentSkillFamily | null {
   // An agent that opens without a prompt never reads a skill's invocation
@@ -2860,6 +2878,8 @@ interface PromptAreaProps {
   skills: AgentSkill[];
   skillFamily: AgentSkillFamily | null;
   onSkillPick: (skill: AgentSkill) => void;
+  /** A skill's instructions, which its row's copy button copies */
+  readSkill: (skill: AgentSkill) => Promise<string | null>;
   /** Off while the project picker heads the composer */
   showLabel: boolean;
   /** The selected agent, when it can't start with a prompt */
@@ -2892,6 +2912,7 @@ function PromptArea({
   skills,
   skillFamily,
   onSkillPick,
+  readSkill,
 }: PromptAreaProps) {
   const promptActions = actions.filter((a) => a.type !== 'command');
   const sortedSkills = useMemo(
@@ -2982,10 +3003,15 @@ function PromptArea({
                       Saved Prompts
                     </DropdownMenuLabel>
                     {promptActions.map((a) => (
-                      <DropdownMenuItem key={a.id} onSelect={() => onActionSelect(a.id)}>
+                      <DropdownMenuItem
+                        key={a.id}
+                        className="group"
+                        onSelect={() => onActionSelect(a.id)}
+                      >
                         <Sparkle />
-                        {a.title}
-                        {a.id === actionId && <Check className="ml-auto" />}
+                        <span className="min-w-0 flex-1 truncate">{a.title}</span>
+                        <MenuRowCopy title={a.title} getText={() => a.content} />
+                        {a.id === actionId && <Check />}
                       </DropdownMenuItem>
                     ))}
                     <DropdownMenuSeparator />
@@ -3000,6 +3026,7 @@ function PromptArea({
                     {sortedSkills.map((skill) => (
                       <DropdownMenuItem
                         key={skill.name}
+                        className="group"
                         title={skill.description || undefined}
                         onSelect={() => onSkillPick(skill)}
                       >
@@ -3009,6 +3036,10 @@ function PromptArea({
                         <span className="min-w-0 flex-1 truncate text-muted-foreground">
                           {skill.description}
                         </span>
+                        <MenuRowCopy
+                          title={skillInvocation(skillFamily, skill.name)}
+                          getText={() => readSkill(skill)}
+                        />
                       </DropdownMenuItem>
                     ))}
                     <DropdownMenuSeparator />

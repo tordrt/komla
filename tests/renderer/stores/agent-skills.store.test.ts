@@ -12,25 +12,27 @@ import {
   useAgentSkillsStore,
 } from '../../../src/renderer/stores/agent-skills.store';
 
+const place = { kind: 'new-workspace' as const, projectId: 'project', hostId: null };
+
 describe('useAgentSkillsStore', () => {
   it('keeps the listing it has when the same skills are listed again', async () => {
-    const key = skillListingKey('claude', 'project', null);
+    const key = skillListingKey('claude', place);
     mockListAgentSkills.mockResolvedValue([
       { name: 'deploy', description: 'Ships', source: 'user' },
     ]);
-    await useAgentSkillsStore.getState().loadSkills('claude', 'project', null);
+    await useAgentSkillsStore.getState().loadSkills('claude', place);
     const first = useAgentSkillsStore.getState().listings;
 
     mockListAgentSkills.mockResolvedValue([
       { name: 'deploy', description: 'Ships', source: 'user' },
     ]);
-    await useAgentSkillsStore.getState().loadSkills('claude', 'project', null);
+    await useAgentSkillsStore.getState().loadSkills('claude', place);
     expect(useAgentSkillsStore.getState().listings).toBe(first);
 
     mockListAgentSkills.mockResolvedValue([
       { name: 'deploy', description: 'Ships it', source: 'user' },
     ]);
-    await useAgentSkillsStore.getState().loadSkills('claude', 'project', null);
+    await useAgentSkillsStore.getState().loadSkills('claude', place);
     expect(useAgentSkillsStore.getState().listings[key]).toEqual([
       { name: 'deploy', description: 'Ships it', source: 'user' },
     ]);

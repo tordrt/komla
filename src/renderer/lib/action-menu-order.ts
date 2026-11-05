@@ -1,4 +1,4 @@
-import type { AgentSkill, AgentSkillFamily } from '../../shared/types/agent-skill';
+import type { AgentSkill, AgentSkillFamily, AgentSkillPlace } from '../../shared/types/agent-skill';
 import type { Action, Project } from '@/types';
 
 /**
@@ -6,7 +6,17 @@ import type { Action, Project } from '@/types';
  * skill's invocation. It isn't saved, so it has no usage to record and is no place's default.
  */
 export interface SkillAction extends Action {
-  skill: { family: AgentSkillFamily; description: string; source: AgentSkill['source'] };
+  skill: SkillActionSkill;
+}
+
+/** The skill a SkillAction invokes, and where it was listed, to read it again. */
+export interface SkillActionSkill {
+  family: AgentSkillFamily;
+  name: string;
+  description: string;
+  source: AgentSkill['source'];
+  folder: string;
+  place: AgentSkillPlace;
 }
 
 export function isSkillAction(action: Action): action is SkillAction {

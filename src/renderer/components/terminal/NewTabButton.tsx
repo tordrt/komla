@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useActionLauncher } from '@/hooks/useActionLauncher';
 import { getActionMenuGroups } from '@/lib/action-menu-order';
 import { openBrowserPane, openNewNotePane } from '@/lib/pane-surfaces';
-import { useSkillMenuGroups, workspaceSkillHostId } from '@/lib/skill-actions';
+import { useSkillMenuGroups } from '@/lib/skill-actions';
 import { cn } from '@/lib/utils';
 import { openNewActionEditor } from '@/stores/action-editor.store';
 import { useActionsStore } from '@/stores/actions.store';
@@ -72,10 +72,7 @@ export function NewTabButton({
   const actions = useActionsStore((s) => s.actions);
   const loadActions = useActionsStore((s) => s.loadActions);
   const { runAction, actionInputDialog } = useActionLauncher(workspaceId);
-  const { skillGroups, loadSkills } = useSkillMenuGroups(
-    workspace?.projectId,
-    workspaceSkillHostId(workspace)
-  );
+  const { skillGroups, loadSkills } = useSkillMenuGroups(workspace?.id);
   // Controlled so the Actions list, which has no menu items, can close the menu.
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);

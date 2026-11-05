@@ -101,7 +101,7 @@ import type {
   ToastOverlayState,
   LocalCopySyncStatus,
 } from '../shared/types';
-import type { AgentSkill, AgentSkillFamily } from '../shared/types/agent-skill';
+import type { AgentSkill, AgentSkillFamily, AgentSkillPlace } from '../shared/types/agent-skill';
 import type { AgentUsage, AgentUsageSource } from '../shared/types/agent-usage';
 import type {
   Automation,
@@ -540,15 +540,19 @@ const api = {
     ipcRenderer.invoke(IPC.PROJECT_LIST_HOST_BRANCHES, projectId, hostId),
 
   /**
-   * The skills an agent can invoke in a new workspace of the project: the project's, then the
-   * user's on the SSH host, or on this computer when hostId is null.
+   * The skills an agent can invoke where it will run: in a new workspace, the project's, then
+   * the user's on the SSH host or this computer; in a workspace, its own folder's and the user's.
    */
-  listAgentSkills: (
+  listAgentSkills: (family: AgentSkillFamily, place: AgentSkillPlace): Promise<AgentSkill[]> =>
+    ipcRenderer.invoke(IPC.PROJECT_LIST_AGENT_SKILLS, family, place),
+
+  /** The instructions of a skill listAgentSkills lists, or null once it's gone. */
+  readAgentSkill: (
     family: AgentSkillFamily,
-    projectId: string | null,
-    hostId: string | null
-  ): Promise<AgentSkill[]> =>
-    ipcRenderer.invoke(IPC.PROJECT_LIST_AGENT_SKILLS, family, projectId, hostId),
+    place: AgentSkillPlace,
+    name: string
+  ): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.PROJECT_READ_AGENT_SKILL, family, place, name),
 
   validateRemoteUrl: (url: string): Promise<{ valid: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC.GIT_VALIDATE_REMOTE_URL, url),

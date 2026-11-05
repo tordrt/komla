@@ -27,6 +27,7 @@ const deploySkill: AgentSkill = {
   name: 'deploy',
   description: 'Ships the branch',
   source: 'project',
+  folder: '.claude',
 };
 
 const handlers = {
@@ -97,14 +98,13 @@ describe('ActionRunList', () => {
     expect(handlers.onRun).toHaveBeenCalledWith(review);
   });
 
-  it('lists skills in a tab of their own, each with its agent and what it does', async () => {
+  it('lists skills in a tab of their own, each with its folder and what it does', async () => {
     const user = userEvent.setup();
     const groups = [
       ...getActionMenuGroups([dev, review], null),
       ...getSkillMenuGroups(
-        { [skillListingKey('claude', null, null)]: [deploySkill] },
-        null,
-        null,
+        { [skillListingKey('claude', { kind: 'workspace', workspaceId: 'w1' })]: [deploySkill] },
+        'w1',
         [{ family: 'claude', preset: presets[0], launchModeId: undefined }]
       ),
     ];
@@ -115,7 +115,9 @@ describe('ActionRunList', () => {
     await user.click(screen.getByRole('radio', { name: 'Skills' }));
     const skill = screen.getByRole('option', { name: /\/deploy/ });
     expect(skill).toHaveTextContent('Ships the branch');
-    expect(skill).toHaveTextContent('Claude Code');
+    // The folder it's in, not whichever agent it starts
+    expect(skill).toHaveTextContent('.claude');
+    expect(skill).not.toHaveTextContent('Claude Code');
     // The side arrows reach it after Commands, and come back
     await user.click(screen.getByRole('combobox', { name: 'Search quick commands' }));
     await user.keyboard('{ArrowLeft}');
@@ -129,9 +131,13 @@ describe('ActionRunList', () => {
   it('matches a skill by what it does', async () => {
     const user = userEvent.setup();
     const groups = getSkillMenuGroups(
-      { [skillListingKey('claude', null, null)]: [deploySkill, { ...deploySkill, name: 'lint' }] },
-      null,
-      null,
+      {
+        [skillListingKey('claude', { kind: 'workspace', workspaceId: 'w1' })]: [
+          deploySkill,
+          { ...deploySkill, name: 'lint' },
+        ],
+      },
+      'w1',
       [{ family: 'claude', preset: presets[0], launchModeId: undefined }]
     );
     render(
@@ -226,6 +232,53 @@ describe('ActionRunList', () => {
 
     await user.click(screen.getByText('Dev server'));
     expect(handlers.onRun).toHaveBeenCalledWith(dev);
+  });
+
+  it("copies a skill's instructions, read where its agent finds it, rather than its name", async () => {
+    const user = userEvent.setup();
+    window.api.readAgentSkill = vi.fn().mockResolvedValue('Ship the branch.');
+    const groups = getSkillMenuGroups(
+      { [skillListingKey('claude', { kind: 'workspace', workspaceId: 'w1' })]: [deploySkill] },
+      'w1',
+      [{ family: 'claude', preset: presets[0], launchModeId: undefined }]
+    );
+    render(
+      <ActionRunList groups={groups} presets={presets} initialActiveId={null} {...handlers} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Copy /deploy' }));
+
+    expect(window.api.readAgentSkill).toHaveBeenCalledWith(
+      'claude',
+      { kind: 'workspace', workspaceId: 'w1' },
+      'deploy'
+    );
+    expect(window.api.copyToClipboard).toHaveBeenCalledWith('Ship the branch.');
+    expect(handlers.onRun).not.toHaveBeenCalled();
+  });
+
+  it('shows only the tabs it is given, such as no Commands where text is pasted', () => {
+    const groups = [
+      ...getActionMenuGroups([review], null),
+      ...getSkillMenuGroups(
+        { [skillListingKey('claude', { kind: 'workspace', workspaceId: 'w1' })]: [deploySkill] },
+        'w1',
+        [{ family: 'claude', preset: presets[0], launchModeId: undefined }]
+      ),
+    ];
+    render(
+      <ActionRunList
+        groups={groups}
+        presets={presets}
+        initialActiveId="review"
+        types={['prompt', 'skill']}
+        {...handlers}
+      />
+    );
+
+    expect(screen.getByRole('radio', { name: 'Prompts' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Skills' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'Commands' })).not.toBeInTheDocument();
   });
 
   it('offers New quick command and Manage below the list', async () => {

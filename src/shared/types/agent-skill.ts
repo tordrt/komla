@@ -13,4 +13,14 @@ export interface AgentSkill {
   description: string;
   /** The project's own folders, or the home folder where the agent runs. */
   source: 'project' | 'user';
+  /** The folder holding its skills folder, as `.claude` in `.claude/skills`. */
+  folder: string;
 }
+
+/**
+ * Where an agent will run, which says where it finds skills: a new workspace of a project, on an
+ * SSH host or on this computer, or an existing workspace, which reads its own folder.
+ */
+export type AgentSkillPlace =
+  | { kind: 'new-workspace'; projectId: string | null; hostId: string | null }
+  | { kind: 'workspace'; workspaceId: string };

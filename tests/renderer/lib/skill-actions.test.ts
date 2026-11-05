@@ -58,22 +58,22 @@ describe('getSkillMenuGroups', () => {
     { family: 'codex' as const, preset: preset('codex', 'codex'), launchModeId: undefined },
   ];
 
-  it("lists each agent's skills for the project and host, by name, starting that agent", () => {
+  it("lists each agent's skills in the workspace, by name, starting that agent", () => {
     const listings = {
-      [skillListingKey('claude', 'p1', 'host')]: [
+      [skillListingKey('claude', { kind: 'workspace' as const, workspaceId: 'w1' })]: [
         { name: 'review', description: 'Reviews', source: 'user' as const },
         { name: 'deploy', description: 'Ships', source: 'project' as const },
       ],
-      [skillListingKey('codex', 'p1', 'host')]: [
+      [skillListingKey('codex', { kind: 'workspace' as const, workspaceId: 'w1' })]: [
         { name: 'lint', description: 'Lints', source: 'user' as const },
       ],
-      // Another host's listing isn't this workspace's
-      [skillListingKey('codex', 'p1', null)]: [
+      // Another workspace's listing isn't this one's
+      [skillListingKey('codex', { kind: 'workspace', workspaceId: 'w2' })]: [
         { name: 'local', description: '', source: 'user' as const },
       ],
     };
 
-    const [group] = getSkillMenuGroups(listings, 'p1', 'host', agents);
+    const [group] = getSkillMenuGroups(listings, 'w1', agents);
 
     expect(group.type).toBe('skill');
     expect(
@@ -86,6 +86,6 @@ describe('getSkillMenuGroups', () => {
   });
 
   it('has no group until a listing has skills', () => {
-    expect(getSkillMenuGroups({}, 'p1', null, agents)).toEqual([]);
+    expect(getSkillMenuGroups({}, 'w1', agents)).toEqual([]);
   });
 });

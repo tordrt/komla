@@ -168,12 +168,6 @@ describe('project IPC behavior', () => {
     { channel: 'project:list', args: [], method: mockProjectService.list, returns: [{ id: 'p1' }] },
     { channel: 'project:get', args: ['p1'], method: mockProjectService.get, returns: { id: 'p1' } },
     {
-      channel: 'project:list-agent-skills',
-      args: ['codex', 'p1', 'host-1'],
-      method: mockListAgentSkills,
-      returns: [{ name: 'review', description: '', source: 'user' }],
-    },
-    {
       channel: 'project:validate-repo',
       args: ['/tmp/repo'],
       method: mockProjectService.validateRepository,

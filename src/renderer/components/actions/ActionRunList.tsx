@@ -1,6 +1,4 @@
 import {
-  Check,
-  Copy,
   GearSix,
   MagnifyingGlass,
   Plus,
@@ -8,16 +6,9 @@ import {
   Sparkle,
   Terminal,
 } from '@phosphor-icons/react';
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-} from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
+import { CopyRowButton } from '@/components/actions/CopyRowButton';
 import { menuLabelClass } from '@/components/ui/menu-styles';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import {
@@ -26,6 +17,7 @@ import {
   isSkillAction,
   type ActionMenuGroup,
 } from '@/lib/action-menu-order';
+import { readSkillText } from '@/lib/skill-actions';
 import { cn } from '@/lib/utils';
 
 import type { Action, AgentPreset } from '@/types';
@@ -38,6 +30,8 @@ export interface ActionRunListProps {
   onRun: (action: Action) => void;
   onNew: () => void;
   onManage: () => void;
+  /** The tabs it can show, such as no Commands where only text is pasted. All by default. */
+  types?: readonly ActionType[];
 }
 
 type ActionType = ActionMenuGroup['type'];
@@ -101,6 +95,7 @@ export function ActionRunList({
   onRun,
   onNew,
   onManage,
+  types,
 }: ActionRunListProps) {
   const [query, setQuery] = useState('');
   const [activeId, setActiveId] = useState(initialActiveId);
@@ -109,8 +104,6 @@ export function ActionRunList({
       groups.find((group) => group.actions.some((action) => action.id === initialActiveId))?.type ??
       'prompt'
   );
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
@@ -121,7 +114,9 @@ export function ActionRunList({
   const showTabs = groups.length > 1;
   // Skills only once an agent has some; Prompts and Commands always, to say where each goes.
   const tabs = TABS.filter(
-    ({ type }) => type !== 'skill' || groups.some((group) => group.type === 'skill')
+    ({ type }) =>
+      (!types || types.includes(type)) &&
+      (type !== 'skill' || groups.some((group) => group.type === 'skill'))
   );
   const matchingGroups = filterActionMenuGroups(groups, query);
   const tabGroup = matchingGroups.find((group) => group.type === tab) ?? matchingGroups[0];
@@ -138,13 +133,6 @@ export function ActionRunList({
     }
   }, [activeOptionId]);
 
-  useEffect(
-    () => () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    },
-    []
-  );
-
   // Ready for typing or arrow keys as soon as it opens. A menu leaves a submenu opened
   // by pointer unfocused, and with no menu items in it the keys would go nowhere. A frame
   // later, so the parent menu has stopped trapping focus and won't take it back.
@@ -154,13 +142,6 @@ export function ActionRunList({
     );
     return () => cancelAnimationFrame(frame);
   }, []);
-
-  const copy = (action: Action) => {
-    window.api.copyToClipboard(action.content);
-    setCopiedId(action.id);
-    if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    copiedTimer.current = setTimeout(() => setCopiedId(null), 1500);
-  };
 
   const showTab = (type: ActionType) => {
     setTab(type);
@@ -291,7 +272,13 @@ export function ActionRunList({
             {group.actions.map((action) => {
               const skill = isSkillAction(action) ? action.skill : null;
               const Icon = action.type === 'command' ? Terminal : Sparkle;
-              const preset = action.type === 'command' ? undefined : presetName(action.presetId);
+              // A skill names the folder it's in, which says which agents find it, not the agent
+              // it starts, which is just whichever of them ran last.
+              const tag = skill
+                ? skill.folder
+                : action.type === 'command'
+                  ? undefined
+                  : presetName(action.presetId);
               return (
                 <div
                   key={action.id}
@@ -318,22 +305,22 @@ export function ActionRunList({
                       {skill.description}
                     </span>
                   )}
-                  {preset && (
-                    <span className="max-w-28 shrink-0 truncate text-[11px] leading-4 text-muted-foreground">
-                      {preset}
+                  {tag && (
+                    <span
+                      className={cn(
+                        'max-w-28 shrink-0 truncate text-[11px] leading-4 text-muted-foreground',
+                        skill && 'font-mono'
+                      )}
+                    >
+                      {tag}
                     </span>
                   )}
                   <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover/action-row:opacity-100 group-aria-selected/action-row:opacity-100 focus-within:opacity-100">
-                    <RowButton
-                      label={copiedId === action.id ? 'Copied' : `Copy ${action.title}`}
-                      onClick={() => copy(action)}
-                    >
-                      {copiedId === action.id ? (
-                        <Check className="size-3 text-success" />
-                      ) : (
-                        <Copy className="size-3" />
-                      )}
-                    </RowButton>
+                    {/* A skill copies its instructions, which its title only invokes. */}
+                    <CopyRowButton
+                      title={action.title}
+                      getText={() => (skill ? readSkillText(skill) : action.content)}
+                    />
                   </span>
                 </div>
               );
@@ -357,37 +344,6 @@ export function ActionRunList({
         </FooterButton>
       </div>
     </div>
-  );
-}
-
-function RowButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  // The row runs its Action on click; these buttons must not also run it.
-  const stop = (event: MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onMouseDown={stop}
-      onClick={(event) => {
-        stop(event);
-        onClick();
-      }}
-      className="rounded p-1 text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-    >
-      {children}
-    </button>
   );
 }
 

@@ -15,7 +15,7 @@ import {
   getDefaultAction,
   type ActionMenuGroup,
 } from '@/lib/action-menu-order';
-import { useSkillMenuGroups, workspaceSkillHostId } from '@/lib/skill-actions';
+import { useSkillMenuGroups } from '@/lib/skill-actions';
 import { cn } from '@/lib/utils';
 import { openNewActionEditor } from '@/stores/action-editor.store';
 import { useActionsStore } from '@/stores/actions.store';
@@ -128,10 +128,7 @@ export function ActionTabButton({ workspaceId, tabRoom }: ActionTabButtonProps) 
   const defaultActionId = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.defaultActionId
   );
-  const skillHostId = useWorkspacesStore((s) =>
-    workspaceSkillHostId(s.workspaces.find((w) => w.id === workspaceId))
-  );
-  const { skillGroups, loadSkills } = useSkillMenuGroups(projectId, skillHostId);
+  const { skillGroups, loadSkills } = useSkillMenuGroups(workspaceId);
   // A run from the list changes the default; one from the label keeps a fallback once run.
   const { runAction, actionInputDialog } = useActionLauncher(workspaceId);
 

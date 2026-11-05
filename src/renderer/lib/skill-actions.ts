@@ -1,15 +1,16 @@
 import { useCallback, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { resolveLaunchablePresets } from '@/lib/agent-launch';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { skillListingKey, useAgentSkillsStore } from '@/stores/agent-skills.store';
-import { isSshWorkspace } from '@/types';
 
 import { promptSkillFamily, skillInvocation } from '../../shared/lib/agent-skills';
+import { AGENT_SKILL_FAMILIES } from '../../shared/types/agent-skill';
 
-import type { AgentSkill, AgentSkillFamily } from '../../shared/types/agent-skill';
-import type { ActionMenuGroup, SkillAction } from '@/lib/action-menu-order';
-import type { ActivePresetEntry, AgentPreset, Workspace } from '@/types';
+import type { AgentSkill, AgentSkillFamily, AgentSkillPlace } from '../../shared/types/agent-skill';
+import type { ActionMenuGroup, SkillAction, SkillActionSkill } from '@/lib/action-menu-order';
+import type { ActivePresetEntry, AgentPreset } from '@/types';
 
 /** The agent each skill family starts with: its most recently used preset, in its last mode. */
 export interface SkillAgentPreset {
@@ -38,25 +39,18 @@ export function skillAgentPresets(
   return [...found.values()];
 }
 
-/** Where a workspace's agents run: its SSH host, or null for this computer. */
-export function workspaceSkillHostId(
-  workspace: Pick<Workspace, 'backend'> | undefined
-): string | null {
-  return workspace && isSshWorkspace(workspace) ? workspace.backend.hostId : null;
-}
-
 /**
  * The Skills group of a workspace's Quick Commands, from the last listings: each agent's skills,
  * by name, starting that agent. Empty until a listing has skills.
  */
 export function getSkillMenuGroups(
   listings: Record<string, AgentSkill[]>,
-  projectId: string | null,
-  hostId: string | null,
+  workspaceId: string,
   agents: SkillAgentPreset[]
 ): ActionMenuGroup[] {
+  const place: AgentSkillPlace = { kind: 'workspace', workspaceId };
   const actions: SkillAction[] = agents.flatMap(({ family, preset, launchModeId }) => {
-    const skills = listings[skillListingKey(family, projectId, hostId)] ?? [];
+    const skills = listings[skillListingKey(family, place)] ?? [];
     return [...skills]
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((skill) => {
@@ -68,34 +62,83 @@ export function getSkillMenuGroups(
           type: 'prompt' as const,
           presetId: preset.id,
           launchModeId,
-          skill: { family, description: skill.description, source: skill.source },
+          skill: {
+            family,
+            name: skill.name,
+            description: skill.description,
+            source: skill.source,
+            folder: skill.folder,
+            place,
+          },
         };
       });
   });
   return actions.length > 0 ? [{ type: 'skill', label: 'Skills', actions }] : [];
 }
 
+/** A listed skill's instructions, read again where its agent finds it, or null once it's gone. */
+export function readSkillText(
+  skill: Pick<SkillActionSkill, 'family' | 'name' | 'place'>
+): Promise<string | null> {
+  return window.api.readAgentSkill(skill.family, skill.place, skill.name);
+}
+
+const NO_PRESETS: AgentPreset[] = [];
+const NO_ACTIVE_PRESETS: ActivePresetEntry[] = [];
+const NO_LISTINGS: Record<string, AgentSkill[]> = {};
+
+/** The listings of a workspace's own skills, one per agent family. */
+function workspaceListings(
+  listings: Record<string, AgentSkill[]>,
+  workspaceId: string
+): Record<string, AgentSkill[]> {
+  const place: AgentSkillPlace = { kind: 'workspace', workspaceId };
+  const picked: Record<string, AgentSkill[]> = {};
+  for (const family of AGENT_SKILL_FAMILIES) {
+    const key = skillListingKey(family, place);
+    if (listings[key]) picked[key] = listings[key];
+  }
+  return picked;
+}
+
 /**
- * The Skills group a workspace's Quick Commands list shows, and `loadSkills` for the menu holding
- * the list to call as it opens, so the skills are listed again only when someone looks. Takes
- * the workspace's project and SSH host (see workspaceSkillHostId) rather than the workspace, so
- * the menus don't redraw on its every change.
+ * The Skills group a workspace's Quick Commands list shows, its agents' skills in its own folder
+ * and in the home folder where it runs, and `loadSkills` for the menu holding the list to call as
+ * it opens: the last listing shows at once, and the skills are listed again only when someone
+ * looks. Empty without a workspace, and while `listen` is false, for a menu that's closed, which
+ * then doesn't re-render as skills and agents change.
  */
 export function useSkillMenuGroups(
-  projectId: string | null | undefined,
-  hostId: string | null
-): { skillGroups: ActionMenuGroup[]; loadSkills: () => void } {
-  const presets = useAgentPresetsStore((state) => state.presets);
-  const activePresets = useAgentPresetsStore((state) => state.activePresets);
-  const listings = useAgentSkillsStore((state) => state.listings);
-  const agents = useMemo(() => skillAgentPresets(presets, activePresets), [presets, activePresets]);
+  workspaceId: string | null | undefined,
+  listen = true
+): {
+  skillGroups: ActionMenuGroup[];
+  loadSkills: () => void;
+} {
+  const active = listen && !!workspaceId;
+  const presets = useAgentPresetsStore((state) => (active ? state.presets : NO_PRESETS));
+  const activePresets = useAgentPresetsStore((state) =>
+    active ? state.activePresets : NO_ACTIVE_PRESETS
+  );
+  const listings = useAgentSkillsStore(
+    useShallow((state) =>
+      active && workspaceId ? workspaceListings(state.listings, workspaceId) : NO_LISTINGS
+    )
+  );
   const skillGroups = useMemo(
-    () => getSkillMenuGroups(listings, projectId ?? null, hostId, agents),
-    [listings, projectId, hostId, agents]
+    () =>
+      active && workspaceId
+        ? getSkillMenuGroups(listings, workspaceId, skillAgentPresets(presets, activePresets))
+        : [],
+    [active, listings, workspaceId, presets, activePresets]
   );
   const loadSkills = useCallback(() => {
+    if (!workspaceId) return;
+    const { presets: allPresets, activePresets: allActive } = useAgentPresetsStore.getState();
     const { loadSkills: load } = useAgentSkillsStore.getState();
-    for (const { family } of agents) void load(family, projectId ?? null, hostId);
-  }, [agents, projectId, hostId]);
+    for (const { family } of skillAgentPresets(allPresets, allActive)) {
+      void load(family, { kind: 'workspace', workspaceId });
+    }
+  }, [workspaceId]);
   return { skillGroups, loadSkills };
 }

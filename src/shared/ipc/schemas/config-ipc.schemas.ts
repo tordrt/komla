@@ -706,12 +706,28 @@ export const projectFetchInBackgroundArgsSchema = z.tuple([
 export const projectListLeftoverBranchesArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectCheckWorkspacesForCleanupArgsSchema = z.tuple([idSchema, idSchema.nullable()]);
 export const projectListHostBranchesArgsSchema = z.tuple([idSchema, idSchema]);
-// The agent whose skills to list, the project or null, and the SSH host the workspace starts on or
-// null for this computer.
+// Where an agent will run: a new workspace of the project or none, on the SSH host or null for this
+// computer, or an existing workspace.
+const agentSkillPlaceSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('new-workspace'),
+      projectId: idSchema.nullable(),
+      hostId: idSchema.nullable(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('workspace'), workspaceId: idSchema }).strict(),
+]);
+// The agent whose skills to list, and where it will run.
 export const projectListAgentSkillsArgsSchema = z.tuple([
   z.enum(AGENT_SKILL_FAMILIES),
-  idSchema.nullable(),
-  idSchema.nullable(),
+  agentSkillPlaceSchema,
+]);
+// The same, then the name of the skill to read.
+export const projectReadAgentSkillArgsSchema = z.tuple([
+  z.enum(AGENT_SKILL_FAMILIES),
+  agentSkillPlaceSchema,
+  z.string().min(1).max(256),
 ]);
 export const projectDeleteLeftoverBranchesArgsSchema = z.tuple([
   idSchema,

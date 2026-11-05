@@ -577,6 +577,8 @@ describe('NewWorkspaceDialog', () => {
     mockWorkspaces.value = [{ id: 'ws-1', projectId: 'project-komla' }];
     global.window.api = {
       listAgentSkills: vi.fn().mockResolvedValue([]),
+      readAgentSkill: vi.fn().mockResolvedValue(null),
+      copyToClipboard: vi.fn(),
       fetchProjectInBackground: vi.fn(() => Promise.resolve()),
       getWorktreeBranches: vi.fn().mockResolvedValue([]),
       getDirectoryInfo: vi.fn().mockResolvedValue(null),
@@ -2915,7 +2917,11 @@ describe('NewWorkspaceDialog', () => {
       render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
       const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
       await waitFor(() =>
-        expect(window.api.listAgentSkills).toHaveBeenCalledWith('codex', 'project-komla', null)
+        expect(window.api.listAgentSkills).toHaveBeenCalledWith('codex', {
+          kind: 'new-workspace',
+          projectId: 'project-komla',
+          hostId: null,
+        })
       );
 
       await user.type(textarea, 'Please $rev');
@@ -2936,7 +2942,9 @@ describe('NewWorkspaceDialog', () => {
 
       await user.click(await screen.findByRole('button', { name: 'Quick Commands' }));
       const menu = (await screen.findByText('Skills')).closest('[data-dropdown-content]');
-      const items = within(menu as HTMLElement).getAllByRole('button');
+      const items = within(menu as HTMLElement)
+        .getAllByRole('button')
+        .filter((item) => !item.getAttribute('aria-label')?.startsWith('Copy'));
       expect(items.map((item) => item.textContent)).toEqual([
         '$deployShips it',
         '$review-prReviews a pull request',
@@ -2945,6 +2953,27 @@ describe('NewWorkspaceDialog', () => {
       await user.click(items[1]);
 
       expect(textarea).toHaveValue('$review-pr fix the login bug');
+    });
+
+    it("copies a skill's instructions, not its name, from the Quick Commands button", async () => {
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      window.api.readAgentSkill = vi.fn().mockResolvedValue('Deploy the branch to staging.');
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.click(await screen.findByRole('button', { name: 'Quick Commands' }));
+      await user.click(await screen.findByRole('button', { name: 'Copy $deploy' }));
+
+      expect(window.api.readAgentSkill).toHaveBeenCalledWith(
+        'codex',
+        { kind: 'new-workspace', projectId: 'project-komla', hostId: null },
+        'deploy'
+      );
+      expect(window.api.copyToClipboard).toHaveBeenCalledWith('Deploy the branch to staging.');
+      // Copying picks nothing
+      expect(textarea).toHaveValue('');
+      expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
     });
 
     it('suggests no skills while agents that invoke them differently start side by side', async () => {
@@ -3045,7 +3074,11 @@ describe('NewWorkspaceDialog', () => {
       render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
       const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
       await waitFor(() =>
-        expect(window.api.listAgentSkills).toHaveBeenCalledWith('agents', 'project-komla', null)
+        expect(window.api.listAgentSkills).toHaveBeenCalledWith('agents', {
+          kind: 'new-workspace',
+          projectId: 'project-komla',
+          hostId: null,
+        })
       );
 
       await user.type(textarea, 'Use /dep');
@@ -3114,7 +3147,11 @@ describe('NewWorkspaceDialog', () => {
       render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
       const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
       await waitFor(() =>
-        expect(window.api.listAgentSkills).toHaveBeenCalledWith('claude', 'project-komla', null)
+        expect(window.api.listAgentSkills).toHaveBeenCalledWith('claude', {
+          kind: 'new-workspace',
+          projectId: 'project-komla',
+          hostId: null,
+        })
       );
 
       await user.type(textarea, '/dep');

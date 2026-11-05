@@ -24,7 +24,7 @@ import {
   requestClosePaneSurface,
   splitTerminalBesidePane,
 } from '@/lib/pane-surfaces';
-import { useSkillMenuGroups, workspaceSkillHostId } from '@/lib/skill-actions';
+import { useSkillMenuGroups } from '@/lib/skill-actions';
 import { cn } from '@/lib/utils';
 import { openNewActionEditor } from '@/stores/action-editor.store';
 import { useActionsStore } from '@/stores/actions.store';
@@ -121,10 +121,7 @@ export const SurfacePane = React.memo(function SurfacePane({
     contextMenuOpen && workspaceId ? (s.activeTabByWorkspace[workspaceId] ?? null) : null
   );
   const { runAction, actionInputDialog } = useActionLauncher(workspaceId);
-  const { skillGroups, loadSkills } = useSkillMenuGroups(
-    workspace?.projectId,
-    workspaceSkillHostId(workspace)
-  );
+  const { skillGroups, loadSkills } = useSkillMenuGroups(workspace?.id, contextMenuOpen);
   // Kept stable so the toolbars that drag the pane don't re-render as the pointer nears its top.
   const drag = useMemo(
     () => ({

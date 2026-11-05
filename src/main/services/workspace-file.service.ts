@@ -1,5 +1,6 @@
-import { createHash } from 'crypto';
-import { lstat, readdir, readFile, readlink, realpath, stat } from 'fs/promises';
+import { createHash, randomUUID } from 'crypto';
+import { createWriteStream } from 'fs';
+import { lstat, readdir, readFile, readlink, realpath, rename, rm, stat } from 'fs/promises';
 import { homedir, tmpdir } from 'os';
 import { dirname, isAbsolute, join, parse, posix as pathPosix, relative, resolve, sep } from 'path';
 import { promisify } from 'util';
@@ -44,7 +45,7 @@ import { sshWorkspaceService } from './ssh-workspace.service';
 import { workspaceStore } from './workspace/store';
 import { workspaceStatusService } from './workspace-status.service';
 
-import type { Workspace } from '../../shared/types';
+import type { SshWorkspaceBackend, Workspace } from '../../shared/types';
 import type {
   ViewerFile,
   ViewerFileSource,
@@ -793,6 +794,138 @@ class WorkspaceFileService {
   }
 
   /**
+   * Checks that a viewer file is on an SSH host, which is all that is downloaded, and returns
+   * the script that prints it and its name, so a Save dialog is not shown for one that is not.
+   */
+  prepareViewerFileDownload(
+    workspaceId: string,
+    terminalId: string | null,
+    source: ViewerFileSource
+  ): { workspace: Workspace & { backend: SshWorkspaceBackend }; script: string; name: string } {
+    const workspace = this.getWorkspace(workspaceId);
+    if (!isSshWorkspace(workspace)) throw new Error('Only files on an SSH host are downloaded');
+    if (source.kind === 'workspace') {
+      return {
+        workspace,
+        script: this.remoteFileReadScript(workspace, source.filePath, Number.MAX_SAFE_INTEGER),
+        name: source.filePath,
+      };
+    }
+    const { terminal } = this.getTerminalFileSource(workspaceId, terminalId, source.fullPath);
+    if (!this.getTerminalFileRunner(workspace, terminal)) {
+      throw new Error('Only files on an SSH host are downloaded');
+    }
+    return {
+      workspace,
+      script: this.terminalFileReadScript(source.fullPath, Number.MAX_SAFE_INTEGER),
+      name: source.fullPath,
+    };
+  }
+
+  /**
+   * Copies a file on an SSH host to destination on this computer, streamed so a large file
+   * needs no more memory than the chunks not yet written. The file is complete at destination,
+   * every byte the host said it has, or not there at all.
+   */
+  async downloadViewerFile(
+    workspaceId: string,
+    terminalId: string | null,
+    source: ViewerFileSource,
+    destination: string
+  ): Promise<void> {
+    const { workspace, script, name } = this.prepareViewerFileDownload(
+      workspaceId,
+      terminalId,
+      source
+    );
+    // Its own short name beside the destination, so two downloads to one destination don't write
+    // to the same file and a long destination name still has room.
+    const partial = join(dirname(destination), `.komla-${randomUUID().slice(0, 8)}.part`);
+    const out = createWriteStream(partial);
+    const closed = new Promise<void>((resolveClosed) => out.once('close', () => resolveClosed()));
+    const controller = new AbortController();
+    let writeError: Error | undefined;
+    out.on('error', (error) => {
+      writeError = error;
+      // Nothing more can be saved; stop pulling the file.
+      controller.abort();
+    });
+    // The script prints a few STATUS lines, then DATA= and the base64 of the file.
+    let head = '';
+    let errorOutput = '';
+    let inData = false;
+    let pending = '';
+    let received = 0;
+    const decode = (text: string): void => {
+      pending += text.replace(/\s+/g, '');
+      const whole = pending.length - (pending.length % 4);
+      if (whole === 0) return;
+      const chunk = Buffer.from(pending.slice(0, whole), 'base64');
+      received += chunk.length;
+      out.write(chunk);
+      pending = pending.slice(whole);
+    };
+    try {
+      const host = sshWorkspaceService.getHost(workspace.backend.hostId);
+      try {
+        await sshWorkspaceService.runStreaming(
+          host,
+          `cd ${shellQuotePosix(workspace.backend.remoteDirectory)} || exit 1; ${script}`,
+          {
+            workspaceId: workspace.id,
+            signal: controller.signal,
+            onData: (data) => {
+              if (inData) return decode(data);
+              head += data;
+              const marker = head.indexOf('\nDATA=');
+              if (marker === -1) return;
+              inData = true;
+              const rest = head.slice(marker + '\nDATA='.length);
+              head = head.slice(0, marker);
+              decode(rest);
+            },
+            onErrorData: (data) => {
+              errorOutput = (errorOutput + data).slice(-512);
+            },
+          }
+        );
+      } catch (error) {
+        if (writeError) throw writeError;
+        const reason = errorOutput.trim().split('\n').pop();
+        if (!reason || !(error instanceof Error)) throw error;
+        throw new Error(`${error.message}: ${reason}`, { cause: error });
+      }
+      const values = this.parseKeyValueOutput(head);
+      this.assertRemoteEncodingAvailable(values);
+      if (!inData) {
+        const status = values.get('STATUS');
+        if (status === 'NOT_FOUND') throw new Error(`ENOENT: no such file, '${name}'`);
+        if (status === 'UNSAFE') {
+          throw new Error(`Refusing to read path outside the workspace: '${name}'`);
+        }
+        if (status === 'SYMLINK') throw new Error('Source symlinks are not supported');
+        throw new Error('Failed to read remote file');
+      }
+      // The script ends successfully even if the host's read failed part way.
+      const size = values.get('SIZE') ?? '';
+      if (!/^\d+$/.test(size)) throw new Error('The host did not say how large the file is');
+      if (pending.length > 0 || received < Number(size)) {
+        throw new Error(`The download was cut short after ${received} bytes`);
+      }
+      if (received > Number(size)) throw new Error('The file changed while it was downloaded');
+      out.end();
+      await closed;
+      if (writeError) throw writeError;
+      await rename(partial, destination);
+    } catch (error) {
+      out.destroy();
+      await closed;
+      await rm(partial, { force: true });
+      throw error;
+    }
+  }
+
+  /**
    * A preview URL that shows an HTML page or PDF in the file viewer. With `replacesPrevious`, a
    * file shown on its own replaces the copy the last such call made of it, for a view that asks
    * again and again, as each hover of the files list does, and no other view uses.
@@ -891,26 +1024,29 @@ class WorkspaceFileService {
     return null;
   }
 
+  /** The script that prints a file a terminal printed the path of, as remoteFileReadScript does. */
+  private terminalFileReadScript(sourcePath: string, byteCap: number): string {
+    return [
+      this.remoteBase64Function(),
+      this.remoteBase64AvailabilityCheck(),
+      `source_path=${shellQuoteTerminalPath(sourcePath)}`,
+      `cap=${byteCap}`,
+      'if [ -L "$source_path" ]; then printf "STATUS=SYMLINK\\n"; exit 0; fi',
+      'if [ ! -f "$source_path" ] || [ ! -r "$source_path" ]; then printf "STATUS=NOT_FOUND\\n"; exit 0; fi',
+      'size=$(wc -c <"$source_path" | tr -d " ")',
+      'if [ "$size" -gt "$cap" ] 2>/dev/null; then printf "STATUS=TOO_LARGE\\nSIZE=%s\\n" "$size"; exit 0; fi',
+      'printf "STATUS=OK\\nSIZE=%s\\nDATA=" "$size"',
+      'komla_b64 <"$source_path"',
+      'printf "\\n"',
+    ].join('\n');
+  }
+
   private async readTerminalFileWith(
     sourcePath: string,
     run: (script: string) => Promise<string>
   ): Promise<string> {
     const values = this.parseKeyValueOutput(
-      await run(
-        [
-          this.remoteBase64Function(),
-          this.remoteBase64AvailabilityCheck(),
-          `source_path=${shellQuoteTerminalPath(sourcePath)}`,
-          `cap=${viewerByteCap(sourcePath, true)}`,
-          'if [ -L "$source_path" ]; then printf "STATUS=SYMLINK\\n"; exit 0; fi',
-          'if [ ! -f "$source_path" ] || [ ! -r "$source_path" ]; then printf "STATUS=NOT_FOUND\\n"; exit 0; fi',
-          'size=$(wc -c <"$source_path" | tr -d " ")',
-          'if [ "$size" -gt "$cap" ] 2>/dev/null; then printf "STATUS=TOO_LARGE\\nSIZE=%s\\n" "$size"; exit 0; fi',
-          'printf "STATUS=OK\\nDATA="',
-          'komla_b64 <"$source_path"',
-          'printf "\\n"',
-        ].join('\n')
-      )
+      await run(this.terminalFileReadScript(sourcePath, viewerByteCap(sourcePath, true)))
     );
     this.assertRemoteEncodingAvailable(values);
     const status = values.get('STATUS');
@@ -1046,39 +1182,48 @@ class WorkspaceFileService {
     return workspace;
   }
 
+  /**
+   * The script that prints an SSH workspace file as STATUS=OK, then DATA= and its base64, or a
+   * STATUS of NOT_FOUND, UNSAFE or TOO_LARGE when it is not at most byteCap bytes inside the
+   * workspace.
+   */
+  private remoteFileReadScript(workspace: Workspace, filePath: string, byteCap: number): string {
+    assertCanonicalRemoteRelativePath(filePath);
+    logger.debug('reading SSH workspace file', { workspaceId: workspace.id, filePath });
+    const linkedPeerPath = this.getLinkedPeerPath(filePath);
+    return [
+      this.remoteBase64Function(),
+      this.remoteBase64AvailabilityCheck(),
+      this.remoteRecordedPeerFunction(workspace),
+      `file=${shellQuotePosix(filePath)}`,
+      `cap=${byteCap}`,
+      'workspace_root=$(pwd -P)',
+      linkedPeerPath
+        ? `allowed_root=$(komla_recorded_peer_root ${shellQuotePosix(linkedPeerPath)}) || { printf "STATUS=UNSAFE\\n"; exit 0; }`
+        : 'allowed_root=$workspace_root',
+      'parent=${file%/*}',
+      'name=${file##*/}',
+      'if [ "$parent" = "$file" ]; then parent=.; fi',
+      '(',
+      ...this.remoteResolveContainedFileScript(),
+      '  if [ ! -f "$file" ]; then printf "STATUS=NOT_FOUND\\n"; exit 0; fi',
+      '  size=$(wc -c <"$file" 2>/dev/null | tr -d " " || printf "0")',
+      '  if [ "$size" -gt "$cap" ] 2>/dev/null; then printf "STATUS=TOO_LARGE\\nSIZE=%s\\n" "$size"; exit 0; fi',
+      '  printf "STATUS=OK\\nSIZE=%s\\nDATA=" "$size"',
+      '  komla_b64 <"$file"',
+      '  printf "\\n"',
+      ')',
+    ].join('\n');
+  }
+
   private async readRemoteFile(
     workspace: Workspace,
     filePath: string,
     byteCap: number
   ): Promise<string> {
-    assertCanonicalRemoteRelativePath(filePath);
-    logger.debug('reading SSH workspace file', { workspaceId: workspace.id, filePath });
-    const linkedPeerPath = this.getLinkedPeerPath(filePath);
     const output = await this.runSsh(
       workspace,
-      [
-        this.remoteBase64Function(),
-        this.remoteBase64AvailabilityCheck(),
-        this.remoteRecordedPeerFunction(workspace),
-        `file=${shellQuotePosix(filePath)}`,
-        `cap=${byteCap}`,
-        'workspace_root=$(pwd -P)',
-        linkedPeerPath
-          ? `allowed_root=$(komla_recorded_peer_root ${shellQuotePosix(linkedPeerPath)}) || { printf "STATUS=UNSAFE\\n"; exit 0; }`
-          : 'allowed_root=$workspace_root',
-        'parent=${file%/*}',
-        'name=${file##*/}',
-        'if [ "$parent" = "$file" ]; then parent=.; fi',
-        '(',
-        ...this.remoteResolveContainedFileScript(),
-        '  if [ ! -f "$file" ]; then printf "STATUS=NOT_FOUND\\n"; exit 0; fi',
-        '  size=$(wc -c <"$file" 2>/dev/null | tr -d " " || printf "0")',
-        '  if [ "$size" -gt "$cap" ] 2>/dev/null; then printf "STATUS=TOO_LARGE\\nSIZE=%s\\n" "$size"; exit 0; fi',
-        '  printf "STATUS=OK\\nDATA="',
-        '  komla_b64 <"$file"',
-        '  printf "\\n"',
-        ')',
-      ].join('\n')
+      this.remoteFileReadScript(workspace, filePath, byteCap)
     );
     const values = this.parseKeyValueOutput(output);
     this.assertRemoteEncodingAvailable(values);

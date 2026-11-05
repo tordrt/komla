@@ -30,6 +30,7 @@ server through a random loopback port.
 - Remote Git status, restore, discard, push, and deletion operations.
 - Absolute and shell-sensitive configured base paths.
 - Canonical-path safety checks.
+- File downloads from the workspace and from a terminal's path, streamed past the SSH read buffer.
 
 `docker exec` is used only to seed the Git origin and inspect the test host.
 All Komla operations use ordinary `ssh` and `rsync` with the generated

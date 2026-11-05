@@ -797,7 +797,7 @@ describe('SidebarFileTree context menu actions', () => {
     });
   });
 
-  it('renders one divider before remote file destructive actions when no middle actions exist', () => {
+  it("divides a remote file's Download from the copy actions before it and the destructive ones after it", () => {
     renderMockFileRowMenu = true;
     useFileListStore.setState({
       cache: new Map([
@@ -826,7 +826,8 @@ describe('SidebarFileTree context menu actions', () => {
     );
 
     const menu = screen.getByRole('menu');
-    expect(within(menu).getAllByRole('separator')).toHaveLength(1);
+    expect(within(menu).getByRole('menuitem', { name: /Download/ })).toBeTruthy();
+    expect(within(menu).getAllByRole('separator')).toHaveLength(2);
   });
 
   it('offers recursive deletion for folders in remote trees', () => {

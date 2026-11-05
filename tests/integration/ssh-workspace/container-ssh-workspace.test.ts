@@ -15,6 +15,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from 'node:fs';
@@ -1866,6 +1867,81 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
       'refusing to use an unsafe remote data path'
     );
   }, 60_000);
+  it('downloads SSH host files to this computer through real SSH, past the read buffer', async () => {
+    const backend = await createPreparedWorkspace('file-download');
+    await container.exec([
+      'sh',
+      '-lc',
+      [
+        'cd "$1"',
+        'mkdir -p out',
+        // Twice the 10 MB an SSH command's output may buffer, so only a streamed read gets it.
+        'head -c 20971520 /dev/urandom > "out/big file.bin"',
+        'printf outside > "$HOME/outside.txt"',
+        'ln -s "$HOME/outside.txt" out/escape',
+      ].join('; '),
+      'sh',
+      backend.remoteDirectory,
+    ]);
+    const remoteSum = (
+      await container.exec([
+        'sh',
+        '-lc',
+        'sha256sum "$1/out/big file.bin"',
+        'sh',
+        backend.remoteDirectory,
+      ])
+    ).stdout.split(' ')[0];
+    const { workspaceFileService } =
+      await import('../../../src/main/services/workspace-file.service');
+    const workspace = createWorkspace({
+      id: 'file-download',
+      backend,
+      terminals: [{ id: 'download-terminal', executionLocation: 'workspace' }],
+    } as Partial<Workspace>);
+    vi.spyOn(
+      workspaceFileService as unknown as { getWorkspace: (id: string) => Workspace },
+      'getWorkspace'
+    ).mockReturnValue(workspace);
+    const saveTo = mkdtempSync(join(tmpdir(), 'komla-download-'));
+
+    const big = join(saveTo, 'big.bin');
+    await workspaceFileService.downloadViewerFile(
+      workspace.id,
+      null,
+      { kind: 'workspace', filePath: 'out/big file.bin' },
+      big
+    );
+    expect(createHash('sha256').update(readFileSync(big)).digest('hex')).toBe(remoteSum);
+
+    // A terminal's path outside the workspace, as a terminal link opens it.
+    const outside = join(saveTo, 'outside.txt');
+    await workspaceFileService.downloadViewerFile(
+      workspace.id,
+      'download-terminal',
+      { kind: 'terminal', fullPath: '~/outside.txt' },
+      outside
+    );
+    expect(readFileSync(outside, 'utf8')).toBe('outside');
+
+    await expect(
+      workspaceFileService.downloadViewerFile(
+        workspace.id,
+        null,
+        { kind: 'workspace', filePath: 'out/escape' },
+        join(saveTo, 'escape')
+      )
+    ).rejects.toThrow('outside the workspace');
+    await expect(
+      workspaceFileService.downloadViewerFile(
+        workspace.id,
+        null,
+        { kind: 'workspace', filePath: 'out/missing.bin' },
+        join(saveTo, 'missing.bin')
+      )
+    ).rejects.toThrow('ENOENT');
+    expect(readdirSync(saveTo).sort()).toEqual(['big.bin', 'outside.txt']);
+  }, 120_000);
 });
 
 describe('Komla Remote Companion through Docker OpenSSH', () => {

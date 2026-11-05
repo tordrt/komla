@@ -8,6 +8,7 @@ import {
   Clipboard,
   ClockCounterClockwise,
   Copy,
+  DownloadSimple,
   Eye,
   EyeSlash,
   FilePlus,
@@ -43,6 +44,7 @@ import { LoadingState } from '@/components/ui/loading-state';
 import { menuItemClass, menuSeparatorClass } from '@/components/ui/menu-styles';
 import { Spinner } from '@/components/ui/spinner';
 import { useKomlaEditorTheme } from '@/hooks/useKomlaEditorTheme';
+import { downloadViewerFile } from '@/lib/download-viewer-file';
 import { createNote } from '@/lib/notes';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
@@ -1478,6 +1480,7 @@ export function SidebarFileTree({
         <RowContextMenu
           item={item}
           ctx={ctx}
+          workspaceId={workspaceId}
           isDeleted={isDeleted}
           workingDirectory={workingDirectory}
           isRemoteWorkspace={isRemoteWorkspace}
@@ -2029,6 +2032,7 @@ function EmptyMenuCloser({ ctx }: { ctx: TreeContextMenuOpenContext }) {
 interface RowContextMenuProps {
   item: TreeContextMenuItem;
   ctx: TreeContextMenuOpenContext;
+  workspaceId: string;
   isDeleted: boolean;
   workingDirectory: string;
   isRemoteWorkspace: boolean;
@@ -2057,6 +2061,7 @@ interface RowContextMenuProps {
 function RowContextMenu({
   item,
   ctx,
+  workspaceId,
   isDeleted,
   workingDirectory,
   isRemoteWorkspace,
@@ -2117,6 +2122,11 @@ function RowContextMenu({
   const fullPath = workingDirectory + (workingDirectory.endsWith('/') ? '' : '/') + item.path;
   const reveal = () => {
     window.api.showItemInFolder(fullPath);
+  };
+  // A file on an SSH host is saved to this computer; one on this computer is already here.
+  const canDownload = !isDir && !isDeleted && isRemoteWorkspace;
+  const download = () => {
+    void downloadViewerFile(workspaceId, null, { kind: 'workspace', filePath: item.path });
   };
   const openDefault = () => {
     void window.api.openPath(fullPath).catch((error: unknown) => {
@@ -2371,10 +2381,16 @@ function RowContextMenu({
               Rollback
             </MenuItem>
           )}
-          {((!isDeleted && !isRemoteWorkspace) || onShowFileHistory) &&
+          {((!isDeleted && !isRemoteWorkspace) || onShowFileHistory || canDownload) &&
             (!isDeleted || (hasCopiedFile && onPasteInto) || (onRestoreFile && fileStatus)) && (
               <MenuSeparator />
             )}
+          {canDownload && (
+            <MenuItem onSelect={() => run(download)}>
+              <DownloadSimple />
+              Download…
+            </MenuItem>
+          )}
           {!isDeleted && !isRemoteWorkspace && (
             <MenuItem onSelect={() => run(reveal)}>
               <MagnifyingGlass />

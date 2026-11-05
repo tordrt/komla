@@ -104,6 +104,7 @@ export const IPC = {
   WORKSPACE_DELETE_PATH: 'workspace:delete-path',
   WORKSPACE_IMPORT_EXTERNAL_FILE: 'workspace:import-external-file',
   WORKSPACE_READ_VIEWER_FILE: 'workspace:read-viewer-file',
+  WORKSPACE_DOWNLOAD_VIEWER_FILE: 'workspace:download-viewer-file',
   WORKSPACE_GET_VIEWER_PREVIEW_URL: 'workspace:get-viewer-preview-url',
   WORKSPACE_LIST_VIEWER_FOLDER: 'workspace:list-viewer-folder',
   WORKSPACE_GET_BRANCH_STATUS: 'workspace:get-branch-status',

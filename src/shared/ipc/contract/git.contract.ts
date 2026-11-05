@@ -132,6 +132,9 @@ export const gitContract = {
     workspaceImportExternalFileArgsSchema
   ).returns<string>(),
   [IPC.WORKSPACE_READ_VIEWER_FILE]: invoke(workspaceViewerFileArgsSchema).returns<ViewerFile>(),
+  [IPC.WORKSPACE_DOWNLOAD_VIEWER_FILE]: invoke(workspaceViewerFileArgsSchema).returns<
+    string | null
+  >(),
   [IPC.WORKSPACE_GET_VIEWER_PREVIEW_URL]: invoke(
     workspaceViewerPreviewUrlArgsSchema
   ).returns<string>(),

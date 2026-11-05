@@ -1,4 +1,4 @@
-import { dirname } from 'path';
+import { dirname, join, posix } from 'path';
 
 import { app, dialog, BrowserWindow } from 'electron';
 
@@ -279,6 +279,37 @@ export function registerGitHandlers(): void {
         assertSafeRelativePath('/workspace', source.filePath, 'filePath');
       }
       return workspaceFileService.readViewerFile(workspaceId, terminalId, source);
+    }
+  );
+
+  handleIpc(
+    IPC.WORKSPACE_DOWNLOAD_VIEWER_FILE,
+    async (event, [workspaceId, terminalId, source]): Promise<string | null> => {
+      if (source.kind === 'workspace') {
+        assertSafeRelativePath('/workspace', source.filePath, 'filePath');
+      }
+      // Fails before a Save dialog for a file that can't be downloaded.
+      const { name } = workspaceFileService.prepareViewerFileDownload(
+        workspaceId,
+        terminalId,
+        source
+      );
+      const window = BrowserWindow.fromWebContents(event.sender);
+      const options = {
+        title: 'Save File',
+        defaultPath: join(app.getPath('downloads'), posix.basename(name)),
+      };
+      const result = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return null;
+      await workspaceFileService.downloadViewerFile(
+        workspaceId,
+        terminalId,
+        source,
+        result.filePath
+      );
+      return result.filePath;
     }
   );
 

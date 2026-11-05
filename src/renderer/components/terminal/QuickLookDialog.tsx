@@ -5,6 +5,7 @@ import {
   CaretRight,
   Code,
   Copy,
+  DownloadSimple,
   Eye,
   File,
   Folder,
@@ -51,6 +52,7 @@ import { formatAtPathWithLine } from '@/components/workspaces/file-viewer/file-v
 import { ImagePane } from '@/components/workspaces/file-viewer/ImagePane';
 import { MarkdownPreview } from '@/components/workspaces/file-viewer/MarkdownPreview';
 import { formatFileSize, MediaPane } from '@/components/workspaces/file-viewer/MediaPane';
+import { downloadViewerFile, isOnSshHost } from '@/lib/download-viewer-file';
 import { getFocusedPromptTerminalId } from '@/lib/focused-terminal';
 import { formatRelativeTime } from '@/lib/format-time';
 import { ensureMonacoInitialized } from '@/lib/monaco-loader';
@@ -76,6 +78,7 @@ import {
 } from '@/stores/quick-look.store';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { useToastStore } from '@/stores/toast.store';
+import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import { getViewableFileKind, type ViewableFileKind } from '../../../shared/image-utils';
 
@@ -304,6 +307,13 @@ function QuickLookContent({
   const [viewMode, setViewMode] = useViewMode(item);
   const { source, hostPath } = item;
   const isFolder = isQuickLookFolder(item);
+  const onSshHost = useWorkspacesStore((s) =>
+    isOnSshHost(
+      s.workspaces.find((w) => w.id === workspaceId),
+      item.terminalId,
+      source
+    )
+  );
   const name = fileName(item.path);
   const kind = isFolder ? null : getViewableFileKind(item.path);
   const { terminalId, insert } = useContext(ReferenceTargetContext);
@@ -392,6 +402,17 @@ function QuickLookContent({
             }}
           >
             Open in file panel
+          </Button>
+        )}
+        {!isFolder && onSshHost && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5"
+            onClick={() => void downloadViewerFile(workspaceId, item.terminalId, source)}
+          >
+            <DownloadSimple className="size-3.5" />
+            Download
           </Button>
         )}
         {isFolder && hostPath && (

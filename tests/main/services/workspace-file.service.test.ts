@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   realpath,
   rm,
@@ -13,7 +14,7 @@ import {
   writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { promisify } from 'util';
 import { gzipSync } from 'zlib';
 
@@ -1952,6 +1953,177 @@ describe('workspaceFileService', () => {
     await expect(workspaceFileService.readFile('ws-ssh', 'large.txt')).rejects.toThrow(
       'too large to view'
     );
+  });
+
+  describe('downloadViewerFile', () => {
+    const bytes = Buffer.from([0, 255, 1, 254, 2, 253, 3, 128, 65, 10, 66]);
+    const encoded = bytes.toString('base64');
+    const okHeader = `STATUS=OK\nSIZE=${bytes.length}\nDATA=`;
+    type Source = { kind: 'workspace'; filePath: string } | { kind: 'terminal'; fullPath: string };
+
+    /** Downloads what the host's stream emits, and says where the file would have been saved. */
+    async function download(
+      emit: (onData: (data: string) => void, onErrorData: (data: string) => void) => void,
+      source: Source = { kind: 'workspace', filePath: 'out/report.bin' },
+      outcome: 'exits' | 'fails' = 'exits'
+    ): Promise<{ destination: string; saved: Promise<void> }> {
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+      sshWorkspaceServiceMock.runStreaming.mockImplementation(
+        async (
+          _host: unknown,
+          _command: string,
+          options: { onData: (data: string) => void; onErrorData: (data: string) => void }
+        ) => {
+          emit(options.onData, options.onErrorData);
+          if (outcome === 'fails') throw new Error('SSH command exited with code 1');
+          return 0;
+        }
+      );
+      const directory = await mkdtemp(join(tmpdir(), 'komla-download-test-'));
+      tempDirectories.push(directory);
+      const destination = join(directory, 'report.bin');
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      return {
+        destination,
+        saved: workspaceFileService.downloadViewerFile('ws-ssh', 'term-ssh', source, destination),
+      };
+    }
+
+    async function expectNothingLeftBehind(destination: string): Promise<void> {
+      expect(await readdir(dirname(destination))).toEqual([]);
+    }
+
+    it('writes the exact bytes however the stream is split', async () => {
+      // One character at a time splits every base64 group and the DATA= marker.
+      const { destination, saved } = await download((onData) => {
+        for (const char of `${okHeader}${encoded}\n`) onData(char);
+      });
+      await saved;
+
+      expect(await readFile(destination)).toEqual(bytes);
+      expect(await readdir(dirname(destination))).toEqual(['report.bin']);
+    });
+
+    it('downloads a file a terminal printed the path of', async () => {
+      const { destination, saved } = await download((onData) => onData(`${okHeader}${encoded}\n`), {
+        kind: 'terminal',
+        fullPath: '/var/log/report.bin',
+      });
+      await saved;
+
+      expect(await readFile(destination)).toEqual(bytes);
+      const command = sshWorkspaceServiceMock.runStreaming.mock.calls[0][1];
+      expect(command).toContain("cd '/home/dev/repo'");
+      expect(command).toContain('/var/log/report.bin');
+    });
+
+    it('reports a missing file and leaves nothing behind', async () => {
+      const { destination, saved } = await download((onData) => onData('STATUS=NOT_FOUND\n'));
+
+      await expect(saved).rejects.toThrow('ENOENT');
+      await expectNothingLeftBehind(destination);
+    });
+
+    it('names a host without base64 or openssl', async () => {
+      const { destination, saved } = await download((onData) =>
+        onData('STATUS=ENCODING_UNAVAILABLE\n')
+      );
+
+      await expect(saved).rejects.toThrow('base64 or openssl');
+      await expectNothingLeftBehind(destination);
+    });
+
+    it('does not save a file the host cut short', async () => {
+      // The host's read failed after 8 of 11 bytes, and the script still exited successfully.
+      const { destination, saved } = await download((onData) =>
+        onData(`${okHeader}${bytes.subarray(0, 8).toString('base64')}\n`)
+      );
+
+      await expect(saved).rejects.toThrow('cut short');
+      await expectNothingLeftBehind(destination);
+    });
+
+    it('does not save a file that grew, or one with no size', async () => {
+      const grown = await download((onData) =>
+        onData(`${okHeader}${Buffer.concat([bytes, bytes]).toString('base64')}\n`)
+      );
+      await expect(grown.saved).rejects.toThrow('changed while');
+      await expectNothingLeftBehind(grown.destination);
+
+      const unsized = await download((onData) => onData(`STATUS=OK\nSIZE=\nDATA=${encoded}\n`));
+      await expect(unsized.saved).rejects.toThrow('did not say how large');
+      await expectNothingLeftBehind(unsized.destination);
+    });
+
+    it('does not save a stream that ends part way through a base64 group', async () => {
+      const { destination, saved } = await download((onData) =>
+        onData(`${okHeader}${encoded.slice(0, -2)}`)
+      );
+
+      await expect(saved).rejects.toThrow('cut short');
+      await expectNothingLeftBehind(destination);
+    });
+
+    it('leaves nothing behind when the connection fails, and says why', async () => {
+      const { destination, saved } = await download(
+        (onData, onErrorData) => {
+          onData(`${okHeader}${encoded.slice(0, 4)}`);
+          onErrorData('Connection reset by peer\n');
+        },
+        undefined,
+        'fails'
+      );
+
+      await expect(saved).rejects.toThrow(
+        'SSH command exited with code 1: Connection reset by peer'
+      );
+      await expectNothingLeftBehind(destination);
+    });
+
+    it('rejects a path outside the workspace and a workspace that is not on an SSH host', async () => {
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      await expect(
+        workspaceFileService.downloadViewerFile(
+          'ws-ssh',
+          null,
+          { kind: 'workspace', filePath: '../secret' },
+          '/tmp/unused'
+        )
+      ).rejects.toThrow('escapes the workspace');
+
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      await expect(
+        workspaceFileService.downloadViewerFile(
+          'ws-local',
+          null,
+          { kind: 'workspace', filePath: 'a.txt' },
+          '/tmp/unused'
+        )
+      ).rejects.toThrow('SSH host');
+      expect(sshWorkspaceServiceMock.runStreaming).not.toHaveBeenCalled();
+    });
+
+    it('can tell before any dialog that a Local copy terminal file is not on the host', async () => {
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+
+      expect(() =>
+        workspaceFileService.prepareViewerFileDownload('ws-ssh', 'term-local-copy', {
+          kind: 'terminal',
+          fullPath: '/tmp/a.txt',
+        })
+      ).toThrow('SSH host');
+      expect(() =>
+        workspaceFileService.prepareViewerFileDownload('ws-ssh', null, {
+          kind: 'terminal',
+          fullPath: '/tmp/a.txt',
+        })
+      ).toThrow('needs its terminal');
+    });
   });
 
   it('delegates local writes to gitService', async () => {

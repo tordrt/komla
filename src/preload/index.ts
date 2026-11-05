@@ -836,6 +836,14 @@ const api = {
   ): Promise<ViewerFile> =>
     ipcRenderer.invoke(IPC.WORKSPACE_READ_VIEWER_FILE, workspaceId, terminalId, source),
 
+  /** Asks where to save a file on an SSH host, saves it there and returns the path, or null if cancelled. */
+  downloadViewerFile: (
+    workspaceId: string,
+    terminalId: string | null,
+    source: ViewerFileSource
+  ): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_DOWNLOAD_VIEWER_FILE, workspaceId, terminalId, source),
+
   getViewerPreviewUrl: (
     workspaceId: string,
     terminalId: string | null,

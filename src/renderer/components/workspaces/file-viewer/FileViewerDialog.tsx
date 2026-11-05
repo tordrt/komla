@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef, useState, useMemo } from 'react';
 
+import { PromptDraftOutlet } from '@/components/prompt-draft/PromptDraft';
 import {
   Dialog,
   DialogContent,
@@ -26,12 +27,14 @@ import { followMovedFilePanes, getUnsavedFilePanePaths } from '@/lib/pane-surfac
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { primaryForMode } from '@/lib/primary-color';
 import { colorToOklchValues, getProjectColor } from '@/lib/project-colors';
+import { isInPromptDraft } from '@/lib/prompt-draft';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
 import { findRenameSource, useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { useGitStatusStore } from '@/stores/git-status.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useToastStore } from '@/stores/toast.store';
+import { useViewedFile } from '@/stores/viewed-file.store';
 import {
   resolveWorkspaceTargetBranch,
   type Workspace,
@@ -45,6 +48,7 @@ import {
   computeEditorChangeEffects,
   getFlatFileKeys,
   formatAtPathWithLine,
+  formatFileReference,
   readMountedEditor,
   getAncestorPaths,
   removeNonFunctionalActions,
@@ -1917,6 +1921,21 @@ export function FileViewerDialog({
     state.diff.selectedFile,
     state.editor.filePath
   );
+  // The file on screen, which in History is the commit's file rather than the one in Changes.
+  const viewedFile = showsHistory ? state.diff.historySelectedFile : sidebarCurrentFile;
+  const promptFile = open ? viewedFile : null;
+  const promptReference = () =>
+    formatFileReference(
+      viewedFile ?? '',
+      // Lines of the working tree's file, which the agent reads: the editor or a diff's changed
+      // side, not an old commit's. The other mode's ref may hold an editor left behind.
+      showsHistory
+        ? null
+        : state.mode === 'browse'
+          ? editorRef.current
+          : diffEditorRef.current?.getModifiedEditor()
+    );
+  useViewedFile(workspace.id, promptFile, promptReference);
 
   return (
     <>
@@ -1936,8 +1955,8 @@ export function FileViewerDialog({
             e.preventDefault();
             // This runs before the editor sees the key. Escape aimed at the editor closes the
             // viewer from the window keydown handler, once the find bar, suggestions and vim
-            // have had their turn.
-            if (isEditorEscapeTarget(e.target)) return;
+            // have had their turn. The prompt draft over the viewer closes on its own Escape.
+            if (isEditorEscapeTarget(e.target) || isInPromptDraft(e.target)) return;
             handleOpenChange(false);
           }}
           onPointerDownOutside={(e) => {
@@ -2010,6 +2029,9 @@ export function FileViewerDialog({
             handleDiffEditorMount={handleDiffEditorMount}
             handleBlameHunkClick={handleBlameHunkClick}
           />
+          {/* Inside the viewer, which covers the window's own. Gone as soon as the viewer
+              closes, not once it has faded out, so the draft goes back to the window. */}
+          {open && <PromptDraftOutlet workspaceId={workspace.id} />}
         </DialogContent>
       </Dialog>
 

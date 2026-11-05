@@ -4,6 +4,7 @@ import {
   ArrowLineDown,
   BellRinging,
   CaretRight,
+  ChatText,
   ClockCounterClockwise,
   Command,
   Eye,
@@ -147,6 +148,7 @@ const WORKSPACE_ACTIONS = new Set([
   'file.tree',
   'inline.file.tree',
   'note.new',
+  'promptDraft.toggle',
 ]);
 
 const COMMAND_ICONS: Record<string, Icon> = {
@@ -172,6 +174,7 @@ const COMMAND_ICONS: Record<string, Icon> = {
   'file.tree': TreeStructure,
   'inline.file.tree': SidebarSimple,
   'note.new': NotePencil,
+  'promptDraft.toggle': ChatText,
   'voice.record': Microphone,
   'settings.open': GearSix,
   'window.new': AppWindow,

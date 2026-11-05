@@ -1,5 +1,6 @@
 import { LinuxWindowControlsEnd } from '@/components/layout/LinuxWindowControls';
 import { WorkspaceBranchControls } from '@/components/layout/TabRowBranchControls';
+import { PromptDraftButton } from '@/components/prompt-draft/PromptDraft';
 import { SetupActivityIndicator } from '@/components/workspaces/SetupActivityPanel';
 import { hasUnsavedFilePane } from '@/lib/pane-surfaces';
 import { cn } from '@/lib/utils';
@@ -303,7 +304,12 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         onClose={onClose}
-        trailing={<BranchMenus workspace={workspace} inDiff={isDiffMode} />}
+        trailing={
+          <>
+            <PromptDraftButton workspaceId={workspace.id} />
+            <BranchMenus workspace={workspace} inDiff={isDiffMode} />
+          </>
+        }
         windowControls={<LinuxWindowControlsEnd />}
         browseTabs={{
           tabs,

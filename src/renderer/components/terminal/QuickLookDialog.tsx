@@ -31,6 +31,7 @@ import {
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { LinuxWindowControlsEnd } from '@/components/layout/LinuxWindowControls';
 import { useTopRowStyle } from '@/components/layout/title-bar-metrics';
+import { PromptDraftButton, PromptDraftOutlet } from '@/components/prompt-draft/PromptDraft';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
 import {
@@ -48,7 +49,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { BrowserPreviewFrame } from '@/components/workspaces/file-viewer/BrowserPreviewFrame';
 import { FileTypeIcon } from '@/components/workspaces/file-viewer/file-icon-utils';
 import { getSidebarToggleShortcutLabel } from '@/components/workspaces/file-viewer/file-viewer-keyboard';
-import { formatAtPathWithLine } from '@/components/workspaces/file-viewer/file-viewer-utils';
+import { formatFileReference } from '@/components/workspaces/file-viewer/file-viewer-utils';
 import { ImagePane } from '@/components/workspaces/file-viewer/ImagePane';
 import { MarkdownPreview } from '@/components/workspaces/file-viewer/MarkdownPreview';
 import { formatFileSize, MediaPane } from '@/components/workspaces/file-viewer/MediaPane';
@@ -58,6 +59,7 @@ import { formatRelativeTime } from '@/lib/format-time';
 import { ensureMonacoInitialized } from '@/lib/monaco-loader';
 import { useEditorSurfaceBackground } from '@/lib/palette-runtime';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
+import { isInPromptDraft } from '@/lib/prompt-draft';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
 import { focusTerminalRenderer } from '@/lib/terminal-renderer-runtime';
 import { cn } from '@/lib/utils';
@@ -78,6 +80,7 @@ import {
 } from '@/stores/quick-look.store';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { useToastStore } from '@/stores/toast.store';
+import { useViewedFile } from '@/stores/viewed-file.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import { getViewableFileKind, type ViewableFileKind } from '../../../shared/image-utils';
@@ -143,13 +146,10 @@ const ReferenceTargetContext = createContext<ReferenceTarget>({
  * as the file panel's Copy @path gives them.
  */
 function referenceTo(item: QuickLookItem, shown: ShownEditor | null): string {
-  // A file name can hold a newline, which a shell would run as a command, pasted or put into a
-  // terminal; control characters go, as from a file tree drop.
-  // oxlint-disable-next-line no-control-regex
-  const path = quickLookReferencePath(item).replace(/[\x00-\x1f\x7f]/g, '');
-  // A view switch or step to another file disposes the editor, which then has no model.
-  const editor = shown?.item === item && shown.editor.getModel() ? shown.editor : null;
-  return editor ? formatAtPathWithLine(path, editor) : `@${path}`;
+  return formatFileReference(
+    quickLookReferencePath(item),
+    shown?.item === item ? shown.editor : null
+  );
 }
 
 function copyText(text: string, shown = text) {
@@ -250,6 +250,10 @@ export function QuickLookDialog() {
           event.preventDefault();
           (event.currentTarget as HTMLElement).focus();
         }}
+        onEscapeKeyDown={(event) => {
+          // The prompt draft floating over the viewer closes on its own Escape.
+          if (isInPromptDraft(event.target)) event.preventDefault();
+        }}
         onCloseAutoFocus={(event) => {
           const terminalId = returnToTerminal.current;
           returnToTerminal.current = null;
@@ -281,6 +285,9 @@ export function QuickLookDialog() {
             <QuickLookContent session={session} listed={listed} shownEditor={shownEditor} />
           </ReferenceTargetContext.Provider>
         )}
+        {/* Inside the viewer, which keeps focus and clicks within itself. Gone as soon as the
+            viewer closes, not once it has faded out, so the draft goes back to the window. */}
+        {session && <PromptDraftOutlet workspaceId={session.workspaceId} />}
       </DialogContent>
     </Dialog>
   );
@@ -318,6 +325,7 @@ function QuickLookContent({
   const kind = isFolder ? null : getViewableFileKind(item.path);
   const { terminalId, insert } = useContext(ReferenceTargetContext);
   const reference = () => referenceTo(item, shownEditor.current);
+  useViewedFile(workspaceId, item.path, reference);
 
   return (
     <>
@@ -378,6 +386,7 @@ function QuickLookContent({
             )}
           </div>
         </ReferenceMenu>
+        <PromptDraftButton workspaceId={workspaceId} />
         {(kind === 'html' || kind === 'markdown') && (
           // A click leaves focus on the viewer, so the arrows still step through the files.
           <div onMouseDown={(event) => event.preventDefault()}>

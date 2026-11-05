@@ -706,6 +706,21 @@ export function formatAtPathWithLine(filePath: string, editor: monacoEditor.ICod
 }
 
 /**
+ * How an agent prompt refers to a file: `@` and its path, with the lines selected in its editor
+ * while that is still mounted. A view switch disposes the editor, which then has no model.
+ */
+export function formatFileReference(
+  filePath: string,
+  editor: monacoEditor.ICodeEditor | null | undefined
+): string {
+  // A file name can hold a newline, which a shell would run as a command, pasted or put into a
+  // terminal; control characters go, as from a file tree drop.
+  // oxlint-disable-next-line no-control-regex
+  const path = filePath.replace(/[\x00-\x1f\x7f]/g, '');
+  return editor?.getModel() ? formatAtPathWithLine(path, editor) : `@${path}`;
+}
+
+/**
  * The text of a Monaco editor that is still mounted. A view switch (Rich text,
  * Browser) disposes it, and a disposed editor reads as empty, which a save
  * would write over the file.

@@ -59,6 +59,7 @@ export const shortcutEntries: ShortcutEntry[] = [
   { action: 'file.tree', label: 'File tree viewer', group: 'File' },
   { action: 'inline.file.tree', label: 'Toggle file tree panel', group: 'File' },
   { action: 'note.new', label: 'New note', group: 'File' },
+  { action: 'promptDraft.toggle', label: 'Toggle prompt draft', group: 'File' },
   { action: 'voice.record', label: 'Toggle voice input', group: 'Voice' },
   ...Object.entries(NEW_WORKSPACE_DIALOG_LABELS).map(([action, label]) => ({
     action: `newWorkspace.${action}`,

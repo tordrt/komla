@@ -8,6 +8,7 @@ import { getFileIcon } from '@/components/workspaces/file-viewer/file-icon-utils
 import {
   COPY_AT_PATH_KEYBINDING,
   formatAtPathWithLine,
+  formatFileReference,
   readMountedEditor,
   removeNonFunctionalActions,
 } from '@/components/workspaces/file-viewer/file-viewer-utils';
@@ -30,6 +31,7 @@ import { useFileViewerStore } from '@/stores/file-viewer.store';
 import { usePaneSurfacesStore } from '@/stores/pane-surfaces.store';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { useToastStore } from '@/stores/toast.store';
+import { useViewedFile } from '@/stores/viewed-file.store';
 import { useWorktreeEventsStore } from '@/stores/worktree-events.store';
 
 import { useConfirmDialog } from '../useConfirmDialog';
@@ -90,6 +92,9 @@ export function FileSurface({
     return !!preview?.open && !!preview.isDirty && preview.filePath === path;
   });
   const readOnly = !editor.isDirty && (editedInAnotherPane || editedInFilePanel);
+  const viewedFileProps = useViewedFile(workspace.id, isTabActive ? path : null, () =>
+    formatFileReference(pathRef.current, editorRef.current)
+  );
 
   // A new pane takes focus, which its editor takes over once it shows.
   useEffect(() => {
@@ -274,6 +279,7 @@ export function FileSurface({
       )}
       <div
         ref={contentRef}
+        {...viewedFileProps}
         role="group"
         aria-label={getFileName(path)}
         tabIndex={-1}

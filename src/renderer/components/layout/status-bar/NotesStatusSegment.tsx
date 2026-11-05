@@ -1,4 +1,4 @@
-import { NotePencil, Plus } from '@phosphor-icons/react';
+import { ChatText, NotePencil, Plus } from '@phosphor-icons/react';
 import { useRef } from 'react';
 
 import {
@@ -14,6 +14,7 @@ import {
 import { formatRelativeTime } from '@/lib/format-time';
 import { createNote, UNTITLED_NOTE } from '@/lib/notes';
 import { showNote } from '@/lib/pane-surfaces';
+import { openPromptDraft } from '@/lib/prompt-draft';
 import { cn } from '@/lib/utils';
 import { useNotes } from '@/stores/notes.store';
 import { useShortcutsStore } from '@/stores/shortcuts.store';
@@ -29,7 +30,9 @@ export function NotesStatusSegment() {
   );
   const notes = useNotes(workspace?.id ?? null);
   const newNoteShortcut = useShortcutsStore((s) => s.getDisplayShortcut('note.new'));
-  // Set when a pick goes to the pane the note is open in, which keeps focus.
+  const promptDraftShortcut = useShortcutsStore((s) => s.getDisplayShortcut('promptDraft.toggle'));
+  // Set when a pick moves focus elsewhere, which keeps it: to the pane the note is open in, or
+  // to the prompt draft.
   const shownInPane = useRef(false);
   if (!workspace) return null;
   const count = notes.length === 1 ? '1 note' : `${notes.length} notes`;
@@ -61,6 +64,18 @@ export function NotesStatusSegment() {
           <Plus />
           New note
           {newNoteShortcut && <DropdownMenuShortcut>{newNoteShortcut}</DropdownMenuShortcut>}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            shownInPane.current = true;
+            openPromptDraft(workspace.id);
+          }}
+        >
+          <ChatText />
+          Prompt draft
+          {promptDraftShortcut && (
+            <DropdownMenuShortcut>{promptDraftShortcut}</DropdownMenuShortcut>
+          )}
         </DropdownMenuItem>
         {notes.length > 0 ? (
           <>

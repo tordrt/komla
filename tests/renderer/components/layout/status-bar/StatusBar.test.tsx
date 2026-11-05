@@ -21,6 +21,7 @@ import { useFileViewerStore } from '../../../../../src/renderer/stores/file-view
 import { useLayoutStore } from '../../../../../src/renderer/stores/layout.store';
 import { resetNotesStore } from '../../../../../src/renderer/stores/notes.store';
 import { useProjectsStore } from '../../../../../src/renderer/stores/projects.store';
+import { usePromptDraftStore } from '../../../../../src/renderer/stores/prompt-draft.store';
 import { useSettingsDialogStore } from '../../../../../src/renderer/stores/settings-dialog.store';
 import { useSshHostDialogStore } from '../../../../../src/renderer/stores/ssh-host-dialog.store';
 import { useSshHostsStore } from '../../../../../src/renderer/stores/ssh-hosts.store';
@@ -1997,8 +1998,9 @@ describe('StatusBar', () => {
       expect(screen.getByText('Notes in login-fix')).toBeInTheDocument();
       const items = screen.getAllByRole('menuitem').map((item) => item.textContent);
       expect(items[0]).toBe('New note');
-      expect(items[1]).toContain('Prompt for the login fix');
-      expect(items[2]).toContain('Untitled note');
+      expect(items[1]).toBe('Prompt draft');
+      expect(items[2]).toContain('Prompt for the login fix');
+      expect(items[3]).toContain('Untitled note');
 
       await user.click(screen.getByRole('menuitem', { name: /Prompt for the login fix/ }));
       expect(notesMocks.openNote).toHaveBeenCalledWith(workspace.id, 'b.md');
@@ -2006,6 +2008,18 @@ describe('StatusBar', () => {
       await user.click(screen.getByRole('button', { name: 'Notes, 2 notes' }));
       await user.click(screen.getByRole('menuitem', { name: 'New note' }));
       expect(notesMocks.createNote).toHaveBeenCalledWith(workspace.id);
+    });
+
+    it('opens the prompt draft of the workspace', async () => {
+      usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
+      const user = userEvent.setup();
+      const workspace = openWorkspace();
+
+      renderStatusBar();
+      await user.click(screen.getByRole('button', { name: 'Notes' }));
+      await user.click(screen.getByRole('menuitem', { name: 'Prompt draft' }));
+
+      expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ [workspace.id]: true });
     });
 
     it('says what notes are before there is one', async () => {

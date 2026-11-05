@@ -52,11 +52,13 @@ import { TooltipProvider } from '../../../../src/renderer/components/ui/tooltip'
 import { isShortcutEventClaimed } from '../../../../src/renderer/lib/shortcut-claims';
 import { useFileViewerStore } from '../../../../src/renderer/stores/file-viewer.store';
 import { useLayoutStore } from '../../../../src/renderer/stores/layout.store';
+import { usePromptDraftStore } from '../../../../src/renderer/stores/prompt-draft.store';
 import {
   useQuickLookStore,
   type QuickLookItem,
 } from '../../../../src/renderer/stores/quick-look.store';
 import { useToastStore } from '../../../../src/renderer/stores/toast.store';
+import { useViewedFileStore } from '../../../../src/renderer/stores/viewed-file.store';
 
 const api = {
   readViewerFile: vi.fn(),
@@ -892,5 +894,67 @@ describe('QuickLookDialog', () => {
     await user.keyboard('{Escape}');
     expect(useQuickLookStore.getState().session).toBeNull();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  describe('prompt draft', () => {
+    beforeEach(() => {
+      usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
+      useViewedFileStore.setState({ viewed: [] });
+    });
+
+    const viewer = () => screen.getByRole('dialog', { name: 'app.ts' });
+    const draft = () => screen.getByRole('dialog', { name: 'Prompt draft' });
+    const prompt = () => screen.getByRole('textbox', { name: 'Prompt' });
+
+    it('opens inside the viewer, putting in the file with the lines selected', async () => {
+      api.readViewerFile.mockResolvedValue({ data: base64('a\nb\nc'), mimeType: 'text/plain' });
+      editor.getSelection.mockReturnValue({
+        startLineNumber: 2,
+        endLineNumber: 3,
+        isEmpty: () => false,
+      });
+      const user = userEvent.setup();
+      renderViewer();
+      openViewer([workspaceItem('src/app.ts')]);
+      await screen.findByLabelText('Editor for src/app.ts');
+
+      await user.click(screen.getByRole('button', { name: 'Prompt draft' }));
+      // Inside the viewer's own dialog, whose focus trap would keep focus from it otherwise.
+      expect(viewer()).toContainElement(draft());
+      expect(prompt()).toHaveValue('');
+      expect(prompt()).toHaveFocus();
+
+      await user.type(prompt(), 'look at');
+      await user.click(screen.getByRole('button', { name: 'Insert @path to app.ts' }));
+      expect(prompt()).toHaveValue('look at @src/app.ts:2-3 ');
+    });
+
+    it('closes on Escape typed in it, leaving the viewer open', async () => {
+      const user = userEvent.setup();
+      renderViewer();
+      openViewer(images);
+      await screen.findByRole('img', { name: 'a.png' });
+      await user.click(screen.getByRole('button', { name: 'Prompt draft' }));
+
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog', { name: 'Prompt draft' })).not.toBeInTheDocument();
+      expect(useQuickLookStore.getState().session).not.toBeNull();
+    });
+
+    it("keeps the arrow keys and the viewer's shortcuts for typing", async () => {
+      const user = userEvent.setup();
+      renderViewer();
+      openViewer(images);
+      await screen.findByRole('img', { name: 'a.png' });
+      const sidebarOpen = useQuickLookStore.getState().sidebarOpen;
+      await user.click(screen.getByRole('button', { name: 'Prompt draft' }));
+
+      await user.keyboard('{ArrowLeft}{ArrowRight}{Control>}b{/Control}');
+      expect(useQuickLookStore.getState().session?.item).toBe(images[0]);
+      expect(useQuickLookStore.getState().sidebarOpen).toBe(sidebarOpen);
+      await user.keyboard('{Control>}{Shift>}c{/Shift}{/Control}');
+      expect(api.copyToClipboard).not.toHaveBeenCalled();
+      expect(prompt()).toHaveValue('@/tmp/shots/a.png ');
+    });
   });
 });

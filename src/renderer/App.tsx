@@ -34,6 +34,7 @@ import { TitleBar } from '@/components/layout/TitleBar';
 import { UpdateBanner } from '@/components/layout/UpdateBanner';
 import { UsageAnalyticsConsentBanner } from '@/components/layout/UsageAnalyticsConsentBanner';
 import { ProjectIconPromptDialog } from '@/components/projects/ProjectIconPromptDialog';
+import { PromptDraftOutlet } from '@/components/prompt-draft/PromptDraft';
 import { ShortcutProvider } from '@/components/ShortcutProvider';
 import { SshHostDialogHost } from '@/components/ssh-hosts/SshHostDialogHost';
 import { SshHostProjectsDialogHost } from '@/components/ssh-hosts/SshHostProjectsDialog';
@@ -439,6 +440,7 @@ export default function App() {
           <AgentLaunchDefaultsDialog />
           <ProjectIconPromptDialog blocked={newWorkspaceDialogOpen} />
           <QuickLookDialog />
+          <PromptDraftOutlet workspaceId={selectedWorkspaceId} />
           <ActionEditorHost />
           <PaneCloseConfirmHost />
 

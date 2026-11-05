@@ -842,8 +842,6 @@ app.on('window-all-closed', () => {
 });
 
 let isCleaningUp = false;
-// How long quitting waits for local workspaces' stop steps.
-const QUIT_STOP_STEPS_TIME_LIMIT_MS = 10_000;
 app.on('before-quit', (event) => {
   if (isCleaningUp) {
     return; // Already cleaning up, let the quit proceed
@@ -851,7 +849,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (!windowService.confirmQuit()) return;
   isCleaningUp = true;
-  // Before stop steps stop any terminals, so the next launch can offer to restart these.
+  // Before any terminals stop, so the next launch can offer to restart these.
   workspaceService.rememberRunningAtQuit();
 
   // Hide windows immediately so the close feels instant — async cleanup
@@ -868,12 +866,9 @@ app.on('before-quit', (event) => {
   agentsMenuBarService.stop();
   pullRequestStatusService.dispose();
 
-  // Workspace-stop steps such as `docker compose down` run before background commands are killed,
-  // and a Trash deletion under way finishes before workspaces are saved for the last time.
-  void Promise.all([
-    workspaceService.runStopStepsBeforeQuit(QUIT_STOP_STEPS_TIME_LIMIT_MS),
-    workspaceTrash.stop(),
-  ])
+  // A Trash deletion under way finishes before workspaces are saved for the last time.
+  void workspaceTrash
+    .stop()
     .catch((err) => {
       logger.error('Error finishing workspace work during quit', { error: String(err) });
     })

@@ -81,11 +81,12 @@ function isValidSetupStep(value: unknown): boolean {
   );
 }
 
+/** Fills in defaults, and drops a Setup step Komla can't read rather than losing its project. */
 function normalizeSetupSteps(project: Project): Project {
   if (!project.setupSteps) return project;
   return {
     ...project,
-    setupSteps: project.setupSteps.map((step) => ({
+    setupSteps: project.setupSteps.filter(isValidSetupStep).map((step) => ({
       ...step,
       destination: step.destination ?? 'workspace-repository',
       trigger: step.trigger ?? 'every-workspace-start',
@@ -116,8 +117,7 @@ function isValidProject(obj: unknown): obj is Project {
       p['sshWorkspaceMode'] === 'remote' ||
       p['sshWorkspaceMode'] === 'local-mirror-actions') &&
     (!('kind' in p) || p['kind'] === 'git' || p['kind'] === 'directory') &&
-    (!('setupSteps' in p) ||
-      (Array.isArray(p['setupSteps']) && p['setupSteps'].every(isValidSetupStep)))
+    (!('setupSteps' in p) || Array.isArray(p['setupSteps']))
   );
 }
 

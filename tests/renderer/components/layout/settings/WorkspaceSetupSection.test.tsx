@@ -239,48 +239,6 @@ describe('WorkspaceSetupSection', () => {
     ]);
   });
 
-  it('runs a stop step in the background and offers stop only for commands', async () => {
-    const onStepsChange = renderSection([
-      {
-        id: 'down',
-        name: 'Down',
-        command: 'docker compose down',
-        placement: 'tab',
-        trigger: 'every-workspace-start',
-      },
-      { id: 'agent', name: 'Reviewer', command: '', placement: 'split-right', agent: {} },
-    ]);
-
-    expect(
-      within(screen.getByRole('combobox', { name: 'Run on for Reviewer' })).queryByRole('option', {
-        name: 'Workspace stop',
-      })
-    ).not.toBeInTheDocument();
-    await userEvent.selectOptions(
-      screen.getByRole('combobox', { name: 'Run on for Down' }),
-      'workspace-stop'
-    );
-    expect(onStepsChange).toHaveBeenLastCalledWith([
-      expect.objectContaining({ id: 'down', trigger: 'workspace-stop', placement: 'background' }),
-      expect.objectContaining({ id: 'agent' }),
-    ]);
-  });
-
-  it('shows no placement for a stop step', () => {
-    renderSection([
-      {
-        id: 'down',
-        name: 'Down',
-        command: 'docker compose down',
-        placement: 'background',
-        trigger: 'workspace-stop',
-      },
-    ]);
-
-    expect(screen.queryByRole('combobox', { name: 'Show in for Down' })).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Run on for Down' })).toHaveValue('workspace-stop');
-  });
-
   it('hides SSH destinations when no SSH host is configured', () => {
     renderSection(
       [

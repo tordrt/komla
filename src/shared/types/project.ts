@@ -11,11 +11,7 @@ export const SETUP_DESTINATIONS = [
   'ssh-workspace-repository',
   'ssh-local-copy',
 ] as const;
-export const SETUP_TRIGGERS = [
-  'workspace-creation',
-  'every-workspace-start',
-  'workspace-stop',
-] as const;
+export const SETUP_TRIGGERS = ['workspace-creation', 'every-workspace-start'] as const;
 export type SetupStepPlacement = (typeof SETUP_STEP_PLACEMENTS)[number];
 export type SetupDestination = (typeof SETUP_DESTINATIONS)[number];
 export type SetupTrigger = (typeof SETUP_TRIGGERS)[number];
@@ -64,10 +60,7 @@ export interface SetupStep {
   };
   /** Defaults to workspace-repository. */
   destination?: SetupDestination;
-  /**
-   * Defaults to every-workspace-start. A workspace-stop step runs a shell command in the
-   * background once the workspace's terminals have stopped.
-   */
+  /** Defaults to every-workspace-start. */
   trigger?: SetupTrigger;
 }
 

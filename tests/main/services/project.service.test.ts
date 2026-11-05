@@ -255,7 +255,10 @@ describe('ProjectService', () => {
     });
   });
 
-  it('rejects persisted projects with an unknown Setup destination', async () => {
+  it.each([
+    ['an unknown destination', { destination: 'ssh-local-projet' }],
+    ['a trigger Komla no longer has', { trigger: 'workspace-stop' }],
+  ])('skips a persisted Setup step with %s, keeping its project', async (_case, field) => {
     vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
     vfs.mock.writeFileSync(
       '/mock/home/.komla/settings/projects.json',
@@ -272,11 +275,17 @@ describe('ProjectService', () => {
             managed: false,
             setupSteps: [
               {
-                id: 'bad-step',
-                name: 'Bad destination',
+                id: 'install',
+                name: 'Install',
                 command: 'npm install',
                 placement: 'background',
-                destination: 'ssh-local-projet',
+              },
+              {
+                id: 'bad-step',
+                name: 'Bad step',
+                command: 'docker compose down',
+                placement: 'background',
+                ...field,
               },
             ],
           },
@@ -286,7 +295,10 @@ describe('ProjectService', () => {
 
     const { projectService } = await import('../../../src/main/services/project.service');
 
-    expect(projectService.list()).toEqual([]);
+    expect(projectService.list().map((project) => project.id)).toEqual(['project-1']);
+    expect(projectService.get('project-1')?.setupSteps?.map((step) => step.id)).toEqual([
+      'install',
+    ]);
   });
 
   it('replaces workspace setup only at the expected persisted revision', async () => {

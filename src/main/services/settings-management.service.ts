@@ -283,7 +283,6 @@ export type SettingsManagementErrorCode =
   | 'INVALID_PRESET'
   | 'INVALID_SETTINGS'
   | 'INVALID_SSH_EXECUTION_LOCATION'
-  | 'INVALID_STOP_STEP'
   | 'INVALID_BACKGROUND'
   | 'MULTI_PROJECT_ACTION_REQUIRED'
   | 'NO_APPROVAL_WINDOW'
@@ -1654,16 +1653,6 @@ export class SettingsManagementService {
         }
       }
       this.validatePresetSelection(step.agent?.presetId, step.agent?.launchModeId, presets);
-      if (
-        step.trigger === 'workspace-stop' &&
-        (step.agent || (step.actionId && actions.get(step.actionId)?.type !== 'command'))
-      ) {
-        throw new SettingsManagementError(
-          'INVALID_STOP_STEP',
-          'A workspace-stop step runs a shell command or Terminal Command, not an agent.',
-          422
-        );
-      }
     }
   }
 

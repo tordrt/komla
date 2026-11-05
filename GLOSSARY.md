@@ -10,21 +10,14 @@ the Trash.
 _Avoid_: Archive
 
 **Workspace Setup**:
-A project's configuration for preparing and cleaning up its workspaces: Setup steps, Stop steps,
-and Trash cleanup.
+A project's configuration for preparing and cleaning up its workspaces: Setup steps and Trash
+cleanup.
 _Avoid_: Project Setup
 
 **Setup step**:
 A command Workspace Setup launches when a workspace is created or every time it starts, in the
 workspace or its Local copy. Steps run independently in the background and never hold up the
 workspace or each other; list order is launch order, not dependency order.
-
-**Stop step**:
-A Setup step that runs in the background once a workspace's terminals stop, to end what outlives
-them, such as containers started with `docker compose up -d`. Stopping, moving to the Trash and
-deleting a running workspace all run it, and so does quitting Komla for a local workspace; starting
-or deleting the workspace waits for it. It never launches an agent.
-_Avoid_: Teardown script
 
 **Trash cleanup**:
 A command that must succeed in the workspace before it moves to the Trash. Success then discards any

@@ -384,8 +384,6 @@ export function registerWorkspaceHandlers(): void {
     }
 
     if (isTrashing && currentWorkspace) {
-      // The stop's steps, such as `docker compose down`, end before the Trash cleans up.
-      await workspaceService.stopStepsSettled(workspaceId);
       // Suspend the worktree watcher across cleanup so deleting node_modules /
       // build outputs doesn't fire a flood of change events. The renderer
       // trash flow stops PTYs (which stops the watcher) before this IPC

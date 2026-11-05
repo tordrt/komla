@@ -592,29 +592,6 @@ describe('SettingsManagementService', () => {
     );
   });
 
-  it('rejects a workspace-stop step that would launch an agent', async () => {
-    const { service, approve } = fixture();
-
-    await expect(
-      service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-        setupSteps: [
-          {
-            name: 'Reviewer',
-            command: '',
-            placement: 'background',
-            destination: 'workspace-repository',
-            trigger: 'workspace-stop',
-            agent: {},
-          },
-        ],
-        agentPlacement: 'tab',
-        agentLayoutOrder: 0,
-        trashCleanupScript: '',
-      })
-    ).rejects.toMatchObject({ code: 'INVALID_STOP_STEP', status: 422 });
-    expect(approve).not.toHaveBeenCalled();
-  });
-
   it('rejects Workspace Setup writes for directory projects', async () => {
     const { service, projects, approve } = fixture();
     projects[0].kind = 'directory';

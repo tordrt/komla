@@ -1,7 +1,6 @@
 import { existsSync } from 'fs';
 import { dirname } from 'path';
 
-import { isRunningHere } from '../../../shared/lib/terminal-execution-state';
 import { normalizeSshBasePath, type SshHost } from '../../../shared/types/ssh';
 import { canDeleteWorkspaceBranch, isSshWorkspace } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
@@ -122,10 +121,6 @@ export class WorkspaceLifecycle {
     if (!workspace) {
       throw new Error(`Workspace ${workspaceId} not found`);
     }
-    // Stopping again, as moving to the Trash does, would kill the last stop's steps.
-    const stopSteps = workspaceSetupService.stopStepsSettled(workspaceId);
-    if (stopSteps) await stopSteps;
-    const wasRunning = isRunningHere(workspace);
     await workspaceSetupService.cancel(workspaceId);
     workspaceSetupService.clearActive(workspace.id);
     if (isSshWorkspace(workspace)) {
@@ -146,8 +141,6 @@ export class WorkspaceLifecycle {
       terminal.status = 'stopped';
     }
     workspaceSetupService.stopBackground(workspaceId);
-    // Starting or deleting the workspace waits for them.
-    if (wasRunning) void workspaceSetupService.runStopSteps(workspace);
     void remoteWorkspaceObservationService.reconcile();
     this.deps.attention.workspaceStopped(workspaceId);
 
@@ -156,40 +149,6 @@ export class WorkspaceLifecycle {
     await sshPortForwardService.stopPreviewForward(workspaceId);
 
     workspaceStore.saveWorkspaces();
-  }
-
-  /** The workspace's running workspace-stop steps, if any. */
-  stopStepsSettled(workspaceId: string): Promise<void> | undefined {
-    return workspaceSetupService.stopStepsSettled(workspaceId);
-  }
-
-  /**
-   * At quit, stops the local workspaces whose projects have workspace-stop steps and runs those
-   * steps, waiting at most `timeLimitMs`. SSH workspaces keep running on their hosts, so theirs
-   * don't run.
-   */
-  async runStopStepsBeforeQuit(timeLimitMs: number): Promise<void> {
-    const runs = [...workspaceStore.workspaces.values()].flatMap((workspace) => {
-      const running = workspaceSetupService.stopStepsSettled(workspace.id);
-      if (running) return [running];
-      if (
-        isSshWorkspace(workspace) ||
-        !isRunningHere(workspace) ||
-        !workspaceSetupService.hasStopSteps(workspace)
-      ) {
-        return [];
-      }
-      executionLocations.stopAttached(workspace);
-      workspaceSetupService.stopBackground(workspace.id);
-      return [workspaceSetupService.runStopSteps(workspace, timeLimitMs)];
-    });
-    if (runs.length === 0) return;
-    let timer: NodeJS.Timeout | undefined;
-    await Promise.race([
-      Promise.allSettled(runs),
-      new Promise((resolve) => (timer = setTimeout(resolve, timeLimitMs))),
-    ]);
-    clearTimeout(timer);
   }
 
   // Restart a workspace by adding a new terminal with continue command
@@ -203,10 +162,6 @@ export class WorkspaceLifecycle {
     if (workspace.provisioning) {
       throw new Error(`Workspace ${workspaceId} is still being provisioned`);
     }
-
-    // Stop steps such as `docker compose down` finish before setup starts things again.
-    const stopSteps = workspaceSetupService.stopStepsSettled(workspaceId);
-    if (stopSteps) return stopSteps.then(() => this.restart(workspaceId, remoteSetupStopped));
 
     if (!remoteSetupStopped) {
       const setupCleanup = workspaceSetupService.cancel(workspaceId);
@@ -346,7 +301,6 @@ export class WorkspaceLifecycle {
     // The renderer offers branch deletion only where this allows it; never delete the target branch.
     const deletesBranch =
       deleteBranch && canDeleteWorkspaceBranch(workspace, workspaceProject(workspace)?.baseBranch);
-    const wasRunning = isRunningHere(workspace);
     workspaceSetupService.cancel(workspace.id, 'pending');
 
     this.deps.terminals.cancelDeferredWorkspaceLaunches(workspace);
@@ -389,14 +343,6 @@ export class WorkspaceLifecycle {
     // to exit before removing a worktree or local copy containing their cwd.
     const releasingAttached = executionLocations.releaseAttached(workspace);
     if (releasingAttached) await releasingAttached;
-
-    // Once its terminals are gone, a running workspace's stop steps, such as
-    // `docker compose down`, run before its directory goes.
-    const stopSteps =
-      wasRunning && !options.skipBackendCleanup && workspaceSetupService.hasStopSteps(workspace)
-        ? workspaceSetupService.runStopSteps(workspace)
-        : workspaceSetupService.stopStepsSettled(workspaceId);
-    if (stopSteps) await stopSteps;
 
     // Delete worktree if applicable (skip if provisioning never completed)
     if (options.skipBackendCleanup) {

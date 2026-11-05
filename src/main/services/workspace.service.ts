@@ -1088,10 +1088,6 @@ class WorkspaceService {
     return this.lifecycle.stop(...args);
   }
 
-  stopStepsSettled(...args: Parameters<WorkspaceLifecycle['stopStepsSettled']>) {
-    return this.lifecycle.stopStepsSettled(...args);
-  }
-
   /**
    * At quit, before anything stops, marks the local workspaces with running terminals so the next
    * launch can offer to restart them. Those this launch offered and the user left unanswered keep
@@ -1130,10 +1126,6 @@ class WorkspaceService {
     let changed = false;
     for (const id of workspaceIds) changed = workspaceStore.runningAtQuitIds.delete(id) || changed;
     if (changed) workspaceStore.saveWorkspaces();
-  }
-
-  runStopStepsBeforeQuit(...args: Parameters<WorkspaceLifecycle['runStopStepsBeforeQuit']>) {
-    return this.lifecycle.runStopStepsBeforeQuit(...args);
   }
 
   stopTerminal(...args: Parameters<WorkspaceTerminals['stopTerminal']>) {

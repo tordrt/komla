@@ -78,16 +78,6 @@ const DEV_SERVER_PRESETS: SetupPreset[] = [
   { label: 'docker compose up', name: 'Docker', command: 'docker compose up', placement: 'tab' },
 ];
 
-const TEARDOWN_PRESETS: SetupPreset[] = [
-  {
-    label: 'docker compose down',
-    name: 'Stop containers',
-    command: 'docker compose down',
-    placement: 'background',
-    trigger: 'workspace-stop',
-  },
-];
-
 const LAYOUT_PRESETS: SetupPreset[] = [
   { label: 'New terminal tab', name: 'Terminal', command: '', placement: 'tab' },
   { label: 'Split right', name: 'Terminal', command: '', placement: 'split-right' },
@@ -142,7 +132,6 @@ const AGENT_PRESETS: SetupPreset[] = [
 const PRESET_CATEGORIES = [
   { label: 'Dependencies', presets: INSTALL_PRESETS },
   { label: 'Dev Servers', presets: DEV_SERVER_PRESETS },
-  { label: 'Teardown', presets: TEARDOWN_PRESETS },
   { label: 'Agents & Quick Commands', presets: AGENT_PRESETS },
   { label: 'Layout', presets: LAYOUT_PRESETS },
   { label: 'Files & Config', presets: FILES_CONFIG_PRESETS },
@@ -304,9 +293,7 @@ export function WorkspaceSetupSection({
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             Steps start in this order whenever a workspace starts and never block it. Creation-only
             steps run once, when the workspace is first created. Splits attach to the previous
-            terminal; a new tab starts a new group. Stop steps run in the background after a
-            workspace&apos;s terminals stop, to end what outlives them, such as containers started
-            with <code>docker compose up -d</code>.
+            terminal; a new tab starts a new group.
           </p>
         </div>
         {steps.length > 0 ? (
@@ -385,11 +372,6 @@ export function WorkspaceSetupSection({
                       (destination !== 'workspace-repository' &&
                         destination !== 'local-workspace-repository');
                     const trigger = s.trigger ?? 'every-workspace-start';
-                    const runsOnStop = trigger === 'workspace-stop';
-                    // A stop step runs a command after the terminals are gone, never an agent.
-                    const canRunOnStop =
-                      runsOnStop ||
-                      (!stepAgent && (!s.actionId || selectedAction?.type === 'command'));
                     const runsInBackground = s.placement === 'background';
                     const stepCommand = s.actionId
                       ? selectedAction?.type === 'command'
@@ -417,24 +399,22 @@ export function WorkspaceSetupSection({
                             placeholder="Step name"
                             className="h-8 flex-1 text-xs"
                           />
-                          {!runsOnStop && (
-                            <Select
-                              compact
-                              aria-label={`Show in for ${s.name || 'setup step'}`}
-                              value={s.placement}
-                              onChange={(e) =>
-                                updateStep(currentStepId, {
-                                  placement: e.target.value as SetupStepPlacement,
-                                })
-                              }
-                              className="w-[120px] shrink-0"
-                            >
-                              <option value="background">Background</option>
-                              <option value="tab">New tab</option>
-                              <option value="split-right">Split right</option>
-                              <option value="split-bottom">Split bottom</option>
-                            </Select>
-                          )}
+                          <Select
+                            compact
+                            aria-label={`Show in for ${s.name || 'setup step'}`}
+                            value={s.placement}
+                            onChange={(e) =>
+                              updateStep(currentStepId, {
+                                placement: e.target.value as SetupStepPlacement,
+                              })
+                            }
+                            className="w-[120px] shrink-0"
+                          >
+                            <option value="background">Background</option>
+                            <option value="tab">New tab</option>
+                            <option value="split-right">Split right</option>
+                            <option value="split-bottom">Split bottom</option>
+                          </Select>
                           <MoveButtons
                             name={s.name || 'step'}
                             isFirst={isFirst}
@@ -503,17 +483,11 @@ export function WorkspaceSetupSection({
                             value={trigger}
                             onChange={(e) => {
                               const next = e.target.value as SetupTrigger;
-                              updateStep(currentStepId, {
-                                trigger: next,
-                                ...(next === 'workspace-stop'
-                                  ? { placement: 'background' as const }
-                                  : {}),
-                              });
+                              updateStep(currentStepId, { trigger: next });
                             }}
                           >
                             <option value="every-workspace-start">Every workspace start</option>
                             <option value="workspace-creation">Workspace creation only</option>
-                            {canRunOnStop && <option value="workspace-stop">Workspace stop</option>}
                           </Select>
                         </div>
                         <div className="order-4">
@@ -590,11 +564,6 @@ export function WorkspaceSetupSection({
                                   s.destination === 'ssh-local-copy'
                                     ? { destination: 'workspace-repository' as const }
                                     : {}),
-                                  ...(selectedAction &&
-                                  selectedAction.type !== 'command' &&
-                                  runsOnStop
-                                    ? { trigger: 'every-workspace-start' as const }
-                                    : {}),
                                 });
                               }}
                             >
@@ -648,15 +617,13 @@ export function WorkspaceSetupSection({
                             workspaces only, or use {'{{workspacePath}}'}.
                           </StepWarning>
                         )}
-                        {runsInBackground &&
-                          !runsOnStop &&
-                          LONG_RUNNING_COMMAND.test(stepCommand) && (
-                            <StepWarning>
-                              Background steps should run a command that exits on its own. For
-                              long-running processes (dev servers, watchers), use a visible
-                              placement instead.
-                            </StepWarning>
-                          )}
+                        {runsInBackground && LONG_RUNNING_COMMAND.test(stepCommand) && (
+                          <StepWarning>
+                            Background steps should run a command that exits on its own. For
+                            long-running processes (dev servers, watchers), use a visible placement
+                            instead.
+                          </StepWarning>
+                        )}
                       </article>
                     );
                     if (!runsInBackground) {

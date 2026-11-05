@@ -190,8 +190,7 @@ function setupDestinationLabel(destination: SetupStep['destination']): string {
 }
 
 function setupTriggerLabel(trigger: SetupStep['trigger']): string {
-  if (trigger === 'workspace-creation') return 'Workspace creation';
-  return trigger === 'workspace-stop' ? 'Workspace stop' : 'Every workspace start';
+  return trigger === 'workspace-creation' ? 'Workspace creation' : 'Every workspace start';
 }
 
 const AHEAD_ACTION_LABELS: Record<string, string> = {

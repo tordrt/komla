@@ -182,9 +182,9 @@ Workspace Setup:
 - Reference an automatic Quick Command's generated ID from its visible setup step.
 
 Use `workspace-creation` for one-time preparation and `every-workspace-start` for terminal layout
-or processes Komla should recreate on each start. Use `workspace-stop` for a `background` command
-that ends what outlives the terminals, such as `docker compose down` after `docker compose up -d`.
-It runs when a running workspace stops, including at quit, and cannot launch an agent.
+or processes Komla should recreate on each start. Komla runs nothing when a workspace stops, so
+prefer a service that runs in the foreground of a visible step to one that detaches, such as
+`docker compose up -d`, which outlives the workspace.
 
 Prefer `workspace-repository`: it means the local worktree for
 a local Workspace and the authoritative remote worktree for SSH. Use

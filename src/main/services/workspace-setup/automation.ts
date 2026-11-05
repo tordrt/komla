@@ -6,7 +6,6 @@ import type { ResolvedSetupStep } from './step-resolution';
 import type {
   Workspace,
   Terminal,
-  Project,
   SetupActivityRun,
   SetupStep,
   SetupStepPlacement,
@@ -47,11 +46,8 @@ const SETUP_ACTIVITY_OUTPUT_LIMIT = 64 * 1024;
 const SETUP_ACTIVITY_TRUNCATION_MARKER = '\n… earlier output truncated …\n';
 const SETUP_ACTIVITY_RUN_LIMIT = 50;
 const SETUP_ACTIVITY_BROADCAST_INTERVAL_MS = 100;
-/** How long one workspace-stop step may run before it is stopped. */
-export const STOP_STEP_TIME_LIMIT_MS = 60_000;
 
 function shouldRunSetupStep(step: SetupStep, phase: 'create' | 'start'): boolean {
-  if (step.trigger === 'workspace-stop') return false;
   return phase === 'create' || step.trigger !== 'workspace-creation';
 }
 
@@ -76,7 +72,6 @@ export class WorkspaceSetupService {
   // Stops a background Action's run by activity id, until the run ends.
   private actionRunStops = new Map<string, () => Promise<void>>();
   private setupActivityBroadcastTimers = new Map<string, NodeJS.Timeout>();
-  private stopStepRuns = new Map<string, Promise<void>>();
 
   private cancelRemote(workspaceId: string): Promise<void> | undefined {
     const runs = this.remoteSetupRuns.get(workspaceId);
@@ -556,144 +551,6 @@ export class WorkspaceSetupService {
     return workspace;
   }
 
-  /**
-   * Runs the project's workspace-stop steps one after another, for a workspace whose terminals
-   * have stopped. Each step that outlives `timeLimitMs` is stopped. Resolves once all have ended;
-   * a step that fails shows in Setup's activity and doesn't keep the next one from running.
-   */
-  runStopSteps(workspace: Workspace, timeLimitMs = STOP_STEP_TIME_LIMIT_MS): Promise<void> {
-    const running = this.stopStepRuns.get(workspace.id);
-    if (running) return running;
-    const project = this.setupProject(workspace);
-    const steps = this.stopSteps(project);
-    if (!project || steps.length === 0) return Promise.resolve();
-    const setupRunId = randomUUID();
-    return this.trackStopSteps(workspace.id, async () => {
-      for (const step of steps) {
-        // Placement doesn't apply: a stop step never opens a terminal.
-        const resolved = this.resolver.resolve(
-          { ...step, placement: 'background' },
-          workspace,
-          project
-        );
-        if (!resolved) continue;
-        if (resolved.commandKind === 'agent') {
-          this.finishSetupActivity(
-            workspace,
-            this.beginSetupActivity(workspace, resolved, 'running', setupRunId).id,
-            'failed',
-            { error: 'A workspace-stop step runs a command, not an agent' }
-          );
-          continue;
-        }
-        if (!resolved.command.trim()) continue;
-        await this.runStopStep(workspace, resolved, setupRunId, timeLimitMs);
-      }
-    });
-  }
-
-  /** Runs after the workspace's stop steps under way, and counts as one of them until it ends. */
-  private trackStopSteps(workspaceId: string, run: () => Promise<void>): Promise<void> {
-    const tracked: Promise<void> = (this.stopStepRuns.get(workspaceId) ?? Promise.resolve())
-      .then(run)
-      .finally(() => {
-        if (this.stopStepRuns.get(workspaceId) === tracked) this.stopStepRuns.delete(workspaceId);
-      });
-    this.stopStepRuns.set(workspaceId, tracked);
-    return tracked;
-  }
-
-  hasStopSteps(workspace: Workspace): boolean {
-    return this.stopSteps(this.setupProject(workspace)).length > 0;
-  }
-
-  private setupProject(workspace: Workspace): Project | undefined {
-    return workspace.isWorktree && workspace.projectId
-      ? this.dependencies.projects.get(workspace.projectId)
-      : undefined;
-  }
-
-  private stopSteps(project: Project | undefined): SetupStep[] {
-    return (project?.setupSteps ?? []).filter((step) => step.trigger === 'workspace-stop');
-  }
-
-  /** Runs a failed stop step again, as a stop runs it: a start or deletion waits for it. */
-  private retryStopStep(workspace: Workspace, project: Project, step: SetupStep): Workspace {
-    const resolved = this.resolver.resolve(
-      { ...step, placement: 'background' },
-      workspace,
-      project,
-      true
-    );
-    if (!resolved || resolved.commandKind === 'agent') {
-      throw new Error('Setup step is not applicable to this workspace');
-    }
-    workspace.setupActivities = (workspace.setupActivities ?? []).filter(
-      (activity) =>
-        activity.stepId !== step.id ||
-        (activity.state !== 'failed' && activity.state !== 'unsupported')
-    );
-    void this.trackStopSteps(workspace.id, () =>
-      this.runStopStep(workspace, resolved, randomUUID(), STOP_STEP_TIME_LIMIT_MS)
-    );
-    return workspace;
-  }
-
-  /** The workspace's running workspace-stop steps, which a start or deletion waits for. */
-  stopStepsSettled(workspaceId: string): Promise<void> | undefined {
-    return this.stopStepRuns.get(workspaceId);
-  }
-
-  private async runStopStep(
-    workspace: Workspace,
-    step: ResolvedSetupStep,
-    setupRunId: string,
-    timeLimitMs: number
-  ): Promise<void> {
-    const destination = step.destinationResolution;
-    const activity = this.beginSetupActivity(workspace, step, 'running', setupRunId);
-    if (step.validationError || !destination || destination.unsupportedReason) {
-      this.finishSetupActivity(
-        workspace,
-        activity.id,
-        destination?.unsupportedReason ? 'unsupported' : 'failed',
-        { error: destination?.unsupportedReason ?? step.validationError }
-      );
-      return;
-    }
-    try {
-      await destination.prepare?.();
-      const location = this.dependencies.locations.resolve(
-        workspace,
-        destination.executionLocation
-      );
-      let timer: NodeJS.Timeout | undefined;
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        const run = location.runBackground({
-          name: step.name,
-          command: step.command,
-          onData: (data) => this.appendSetupActivityOutput(workspace, activity.id, data),
-          onExit: resolve,
-          onError: reject,
-        });
-        timer = setTimeout(() => {
-          void (run.stop ?? run.cancel)?.();
-          reject(new Error(`Stopped after ${Math.round(timeLimitMs / 1000)} seconds`));
-        }, timeLimitMs);
-      }).finally(() => clearTimeout(timer));
-      this.finishSetupActivity(workspace, activity.id, exitCode === 0 ? 'succeeded' : 'failed', {
-        exitCode,
-      });
-    } catch (error) {
-      this.finishSetupActivity(
-        workspace,
-        activity.id,
-        isLocalCopyUnsupportedError(error) ? 'unsupported' : 'failed',
-        { error: error instanceof Error ? error.message : String(error) }
-      );
-    }
-  }
-
   /** Stops a background Action's run and drops it from the activity, without notifying. */
   async stopRun(workspaceId: string, activityId: string): Promise<void> {
     const workspace = this.dependencies.getWorkspace(workspaceId);
@@ -714,7 +571,6 @@ export class WorkspaceSetupService {
     const project = this.dependencies.projects.get(workspace.projectId);
     const step = project?.setupSteps?.find((candidate) => candidate.id === stepId);
     if (!project || !step) throw new Error(`Setup step ${stepId} not found`);
-    if (step.trigger === 'workspace-stop') return this.retryStopStep(workspace, project, step);
     if (step.placement !== 'background') {
       throw new Error('Only background Setup steps have retryable activity');
     }

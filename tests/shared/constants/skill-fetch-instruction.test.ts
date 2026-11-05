@@ -64,7 +64,6 @@ describe('project setup instructions', () => {
     expect(instructions).toContain('ssh-local-copy');
     expect(instructions).toContain('workspace-creation');
     expect(instructions).toContain('every-workspace-start');
-    expect(instructions).toContain('workspace-stop');
     expect(instructions).toMatch(/destination.*cwd.*machine/is);
     expect(instructions).toMatch(/desktop source path/i);
   });

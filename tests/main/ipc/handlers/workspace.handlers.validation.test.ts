@@ -10,7 +10,6 @@ const mockWorkspaceService = {
   addAgentTab: vi.fn(),
   removeTerminal: vi.fn(),
   stop: vi.fn(),
-  stopStepsSettled: vi.fn(),
   stopTerminal: vi.fn(),
   restartTerminal: vi.fn(),
   reconnectSshTerminal: vi.fn(),

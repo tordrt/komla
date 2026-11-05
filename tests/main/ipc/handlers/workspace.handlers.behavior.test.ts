@@ -48,7 +48,6 @@ const mockWorkspaceService = {
   addTerminalWithPreparation: vi.fn(),
   removeTerminal: vi.fn(),
   stop: vi.fn(),
-  stopStepsSettled: vi.fn(),
   stopTerminal: vi.fn(),
   restartTerminal: vi.fn(),
   reconnectSshTerminal: vi.fn(),
@@ -961,36 +960,6 @@ describe('workspace IPC behavior', () => {
       expect(order).toContain('rm');
       expect(order.indexOf('stopWatcher')).toBeLessThan(order.indexOf('rm'));
       expect(mockWorktreeWatcherService.startWatching).not.toHaveBeenCalled();
-    });
-
-    it("waits for the stop's stop steps before Trash cleanup", async () => {
-      const ipcMain = await setup();
-      mockProjectService.get.mockReturnValue({
-        id: 'proj-1',
-        trashCleanupScript: 'rm -rf node_modules',
-      });
-      mockWorkspaceService.get.mockReturnValue({
-        id: 'ws-1',
-        projectId: 'proj-1',
-        status: 'active',
-        workingDirectory: '/tmp/repo',
-        isWorktree: true,
-      });
-      mockWorkspaceService.update.mockReturnValue({ id: 'ws-1', status: 'trashed' });
-      const order: string[] = [];
-      mockWorkspaceService.stopStepsSettled.mockReturnValue(
-        Promise.resolve().then(() => {
-          order.push('stop steps');
-        })
-      );
-      mockRm.mockImplementation(async () => {
-        order.push('rm');
-      });
-
-      await ipcMain._invoke('workspace:update', 'ws-1', { status: 'trashed' });
-
-      expect(mockWorkspaceService.stopStepsSettled).toHaveBeenCalledWith('ws-1');
-      expect(order).toEqual(['stop steps', 'rm']);
     });
 
     it('restarts the watcher when trash cleanup fails and the watcher was active', async () => {

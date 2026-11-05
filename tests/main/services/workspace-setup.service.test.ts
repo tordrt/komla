@@ -4,7 +4,6 @@ import {
   createExecutionLocations,
   type ExecutionLocationDependencies,
 } from '../../../src/main/services/execution-location/execution-location';
-import { STOP_STEP_TIME_LIMIT_MS } from '../../../src/main/services/workspace-setup/automation';
 import { WorkspaceSetupService } from '../../../src/main/services/workspace-setup.service';
 import {
   createBackgroundStep,
@@ -637,120 +636,6 @@ describe('Workspace Setup Automation', () => {
       h.execution.background.spawn.mock.calls[0][4].onExit({ exitCode: 1 });
 
       expect(h.dependencies.notifyActionRunFinished).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('stop steps', () => {
-    const stopStep = (name: string, command = `${name}-command`) =>
-      createBackgroundStep({ id: name, name, command, trigger: 'workspace-stop' });
-
-    it('never runs on creation or start', () => {
-      const h = harness({
-        setupSteps: [stopStep('down'), createBackgroundStep({ name: 'Install' })],
-      });
-      h.setup.start(h.workspace, 'claude', 'create');
-      h.setup.start(h.workspace, 'claude', 'start');
-      expect(h.launches).toEqual(['Workspace', 'Install', 'Workspace', 'Install']);
-    });
-
-    it('runs one after another and settles once the last has exited', async () => {
-      const h = harness({
-        setupSteps: [
-          stopStep('down'),
-          createBackgroundStep({ name: 'Install' }),
-          stopStep('prune'),
-        ],
-      });
-      let settled = false;
-      const run = h.setup.runStopSteps(h.workspace).then(() => (settled = true));
-      expect(h.setup.stopStepsSettled(h.workspace.id)).toBeDefined();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(h.launches).toEqual(['down']);
-
-      h.execution.background.spawn.mock.calls[0][4]!.onExit!({ exitCode: 0 });
-      await vi.advanceTimersByTimeAsync(0);
-      expect(h.launches).toEqual(['down', 'prune']);
-      expect(h.execution.background.spawn.mock.calls[1][1]).toBe('prune-command');
-      expect(settled).toBe(false);
-
-      h.execution.background.spawn.mock.calls[1][4]!.onExit!({ exitCode: 2 });
-      await run;
-      expect(h.setup.stopStepsSettled(h.workspace.id)).toBeUndefined();
-      expect(
-        h.workspace.setupActivities?.map((activity) => [activity.stepName, activity.state])
-      ).toEqual([
-        ['down', 'succeeded'],
-        ['prune', 'failed'],
-      ]);
-    });
-
-    it('stops a step that runs past the time limit and goes on with the next', async () => {
-      const h = harness({ setupSteps: [stopStep('hangs'), stopStep('next')] });
-      const run = h.setup.runStopSteps(h.workspace, 5_000);
-      await vi.advanceTimersByTimeAsync(4_999);
-      expect(h.stopBackgroundProcess).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(1);
-      expect(h.stopBackgroundProcess).toHaveBeenCalledTimes(1);
-      expect(h.workspace.setupActivities![0]).toMatchObject({
-        state: 'failed',
-        error: 'Stopped after 5 seconds',
-      });
-      expect(h.launches).toEqual(['hangs', 'next']);
-      h.execution.background.spawn.mock.calls[1][4]!.onExit!({ exitCode: 0 });
-      await run;
-    });
-
-    it('runs on the SSH host for an SSH workspace', async () => {
-      const h = harness(
-        { setupSteps: [stopStep('down', 'docker compose down')] },
-        { backend: sshBackend }
-      );
-      await h.setup.runStopSteps(h.workspace);
-      const script = h.execution.ssh.runStreaming.mock.calls[0][1];
-      expect(script).toContain("cd '/remote/worktree'");
-      expect(script).toContain('docker compose down');
-      expect(h.workspace.setupActivities![0].state).toBe('succeeded');
-    });
-
-    it('launches no agent', async () => {
-      const h = harness({
-        setupSteps: [{ ...stopStep('agent'), agent: {} }, stopStep('down')],
-      });
-      const run = h.setup.runStopSteps(h.workspace);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(h.dependencies.addTerminal).not.toHaveBeenCalled();
-      expect(h.launches).toEqual(['down']);
-      expect(h.workspace.setupActivities![0]).toMatchObject({ stepName: 'agent', state: 'failed' });
-      h.execution.background.spawn.mock.calls[0][4]!.onExit!({ exitCode: 0 });
-      await run;
-    });
-
-    it('retries a failed stop step as a stop step, which a start then waits for', async () => {
-      const h = harness({ setupSteps: [stopStep('down')] });
-      const run = h.setup.runStopSteps(h.workspace);
-      await vi.advanceTimersByTimeAsync(0);
-      h.execution.background.spawn.mock.calls[0][4]!.onExit!({ exitCode: 1 });
-      await run;
-
-      h.setup.retry(h.workspace.id, 'down');
-      const retried = h.setup.stopStepsSettled(h.workspace.id);
-      expect(retried).toBeDefined();
-      await vi.advanceTimersByTimeAsync(0);
-      expect(h.launches).toEqual(['down', 'down']);
-      expect(h.workspace.setupActivities).toHaveLength(1);
-
-      await vi.advanceTimersByTimeAsync(STOP_STEP_TIME_LIMIT_MS);
-      await retried;
-      expect(h.workspace.setupActivities![0]).toMatchObject({ state: 'failed' });
-      expect(h.setup.stopStepsSettled(h.workspace.id)).toBeUndefined();
-    });
-
-    it('does nothing for a workspace without stop steps', async () => {
-      const h = harness({ setupSteps: [createBackgroundStep()] });
-      expect(h.setup.hasStopSteps(h.workspace)).toBe(false);
-      await h.setup.runStopSteps(h.workspace);
-      expect(h.launches).toEqual([]);
-      expect(h.setup.stopStepsSettled(h.workspace.id)).toBeUndefined();
     });
   });
 });

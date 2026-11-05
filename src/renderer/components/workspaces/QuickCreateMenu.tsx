@@ -25,11 +25,6 @@ import {
 import { IconButton } from '@/components/ui/icon-button';
 import { Spinner } from '@/components/ui/spinner';
 import { ActionInputDialog } from '@/components/workspaces/ActionInputDialog';
-import {
-  injectActionContext,
-  ACTION_TARGET_BRANCH_TOKEN,
-  actionNeedsInjection,
-} from '@/lib/action-injection';
 import { startCommandInCreatedWorkspace } from '@/lib/action-launch';
 import { createFolderWorkspace, openFolder } from '@/lib/open-folder';
 import { qualifyBaseBranch, refreshIfBaseIsRemoteOnly } from '@/lib/remote-base-branch';
@@ -40,6 +35,11 @@ import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { handleCreateError } from '@/utils/workspace-error';
 
+import {
+  injectActionContext,
+  ACTION_TARGET_BRANCH_TOKEN,
+  actionNeedsInjection,
+} from '../../../shared/lib/action-injection';
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
 import { generateBranchSuffix, branchSuffixToName } from '../../../shared/lib/random-names';
 

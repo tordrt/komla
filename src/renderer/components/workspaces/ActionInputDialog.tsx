@@ -12,9 +12,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Kbd } from '@/components/ui/kbd';
-import { ACTION_TARGET_BRANCH_TOKEN, ACTION_USER_INPUT_TOKEN } from '@/lib/action-injection';
 import { cn } from '@/lib/utils';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
+
+import {
+  ACTION_TARGET_BRANCH_TOKEN,
+  ACTION_USER_INPUT_TOKEN,
+} from '../../../shared/lib/action-injection';
 
 interface ActionInputDialogProps {
   open: boolean;

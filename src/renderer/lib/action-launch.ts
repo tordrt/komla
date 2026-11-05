@@ -1,8 +1,3 @@
-import {
-  ACTION_TARGET_BRANCH_TOKEN,
-  actionNeedsInjection,
-  injectActionContext,
-} from '@/lib/action-injection';
 import { resolveDefaultLaunchTarget, resolveLaunchablePresets } from '@/lib/agent-launch';
 import { runBackgroundAction } from '@/lib/background-action';
 import { ipcErrorMessage } from '@/lib/ipc-error-message';
@@ -23,7 +18,8 @@ import {
   isSshWorkspace,
   resolveWorkspaceTargetBranch,
 } from '@/types';
-import { substituteCommandVars } from '@/utils/template-vars';
+
+import { actionNeedsInjection, fillActionText } from '../../shared/lib/action-injection';
 
 import type { Action, ActionSshExecutionLocation, Project, Terminal, Workspace } from '@/types';
 import type { PaneId } from '@/types/layout';
@@ -138,12 +134,7 @@ async function launchAtPlace(
   }
 }
 
-/**
- * The text an Action runs in a workspace: its launch context filled in, the workspace's own
- * values before the user's input, so braces typed into the input stay as typed. A Terminal
- * Command that runs keeps `{{worktreePath}}`, `{{branchName}}` and `{{projectName}}` for the
- * terminal it starts in to fill in, quoted for its shell; pasted, it shows them as they are.
- */
+/** The text an Action runs in a workspace, its launch context filled in (see fillActionText). */
 export function resolveActionText(
   action: Action,
   workspace: Workspace,
@@ -153,18 +144,13 @@ export function resolveActionText(
   const project = workspace.projectId
     ? useProjectsStore.getState().projects.find((p) => p.id === workspace.projectId)
     : undefined;
-  const content =
-    action.type === 'command' && !pasted
-      ? action.content
-      : substituteCommandVars(action.content, {
-          worktreePath: workspace.workingDirectory,
-          branchName: workspace.branchName || '',
-          projectName: project?.name || '',
-        });
-  const targetBranch = content.includes(ACTION_TARGET_BRANCH_TOKEN)
-    ? resolveTargetBranch(workspace, project)
-    : undefined;
-  return injectActionContext(content, { userInput: input, targetBranch });
+  return fillActionText(action, {
+    workspace,
+    projectName: project?.name || '',
+    targetBranch: () => resolveTargetBranch(workspace, project),
+    input,
+    pasted,
+  });
 }
 
 function resolveTargetBranch(workspace: Workspace, project: Project | undefined): string {

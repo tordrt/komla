@@ -26,13 +26,18 @@ import {
   type RemoteWorkspaceSummary,
 } from '../../../packages/remote-protocol/src/app/frames';
 import { IPC } from '../../shared/constants/ipc-channels';
+import { fillActionText } from '../../shared/lib/action-injection';
 import { projectColorHex } from '../../shared/lib/project-color';
 import {
   workspaceTagAppearance,
   type WorkspaceTagDefinition,
 } from '../../shared/lib/workspace-tags';
 import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
-import { needsAttention, pickWorkspaceAttention } from '../../shared/types/workspace';
+import {
+  needsAttention,
+  pickWorkspaceAttention,
+  resolveWorkspaceTargetBranch,
+} from '../../shared/types/workspace';
 import { createLogger } from '../lib/logger';
 
 import { actionService } from './action.service';
@@ -1259,10 +1264,13 @@ class RemoteControlAppSession implements RemoteControlSession {
       throw new Error('action requires input');
     }
     const project = workspace.projectId ? this.deps.projects.get(workspace.projectId) : undefined;
-    const targetBranch = workspace.baseBranch || project?.baseBranch || 'main';
-    const content = action.content
-      .replaceAll('{{user_input}}', userInput?.trim() ?? '')
-      .replaceAll('{{target_branch}}', targetBranch);
+    // As the desktop fills it in, short of the target branch git reports, which main doesn't track.
+    const content = fillActionText(action, {
+      workspace,
+      projectName: project?.name || '',
+      targetBranch: () => resolveWorkspaceTargetBranch(workspace, project?.baseBranch) || 'main',
+      input: userInput?.trim() ?? '',
+    });
     let terminal: Terminal;
     if (action.type === 'command') {
       if (!remoteMayRunActionCommand(this.deps.config.get(), workspace, project)) {

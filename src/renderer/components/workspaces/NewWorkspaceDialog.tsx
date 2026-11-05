@@ -54,11 +54,6 @@ import { NEW_WORKSPACE_SHORTCUTS_GROUP } from '@/constants/shortcut-entries';
 import { useDetectedMainBranch } from '@/hooks/useDetectedMainBranch';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import {
-  injectActionContext,
-  ACTION_TARGET_BRANCH_TOKEN,
-  actionNeedsInjection,
-} from '@/lib/action-injection';
-import {
   getNewWorkspaceDialogAction,
   isWorkspaceSelectShortcut,
   movesFocus,
@@ -101,6 +96,11 @@ import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { isSshWorkspace } from '@/types';
 import { handleCreateError } from '@/utils/workspace-error';
 
+import {
+  injectActionContext,
+  ACTION_TARGET_BRANCH_TOKEN,
+  actionNeedsInjection,
+} from '../../../shared/lib/action-injection';
 import { resolveWorkspaceCreationEnvironment } from '../../../shared/lib/agent-environment';
 import { canStartWithPrompt } from '../../../shared/lib/agent-preset-prompt';
 import { levelPickerOf } from '../../../shared/lib/level-picker';

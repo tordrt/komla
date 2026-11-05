@@ -6,7 +6,8 @@ import {
   injectActionContext,
   injectActionInput,
   actionNeedsInjection,
-} from '../../../src/renderer/lib/action-injection';
+  fillActionText,
+} from '../../../src/shared/lib/action-injection';
 
 describe('action-injection', () => {
   it('detects when an action requires injection', () => {
@@ -69,5 +70,38 @@ describe('action-injection', () => {
   it('leaves target branch token unchanged when value is missing', () => {
     const action = `Review against ${ACTION_TARGET_BRANCH_TOKEN}`;
     expect(injectActionContext(action, {})).toBe(action);
+  });
+});
+
+describe('fillActionText', () => {
+  const sshWorkspace = {
+    workingDirectory: 'ssh://host-1/home/dev/repo',
+    branchName: 'feature/x',
+    backend: { kind: 'ssh', remoteDirectory: '/home/dev/repo' },
+  } as Parameters<typeof fillActionText>[1]['workspace'];
+  const fill = (
+    action: { type?: 'prompt' | 'command'; content: string },
+    options: { input?: string; pasted?: boolean } = {}
+  ) =>
+    fillActionText(action, {
+      workspace: sshWorkspace,
+      projectName: 'Komla',
+      targetBranch: () => 'main',
+      ...options,
+    });
+
+  it("fills a Saved Prompt with the workspace's values, its SSH folder as the path", () => {
+    expect(
+      fill(
+        { content: 'Review {{worktreePath}} on {{branchName}} in {{projectName}}: {{user_input}}' },
+        { input: 'keep {{branchName}}' }
+      )
+    ).toBe('Review /home/dev/repo on feature/x in Komla: keep {{branchName}}');
+  });
+
+  it("leaves a Terminal Command's workspace values to its terminal, unless it's pasted", () => {
+    const command = { type: 'command' as const, content: 'git log {{target_branch}}..{{branchName}}' };
+    expect(fill(command)).toBe('git log main..{{branchName}}');
+    expect(fill(command, { pasted: true })).toBe('git log main..feature/x');
   });
 });

@@ -955,6 +955,30 @@ describe('RemoteControlSessionService', () => {
     expect(older.peer.sent[0]).not.toHaveProperty('workspaces.0.tag');
   });
 
+  it("fills in a Saved Prompt's values as the desktop does, leaving the user's input as typed", async () => {
+    const { peer, workspaces, actions } = makeFixture();
+    actions.get.mockReturnValueOnce({
+      id: 'prompt-action',
+      title: 'Investigate',
+      content: 'Investigate {{user_input}} in {{projectName}} against {{target_branch}}',
+    });
+
+    peer.emitJson({
+      type: 'app:terminal:create',
+      requestId: 'r1',
+      workspaceId: 'w1',
+      source: { kind: 'action', actionId: 'prompt-action', userInput: 'a $` b {{target_branch}}' },
+    });
+    await flush();
+
+    expect(workspaces.addAgentTab).toHaveBeenCalledWith(
+      'w1',
+      'Investigate a $` b {{target_branch}} in Komla against main',
+      undefined,
+      undefined
+    );
+  });
+
   it('creates shell, agent, and action terminals and closes the current terminal', async () => {
     const { peer, workspaces, actions } = makeFixture();
 

@@ -119,8 +119,9 @@ vi.mock('../../../../src/renderer/utils/workspace-error', () => ({
   }),
 }));
 
-vi.mock('../../../../src/renderer/lib/action-injection', () => ({
+vi.mock('../../../../src/shared/lib/action-injection', () => ({
   injectActionContext: (content: string) => content,
+  fillActionText: (action: { content: string }) => action.content,
   ACTION_TARGET_BRANCH_TOKEN: '{{target_branch}}',
   actionNeedsInjection: () => false,
 }));

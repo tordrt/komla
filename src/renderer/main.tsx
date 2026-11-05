@@ -8,6 +8,9 @@ import { shouldSuppressRendererError } from '@/lib/non-actionable-error';
 import { applyPalette, getActivePalette, readStoredPaletteId } from '@/lib/palette-runtime';
 import { applyAccent, readStoredAccent } from '@/lib/primary-color';
 import { startRendererDiagnostics } from '@/lib/renderer-diagnostics';
+import { useConfigStore } from '@/stores/config.store';
+import { useProjectsStore } from '@/stores/projects.store';
+import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import App from './App';
 
@@ -51,10 +54,27 @@ if (window.__KOMLA_IS_DEMO__) {
   void ensureMonacoInitialized();
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ErrorBoundary fallback={(error) => <RootErrorFallback error={error} />}>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>
-);
+/** How long the first render waits for what the window shows before it shows Loading instead. */
+const LAUNCH_DATA_WAIT_MS = 300;
+
+// The config, workspaces and projects, asked for before React first renders, so it renders the
+// window with them rather than a Loading screen and then the window, a render pass sooner.
+// useAppLifecycle loads them again as it subscribes to their changes, which catches any change
+// sent before then.
+const launchData = Promise.all([
+  useConfigStore.getState().loadConfig(),
+  useWorkspacesStore.getState().loadWorkspaces(),
+  useProjectsStore.getState().loadProjects(),
+]);
+void Promise.race([
+  launchData,
+  new Promise((resolve) => setTimeout(resolve, LAUNCH_DATA_WAIT_MS)),
+]).then(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <ErrorBoundary fallback={(error) => <RootErrorFallback error={error} />}>
+        <App />
+      </ErrorBoundary>
+    </React.StrictMode>
+  );
+});

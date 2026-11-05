@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAppLifecycle } from '../../../src/renderer/hooks/useAppLifecycle';
 import { useConfigStore } from '../../../src/renderer/stores/config.store';
+import { useProjectsStore } from '../../../src/renderer/stores/projects.store';
 import { useWorkspacesStore } from '../../../src/renderer/stores/workspaces.store';
 
 import type { Workspace } from '../../../src/renderer/types';
@@ -144,6 +145,64 @@ describe('useAppLifecycle', () => {
       vi.advanceTimersByTime(3000);
 
       expect(reconnectAfterNetworkReturns).not.toHaveBeenCalled();
+    });
+  });
+  describe("what the window's first screen loaded", () => {
+    // The first screen loads them before React subscribes to their changes, so a change main
+    // sent in between would be missed without loading them again. Loading as it subscribes, in
+    // the same task, misses nothing: the answers and events arrive in later ones.
+    it('loads it again as it subscribes to its changes', () => {
+      const calls: string[] = [];
+      const api = new Proxy(
+        {},
+        {
+          get: (_target, key: string) => {
+            if (key === 'getConfig' || key === 'getWorkspaces' || key === 'getProjects') {
+              return () => {
+                calls.push(key);
+                return Promise.resolve(key === 'getConfig' ? {} : []);
+              };
+            }
+            if (key === 'hasProjects') return () => Promise.resolve(true);
+            if (
+              key === 'onConfigChanged' ||
+              key === 'onWorkspacesChanged' ||
+              key === 'onProjectsChange'
+            ) {
+              return () => {
+                calls.push(key);
+                return () => {};
+              };
+            }
+            if (key.startsWith('on')) return () => () => {};
+            return vi.fn().mockResolvedValue(undefined);
+          },
+        }
+      );
+      Object.defineProperty(window, 'api', { value: api, configurable: true });
+      useConfigStore.setState({ config: {} as never, isLoading: false, hasProjects: true });
+      useWorkspacesStore.setState({ hasLoaded: true });
+      useProjectsStore.setState({ projects: [], hasLoaded: true });
+
+      renderHook(() =>
+        useAppLifecycle({
+          sidebarElement: null,
+          mainElement: null,
+          setNewWorkspaceDialogOpen: () => {},
+          setFeedbackOpen: () => {},
+        })
+      );
+
+      expect(calls).toEqual(
+        expect.arrayContaining([
+          'onConfigChanged',
+          'getConfig',
+          'onWorkspacesChanged',
+          'getWorkspaces',
+          'onProjectsChange',
+          'getProjects',
+        ])
+      );
     });
   });
 });

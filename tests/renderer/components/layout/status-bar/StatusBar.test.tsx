@@ -1959,6 +1959,52 @@ describe('StatusBar', () => {
     });
   });
 
+  describe('prompt draft', () => {
+    beforeEach(() => {
+      usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
+    });
+
+    /** The open workspace, which the window's draft shows for. */
+    function openWorkspace() {
+      const workspace = createWorkspace({ windowId: WINDOW_ID, name: 'login-fix' });
+      act(() => {
+        setWorkspaces([workspace]);
+        useWorkspacesStore.setState({ selectedWorkspaceId: workspace.id });
+        usePromptDraftStore.getState().addHost('window', workspace.id);
+      });
+      return workspace;
+    }
+
+    it('shows by default while a workspace is open, and opens and closes its draft', async () => {
+      const user = userEvent.setup();
+      renderStatusBar();
+      expect(screen.queryByRole('button', { name: 'Prompt draft' })).not.toBeInTheDocument();
+
+      const workspace = openWorkspace();
+      const button = await screen.findByRole('button', { name: 'Prompt draft' });
+      expect(button).toHaveAttribute('aria-expanded', 'false');
+
+      await user.click(button);
+      expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ [workspace.id]: true });
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+
+      // From the keyboard too, with focus on the button rather than in the draft.
+      button.focus();
+      await user.keyboard('{Enter}');
+      expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ [workspace.id]: false });
+    });
+
+    it('acts on the draft a viewer on top shows, as the shortcut does', async () => {
+      const user = userEvent.setup();
+      openWorkspace();
+      act(() => usePromptDraftStore.getState().addHost('viewer', 'ws-other'));
+      renderStatusBar();
+
+      await user.click(screen.getByRole('button', { name: 'Prompt draft' }));
+      expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ 'ws-other': true });
+    });
+  });
+
   describe('notes', () => {
     beforeEach(() => {
       mockState.config = { statusBarShownItems: ['notes'] };
@@ -4258,6 +4304,7 @@ describe('StatusBar', () => {
         'File search',
         'Files (full window)',
         'Diff (full window)',
+        'Prompt draft',
         'Commit graph',
       ]);
       expect(within(panel).queryByRole('region', { name: 'Sidebar' })).not.toBeInTheDocument();
@@ -4304,6 +4351,7 @@ describe('StatusBar', () => {
           'file-search',
           'file-viewer',
           'diff-viewer',
+          'prompt-draft',
           'commit-graph',
         ],
         statusBarRightItems: [
@@ -4367,6 +4415,7 @@ describe('StatusBar', () => {
           'file-viewer',
           'diff-viewer',
           'notes',
+          'prompt-draft',
           'commit-graph',
         ],
       });
@@ -4516,6 +4565,7 @@ describe('StatusBar', () => {
           'file-viewer',
           'diff-viewer',
           'notes',
+          'prompt-draft',
           'commit-graph',
         ],
         statusBarRightItems: [

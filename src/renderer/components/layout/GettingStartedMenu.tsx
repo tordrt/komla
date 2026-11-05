@@ -3,6 +3,7 @@ import {
   Browsers,
   Keyboard,
   ChatCircle,
+  ChatText,
   Tray,
   Microphone,
   Sparkle,
@@ -29,6 +30,7 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/compon
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openCustomizeAgent } from '@/lib/customize-agent';
 import { openKomlaGitHub } from '@/lib/komla-github';
+import { openPromptDraft } from '@/lib/prompt-draft';
 import { useWorkspaceExceptTitles } from '@/lib/workspace-except-titles';
 import { useActionsStore } from '@/stores/actions.store';
 import { offerKomlaSkillInstall } from '@/stores/agent-launch-defaults-dialog.store';
@@ -145,6 +147,12 @@ const MORE_TIPS: MoreTipDef[] = [
     title: 'Voice dictation',
     subtitle: 'Dictate prompts instead of typing them',
     icon: Microphone,
+  },
+  {
+    id: 'prompt-draft',
+    title: 'Prompt draft',
+    subtitle: 'Write a prompt while you look at files, then copy it into an agent',
+    icon: ChatText,
   },
   {
     id: 'shortcuts',
@@ -473,6 +481,10 @@ export function GettingStartedMenu({
         setOpen(false);
         openTipSettings('voice');
         break;
+      case 'prompt-draft':
+        setOpen(false);
+        if (selectedWorkspace) openPromptDraft(selectedWorkspace.id);
+        break;
       case 'remote-control':
         setOpen(false);
         openTipSettings('remote');
@@ -584,14 +596,17 @@ export function GettingStartedMenu({
 
           <TipSection label="More to explore">
             <div className="grid grid-cols-2 gap-0.5">
-              {MORE_TIPS.map((tip) => (
-                <MoreTipTile
-                  key={tip.id}
-                  tip={tip}
-                  done={doneTipIds.has(tip.id)}
-                  onAction={() => void handleTipAction(tip.id)}
-                />
-              ))}
+              {/* The prompt draft is a workspace's. */}
+              {MORE_TIPS.filter((tip) => tip.id !== 'prompt-draft' || selectedWorkspace).map(
+                (tip) => (
+                  <MoreTipTile
+                    key={tip.id}
+                    tip={tip}
+                    done={doneTipIds.has(tip.id)}
+                    onAction={() => void handleTipAction(tip.id)}
+                  />
+                )
+              )}
             </div>
           </TipSection>
 

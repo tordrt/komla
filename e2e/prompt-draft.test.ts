@@ -27,6 +27,14 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
     timeout: 10_000,
   });
 
+  // The status bar's button opens it from anywhere in the workspace.
+  await appWindow.getByRole('button', { name: 'Prompt draft' }).click();
+  const windowDraft = appWindow.getByRole('dialog', { name: 'Prompt draft' });
+  await expect(windowDraft.getByRole('textbox', { name: 'Prompt' })).toBeFocused();
+  await appWindow.screenshot({ path: test.info().outputPath('prompt-draft-status-bar.png') });
+  await appWindow.keyboard.press('Escape');
+  await expect(windowDraft).toBeHidden();
+
   await appWindow.keyboard.press(`${mod}+Shift+E`);
   const viewer = appWindow.getByRole('dialog', { name: 'viewer' });
   await expect(viewer).toBeVisible({ timeout: 10_000 });

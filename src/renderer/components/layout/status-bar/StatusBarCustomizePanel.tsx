@@ -1,6 +1,7 @@
 import {
   CalendarDots,
   ChartBar,
+  ChatText,
   Code,
   Coffee,
   Cloud,
@@ -65,6 +66,7 @@ const ITEM_ICONS: Record<StatusBarItemId, Icon> = {
   'file-viewer': Folder,
   'diff-viewer': GitDiff,
   notes: NotePencil,
+  'prompt-draft': ChatText,
   'commit-graph': GitCommit,
   agents: Robot,
   'claude-code-usage': ChartBar,

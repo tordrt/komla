@@ -3,13 +3,14 @@
  */
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import React from 'react';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { useActionsStore } from '../../../../src/renderer/stores/actions.store';
 import { useAgentPresetsStore } from '../../../../src/renderer/stores/agent-presets.store';
 import { useDialogsStore } from '../../../../src/renderer/stores/dialogs.store';
 import { useLayoutStore } from '../../../../src/renderer/stores/layout.store';
 import { useProjectsStore } from '../../../../src/renderer/stores/projects.store';
+import { usePromptDraftStore } from '../../../../src/renderer/stores/prompt-draft.store';
 import { useSshHostDialogStore } from '../../../../src/renderer/stores/ssh-host-dialog.store';
 import { useStatusBarCustomizeStore } from '../../../../src/renderer/stores/status-bar-customize.store';
 import { useToastStore } from '../../../../src/renderer/stores/toast.store';
@@ -638,6 +639,26 @@ describe('GettingStartedMenu', () => {
     expect(steps().at(-1)).toBe(row);
     expect(row.textContent).toContain('a VM or a container');
     expect(screen.queryByRole('button', { name: 'Local VM' })).toBeNull();
+  });
+
+  it("opens the open workspace's prompt draft from its tip, offered only with one open", async () => {
+    usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
+    useWorkspacesStore.setState({ workspaces: [], selectedWorkspaceId: null });
+    onTestFinished(() => {
+      useWorkspacesStore.setState({ workspaces: [], selectedWorkspaceId: null });
+      usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
+    });
+    const view = await renderComponent();
+    expect(screen.queryByText('Prompt draft')).toBeNull();
+    view.unmount();
+
+    useWorkspacesStore.setState({
+      workspaces: [{ id: 'ws-1', name: 'login-fix' } as never],
+      selectedWorkspaceId: 'ws-1',
+    });
+    await renderComponent();
+    fireEvent.click(rowFor('Prompt draft')!);
+    expect(usePromptDraftStore.getState().openByWorkspace).toEqual({ 'ws-1': true });
   });
 
   it('opens a new window when multi-window tip is clicked', async () => {

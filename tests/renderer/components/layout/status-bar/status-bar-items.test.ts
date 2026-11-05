@@ -75,6 +75,7 @@ describe('status bar items', () => {
       'file-viewer',
       'diff-viewer',
       'notes',
+      'prompt-draft',
       'commit-graph',
     ];
     const DEFAULT_RIGHT = [
@@ -115,6 +116,7 @@ describe('status bar items', () => {
 
       expect(placement.left).toEqual([
         'notes',
+        'prompt-draft',
         'commit-graph',
         'git-menu',
         'target-branch',
@@ -164,6 +166,7 @@ describe('status bar items', () => {
         'file-viewer',
         'diff-viewer',
         'notes',
+        'prompt-draft',
         'commit-graph',
         'command:deploy',
       ]);

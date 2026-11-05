@@ -545,6 +545,21 @@ describe('SshTab', () => {
       expect(mockDeleteHost).toHaveBeenCalledWith('ssh-dev', { deleteRemoteData: false });
     });
 
+    it('says the agents of workspaces left on the host keep running', async () => {
+      mockWorkspaces = [sshWorkspace('one')];
+      const user = userEvent.setup();
+      renderSsh();
+
+      await user.click(screen.getByRole('button', { name: 'Delete host' }));
+      const keepRunning = /Agents running in them keep running on the host/;
+      expect(screen.getByText(keepRunning)).toBeVisible();
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Delete all Komla data from this host' })
+      );
+      expect(screen.queryByText(keepRunning)).not.toBeInTheDocument();
+    });
+
     it('warns when it cannot check the host for workspaces from other devices', async () => {
       vi.mocked(window.api.listRemoteSshWorkspaces).mockRejectedValue(
         new Error('Connection timed out')

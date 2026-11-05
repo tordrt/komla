@@ -14368,7 +14368,7 @@ describe('WorkspaceService', () => {
       ).toThrow('Remote Komla path is fixed after this machine is connected');
     });
 
-    it('deletes an SSH host and removes its workspace records locally by default', async () => {
+    it('deletes an SSH host and its workspace records locally, leaving their agents running on the host', async () => {
       const existingWorkspaces = [
         {
           id: 'ssh-ws-1',
@@ -14421,10 +14421,8 @@ describe('WorkspaceService', () => {
       const result = await workspaceService.deleteSshHost('ssh-dev');
 
       expect(result.deletedWorkspaceIds).toEqual(['ssh-ws-1']);
-      expect(mockSshWorkspaceService.killTerminalSessions).toHaveBeenCalledWith(
-        existingWorkspaces[0].backend,
-        ['term-host-delete']
-      );
+      // Another device may pick these agents up from the host.
+      expect(mockSshWorkspaceService.killTerminalSessions).not.toHaveBeenCalled();
       expect(mockSshWorkspaceService.deleteWorkspace).not.toHaveBeenCalled();
       expect(mockSshWorkspaceService.deleteHostData).not.toHaveBeenCalled();
       expect(mockSshWorkspaceService.forgetHost).toHaveBeenCalledWith('ssh-dev');
@@ -14580,7 +14578,7 @@ describe('WorkspaceService', () => {
       expect(workspaceService.get('ssh-ws-1')).toBeDefined();
     });
 
-    it('keeps SSH host and workspace records when managed session cleanup fails', async () => {
+    it('deletes an SSH host without connecting to it when its Komla data stays on the host', async () => {
       const existingWorkspaces = [
         {
           id: 'ssh-ws-1',
@@ -14628,16 +14626,22 @@ describe('WorkspaceService', () => {
         ],
         lastWorkspaceEnvironment: { kind: 'ssh', hostId: 'ssh-dev' },
       });
-      mockSshWorkspaceService.killTerminalSessions.mockRejectedValueOnce(new Error('offline'));
-
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
 
-      await expect(workspaceService.deleteSshHost('ssh-dev')).rejects.toThrow('offline');
+      const result = await workspaceService.deleteSshHost('ssh-dev');
 
-      expect(mockConfigService.update).not.toHaveBeenCalled();
-      expect(mockSshWorkspaceService.forgetHost).not.toHaveBeenCalled();
-      expect(mockSshHostService.delete).not.toHaveBeenCalled();
-      expect(workspaceService.get('ssh-ws-1')).toBeDefined();
+      // So it also works while the host is unreachable.
+      expect(mockSshWorkspaceService.killTerminalSessions).not.toHaveBeenCalled();
+      expect(mockSshWorkspaceService.findTerminalSessions).not.toHaveBeenCalled();
+      expect(mockSshWorkspaceService.run).not.toHaveBeenCalled();
+      expect(mockSshWorkspaceSyncHost.delete).not.toHaveBeenCalled();
+      expect(result.deletedWorkspaceIds).toEqual(['ssh-ws-1']);
+      expect(mockConfigService.update).toHaveBeenCalledWith({
+        lastWorkspaceEnvironment: undefined,
+      });
+      expect(mockSshWorkspaceService.forgetHost).toHaveBeenCalledWith('ssh-dev');
+      expect(mockSshHostService.delete).toHaveBeenCalledWith('ssh-dev');
+      expect(workspaceService.get('ssh-ws-1')).toBeUndefined();
     });
   });
 

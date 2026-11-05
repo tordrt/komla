@@ -448,12 +448,10 @@ export class WorkspaceLifecycle {
       (workspace) => isSshWorkspace(workspace) && workspace.backend.hostId === hostId
     );
 
+    // Without deleteRemoteData the host keeps its workspaces and their agents running, for another
+    // device to pick up, so deleting the host needs no connection.
     if (options.deleteRemoteData) {
       await sshWorkspaceService.deleteHostData(hostId);
-    } else {
-      for (const workspace of matchingWorkspaces) {
-        await executionLocations.stopSessions(workspace);
-      }
     }
 
     for (const workspace of matchingWorkspaces) {

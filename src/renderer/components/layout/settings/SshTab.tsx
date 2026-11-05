@@ -361,6 +361,12 @@ export function SshTab() {
               onCheckedChange={setDeleteRemoteData}
             />
           </div>
+          {!deleteRemoteData && deleteHostWorkspaceCount > 0 && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Agents running in them keep running on the host, where other devices can keep using
+              them. To end them, stop the workspaces first.
+            </p>
+          )}
           {otherDeviceWorkspaces.length > 0 && (
             <Callout tone="warning" className="leading-relaxed">
               {otherDeviceWorkspaces.length === 1

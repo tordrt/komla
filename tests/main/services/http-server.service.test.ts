@@ -41,8 +41,8 @@ const mockCreateServer = vi.fn((handler: RequestHandler) => {
   capturedHandler = handler;
   return mockServer;
 });
-vi.mock('http', () => ({
-  default: { createServer: mockCreateServer },
+vi.mock('../../../src/main/lib/node-http', () => ({
+  http: { createServer: mockCreateServer },
 }));
 
 const mockRealpathSync = vi.fn((path: string) => path);

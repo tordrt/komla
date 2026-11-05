@@ -1,11 +1,11 @@
 import { writeFileSync, unlinkSync } from 'fs';
-import http from 'http';
 import { join } from 'path';
 
 import { BrowserWindow } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
 import { createLogger } from '../lib/logger';
+import { http } from '../lib/node-http';
 
 import { configService } from './config.service';
 import { writeHookHelperFiles } from './http-server/hook-helper-files';
@@ -15,10 +15,12 @@ import { getKomlaBasePath } from './paths';
 import { settingsApprovalService } from './settings-approval.service';
 import { workspaceService } from './workspace.service';
 
+import type { Server } from 'http';
+
 const logger = createLogger('HttpServerService');
 
 class HttpServerService {
-  private server: http.Server | null = null;
+  private server: Server | null = null;
   private preferredPort = 52863;
   private actualPort: number | null = null;
   private maxPortRetries = 10;

@@ -4,14 +4,15 @@
  */
 
 import { lookup as dnsLookup, type LookupAddress } from 'dns';
-import { request as httpRequest, type IncomingMessage } from 'http';
 import { request as httpsRequest } from 'https';
 import { BlockList, isIP, type LookupFunction } from 'net';
 import { createBrotliDecompress, createGunzip, createInflate } from 'zlib';
 
 import { isLocalPageUrl } from '../../../shared/lib/browser-tabs';
 import { shellQuotePosix } from '../../../shared/lib/shell-quote';
+import { http } from '../../lib/node-http';
 
+import type { IncomingMessage } from 'http';
 import type { Readable } from 'stream';
 
 export interface FetchedPage {
@@ -113,7 +114,7 @@ type Answer = { redirect: string } | FetchedPage;
 
 function requestOnce(url: URL, options: FetchPageOptions, signal: AbortSignal): Promise<Answer> {
   return new Promise((resolve, reject) => {
-    const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
+    const request = (url.protocol === 'https:' ? httpsRequest : http.request)(
       url,
       {
         headers: {

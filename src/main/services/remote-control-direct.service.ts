@@ -1,7 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http';
 import { join, normalize, resolve, sep } from 'path';
 
 import { app } from 'electron';
@@ -17,6 +16,7 @@ import {
 import { IPC } from '../../shared/constants/ipc-channels';
 import { remotePasskeyWindowMs } from '../../shared/lib/remote-passkey-window';
 import { createLogger } from '../lib/logger';
+import { http } from '../lib/node-http';
 import { RemoteSessionResumptionStore } from '../lib/remote-session-resumption';
 
 import { configService } from './config.service';
@@ -41,6 +41,7 @@ import type {
   RemoteControlDirectPortChange,
   RemoteControlDirectState,
 } from '../../shared/types/remote-control';
+import type { IncomingMessage, Server, ServerResponse } from 'http';
 import type { Duplex } from 'stream';
 
 const logger = createLogger('RemoteControlDirectService');
@@ -87,7 +88,7 @@ export interface RemoteControlDirectServiceDeps {
   installIdentity?: RemoteControlInstallIdentity;
   pairedDeviceRegistry?: RemoteControlPairedDeviceRegistry;
   createAppSession?: (peer: Peer, device: RemoteSessionDevice) => RemoteControlSession;
-  createServer?: typeof createServer;
+  createServer?: typeof http.createServer;
   rng?: {
     challenge: () => Uint8Array;
     pairingSecret: () => string;
@@ -326,7 +327,7 @@ export class RemoteControlDirectService {
     installIdentity: RemoteControlInstallIdentity;
     pairedDeviceRegistry: RemoteControlPairedDeviceRegistry;
     createAppSession: (peer: Peer, device: RemoteSessionDevice) => RemoteControlSession;
-    createServer: typeof createServer;
+    createServer: typeof http.createServer;
     rng: NonNullable<RemoteControlDirectServiceDeps['rng']>;
     resumption: RemoteSessionResumptionStore;
     registerCeremonyTimeoutMs: number;
@@ -350,7 +351,7 @@ export class RemoteControlDirectService {
       createAppSession:
         deps.createAppSession ??
         ((peer, device) => remoteControlSessionService.attachPeer(peer, device)),
-      createServer: deps.createServer ?? createServer,
+      createServer: deps.createServer ?? http.createServer,
       rng: deps.rng ?? {
         challenge: () => randomBytes(32),
         pairingSecret: defaultPairingSecret,

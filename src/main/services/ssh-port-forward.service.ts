@@ -1,16 +1,12 @@
 import { execFile, spawn, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
 import { rmSync } from 'fs';
-import {
-  createServer as createHttpServer,
-  request as httpRequest,
-  type Server as HttpServer,
-} from 'http';
 import { createConnection, createServer } from 'net';
 import { isDeepStrictEqual } from 'util';
 
 import { resolveKomlaRequestRoute } from '../lib/komla-request-route';
 import { createLogger } from '../lib/logger';
+import { http } from '../lib/node-http';
 import { buildSshEnv, sshTarget } from '../lib/ssh-client';
 import { keepSshLeaseAlive, sshHeartbeatLeaseCommand } from '../lib/ssh-heartbeat-lease';
 
@@ -27,6 +23,7 @@ import type {
   SshWorkspaceBackend,
   SshPortForwardStatus,
 } from '../../shared/types';
+import type { Server as HttpServer } from 'http';
 
 const logger = createLogger('SshPortForwardService');
 const FORWARD_READY_TIMEOUT_MS = 10_000;
@@ -1302,7 +1299,7 @@ class SshPortForwardService {
   }
 
   private startHostScopedGateway(hostId: string, localPort: number): Promise<HttpServer> {
-    const server = createHttpServer((req, res) => {
+    const server = http.createServer((req, res) => {
       if (!isRemoteGatewayRoute(req.url)) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Not found' }));
@@ -1312,7 +1309,7 @@ class SshPortForwardService {
       delete headers[KOMLA_SSH_HOST_HEADER];
       headers[KOMLA_SSH_HOST_HEADER] = hostId;
       headers.host = `127.0.0.1:${localPort}`;
-      const upstream = httpRequest(
+      const upstream = http.request(
         {
           hostname: '127.0.0.1',
           port: localPort,

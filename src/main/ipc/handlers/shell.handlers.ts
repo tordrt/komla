@@ -1,9 +1,10 @@
-import { exec, spawn } from 'child_process';
+import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 
 import { app, shell } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
+import { findOnPath } from '../../lib/find-on-path';
 import { detectWslDistros } from '../../lib/wsl';
 import { handleIpc } from '../validation/ipc-validators';
 
@@ -21,19 +22,6 @@ function isMacEditorInstalled(editor: KnownEditor): boolean {
     `${app.getPath('home')}/Applications/${editor.macAppName}.app`,
   ];
   return paths.some((p) => existsSync(p));
-}
-
-async function isCliEditorInstalled(editor: KnownEditor): Promise<boolean> {
-  if (!editor.linuxCmd) return false;
-  const lookupCmd = process.platform === 'win32' ? 'where' : 'which';
-  try {
-    await new Promise<void>((resolve, reject) => {
-      exec(`${lookupCmd} ${editor.linuxCmd}`, (err) => (err ? reject(err) : resolve()));
-    });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function registerShellHandlers(): void {
@@ -77,14 +65,24 @@ export function registerShellHandlers(): void {
   handleIpc(IPC.SHELL_GET_AVAILABLE_EDITORS, async (): Promise<{ id: string; name: string }[]> => {
     if (cachedEditors) return cachedEditors;
 
-    const isDarwin = process.platform === 'darwin';
-    const available: { id: string; name: string }[] = [];
-    for (const editor of knownEditors) {
-      const installed = isDarwin
-        ? isMacEditorInstalled(editor)
-        : await isCliEditorInstalled(editor);
-      if (installed) available.push({ id: editor.id, name: editor.name });
-    }
+    // Off macOS, an editor counts when its command is on PATH, as `which` or `where` would
+    // find it. Looked up here rather than by running them: Komla asks at launch, and starting a
+    // process for each editor kept the main process busy then.
+    const onPath =
+      process.platform === 'darwin'
+        ? new Set<string>()
+        : findOnPath(
+            knownEditors.flatMap((editor) => (editor.linuxCmd ? [editor.linuxCmd] : [])),
+            process.env.PATH ?? '',
+            { pathExt: process.env.PATHEXT }
+          );
+    const available = knownEditors
+      .filter((editor) =>
+        process.platform === 'darwin'
+          ? isMacEditorInstalled(editor)
+          : editor.linuxCmd !== undefined && onPath.has(editor.linuxCmd)
+      )
+      .map((editor) => ({ id: editor.id, name: editor.name }));
 
     cachedEditors = available;
     return available;

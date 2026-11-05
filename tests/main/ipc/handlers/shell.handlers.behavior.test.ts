@@ -14,6 +14,11 @@ vi.mock('fs', () => ({
 }));
 
 const mockDetectWslDistros = vi.fn(() => []);
+const mockFindOnPath = vi.fn((): Set<string> => new Set());
+
+vi.mock('../../../../src/main/lib/find-on-path', () => ({
+  findOnPath: mockFindOnPath,
+}));
 
 vi.mock('../../../../src/main/lib/wsl', () => ({
   detectWslDistros: mockDetectWslDistros,
@@ -94,6 +99,29 @@ describe('shell IPC behavior', () => {
       await expect(
         ipcMain._invoke('shell:open-in-editor', 'unknown-editor', '/tmp/project')
       ).rejects.toThrow('Unknown editor: unknown-editor');
+    });
+  });
+
+  // macOS looks for the editors' apps instead.
+  describe.skipIf(process.platform === 'darwin')('shell:get-available-editors', () => {
+    it('lists the editors whose command is on PATH without starting a process', async () => {
+      mockFindOnPath.mockReturnValue(new Set(['code', 'zed']));
+      const ipcMain = await setup();
+      const { exec, spawn } = await import('child_process');
+
+      const editors = await ipcMain._invoke('shell:get-available-editors');
+
+      expect(editors).toEqual([
+        { id: 'vscode', name: 'VS Code' },
+        { id: 'zed', name: 'Zed' },
+      ]);
+      expect(mockFindOnPath).toHaveBeenCalledWith(
+        expect.arrayContaining(['code', 'cursor', 'subl']),
+        process.env.PATH ?? '',
+        { pathExt: process.env.PATHEXT }
+      );
+      expect(exec).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
     });
   });
 

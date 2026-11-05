@@ -227,8 +227,8 @@ export function registerProjectHandlers(): void {
 
   handleIpc(
     IPC.PROJECT_CHECK_WORKSPACES_FOR_CLEANUP,
-    async (_, [projectId]): Promise<WorkspaceCleanupStatus[]> =>
-      workspaceService.checkWorkspacesForCleanup(projectId)
+    async (_, [projectId, hostId]): Promise<WorkspaceCleanupStatus[]> =>
+      workspaceService.checkWorkspacesForCleanup(projectId, hostId)
   );
 
   handleIpc(IPC.PROJECT_LIST_HOST_BRANCHES, async (_, [projectId, hostId]): Promise<string[]> =>

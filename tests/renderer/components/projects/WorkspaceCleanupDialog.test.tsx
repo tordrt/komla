@@ -27,6 +27,12 @@ vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
   ),
 }));
 
+vi.mock('../../../../src/renderer/stores/ssh-hosts.store', () => ({
+  useSshHostsStore: (
+    selector: (state: { hosts: Array<{ id: string; name: string }> }) => unknown
+  ) => selector({ hosts: [{ id: 'host-1', name: 'Build box' }] }),
+}));
+
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.parse('2026-10-21T12:00:00Z');
 
@@ -181,7 +187,7 @@ describe('WorkspaceCleanupDialog', () => {
     await user.click(screen.getByRole('checkbox', { name: /^abandoned/ }));
     await user.click(screen.getByRole('button', { name: 'Move 2 workspaces to Trash' }));
 
-    expect(checkWorkspacesForCleanup).toHaveBeenCalledWith('project-1');
+    expect(checkWorkspacesForCleanup).toHaveBeenCalledWith('project-1', null);
     expect(trashWorkspaces).toHaveBeenCalledWith(['merged-recently', 'abandoned']);
     expect(addToast).toHaveBeenCalledWith('Moved 2 workspaces to the Trash', 'success');
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -310,5 +316,110 @@ describe('WorkspaceCleanupDialog', () => {
     renderDialog();
 
     expect(await screen.findByText('No workspaces to clean up.')).toBeInTheDocument();
+  });
+
+  it("checks each SSH host apart from this computer, so one that can't be reached holds up only its own", async () => {
+    const user = userEvent.setup();
+    const onHost = (id: string, daysAgo: number) =>
+      workspace(id, daysAgo, {
+        backend: { kind: 'ssh', hostId: 'host-1' } as Workspace['backend'],
+      });
+    store.workspaces = [
+      workspace('merged-recently', 1),
+      onHost('remote-merged', 1),
+      onHost('remote-old', 40),
+    ];
+    let reachHost: (statuses: WorkspaceCleanupStatus[]) => void = () => {};
+    checkWorkspacesForCleanup.mockImplementation((_projectId: string, hostId: string | null) =>
+      hostId
+        ? new Promise((resolve) => (reachHost = resolve))
+        : Promise.resolve([landed('merged-recently')])
+    );
+    renderDialog();
+
+    const location = screen.getByRole('radiogroup', { name: 'Location' });
+    expect(
+      within(location)
+        .getAllByRole('radio')
+        .map((radio) => radio.textContent)
+    ).toEqual(['This computer', 'Build box']);
+    expect(await screen.findByRole('checkbox', { name: /^merged-recently/ })).toBeChecked();
+    expect(screen.queryByText('remote-old')).not.toBeInTheDocument();
+
+    await user.click(within(location).getByRole('radio', { name: 'Build box' }));
+    expect(screen.getByText(/^Checking which workspaces/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move to Trash' })).toBeDisabled();
+    // This computer is checked again, as its workspaces may have changed, but going back to the
+    // host waits on the check it hasn't answered yet rather than starting another.
+    await user.click(within(location).getByRole('radio', { name: 'This computer' }));
+    expect(await screen.findByRole('checkbox', { name: /^merged-recently/ })).toBeChecked();
+    await user.click(within(location).getByRole('radio', { name: 'Build box' }));
+    reachHost([landed('remote-merged')]);
+
+    expect(await screen.findByRole('checkbox', { name: /^remote-merged/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /^remote-old/ })).not.toBeChecked();
+    expect(screen.queryByText('merged-recently')).not.toBeInTheDocument();
+    expect(checkWorkspacesForCleanup.mock.calls).toEqual([
+      ['project-1', null],
+      ['project-1', 'host-1'],
+      ['project-1', null],
+    ]);
+
+    // Clicking the location already shown keeps its list.
+    await user.click(within(location).getByRole('radio', { name: 'Build box' }));
+    expect(screen.getByRole('checkbox', { name: /^remote-merged/ })).toBeChecked();
+    expect(checkWorkspacesForCleanup).toHaveBeenCalledTimes(3);
+  });
+
+  it('checks a host again on the next visit once its check failed, such as when it is back', async () => {
+    const user = userEvent.setup();
+    store.workspaces = [
+      workspace('local', 40),
+      workspace('remote', 40, {
+        backend: { kind: 'ssh', hostId: 'host-1' } as Workspace['backend'],
+      }),
+    ];
+    checkWorkspacesForCleanup.mockImplementation(
+      async (_projectId: string, hostId: string | null) => {
+        if (hostId) throw new Error('Host unreachable');
+        return [];
+      }
+    );
+    renderDialog();
+
+    await screen.findByRole('checkbox', { name: /^local/ });
+    await user.click(screen.getByRole('radio', { name: 'Build box' }));
+    expect(await screen.findByText('Host unreachable')).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: 'This computer' }));
+    expect(await screen.findByRole('checkbox', { name: /^local/ })).toBeInTheDocument();
+    expect(screen.queryByText('Host unreachable')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: 'Build box' }));
+    await screen.findByText('Host unreachable');
+
+    expect(checkWorkspacesForCleanup.mock.calls).toEqual([
+      ['project-1', null],
+      ['project-1', 'host-1'],
+      ['project-1', null],
+      ['project-1', 'host-1'],
+    ]);
+  });
+
+  it('starts on an SSH host when the project has no workspaces on this computer', async () => {
+    store.workspaces = [
+      workspace('remote', 40, {
+        backend: { kind: 'ssh', hostId: 'host-1' } as Workspace['backend'],
+      }),
+    ];
+    checkWorkspacesForCleanup.mockResolvedValueOnce([]);
+    renderDialog();
+
+    expect(await screen.findByRole('checkbox', { name: /^remote/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Build box' })).toBeChecked();
+    // Offered all the same, as Clean up branches does.
+    expect(screen.getAllByRole('radio').map((radio) => radio.textContent)).toEqual([
+      'This computer',
+      'Build box',
+    ]);
+    expect(checkWorkspacesForCleanup.mock.calls).toEqual([['project-1', 'host-1']]);
   });
 });

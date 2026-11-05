@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
@@ -14,12 +14,8 @@ import {
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
 import { formatRelativeTime } from '@/lib/format-time';
-import { useWorkspacesExceptTitles } from '@/lib/workspace-except-titles';
-import { useSshHostsStore } from '@/stores/ssh-hosts.store';
+import { useProjectSshHosts } from '@/lib/project-ssh-hosts';
 import { useToastStore } from '@/stores/toast.store';
-import { useWorkspacesStore } from '@/stores/workspaces.store';
-
-import { isSshWorkspace } from '../../../shared/types';
 
 import type { BranchDeletionResult, LeftoverBranch, LeftoverBranches } from '../../../shared/types';
 
@@ -116,27 +112,6 @@ function BranchGroupList({
   );
 }
 
-/** The SSH hosts where a project has workspaces, each of which keeps its own clone. */
-function useProjectHosts(projectId: string, hostId: string | null) {
-  // It shows no titles, so an agent's spinner doesn't re-render it.
-  const workspaces = useWorkspacesStore(useWorkspacesExceptTitles((s) => s.workspaces));
-  const hosts = useSshHostsStore((s) => s.hosts);
-  return useMemo(() => {
-    const hostIds = new Set(
-      workspaces.flatMap((workspace) =>
-        workspace.projectId === projectId && isSshWorkspace(workspace)
-          ? [workspace.backend.hostId]
-          : []
-      )
-    );
-    if (hostId) hostIds.add(hostId);
-    return [...hostIds].map((id) => ({
-      id,
-      name: hosts.find((host) => host.id === id)?.name ?? id,
-    }));
-  }, [workspaces, hosts, projectId, hostId]);
-}
-
 interface BranchCleanupDialogProps {
   projectId: string;
   /** The SSH host whose clone to clean up first; this computer's when unset. */
@@ -152,7 +127,8 @@ export function BranchCleanupDialog({
   onOpenChange,
 }: BranchCleanupDialogProps) {
   const addToast = useToastStore((s) => s.addToast);
-  const hosts = useProjectHosts(projectId, hostId);
+  // Each host where the project has workspaces keeps its own clone.
+  const hosts = useProjectSshHosts(projectId, hostId);
   // An SSH host's id, or '' for this computer.
   const [location, setLocation] = useState(hostId ?? '');
   const [leftover, setLeftover] = useState<LeftoverBranches | null>(null);

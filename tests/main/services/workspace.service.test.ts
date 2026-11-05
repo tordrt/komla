@@ -14921,7 +14921,7 @@ describe('WorkspaceService', () => {
       };
     });
 
-    it('reads each active worktree in place, and checks it landed once per repository and target', async () => {
+    it('reads each active worktree at one location in place, and checks it landed once per repository and target', async () => {
       mockProject.baseBranch = 'origin/develop';
       mockProject.managedRepoPath = '/mock/managed';
       vfs.setFile(
@@ -14942,6 +14942,17 @@ describe('WorkspaceService', () => {
               gitUrl: 'git@example.com:repo.git',
             },
           }),
+          worktreeWorkspace('other-host', {
+            workingDirectory: 'ssh://ssh-other/home/dev/other',
+            backend: {
+              kind: 'ssh',
+              hostId: 'ssh-other',
+              remoteDirectory: '/home/dev/other',
+              remoteRepoPath: '/home/dev/.komla/repos/test-project/repo.git',
+              remoteProjectRoot: '/home/dev/.komla/worktrees/test-project',
+              gitUrl: 'git@example.com:repo.git',
+            },
+          }),
           worktreeWorkspace('broken'),
           worktreeWorkspace('stray'),
           worktreeWorkspace('trashed', { status: 'trashed' }),
@@ -14952,7 +14963,7 @@ describe('WorkspaceService', () => {
       );
 
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
-      const statuses = await workspaceService.checkWorkspacesForCleanup('project-1');
+      const statuses = await workspaceService.checkWorkspacesForCleanup('project-1', null);
 
       // One check per repository and target, in whatever order their worktrees were read.
       const checks = mockGitService.findLandedCommits.mock.calls.map(([repo, target, commits]) => [
@@ -14960,22 +14971,21 @@ describe('WorkspaceService', () => {
         target,
         commits,
       ]);
-      expect(checks).toHaveLength(4);
+      // This computer's alone: an SSH host that can't be reached doesn't hold them up.
+      expect(checks).toHaveLength(3);
       expect(checks).toEqual(
         expect.arrayContaining([
           ['/mock/repo', 'develop', ['c-local', 'c-local-2']],
           ['/mock/managed', 'develop', ['c-managed-1']],
           ['/mock/repo', 'release', ['c-own-target']],
-          ['ssh-dev:/home/dev/.komla/repos/test-project/repo.git', 'develop', ['c-remote']],
         ])
       );
-      expect(mockSshWorkspaceGit.gitBatchRunner).toHaveBeenCalledWith('ssh-dev', '/home/dev/remote');
+      expect(mockSshWorkspaceGit.gitBatchRunner).not.toHaveBeenCalled();
       expect(statuses).toEqual([
         landed('local', 'develop'),
         { ...landed('local-2', 'develop'), landed: false },
         landed('managed-1', 'develop'),
         landed('own-target', 'release'),
-        landed('remote', 'develop'),
         { workspaceId: 'broken', targetBranch: 'develop', ok: false, error: 'not a git repository' },
         {
           workspaceId: 'stray',
@@ -14984,6 +14994,20 @@ describe('WorkspaceService', () => {
           error: "The workspace isn't a worktree of the project's repository",
         },
       ]);
+
+      mockGitService.findLandedCommits.mockClear();
+      await expect(
+        workspaceService.checkWorkspacesForCleanup('project-1', 'ssh-dev')
+      ).resolves.toEqual([landed('remote', 'develop')]);
+      const hostChecks = mockGitService.findLandedCommits.mock.calls.map(
+        ([repo]) => (repo as { label: string }).label
+      );
+      expect(hostChecks).toEqual(['ssh-dev:/home/dev/.komla/repos/test-project/repo.git']);
+      expect(mockSshWorkspaceGit.gitBatchRunner).toHaveBeenCalledWith('ssh-dev', '/home/dev/remote');
+      expect(mockSshWorkspaceGit.gitBatchRunner).not.toHaveBeenCalledWith(
+        'ssh-other',
+        expect.anything()
+      );
     });
 
     it("falls back to the main branch of each worktree's repository, and checks nothing in a directory project", async () => {

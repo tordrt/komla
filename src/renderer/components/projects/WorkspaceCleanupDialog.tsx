@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
@@ -11,14 +11,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
 import { formatRelativeTime } from '@/lib/format-time';
+import { useProjectSshHosts } from '@/lib/project-ssh-hosts';
 import { getWorkspaceLastTouchedAt } from '@/lib/workspace-state-groups';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { TRASH_RETENTION_DAYS } from '@/types';
 
 import { getWorkspaceDisplayTitle } from '../../../shared/lib/workspace-title';
+import { isSshWorkspace } from '../../../shared/types';
 
 import type { Workspace, WorkspaceCleanupStatus } from '../../../shared/types';
 
@@ -91,6 +94,27 @@ function workspaceNotes(
 /** Ticked when the dialog opens: done with, and neither pinned nor busy. */
 function selectedAtFirst(workspace: Workspace, status: WorkspaceCleanupStatus | undefined) {
   return isLanded(status) && !workspace.pinned && !workspace.agentActive;
+}
+
+/** The SSH host's id the workspace runs on, or '' for this computer. */
+function locationOf(workspace: Workspace): string {
+  return isSshWorkspace(workspace) ? workspace.backend.hostId : '';
+}
+
+/** The project's workspaces that cleanup may offer. */
+function isCleanupCandidate(workspace: Workspace, projectId: string): boolean {
+  return (
+    workspace.projectId === projectId && workspace.status === 'active' && !workspace.provisioning
+  );
+}
+
+/** This computer when it has any of the project's workspaces, else the first host that does. */
+function firstLocation(projectId: string): string {
+  const candidates = useWorkspacesStore
+    .getState()
+    .workspaces.filter((workspace) => isCleanupCandidate(workspace, projectId));
+  if (candidates.some((workspace) => locationOf(workspace) === '')) return '';
+  return candidates[0] ? locationOf(candidates[0]) : '';
 }
 
 function pluralizeWorkspaces(count: number): string {
@@ -210,6 +234,13 @@ function WorkspaceCleanup({
   const addToast = useToastStore((s) => s.addToast);
   const allWorkspaces = useWorkspacesStore((s) => s.workspaces);
   const trashWorkspaces = useWorkspacesStore((s) => s.trashWorkspaces);
+  // An SSH host's id, or '' for this computer. Each is checked alone, so one host that can't be
+  // reached holds up only its own workspaces.
+  const [location, setLocation] = useState(() => firstLocation(projectId));
+  // The checks still running, by project and location. Going back to a host that hasn't answered
+  // waits on the same check instead of starting another; one that finished is checked again, as
+  // its workspaces may have changed since.
+  const pendingChecksRef = useRef(new Map<string, Promise<WorkspaceCleanupStatus[]>>());
   const [statuses, setStatuses] = useState<ReadonlyMap<string, WorkspaceCleanupStatus> | null>(
     null
   );
@@ -228,6 +259,17 @@ function WorkspaceCleanup({
       ),
     [allWorkspaces, listedIds, isTrashing, isClosing]
   );
+  const hosts = useProjectSshHosts(projectId, location || null, { activeOnly: true });
+
+  const changeLocation = (next: string) => {
+    // A click on the selected one calls this too, and wouldn't check again.
+    if (next === location) return;
+    setStatuses(null);
+    setListedIds(new Set());
+    setLoadError(null);
+    setSelected(new Set());
+    setLocation(next);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -239,9 +281,7 @@ function WorkspaceCleanup({
         .getState()
         .workspaces.filter(
           (workspace) =>
-            workspace.projectId === projectId &&
-            workspace.status === 'active' &&
-            !workspace.provisioning
+            isCleanupCandidate(workspace, projectId) && locationOf(workspace) === location
         );
       setStatuses(byId);
       setListedIds(new Set(listed.map((workspace) => workspace.id)));
@@ -253,18 +293,27 @@ function WorkspaceCleanup({
         )
       );
     };
-    window.api
-      .checkWorkspacesForCleanup(projectId)
-      .then(start)
-      .catch((error: Error) => {
-        if (cancelled) return;
-        setLoadError(error.message);
-        start([]);
-      });
+    const key = `${projectId}\0${location}`;
+    const pending = pendingChecksRef.current;
+    let check = pending.get(key);
+    if (!check) {
+      check = window.api.checkWorkspacesForCleanup(projectId, location || null);
+      pending.set(key, check);
+      const own = check;
+      const forget = () => {
+        if (pending.get(key) === own) pending.delete(key);
+      };
+      void check.then(forget, forget);
+    }
+    check.then(start).catch((error: Error) => {
+      if (cancelled) return;
+      setLoadError(error.message);
+      start([]);
+    });
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, location]);
 
   const groups = statuses ? groupWorkspacesForCleanup(workspaces, statuses, Date.now()) : [];
   const toTrash = workspaces.filter((workspace) => selected.has(workspace.id));
@@ -318,6 +367,18 @@ function WorkspaceCleanup({
           You can restore them from the Trash for {TRASH_RETENTION_DAYS} days.
         </DialogDescription>
       </DialogHeader>
+      {hosts.length > 0 && (
+        <SegmentedControl
+          aria-label="Location"
+          value={location}
+          onValueChange={changeLocation}
+          disabled={isTrashing}
+          options={[
+            { value: '', label: 'This computer' },
+            ...hosts.map((host) => ({ value: host.id, label: host.name })),
+          ]}
+        />
+      )}
       {loadError && (
         <Callout tone="warning" size="sm" title="Couldn't check the workspaces' branches">
           {loadError}

@@ -530,7 +530,7 @@ describe('ProjectSettingsPage', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'Clean up workspaces' });
     expect(await within(dialog).findByText('No workspaces to clean up.')).toBeInTheDocument();
-    expect(window.api.checkWorkspacesForCleanup).toHaveBeenCalledWith(project.id);
+    expect(window.api.checkWorkspacesForCleanup).toHaveBeenCalledWith(project.id, null);
   });
 
   it('shows only the section picked in the nav', () => {

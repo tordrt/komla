@@ -71,24 +71,28 @@ export async function getBranchCleanupScope(projectId: string, hostId: string | 
 }
 
 /**
- * How each of the project's worktree workspaces stands against its target branch. Each
- * worktree's HEAD and uncommitted files are read in the worktree itself, on its SSH host for
- * an SSH workspace; whether HEAD landed is then checked once per repository and target branch,
- * in the project's repository the worktree belongs to. Workspaces in the Trash, or whose
- * files aren't ready, are left out.
+ * How each of the project's worktree workspaces on this computer, or on one SSH host when
+ * hostId is set, stands against its target branch. Each worktree's HEAD and uncommitted files
+ * are read in the worktree itself, on its SSH host for an SSH workspace; whether HEAD landed is
+ * then checked once per repository and target branch, in the project's repository the worktree
+ * belongs to. Workspaces in the Trash, or whose files aren't ready, are left out.
  */
 export async function checkWorkspacesForCleanup(
-  projectId: string
+  projectId: string,
+  hostId: string | null = null
 ): Promise<WorkspaceCleanupStatus[]> {
   const project = projectService.get(projectId);
   if (!project) throw new Error('Project not found');
   if (project.kind === 'directory') return [];
-  const workspaces = workspaceStore
-    .getWorkspacesByProjectId(projectId)
-    .filter(
-      (workspace) =>
-        workspace.status === 'active' && workspace.isWorktree && hasWorkspaceFiles(workspace)
-    );
+  const workspaces = workspaceStore.getWorkspacesByProjectId(projectId).filter(
+    (workspace) =>
+      workspace.status === 'active' &&
+      workspace.isWorktree &&
+      hasWorkspaceFiles(workspace) &&
+      // Each location is checked on its own, so a host that can't be reached holds up only its
+      // own workspaces, not this computer's or another host's.
+      (isSshWorkspace(workspace) ? workspace.backend.hostId : null) === hostId
+  );
   const failure = (error: unknown) => (error instanceof Error ? error.message : String(error));
   const once = <T>(cache: Map<string, Promise<T>>, key: string, load: () => Promise<T>) => {
     const loaded = cache.get(key) ?? load();

@@ -525,11 +525,14 @@ const api = {
     ipcRenderer.invoke(IPC.PROJECT_DELETE_LEFTOVER_BRANCHES, projectId, branches, hostId),
 
   /**
-   * How each of the project's workspaces on a branch stands against its target branch, for
-   * workspace cleanup, each in its own worktree, on its SSH host for an SSH workspace.
+   * How each of the project's workspaces on a branch, on this computer or on the SSH host,
+   * stands against its target branch, for workspace cleanup, each in its own worktree.
    */
-  checkWorkspacesForCleanup: (projectId: string): Promise<WorkspaceCleanupStatus[]> =>
-    ipcRenderer.invoke(IPC.PROJECT_CHECK_WORKSPACES_FOR_CLEANUP, projectId),
+  checkWorkspacesForCleanup: (
+    projectId: string,
+    hostId: string | null
+  ): Promise<WorkspaceCleanupStatus[]> =>
+    ipcRenderer.invoke(IPC.PROJECT_CHECK_WORKSPACES_FOR_CLEANUP, projectId, hostId),
 
   /** Local branches in the SSH host's clone of the project, most recent first. */
   listProjectHostBranches: (projectId: string, hostId: string): Promise<string[]> =>

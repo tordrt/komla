@@ -1030,14 +1030,26 @@ function SetupExplainer({ isEdit }: { isEdit: boolean }) {
           observe workspaces and receive agent events.
         </li>
         <li>
-          If needed, configures the remote Git identity using this computer&apos;s global Git name
-          and email.
+          If the machine&apos;s global Git config lacks a name or email, sets both from this
+          computer&apos;s.
         </li>
         <li>
-          Leaves project packages and Git credentials unchanged. Repositories and workspaces are
-          created later, when you ask for them.
+          Never uses sudo or installs system packages, and leaves Git credentials and your shell and
+          tmux config unchanged. Repositories and workspaces are created later, when you ask for
+          them.
+        </li>
+        <li>
+          Terminals run in Komla&apos;s own tmux server, so agents keep running after you
+          disconnect.
+        </li>
+        <li>
+          Agent hooks, MCP, the Komla skill, automations, and phone access change more on the
+          machine only when you turn them on.
         </li>
       </ul>
+      <p className="mt-2">
+        <SshGuideLink section="on-the-machine">What Komla puts on the machine ↗</SshGuideLink>
+      </p>
     </details>
   );
 }

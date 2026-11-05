@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 
 import type { ReactNode } from 'react';
 
-type SshGuideSection = 'no-machine';
+type SshGuideSection = 'no-machine' | 'on-the-machine';
 
 /** The SSH workspaces guide on the website, optionally opened at one of its sections. */
 function sshGuideUrl(section?: SshGuideSection): string {

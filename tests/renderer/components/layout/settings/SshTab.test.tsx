@@ -720,9 +720,14 @@ describe('SshTab', () => {
       await user.click(within(dialog).getByText('See what setup changes'));
       expect(setupDetails).toHaveAttribute('open');
       const setupItems = setupDetails?.querySelectorAll('li');
-      expect(setupItems).toHaveLength(5);
+      expect(setupItems).toHaveLength(7);
       expect(setupItems?.[2]).toHaveTextContent(/Installs or refreshes the Remote Companion/);
       expect(setupItems?.[2]).not.toHaveTextContent(/\.sh/);
+      expect(
+        within(setupDetails as HTMLElement).getByRole('link', {
+          name: /What Komla puts on the machine/,
+        })
+      ).toHaveAttribute('href', expect.stringMatching(/\/remote-workspaces#on-the-machine$/));
 
       await user.click(within(dialog).getByRole('button', { name: 'Check machine' }));
 

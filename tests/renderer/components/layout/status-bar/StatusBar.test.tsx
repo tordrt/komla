@@ -2141,7 +2141,7 @@ describe('StatusBar', () => {
 
       const fix = await screen.findByRole('menuitem', { name: /Fix the login redirect/ });
       expect(getWorkspaceCommitGraph).toHaveBeenCalledWith(workspace.id, { limit: 100 });
-      expect(screen.getByText('Commits on login-fix')).toBeInTheDocument();
+      expect(screen.getByText('login-fix', { selector: '.font-mono' })).toBeInTheDocument();
       expect(within(fix).getByText('login-fix')).toBeInTheDocument();
       // The target branch first; origin/main only repeats main; one more ref than fits.
       const initial = screen.getByRole('menuitem', { name: /Initial commit/ });

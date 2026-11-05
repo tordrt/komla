@@ -392,7 +392,7 @@ function AgentUsageItem({
           ))}
         </StatusBarButton>
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" className="w-64 p-0 text-xs">
+      <PopoverContent side="top" align="end" className="w-72 p-0 text-xs">
         <UsagePopover name={name} reading={reading} now={now} />
       </PopoverContent>
     </Popover>

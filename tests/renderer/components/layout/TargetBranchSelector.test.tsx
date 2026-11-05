@@ -153,7 +153,7 @@ describe('TargetBranchSelector', () => {
       .getAllByRole('menuitem')
       .find((item) => item.textContent?.startsWith('main'));
     expect(mainRow).toBeDefined();
-    expect(within(mainRow!).getByText('target')).toBeInTheDocument();
+    expect(within(mainRow!).getByLabelText("This workspace's target")).toBeInTheDocument();
     expect(within(mainRow!).queryByText('current')).toBeNull();
   });
 
@@ -164,7 +164,7 @@ describe('TargetBranchSelector', () => {
       .getAllByRole('menuitem')
       .find((item) => item.textContent?.startsWith('feature'));
     expect(within(featureRow!).getByText('checked out')).toBeInTheDocument();
-    expect(within(featureRow!).queryByText('target')).toBeNull();
+    expect(within(featureRow!).queryByLabelText("This workspace's target")).toBeNull();
   });
 
   it('offers only Pull, not a duplicate Sync, when the target is just behind its remote', async () => {
@@ -310,7 +310,7 @@ describe('TargetBranchSelector', () => {
     fireEvent.click(screen.getByRole('button', { name: 'open menu' }));
     await waitFor(() => expect(listWorkspaceBranches).toHaveBeenCalled());
 
-    expect(screen.getByText('Use default (develop)')).toBeInTheDocument();
+    expect(screen.getByText('Reset to default (develop)')).toBeInTheDocument();
 
     const mainRow = await waitFor(() =>
       screen.getAllByRole('menuitem').find((item) => item.textContent?.startsWith('main'))!

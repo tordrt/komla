@@ -1,4 +1,4 @@
-import { ClockCounterClockwise, Copy, GitCommit } from '@phosphor-icons/react';
+import { CaretRight, Copy, GitCommit } from '@phosphor-icons/react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -18,10 +18,9 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { MenuHeader } from '@/components/ui/menu-header';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatRelativeTime } from '@/lib/format-time';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
@@ -464,21 +463,21 @@ function CommitGraphMenu({ workspace }: { workspace: Workspace }) {
           openedViewer.current = false;
         }}
       >
-        <div className="flex items-center gap-2">
-          <DropdownMenuLabel className="min-w-0 flex-1 truncate">
-            {branch ? `Commits on ${branch}` : 'Commits'}
-          </DropdownMenuLabel>
+        <MenuHeader title="Commits">
+          {branch && (
+            <span className="min-w-0 truncate">
+              on <span className="font-mono">{branch}</span>
+            </span>
+          )}
           <DropdownMenuItem
             onSelect={() => openHistory()}
-            className="shrink-0 gap-1.5 py-0.5 pr-1.5 pl-1.5 text-xs"
+            title={historyShortcut ? `Open history (${historyShortcut})` : undefined}
+            className="shrink-0 gap-1 py-0.5 pr-1 pl-1.5 text-xs text-foreground/80"
           >
-            <ClockCounterClockwise />
             Open history
-            {historyShortcut && (
-              <DropdownMenuShortcut className="pl-1.5">{historyShortcut}</DropdownMenuShortcut>
-            )}
+            <CaretRight />
           </DropdownMenuItem>
-        </div>
+        </MenuHeader>
         {body}
       </DropdownMenuContent>
     </DropdownMenu>

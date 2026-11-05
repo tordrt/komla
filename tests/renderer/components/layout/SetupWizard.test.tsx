@@ -87,7 +87,7 @@ import { useSshHostDialogStore } from '../../../../src/renderer/stores/ssh-host-
 // Leaves the Project step and waits for the agent picker Komla shows when it finds no agents.
 async function toAgentStep(projectButton: 'Create project' | 'Skip project' = 'Skip project') {
   fireEvent.click(screen.getByRole('button', { name: projectButton }));
-  await screen.findByText('Choose Your AI Agent');
+  await screen.findByText('Choose your AI agent');
 }
 
 // Continues from the agent step to the Connect step.
@@ -450,7 +450,7 @@ describe('SetupWizard', () => {
     expect(custom).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('centres Continue without an empty spacer beside it', async () => {
+  it('keeps Continue to the right without an empty spacer beside it', async () => {
     render(<SetupWizard />);
     await toAgentStep('Create project');
 
@@ -517,7 +517,7 @@ describe('SetupWizard', () => {
         'href',
         'https://komla.dev/remote-workspaces#no-machine'
       );
-      expect(screen.getByText(/You connect the agents on it then/)).toBeVisible();
+      expect(screen.getByText(/After setup, Komla connects over your ssh/)).toBeVisible();
       expect(useSshHostDialogStore.getState().open).toBe(false);
       fireEvent.click(screen.getByRole('button', { name: 'Start working' }));
 
@@ -601,7 +601,7 @@ describe('SetupWizard', () => {
       expect(stepLabels()).toEqual(['Project', 'Agent', 'Connect', 'Machine']);
       await toFoundAgents();
 
-      expect(screen.queryByText('Choose Your AI Agent')).toBeNull();
+      expect(screen.queryByText('Choose your AI agent')).toBeNull();
       const installed = screen.getByRole('list', { name: 'Installed agents' });
       expect(within(installed).getByRole('checkbox', { name: 'Claude Code' })).toBeChecked();
       expect(within(installed).getByRole('checkbox', { name: 'Cursor CLI' })).toBeChecked();
@@ -610,7 +610,7 @@ describe('SetupWizard', () => {
           .getAllByRole('listitem')
           .map((item) => item.textContent)
       ).toEqual(['Amp']);
-      expect(screen.getByText(/added as a custom agent later in Settings → Agents/)).toBeVisible();
+      expect(screen.getByText(/added as a custom agent in Settings → Agents/)).toBeVisible();
     });
 
     it('adds only the agents left ticked, the first as the default', async () => {
@@ -659,7 +659,7 @@ describe('SetupWizard', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'pick another agent' }));
 
-      expect(await screen.findByText('Choose Your AI Agent')).toBeVisible();
+      expect(await screen.findByText('Choose your AI agent')).toBeVisible();
       expect(screen.queryByText(/Komla didn’t find an agent CLI/)).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: /^Amp/ }));
       await finishSetup();

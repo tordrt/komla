@@ -1003,6 +1003,45 @@ html[data-status-bar-row='large'] [data-status-bar] {
   animation-iteration-count: infinite;
 }
 
+/* The setup wizard's card: a dialog's grey, frosted, so the komlas behind it show through
+   blurred. --wizard-card-bg is the color it shows over the bare window, for the footer and scroll
+   fade that cover what scrolls under them. Its primary actions, checks and switches take Komla's
+   blue, as its progress and picked options do. */
+.wizard-card {
+  --primary: var(--komla, var(--brand));
+  --primary-foreground: 0.99 0 0;
+  --wizard-grey: oklch(var(--popover));
+  --wizard-card-bg: color-mix(in oklch, var(--wizard-grey) 82%, var(--wizard-window));
+}
+.dark .wizard-card {
+  /* Deep enough for white labels to read on it. */
+  --primary: 0.56 0.15 245;
+  --wizard-grey: color-mix(in oklch, oklch(var(--sidebar)) 90%, oklch(var(--foreground)));
+}
+.dark .wizard-card.floating-surface,
+.light .wizard-card.floating-surface {
+  background: color-mix(in oklch, var(--wizard-grey) 82%, transparent);
+  backdrop-filter: blur(24px) saturate(1.3);
+  border-color: oklch(var(--foreground) / 0.16);
+  box-shadow:
+    0 16px 40px -14px rgb(0 0 0 / 0.7),
+    inset 0 1px 0 oklch(var(--foreground) / 0.05);
+}
+.light .wizard-card.floating-surface {
+  border-color: oklch(var(--foreground) / 0.12);
+  box-shadow: 0 16px 40px -16px rgb(0 0 0 / 0.12);
+}
+/* Bottom padding for a setup step that fades out what scrolls under the footer. */
+.wizard-scroll-fade {
+  position: sticky;
+  bottom: 0;
+  flex-shrink: 0;
+  height: 1.5rem;
+  margin: auto -1.75rem 0;
+  background: linear-gradient(to top, var(--wizard-card-bg), transparent);
+  pointer-events: none;
+}
+
 /* Smoothly expand/collapse the wizard's "Customize commands" panel */
 .wizard-collapsible {
   display: grid;
@@ -1160,12 +1199,32 @@ html[data-status-bar-row='large'] [data-status-bar] {
   background-color: oklch(var(--chrome));
 }
 
-/* The setup wizard sits on the sidebar's --chrome. It becomes the wizard's card color, so its
-   title bar and card-colored controls (outlined buttons, the text size control) match the page
-   as they do on the card. */
+/* The setup wizard's card-colored controls (outlined buttons, the text size control) take the
+   sidebar's --chrome. The window behind the card is a step deeper, so the card lifts off it. */
 .setup-wizard-surface {
   --card: var(--chrome);
-  background-color: oklch(var(--card));
+  --wizard-window: color-mix(in oklch, black 30%, oklch(var(--chrome)));
+  background-color: var(--wizard-window);
+}
+.light .setup-wizard-surface {
+  --wizard-window: color-mix(in oklch, black 6%, oklch(var(--chrome)));
+}
+/* Setup has nothing under its title bar to set apart, so the bar blends into the window; it still
+   moves the window and holds its controls. */
+.setup-wizard-surface [data-komla-title-bar] {
+  position: relative;
+  z-index: 1;
+  border-color: transparent;
+  background: transparent;
+}
+/* The wizard runs up under the bar, its content inset back down, so the komlas reach the window's
+   top edge. */
+.setup-wizard-surface [data-komla-title-bar] + * {
+  --wizard-top-inset: 2.25rem;
+  margin-top: calc(-1 * var(--wizard-top-inset));
+}
+.setup-wizard-surface [data-komla-title-bar].h-10 + * {
+  --wizard-top-inset: 2.5rem;
 }
 
 .work-column:has(.empty-work-area) :is([data-komla-title-bar], [data-testid='work-area']) {

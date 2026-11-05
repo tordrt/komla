@@ -2,6 +2,7 @@ import { ChartBar, EyeSlash } from '@phosphor-icons/react';
 
 import { Checkbox } from '@/components/ui/checkbox';
 
+import { OnboardingStepHeader } from './OnboardingChrome';
 import { ChoiceCard } from './OnboardingMachineStep';
 
 interface OnboardingAnalyticsStepProps {
@@ -21,45 +22,44 @@ export function OnboardingAnalyticsStep({
 }: OnboardingAnalyticsStepProps) {
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-lg font-semibold">Help improve Komla?</h2>
-        <p className="text-sm text-muted-foreground">
-          Usage analytics show which features get used, so Komla gets better where it counts.
-        </p>
-      </div>
+      <OnboardingStepHeader
+        title="Help improve Komla?"
+        description="Usage analytics show which features get used, so Komla improves where it counts."
+      />
 
       <div className="grid gap-3">
         <ChoiceCard
           icon={ChartBar}
           title="Share usage analytics"
-          description="Feature usage counts tied to a random install ID. Never code, prompts, file paths or project names."
+          description="Feature counts tied to a random install ID. Never code, prompts, paths or project names."
           selected={share === true}
           onSelect={() => onShareChange(true)}
         />
         <ChoiceCard
           icon={EyeSlash}
           title="Don’t share"
-          description="Komla still sends an anonymous daily ping, and crash reports if ticked below. Settings → General → Privacy turns the ping off."
+          description="An anonymous daily ping still goes out, and crash reports if ticked below. Settings → General → Privacy turns the ping off."
           selected={share === false}
           onSelect={() => onShareChange(false)}
         />
       </div>
 
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox
-          checked={crashReports}
-          onChange={(event) => onCrashReportsChange(event.target.checked)}
-        />
-        Send crash reports
-      </label>
-
-      <button
-        type="button"
-        className="text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
-        onClick={() => window.api.openExternal(`${window.api.websiteUrl}/privacy`)}
-      >
-        What Komla collects ↗
-      </button>
+      <div className="flex items-center justify-between gap-4">
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={crashReports}
+            onChange={(event) => onCrashReportsChange(event.target.checked)}
+          />
+          Send crash reports
+        </label>
+        <button
+          type="button"
+          className="text-xs font-medium text-foreground/85 underline decoration-foreground/25 underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/60"
+          onClick={() => window.api.openExternal(`${window.api.websiteUrl}/privacy`)}
+        >
+          What Komla collects ↗
+        </button>
+      </div>
     </div>
   );
 }

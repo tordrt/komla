@@ -87,6 +87,7 @@ test('onboarding adds the agents it finds and connects each one on request', asy
   const installed = appWindow.getByRole('list', { name: 'Installed agents' });
   await expect(installed.getByRole('checkbox', { name: 'Codex' })).toBeChecked();
   await expect(installed.getByRole('checkbox', { name: 'Cursor CLI' })).toBeChecked();
+  await appWindow.getByRole('button', { name: /more supported agents/ }).click();
   await expect(
     appWindow.getByRole('list', { name: 'Not installed' }).getByText('Claude Code')
   ).toBeVisible();
@@ -97,7 +98,6 @@ test('onboarding adds the agents it finds and connects each one on request', asy
   await appWindow.getByRole('button', { name: 'Continue', exact: true }).click();
 
   await expect(appWindow.getByRole('heading', { name: 'Connect your agents' })).toBeVisible();
-  await appWindow.getByRole('button', { name: 'What changes?' }).click();
   await expect(appWindow.getByText(CODEX_HOOKS_PATH)).toBeVisible();
   await appWindow.screenshot({
     animations: 'disabled',

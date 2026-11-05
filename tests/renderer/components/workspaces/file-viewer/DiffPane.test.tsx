@@ -14,6 +14,9 @@ import type { FileDiffContent } from '../../../../../src/renderer/types';
 const diffEditorProps = vi.hoisted(() => ({
   options: [] as unknown[],
   mountEditors: false,
+  // Whether a mounting editor already has its diff, as for models shown before.
+  diffComputed: true,
+  diffListeners: [] as (() => void)[],
   // Models by URI, as Monaco keeps them, so a diff shown again finds the ones it left.
   models: new Map<string, unknown>(),
 }));
@@ -72,8 +75,11 @@ vi.mock('@monaco-editor/react', async () => {
             }),
             getOriginalEditor: () => inner,
             getModifiedEditor: () => inner,
-            onDidUpdateDiff: () => ({ dispose: () => {} }),
-            getLineChanges: () => [],
+            onDidUpdateDiff: (listener: () => void) => {
+              diffEditorProps.diffListeners.push(listener);
+              return { dispose: () => {} };
+            },
+            getLineChanges: () => (diffEditorProps.diffComputed ? [] : null),
           },
           monaco
         );
@@ -183,7 +189,7 @@ function deferred<T>(): {
 
 describe('DiffPane', () => {
   it('shows editor initialization errors even while Monaco is not ready', () => {
-    const { container } = render(
+    render(
       <DiffPane
         {...baseProps}
         fileContent={null}
@@ -192,12 +198,14 @@ describe('DiffPane', () => {
       />
     );
     expect(screen.getByText('Failed to initialize editor: Outdated Optimize Dep')).toBeTruthy();
-    expect(container.querySelector('.animate-pulse')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
     resetDiffModelCacheForTests();
+    diffEditorProps.diffComputed = true;
+    diffEditorProps.diffListeners = [];
     diffEditorProps.models.clear();
     Object.defineProperty(window, 'api', {
       configurable: true,
@@ -312,6 +320,59 @@ describe('DiffPane', () => {
         view.container.querySelector('[data-original-model]')?.getAttribute('data-original-model');
       expect(shown(first)).toBeTruthy();
       expect(shown(first)).not.toBe(shown(second));
+    } finally {
+      diffEditorProps.mountEditors = false;
+    }
+  });
+
+  it('shows a spinner while the editor loads', async () => {
+    render(<DiffPane {...baseProps} fileContent={null} loading />);
+
+    expect(await screen.findByRole('status', { name: 'Loading editor' })).toBeInTheDocument();
+  });
+
+  it('shows a spinner rather than a diff it has not worked out yet', async () => {
+    diffEditorProps.mountEditors = true;
+    diffEditorProps.diffComputed = false;
+    try {
+      render(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />);
+      const editor = screen.getByText('Diff Editor').parentElement!;
+
+      expect(editor).toHaveStyle({ visibility: 'hidden' });
+      expect(await screen.findByRole('status', { name: 'Loading diff' })).toBeInTheDocument();
+
+      act(() => diffEditorProps.diffListeners.forEach((listener) => listener()));
+
+      expect(editor).toHaveStyle({ visibility: 'visible' });
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally {
+      diffEditorProps.mountEditors = false;
+    }
+  });
+
+  it('waits for the diff again when shown again after a binary file', () => {
+    diffEditorProps.mountEditors = true;
+    diffEditorProps.diffComputed = false;
+    try {
+      const props = { ...baseProps, selectedFile: 'demo.ts' };
+      const { rerender } = render(<DiffPane {...props} fileContent={textDiff()} />);
+      act(() => diffEditorProps.diffListeners.forEach((listener) => listener()));
+      rerender(<DiffPane {...baseProps} fileContent={binaryDiff()} />);
+
+      rerender(<DiffPane {...props} fileContent={textDiff()} />);
+
+      expect(screen.getByText('Diff Editor').parentElement).toHaveStyle({ visibility: 'hidden' });
+    } finally {
+      diffEditorProps.mountEditors = false;
+    }
+  });
+
+  it('shows a diff worked out before at once', () => {
+    diffEditorProps.mountEditors = true;
+    try {
+      render(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />);
+
+      expect(screen.getByText('Diff Editor').parentElement).toHaveStyle({ visibility: 'visible' });
     } finally {
       diffEditorProps.mountEditors = false;
     }

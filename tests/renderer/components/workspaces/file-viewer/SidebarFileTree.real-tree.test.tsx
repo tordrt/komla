@@ -206,6 +206,35 @@ describe('SidebarFileTree with the real tree model', () => {
     expect(document.activeElement).not.toBe(input);
   });
 
+  it('shows a spinner while the changes load, not an empty tree', async () => {
+    render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="/repo"
+        currentFile={null}
+        onFileSelect={vi.fn()}
+        changedFilesOnly
+        changedFiles={[]}
+        diffLoading
+      />
+    );
+
+    expect(await screen.findByRole('status', { name: 'Loading changes' })).toBeInTheDocument();
+  });
+
+  it('shows a spinner while the files load', async () => {
+    render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="/repo"
+        currentFile={null}
+        onFileSelect={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole('status', { name: 'Loading files' })).toBeInTheDocument();
+  });
+
   it('heads the changes view "Changes" while nothing has changed, not "Files"', () => {
     render(
       <SidebarFileTree

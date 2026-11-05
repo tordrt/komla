@@ -1,9 +1,18 @@
 import { DiffEditor } from '@monaco-editor/react';
 import { WarningCircle, ArrowCounterClockwise, GitDiff } from '@phosphor-icons/react';
-import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  forwardRef,
+  useRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from 'react';
 
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
+import { LoadingState } from '@/components/ui/loading-state';
 import { useKomlaEditorTheme, useMonacoThemeName } from '@/hooks/useKomlaEditorTheme';
 import { editorFontSize, KOMLA_EDITOR_BASE_OPTIONS } from '@/lib/monaco-loader';
 import { addMonacoShortcutForwarding } from '@/lib/monaco-shortcut-forwarding';
@@ -64,10 +73,8 @@ const LARGE_FILE_THRESHOLD = 1024 * 1024;
  * highlighted whole. Its default of 5s left a heavily rewritten file blank that long.
  */
 const DIFF_COMPUTATION_BUDGET_MS = 1000;
-/** How long a new file's diff may keep the previous one on screen while its regions collapse. */
-const DIFF_REVEAL_DEADLINE_MS = 200;
-const INITIAL_LOADING_WIDTHS = [92, 74, 88, 67, 96, 71, 84, 78];
-const FILE_LOADING_WIDTHS = [58, 91, 44, 76, 63, 97, 52, 83, 69, 89, 47, 72];
+/** When to show an editor whose diff never arrived, as from a failed worker, rather than spin on. */
+const DIFF_REVEAL_FALLBACK_MS = 10_000;
 
 interface BinaryMediaDiffPreviewProps {
   workingDirectory: string;
@@ -250,19 +257,7 @@ function renderDiffPaneStatus(params: {
 
   // Initialization failures leave Monaco unready; do not hide them behind loading.
   if (loading && !error) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center">
-        <div className="w-64 space-y-3">
-          {INITIAL_LOADING_WIDTHS.map((width) => (
-            <div
-              key={width}
-              className="h-4 animate-pulse rounded bg-muted"
-              style={{ width: `${width}%` }}
-            />
-          ))}
-        </div>
-      </div>
-    );
+    return <LoadingState label="Loading editor" />;
   }
 
   if (error) {
@@ -301,19 +296,7 @@ function renderDiffPaneStatus(params: {
   }
 
   if (shouldShowDiffLoadingPlaceholder({ fileContent, loadingFile })) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center">
-        <div className="w-full max-w-lg space-y-3 px-8">
-          {FILE_LOADING_WIDTHS.map((width) => (
-            <div
-              key={width}
-              className="h-3.5 animate-pulse rounded bg-muted"
-              style={{ width: `${width}%` }}
-            />
-          ))}
-        </div>
-      </div>
-    );
+    return <LoadingState label="Loading diff" />;
   }
 
   if (!fileContent) {
@@ -376,27 +359,20 @@ function renderDiffPaneStatus(params: {
 
 function syncBackdropSnapshot(params: {
   editorInstanceKey: string;
-  hideUnchangedRegions: boolean;
   prevEditorKeyRef: React.MutableRefObject<string | null>;
   editorReadyRef: React.MutableRefObject<boolean>;
   diffContainerRef: React.RefObject<HTMLDivElement | null>;
   backdropRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const {
-    editorInstanceKey,
-    hideUnchangedRegions,
-    prevEditorKeyRef,
-    editorReadyRef,
-    diffContainerRef,
-    backdropRef,
-  } = params;
+  const { editorInstanceKey, prevEditorKeyRef, editorReadyRef, diffContainerRef, backdropRef } =
+    params;
 
   if (prevEditorKeyRef.current === editorInstanceKey) return;
 
   const isFirstRender = prevEditorKeyRef.current === null;
   prevEditorKeyRef.current = editorInstanceKey;
 
-  if (!hideUnchangedRegions || isFirstRender) return;
+  if (isFirstRender) return;
 
   // Only snapshot if the live editor is ready — on rapid switches, keep the existing backdrop.
   if (editorReadyRef.current && diffContainerRef.current && backdropRef.current) {
@@ -407,6 +383,30 @@ function syncBackdropSnapshot(params: {
     diffContainerRef.current.style.visibility = 'hidden';
   }
 }
+
+const HIDDEN = { visibility: 'hidden' } as const;
+
+interface DiffLoadingOverlayHandle {
+  /** The diff of the editor with this key is on screen. */
+  shown(editorKey: string): void;
+}
+
+/**
+ * The spinner over a diff not worked out yet. It keeps its own state, so showing a diff renders
+ * only this.
+ */
+const DiffLoadingOverlay = forwardRef<
+  DiffLoadingOverlayHandle,
+  { editorKey: string; backgroundColor?: string }
+>(({ editorKey, backgroundColor }, ref) => {
+  const [shownKey, setShownKey] = useState<string | null>(null);
+  useImperativeHandle(ref, () => ({ shown: setShownKey }), []);
+  if (shownKey === editorKey) return null;
+  return (
+    <LoadingState label="Loading diff" className="absolute inset-0" style={{ backgroundColor }} />
+  );
+});
+DiffLoadingOverlay.displayName = 'DiffLoadingOverlay';
 
 function measureContainer(container: HTMLElement | null): monacoEditor.IDimension | undefined {
   if (!container || container.clientWidth === 0) return undefined;
@@ -530,15 +530,14 @@ export function DiffPane({
   const cleanContentVersionRef = useRef(0);
   const prevContentRef = useRef<{ old: string; new: string } | null>(null);
 
-  // When hideUnchangedRegions is enabled and the editor remounts (file switch),
-  // the new editor briefly shows the full file before Monaco collapses regions.
-  // To avoid this flash, we snapshot the old editor's DOM into a backdrop div,
-  // render the new editor invisibly on top, then remove the backdrop once the
-  // diff computation completes and regions are collapsed.
+  // A new editor shows its text before Monaco has diffed it: unhighlighted, and with unchanged
+  // regions still open. So it stays hidden until its diff arrives. Meanwhile a snapshot of the
+  // previous editor's DOM stays on a backdrop, and a slow diff shows a spinner over it.
   const diffContainerRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const prevEditorKeyRef = useRef<string | null>(null);
-  const editorReadyRef = useRef(true);
+  const editorReadyRef = useRef(false);
+  const loadingOverlayRef = useRef<DiffLoadingOverlayHandle>(null);
   const editorTheme = useKomlaEditorTheme();
   const monacoThemeName = useMonacoThemeName();
   const fontSize = useCustomizationStore((state) =>
@@ -605,6 +604,7 @@ export function DiffPane({
         clearTimeout(revealDeadline);
         diffDisposable.dispose();
         editorReadyRef.current = true;
+        if (shown) loadingOverlayRef.current?.shown(shown.key);
         if (diffContainerRef.current) {
           diffContainerRef.current.style.visibility = 'visible';
         }
@@ -613,7 +613,7 @@ export function DiffPane({
         }
       };
       const diffDisposable = editor.onDidUpdateDiff(reveal);
-      const revealDeadline = setTimeout(reveal, DIFF_REVEAL_DEADLINE_MS);
+      const revealDeadline = setTimeout(reveal, DIFF_REVEAL_FALLBACK_MS);
       // Monaco keeps the diffs of models shown before: one may have arrived before this ran.
       if (editor.getLineChanges() !== null) reveal();
       editor.getModifiedEditor().onDidDispose(() => {
@@ -723,7 +723,6 @@ export function DiffPane({
   // and hide the new editor until its diff is ready.
   syncBackdropSnapshot({
     editorInstanceKey,
-    hideUnchangedRegions,
     prevEditorKeyRef,
     editorReadyRef,
     diffContainerRef,
@@ -734,8 +733,13 @@ export function DiffPane({
     <div className="relative min-h-0 flex-1" style={{ backgroundColor: editorTheme.bg }}>
       {/* Backdrop: holds a static snapshot of the previous editor while the new one loads */}
       <div ref={backdropRef} className="pointer-events-none absolute inset-0" />
-      {/* Live editor container — hidden until diff regions collapse */}
-      <div ref={diffContainerRef} className="flex h-full flex-col">
+      {/* Live editor container — hidden until its diff arrives */}
+      <div
+        ref={diffContainerRef}
+        className="flex h-full flex-col"
+        // Shown by the editor's mount once its diff arrives, without a render.
+        style={HIDDEN}
+      >
         <DiffEditor
           key={editorInstanceKey}
           height="100%"
@@ -743,11 +747,8 @@ export function DiffPane({
           modified={newContent}
           language={editorLanguage}
           theme={monacoThemeName}
-          loading={
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              Initializing editor&hellip;
-            </div>
-          }
+          // Hidden with the editor: the spinner below says it is loading.
+          loading={null}
           originalModelPath={modelsRef.current.paths.original}
           modifiedModelPath={modelsRef.current.paths.modified}
           // diff-model-cache owns these models, to show this diff again without rebuilding them.
@@ -757,6 +758,11 @@ export function DiffPane({
           options={modelsRef.current.options}
         />
       </div>
+      <DiffLoadingOverlay
+        ref={loadingOverlayRef}
+        editorKey={editorInstanceKey}
+        backgroundColor={editorTheme.bg}
+      />
     </div>
   );
 }

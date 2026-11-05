@@ -78,57 +78,89 @@ describe('AgentLaunchPickerMatrix', () => {
     ).toBeNull();
   });
 
-  describe('adding model and effort options', () => {
-    const renderWith = (preset: AgentPreset, onAddAgentOption = vi.fn()) => {
+  describe('editing an agent', () => {
+    const codex: AgentPreset = { ...claude, id: 'codex', name: 'Codex', launchModes: [] };
+    const renderWith = (presets: AgentPreset[], inspectedPresetId: string) => {
+      const onEditAgent = vi.fn();
       render(
         <DropdownMenu open>
           <DropdownMenuContent>
             <AgentLaunchPickerMatrix
-              presets={[preset]}
-              inspectedPresetId={preset.id}
+              presets={presets}
+              inspectedPresetId={inspectedPresetId}
               onInspectPreset={vi.fn()}
-              selectedTarget={{ presetId: preset.id, launchModeId: null }}
+              selectedTarget={{ presetId: presets[0].id, launchModeId: null }}
               onSelectTarget={vi.fn()}
-              onAddAgentOption={onAddAgentOption}
+              getPreferredLaunchModeId={() => null}
+              onManageAgents={vi.fn()}
+              onEditAgent={onEditAgent}
             />
           </DropdownMenuContent>
         </DropdownMenu>
       );
-      return onAddAgentOption;
+      return { onEditAgent };
     };
 
-    it('offers both for an agent that has neither, and opens the one picked', () => {
-      const onAdd = renderWith(claude);
+    it('leaves editing to "Manage agents…" when there are several', () => {
+      const { onEditAgent } = renderWith([claude, codex], 'codex');
 
-      expect(screen.getByRole('menuitem', { name: 'Add effort picker…' })).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Add model picker…' }));
-      expect(onAdd).toHaveBeenCalledWith('claude', 'models');
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit launch modes…' }));
-      expect(onAdd).toHaveBeenCalledWith('claude', 'launchModes');
+      expect(screen.queryByRole('button', { name: /^Edit / })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /^Edit / })).toBeNull();
+      expect(screen.getByRole('menuitem', { name: 'Manage agents…' })).toBeInTheDocument();
+      expect(onEditAgent).not.toHaveBeenCalled();
     });
 
-    it('offers to edit a picker the agent already has, by its title', () => {
-      const onAdd = renderWith({
-        ...claude,
-        models: [{ id: 'm', name: 'Opus', arguments: '--model opus' }],
-        reasoningLevels: [{ id: 'l', name: 'High', arguments: '--effort high' }],
-        levelPicker: { title: 'Speed' },
+    it("offers the only agent's editor in place of the agent list", () => {
+      const { onEditAgent } = renderWith([claude], 'claude');
+
+      expect(screen.queryByRole('menuitem', { name: 'Manage agents…' })).toBeNull();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit Claude Code…' }));
+      expect(onEditAgent).toHaveBeenCalledWith('claude');
+    });
+
+    it('keeps one height across agents, counting the agent column and its "Manage agents…"', () => {
+      render(
+        <DropdownMenu open>
+          <DropdownMenuContent>
+            <AgentLaunchPickerMatrix
+              presets={[claude, codex]}
+              inspectedPresetId="codex"
+              onInspectPreset={vi.fn()}
+              onManageAgents={vi.fn()}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+
+      // Claude Code's Default and two launch modes match two agents and "Manage agents…".
+      expect(document.querySelector('[data-agent-launch-matrix]')).toHaveStyle({
+        minHeight: '5.5rem',
       });
-
-      expect(screen.queryByRole('menuitem', { name: 'Add model picker…' })).toBeNull();
-      expect(screen.queryByRole('menuitem', { name: 'Add effort picker…' })).toBeNull();
-      expect(screen.getByRole('menuitem', { name: 'Edit speed picker…' })).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit model picker…' }));
-      expect(onAdd).toHaveBeenCalledWith('claude', 'models');
-      // Launch modes can always be edited.
-      expect(screen.getByRole('menuitem', { name: 'Edit launch modes…' })).toBeInTheDocument();
     });
 
-    it('offers nothing for an agent that starts no command', () => {
-      renderWith({ ...claude, openCommand: '' });
+    it('keeps that height when multi-select lists fewer agents and no "Manage agents…"', () => {
+      const plain = { ...codex, launchModes: [] };
+      const others = [plain, { ...plain, id: 'b', name: 'B' }, { ...plain, id: 'c', name: 'C' }];
+      render(
+        <DropdownMenu open>
+          <DropdownMenuContent>
+            <AgentLaunchPickerMatrix
+              presets={[plain]}
+              heightPresets={others}
+              inspectedPresetId={plain.id}
+              onInspectPreset={vi.fn()}
+              selectedTargets={[]}
+              onManageAgents={vi.fn()}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
 
-      expect(screen.queryByRole('menuitem', { name: 'Add model picker…' })).toBeNull();
-      expect(screen.queryByRole('menuitem', { name: 'Edit launch modes…' })).toBeNull();
+      // Three agents and "Manage agents…", as the single-select menu shows them.
+      expect(document.querySelector('[data-agent-launch-matrix]')).toHaveStyle({
+        minHeight: '7.375rem',
+      });
+      expect(screen.queryByRole('menuitem', { name: 'Manage agents…' })).toBeNull();
     });
   });
 });

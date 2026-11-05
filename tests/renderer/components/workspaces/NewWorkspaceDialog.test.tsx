@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1297,10 +1297,12 @@ describe('NewWorkspaceDialog', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Codex, Default$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Codex, Sandbox$/i })).toBeInTheDocument();
-    expect(screen.getByText(/cycle launch mode/)).toHaveTextContent('Shift+Tab cycle launch mode');
+    expect(screen.getByText('mode')).toHaveTextContent('Shift+Tab mode');
     expect(screen.getByText('Shift+Tab', { selector: 'kbd' })).toBeInTheDocument();
-    expect(screen.queryByText(/cycle agent/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Manage agents…' })).toBeInTheDocument();
+    expect(screen.queryByText(/^agent( ·)?$/)).not.toBeInTheDocument();
+    // With one agent, the menu opens its editor rather than the agent list.
+    expect(screen.getByRole('button', { name: 'Edit Codex…' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage agents…' })).not.toBeInTheDocument();
   });
 
   it('shows the agent pill for a single agent without launch modes', async () => {
@@ -1320,13 +1322,13 @@ describe('NewWorkspaceDialog', () => {
     render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
 
     await screen.findByPlaceholderText('komla/swift-fox');
-    const picker = screen.getByTitle('Click to manage agents');
+    const picker = screen.getByTitle('Click to edit Codex');
     expect(picker).toHaveTextContent('Codex');
     await user.click(picker);
 
-    expect(screen.getByRole('button', { name: 'Manage agents…' })).toBeInTheDocument();
-    expect(screen.queryByText(/cycle launch mode/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/cycle agent/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit Codex…' })).toBeInTheDocument();
+    expect(screen.queryByText('mode')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^agent( ·)?$/)).not.toBeInTheDocument();
   });
 
   it('opens Settings → Agents from the agent picker, keeping the prompt', async () => {
@@ -1369,6 +1371,66 @@ describe('NewWorkspaceDialog', () => {
     expect(useSettingsDialogStore.getState()).toMatchObject({
       open: true,
       target: { tab: 'agent' },
+    });
+  });
+
+  describe('adding a missing picker', () => {
+    const codex = {
+      id: 'preset-1',
+      name: 'Codex',
+      openCommand: 'codex',
+      promptCommand: 'codex {{prompt}}',
+      launchModes: [],
+    };
+    const show = (preset: Record<string, unknown>) => {
+      mockPresetStore.presets = [preset];
+      mockPresetStore.activePreset = mockPresetStore.presets[0];
+      mockPresetStore.activePresets = [{ presetId: 'preset-1', lastUsedAt: 100 }];
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+    };
+
+    it('offers both pickers an agent lacks and opens its editor at the one picked', async () => {
+      const user = userEvent.setup();
+      show(codex);
+
+      await user.click(await screen.findByRole('button', { name: 'Add a model or effort picker' }));
+      expect(screen.getByRole('button', { name: 'Add effort picker…' })).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Add model picker…' }));
+
+      expect(useSettingsDialogStore.getState()).toMatchObject({
+        open: true,
+        target: { tab: 'agent', editPresetId: 'preset-1', cardId: 'agent-models' },
+      });
+    });
+
+    it('offers only the missing one, and nothing once the agent has both', async () => {
+      show({ ...codex, models: [{ id: 'm', name: 'Opus', arguments: '--model opus' }] });
+      expect(
+        await screen.findByRole('button', { name: 'Add an effort picker' })
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Add model picker…' })).not.toBeInTheDocument();
+      cleanup();
+
+      show({
+        ...codex,
+        models: [{ id: 'm', name: 'Opus', arguments: '--model opus' }],
+        reasoningLevels: [{ id: 'h', name: 'High', arguments: '--effort high' }],
+      });
+      await screen.findByPlaceholderText('komla/swift-fox');
+      expect(document.querySelector('[data-add-picker]')).toBeNull();
+    });
+
+    it('leaves out a picker the user hid', async () => {
+      show({ ...codex, modelPicker: { hidden: true } });
+      expect(
+        await screen.findByRole('button', { name: 'Add an effort picker' })
+      ).toBeInTheDocument();
+    });
+
+    it('offers nothing for an agent that starts no command', async () => {
+      show({ ...codex, openCommand: '' });
+      await screen.findByPlaceholderText('komla/swift-fox');
+      expect(document.querySelector('[data-add-picker]')).toBeNull();
     });
   });
 
@@ -1463,13 +1525,13 @@ describe('NewWorkspaceDialog', () => {
       .getByRole('button', { name: /^Codex, Codex Mode$/i })
       .closest('[data-agent-launch-matrix]');
     expect(matrix).toHaveAttribute('data-agent-launch-layout', 'matrix');
-    expect(matrix).toHaveStyle({ minHeight: '8.375rem' });
+    expect(matrix).toHaveStyle({ minHeight: '7.375rem' });
     expect(screen.queryByText(/^Launch mode$/i)).not.toBeInTheDocument();
 
     await user.hover(claudeAgent);
     expect(claudeAgent).toHaveClass('bg-foreground/8');
     expect(screen.getByRole('button', { name: /^Claude Code, Claude Plan$/i })).toBeInTheDocument();
-    expect(matrix).toHaveStyle({ minHeight: '8.375rem' });
+    expect(matrix).toHaveStyle({ minHeight: '7.375rem' });
 
     await user.click(picker);
     await user.click(picker);
@@ -2522,7 +2584,7 @@ describe('NewWorkspaceDialog', () => {
     expect(pill).not.toHaveTextContent('Model');
     expect(pill).toHaveAttribute('title', 'Model');
     await user.click(pill);
-    expect(screen.getByText('Model')).toBeInTheDocument();
+    expect(screen.getByText('Model', { selector: 'div' })).toBeInTheDocument();
     await user.click(screen.getByRole('menuitemradio', { name: 'Opus' }));
 
     expect(screen.getByRole('button', { name: 'Claude Code Model: Opus' })).toHaveTextContent(
@@ -4490,7 +4552,7 @@ describe('NewWorkspaceDialog', () => {
       expect(mockSetActivePreset).not.toHaveBeenCalled();
 
       await user.click(screen.getByTitle(/click to select agent and launch mode/i));
-      expect(screen.queryByText(/cycle agent/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^agent( ·)?$/)).not.toBeInTheDocument();
     });
 
     it('keeps a shortcut whose control is hidden from acting behind the dialog', async () => {

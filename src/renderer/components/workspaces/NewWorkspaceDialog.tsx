@@ -8,6 +8,7 @@ import {
   Sparkle,
   Robot,
   Keyboard,
+  PencilSimple,
   TerminalWindow,
 } from '@phosphor-icons/react';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -66,7 +67,11 @@ import {
   type LaunchTarget,
   type WorkspaceEnvironmentTarget,
 } from '@/lib/agent-launch';
-import { AGENT_OPTION_CARD_IDS, type AgentOption } from '@/lib/agent-option-cards';
+import {
+  AGENT_OPTION_CARD_IDS,
+  missingPickersOf,
+  type AddableAgentOption,
+} from '@/lib/agent-option-cards';
 import { focusPromptOnMenuClose } from '@/lib/dialog-menus';
 import { stopWheelPropagation } from '@/lib/dialog-scroll-lock';
 import { getLaunchModeColor, LAUNCH_MODE_PILL_CLASSES } from '@/lib/launch-mode-colors';
@@ -1856,13 +1861,13 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     useSettingsDialogStore.getState().openSettings({ tab: 'agent' });
   };
 
-  // Opens one agent's editor, scrolled to its models or effort levels.
-  const handleEditAgentOption = (presetId: string, option: AgentOption) => {
+  // Opens one agent's editor, scrolled to its models or effort levels when given one.
+  const handleEditAgentOption = (presetId: string, option?: AddableAgentOption) => {
     handleOpenChange(false);
     useSettingsDialogStore.getState().openSettings({
       tab: 'agent',
       editPresetId: presetId,
-      cardId: AGENT_OPTION_CARD_IDS[option],
+      cardId: option && AGENT_OPTION_CARD_IDS[option],
     });
   };
 
@@ -2135,6 +2140,10 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const showAgentLaunchPicker = showPresetPicker || hasAgent;
   const showReasoningLevelPill =
     hasAgent && selectedLaunchTargets.length === 0 && availableReasoningLevels.length > 0;
+  const showAddPicker =
+    hasAgent &&
+    selectedLaunchTargets.length === 0 &&
+    Boolean(selectedPreset && missingPickersOf(selectedPreset).length > 0);
   const showModelPill =
     hasAgent && selectedLaunchTargets.length === 0 && availableModels.length > 0;
   const showBranchPicker =
@@ -2147,6 +2156,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     agent: showAgentLaunchPicker,
     effort: showReasoningLevelPill,
     model: showModelPill,
+    addPicker: showAddPicker,
     environment: showContextBar,
     branch: showBranchPicker,
   };
@@ -2473,6 +2483,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
 
               <FooterSection
                 hasAgent={hasAgent}
+                showAddPicker={showAddPicker}
                 launchModeId={effectiveLaunchModeId}
                 selectedPreset={selectedPreset ?? undefined}
                 getReasoningLevelId={getReasoningLevelId}
@@ -3008,6 +3019,8 @@ function ConfigSection({
 
 interface FooterSectionProps {
   hasAgent: boolean;
+  /** The agent lacks a model or effort picker, so the "+" after the pills offers to add one. */
+  showAddPicker: boolean;
   launchModeId: string | null;
   selectedPreset: AgentPreset | undefined;
   getReasoningLevelId: (presetId: string) => string | null;
@@ -3024,7 +3037,7 @@ interface FooterSectionProps {
   onLaunchTargetsChange: (targets: LaunchTarget[]) => void;
   canLaunchMultiple: boolean;
   onManageAgents: () => void;
-  onEditAgentOption: (presetId: string, option: AgentOption) => void;
+  onEditAgentOption: (presetId: string, option?: AddableAgentOption) => void;
   onCustomizeShortcuts: () => void;
   isSubmitting: boolean;
   /** Launch waits, e.g. while the branch it starts from is being pushed. */
@@ -3036,6 +3049,7 @@ interface FooterSectionProps {
 
 function FooterSection({
   hasAgent,
+  showAddPicker,
   launchModeId,
   selectedPreset,
   getReasoningLevelId,
@@ -3107,6 +3121,15 @@ function FooterSection({
             onOpenChange={menuOpenChange('model')}
           />
         )}
+        {showAddPicker && selectedPreset && (
+          <AddPickerButton
+            preset={selectedPreset}
+            onAdd={(option) => onEditAgentOption(selectedPreset.id, option)}
+            promptTextareaRef={promptTextareaRef}
+            open={openMenu === 'addPicker'}
+            onOpenChange={menuOpenChange('addPicker')}
+          />
+        )}
       </span>
       <Button
         type="submit"
@@ -3138,10 +3161,57 @@ interface ReasoningLevelPillProps {
 
 const DEFAULT_REASONING_VALUE = '__default__';
 
+// The composer's pills share one quiet look: muted at the agent's default, the text color once
+// something is chosen, and a soft fill while hovered or open.
+const composerPillClass =
+  'inline-flex h-6 items-center gap-1.5 rounded-md px-1.5 text-ui outline-hidden transition-colors hover:bg-foreground/6 focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-foreground/8 data-[state=open]:text-foreground';
+
+function ComposerPillCaret() {
+  return <CaretDown aria-hidden className="-ml-0.5 size-2.5 opacity-50" />;
+}
+
+// Bars for one effort level, filled up to it, as the pill and its menu rows draw it.
+function LevelMeter({
+  count,
+  filled,
+  inPill,
+}: {
+  count: number;
+  filled: number;
+  inPill?: boolean;
+}) {
+  return (
+    <span className="inline-flex items-end gap-[1.5px]" data-reasoning-meter={inPill || undefined}>
+      {Array.from({ length: count }, (_, index) => (
+        <span
+          key={index}
+          aria-hidden
+          className={cn('h-2.5 w-[3px] rounded-[1px] bg-current', index >= filled && 'opacity-25')}
+        />
+      ))}
+    </span>
+  );
+}
+
+const pickerRowClass = 'min-h-7 text-xs';
+
+function PickerMenuEditItem({ title, onEdit }: { title: string; onEdit: () => void }) {
+  return (
+    <>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem className={cn(pickerRowClass, 'text-muted-foreground')} onSelect={onEdit}>
+        <PencilSimple className="size-3.5" />
+        Edit {title.toLowerCase()} picker…
+      </DropdownMenuItem>
+    </>
+  );
+}
+
 // Effort pill next to the agent pill. Agents define their own number of
 // levels, and can give the pill another title and icon, such as for a model.
 // At the default level the pill shows only the icon; the title stays in its
-// tooltip and menu. The gauge's bar meter replaces the icon once a level is chosen.
+// tooltip and menu. The gauge's bar meter replaces the icon once a level is chosen,
+// and each of the menu's levels shows its own.
 function ReasoningLevelPill({
   preset,
   getReasoningLevelId,
@@ -3159,6 +3229,9 @@ function ReasoningLevelPill({
   const level = levelIndex >= 0 ? levels[levelIndex] : undefined;
   const picker = levelPickerOf(preset);
   const PickerIcon = LEVEL_PICKER_ICON_COMPONENTS[picker.icon];
+  const isGauge = picker.icon === 'gauge';
+  // The meters line up their names; Default's icon sits in the same slot.
+  const meterWidth = `${Math.max(14, levels.length * 3 + (levels.length - 1) * 1.5)}px`;
 
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
@@ -3168,36 +3241,23 @@ function ReasoningLevelPill({
           aria-label={`${preset.name} ${picker.title}: ${level?.name ?? 'Default'}`}
           title={cycleShortcut ? `${picker.title}, ${cycleShortcut} cycles` : picker.title}
           className={cn(
-            'inline-flex h-6 items-center gap-1 rounded-md px-2 text-ui transition-colors',
-            level
-              ? 'bg-muted font-medium text-foreground hover:bg-muted/80'
-              : 'text-muted-foreground-70 hover:bg-muted/60 hover:text-foreground'
+            composerPillClass,
+            level ? 'font-medium text-foreground' : 'text-muted-foreground-70 hover:text-foreground'
           )}
         >
-          {level && picker.icon === 'gauge' ? (
-            <span className="inline-flex items-end gap-px" data-reasoning-meter>
-              {levels.map((item, index) => (
-                <span
-                  key={item.id}
-                  aria-hidden
-                  className={cn(
-                    'h-2 w-[3px] rounded-[1px] bg-current',
-                    index > levelIndex && 'opacity-30'
-                  )}
-                />
-              ))}
-            </span>
+          {level && isGauge ? (
+            <LevelMeter count={levels.length} filled={levelIndex + 1} inPill />
           ) : (
-            <PickerIcon className="size-3" />
+            <PickerIcon className="size-3.5" />
           )}
           {level?.name}
-          <CaretDown className="size-2.5" />
+          <ComposerPillCaret />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
         collisionPadding={8}
-        className="min-w-36"
+        className="w-max max-w-72 min-w-48"
         onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
       >
         <DropdownMenuLabel>{picker.title}</DropdownMenuLabel>
@@ -3207,24 +3267,40 @@ function ReasoningLevelPill({
             onReasoningLevelChange(preset.id, value === DEFAULT_REASONING_VALUE ? null : value)
           }
         >
-          <DropdownMenuRadioItem value={DEFAULT_REASONING_VALUE} className="text-xs">
+          <DropdownMenuRadioItem
+            value={DEFAULT_REASONING_VALUE}
+            indicator="check"
+            className={pickerRowClass}
+          >
+            {isGauge && (
+              <span className="flex shrink-0 text-muted-foreground" style={{ width: meterWidth }}>
+                <PickerIcon className="size-3.5" />
+              </span>
+            )}
             Default
           </DropdownMenuRadioItem>
-          {levels.map((item) => (
+          <DropdownMenuSeparator />
+          {levels.map((item, index) => (
             <DropdownMenuRadioItem
               key={item.id}
               value={item.id}
-              className="text-xs"
+              indicator="check"
+              className={pickerRowClass}
               title={item.arguments}
             >
-              {item.name}
+              {isGauge && (
+                <span
+                  className="flex shrink-0 text-muted-foreground in-data-[state=checked]:text-foreground"
+                  style={{ width: meterWidth }}
+                >
+                  <LevelMeter count={levels.length} filled={index + 1} />
+                </span>
+              )}
+              <span className="truncate">{item.name}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="text-xs text-muted-foreground" onSelect={onEdit}>
-          Edit {picker.title.toLowerCase()} picker…
-        </DropdownMenuItem>
+        <PickerMenuEditItem title={picker.title} onEdit={onEdit} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -3241,7 +3317,7 @@ interface ModelPillProps {
 }
 
 // Model pill beside the effort pill, for agents that define models. At the default model the
-// pill shows only the icon; the model's name replaces it once one is chosen.
+// pill shows only the icon; the model's name joins it once one is chosen.
 function ModelPill({
   preset,
   getModelId,
@@ -3266,21 +3342,19 @@ function ModelPill({
           aria-label={`${preset.name} ${picker.title}: ${model?.name ?? 'Default'}`}
           title={picker.title}
           className={cn(
-            'inline-flex h-6 items-center gap-1 rounded-md px-2 text-ui transition-colors',
-            model
-              ? 'bg-muted font-medium text-foreground hover:bg-muted/80'
-              : 'text-muted-foreground-70 hover:bg-muted/60 hover:text-foreground'
+            composerPillClass,
+            model ? 'font-medium text-foreground' : 'text-muted-foreground-70 hover:text-foreground'
           )}
         >
-          <PickerIcon className="size-3" />
+          <PickerIcon className="size-3.5" />
           {model?.name}
-          <CaretDown className="size-2.5" />
+          <ComposerPillCaret />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
         collisionPadding={8}
-        className="min-w-36"
+        className="w-max max-w-72 min-w-48"
         onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
       >
         <DropdownMenuLabel>{picker.title}</DropdownMenuLabel>
@@ -3290,24 +3364,96 @@ function ModelPill({
             onModelChange(preset.id, value === DEFAULT_REASONING_VALUE ? null : value)
           }
         >
-          <DropdownMenuRadioItem value={DEFAULT_REASONING_VALUE} className="text-xs">
+          <DropdownMenuRadioItem
+            value={DEFAULT_REASONING_VALUE}
+            indicator="check"
+            className={pickerRowClass}
+          >
             Default
           </DropdownMenuRadioItem>
+          <DropdownMenuSeparator />
           {models.map((item) => (
             <DropdownMenuRadioItem
               key={item.id}
               value={item.id}
-              className="text-xs"
+              indicator="check"
+              className={pickerRowClass}
               title={item.arguments}
             >
-              {item.name}
+              <span className="truncate">{item.name}</span>
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="text-xs text-muted-foreground" onSelect={onEdit}>
-          Edit {picker.title.toLowerCase()} picker…
-        </DropdownMenuItem>
+        <PickerMenuEditItem title={picker.title} onEdit={onEdit} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// Each with the icon its pill gets by default.
+const ADD_PICKER_ITEMS = {
+  effort: { label: 'Add effort picker…', icon: LEVEL_PICKER_ICON_COMPONENTS.gauge },
+  models: { label: 'Add model picker…', icon: LEVEL_PICKER_ICON_COMPONENTS.cpu },
+} satisfies Record<AddableAgentOption, { label: string; icon: unknown }>;
+
+interface AddPickerButtonProps {
+  preset: AgentPreset;
+  onAdd: (option: AddableAgentOption) => void;
+  promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+// A quiet "+" after the pills, where a missing model or effort pill would sit, so an agent's
+// pickers can be found before it has them. Gone once the agent has both.
+function AddPickerButton({
+  preset,
+  onAdd,
+  promptTextareaRef,
+  open,
+  onOpenChange,
+}: AddPickerButtonProps) {
+  const missing = missingPickersOf(preset);
+  if (missing.length === 0) return null;
+  const label =
+    missing.length === 2
+      ? 'Add a model or effort picker'
+      : missing[0] === 'models'
+        ? 'Add a model picker'
+        : 'Add an effort picker';
+
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          title={label}
+          className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground-70 opacity-60 outline-hidden transition-colors hover:bg-foreground/6 hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-foreground/8 data-[state=open]:text-foreground data-[state=open]:opacity-100"
+          data-add-picker
+        >
+          <Plus className="size-3" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        collisionPadding={8}
+        onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
+      >
+        <DropdownMenuLabel>{preset.name}</DropdownMenuLabel>
+        {missing.map((option) => {
+          const { label: itemLabel, icon: ItemIcon } = ADD_PICKER_ITEMS[option];
+          return (
+            <DropdownMenuItem
+              key={option}
+              className="min-h-7 text-xs"
+              onSelect={() => onAdd(option)}
+            >
+              <ItemIcon className="size-3.5" />
+              {itemLabel}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -3324,7 +3470,7 @@ interface AgentLaunchPickerPillProps {
   onLaunchTargetsChange: (targets: LaunchTarget[]) => void;
   canLaunchMultiple: boolean;
   onManageAgents: () => void;
-  onEditAgentOption: (presetId: string, option: AgentOption) => void;
+  onEditAgentOption: (presetId: string, option?: AddableAgentOption) => void;
   onCustomizeShortcuts: () => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   open: boolean;
@@ -3447,10 +3593,11 @@ function AgentLaunchPickerPill({
         <button
           type="button"
           className={cn(
-            'group inline-flex h-6 items-center rounded-md px-2 text-ui transition-colors',
+            composerPillClass,
+            'group gap-0',
             isParallelSelection
-              ? 'gap-1 bg-primary/10 font-medium text-primary hover:bg-primary/15'
-              : 'text-muted-foreground-70 hover:text-muted-foreground'
+              ? 'gap-1 bg-primary/10 font-medium text-primary hover:bg-primary/15 data-[state=open]:bg-primary/15 data-[state=open]:text-primary'
+              : 'text-muted-foreground hover:text-foreground'
           )}
           title={
             isParallelSelection
@@ -3460,7 +3607,7 @@ function AgentLaunchPickerPill({
                     ? 'Click to select agent and launch mode'
                     : hasLaunchModes
                       ? 'Click to select launch mode'
-                      : 'Click to manage agents',
+                      : `Click to edit ${selectedPreset?.name ?? 'the agent'}`,
                   hasMultiplePresets && cycleAgentShortcut && `${cycleAgentShortcut} cycles agents`,
                   launchModeShortcut && `${launchModeShortcut} cycles launch modes`,
                 ]
@@ -3490,7 +3637,7 @@ function AgentLaunchPickerPill({
               )}
             </>
           )}
-          <CaretDown className="ml-1 size-2.5" />
+          <CaretDown aria-hidden className="ml-1 size-2.5 opacity-50" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -3517,8 +3664,8 @@ function AgentLaunchPickerPill({
           onToggleTarget={handleToggleTarget}
           getPreferredLaunchModeId={(preset) => getPreferredLaunchModeId(preset.id)}
           heightPresets={resolvedActivePresets}
-          onManageAgents={isMultiSelectMode ? undefined : onManageAgents}
-          onAddAgentOption={isMultiSelectMode ? undefined : onEditAgentOption}
+          onManageAgents={onManageAgents}
+          onEditAgent={onEditAgentOption}
         />
         {isMultiSelectMode ? (
           <MultiSelectFooter
@@ -3533,13 +3680,13 @@ function AgentLaunchPickerPill({
             <span className="min-w-0 truncate text-2xs text-muted-foreground-70">
               {hasMultiplePresets && cycleAgentShortcut && (
                 <>
-                  <Kbd>{cycleAgentShortcut}</Kbd> cycle agent
+                  <Kbd>{cycleAgentShortcut}</Kbd> agent
                   {launchModeShortcut && ' · '}
                 </>
               )}
               {launchModeShortcut && (
                 <>
-                  <Kbd>{launchModeShortcut}</Kbd> cycle launch mode
+                  <Kbd>{launchModeShortcut}</Kbd> mode
                 </>
               )}
             </span>

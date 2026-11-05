@@ -6,7 +6,13 @@ import {
 } from '../../shared/constants/shortcut-scopes';
 
 /** A menu in the new workspace dialog that a shortcut can open. */
-export type NewWorkspaceMenu = 'agent' | 'effort' | 'model' | 'environment' | 'branch';
+export type NewWorkspaceMenu =
+  | 'agent'
+  | 'effort'
+  | 'model'
+  | 'addPicker'
+  | 'environment'
+  | 'branch';
 
 type ShortcutEvent = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>;
 

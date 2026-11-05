@@ -308,7 +308,13 @@ describe('StatusBar', () => {
     renderStatusBar();
     await user.click(screen.getByRole('button', { name: '1 needs input, 1 working' }));
 
-    expect(agentRows()).toEqual(['Needs input:waiting5m', 'Working:busy']);
+    // Each group under a header with its count, and what an agent that needs you asked.
+    expect(agentRows()).toEqual([
+      'Needs you1',
+      'Needs input:waiting5mClaude needs your permission',
+      'Working1',
+      'Working:busy',
+    ]);
 
     await user.click(screen.getByRole('button', { name: 'Working:busy' }));
     expect(selectWorkspace).toHaveBeenCalledWith(busy.id);

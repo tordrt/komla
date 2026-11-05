@@ -1,4 +1,5 @@
-import { Check, GearSix, GitBranch } from '@phosphor-icons/react';
+import { ArrowElbowDownRight, CaretDown, Check, GearSix, GitBranch } from '@phosphor-icons/react';
+import { Fragment, useState } from 'react';
 
 import { ProjectMark } from '@/components/projects/ProjectMark';
 import {
@@ -19,7 +20,12 @@ import {
   type Agent,
   type AgentState,
 } from '@/components/workspaces/agent-state';
-import { AgentDetails, agentName, AgentTime } from '@/components/workspaces/AgentDetails';
+import {
+  AgentDetails,
+  agentName,
+  agentSaid,
+  AgentTime,
+} from '@/components/workspaces/AgentDetails';
 import {
   getWorkspaceDisplayTitle,
   WorkspaceInfoCardContent,
@@ -121,7 +127,7 @@ function WorkspacePlace({
   const branch = workspace.isWorktree ? workspace.branchName : undefined;
   if (!project && !branch) return null;
   return (
-    <span className="flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+    <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-foreground/60">
       {project && (
         <>
           <ProjectMark project={project} iconClassName="size-3" dotClassName="size-1.5" />
@@ -152,6 +158,9 @@ function AgentRow({
 }: RowProps & { agent: Agent }) {
   const { workspace, state } = agent;
   const selected = selectedWorkspaceId === workspace.id;
+  // Why it needs you, or what it did, at a glance; working, what it was asked.
+  const said = agentSaid(agent);
+  const asked = state === 'working' ? workspace.promptSubmits?.at(-1)?.prompt : undefined;
   return (
     <li>
       <AgentCard agent={agent} {...card}>
@@ -177,6 +186,27 @@ function AgentRow({
               <AgentTime agent={agent} />
             </span>
             <WorkspacePlace workspace={workspace} projects={projects} />
+            {said && (
+              <span
+                className={cn(
+                  'mt-0.5 block truncate text-xs',
+                  state === 'done' ? 'text-muted-foreground' : 'text-foreground/80'
+                )}
+              >
+                {said}
+              </span>
+            )}
+            {asked && (
+              <span className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                <span title="Your last prompt" className="flex shrink-0">
+                  <ArrowElbowDownRight
+                    aria-label="Your last prompt"
+                    className="size-3 opacity-60"
+                  />
+                </span>
+                <span className="truncate">{asked}</span>
+              </span>
+            )}
           </span>
         </button>
       </AgentCard>
@@ -265,9 +295,20 @@ function MenuBarSettings({ avoidCollisions = true }: Pick<RowProps, 'avoidCollis
   );
 }
 
+// Finished agents past this many fold into a "more" row, so the panel stays short.
+const MAX_DONE_SHOWN = 3;
+
+// The panel's groups, by each workspace's most urgent agent.
+const AGENT_GROUPS: { key: string; title: string; states: readonly AgentState[] }[] = [
+  { key: 'attention', title: 'Needs you', states: ['input', 'error'] },
+  { key: 'done', title: 'Done', states: ['done'] },
+  { key: 'working', title: 'Working', states: ['working'] },
+];
+
 /**
- * The agents popover's content: their counts, their workspaces in the order of their most urgent
- * agent, each with its agents, and a button that clears the finished ones.
+ * The agents popover's content: their counts, then their workspaces grouped as needing you, done
+ * or working by their most urgent agent, each with its agents, and a button that clears the
+ * finished ones.
  */
 export function AgentsPanel({ agents, listClassName, ...rowProps }: AgentsPanelProps) {
   const updateConfig = useConfigStore((s) => s.updateConfig);
@@ -278,48 +319,124 @@ export function AgentsPanel({ agents, listClassName, ...rowProps }: AgentsPanelP
     if (group) group.push(agent);
     else byWorkspace.push([agent]);
   }
+  const [showAllDone, setShowAllDone] = useState(false);
+  const groups = AGENT_GROUPS.map((group) => {
+    const workspaces = byWorkspace.filter(([first]) => group.states.includes(first.state));
+    // Done ones past a few fold away until asked for.
+    const folds = group.key === 'done' && !showAllDone && workspaces.length > MAX_DONE_SHOWN;
+    const listed = folds ? workspaces.slice(0, MAX_DONE_SHOWN - 1) : workspaces;
+    const ofGroup = (list: Agent[][]) =>
+      list.flat().filter((agent) => group.states.includes(agent.state)).length;
+    return {
+      ...group,
+      workspaces,
+      listed,
+      // The agents under this header in the group's states: those its rows hold.
+      count: ofGroup(workspaces),
+      hiddenCount: folds ? ofGroup(workspaces.slice(listed.length)) : 0,
+    };
+  }).filter((group) => group.workspaces.length > 0);
+  const doneCount = shown.find(({ state }) => state === 'done')?.count ?? 0;
+  // Clear done heads the Done group when there's one; otherwise, as when a done agent shares a
+  // workspace with one that needs you, it sits under the list.
+  const doneHeaded = groups.length > 1 && groups.some((group) => group.key === 'done');
 
   return (
     <>
       <div className="flex items-center justify-between gap-3 border-b border-foreground/10 px-3.5 py-2.5">
         <h2 className="text-[13px] font-semibold">Agents</h2>
         <span className="flex items-center gap-2.5 text-ui text-muted-foreground tabular-nums">
-          {shown.map(({ state, className, label, count }) => (
-            <span key={state} className={cn('flex items-center gap-1', className)}>
-              <AgentStateIcon state={state} className="text-current" still />
-              {count} {label(count)}
-            </span>
-          ))}
+          {/* Grouped, each group heads its rows; on its own, the summary says what's there. */}
+          {groups.length === 1 &&
+            shown.map(({ state, className, label, count }) => (
+              <span key={state} className={cn('flex items-center gap-1', className)}>
+                <AgentStateIcon state={state} className="text-current" still />
+                {count} {label(count)}
+              </span>
+            ))}
           {window.api.platform === 'darwin' && (
             <MenuBarSettings avoidCollisions={rowProps.avoidCollisions} />
           )}
         </span>
       </div>
       {byWorkspace.length > 0 ? (
-        <ul aria-label="Agents" className={cn('overflow-y-auto p-1.5', listClassName)}>
-          {byWorkspace.map((agentsHere) =>
-            agentsHere.length === 1 ? (
-              <AgentRow key={agentsHere[0].workspace.id} agent={agentsHere[0]} {...rowProps} />
-            ) : (
-              <WorkspaceAgents key={agentsHere[0].workspace.id} agents={agentsHere} {...rowProps} />
-            )
-          )}
+        <ul
+          aria-label="Agents"
+          className={cn('overflow-y-auto bg-inherit px-1.5 pb-1.5', listClassName)}
+        >
+          {groups.map((group, index) => (
+            <Fragment key={group.key}>
+              {groups.length > 1 && (
+                <li
+                  role="presentation"
+                  className={cn(
+                    // Stays in view while its rows scroll under it.
+                    'sticky top-0 z-10 -mx-1.5 flex h-8 items-center justify-between bg-inherit px-4 text-xs font-semibold text-foreground/70',
+                    index > 0 && 'mt-1.5 border-t border-foreground/10'
+                  )}
+                >
+                  <span className="flex items-center gap-1.5">
+                    {group.title}
+                    <span className="font-medium text-muted-foreground-60 tabular-nums">
+                      {group.count}
+                    </span>
+                  </span>
+                  {group.key === 'done' && (
+                    <button
+                      type="button"
+                      className="-mr-1.5 rounded-md px-1.5 py-0.5 text-2xs font-medium text-foreground/75 ring-1 ring-foreground/10 transition-colors ring-inset hover:bg-foreground/8 hover:text-foreground"
+                      // Only the overview forgets them: the sidebar and their tabs still show them done.
+                      onClick={() => void updateConfig({ agentsDoneClearedAt: Date.now() })}
+                    >
+                      Clear done
+                    </button>
+                  )}
+                </li>
+              )}
+              {group.listed.map((agentsHere) =>
+                agentsHere.length === 1 ? (
+                  <AgentRow key={agentsHere[0].workspace.id} agent={agentsHere[0]} {...rowProps} />
+                ) : (
+                  <WorkspaceAgents
+                    key={agentsHere[0].workspace.id}
+                    agents={agentsHere}
+                    {...rowProps}
+                  />
+                )
+              )}
+              {group.hiddenCount > 0 && (
+                <li>
+                  <button
+                    type="button"
+                    className={cn(
+                      rowClass,
+                      'px-2.5 py-1.5 pl-[34px] text-xs text-muted-foreground hover:text-foreground'
+                    )}
+                    onClick={() => setShowAllDone(true)}
+                  >
+                    Show {group.hiddenCount} more done
+                    <CaretDown className="ml-1 size-3" />
+                  </button>
+                </li>
+              )}
+            </Fragment>
+          ))}
         </ul>
       ) : (
         <p className="px-3.5 py-3 text-ui text-muted-foreground">
           No agent needs you or is working.
         </p>
       )}
-      {shown.some(({ state }) => state === 'done') && (
+      {!doneHeaded && doneCount > 0 && (
         <div className="border-t border-foreground/10 p-1.5">
           <button
             type="button"
             className={cn(menuItemClass, 'w-full hover:bg-foreground/8')}
-            // Only the overview forgets them: the sidebar and their tabs still show them done.
             onClick={() => void updateConfig({ agentsDoneClearedAt: Date.now() })}
           >
             <Check />
-            Clear done
+            {/* How many, as no Done header counts them. */}
+            Clear {doneCount} done
           </button>
         </div>
       )}

@@ -5,8 +5,6 @@
 // No I/O, no Electron — safe to import from a unit test or a non-Electron
 // Node context.
 
-import { verifyRegistrationResponse } from '@simplewebauthn/server';
-
 import type { RegistrationResponseJSON } from '@simplewebauthn/server';
 
 export interface VerifyRegistrationOptions {
@@ -51,6 +49,8 @@ export type VerifyRegistrationResult =
 export async function verifyRegistration(
   opts: VerifyRegistrationOptions
 ): Promise<VerifyRegistrationResult> {
+  // Loaded on first use: the library and its X.509 dependencies take about 100ms to load.
+  const { verifyRegistrationResponse } = await import('@simplewebauthn/server');
   let result;
   try {
     result = await verifyRegistrationResponse({

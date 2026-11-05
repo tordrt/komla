@@ -3,7 +3,6 @@ import { join } from 'path';
 
 import { is } from '@electron-toolkit/utils';
 import { app, net } from 'electron';
-import pkg from 'electron-updater';
 import { load } from 'js-yaml';
 
 import { IPC } from '../../shared/constants/ipc-channels';
@@ -16,11 +15,9 @@ import { announcementService } from './announcement.service';
 import { getKomlaBasePath } from './paths';
 import { windowService } from './window.service';
 
-import type { UpdateInfo } from 'electron-updater';
+import type { AppUpdater, UpdateInfo } from 'electron-updater';
 
 declare const __KOMLA_ENV__: string;
-
-const { autoUpdater } = pkg;
 
 const logger = createLogger('UpdateService');
 const isStaging = typeof __KOMLA_ENV__ !== 'undefined' && __KOMLA_ENV__ === 'staging';
@@ -207,6 +204,16 @@ export class UpdateService {
   private downloadedVersion: string | null = null;
   /** Set where electron-updater can't update this install, so Komla checks the feed itself. */
   private manualDownloadFeed: string | null = null;
+  private autoUpdaterLoaded: Promise<AppUpdater> | null = null;
+
+  /** electron-updater, loaded on first use: it takes about 60ms to load, which startup skips. */
+  private autoUpdater(): Promise<AppUpdater> {
+    this.autoUpdaterLoaded ??= import('electron-updater').then(({ default: { autoUpdater } }) => {
+      this.configureAutoUpdater(autoUpdater);
+      return autoUpdater;
+    });
+    return this.autoUpdaterLoaded;
+  }
 
   init(): void {
     if (is.dev) {
@@ -235,6 +242,15 @@ export class UpdateService {
   }
 
   private startAutoUpdater(): void {
+    if (isLinuxInstallWithoutUpdater()) {
+      logger.info('Not running from an AppImage file; new versions are offered as downloads');
+      this.manualDownloadFeed = `${DOWNLOADS_BASE_URL}/latest/`;
+    }
+    // Check on launch
+    this.check('Update check failed');
+  }
+
+  private configureAutoUpdater(autoUpdater: AppUpdater): void {
     // Download updates in the background so the user only has to restart once ready.
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
@@ -280,14 +296,6 @@ export class UpdateService {
       logUpdateError('Auto-updater error', err);
       windowService.broadcastWhenReady(IPC.APP_UPDATE_ERROR, getUpdateErrorMessage(err));
     });
-
-    if (isLinuxInstallWithoutUpdater()) {
-      logger.info('Not running from an AppImage file; new versions are offered as downloads');
-      this.manualDownloadFeed = `${DOWNLOADS_BASE_URL}/latest/`;
-    }
-
-    // Check on launch
-    this.check('Update check failed');
   }
 
   checkForUpdates(): void {
@@ -300,7 +308,7 @@ export class UpdateService {
   private check(failureMessage: string): void {
     const checked = this.manualDownloadFeed
       ? this.checkForDownload(this.manualDownloadFeed)
-      : autoUpdater.checkForUpdates();
+      : this.autoUpdater().then((autoUpdater) => autoUpdater.checkForUpdates());
     checked.catch((err) => {
       logUpdateError(failureMessage, err);
       if (this.manualDownloadFeed) {
@@ -335,9 +343,11 @@ export class UpdateService {
 
   downloadUpdate(): void {
     logger.info('Starting update download...');
-    autoUpdater.downloadUpdate().catch((err) => {
-      logUpdateError('Update download failed', err);
-    });
+    this.autoUpdater()
+      .then((autoUpdater) => autoUpdater.downloadUpdate())
+      .catch((err) => {
+        logUpdateError('Update download failed', err);
+      });
   }
 
   installUpdate(): void {
@@ -351,7 +361,16 @@ export class UpdateService {
         logger.warn('Failed to write pending-update marker', err);
       }
     }
-    autoUpdater.quitAndInstall();
+    this.autoUpdater()
+      .then((autoUpdater) => autoUpdater.quitAndInstall())
+      // electron-updater reports a failed install with its 'error' event; this is a failure to
+      // load it or a throw.
+      .catch((err) => {
+        logUpdateError('Update install failed', err);
+        // Komla keeps running this version, so the next launch isn't one that should relaunch.
+        clearPendingUpdate();
+        windowService.broadcastWhenReady(IPC.APP_UPDATE_ERROR, getUpdateErrorMessage(err));
+      });
   }
 
   dispose(): void {

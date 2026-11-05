@@ -105,10 +105,10 @@ function syncOutput(serve: unknown = {}, extra = ''): string {
 }
 
 describe('phone access trust', () => {
-  it('converts an ES256 passkey to the SPKI the host verifies with', () => {
+  it('converts an ES256 passkey to the SPKI the host verifies with', async () => {
     const { cose, spki } = coseKey();
 
-    expect(credentialSpkiFromCose(cose)).toBe(spki);
+    expect(await credentialSpkiFromCose(cose)).toBe(spki);
     const rsa = Buffer.from(
       isoCBOR.encode(
         new Map<number, unknown>([
@@ -117,13 +117,13 @@ describe('phone access trust', () => {
         ])
       )
     );
-    expect(credentialSpkiFromCose(rsa.toString('base64url'))).toBeNull();
-    expect(credentialSpkiFromCose('not cbor')).toBeNull();
+    expect(await credentialSpkiFromCose(rsa.toString('base64url'))).toBeNull();
+    expect(await credentialSpkiFromCose('not cbor')).toBeNull();
   });
 
-  it('lets in only phones paired over HTTPS with a passkey the host can check', () => {
+  it('lets in only phones paired over HTTPS with a passkey the host can check', async () => {
     const trust = JSON.parse(
-      buildTrustFile(
+      await buildTrustFile(
         [
           device(),
           device({ deviceId: 'b'.repeat(64), origin: 'http://build.tail1.ts.net' }),
@@ -418,7 +418,7 @@ describe.skipIf(process.platform === 'win32' || !hasTmux)('phone server sync scr
     }
   });
 
-  it('writes trust and config, starts the server once and reports Tailscale', () => {
+  it('writes trust and config, starts the server once and reports Tailscale', async () => {
     execFileSync('cargo', ['build', '--quiet', '--manifest-path', join(COMPANION, 'Cargo.toml')], {
       stdio: 'inherit',
     });
@@ -446,9 +446,10 @@ describe.skipIf(process.platform === 'win32' || !hasTmux)('phone server sync scr
       signature: 'sig-1',
     });
     const launch = JSON.stringify({ version: 1, hostId: 'host-1', projects: [], presets: [] });
+    const trust = await buildTrustFile([device()], Date.now() + 60_000, 15 * 60_000);
     const run = (launchFile = launch) =>
       execFileSync('sh', ['-c', script], {
-        input: `${buildTrustFile([device()], Date.now() + 60_000, 15 * 60_000)}\n${launchFile}`,
+        input: `${trust}\n${launchFile}`,
         encoding: 'utf8',
         env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, TMUX: '' },
       });

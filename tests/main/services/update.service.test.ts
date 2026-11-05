@@ -295,8 +295,9 @@ describe('UpdateService', () => {
       expect(mockAutoUpdater.on).not.toHaveBeenCalled();
     });
 
-    it('should register event listeners and check for updates', () => {
+    it('should register event listeners and check for updates', async () => {
       updateService.init();
+      await vi.dynamicImportSettled();
 
       expect(mockAutoUpdater.on).toHaveBeenCalledWith('update-available', expect.any(Function));
       expect(mockAutoUpdater.on).toHaveBeenCalledWith('update-not-available', expect.any(Function));
@@ -307,10 +308,12 @@ describe('UpdateService', () => {
       expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalled();
     });
 
-    it('should setup periodic checks', () => {
+    it('should setup periodic checks', async () => {
       updateService.init();
+      await vi.dynamicImportSettled();
 
       vi.advanceTimersByTime(4 * 60 * 60 * 1000 + 100);
+      await vi.dynamicImportSettled();
       expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledTimes(2); // Initial + 1 periodic
     });
 
@@ -320,6 +323,8 @@ describe('UpdateService', () => {
         await import('../../../src/main/services/announcement.service');
 
       updateService.init();
+
+      await vi.dynamicImportSettled();
       vi.advanceTimersByTime(4 * 60 * 60 * 1000 + 100);
 
       expect(mockAutoUpdater.on).not.toHaveBeenCalled();
@@ -345,6 +350,7 @@ describe('UpdateService', () => {
           await import('../../../src/main/services/update.service');
         const armService = new ArmUpdateService();
         armService.init();
+        await vi.dynamicImportSettled();
 
         expect(mockAutoUpdater.channel).toBe('latest-arm64');
       } finally {
@@ -370,6 +376,7 @@ describe('UpdateService', () => {
           await import('../../../src/main/services/update.service');
         const x64Service = new X64UpdateService();
         x64Service.init();
+        await vi.dynamicImportSettled();
 
         expect(mockAutoUpdater.channel).toBe('latest');
       } finally {
@@ -380,11 +387,12 @@ describe('UpdateService', () => {
   });
 
   describe('event handlers', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       updateService.init();
+      await vi.dynamicImportSettled();
     });
 
-    it('should notify renderer when update is available', () => {
+    it('should notify renderer when update is available', async () => {
       const info = {
         version: '1.2.3',
         releaseNotes: 'New features!',
@@ -400,7 +408,7 @@ describe('UpdateService', () => {
       });
     });
 
-    it('should format array release notes', () => {
+    it('should format array release notes', async () => {
       const info = {
         version: '1.2.3',
         releaseNotes: [
@@ -419,22 +427,22 @@ describe('UpdateService', () => {
       );
     });
 
-    it('should notify renderer when no updates are available', () => {
+    it('should notify renderer when no updates are available', async () => {
       eventHandlers['update-not-available']();
       expect(mockBroadcastWhenReady).toHaveBeenCalledWith('app:update-not-available');
     });
 
-    it('should notify renderer when update is downloaded', () => {
+    it('should notify renderer when update is downloaded', async () => {
       eventHandlers['update-downloaded']({ version: '1.2.3' });
       expect(mockBroadcastWhenReady).toHaveBeenCalledWith('app:update-downloaded', '1.2.3');
     });
 
-    it('should notify renderer on error', () => {
+    it('should notify renderer on error', async () => {
       eventHandlers['error'](new Error('Update failed'));
       expect(mockBroadcastWhenReady).toHaveBeenCalledWith('app:update-error', 'Update failed');
     });
 
-    it('should treat read-only volume updater errors as expected install friction', () => {
+    it('should treat read-only volume updater errors as expected install friction', async () => {
       const err = new Error(
         'Cannot update while running on a read-only volume. The application is on a read-only volume.'
       );
@@ -451,36 +459,44 @@ describe('UpdateService', () => {
   });
 
   describe('manual actions', () => {
-    it('should trigger manual update check', () => {
+    it('should trigger manual update check', async () => {
       updateService.checkForUpdates();
+      await vi.dynamicImportSettled();
       expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalled();
     });
 
-    it('should not check for updates in a build from source', () => {
+    it('should not check for updates in a build from source', async () => {
       buildInfo.getBuildDistribution.mockReturnValueOnce('source');
 
       updateService.checkForUpdates();
+
+      await vi.dynamicImportSettled();
 
       expect(mockAutoUpdater.checkForUpdates).not.toHaveBeenCalled();
       expect(mockBroadcastWhenReady).not.toHaveBeenCalled();
     });
 
-    it('should trigger download', () => {
+    it('should trigger download', async () => {
       updateService.downloadUpdate();
+      await vi.dynamicImportSettled();
       expect(mockAutoUpdater.downloadUpdate).toHaveBeenCalled();
     });
 
-    it('should trigger install', () => {
+    it('should trigger install', async () => {
       updateService.installUpdate();
+      await vi.dynamicImportSettled();
       expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalled();
     });
 
-    it('should write pending-update marker from downloaded version before quitAndInstall', () => {
+    it('should write pending-update marker from downloaded version before quitAndInstall', async () => {
       updateService.init();
+      await vi.dynamicImportSettled();
       // Simulate update-downloaded event to set downloadedVersion
       eventHandlers['update-downloaded']({ version: '2.0.0' });
 
       updateService.installUpdate();
+
+      await vi.dynamicImportSettled();
 
       expect(mockFs[markerPath]).toBeDefined();
       const marker = JSON.parse(mockFs[markerPath]);
@@ -489,19 +505,40 @@ describe('UpdateService', () => {
       expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalled();
     });
 
-    it('should use downloaded version not available version for marker', () => {
+    it('should use downloaded version not available version for marker', async () => {
       updateService.init();
+      await vi.dynamicImportSettled();
       // v2.0.0 downloaded, then v2.1.0 becomes available before user clicks restart
       eventHandlers['update-downloaded']({ version: '2.0.0' });
       eventHandlers['update-available']({ version: '2.1.0', releaseNotes: null });
 
       updateService.installUpdate();
 
+      await vi.dynamicImportSettled();
+
       const marker = JSON.parse(mockFs[markerPath]);
       expect(marker.version).toBe('2.0.0');
     });
 
-    it('should still call quitAndInstall if marker write fails', () => {
+    it('reports an install that fails and drops its pending-update marker', async () => {
+      updateService.init();
+      await vi.dynamicImportSettled();
+      eventHandlers['update-downloaded']({ version: '2.0.0' });
+      mockAutoUpdater.quitAndInstall.mockImplementationOnce(() => {
+        throw new Error('no update to install');
+      });
+
+      updateService.installUpdate();
+      await vi.dynamicImportSettled();
+
+      expect(mockBroadcastWhenReady).toHaveBeenCalledWith(
+        'app:update-error',
+        expect.any(String)
+      );
+      expect(mockFs[markerPath]).toBeUndefined();
+    });
+
+    it('should still call quitAndInstall if marker write fails', async () => {
       // Make writeFileSync throw to simulate filesystem failure.
       // The mock stores to mockFs by default; temporarily make it throw.
       const fs = require('fs') as typeof import('fs');
@@ -512,8 +549,10 @@ describe('UpdateService', () => {
 
       try {
         updateService.init();
+        await vi.dynamicImportSettled();
         eventHandlers['update-downloaded']({ version: '2.0.0' });
         updateService.installUpdate();
+        await vi.dynamicImportSettled();
 
         expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalled();
       } finally {

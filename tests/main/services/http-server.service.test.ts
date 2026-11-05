@@ -262,11 +262,12 @@ vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
   },
 }));
 
-vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
+const mockStreamableHttp = () => ({
   StreamableHTTPServerTransport: class MockTransport {
     handleRequest = mockTransportHandleRequest;
   },
-}));
+});
+vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => mockStreamableHttp());
 
 // ============================================================================
 // Test helpers
@@ -445,6 +446,11 @@ describe('HttpServerService', () => {
     ({ settingsApprovalService } = await import(
       '../../../src/main/services/settings-approval.service'
     ));
+  });
+
+  afterEach(() => {
+    // Also cancels the MCP preload a test's start() schedules.
+    httpServerService.stop();
   });
 
   describe('settings management API', () => {
@@ -4286,6 +4292,46 @@ describe('HttpServerService', () => {
   // /api/v1/mcp route
   // --------------------------------------------------------------------------
 
+  describe('MCP preload', () => {
+    let mcpSdkLoads: number;
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      mcpSdkLoads = 0;
+      // Counts the SDK's loads; the file's mock module stays loaded across tests.
+      vi.doMock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => {
+        mcpSdkLoads++;
+        return { StreamableHTTPServerTransport: class {} };
+      });
+    });
+
+    afterEach(() => {
+      vi.doMock('@modelcontextprotocol/sdk/server/streamableHttp.js', mockStreamableHttp);
+      vi.useRealTimers();
+    });
+
+    it('loads the MCP SDK a few seconds after listening, before any request', async () => {
+      httpServerService.start();
+      await vi.dynamicImportSettled();
+      expect(mcpSdkLoads).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.dynamicImportSettled();
+
+      expect(mcpSdkLoads).toBe(1);
+    });
+
+    it("doesn't load it while MCP is off", async () => {
+      mockConfigService.get.mockReturnValue({ disableMcpServer: true });
+      httpServerService.start();
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.dynamicImportSettled();
+
+      expect(mcpSdkLoads).toBe(0);
+    });
+  });
+
   describe('/api/v1/mcp route', () => {
     beforeEach(() => {
       httpServerService.start();
@@ -4299,6 +4345,7 @@ describe('HttpServerService', () => {
         'x-komla-ssh-host-id': 'ssh-dev',
       });
       capturedHandler!(req, createMockResponse());
+      await vi.dynamicImportSettled();
       const spawnCall = mockMcpTool.mock.calls.find(
         (call) => call[0] === 'spawn_agent_in_new_workspace'
       );
@@ -4316,6 +4363,7 @@ describe('HttpServerService', () => {
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(mockMcpConnect).toHaveBeenCalled();
@@ -4328,6 +4376,7 @@ describe('HttpServerService', () => {
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
@@ -4341,6 +4390,7 @@ describe('HttpServerService', () => {
       const res = createMockResponse();
       res.headersSent = true;
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(res.writeHead).not.toHaveBeenCalled();
@@ -4350,6 +4400,7 @@ describe('HttpServerService', () => {
       const req = createMockRequest('GET', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       // Routes to MCP handler regardless of method
@@ -4378,13 +4429,14 @@ describe('HttpServerService', () => {
       ]);
     }
 
-    beforeEach(() => {
+    beforeEach(async () => {
       httpServerService.start();
 
       // Trigger MCP server creation to capture the tool handler
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
 
       // Extract the tool handler from the mock
       expect(mockMcpTool).toHaveBeenCalled();
@@ -4737,6 +4789,7 @@ describe('HttpServerService', () => {
     it("sets the calling workspace's status item, and clears it without text", async () => {
       httpServerService.start();
       capturedHandler!(createMockRequest('POST', '/api/v1/mcp'), createMockResponse());
+      await vi.dynamicImportSettled();
       const call = mockMcpTool.mock.calls.find((args) => args[0] === 'set_status_item');
       const toolHandler = call![3] as (params: Record<string, unknown>) => Promise<{
         content: { text: string }[];
@@ -4806,9 +4859,10 @@ describe('HttpServerService', () => {
       statusItemsService.clear('ws-1');
     });
 
-    it('counts status text without its terminal colors, and checks segments', () => {
+    it('counts status text without its terminal colors, and checks segments', async () => {
       httpServerService.start();
       capturedHandler!(createMockRequest('POST', '/api/v1/mcp'), createMockResponse());
+      await vi.dynamicImportSettled();
       const call = mockMcpTool.mock.calls.find((args) => args[0] === 'set_status_item');
       const shape = call![2] as Record<
         string,
@@ -4838,9 +4892,10 @@ describe('HttpServerService', () => {
       expect(shape.icon.safeParse('data:text/html,<b>').success).toBe(false);
     });
 
-    it('rejects a color that is neither a theme color nor hex', () => {
+    it('rejects a color that is neither a theme color nor hex', async () => {
       httpServerService.start();
       capturedHandler!(createMockRequest('POST', '/api/v1/mcp'), createMockResponse());
+      await vi.dynamicImportSettled();
       const call = mockMcpTool.mock.calls.find((args) => args[0] === 'set_status_item');
       const shape = call![2] as Record<
         string,
@@ -4859,12 +4914,13 @@ describe('HttpServerService', () => {
   describe('MCP set_workspace_title tool', () => {
     let toolHandler: (params: Record<string, unknown>) => Promise<unknown>;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       httpServerService.start();
 
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
 
       const setTitleCall = mockMcpTool.mock.calls.find((call) => call[0] === 'set_workspace_title');
       expect(setTitleCall).toBeTruthy();
@@ -5044,12 +5100,13 @@ describe('HttpServerService', () => {
   describe('MCP spawn_agent_new_tab tool', () => {
     let toolHandler: (params: Record<string, unknown>) => Promise<unknown>;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       httpServerService.start();
 
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
 
       const spawnAgentCall = mockMcpTool.mock.calls.find(
         (call) => call[0] === 'spawn_agent_new_tab'
@@ -5085,6 +5142,7 @@ describe('HttpServerService', () => {
       });
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
       await Promise.resolve();
       const spawnAgentCall = mockMcpTool.mock.calls.find(
         (call) => call[0] === 'spawn_agent_new_tab'
@@ -5390,12 +5448,13 @@ describe('HttpServerService', () => {
   describe('MCP open_browser_preview tool', () => {
     let toolHandler: (params: Record<string, unknown>) => Promise<unknown>;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       httpServerService.start();
 
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
 
       const call = mockMcpTool.mock.calls.find((c) => c[0] === 'open_browser_preview');
       expect(call).toBeTruthy();
@@ -5552,20 +5611,21 @@ describe('HttpServerService', () => {
   // --------------------------------------------------------------------------
 
   describe('agentDisabledCapabilities', () => {
-    function triggerMcpServerCreation() {
+    async function triggerMcpServerCreation() {
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
+      await vi.dynamicImportSettled();
     }
 
     function registeredToolNames(): string[] {
       return mockMcpTool.mock.calls.map((args) => args[0] as string);
     }
 
-    it('registers all default-on tools when no per-tool toggles are set', () => {
+    it('registers all default-on tools when no per-tool toggles are set', async () => {
       mockConfigService.get.mockReturnValue({});
       httpServerService.start();
-      triggerMcpServerCreation();
+      await triggerMcpServerCreation();
 
       expect(registeredToolNames().sort()).toEqual(
         [
@@ -5578,12 +5638,12 @@ describe('HttpServerService', () => {
       );
     });
 
-    it('skips registration for default-on tools listed in agentDisabledCapabilities', () => {
+    it('skips registration for default-on tools listed in agentDisabledCapabilities', async () => {
       mockConfigService.get.mockReturnValue({
         agentDisabledCapabilities: ['preview.open', 'agent.launch.tab'],
       });
       httpServerService.start();
-      triggerMcpServerCreation();
+      await triggerMcpServerCreation();
 
       const names = registeredToolNames();
       expect(names).not.toContain('open_browser_preview');
@@ -5592,7 +5652,7 @@ describe('HttpServerService', () => {
       expect(names).toContain('set_workspace_title');
     });
 
-    it('skips every tool when all default-on tools are disabled', () => {
+    it('skips every tool when all default-on tools are disabled', async () => {
       mockConfigService.get.mockReturnValue({
         agentDisabledCapabilities: [
           'agent.launch.workspace',
@@ -5603,7 +5663,7 @@ describe('HttpServerService', () => {
         ],
       });
       httpServerService.start();
-      triggerMcpServerCreation();
+      await triggerMcpServerCreation();
 
       expect(mockMcpTool).not.toHaveBeenCalled();
     });

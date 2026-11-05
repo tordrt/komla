@@ -14,8 +14,6 @@ import { createHash, createPublicKey } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { join, posix as pathPosix } from 'path';
 
-import { cose, decodeCredentialPublicKey } from '@simplewebauthn/server/helpers';
-
 import { remotePasskeyWindowMs } from '../../shared/lib/remote-passkey-window';
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import { MANAGED_TMUX_SOCKET_NAME } from '../../shared/lib/ssh-tmux-attach';
@@ -89,7 +87,9 @@ export interface RemoteControlHostAccessDeps {
 }
 
 /** The passkey's ES256 public key as standard-base64 SPKI, or null for another algorithm. */
-export function credentialSpkiFromCose(publicKey: string): string | null {
+export async function credentialSpkiFromCose(publicKey: string): Promise<string | null> {
+  // Loaded on first use: the library and its X.509 dependencies take about 100ms to load.
+  const { cose, decodeCredentialPublicKey } = await import('@simplewebauthn/server/helpers');
   try {
     const key = decodeCredentialPublicKey(new Uint8Array(Buffer.from(publicKey, 'base64url')));
     if (
@@ -126,17 +126,18 @@ function isAllowedPhoneOrigin(origin: string): boolean {
  * The phones a host may let in: those paired over HTTPS with an ES256 passkey. `resumeWindowMs` is
  * how long one that left may come back without its passkey.
  */
-export function buildTrustFile(
+export async function buildTrustFile(
   devices: PairedDeviceRecord[],
   expiresAt: number,
   resumeWindowMs: number
-): string {
+): Promise<string> {
+  const keys = await Promise.all(devices.map((device) => credentialSpkiFromCose(device.publicKey)));
   return JSON.stringify({
     version: 1,
     expiresAt,
     resumeWindowMs,
-    devices: devices.flatMap((device) => {
-      const credentialPublicKey = credentialSpkiFromCose(device.publicKey);
+    devices: devices.flatMap((device, index) => {
+      const credentialPublicKey = keys[index];
       if (!credentialPublicKey || !isAllowedPhoneOrigin(device.origin)) return [];
       return [
         {
@@ -521,7 +522,7 @@ export class RemoteControlHostAccessService {
       const output = await this.deps.runWithInput(
         host,
         buildSyncScript(plan),
-        `${buildTrustFile(devices, this.deps.now() + PHONE_ACCESS_LEASE_MS, resumeWindowMs)}\n${launch ?? ''}`
+        `${await buildTrustFile(devices, this.deps.now() + PHONE_ACCESS_LEASE_MS, resumeWindowMs)}\n${launch ?? ''}`
       );
       const parts = sections(output);
       const init = parseJson(parts.get('init')) as { fingerprint?: unknown } | null;

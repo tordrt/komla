@@ -10,6 +10,7 @@ import { createLogger } from '../lib/logger';
 import { configService } from './config.service';
 import { writeHookHelperFiles } from './http-server/hook-helper-files';
 import { createRequestHandler } from './http-server/router';
+import { MCP_PRELOAD_DELAY_MS, preloadMcp } from './http-server/routes/mcp';
 import { getKomlaBasePath } from './paths';
 import { settingsApprovalService } from './settings-approval.service';
 import { workspaceService } from './workspace.service';
@@ -29,6 +30,7 @@ class HttpServerService {
   }> = [];
   private startError: Error | null = null;
   private portChangeEvent: { oldPort: number; newPort: number } | null = null;
+  private mcpPreloadTimer: NodeJS.Timeout | null = null;
 
   start(preferredPort?: number): void {
     if (this.server) {
@@ -88,6 +90,10 @@ class HttpServerService {
       }
       // One-shot — drop references so pre-bind callers aren't retained.
       this.startedCallbacks = [];
+      if (!configService.get().disableMcpServer) {
+        this.mcpPreloadTimer = setTimeout(preloadMcp, MCP_PRELOAD_DELAY_MS);
+        this.mcpPreloadTimer.unref();
+      }
 
       if (port !== this.preferredPort) {
         // Persist fallback port so future boots use it. Always — even on first
@@ -114,6 +120,8 @@ class HttpServerService {
   }
 
   stop(): void {
+    if (this.mcpPreloadTimer) clearTimeout(this.mcpPreloadTimer);
+    this.mcpPreloadTimer = null;
     settingsApprovalService.dismissAll();
     workspaceService.attention.hooksStopped();
     const error = new Error('HTTP server stopped before a port became available');

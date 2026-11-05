@@ -19,8 +19,6 @@
 // of the library's check (we also catch the firmware-reset case where the
 // authenticator regresses from non-zero back to zero).
 
-import { verifyAuthenticationResponse } from '@simplewebauthn/server';
-
 import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 
 export interface VerifyAuthenticationOptions {
@@ -69,6 +67,8 @@ export type VerifyAuthenticationResult =
 export async function verifyAuthentication(
   opts: VerifyAuthenticationOptions
 ): Promise<VerifyAuthenticationResult> {
+  // Loaded on first use: the library and its X.509 dependencies take about 100ms to load.
+  const { verifyAuthenticationResponse } = await import('@simplewebauthn/server');
   let result;
   try {
     result = await verifyAuthenticationResponse({

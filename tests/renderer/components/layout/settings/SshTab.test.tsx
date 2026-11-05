@@ -698,15 +698,18 @@ describe('SshTab', () => {
       expect(within(dialog).getByLabelText('User')).not.toHaveAttribute('placeholder');
       expect(within(dialog).queryByLabelText('Identity file')).not.toBeInTheDocument();
       expect(within(dialog).getByText(/Agents on the machine can use your SSH keys/)).toBeVisible();
-      const forwardingDetails = within(dialog).getByText('Learn more').closest('details');
-      expect(forwardingDetails).not.toHaveAttribute('open');
-      await user.click(within(dialog).getByText('Learn more'));
-      expect(forwardingDetails).toHaveAttribute('open');
+      expect(screen.queryByText(/Set up a dedicated SSH key/)).not.toBeInTheDocument();
+      await user.click(
+        within(dialog).getByRole('button', { name: 'About forwarding your SSH agent' })
+      );
       expect(
-        within(dialog).getByText(
-          /Agents kept running in tmux lose the keys after Komla disconnects/
-        )
-      ).toBeInTheDocument();
+        await screen.findByText(/any other process on the machine use every key/)
+      ).toBeVisible();
+      expect(
+        screen.getByText(/Set up a dedicated SSH key on the machine with access to your Git repositories instead/)
+      ).toBeVisible();
+      await user.keyboard('{Escape}');
+      expect(within(dialog).getByRole('heading', { name: 'Add SSH host' })).toBeInTheDocument();
       expect(within(dialog).getByRole('switch', { name: 'Treat as isolated' })).toBeChecked();
       await user.click(within(dialog).getByRole('switch', { name: 'Forward SSH agent' }));
       expect(
@@ -1578,7 +1581,7 @@ describe('SshTab', () => {
       });
     });
 
-    it('describes key access only while forwarding is on', async () => {
+    it('describes key access while forwarding is on and keeps the forwarding warning', async () => {
       const user = userEvent.setup();
       renderSsh();
 
@@ -1592,6 +1595,10 @@ describe('SshTab', () => {
       expect(
         screen.queryByText(/can use your SSH keys while Komla is connected/)
       ).not.toBeInTheDocument();
+      // The warning stays, so the advice to use a dedicated key is still there with forwarding off.
+      expect(
+        screen.getByRole('button', { name: 'About forwarding your SSH agent' })
+      ).toBeInTheDocument();
       expect(screen.getByText(/needs its own Git credentials/)).toBeInTheDocument();
     });
 

@@ -1,4 +1,4 @@
-import { Info } from '@phosphor-icons/react';
+import { Info, Warning } from '@phosphor-icons/react';
 import * as React from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -8,8 +8,8 @@ interface InfoTipProps {
   /** Popover body — accepts arbitrary nodes so callers can include `<code>`,
    *  `<strong>`, lists, etc. without escaping. */
   children: React.ReactNode;
-  /** Override classes on the trigger button (e.g. align with row baselines or
-   *  tint amber inside warning banners). */
+  /** Override classes on the trigger button (e.g. align with row baselines). Use `tone` for
+   *  a warning, not an amber className. */
   className?: string;
   /** Defaults to a generic label; pass something topic-specific for a11y when
    *  the icon sits next to text whose meaning matters. */
@@ -17,6 +17,9 @@ interface InfoTipProps {
   /** Popover side preference. Defaults to top to keep it off-screen edges in
    *  narrow columns. */
   side?: 'top' | 'right' | 'bottom' | 'left';
+  /** `warning` swaps the icon for an amber Warning, for a caution the reader should weigh
+   *  before choosing an option. */
+  tone?: 'info' | 'warning';
 }
 
 /**
@@ -30,7 +33,14 @@ interface InfoTipProps {
  * `z-[60]` on the content beats the Dialog overlay/content (both `z-50`) so
  * the popover renders above fullscreen dialogs.
  */
-function InfoTipRoot({ children, className, ariaLabel = 'More info', side = 'top' }: InfoTipProps) {
+function InfoTipRoot({
+  children,
+  className,
+  ariaLabel = 'More info',
+  side = 'top',
+  tone = 'info',
+}: InfoTipProps) {
+  const Icon = tone === 'warning' ? Warning : Info;
   return (
     <Popover modal={false}>
       <PopoverTrigger asChild>
@@ -38,11 +48,14 @@ function InfoTipRoot({ children, className, ariaLabel = 'More info', side = 'top
           type="button"
           aria-label={ariaLabel}
           className={cn(
-            'inline-flex shrink-0 items-center justify-center rounded text-muted-foreground-60 transition-colors hover:text-foreground focus:outline-hidden focus-visible:text-foreground',
+            'inline-flex shrink-0 items-center justify-center rounded transition-colors focus:outline-hidden',
+            tone === 'warning'
+              ? 'text-warning hover:text-warning/80 focus-visible:ring-2 focus-visible:ring-ring'
+              : 'text-muted-foreground-60 hover:text-foreground focus-visible:text-foreground',
             className
           )}
         >
-          <Info className="size-3" weight="fill" />
+          <Icon className="size-3" weight="fill" />
         </button>
       </PopoverTrigger>
       <PopoverContent

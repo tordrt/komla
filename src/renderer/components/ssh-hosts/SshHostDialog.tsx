@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
+import { InfoTip } from '@/components/ui/info-tip';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
@@ -928,28 +929,29 @@ function ForwardAgentRow({
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="min-w-0 text-xs leading-relaxed">
-        <label htmlFor={id} className="cursor-pointer text-sm font-medium">
-          Forward SSH agent
-        </label>
+        <div className="flex items-center gap-1.5">
+          <label htmlFor={id} className="cursor-pointer text-sm font-medium">
+            Forward SSH agent
+          </label>
+          <InfoTip tone="warning" ariaLabel="About forwarding your SSH agent">
+            <InfoTip.Section label="Risk">
+              Forwarding lets agents and any other process on the machine use every key in your
+              local SSH agent while Komla is connected, not only the ones for Git. Agents kept
+              running in tmux lose them once Komla disconnects.
+            </InfoTip.Section>
+            <InfoTip.Section label="Recommended">
+              Set up a dedicated SSH key on the machine with access to your Git repositories instead
+              of forwarding. Agents can then use Git remotes while you&apos;re disconnected, and
+              can&apos;t reach your other keys, including any without a passphrase.
+            </InfoTip.Section>
+          </InfoTip>
+        </div>
         <div id={`${id}-description`} className="mt-0.5 text-muted-foreground">
           {checked ? (
-            <details className="group">
-              <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                Agents on the machine can use your SSH keys while Komla is connected. Keys are never
-                copied.{' '}
-                <span className="text-foreground underline underline-offset-2 group-open:hidden">
-                  Learn more
-                </span>
-                <span className="hidden text-foreground underline underline-offset-2 group-open:inline">
-                  Hide details
-                </span>
-              </summary>
-              <p className="mt-1">
-                So can other processes there. Agents kept running in tmux lose the keys after Komla
-                disconnects, so give the remote user its own Git credentials if they need Git
-                unattended.
-              </p>
-            </details>
+            <p>
+              Agents on the machine can use your SSH keys while Komla is connected. Keys are never
+              copied.
+            </p>
           ) : (
             <p>
               The machine needs its own Git credentials to create workspaces from your repositories.

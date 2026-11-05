@@ -356,6 +356,7 @@ export { logger };
 class GitExec {
   // Cache for frequently called methods
   cache = new Map<string, { value: unknown; expiry: number }>();
+  private inFlightLookups = new Map<string, Promise<unknown>>();
   readonly CACHE_TTL_MS = 2000; // 2 seconds
   readonly BRANCH_CACHE_TTL_MS = 30_000; // 30 seconds for branch names (invalidated explicitly on switch)
 
@@ -564,9 +565,38 @@ class GitExec {
           this.cache.delete(key);
         }
       }
+      // A lookup that began before is answered from before, so later callers start their own.
+      for (const key of this.inFlightLookups.keys()) {
+        if (key.startsWith(keyPrefix)) this.inFlightLookups.delete(key);
+      }
     } else {
       this.cache.clear();
+      this.inFlightLookups.clear();
     }
+  }
+
+  /**
+   * The value cached under `key`, or the one `lookup` finds, cached for `ttlMs`. Callers that ask
+   * while a lookup for the same key runs share it: at launch every sidebar card asks for its
+   * workspace's branches at once, and each git process blocks the main process for milliseconds.
+   */
+  private cachedLookup<T>(key: string, ttlMs: number, lookup: () => Promise<T>): Promise<T> {
+    const cached = this.getCached<T>(key);
+    if (cached !== undefined) return Promise.resolve(cached);
+    const running = this.inFlightLookups.get(key);
+    if (running) return running as Promise<T>;
+    const isCurrent = () => this.inFlightLookups.get(key) === found;
+    const found: Promise<T> = lookup()
+      .then((value) => {
+        // Not when the cache was cleared meanwhile: the value may be out of date.
+        if (isCurrent()) this.setCache(key, value, ttlMs);
+        return value;
+      })
+      .finally(() => {
+        if (isCurrent()) this.inFlightLookups.delete(key);
+      });
+    this.inFlightLookups.set(key, found);
+    return found;
   }
 
   async execGitAsync(repoPath: string, args: string[]): Promise<string> {
@@ -956,12 +986,13 @@ class GitExec {
    * The branch origin/HEAD names, or null when the repository doesn't record one.
    * Verifies the remote tracking ref actually resolves — it can be stale/dangling.
    */
-  async getRemoteDefaultBranch(repoPath: string): Promise<string | null> {
-    const cacheKey = `remoteDefaultBranch:${repoPath}`;
-    const cached = this.getCached<string | null>(cacheKey);
-    if (cached !== undefined) return cached;
+  getRemoteDefaultBranch(repoPath: string): Promise<string | null> {
+    return this.cachedLookup(`remoteDefaultBranch:${repoPath}`, this.BRANCH_CACHE_TTL_MS, () =>
+      this.findRemoteDefaultBranch(repoPath)
+    );
+  }
 
-    let result: string | null = null;
+  private async findRemoteDefaultBranch(repoPath: string): Promise<string | null> {
     try {
       const ref = await this.execGitAsync(repoPath, ['symbolic-ref', 'refs/remotes/origin/HEAD']);
       // ref looks like "refs/remotes/origin/<branch>" — extract the branch name
@@ -972,21 +1003,21 @@ class GitExec {
           '--verify',
           `refs/remotes/origin/${branch}`,
         ]);
-        result = branch;
+        return branch;
       }
     } catch {
       // No origin, origin/HEAD not set, or dangling ref
     }
-
-    this.setCache(cacheKey, result, this.BRANCH_CACHE_TTL_MS);
-    return result;
+    return null;
   }
 
-  async getMainBranch(repoPath: string): Promise<string> {
-    const cacheKey = `mainBranch:${repoPath}`;
-    const cached = this.getCached<string>(cacheKey);
-    if (cached !== undefined) return cached;
+  getMainBranch(repoPath: string): Promise<string> {
+    return this.cachedLookup(`mainBranch:${repoPath}`, this.BRANCH_CACHE_TTL_MS, () =>
+      this.findMainBranch(repoPath)
+    );
+  }
 
+  private async findMainBranch(repoPath: string): Promise<string> {
     let result: string | undefined;
 
     // 1. The remote's default branch (origin/HEAD) wins over a leftover local main or master
@@ -1028,19 +1059,13 @@ class GitExec {
     if (!result) {
       result = 'main';
     }
-
-    this.setCache(cacheKey, result, this.BRANCH_CACHE_TTL_MS);
     return result;
   }
 
-  async getCurrentBranch(path: string): Promise<string> {
-    const cacheKey = `currentBranch:${path}`;
-    const cached = this.getCached<string>(cacheKey);
-    if (cached !== undefined) return cached;
-
-    const result = await this.execGitAsync(path, ['rev-parse', '--abbrev-ref', 'HEAD']);
-    this.setCache(cacheKey, result, this.BRANCH_CACHE_TTL_MS);
-    return result;
+  getCurrentBranch(path: string): Promise<string> {
+    return this.cachedLookup(`currentBranch:${path}`, this.BRANCH_CACHE_TTL_MS, () =>
+      this.execGitAsync(path, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    );
   }
 
   /**
@@ -1052,31 +1077,19 @@ class GitExec {
     return ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : undefined;
   }
 
-  async hasUncommittedChanges(path: string): Promise<boolean> {
-    const cacheKey = `hasUncommittedChanges:${path}`;
-    const cached = this.getCached<boolean>(cacheKey);
-    if (cached !== undefined) return cached;
-
-    const status = await this.execGitAsync(path, ['status', '--porcelain']);
-    const result = !!status;
-    this.setCache(cacheKey, result);
-    return result;
+  hasUncommittedChanges(path: string): Promise<boolean> {
+    return this.cachedLookup(`hasUncommittedChanges:${path}`, this.CACHE_TTL_MS, async () =>
+      Boolean(await this.execGitAsync(path, ['status', '--porcelain']))
+    );
   }
 
-  async isGitRepo(path: string): Promise<boolean> {
-    const cacheKey = `isGitRepo:${path}`;
-    const cached = this.getCached<boolean>(cacheKey);
-    if (cached !== undefined) return cached;
-
-    let result: boolean;
-    try {
-      await this.execGitAsync(path, ['rev-parse', '--git-dir']);
-      result = true;
-    } catch {
-      result = false;
-    }
-    this.setCache(cacheKey, result, this.BRANCH_CACHE_TTL_MS);
-    return result;
+  isGitRepo(path: string): Promise<boolean> {
+    return this.cachedLookup(`isGitRepo:${path}`, this.BRANCH_CACHE_TTL_MS, () =>
+      this.execGitAsync(path, ['rev-parse', '--git-dir']).then(
+        () => true,
+        () => false
+      )
+    );
   }
 
   async getRepoRoot(path: string): Promise<string> {

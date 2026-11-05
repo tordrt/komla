@@ -124,6 +124,57 @@ describe('GitExec integration', () => {
     await expect(readFresh()).resolves.toBeNull();
   });
 
+  // Every sidebar card asks at launch, several of them for the same thing at once.
+  it('runs git once for lookups of the same branch made at the same time', async () => {
+    const { gitExec } = await import('../../../../src/main/services/git/git-exec');
+    const exec = vi.spyOn(gitExec, 'execGitAsync');
+
+    const [first, , second] = await Promise.all([
+      gitExec.getMainBranch(repoPath),
+      gitExec.getRemoteDefaultBranch(repoPath),
+      gitExec.getMainBranch(repoPath),
+    ]);
+
+    expect(second).toBe(first);
+    const ran = (args: string[]) =>
+      exec.mock.calls.filter(([, called]) => called.join(' ') === args.join(' ')).length;
+    expect(ran(['symbolic-ref', 'refs/remotes/origin/HEAD'])).toBe(1);
+    expect(ran(['rev-parse', '--verify', `refs/heads/${first}`])).toBeLessThanOrEqual(1);
+  });
+
+  it('runs git once for status and repository checks made at the same time', async () => {
+    const { gitExec } = await import('../../../../src/main/services/git/git-exec');
+    const exec = vi.spyOn(gitExec, 'execGitAsync');
+
+    await Promise.all([
+      gitExec.hasUncommittedChanges(repoPath),
+      gitExec.hasUncommittedChanges(repoPath),
+      gitExec.isGitRepo(repoPath),
+      gitExec.isGitRepo(repoPath),
+    ]);
+
+    const ran = (args: string[]) =>
+      exec.mock.calls.filter(([, called]) => called.join(' ') === args.join(' ')).length;
+    expect(ran(['status', '--porcelain'])).toBe(1);
+    expect(ran(['rev-parse', '--git-dir'])).toBe(1);
+  });
+
+  it("doesn't answer a lookup made after the cache is cleared with one from before", async () => {
+    const { gitExec } = await import('../../../../src/main/services/git/git-exec');
+    const before = gitExec.getRemoteDefaultBranch(repoPath);
+
+    await runGit(repoPath, ['update-ref', 'refs/remotes/origin/develop', 'HEAD']);
+    await runGit(repoPath, [
+      'symbolic-ref',
+      'refs/remotes/origin/HEAD',
+      'refs/remotes/origin/develop',
+    ]);
+    gitExec.invalidateCache(`remoteDefaultBranch:${repoPath}`);
+
+    await expect(gitExec.getRemoteDefaultBranch(repoPath)).resolves.toBe('develop');
+    await before;
+  });
+
   it('reads the checked-out branch even when a tag shares its name', async () => {
     const { gitExec } = await import('../../../../src/main/services/git/git-exec');
     await runGit(repoPath, ['switch', '-c', 'v2']);

@@ -1216,63 +1216,6 @@ describe('SshTab', () => {
       expect(window.api.trackSshHostAdded).toHaveBeenCalledExactlyOnceWith('new_workspace');
     });
 
-    it('starts from the ~/.ssh/config host the opener picked', async () => {
-      const user = userEvent.setup();
-      render(<SshHostDialogHost />);
-
-      act(() =>
-        useSshHostDialogStore.getState().openAdd('onboarding', {
-          configHost: { alias: 'gpu', hostname: '10.0.0.5', user: 'devuser' },
-        })
-      );
-      const dialog = await screen.findByRole('dialog');
-      expect(within(dialog).getByLabelText('Host or alias')).toHaveValue('gpu');
-      expect(within(dialog).getByLabelText('Name')).toHaveValue('gpu');
-      expect(
-        within(dialog).getByText('Uses the settings for gpu in ~/.ssh/config: devuser@10.0.0.5.')
-      ).toBeInTheDocument();
-      await user.click(within(dialog).getByRole('button', { name: 'Check machine' }));
-      await user.click(await within(dialog).findByRole('button', { name: 'Set up machine' }));
-
-      await waitFor(() =>
-        expect(window.api.trackSshHostAdded).toHaveBeenCalledExactlyOnceWith('onboarding')
-      );
-    });
-
-    it('keeps a dialog started from ~/.ssh/config open on a click outside', async () => {
-      const user = userEvent.setup();
-      render(<SshHostDialogHost />);
-
-      act(() =>
-        useSshHostDialogStore.getState().openAdd('onboarding', { configHost: { alias: 'gpu' } })
-      );
-      const dialog = await screen.findByRole('dialog');
-      await user.click(document.querySelector('[data-native-overlay="dialog"]:not([role])')!);
-
-      expect(screen.getByRole('dialog')).toBe(dialog);
-    });
-
-    it('keeps the starting host summary when ~/.ssh/config fails to read', async () => {
-      vi.mocked(window.api.listSshConfigHosts).mockRejectedValue(new Error('Permission denied'));
-      const user = userEvent.setup();
-      render(<SshHostDialogHost />);
-
-      act(() =>
-        useSshHostDialogStore.getState().openAdd('onboarding', {
-          configHost: { alias: 'gpu', hostname: '10.0.0.5', user: 'devuser' },
-        })
-      );
-      const dialog = await screen.findByRole('dialog');
-      await user.click(within(dialog).getByRole('button', { name: 'Fill from ~/.ssh/config…' }));
-      expect(await within(dialog).findByText(/Permission denied/)).toBeInTheDocument();
-      expect(within(dialog).queryByRole('button', { name: /^gpu/ })).not.toBeInTheDocument();
-      await user.click(within(dialog).getByRole('button', { name: 'Back' }));
-
-      expect(
-        within(dialog).getByText('Uses the settings for gpu in ~/.ssh/config: devuser@10.0.0.5.')
-      ).toBeInTheDocument();
-    });
-
     it('links more info about SSH hosts', async () => {
       render(<SshHostDialogHost />);
 

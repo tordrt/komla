@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 import { useSshHostsStore } from './ssh-hosts.store';
 
-import type { SshConfigHost, SshHostAddedSource } from '../../shared/types/ssh';
+import type { SshHostAddedSource } from '../../shared/types/ssh';
 
 /** What the SSH host dialog opens for. */
 export type SshHostDialogRequest =
@@ -12,8 +12,6 @@ export type SshHostDialogRequest =
       source: SshHostAddedSource;
       /** Called once the host is set up, e.g. to pick it for the workspace being created. */
       onAdded?: (hostId: string) => void;
-      /** A ~/.ssh/config entry the form starts from. */
-      configHost?: SshConfigHost;
     }
   | { kind: 'edit'; hostId: string }
   /** The agent integrations step of a host whose first-time setup was interrupted. */
@@ -24,10 +22,7 @@ interface SshHostDialogState {
   request: SshHostDialogRequest | null;
   /** Counts requests, so each one starts the dialog afresh. */
   requestId: number;
-  openAdd: (
-    source: SshHostAddedSource,
-    options?: { onAdded?: (hostId: string) => void; configHost?: SshConfigHost }
-  ) => void;
+  openAdd: (source: SshHostAddedSource, options?: { onAdded?: (hostId: string) => void }) => void;
   openEdit: (hostId: string) => void;
   openReady: (hostId: string) => void;
   close: () => void;
@@ -42,8 +37,7 @@ export const useSshHostDialogStore = create<SshHostDialogState>((set) => {
     open: false,
     request: null,
     requestId: 0,
-    openAdd: (source, options) =>
-      show({ kind: 'add', source, onAdded: options?.onAdded, configHost: options?.configHost }),
+    openAdd: (source, options) => show({ kind: 'add', source, onAdded: options?.onAdded }),
     openEdit: (hostId) => show({ kind: 'edit', hostId }),
     openReady: (hostId) => show({ kind: 'ready', hostId }),
     close: () => {

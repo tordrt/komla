@@ -524,70 +524,20 @@ describe('SetupWizard', () => {
       await waitFor(() => expect(onComplete).toHaveBeenCalled());
       expect(useSshHostDialogStore.getState()).toMatchObject({
         open: true,
-        request: { kind: 'add', source: 'onboarding', configHost: undefined },
+        request: { kind: 'add', source: 'onboarding' },
       });
     });
 
-    it('reads ~/.ssh/config only once an SSH machine is picked', async () => {
-      render(<SetupWizard />);
-      await toAgentStep();
-      await toMachineStep();
-      expect(window.api.listSshConfigHosts).not.toHaveBeenCalled();
-
-      fireEvent.click(screen.getByRole('button', { name: /A machine I can SSH into/ }));
-      fireEvent.click(screen.getByRole('button', { name: /This computer/ }));
-      fireEvent.click(screen.getByRole('button', { name: /A machine I can SSH into/ }));
-
-      await waitFor(() => expect(window.api.listSshConfigHosts).toHaveBeenCalledOnce());
-    });
-
-    it('leaves out the ~/.ssh/config hosts Komla already has', async () => {
-      vi.mocked(window.api.listSshConfigHosts).mockResolvedValue([
-        { alias: 'gpu', hostname: '10.0.0.5' },
-        { alias: 'build' },
-      ]);
-      vi.mocked(window.api.listSshHosts).mockResolvedValue([
-        { id: 'ssh-1', name: 'GPU', hostname: '10.0.0.5' },
-      ] as Awaited<ReturnType<typeof window.api.listSshHosts>>);
+    it('leaves ~/.ssh/config to the add-host dialog', async () => {
       render(<SetupWizard />);
       await toAgentStep();
       await toMachineStep();
 
       fireEvent.click(screen.getByRole('button', { name: /A machine I can SSH into/ }));
 
-      const list = await screen.findByRole('list', { name: 'Hosts in ~/.ssh/config' });
-      expect(
-        within(list)
-          .getAllByRole('button')
-          .map((chip) => chip.textContent)
-      ).toEqual(['build']);
-    });
-
-    it('offers the hosts in ~/.ssh/config to start from', async () => {
-      const gpu = { alias: 'gpu', hostname: '10.0.0.5', user: 'devuser' };
-      vi.mocked(window.api.listSshConfigHosts).mockResolvedValue([gpu, { alias: 'build' }]);
-      render(<SetupWizard onComplete={vi.fn()} />);
-      await toAgentStep();
-      await toMachineStep();
+      expect(screen.getByText(/After setup, Komla connects over your ssh/)).toBeVisible();
       expect(screen.queryByRole('list', { name: 'Hosts in ~/.ssh/config' })).toBeNull();
-
-      fireEvent.click(screen.getByRole('button', { name: /A machine I can SSH into/ }));
-      const list = await screen.findByRole('list', { name: 'Hosts in ~/.ssh/config' });
-      fireEvent.click(within(list).getByRole('button', { name: 'build' }));
-      fireEvent.click(within(list).getByRole('button', { name: 'gpu' }));
-      expect(within(list).getByRole('button', { name: 'gpu' })).toHaveAttribute(
-        'aria-pressed',
-        'true'
-      );
-      expect(within(list).getByRole('button', { name: 'build' })).toHaveAttribute(
-        'aria-pressed',
-        'false'
-      );
-      fireEvent.click(screen.getByRole('button', { name: 'Start working' }));
-
-      await waitFor(() =>
-        expect(useSshHostDialogStore.getState().request).toMatchObject({ configHost: gpu })
-      );
+      expect(window.api.listSshConfigHosts).not.toHaveBeenCalled();
     });
   });
 

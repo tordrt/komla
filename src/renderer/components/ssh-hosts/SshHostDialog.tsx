@@ -84,12 +84,10 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
   const beginPendingSetup = useSshHostsStore((s) => s.beginPendingSetup);
   const updateConfig = useConfigStore((s) => s.updateConfig);
 
-  const startingConfigHost = request.kind === 'add' ? request.configHost : undefined;
   const [initialDraft] = useState<HostDraft>(() => {
     const host =
       request.kind === 'edit' ? hosts.find((candidate) => candidate.id === request.hostId) : null;
-    if (host) return hostToDraft(host);
-    return startingConfigHost ? withConfigHost(EMPTY_DRAFT, startingConfigHost) : EMPTY_DRAFT;
+    return host ? hostToDraft(host) : EMPTY_DRAFT;
   });
   const [draft, setDraft] = useState(initialDraft);
   const [view, setView] = useState<View>(() => (request.kind === 'ready' ? 'ready' : 'form'));
@@ -111,7 +109,7 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
   const checkAttempt = useRef(0);
   const [saving, setSaving] = useState(false);
   const configHosts = useSshConfigHosts();
-  const [configAlias, setConfigAlias] = useState(startingConfigHost?.alias ?? null);
+  const [configAlias, setConfigAlias] = useState<string | null>(null);
   const returnFocus = useReturnFocus();
   // The integrations step holds the launch defaults until the dialog has closed, rather than
   // stacking them on it: a first host's setup is pending until then, and the defaults can't pin
@@ -265,11 +263,9 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
     setView('form');
   };
 
-  // A click outside shouldn't throw away typed details, details the opener filled in, or a
-  // check in progress.
-  const hasDetails = isDirty || startingConfigHost !== undefined;
+  // A click outside shouldn't throw away typed details or a check in progress.
   const guardOutsideDismiss = (event: Event) => {
-    if (busy || (view !== 'ready' && hasDetails)) event.preventDefault();
+    if (busy || (view !== 'ready' && isDirty)) event.preventDefault();
   };
   // Escape in the ~/.ssh/config list goes back to the form, like Back.
   const handleEscape = (event: KeyboardEvent) => {
@@ -278,12 +274,7 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
     setView('form');
   };
 
-  // The entry the dialog started from still describes its alias if reading the file fails.
-  const hostHint = configAliasHint(
-    configAlias,
-    draft.hostname,
-    startingConfigHost ? [...(configHosts.hosts ?? []), startingConfigHost] : configHosts.hosts
-  );
+  const hostHint = configAliasHint(configAlias, draft.hostname, configHosts.hosts);
   const fromConfig = hostHint !== undefined;
 
   return (

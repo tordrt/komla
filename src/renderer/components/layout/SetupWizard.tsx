@@ -2,7 +2,6 @@ import { ArrowLeft, CaretDown, CaretUp, Check, Plus } from '@phosphor-icons/reac
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 import { ProjectCreationForm } from '@/components/projects/ProjectCreationForm';
-import { addedConfigAliases } from '@/components/ssh-hosts/SshConfigHostPicker';
 import { AgentPresetIcon, hasAgentPresetLogo } from '@/components/terminal/AgentPresetIcon';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
@@ -43,7 +42,7 @@ import { CommandInputs } from './settings/CommandInputs';
 
 import type { LaunchAgent } from './OnboardingConnectStep';
 import type { AgentMachine } from './OnboardingMachineStep';
-import type { AgentPreset, LaunchMode, Project, ReasoningLevel, SshConfigHost } from '@/types';
+import type { AgentPreset, LaunchMode, Project, ReasoningLevel } from '@/types';
 
 // Featured agent card (the four with one-click setup).
 function FeaturedAgentCard({
@@ -199,9 +198,6 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
   const [pickingOtherAgent, setPickingOtherAgent] = useState(false);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [machine, setMachine] = useState<AgentMachine>('local');
-  const [sshConfigHosts, setSshConfigHosts] = useState<SshConfigHost[]>([]);
-  const [pickedSshAlias, setPickedSshAlias] = useState<string | null>(null);
-  const sshConfigHostsRequestedRef = React.useRef(false);
   // Usage analytics are asked once; setup asks, on a step of its own, unless the user already
   // answered. Decided as setup opens, so saving the answer doesn't take the step away mid-way.
   const [askAnalytics] = useState(() => config?.usageTelemetryConsentAnswered !== true);
@@ -313,19 +309,6 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
     setError(null);
   };
 
-  const handleMachineChange = (next: AgentMachine) => {
-    setMachine(next);
-    if (next !== 'ssh' || sshConfigHostsRequestedRef.current) return;
-    sshConfigHostsRequestedRef.current = true;
-    // Hosts the user already reaches over SSH, leaving out the ones Komla already has.
-    Promise.all([window.api.listSshConfigHosts(), window.api.listSshHosts().catch(() => [])])
-      .then(([entries, hosts]) => {
-        const added = addedConfigAliases(entries, hosts);
-        setSshConfigHosts(entries.filter((entry) => !added.has(entry.alias.toLowerCase())));
-      })
-      .catch(() => {});
-  };
-
   const handleCompleteWithProject = (project: Project) => {
     createdProjectIdRef.current = project.id;
     setSkippedProject(false);
@@ -432,9 +415,7 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
 
       // The SSH host is added once setup is done, so a failed check never holds it up.
       if (machine === 'ssh') {
-        useSshHostDialogStore.getState().openAdd('onboarding', {
-          configHost: sshConfigHosts.find((host) => host.alias === pickedSshAlias),
-        });
+        useSshHostDialogStore.getState().openAdd('onboarding');
       }
 
       // Notify parent that setup is complete (avoids full page reload)
@@ -748,13 +729,7 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
             )}
 
             {step === machineStep && (
-              <OnboardingMachineStep
-                machine={machine}
-                onMachineChange={handleMachineChange}
-                configHosts={sshConfigHosts}
-                pickedAlias={pickedSshAlias}
-                onPickAlias={setPickedSshAlias}
-              />
+              <OnboardingMachineStep machine={machine} onMachineChange={setMachine} />
             )}
 
             {step === analyticsStep && (

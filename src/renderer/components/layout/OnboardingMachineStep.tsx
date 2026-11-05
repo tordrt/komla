@@ -1,18 +1,11 @@
-import { Check, Desktop, HardDrives } from '@phosphor-icons/react';
+import { Desktop, HardDrives } from '@phosphor-icons/react';
 
 import { SshGuideLink } from '@/components/ssh-hosts/ssh-guide';
-import { sshConfigHostSummary } from '@/components/ssh-hosts/SshConfigHostPicker';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-import {
-  ChoiceCheck,
-  choiceClass,
-  OnboardingSectionLabel,
-  OnboardingStepHeader,
-} from './OnboardingChrome';
+import { ChoiceCheck, choiceClass, OnboardingStepHeader } from './OnboardingChrome';
 
-import type { SshConfigHost } from '@/types';
 import type { Icon } from '@phosphor-icons/react';
 
 export type AgentMachine = 'local' | 'ssh';
@@ -20,23 +13,14 @@ export type AgentMachine = 'local' | 'ssh';
 interface OnboardingMachineStepProps {
   machine: AgentMachine;
   onMachineChange: (machine: AgentMachine) => void;
-  configHosts: SshConfigHost[];
-  /** The alias picked from ~/.ssh/config, if any. */
-  pickedAlias: string | null;
-  onPickAlias: (alias: string | null) => void;
 }
 
 /**
  * Asks whether agents run here or on a machine over SSH. Nothing connects yet: the SSH host
- * is added once setup is done, so a failed check never holds up Start working.
+ * is added once setup is done, so a failed check never holds up Start working. The host's details,
+ * or an entry from ~/.ssh/config, are filled in then, in the add-host dialog.
  */
-export function OnboardingMachineStep({
-  machine,
-  onMachineChange,
-  configHosts,
-  pickedAlias,
-  onPickAlias,
-}: OnboardingMachineStepProps) {
+export function OnboardingMachineStep({ machine, onMachineChange }: OnboardingMachineStepProps) {
   return (
     <div className="space-y-5">
       <OnboardingStepHeader
@@ -63,43 +47,11 @@ export function OnboardingMachineStep({
       </div>
 
       {machine === 'ssh' && (
-        <div className="space-y-3">
-          {configHosts.length > 0 && (
-            <div className="space-y-2">
-              <OnboardingSectionLabel>From ~/.ssh/config · optional</OnboardingSectionLabel>
-              <ul
-                aria-label="Hosts in ~/.ssh/config"
-                className="flex max-h-32 flex-wrap gap-2 overflow-y-auto"
-              >
-                {configHosts.map((host) => {
-                  const picked = host.alias === pickedAlias;
-                  return (
-                    <li key={host.alias}>
-                      <button
-                        type="button"
-                        aria-pressed={picked}
-                        title={sshConfigHostSummary(host) ?? undefined}
-                        onClick={() => onPickAlias(picked ? null : host.alias)}
-                        className={cn(
-                          'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 font-mono text-xs',
-                          choiceClass(picked)
-                        )}
-                      >
-                        {picked && <Check className="size-3 shrink-0 text-komla" weight="bold" />}
-                        {host.alias}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            After setup, Komla connects over your ssh, checks for Git and tmux, and installs a few
-            helper scripts. <SshGuideLink /> ·{' '}
-            <SshGuideLink section="no-machine">No machine yet? ↗</SshGuideLink>
-          </p>
-        </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          After setup, Komla connects over your ssh, checks for Git and tmux, and installs a few
+          helper scripts. <SshGuideLink /> ·{' '}
+          <SshGuideLink section="no-machine">No machine yet? ↗</SshGuideLink>
+        </p>
       )}
     </div>
   );

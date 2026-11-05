@@ -6,7 +6,11 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TerminalView } from '../../../../src/renderer/components/terminal/TerminalView';
-import { updateTerminalRendererConfiguration } from '../../../../src/renderer/lib/terminal-renderer-runtime';
+import {
+  disposeTerminalRenderer,
+  getTerminalRendererDiagnostics,
+  updateTerminalRendererConfiguration,
+} from '../../../../src/renderer/lib/terminal-renderer-runtime';
 import { useQuickLookStore } from '../../../../src/renderer/stores/quick-look.store';
 import { useWorkspacesStore } from '../../../../src/renderer/stores/workspaces.store';
 import { createSshWorkspace } from '../../../factories';
@@ -362,6 +366,9 @@ describe('TerminalView resize repair', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    // The runtime is shared, so a failed test mustn't leave these behind for the next one.
+    disposeTerminalRenderer('workspace-new');
+    disposeTerminalRenderer('term-parked');
   });
 
   it('forces one immediate PTY size sync when the terminal becomes visible', async () => {
@@ -444,6 +451,49 @@ describe('TerminalView resize repair', () => {
     });
 
     expect(terminal.buffer.active.viewportY).toBe(210);
+  });
+
+  it("frees a new workspace's placeholder pane's renderer once the pane goes", async () => {
+    // While a workspace is set up, its one pane shows a terminal keyed by the workspace's ID.
+    const before = getTerminalRendererDiagnostics().runtimeCount;
+    const view = render(
+      <TerminalView
+        terminalId="workspace-new"
+        isActive={true}
+        isTabActive={true}
+        workingDirectory="/tmp/project"
+        workspaceId="workspace-new"
+      />
+    );
+    await act(async () => Promise.resolve());
+    expect(getTerminalRendererDiagnostics().runtimeCount).toBe(before + 1);
+
+    view.unmount();
+    await act(async () => Promise.resolve());
+
+    expect(getTerminalRendererDiagnostics().runtimeCount).toBe(before);
+  });
+
+  it("keeps a real terminal's renderer parked once its pane goes", async () => {
+    const before = getTerminalRendererDiagnostics();
+    const view = render(
+      <TerminalView
+        terminalId="term-parked"
+        isActive={true}
+        isTabActive={true}
+        workingDirectory="/tmp/project"
+        workspaceId="workspace-1"
+      />
+    );
+    await act(async () => Promise.resolve());
+
+    view.unmount();
+    await act(async () => Promise.resolve());
+
+    expect(getTerminalRendererDiagnostics()).toMatchObject({
+      runtimeCount: before.runtimeCount + 1,
+      parkedCount: before.parkedCount + 1,
+    });
   });
 
   it('refits a switched workspace without rebuilding its renderer', async () => {

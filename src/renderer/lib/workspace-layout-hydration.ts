@@ -16,11 +16,22 @@ export interface WorkspaceLayoutHydration {
   activeTab: string;
 }
 
+/**
+ * Whether a pane's terminal is a new workspace's placeholder: until its first terminal arrives, a
+ * workspace's one pane is keyed by the workspace's own ID, with no PTY behind it.
+ */
+export function isWorkspacePlaceholderTerminal(
+  workspaceId: string | null | undefined,
+  terminalId: string
+): boolean {
+  return !!workspaceId && terminalId === workspaceId;
+}
+
 export function isWorkspaceLayoutPlaceholder(
   workspaceId: string,
   tabs: string[] | undefined
 ): boolean {
-  return tabs?.length === 1 && tabs[0] === workspaceId;
+  return tabs?.length === 1 && isWorkspacePlaceholderTerminal(workspaceId, tabs[0]);
 }
 
 export function buildWorkspaceLayoutHydration(

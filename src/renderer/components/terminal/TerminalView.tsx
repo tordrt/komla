@@ -31,6 +31,7 @@ import {
 } from '@/lib/terminal-renderer-runtime';
 import { terminalWindowsPtyOptions } from '@/lib/terminal-windows-pty';
 import { AT_PATH_MIME, consumeTreeDragActive, isTreeDragActive } from '@/lib/tree-drag-token';
+import { isWorkspacePlaceholderTerminal } from '@/lib/workspace-layout-hydration';
 import { terminalHyperlinkTarget, type TerminalDetectedLink } from '@/lib/xterm-url-links';
 import { useConfigStore } from '@/stores/config.store';
 import { useCustomizationStore } from '@/stores/customization.store';
@@ -899,7 +900,10 @@ export function TerminalView({
       console.error('Terminal initialization failed:', attachError);
       setError((attachError as Error).message);
     }
-    return () => detachTerminalRenderer(terminalId);
+    // Nothing frees a placeholder's renderer later, as no terminal has its ID, so it goes with
+    // its pane unless a pane takes it.
+    const release = isWorkspacePlaceholderTerminal(workspaceId, terminalId);
+    return () => detachTerminalRenderer(terminalId, { release });
     // Creation values are intentionally fixed for one Terminal identity. Live values update below.
     // oxlint-disable-next-line react/exhaustive-deps
   }, [terminalId]);

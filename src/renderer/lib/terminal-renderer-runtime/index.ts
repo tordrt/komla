@@ -25,7 +25,8 @@ const runtime = new TerminalRendererRuntime();
 
 export const attachTerminalRenderer = (request: AttachTerminalRendererRequest): void =>
   runtime.attach(request);
-export const detachTerminalRenderer = (terminalId: string): void => runtime.detach(terminalId);
+export const detachTerminalRenderer = (terminalId: string, options?: { release?: boolean }): void =>
+  runtime.detach(terminalId, options);
 export const disposeTerminalRenderer = (terminalId: string): void => runtime.dispose(terminalId);
 export const disposeTerminalRenderers = (terminalIds: readonly string[]): void =>
   runtime.disposeAll(terminalIds);

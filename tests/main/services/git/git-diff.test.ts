@@ -26,6 +26,8 @@ vi.mock('fs', async (importOriginal) => {
   return {
     ...actual,
     existsSync: vi.fn(() => true),
+    // Every path the tests name is on disk, as existsSync says.
+    lstatSync: vi.fn(() => ({})),
   };
 });
 vi.mock('fs/promises', () => ({
@@ -417,6 +419,33 @@ describe('GitDiffService', () => {
         isBinary: false,
       });
       expect(execBufferSpy).not.toHaveBeenCalledWith('/repo', ['show', 'HEAD:missing.ts']);
+    });
+    it('opens a file inside an untracked folder without listing the folder', async () => {
+      const { gitDiffService, execFile, existsSync, execSpy } = await setup();
+      existsSync.mockReturnValue(true);
+      const { readFile, readdir } = (await import('fs/promises')) as unknown as {
+        readFile: ReturnType<typeof vi.fn>;
+        readdir: ReturnType<typeof vi.fn>;
+      };
+      execFile.mockImplementation(
+        (_cmd: string, _args: string[], _opts: unknown, cb?: Function) => {
+          const callback = typeof _opts === 'function' ? _opts : cb;
+          callback?.(null, { stdout: '?? generated/\0' });
+        }
+      );
+      execSpy.mockResolvedValue('');
+      readFile.mockResolvedValue('out');
+
+      const result = await gitDiffService.getFullFileDiff('/repo', 'generated/deep/out.ts');
+
+      expect(result).toEqual({
+        path: 'generated/deep/out.ts',
+        oldContent: null,
+        newContent: 'out',
+        status: 'untracked',
+        isBinary: false,
+      });
+      expect(readdir).not.toHaveBeenCalled();
     });
   });
 

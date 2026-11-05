@@ -1250,6 +1250,44 @@ describe('TerminalRendererRuntime', () => {
     runtime.dispose('term-moved');
   });
 
+  it("frees a released renderer that isn't attached again in the same task", async () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'ws-placeholder', makeHost());
+
+    runtime.detach('ws-placeholder', { release: true });
+    expect(runtime.diagnostics().runtimeCount).toBe(1);
+    await Promise.resolve();
+
+    expect(runtime.diagnostics()).toMatchObject({ runtimeCount: 0, parkedCount: 0 });
+  });
+
+  it('keeps a released renderer that is attached again in the same task, as a split does', async () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'ws-placeholder', makeHost());
+    const [terminal] = xtermState.terminals;
+
+    runtime.detach('ws-placeholder', { release: true });
+    attach(runtime, 'ws-placeholder', makeHost());
+    await Promise.resolve();
+
+    expect(runtime.diagnostics()).toMatchObject({ runtimeCount: 1, parkedCount: 0 });
+    expect(xtermState.terminals).toEqual([terminal]);
+    runtime.dispose('ws-placeholder');
+  });
+
+  it('lets the last detach in a task decide whether to free the renderer', async () => {
+    const runtime = new TerminalRendererRuntime();
+    attach(runtime, 'ws-placeholder', makeHost());
+
+    runtime.detach('ws-placeholder', { release: true });
+    attach(runtime, 'ws-placeholder', makeHost());
+    runtime.detach('ws-placeholder');
+    await Promise.resolve();
+
+    expect(runtime.diagnostics()).toMatchObject({ runtimeCount: 1, parkedCount: 1 });
+    runtime.dispose('ws-placeholder');
+  });
+
   it('sizes the PTY at once when a pane detached while shown comes back later', async () => {
     const runtime = new TerminalRendererRuntime();
     attach(runtime, 'term-back', makeHost());

@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/context-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
+import { LoadingState } from '@/components/ui/loading-state';
 import { menuItemClass, menuSeparatorClass } from '@/components/ui/menu-styles';
 import { Spinner } from '@/components/ui/spinner';
 import { useKomlaEditorTheme } from '@/hooks/useKomlaEditorTheme';
@@ -1638,7 +1639,9 @@ export function SidebarFileTree({
             className={cn('relative min-h-0 flex-1', embedded && 'bg-transparent')}
           >
             {loading ? (
-              <div className="p-3 text-sm text-muted-foreground">Loading...</div>
+              <LoadingState label="Loading files" className="h-full" />
+            ) : changedFilesOnly && diffLoading && paths.length === 0 ? (
+              <LoadingState label="Loading changes" className="h-full" />
             ) : !changedFilesOnly && paths.length === 0 ? (
               <div className="p-3 text-sm text-muted-foreground">
                 No {importedFiles.length > 0 ? 'project files' : 'files'}

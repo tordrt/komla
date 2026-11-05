@@ -6,17 +6,28 @@ import { reportError } from '@/lib/error-reporting';
 interface Props {
   children: ReactNode;
   fallback?: ReactNode | ((error: Error) => ReactNode);
+  /**
+   * Clears a caught error when it changes, such as the file shown. Unlike a `key`, it keeps
+   * the children mounted.
+   */
+  resetKey?: string;
 }
 
 interface State {
   hasError: boolean;
   error: Error | null;
+  resetKey?: string;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, resetKey: props.resetKey };
+  }
+
+  static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
+    if (props.resetKey === state.resetKey) return null;
+    return { hasError: false, error: null, resetKey: props.resetKey };
   }
 
   static getDerivedStateFromError(error: Error): State {

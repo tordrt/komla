@@ -5,30 +5,100 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DiffPane } from '../../../../../src/renderer/components/workspaces/file-viewer/DiffPane';
+import { resetDiffModelCacheForTests } from '../../../../../src/renderer/components/workspaces/file-viewer/diff-model-cache';
 import { useCustomizationStore } from '../../../../../src/renderer/stores/customization.store';
 import { DEFAULT_TERMINAL_CONFIG } from '../../../../../src/shared/constants/terminal';
 
 import type { FileDiffContent } from '../../../../../src/renderer/types';
 
-vi.mock('@monaco-editor/react', () => ({
-  DiffEditor: ({
-    options,
-  }: {
-    options?: {
-      readOnly?: boolean;
-      renderSideBySideInlineBreakpoint?: number;
-      fontSize?: number;
-    };
-  }) => (
-    <div
-      data-read-only={String(options?.readOnly)}
-      data-font-size={String(options?.fontSize)}
-      data-inline-breakpoint={String(options?.renderSideBySideInlineBreakpoint)}
-    >
-      Diff Editor
-    </div>
-  ),
+const diffEditorProps = vi.hoisted(() => ({
+  options: [] as unknown[],
+  mountEditors: false,
+  // Whether a mounting editor already has its diff, as for models shown before.
+  diffComputed: true,
+  diffListeners: [] as (() => void)[],
+  // Models by URI, as Monaco keeps them, so a diff shown again finds the ones it left.
+  models: new Map<string, unknown>(),
 }));
+
+vi.mock('@monaco-editor/react', async () => {
+  const { useEffect } = await import('react');
+  const models = diffEditorProps.models as Map<string, ReturnType<typeof fakeModel>>;
+  function fakeModel(uri: string) {
+    let disposed = false;
+    const model = {
+      uri: { scheme: uri.split(':')[0], toString: () => uri },
+      getAlternativeVersionId: () => 1,
+      isDisposed: () => disposed,
+      isAttachedToEditor: () => false,
+      dispose: () => {
+        disposed = true;
+        models.delete(uri);
+      },
+    };
+    models.set(uri, model);
+    return model;
+  }
+  const monaco = { editor: { getModels: () => [...models.values()] } };
+
+  return {
+    DiffEditor: ({
+      options,
+      originalModelPath,
+      modifiedModelPath,
+      onMount,
+    }: {
+      options?: {
+        readOnly?: boolean;
+        renderSideBySideInlineBreakpoint?: number;
+        fontSize?: number;
+      };
+      originalModelPath?: string;
+      modifiedModelPath?: string;
+      onMount?: (editor: unknown, monaco: unknown) => void;
+    }) => {
+      diffEditorProps.options.push(options);
+      useEffect(() => {
+        if (!diffEditorProps.mountEditors || !originalModelPath || !modifiedModelPath) return;
+        const find = (uri: string) => models.get(uri) ?? fakeModel(uri);
+        const disposeListeners: (() => void)[] = [];
+        const inner = {
+          updateOptions: () => {},
+          onKeyDown: () => ({ dispose: () => {} }),
+          onDidDispose: (listener: () => void) => disposeListeners.push(listener),
+        };
+        onMount?.(
+          {
+            getModel: () => ({
+              original: find(originalModelPath),
+              modified: find(modifiedModelPath),
+            }),
+            getOriginalEditor: () => inner,
+            getModifiedEditor: () => inner,
+            onDidUpdateDiff: (listener: () => void) => {
+              diffEditorProps.diffListeners.push(listener);
+              return { dispose: () => {} };
+            },
+            getLineChanges: () => (diffEditorProps.diffComputed ? [] : null),
+          },
+          monaco
+        );
+        return () => disposeListeners.forEach((listener) => listener());
+        // Mounts once, like the editor, which swaps models in place.
+      }, []);
+      return (
+        <div
+          data-read-only={String(options?.readOnly)}
+          data-font-size={String(options?.fontSize)}
+          data-inline-breakpoint={String(options?.renderSideBySideInlineBreakpoint)}
+          data-original-model={originalModelPath}
+        >
+          Diff Editor
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('../../../../../src/renderer/hooks/useKomlaEditorTheme', () => ({
   useKomlaEditorTheme: () => ({ base: 'vs-dark', inherit: true, rules: [], colors: {} }),
@@ -119,7 +189,7 @@ function deferred<T>(): {
 
 describe('DiffPane', () => {
   it('shows editor initialization errors even while Monaco is not ready', () => {
-    const { container } = render(
+    render(
       <DiffPane
         {...baseProps}
         fileContent={null}
@@ -128,11 +198,15 @@ describe('DiffPane', () => {
       />
     );
     expect(screen.getByText('Failed to initialize editor: Outdated Optimize Dep')).toBeTruthy();
-    expect(container.querySelector('.animate-pulse')).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDiffModelCacheForTests();
+    diffEditorProps.diffComputed = true;
+    diffEditorProps.diffListeners = [];
+    diffEditorProps.models.clear();
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -214,6 +288,94 @@ describe('DiffPane', () => {
     });
     expect(screen.getByText('Diff Editor')).toHaveAttribute('data-font-size', '17');
     useCustomizationStore.setState({ terminalConfig: null });
+  });
+
+  // The editor applies each new options object it gets, so a re-render must not make one.
+  it('hands the editor the same options until one changes', () => {
+    const { rerender } = render(
+      <DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />
+    );
+    rerender(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />);
+    const [first, second] = diffEditorProps.options.slice(-2);
+    expect(second).toBe(first);
+
+    rerender(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} readOnly />);
+    expect(diffEditorProps.options.at(-1)).not.toBe(first);
+  });
+
+  it('never shares a diff\'s models with another pane after showing a binary file', async () => {
+    diffEditorProps.mountEditors = true;
+    try {
+      const props = { ...baseProps, selectedFile: 'demo.ts' };
+      const first = render(<DiffPane {...props} fileContent={textDiff()} />);
+      first.rerender(
+        <DiffPane {...baseProps} selectedFile="demo.mp4" fileContent={binaryDiff()} />
+      );
+      // Let the closed editor's models go back to the cache.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      const second = render(<DiffPane {...props} fileContent={textDiff()} />);
+      first.rerender(<DiffPane {...props} fileContent={textDiff()} />);
+
+      const shown = (view: typeof first) =>
+        view.container.querySelector('[data-original-model]')?.getAttribute('data-original-model');
+      expect(shown(first)).toBeTruthy();
+      expect(shown(first)).not.toBe(shown(second));
+    } finally {
+      diffEditorProps.mountEditors = false;
+    }
+  });
+
+  it('shows a spinner while the editor loads', async () => {
+    render(<DiffPane {...baseProps} fileContent={null} loading />);
+
+    expect(await screen.findByRole('status', { name: 'Loading editor' })).toBeInTheDocument();
+  });
+
+  it('shows a spinner rather than a diff it has not worked out yet', async () => {
+    diffEditorProps.mountEditors = true;
+    diffEditorProps.diffComputed = false;
+    try {
+      render(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />);
+      const editor = screen.getByText('Diff Editor').parentElement!;
+
+      expect(editor).toHaveStyle({ visibility: 'hidden' });
+      expect(await screen.findByRole('status', { name: 'Loading diff' })).toBeInTheDocument();
+
+      act(() => diffEditorProps.diffListeners.forEach((listener) => listener()));
+
+      expect(editor).toHaveStyle({ visibility: 'visible' });
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally {
+      diffEditorProps.mountEditors = false;
+    }
+  });
+
+  it('waits for the diff again when shown again after a binary file', () => {
+    diffEditorProps.mountEditors = true;
+    diffEditorProps.diffComputed = false;
+    try {
+      const props = { ...baseProps, selectedFile: 'demo.ts' };
+      const { rerender } = render(<DiffPane {...props} fileContent={textDiff()} />);
+      act(() => diffEditorProps.diffListeners.forEach((listener) => listener()));
+      rerender(<DiffPane {...baseProps} fileContent={binaryDiff()} />);
+
+      rerender(<DiffPane {...props} fileContent={textDiff()} />);
+
+      expect(screen.getByText('Diff Editor').parentElement).toHaveStyle({ visibility: 'hidden' });
+    } finally {
+      diffEditorProps.mountEditors = false;
+    }
+  });
+
+  it('shows a diff worked out before at once', () => {
+    diffEditorProps.mountEditors = true;
+    try {
+      render(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />);
+
+      expect(screen.getByText('Diff Editor').parentElement).toHaveStyle({ visibility: 'visible' });
+    } finally {
+      diffEditorProps.mountEditors = false;
+    }
   });
 
   // Monaco draws split as unified at or below this editor width.

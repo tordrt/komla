@@ -79,7 +79,7 @@ export const Sidebar = memo(function Sidebar({
   // Narrower, New Workspace drops its shortcut, and the footer's SSH count its icon.
   const showNewWorkspaceShortcut = width >= 185;
 
-  // One filled split control, the same field as Jump to: New Workspace, then quick create.
+  // One filled split control: New Workspace, then quick create.
   const newWorkspaceControls = (
     // In light themes it takes the project panels' fill, as the accent all but matches the chrome;
     // in dark ones a clear line like the panels', drawn over the hovered button's fill.
@@ -154,24 +154,36 @@ export const Sidebar = memo(function Sidebar({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="no-drag flex h-7 min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-md bg-foreground/[0.05] px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+                className="no-drag flex h-7 min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
                 onClick={onOpenCommandCenter}
               >
-                {/* A faint field, with the shortcut as plain text, so it reads as a search box
-                    yet stays quieter than New Workspace below it. The shortcut shows Shift as ⇧
-                    to fit. */}
+                {/* No fill, so it blends into the sidebar until hovered, with the shortcut as plain
+                    text so it stays quieter than New Workspace below it. The shortcut shows Shift
+                    as ⇧ to fit. */}
                 <MagnifyingGlass className="size-3.5 shrink-0" />
                 {/* Beside the macOS traffic lights, the field can be too narrow for the whole
-                    placeholder; it shortens to "Jump…", then leaves the icon and shortcut alone. */}
-                <TruncatingLabel>Jump to…</TruncatingLabel>
-                <ShortcutHint
-                  action="commandCenter.open"
-                  compact
-                  className="ml-auto shrink-0 border-0 bg-transparent px-0 text-muted-foreground-60"
-                />
+                    placeholder. It shortens to "Jump…", then drops, and the shortcut moves left,
+                    beside the icon; the shortcut goes last. */}
+                <TruncatingLabel
+                  trailing={
+                    <ShortcutHint
+                      action="commandCenter.open"
+                      compact
+                      className="border-0 bg-transparent px-0 text-muted-foreground-60"
+                    />
+                  }
+                >
+                  Jump to…
+                </TruncatingLabel>
               </button>
             </TooltipTrigger>
-            <TooltipContent>Search workspaces and commands</TooltipContent>
+            {/* With the shortcut too, for a sidebar too narrow to show it. */}
+            <TooltipContent>
+              <span className="flex items-center gap-2">
+                Search workspaces and commands
+                <ShortcutHint action="commandCenter.open" />
+              </span>
+            </TooltipContent>
           </Tooltip>
         )}
         <IconButton

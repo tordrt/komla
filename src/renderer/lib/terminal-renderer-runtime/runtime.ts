@@ -116,6 +116,8 @@ interface TerminalRendererEntry {
   callbacks: TerminalRendererCallbacks;
   host?: HostAttachment;
   parked: boolean;
+  /** Its last detach asked to free it if no pane attaches it again; see `detach`. */
+  releaseWhenParked: boolean;
   visible: boolean;
   disposed: boolean;
   savedScroll?: SavedScroll;
@@ -326,7 +328,12 @@ export class TerminalRendererRuntime {
     this.setVisible(request.terminalId, request.visible);
   }
 
-  detach(terminalId: string): void {
+  /**
+   * Parks a terminal whose pane unmounted. With `release`, for a pane that has no PTY to come back
+   * to, such as a new workspace's placeholder, it frees the renderer unless a pane attaches it
+   * again before the next microtask. The last detach before then decides.
+   */
+  detach(terminalId: string, { release = false }: { release?: boolean } = {}): void {
     const entry = this.entries.get(terminalId);
     if (!entry || entry.disposed) return;
     this.captureParkScroll(entry);
@@ -339,11 +346,14 @@ export class TerminalRendererRuntime {
     entry.visible = false;
     entry.visibleRepairCleanup?.();
     entry.visibleRepairCleanup = undefined;
+    entry.releaseWhenParked = release;
     this.detachHost(entry, true);
     // A pane React only moves, e.g. a split's other pane, attaches again in this task. Giving up
     // its WebGL renderer meanwhile drew it once with xterm's DOM renderer and built a new context.
     queueMicrotask(() => {
-      if (entry.parked && !entry.disposed) this.disposeWebgl(entry);
+      if (!entry.parked || entry.disposed) return;
+      if (entry.releaseWhenParked) this.dispose(terminalId);
+      else this.disposeWebgl(entry);
     });
   }
 
@@ -825,6 +835,7 @@ export class TerminalRendererRuntime {
       context: request.context,
       callbacks: request.callbacks,
       parked: false,
+      releaseWhenParked: false,
       visible: request.visible,
       disposed: false,
       webglAddon: null,

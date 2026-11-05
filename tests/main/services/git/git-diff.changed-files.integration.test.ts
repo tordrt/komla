@@ -5,7 +5,7 @@
  * names git would quote reach the list as the paths on disk.
  */
 import { execFile } from 'child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
@@ -345,4 +345,86 @@ describe('gitDiffService changed files', () => {
 
     expect(execSpy.mock.calls.filter(([, args]) => args[0] === 'diff')).toHaveLength(1);
   });
+
+  it('opens several files at once with one git status', async () => {
+    writeFileSync(join(repoPath, 'a.ts'), 'a\n');
+    writeFileSync(join(repoPath, 'b.ts'), 'b\n');
+    await commitAll();
+    writeFileSync(join(repoPath, 'a.ts'), 'a2\n');
+    writeFileSync(join(repoPath, 'b.ts'), 'b2\n');
+    writeFileSync(join(repoPath, 'c.ts'), 'c\n');
+    const { gitExec } = await import('../../../../src/main/services/git/git-exec');
+    const execRawSpy = vi.spyOn(gitExec, 'execGitAsyncRaw');
+    const service = await gitDiff();
+
+    // The viewer opens one file and prefetches its neighbours together.
+    const [a, b, c] = await Promise.all(
+      ['a.ts', 'b.ts', 'c.ts'].map((path) => service.getFullFileDiff(repoPath, path))
+    );
+
+    expect(a).toMatchObject({ status: 'modified', oldContent: 'a\n', newContent: 'a2\n' });
+    expect(b).toMatchObject({ status: 'modified', oldContent: 'b\n', newContent: 'b2\n' });
+    expect(c).toMatchObject({ status: 'untracked', oldContent: null, newContent: 'c\n' });
+    expect(execRawSpy.mock.calls.filter(([, args]) => args[0] === 'status')).toHaveLength(1);
+  });
+
+  it('runs git status again for a file opened after the last one finished', async () => {
+    writeFileSync(join(repoPath, 'a.ts'), 'a\n');
+    await commitAll();
+    const service = await gitDiff();
+
+    expect(await service.getFullFileDiff(repoPath, 'new.ts')).toMatchObject({
+      status: 'deleted',
+      newContent: null,
+    });
+    writeFileSync(join(repoPath, 'new.ts'), 'new\n');
+
+    expect(await service.getFullFileDiff(repoPath, 'new.ts')).toMatchObject({
+      status: 'untracked',
+      oldContent: null,
+      newContent: 'new\n',
+    });
+  });
+
+  it('diffs a file inside an untracked folder as untracked', async () => {
+    writeFileSync(join(repoPath, 'a.ts'), 'a\n');
+    await commitAll();
+    mkdirSync(join(repoPath, 'generated', 'deep'), { recursive: true });
+    writeFileSync(join(repoPath, 'generated', 'deep', 'out.ts'), 'out\n');
+    writeFileSync(join(repoPath, 'generated', 'other.ts'), 'other\n');
+
+    expect(await (await gitDiff()).getFullFileDiff(repoPath, 'generated/deep/out.ts')).toEqual({
+      path: 'generated/deep/out.ts',
+      oldContent: null,
+      newContent: 'out\n',
+      status: 'untracked',
+      isBinary: false,
+    });
+  });
+
+  it('shows a file deleted from an untracked folder as missing', async () => {
+    writeFileSync(join(repoPath, 'a.ts'), 'a\n');
+    await commitAll();
+    mkdirSync(join(repoPath, 'generated'));
+    writeFileSync(join(repoPath, 'generated', 'other.ts'), 'other\n');
+
+    const diff = await (await gitDiff()).getFullFileDiff(repoPath, 'generated/gone.png');
+
+    expect(diff.status).toBe('deleted');
+  });
+
+  // Windows needs a privilege to make symlinks.
+  it.skipIf(process.platform === 'win32')(
+    'diffs a dangling symlink in an untracked folder as untracked, as the folder lists it',
+    async () => {
+      writeFileSync(join(repoPath, 'a.ts'), 'a\n');
+      await commitAll();
+      mkdirSync(join(repoPath, 'generated'));
+      symlinkSync('missing-target', join(repoPath, 'generated', 'link'));
+
+      const diff = await (await gitDiff()).getFullFileDiff(repoPath, 'generated/link');
+
+      expect(diff.status).toBe('untracked');
+    }
+  );
 });

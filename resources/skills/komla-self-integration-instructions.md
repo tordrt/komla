@@ -8,7 +8,7 @@ Integrate this agent CLI with whichever Komla surfaces it supports: notification
 
 Keep the agent's configuration unchanged during this phase.
 
-1. Identify the CLI and version. Inspect its official documentation, help output, and existing user-level configuration for lifecycle hooks (including tool activity, root versus subagent completion, and session/turn identity), a global, user-level folder of Agent Skills (see [Komla skill reference](#komla-skill-reference)), and whether it asks the user to trust each new folder (see [Workspace trust reference](#workspace-trust-reference)).
+1. Identify the CLI and version. Inspect its official documentation, help output, and existing user-level configuration for whether it reports its state with OSC 7501 (see [Agent state](#agent-state)), lifecycle hooks (including tool activity, root versus subagent completion, and session/turn identity), a global, user-level folder of Agent Skills (see [Komla skill reference](#komla-skill-reference)), and whether it asks the user to trust each new folder (see [Workspace trust reference](#workspace-trust-reference)).
 2. Classify each surface as **supported**, **unsupported**, or **uncertain**. For each supported surface, identify the evidence, exact global config file or CLI command, proposed settings, and any limitations involving payloads, asynchronous execution, approval flow, transport, or restarts.
 3. Report the classification and exact proposed changes, including every file you would modify and anything the user must do manually.
 4. End your turn and wait for the user's approval.
@@ -22,7 +22,7 @@ Continue only after the user approves the proposal.
 1. Apply only the approved global configuration, preserving unrelated settings. Change the agent's launch commands only through `komla settings apply agents`, which asks the user again.
 2. Validate each changed file with the CLI's parser, status command, or another authoritative check; otherwise re-read it and report that only structural validation was possible.
 3. Verify every configured surface as far as the CLI permits:
-   - **Notifications:** run the exact configured command from the current workspace and confirm that Komla receives it. Exercise prompt → completion → renewed tool activity → root completion where supported; verify recovery and that a subagent finishing does not stop the root spinner. If receipt is visible only in the UI, ask the user to confirm the indicator.
+   - **Notifications:** run the exact configured command from the current workspace and confirm that Komla receives it. Exercise prompt → completion → renewed tool activity → root completion where supported; verify recovery and that a subagent finishing does not stop the root spinner. If receipt is visible only in the UI, ask the user to confirm the indicator. If the CLI reports its state, also check that the spinner follows its turns and that a prompt titles a new workspace (when automatic names are on).
    - **Komla skill:** use the CLI's skills list command or a fresh session to confirm that it lists the `komla` skill. If the current process cannot reload skills, say that a new agent session is required for the final check.
    - **Workspace trust:** start the CLI the way you configured it in a folder it hasn't seen, such as a new worktree of a scratch repository, and confirm that it doesn't ask. Then ask the user to start the agent from Komla in a new workspace and confirm the same.
 4. Report each surface as verified, unverified with a reason and next check, or unsupported.
@@ -32,59 +32,68 @@ Phase 2 is complete only when every configured surface has a reported verificati
 
 ## Notification reference (outgoing)
 
-Komla installs its CLI in every managed terminal. Run `komla notify` from lifecycle hooks and Komla
-updates that workspace's attention indicators. The command resolves the terminal and desktop on its
-own; on SSH it uses the Remote Companion's durable mailbox while the tunnel is unavailable.
+Komla learns two things from an agent: its **state** (working, waiting on the user, done, failed),
+which drives the workspace's spinner and attention, and its **turns** (the prompt and the reply),
+which Komla uses to title the workspace and label its work.
 
-If the CLI has no lifecycle hook or equivalent way to run a command or send an HTTP request on an event, classify notifications as unsupported.
+### Agent state
 
-### The hooks to wire up
+Many CLIs report their own state in the terminal with OSC 7501, the Program Status Protocol
+(`OSC 7501 ; state=idle|working|blocked|done|error : app=<name> ST`): Codex, Claude Code,
+Antigravity, Grok Build, Pi, Mistral Vibe and Devin among them. While a CLI reports, the reports
+drive its spinner and attention, and its hooks mostly carry the prompt, the reply and how a turn
+ended. Hooks drive the state where reports don't reach Komla: CLIs that don't report, Windows
+terminals without Komla's bundled ConPTY, and SSH hosts without the Remote Companion.
 
-Map each supported CLI event to the matching command. Replace `<agent>` with a short, stable source name for the CLI.
+Komla pairs a CLI's reports and hooks by name, so its hooks' `--source` should match its `app`.
+
+### Hooks
+
+Komla installs its CLI in every managed terminal. `komla notify`, run from a lifecycle hook, updates
+the workspace; it resolves the terminal and desktop on its own, and on SSH uses the Remote
+Companion's durable mailbox while the tunnel is unavailable. A CLI with no way to run a command on
+an event has no hook integration; if it reports its state, its spinner still works, but Komla can't
+title workspaces from its prompts.
+
+The events, with `<agent>` a short, stable source name for the CLI:
 
 | When this happens                                                    | Command to run                                            |
 | -------------------------------------------------------------------- | --------------------------------------------------------- |
-| the agent finishes its turn and stops working                        | `komla notify --source <agent> --event Stop`              |
-| the agent starts a tool call                                         | `komla notify --source <agent> --event PreToolUse`        |
 | the user sends the agent a new message                               | `komla notify --source <agent> --event UserPromptSubmit`  |
+| the agent finishes its turn and stops working                        | `komla notify --source <agent> --event Stop`              |
+| the turn ends on an error, such as a failed model request            | `komla notify --source <agent> --event StopFailure`       |
+| the user cancels the turn and the agent stops without finishing      | `komla notify --source <agent> --event Interrupt`         |
+| the agent starts a tool call                                         | `komla notify --source <agent> --event PreToolUse`        |
 | the agent pauses to wait for the user to approve or answer something | `komla notify --source <agent> --event PermissionRequest` |
 | the agent sends a later reminder while waiting on the user           | `komla notify --source <agent> --event Notification`      |
-| the user cancels the turn and the agent stops without finishing      | `komla notify --source <agent> --event Interrupt`         |
-| the turn ends on an error, such as a failed model request            | `komla notify --source <agent> --event StopFailure`       |
 
-- **`Stop`** clears the working indicator after a short grace period. Wire it to root-agent turn completion. Subagent completion, intermediate responses, and individual tool completion must not emit a root `Stop`.
-- **`UserPromptSubmit`** starts the working indicator and records the user prompt.
-- **`PreToolUse`** reports activity independently of prompt submission. It restores the working indicator and clears stale completion attention when work resumes, without recording a prompt or sending a notification. Wire it only when the CLI documents a corresponding tool-start event.
-- Configure `UserPromptSubmit` and `PreToolUse` only alongside a reliable root `Stop`, so the working indicator can clear. If tool hooks are unavailable, report that activity recovery is unavailable; ordinary terminal output is not proof that the agent is working.
-- **`PermissionRequest`** surfaces an approval/input notification. **`Notification`** is an optional later reminder while waiting, not another turn-end signal.
-- **`Interrupt`** stops the working indicator without a notification, and **`StopFailure`** ends the turn with an error instead of a completion; pass the error text with `--message` when the CLI provides it. Send either one instead of `Stop` for that turn, and wire them only when the CLI reports the root turn being cancelled or failing as a distinct event; otherwise its `Stop` covers those turns too. Activity reported shortly after either one is treated as late news from that turn until the next prompt.
+- **`UserPromptSubmit`** records the prompt, from `prompt` in the hook input or `--message`, and
+  starts the turn.
+- **`Stop`** ends the root agent's turn and records the reply, from `last_assistant_message` or
+  `prompt_response` in the hook input or `--message`. Subagent completion, intermediate responses
+  and tool completion aren't a root `Stop`.
+- **`StopFailure`** and **`Interrupt`** end the turn with an error or quietly, in place of `Stop`,
+  for CLIs that report those as distinct events; otherwise `Stop` covers them. `--message` carries
+  the error text.
+- **`PreToolUse`**, **`PermissionRequest`** and **`Notification`** matter only where hooks drive the
+  state: activity that restores the spinner, an approval prompt, and a later reminder. Without
+  reports, the spinner relies on a reliable root `Stop` to clear.
 
-Report only the root agent's lifecycle. If the CLI runs subagents or child sessions, leave their
-events unhooked or send them with the subagent's `agent_id` so Komla ignores them; never send a
-subagent's completion or prompt as a root `Stop` or `UserPromptSubmit`. A subagent's tool activity
-may be sent as the root's `PreToolUse`, because the root turn is still working. If the CLI can end
-the root turn while a subagent it started keeps running and resumes the root when it finishes, pass
-`background_tasks: [{"type": "subagent", "status": "running"}]` in that `Stop` input when the CLI
-reports it; otherwise report that the working indicator may clear early instead of working around
-it.
+Komla tracks only the root agent's lifecycle. Subagent events either stay unhooked or carry the
+subagent's `agent_id`, which Komla ignores; a subagent's tool activity can count as the root's
+`PreToolUse`. A `Stop` whose input lists a running subagent in `background_tasks`
+(`[{"type": "subagent", "status": "running"}]`) keeps the turn working until it finishes.
 
 For Gemini, use its native `BeforeTool` event with `--event BeforeTool`; pair it with
-`BeforeAgent` and `AfterAgent`. Reset any completion deduplication when activity resumes, so a
-quick later completion can stop the spinner.
-For Grok Build, use `--source grok-build`, the name it reports its own state under. Grok also
-runs the hooks Komla installs for Claude Code, which Komla ignores inside Grok, so they don't
-count as an existing integration.
+`BeforeAgent` and `AfterAgent`. For Grok Build, use `--source grok-build`, the name it reports its
+own state under. Grok also runs the hooks Komla installs for Claude Code, which Komla ignores
+inside Grok, so they don't count as an existing integration.
 
-Pass the original JSON hook input on stdin. Preserve `hook_event_name`, `session_id`, and the
-CLI's turn identifier (`turn_id` or `prompt_id`), plus `agent_id` for subagents when available.
-Komla uses this metadata to ignore identifiable subagent and older-turn events. For other payload
-names, document an evidence-backed adapter; do not invent identifiers or infer completion from text.
-Activity or a new prompt cancels a pending completion during the grace period. Hooks without identity
-metadata have weaker protection against delayed events; report that limitation.
-
-Use the CLI's documented hook execution mode. Prefer ordered delivery for lifecycle events;
-asynchronous hooks may arrive out of order. Keep activity hooks lightweight. If the hook runner
-does not inherit Komla's managed `PATH`, use the absolute path from `KOMLA_CLI` as the command.
+The original JSON hook input goes on stdin. Komla uses its `hook_event_name`, `session_id`, turn
+identifier (`turn_id` or `prompt_id`) and `agent_id` to ignore subagent and older-turn events;
+hooks without them are less protected against delayed events. Ordered (synchronous) hooks suit
+lifecycle events better than asynchronous ones, which may arrive out of order. If the hook runner
+doesn't inherit Komla's managed `PATH`, the absolute path in `KOMLA_CLI` works as the command.
 
 ### Working directory
 

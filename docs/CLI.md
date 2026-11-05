@@ -298,10 +298,12 @@ Any program can report its state in its own terminal with the Program Status Pro
 and `state=clear` as it quits), as Codex 0.163, Claude Code 2.1.295 (`claude-code`), Antigravity
 1.4 (`antigravity`), Grok Build (`grok-build`), Pi (`pi`), Mistral Vibe 3.0 and Devin do. Komla
 answers the support query (`OSC 7501 ; ? ST`) that Claude Code, Antigravity and Pi send before they
-report, except on Windows, where ConPTY carrying the answer is unverified. tmux forwards neither,
-so SSH workspaces rely on hooks. While a terminal's program reports, the reports alone drive that
-terminal's working indicator, done, `input-required` (with the decoded `msg`, such as Claude's
-"approve Bash: npm install") and `error`; `idle` after `working` ends the turn quietly, as programs
+report; on Windows only through the ConPTY it bundles, since Windows' own drops the answer.
+tmux forwards neither, so in SSH workspaces the Remote Companion's PTY proxy runs the shell,
+answers the query and carries the reports past tmux; hosts without the companion, and terminals
+started before it was installed, rely on hooks. While a terminal's program reports, the reports
+alone drive that terminal's working indicator, done, `input-required` (with the decoded `msg`, such
+as Claude's "approve Bash: npm install") and `error`; `idle` after `working` ends the turn quietly, as programs
 report a cancelled turn. The `app` is the attention source, matching the agent's hook `--source`.
 Reports with an `id` are records of the program's own, such as a Claude background subagent's, and
 don't change the terminal's state. A later `done` with a `msg` fills in a done shown without one,

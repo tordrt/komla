@@ -12,6 +12,8 @@
 //   --json <file>      Write every run's milestones and the summary to <file>.
 //   --compare <file>   Print each milestone's median next to the one in an earlier --json file.
 //   --keep-going       Don't stop at the first run that misses a milestone.
+//   --app <path>       Launch this packaged Komla executable instead of out/ with Electron. A
+//                      packaged build doesn't run Electron's default app first, as out/ does.
 //
 // On Linux without a display it re-runs itself under xvfb-run. Timings on a shared machine are
 // noisy: compare medians of several runs, and alternate before/after builds.
@@ -41,6 +43,7 @@ function parseArgs(argv) {
     json: null,
     compare: null,
     keepGoing: false,
+    app: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -56,6 +59,7 @@ function parseArgs(argv) {
     else if (arg === '--json') options.json = path.resolve(value());
     else if (arg === '--compare') options.compare = path.resolve(value());
     else if (arg === '--keep-going') options.keepGoing = true;
+    else if (arg === '--app') options.app = path.resolve(value());
     else if (arg === '--help' || arg === '-h') {
       const header = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\nimport ')[0];
       console.log(header.replace(/^#!.*\n/, '').replace(/^\/\/ ?/gm, ''));
@@ -189,10 +193,10 @@ async function launch({ env }) {
     `--user-data-dir=${PROFILE_DIR}`,
     '--remote-debugging-port=0',
     ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
-    ENTRY,
+    ...(options.app ? [] : [ENTRY]),
   ];
   const spawnedAt = Date.now();
-  const child = spawn(require('electron'), args, {
+  const child = spawn(options.app ?? require('electron'), args, {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
@@ -511,7 +515,10 @@ function printSummary(summary, previous) {
 }
 
 async function main() {
-  if (!fs.existsSync(ENTRY)) throw new Error(`${ENTRY} is missing; run \`npm run build\` first`);
+  if (options.app && !fs.existsSync(options.app)) throw new Error(`${options.app} is missing`);
+  if (!options.app && !fs.existsSync(ENTRY)) {
+    throw new Error(`${ENTRY} is missing; run \`npm run build\` first`);
+  }
   const seeded = fs.existsSync(SEEDED_MARKER) && fs.readFileSync(SEEDED_MARKER, 'utf8');
   if (options.reseed || seeded !== String(options.workspaces)) await seed(options.workspaces);
 

@@ -2118,6 +2118,10 @@ class GitBranchService {
     }
   }
 
+  /**
+   * Reading another local branch here means adding it to `localBranchesReadByBranchStatus`, or
+   * the worktree watcher won't refresh this status when that branch moves.
+   */
   private async _getBranchQuickStatus(worktreePath: string): Promise<GitBranchQuickStatus> {
     // Step 1: Resolve branch names (usually cached at 30s TTL) and whether a rebase is paused
     const [

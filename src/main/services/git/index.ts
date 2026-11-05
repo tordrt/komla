@@ -62,11 +62,17 @@ class GitService {
   getTargetBranch(worktreePath: string): Promise<string> {
     return gitExec.getTargetBranch(worktreePath);
   }
+  getRegisteredTargetBranch(worktreePath: string): string | undefined {
+    return gitExec.getRegisteredTargetBranch(worktreePath);
+  }
   getCurrentBranch(path: string): Promise<string> {
     return gitExec.getCurrentBranch(path);
   }
   getCheckedOutBranch(path: string): Promise<string | undefined> {
     return gitExec.getCheckedOutBranch(path);
+  }
+  getLocalBranchUpstreams(path: string): Promise<Map<string, string>> {
+    return gitExec.getLocalBranchUpstreams(path);
   }
   getMainBranch(repoPath: string): Promise<string> {
     return gitExec.getMainBranch(repoPath);

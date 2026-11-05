@@ -186,6 +186,22 @@ describe('GitExec integration', () => {
     await expect(gitExec.getCheckedOutBranch(repoPath)).resolves.toBeUndefined();
   });
 
+  it('lists each local branch with its upstream, local or remote', async () => {
+    const { gitExec } = await import('../../../../src/main/services/git/git-exec');
+    await runGit(repoPath, ['branch', 'stack/base']);
+    await runGit(repoPath, ['branch', '--track', 'stack/top', 'stack/base']);
+    await runGit(repoPath, ['branch', 'pushed']);
+    await runGit(repoPath, ['remote', 'add', 'origin', 'https://example.invalid/repo.git']);
+    await runGit(repoPath, ['config', 'branch.pushed.remote', 'origin']);
+    await runGit(repoPath, ['config', 'branch.pushed.merge', 'refs/heads/pushed']);
+
+    const upstreams = await gitExec.getLocalBranchUpstreams(repoPath);
+
+    expect(upstreams.get('stack/top')).toBe('refs/heads/stack/base');
+    expect(upstreams.get('pushed')).toBe('refs/remotes/origin/pushed');
+    expect(upstreams.has('stack/base')).toBe(false);
+  });
+
   it('streams Git output into a bounded prefix', async () => {
     writeFileSync(join(repoPath, 'README.md'), `${'changed content '.repeat(10_000)}\n`, 'utf8');
     const { gitExec } = await import('../../../../src/main/services/git/git-exec');

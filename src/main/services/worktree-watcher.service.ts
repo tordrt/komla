@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { join, resolve, relative } from 'path';
 
 import * as watcher from '@parcel/watcher';
@@ -9,7 +10,9 @@ import ignore, { Ignore } from 'ignore';
 import { IPC } from '../../shared/constants/ipc-channels';
 import { publishWorkingTreeEvents } from '../lib/komla-events';
 import { createLogger } from '../lib/logger';
+import { isCaseInsensitiveFileSystem } from '../lib/same-path';
 
+import { localBranchesReadByBranchStatus } from './git/branch-status-refs';
 import { gitService } from './git.service';
 
 import type { FileChange, GitBranchQuickStatus } from './git.service';
@@ -58,22 +61,41 @@ const MAX_GIT_IGNORED_DIRECTORIES = 500;
 function classifyGitChange(
   gitDir: string,
   eventPath: string
-): { type: ChangeType; fileName: string } | null {
-  const topLevelEntry = relative(gitDir, eventPath).split(/[/\\]/)[0];
-  if (IGNORED_GIT_SUBDIRS.includes(topLevelEntry)) return null;
+): { type: ChangeType; fileName: string; localBranch?: string } | null {
+  const parts = relative(gitDir, eventPath).split(/[/\\]/);
+  if (IGNORED_GIT_SUBDIRS.includes(parts[0])) return null;
   const fileName = eventPath.split(/[/\\]/).pop();
   if (!fileName) return null;
   if (GIT_HEAD_FILES.has(fileName)) return { type: 'git-head', fileName };
+  if (parts.length > 2 && parts[0] === 'refs' && parts[1] === 'heads') {
+    // Git writes a ref through `<ref>.lock` and renames it into place.
+    const localBranch = parts
+      .slice(2)
+      .join('/')
+      .replace(/\.lock$/, '');
+    return { type: 'git-branch', fileName, localBranch };
+  }
   if (fileName === 'packed-refs' || REFS_PATH_SEGMENTS.some((seg) => eventPath.includes(seg))) {
     return { type: 'git-branch', fileName };
   }
   return null;
 }
 
+/**
+ * A branch name as the filesystem tells it apart: in one Unicode form, since macOS may report a
+ * path decomposed, and case-insensitively on macOS and Windows.
+ */
+function branchKey(branch: string): string {
+  const composed = branch.normalize('NFC');
+  return isCaseInsensitiveFileSystem() ? composed.toLowerCase() : composed;
+}
+
 interface WatcherEntry {
   subscription: watcher.AsyncSubscription | null;
   gitSubscription: watcher.AsyncSubscription | null;
   sharedGitDir: string | null; // commondir path if using a shared subscription
+  /** The worktree's own git dir, which holds its HEAD. */
+  gitDir: string | null;
   path: string;
   ignoreFilter: Ignore;
   pendingChangeTypes: Set<ChangeType>;
@@ -161,6 +183,7 @@ class WorktreeWatcherService {
       subscription: null,
       gitSubscription: null,
       sharedGitDir: null,
+      gitDir: null,
       path: dirPath,
       ignoreFilter,
       pendingChangeTypes: new Set(),
@@ -401,6 +424,7 @@ class WorktreeWatcherService {
     gitDir: string,
     entry: WatcherEntry
   ): Promise<void> {
+    entry.gitDir = gitDir;
     // Always create a per-session watcher for the worktree's own git dir
     try {
       entry.gitSubscription = await this.createGitSubscription(gitDir, [sessionId]);
@@ -489,17 +513,97 @@ class WorktreeWatcherService {
           this.handleGitWatcherError(dir, err, targets);
           return;
         }
+        // Whether the repository's worktrees share this watcher decides the refresh's pace,
+        // however few of them a change concerns.
+        const throttled = isShared && targets.length > 1;
+        const movedBranches = new Set<string>();
+        let refreshedAll = false;
         for (const event of events) {
           const classified = classifyGitChange(dir, event.path);
           if (!classified) continue;
           // A shared commondir's HEAD files are the main checkout's: each worktree keeps its own
           // in its git dir. A fetch or commit there would otherwise refresh every worktree.
           if (isShared && classified.type === 'git-head') continue;
-          this.applyGitChange(dir, classified.type, classified.fileName, targets, isShared);
+          if (isShared && classified.localBranch !== undefined) {
+            movedBranches.add(branchKey(classified.localBranch));
+            continue;
+          }
+          this.applyGitChange(dir, classified.type, classified.fileName, targets, throttled);
+          refreshedAll = true;
+        }
+        if (movedBranches.size > 0 && !refreshedAll) {
+          void this.applyBranchMoves(dir, movedBranches, targets, throttled);
         }
       },
       { ignore: IGNORED_GIT_SUBDIRS }
     );
+  }
+
+  /**
+   * Refreshes the worktrees that moved local branches concern, so a commit refreshes its own
+   * worktree rather than every worktree of the repository. A remote ref may be any worktree's
+   * upstream, so it never comes here.
+   */
+  private async applyBranchMoves(
+    dir: string,
+    branches: Set<string>,
+    sessionIds: string[],
+    throttled: boolean
+  ): Promise<void> {
+    // Upstreams and the default branch are the repository's: read them once, in a worktree,
+    // since git may refuse to run in a bare common dir.
+    const worktreePath = this.watchers.get(sessionIds[0])?.path;
+    const [upstreams, defaultBranch] = worktreePath
+      ? await Promise.all([
+          gitService
+            .getLocalBranchUpstreams(worktreePath)
+            .then(
+              (byBranch) => new Map([...byBranch].map(([branch, ref]) => [branchKey(branch), ref]))
+            )
+            .catch(() => null),
+          gitService.getMainBranch(worktreePath).catch(() => null),
+        ])
+      : [null, null];
+    const concerned = await Promise.all(
+      sessionIds.map((sessionId) =>
+        this.isConcernedByBranches(sessionId, branches, upstreams, defaultBranch)
+      )
+    );
+    // A workspace stopped meanwhile has nothing left to refresh.
+    const targets = sessionIds.filter((id, i) => concerned[i] && this.watchers.has(id));
+    if (targets.length > 0) this.applyGitChange(dir, 'git-branch', 'refs', targets, throttled);
+  }
+
+  /**
+   * Whether a worktree's branch status reads one of `branches`, judged by its branches as they
+   * are now. True when they can't be read, so the worktree is refreshed anyway. `branches` and
+   * `upstreams`' keys are `branchKey`s.
+   */
+  private async isConcernedByBranches(
+    sessionId: string,
+    branches: Set<string>,
+    upstreams: Map<string, string> | null,
+    defaultBranch: string | null
+  ): Promise<boolean> {
+    const entry = this.watchers.get(sessionId);
+    if (!entry?.gitDir || !upstreams || !defaultBranch) return true;
+    let head: string;
+    try {
+      // Read unabbreviated, so a tag sharing the branch's name can't turn it into `heads/<b>`.
+      head = (await readFile(join(entry.gitDir, 'HEAD'), 'utf-8')).trim();
+    } catch {
+      return true;
+    }
+    const checkedOutBranch = head.startsWith('ref: refs/heads/')
+      ? head.slice('ref: refs/heads/'.length)
+      : undefined;
+    const reads = localBranchesReadByBranchStatus({
+      checkedOutBranch,
+      upstream: checkedOutBranch && upstreams.get(branchKey(checkedOutBranch)),
+      targetBranch: gitService.getRegisteredTargetBranch(entry.path) ?? defaultBranch,
+      defaultBranch,
+    });
+    return reads.some((branch) => branches.has(branchKey(branch)));
   }
 
   private resolveGitTargets(dir: string, sessionIds: string[] | null): string[] {
@@ -527,7 +631,7 @@ class WorktreeWatcherService {
     changeType: ChangeType,
     fileName: string,
     targets: string[],
-    isShared: boolean
+    throttled: boolean
   ): void {
     logger.debug('Git change detected', { dir, changeType, file: fileName });
     for (const sid of targets) {
@@ -541,7 +645,7 @@ class WorktreeWatcherService {
 
     // Throttle shared-path notifications to prevent N×subprocess bursts.
     // Per-session watchers use the regular debounce path.
-    if (isShared && targets.length > 1) {
+    if (throttled) {
       this.debouncedSharedNotify(dir, targets);
     } else {
       for (const sid of targets) {

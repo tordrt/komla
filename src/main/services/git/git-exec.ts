@@ -536,6 +536,11 @@ class GitExec {
     this.managedWorktreeLookup = lookup;
   }
 
+  /** The target branch a workspace configured for the worktree, if it configured one. */
+  getRegisteredTargetBranch(worktreePath: string): string | undefined {
+    return this.targetBranchMap.get(worktreePath);
+  }
+
   /**
    * Get the target branch for git operations.
    * Returns configured baseBranch if registered, otherwise detects the default branch.
@@ -1075,6 +1080,26 @@ class GitExec {
   async getCheckedOutBranch(path: string): Promise<string | undefined> {
     const ref = await this.execGitAsync(path, ['symbolic-ref', '--quiet', 'HEAD']).catch(() => '');
     return ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : undefined;
+  }
+
+  /**
+   * Each local branch's upstream as a full ref, keyed by branch name: `refs/remotes/<remote>/<b>`,
+   * or `refs/heads/<b>` for a branch that tracks another local one. Branches without one are left out.
+   */
+  async getLocalBranchUpstreams(path: string): Promise<Map<string, string>> {
+    const output = await this.execGitAsync(path, [
+      'for-each-ref',
+      '--format=%(refname)%00%(upstream)',
+      'refs/heads',
+    ]);
+    const upstreams = new Map<string, string>();
+    for (const line of output.split('\n')) {
+      const [ref, upstream] = line.split('\0');
+      if (ref?.startsWith('refs/heads/') && upstream) {
+        upstreams.set(ref.slice('refs/heads/'.length), upstream);
+      }
+    }
+    return upstreams;
   }
 
   hasUncommittedChanges(path: string): Promise<boolean> {

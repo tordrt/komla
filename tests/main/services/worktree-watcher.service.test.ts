@@ -24,8 +24,14 @@ const mockGetChangedFilesWithSummary = vi.fn(async () => ({
 const mockGetBranchQuickStatus = vi.fn();
 const mockInvalidateBranchCache = vi.fn();
 const mockListIgnoredDirectories = vi.fn(async (): Promise<string[]> => []);
+const mockGetRegisteredTargetBranch = vi.fn((_path: string): string | undefined => undefined);
+const mockGetMainBranch = vi.fn(async (_path: string) => 'main');
+const mockGetLocalBranchUpstreams = vi.fn(async (_path: string) => new Map<string, string>());
 vi.mock('../../../src/main/services/git.service', () => ({
   gitService: {
+    getRegisteredTargetBranch: mockGetRegisteredTargetBranch,
+    getMainBranch: mockGetMainBranch,
+    getLocalBranchUpstreams: mockGetLocalBranchUpstreams,
     getActivityFingerprint: mockGetActivityFingerprint,
     getChangedFilesWithSummary: mockGetChangedFilesWithSummary,
     getBranchQuickStatus: mockGetBranchQuickStatus,
@@ -69,6 +75,9 @@ const mockFs = {
   statSync: vi.fn(),
 };
 vi.mock('fs', () => mockFs);
+vi.mock('fs/promises', () => ({
+  readFile: vi.fn(async (path: string) => mockFs.readFileSync(path)),
+}));
 
 /**
  * A POSIX fixture path as this platform spells it, as path.join and the watcher's events do:
@@ -142,6 +151,9 @@ describe('WorktreeWatcherService', () => {
     });
     mockGetBranchQuickStatus.mockRejectedValue(new Error('branch status unavailable'));
     mockListIgnoredDirectories.mockResolvedValue([]);
+    mockGetRegisteredTargetBranch.mockReturnValue(undefined);
+    mockGetMainBranch.mockResolvedValue('main');
+    mockGetLocalBranchUpstreams.mockResolvedValue(new Map());
   });
 
   it('skips watcher when directory does not exist', async () => {
@@ -732,8 +744,9 @@ describe('WorktreeWatcherService', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(window.webContents.send).not.toHaveBeenCalled();
 
+    // The target branch every worktree compares against.
     sharedSub?.callback(null, [
-      { type: 'update', path: nativePath('/shared/main.git/refs/heads/two') },
+      { type: 'update', path: nativePath('/shared/main.git/refs/heads/main') },
     ]);
     await vi.advanceTimersByTimeAsync(5000);
     expect(window.webContents.send).toHaveBeenCalledWith(
@@ -869,6 +882,197 @@ describe('WorktreeWatcherService', () => {
       undefined,
       expect.anything()
     );
+  });
+
+  describe('when a local branch moves in the git dir worktrees share', () => {
+    /**
+     * Two worktrees of one repository, neither shown, whose HEAD files `heads` holds. Returns
+     * the workspaces that moving `refPaths` in the shared git dir refreshes within a second.
+     */
+    async function startWorktrees(heads: Record<string, string>) {
+      const window = createMockBrowserWindow();
+      (
+        electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
+      ).getAllWindows.mockReturnValue([window]);
+      const { worktreeWatcherService } =
+        await import('../../../src/main/services/worktree-watcher.service');
+      // A moved branch refreshes at the shared pace even for worktrees no window shows.
+      worktreeWatcherService.isOffScreen = () => true;
+      const names = Object.keys(heads);
+      for (const name of names) {
+        setupWorktreeWithSharedCommonDir(
+          nativePath(`/wt/${name}`),
+          nativePath(`/shared/worktrees/${name}`),
+          nativePath('/shared/main.git')
+        );
+        await worktreeWatcherService.startWatching(`ws-${name}`, nativePath(`/wt/${name}`));
+      }
+      mockFs.readFileSync.mockImplementation((path: string) => {
+        for (const name of names) {
+          if (path === join(nativePath(`/shared/worktrees/${name}`), 'HEAD')) return heads[name];
+        }
+        throw new Error('ENOENT');
+      });
+      await vi.advanceTimersByTimeAsync(5000);
+      const sharedSub = subscriptions.find((s) => s.dir === nativePath('/shared/main.git'));
+      const refreshedBy = async (refPaths: string[], waitMs = 1000) => {
+        vi.mocked(window.webContents.send).mockClear();
+        sharedSub?.callback(
+          null,
+          refPaths.map((ref) => ({ type: 'update', path: nativePath(`/shared/main.git/${ref}`) }))
+        );
+        await vi.advanceTimersByTimeAsync(waitMs);
+        return vi
+          .mocked(window.webContents.send)
+          .mock.calls.filter(([channel]) => channel === 'git-status:worktree-changed')
+          .map(([, sessionId]) => sessionId)
+          .sort();
+      };
+      return Object.assign(refreshedBy, { worktreeWatcherService });
+    }
+
+    it('refreshes the worktrees on it or comparing against it', async () => {
+      const refreshedBy = await startWorktrees({
+        one: 'ref: refs/heads/feature/one\n',
+        two: 'ref: refs/heads/feature/two\n',
+      });
+
+      // A commit in one worktree moves its own branch, through a lock file.
+      expect(
+        await refreshedBy(['refs/heads/feature/one.lock', 'refs/heads/feature/one'])
+      ).toEqual(['ws-one']);
+      expect(await refreshedBy(['refs/heads/other'])).toEqual([]);
+      // The target branch every worktree counts ahead and behind against.
+      expect(await refreshedBy(['refs/heads/main'])).toEqual(['ws-one', 'ws-two']);
+    });
+
+    it('refreshes every worktree for a remote branch or packed refs', async () => {
+      const refreshedBy = await startWorktrees({
+        one: 'ref: refs/heads/feature/one\n',
+        two: 'ref: refs/heads/feature/two\n',
+      });
+
+      // A remote branch may be any worktree's upstream, whatever its name.
+      expect(await refreshedBy(['refs/remotes/origin/feature/one'])).toEqual(['ws-one', 'ws-two']);
+      expect(await refreshedBy(['packed-refs'])).toEqual(['ws-one', 'ws-two']);
+    });
+
+    it("reads each worktree's branches as they are now", async () => {
+      const heads = { one: 'ref: refs/heads/feature/one\n', two: 'ref: refs/heads/feature/two\n' };
+      const refreshedBy = await startWorktrees(heads);
+
+      // ws-two checked out another branch since its last refresh.
+      heads.two = 'ref: refs/heads/feature/three\n';
+      expect(await refreshedBy(['refs/heads/feature/three'])).toEqual(['ws-two']);
+      // ws-one's base branch changed to develop.
+      mockGetRegisteredTargetBranch.mockImplementation((path: string) =>
+        path === nativePath('/wt/one') ? 'develop' : undefined
+      );
+      expect(await refreshedBy(['refs/heads/develop'])).toEqual(['ws-one']);
+    });
+
+    it('refreshes a worktree whose branch tracks the moved one', async () => {
+      mockGetLocalBranchUpstreams.mockResolvedValue(
+        new Map([['stack/top', 'refs/heads/stack/base']])
+      );
+      const refreshedBy = await startWorktrees({
+        one: 'ref: refs/heads/stack/base\n',
+        two: 'ref: refs/heads/stack/top\n',
+      });
+
+      expect(await refreshedBy(['refs/heads/stack/base'])).toEqual(['ws-one', 'ws-two']);
+    });
+
+    it("refreshes every worktree when their branches can't be read", async () => {
+      mockGetLocalBranchUpstreams.mockRejectedValue(new Error('git failed'));
+      const refreshedBy = await startWorktrees({
+        one: 'ref: refs/heads/feature/one\n',
+        two: 'ref: refs/heads/feature/two\n',
+      });
+
+      expect(await refreshedBy(['refs/heads/feature/one'])).toEqual(['ws-one', 'ws-two']);
+    });
+
+    it("reads the repository's branches once, in a worktree", async () => {
+      const refreshedBy = await startWorktrees({
+        one: 'ref: refs/heads/feature/one\n',
+        two: 'ref: refs/heads/feature/two\n',
+      });
+      mockGetMainBranch.mockClear();
+      mockGetLocalBranchUpstreams.mockClear();
+
+      expect(await refreshedBy(['refs/heads/feature/one'])).toEqual(['ws-one']);
+      expect(mockGetMainBranch).toHaveBeenCalledOnce();
+      // A bare common dir may refuse git commands; a worktree never does.
+      expect(mockGetLocalBranchUpstreams.mock.calls).toEqual([[nativePath('/wt/one')]]);
+    });
+
+    it('leaves out branch moves for a lone worktree they do not concern', async () => {
+      const refreshedBy = await startWorktrees({ one: 'ref: refs/heads/feature/one\n' });
+
+      // Alone, it refreshes at its own pace, slower while no window shows it.
+      expect(await refreshedBy(['refs/heads/other'], 6000)).toEqual([]);
+      expect(await refreshedBy(['refs/heads/feature/one'], 6000)).toEqual(['ws-one']);
+    });
+
+    it('reads no branches when the same change refreshes every worktree', async () => {
+      const refreshedBy = await startWorktrees({
+        one: 'ref: refs/heads/feature/one\n',
+        two: 'ref: refs/heads/feature/two\n',
+      });
+      mockGetLocalBranchUpstreams.mockClear();
+
+      expect(await refreshedBy(['packed-refs', 'refs/heads/feature/one'])).toEqual([
+        'ws-one',
+        'ws-two',
+      ]);
+      expect(mockGetLocalBranchUpstreams).not.toHaveBeenCalled();
+    });
+
+    it('leaves out a workspace stopped while its branches were read', async () => {
+      const refreshedBy = await startWorktrees({
+        one: 'ref: refs/heads/main\n',
+        two: 'ref: refs/heads/feature/two\n',
+      });
+      let release: (upstreams: Map<string, string>) => void = () => {};
+      mockGetLocalBranchUpstreams.mockReturnValueOnce(new Promise((r) => (release = r)));
+
+      const refreshed = refreshedBy(['refs/heads/main']);
+      await refreshedBy.worktreeWatcherService.stopWatching('ws-one');
+      release(new Map());
+
+      expect(await refreshed).toEqual(['ws-two']);
+    });
+
+    it('matches branch names whatever Unicode form the filesystem reports them in', async () => {
+      const refreshedBy = await startWorktrees({
+        one: `ref: refs/heads/${'caf\u00e9'}\n`,
+        two: 'ref: refs/heads/other\n',
+      });
+
+      // FSEvents may report the decomposed form of the name git wrote composed.
+      expect(await refreshedBy([`refs/heads/${'cafe\u0301'}`])).toEqual(['ws-one']);
+    });
+
+    it('matches branch names case-insensitively where the filesystem does', async () => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+      Object.defineProperty(process, 'platform', { value: 'darwin' });
+      try {
+        const refreshedBy = await startWorktrees({
+          one: 'ref: refs/heads/feature\n',
+          two: 'ref: refs/heads/other\n',
+        });
+        // `git switch feature` on a branch created as `Feature` keeps its ref file's name.
+        expect(await refreshedBy(['refs/heads/Feature'])).toEqual(['ws-one']);
+        // ...and `for-each-ref` lists it under that name too.
+        mockGetLocalBranchUpstreams.mockResolvedValue(
+          new Map([['Feature', 'refs/heads/stack/base']])
+        );
+        expect(await refreshedBy(['refs/heads/stack/base'])).toEqual(['ws-one']);
+      } finally {
+        Object.defineProperty(process, 'platform', platform);
+      }
+    });
   });
 
   it('does not mark activity when fingerprint is unchanged', async () => {

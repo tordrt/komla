@@ -1,5 +1,10 @@
 import { resolve, sep } from 'path';
 
+/** Whether this platform's default file systems tell names apart by case: not on macOS or Windows. */
+export function isCaseInsensitiveFileSystem(): boolean {
+  return process.platform === 'darwin' || process.platform === 'win32';
+}
+
 // Paths differ only in case on the case-insensitive file systems macOS and Windows default to.
 export function isSamePath(a: string, b: string): boolean {
   return samePathKey(a) === samePathKey(b);
@@ -7,8 +12,7 @@ export function isSamePath(a: string, b: string): boolean {
 
 /** A key that is equal for two paths exactly when isSamePath says they're the same. */
 export function samePathKey(path: string): string {
-  const caseInsensitive = process.platform === 'darwin' || process.platform === 'win32';
-  return caseInsensitive ? resolve(path).toLowerCase() : resolve(path);
+  return isCaseInsensitiveFileSystem() ? resolve(path).toLowerCase() : resolve(path);
 }
 
 // Whether a path is a folder or inside it; both must already be real paths.

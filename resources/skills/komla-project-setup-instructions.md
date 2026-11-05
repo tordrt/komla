@@ -35,9 +35,8 @@ Automatic web servers require checked-in dynamic-port behavior, collision fallba
 port option. Prefer a worktree-safe project command or wrapper that discovers a free port;
 port selection belongs to the project, not Komla. Do not recommend a port number. Otherwise keep it manual.
 
-The inspection is done when every manifest you found is either a component with its path, purpose
-and commands, or noted as not runnable, and every component's useful commands are in the shortcut
-inventory.
+Inspection is done when every manifest found is a recorded component or noted as not runnable,
+with its useful commands inventoried.
 
 ## 2. Read Komla settings
 
@@ -180,8 +179,11 @@ Workspace Setup:
 - Give every new step `placement`, `destination`, and `trigger`. Use returned values for existing
   steps; common defaults are `background`, `workspace-repository`, and `workspace-creation`.
 - Reference an automatic Quick Command's generated ID from its visible setup step.
-- `"kind": "browser"` opens tabs at `urls` (none finds the dev server) or a step's
-  `komla preview --open <url>`; `"kind": "note"` a blank note. Both open on creation; omit `trigger`.
+- `"kind": "browser"` opens tabs at `urls`, or with none the server a step prints or starts; offer
+  one beside the agent when a web server starts automatically. For a page under a path, the
+  server's visible step opens it once it listens (POSIX shell; steps don't share variables):
+  `PORT=$(<free-port command>); (<wait for $PORT> && komla preview --open "http://localhost:$PORT/<path>") & <dev command> --port "$PORT"`.
+  `"kind": "note"` opens a blank note. Both open on creation; omit `trigger`.
 
 Use `workspace-creation` for one-time preparation and `every-workspace-start` for terminal layout
 or processes Komla should recreate on each start. Komla runs nothing when a workspace stops, so

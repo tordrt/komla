@@ -4,6 +4,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
+import { InfoTip } from '@/components/ui/info-tip';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
@@ -912,21 +913,22 @@ function PaneStepTarget({
             )}
           </div>
         ))}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs text-muted-foreground"
-          onClick={() => onUrlsChange([...pages, ''])}
-        >
-          <Plus className="mr-1 size-3" />
-          Add page
-        </Button>
-        <p className="text-ui leading-tight text-muted-foreground">
-          Each page opens in a tab as the workspace is created; after that the browser opens with
-          the workspace, showing the tabs it had when the workspace stopped. Leave empty to show the
-          dev server the workspace starts. A step can open a page here once it knows it with{' '}
-          <code>komla preview --open &lt;url&gt;</code>.
-        </p>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            onClick={() => onUrlsChange([...pages, ''])}
+          >
+            <Plus className="mr-1 size-3" />
+            Add page
+          </Button>
+          <InfoTip ariaLabel="Open pages from a command" side="bottom">
+            To open a page from a command, add a terminal step that runs{' '}
+            <code>komla preview --open &lt;url&gt;</code>, in the background or alongside a command
+            that runs in the foreground, such as your dev server.
+          </InfoTip>
+        </div>
       </div>
     </div>
   );

@@ -192,13 +192,22 @@ describe('WorkspaceSetupSection', () => {
       expect(screen.queryByRole('combobox', { name: `Run in for ${name}` })).not.toBeInTheDocument();
     }
     expect(screen.getByText(/A blank note/)).toBeInTheDocument();
-    expect(screen.getByText(/komla preview --open/)).toBeInTheDocument();
 
     await userEvent.type(screen.getByRole('textbox', { name: 'Page 1 for App' }), 'x');
     expect(onStepsChange).toHaveBeenLastCalledWith([
       expect.objectContaining({ id: 'app', urls: ['x'] }),
       expect.objectContaining({ id: 'note' }),
     ]);
+  });
+
+  it('tells how a command opens a page in the browser', async () => {
+    renderSection([
+      { id: 'app', name: 'App', command: '', placement: 'split-right', kind: 'browser' },
+    ]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open pages from a command' }));
+    expect(screen.getByText(/komla preview --open/)).toBeInTheDocument();
+    expect(screen.getByText(/in the background or alongside a/)).toBeInTheDocument();
   });
 
   it('adds and removes the pages of a browser step', async () => {

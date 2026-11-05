@@ -137,6 +137,13 @@ test.describe('Workspace Setup panes', () => {
     await expect(app.getByRole('combobox', { name: 'Kind for App' })).toHaveValue('browser');
     await expect(appWindow.getByRole('button', { name: 'Add browser' })).toBeVisible();
     await screenshot(appWindow, 'setup-panes-editor.png');
+
+    // The browser step tells how a command opens a page there.
+    await app.getByRole('button', { name: 'Open pages from a command' }).click();
+    await expect(appWindow.getByText(/komla preview --open/).last()).toBeVisible();
+    // The popover fades in.
+    await appWindow.waitForTimeout(300);
+    await screenshot(appWindow, 'setup-panes-preview-tip.png');
   });
 });
 

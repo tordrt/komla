@@ -38,7 +38,9 @@ export default defineConfig({
     build: {
       rolldownOptions: {
         input: {
-          index: resolve('src/main/index.ts'),
+          // Turns on the compile cache, then loads `app` (see bootstrap.ts).
+          index: resolve('src/main/bootstrap.ts'),
+          app: resolve('src/main/index.ts'),
           'workers/voice-transcription.worker': resolve(
             'src/main/workers/voice-transcription.worker.ts'
           ),

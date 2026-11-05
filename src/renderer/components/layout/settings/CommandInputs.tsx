@@ -36,9 +36,11 @@ import {
   MAX_LEVEL_PICKER_TITLE_LENGTH,
   MAX_REASONING_LEVEL_NAME_LENGTH,
   MAX_REASONING_LEVELS,
+  MAX_MODEL_OPTIONS,
   type AgentLaunchPolicy,
   type LaunchMode,
   type ReasoningLevel,
+  type ModelOption,
   type LevelPicker,
 } from '../../../../shared/types/agent-preset';
 
@@ -56,6 +58,9 @@ interface CommandInputsProps {
   /** The level picker's title, icon and visibility; left out, they aren't editable here. */
   levelPicker?: LevelPicker;
   onLevelPickerChange?: (picker: LevelPicker) => void;
+  /** The models the new workspace dialog offers; left out, they aren't editable here. */
+  models?: ModelOption[];
+  onModelsChange?: (models: ModelOption[]) => void;
   /** If true, always show inputs. If false, show as collapsible "Advanced" section */
   alwaysExpanded?: boolean;
   /** Show example placeholders for launch mode inputs (useful for Custom preset) */
@@ -289,6 +294,9 @@ function AgentLaunchMenu({
   );
 }
 
+const NO_MODELS: ModelOption[] = [];
+const IGNORE_MODELS = () => {};
+
 export function CommandInputs({
   openCommand,
   continueCommand,
@@ -302,6 +310,8 @@ export function CommandInputs({
   onReasoningLevelsChange,
   levelPicker,
   onLevelPickerChange,
+  models,
+  onModelsChange,
   alwaysExpanded = false,
   showExamplePlaceholders = false,
   pinnedLaunchModeId,
@@ -310,6 +320,7 @@ export function CommandInputs({
   const cycleLaunchModeShortcut = useNewWorkspaceShortcutLabel('cycleLaunchMode');
   const modeReorder = useRowReorder(launchModes, onLaunchModesChange);
   const levelReorder = useRowReorder(reasoningLevels, onReasoningLevelsChange);
+  const modelReorder = useRowReorder(models ?? NO_MODELS, onModelsChange ?? IGNORE_MODELS);
 
   const handleAddMode = () => {
     onLaunchModesChange([...launchModes, { id: crypto.randomUUID(), name: '', arguments: '' }]);
@@ -344,6 +355,10 @@ export function CommandInputs({
     onReasoningLevelsChange(
       reasoningLevels.map((level) => (level.id === id ? { ...level, [field]: value } : level))
     );
+  };
+
+  const handleUpdateModel = (id: string, field: 'name' | 'arguments', value: string) => {
+    onModelsChange?.((models ?? []).map((m) => (m.id === id ? { ...m, [field]: value } : m)));
   };
 
   const inputs = (
@@ -535,6 +550,61 @@ export function CommandInputs({
           Add level
         </Button>
       </div>
+
+      {models && onModelsChange && (
+        <div className="grid gap-2">
+          <span className="text-sm font-medium">Models</span>
+          <p className="text-xs text-muted-foreground">
+            Models for the pill next to the effort pill in the new workspace dialog. A model&apos;s
+            arguments go wherever launch mode arguments go, and the model is reused when the
+            workspace resumes.
+          </p>
+          {models.map((model) => (
+            <div key={model.id} {...modelReorder.rowProps(model.id)}>
+              <DotsSixVertical
+                className="size-4 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing"
+                {...modelReorder.gripProps(model.id)}
+              />
+              <Input
+                value={model.name}
+                onChange={(e) => handleUpdateModel(model.id, 'name', e.target.value)}
+                placeholder="e.g., Sonnet"
+                maxLength={MAX_REASONING_LEVEL_NAME_LENGTH}
+                className="flex-[2]"
+              />
+              <Input
+                value={model.arguments}
+                onChange={(e) => handleUpdateModel(model.id, 'arguments', e.target.value)}
+                placeholder="e.g., --model sonnet"
+                className="flex-[3]"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-8 shrink-0 p-0"
+                title={`Remove model${model.name ? ` ${model.name}` : ''}`}
+                onClick={() => onModelsChange(models.filter((m) => m.id !== model.id))}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit"
+            disabled={models.length >= MAX_MODEL_OPTIONS}
+            onClick={() =>
+              onModelsChange([...models, { id: crypto.randomUUID(), name: '', arguments: '' }])
+            }
+          >
+            <Plus className="mr-1 size-3.5" />
+            Another model
+          </Button>
+        </div>
+      )}
     </>
   );
 

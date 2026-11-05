@@ -358,6 +358,10 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
       promptCommand: promptCommand.trim(),
       launchModes: trimmedModes,
       reasoningLevels: hasLevels ? trimmedLevels : undefined,
+      // The wizard doesn't edit models, so the template's carry over.
+      models: isCustomPreset
+        ? undefined
+        : templates.find((t) => t.name === selectedTemplateName)?.models,
       isBuiltin: false,
     };
   };

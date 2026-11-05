@@ -27,6 +27,7 @@ import type {
   AgentPreset,
   LaunchMode,
   ReasoningLevel,
+  ModelOption,
   ActivePresetEntry,
 } from '../../shared/types';
 
@@ -47,6 +48,14 @@ function reasoningLevels(
     id: randomUUID(),
     name: reasoningLevelName(level),
     arguments: toArguments(level),
+  }));
+}
+
+function modelOptions(models: [name: string, flag: string][]): ModelOption[] {
+  return models.map(([name, flag]) => ({
+    id: randomUUID(),
+    name,
+    arguments: `--model ${flag}`,
   }));
 }
 
@@ -88,6 +97,13 @@ export const BUILTIN_PRESETS: Omit<AgentPreset, 'id'>[] = [
       ['low', 'medium', 'high', 'xhigh', 'max'],
       (level) => `--effort ${level}`
     ),
+    // Claude Code takes model aliases, which follow each family's newest model.
+    models: modelOptions([
+      ['Haiku', 'haiku'],
+      ['Sonnet', 'sonnet'],
+      ['Opus', 'opus'],
+      ['Fable', 'fable'],
+    ]),
     isBuiltin: true,
   },
   {
@@ -640,6 +656,7 @@ const PROMPT_SENTINEL = 'KOMLA_PROMPT_PLACEHOLDER';
 /** What a launch adds to its launch mode's arguments. */
 export interface LaunchArguments {
   reasoningLevelId?: string | null;
+  modelId?: string | null;
   /** Arguments for this launch only, after the launch mode's and the reasoning level's. */
   extraArguments?: string;
 }
@@ -650,6 +667,20 @@ function reasoningLevelArguments(
 ): string | undefined {
   if (!reasoningLevelId) return undefined;
   return preset.reasoningLevels?.find((level) => level.id === reasoningLevelId)?.arguments.trim();
+}
+
+function modelArguments(
+  preset: AgentPreset,
+  modelId: string | null | undefined
+): string | undefined {
+  if (!modelId) return undefined;
+  return preset.models?.find((model) => model.id === modelId)?.arguments.trim();
+}
+
+// Hand-edited preset files can leave out model fields. Keep models that have an id and give
+// them string names and arguments.
+function normalizeModels(value: unknown): ModelOption[] | undefined {
+  return normalizeReasoningLevels(value);
 }
 
 // Hand-edited preset files can leave out level fields. Keep levels that have
@@ -819,6 +850,7 @@ class AgentPresetService {
         for (const preset of config.presets) {
           preset.launchModes = preset.launchModes ?? [];
           preset.reasoningLevels = normalizeReasoningLevels(preset.reasoningLevels);
+          preset.models = normalizeModels(preset.models);
           if (preset.isBuiltin) {
             preset.isBuiltin = false;
             needsSave = true;
@@ -996,11 +1028,12 @@ class AgentPresetService {
   }
 
   // Record usage of a preset (updates lastUsedAt and optionally lastLaunchModeId).
-  // reasoningLevelId is only recorded when passed; undefined leaves it unchanged.
+  // reasoningLevelId and modelId are only recorded when passed; undefined leaves it unchanged.
   recordPresetUsage(
     presetId: string,
     launchModeId?: string | null,
-    reasoningLevelId?: string | null
+    reasoningLevelId?: string | null,
+    modelId?: string | null
   ): void {
     const entry = this.activePresets.find((e) => e.presetId === presetId);
     if (entry) {
@@ -1008,6 +1041,9 @@ class AgentPresetService {
       entry.lastLaunchModeId = launchModeId ?? null;
       if (reasoningLevelId !== undefined) {
         entry.lastReasoningLevelId = reasoningLevelId;
+      }
+      if (modelId !== undefined) {
+        entry.lastModelId = modelId;
       }
       this.saveConfig();
       this.notifyRenderer();
@@ -1174,7 +1210,8 @@ class AgentPresetService {
     shellFamily: 'desktop' | 'posix' = 'desktop',
     reasoningLevelId?: string | null,
     /** Arguments for this launch only, after the launch mode's and the reasoning level's. */
-    extraArguments?: string
+    extraArguments?: string,
+    modelId?: string | null
   ): string {
     const mode = launchModeId
       ? preset.launchModes.find((candidate) => candidate.id === launchModeId)
@@ -1195,6 +1232,7 @@ class AgentPresetService {
     const launchModeArguments = [
       mode?.arguments?.trim(),
       reasoningArguments,
+      modelArguments(preset, modelId),
       extraArguments?.trim(),
     ]
       .filter(Boolean)
@@ -1221,7 +1259,7 @@ class AgentPresetService {
   resolvePosixPromptTemplate(
     preset: AgentPreset,
     launchModeId?: string | null,
-    { reasoningLevelId, extraArguments }: LaunchArguments = {}
+    { reasoningLevelId, extraArguments, modelId }: LaunchArguments = {}
   ): { promptCommand: string; openCommand: string } | undefined {
     const promptCommand = resolvePosixAutoTrustArgs(
       this.resolvePresetCommand(
@@ -1231,7 +1269,8 @@ class AgentPresetService {
         PROMPT_SENTINEL,
         'posix',
         reasoningLevelId,
-        extraArguments
+        extraArguments,
+        modelId
       ).replace(`"$(printf -- '${PROMPT_SENTINEL}')"`, '{{prompt}}')
     );
     const openCommand = resolvePosixAutoTrustArgs(
@@ -1242,7 +1281,8 @@ class AgentPresetService {
         undefined,
         'posix',
         reasoningLevelId,
-        extraArguments
+        extraArguments,
+        modelId
       )
     );
     if (
@@ -1262,7 +1302,7 @@ class AgentPresetService {
   previewPromptCommand(
     preset: AgentPreset,
     launchModeId: string | null | undefined,
-    { reasoningLevelId, extraArguments }: LaunchArguments,
+    { reasoningLevelId, extraArguments, modelId }: LaunchArguments,
     shellFamily: 'desktop' | 'posix'
   ): string | undefined {
     const command = resolveAutoTrustArgs(
@@ -1273,7 +1313,8 @@ class AgentPresetService {
         PROMPT_SENTINEL,
         shellFamily,
         reasoningLevelId,
-        extraArguments
+        extraArguments,
+        modelId
       ),
       shellFamily
     );

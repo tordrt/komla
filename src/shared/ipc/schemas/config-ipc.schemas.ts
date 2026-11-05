@@ -413,6 +413,14 @@ const reasoningLevelSchema = z
   })
   .strip();
 
+const modelOptionSchema = z
+  .object({
+    id: idSchema,
+    name: z.string(),
+    arguments: z.string(),
+  })
+  .strip();
+
 // What a preset stores for its level picker; `komla settings apply agents` takes it too.
 export const levelPickerFields = {
   title: z.string().trim().min(1).max(MAX_LEVEL_PICKER_TITLE_LENGTH).optional(),
@@ -431,6 +439,7 @@ const presetCreateSchema = z
     launchModes: z.array(launchModeSchema).default([]),
     reasoningLevels: z.array(reasoningLevelSchema).optional(),
     levelPicker: levelPickerSchema.optional(),
+    models: z.array(modelOptionSchema).optional(),
     isBuiltin: z.boolean(),
   })
   .strip();
@@ -444,6 +453,7 @@ const presetUpdateSchema = z
     launchModes: z.array(launchModeSchema).optional(),
     reasoningLevels: z.array(reasoningLevelSchema).optional(),
     levelPicker: levelPickerSchema.optional(),
+    models: z.array(modelOptionSchema).optional(),
     isBuiltin: z.boolean().optional(),
   })
   .strip();

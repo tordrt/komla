@@ -23,6 +23,7 @@ export interface NewWorkspaceDialogDraft {
   presetId: string | null;
   launchModeId: string | null;
   reasoningLevelOverrides: Record<string, string | null>;
+  modelOverrides: Record<string, string | null>;
   launchTargets: LaunchTarget[];
   aiBranchNameOverride: boolean | null;
   sourceWorkspaceId: string;

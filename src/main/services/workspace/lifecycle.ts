@@ -214,6 +214,7 @@ export class WorkspaceLifecycle {
         workspace.presetId = fallback.id;
         workspace.launchModeId = null;
         workspace.reasoningLevelId = null;
+        workspace.modelId = null;
         workspaceStore.saveWorkspaces();
       }
     }
@@ -229,7 +230,9 @@ export class WorkspaceLifecycle {
         workspace.launchModeId,
         undefined,
         undefined,
-        workspace.reasoningLevelId
+        workspace.reasoningLevelId,
+        undefined,
+        workspace.modelId
       );
     }
 

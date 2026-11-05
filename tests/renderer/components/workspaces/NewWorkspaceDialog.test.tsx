@@ -941,6 +941,7 @@ describe('NewWorkspaceDialog', () => {
       presetId: null,
       launchModeId: null,
       reasoningLevelOverrides: {},
+      modelOverrides: {},
       launchTargets: [],
       aiBranchNameOverride: null,
       sourceWorkspaceId: '',

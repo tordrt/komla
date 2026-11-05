@@ -26,6 +26,7 @@ import {
   resolveLaunchModeId,
   resolvePreset,
   resolveReasoningLevelId,
+  resolveModelId,
 } from './agent-launch';
 import { workspaceStore } from './store';
 import {
@@ -648,11 +649,13 @@ export class WorkspaceProvisioning {
     workspace.presetId = activePreset?.id ?? null;
     workspace.launchModeId = resolveLaunchModeId(activePreset, params.launchModeId);
     workspace.reasoningLevelId = resolveReasoningLevelId(activePreset, params.reasoningLevelId);
+    workspace.modelId = resolveModelId(activePreset, params.modelId);
     if (activePreset && !params.skipRecordUsage) {
       agentPresetService.recordPresetUsage?.(
         activePreset.id,
         params.launchModeId,
-        params.reasoningLevelId
+        params.reasoningLevelId,
+        params.modelId
       );
     }
     const command = resolveInitialCommand(

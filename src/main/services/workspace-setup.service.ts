@@ -34,7 +34,8 @@ export interface WorkspaceSetupDependencies {
     preset: AgentPreset | undefined,
     prompt: string | undefined,
     launchModeId: string | undefined,
-    reasoningLevelId?: string | null
+    reasoningLevelId?: string | null,
+    modelId?: string | null
   ): string | null;
   locations: Pick<ExecutionLocations, 'resolve'>;
   prepareLocalCopy(workspaceId: string): Promise<string>;

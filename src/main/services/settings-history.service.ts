@@ -89,6 +89,7 @@ const USAGE_KEYS = new Set([
   'lastUserInput',
   'lastLaunchModeId',
   'lastReasoningLevelId',
+  'lastModelId',
 ]);
 
 function withoutUsage(value: unknown): unknown {

@@ -49,6 +49,7 @@ import type {
   AgentPreset,
   LaunchMode,
   ReasoningLevel,
+  ModelOption,
   LevelPicker,
 } from '@/types';
 
@@ -155,6 +156,7 @@ export function AgentTab({
   const [launchModes, setLaunchModes] = useState<LaunchMode[]>([]);
   const [reasoningLevels, setReasoningLevels] = useState<ReasoningLevel[]>([]);
   const [levelPicker, setLevelPicker] = useState<LevelPicker>({});
+  const [models, setModels] = useState<ModelOption[]>([]);
   const [presetError, setPresetError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   // Self-integration prompt for custom agents — surfaced in the custom edit view.
@@ -170,6 +172,7 @@ export function AgentTab({
     launchModesJson: string;
     reasoningLevelsJson: string;
     levelPickerJson: string;
+    modelsJson: string;
   } | null>(null);
 
   // Load templates on mount (intentional one-shot — deps intentionally empty)
@@ -202,7 +205,8 @@ export function AgentTab({
       promptCommand !== initialState.promptCommand ||
       JSON.stringify(launchModes) !== initialState.launchModesJson ||
       JSON.stringify(reasoningLevels) !== initialState.reasoningLevelsJson ||
-      pickerJson(levelPicker) !== initialState.levelPickerJson;
+      pickerJson(levelPicker) !== initialState.levelPickerJson ||
+      JSON.stringify(models) !== initialState.modelsJson;
 
     onDirtyChange?.(isDirty);
   }, [
@@ -215,6 +219,7 @@ export function AgentTab({
     launchModes,
     reasoningLevels,
     levelPicker,
+    models,
     initialState,
     onDirtyChange,
   ]);
@@ -233,6 +238,7 @@ export function AgentTab({
       setLaunchModes(preset.launchModes);
       setReasoningLevels(preset.reasoningLevels ?? []);
       setLevelPicker(preset.levelPicker ?? {});
+      setModels(preset.models ?? []);
       setInitialState({
         presetId: preset.id,
         name: preset.name,
@@ -242,6 +248,7 @@ export function AgentTab({
         launchModesJson: JSON.stringify(preset.launchModes),
         reasoningLevelsJson: JSON.stringify(preset.reasoningLevels ?? []),
         levelPickerJson: pickerJson(preset.levelPicker),
+        modelsJson: JSON.stringify(preset.models ?? []),
       });
     }
     setIsCustomPreset(false);
@@ -358,6 +365,15 @@ export function AgentTab({
       return;
     }
 
+    if (models.some((model) => !model.name.trim() !== !model.arguments.trim())) {
+      rejectCommands('Every model needs a name and arguments');
+      return;
+    }
+    if (hasDuplicateLevelNames(models)) {
+      rejectCommands('Every model needs its own name');
+      return;
+    }
+
     setIsSaving(true);
     try {
       const trimmedOpenCommand = openCommand.trim();
@@ -386,6 +402,14 @@ export function AgentTab({
         trimmedReasoningLevelsJson !== initialState?.reasoningLevelsJson
           ? { reasoningLevels: trimmedReasoningLevels }
           : {};
+      const trimmedModels = models.flatMap((model) => {
+        const name = model.name.trim();
+        const args = model.arguments.trim();
+        return name || args ? [{ ...model, name, arguments: args }] : [];
+      });
+      const trimmedModelsJson = JSON.stringify(trimmedModels);
+      const modelsUpdate =
+        trimmedModelsJson !== initialState?.modelsJson ? { models: trimmedModels } : {};
       const trimmedLevelPicker = storedLevelPicker(levelPickerOf({ levelPicker }));
       const trimmedLevelPickerJson = pickerJson(trimmedLevelPicker);
       const levelPickerUpdate =
@@ -435,6 +459,7 @@ export function AgentTab({
           launchModes: trimmedLaunchModes,
           ...reasoningLevelsUpdate,
           ...levelPickerUpdate,
+          ...modelsUpdate,
         });
         await addActivePreset(newPreset.id);
         if (enablingNotificationsFor) {
@@ -454,6 +479,7 @@ export function AgentTab({
           launchModes: trimmedLaunchModes,
           ...reasoningLevelsUpdate,
           ...levelPickerUpdate,
+          ...modelsUpdate,
         });
       }
 
@@ -467,6 +493,7 @@ export function AgentTab({
         launchModesJson: JSON.stringify(trimmedLaunchModes),
         reasoningLevelsJson: trimmedReasoningLevelsJson,
         levelPickerJson: trimmedLevelPickerJson,
+        modelsJson: trimmedModelsJson,
       });
       setPresetName(trimmedName);
       setOpenCommand(trimmedOpenCommand);
@@ -475,6 +502,7 @@ export function AgentTab({
       setLaunchModes(trimmedLaunchModes);
       setReasoningLevels(trimmedReasoningLevels);
       setLevelPicker(trimmedLevelPicker);
+      setModels(trimmedModels);
 
       if (notificationsError) addToast(`Agent preset saved. ${notificationsError}`, 'error');
       else addToast('Agent preset saved', 'success');
@@ -531,6 +559,7 @@ export function AgentTab({
       launchModes: template.launchModes,
       reasoningLevels: template.reasoningLevels,
       levelPicker: template.levelPicker,
+      models: template.models,
       isBuiltin: false,
     };
     // Custom agents have no meaningful template name — leave the display name
@@ -554,6 +583,7 @@ export function AgentTab({
     setLaunchModes(templateData.launchModes);
     setReasoningLevels(templateData.reasoningLevels ?? []);
     setLevelPicker(templateData.levelPicker ?? {});
+    setModels(templateData.models ?? []);
     setInitialState({
       presetId: '',
       name: initialName,
@@ -563,6 +593,7 @@ export function AgentTab({
       launchModesJson: JSON.stringify(templateData.launchModes),
       reasoningLevelsJson: JSON.stringify(templateData.reasoningLevels ?? []),
       levelPickerJson: pickerJson(templateData.levelPicker),
+      modelsJson: JSON.stringify(templateData.models ?? []),
     });
     setPresetError(null);
     setView('edit');
@@ -844,6 +875,8 @@ export function AgentTab({
                     onReasoningLevelsChange={setReasoningLevels}
                     levelPicker={levelPicker}
                     onLevelPickerChange={setLevelPicker}
+                    models={models}
+                    onModelsChange={setModels}
                     alwaysExpanded
                     showExamplePlaceholders={isCustomPreset}
                     pinnedLaunchModeId={

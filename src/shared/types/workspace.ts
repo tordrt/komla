@@ -316,6 +316,8 @@ export interface Workspace {
   launchModeId?: string | null;
   // Reasoning level selected for this workspace (null = agent default)
   reasoningLevelId?: string | null;
+  // Model selected for this workspace (null = agent default)
+  modelId?: string | null;
 
   // Embedded terminals
   terminals: Terminal[];
@@ -433,6 +435,8 @@ export interface CreateWorkspaceParams {
   launchModeId?: string;
   // null = agent default; undefined = no choice made (keeps the remembered level)
   reasoningLevelId?: string | null;
+  // null = agent default; undefined = no choice made (keeps the remembered model)
+  modelId?: string | null;
   // Arguments the first agent starts with after its launch mode's and reasoning level's, such
   // as an automation's; later agent tabs start without them
   extraArguments?: string;

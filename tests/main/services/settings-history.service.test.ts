@@ -135,7 +135,9 @@ describe('SettingsHistoryService', () => {
   it('ignores what Komla records when an agent or Action is used', () => {
     const presets = (lastUsedAt: number, name = 'Claude') => ({
       presets: [{ id: 'claude', name }],
-      activePresets: [{ presetId: 'claude', lastUsedAt, lastLaunchModeId: 'plan' }],
+      activePresets: [
+        { presetId: 'claude', lastUsedAt, lastLaunchModeId: 'plan', lastModelId: `m${lastUsedAt}` },
+      ],
     });
     write('agent-presets.json', presets(1));
     service.scan();

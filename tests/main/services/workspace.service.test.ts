@@ -4650,6 +4650,8 @@ describe('WorkspaceService', () => {
           null,
           action.content,
           'posix',
+          null,
+          undefined,
           null
         );
       });
@@ -4690,7 +4692,8 @@ describe('WorkspaceService', () => {
           expect.stringContaining('komla skill project-setup'),
           'posix',
           null,
-          undefined
+          undefined,
+          null
         );
       });
 
@@ -6439,6 +6442,7 @@ describe('WorkspaceService', () => {
         expect(mockAgentPresetService.recordPresetUsage).toHaveBeenCalledWith(
           mockClaudePreset.id,
           'plan-mode',
+          undefined,
           undefined
         );
       });
@@ -6464,12 +6468,14 @@ describe('WorkspaceService', () => {
           undefined,
           undefined,
           'high',
-          undefined
+          undefined,
+          null
         );
         expect(mockAgentPresetService.recordPresetUsage).toHaveBeenCalledWith(
           mockArgumentPreset.id,
           undefined,
-          'high'
+          'high',
+          undefined
         );
       });
 
@@ -6493,7 +6499,8 @@ describe('WorkspaceService', () => {
           undefined,
           undefined,
           'high',
-          '--model opus'
+          '--model opus',
+          null
         );
         expect(workspace).not.toHaveProperty('extraArguments');
       });
@@ -6871,7 +6878,8 @@ describe('WorkspaceService', () => {
             'Fix login\n\n@.komla-files/shot.png',
             'posix',
             null,
-            undefined
+            undefined,
+            null
           )
         );
       });
@@ -6900,7 +6908,8 @@ describe('WorkspaceService', () => {
           'Fix login\n\n@.komla-files/shot.png',
           'posix',
           null,
-          undefined
+          undefined,
+          null
         );
       });
 
@@ -8778,6 +8787,7 @@ describe('WorkspaceService', () => {
         'Fix the bug',
         undefined,
         'high',
+        undefined,
         undefined
       );
     });
@@ -8821,6 +8831,7 @@ describe('WorkspaceService', () => {
         undefined,
         expect.stringContaining('komla skill project-setup'),
         'posix',
+        undefined,
         undefined,
         undefined
       );
@@ -12420,7 +12431,9 @@ describe('WorkspaceService', () => {
         'plan',
         undefined,
         undefined,
-        'high'
+        'high',
+        undefined,
+        undefined
       );
     });
 

@@ -152,6 +152,25 @@ function resolveReasoningLevelId(
   return isAvailable(remembered) ? remembered : null;
 }
 
+// Model for a preset: the one picked in this dialog, else the one remembered from its last
+// launch, else the agent default (null).
+function resolveModelId(
+  presets: AgentPreset[],
+  activePresets: ActivePresetEntry[],
+  overrides: Record<string, string | null>,
+  presetId: string | undefined
+): string | null {
+  if (!presetId) return null;
+  const models = presets.find((preset) => preset.id === presetId)?.models ?? [];
+  const isAvailable = (modelId: string | null | undefined): modelId is string | null =>
+    modelId === null || models.some((model) => model.id === modelId);
+  const override = overrides[presetId];
+  if (presetId in overrides && isAvailable(override)) return override;
+  const remembered =
+    activePresets.find((entry) => entry.presetId === presetId)?.lastModelId ?? null;
+  return isAvailable(remembered) ? remembered : null;
+}
+
 // Workspaces that have a branch open for this project and location, flattened as
 // [branch, id, name, ...] so that a shallow compare sees only changes to these.
 function branchWorkspaceEntries(
@@ -271,6 +290,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const [reasoningLevelOverrides, setReasoningLevelOverrides] = useState<
     Record<string, string | null>
   >({});
+  // Model picked in this dialog, per preset (null = agent default).
+  const [modelOverrides, setModelOverrides] = useState<Record<string, string | null>>({});
   const [selectedLaunchTargets, setSelectedLaunchTargets] = useState<LaunchTarget[]>([]);
   // AI branch naming picked in this dialog (null = the saved setting)
   const [aiBranchNameOverride, setAiBranchNameOverride] = useState<boolean | null>(null);
@@ -645,6 +666,10 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const getReasoningLevelId = (presetId: string | undefined): string | null =>
     resolveReasoningLevelId(presets, activePresets, reasoningLevelOverrides, presetId);
   const effectiveReasoningLevelId = getReasoningLevelId(selectedPreset?.id);
+  const availableModels = selectedPreset?.models ?? [];
+  const getModelId = (presetId: string | undefined): string | null =>
+    resolveModelId(presets, activePresets, modelOverrides, presetId);
+  const effectiveModelId = getModelId(selectedPreset?.id);
 
   const effectiveEnvironment: DesiredWorkspaceEnvironment = isSshLaunch
     ? { kind: 'ssh', hostId: effectiveSshHostId }
@@ -1207,11 +1232,14 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       isSingleAgentLaunch && availableReasoningLevels.length > 0
         ? effectiveReasoningLevelId
         : undefined;
+    const modelId =
+      isSingleAgentLaunch && availableModels.length > 0 ? effectiveModelId : undefined;
     return launchTargets.map((target) => ({
       ...params,
       presetId: target.presetId,
       launchModeId: target.launchModeId ?? undefined,
       reasoningLevelId,
+      modelId,
       environment: effectiveEnvironment,
     }));
   };
@@ -1577,6 +1605,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
         launchModeId: effectiveLaunchModeId ?? undefined,
         reasoningLevelId:
           availableReasoningLevels.length > 0 ? effectiveReasoningLevelId : undefined,
+        modelId: availableModels.length > 0 ? effectiveModelId : undefined,
         presetId: effectiveSelectedPresetId ?? undefined,
         // The folder is on this computer, even when an SSH host was picked.
         environment: isSshLaunch ? { kind: 'local' } : effectiveEnvironment,
@@ -1666,6 +1695,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       presetId: effectiveSelectedPresetId ?? null,
       launchModeId: effectiveLaunchModeId,
       reasoningLevelOverrides,
+      modelOverrides,
       launchTargets: selectedLaunchTargets,
       aiBranchNameOverride,
       sourceWorkspaceId,
@@ -1743,6 +1773,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setSelectedPresetId(draft.presetId);
     setLaunchModeId(draft.launchModeId);
     setReasoningLevelOverrides(draft.reasoningLevelOverrides);
+    setModelOverrides(draft.modelOverrides);
     setSelectedLaunchTargets(draft.launchTargets);
     setAiBranchNameOverride(draft.aiBranchNameOverride);
     setSourceWorkspaceId(draft.sourceWorkspaceId);
@@ -1775,6 +1806,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     setAttachments([]);
     setLaunchModeId(null);
     setReasoningLevelOverrides({});
+    setModelOverrides({});
     setSelectedLaunchTargets([]);
     setActionInputDialogOpen(false);
     setPendingActionForInput(null);
@@ -1878,6 +1910,10 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
 
   const handleReasoningLevelChange = (presetId: string, levelId: string | null) => {
     setReasoningLevelOverrides((current) => ({ ...current, [presetId]: levelId }));
+  };
+
+  const handleModelChange = (presetId: string, modelId: string | null) => {
+    setModelOverrides((current) => ({ ...current, [presetId]: modelId }));
   };
 
   const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -2087,6 +2123,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const showAgentLaunchPicker = showPresetPicker || hasAgent;
   const showReasoningLevelPill =
     hasAgent && selectedLaunchTargets.length === 0 && availableReasoningLevels.length > 0;
+  const showModelPill =
+    hasAgent && selectedLaunchTargets.length === 0 && availableModels.length > 0;
   const showBranchPicker =
     showContextBar && Boolean(selectedProject) && !selectedProjectIsDirectory && !existingBranch;
   const environmentOptions: DesiredWorkspaceEnvironment[] = [
@@ -2096,6 +2134,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const menuShown: Record<NewWorkspaceMenu, boolean> = {
     agent: showAgentLaunchPicker,
     effort: showReasoningLevelPill,
+    model: showModelPill,
     environment: showContextBar,
     branch: showBranchPicker,
   };
@@ -2426,6 +2465,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                 selectedPreset={selectedPreset ?? undefined}
                 getReasoningLevelId={getReasoningLevelId}
                 onReasoningLevelChange={handleReasoningLevelChange}
+                getModelId={getModelId}
+                onModelChange={handleModelChange}
                 promptTextareaRef={promptTextareaRef}
                 resolvedActivePresets={resolvedActivePresets}
                 multiLaunchPresets={multiLaunchPresets}
@@ -2958,6 +2999,8 @@ interface FooterSectionProps {
   selectedPreset: AgentPreset | undefined;
   getReasoningLevelId: (presetId: string) => string | null;
   onReasoningLevelChange: (presetId: string, levelId: string | null) => void;
+  getModelId: (presetId: string) => string | null;
+  onModelChange: (presetId: string, modelId: string | null) => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   resolvedActivePresets: AgentPreset[];
   multiLaunchPresets: AgentPreset[];
@@ -2983,6 +3026,8 @@ function FooterSection({
   selectedPreset,
   getReasoningLevelId,
   onReasoningLevelChange,
+  getModelId,
+  onModelChange,
   promptTextareaRef,
   resolvedActivePresets,
   multiLaunchPresets,
@@ -3029,9 +3074,21 @@ function FooterSection({
             preset={selectedPreset}
             getReasoningLevelId={getReasoningLevelId}
             onReasoningLevelChange={onReasoningLevelChange}
+            onEdit={onManageAgents}
             promptTextareaRef={promptTextareaRef}
             open={openMenu === 'effort'}
             onOpenChange={menuOpenChange('effort')}
+          />
+        )}
+        {hasAgent && selectedLaunchTargets.length === 0 && (
+          <ModelPill
+            preset={selectedPreset}
+            getModelId={getModelId}
+            onModelChange={onModelChange}
+            onEdit={onManageAgents}
+            promptTextareaRef={promptTextareaRef}
+            open={openMenu === 'model'}
+            onOpenChange={menuOpenChange('model')}
           />
         )}
       </span>
@@ -3057,6 +3114,7 @@ interface ReasoningLevelPillProps {
   preset: AgentPreset | undefined;
   getReasoningLevelId: (presetId: string) => string | null;
   onReasoningLevelChange: (presetId: string, levelId: string | null) => void;
+  onEdit: () => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -3072,6 +3130,7 @@ function ReasoningLevelPill({
   preset,
   getReasoningLevelId,
   onReasoningLevelChange,
+  onEdit,
   promptTextareaRef,
   open,
   onOpenChange,
@@ -3148,6 +3207,91 @@ function ReasoningLevelPill({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-xs text-muted-foreground" onSelect={onEdit}>
+          Edit {picker.title.toLowerCase()} levels…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+interface ModelPillProps {
+  preset: AgentPreset | undefined;
+  getModelId: (presetId: string) => string | null;
+  onModelChange: (presetId: string, modelId: string | null) => void;
+  onEdit: () => void;
+  promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+// Model pill beside the effort pill, for agents that define models. At the default model the
+// pill shows only the icon; the model's name replaces it once one is chosen.
+function ModelPill({
+  preset,
+  getModelId,
+  onModelChange,
+  onEdit,
+  promptTextareaRef,
+  open,
+  onOpenChange,
+}: ModelPillProps) {
+  const models = preset?.models ?? [];
+  if (!preset || models.length === 0) return null;
+  const modelId = getModelId(preset.id);
+  const model = models.find((item) => item.id === modelId);
+
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${preset.name} Model: ${model?.name ?? 'Default'}`}
+          title="Model"
+          className={cn(
+            'inline-flex h-6 items-center gap-1 rounded-md px-2 text-ui transition-colors',
+            model
+              ? 'bg-muted font-medium text-foreground hover:bg-muted/80'
+              : 'text-muted-foreground-70 hover:bg-muted/60 hover:text-foreground'
+          )}
+        >
+          <LEVEL_PICKER_ICON_COMPONENTS.cpu className="size-3" />
+          {model?.name}
+          <CaretDown className="size-2.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        collisionPadding={8}
+        className="min-w-36"
+        onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
+      >
+        <DropdownMenuLabel>{preset.name} Model</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={modelId ?? DEFAULT_REASONING_VALUE}
+          onValueChange={(value) =>
+            onModelChange(preset.id, value === DEFAULT_REASONING_VALUE ? null : value)
+          }
+        >
+          <DropdownMenuRadioItem value={DEFAULT_REASONING_VALUE} className="text-xs">
+            Default
+          </DropdownMenuRadioItem>
+          {models.map((item) => (
+            <DropdownMenuRadioItem
+              key={item.id}
+              value={item.id}
+              className="text-xs"
+              title={item.arguments}
+            >
+              {item.name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-xs text-muted-foreground" onSelect={onEdit}>
+          Edit models…
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -156,7 +156,7 @@ describe('GettingStartedMenu', () => {
     expect(screen.getByText('Set up agent integrations')).toBeTruthy();
     expect(screen.getByText('Get notified when your agents finish or need you')).toBeTruthy();
     expect(screen.getByText('Komla skill')).toBeTruthy();
-    expect(screen.getByText('Teach your agents how to use the Komla CLI')).toBeTruthy();
+    expect(screen.getByText('Teach agents the Komla CLI')).toBeTruthy();
     expect(screen.queryByText('Enable notifications')).toBeNull();
     expect(screen.queryByText('Enable MCP server')).toBeNull();
     expect(screen.getByText('Voice dictation')).toBeTruthy();
@@ -178,7 +178,7 @@ describe('GettingStartedMenu', () => {
       selfIntegrationTipCreated: true,
     };
     await renderComponent();
-    expect(screen.getByText('Integrate your agent with Komla')).toBeTruthy();
+    expect(screen.getByText('Connect your agent to Komla')).toBeTruthy();
   });
 
   it('marks self-integration tip done after onboarding launch', async () => {
@@ -190,7 +190,7 @@ describe('GettingStartedMenu', () => {
     await renderComponent();
     openPopover();
     await waitFor(() => {
-      expect(isDone('Integrate your agent with Komla')).toBe(true);
+      expect(isDone('Connect your agent to Komla')).toBe(true);
     });
   });
 
@@ -204,7 +204,7 @@ describe('GettingStartedMenu', () => {
       .mockResolvedValue({ isConfigured: false, generic: { integrationPrompt: 'integrate me' } });
     const onOpenNewWorkspace = vi.fn();
     await renderComponent({ onOpenNewWorkspace });
-    fireEvent.click(rowFor('Integrate your agent with Komla')!);
+    fireEvent.click(rowFor('Connect your agent to Komla')!);
     await waitFor(() =>
       expect(mockConfigState.updateConfig).toHaveBeenCalledWith({
         selfIntegrationTipCompleted: true,
@@ -286,7 +286,7 @@ describe('GettingStartedMenu', () => {
       const onOpenNewWorkspace = vi.fn();
       await renderComponent({ onOpenNewWorkspace });
       openPopover();
-      fireEvent.click(rowFor('Integrate Cursor CLI and Pi with Komla')!);
+      fireEvent.click(rowFor('Connect Cursor CLI and Pi to Komla')!);
       const agents = await screen.findByRole('list', { name: 'Agents to set up' });
       expect(
         within(agents)
@@ -322,7 +322,7 @@ describe('GettingStartedMenu', () => {
       (window as any).api.addAgentTab.mockRejectedValue(new Error('pty failed'));
       await renderComponent();
       openPopover();
-      fireEvent.click(rowFor('Integrate Cursor CLI and Pi with Komla')!);
+      fireEvent.click(rowFor('Connect Cursor CLI and Pi to Komla')!);
 
       fireEvent.click(await screen.findByRole('button', { name: 'Set up Cursor CLI and Pi' }));
 
@@ -339,9 +339,9 @@ describe('GettingStartedMenu', () => {
     it('names those agents, and says why', async () => {
       await renderComponent();
 
-      expect(screen.getByText('Integrate Cursor CLI and Pi with Komla')).toBeTruthy();
-      expect(screen.getByText('No one-click setup, so they set themselves up')).toBeTruthy();
-      expect(screen.queryByText('Integrate your agent with Komla')).toBeNull();
+      expect(screen.getByText('Connect Cursor CLI and Pi to Komla')).toBeTruthy();
+      expect(screen.getByText('Each one sets up its own integration')).toBeTruthy();
+      expect(screen.queryByText('Connect your agent to Komla')).toBeNull();
     });
 
     it.each([
@@ -358,7 +358,7 @@ describe('GettingStartedMenu', () => {
       try {
         await renderComponent();
         openPopover();
-        fireEvent.click(rowFor('Integrate Cursor CLI and Pi with Komla')!);
+        fireEvent.click(rowFor('Connect Cursor CLI and Pi to Komla')!);
         expect(screen.getByText(/^Opens New Workspace with the setup prompt/)).toBeTruthy();
 
         fireEvent.click(screen.getByRole('checkbox', { name: 'Cursor CLI' }));
@@ -390,7 +390,7 @@ describe('GettingStartedMenu', () => {
       try {
         await renderComponent();
         openPopover();
-        fireEvent.click(rowFor('Integrate Cursor CLI and Pi with Komla')!);
+        fireEvent.click(rowFor('Connect Cursor CLI and Pi to Komla')!);
         fireEvent.click(await screen.findByRole('button', { name: 'Set up Cursor CLI and Pi' }));
         await waitFor(() => expect(opened).toHaveBeenCalledOnce());
 
@@ -739,7 +739,7 @@ describe('GettingStartedMenu', () => {
     openPopover();
 
     expect(screen.getByRole('button', { name: 'Hide from status bar' })).toBeInTheDocument();
-    expect(screen.getByText('Tips stays in the settings menu')).toBeInTheDocument();
+    expect(screen.getByText('Tips is also in the settings menu')).toBeInTheDocument();
   });
 
   // The Start here steps, in order.
@@ -757,7 +757,7 @@ describe('GettingStartedMenu', () => {
     ]);
     expect(steps()).toEqual([
       rowFor('Set up agent integrations'),
-      rowFor('Integrate your agent with Komla'),
+      rowFor('Connect your agent to Komla'),
       rowFor('Set up project in Komla'),
       rowFor('Set up an SSH host'),
     ]);
@@ -782,7 +782,7 @@ describe('GettingStartedMenu', () => {
     expect(within(rowFor('Set up an SSH host')!).getByText('3')).toBeTruthy();
   });
 
-  it('offers everything else as tiles, described in their tooltips', async () => {
+  it('offers everything else as tiles, each described under its title', async () => {
     await renderComponent();
     const more = screen.getByRole('region', { name: 'More to explore' });
 
@@ -791,18 +791,17 @@ describe('GettingStartedMenu', () => {
         .getAllByRole('button')
         .map((tile) => tile.textContent)
     ).toEqual([
-      'Komla CLI demo',
-      'Komla skill',
-      'Custom sidebar panels',
-      'Custom status bar items',
-      'Customize with an agent',
-      'Automations',
-      'Phone accessAlpha',
-      'Voice dictation',
-      'Keyboard shortcuts',
-      'New window',
+      'Komla CLI demoWatch an agent drive Komla',
+      'Komla skillTeach agents the Komla CLI',
+      'Custom sidebar panelsPanels an agent builds you',
+      'Custom status bar itemsLive info like agent usage',
+      'Customize with an agentHooks, shortcuts, themes',
+      'AutomationsRun agents on a schedule',
+      'Phone accessAlphaAnswer agents on the go',
+      'Voice dictationSpeak instead of typing',
+      'Keyboard shortcutsWork without the mouse',
+      'New windowSpread work across windows',
     ]);
-    expect(within(more).getByText('Teach your agents how to use the Komla CLI')).toBeTruthy();
   });
 
   it('marks the steps that run an agent', async () => {
@@ -870,7 +869,7 @@ describe('GettingStartedMenu', () => {
     const segments = screen
       .getByRole('region', { name: 'Start here' })
       .querySelectorAll('[aria-hidden="true"] > span');
-    expect([...segments].map((segment) => segment.className.includes('bg-success'))).toEqual(
+    expect([...segments].map((segment) => segment.className.includes('bg-komla'))).toEqual(
       steps().map((step) => step === rowFor('Set up an SSH host'))
     );
   });

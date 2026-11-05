@@ -4031,7 +4031,7 @@ describe('StatusBar', () => {
       );
 
       await user.click(screen.getByRole('button', { name: 'Open Tips' }));
-      expect(screen.getByText('Tips stays in the More menu')).toBeInTheDocument();
+      expect(screen.getByText('Tips is also in the More menu')).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'Tips' }));
       expect(screen.getByRole('button', { name: 'More' })).toHaveFocus();

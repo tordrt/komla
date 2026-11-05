@@ -235,7 +235,7 @@ export function OnboardingConnectStep({
           title={othersTitle}
           icon={<Lightbulb className="size-4" weight="fill" />}
         >
-          After setup, open Tips and run “Integrate {othersNames} with Komla”.{' '}
+          After setup, open Tips and run “Connect {othersNames} to Komla”.{' '}
           {others.length > 1 ? 'Each agent adds' : 'The agent adds'} Komla’s hooks itself, asking
           before it changes a file.
         </Callout>

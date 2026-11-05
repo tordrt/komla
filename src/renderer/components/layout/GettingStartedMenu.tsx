@@ -23,11 +23,9 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { StatusBarButton } from '@/components/layout/status-bar/StatusBarButton';
 import { AgentPresetIcon } from '@/components/terminal/AgentPresetIcon';
-import { AlphaBadge, Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { openCustomizeAgent } from '@/lib/customize-agent';
 import { openKomlaGitHub } from '@/lib/komla-github';
 import { openPromptDraft } from '@/lib/prompt-draft';
@@ -66,7 +64,7 @@ interface StepDef extends TipDef {
   runsAgent?: boolean;
 }
 
-/** Everything else, offered as a compact tile; the subtitle shows on hover. */
+/** Everything else, offered as a compact tile, its subtitle a short line under the title. */
 interface MoreTipDef extends TipDef {
   icon: React.ElementType;
   alpha?: boolean;
@@ -80,14 +78,14 @@ const STEPS: StepDef[] = [
   },
   {
     id: 'self-integration',
-    title: 'Integrate your agent with Komla',
+    title: 'Connect your agent to Komla',
     subtitle: 'Your agent adds notifications and the Komla skill',
     runsAgent: true,
   },
   {
     id: 'project-setup',
     title: 'Set up project in Komla',
-    subtitle: 'Get Quick Commands, Setup steps & automations',
+    subtitle: 'Quick Commands, Setup steps & automations',
     runsAgent: true,
   },
   {
@@ -101,69 +99,68 @@ const MORE_TIPS: MoreTipDef[] = [
   {
     id: 'demo',
     title: 'Komla CLI demo',
-    subtitle: 'Watch an agent try Komla’s CLI commands',
+    subtitle: 'Watch an agent drive Komla',
     icon: Sparkle,
   },
   {
     id: 'komla-skill',
     title: 'Komla skill',
-    subtitle: 'Teach your agents how to use the Komla CLI',
+    subtitle: 'Teach agents the Komla CLI',
     icon: BookOpenText,
   },
   {
     id: 'panels',
     title: 'Custom sidebar panels',
-    subtitle:
-      'Have an agent build a rich panel, with its own pages and buttons, or a plugin for your tools',
+    subtitle: 'Panels an agent builds you',
     icon: SidebarSimple,
   },
   {
     id: 'status-bar',
     title: 'Custom status bar items',
-    subtitle: 'Add live items of your own, or show Claude Code or Codex usage',
+    subtitle: 'Live info like agent usage',
     icon: Layout,
   },
   {
     id: 'customize',
     title: 'Customize with an agent',
-    subtitle: 'Ask your agent for hooks, shortcuts, a theme and more',
+    subtitle: 'Hooks, shortcuts, themes',
     icon: SlidersHorizontal,
   },
   {
     id: 'automations',
     title: 'Automations',
-    subtitle: 'Run an agent on a schedule, here or on an SSH host',
+    subtitle: 'Run agents on a schedule',
     icon: CalendarDots,
   },
   {
     id: 'remote-control',
     title: 'Phone access',
-    subtitle: 'Check on agents and answer prompts from your phone, over Tailscale',
+    subtitle: 'Answer agents on the go',
     icon: DeviceMobile,
     alpha: true,
   },
   {
     id: 'dictation',
     title: 'Voice dictation',
-    subtitle: 'Dictate prompts instead of typing them',
+    subtitle: 'Speak instead of typing',
     icon: Microphone,
   },
   {
     id: 'prompt-draft',
     title: 'Prompt draft',
-    subtitle: 'Write a prompt while you look at files, then copy it into an agent',
+    subtitle: 'Draft a prompt as you read',
     icon: ChatText,
   },
   {
     id: 'shortcuts',
     title: 'Keyboard shortcuts',
-    subtitle: 'Navigate workspaces & panes without the mouse',
+    subtitle: 'Work without the mouse',
     icon: Keyboard,
   },
   {
     id: 'multi-window',
     title: 'New window',
-    subtitle: 'Work across several Komla windows at once',
+    subtitle: 'Spread work across windows',
     icon: Browsers,
   },
 ];
@@ -245,7 +242,7 @@ export function GettingStartedMenu({
   side = 'bottom',
   align = 'end',
   onHideButton,
-  hideHint = 'Tips stays in the settings menu',
+  hideHint = 'Tips is also in the settings menu',
 }: GettingStartedMenuProps) {
   const { config, updateConfig, hasProjects } = useConfigStore();
   const { presets, activePreset, activePresets, loadPresets } = useAgentPresetsStore();
@@ -515,6 +512,8 @@ export function GettingStartedMenu({
     if (open && introPending) void updateConfig({ tipsIntroPending: false });
   }, [open, introPending, updateConfig]);
 
+  // The prompt draft is a workspace's.
+  const moreTips = MORE_TIPS.filter((tip) => tip.id !== 'prompt-draft' || selectedWorkspace);
   const steps = STEPS.filter((step) => step.id !== 'self-integration' || showSelfIntegrationTip);
   // Only once statuses are in, so the highlight doesn't jump from the first step.
   const nextStepId = checkedDoneIds
@@ -532,7 +531,9 @@ export function GettingStartedMenu({
       <PopoverContent
         side={side}
         align={align}
-        className="flex max-h-[var(--radix-popover-content-available-height)] w-96 flex-col p-0"
+        sideOffset={8}
+        collisionPadding={8}
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-96 flex-col p-0 light:border-foreground/20 light:shadow-[0_12px_32px_-6px_rgb(0_0_0/0.16),0_2px_6px_rgb(0_0_0/0.06)]"
         onOpenAutoFocus={(e) => e.preventDefault()}
         // Hide the button only once Tips has closed: mid-fade, Tips would jump to the menu's anchor.
         onCloseAutoFocus={(e) => {
@@ -542,11 +543,11 @@ export function GettingStartedMenu({
           onHideButton?.();
         }}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border/60 py-1.5 pr-1.5 pl-3.5">
-          <h2 className="text-sm font-semibold tracking-tight">Tips</h2>
+        <div className="flex shrink-0 items-center justify-between border-b border-foreground/10 py-1.5 pr-1.5 pl-3.5">
+          <h2 className="text-[13px] font-semibold">Tips</h2>
           <button
             type="button"
-            className="flex items-center gap-1.5 rounded px-1.5 py-1 text-ui text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-ui text-muted-foreground-70 transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
             onClick={() => {
               setOpen(false);
               onOpenFeedback();
@@ -595,51 +596,50 @@ export function GettingStartedMenu({
           </TipSection>
 
           <TipSection label="More to explore">
-            <div className="grid grid-cols-2 gap-0.5">
-              {/* The prompt draft is a workspace's. */}
-              {MORE_TIPS.filter((tip) => tip.id !== 'prompt-draft' || selectedWorkspace).map(
-                (tip) => (
-                  <MoreTipTile
-                    key={tip.id}
-                    tip={tip}
-                    done={doneTipIds.has(tip.id)}
-                    onAction={() => void handleTipAction(tip.id)}
-                  />
-                )
-              )}
+            <div className="grid grid-cols-2 gap-x-1 gap-y-0.5">
+              {moreTips.map((tip) => (
+                <MoreTipTile
+                  key={tip.id}
+                  tip={tip}
+                  done={doneTipIds.has(tip.id)}
+                  onAction={() => void handleTipAction(tip.id)}
+                />
+              ))}
             </div>
           </TipSection>
 
-          <p className="mx-3.5 flex gap-2.5 border-t border-border/60 py-2.5 text-ui text-muted-foreground">
-            <Tray className="mt-px size-3.5 shrink-0" />
-            <span>
-              <span className="font-medium text-foreground">Done with a workspace?</span> Snooze it
-              for later, or move it to the Trash, which keeps it {TRASH_RETENTION_DAYS} days.
-            </span>
-          </p>
-
-          <button
-            type="button"
-            className="mx-1.5 mb-1.5 flex w-[calc(100%-0.75rem)] items-center gap-2.5 rounded px-2 py-1.5 text-left text-ui text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
-            onClick={() => {
-              setOpen(false);
-              openKomlaGitHub();
-            }}
-          >
-            <Star className="size-3.5 shrink-0" />
-            <span>
-              <span className="font-medium text-foreground">Enjoying Komla?</span> Give it a star on
-              GitHub.
-            </span>
-          </button>
+          <div className="mx-1.5 mb-1.5 flex flex-col gap-0.5 pt-1.5 text-ui text-muted-foreground-70 before:mx-2 before:mb-1 before:border-t before:border-foreground/8 before:content-['']">
+            <p className="flex gap-2 px-2 py-1.5">
+              <Tray className="mt-px size-3.5 shrink-0" />
+              <span>
+                <span className="font-medium text-muted-foreground">Done with a workspace?</span>{' '}
+                Snooze it for later, or move it to the Trash, which keeps it {TRASH_RETENTION_DAYS}{' '}
+                days.
+              </span>
+            </p>
+            <button
+              type="button"
+              className="group/star flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+              onClick={() => {
+                setOpen(false);
+                openKomlaGitHub();
+              }}
+            >
+              <Star className="size-3.5 shrink-0 group-hover/star:text-warning" />
+              <span>
+                <span className="font-medium text-muted-foreground">Enjoying Komla?</span> Give it a
+                star on GitHub.
+              </span>
+            </button>
+          </div>
         </div>
 
         {onHideButton && (
-          <div className="flex shrink-0 items-center gap-2 border-t border-border/60 py-1.5 pr-1.5 pl-3.5">
-            <span className="min-w-0 truncate text-2xs text-muted-foreground-70">{hideHint}</span>
+          <div className="flex shrink-0 items-center gap-2 border-t border-foreground/10 py-1.5 pr-1.5 pl-3.5">
+            <span className="min-w-0 truncate text-ui text-muted-foreground-70">{hideHint}</span>
             <button
               type="button"
-              className="ml-auto shrink-0 rounded px-1.5 py-1 text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+              className="ml-auto shrink-0 rounded-md px-2 py-1 text-ui font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
               onClick={() => {
                 hideButtonOnClose.current = true;
                 setOpen(false);
@@ -701,14 +701,17 @@ function TipSection({
   const doneCount = progress?.filter(Boolean).length ?? 0;
   const allDone = progress != null && doneCount === progress.length;
   return (
-    <section aria-labelledby={headingId} className="flex flex-col px-1.5 pt-1 pb-1.5">
+    <section
+      aria-labelledby={headingId}
+      className="flex flex-col px-1.5 pt-1 pb-1.5 not-first:pt-3.5"
+    >
       <div className="flex items-center justify-between px-2 pt-2 pb-1.5">
         <h3 id={headingId} className="text-ui font-medium text-muted-foreground">
           {label}
         </h3>
         {progress && (
           <span
-            className={`flex items-center gap-1 text-2xs tabular-nums ${allDone ? 'text-success' : 'text-muted-foreground'}`}
+            className={`flex items-center gap-1 text-2xs tabular-nums ${allDone ? 'text-success' : 'text-muted-foreground-70'}`}
           >
             {allDone ? (
               <>
@@ -726,7 +729,7 @@ function TipSection({
           {progress.map((done, index) => (
             <span
               key={index}
-              className={`h-1 flex-1 rounded-full ${done ? 'bg-success' : 'bg-muted'}`}
+              className={`h-[3px] flex-1 rounded-full ${done ? 'bg-komla/80' : 'bg-foreground/10'}`}
             />
           ))}
         </div>
@@ -739,9 +742,9 @@ function TipSection({
 type StepState = 'done' | 'next' | 'todo';
 
 const STEP_MARKER: Record<StepState, string> = {
-  done: 'bg-success/15 text-success',
-  next: 'bg-foreground text-background',
-  todo: 'border border-border text-muted-foreground',
+  done: 'bg-success/12 text-success',
+  next: 'bg-komla/15 text-komla ring-1 ring-komla/45 ring-inset',
+  todo: 'ring-1 ring-foreground/15 ring-inset text-muted-foreground',
 };
 
 function StepRow({
@@ -764,28 +767,31 @@ function StepRow({
       aria-expanded={expanded}
       aria-current={state === 'next' ? 'step' : undefined}
       onClick={onAction}
-      className={`group/tip flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden ${state === 'next' ? 'bg-accent/60' : ''}`}
+      className={`group/tip flex w-full items-center gap-2.5 rounded-md px-2 text-left ${state === 'done' ? 'py-1.5' : 'py-2'} focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden ${state === 'next' && !expanded ? 'bg-komla/[0.07] hover:bg-komla/[0.11]' : 'hover:bg-foreground/[0.06]'}`}
     >
       <span
-        className={`flex size-6 shrink-0 items-center justify-center rounded-full text-2xs font-semibold tabular-nums ${STEP_MARKER[state]}`}
+        className={`flex shrink-0 items-center justify-center rounded-full text-2xs font-semibold tabular-nums ${state === 'done' ? 'mx-0.5 size-5' : 'size-6'} ${STEP_MARKER[state]}`}
       >
-        {state === 'done' ? <Check weight="bold" className="size-3.5" /> : number}
+        {state === 'done' ? <Check weight="bold" className="size-3" /> : number}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-xs font-medium">
+        <span
+          className={`block text-xs font-medium ${state === 'done' ? 'text-muted-foreground' : ''}`}
+        >
           {step.title}
           {state === 'done' && <span className="sr-only"> (done)</span>}
         </span>
-        <span className="block text-ui text-muted-foreground">{step.subtitle}</span>
+        {/* A step done needs no more saying, so it keeps to one line. */}
+        {state !== 'done' && (
+          <span className="block text-ui text-muted-foreground">{step.subtitle}</span>
+        )}
       </span>
       {expanded === undefined && step.runsAgent ? (
-        <Badge
-          variant="outline"
-          className="gap-0.5 group-hover/tip:text-foreground group-hover/tip:ring-foreground/30"
-        >
-          <Play weight="fill" className="size-2" />
+        <span className="flex shrink-0 items-center gap-1 text-2xs font-medium text-muted-foreground-70 group-hover/tip:text-komla">
+          <Play weight="fill" className="size-2.5" />
           Run
-        </Badge>
+          <span className="sr-only">, starts an agent</span>
+        </span>
       ) : (
         <CaretRight
           aria-hidden="true"
@@ -807,25 +813,34 @@ function MoreTipTile({
 }) {
   const Icon = tip.icon;
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onAction}
-          className="group/tip flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left text-ui hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
-        >
-          {done ? (
-            <Check weight="bold" className="size-3.5 shrink-0 text-success" />
-          ) : (
-            <Icon className="size-3.5 shrink-0 text-muted-foreground group-hover/tip:text-foreground" />
+    <button
+      type="button"
+      onClick={onAction}
+      className="group/tip flex min-w-0 items-start gap-2 rounded-md px-2 py-1 text-left hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+    >
+      <Icon className="mt-px size-3.5 shrink-0 text-muted-foreground group-hover/tip:text-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-ui">
+          <span className={`truncate ${done ? 'text-muted-foreground' : ''}`}>{tip.title}</span>
+          {done && (
+            <>
+              <Check aria-hidden="true" weight="bold" className="size-3 shrink-0 text-success" />
+              <span className="sr-only"> (done)</span>
+            </>
           )}
-          <span className="truncate">{tip.title}</span>
-          {done && <span className="sr-only"> (done)</span>}
-          {tip.alpha && <AlphaBadge />}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">{tip.subtitle}</TooltipContent>
-    </Tooltip>
+          {tip.alpha && (
+            <span className="shrink-0 rounded px-1 text-[10px] leading-3.5 font-medium text-muted-foreground-70 ring-1 ring-foreground/12 ring-inset">
+              Alpha
+            </span>
+          )}
+        </span>
+        <span
+          className={`block truncate text-2xs ${done ? 'text-muted-foreground-50' : 'text-muted-foreground-70'}`}
+        >
+          {tip.subtitle}
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -851,10 +866,10 @@ function SelfSetupStep({
   const several = agents.length > 1;
   const namedStep = {
     ...step,
-    title: `Integrate ${listAgentNames(agents.map((agent) => agent.name))} with Komla`,
+    title: `Connect ${listAgentNames(agents.map((agent) => agent.name))} to Komla`,
     subtitle: several
-      ? 'No one-click setup, so they set themselves up'
-      : 'No one-click setup, so it sets itself up',
+      ? 'Each one sets up its own integration'
+      : `${agents[0].name} sets up its own integration`,
   };
   const [expanded, setExpanded] = useState(false);
   // Agents left out; the rest start ticked.
@@ -870,7 +885,15 @@ function SelfSetupStep({
   };
 
   return (
-    <>
+    // Expanded, the tint holds the step and what it opened, so they read as one. Blue only for
+    // the next step, so no other step looks current.
+    <div
+      className={
+        expanded
+          ? `rounded-md pb-2 ${state === 'next' ? 'bg-komla/[0.07]' : 'bg-foreground/[0.035]'}`
+          : undefined
+      }
+    >
       <StepRow
         step={namedStep}
         number={number}
@@ -879,14 +902,15 @@ function SelfSetupStep({
         onAction={() => setExpanded(!expanded)}
       />
       {expanded && (
-        <div className="mr-2 mb-1.5 ml-10.5 space-y-2">
+        <div className="mr-2 ml-10.5 space-y-2">
           <p className="text-ui text-muted-foreground">
             {inWorkspace
               ? several
-                ? 'Opens a tab for each in this workspace.'
-                : 'Opens it in a new tab in this workspace.'
+                ? 'Opens a tab for each.'
+                : `Opens ${agents[0].name} in a new tab.`
               : 'Opens New Workspace with the setup prompt.'}{' '}
-            The agent checks what it supports and asks before changing anything.
+            {several ? 'Each checks' : 'It checks'} what it supports and asks before changing
+            anything.
           </p>
           {several && (
             <ul aria-label="Agents to set up" className="space-y-1">
@@ -902,9 +926,8 @@ function SelfSetupStep({
             </ul>
           )}
           <Button
-            variant="outline"
             size="sm"
-            className="h-6 px-2 text-ui"
+            className="h-6 px-2.5 text-ui"
             disabled={chosen.length === 0}
             onClick={() => onStart(chosen)}
           >
@@ -915,6 +938,6 @@ function SelfSetupStep({
           </Button>
         </div>
       )}
-    </>
+    </div>
   );
 }

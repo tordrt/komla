@@ -128,7 +128,7 @@ test('onboarding leaves self-setup to Tips', async ({ appWindow, electronApp }) 
 
   await expect(appWindow.getByText('Welcome to Komla')).toHaveCount(0);
   await appWindow.getByRole('button', { name: 'Tips' }).click();
-  await expect(appWindow.getByText('Integrate Cursor CLI with Komla')).toBeVisible();
+  await expect(appWindow.getByText('Connect Cursor CLI to Komla')).toBeVisible();
 });
 
 test('onboarding adds only the agents left ticked', async ({ appWindow, electronApp }) => {

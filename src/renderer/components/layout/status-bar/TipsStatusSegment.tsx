@@ -81,7 +81,7 @@ export function TipsStatusSegment(actions: TipsActions) {
         open={open}
         onOpenChange={openTips}
         side="top"
-        hideHint={`Tips stays in the ${home}`}
+        hideHint={`Tips is also in the ${home}`}
         onHideButton={() => {
           void updateConfig({ showTipsInToolbar: false });
           findTipsHome()?.focus();

@@ -2522,7 +2522,7 @@ describe('NewWorkspaceDialog', () => {
     expect(pill).not.toHaveTextContent('Model');
     expect(pill).toHaveAttribute('title', 'Model');
     await user.click(pill);
-    expect(screen.getByText('Claude Code Model')).toBeInTheDocument();
+    expect(screen.getByText('Model')).toBeInTheDocument();
     await user.click(screen.getByRole('menuitemradio', { name: 'Opus' }));
 
     expect(screen.getByRole('button', { name: 'Claude Code Model: Opus' })).toHaveTextContent(

@@ -22,6 +22,7 @@ import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { useNewWorkspaceShortcutLabel } from '@/lib/agent-dialog-shortcuts';
+import { AGENT_OPTION_CARD_IDS } from '@/lib/agent-option-cards';
 import {
   getLaunchModeColor,
   LAUNCH_MODE_COLORS,
@@ -30,7 +31,12 @@ import {
 import { LEVEL_PICKER_ICON_COMPONENTS } from '@/lib/level-picker-icons';
 
 import { agentLaunchPolicy } from '../../../../shared/lib/launch-mode-permissions';
-import { DEFAULT_LEVEL_PICKER_TITLE, levelPickerOf } from '../../../../shared/lib/level-picker';
+import {
+  DEFAULT_LEVEL_PICKER_TITLE,
+  DEFAULT_MODEL_PICKER_TITLE,
+  levelPickerOf,
+  modelPickerOf,
+} from '../../../../shared/lib/level-picker';
 import {
   LEVEL_PICKER_ICONS,
   MAX_LEVEL_PICKER_TITLE_LENGTH,
@@ -39,6 +45,7 @@ import {
   MAX_MODEL_OPTIONS,
   type AgentLaunchPolicy,
   type LaunchMode,
+  type LevelPickerIcon,
   type ReasoningLevel,
   type ModelOption,
   type LevelPicker,
@@ -61,6 +68,9 @@ interface CommandInputsProps {
   /** The models the new workspace dialog offers; left out, they aren't editable here. */
   models?: ModelOption[];
   onModelsChange?: (models: ModelOption[]) => void;
+  /** The model picker's title, icon and visibility. */
+  modelPicker?: LevelPicker;
+  onModelPickerChange?: (picker: LevelPicker) => void;
   /** If true, always show inputs. If false, show as collapsible "Advanced" section */
   alwaysExpanded?: boolean;
   /** Show example placeholders for launch mode inputs (useful for Custom preset) */
@@ -75,12 +85,18 @@ type DropTarget = { id: string; position: 'before' | 'after' };
 // default.
 function LevelPickerLook({
   picker,
+  icon,
+  defaultTitle,
+  titleLabel = 'Picker title',
   onChange,
 }: {
   picker: LevelPicker;
+  /** The icon shown: the picker's own, else the default for this kind of picker. */
+  icon: LevelPickerIcon;
+  defaultTitle: string;
+  titleLabel?: string;
   onChange: (picker: LevelPicker) => void;
 }) {
-  const { icon } = levelPickerOf({ levelPicker: picker });
   const PickerIcon = LEVEL_PICKER_ICON_COMPONENTS[icon];
   return (
     <div className="flex items-center gap-2">
@@ -119,8 +135,8 @@ function LevelPickerLook({
       <Input
         value={picker.title ?? ''}
         onChange={(e) => onChange({ ...picker, title: e.target.value })}
-        placeholder={DEFAULT_LEVEL_PICKER_TITLE}
-        aria-label="Picker title"
+        placeholder={defaultTitle}
+        aria-label={titleLabel}
         maxLength={MAX_LEVEL_PICKER_TITLE_LENGTH}
         className="flex-1"
       />
@@ -297,6 +313,18 @@ function AgentLaunchMenu({
 const NO_MODELS: ModelOption[] = [];
 const IGNORE_MODELS = () => {};
 
+// Names the two inputs of a level or model row, lined up with them.
+function RowColumnHeaders({ nameLabel }: { nameLabel: string }) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground" aria-hidden>
+      <span className="size-4 shrink-0" />
+      <span className="flex-[2]">{nameLabel}</span>
+      <span className="flex-[3]">Arguments</span>
+      <span className="size-8 shrink-0" />
+    </div>
+  );
+}
+
 export function CommandInputs({
   openCommand,
   continueCommand,
@@ -312,6 +340,8 @@ export function CommandInputs({
   onLevelPickerChange,
   models,
   onModelsChange,
+  modelPicker,
+  onModelPickerChange,
   alwaysExpanded = false,
   showExamplePlaceholders = false,
   pinnedLaunchModeId,
@@ -343,7 +373,11 @@ export function CommandInputs({
   const handleAddLevel = () => {
     onReasoningLevelsChange([
       ...reasoningLevels,
-      { id: crypto.randomUUID(), name: '', arguments: '' },
+      {
+        id: crypto.randomUUID(),
+        name: '',
+        arguments: '',
+      },
     ]);
   };
 
@@ -397,7 +431,7 @@ export function CommandInputs({
         </p>
       </div>
 
-      <div className="grid gap-2">
+      <div id={AGENT_OPTION_CARD_IDS.launchModes} className="grid scroll-mt-4 gap-2">
         <label className="text-sm font-medium">Launch Modes</label>
         <p className="text-xs text-muted-foreground">
           Reusable arguments applied when opening, prompting, or continuing an agent
@@ -486,9 +520,9 @@ export function CommandInputs({
         </Button>
       </div>
 
-      <div className="grid gap-2">
+      <div id={AGENT_OPTION_CARD_IDS.effort} className="grid scroll-mt-4 gap-2">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-medium">Level Picker</span>
+          <span className="text-sm font-medium">Effort Picker</span>
           {levelPicker && onLevelPickerChange && (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               Show in the new workspace dialog
@@ -500,13 +534,26 @@ export function CommandInputs({
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Levels for the pill next to the agent in the new workspace dialog, such as reasoning
-          effort or a model, lowest first. A level&apos;s arguments go wherever launch mode
-          arguments go, and the level is reused when the workspace resumes.
+          Levels for the effort pill in the new workspace dialog, lowest first. A level&apos;s
+          arguments go wherever launch mode arguments go, and the level is reused when the workspace
+          resumes.
         </p>
         {levelPicker && onLevelPickerChange && (
-          <LevelPickerLook picker={levelPicker} onChange={onLevelPickerChange} />
+          <LevelPickerLook
+            picker={levelPicker}
+            icon={levelPickerOf({ levelPicker }).icon}
+            defaultTitle={DEFAULT_LEVEL_PICKER_TITLE}
+            onChange={onLevelPickerChange}
+          />
         )}
+        {reasoningLevels.length === 0 && (
+          <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+            No levels yet. Add the flag your agent uses for how hard it thinks, such as{' '}
+            <code>--effort high</code>, <code>--thinking high</code> or{' '}
+            <code>--reasoning high</code>.
+          </p>
+        )}
+        {reasoningLevels.length > 0 && <RowColumnHeaders nameLabel="Level name" />}
         {reasoningLevels.map((level) => (
           <div key={level.id} {...levelReorder.rowProps(level.id)}>
             <DotsSixVertical
@@ -552,13 +599,42 @@ export function CommandInputs({
       </div>
 
       {models && onModelsChange && (
-        <div className="grid gap-2">
-          <span className="text-sm font-medium">Models</span>
+        <div id={AGENT_OPTION_CARD_IDS.models} className="grid scroll-mt-4 gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium">Model Picker</span>
+            {modelPicker && onModelPickerChange && (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                Show in the new workspace dialog
+                <Switch
+                  aria-label="Show model picker in the new workspace dialog"
+                  checked={!modelPickerOf({ modelPicker }).hidden}
+                  onCheckedChange={(shown) =>
+                    onModelPickerChange({ ...modelPicker, hidden: !shown })
+                  }
+                />
+              </label>
+            )}
+          </div>
           <p className="text-xs text-muted-foreground">
-            Models for the pill next to the effort pill in the new workspace dialog. A model&apos;s
-            arguments go wherever launch mode arguments go, and the model is reused when the
-            workspace resumes.
+            Models for the model pill in the new workspace dialog. A model&apos;s arguments go
+            wherever launch mode arguments go, and the model is reused when the workspace resumes.
           </p>
+          {modelPicker && onModelPickerChange && (
+            <LevelPickerLook
+              picker={modelPicker}
+              icon={modelPickerOf({ modelPicker }).icon}
+              defaultTitle={DEFAULT_MODEL_PICKER_TITLE}
+              titleLabel="Model picker title"
+              onChange={onModelPickerChange}
+            />
+          )}
+          {models.length === 0 && (
+            <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+              No models yet. Add the flag your agent uses to pick one, such as{' '}
+              <code>--model opus</code> or <code>-m gpt-5</code>.
+            </p>
+          )}
+          {models.length > 0 && <RowColumnHeaders nameLabel="Model name" />}
           {models.map((model) => (
             <div key={model.id} {...modelReorder.rowProps(model.id)}>
               <DotsSixVertical
@@ -597,11 +673,18 @@ export function CommandInputs({
             className="w-fit"
             disabled={models.length >= MAX_MODEL_OPTIONS}
             onClick={() =>
-              onModelsChange([...models, { id: crypto.randomUUID(), name: '', arguments: '' }])
+              onModelsChange([
+                ...models,
+                {
+                  id: crypto.randomUUID(),
+                  name: '',
+                  arguments: '',
+                },
+              ])
             }
           >
             <Plus className="mr-1 size-3.5" />
-            Another model
+            {models.length === 0 ? 'Add a model' : 'Another model'}
           </Button>
         </div>
       )}

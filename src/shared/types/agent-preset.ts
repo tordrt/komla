@@ -70,6 +70,7 @@ export interface AgentPreset {
   reasoningLevels?: ReasoningLevel[];
   levelPicker?: LevelPicker;
   models?: ModelOption[];
+  modelPicker?: LevelPicker;
   isBuiltin: boolean;
 }
 

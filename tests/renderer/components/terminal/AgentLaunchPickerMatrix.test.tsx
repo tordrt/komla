@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentLaunchPickerMatrix } from '../../../../src/renderer/components/terminal/AgentLaunchPickerMatrix';
@@ -76,5 +76,59 @@ describe('AgentLaunchPickerMatrix', () => {
         'launch-mode-check'
       )
     ).toBeNull();
+  });
+
+  describe('adding model and effort options', () => {
+    const renderWith = (preset: AgentPreset, onAddAgentOption = vi.fn()) => {
+      render(
+        <DropdownMenu open>
+          <DropdownMenuContent>
+            <AgentLaunchPickerMatrix
+              presets={[preset]}
+              inspectedPresetId={preset.id}
+              onInspectPreset={vi.fn()}
+              selectedTarget={{ presetId: preset.id, launchModeId: null }}
+              onSelectTarget={vi.fn()}
+              onAddAgentOption={onAddAgentOption}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+      return onAddAgentOption;
+    };
+
+    it('offers both for an agent that has neither, and opens the one picked', () => {
+      const onAdd = renderWith(claude);
+
+      expect(screen.getByRole('menuitem', { name: 'Add effort picker…' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Add model picker…' }));
+      expect(onAdd).toHaveBeenCalledWith('claude', 'models');
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit launch modes…' }));
+      expect(onAdd).toHaveBeenCalledWith('claude', 'launchModes');
+    });
+
+    it('offers to edit a picker the agent already has, by its title', () => {
+      const onAdd = renderWith({
+        ...claude,
+        models: [{ id: 'm', name: 'Opus', arguments: '--model opus' }],
+        reasoningLevels: [{ id: 'l', name: 'High', arguments: '--effort high' }],
+        levelPicker: { title: 'Speed' },
+      });
+
+      expect(screen.queryByRole('menuitem', { name: 'Add model picker…' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Add effort picker…' })).toBeNull();
+      expect(screen.getByRole('menuitem', { name: 'Edit speed picker…' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit model picker…' }));
+      expect(onAdd).toHaveBeenCalledWith('claude', 'models');
+      // Launch modes can always be edited.
+      expect(screen.getByRole('menuitem', { name: 'Edit launch modes…' })).toBeInTheDocument();
+    });
+
+    it('offers nothing for an agent that starts no command', () => {
+      renderWith({ ...claude, openCommand: '' });
+
+      expect(screen.queryByRole('menuitem', { name: 'Add model picker…' })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: 'Edit launch modes…' })).toBeNull();
+    });
   });
 });

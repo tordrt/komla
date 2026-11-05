@@ -440,6 +440,7 @@ const presetCreateSchema = z
     reasoningLevels: z.array(reasoningLevelSchema).optional(),
     levelPicker: levelPickerSchema.optional(),
     models: z.array(modelOptionSchema).optional(),
+    modelPicker: levelPickerSchema.optional(),
     isBuiltin: z.boolean(),
   })
   .strip();
@@ -454,6 +455,7 @@ const presetUpdateSchema = z
     reasoningLevels: z.array(reasoningLevelSchema).optional(),
     levelPicker: levelPickerSchema.optional(),
     models: z.array(modelOptionSchema).optional(),
+    modelPicker: levelPickerSchema.optional(),
     isBuiltin: z.boolean().optional(),
   })
   .strip();

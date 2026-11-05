@@ -8,6 +8,8 @@ export interface SettingsDialogTarget {
   generalSection?: string;
   editProjectId?: string;
   setupProjectId?: string;
+  /** The agent whose editor Settings → Agents opens on. */
+  editPresetId?: string;
   /** Attributes an SSH host added in this visit; defaults to 'settings'. */
   sshSetupSource?: SshHostAddedSource;
   /** The Integrations section to show expanded. */

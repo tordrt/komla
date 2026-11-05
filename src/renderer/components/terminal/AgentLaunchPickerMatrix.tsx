@@ -6,8 +6,11 @@ import { isSameLaunchTarget, type LaunchTarget } from '@/lib/agent-launch';
 import { getLaunchModeColor, LAUNCH_MODE_TEXT_CLASSES } from '@/lib/launch-mode-colors';
 import { cn } from '@/lib/utils';
 
+import { levelPickerOf, modelPickerOf } from '../../../shared/lib/level-picker';
+
 import { AgentPresetIcon } from './AgentPresetIcon';
 
+import type { AgentOption } from '@/lib/agent-option-cards';
 import type { AgentPreset } from '@/types';
 
 interface AgentLaunchPickerMatrixProps {
@@ -23,6 +26,11 @@ interface AgentLaunchPickerMatrixProps {
   heightPresets?: AgentPreset[];
   /** Adds a "Manage agents…" item under the agents, e.g. to open Settings → Agents. */
   onManageAgents?: () => void;
+  /**
+   * Adds a quiet footer to edit the agent's launch modes, and to edit or add its model and effort
+   * pickers, e.g. to open that agent's editor in Settings → Agents.
+   */
+  onAddAgentOption?: (presetId: string, option: AgentOption) => void;
 }
 
 export function AgentLaunchPickerMatrix({
@@ -37,6 +45,7 @@ export function AgentLaunchPickerMatrix({
   menuType = 'dropdown',
   heightPresets = presets,
   onManageAgents,
+  onAddAgentOption,
 }: AgentLaunchPickerMatrixProps) {
   const isMultiSelect = selectedTargets !== undefined;
   const isSinglePreset = presets.length === 1;
@@ -75,6 +84,43 @@ export function AgentLaunchPickerMatrix({
       <GearSix className="size-3.5 shrink-0" />
       <span className="truncate">Manage agents…</span>
     </MenuItem>
+  );
+
+  // An agent that starts a command can edit its launch modes, and edit or add its pickers.
+  const editableOptions: { option: AgentOption; label: string }[] =
+    onAddAgentOption && inspectedPreset?.openCommand.trim()
+      ? [
+          { option: 'launchModes', label: 'Edit launch modes…' },
+          {
+            option: 'models' as const,
+            label: inspectedPreset.models?.length
+              ? `Edit ${modelPickerOf(inspectedPreset).title.toLowerCase()} picker…`
+              : 'Add model picker…',
+          },
+          {
+            option: 'effort' as const,
+            label: inspectedPreset.reasoningLevels?.length
+              ? `Edit ${levelPickerOf(inspectedPreset).title.toLowerCase()} picker…`
+              : 'Add effort picker…',
+          },
+        ]
+      : [];
+  // Quiet text under the picker, apart from the launch modes it sits below.
+  const optionsFooter = editableOptions.length > 0 && (
+    <div
+      className="col-span-full mt-1 flex flex-wrap gap-x-0.5 border-t border-border/60 pt-1"
+      data-agent-options-footer
+    >
+      {editableOptions.map(({ option, label }) => (
+        <MenuItem
+          key={option}
+          className="min-h-6 w-auto justify-start rounded px-1.5 py-0.5 text-2xs text-muted-foreground-70"
+          onSelect={() => inspectedPreset && onAddAgentOption?.(inspectedPreset.id, option)}
+        >
+          {label}
+        </MenuItem>
+      ))}
+    </div>
   );
 
   return (
@@ -230,6 +276,7 @@ export function AgentLaunchPickerMatrix({
           </div>
         </div>
       )}
+      {optionsFooter}
     </div>
   );
 }

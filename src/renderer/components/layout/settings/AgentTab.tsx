@@ -21,6 +21,7 @@ import { reportsOwnStatus } from '@/lib/agent-status-reports';
 import { getLaunchModeColor, LAUNCH_MODE_DOT_CLASSES } from '@/lib/launch-mode-colors';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { useConfigStore } from '@/stores/config.store';
+import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import { useToastStore } from '@/stores/toast.store';
 import { deriveAgentName } from '@/utils/agent-name';
 
@@ -28,7 +29,9 @@ import { POPULAR_OTHER_AGENTS, RECOMMENDED_AGENTS } from '../../../../shared/con
 import {
   hasDuplicateLevelNames,
   levelPickerOf,
+  modelPickerOf,
   storedLevelPicker,
+  storedModelPicker,
 } from '../../../../shared/lib/level-picker';
 
 import {
@@ -56,6 +59,8 @@ import type {
 // Compares pickers as they look, so a title typed and cleared again isn't a change.
 const pickerJson = (picker: LevelPicker | undefined) =>
   JSON.stringify(levelPickerOf({ levelPicker: picker }));
+const modelPickerJson = (picker: LevelPicker | undefined) =>
+  JSON.stringify(modelPickerOf({ modelPicker: picker }));
 
 const TEMPLATE_INFO: Record<string, string> = {
   'Claude Code': 'AI coding assistant by Anthropic',
@@ -157,6 +162,7 @@ export function AgentTab({
   const [reasoningLevels, setReasoningLevels] = useState<ReasoningLevel[]>([]);
   const [levelPicker, setLevelPicker] = useState<LevelPicker>({});
   const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelPicker, setModelPicker] = useState<LevelPicker>({});
   const [presetError, setPresetError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   // Self-integration prompt for custom agents — surfaced in the custom edit view.
@@ -173,6 +179,7 @@ export function AgentTab({
     reasoningLevelsJson: string;
     levelPickerJson: string;
     modelsJson: string;
+    modelPickerJson: string;
   } | null>(null);
 
   // Load templates on mount (intentional one-shot — deps intentionally empty)
@@ -206,7 +213,8 @@ export function AgentTab({
       JSON.stringify(launchModes) !== initialState.launchModesJson ||
       JSON.stringify(reasoningLevels) !== initialState.reasoningLevelsJson ||
       pickerJson(levelPicker) !== initialState.levelPickerJson ||
-      JSON.stringify(models) !== initialState.modelsJson;
+      JSON.stringify(models) !== initialState.modelsJson ||
+      modelPickerJson(modelPicker) !== initialState.modelPickerJson;
 
     onDirtyChange?.(isDirty);
   }, [
@@ -220,9 +228,24 @@ export function AgentTab({
     reasoningLevels,
     levelPicker,
     models,
+    modelPicker,
     initialState,
     onDirtyChange,
   ]);
+
+  // Open the agent a link such as "Add model picker…" asked for, then forget the request, so
+  // coming back to this tab later shows the list.
+  const requestedPresetId = useSettingsDialogStore((s) => s.target.editPresetId);
+  useEffect(() => {
+    if (!requestedPresetId) return;
+    const preset = presets.find((p) => p.id === requestedPresetId);
+    if (!preset) return;
+    useSettingsDialogStore.setState((state) => ({
+      target: { ...state.target, editPresetId: undefined },
+    }));
+    navigateToEdit(preset.id, preset);
+    // oxlint-disable-next-line react/exhaustive-deps
+  }, [requestedPresetId, presets]);
 
   // Navigate to edit view for a preset (accepts optional preset data for newly created presets
   // that may not be in the store yet)
@@ -237,8 +260,9 @@ export function AgentTab({
       setPromptCommand(preset.promptCommand);
       setLaunchModes(preset.launchModes);
       setReasoningLevels(preset.reasoningLevels ?? []);
-      setLevelPicker(preset.levelPicker ?? {});
+      setLevelPicker(levelPickerOf(preset));
       setModels(preset.models ?? []);
+      setModelPicker(modelPickerOf(preset));
       setInitialState({
         presetId: preset.id,
         name: preset.name,
@@ -249,6 +273,7 @@ export function AgentTab({
         reasoningLevelsJson: JSON.stringify(preset.reasoningLevels ?? []),
         levelPickerJson: pickerJson(preset.levelPicker),
         modelsJson: JSON.stringify(preset.models ?? []),
+        modelPickerJson: modelPickerJson(preset.modelPicker),
       });
     }
     setIsCustomPreset(false);
@@ -410,6 +435,12 @@ export function AgentTab({
       const trimmedModelsJson = JSON.stringify(trimmedModels);
       const modelsUpdate =
         trimmedModelsJson !== initialState?.modelsJson ? { models: trimmedModels } : {};
+      const trimmedModelPicker = storedModelPicker(modelPickerOf({ modelPicker }));
+      const trimmedModelPickerJson = modelPickerJson(trimmedModelPicker);
+      const modelPickerUpdate =
+        trimmedModelPickerJson !== initialState?.modelPickerJson
+          ? { modelPicker: trimmedModelPicker }
+          : {};
       const trimmedLevelPicker = storedLevelPicker(levelPickerOf({ levelPicker }));
       const trimmedLevelPickerJson = pickerJson(trimmedLevelPicker);
       const levelPickerUpdate =
@@ -460,6 +491,7 @@ export function AgentTab({
           ...reasoningLevelsUpdate,
           ...levelPickerUpdate,
           ...modelsUpdate,
+          ...modelPickerUpdate,
         });
         await addActivePreset(newPreset.id);
         if (enablingNotificationsFor) {
@@ -480,6 +512,7 @@ export function AgentTab({
           ...reasoningLevelsUpdate,
           ...levelPickerUpdate,
           ...modelsUpdate,
+          ...modelPickerUpdate,
         });
       }
 
@@ -494,6 +527,7 @@ export function AgentTab({
         reasoningLevelsJson: trimmedReasoningLevelsJson,
         levelPickerJson: trimmedLevelPickerJson,
         modelsJson: trimmedModelsJson,
+        modelPickerJson: trimmedModelPickerJson,
       });
       setPresetName(trimmedName);
       setOpenCommand(trimmedOpenCommand);
@@ -501,8 +535,9 @@ export function AgentTab({
       setPromptCommand(trimmedPromptCommand);
       setLaunchModes(trimmedLaunchModes);
       setReasoningLevels(trimmedReasoningLevels);
-      setLevelPicker(trimmedLevelPicker);
+      setLevelPicker(levelPickerOf({ levelPicker: trimmedLevelPicker }));
       setModels(trimmedModels);
+      setModelPicker(modelPickerOf({ modelPicker: trimmedModelPicker }));
 
       if (notificationsError) addToast(`Agent preset saved. ${notificationsError}`, 'error');
       else addToast('Agent preset saved', 'success');
@@ -560,6 +595,7 @@ export function AgentTab({
       reasoningLevels: template.reasoningLevels,
       levelPicker: template.levelPicker,
       models: template.models,
+      modelPicker: template.modelPicker,
       isBuiltin: false,
     };
     // Custom agents have no meaningful template name — leave the display name
@@ -582,8 +618,9 @@ export function AgentTab({
     setPromptCommand(templateData.promptCommand);
     setLaunchModes(templateData.launchModes);
     setReasoningLevels(templateData.reasoningLevels ?? []);
-    setLevelPicker(templateData.levelPicker ?? {});
+    setLevelPicker(levelPickerOf(templateData));
     setModels(templateData.models ?? []);
+    setModelPicker(modelPickerOf(templateData));
     setInitialState({
       presetId: '',
       name: initialName,
@@ -594,6 +631,7 @@ export function AgentTab({
       reasoningLevelsJson: JSON.stringify(templateData.reasoningLevels ?? []),
       levelPickerJson: pickerJson(templateData.levelPicker),
       modelsJson: JSON.stringify(templateData.models ?? []),
+      modelPickerJson: modelPickerJson(templateData.modelPicker),
     });
     setPresetError(null);
     setView('edit');
@@ -840,6 +878,8 @@ export function AgentTab({
                   launchModes={launchModes}
                   reasoningLevels={reasoningLevels}
                   levelPicker={levelPicker}
+                  models={models}
+                  modelPicker={modelPicker}
                   bestEffort={isBestEffortTemplate}
                 >
                   {isBestEffortTemplate && (
@@ -877,6 +917,8 @@ export function AgentTab({
                     onLevelPickerChange={setLevelPicker}
                     models={models}
                     onModelsChange={setModels}
+                    modelPicker={modelPicker}
+                    onModelPickerChange={setModelPicker}
                     alwaysExpanded
                     showExamplePlaceholders={isCustomPreset}
                     pinnedLaunchModeId={
@@ -937,6 +979,8 @@ function CollapsibleCommands({
   launchModes,
   reasoningLevels,
   levelPicker,
+  models,
+  modelPicker,
   bestEffort,
   children,
 }: {
@@ -947,12 +991,16 @@ function CollapsibleCommands({
   launchModes: LaunchMode[];
   reasoningLevels: ReasoningLevel[];
   levelPicker: LevelPicker;
+  models: ModelOption[];
+  modelPicker: LevelPicker;
   bestEffort: boolean;
   children: React.ReactNode;
 }) {
   if (!collapsible) return <>{children}</>;
   const picker = levelPickerOf({ levelPicker });
   const levels = picker.hidden ? [] : reasoningLevels.filter((level) => level.name.trim());
+  const modelLook = modelPickerOf({ modelPicker });
+  const namedModels = modelLook.hidden ? [] : models.filter((model) => model.name.trim());
   // Colored by place in the full list, as the editor and launch menus do.
   const modes = launchModes
     .map((mode, index) => ({ mode, color: getLaunchModeColor(mode.color, index) }))
@@ -990,6 +1038,12 @@ function CollapsibleCommands({
                 <>
                   <dt className="text-muted-foreground">{picker.title}</dt>
                   <dd className="text-xs">{levels.map((level) => level.name).join(' · ')}</dd>
+                </>
+              )}
+              {namedModels.length > 0 && (
+                <>
+                  <dt className="text-muted-foreground">{modelLook.title}</dt>
+                  <dd className="text-xs">{namedModels.map((model) => model.name).join(' · ')}</dd>
                 </>
               )}
             </dl>

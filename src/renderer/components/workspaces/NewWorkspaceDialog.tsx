@@ -66,6 +66,7 @@ import {
   type LaunchTarget,
   type WorkspaceEnvironmentTarget,
 } from '@/lib/agent-launch';
+import { AGENT_OPTION_CARD_IDS, type AgentOption } from '@/lib/agent-option-cards';
 import { focusPromptOnMenuClose } from '@/lib/dialog-menus';
 import { stopWheelPropagation } from '@/lib/dialog-scroll-lock';
 import { getLaunchModeColor, LAUNCH_MODE_PILL_CLASSES } from '@/lib/launch-mode-colors';
@@ -103,7 +104,7 @@ import {
 } from '../../../shared/lib/action-injection';
 import { resolveWorkspaceCreationEnvironment } from '../../../shared/lib/agent-environment';
 import { canStartWithPrompt } from '../../../shared/lib/agent-preset-prompt';
-import { levelPickerOf } from '../../../shared/lib/level-picker';
+import { levelPickerOf, modelPickerOf, shownModels } from '../../../shared/lib/level-picker';
 import { resolveBranchPrefix } from '../../../shared/lib/project-git-defaults';
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
 import { generateBranchSuffix, branchSuffixToName } from '../../../shared/lib/random-names';
@@ -161,7 +162,8 @@ function resolveModelId(
   presetId: string | undefined
 ): string | null {
   if (!presetId) return null;
-  const models = presets.find((preset) => preset.id === presetId)?.models ?? [];
+  const preset = presets.find((candidate) => candidate.id === presetId);
+  const models = preset ? shownModels(preset) : [];
   const isAvailable = (modelId: string | null | undefined): modelId is string | null =>
     modelId === null || models.some((model) => model.id === modelId);
   const override = overrides[presetId];
@@ -666,7 +668,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const getReasoningLevelId = (presetId: string | undefined): string | null =>
     resolveReasoningLevelId(presets, activePresets, reasoningLevelOverrides, presetId);
   const effectiveReasoningLevelId = getReasoningLevelId(selectedPreset?.id);
-  const availableModels = selectedPreset?.models ?? [];
+  const availableModels = selectedPreset ? shownModels(selectedPreset) : [];
   const getModelId = (presetId: string | undefined): string | null =>
     resolveModelId(presets, activePresets, modelOverrides, presetId);
   const effectiveModelId = getModelId(selectedPreset?.id);
@@ -1854,6 +1856,16 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     useSettingsDialogStore.getState().openSettings({ tab: 'agent' });
   };
 
+  // Opens one agent's editor, scrolled to its models or effort levels.
+  const handleEditAgentOption = (presetId: string, option: AgentOption) => {
+    handleOpenChange(false);
+    useSettingsDialogStore.getState().openSettings({
+      tab: 'agent',
+      editPresetId: presetId,
+      cardId: AGENT_OPTION_CARD_IDS[option],
+    });
+  };
+
   const handleSelectBaseBranch = (branch: string, meta: BranchPickerMeta) => {
     setBaseBranch(qualifyRemoteOnlyBranch(branch, meta.isRemoteOnly));
     setBranchHostId(meta.onHost ? effectiveSshHostId : '');
@@ -2477,6 +2489,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                 onLaunchTargetsChange={setSelectedLaunchTargets}
                 canLaunchMultiple={canLaunchMultiple}
                 onManageAgents={handleManageAgents}
+                onEditAgentOption={handleEditAgentOption}
                 onCustomizeShortcuts={handleCustomizeShortcuts}
                 isSubmitting={isSubmitting}
                 launchBlocked={isPushingSourceBranch}
@@ -3011,6 +3024,7 @@ interface FooterSectionProps {
   onLaunchTargetsChange: (targets: LaunchTarget[]) => void;
   canLaunchMultiple: boolean;
   onManageAgents: () => void;
+  onEditAgentOption: (presetId: string, option: AgentOption) => void;
   onCustomizeShortcuts: () => void;
   isSubmitting: boolean;
   /** Launch waits, e.g. while the branch it starts from is being pushed. */
@@ -3038,6 +3052,7 @@ function FooterSection({
   onLaunchTargetsChange,
   canLaunchMultiple,
   onManageAgents,
+  onEditAgentOption,
   onCustomizeShortcuts,
   isSubmitting,
   launchBlocked,
@@ -3063,6 +3078,7 @@ function FooterSection({
             onLaunchTargetsChange={onLaunchTargetsChange}
             canLaunchMultiple={canLaunchMultiple}
             onManageAgents={onManageAgents}
+            onEditAgentOption={onEditAgentOption}
             onCustomizeShortcuts={onCustomizeShortcuts}
             promptTextareaRef={promptTextareaRef}
             open={openMenu === 'agent'}
@@ -3074,7 +3090,7 @@ function FooterSection({
             preset={selectedPreset}
             getReasoningLevelId={getReasoningLevelId}
             onReasoningLevelChange={onReasoningLevelChange}
-            onEdit={onManageAgents}
+            onEdit={() => selectedPreset && onEditAgentOption(selectedPreset.id, 'effort')}
             promptTextareaRef={promptTextareaRef}
             open={openMenu === 'effort'}
             onOpenChange={menuOpenChange('effort')}
@@ -3085,7 +3101,7 @@ function FooterSection({
             preset={selectedPreset}
             getModelId={getModelId}
             onModelChange={onModelChange}
-            onEdit={onManageAgents}
+            onEdit={() => selectedPreset && onEditAgentOption(selectedPreset.id, 'models')}
             promptTextareaRef={promptTextareaRef}
             open={openMenu === 'model'}
             onOpenChange={menuOpenChange('model')}
@@ -3184,9 +3200,7 @@ function ReasoningLevelPill({
         className="min-w-36"
         onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
       >
-        <DropdownMenuLabel>
-          {preset.name} {picker.title}
-        </DropdownMenuLabel>
+        <DropdownMenuLabel>{picker.title}</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={reasoningLevelId ?? DEFAULT_REASONING_VALUE}
           onValueChange={(value) =>
@@ -3209,7 +3223,7 @@ function ReasoningLevelPill({
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem className="text-xs text-muted-foreground" onSelect={onEdit}>
-          Edit {picker.title.toLowerCase()} levels…
+          Edit {picker.title.toLowerCase()} picker…
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -3237,18 +3251,20 @@ function ModelPill({
   open,
   onOpenChange,
 }: ModelPillProps) {
-  const models = preset?.models ?? [];
+  const models = preset ? shownModels(preset) : [];
   if (!preset || models.length === 0) return null;
   const modelId = getModelId(preset.id);
   const model = models.find((item) => item.id === modelId);
+  const picker = modelPickerOf(preset);
+  const PickerIcon = LEVEL_PICKER_ICON_COMPONENTS[picker.icon];
 
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label={`${preset.name} Model: ${model?.name ?? 'Default'}`}
-          title="Model"
+          aria-label={`${preset.name} ${picker.title}: ${model?.name ?? 'Default'}`}
+          title={picker.title}
           className={cn(
             'inline-flex h-6 items-center gap-1 rounded-md px-2 text-ui transition-colors',
             model
@@ -3256,7 +3272,7 @@ function ModelPill({
               : 'text-muted-foreground-70 hover:bg-muted/60 hover:text-foreground'
           )}
         >
-          <LEVEL_PICKER_ICON_COMPONENTS.cpu className="size-3" />
+          <PickerIcon className="size-3" />
           {model?.name}
           <CaretDown className="size-2.5" />
         </button>
@@ -3267,7 +3283,7 @@ function ModelPill({
         className="min-w-36"
         onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
       >
-        <DropdownMenuLabel>{preset.name} Model</DropdownMenuLabel>
+        <DropdownMenuLabel>{picker.title}</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={modelId ?? DEFAULT_REASONING_VALUE}
           onValueChange={(value) =>
@@ -3290,7 +3306,7 @@ function ModelPill({
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem className="text-xs text-muted-foreground" onSelect={onEdit}>
-          Edit models…
+          Edit {picker.title.toLowerCase()} picker…
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -3308,6 +3324,7 @@ interface AgentLaunchPickerPillProps {
   onLaunchTargetsChange: (targets: LaunchTarget[]) => void;
   canLaunchMultiple: boolean;
   onManageAgents: () => void;
+  onEditAgentOption: (presetId: string, option: AgentOption) => void;
   onCustomizeShortcuts: () => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
   open: boolean;
@@ -3325,6 +3342,7 @@ function AgentLaunchPickerPill({
   onLaunchTargetsChange,
   canLaunchMultiple,
   onManageAgents,
+  onEditAgentOption,
   onCustomizeShortcuts,
   promptTextareaRef,
   open: isPickerOpen,
@@ -3500,6 +3518,7 @@ function AgentLaunchPickerPill({
           getPreferredLaunchModeId={(preset) => getPreferredLaunchModeId(preset.id)}
           heightPresets={resolvedActivePresets}
           onManageAgents={isMultiSelectMode ? undefined : onManageAgents}
+          onAddAgentOption={isMultiSelectMode ? undefined : onEditAgentOption}
         />
         {isMultiSelectMode ? (
           <MultiSelectFooter

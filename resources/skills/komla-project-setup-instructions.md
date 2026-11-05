@@ -180,6 +180,8 @@ Workspace Setup:
 - Give every new step `placement`, `destination`, and `trigger`. Use returned values for existing
   steps; common defaults are `background`, `workspace-repository`, and `workspace-creation`.
 - Reference an automatic Quick Command's generated ID from its visible setup step.
+- `"kind": "browser"` opens tabs at `urls` (none finds the dev server) or a step's
+  `komla preview --open <url>`; `"kind": "note"` a blank note. Both open on creation; omit `trigger`.
 
 Use `workspace-creation` for one-time preparation and `every-workspace-start` for terminal layout
 or processes Komla should recreate on each start. Komla runs nothing when a workspace stops, so

@@ -483,6 +483,39 @@ describe('ProjectService', () => {
     expect(saved.projects[0].setupSteps[0].agent).toEqual({});
   });
 
+  it('loads a project whose setup steps open a browser and a note', async () => {
+    vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
+    const steps = [
+      { id: 'b', name: 'App', command: '', placement: 'split-right', kind: 'browser', url: '' },
+      { id: 'n', name: 'Note', command: '', placement: 'tab', kind: 'note' },
+    ];
+    vfs.mock.writeFileSync(
+      '/mock/home/.komla/settings/projects.json',
+      JSON.stringify({
+        _version: 1,
+        projects: [
+          {
+            id: 'project-1',
+            name: 'Project',
+            repositoryPath: '/repo/p',
+            defaultBranchPrefix: '',
+            createdAt: 1234567890,
+            order: 0,
+            managed: false,
+            setupSteps: steps,
+          },
+        ],
+      })
+    );
+
+    const { projectService } = await import('../../../src/main/services/project.service');
+
+    expect(projectService.get('project-1')?.setupSteps?.map((step) => step.kind)).toEqual([
+      'browser',
+      'note',
+    ]);
+  });
+
   it('clears removed launch mode references from setup steps', async () => {
     vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
     const project = {

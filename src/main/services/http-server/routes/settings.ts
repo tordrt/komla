@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
+import { setupStepUrlsSchema } from '../../../../shared/ipc/schemas/config-ipc.schemas';
 import { BRANCH_NAME_PATTERN } from '../../../../shared/ipc/schemas/primitives';
 import {
   ACTION_SSH_EXECUTION_LOCATIONS,
   SETTINGS_FILE_RESOURCES,
   SETUP_DESTINATIONS,
+  SETUP_STEP_KINDS,
   SETUP_TRIGGERS,
 } from '../../../../shared/types';
 import { MAX_AUTOMATION_EXTRA_ARGUMENTS_LENGTH } from '../../../../shared/types/automation';
@@ -62,6 +64,8 @@ const settingsSetupStepSchema = z
       })
       .strict()
       .optional(),
+    kind: z.enum(SETUP_STEP_KINDS).optional(),
+    urls: setupStepUrlsSchema.optional(),
     destination: z.enum(SETUP_DESTINATIONS).optional(),
     trigger: z.enum(SETUP_TRIGGERS).optional(),
   })

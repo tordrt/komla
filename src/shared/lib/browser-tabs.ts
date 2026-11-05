@@ -318,20 +318,15 @@ export function normalizeBrowserTabs(value: unknown): WorkspaceBrowserTab[] | un
   return tabs.length > 0 ? tabs : undefined;
 }
 
-/** A workspace's saved browser panes, without any that are malformed or have no tabs. */
-export function normalizeBrowserPanes(value: unknown): WorkspaceBrowserPane[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const panes: WorkspaceBrowserPane[] = [];
-  for (const entry of value.slice(0, MAX_BROWSER_PANES)) {
-    if (!entry || typeof entry !== 'object') continue;
-    const { browserTabs: rawTabs, activeBrowserTabId } = entry as Record<string, unknown>;
-    const browserTabs = normalizeBrowserTabs(rawTabs);
-    if (!browserTabs) continue;
-    const active = getActiveBrowserTab({
-      browserTabs,
-      activeBrowserTabId: typeof activeBrowserTabId === 'string' ? activeBrowserTabId : undefined,
-    });
-    panes.push({ browserTabs, activeBrowserTabId: active?.id });
-  }
-  return panes;
+/** A saved browser pane, unless it's malformed or has no tabs. */
+export function normalizeBrowserPane(value: unknown): WorkspaceBrowserPane | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const { browserTabs: rawTabs, activeBrowserTabId } = value as Record<string, unknown>;
+  const browserTabs = normalizeBrowserTabs(rawTabs);
+  if (!browserTabs) return undefined;
+  const active = getActiveBrowserTab({
+    browserTabs,
+    activeBrowserTabId: typeof activeBrowserTabId === 'string' ? activeBrowserTabId : undefined,
+  });
+  return { browserTabs, activeBrowserTabId: active?.id };
 }

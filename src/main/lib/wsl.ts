@@ -13,6 +13,15 @@ export function isWslMode(): boolean {
   return process.platform === 'win32' && configService.get().shellMode === 'wsl';
 }
 
+// Variables that hold a path on this computer, which WSL translates to its own.
+const WSL_PATH_VARIABLES = new Set(['KOMLA_PLUGIN_DIR']);
+
+/** WSLENV naming these variables too, as Windows passes only the ones it names into WSL. */
+export function wslEnv(current: string | undefined, names: string[]): string {
+  const added = names.map((name) => (WSL_PATH_VARIABLES.has(name) ? `${name}/p` : name));
+  return [current, ...added].filter(Boolean).join(':');
+}
+
 /**
  * Returns the shell binary to use for WSL mode.
  */

@@ -14,6 +14,7 @@ import {
 import { automationScheduleError } from '../../shared/lib/automation-schedule';
 import { skipsPermissionPrompts } from '../../shared/lib/launch-mode-permissions';
 import { levelPickerOf, shownReasoningLevels } from '../../shared/lib/level-picker';
+import { setupStepPane } from '../../shared/lib/setup-panes';
 import {
   resolveSshWorkspaceMode,
   type SshWorkspaceMode,
@@ -284,6 +285,7 @@ export type SettingsManagementErrorCode =
   | 'INVALID_PRESET'
   | 'INVALID_SETTINGS'
   | 'INVALID_SSH_EXECUTION_LOCATION'
+  | 'INVALID_SETUP_STEP'
   | 'INVALID_BACKGROUND'
   | 'MULTI_PROJECT_ACTION_REQUIRED'
   | 'NO_APPROVAL_WINDOW'
@@ -1644,6 +1646,13 @@ export class SettingsManagementService {
         }
       }
       this.validatePresetSelection(step.agent?.presetId, step.agent?.launchModeId, presets);
+      if (setupStepPane(step) && (step.agent || step.actionId !== undefined)) {
+        throw new SettingsManagementError(
+          'INVALID_SETUP_STEP',
+          'A browser or note step runs no agent or Quick Command.',
+          422
+        );
+      }
     }
   }
 

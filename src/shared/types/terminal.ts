@@ -28,6 +28,8 @@ export interface Terminal {
   dynamicTitle?: string;
   createdAt: number;
   layoutHint?: 'tab' | 'split-right' | 'split-bottom';
+  /** The Setup step that started it, whose next start takes its place in a saved layout. */
+  setupStepId?: string;
   /** Where this terminal executes. Undefined means the workspace's normal location. */
   executionLocation?: TerminalExecutionLocation;
   /** Startup failure shown in the terminal pane when no PTY could be created. */

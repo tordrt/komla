@@ -1,3 +1,5 @@
+import { setupPanePlacement, setupStepPane } from '../../shared/lib/setup-panes';
+
 import type { WorkspaceSetupState } from './project.service';
 import type { Action, AgentPreset, Project, SetupStep } from '../../shared/types';
 import type { SettingsApprovalChange } from '../../shared/types/settings-approval';
@@ -138,6 +140,29 @@ function describeSetupStep(
   step: SetupStep,
   actions: readonly Action[]
 ): SettingsApprovalChange {
+  const pane = setupStepPane(step);
+  if (pane) {
+    return {
+      operation,
+      kind: 'setup-step',
+      title: step.name,
+      details: [
+        {
+          label: 'Opens',
+          value:
+            pane === 'note'
+              ? 'A blank note'
+              : `Browser at ${
+                  step.urls
+                    ?.map((url) => url.trim())
+                    .filter(Boolean)
+                    .join(', ') || 'the workspace’s dev server'
+                }`,
+        },
+        { label: 'Show in', value: setupPlacementLabel(setupPanePlacement(step.placement)) },
+      ],
+    };
+  }
   const action = step.actionId
     ? actions.find((candidate) => candidate.id === step.actionId)
     : undefined;

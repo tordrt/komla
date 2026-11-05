@@ -376,6 +376,43 @@ describe('projectUpdateArgsSchema workspace setup agents', () => {
   });
 });
 
+describe('projectUpdateArgsSchema browser and note steps', () => {
+  it('keeps the kind of pane a step opens and its page', () => {
+    const [, updates] = projectUpdateArgsSchema.parse([
+      'project-1',
+      {
+        setupSteps: [
+          {
+            id: 'browser',
+            name: 'App',
+            command: '',
+            placement: 'split-right',
+            kind: 'browser',
+            urls: ['http://localhost:5173'],
+          },
+          { id: 'note', name: 'Note', command: '', placement: 'tab', kind: 'note' },
+          { id: 'dev', name: 'Dev', command: 'npm run dev', placement: 'tab', kind: 'terminal' },
+        ],
+      },
+    ]);
+
+    expect(updates.setupSteps?.map(({ kind, urls }) => ({ kind, urls }))).toEqual([
+      { kind: 'browser', urls: ['http://localhost:5173'] },
+      { kind: 'note', urls: undefined },
+      { kind: 'terminal', urls: undefined },
+    ]);
+  });
+
+  it('rejects a kind of step Komla has no pane for', () => {
+    expect(() =>
+      projectUpdateArgsSchema.parse([
+        'project-1',
+        { setupSteps: [{ id: 's', name: 'S', command: '', placement: 'tab', kind: 'file' }] },
+      ])
+    ).toThrow();
+  });
+});
+
 describe('projectUpdateArgsSchema workspace setup destinations', () => {
   it('accepts explicit setup destination and trigger values', () => {
     const [, updates] = projectUpdateArgsSchema.parse([

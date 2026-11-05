@@ -2149,7 +2149,9 @@ describe('WorkspaceService', () => {
       expect(created.id).toMatch(/^[a-z][0-9a-z]{9}$/);
     });
 
-    it('drops browser tabs that are not web pages in update()', async () => {
+    const leaf = (pane: Record<string, unknown>) => ({ type: 'leaf' as const, pane });
+
+    it('drops browser tabs that are not web pages from a saved layout in update()', async () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
 
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
@@ -2158,51 +2160,47 @@ describe('WorkspaceService', () => {
         directoryPath: '/mock/dir1',
       });
       workspaceService.update(created.id, {
-        browserPanes: [
+        savedLayout: {
+          tabs: [
+            {
+              type: 'split',
+              direction: 'vertical',
+              sizes: [60, 40],
+              children: [
+                leaf({ kind: 'agent' }),
+                leaf({
+                  kind: 'browser',
+                  browserTabs: [
+                    { id: 'a', url: 'javascript:alert(1)' },
+                    { id: 'b', url: 'https://example.com/' },
+                  ],
+                }),
+              ],
+            },
+          ],
+        },
+      });
+
+      expect(workspaceService.get(created.id)?.savedLayout).toEqual({
+        tabs: [
           {
-            browserTabs: [
-              { id: 'a', url: 'javascript:alert(1)' },
-              { id: 'b', url: 'https://example.com/' },
+            type: 'split',
+            direction: 'vertical',
+            sizes: [60, 40],
+            children: [
+              leaf({ kind: 'agent' }),
+              leaf({
+                kind: 'browser',
+                browserTabs: [{ id: 'b', url: 'https://example.com/' }],
+                activeBrowserTabId: 'b',
+              }),
             ],
           },
         ],
       });
-
-      expect(workspaceService.get(created.id)?.browserPanes).toEqual([
-        { browserTabs: [{ id: 'b', url: 'https://example.com/' }], activeBrowserTabId: 'b' },
-      ]);
     });
 
-    it('hydrates browser panes from disk, dropping tabs and panes that show no web page', async () => {
-      vfs.setFile(
-        '/mock/home/.komla/workspaces.json',
-        JSON.stringify([
-          {
-            ...persistedWorkspace,
-            _version: 1,
-            browserPanes: [
-              {
-                browserTabs: [
-                  { id: 'a', url: 'https://example.com/docs' },
-                  { id: 'b', url: 'file:///etc/passwd' },
-                ],
-                activeBrowserTabId: 'b',
-              },
-              { browserTabs: [{ id: 'c', url: 'javascript:alert(1)' }] },
-              'not a pane',
-            ],
-          },
-        ])
-      );
-
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-      expect(workspaceService.get('ws-1')?.browserPanes).toEqual([
-        { browserTabs: [{ id: 'a', url: 'https://example.com/docs' }], activeBrowserTabId: 'a' },
-      ]);
-    });
-
-    it('writes browser panes back to disk when a workspace updates them', async () => {
+    it('clears a saved layout that an update leaves no browser or note in', async () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
 
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
@@ -2210,10 +2208,126 @@ describe('WorkspaceService', () => {
         mode: 'directory',
         directoryPath: '/mock/dir1',
       });
-      const browserPanes = [
-        { browserTabs: [{ id: 'a', url: 'http://localhost:5173' }], activeBrowserTabId: 'a' },
-      ];
-      workspaceService.update(created.id, { browserPanes });
+      workspaceService.update(created.id, {
+        savedLayout: { tabs: [leaf({ kind: 'note', name: 'note-1.md' })] },
+      });
+      workspaceService.update(created.id, { savedLayout: { tabs: [] } });
+
+      expect(workspaceService.get(created.id)?.savedLayout).toBeUndefined();
+    });
+
+    it("forgets Setup's panes once a window has them, or the workspace stops", async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const created = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir1',
+      });
+      const setupPanes = [{ kind: 'note' as const, layoutHint: 'tab' as const, afterTerminals: 1 }];
+      const workspace = workspaceService.get(created.id)!;
+      workspace.setupPanes = setupPanes;
+      // The window that laid them out has them now, and opens them again from its saved layout.
+      workspaceService.update(created.id, { setupPanes: [] });
+      expect(workspaceService.get(created.id)?.setupPanes).toBeUndefined();
+
+      workspace.setupPanes = setupPanes;
+      await workspaceService.stop(created.id);
+      expect(workspaceService.get(created.id)?.setupPanes).toBeUndefined();
+    });
+
+    it("marks a Setup step's terminal with its step as it's made, before it starts", async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const created = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir1',
+      });
+      workspaceService.addTerminal(
+        created.id,
+        'Server',
+        'npm run dev',
+        'tab',
+        'host',
+        'workspace',
+        () => new Promise<void>(() => {}),
+        'server'
+      );
+
+      expect(workspaceService.get(created.id)?.terminals.at(-1)?.setupStepId).toBe('server');
+    });
+
+    it('hydrates a saved layout from disk, dropping panes that show no web page or note', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          {
+            ...persistedWorkspace,
+            _version: 1,
+            savedLayout: {
+              tabs: [
+                {
+                  type: 'split',
+                  direction: 'horizontal',
+                  sizes: [50, 50],
+                  children: [
+                    leaf({
+                      kind: 'browser',
+                      browserTabs: [
+                        { id: 'a', url: 'https://example.com/docs' },
+                        { id: 'b', url: 'file:///etc/passwd' },
+                      ],
+                      activeBrowserTabId: 'b',
+                    }),
+                    leaf({ kind: 'browser', browserTabs: [{ id: 'c', url: 'javascript:alert(1)' }] }),
+                  ],
+                },
+                leaf({ kind: 'note', name: '../escape.md' }),
+                leaf({ kind: 'setup-step', stepId: 'dev' }),
+                'not a pane',
+              ],
+              activeTab: 2,
+            },
+          },
+        ])
+      );
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      expect(workspaceService.get('ws-1')?.savedLayout).toEqual({
+        tabs: [
+          leaf({
+            kind: 'browser',
+            browserTabs: [{ id: 'a', url: 'https://example.com/docs' }],
+            activeBrowserTabId: 'a',
+          }),
+          leaf({ kind: 'setup-step', stepId: 'dev' }),
+        ],
+        activeTab: 1,
+      });
+    });
+
+    it('writes a saved layout back to disk when a workspace updates it', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const created = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir1',
+      });
+      const savedLayout = {
+        tabs: [
+          leaf({ kind: 'agent' }),
+          leaf({
+            kind: 'browser',
+            browserTabs: [{ id: 'a', url: 'http://localhost:5173' }],
+            activeBrowserTabId: 'a',
+          }),
+        ],
+        activeTab: 1,
+      };
+      workspaceService.update(created.id, { savedLayout });
 
       vi.advanceTimersByTime(600);
       await Promise.resolve();
@@ -2221,7 +2335,7 @@ describe('WorkspaceService', () => {
       const written = JSON.parse(mockWriteFileAtomic.mock.calls.at(-1)![1] as string) as Array<
         Record<string, unknown>
       >;
-      expect(written[0]?.browserPanes).toEqual(browserPanes);
+      expect(written[0]?.savedLayout).toEqual(savedLayout);
     });
 
     it('saves recent links and drops ones that are not links to other sites', async () => {

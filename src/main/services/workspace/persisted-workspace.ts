@@ -1,5 +1,5 @@
-import { normalizeBrowserPanes } from '../../../shared/lib/browser-tabs';
 import { normalizeRecentLinks } from '../../../shared/lib/recent-links';
+import { normalizeSavedLayout } from '../../../shared/lib/saved-layout';
 import { normalizeSshTargetBranch } from '../../../shared/lib/ssh-target-branch';
 import {
   encodeTerminalExecution,
@@ -31,8 +31,8 @@ import type {
   Workspace,
   WorkspaceAttention,
   WorkspaceAttentionSource,
-  WorkspaceBrowserPane,
   WorkspaceRecentLink,
+  WorkspaceSavedLayout,
   WorkspaceStatus,
   WorkspaceVirtualDesktop,
 } from '../../../shared/types';
@@ -73,6 +73,7 @@ export type PersistedWorkspace = {
     dynamicTitle?: string;
     createdAt: number;
     layoutHint?: Terminal['layoutHint'];
+    setupStepId?: string;
     executionLocation?: TerminalExecutionLocation;
     remoteSessionActive?: boolean;
     attention?: WorkspaceAttention;
@@ -111,7 +112,7 @@ export type PersistedWorkspace = {
   reasoningLevelId?: string | null;
   modelId?: string | null;
   linkedWorkspaceIds?: string[];
-  browserPanes?: WorkspaceBrowserPane[];
+  savedLayout?: WorkspaceSavedLayout;
   recentLinks?: WorkspaceRecentLink[];
   virtualDesktops?: WorkspaceVirtualDesktop[];
   color?: string | null;
@@ -177,6 +178,9 @@ export function normalizePersistedSshTerminals(value: PersistedWorkspace['termin
         item.layoutHint === 'split-bottom'
           ? item.layoutHint
           : undefined,
+      ...(typeof item.setupStepId === 'string' && item.setupStepId
+        ? { setupStepId: item.setupStepId }
+        : {}),
       executionLocation: 'workspace',
       ...encodeTerminalExecution({ kind: 'restored', persistedActive: item.remoteSessionActive }),
       attention: normalizePersistedAttention(item.attention),
@@ -381,7 +385,7 @@ export function hydrateWorkspace(rawPersisted: PersistedWorkspace): {
     attention: persistedAttention,
     customNameSource: normalizeCustomNameSource(persisted.customNameSource),
     // The IPC schema checks panes already; this scrubs a hand-edited file.
-    browserPanes: normalizeBrowserPanes(persisted.browserPanes),
+    savedLayout: normalizeSavedLayout(persisted.savedLayout),
     recentLinks: normalizeRecentLinks(persisted.recentLinks),
     virtualDesktops: normalizeVirtualDesktops(persisted.virtualDesktops),
     // Only a workspace saved in the Trash is in it, so a hand-edited status never deletes one.
@@ -458,6 +462,7 @@ export function serializeWorkspace(
           dynamicTitle: terminal.dynamicTitle,
           createdAt: terminal.createdAt,
           layoutHint: terminal.layoutHint,
+          setupStepId: terminal.setupStepId,
           executionLocation: 'workspace',
           remoteSessionActive: persistedRemoteSessionActive(terminal),
           attention: terminal.attention,
@@ -499,7 +504,7 @@ export function serializeWorkspace(
     modelId: w.modelId || undefined,
     linkedWorkspaceIds:
       w.linkedWorkspaceIds && w.linkedWorkspaceIds.length > 0 ? w.linkedWorkspaceIds : undefined,
-    browserPanes: w.browserPanes && w.browserPanes.length > 0 ? w.browserPanes : undefined,
+    savedLayout: w.savedLayout,
     recentLinks: w.recentLinks && w.recentLinks.length > 0 ? w.recentLinks : undefined,
     virtualDesktops:
       w.virtualDesktops && w.virtualDesktops.length > 0 ? w.virtualDesktops : undefined,

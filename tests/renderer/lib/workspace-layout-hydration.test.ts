@@ -57,8 +57,60 @@ describe('buildWorkspaceLayoutHydration', () => {
     ]);
   });
 
-  it('returns null for a workspace without terminals', () => {
+  it("lays out Setup's browser and note panes among the terminals, in launch order", () => {
+    const workspace = createWorkspace({
+      terminals: [
+        createTerminal({ id: 'agent' }),
+        createTerminal({ id: 'server', layoutHint: 'tab' }),
+      ],
+      setupPanes: [
+        { id: 'surface:browser:app', kind: 'browser', url: '', layoutHint: 'split-right', afterTerminals: 1 },
+        { id: 'surface:note:n', kind: 'note', layoutHint: 'split-bottom', afterTerminals: 2 },
+      ],
+      primaryTerminalId: 'agent',
+    });
+
+    const hydrated = buildWorkspaceLayoutHydration(workspace);
+
+    expect(hydrated?.tabs).toEqual(['agent', 'server']);
+    expect(hydrated?.activeTab).toBe('agent');
+    expect(getAllLeaves(hydrated!.layouts['agent']).map((leaf) => leaf.terminalId)).toEqual([
+      'agent',
+      'surface:browser:app',
+    ]);
+    expect(getAllLeaves(hydrated!.layouts['server']).map((leaf) => leaf.terminalId)).toEqual([
+      'server',
+      'surface:note:n',
+    ]);
+  });
+
+  it('roots the first tab at a pane that opened first, and shows the tab with the agent', () => {
+    const workspace = createWorkspace({
+      terminals: [createTerminal({ id: 'agent', layoutHint: 'tab' })],
+      setupPanes: [{ id: 'surface:browser:app', kind: 'browser', url: '', afterTerminals: 0 }],
+      primaryTerminalId: 'agent',
+    });
+
+    const hydrated = buildWorkspaceLayoutHydration(workspace);
+
+    expect(hydrated?.tabs).toEqual(['surface:browser:app', 'agent']);
+    expect(hydrated?.activeTab).toBe('agent');
+  });
+
+  it("returns null for a workspace without terminals, even with Setup's panes", () => {
     expect(buildWorkspaceLayoutHydration(createWorkspace({ terminals: [] }))).toBeNull();
+    // An SSH workspace's terminals start after its Setup panes; laying out the panes alone would
+    // leave no place for them.
+    expect(
+      buildWorkspaceLayoutHydration(
+        createWorkspace({
+          terminals: [],
+          setupPanes: [
+            { id: 'surface:browser:app', kind: 'browser', layoutHint: 'split-right', afterTerminals: 1 },
+          ],
+        })
+      )
+    ).toBeNull();
   });
 });
 

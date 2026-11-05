@@ -32,7 +32,8 @@ interface PaneSurfacesState {
   requestEditorFocus: (id: string) => void;
   /** Drops the surface's focus request, leaving another surface's. */
   clearEditorFocusRequest: (id: string) => void;
-  addSurface: (surface: PaneSurface) => string;
+  /** Adds a surface under a new id, or under `id` when its pane is laid out already. */
+  addSurface: (surface: PaneSurface, id?: string) => string;
   setBrowserTabs: (id: string, tabs: BrowserTabsState) => void;
   setFileDirty: (id: string, dirty: boolean) => void;
   setFilePath: (id: string, path: string) => void;
@@ -49,8 +50,8 @@ export const usePaneSurfacesStore = create<PaneSurfacesState>((set) => ({
     set((state) => (state.editorFocusRequest === id ? { editorFocusRequest: null } : state));
   },
 
-  addSurface: (surface) => {
-    const id = createPaneSurfaceId(surface.kind);
+  addSurface: (surface, givenId) => {
+    const id = givenId ?? createPaneSurfaceId(surface.kind);
     set((state) => ({ surfaces: { ...state.surfaces, [id]: surface } }));
     return id;
   },

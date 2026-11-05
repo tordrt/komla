@@ -639,7 +639,7 @@ describe('workspace IPC validation', () => {
     }
   );
 
-  describe('browserPanes', () => {
+  describe('savedLayout', () => {
     const loadHandlers = async (): Promise<{
       ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
     }> => {
@@ -650,22 +650,39 @@ describe('workspace IPC validation', () => {
         ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
       };
     };
+    const leaf = (pane: Record<string, unknown>) => ({ type: 'leaf', pane });
+    const browser = (url: string) =>
+      leaf({ kind: 'browser', browserTabs: [{ id: 'a', url }], activeBrowserTabId: 'a' });
 
-    it('accepts local and remote http(s) pages and empty new tabs', async () => {
+    it('accepts local and remote http(s) pages, empty new tabs, notes and terminals', async () => {
       mockWorkspaceService.get.mockReturnValue({ id: 'ws-1', status: 'active' });
       mockWorkspaceService.update.mockReturnValue({ id: 'ws-1' });
       const { ipcMain } = await loadHandlers();
       const updates = {
-        browserPanes: [
-          {
-            browserTabs: [
-              { id: 'a', url: 'http://localhost:5173', urlExecutionLocation: 'local-mirror' },
-              { id: 'b', url: 'https://example.com/docs', title: 'Docs' },
-              { id: 'c', url: '' },
-            ],
-            activeBrowserTabId: 'b',
-          },
-        ],
+        savedLayout: {
+          tabs: [
+            {
+              type: 'split',
+              direction: 'vertical',
+              sizes: [60, 40],
+              children: [
+                leaf({ kind: 'agent' }),
+                leaf({
+                  kind: 'browser',
+                  browserTabs: [
+                    { id: 'a', url: 'http://localhost:5173', urlExecutionLocation: 'local-mirror' },
+                    { id: 'b', url: 'https://example.com/docs', title: 'Docs' },
+                    { id: 'c', url: '' },
+                  ],
+                  activeBrowserTabId: 'b',
+                }),
+              ],
+            },
+            leaf({ kind: 'note', name: 'note-1.md' }),
+            leaf({ kind: 'setup-step', stepId: 'dev' }),
+          ],
+          activeTab: 1,
+        },
       };
 
       await ipcMain._invoke('workspace:update', 'ws-1', updates);
@@ -679,37 +696,44 @@ describe('workspace IPC validation', () => {
         const { ipcMain } = await loadHandlers();
 
         await expect(
-          ipcMain._invoke('workspace:update', 'ws-1', {
-            browserPanes: [{ browserTabs: [{ id: 'a', url }] }],
-          })
+          ipcMain._invoke('workspace:update', 'ws-1', { savedLayout: { tabs: [browser(url)] } })
         ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
         expect(mockWorkspaceService.update).not.toHaveBeenCalled();
       }
     );
 
-    it('accepts browser panes of web pages, and rejects other pages or too many panes', async () => {
+    it('rejects malformed panes, notes outside the notes and too many panes', async () => {
+      const { ipcMain } = await loadHandlers();
+
+      for (const tabs of [
+        [{ ...browser('https://example.com/'), extra: true }],
+        [leaf({ kind: 'note', name: '../secret.md' })],
+        [leaf({ kind: 'file', path: '/etc/passwd' })],
+        [{ type: 'split', direction: 'diagonal', sizes: [50, 50], children: [browser(''), browser('')] }],
+        Array.from({ length: 65 }, () => browser('')),
+      ]) {
+        await expect(
+          ipcMain._invoke('workspace:update', 'ws-1', { savedLayout: { tabs } })
+        ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
+      }
+      expect(mockWorkspaceService.update).not.toHaveBeenCalled();
+    });
+
+    it("only clears Setup's panes, as the window that laid them out says it has them", async () => {
       mockWorkspaceService.get.mockReturnValue({ id: 'ws-1', status: 'active' });
       mockWorkspaceService.update.mockReturnValue({ id: 'ws-1' });
       const { ipcMain } = await loadHandlers();
-      const pane = (url: string) => ({ browserTabs: [{ id: 'a', url }], activeBrowserTabId: 'a' });
 
-      await ipcMain._invoke('workspace:update', 'ws-1', {
-        browserPanes: [pane('http://localhost:5173'), pane('')],
-      });
-      expect(mockWorkspaceService.update).toHaveBeenCalledWith('ws-1', {
-        browserPanes: [pane('http://localhost:5173'), pane('')],
-      });
+      await ipcMain._invoke('workspace:update', 'ws-1', { setupPanes: [] });
+      const [, updates] = mockWorkspaceService.update.mock.calls[0];
+      expect(updates).toHaveProperty('setupPanes', undefined);
+
       mockWorkspaceService.update.mockClear();
-
-      for (const browserPanes of [
-        [pane('javascript:alert(1)')],
-        [{ ...pane('https://example.com/'), extra: true }],
-        Array.from({ length: 13 }, () => pane('')),
-      ]) {
-        await expect(
-          ipcMain._invoke('workspace:update', 'ws-1', { browserPanes })
-        ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
-      }
+      await expect(
+        ipcMain._invoke('workspace:update', 'ws-1', {
+          setupPanes: [{ id: 'surface:note:n', kind: 'note', afterTerminals: 1 }],
+        })
+      ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
       expect(mockWorkspaceService.update).not.toHaveBeenCalled();
     });
 
@@ -718,7 +742,9 @@ describe('workspace IPC validation', () => {
       const browserTabs = Array.from({ length: 31 }, (_, index) => ({ id: `t${index}`, url: '' }));
 
       await expect(
-        ipcMain._invoke('workspace:update', 'ws-1', { browserPanes: [{ browserTabs }] })
+        ipcMain._invoke('workspace:update', 'ws-1', {
+          savedLayout: { tabs: [leaf({ kind: 'browser', browserTabs })] },
+        })
       ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
       expect(mockWorkspaceService.update).not.toHaveBeenCalled();
     });

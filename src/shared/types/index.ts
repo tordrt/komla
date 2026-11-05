@@ -34,6 +34,10 @@ export type {
   WorkspaceBrowserPane,
   WorkspaceBrowserTab,
   WorkspaceRecentLink,
+  WorkspaceLayoutNode,
+  WorkspaceLayoutPane,
+  WorkspaceSavedLayout,
+  WorkspaceSetupPane,
   WorkspaceVirtualDesktop,
   RestartTerminalOptions,
   AddAgentTabOptions,
@@ -80,6 +84,8 @@ export type {
 // Project types
 export type {
   SetupStepPlacement,
+  SetupStepKind,
+  SetupStepPane,
   SetupDestination,
   SetupTrigger,
   AgentPlacement,
@@ -102,7 +108,12 @@ export type {
   CreateProjectFromRemoteParams,
   CreateProjectFromNewParams,
 } from './project';
-export { SETUP_DESTINATIONS, SETUP_STEP_PLACEMENTS, SETUP_TRIGGERS } from './project';
+export {
+  SETUP_DESTINATIONS,
+  SETUP_STEP_KINDS,
+  SETUP_STEP_PLACEMENTS,
+  SETUP_TRIGGERS,
+} from './project';
 
 // Agent preset types
 export type {

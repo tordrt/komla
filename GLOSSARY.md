@@ -16,8 +16,16 @@ _Avoid_: Project Setup
 
 **Setup step**:
 A command Workspace Setup launches when a workspace is created or every time it starts, in the
-workspace or its Local copy. Steps run independently in the background and never hold up the
-workspace or each other; list order is launch order, not dependency order.
+workspace or its Local copy, or a browser or blank note it opens in a pane beside them when the
+workspace is created; after that the Saved layout opens them again. Steps run independently in the
+background and never hold up the workspace or each other; list order is launch order, not
+dependency order.
+
+**Saved layout**:
+A workspace's tabs as it last showed them while it had a browser or a note. When the workspace
+starts again, each browser opens with the tabs it had and each note with its contents, in its place
+beside the agent and the Setup steps' terminals that start again. Other terminals don't start again,
+so their places go; a pane closed before the stop doesn't come back.
 
 **Trash cleanup**:
 A command that must succeed in the workspace before it moves to the Trash. Success then discards any

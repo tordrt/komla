@@ -382,6 +382,38 @@ describe('workspaces.store', () => {
     ]);
   });
 
+  it("opens Setup's panes once, in the window it ran for, and says it has them", async () => {
+    const browser = {
+      id: 'surface:browser:app',
+      kind: 'browser' as const,
+      layoutHint: 'split-right' as const,
+      afterTerminals: 1,
+    };
+    const created = (id: string, windowId: string) =>
+      createWorkspace({
+        id,
+        windowId,
+        terminals: [createTerminal({ id: `${id}-agent` })],
+        setupPanes: [browser],
+      });
+    const workspaces = [created('here', 'window-1'), created('elsewhere', 'window-2')];
+    const api = createApiMock({ getWorkspaces: vi.fn().mockResolvedValue(workspaces) });
+    (globalThis as { window: { api: ApiMock } }).window = { api };
+    useLayoutStore.getState().initializeWorkspaceLayout('here', 'here');
+
+    await useWorkspacesStore.getState().loadWorkspaces();
+
+    const leaves = getAllLeaves(useLayoutStore.getState().layoutsByTab.here!['here-agent']);
+    expect(leaves.map((leaf) => leaf.terminalId)).toEqual(['here-agent', 'surface:browser:app']);
+    // Another window's workspace isn't laid out here for its Setup panes.
+    expect(useLayoutStore.getState().tabsByWorkspace.elsewhere).toBeUndefined();
+    // This window has them now, so neither it, once it reloads, nor another opens them again.
+    await vi.waitFor(() =>
+      expect(api.updateWorkspace).toHaveBeenCalledWith('here', { setupPanes: [] })
+    );
+    expect(api.updateWorkspace).not.toHaveBeenCalledWith('elsewhere', expect.anything());
+  });
+
   it('restores the saved SSH tab before workspace subscribers initialize a default layout', async () => {
     const terminal = createTerminal({ id: 'term-remote', status: 'stopped' });
     const workspace = createWorkspace({

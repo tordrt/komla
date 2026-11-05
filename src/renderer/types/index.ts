@@ -83,6 +83,8 @@ export type {
   SettingsApprovalPrompt,
   SettingsApprovalDecision,
   SetupStepPlacement,
+  SetupStepKind,
+  SetupStepPane,
   SetupDestination,
   SetupTrigger,
   AgentPlacement,

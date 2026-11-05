@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { MAX_UTILITY_PROMPT_CHARS } from '../../constants/utility-prompts';
 import { MAX_ZOOM_LEVEL, MIN_ZOOM_LEVEL, snapZoomLevel } from '../../constants/zoom';
 import { ACTIVITY_SPINNER_STYLES } from '../../lib/activity-spinner';
+import { MAX_BROWSER_TABS, MAX_BROWSER_URL_LENGTH } from '../../lib/browser-tabs';
 import { MAX_PROJECT_ICON_DATA_URL_LENGTH, PROJECT_ICON_DATA_URL } from '../../lib/project-icon';
 import { REMOTE_PASSKEY_WINDOW_MINUTES } from '../../lib/remote-passkey-window';
 import { STATUS_BAR_SIZES } from '../../lib/status-bar-size';
@@ -19,6 +20,7 @@ import {
   isValidSshBasePath,
   isValidSshHostname,
   SETUP_DESTINATIONS,
+  SETUP_STEP_KINDS,
   SETUP_STEP_PLACEMENTS,
   SETUP_TRIGGERS,
 } from '../../types';
@@ -97,6 +99,11 @@ export const sshHostSchema = z
   })
   .strip();
 
+/** The pages a browser Setup step opens, each in a tab of its own. */
+export const setupStepUrlsSchema = z
+  .array(z.string().max(MAX_BROWSER_URL_LENGTH))
+  .max(MAX_BROWSER_TABS);
+
 const setupStepSchema = z
   .object({
     id: idSchema,
@@ -111,6 +118,8 @@ const setupStepSchema = z
       })
       .strip()
       .optional(),
+    kind: z.enum(SETUP_STEP_KINDS).optional(),
+    urls: setupStepUrlsSchema.optional(),
     destination: z.enum(SETUP_DESTINATIONS).optional(),
     trigger: z.enum(SETUP_TRIGGERS).optional(),
   })

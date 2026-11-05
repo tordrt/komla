@@ -87,9 +87,9 @@ function harness(
     getWorkspace: (id: string) => workspaces.get(id),
     broadcastWorkspaceUpdate: vi.fn(),
     addTerminal: vi.fn<WorkspaceSetupDependencies['addTerminal']>(
-      (id, name, command, layoutHint) => {
+      (id, name, command, layoutHint, _kind, _location, _prepare, setupStepId) => {
         launches.push(name ?? '');
-        const terminal = createTerminal({ name, layoutHint });
+        const terminal = createTerminal({ name, layoutHint, ...(setupStepId && { setupStepId }) });
         workspaces.get(id)!.terminals.push(terminal);
         return terminal;
       }
@@ -637,5 +637,108 @@ describe('Workspace Setup Automation', () => {
 
       expect(h.dependencies.notifyActionRunFinished).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('browser and note steps', () => {
+  it('opens panes in launch order among the terminals, a split beside the item before it', () => {
+    const h = harness({
+      agentLayoutOrder: 0,
+      setupSteps: [
+        createTabStep({
+          id: 'browser',
+          name: 'App',
+          kind: 'browser',
+          urls: [' http://localhost:5173 ', 'https://docs.test'],
+        }),
+        createTabStep({ id: 'server', name: 'Dev Server', command: 'npm run dev' }),
+        createTabStep({ id: 'note', name: 'Note', kind: 'note', placement: 'split-bottom' }),
+      ],
+    });
+    h.setup.start(h.workspace, 'claude', 'create');
+    expect(h.launches).toEqual(['Workspace', 'Dev Server']);
+    expect(h.workspace.setupPanes).toEqual([
+      {
+        id: expect.stringMatching(/^surface:browser:/),
+        kind: 'browser',
+        urls: ['http://localhost:5173', 'https://docs.test'],
+        layoutHint: 'tab',
+        afterTerminals: 1,
+      },
+      {
+        id: expect.stringMatching(/^surface:note:/),
+        kind: 'note',
+        layoutHint: 'split-bottom',
+        afterTerminals: 2,
+      },
+    ]);
+  });
+
+  it('gives no layout hint to a pane that opens first, and places the next terminal after it', () => {
+    const h = harness({
+      agentLayoutOrder: 1,
+      setupSteps: [createTabStep({ name: 'App', kind: 'browser' })],
+      agentPlacement: 'split-right',
+    });
+    h.setup.start(h.workspace, 'claude', 'create');
+    expect(h.workspace.setupPanes).toEqual([
+      { id: expect.any(String), kind: 'browser', urls: [], afterTerminals: 0 },
+    ]);
+    expect(h.workspace.terminals.map((t) => t.layoutHint)).toEqual(['split-right']);
+  });
+
+  it('opens a page typed without its scheme as http, and skips blank ones', () => {
+    const h = harness({
+      setupSteps: [
+        createTabStep({
+          name: 'A',
+          kind: 'browser',
+          urls: [' localhost:3000/admin ', ' ', 'https://app.test', 'http:localhost:3000'],
+        }),
+      ],
+    });
+    h.setup.start(h.workspace, 'claude', 'create');
+    expect(h.workspace.setupPanes?.[0].urls).toEqual([
+      'http://localhost:3000/admin',
+      'https://app.test',
+      'http:localhost:3000',
+    ]);
+  });
+
+  it('opens a pane saved as background in a tab, since a pane always shows', () => {
+    const h = harness({
+      agentLayoutOrder: 0,
+      setupSteps: [createBackgroundStep({ name: 'Note', kind: 'note' })],
+    });
+    h.setup.start(h.workspace, 'claude', 'create');
+    expect(h.execution.background.spawn).not.toHaveBeenCalled();
+    expect(h.workspace.setupPanes?.map((pane) => pane.layoutHint)).toEqual(['tab']);
+  });
+
+  it('opens a browser or note only as the workspace is created, whatever its trigger', () => {
+    const h = harness({
+      setupSteps: [
+        createTabStep({ name: 'Note', kind: 'note', trigger: 'every-workspace-start' }),
+        createTabStep({ name: 'App', kind: 'browser' }),
+        createTabStep({ id: 'server', name: 'Dev Server', command: 'npm run dev' }),
+      ],
+    });
+    h.setup.start(h.workspace, 'claude', 'create');
+    expect(h.workspace.setupPanes).toHaveLength(2);
+    h.setup.start(h.workspace, 'claude', 'start');
+    // The workspace's saved layout opens them again, unless they were closed.
+    expect(h.workspace.setupPanes).toBeUndefined();
+    expect(h.launches).toEqual(['Workspace', 'Dev Server', 'Workspace', 'Dev Server']);
+  });
+
+  it("marks each step's terminal with its step, for a saved layout to place it", () => {
+    const h = harness({
+      setupSteps: [createTabStep({ id: 'server', name: 'Dev Server', command: 'npm run dev' })],
+    });
+    h.setup.start(h.workspace, 'claude', 'start');
+    expect(h.workspace.terminals.map((terminal) => terminal.setupStepId)).toEqual([
+      undefined,
+      'server',
+    ]);
   });
 });

@@ -8,6 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 
+import { setupStepPane } from '../../../../shared/lib/setup-panes';
+import { SETUP_STEP_KINDS } from '../../../../shared/types/project';
+
 import { settingsCardId } from './settings-search';
 import { SettingsCard } from './SettingsCard';
 
@@ -17,6 +20,8 @@ import type {
   AgentPreset,
   SetupDestination,
   SetupStep,
+  SetupStepKind,
+  SetupStepPane,
   SetupStepPlacement,
   SetupTrigger,
 } from '@/types';
@@ -70,18 +75,43 @@ const INSTALL_PRESETS: SetupPreset[] = [
   },
 ];
 
+// A server's terminal ends when its workspace stops, so it starts again with the workspace.
 const DEV_SERVER_PRESETS: SetupPreset[] = [
-  { label: 'npm run dev', name: 'Dev server', command: 'npm run dev', placement: 'tab' },
-  { label: 'pnpm dev', name: 'Dev server', command: 'pnpm dev', placement: 'tab' },
-  { label: 'yarn dev', name: 'Dev server', command: 'yarn dev', placement: 'tab' },
-  { label: 'bun dev', name: 'Dev server', command: 'bun dev', placement: 'tab' },
-  { label: 'docker compose up', name: 'Docker', command: 'docker compose up', placement: 'tab' },
-];
-
-const LAYOUT_PRESETS: SetupPreset[] = [
-  { label: 'New terminal tab', name: 'Terminal', command: '', placement: 'tab' },
-  { label: 'Split right', name: 'Terminal', command: '', placement: 'split-right' },
-  { label: 'Split bottom', name: 'Terminal', command: '', placement: 'split-bottom' },
+  {
+    label: 'npm run dev',
+    name: 'Dev server',
+    command: 'npm run dev',
+    placement: 'tab',
+    trigger: 'every-workspace-start',
+  },
+  {
+    label: 'pnpm dev',
+    name: 'Dev server',
+    command: 'pnpm dev',
+    placement: 'tab',
+    trigger: 'every-workspace-start',
+  },
+  {
+    label: 'yarn dev',
+    name: 'Dev server',
+    command: 'yarn dev',
+    placement: 'tab',
+    trigger: 'every-workspace-start',
+  },
+  {
+    label: 'bun dev',
+    name: 'Dev server',
+    command: 'bun dev',
+    placement: 'tab',
+    trigger: 'every-workspace-start',
+  },
+  {
+    label: 'docker compose up',
+    name: 'Docker',
+    command: 'docker compose up',
+    placement: 'tab',
+    trigger: 'every-workspace-start',
+  },
 ];
 
 const FILES_CONFIG_PRESETS: SetupPreset[] = [
@@ -133,7 +163,6 @@ const PRESET_CATEGORIES = [
   { label: 'Dependencies', presets: INSTALL_PRESETS },
   { label: 'Dev servers', presets: DEV_SERVER_PRESETS },
   { label: 'Agents and Quick Commands', presets: AGENT_PRESETS },
-  { label: 'Layout', presets: LAYOUT_PRESETS },
   { label: 'Files and config', presets: FILES_CONFIG_PRESETS },
 ];
 
@@ -199,22 +228,23 @@ export function WorkspaceSetupSection({
         command: preset.command,
         placement: preset.placement,
         destination: preset.destination ?? 'workspace-repository',
-        trigger: preset.trigger ?? 'every-workspace-start',
+        trigger: preset.trigger ?? 'workspace-creation',
         ...(preset.agent ? { agent: {} } : {}),
       },
     ]);
   };
 
-  const addCustomStep = () => {
+  const addStep = (kind: SetupStepKind) => {
     onStepsChange([
       ...steps,
       {
         id: crypto.randomUUID(),
-        name: '',
+        name: kind === 'terminal' ? '' : STEP_KIND_NAMES[kind],
         command: '',
-        placement: 'background',
+        // A browser or note always shows, so it opens beside the item before it.
+        placement: kind === 'terminal' ? 'background' : 'split-right',
         destination: 'workspace-repository',
-        trigger: 'every-workspace-start',
+        ...(kind === 'terminal' ? { trigger: 'workspace-creation' as const } : { kind }),
       },
     ]);
   };
@@ -229,13 +259,17 @@ export function WorkspaceSetupSection({
         placement: 'tab',
         actionId: '',
         destination: 'workspace-repository',
-        trigger: 'every-workspace-start',
+        trigger: 'workspace-creation',
       },
     ]);
   };
 
   const updateStep = (stepId: string, updates: Partial<SetupStep>) => {
     onStepsChange(steps.map((s) => (s.id === stepId ? { ...s, ...updates } : s)));
+  };
+
+  const changeStepKind = (stepId: string, kind: SetupStepKind) => {
+    onStepsChange(steps.map((s) => (s.id === stepId ? withStepKind(s, kind) : s)));
   };
 
   const deleteStep = (stepId: string) => {
@@ -293,8 +327,7 @@ export function WorkspaceSetupSection({
           <p className="mt-1 text-[13px] leading-relaxed text-pretty text-muted-foreground">
             Steps run in this order each time a workspace starts, without holding it up.
             Creation-only steps run once, when the workspace is first created.
-            {steps.length > 0 &&
-              ' A split joins the terminal before it; a new tab starts a new group.'}
+            {steps.length > 0 && ' A split joins the pane before it; a new tab starts a new group.'}
           </p>
         </div>
         {steps.length > 0 ? (
@@ -356,6 +389,7 @@ export function WorkspaceSetupSection({
                       continue;
                     }
                     const currentStepId = s.id;
+                    const stepPane = setupStepPane(s);
                     const stepAgent = s.agent;
                     const stepAgentPreset = stepAgent?.presetId
                       ? presetsById.get(stepAgent.presetId)
@@ -368,12 +402,14 @@ export function WorkspaceSetupSection({
                         !stepAgent &&
                         (!s.actionId || selectedAction?.type === 'command'));
                     // Without SSH hosts every workspace is local, so local-only is the default.
+                    // A browser or note opens in Komla, so it has nowhere to run.
                     const showDestination =
-                      sshDestinationsAvailable ||
-                      (destination !== 'workspace-repository' &&
-                        destination !== 'local-workspace-repository');
+                      !stepPane &&
+                      (sshDestinationsAvailable ||
+                        (destination !== 'workspace-repository' &&
+                          destination !== 'local-workspace-repository'));
                     const trigger = s.trigger ?? 'every-workspace-start';
-                    const runsInBackground = s.placement === 'background';
+                    const runsInBackground = !stepPane && s.placement === 'background';
                     const stepCommand = s.actionId
                       ? selectedAction?.type === 'command'
                         ? selectedAction.content
@@ -402,6 +438,21 @@ export function WorkspaceSetupSection({
                           />
                           <Select
                             compact
+                            aria-label={`Kind for ${s.name || 'setup step'}`}
+                            value={s.kind ?? 'terminal'}
+                            onChange={(e) =>
+                              changeStepKind(currentStepId, e.target.value as SetupStepKind)
+                            }
+                            className="w-[104px] shrink-0"
+                          >
+                            {SETUP_STEP_KINDS.map((kind) => (
+                              <option key={kind} value={kind}>
+                                {STEP_KIND_NAMES[kind]}
+                              </option>
+                            ))}
+                          </Select>
+                          <Select
+                            compact
                             aria-label={`Show in for ${s.name || 'setup step'}`}
                             value={s.placement}
                             onChange={(e) =>
@@ -411,7 +462,7 @@ export function WorkspaceSetupSection({
                             }
                             className="w-[120px] shrink-0"
                           >
-                            <option value="background">Background</option>
+                            {!stepPane && <option value="background">Background</option>}
                             <option value="tab">New tab</option>
                             <option value="split-right">Split right</option>
                             <option value="split-bottom">Split bottom</option>
@@ -470,33 +521,44 @@ export function WorkspaceSetupSection({
                             </div>
                           </div>
                         )}
-                        <div className="order-3 grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
-                          <label
-                            htmlFor={`setup-trigger-${s.id}`}
-                            className="text-xs font-medium text-muted-foreground"
-                          >
-                            Run on
-                          </label>
-                          <Select
-                            compact
-                            id={`setup-trigger-${s.id}`}
-                            aria-label={`Run on for ${s.name || 'setup step'}`}
-                            value={trigger}
-                            onChange={(e) => {
-                              const next = e.target.value as SetupTrigger;
-                              updateStep(currentStepId, { trigger: next });
-                            }}
-                          >
-                            <option value="every-workspace-start">Every workspace start</option>
-                            <option value="workspace-creation">Workspace creation only</option>
-                          </Select>
-                        </div>
-                        <div className="order-4">
-                          <SetupVariableExamples
-                            destination={s.destination ?? 'workspace-repository'}
+                        {!stepPane && (
+                          <div className="order-3 grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+                            <label
+                              htmlFor={`setup-trigger-${s.id}`}
+                              className="text-xs font-medium text-muted-foreground"
+                            >
+                              Run on
+                            </label>
+                            <Select
+                              compact
+                              id={`setup-trigger-${s.id}`}
+                              aria-label={`Run on for ${s.name || 'setup step'}`}
+                              value={trigger}
+                              onChange={(e) => {
+                                const next = e.target.value as SetupTrigger;
+                                updateStep(currentStepId, { trigger: next });
+                              }}
+                            >
+                              <option value="every-workspace-start">Every workspace start</option>
+                              <option value="workspace-creation">Workspace creation only</option>
+                            </Select>
+                          </div>
+                        )}
+                        {!stepPane && (
+                          <div className="order-4">
+                            <SetupVariableExamples
+                              destination={s.destination ?? 'workspace-repository'}
+                            />
+                          </div>
+                        )}
+                        {stepPane ? (
+                          <PaneStepTarget
+                            pane={stepPane}
+                            name={s.name || 'setup step'}
+                            urls={s.urls ?? []}
+                            onUrlsChange={(urls) => updateStep(currentStepId, { urls })}
                           />
-                        </div>
-                        {stepAgent ? (
+                        ) : stepAgent ? (
                           <div className="order-1 grid grid-cols-[64px_minmax(0,1fr)] items-start gap-2">
                             <span className="pt-2 text-xs font-medium text-muted-foreground">
                               Run
@@ -643,25 +705,14 @@ export function WorkspaceSetupSection({
             className="rounded-lg border border-dashed border-border/60 light:border-foreground/20"
             icon={<ListChecks weight="duotone" />}
             title="No setup steps yet"
-            description="Add one from Quick add below, or write your own."
-            action={
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addCustomStep}>
-                <Plus className="mr-1 size-3" />
-                Add step
-              </Button>
-            }
+            description="Add a terminal, browser or note, or one from Quick add below."
+            action={<AddStepButtons onAdd={addStep} />}
           />
         )}
         {steps.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2 h-8 w-full border-dashed text-xs text-muted-foreground"
-            onClick={addCustomStep}
-          >
-            <Plus className="mr-1 size-3" />
-            Add step
-          </Button>
+          <div className="mt-2">
+            <AddStepButtons onAdd={addStep} dashed />
+          </div>
         )}
       </section>
 
@@ -712,6 +763,68 @@ export function WorkspaceSetupSection({
   );
 }
 
+const STEP_KIND_NAMES: Record<SetupStepKind, string> = {
+  terminal: 'Terminal',
+  browser: 'Browser',
+  note: 'Note',
+};
+
+/**
+ * The step as another kind: a browser or note runs no agent or Quick Command, always shows and
+ * opens only as the workspace is created, so it takes a visible placement and no trigger; a
+ * terminal drops the pages and runs on creation, as a new one does. A name that was only the old
+ * kind's takes the new one's.
+ */
+function withStepKind(step: SetupStep, kind: SetupStepKind): SetupStep {
+  const previous = step.kind ?? 'terminal';
+  if (previous === kind) return step;
+  const name =
+    !step.name || step.name === STEP_KIND_NAMES[previous] ? STEP_KIND_NAMES[kind] : step.name;
+  const {
+    kind: _kind,
+    urls,
+    agent: _agent,
+    actionId: _actionId,
+    trigger: _trigger,
+    ...rest
+  } = step;
+  // Only a terminal runs an agent or a Quick Command, so a pane step had none to keep.
+  if (kind === 'terminal') return { ...rest, name, trigger: 'workspace-creation' };
+  return {
+    ...rest,
+    name,
+    kind,
+    ...(kind === 'browser' && urls !== undefined ? { urls } : {}),
+    placement: step.placement === 'background' ? 'split-right' : step.placement,
+  };
+}
+
+/** A button for each kind of step, which adds it to the end of the setup order. */
+function AddStepButtons({
+  onAdd,
+  dashed = false,
+}: {
+  onAdd: (kind: SetupStepKind) => void;
+  dashed?: boolean;
+}) {
+  return (
+    <div className={dashed ? 'grid grid-cols-3 gap-1.5' : 'flex flex-wrap justify-center gap-1.5'}>
+      {SETUP_STEP_KINDS.map((kind) => (
+        <Button
+          key={kind}
+          variant="outline"
+          size="sm"
+          className={dashed ? 'h-8 border-dashed text-xs text-muted-foreground' : 'h-7 text-xs'}
+          onClick={() => onAdd(kind)}
+        >
+          <Plus className="mr-1 size-3" />
+          Add {STEP_KIND_NAMES[kind].toLowerCase()}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 function MoveButtons({
   name,
   isFirst,
@@ -743,6 +856,78 @@ function MoveButtons({
       >
         <CaretDown className="size-3" />
       </IconButton>
+    </div>
+  );
+}
+
+/** What a browser or note step opens, in place of the command a terminal step runs. */
+function PaneStepTarget({
+  pane,
+  name,
+  urls,
+  onUrlsChange,
+}: {
+  pane: SetupStepPane;
+  name: string;
+  urls: string[];
+  onUrlsChange: (urls: string[]) => void;
+}) {
+  if (pane === 'note') {
+    return (
+      <div className="order-1 grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Open</span>
+        <p className="text-xs text-muted-foreground">
+          A blank note, kept with the workspace&apos;s notes. It opens as the workspace is created,
+          and after that with the workspace, as it was when the workspace stopped.
+        </p>
+      </div>
+    );
+  }
+  const pages = urls.length > 0 ? urls : [''];
+  return (
+    <div className="order-1 grid grid-cols-[64px_minmax(0,1fr)] items-start gap-2">
+      <span className="pt-2 text-xs font-medium text-muted-foreground">Open</span>
+      <div className="space-y-1.5">
+        {pages.map((url, index) => (
+          // oxlint-disable-next-line react/no-array-index-key -- a page is its place in the list
+          <div key={index} className="flex items-center gap-1.5">
+            <Input
+              aria-label={`Page ${index + 1} for ${name}`}
+              value={url}
+              onChange={(e) =>
+                onUrlsChange(pages.map((page, i) => (i === index ? e.target.value : page)))
+              }
+              placeholder={index === 0 ? 'http://localhost:3000' : 'https://example.com'}
+              className="h-8 flex-1 font-mono text-xs"
+            />
+            {pages.length > 1 && (
+              <IconButton
+                label={`Remove page ${index + 1} for ${name}`}
+                size="xs"
+                className="hover:text-error"
+                onClick={() => onUrlsChange(pages.filter((_, i) => i !== index))}
+              >
+                <X className="size-3.5" />
+              </IconButton>
+            )}
+          </div>
+        ))}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground"
+          onClick={() => onUrlsChange([...pages, ''])}
+        >
+          <Plus className="mr-1 size-3" />
+          Add page
+        </Button>
+        <p className="text-ui leading-tight text-muted-foreground">
+          Each page opens in a tab as the workspace is created; after that the browser opens with
+          the workspace, showing the tabs it had when the workspace stopped. Leave empty to show the
+          dev server the workspace starts. A step can open a page here once it knows it with{' '}
+          <code>komla preview --open &lt;url&gt;</code>.
+        </p>
+      </div>
     </div>
   );
 }

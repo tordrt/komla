@@ -5,9 +5,9 @@ import { BrowserWindow } from 'electron';
 
 import { turnedOffQueuedCommands } from '../../shared/constants/agent-capabilities';
 import { IPC } from '../../shared/constants/ipc-channels';
-import { normalizeBrowserPanes } from '../../shared/lib/browser-tabs';
 import { branchSuffixToName } from '../../shared/lib/random-names';
 import { normalizeRecentLinks } from '../../shared/lib/recent-links';
+import { normalizeSavedLayout } from '../../shared/lib/saved-layout';
 import {
   isResumable,
   runningTerminalCount,
@@ -706,9 +706,11 @@ class WorkspaceService {
 
     const normalizedUpdates = { ...updates };
     // Matches the IPC schema, for internal callers that skip it.
-    if ('browserPanes' in normalizedUpdates) {
-      normalizedUpdates.browserPanes = normalizeBrowserPanes(normalizedUpdates.browserPanes);
+    if ('savedLayout' in normalizedUpdates) {
+      normalizedUpdates.savedLayout = normalizeSavedLayout(normalizedUpdates.savedLayout);
     }
+    // Setup's panes open once: the window that laid them out says so, and keeps them from there.
+    if ('setupPanes' in normalizedUpdates) normalizedUpdates.setupPanes = undefined;
     if ('recentLinks' in normalizedUpdates) {
       normalizedUpdates.recentLinks = normalizeRecentLinks(normalizedUpdates.recentLinks);
     }

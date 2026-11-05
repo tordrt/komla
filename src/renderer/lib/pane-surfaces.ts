@@ -14,10 +14,12 @@ import {
   getActiveBrowserTab,
   getBrowserTabs,
   isBrowserUrl,
-  normalizeBrowserPanes,
   openUrlInNewBrowserTab,
+  selectBrowserTab,
+  type BrowserTabsState,
 } from '../../shared/lib/browser-tabs';
 import { getPaneSurfaceIdOfTab, isPaneSurfaceId } from '../../shared/lib/pane-surface-id';
+import { normalizeSavedLayout, savedLayoutPanes } from '../../shared/lib/saved-layout';
 import { describeUnsavedFiles } from '../../shared/lib/unsaved-files';
 import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
 
@@ -25,10 +27,14 @@ import { getBrowserTabLabel, updatePaneBrowserTabs } from './browser-tabs';
 import { pathAfterMove, type FileTreeMove } from './file-tree-moves';
 import { findPaneByTerminalId, getAllLeaves, showsPaneSurface } from './layout-utils';
 import { openNote, UNTITLED_NOTE } from './notes';
+import { restoreSavedLayout, toSavedLayout } from './saved-layout';
 import { addLocalCopyTerminal, addTerminalForSplit } from './split-terminal';
-import { isWorkspaceLayoutPlaceholder } from './workspace-layout-hydration';
+import {
+  isWorkspaceLayoutPlaceholder,
+  type WorkspaceLayoutHydration,
+} from './workspace-layout-hydration';
 
-import type { WorkspaceBrowserPane } from '../../shared/types';
+import type { Workspace, WorkspaceSavedLayout } from '../../shared/types';
 import type { NoteSummary } from '../../shared/types/notes';
 import type { TerminalExecutionLocation } from '../../shared/types/terminal';
 import type { ConfirmRequest } from '@/components/terminal/useConfirmDialog';
@@ -101,7 +107,12 @@ export function openBrowserPane(
   const page = isBrowserUrl(url.trim()) ? url.trim() : '';
   const id = openPaneSurface(
     workspaceId,
-    { kind: 'browser', workspaceId, browserTabs: [], activeBrowserTabId: undefined },
+    {
+      kind: 'browser',
+      workspaceId,
+      browserTabs: [],
+      activeBrowserTabId: undefined,
+    },
     placement
   );
   updatePaneBrowserTabs(id, (tabs) => addBrowserTab(tabs, page, urlExecutionLocation));
@@ -170,9 +181,16 @@ export function openInBrowserPane(
   // Anything but a web page, such as a file: URL, opens a blank tab.
   const page = isBrowserUrl(url.trim()) ? url.trim() : '';
   const layout = useLayoutStore.getState();
+  // A page a Setup step opens as it starts, such as with `komla preview --open`, goes in the
+  // browser that Setup opened, or that the saved layout opens again, once this window lays it out.
+  if (awaitsBrowser(workspaceId)) {
+    const pages = pagesAwaitingTerminal.get(workspaceId) ?? [];
+    pagesAwaitingTerminal.set(workspaceId, [...pages, { url, urlExecutionLocation }]);
+    return null;
+  }
   if (!layout.tabsByWorkspace[workspaceId]?.length) {
     // A workspace not shown yet gets its terminal's tab first, which showing it would otherwise
-    // set up in place of the browser's. Its saved browsers come back with it.
+    // set up in place of the browser's. Its saved layout comes back with it.
     const terminal = useWorkspacesStore
       .getState()
       .workspaces.find((workspace) => workspace.id === workspaceId)?.terminals[0];
@@ -185,9 +203,9 @@ export function openInBrowserPane(
   }
   let shown: string | null = null;
   whenPanesUncovered(workspaceId, () => {
-    // Without a terminal, its saved browsers come back before the page opens in one of them.
+    // Without a terminal, its saved browsers and notes come back before the page opens in one.
     if (!useLayoutStore.getState().tabsByWorkspace[workspaceId]?.length) {
-      restoreBrowserPanes(workspaceId);
+      openSavedLayout(workspaceId);
     }
     shown = showPageInBrowserPane(workspaceId, page, urlExecutionLocation);
   });
@@ -727,7 +745,9 @@ export function adoptPaneSurfaces(surfaces: unknown): void {
       adopted[id] = surface;
     }
   }
-  usePaneSurfacesStore.setState((state) => ({ surfaces: { ...state.surfaces, ...adopted } }));
+  usePaneSurfacesStore.setState((state) => ({
+    surfaces: { ...state.surfaces, ...adopted },
+  }));
 }
 
 /**
@@ -752,62 +772,62 @@ export function reportWorkspacesShowingPaneSurfaces(): () => void {
   });
 }
 
-// Pages change their titles and URLs often, so a workspace saves its browser panes at most this often.
-const BROWSER_PANES_SAVE_INTERVAL_MS = 1000;
+// Pages change their titles and URLs often, so a workspace saves its layout at most this often.
+const SAVED_LAYOUT_INTERVAL_MS = 1000;
 
-/** A tab's id without its pane's surface id, which a pane opened again doesn't keep. */
-function savedTabId(surfaceId: string, tabId: string): string {
-  return tabId.startsWith(`${surfaceId}/`) ? tabId.slice(surfaceId.length + 1) : tabId;
+function findWorkspace(workspaceId: string): Workspace | undefined {
+  return useWorkspacesStore.getState().workspaces.find((candidate) => candidate.id === workspaceId);
 }
 
 /**
- * The workspace's browser panes, in tab order, as it saves them. Tabs it can't save, such as one
- * at a URL too long to keep, are left out rather than failing the save of the others.
+ * The workspace's layout as this window shows it, as the workspace saves it. Tabs it can't save,
+ * such as one at a URL too long to keep, are left out rather than failing the save of the others.
  */
-function workspaceBrowserPanes(workspaceId: string): WorkspaceBrowserPane[] {
+function currentSavedLayout(workspace: Workspace): WorkspaceSavedLayout | undefined {
   const layout = useLayoutStore.getState();
-  const { surfaces } = usePaneSurfacesStore.getState();
-  const panes: WorkspaceBrowserPane[] = [];
-  for (const tabId of layout.tabsByWorkspace[workspaceId] ?? []) {
-    const root = layout.layoutsByTab[workspaceId]?.[tabId];
-    for (const { terminalId: surfaceId } of root ? getAllLeaves(root) : []) {
-      const surface = surfaces[surfaceId];
-      if (surface?.kind !== 'browser' || surface.browserTabs.length === 0) continue;
-      panes.push({
-        browserTabs: surface.browserTabs.map((tab) => ({
-          ...tab,
-          id: savedTabId(surfaceId, tab.id),
-        })),
-        activeBrowserTabId:
-          surface.activeBrowserTabId && savedTabId(surfaceId, surface.activeBrowserTabId),
-      });
-    }
-  }
-  return normalizeBrowserPanes(panes) ?? [];
+  const saved = toSavedLayout(
+    workspace,
+    {
+      tabs: layout.tabsByWorkspace[workspace.id] ?? [],
+      layouts: layout.layoutsByTab[workspace.id] ?? {},
+      activeTab: layout.activeTabByWorkspace[workspace.id],
+    },
+    usePaneSurfacesStore.getState().surfaces
+  );
+  return saved && normalizeSavedLayout(saved);
 }
 
+/** Saves a workspace's layout now if a save is waiting, as before it opens the saved layout. */
+let saveWaitingLayout: ((workspaceId: string) => void) | undefined;
+
 /**
- * Saves the browser panes of each workspace this window shows, so they open again when the
- * workspace starts again, as after a restart. A workspace whose panes all went, as when it stops,
- * keeps what it saved, and what changed just before then. Returns the unsubscribe function.
+ * Saves the layout of each workspace this window shows with a browser or a note, so they open
+ * again in their places when the workspace starts again, as after a restart. A workspace whose
+ * panes all went, as when it stops, keeps what it saved, and what changed just before then; one
+ * whose last browser or note closed saves nothing, so nothing opens again. Returns the
+ * unsubscribe function.
  */
-export function saveBrowserPanes(): () => void {
+export function saveWorkspaceLayouts(): () => void {
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
-  // Each workspace's browsers as they last were while it showed its panes.
-  const latest = new Map<string, WorkspaceBrowserPane[]>();
+  saveWaitingLayout = (workspaceId) => {
+    if (timers.has(workspaceId)) save(workspaceId);
+  };
+  // Each workspace's layout as it last was while it showed its panes.
+  const latest = new Map<string, WorkspaceSavedLayout | undefined>();
   const save = (workspaceId: string) => {
     clearTimeout(timers.get(workspaceId));
     timers.delete(workspaceId);
-    const browserPanes = latest.get(workspaceId);
+    if (!latest.has(workspaceId)) return;
+    const savedLayout = latest.get(workspaceId);
     latest.delete(workspaceId);
-    if (!browserPanes) return;
-    const workspace = useWorkspacesStore
-      .getState()
-      .workspaces.find((candidate) => candidate.id === workspaceId);
+    const workspace = findWorkspace(workspaceId);
     if (!workspace) return;
-    if (JSON.stringify(browserPanes) === JSON.stringify(workspace.browserPanes ?? [])) return;
-    useWorkspacesStore.getState().updateWorkspace(workspaceId, { browserPanes });
-    window.api.updateWorkspace(workspaceId, { browserPanes }).catch(() => {});
+    if (JSON.stringify(savedLayout) === JSON.stringify(workspace.savedLayout)) return;
+    useWorkspacesStore.getState().updateWorkspace(workspaceId, { savedLayout });
+    // No tabs is how an update clears it.
+    window.api
+      .updateWorkspace(workspaceId, { savedLayout: savedLayout ?? { tabs: [] } })
+      .catch(() => {});
   };
   const saveAll = () => {
     // A save updates the stores, whose subscribers can schedule more saves.
@@ -815,50 +835,64 @@ export function saveBrowserPanes(): () => void {
     for (const workspaceId of [...timers.keys()]) save(workspaceId);
   };
   const schedule = (workspaceId: string) => {
-    if (useLayoutStore.getState().tabsByWorkspace[workspaceId]?.length) {
-      latest.set(workspaceId, workspaceBrowserPanes(workspaceId));
+    // A restart lists its new terminals while the old ones' panes still show, so what shows
+    // then isn't the workspace's layout; it saves what it shows once the restart is done.
+    if (useWorkspacesStore.getState().restartingWorkspaceIds.has(workspaceId)) return;
+    const workspace = findWorkspace(workspaceId);
+    if (workspace && isSetUp(workspaceId, useLayoutStore.getState().tabsByWorkspace[workspaceId])) {
+      latest.set(workspaceId, currentSavedLayout(workspace));
     }
     if (timers.has(workspaceId)) return;
     timers.set(
       workspaceId,
-      setTimeout(() => save(workspaceId), BROWSER_PANES_SAVE_INTERVAL_MS)
+      setTimeout(() => save(workspaceId), SAVED_LAYOUT_INTERVAL_MS)
     );
   };
   const unsubscribe = usePaneSurfacesStore.subscribe((state, previous) => {
     if (state.surfaces === previous.surfaces) return;
-    // Only the workspaces whose browsers opened, closed or changed.
+    // Only the workspaces whose browsers or notes opened, closed or changed.
     const workspaceIds = new Set<string>();
     for (const [surfaces, others] of [
       [state.surfaces, previous.surfaces],
       [previous.surfaces, state.surfaces],
     ]) {
       for (const [id, surface] of Object.entries(surfaces)) {
-        if (surface.kind === 'browser' && others[id] !== surface) {
+        if (isSavedSurface(surface) && others[id] !== surface) {
           workspaceIds.add(surface.workspaceId);
         }
       }
     }
     for (const workspaceId of workspaceIds) schedule(workspaceId);
   });
-  // A browser moved to another place or tab changes only the layout.
+  // A pane moved to another place or tab changes only the layout.
   const unsubscribeLayout = useLayoutStore.subscribe((state, previous) => {
     if (
       state.tabsByWorkspace === previous.tabsByWorkspace &&
-      state.layoutsByTab === previous.layoutsByTab
+      state.layoutsByTab === previous.layoutsByTab &&
+      state.activeTabByWorkspace === previous.activeTabByWorkspace
     ) {
       return;
     }
     const { surfaces } = usePaneSurfacesStore.getState();
-    const showingBrowsers = new Set(
+    const showingPanes = new Set(
       Object.values(surfaces).flatMap((surface) =>
-        surface.kind === 'browser' ? [surface.workspaceId] : []
+        isSavedSurface(surface) ? [surface.workspaceId] : []
       )
     );
-    for (const workspaceId of showingBrowsers) {
+    for (const workspaceId of showingPanes) {
       if (
         state.tabsByWorkspace[workspaceId] !== previous.tabsByWorkspace[workspaceId] ||
-        state.layoutsByTab[workspaceId] !== previous.layoutsByTab[workspaceId]
+        state.layoutsByTab[workspaceId] !== previous.layoutsByTab[workspaceId] ||
+        state.activeTabByWorkspace[workspaceId] !== previous.activeTabByWorkspace[workspaceId]
       ) {
+        schedule(workspaceId);
+      }
+    }
+  });
+  const unsubscribeRestarts = useWorkspacesStore.subscribe((state, previous) => {
+    if (state.restartingWorkspaceIds === previous.restartingWorkspaceIds) return;
+    for (const workspaceId of previous.restartingWorkspaceIds) {
+      if (!state.restartingWorkspaceIds.has(workspaceId) && showsSavedSurface(workspaceId)) {
         schedule(workspaceId);
       }
     }
@@ -866,35 +900,45 @@ export function saveBrowserPanes(): () => void {
   // Quitting saves what's waiting.
   window.addEventListener('beforeunload', saveAll);
   return () => {
+    saveWaitingLayout = undefined;
     unsubscribe();
     unsubscribeLayout();
+    unsubscribeRestarts();
     window.removeEventListener('beforeunload', saveAll);
     for (const timer of timers.values()) clearTimeout(timer);
   };
 }
 
+/** A browser or note pane, which a saved layout opens again. */
+function isSavedSurface(surface: PaneSurface): boolean {
+  return surface.kind === 'browser' || surface.kind === 'note';
+}
+
+function showsSavedSurface(workspaceId: string): boolean {
+  return Object.values(usePaneSurfacesStore.getState().surfaces).some(
+    (surface) => isSavedSurface(surface) && surface.workspaceId === workspaceId
+  );
+}
+
 /**
- * Opens a workspace's saved browser panes, each in a tab of its own after its others, when its
- * tabs are set up: as it starts, or after a restart. The placeholder tab of a workspace still
- * being set up doesn't count, since its terminal replaces only a placeholder on its own. A
- * workspace that shows a browser already, such as one another window handed over, keeps its own.
+ * Opens a workspace's saved layout when its tabs are set up: as it starts, after a restart, or
+ * once this window loads it. The placeholder tab of a workspace still being set up doesn't count,
+ * since its terminal replaces only a placeholder on its own. A workspace that shows a browser or
+ * a note already, such as one another window handed over or one Setup just created, keeps its own.
  * Then the pages opened while it waited open too, unless it was removed first. Loading workspaces
  * sets up their saved layouts before it lists them, so a workspace whose tabs this window set up
- * first, as an SSH workspace's after a restart, gets its browsers once it's listed. Returns the
- * unsubscribe function.
+ * first, as an SSH workspace's after a restart, gets its saved layout once it's listed. Returns
+ * the unsubscribe function.
  */
-export function restoreSavedBrowserPanes(): () => void {
-  const isSetUp = (workspaceId: string, tabs: string[] | undefined) =>
-    !!tabs?.length && !isWorkspaceLayoutPlaceholder(workspaceId, tabs);
-  const isListed = (workspaceId: string) =>
-    useWorkspacesStore.getState().workspaces.some((workspace) => workspace.id === workspaceId);
+export function restoreSavedLayouts(): () => void {
+  const isListed = (workspaceId: string) => !!findWorkspace(workspaceId);
   const awaitingListing = new Set<string>();
   const restore = (workspaceId: string) => {
     if (!isListed(workspaceId)) {
       awaitingListing.add(workspaceId);
       return;
     }
-    restoreBrowserPanes(workspaceId);
+    openSavedLayout(workspaceId);
     openPagesAwaitingTerminal(workspaceId);
   };
   const unsubscribeLayout = useLayoutStore.subscribe((state, previous) => {
@@ -939,30 +983,188 @@ function openPagesAwaitingTerminal(workspaceId: string): void {
   }
 }
 
-function restoreBrowserPanes(workspaceId: string): void {
-  const workspace = useWorkspacesStore
-    .getState()
-    .workspaces.find((candidate) => candidate.id === workspaceId);
-  if (!workspace) return;
-  const saved = workspace.browserPanes ?? [];
-  const { surfaces, addSurface } = usePaneSurfacesStore.getState();
-  const showsBrowser = Object.values(surfaces).some(
-    (surface) => surface.kind === 'browser' && surface.workspaceId === workspaceId
+/**
+ * Opens the workspace's saved browsers and notes in their places among the tabs this window shows
+ * it with, each in the place of the agent's or Setup step's terminal it was beside. A workspace
+ * that shows none of those terminals, as a stopped one, gets the browsers and notes alone.
+ */
+function openSavedLayout(workspaceId: string): void {
+  // A restart lays the workspace out again before its last changes would have saved.
+  saveWaitingLayout?.(workspaceId);
+  const workspace = findWorkspace(workspaceId);
+  const saved = workspace?.savedLayout;
+  if (!workspace || !saved) return;
+  if (showsSavedSurface(workspaceId)) return;
+  const { addSurface } = usePaneSurfacesStore.getState();
+  const layout = useLayoutStore.getState();
+  const tabs = layout.tabsByWorkspace[workspaceId] ?? [];
+  const layouts = layout.layoutsByTab[workspaceId] ?? {};
+  const current: WorkspaceLayoutHydration | null =
+    tabs.length > 0
+      ? {
+          tabs,
+          layouts,
+          focusedPanes: layout.focusedPaneByTab[workspaceId] ?? {},
+          activeTab: layout.activeTabByWorkspace[workspaceId] ?? tabs[0],
+        }
+      : null;
+  const shownTerminals = new Set(
+    Object.values(layouts).flatMap((root) => getAllLeaves(root).map((leaf) => leaf.terminalId))
   );
-  if (saved.length === 0 || showsBrowser) return;
-  for (const pane of saved) {
-    const id = addSurface({
-      kind: 'browser',
-      workspaceId,
-      browserTabs: [],
-      activeBrowserTabId: undefined,
-    });
-    updatePaneBrowserTabs(id, () => ({
-      browserTabs: pane.browserTabs,
-      activeBrowserTabId: pane.activeBrowserTabId,
-    }));
-    useLayoutStore.getState().addTab(workspaceId, id);
+  const placed = new Set<string>();
+  const placeTerminal = (terminalId: string | undefined) => {
+    if (!terminalId || placed.has(terminalId) || !shownTerminals.has(terminalId)) return undefined;
+    placed.add(terminalId);
+    return terminalId;
+  };
+  const notes: { surfaceId: string; name: string }[] = [];
+  const restored = restoreSavedLayout(
+    saved,
+    current,
+    (pane) => {
+      switch (pane.kind) {
+        case 'agent':
+          return placeTerminal(workspace.primaryTerminalId);
+        case 'setup-step':
+          return placeTerminal(
+            workspace.terminals.find(
+              (terminal) =>
+                terminal.setupStepId === pane.stepId &&
+                !placed.has(terminal.id) &&
+                shownTerminals.has(terminal.id)
+            )?.id
+          );
+        case 'browser': {
+          const id = addSurface({
+            kind: 'browser',
+            workspaceId,
+            browserTabs: [],
+            activeBrowserTabId: undefined,
+          });
+          updatePaneBrowserTabs(id, () => ({
+            browserTabs: pane.browserTabs,
+            activeBrowserTabId: pane.activeBrowserTabId,
+          }));
+          return id;
+        }
+        case 'note': {
+          const surfaceId = addSurface({ kind: 'note', workspaceId, name: pane.name });
+          notes.push({ surfaceId, name: pane.name });
+          return surfaceId;
+        }
+      }
+    },
+    workspace.primaryTerminalId
+  );
+  if (!restored || restored === current) return;
+  layout.applyWorkspaceLayout(workspaceId, restored, { setCurrentWorkspace: false });
+  if (notes.length > 0) void closeNotesGone(workspaceId, notes);
+}
+
+/** Closes the panes of notes that went while the workspace was stopped, as to the Trash. */
+async function closeNotesGone(
+  workspaceId: string,
+  notes: { surfaceId: string; name: string }[]
+): Promise<void> {
+  try {
+    await useNotesStore.getState().load(workspaceId);
+  } catch {
+    return;
   }
+  const kept = new Set(
+    (useNotesStore.getState().byScope[workspaceId] ?? []).map((note) => note.name)
+  );
+  for (const { surfaceId, name } of notes) {
+    if (!kept.has(name)) useLayoutStore.getState().removeTerminalPane(workspaceId, surfaceId);
+  }
+}
+
+/** Whether this window has set up the workspace's tabs, rather than only a placeholder. */
+function isSetUp(workspaceId: string, tabs: string[] | undefined): boolean {
+  return !!tabs?.length && !isWorkspaceLayoutPlaceholder(workspaceId, tabs);
+}
+
+/**
+ * Whether this window has yet to set up the tabs of a running workspace that will show a browser
+ * once it does: one Setup opened as it created the workspace, or one its saved layout opens
+ * again. Whatever sets them up opens the pages that waited.
+ */
+function awaitsBrowser(workspaceId: string): boolean {
+  if (isSetUp(workspaceId, useLayoutStore.getState().tabsByWorkspace[workspaceId])) return false;
+  const workspace = findWorkspace(workspaceId);
+  if (!workspace || !workspace.terminals.some((terminal) => terminal.status !== 'stopped')) {
+    return false;
+  }
+  return (
+    !!workspace.setupPanes?.some((pane) => pane.kind === 'browser') ||
+    !!workspace.savedLayout?.tabs.some((tab) =>
+      savedLayoutPanes(tab).some((pane) => pane.kind === 'browser')
+    )
+  );
+}
+
+/**
+ * Adds the surfaces of the panes Setup opened as it created the workspace, for its layout to show
+ * among its terminals: a browser at its step's pages, or a blank tab that finds the dev server,
+ * and a new note, whose pane fills in once the note is made. Surfaces this window has already are
+ * kept. Resolves once the notes are made, or have failed to be.
+ */
+export function addSetupPaneSurfaces(workspace: Workspace): Promise<void> {
+  const { surfaces, addSurface } = usePaneSurfacesStore.getState();
+  const notes: Promise<void>[] = [];
+  for (const pane of workspace.setupPanes ?? []) {
+    if (surfaces[pane.id]) continue;
+    if (pane.kind === 'note') {
+      notes.push(addSetupNoteSurface(workspace.id, pane.id));
+      continue;
+    }
+    addSurface(
+      {
+        kind: 'browser',
+        workspaceId: workspace.id,
+        browserTabs: [],
+        activeBrowserTabId: undefined,
+      },
+      pane.id
+    );
+    updatePaneBrowserTabs(pane.id, () => setupBrowserTabs(pane.urls ?? []));
+  }
+  return Promise.all(notes).then(() => {});
+}
+
+/** A tab for each of a browser step's pages, the first one showing, or one blank tab. */
+function setupBrowserTabs(urls: readonly string[]): BrowserTabsState {
+  const pages = urls.filter((url) => isBrowserUrl(url));
+  let tabs: BrowserTabsState = { browserTabs: [], activeBrowserTabId: undefined };
+  for (const page of pages.length > 0 ? pages : ['']) tabs = addBrowserTab(tabs, page);
+  return selectBrowserTab(tabs, tabs.browserTabs[0].id);
+}
+
+function isLaidOut(workspaceId: string, surfaceId: string): boolean {
+  const layouts = useLayoutStore.getState().layoutsByTab[workspaceId];
+  return Object.values(layouts ?? {}).some((root) => !!findPaneByTerminalId(root, surfaceId));
+}
+
+async function addSetupNoteSurface(workspaceId: string, surfaceId: string): Promise<void> {
+  let name: string;
+  try {
+    name = (await useNotesStore.getState().create(workspaceId)).name;
+  } catch (error) {
+    // Another call for the pane may have made its note already.
+    if (usePaneSurfacesStore.getState().surfaces[surfaceId]) return;
+    useLayoutStore.getState().removeTerminalPane(workspaceId, surfaceId);
+    useToastStore
+      .getState()
+      .addToast(`Couldn't start a note: ${(error as Error).message}`, 'error');
+    return;
+  }
+  // Its pane may have gone meanwhile, as when the workspace stopped, or another call for it showed
+  // a note first. The note stays: a blank one is what the next note starts from, and it may be
+  // the one another pane shows.
+  if (!isLaidOut(workspaceId, surfaceId) || usePaneSurfacesStore.getState().surfaces[surfaceId]) {
+    return;
+  }
+  usePaneSurfacesStore.getState().addSurface({ kind: 'note', workspaceId, name }, surfaceId);
 }
 
 /**
@@ -991,7 +1193,11 @@ function browserPaneTabKeys(
   for (const [surfaceId, surface] of Object.entries(surfaces)) {
     if (surface.kind !== 'browser') continue;
     for (const tab of surface.browserTabs) {
-      keys.set(tab.id, { surfaceId, workspaceId: surface.workspaceId, tabId: tab.id });
+      keys.set(tab.id, {
+        surfaceId,
+        workspaceId: surface.workspaceId,
+        tabId: tab.id,
+      });
     }
   }
   return keys;

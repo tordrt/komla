@@ -592,6 +592,83 @@ describe('SettingsManagementService', () => {
     );
   });
 
+  it('applies a browser step, which approval describes by the page it opens', async () => {
+    const { service, approve } = fixture();
+
+    const result = await service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
+      setupSteps: [
+        {
+          name: 'App',
+          command: '',
+          placement: 'split-right',
+          kind: 'browser',
+          urls: ['http://localhost:5173', 'https://docs.test'],
+          trigger: 'every-workspace-start',
+        },
+      ],
+      agentPlacement: 'tab',
+      agentLayoutOrder: 0,
+      trashCleanupScript: '',
+    });
+
+    expect(result.value?.setupSteps[0]).toMatchObject({
+      kind: 'browser',
+      urls: ['http://localhost:5173', 'https://docs.test'],
+    });
+    expect(approve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.arrayContaining([
+          expect.objectContaining({
+            title: 'App',
+            details: [
+              { label: 'Opens', value: 'Browser at http://localhost:5173, https://docs.test' },
+              { label: 'Show in', value: 'Split right' },
+            ],
+          }),
+        ]),
+      }),
+      undefined
+    );
+  });
+
+  it('describes a pane step saved as background as the tab Setup opens it in', async () => {
+    const { service, approve } = fixture();
+
+    await service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
+      setupSteps: [{ name: 'Note', command: '', placement: 'background', kind: 'note' }],
+      agentPlacement: 'tab',
+      agentLayoutOrder: 0,
+      trashCleanupScript: '',
+    });
+
+    expect(approve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.arrayContaining([
+          expect.objectContaining({
+            details: expect.arrayContaining([{ label: 'Show in', value: 'Tab' }]),
+          }),
+        ]),
+      }),
+      undefined
+    );
+  });
+
+  it('rejects a browser or note step that names an agent', async () => {
+    const { service } = fixture();
+    const propose = (step: Record<string, unknown>) =>
+      service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
+        setupSteps: [{ name: 'Note', command: '', placement: 'tab', kind: 'note', ...step }],
+        agentPlacement: 'tab',
+        agentLayoutOrder: 0,
+        trashCleanupScript: '',
+      });
+
+    await expect(propose({ agent: {} })).rejects.toMatchObject({
+      code: 'INVALID_SETUP_STEP',
+      status: 422,
+    });
+  });
+
   it('rejects Workspace Setup writes for directory projects', async () => {
     const { service, projects, approve } = fixture();
     projects[0].kind = 'directory';

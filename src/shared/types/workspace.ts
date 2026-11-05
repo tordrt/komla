@@ -24,10 +24,55 @@ export interface WorkspaceBrowserTab {
   title?: string;
 }
 
-/** A browser pane's tabs, saved so the pane opens again when its workspace starts again. */
+/** A browser pane's tabs, as its workspace saves them. */
 export interface WorkspaceBrowserPane {
   browserTabs: WorkspaceBrowserTab[];
   activeBrowserTabId?: string;
+}
+
+/**
+ * What a pane of a saved layout shows: a browser or a note, which opens again as it was, or the
+ * agent or a Setup step's terminal, whose place the terminal that starts in its stead takes.
+ */
+export type WorkspaceLayoutPane =
+  | ({ kind: 'browser' } & WorkspaceBrowserPane)
+  | { kind: 'note'; /** The note's file name. */ name: string }
+  | { kind: 'agent' }
+  | { kind: 'setup-step'; stepId: string };
+
+export type WorkspaceLayoutNode =
+  | { type: 'leaf'; pane: WorkspaceLayoutPane }
+  | {
+      type: 'split';
+      direction: 'horizontal' | 'vertical';
+      sizes: [number, number];
+      children: [WorkspaceLayoutNode, WorkspaceLayoutNode];
+    };
+
+/**
+ * A workspace's tabs as it last showed them while it had a browser or a note, which open again
+ * in their places when it starts again. Other terminals don't start again, so their panes go.
+ */
+export interface WorkspaceSavedLayout {
+  tabs: WorkspaceLayoutNode[];
+  /** The index of the tab on screen. */
+  activeTab?: number;
+}
+
+/**
+ * A pane a Setup step opened in place of a terminal, which the window lays out among the
+ * workspace's terminals as it does the terminals' own layout hints.
+ */
+export interface WorkspaceSetupPane {
+  /** The pane's surface id, which the layout holds where a terminal id would go. */
+  id: string;
+  kind: 'browser' | 'note';
+  /** The pages a browser opens, the first one showing; none finds the workspace's dev server. */
+  urls?: string[];
+  /** Unset for the first visible item of the Setup run. */
+  layoutHint?: 'tab' | 'split-right' | 'split-bottom';
+  /** How many of the workspace's terminals launched before it, which it follows in the layout. */
+  afterTerminals: number;
 }
 
 /** A link to another site that the workspace's terminals printed or you opened from them. */
@@ -331,8 +376,10 @@ export interface Workspace {
   // UI state
   fileTreeOpen?: boolean;
   fileTreeMode?: 'diff' | 'browse';
-  /** The workspace's browser panes, in tab order, which open again when it starts again. */
-  browserPanes?: WorkspaceBrowserPane[];
+  /** Its browsers and notes, in their places among its tabs, which open again when it starts again. */
+  savedLayout?: WorkspaceSavedLayout;
+  /** The panes Setup opened besides terminals as the workspace was created. Not saved. */
+  setupPanes?: WorkspaceSetupPane[];
   /** Links to other sites, opened ones first; see shared/lib/recent-links. */
   recentLinks?: WorkspaceRecentLink[];
   /** The virtual desktops `komla desktop run` started, newest first, while they run. */

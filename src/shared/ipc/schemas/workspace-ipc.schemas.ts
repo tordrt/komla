@@ -2,12 +2,13 @@ import { z } from 'zod';
 
 import {
   MAX_BROWSER_TAB_TITLE_LENGTH,
-  MAX_BROWSER_PANES,
   MAX_BROWSER_TABS,
   MAX_BROWSER_URL_LENGTH,
   isBrowserUrl,
 } from '../../lib/browser-tabs';
+import { NOTE_NAME_PATTERN } from '../../lib/notes';
 import { MAX_RECENT_LINKS } from '../../lib/recent-links';
+import { MAX_SAVED_LAYOUT_PANES } from '../../lib/saved-layout';
 import { MAX_WORKSPACE_TAG_LENGTH, MAX_WORKSPACE_TAG_TOOLTIP } from '../../lib/workspace-tags';
 import { MAX_PROMPT_ATTACHMENTS } from '../../types/workspace';
 
@@ -21,6 +22,8 @@ import {
   untrimmedSafePathSchema,
   workspaceModeSchema,
 } from './primitives';
+
+import type { WorkspaceLayoutNode } from '../../types/workspace';
 
 const recentLinkSchema = z
   .object({
@@ -97,6 +100,33 @@ export const createWorkspaceParamsSchema = z
   })
   .strip();
 
+const layoutPaneSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('browser'),
+      browserTabs: z.array(browserTabSchema).max(MAX_BROWSER_TABS),
+      activeBrowserTabId: idSchema.optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('note'), name: z.string().regex(NOTE_NAME_PATTERN) }).strict(),
+  z.object({ kind: z.literal('agent') }).strict(),
+  z.object({ kind: z.literal('setup-step'), stepId: idSchema }).strict(),
+]);
+
+const layoutNodeSchema: z.ZodType<WorkspaceLayoutNode> = z.lazy(() =>
+  z.union([
+    z.object({ type: z.literal('leaf'), pane: layoutPaneSchema }).strict(),
+    z
+      .object({
+        type: z.literal('split'),
+        direction: z.enum(['horizontal', 'vertical']),
+        sizes: z.tuple([z.number().finite(), z.number().finite()]),
+        children: z.tuple([layoutNodeSchema, layoutNodeSchema]),
+      })
+      .strict(),
+  ])
+);
+
 export const workspaceUpdateSchema = z
   .object({
     name: z.string().optional(),
@@ -112,16 +142,19 @@ export const workspaceUpdateSchema = z
     windowId: idSchema.nullable().optional(),
     fileTreeOpen: z.boolean().optional(),
     fileTreeMode: z.enum(['diff', 'browse']).optional(),
-    browserPanes: z
-      .array(
-        z
-          .object({
-            browserTabs: z.array(browserTabSchema).max(MAX_BROWSER_TABS),
-            activeBrowserTabId: idSchema.optional(),
-          })
-          .strict()
-      )
-      .max(MAX_BROWSER_PANES)
+    // Only cleared: the window that laid out Setup's panes has them now.
+    setupPanes: z
+      .array(z.unknown())
+      .max(0)
+      .transform(() => undefined)
+      .optional(),
+    // No tabs clears it; the main process drops what it can't open again.
+    savedLayout: z
+      .object({
+        tabs: z.array(layoutNodeSchema).max(MAX_SAVED_LAYOUT_PANES),
+        activeTab: z.number().int().min(0).optional(),
+      })
+      .strict()
       .optional(),
     recentLinks: z.array(recentLinkSchema).max(MAX_RECENT_LINKS).optional(),
     color: z

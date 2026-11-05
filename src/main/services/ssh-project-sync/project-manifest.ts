@@ -7,12 +7,14 @@ import {
   aheadTargetActionSchema,
   behindTargetActionSchema,
   projectIconSchema,
+  setupStepUrlsSchema,
   simpleAheadActionSchema,
 } from '../../../shared/ipc/schemas/config-ipc.schemas';
 import { idSchema } from '../../../shared/ipc/schemas/primitives';
 import {
   ACTION_SSH_EXECUTION_LOCATIONS,
   SETUP_DESTINATIONS,
+  SETUP_STEP_KINDS,
   SETUP_STEP_PLACEMENTS,
   SETUP_TRIGGERS,
 } from '../../../shared/types';
@@ -64,6 +66,8 @@ const manifestSchema = z.object({
             placement: z.enum(SETUP_STEP_PLACEMENTS),
             actionId: idSchema.optional(),
             agent: agentSchema.optional(),
+            kind: z.enum(SETUP_STEP_KINDS).optional(),
+            urls: setupStepUrlsSchema.optional(),
             destination: z.enum(SETUP_DESTINATIONS).optional(),
             trigger: z.enum(SETUP_TRIGGERS).optional(),
           })

@@ -27,8 +27,8 @@ import {
   openInBrowserPane,
   reportUnsavedFiles,
   reportWorkspacesShowingPaneSurfaces,
-  restoreSavedBrowserPanes,
-  saveBrowserPanes,
+  restoreSavedLayouts,
+  saveWorkspaceLayouts,
 } from '@/lib/pane-surfaces';
 import { applyAccent } from '@/lib/primary-color';
 import { applyReduceEffects } from '@/lib/reduce-effects';
@@ -550,8 +550,8 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
       closePagesOfRemovedPaneBrowserTabs(),
       disposeRenderersOfRemovedTerminals(),
       forgetSurfacesOfRemovedPanes(),
-      restoreSavedBrowserPanes(),
-      saveBrowserPanes(),
+      restoreSavedLayouts(),
+      saveWorkspaceLayouts(),
       reportWorkspacesShowingPaneSurfaces(),
       reportUnsavedFiles(),
       reportShownWorkspace(),

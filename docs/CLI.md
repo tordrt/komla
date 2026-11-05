@@ -44,7 +44,21 @@ terminal's link or through `--open` for it. A later preview in the same workspac
 toast. `--open` opens the page in Komla's browser right away, as `komla desktop run --browser` does
 for a desktop; without a URL it shows the workspace's browser, or a new one that finds its dev
 server. Without a URL or `--open`, it fails with `PREVIEW_URL_REQUIRED`. The MCP tool
-`open_browser_preview` takes `open` for the same choice.
+`open_browser_preview` takes `open` for the same choice. `--open` takes a browser's blank tab.
+
+A browser Setup step opens its pages as the workspace is created; with no pages it finds the dev
+server the workspace starts. After that the browser comes back with the workspace, as every
+browser does, showing the tabs it had when the workspace stopped. To show a page under a path, or
+one of several servers, the server's step names the page once the server listens, and Komla shows
+it in the browser the browser step opened, in a tab of its own unless one shows it already. Steps
+don't share variables, so the step that starts the server picks its port too:
+
+```bash
+PORT=$(npx get-port-cli); (npx wait-on "tcp:$PORT" && komla preview --open "http://localhost:$PORT/admin") & npm run dev -- --port "$PORT"
+```
+
+Setup steps, background ones too, have `komla` on PATH, and its commands act on the step's
+workspace: a terminal has `KOMLA_TERMINAL_ID`, and a background step `KOMLA_WORKSPACE_ID`.
 
 `komla workspace list [--all] [--json]` lists the workspaces, with those in the Trash under
 `--all`: each one's `id`, `name`, `project`, `branch`, `path`, `environment`, `agentActive`, the

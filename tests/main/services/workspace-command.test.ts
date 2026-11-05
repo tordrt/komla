@@ -21,10 +21,10 @@ vi.mock('../../../src/main/services/ssh-workspace.service', () => ({
   remoteKomlaDataPort: () => 4242,
 }));
 
+import { wslEnv } from '../../../src/main/lib/wsl';
 import {
   remoteWorkspaceScript,
   runLocalWorkspaceCommand,
-  wslEnv,
 } from '../../../src/main/services/workspace-command';
 
 import type { SshWorkspaceBackend, Workspace } from '../../../src/shared/types';

@@ -7,6 +7,7 @@ import { updatePaneBrowserTabs } from '../../../src/renderer/lib/browser-tabs';
 import { findPaneByTerminalId, getAllLeaves } from '../../../src/renderer/lib/layout-utils';
 import { getNotePath } from '../../../src/renderer/lib/notes';
 import {
+  addSetupPaneSurfaces,
   adoptPaneSurfaces,
   closePagesOfRemovedPaneBrowserTabs,
   closePaneBrowserTab,
@@ -32,8 +33,8 @@ import {
   reportUnsavedFiles,
   reportWorkspacesShowingPaneSurfaces,
   requestClosePaneSurface,
-  restoreSavedBrowserPanes,
-  saveBrowserPanes,
+  restoreSavedLayouts,
+  saveWorkspaceLayouts,
   setFilePaneDraft,
   showNote,
   splitAgentBesidePane,
@@ -44,13 +45,22 @@ import { useFileViewerStore } from '../../../src/renderer/stores/file-viewer.sto
 import { useLayoutStore } from '../../../src/renderer/stores/layout.store';
 import { useNotesStore } from '../../../src/renderer/stores/notes.store';
 import { usePaneSurfacesStore } from '../../../src/renderer/stores/pane-surfaces.store';
+import { useToastStore } from '../../../src/renderer/stores/toast.store';
 import { useTerminalCloseStore } from '../../../src/renderer/stores/terminal-close.store';
 import { useWorkspacesStore } from '../../../src/renderer/stores/workspaces.store';
+import { buildWorkspaceLayoutHydration } from '../../../src/renderer/lib/workspace-layout-hydration';
 import { addBrowserTab } from '../../../src/shared/lib/browser-tabs';
 import { isPaneSurfaceId } from '../../../src/shared/lib/pane-surface-id';
 import { createTerminal, createWorkspace } from '../../factories';
 
 import type { PaneSurface } from '../../../src/renderer/stores/pane-surfaces.store';
+import type { LayoutNode } from '../../../src/renderer/types/layout';
+import type {
+  Workspace,
+  WorkspaceLayoutNode,
+  WorkspaceLayoutPane,
+  WorkspaceSavedLayout,
+} from '../../../src/shared/types';
 
 const WS = 'ws-1';
 
@@ -544,7 +554,7 @@ describe('reportWorkspacesShowingPaneSurfaces', () => {
   });
 });
 
-describe('saved browser panes', () => {
+describe('saved layouts', () => {
   const updateWorkspace = vi.fn().mockResolvedValue(undefined);
   let stopRestoring: () => void;
   let stopSaving: () => void;
@@ -555,12 +565,55 @@ describe('saved browser panes', () => {
     );
   }
 
+  function surfaceIdOf(kind: PaneSurface['kind'], workspaceId = 'ws-2'): string {
+    const found = Object.entries(usePaneSurfacesStore.getState().surfaces).find(
+      ([, surface]) => surface.kind === kind && surface.workspaceId === workspaceId
+    );
+    return found![0];
+  }
+
+  /** A tab's panes as nested arrays: a split as its direction, sizes and sides. */
+  function shape(node: LayoutNode | undefined): unknown {
+    if (!node) return undefined;
+    if (node.type === 'leaf') return node.terminalId;
+    return [node.direction, node.sizes, ...node.children.map(shape)];
+  }
+
+  function tabShapes(workspaceId = 'ws-2'): unknown[] {
+    const layout = useLayoutStore.getState();
+    return (layout.tabsByWorkspace[workspaceId] ?? []).map((tabId) =>
+      shape(layout.layoutsByTab[workspaceId]?.[tabId])
+    );
+  }
+
+  const leaf = (pane: WorkspaceLayoutPane): WorkspaceLayoutNode => ({ type: 'leaf', pane });
+  const split = (
+    direction: 'horizontal' | 'vertical',
+    sizes: [number, number],
+    first: WorkspaceLayoutNode,
+    second: WorkspaceLayoutNode
+  ): WorkspaceLayoutNode => ({ type: 'split', direction, sizes, children: [first, second] });
+  const browserPane = (...urls: string[]): WorkspaceLayoutPane => ({
+    kind: 'browser',
+    browserTabs: urls.map((url, index) => ({ id: `t${index}`, url })),
+    activeBrowserTabId: 't0',
+  });
+
+  /** Lays the workspace out as a start does, before its saved layout opens. */
+  function start(workspace: Workspace) {
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    addSetupPaneSurfaces(workspace);
+    useLayoutStore
+      .getState()
+      .applyWorkspaceLayout(workspace.id, buildWorkspaceLayoutHydration(workspace)!, {});
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     updateWorkspace.mockClear();
     Object.assign(window, { api: { closeDevPreview, updateWorkspace } });
-    stopRestoring = restoreSavedBrowserPanes();
-    stopSaving = saveBrowserPanes();
+    stopRestoring = restoreSavedLayouts();
+    stopSaving = saveWorkspaceLayouts();
   });
 
   afterEach(() => {
@@ -569,39 +622,408 @@ describe('saved browser panes', () => {
     vi.useRealTimers();
   });
 
-  it("opens a workspace's saved browsers in tabs after its terminal's when it starts", () => {
+  it('opens browsers and notes in their places beside the terminals that start again', () => {
+    start(
+      createWorkspace({
+        id: 'ws-2',
+        terminals: [
+          createTerminal({ id: 'agent' }),
+          createTerminal({ id: 'dev', setupStepId: 'dev', layoutHint: 'tab' }),
+        ],
+        savedLayout: {
+          tabs: [
+            split('vertical', [70, 30], leaf({ kind: 'agent' }), leaf(browserPane('https://a.test/', 'https://b.test/'))),
+            split('horizontal', [40, 60], leaf({ kind: 'setup-step', stepId: 'dev' }), leaf({ kind: 'note', name: 'plan.md' })),
+          ],
+          activeTab: 1,
+        },
+      })
+    );
+
+    const browser = surfaceIdOf('browser');
+    const note = surfaceIdOf('note');
+    expect(tabShapes()).toEqual([
+      ['vertical', [70, 30], 'agent', browser],
+      ['horizontal', [40, 60], 'dev', note],
+    ]);
+    const layout = useLayoutStore.getState();
+    expect(layout.activeTabByWorkspace['ws-2']).toBe(layout.tabsByWorkspace['ws-2'][1]);
+    expect(usePaneSurfacesStore.getState().surfaces[browser]).toMatchObject({
+      browserTabs: [
+        { id: `${browser}/t0`, url: 'https://a.test/' },
+        { id: `${browser}/t1`, url: 'https://b.test/' },
+      ],
+      activeBrowserTabId: `${browser}/t0`,
+    });
+    expect(usePaneSurfacesStore.getState().surfaces[note]).toEqual({
+      kind: 'note',
+      workspaceId: 'ws-2',
+      name: 'plan.md',
+    });
+  });
+
+  it("drops the places of terminals that don't start again, and keeps a new step's terminal after", () => {
+    start(
+      createWorkspace({
+        id: 'ws-2',
+        terminals: [
+          createTerminal({ id: 'agent' }),
+          createTerminal({ id: 'added', setupStepId: 'added', layoutHint: 'tab' }),
+        ],
+        savedLayout: {
+          tabs: [
+            split('vertical', [50, 50], leaf({ kind: 'agent' }), leaf({ kind: 'setup-step', stepId: 'gone' })),
+            leaf(browserPane('https://a.test/')),
+          ],
+        },
+      })
+    );
+
+    expect(tabShapes()).toEqual(['agent', surfaceIdOf('browser'), 'added']);
+    expect(useLayoutStore.getState().activeTabByWorkspace['ws-2']).toBe('agent');
+  });
+
+  it('keeps the agent first when the saved layout had no place for it', () => {
     useWorkspacesStore.setState({
       workspaces: [
         createWorkspace({
           id: 'ws-2',
           terminals: [createTerminal({ id: 'term-9' })],
-          browserPanes: [
-            {
-              browserTabs: [
-                { id: 'a', url: 'https://a.test/', title: 'A' },
-                { id: 'b', url: 'http://localhost:5173/' },
-              ],
-              activeBrowserTabId: 'b',
-            },
-          ],
+          savedLayout: { tabs: [leaf(browserPane('https://a.test/'))] },
         }),
       ],
     });
 
     useLayoutStore.getState().setCurrentWorkspace('ws-2', 'term-9');
 
-    const [browser] = browsers('ws-2');
-    const layout = useLayoutStore.getState();
-    expect(layout.tabsByWorkspace['ws-2']).toEqual(['term-9', browser.id]);
-    expect(layout.activeTabByWorkspace['ws-2']).toBe('term-9');
-    expect(browser.browserTabs).toEqual([
-      { id: `${browser.id}/a`, url: 'https://a.test/', title: 'A' },
-      { id: `${browser.id}/b`, url: 'http://localhost:5173/' },
-    ]);
-    expect(browser.activeBrowserTabId).toBe(`${browser.id}/b`);
+    expect(tabShapes()).toEqual(['term-9', surfaceIdOf('browser')]);
+    expect(useLayoutStore.getState().activeTabByWorkspace['ws-2']).toBe('term-9');
   });
 
-  it('opens the saved browsers of a workspace whose layout came back before it loaded', () => {
+  it('opens what Setup opened as the workspace was created, and nothing saved over it', () => {
+    start(
+      createWorkspace({
+        id: 'ws-2',
+        terminals: [createTerminal({ id: 'term-9' })],
+        setupPanes: [
+          {
+            id: 'surface:browser:app',
+            kind: 'browser',
+            urls: ['http://localhost:3000', 'https://docs.test/'],
+            layoutHint: 'split-right',
+            afterTerminals: 1,
+          },
+          { id: 'surface:browser:blank', kind: 'browser', layoutHint: 'tab', afterTerminals: 1 },
+        ],
+        savedLayout: { tabs: [leaf(browserPane('https://other.test/'))] },
+      })
+    );
+
+    expect(tabShapes()).toEqual([
+      ['vertical', [50, 50], 'term-9', 'surface:browser:app'],
+      'surface:browser:blank',
+    ]);
+    const { surfaces } = usePaneSurfacesStore.getState();
+    const app = surfaces['surface:browser:app'];
+    expect(app).toMatchObject({
+      browserTabs: [{ url: 'http://localhost:3000' }, { url: 'https://docs.test/' }],
+    });
+    expect(app?.kind === 'browser' && app.activeBrowserTabId).toBe(
+      app?.kind === 'browser' && app.browserTabs[0].id
+    );
+    expect(surfaces['surface:browser:blank']).toMatchObject({ browserTabs: [{ url: '' }] });
+  });
+
+  it('saves browsers and notes in their places, the agent and Setup terminals as theirs', () => {
+    useWorkspacesStore.setState({
+      workspaces: [
+        createWorkspace({
+          id: WS,
+          terminals: [
+            createTerminal({ id: 'term-1' }),
+            createTerminal({ id: 'dev', setupStepId: 'dev' }),
+            createTerminal({ id: 'shell' }),
+          ],
+        }),
+      ],
+    });
+    useLayoutStore.getState().addTab(WS, 'dev');
+    useLayoutStore.getState().addTab(WS, 'shell');
+    useLayoutStore.getState().setActiveTab('term-1');
+    openBrowserPane(WS, { kind: 'split', direction: 'vertical' }, 'https://a.test/');
+    usePaneSurfacesStore
+      .getState()
+      .addSurface({ kind: 'file', workspaceId: WS, path: 'README.md' }, 'surface:file:f');
+    useLayoutStore.getState().addTab(WS, 'surface:file:f');
+    useLayoutStore.getState().setActiveTab('term-1');
+    vi.runAllTimers();
+
+    expect(updateWorkspace).toHaveBeenLastCalledWith(WS, {
+      savedLayout: {
+        tabs: [
+          split('vertical', [50, 50], leaf({ kind: 'agent' }), leaf({
+            kind: 'browser',
+            browserTabs: [{ id: expect.not.stringContaining('surface:'), url: 'https://a.test/' }],
+            activeBrowserTabId: expect.not.stringContaining('surface:'),
+          })),
+          leaf({ kind: 'setup-step', stepId: 'dev' }),
+        ],
+        activeTab: 0,
+      },
+    });
+  });
+
+  it('saves once pages settle, and clears the saved layout once the last browser closes', () => {
+    useWorkspacesStore.setState({
+      workspaces: [createWorkspace({ id: WS, terminals: [createTerminal({ id: 'term-1' })] })],
+    });
+    const id = openInBrowserPane(WS, 'https://a.test/')!;
+    vi.advanceTimersByTime(500);
+    updatePaneBrowserTabs(id, (tabs) => addBrowserTab(tabs, 'https://b.test/'));
+    vi.runAllTimers();
+
+    expect(updateWorkspace).toHaveBeenCalledExactlyOnceWith(WS, {
+      savedLayout: expect.objectContaining({
+        tabs: [
+          leaf({ kind: 'agent' }),
+          leaf(
+            expect.objectContaining({
+              browserTabs: [
+                expect.objectContaining({ url: 'https://a.test/' }),
+                expect.objectContaining({ url: 'https://b.test/' }),
+              ],
+            })
+          ),
+        ],
+      }),
+    });
+
+    closePaneSurface(WS, id);
+    vi.runAllTimers();
+    expect(updateWorkspace).toHaveBeenLastCalledWith(WS, { savedLayout: { tabs: [] } });
+    expect(useWorkspacesStore.getState().workspaces[0].savedLayout).toBeUndefined();
+  });
+
+  it("saves a workspace's other tabs when a tab's URL can't be saved", () => {
+    useWorkspacesStore.setState({
+      workspaces: [createWorkspace({ id: WS, terminals: [createTerminal({ id: 'term-1' })] })],
+    });
+    const id = openInBrowserPane(WS, 'https://a.test/')!;
+    updatePaneBrowserTabs(id, (tabs) => addBrowserTab(tabs, `https://a.test/${'x'.repeat(2048)}`));
+    vi.runAllTimers();
+
+    const [[, { savedLayout }]] = updateWorkspace.mock.calls as [[string, { savedLayout: WorkspaceSavedLayout }]];
+    expect(savedLayout.tabs[1]).toMatchObject(
+      leaf(expect.objectContaining({ browserTabs: [expect.objectContaining({ url: 'https://a.test/' })] }))
+    );
+  });
+
+  it('saves the order of tabs that only moved, and the tab on screen', () => {
+    useWorkspacesStore.setState({
+      workspaces: [createWorkspace({ id: WS, terminals: [createTerminal({ id: 'term-1' })] })],
+    });
+    openBrowserPane(WS, { kind: 'tab' }, 'https://a.test/');
+    openBrowserPane(WS, { kind: 'tab' }, 'https://b.test/');
+    vi.runAllTimers();
+    updateWorkspace.mockClear();
+
+    useLayoutStore.getState().reorderTabs(WS, 1, 2);
+    vi.runAllTimers();
+
+    expect(updateWorkspace).toHaveBeenCalledExactlyOnceWith(WS, {
+      savedLayout: {
+        tabs: [
+          leaf({ kind: 'agent' }),
+          leaf(expect.objectContaining({ browserTabs: [expect.objectContaining({ url: 'https://b.test/' })] })),
+          leaf(expect.objectContaining({ browserTabs: [expect.objectContaining({ url: 'https://a.test/' })] })),
+        ],
+        activeTab: 1,
+      },
+    });
+  });
+
+  it('waits to save only when a browser or note changes', () => {
+    useWorkspacesStore.setState({ workspaces: [createWorkspace({ id: WS })] });
+    openInBrowserPane(WS, 'https://a.test/');
+    vi.runAllTimers();
+
+    usePaneSurfacesStore.getState().addSurface({ kind: 'file', workspaceId: WS, path: 'a.ts' });
+    expect(vi.getTimerCount()).toBe(0);
+
+    usePaneSurfacesStore.getState().addSurface({ kind: 'note', workspaceId: WS, name: 'a.md' });
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it('saves a browser closed just before the workspace stops as closed', () => {
+    useWorkspacesStore.setState({ workspaces: [createWorkspace({ id: WS })] });
+    const id = openInBrowserPane(WS, 'https://a.test/')!;
+    vi.runAllTimers();
+    updateWorkspace.mockClear();
+
+    closePaneSurface(WS, id);
+    vi.advanceTimersByTime(100);
+    useLayoutStore.getState().clearWorkspaceLayout(WS);
+    vi.runAllTimers();
+
+    expect(updateWorkspace).toHaveBeenCalledExactlyOnceWith(WS, { savedLayout: { tabs: [] } });
+  });
+
+  it('keeps the saved layout when the workspace stops', () => {
+    useWorkspacesStore.setState({ workspaces: [createWorkspace({ id: WS })] });
+    openInBrowserPane(WS, 'https://a.test/');
+    vi.runAllTimers();
+    updateWorkspace.mockClear();
+
+    useLayoutStore.getState().clearWorkspaceLayout(WS);
+    vi.runAllTimers();
+
+    expect(updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('opens what changed just before a restart, before it would have saved', () => {
+    const workspace = createWorkspace({ id: WS, terminals: [createTerminal({ id: 'term-1' })] });
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    const id = openBrowserPane(WS, { kind: 'split', direction: 'vertical' }, 'https://a.test/');
+    vi.runAllTimers();
+    updatePaneBrowserTabs(id, (tabs) => addBrowserTab(tabs, 'https://typed.test/'));
+
+    useLayoutStore.getState().clearWorkspaceLayout(WS);
+    const restarted = { ...useWorkspacesStore.getState().workspaces[0], terminals: [createTerminal({ id: 'term-2' })], primaryTerminalId: 'term-2' };
+    start(restarted);
+
+    const browser = surfaceIdOf('browser', WS);
+    expect(tabShapes(WS)).toEqual([['vertical', [50, 50], 'term-2', browser]]);
+    expect(browsers(WS)[0].browserTabs.map((tab) => tab.url)).toEqual([
+      'https://a.test/',
+      'https://typed.test/',
+    ]);
+  });
+
+  it("keeps the agent's place through a restart that lists the new terminals first", () => {
+    useWorkspacesStore.setState({
+      workspaces: [createWorkspace({ id: WS, terminals: [createTerminal({ id: 'term-1' })] })],
+    });
+    openBrowserPane(WS, { kind: 'split', direction: 'vertical' }, 'https://a.test/');
+    vi.runAllTimers();
+    updateWorkspace.mockClear();
+
+    // The restart lists its new agent while the old one's pane still shows, then that pane goes.
+    const restarted = {
+      ...useWorkspacesStore.getState().workspaces[0],
+      terminals: [createTerminal({ id: 'term-2' })],
+      primaryTerminalId: 'term-2',
+    };
+    useWorkspacesStore.setState({
+      workspaces: [restarted],
+      restartingWorkspaceIds: new Set([WS]),
+    });
+    useLayoutStore.getState().removeTerminalPane(WS, 'term-1');
+    useLayoutStore.getState().clearWorkspaceLayout(WS);
+    start(restarted);
+    useWorkspacesStore.setState({ restartingWorkspaceIds: new Set() });
+    vi.runAllTimers();
+
+    expect(tabShapes(WS)).toEqual([['vertical', [50, 50], 'term-2', surfaceIdOf('browser', WS)]]);
+    expect(updateWorkspace).not.toHaveBeenCalledWith(WS, {
+      savedLayout: { tabs: [expect.anything()] },
+    });
+  });
+
+  it('closes the pane of a note that went to the Trash while the workspace was stopped', async () => {
+    vi.useRealTimers();
+    useNotesStore.setState(useNotesStore.getInitialState(), true);
+    const listNotes = vi
+      .fn()
+      .mockResolvedValue([{ name: 'kept.md', title: 'Plan', path: '/kept.md', modifiedMs: 0 }]);
+    Object.assign(window, {
+      api: { closeDevPreview, updateWorkspace, listNotes, onNotesChanged: () => () => {} },
+    });
+    start(
+      createWorkspace({
+        id: 'ws-2',
+        terminals: [createTerminal({ id: 'agent' })],
+        savedLayout: {
+          tabs: [
+            split('vertical', [50, 50], leaf({ kind: 'agent' }), leaf({ kind: 'note', name: 'kept.md' })),
+            leaf({ kind: 'note', name: 'trashed.md' }),
+          ],
+        },
+      })
+    );
+    expect(tabShapes()).toHaveLength(2);
+
+    await vi.waitFor(() => expect(tabShapes()).toHaveLength(1));
+    const kept = surfaceIdOf('note');
+    expect(tabShapes()).toEqual([['vertical', [50, 50], 'agent', kept]]);
+    expect(usePaneSurfacesStore.getState().surfaces[kept]).toMatchObject({ name: 'kept.md' });
+  });
+
+  it("doesn't hold back a page in a window that set up the workspace's tabs another way", () => {
+    useWorkspacesStore.setState({
+      workspaces: [
+        createWorkspace({
+          id: 'ws-2',
+          terminals: [createTerminal({ id: 'term-9' })],
+          setupPanes: [{ id: 'surface:browser:app', kind: 'browser', afterTerminals: 1 }],
+        }),
+      ],
+    });
+    useLayoutStore.getState().setCurrentWorkspace('ws-2', 'term-9');
+
+    expect(openInBrowserPane('ws-2', 'https://b.test/')).not.toBeNull();
+  });
+
+  it("opens a page a step opens before Setup's browser is laid out in that browser", () => {
+    const workspace = createWorkspace({
+      id: 'ws-2',
+      terminals: [createTerminal({ id: 'term-9' })],
+      setupPanes: [
+        {
+          id: 'surface:browser:late',
+          kind: 'browser',
+          urls: [],
+          layoutHint: 'split-right',
+          afterTerminals: 1,
+        },
+      ],
+    });
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+
+    expect(openInBrowserPane('ws-2', 'http://localhost:4321/')).toBeNull();
+    expect(useLayoutStore.getState().tabsByWorkspace['ws-2']).toBeUndefined();
+
+    start(workspace);
+
+    expect(browsers('ws-2')).toEqual([
+      expect.objectContaining({
+        id: 'surface:browser:late',
+        browserTabs: [expect.objectContaining({ url: 'http://localhost:4321/' })],
+      }),
+    ]);
+  });
+
+  it('opens a page a step opens as the workspace starts in the browser its saved layout opens', () => {
+    const workspace = createWorkspace({
+      id: 'ws-2',
+      terminals: [createTerminal({ id: 'term-9' })],
+      savedLayout: {
+        tabs: [split('vertical', [50, 50], leaf({ kind: 'agent' }), leaf(browserPane('http://localhost:4321/')))],
+      },
+    });
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+
+    expect(openInBrowserPane('ws-2', 'http://localhost:4321/admin')).toBeNull();
+
+    start(workspace);
+
+    expect(tabShapes()).toEqual([['vertical', [50, 50], 'term-9', surfaceIdOf('browser')]]);
+    expect(browsers('ws-2')[0].browserTabs.map((tab) => tab.url)).toEqual([
+      'http://localhost:4321/',
+      'http://localhost:4321/admin',
+    ]);
+  });
+
+  it('opens the saved layout of a workspace whose tabs came back before it loaded', () => {
     // Loading workspaces sets up their saved layouts first, as an SSH workspace's after a restart.
     useWorkspacesStore.setState({ workspaces: [] });
     useLayoutStore.getState().applyWorkspaceLayout(
@@ -621,14 +1043,14 @@ describe('saved browser panes', () => {
         createWorkspace({
           id: 'ws-2',
           terminals: [createTerminal({ id: 'term-9' })],
-          browserPanes: [{ browserTabs: [{ id: 'a', url: 'https://a.test/' }] }],
+          savedLayout: {
+            tabs: [split('vertical', [50, 50], leaf({ kind: 'agent' }), leaf(browserPane('https://a.test/')))],
+          },
         }),
       ],
     });
 
-    const [browser] = browsers('ws-2');
-    expect(useLayoutStore.getState().tabsByWorkspace['ws-2']).toEqual(['term-9', browser.id]);
-    expect(browser.browserTabs.map((tab) => tab.url)).toEqual(['https://a.test/']);
+    expect(tabShapes()).toEqual([['vertical', [50, 50], 'term-9', surfaceIdOf('browser')]]);
   });
 
   it('waits for the terminal of a workspace that is still being set up', () => {
@@ -637,7 +1059,9 @@ describe('saved browser panes', () => {
         createWorkspace({
           id: 'ws-2',
           terminals: [],
-          browserPanes: [{ browserTabs: [{ id: 'a', url: 'https://a.test/' }] }],
+          // Its agent's terminal, once the workspace lists it.
+          primaryTerminalId: 'term-9',
+          savedLayout: { tabs: [leaf(browserPane('https://a.test/'))] },
         }),
       ],
     });
@@ -656,8 +1080,8 @@ describe('saved browser panes', () => {
       workspaces: [
         createWorkspace({
           id: 'ws-2',
-          terminals: [createTerminal({ id: 'term-9' })],
-          browserPanes: [{ browserTabs: [{ id: 'a', url: 'https://a.test/' }] }],
+          terminals: [createTerminal({ id: 'term-9', status: 'stopped' })],
+          savedLayout: { tabs: [leaf(browserPane('https://a.test/'))] },
         }),
       ],
     });
@@ -718,16 +1142,18 @@ describe('saved browser panes', () => {
     expect(browser.browserTabs.map((tab) => tab.url)).toEqual(['https://b.test/']);
   });
 
-  it('opens a page in the saved browser of a stopped workspace with no terminal', () => {
+  it('opens a page in the saved browser of a stopped workspace with no terminal, as saved', () => {
     useWorkspacesStore.setState({
       workspaces: [
         createWorkspace({
           id: 'ws-2',
           terminals: [],
-          browserPanes: [
-            { browserTabs: [{ id: 'a', url: 'https://a.test/' }] },
-            { browserTabs: [{ id: 'c', url: 'https://c.test/' }] },
-          ],
+          savedLayout: {
+            tabs: [
+              split('vertical', [50, 50], leaf({ kind: 'agent' }), leaf(browserPane('https://a.test/'))),
+              leaf(browserPane('https://c.test/')),
+            ],
+          },
         }),
       ],
     });
@@ -753,13 +1179,13 @@ describe('saved browser panes', () => {
     expect(useLayoutStore.getState().tabsByWorkspace['ws-2']).toEqual([id]);
   });
 
-  it('keeps the browsers of a workspace another window handed over', () => {
+  it('keeps the panes of a workspace another window handed over', () => {
     useWorkspacesStore.setState({
       workspaces: [
         createWorkspace({
           id: 'ws-2',
           terminals: [createTerminal({ id: 'term-9' })],
-          browserPanes: [{ browserTabs: [{ id: 'a', url: 'https://a.test/' }] }],
+          savedLayout: { tabs: [leaf(browserPane('https://a.test/'))] },
         }),
       ],
     });
@@ -776,114 +1202,6 @@ describe('saved browser panes', () => {
     } as never);
 
     expect(browsers('ws-2').map((browser) => browser.id)).toEqual(['surface:browser:moved']);
-  });
-
-  it("saves a workspace's browsers once its pages settle, and none once the last one closes", () => {
-    useWorkspacesStore.setState({
-      workspaces: [createWorkspace({ id: WS, terminals: [createTerminal({ id: 'term-1' })] })],
-    });
-    const id = openInBrowserPane(WS, 'https://a.test/');
-    vi.advanceTimersByTime(500);
-    updatePaneBrowserTabs(id, (tabs) => addBrowserTab(tabs, 'https://b.test/'));
-    vi.runAllTimers();
-
-    expect(updateWorkspace).toHaveBeenCalledExactlyOnceWith(WS, {
-      browserPanes: [
-        {
-          browserTabs: [
-            { id: expect.not.stringContaining('surface:'), url: 'https://a.test/' },
-            { id: expect.not.stringContaining('surface:'), url: 'https://b.test/' },
-          ],
-          activeBrowserTabId: expect.not.stringContaining('surface:'),
-        },
-      ],
-    });
-
-    closePaneSurface(WS, id);
-    vi.runAllTimers();
-    expect(updateWorkspace).toHaveBeenLastCalledWith(WS, { browserPanes: [] });
-  });
-
-  it("saves a workspace's other browsers when a tab's URL can't be saved", () => {
-    useWorkspacesStore.setState({
-      workspaces: [createWorkspace({ id: WS, terminals: [createTerminal({ id: 'term-1' })] })],
-    });
-    const id = openInBrowserPane(WS, 'https://a.test/');
-    openBrowserPane(WS, { kind: 'tab' }, 'https://b.test/');
-    updatePaneBrowserTabs(id, (tabs) => addBrowserTab(tabs, `https://a.test/${'x'.repeat(2048)}`));
-    vi.runAllTimers();
-
-    expect(updateWorkspace).toHaveBeenCalledExactlyOnceWith(WS, {
-      browserPanes: [
-        expect.objectContaining({
-          browserTabs: [expect.objectContaining({ url: 'https://a.test/' })],
-        }),
-        expect.objectContaining({
-          browserTabs: [expect.objectContaining({ url: 'https://b.test/' })],
-        }),
-      ],
-    });
-  });
-
-  it('saves the order of browsers that only moved', () => {
-    useWorkspacesStore.setState({
-      workspaces: [createWorkspace({ id: WS, terminals: [createTerminal({ id: 'term-1' })] })],
-    });
-    const first = openBrowserPane(WS, { kind: 'tab' }, 'https://a.test/');
-    openBrowserPane(WS, { kind: 'tab' }, 'https://b.test/');
-    vi.runAllTimers();
-    updateWorkspace.mockClear();
-
-    useLayoutStore.getState().reorderTabs(WS, 1, 2);
-    vi.runAllTimers();
-
-    expect(updateWorkspace).toHaveBeenCalledExactlyOnceWith(WS, {
-      browserPanes: [
-        expect.objectContaining({
-          browserTabs: [expect.objectContaining({ url: 'https://b.test/' })],
-        }),
-        expect.objectContaining({
-          browserTabs: [expect.objectContaining({ url: 'https://a.test/' })],
-        }),
-      ],
-    });
-    expect(useLayoutStore.getState().tabsByWorkspace[WS].at(-1)).toBe(first);
-  });
-
-  it('waits to save only when a browser changes', () => {
-    useWorkspacesStore.setState({ workspaces: [createWorkspace({ id: WS })] });
-    openInBrowserPane(WS, 'https://a.test/');
-    vi.runAllTimers();
-
-    usePaneSurfacesStore.getState().addSurface({ kind: 'note', workspaceId: WS, name: 'a.md' });
-
-    expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('saves a browser closed just before the workspace stops as closed', () => {
-    useWorkspacesStore.setState({ workspaces: [createWorkspace({ id: WS })] });
-    const id = openInBrowserPane(WS, 'https://a.test/')!;
-    vi.runAllTimers();
-    updateWorkspace.mockClear();
-
-    closePaneSurface(WS, id);
-    vi.advanceTimersByTime(100);
-    useLayoutStore.getState().clearWorkspaceLayout(WS);
-    vi.runAllTimers();
-
-    expect(updateWorkspace).toHaveBeenCalledExactlyOnceWith(WS, { browserPanes: [] });
-  });
-
-  it('keeps the saved browsers when the workspace stops', () => {
-    useWorkspacesStore.setState({ workspaces: [createWorkspace({ id: WS })] });
-    openInBrowserPane(WS, 'https://a.test/');
-    vi.runAllTimers();
-    updateWorkspace.mockClear();
-
-    useLayoutStore.getState().clearWorkspaceLayout(WS);
-    vi.runAllTimers();
-
-    expect(updateWorkspace).not.toHaveBeenCalled();
   });
 });
 
@@ -1491,4 +1809,106 @@ describe('unsaved files', () => {
     expect(setUnsavedFiles).toHaveBeenLastCalledWith(['b.md']);
     stopReporting();
   });
+});
+
+describe('addSetupPaneSurfaces notes', () => {
+  const NOTE_PANE = {
+    id: 'surface:note:n',
+    kind: 'note' as const,
+    afterTerminals: 1,
+  };
+  const updateWorkspace = vi.fn().mockResolvedValue(undefined);
+
+  function layOut(workspace: ReturnType<typeof createWorkspace>) {
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    addSetupPaneSurfaces(workspace);
+    useLayoutStore
+      .getState()
+      .applyWorkspaceLayout(WS, buildWorkspaceLayoutHydration(workspace)!, {});
+  }
+
+  beforeEach(() => useNotesStore.setState(useNotesStore.getInitialState(), true));
+
+  it('starts a blank note and shows it in its pane', async () => {
+    const createNote = vi
+      .fn()
+      .mockResolvedValue({ name: 'n.md', title: '', path: '/n.md', modifiedMs: 0 });
+    Object.assign(window, { api: { closeDevPreview, createNote, updateWorkspace } });
+
+    layOut(
+      createWorkspace({
+        id: WS,
+        terminals: [createTerminal({ id: 'term-1' })],
+        setupPanes: [{ ...NOTE_PANE, layoutHint: 'split-right' }],
+      })
+    );
+    expect(leafIds('term-1')).toEqual(['term-1', 'surface:note:n']);
+
+    await vi.waitFor(() =>
+      expect(usePaneSurfacesStore.getState().surfaces['surface:note:n']).toEqual({
+        kind: 'note',
+        workspaceId: WS,
+        name: 'n.md',
+      })
+    );
+    expect(createNote.mock.calls[0][0]).toBe(WS);
+  });
+
+  it("closes the note's pane when the note can't start", async () => {
+    const createNote = vi.fn().mockRejectedValue(new Error('disk full'));
+    Object.assign(window, { api: { closeDevPreview, createNote } });
+
+    layOut(
+      createWorkspace({
+        id: WS,
+        terminals: [createTerminal({ id: 'term-1' })],
+        setupPanes: [{ ...NOTE_PANE, layoutHint: 'split-right' }],
+      })
+    );
+
+    await vi.waitFor(() => expect(leafIds('term-1')).toEqual(['term-1']));
+    expect(usePaneSurfacesStore.getState().surfaces['surface:note:n']).toBeUndefined();
+  });
+
+  it('leaves the note alone when its pane went meanwhile, for the next note to reuse', async () => {
+    let made: (note: unknown) => void = () => {};
+    const createNote = vi.fn(() => new Promise((resolve) => (made = resolve)));
+    const trashNote = vi.fn();
+    Object.assign(window, { api: { closeDevPreview, createNote, trashNote, updateWorkspace } });
+
+    layOut(
+      createWorkspace({
+        id: WS,
+        terminals: [createTerminal({ id: 'term-1' })],
+        setupPanes: [{ ...NOTE_PANE, layoutHint: 'split-right' }],
+      })
+    );
+    useLayoutStore.getState().clearWorkspaceLayout(WS);
+    made({ name: 'n.md', title: '', path: '/n.md', modifiedMs: 0 });
+
+    await vi.waitFor(() => expect(useNotesStore.getState().byScope[WS]).toHaveLength(1));
+    expect(usePaneSurfacesStore.getState().surfaces['surface:note:n']).toBeUndefined();
+    expect(trashNote).not.toHaveBeenCalled();
+  });
+
+  it("keeps the pane of a note made already when a second call for it can't make one", async () => {
+    const createNote = vi
+      .fn()
+      .mockResolvedValueOnce({ name: 'n.md', title: '', path: '/n.md', modifiedMs: 0 })
+      .mockRejectedValueOnce(new Error('disk full'));
+    Object.assign(window, { api: { closeDevPreview, createNote, updateWorkspace } });
+    useToastStore.setState({ toasts: [] });
+    const workspace = createWorkspace({
+      id: WS,
+      terminals: [createTerminal({ id: 'term-1' })],
+      setupPanes: [{ ...NOTE_PANE, layoutHint: 'split-right' }],
+    });
+
+    layOut(workspace);
+    await addSetupPaneSurfaces(workspace);
+
+    expect(leafIds('term-1')).toEqual(['term-1', 'surface:note:n']);
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
 });

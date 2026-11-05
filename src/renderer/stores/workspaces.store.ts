@@ -10,6 +10,7 @@ import { getProjectIdsWithListedGroups } from '../components/workspaces/workspac
 import { getWorkspaceDisplayTitle } from '../components/workspaces/WorkspaceInfoCard';
 import { ipcErrorMessage } from '../lib/ipc-error-message';
 import {
+  addSetupPaneSurfaces,
   confirmDiscardingUnsavedFiles,
   getUnsavedFileNames,
   handOffWorkspacePaneSurfaces,
@@ -111,10 +112,28 @@ function applyLayoutHints(
   workspace: Workspace,
   options?: { setCurrentWorkspace?: boolean }
 ): void {
-  const hydrated = buildWorkspaceLayoutHydration(workspace);
+  const opensPanes = opensSetupPanes(workspace);
+  const shown = opensPanes ? workspace : { ...workspace, setupPanes: undefined };
+  const hydrated = buildWorkspaceLayoutHydration(shown);
   if (!hydrated) return;
 
+  // The browsers and notes Setup opened need their surfaces before the layout shows them.
+  const surfacesAdded = addSetupPaneSurfaces(shown);
   useLayoutStore.getState().applyWorkspaceLayout(workspaceId, hydrated, options);
+  if (opensPanes) {
+    // This window has them, and its saved layout opens them again from now on, so another
+    // window, or this one once it reloads, doesn't open them a second time.
+    void surfacesAdded.then(() =>
+      window.api.updateWorkspace(workspaceId, { setupPanes: [] }).catch(() => {})
+    );
+  }
+}
+
+/** Whether this window opens the panes Setup opened as it created the workspace: once, there. */
+function opensSetupPanes(workspace: Workspace): boolean {
+  if (!workspace.setupPanes?.length) return false;
+  const windowId = useWindowStore.getState().windowId;
+  return workspace.windowId == null || workspace.windowId === windowId;
 }
 
 // Strip non-actionable attention from the currently selected workspace.
@@ -784,7 +803,9 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
             continue;
           }
         }
-        if (!workspace.terminals.some((t) => t.layoutHint)) continue;
+        if (!workspace.terminals.some((t) => t.layoutHint) && !opensSetupPanes(workspace)) {
+          continue;
+        }
         applyLayoutHints(workspace.id, workspace, { setCurrentWorkspace: false });
       }
 

@@ -87,8 +87,10 @@ describe('WorkspaceSetupSection', () => {
     const onStepsChange = renderSection();
 
     expect(screen.getByText('No setup steps yet')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Add step' })).toHaveLength(1);
-    await userEvent.click(screen.getByRole('button', { name: 'Add step' }));
+    for (const name of ['Add terminal', 'Add browser', 'Add note']) {
+      expect(screen.getAllByRole('button', { name })).toHaveLength(1);
+    }
+    await userEvent.click(screen.getByRole('button', { name: 'Add terminal' }));
 
     expect(onStepsChange).toHaveBeenCalledWith([
       expect.objectContaining({ name: '', placement: 'background' }),
@@ -109,19 +111,129 @@ describe('WorkspaceSetupSection', () => {
     expect(onStepsChange).toHaveBeenCalledWith([]);
   });
 
-  it('quick-adds a blank terminal in a new tab', async () => {
+  it('adds a browser and a note beside the item before them', async () => {
     const onStepsChange = renderSection();
 
-    await userEvent.click(screen.getByRole('button', { name: 'New terminal tab' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add browser' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add note' }));
 
-    expect(onStepsChange).toHaveBeenCalledWith([
+    expect(onStepsChange).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({ name: 'Browser', placement: 'split-right', kind: 'browser' }),
+    ]);
+    expect(onStepsChange).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({ name: 'Note', placement: 'split-right', kind: 'note' }),
+    ]);
+  });
+
+  it('switches a step to a browser, dropping what only a terminal has', async () => {
+    const onStepsChange = renderSection([
+      {
+        id: 'review',
+        name: 'Reviewer',
+        command: '',
+        placement: 'background',
+        agent: { presetId: 'claude' },
+      },
+    ]);
+
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Kind for Reviewer' }),
+      'browser'
+    );
+
+    const [[steps]] = onStepsChange.mock.calls;
+    expect(steps).toEqual([
       expect.objectContaining({
-        name: 'Terminal',
+        name: 'Reviewer',
+        kind: 'browser',
+        placement: 'split-right',
+      }),
+    ]);
+    expect(steps[0]).not.toHaveProperty('agent');
+  });
+
+  it('switches a browser back to a terminal, renaming a step named for its kind', async () => {
+    const onStepsChange = renderSection([
+      {
+        id: 'app',
+        name: 'Browser',
         command: '',
         placement: 'tab',
-        destination: 'workspace-repository',
-        trigger: 'every-workspace-start',
-      }),
+        kind: 'browser',
+        urls: ['http://localhost:3000'],
+      },
+    ]);
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Kind for Browser' }), 'terminal');
+
+    const [[steps]] = onStepsChange.mock.calls;
+    expect(steps).toEqual([
+      expect.objectContaining({ name: 'Terminal', placement: 'tab', trigger: 'workspace-creation' }),
+    ]);
+    expect(steps[0]).not.toHaveProperty('kind');
+    expect(steps[0]).not.toHaveProperty('urls');
+  });
+
+  it('edits the pages a browser step opens, which always shows and runs nowhere', async () => {
+    const onStepsChange = renderSection([
+      { id: 'app', name: 'App', command: '', placement: 'split-right', kind: 'browser' },
+      { id: 'note', name: 'Scratch', command: '', placement: 'tab', kind: 'note' },
+    ]);
+
+    for (const name of ['App', 'Scratch']) {
+      expect(
+        within(screen.getByRole('combobox', { name: `Show in for ${name}` })).queryByRole(
+          'option',
+          { name: 'Background' }
+        )
+      ).not.toBeInTheDocument();
+      // It opens each start, with what it showed when the workspace stopped.
+      expect(screen.queryByRole('combobox', { name: `Run on for ${name}` })).not.toBeInTheDocument();
+      expect(screen.queryByRole('combobox', { name: `Run in for ${name}` })).not.toBeInTheDocument();
+    }
+    expect(screen.getByText(/A blank note/)).toBeInTheDocument();
+    expect(screen.getByText(/komla preview --open/)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Page 1 for App' }), 'x');
+    expect(onStepsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: 'app', urls: ['x'] }),
+      expect.objectContaining({ id: 'note' }),
+    ]);
+  });
+
+  it('adds and removes the pages of a browser step', async () => {
+    const onStepsChange = renderSection([
+      {
+        id: 'app',
+        name: 'App',
+        command: '',
+        placement: 'split-right',
+        kind: 'browser',
+        urls: ['http://localhost:3000', 'https://docs.test'],
+      },
+    ]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add page' }));
+    expect(onStepsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ urls: ['http://localhost:3000', 'https://docs.test', ''] }),
+    ]);
+    await userEvent.click(screen.getByRole('button', { name: 'Remove page 1 for App' }));
+    expect(onStepsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ urls: ['https://docs.test'] }),
+    ]);
+  });
+
+  it('runs a new step on creation only, and a dev server on every start', async () => {
+    const onStepsChange = renderSection();
+
+    await userEvent.click(screen.getByRole('button', { name: 'npm install' }));
+    await userEvent.click(screen.getByRole('button', { name: 'npm run dev' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add browser' }));
+
+    expect(onStepsChange.mock.calls.map(([[step]]) => step.trigger)).toEqual([
+      'workspace-creation',
+      'every-workspace-start',
+      undefined,
     ]);
   });
 
@@ -134,7 +246,7 @@ describe('WorkspaceSetupSection', () => {
     };
     const onStepsChange = renderSection([existingStep]);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Add step' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add terminal' }));
 
     expect(onStepsChange).toHaveBeenCalledWith([
       existingStep,
@@ -143,7 +255,7 @@ describe('WorkspaceSetupSection', () => {
         command: '',
         placement: 'background',
         destination: 'workspace-repository',
-        trigger: 'every-workspace-start',
+        trigger: 'workspace-creation',
       }),
     ]);
   });
@@ -381,7 +493,7 @@ describe('WorkspaceSetupSection', () => {
     expect(screen.queryByText('{{localProjectPath}}')).not.toBeInTheDocument();
   });
 
-  it('keeps the terminal-tab preset available when a tab action already exists', () => {
+  it('keeps a tab preset available when a tab action already exists', () => {
     renderSection([
       {
         id: 'action-step',
@@ -393,7 +505,7 @@ describe('WorkspaceSetupSection', () => {
     ]);
 
     expect(
-      (screen.getByRole('button', { name: 'New terminal tab' }) as HTMLButtonElement).disabled
+      (screen.getByRole('button', { name: 'npm run dev' }) as HTMLButtonElement).disabled
     ).toBe(false);
   });
 
@@ -518,12 +630,12 @@ describe('WorkspaceSetupSection', () => {
   it('allows the same quick action to be added multiple times', async () => {
     render(<StatefulSection />, { wrapper: TooltipProvider });
 
-    await userEvent.click(screen.getByRole('button', { name: 'Split bottom' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Split bottom' }));
+    await userEvent.click(screen.getByRole('button', { name: 'npm run dev' }));
+    await userEvent.click(screen.getByRole('button', { name: 'npm run dev' }));
 
-    expect(screen.getAllByDisplayValue('Terminal')).toHaveLength(2);
+    expect(screen.getAllByDisplayValue('Dev server')).toHaveLength(2);
     expect(
-      (screen.getByRole('button', { name: 'Split bottom' }) as HTMLButtonElement).disabled
+      (screen.getByRole('button', { name: 'npm run dev' }) as HTMLButtonElement).disabled
     ).toBe(false);
   });
 

@@ -1,5 +1,8 @@
 import { randomUUID } from 'crypto';
 
+import { createPaneSurfaceId } from '../../../shared/lib/pane-surface-id';
+import { setupPanePlacement, setupStepPane } from '../../../shared/lib/setup-panes';
+
 import { SetupStepResolver } from './step-resolution';
 
 import type { ResolvedSetupStep } from './step-resolution';
@@ -8,9 +11,11 @@ import type {
   Terminal,
   SetupActivityRun,
   SetupStep,
+  SetupStepPane,
   SetupStepPlacement,
   AgentPlacement,
   TerminalExecutionLocation,
+  WorkspaceSetupPane,
 } from '../../../shared/types';
 import type { WorkspaceSetupDependencies } from '../workspace-setup.service';
 
@@ -47,8 +52,48 @@ const SETUP_ACTIVITY_TRUNCATION_MARKER = '\n… earlier output truncated …\n';
 const SETUP_ACTIVITY_RUN_LIMIT = 50;
 const SETUP_ACTIVITY_BROADCAST_INTERVAL_MS = 100;
 
+/** A Setup step that opens a browser or a note in a pane, which always shows. */
+type SetupPaneStep = SetupStep & {
+  pane: SetupStepPane;
+  placement: Exclude<SetupStepPlacement, 'background'>;
+};
+
+type SetupLaunchItem = ResolvedSetupStep | SetupPaneStep | 'primary-agent';
+
+// A browser or note opens as the workspace is created; after that it comes back with the
+// workspace's saved layout, as it was when the workspace stopped, unless it was closed.
 function shouldRunSetupStep(step: SetupStep, phase: 'create' | 'start'): boolean {
-  return phase === 'create' || step.trigger !== 'workspace-creation';
+  return phase === 'create' || (!setupStepPane(step) && step.trigger !== 'workspace-creation');
+}
+
+function isPaneStep(item: SetupLaunchItem): item is SetupPaneStep {
+  return item !== 'primary-agent' && 'pane' in item && !!item.pane;
+}
+
+/** A browser step's pages, without blanks: one typed without its scheme, such as `localhost:3000`, is http. */
+export function setupPageUrls(urls: readonly string[] = []): string[] {
+  return (
+    urls
+      .map((url) => url.trim())
+      .filter(Boolean)
+      // `localhost:3000` reads as a scheme too, so only one with `//`, or http(s), stands as typed.
+      .map((page) => (/^(?:[a-z][a-z\d+.-]*:\/\/|https?:)/i.test(page) ? page : `http://${page}`))
+  );
+}
+
+/** Where a pane step opens: as the first item it takes no layout hint, as a terminal wouldn't. */
+function setupPane(
+  step: SetupPaneStep,
+  first: boolean,
+  afterTerminals: number
+): WorkspaceSetupPane {
+  return {
+    id: createPaneSurfaceId(step.pane),
+    kind: step.pane,
+    ...(step.pane === 'browser' ? { urls: setupPageUrls(step.urls) } : {}),
+    ...(first ? {} : { layoutHint: step.placement }),
+    afterTerminals,
+  };
 }
 
 export class WorkspaceSetupService {
@@ -131,6 +176,8 @@ export class WorkspaceSetupService {
     primaryAgentCommand: string | null,
     phase: 'create' | 'start'
   ): Terminal | null {
+    // A run opens its own panes; those of the previous run don't come back with it.
+    workspace.setupPanes = undefined;
     if (!workspace.isWorktree || !workspace.projectId) return null;
 
     const project = this.dependencies.projects.get(workspace.projectId);
@@ -149,8 +196,17 @@ export class WorkspaceSetupService {
     // Uses the same resolution logic as addAgentTab() for prompt-type actions.
     // Carry a commandKind per step: prompt-action steps resolve to agent
     // commands; plain shell steps and command-action steps are shell commands.
-    const resolvedSteps: ResolvedSetupStep[] = [];
+    const resolvedSteps: Array<ResolvedSetupStep | SetupPaneStep> = [];
     for (const step of setupSteps) {
+      const pane = setupStepPane(step);
+      if (pane) {
+        resolvedSteps.push({
+          ...step,
+          pane,
+          placement: setupPanePlacement(step.placement),
+        });
+        continue;
+      }
       const resolved = this.resolver.resolve(step, workspace, project);
       if (resolved) resolvedSteps.push(resolved);
     }
@@ -166,7 +222,7 @@ export class WorkspaceSetupService {
     const agentInsertIndex = validSteps.filter(
       (step) => (configuredIndex.get(step.id) ?? Number.MAX_SAFE_INTEGER) < agentLayoutOrder
     ).length;
-    const launchItems: Array<ResolvedSetupStep | 'primary-agent'> = [...validSteps];
+    const launchItems: SetupLaunchItem[] = [...validSteps];
     launchItems.splice(agentInsertIndex, 0, 'primary-agent');
     const setupRunId = randomUUID();
     const currentActivities = workspace.setupActivities ?? [];
@@ -189,23 +245,32 @@ export class WorkspaceSetupService {
 
   private dispatchSetupLaunchItems(
     workspace: Workspace,
-    launchItems: Array<ResolvedSetupStep | 'primary-agent'>,
+    launchItems: SetupLaunchItem[],
     primaryAgentCommand: string | null,
     agentPlacement: AgentPlacement,
     setupRunId: string
   ): Terminal | null {
     let primaryTerminalId: string | undefined;
-    let visibleTerminalCount = 0;
+    // Panes and terminals that show, in launch order; a split goes beside the one before it.
+    let visibleCount = 0;
+    let terminalCount = 0;
+    const setupPanes: WorkspaceSetupPane[] = [];
     for (const item of launchItems) {
+      if (isPaneStep(item)) {
+        setupPanes.push(setupPane(item, visibleCount === 0, terminalCount));
+        visibleCount += 1;
+        continue;
+      }
       if (item === 'primary-agent') {
         const terminal = this.dependencies.addTerminal(
           workspace.id,
           workspace.name,
           primaryAgentCommand,
-          visibleTerminalCount === 0 ? undefined : agentPlacement,
+          visibleCount === 0 ? undefined : agentPlacement,
           'agent'
         );
-        visibleTerminalCount += 1;
+        visibleCount += 1;
+        terminalCount += 1;
         if (terminal instanceof Promise) {
           void terminal.then((started) => {
             workspace.primaryTerminalId = started.id;
@@ -222,14 +287,16 @@ export class WorkspaceSetupService {
       const terminal = this.launchVisibleSetupStep(
         workspace,
         item,
-        visibleTerminalCount === 0 ? undefined : item.placement,
+        visibleCount === 0 ? undefined : item.placement,
         setupRunId
       );
       if (terminal) {
-        visibleTerminalCount += 1;
+        visibleCount += 1;
+        terminalCount += 1;
       }
     }
 
+    workspace.setupPanes = setupPanes.length > 0 ? setupPanes : undefined;
     workspace.primaryTerminalId = primaryTerminalId;
     return workspace.terminals.find((t) => t.id === primaryTerminalId) || null;
   }
@@ -254,15 +321,17 @@ export class WorkspaceSetupService {
       return null;
     }
     try {
-      return this.dependencies.addTerminal(
+      const terminal = this.dependencies.addTerminal(
         workspace.id,
         step.name,
         step.command,
         layoutHint,
         step.commandKind,
         step.destinationResolution?.executionLocation ?? 'workspace',
-        step.destinationResolution?.prepare
+        step.destinationResolution?.prepare,
+        step.id
       );
+      return terminal;
     } catch (error) {
       const activity = this.beginSetupActivity(workspace, step, 'running', setupRunId);
       this.finishSetupActivity(workspace, activity.id, 'failed', {
@@ -571,7 +640,7 @@ export class WorkspaceSetupService {
     const project = this.dependencies.projects.get(workspace.projectId);
     const step = project?.setupSteps?.find((candidate) => candidate.id === stepId);
     if (!project || !step) throw new Error(`Setup step ${stepId} not found`);
-    if (step.placement !== 'background') {
+    if (setupStepPane(step) || step.placement !== 'background') {
       throw new Error('Only background Setup steps have retryable activity');
     }
     const resolved = this.resolver.resolve(step, workspace, project, true);

@@ -27,7 +27,9 @@ export interface WorkspaceSetupDependencies {
     layoutHint?: Terminal['layoutHint'],
     commandKind?: CommandKind,
     executionLocation?: TerminalExecutionLocation,
-    prepareBeforeLaunch?: () => Promise<void>
+    prepareBeforeLaunch?: () => Promise<void>,
+    /** The Setup step it runs, whose place it takes in the workspace's saved layout. */
+    setupStepId?: string
   ): Terminal | Promise<Terminal>;
   resolvePreset(presetId?: string | null, workspace?: Workspace): AgentPreset | undefined;
   resolveAgentCommand(

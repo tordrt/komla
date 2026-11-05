@@ -2,9 +2,12 @@ import { spawn as cpSpawn } from 'child_process';
 
 import * as pty from 'node-pty';
 
+import { withKomlaCliOnPath } from '../lib/komla-cli';
 import { createLogger } from '../lib/logger';
 import { powerShellCommandArgs } from '../lib/powershell-native-arguments';
 import { buildTerminalEnv, getShell, getShellArgs } from '../lib/shell';
+import { isWslShell } from '../lib/shell-command';
+import { wslEnv } from '../lib/wsl';
 
 import { configService } from './config.service';
 
@@ -55,16 +58,19 @@ class BackgroundProcessService {
     const shell = getShell();
     const shellArgs = getShellArgs(configService.get().wslDistro);
     const isPowerShell = /(?:^|[/\\])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell);
+    const env = buildTerminalEnv();
+    // So the command can run `komla` for its workspace, as an SSH host's background steps do.
+    env.KOMLA_WORKSPACE_ID = workspaceId;
+    if (isWslShell(shell)) env.WSLENV = wslEnv(env.WSLENV, ['KOMLA_WORKSPACE_ID']);
+
     const completionCommand = isPowerShell
       ? `$global:LASTEXITCODE = $null; ${command}; $komlaSetupSucceeded = $?; $komlaSetupExitCode = $LASTEXITCODE; if ($null -eq $komlaSetupExitCode) { $komlaSetupExitCode = if ($komlaSetupSucceeded) { 0 } else { 1 } }; exit $komlaSetupExitCode`
-      : `${command}; exit $?`;
+      : `${withKomlaCliOnPath(command, env, shell)}; exit $?`;
     // PowerShell runs the command from its arguments when they fit on a Windows
     // command line. Other shells and longer commands get it typed in.
     const commandArgs = isPowerShell
       ? powerShellCommandArgs(shell, shellArgs, completionCommand)
       : null;
-
-    const env = buildTerminalEnv();
 
     const ptyProcess = pty.spawn(shell, commandArgs ?? shellArgs, {
       name: 'xterm-256color',

@@ -6,7 +6,7 @@ import {
   splitLeaf,
 } from './layout-utils';
 
-import type { Workspace } from '../types';
+import type { Terminal, Workspace } from '../types';
 import type { LayoutNode, PaneId, SplitDirection } from '../types/layout';
 
 export interface WorkspaceLayoutHydration {
@@ -34,41 +34,61 @@ export function isWorkspaceLayoutPlaceholder(
   return tabs?.length === 1 && isWorkspacePlaceholderTerminal(workspaceId, tabs[0]);
 }
 
+/**
+ * The workspace's terminals and the panes its Setup run opened besides them, in launch order:
+ * each pane goes after the terminals that launched before it.
+ */
+function setupLayoutItems(
+  workspace: Pick<Workspace, 'terminals' | 'setupPanes'>
+): { id: string; layoutHint?: Terminal['layoutHint'] }[] {
+  const panes = workspace.setupPanes ?? [];
+  const items: { id: string; layoutHint?: Terminal['layoutHint'] }[] = [];
+  workspace.terminals.forEach((terminal, index) => {
+    items.push(...panes.filter((pane) => pane.afterTerminals === index));
+    items.push(terminal);
+  });
+  // A pane after terminals that haven't started yet, as an SSH workspace's, goes last.
+  items.push(...panes.filter((pane) => pane.afterTerminals >= workspace.terminals.length));
+  return items;
+}
+
 export function buildWorkspaceLayoutHydration(
-  workspace: Pick<Workspace, 'terminals' | 'primaryTerminalId'>
+  workspace: Pick<Workspace, 'terminals' | 'primaryTerminalId' | 'setupPanes'>
 ): WorkspaceLayoutHydration | null {
-  const rootTerminal = workspace.terminals[0];
-  if (!rootTerminal) return null;
+  // Setup's panes wait for a terminal: one that starts later finds no place in a layout without.
+  if (workspace.terminals.length === 0) return null;
+  const [root, ...rest] = setupLayoutItems(workspace);
+  if (!root) return null;
 
-  const rootLeaf = createLeaf(rootTerminal.id);
-  const tabs = [rootTerminal.id];
-  const layouts: Record<string, LayoutNode> = { [rootTerminal.id]: rootLeaf };
-  const focusedPanes: Record<string, PaneId> = { [rootTerminal.id]: rootLeaf.id };
-  const primaryTerminalId = workspace.primaryTerminalId ?? rootTerminal.id;
-  let activeTab = rootTerminal.id;
-  let currentTabRoot = rootTerminal.id;
+  const rootLeaf = createLeaf(root.id);
+  const tabs = [root.id];
+  const layouts: Record<string, LayoutNode> = { [root.id]: rootLeaf };
+  const focusedPanes: Record<string, PaneId> = { [root.id]: rootLeaf.id };
+  const primaryTerminalId = workspace.primaryTerminalId ?? workspace.terminals[0]?.id;
+  let activeTab = root.id;
+  let currentTabRoot = root.id;
 
-  for (const terminal of workspace.terminals.slice(1)) {
-    if (terminal.layoutHint === 'tab') {
-      const leaf = createLeaf(terminal.id);
-      tabs.push(terminal.id);
-      layouts[terminal.id] = leaf;
-      focusedPanes[terminal.id] = leaf.id;
-      currentTabRoot = terminal.id;
-    } else if (terminal.layoutHint === 'split-right' || terminal.layoutHint === 'split-bottom') {
+  for (const item of rest) {
+    if (item.layoutHint === 'tab') {
+      const leaf = createLeaf(item.id);
+      tabs.push(item.id);
+      layouts[item.id] = leaf;
+      focusedPanes[item.id] = leaf.id;
+      currentTabRoot = item.id;
+    } else if (item.layoutHint === 'split-right' || item.layoutHint === 'split-bottom') {
       const direction: SplitDirection =
-        terminal.layoutHint === 'split-right' ? 'vertical' : 'horizontal';
+        item.layoutHint === 'split-right' ? 'vertical' : 'horizontal';
       const focusedPaneId = focusedPanes[currentTabRoot];
       const layout = layouts[currentTabRoot];
       if (layout && focusedPaneId) {
-        const newLayout = splitLeaf(layout, focusedPaneId, direction, terminal.id);
-        const newLeaf = findPaneByTerminalId(newLayout, terminal.id);
+        const newLayout = splitLeaf(layout, focusedPaneId, direction, item.id);
+        const newLeaf = findPaneByTerminalId(newLayout, item.id);
         layouts[currentTabRoot] = newLayout;
         focusedPanes[currentTabRoot] = newLeaf?.id ?? focusedPaneId;
       }
     }
 
-    if (terminal.id === primaryTerminalId) {
+    if (item.id === primaryTerminalId) {
       activeTab = currentTabRoot;
     }
   }

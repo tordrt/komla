@@ -132,7 +132,8 @@ export class WorkspaceTerminals {
     layoutHint?: 'tab' | 'split-right' | 'split-bottom',
     commandKind: CommandKind = 'agent',
     executionLocation: TerminalExecutionLocation = 'workspace',
-    prepareBeforeLaunch?: () => Promise<void>
+    prepareBeforeLaunch?: () => Promise<void>,
+    setupStepId?: string
   ): Terminal | Promise<Terminal> {
     const workspace = workspaceStore.workspaces.get(workspaceId);
     if (!workspace) {
@@ -179,6 +180,7 @@ export class WorkspaceTerminals {
       createdAt: Date.now(),
       executionLocation,
       ...(layoutHint ? { layoutHint } : {}),
+      ...(setupStepId ? { setupStepId } : {}),
     };
 
     workspace.terminals.push(terminal);

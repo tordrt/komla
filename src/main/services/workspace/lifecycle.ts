@@ -135,6 +135,8 @@ export class WorkspaceLifecycle {
       );
     }
     workspace.lastStoppedAt = Date.now();
+    // Setup's panes open as it runs; the next start opens the saved layout instead.
+    workspace.setupPanes = undefined;
 
     // Stop all terminals in the workspace (stopping is idempotent)
     for (const terminal of executionLocations.stopAttached(workspace)) {

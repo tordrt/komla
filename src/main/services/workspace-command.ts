@@ -3,8 +3,10 @@ import { posix as pathPosix } from 'path';
 
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import { isSshWorkspace, type SshWorkspaceBackend } from '../../shared/types';
+import { withKomlaCliOnPath } from '../lib/komla-cli';
 import { buildTerminalEnv, getShell } from '../lib/shell';
-import { getConfiguredShellCommand } from '../lib/shell-command';
+import { getConfiguredShellCommand, isWslShell } from '../lib/shell-command';
+import { wslEnv } from '../lib/wsl';
 
 import { configService } from './config.service';
 import { projectService } from './project.service';
@@ -19,9 +21,6 @@ const MAX_ERROR_OUTPUT = 4096;
 const KILL_GRACE_MS = 2000;
 /** How long Komla waits for output a command left behind after it exited. */
 const OUTPUT_DRAIN_MS = 250;
-/** Shells that read `PATH=...; export PATH` the way sh does. */
-const POSIX_SHELLS = new Set(['sh', 'bash', 'dash', 'ksh', 'zsh', 'zsh5']);
-
 /** How a command Komla ran for a workspace ended without succeeding. */
 export class WorkspaceCommandError extends Error {
   constructor(
@@ -60,14 +59,6 @@ function lastLine(output: string): string | undefined {
     .pop();
 }
 
-/**
- * Puts the directory holding the `komla` CLI first on PATH inside the command's shell. Commands run
- * in a login shell, and some login profiles, such as Debian's, set PATH again.
- */
-function withCliOnPath(command: string, cliDirectory: string): string {
-  return `PATH=${shellQuotePosix(cliDirectory)}:"$PATH"; export PATH; ${command}`;
-}
-
 const running = new Set<() => void>();
 
 /** Stops every command still running, as when Komla quits. */
@@ -99,15 +90,6 @@ export function runLocalWorkspaceCommand(
   return runLocalCommand(workspace.workingDirectory, command, options);
 }
 
-// Variables that hold a path on this computer, which WSL translates to its own.
-const WSL_PATH_VARIABLES = new Set(['KOMLA_PLUGIN_DIR']);
-
-/** WSLENV naming these variables too, as Windows passes only the ones it names into WSL. */
-export function wslEnv(current: string | undefined, names: string[]): string {
-  const added = names.map((name) => (WSL_PATH_VARIABLES.has(name) ? `${name}/p` : name));
-  return [current, ...added].filter(Boolean).join(':');
-}
-
 /** Runs a command in a folder on this computer and returns what it printed. */
 export function runLocalCommand(
   cwd: string,
@@ -115,14 +97,8 @@ export function runLocalCommand(
   { env = {}, timeoutMs, maxOutput }: WorkspaceCommandOptions
 ): Promise<string> {
   const fullEnv: NodeJS.ProcessEnv = { ...buildTerminalEnv(), ...env };
-  const shellName = pathPosix.basename(getShell().replace(/\\/g, '/')).toLowerCase();
-  if (shellName === 'wsl' || shellName === 'wsl.exe') {
-    fullEnv.WSLENV = wslEnv(fullEnv.WSLENV, Object.keys(env));
-  }
-  const script =
-    fullEnv.KOMLA_CLI && POSIX_SHELLS.has(shellName)
-      ? withCliOnPath(command, pathPosix.dirname(fullEnv.KOMLA_CLI))
-      : command;
+  if (isWslShell(getShell())) fullEnv.WSLENV = wslEnv(fullEnv.WSLENV, Object.keys(env));
+  const script = withKomlaCliOnPath(command, fullEnv, getShell());
   const { shell, args } = getConfiguredShellCommand(script, configService.get().wslDistro);
 
   return new Promise((resolve, reject) => {

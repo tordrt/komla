@@ -6,7 +6,12 @@ import { BrowserWindow } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
 import { getNextAvailableColor } from '../../shared/lib/project-colors';
-import { SETUP_DESTINATIONS, SETUP_STEP_PLACEMENTS, SETUP_TRIGGERS } from '../../shared/types';
+import {
+  SETUP_DESTINATIONS,
+  SETUP_STEP_KINDS,
+  SETUP_STEP_PLACEMENTS,
+  SETUP_TRIGGERS,
+} from '../../shared/types';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { createLogger } from '../lib/logger';
 import { migrate } from '../lib/migration';
@@ -54,6 +59,7 @@ const DEFAULT_PROJECTS_FILE = { _version: PROJECT_VERSION, projects: [] as Proje
 const setupDestinations = new Set<string>(SETUP_DESTINATIONS);
 const setupTriggers = new Set<string>(SETUP_TRIGGERS);
 const setupPlacements = new Set<string>(SETUP_STEP_PLACEMENTS);
+const setupKinds = new Set<string>(SETUP_STEP_KINDS);
 
 function isValidSetupStep(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -74,6 +80,9 @@ function isValidSetupStep(value: unknown): boolean {
           typeof (agent as Record<string, unknown>).presetId === 'string') &&
         ((agent as Record<string, unknown>).launchModeId === undefined ||
           typeof (agent as Record<string, unknown>).launchModeId === 'string'))) &&
+    (step.kind === undefined || (typeof step.kind === 'string' && setupKinds.has(step.kind))) &&
+    (step.urls === undefined ||
+      (Array.isArray(step.urls) && step.urls.every((url) => typeof url === 'string'))) &&
     (step.destination === undefined ||
       (typeof step.destination === 'string' && setupDestinations.has(step.destination))) &&
     (step.trigger === undefined ||

@@ -4,6 +4,12 @@ function getShellBaseName(shell: string): string {
   return shell.split(/[\\/]/).pop()?.toLowerCase() ?? shell.toLowerCase();
 }
 
+/** Whether the shell is wsl.exe, which starts the user's shell in WSL. */
+export function isWslShell(shell: string): boolean {
+  const baseName = getShellBaseName(shell);
+  return baseName === 'wsl' || baseName === 'wsl.exe';
+}
+
 /** The user's shell and the arguments that make it run `script` and exit. */
 export function getConfiguredShellCommand(
   script: string,
@@ -21,7 +27,7 @@ export function getConfiguredShellCommand(
     return { shell, args: [...args, '/d', '/s', '/c', script] };
   }
 
-  if (baseName === 'wsl' || baseName === 'wsl.exe') {
+  if (isWslShell(shell)) {
     return { shell, args: [...args, '--exec', 'sh', '-lc', script] };
   }
 

@@ -65,6 +65,15 @@ function createMockIPty(): MockIPty {
 
 const mockPtySpawn = vi.fn(() => createMockIPty());
 const mockGetShell = vi.hoisted(() => vi.fn(() => '/bin/zsh'));
+const mockBuildTerminalEnv = vi.hoisted(() =>
+  vi.fn(
+    (): NodeJS.ProcessEnv => ({
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      TERM_PROGRAM: 'Komla',
+    })
+  )
+);
 
 vi.mock('node-pty', () => ({
   spawn: mockPtySpawn,
@@ -84,11 +93,7 @@ vi.mock('../../../src/main/lib/logger', () => ({
 vi.mock('../../../src/main/lib/shell', () => ({
   getShell: mockGetShell,
   getShellArgs: () => ['-l'],
-  buildTerminalEnv: () => ({
-    TERM: 'xterm-256color',
-    COLORTERM: 'truecolor',
-    TERM_PROGRAM: 'Komla',
-  }),
+  buildTerminalEnv: mockBuildTerminalEnv,
 }));
 
 // Mock config.service to avoid transitive dependency on paths -> electron app
@@ -140,6 +145,42 @@ describe('BackgroundProcessService', () => {
           cols: 120,
           rows: 30,
           cwd: '/path/to/cwd',
+        })
+      );
+    });
+
+    it('lets the command run `komla` for its workspace, after a login profile sets PATH', async () => {
+      mockBuildTerminalEnv.mockReturnValueOnce({ KOMLA_CLI: '/home/a/.komla/bin/komla' });
+      const { backgroundProcessService } =
+        await import('../../../src/main/services/background-process.service');
+
+      backgroundProcessService.spawn('workspace-1', 'komla preview --open x', '/cwd', 'preview');
+
+      expect(mockPtySpawn).toHaveBeenCalledWith(
+        '/bin/zsh',
+        ['-l'],
+        expect.objectContaining({ env: expect.objectContaining({ KOMLA_WORKSPACE_ID: 'workspace-1' }) })
+      );
+      spawnedPtys[0]._simulateData('$ ');
+      vi.advanceTimersByTime(150);
+      expect(spawnedPtys[0].write).toHaveBeenCalledWith(
+        `PATH='/home/a/.komla/bin':"$PATH"; export PATH; komla preview --open x; exit $?\r`
+      );
+    });
+
+    it('passes the workspace into WSL, which gets only the variables WSLENV names', async () => {
+      mockGetShell.mockReturnValueOnce('C:\\Windows\\System32\\wsl.exe');
+      mockBuildTerminalEnv.mockReturnValueOnce({ WSLENV: 'USERPROFILE/p' });
+      const { backgroundProcessService } =
+        await import('../../../src/main/services/background-process.service');
+
+      backgroundProcessService.spawn('workspace-1', 'komla preview --open x', '/cwd', 'preview');
+
+      expect(mockPtySpawn).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          env: expect.objectContaining({ WSLENV: 'USERPROFILE/p:KOMLA_WORKSPACE_ID' }),
         })
       );
     });

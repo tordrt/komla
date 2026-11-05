@@ -12,7 +12,12 @@ export const SETUP_DESTINATIONS = [
   'ssh-local-copy',
 ] as const;
 export const SETUP_TRIGGERS = ['workspace-creation', 'every-workspace-start'] as const;
+/** What a Setup step opens in its pane. */
+export const SETUP_STEP_KINDS = ['terminal', 'browser', 'note'] as const;
 export type SetupStepPlacement = (typeof SETUP_STEP_PLACEMENTS)[number];
+export type SetupStepKind = (typeof SETUP_STEP_KINDS)[number];
+/** The kinds of Setup step that open a pane of Komla's own rather than a terminal. */
+export type SetupStepPane = Exclude<SetupStepKind, 'terminal'>;
 export type SetupDestination = (typeof SETUP_DESTINATIONS)[number];
 export type SetupTrigger = (typeof SETUP_TRIGGERS)[number];
 
@@ -58,6 +63,19 @@ export interface SetupStep {
     presetId?: string;
     launchModeId?: string;
   };
+  /**
+   * What the step opens: a terminal (the default), a browser or a blank note. A browser or a note
+   * opens as the workspace is created; after that the workspace's saved layout opens it again,
+   * unless it was closed. `command`, `actionId`, `agent`, `destination` and `trigger` don't apply,
+   * and it never runs in the background.
+   */
+  kind?: SetupStepKind;
+  /**
+   * The pages a browser step opens, one tab each, the first one showing. None
+   * opens a blank tab that finds the workspace's dev server. In an SSH workspace, localhost is
+   * the SSH host.
+   */
+  urls?: string[];
   /** Defaults to workspace-repository. */
   destination?: SetupDestination;
   /** Defaults to every-workspace-start. */

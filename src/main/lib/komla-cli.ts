@@ -14,6 +14,7 @@ import { delimiter, dirname, join, posix } from 'path';
 
 import { app } from 'electron';
 
+import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import { getKomlaBasePath } from '../services/paths';
 
 import { createLogger } from './logger';
@@ -231,6 +232,19 @@ export function komlaNodeCmd(executable: string, env: NodeJS.ProcessEnv = proces
     }
   }
   return `@set ELECTRON_RUN_AS_NODE=1\r\n@"${path}" %*\r\n`;
+}
+
+const POSIX_SHELLS = new Set(['sh', 'bash', 'dash', 'ksh', 'zsh', 'zsh5']);
+
+/**
+ * `command` with the directory holding the `komla` CLI put first on PATH inside its shell, when
+ * `shell` is a POSIX one. Commands run in a login shell, and some login profiles, such as
+ * Debian's, set PATH again.
+ */
+export function withKomlaCliOnPath(command: string, env: NodeJS.ProcessEnv, shell: string): string {
+  const shellName = posix.basename(shell.replace(/\\/g, '/')).toLowerCase();
+  if (!env.KOMLA_CLI || !POSIX_SHELLS.has(shellName)) return command;
+  return `PATH=${shellQuotePosix(posix.dirname(env.KOMLA_CLI))}:"$PATH"; export PATH; ${command}`;
 }
 
 export function getKomlaCliPath(): string {

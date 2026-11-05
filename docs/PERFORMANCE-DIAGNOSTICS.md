@@ -57,10 +57,13 @@ Electron to each startup milestone, ending with the sidebar's workspace cards dr
 after `--`:
 
 ```bash
-npm run startup-time -- --runs 20 --json before.json
+npm run startup-time -- --save-baseline     # builds, then keeps a copy of out/
 # change something, then:
-npm run startup-time -- --runs 20 --compare before.json
+npm run startup-time -- --runs 20 --baseline .cache/startup-baseline
 ```
+
+`--baseline` alternates launches between the two builds, so load from other work on the machine
+reaches both alike. It also takes a packaged executable, as `--app` does for the build measured.
 
 `node scripts/measure-startup.mjs --help` lists every option; it measures the existing `out/`
 build without rebuilding. On Linux without a display it runs under `xvfb-run`. Timings on a

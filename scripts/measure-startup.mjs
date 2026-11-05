@@ -11,6 +11,10 @@
 //   --reseed           Seed the sandbox again even when an earlier run left one.
 //   --json <file>      Write every run's milestones and the summary to <file>.
 //   --compare <file>   Print each milestone's median next to the one in an earlier --json file.
+//   --save-baseline    Copy out/ to .cache/startup-baseline, for --baseline after a change.
+//   --baseline <path>  Alternate launches with this build, a copy of out/ inside the checkout
+//                      (so it finds node_modules) or a packaged executable, and print its
+//                      medians next to these. Alternating keeps machine load out of the change.
 //   --keep-going       Don't stop at the first run that misses a milestone.
 //   --app <path>       Launch this packaged Komla executable instead of out/ with Electron. A
 //                      packaged build doesn't run Electron's default app first, as out/ does.
@@ -32,7 +36,8 @@ import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ENTRY = path.join(ROOT, 'out', 'main', 'index.js');
+const OUT_DIR = path.join(ROOT, 'out');
+const SAVED_BASELINE_DIR = path.join(ROOT, '.cache', 'startup-baseline');
 
 function parseArgs(argv) {
   const options = {
@@ -44,6 +49,8 @@ function parseArgs(argv) {
     compare: null,
     keepGoing: false,
     app: null,
+    saveBaseline: false,
+    baseline: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -60,6 +67,8 @@ function parseArgs(argv) {
     else if (arg === '--compare') options.compare = path.resolve(value());
     else if (arg === '--keep-going') options.keepGoing = true;
     else if (arg === '--app') options.app = path.resolve(value());
+    else if (arg === '--save-baseline') options.saveBaseline = true;
+    else if (arg === '--baseline') options.baseline = path.resolve(value());
     else if (arg === '--help' || arg === '-h') {
       const header = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\nimport ')[0];
       console.log(header.replace(/^#!.*\n/, '').replace(/^\/\/ ?/gm, ''));
@@ -188,15 +197,15 @@ async function connectCdp(url) {
  * Spawns Electron and attaches to its pages as they open, paused until the renderer probe is
  * added, so no milestone is missed however early the window loads.
  */
-async function launch({ env }) {
+async function launch({ env, target }) {
   const args = [
     `--user-data-dir=${PROFILE_DIR}`,
     '--remote-debugging-port=0',
     ...(process.platform === 'linux' ? ['--no-sandbox'] : []),
-    ...(options.app ? [] : [ENTRY]),
+    ...target.args,
   ];
   const spawnedAt = Date.now();
-  const child = spawn(options.app ?? require('electron'), args, {
+  const child = spawn(target.command, args, {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
@@ -365,7 +374,7 @@ async function seed(workspaceCount) {
     })
   );
 
-  const app = await launch({ env: electronEnv() });
+  const app = await launch({ env: electronEnv(), target: currentTarget() });
   try {
     // Each create runs once, on the page that has the API: a failed one isn't retried.
     const { page } = await waitForPage(app, `typeof window.api?.createWorkspace === 'function'`);
@@ -420,8 +429,8 @@ const COLLECT_MARKS = `(() => {
   return marks;
 })()`;
 
-async function measureOnce(timeoutMs = 30_000) {
-  const app = await launch({ env: electronEnv({ KOMLA_STARTUP_TIMING: '1' }) });
+async function measureOnce(target, timeoutMs = 30_000) {
+  const app = await launch({ env: electronEnv({ KOMLA_STARTUP_TIMING: '1' }), target });
   try {
     const rendererMarks = await waitFor(app, COLLECT_MARKS, { timeoutMs }).catch(async () => {
       const reached = await waitFor(app, 'JSON.stringify(window.__komlaStartupProbe ?? null)', {
@@ -514,40 +523,78 @@ function printSummary(summary, previous) {
   }
 }
 
-async function main() {
-  if (options.app && !fs.existsSync(options.app)) throw new Error(`${options.app} is missing`);
-  if (!options.app && !fs.existsSync(ENTRY)) {
-    throw new Error(`${ENTRY} is missing; run \`npm run build\` first`);
+/** How to launch a build: a packaged executable, or a directory laid out like out/. */
+function targetFor(buildPath) {
+  const entry = path.join(buildPath, 'main', 'index.js');
+  if (fs.existsSync(entry)) return { command: require('electron'), args: [entry], path: buildPath };
+  if (fs.existsSync(buildPath) && fs.statSync(buildPath).isFile()) {
+    return { command: buildPath, args: [], path: buildPath };
   }
+  throw new Error(`${buildPath} is neither a build like out/ nor an executable`);
+}
+
+function currentTarget() {
+  if (options.app) return targetFor(options.app);
+  if (!fs.existsSync(path.join(OUT_DIR, 'main', 'index.js'))) {
+    throw new Error(`${OUT_DIR} has no build; run \`npm run build\` first`);
+  }
+  return targetFor(OUT_DIR);
+}
+
+async function main() {
+  const current = currentTarget();
+  if (options.saveBaseline) {
+    fs.rmSync(SAVED_BASELINE_DIR, { recursive: true, force: true });
+    fs.cpSync(OUT_DIR, SAVED_BASELINE_DIR, { recursive: true });
+    console.log(`Saved out/ to ${SAVED_BASELINE_DIR}; compare with --baseline ${SAVED_BASELINE_DIR}`);
+    return;
+  }
+  const targets = [{ label: 'current', ...current, runs: [] }];
+  if (options.baseline) targets.push({ label: 'baseline', ...targetFor(options.baseline), runs: [] });
+
   const seeded = fs.existsSync(SEEDED_MARKER) && fs.readFileSync(SEEDED_MARKER, 'utf8');
   if (options.reseed || seeded !== String(options.workspaces)) await seed(options.workspaces);
 
-  const previous = options.compare
-    ? JSON.parse(fs.readFileSync(options.compare, 'utf8')).summary
-    : null;
-  const runs = [];
   const failures = [];
   for (let i = 0; i < options.warmup + options.runs; i++) {
     const warmup = i < options.warmup;
     const label = warmup ? `warmup ${i + 1}` : `run ${i - options.warmup + 1}/${options.runs}`;
-    try {
-      const run = await measureOnce();
-      const finals = FINAL_MILESTONES.map((name) => `${name.split(':')[1]} ${run[name].toFixed(0)}`);
-      console.log(`${label}: ${finals.join(', ')} ms`);
-      if (!warmup) runs.push(run);
-    } catch (error) {
-      console.error(`${label} failed: ${error.message}`);
-      failures.push(error.message);
-      if (!options.keepGoing) process.exit(1);
+    // Each build goes first in every other round, so neither always follows the other.
+    const order = i % 2 === 0 ? targets : [...targets].reverse();
+    for (const target of order) {
+      const name = targets.length > 1 ? `${label} ${target.label}` : label;
+      try {
+        const run = await measureOnce(target);
+        const finals = FINAL_MILESTONES.map(
+          (milestone) => `${milestone.split(':')[1]} ${run[milestone].toFixed(0)}`
+        );
+        console.log(`${name}: ${finals.join(', ')} ms`);
+        if (!warmup) target.runs.push(run);
+      } catch (error) {
+        console.error(`${name} failed: ${error.message}`);
+        failures.push(error.message);
+        if (!options.keepGoing) process.exit(1);
+      }
     }
   }
-  const summary = summarize(runs);
+  const summary = summarize(targets[0].runs);
+  const baselineSummary = targets[1] ? summarize(targets[1].runs) : null;
+  const previous =
+    baselineSummary ??
+    (options.compare ? JSON.parse(fs.readFileSync(options.compare, 'utf8')).summary : null);
   printSummary(summary, previous);
   if (options.json) {
     fs.writeFileSync(
       options.json,
       JSON.stringify(
-        { date: new Date().toISOString(), options, runs, summary, failures },
+        {
+          date: new Date().toISOString(),
+          options,
+          runs: targets[0].runs,
+          summary,
+          ...(targets[1] && { baseline: { runs: targets[1].runs, summary: baselineSummary } }),
+          failures,
+        },
         null,
         2
       )

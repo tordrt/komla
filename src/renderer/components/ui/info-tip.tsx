@@ -55,7 +55,8 @@ function InfoTipRoot({
             className
           )}
         >
-          <Icon className="size-3" weight="fill" />
+          {/* A filled warning stands out; an outlined info icon stays quiet. */}
+          <Icon className="size-3.5" weight={tone === 'warning' ? 'fill' : 'regular'} />
         </button>
       </PopoverTrigger>
       <PopoverContent

@@ -111,7 +111,7 @@ export function SegmentedControl<T extends string>({
         variant === 'underline'
           ? 'items-stretch gap-3.5 self-stretch px-1'
           : // In dark themes a faint tray, so the selected option stands out from it.
-            'items-center gap-0.5 rounded-md bg-foreground/[0.06] p-0.5',
+            'items-center gap-0.5 rounded-md bg-foreground/[0.06] p-0.5 dark:bg-black/25 dark:ring-1 dark:ring-inset dark:ring-foreground/[0.06]',
         fill ? 'flex' : 'inline-flex',
         className
       )}
@@ -153,7 +153,7 @@ export function SegmentedControl<T extends string>({
                 : selected
                   ? // In dark themes --accent is all but the tray's --muted, so the selected option
                     // takes a clear step above the tray instead.
-                    'bg-card text-foreground shadow-xs dark:bg-foreground/[0.2] light:bg-popover light:shadow-sm'
+                    'bg-card text-foreground shadow-xs dark:bg-foreground/[0.14] dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.07),0_1px_2px_rgb(0_0_0/0.5)] light:bg-popover light:shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
             )}
           >

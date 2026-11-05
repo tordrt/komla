@@ -19,7 +19,7 @@ const DialogOverlay = React.forwardRef<
     // Dims without blurring: a backdrop blur redraws the whole window on every frame, so each
     // keystroke in a dialog, and each line agents print behind it, stalls typing.
     className={cn(
-      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50 light:bg-black/12',
+      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/70 light:bg-black/20',
       className
     )}
     {...props}
@@ -55,7 +55,7 @@ const DialogContent = React.forwardRef<
         data-native-overlay="dialog"
         ref={ref}
         className={cn(
-          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border p-6 shadow-xl duration-200 focus:outline-hidden has-[>[data-dialog-body]]:flex has-[>[data-dialog-body]]:flex-col sm:rounded-lg',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-5rem)] w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border p-6 shadow-xl duration-200 focus:outline-hidden has-[>[data-dialog-body]]:flex has-[>[data-dialog-body]]:flex-col sm:rounded-lg',
           floating ? 'floating-surface' : 'border-border bg-card ring-1 ring-border/20',
           className
         )}
@@ -99,7 +99,11 @@ DialogBody.displayName = 'DialogBody';
 
 const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)}
+    // After a scrolling body, a hairline keeps the actions apart from what scrolls under them.
+    className={cn(
+      'flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 [[data-dialog-body]~&]:-mx-6 [[data-dialog-body]~&]:border-t [[data-dialog-body]~&]:border-border/60 [[data-dialog-body]~&]:px-6 [[data-dialog-body]~&]:pt-4',
+      className
+    )}
     {...props}
   />
 );
@@ -111,7 +115,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+    className={cn('text-base font-semibold leading-snug tracking-tight', className)}
     {...props}
   />
 ));
@@ -123,7 +127,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn('text-sm text-muted-foreground', className)}
+    className={cn('text-[13px] leading-relaxed text-muted-foreground', className)}
     {...props}
   />
 ));

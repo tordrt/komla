@@ -70,8 +70,8 @@ interface NoteEditorProps {
 }
 
 /**
- * A note in the file panel. It saves as you type, so it never has unsaved
- * changes; Cmd+S saves it into the project instead. Closing a note left blank
+ * A note in the file panel, a pane or the full-screen file viewer. It saves as you type, so it
+ * never has unsaved changes; Cmd+S saves it into the project instead. Closing a note left blank
  * deletes it.
  */
 export function NoteEditor(props: NoteEditorProps) {
@@ -290,8 +290,22 @@ function NoteEditorContent({
     if (!isRemoteWorkspace) fileLists.fetchFileStatuses(workspace.workingDirectory).catch(() => {});
     useToastStore.getState().addToast(`Saved ${path}`, 'success');
     setSaveDialog((dialog) => ({ ...dialog, open: false }));
-    // Show the saved file where the note was.
-    useFileViewerStore.getState().requestInlineFilePreviewNav(workspace.id, 'browse', path);
+    // Show the saved file where the note was: in the full-screen file viewer, or the file panel.
+    const fileViewer = useFileViewerStore.getState();
+    if (
+      fileViewer.fileViewerWorkspaceId === workspace.id &&
+      fileViewer.fileViewerNoteName === name
+    ) {
+      fileViewer.showFileViewerNote(null);
+      fileViewer.requestFileViewerTransition({
+        kind: 'file',
+        workspaceId: workspace.id,
+        filePath: path,
+        browseAction: 'preview',
+      });
+    } else {
+      fileViewer.requestInlineFilePreviewNav(workspace.id, 'browse', path);
+    }
     onSavedToProject?.();
     return null;
   };

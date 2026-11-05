@@ -14,7 +14,7 @@ import { useShortcuts, useDoubleTapShortcuts } from '@/hooks/useShortcuts';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { resolveDefaultLaunchTarget } from '@/lib/agent-launch';
 import { getFocusedPromptTerminalId } from '@/lib/focused-terminal';
-import { createNote } from '@/lib/notes';
+import { closeNote, createNote } from '@/lib/notes';
 import { openFolder } from '@/lib/open-folder';
 import { closePaneBrowserTab } from '@/lib/pane-surfaces';
 import { closeFocusedPromptDraft, togglePromptDraft } from '@/lib/prompt-draft';
@@ -627,7 +627,13 @@ export function ShortcutProvider({ children, onOpenNewWorkspaceDialog }: Shortcu
         return;
       }
       const { currentWorkspaceId } = useLayoutStore.getState();
-      const { fileViewerWorkspaceId, inlineFilePreviewByWorkspace } = useFileViewerStore.getState();
+      const { fileViewerWorkspaceId, fileViewerNoteName, inlineFilePreviewByWorkspace } =
+        useFileViewerStore.getState();
+      // A note over the file viewer closes as its tab would, back to the file underneath.
+      if (fileViewerWorkspaceId && fileViewerNoteName) {
+        closeNote(fileViewerWorkspaceId);
+        return;
+      }
       const inlinePreviewOpen = currentWorkspaceId
         ? (inlineFilePreviewByWorkspace[currentWorkspaceId]?.open ?? false)
         : false;

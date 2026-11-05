@@ -823,3 +823,55 @@ describe('dispatchFileViewerKeydown — unhandled keys', () => {
     expect(calls.saveFile).not.toHaveBeenCalled();
   });
 });
+
+describe('dispatchFileViewerKeydown — a note open over the file', () => {
+  it('keeps the keys meant for the file underneath from it, such as Cmd+S and Cmd+C', () => {
+    const { ctx, calls } = buildContext({ editorFilePath: 'a.ts', currentFilePath: 'a.ts' });
+    ctx.noteShown = true;
+    for (const key of ['s', 'w', 'c']) {
+      const e = fakeKey({ key, meta: true });
+      dispatchFileViewerKeydown(e, ctx);
+      expect(e.preventDefault).not.toHaveBeenCalled();
+    }
+    expect(calls.saveFile).not.toHaveBeenCalled();
+    expect(calls.closeTab).not.toHaveBeenCalled();
+    expect(calls.copyToClipboard).not.toHaveBeenCalled();
+  });
+
+  it("leaves letters typed into it to the note, rather than stepping through a diff's changes", () => {
+    const { ctx, calls } = buildContext({
+      mode: 'diff',
+      diffFiles: [makeFileChange('a.ts'), makeFileChange('b.ts')],
+      diffSelectedFile: 'a.ts',
+      activeElement: NEUTRAL_ELEMENT,
+    });
+    ctx.noteShown = true;
+    for (const key of ['n', 'j', '1', 'Backspace'])
+      dispatchFileViewerKeydown(fakeKey({ key }), ctx);
+    expect(calls.goToNextChange).not.toHaveBeenCalled();
+    expect(calls.handleDiffFileNavigate).not.toHaveBeenCalled();
+    expect(calls.setDiffViewMode).not.toHaveBeenCalled();
+    expect(calls.setFileToDelete).not.toHaveBeenCalled();
+  });
+
+  it('still toggles the sidebar and switches views', () => {
+    const { ctx, calls } = buildContext({ isGitWorkspace: true });
+    ctx.noteShown = true;
+    dispatchFileViewerKeydown(fakeKey({ key: 'b', meta: true }), ctx);
+    dispatchFileViewerKeydown(fakeKey({ key: '2', meta: true }), ctx);
+    expect(calls.setSidebarOpen).toHaveBeenCalledTimes(1);
+    expect(calls.handleModeChange).toHaveBeenCalledWith('diff');
+  });
+});
+
+describe('dispatchFileViewerKeydown — Escape over a note', () => {
+  it("goes back from the note's editor to the file, leaving the viewer open", () => {
+    const { ctx, calls } = buildContext({ activeElement: MONACO_ELEMENT });
+    const closeNote = vi.fn();
+    ctx.noteShown = true;
+    ctx.closeNote = closeNote;
+    dispatchFileViewerKeydown(fakeKey({ key: 'Escape' }), ctx);
+    expect(closeNote).toHaveBeenCalledTimes(1);
+    expect(calls.closeViewer).not.toHaveBeenCalled();
+  });
+});

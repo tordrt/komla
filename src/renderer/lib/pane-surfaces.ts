@@ -241,9 +241,9 @@ export async function openNewNotePane(
 
 /**
  * Shows a note where it's already open in a pane, the one in the tab on screen first, and focuses
- * its editor; else opens it in the file panel. The full-screen file viewer always opens it in the
- * file panel, as leaving the viewer may first ask about its unsaved edits. Returns whether the
- * pane showed straight away, so a menu that picked the note can leave focus to it.
+ * its editor; else opens it in the file panel. The full-screen file viewer, which covers the panes,
+ * opens it over its own file or diff. Returns whether the pane showed straight away, so a menu
+ * that picked the note can leave focus to it.
  */
 export function showNote(workspaceId: string, name: string): boolean {
   const paneId =

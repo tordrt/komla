@@ -15,7 +15,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { formatRelativeTime } from '@/lib/format-time';
-import { getNoteName, UNTITLED_NOTE } from '@/lib/notes';
+import { closeNote, getNoteName, UNTITLED_NOTE } from '@/lib/notes';
 import { showNote } from '@/lib/pane-surfaces';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { cn } from '@/lib/utils';
@@ -98,7 +98,7 @@ function NoteRow({
 
   const toggle = () => {
     // A second click closes the note, as it does a file.
-    if (isOpen) useFileViewerStore.getState().requestInlineFilePreviewClose(workspaceId);
+    if (isOpen) closeNote(workspaceId);
     else showNote(workspaceId, note.name);
   };
 
@@ -119,7 +119,7 @@ function NoteRow({
         );
       return;
     }
-    if (isOpen) useFileViewerStore.getState().closeInlineFilePreview(workspaceId);
+    if (isOpen) closeNote(workspaceId, { discard: true });
     useToastStore.getState().addToast(`Moved “${title}” to the trash`, 'success');
   };
 

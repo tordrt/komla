@@ -1095,3 +1095,23 @@ describe('diff view mode preference', () => {
     expect(freshStore.getState().diffViewMode).toBe('unified');
   });
 });
+
+describe('a note over the file viewer', () => {
+  beforeEach(() => {
+    useFileViewerStore.setState({ fileViewerWorkspaceId: null, fileViewerNoteName: null });
+  });
+
+  it('shows until the viewer closes or opens again, which start with its file', () => {
+    const store = useFileViewerStore.getState();
+    store.openFileViewer('w1', 'browse');
+    store.showFileViewerNote('a.md');
+    expect(useFileViewerStore.getState().fileViewerNoteName).toBe('a.md');
+    store.closeFileViewer();
+    expect(useFileViewerStore.getState().fileViewerNoteName).toBeNull();
+
+    store.openFileViewer('w1', 'browse');
+    store.showFileViewerNote('a.md');
+    store.openFileViewer('w1', 'diff');
+    expect(useFileViewerStore.getState().fileViewerNoteName).toBeNull();
+  });
+});

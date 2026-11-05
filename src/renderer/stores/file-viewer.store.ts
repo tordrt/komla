@@ -63,6 +63,8 @@ interface FileViewerState {
   fileViewerDiffSubMode: DiffSubMode;
   // Initial history filter path (set when opening file history from inline panel)
   fileViewerHistoryFilterPath: string | null;
+  // The note open over the file viewer's file or diff, which stays underneath it.
+  fileViewerNoteName: string | null;
   // Last selected file in diff viewer per working directory
   lastDiffFileByWorkingDir: Record<string, string>;
   // Expanded folders in diff viewer per working directory
@@ -171,6 +173,8 @@ interface FileViewerState {
     historyFilterPath?: string
   ) => void;
   closeFileViewer: () => void;
+  /** Shows a note over the open file viewer's file or diff, or with null goes back to it. */
+  showFileViewerNote: (name: string | null) => void;
   setFileViewerMode: (mode: FileViewerMode) => void;
   setDiffSubMode: (subMode: DiffSubMode) => void;
   // Last diff file persistence
@@ -350,6 +354,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   fileViewerInitialLineNumber: null,
   fileViewerDiffSubMode: 'changes',
   fileViewerHistoryFilterPath: null,
+  fileViewerNoteName: null,
   lastDiffFileByWorkingDir: {},
   expandedDiffFoldersByWorkingDir: {},
   inlineFileTreeByWorkspace: {},
@@ -414,6 +419,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       fileViewerInitialLineNumber: null,
       fileViewerDiffSubMode: diffSubMode ?? storedSubMode,
       fileViewerHistoryFilterPath: historyFilterPath ?? null,
+      fileViewerNoteName: null,
       ...(shouldSeedDiffComparison && inlineComparison
         ? {
             fileViewerDiffComparisonByWorkspace: {
@@ -435,6 +441,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       fileViewerInitialFilePath: null,
       fileViewerInitialLineNumber: null,
       fileViewerHistoryFilterPath: null,
+      fileViewerNoteName: null,
       // Persist the sub-mode for the workspace so it restores on reopen
       ...(fileViewerWorkspaceId
         ? {
@@ -445,6 +452,9 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
           }
         : {}),
     });
+  },
+  showFileViewerNote: (name) => {
+    if (get().fileViewerNoteName !== name) set({ fileViewerNoteName: name });
   },
 
   setFileViewerMode: (mode) => {

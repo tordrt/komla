@@ -41,15 +41,26 @@ export function getNoteFileName(title: string): string {
   return `${slug || 'note'}.md`;
 }
 
-/** Opens a note in the workspace's file panel, leaving the full-screen file viewer if it's open. */
+/**
+ * Opens a note in the workspace's full-screen file viewer if it's open, over its file or diff,
+ * or else in the file panel.
+ */
 export function openNote(workspaceId: string, name: string): void {
   const store = useFileViewerStore.getState();
-  const filePath = getNotePath(name);
-  if (store.fileViewerWorkspaceId === workspaceId) {
-    store.requestFileViewerTransition({ kind: 'inline-preview', workspaceId, filePath });
-  } else {
-    store.requestInlineFilePreviewNav(workspaceId, 'browse', filePath);
-  }
+  if (store.fileViewerWorkspaceId === workspaceId) store.showFileViewerNote(name);
+  else store.requestInlineFilePreviewNav(workspaceId, 'browse', getNotePath(name));
+}
+
+/**
+ * Closes the note open in the workspace's full-screen file viewer, going back to its file or
+ * diff, or else the file panel showing it. `discard` closes the file panel without asking about
+ * its unsaved edits, as for a note that was deleted.
+ */
+export function closeNote(workspaceId: string, { discard = false } = {}): void {
+  const store = useFileViewerStore.getState();
+  if (store.fileViewerWorkspaceId === workspaceId) store.showFileViewerNote(null);
+  else if (discard) store.closeInlineFilePreview(workspaceId);
+  else store.requestInlineFilePreviewClose(workspaceId);
 }
 
 /** Starts a note in the workspace and opens it, without asking for a name. */

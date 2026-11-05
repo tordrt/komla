@@ -36,6 +36,10 @@ export interface FileViewerKeyboardContext {
   showToast: (message: string, variant: ToastVariant) => void;
   getSelection: () => string;
   getActiveElement: () => Element | null;
+  /** A note is open over the file or diff, which keeps its keys while it shows. */
+  noteShown?: boolean;
+  /** Goes back from the note to the file or diff underneath. */
+  closeNote?: () => void;
 }
 
 /**
@@ -262,17 +266,39 @@ function handleDiffFileNavigation(e: KeyboardEvent, ctx: FileViewerKeyboardConte
   }
 }
 
+function handleEscape(ctx: FileViewerKeyboardContext): void {
+  if (!isEditorEscapeTarget(ctx.getActiveElement())) return;
+  // A note over the file closes first, back to the file.
+  if (ctx.noteShown) ctx.closeNote?.();
+  else ctx.closeViewer();
+}
+
+/**
+ * Typed into the note, or meant for it: only the sidebar and view switch go past it, rather than
+ * saving, closing or copying the file underneath, or stepping through its changes.
+ */
+function handleKeyOverNote(e: KeyboardEvent, key: string, ctx: FileViewerKeyboardContext): void {
+  if ((e.metaKey || e.ctrlKey) && ['b', '1', '2'].includes(key)) {
+    handleAcceleratorShortcut(e, key, ctx);
+  }
+}
+
 export function dispatchFileViewerKeydown(e: KeyboardEvent, ctx: FileViewerKeyboardContext): void {
   // A dialog opened over the file viewer, such as the new workspace dialog, already handled it.
   if (isShortcutEventClaimed(e)) return;
   // The dialog closes on Escape elsewhere; Escape aimed at the editor gets here only if the
   // editor had nothing to dismiss.
   if (e.key === 'Escape') {
-    if (isEditorEscapeTarget(ctx.getActiveElement())) ctx.closeViewer();
+    handleEscape(ctx);
     return;
   }
 
   const key = e.key.toLowerCase();
+
+  if (ctx.noteShown) {
+    handleKeyOverNote(e, key, ctx);
+    return;
+  }
 
   if ((e.metaKey || e.ctrlKey) && handleAcceleratorShortcut(e, key, ctx)) return;
 

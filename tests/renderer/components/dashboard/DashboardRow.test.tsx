@@ -210,7 +210,7 @@ describe('DashboardRow', () => {
     renderDashboardRow({ workspace: defaultWorkspace([]) });
 
     expect(runningIndicatorOf('Default')).toHaveStyle({ backgroundColor: '#888888' });
-    expect(runningIndicatorOf('Default')).toHaveClass('opacity-40');
+    expect(runningIndicatorOf('Default')).toHaveClass('opacity-30');
   });
 
   it('gives rows without a project a neutral indicator', () => {
@@ -223,7 +223,7 @@ describe('DashboardRow', () => {
     renderDashboardRow();
 
     expect(runningIndicatorOf('Default')).toHaveStyle({ backgroundColor: '#888888' });
-    expect(runningIndicatorOf('Default')).not.toHaveClass('opacity-40');
+    expect(runningIndicatorOf('Default')).not.toHaveClass('opacity-30');
   });
 
   it('shows the whole agent message on hover when the row cuts it off', async () => {
@@ -498,7 +498,7 @@ describe('DashboardRow', () => {
     });
 
     expect(rowOf('Default').querySelector('[data-working-agents="1"]')).toBeInTheDocument();
-    expect(screen.getByText('Working…')).toBeVisible();
+    expect(screen.getByText('Working')).toBeVisible();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
@@ -547,7 +547,7 @@ describe('DashboardRow', () => {
     });
 
     expect(rowOf('Default').querySelector('[data-working-agents]')).not.toBeInTheDocument();
-    expect(screen.queryByText('Working…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Working')).not.toBeInTheDocument();
   });
 
   it('hides the spinners when the activity spinner setting is off', () => {

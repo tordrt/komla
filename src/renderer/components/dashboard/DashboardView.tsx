@@ -76,11 +76,14 @@ function FilterChip({
   selected,
   onToggle,
   count,
+  color,
   children,
 }: {
   selected: boolean;
   onToggle: () => void;
   count: number;
+  /** Tints the chip while it's on, as the project's color. */
+  color?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -88,16 +91,28 @@ function FilterChip({
       type="button"
       aria-pressed={selected}
       onClick={onToggle}
+      style={
+        selected && color
+          ? ({
+              backgroundColor: `color-mix(in oklch, ${color} 16%, transparent)`,
+              // The ring's resting color; keyboard focus still turns it the focus ring's.
+              '--chip-ring': `color-mix(in oklch, ${color} 55%, transparent)`,
+            } as React.CSSProperties)
+          : undefined
+      }
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors',
+        'inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs ring-1 transition-colors ring-inset',
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
         selected
-          ? 'bg-foreground/10 text-foreground'
-          : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'
+          ? cn(
+              'bg-foreground/10 text-foreground',
+              color ? 'ring-(--chip-ring)' : 'ring-foreground/25'
+            )
+          : 'text-muted-foreground ring-border/70 hover:bg-foreground/5 hover:text-foreground'
       )}
     >
       {children}
-      <span className="text-2xs text-muted-foreground">{count}</span>
+      <span className="text-2xs text-muted-foreground tabular-nums">{count}</span>
     </button>
   );
 }
@@ -515,23 +530,26 @@ export const DashboardView = memo(function DashboardView({
   const renderSectionHeader = (section: DashboardSection) => {
     const folded = isFolded(section.key);
     return (
-      <div className="flex items-center gap-2 border-b border-border/60 px-1 pb-1.5">
+      <div className="flex h-8 items-center gap-2 px-3">
         <h3>
           <button
             type="button"
             aria-expanded={!folded}
             onClick={() => toggleFolded(section.key)}
             className={cn(
-              'flex items-center gap-1.5 rounded-sm text-xs font-medium',
-              'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
-              section.key === 'attention'
-                ? 'text-attention'
-                : 'text-muted-foreground hover:text-foreground'
+              'group/section flex items-center gap-2 rounded-sm text-xs font-semibold text-foreground/80 transition-colors hover:text-foreground',
+              'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden'
             )}
           >
-            {folded ? <CaretRight className="size-3" /> : <CaretDown className="size-3" />}
             {section.title}
-            <span className="font-normal opacity-70">{section.items.length}</span>
+            <span className="font-normal text-muted-foreground tabular-nums">
+              {section.items.length}
+            </span>
+            {folded ? (
+              <CaretRight className="size-3 text-muted-foreground" />
+            ) : (
+              <CaretDown className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover/section:opacity-100" />
+            )}
           </button>
         </h3>
         {STALE_SECTIONS.has(section.key) && (
@@ -590,7 +608,7 @@ export const DashboardView = memo(function DashboardView({
 
   return (
     <div className="empty-work-area overview-surface flex h-full flex-col bg-card pb-(--banner-inset)">
-      <div className="mx-auto w-full max-w-5xl shrink-0 px-6 pt-6 pb-2">
+      <div className="mx-auto w-full max-w-[60rem] shrink-0 px-6 pt-6 pb-2">
         <div className="flex items-center gap-2">
           {canReturnToWorkspace && (
             <IconButton
@@ -601,6 +619,7 @@ export const DashboardView = memo(function DashboardView({
               <ArrowLeft className="size-4" />
             </IconButton>
           )}
+          <h1 className="mr-2 text-base font-semibold tracking-tight">Overview</h1>
           <div className="relative flex-1">
             <MagnifyingGlass className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -624,7 +643,7 @@ export const DashboardView = memo(function DashboardView({
               }}
               placeholder="Filter by title, branch, or prompt"
               // It has focus whenever the overview opens, so a quiet ring, not the bold offset one.
-              className="h-8 pr-7 pl-8 text-sm focus-visible:border-foreground/30 focus-visible:ring-[3px] focus-visible:ring-foreground/10 focus-visible:ring-offset-0"
+              className="h-8 border-border/80 bg-foreground/3 pr-7 pl-8 text-sm focus-visible:border-foreground/25 focus-visible:ring-0 focus-visible:ring-offset-0"
             />
             {searchQuery && (
               <button
@@ -668,7 +687,16 @@ export const DashboardView = memo(function DashboardView({
           )}
         </div>
         {(overview.projectFilters.length > 0 || overview.tagFilters.length > 0) && (
-          <div className="mt-3 flex flex-wrap items-center gap-1">
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {overview.projectFilters.length > 1 && (
+              <FilterChip
+                selected={filterProjectName === null}
+                onToggle={() => setFilterProjectName(null)}
+                count={overview.projectFilters.reduce((sum, project) => sum + project.count, 0)}
+              >
+                All
+              </FilterChip>
+            )}
             {overview.projectFilters.map((project) => {
               const isSelected = filterProjectName === project.name;
               return (
@@ -677,6 +705,7 @@ export const DashboardView = memo(function DashboardView({
                   selected={isSelected}
                   onToggle={() => setFilterProjectName(isSelected ? null : project.name)}
                   count={project.count}
+                  color={project.color}
                 >
                   <ProjectMark project={project} iconClassName="size-3" />
                   {project.name}
@@ -711,7 +740,7 @@ export const DashboardView = memo(function DashboardView({
         )}
       </div>
       <ScrollArea className={cn('min-h-0 flex-1', selectionMode && 'select-none')}>
-        <div className="mx-auto w-full max-w-5xl px-6 pt-2 pb-8">
+        <div className="mx-auto w-full max-w-[60rem] px-6 pt-2 pb-8">
           {overview.visibleCount === 0 ? (
             <EmptyState
               className="py-16"
@@ -733,12 +762,12 @@ export const DashboardView = memo(function DashboardView({
               }
             />
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-6">
               {overview.sections.map((section) => (
                 <section key={section.key}>
                   {renderSectionHeader(section)}
                   {!isFolded(section.key) && (
-                    <div className="mt-1">
+                    <div className="mt-0.5">
                       {shownItemsBySection.get(section.key)?.map((item) => (
                         <OverviewRow
                           key={item.workspace.id}

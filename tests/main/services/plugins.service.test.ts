@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -654,6 +662,83 @@ describe('PluginsService', () => {
     await service.scan();
 
     expect(service.revision()).not.toBe(before);
+  });
+
+  it('copies to SSH hosts the plugins that run something where a workspace is', async () => {
+    writePlugin('prs', prManifest);
+    writePlugin('code', { id: 'code', name: 'Code', main: 'main.js', contributes: {} });
+    writePlugin('usage', {
+      id: 'usage',
+      name: 'Usage',
+      contributes: { statusItems: [{ id: 'usage', command: 'echo 1', runOn: 'local' }] },
+    });
+    writePlugin('off', { ...prManifest, id: 'off' });
+    await service.scan();
+    for (const id of ['github-prs', 'code', 'usage']) turnOn(id);
+
+    const digests = Object.fromEntries(service.list().map((plugin) => [plugin.id, plugin.digest]));
+    expect(service.pluginsForSshHosts()).toEqual([
+      { id: 'code', digest: digests.code },
+      { id: 'github-prs', digest: digests['github-prs'] },
+    ]);
+  });
+
+  it("reads a plugin's files for a copy, only while they are the ones it runs with", async () => {
+    const dir = writePlugin('prs', prManifest, { 'bin/pr.sh': '#!/bin/sh\necho PR', 'pr.js': 'x' });
+    chmodSync(join(dir, 'bin/pr.sh'), 0o755);
+    symlinkSync('bin/pr.sh', join(dir, 'pr.sh'));
+    symlinkSync(dir, join(dir, 'loop'));
+    symlinkSync('..', join(dir, 'bin', 'up'));
+    writePlugin('prs', prManifest, { '.git/HEAD': 'ref: refs/heads/main' });
+    await service.scan();
+    turnOn('github-prs');
+    const { digest } = service.pluginsForSshHosts()[0];
+
+    const { entries: files, digest: read } = await service.pluginFiles('github-prs', digest);
+    expect(read).toBe(digest);
+
+    expect(files.map((entry) => entry.path)).toEqual([
+      'bin',
+      'bin/pr.sh',
+      'bin/up',
+      'komla-plugin.json',
+      'loop',
+      'pr.js',
+      'pr.sh',
+    ]);
+    expect(files).toContainEqual({
+      kind: 'file',
+      path: 'bin/pr.sh',
+      content: Buffer.from('#!/bin/sh\necho PR'),
+      executable: true,
+    });
+    expect(files).toContainEqual({ kind: 'link', path: 'pr.sh', target: 'bin/pr.sh' });
+    expect(files).toContainEqual({ kind: 'link', path: 'loop', target: '.' });
+    expect(files).toContainEqual({ kind: 'link', path: 'bin/up', target: '..' });
+
+    writePlugin('prs', prManifest, { 'pr.js': 'changed' });
+    await expect(service.pluginFiles('github-prs', digest)).rejects.toThrow(
+      'changed since it was turned on'
+    );
+    await expect(service.pluginFiles('missing', digest)).rejects.toThrow("doesn't run");
+  });
+
+  it('reads a plugin in development for a copy as its files are, as it runs them', async () => {
+    writePlugin('prs', prManifest, { 'pr.js': 'one' });
+    await service.scan();
+    turnOn('github-prs');
+    service.setDevelopment('github-prs', true);
+    const { digest } = service.pluginsForSshHosts()[0];
+
+    writePlugin('prs', prManifest, { 'pr.js': 'two' });
+
+    const files = await service.pluginFiles('github-prs', digest);
+    expect(files.entries).toContainEqual(
+      expect.objectContaining({ path: 'pr.js', content: Buffer.from('two') })
+    );
+    // Its digest is of the files it holds, so a copy named by it holds them.
+    expect(files.digest).toBe((await digestFolder(join(pluginsPath, 'prs'))).digest);
+    expect(files.digest).not.toBe(digest);
   });
 });
 

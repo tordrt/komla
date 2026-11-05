@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 import { HOOK_EVENTS, type HookEventDetails } from '../../shared/types/hooks';
 import { STATUS_ITEM_ID_PATTERN } from '../../shared/types/status-items';
-import { hasWorkspaceFiles, isSshWorkspace } from '../../shared/types/workspace';
+import { hasWorkspaceFiles } from '../../shared/types/workspace';
 import { onHookEvent } from '../lib/hook-events';
 import { createLogger } from '../lib/logger';
 import { parseSettingsFile, readSettingsFile } from '../lib/settings-file';
@@ -277,9 +277,17 @@ export class HooksService {
     this.running.add(key);
     // A hook can fail in one workspace while it works in another, so each is reported on its own.
     const failingKey = `${hook.id}\0${workspace?.id ?? ''}`;
-    const env = this.environment(hook, workspace, details);
     const timeoutMs = hook.timeoutSeconds * 1000;
     try {
+      // A plugin's commands get its folder and settings, on an SSH host its copy there.
+      const plugin =
+        hook.plugin &&
+        (await pluginEnvironment(
+          hook.plugin,
+          hook.runOn === 'local' ? undefined : workspace,
+          hook.command
+        ));
+      const env = this.environment(hook, workspace, details, plugin);
       if (hook.runOn === 'local' || !workspace) {
         await this.dependencies.runLocal(hook.command, env, timeoutMs);
       } else {
@@ -310,16 +318,11 @@ export class HooksService {
   private environment(
     hook: HookEntry,
     workspace: Workspace | undefined,
-    details: HookRun
+    details: HookRun,
+    plugin: Record<string, string> | undefined
   ): Record<string, string> {
-    // A plugin's commands get its settings, and on this computer its folder and secrets.
-    const onThisComputer = hook.runOn === 'local' || !workspace || !isSshWorkspace(workspace);
     // `komla notify` sends a hook's notifications as the hook's, which run no hooks.
-    const own = {
-      KOMLA_EVENT: details.event,
-      KOMLA_HOOK_ID: hook.id,
-      ...(hook.plugin && pluginEnvironment(hook.plugin, onThisComputer)),
-    };
+    const own = { KOMLA_EVENT: details.event, KOMLA_HOOK_ID: hook.id, ...plugin };
     if (!workspace) return own;
     const project = this.dependencies
       .getProjectKeys(workspace)

@@ -745,6 +745,82 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
     }
   }, 90_000);
 
+  it("copies a plugin's files to the SSH host, where its commands run its scripts", async () => {
+    const { sshWorkspaceService } = sshWorkspaceModule;
+    const { runWorkspaceCommand } = await import('../../../src/main/services/workspace-command');
+    const { digestFolder } = await import('../../../src/main/services/plugins.service');
+    const { SshPluginCopies } =
+      await import('../../../src/main/services/ssh-plugin-copies/ssh-plugin-copies');
+    const { sshPluginCopyHost } = await import('../../../src/main/services/ssh-plugin-copies/host');
+    const { pluginEnvironment, providePluginHostFolders } =
+      await import('../../../src/main/services/plugin-environment');
+    await sshWorkspaceService.verifyAndPrepareHost(target.host);
+    const backend = await createPreparedWorkspace('plugin');
+    const workspace = {
+      ...createWorkspace({ id: 'ssh-integration-plugin', terminals: [] }),
+      backend,
+    };
+    const dir = mkdtempSync(join(tmpdir(), 'komla-ssh-plugin-'));
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'komla-plugin.json'), '{"id":"branches"}');
+    writeFileSync(
+      join(dir, 'bin', 'branch.sh'),
+      '#!/bin/sh\necho "$(git branch --show-current)"\n'
+    );
+    chmodSync(join(dir, 'bin', 'branch.sh'), 0o755);
+    const deep = `${'d'.repeat(120)}/${'e'.repeat(60)}.txt`;
+    mkdirSync(join(dir, 'd'.repeat(120)));
+    writeFileSync(join(dir, deep), 'deep');
+    let plugin = { id: 'branches', digest: (await digestFolder(dir)).digest };
+    const copies = new SshPluginCopies({
+      ...sshPluginCopyHost,
+      plugins: () => [plugin],
+      files: async () => {
+        const entries: import('../../../src/main/lib/tar-archive').TarEntry[] = [];
+        const { digest } = await digestFolder(dir, undefined, (entry) => entries.push(entry));
+        return { entries, digest };
+      },
+      now: () => Date.now(),
+    });
+    providePluginHostFolders((hostId, pluginId) => copies.folder(hostId, pluginId));
+
+    try {
+      const command = '"$KOMLA_PLUGIN_DIR/bin/branch.sh"';
+      const env = await pluginEnvironment({ id: 'branches', dir }, workspace, command);
+      const folder = env.KOMLA_PLUGIN_DIR;
+      expect(folder).toMatch(
+        new RegExp(`^${target.resolvedBasePath}/plugins/[^/]+/branches/[0-9a-f]{16}$`)
+      );
+      await expect(
+        runWorkspaceCommand(workspace, command, {
+          env,
+          timeoutMs: 30_000,
+          maxOutput: 1024,
+        })
+      ).resolves.toBe(`${backend.branchName}\n`);
+      expect((await container.exec(['cat', `${folder}/${deep}`])).stdout).toBe('deep');
+
+      // A new revision goes beside the old, which SSH Workspace Sync marks to remove later.
+      writeFileSync(join(dir, 'bin', 'branch.sh'), '#!/bin/sh\necho changed\n');
+      plugin = { id: 'branches', digest: (await digestFolder(dir)).digest };
+      await copies.syncHost(target.host.id);
+      const next = await copies.folder(target.host.id, 'branches');
+      expect(next).not.toBe(folder);
+      expect((await container.exec(['sh', '-c', `"${next}/bin/branch.sh"`])).stdout).toBe(
+        'changed\n'
+      );
+      const old = folder!.slice(folder!.lastIndexOf('/') + 1);
+      const mark = `${folder!.slice(0, folder!.lastIndexOf('/'))}/.komla-superseded.${old}`;
+      expect(
+        (await container.exec(['sh', '-c', `[ -d "${folder}" ] && [ -f "${mark}" ] && echo kept`]))
+          .stdout
+      ).toBe('kept\n');
+    } finally {
+      providePluginHostFolders(async () => undefined);
+      await sshWorkspaceService.deleteWorkspace(backend, true, backend.branchName).catch(() => {});
+    }
+  }, 90_000);
+
   it('forwards a local preview to an HTTP server on the SSH host', async () => {
     const { sshPortForwardService } = sshPortForwardModule;
     const fixtureRoot = `${target.remoteHome}/.komla-ssh-integration-fixture`;

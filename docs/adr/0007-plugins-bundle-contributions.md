@@ -35,7 +35,7 @@ the phone, as Komla draws them; arbitrary plugin UI would not.
   such as on an SSH host, can make one, and the approval shows what it runs. A command run on this
   computer gets `KOMLA_PLUGIN_DIR`, the plugin's folder, so a plugin can ship its scripts. An SSH
   workspace's commands run on the host, where that folder is not; such a plugin's items run with
-  `runOn: local`.
+  `runOn: local`. ADR 0010 later copies the folder to the host instead.
 - **Later.** Code that keeps state or follows more events than hooks offer would run in a separate
   plugin host, an Electron utility process with a typed API (`komla.on`, `statusItem().set`,
   `exec` routed through the execution-location adapters), behind the same trust rule. Quick

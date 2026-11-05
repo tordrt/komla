@@ -1,4 +1,3 @@
-import { isSshWorkspace } from '../../shared/types/workspace';
 import { onKomlaEvent } from '../lib/komla-events';
 
 import { komlaCommandContext, KomlaOperationError } from './komla-operation/operation';
@@ -38,10 +37,11 @@ function execPluginCommand(
 ): Promise<string> | undefined {
   const options = { timeoutMs, maxOutput: MAX_EXEC_OUTPUT };
   if (!workspaceId) {
-    const env = pluginEnvironment(plugin.source, true);
-    return runLocalCommand(plugin.source.dir, command, { ...options, env }).catch((error) => {
-      throw commandFailure(error);
-    });
+    return pluginEnvironment(plugin.source)
+      .then((env) => runLocalCommand(plugin.source.dir, command, { ...options, env }))
+      .catch((error) => {
+        throw commandFailure(error);
+      });
   }
   const workspace = workspaceService.get(workspaceId);
   if (!workspace) {
@@ -50,13 +50,12 @@ function execPluginCommand(
     );
   }
   if (!canRunWorkspaceCommands(workspace)) return undefined;
-  // An SSH host doesn't have the plugin's folder or its secrets.
-  return runWorkspaceCommand(workspace, command, {
-    ...options,
-    env: pluginEnvironment(plugin.source, !isSshWorkspace(workspace)),
-  }).catch((error) => {
-    throw commandFailure(error);
-  });
+  // On an SSH host, the plugin's folder is Komla's copy of it there, and it has no secrets.
+  return pluginEnvironment(plugin.source, workspace, command)
+    .then((env) => runWorkspaceCommand(workspace, command, { ...options, env }))
+    .catch((error) => {
+      throw commandFailure(error);
+    });
 }
 
 export const pluginHostService = new PluginHostService({

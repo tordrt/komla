@@ -25,6 +25,7 @@ import {
   parseHooksFile,
   type HooksDependencies,
 } from '../../../src/main/services/hooks.service';
+import { providePluginHostFolders } from '../../../src/main/services/plugin-environment';
 import { WorkspaceCommandError } from '../../../src/main/services/workspace-command';
 
 import type { HookEventDetails } from '../../../src/shared/types/hooks';
@@ -422,8 +423,33 @@ describe('HooksService with plugins', () => {
       KOMLA_HOOK_ID: 'github-prs.done',
       KOMLA_PLUGIN_DIR: '/plugins/prs',
     });
-    // The SSH host doesn't have the plugin's folder.
+    // No copy of the plugin on the SSH host, so no folder there.
     expect(envs[1]).not.toHaveProperty('KOMLA_PLUGIN_DIR');
+  });
+
+  it("runs a plugin's hooks on an SSH host with Komla's copy of its folder there", async () => {
+    const sshWorkspace = {
+      ...workspace,
+      id: 'ws-ssh',
+      backend: { kind: 'ssh', hostId: 'host-1' },
+    } as Workspace;
+    const { service, dependencies } = createService(
+      { hooks: [] },
+      { getWorkspace: (id) => [workspace, sshWorkspace].find((candidate) => candidate.id === id) }
+    );
+    providePluginHostFolders(async (hostId, pluginId) => `/data/plugins/${hostId}/${pluginId}`);
+    service.setPluginHooks([pluginHook('github-prs.done')]);
+
+    try {
+      await service.fire({ ...done, workspaceId: 'ws-ssh' });
+    } finally {
+      providePluginHostFolders(async () => undefined);
+    }
+
+    expect(vi.mocked(dependencies.run).mock.calls[0][2]).toMatchObject({
+      KOMLA_HOOK_ID: 'github-prs.done',
+      KOMLA_PLUGIN_DIR: '/data/plugins/host-1/github-prs',
+    });
   });
 
   it("leaves out a plugin's hook when hooks.json has its id", async () => {

@@ -860,6 +860,7 @@ class SshWorkspaceService {
   // Agents whose notification setup needed an update at each host's last integration check,
   // with the configuration Komla would install for each.
   private integrationUpdates = new Map<string, SshIntegrationUpdates>();
+  private readonly forgetHostListeners = new Set<(hostId: string) => void>();
   private integrationUpdateListeners: Array<
     (updates: Record<string, SshIntegrationUpdates>) => void
   > = [];
@@ -1595,7 +1596,14 @@ class SshWorkspaceService {
     }
   }
 
+  /** Listeners run when Komla forgets what it knew of a host, as after it was edited or removed. */
+  onForgetHost(listener: (hostId: string) => void): () => void {
+    this.forgetHostListeners.add(listener);
+    return () => this.forgetHostListeners.delete(listener);
+  }
+
   forgetHost(hostId: string): void {
+    for (const listener of this.forgetHostListeners) listener(hostId);
     sshConnectionService.forgetExecChannel(hostId);
     this.preparedNotifyScriptHosts.delete(hostId);
     this.setIntegrationUpdates(hostId);

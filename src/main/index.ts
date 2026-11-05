@@ -89,6 +89,7 @@ import { stopWatchingSidebarPanels, watchSidebarPanels } from './services/sideba
 import { sshConnectionService } from './services/ssh-connection.service';
 import { sshHostStatusService } from './services/ssh-host-status.service';
 import { sshHostService } from './services/ssh-host.service';
+import { startSshPluginCopies } from './services/ssh-plugin-copies.service';
 import { sshPortForwardService } from './services/ssh-port-forward.service';
 import { startSshProjectSync } from './services/ssh-project-sync.service';
 import {
@@ -801,6 +802,7 @@ void app.whenReady().then(async () => {
   });
   workspaceTrash.start();
   startSshProjectSync();
+  startSshPluginCopies();
   void cleanupTmpFilesRecursiveAsync(getKomlaBasePath());
   httpServerService.onStarted(() => {
     installBundledSkills();

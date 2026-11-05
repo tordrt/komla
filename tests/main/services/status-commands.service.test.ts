@@ -31,7 +31,10 @@ import {
   StatusCommandsService,
   type StatusCommandsDependencies,
 } from '../../../src/main/services/status-commands.service';
-import { providePluginSettingsEnvironment } from '../../../src/main/services/plugin-environment';
+import {
+  providePluginHostFolders,
+  providePluginSettingsEnvironment,
+} from '../../../src/main/services/plugin-environment';
 import { WorkspaceCommandError } from '../../../src/main/services/workspace-command';
 
 import type { Workspace } from '../../../src/shared/types/workspace';
@@ -272,7 +275,10 @@ describe('parseStatusCommandOutput', () => {
       parseStatusCommandOutput(
         JSON.stringify({ segments: [{ text: '12 ', bold: true }, { gap: true }, { text: ' 2' }] })
       )
-    ).toEqual({ text: '12 2', segments: [{ text: '12', bold: true }, { gap: true }, { text: '2' }] });
+    ).toEqual({
+      text: '12 2',
+      segments: [{ text: '12', bold: true }, { gap: true }, { text: '2' }],
+    });
     const half = 'x'.repeat(30);
     const long = parseStatusCommandOutput(
       JSON.stringify({ segments: [{ text: half, bold: true }, { gap: true }, { text: half }] })
@@ -848,13 +854,20 @@ describe('StatusCommandsService with plugins', () => {
 
   it("opens the plugin's own panel, and lists the events items refresh on", () => {
     const service = createService({
-      items: [{ id: 'ci', command: 'gh pr checks', panel: 'checks', refreshOn: ['branch.changed'] }],
+      items: [
+        { id: 'ci', command: 'gh pr checks', panel: 'checks', refreshOn: ['branch.changed'] },
+      ],
     });
     service.setPluginItems([pluginItem('github-prs.count', { panel: 'list' })]);
 
     expect(service.list('ws-1').items).toEqual([
       { id: 'ci', intervalSeconds: 60, panel: 'checks', refreshOn: ['branch.changed'] },
-      { id: 'github-prs.count', intervalSeconds: 60, panel: 'github-prs.list', plugin: 'GitHub PRs' },
+      {
+        id: 'github-prs.count',
+        intervalSeconds: 60,
+        panel: 'github-prs.list',
+        plugin: 'GitHub PRs',
+      },
     ]);
   });
 
@@ -888,7 +901,7 @@ describe('StatusCommandsService with plugins', () => {
 
     const env = { KOMLA_PLUGIN_DIR: '/plugins/prs' };
     expect(run).toHaveBeenNthCalledWith(1, workspace, expect.any(String), 15_000, env);
-    // The SSH host doesn't have the plugin's folder.
+    // No copy of the plugin on the SSH host, so no folder there.
     expect(run).toHaveBeenNthCalledWith(2, sshWorkspace, expect.any(String), 15_000, {});
     expect(runLocal).toHaveBeenCalledWith(expect.any(String), 15_000, env);
   });
@@ -924,6 +937,80 @@ describe('StatusCommandsService with plugins', () => {
     expect(run).toHaveBeenNthCalledWith(2, sshWorkspace, expect.any(String), 15_000, {
       KOMLA_SETTING_REPO: 'cli/cli',
     });
+  });
+
+  it("gives a plugin's commands on an SSH host Komla's copy of its folder there", async () => {
+    const run = vi.fn(async () => 'ok');
+    const sshWorkspace = {
+      ...workspace,
+      id: 'ws-ssh',
+      backend: { kind: 'ssh', hostId: 'host-1' },
+    } as Workspace;
+    const service = createService({ items: [] }, { run, getWorkspace: () => sshWorkspace });
+    const folders = vi.fn(async () => '/data/plugins/me/github-prs/0123456789abcdef');
+    providePluginHostFolders(folders);
+    service.setPluginItems([pluginItem('github-prs.pr')]);
+
+    try {
+      await service.run('ws-ssh', 'github-prs.pr');
+    } finally {
+      providePluginHostFolders(async () => undefined);
+    }
+
+    expect(folders).toHaveBeenCalledWith('host-1', 'github-prs', true);
+    expect(run).toHaveBeenCalledWith(sshWorkspace, expect.any(String), 15_000, {
+      KOMLA_PLUGIN_DIR: '/data/plugins/me/github-prs/0123456789abcdef',
+    });
+  });
+
+  it("says why a plugin's command didn't run when Komla couldn't copy the plugin", async () => {
+    const run = vi.fn(async () => 'ok');
+    const sshWorkspace = {
+      ...workspace,
+      id: 'ws-ssh',
+      backend: { kind: 'ssh', hostId: 'host-1' },
+    } as Workspace;
+    const service = createService({ items: [] }, { run, getWorkspace: () => sshWorkspace });
+    providePluginHostFolders(async () => {
+      throw new Error('No space left on device');
+    });
+    service.setPluginItems([pluginItem('github-prs.pr')]);
+
+    try {
+      await expect(service.run('ws-ssh', 'github-prs.pr')).resolves.toMatchObject({
+        error: "Komla couldn't copy plugin GitHub PRs to the SSH host: No space left on device",
+      });
+    } finally {
+      providePluginHostFolders(async () => undefined);
+    }
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("runs a plugin's command that doesn't use its folder without waiting for a copy", async () => {
+    const run = vi.fn(async () => 'ok');
+    const sshWorkspace = {
+      ...workspace,
+      id: 'ws-ssh',
+      backend: { kind: 'ssh', hostId: 'host-1' },
+    } as Workspace;
+    const service = createService({ items: [] }, { run, getWorkspace: () => sshWorkspace });
+    // A copy that would fail, were the command to wait for it.
+    const folders = vi.fn(async (_hostId: string, _pluginId: string, wait: boolean) => {
+      if (wait) throw new Error('No space left on device');
+      return undefined;
+    });
+    providePluginHostFolders(folders);
+    service.setPluginItems([pluginItem('github-prs.changes', { command: 'git status --short' })]);
+
+    try {
+      await expect(service.run('ws-ssh', 'github-prs.changes')).resolves.toMatchObject({
+        content: { text: 'ok' },
+      });
+    } finally {
+      providePluginHostFolders(async () => undefined);
+    }
+    expect(folders).toHaveBeenCalledWith('host-1', 'github-prs', false);
+    expect(run).toHaveBeenCalledWith(sshWorkspace, 'git status --short', 15_000, {});
   });
 
   it("reads a plugin's icon files from its folder", async () => {

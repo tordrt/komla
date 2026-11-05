@@ -97,11 +97,13 @@ Make or change a plugin with `komla settings apply plugins` and `{"plugins": [{"
 id>", "enabled": true, "manifest": {...}}]}`, from any computer: Komla writes the manifest into the
 plugin's folder once the user applies it. `"enabled": false` makes it without running it. Komla runs
 a plugin only once the user turns it on, and stops it when any of its files change until they turn
-it on again. Each item, panel and hook gets the id `<plugin id>.<id>`. Commands that run on this computer get
-`KOMLA_PLUGIN_DIR`, the plugin's folder, for scripts it ships; an SSH workspace's commands run on
-its host, without that folder. Keep a plugin's state, such as an `interval` hook's last result,
-outside its folder, since any change there stops it. Its links must lead to files in its folder, and
-the folder itself can't be a link.
+it on again. Each item, panel and hook gets the id `<plugin id>.<id>`. Commands get
+`KOMLA_PLUGIN_DIR`, the plugin's folder, for scripts it ships. An SSH workspace's commands run on
+its host, where it is Komla's copy of the folder, made with `tar` there: a command that names
+`KOMLA_PLUGIN_DIR` itself waits for the copy, and one that doesn't may run before it's there.
+They get no secret settings. Keep a plugin's state, such as an `interval` hook's last result,
+outside its folder, since any change there stops it, and its copy on a host is replaced when its
+files change. Its links must lead to files in its folder, and the folder itself can't be a link.
 
 ## Shortcuts, agents and the terminal
 

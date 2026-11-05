@@ -144,6 +144,11 @@ _Avoid_: Extension, add-on
 One status bar item, Sidebar Panel or hook a Plugin adds, in the format of the user's own
 `status-items.json`, `sidebar-panels.json` or `hooks.json`, with the id `<plugin>.<id>`.
 
+**Plugin copy**:
+Komla's copy on an SSH host of the files of a Plugin that runs, which its commands there get as
+`KOMLA_PLUGIN_DIR`. Each Komla installation keeps its own, one for each revision of the files.
+_Avoid_: Plugin deployment, plugin mirror; a Local copy goes the other way, from a host to here
+
 **Plugin Host**:
 The process of its own in which Komla runs a Plugin's code, its `main`, while the plugin is on, and
 calls `activate(komla)` with a Komla SDK client that also follows Komla Events, runs commands in a

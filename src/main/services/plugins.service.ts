@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync } from 'fs';
 import { lstat, readdir, readFile, realpath, stat } from 'fs/promises';
-import { join, relative, sep } from 'path';
+import { join, posix, relative, sep } from 'path';
 
 import * as parcelWatcher from '@parcel/watcher';
 import { z } from 'zod';
@@ -38,6 +38,7 @@ import {
 } from './status-commands.service';
 
 import type { HostedPlugin } from './plugin-host.service';
+import type { TarEntry } from '../lib/tar-archive';
 
 const logger = createLogger('PluginsService');
 
@@ -236,6 +237,20 @@ async function linkTarget(root: string, path: string, relativePath: string): Pro
   return inFolder;
 }
 
+/** A link in a copy of a folder, to `target`, its path in the folder, relative to the link. */
+function linkEntry(relativePath: string, target: string): TarEntry {
+  // A link to the folder itself leads to `.`, not nowhere.
+  const relativeTarget = posix.relative(posix.dirname(relativePath), target) || '.';
+  return { kind: 'link', path: relativePath, target: relativeTarget };
+}
+
+/** Windows has no executable bit; a script there is one that names its interpreter. */
+function isExecutable(content: Buffer, mode: number): boolean {
+  return process.platform === 'win32'
+    ? content.subarray(0, 2).toString() === '#!'
+    : (mode & 0o100) !== 0;
+}
+
 /**
  * A digest of a folder's files, their paths and contents, without `.git`, with the content of the
  * file `keep` names as it hashed it. Komla follows only changes to the plugins folder, so a link
@@ -243,7 +258,9 @@ async function linkTarget(root: string, path: string, relativePath: string): Pro
  */
 export async function digestFolder(
   dir: string,
-  keep?: string
+  keep?: string,
+  /** Gets each entry the digest has, with its content, as a copy of the folder would. */
+  collect?: (entry: TarEntry) => void
 ): Promise<{ digest: string; kept?: Buffer; others: string }> {
   const hash = createHash('sha256');
   // Every file but `keep`, so a change to `keep` alone can be told apart from the rest.
@@ -268,19 +285,22 @@ export async function digestFolder(
       }
       if (entry.isDirectory()) {
         update(relativePath, `d\0${relativePath}\0`);
+        collect?.({ kind: 'directory', path: relativePath });
         await walk(relativePath);
         continue;
       }
       if (entry.isSymbolicLink()) {
         const target = await linkTarget(root, path, relativePath);
         update(relativePath, `l\0${relativePath}\0${target}\0`);
+        collect?.(linkEntry(relativePath, target));
         // Its target is one of the folder's own files, which the digest has as well.
         if (relativePath === keep) kept = await readFile(join(root, target));
         continue;
       }
       if (!entry.isFile()) continue;
       // Before reading it, so one huge file isn't read only to be refused.
-      bytes += (await lstat(path)).size;
+      const { size, mode } = await lstat(path);
+      bytes += size;
       if (bytes > MAX_PLUGIN_BYTES) {
         throw new PluginFolderError(`is larger than ${MAX_PLUGIN_BYTES / 1024 / 1024} MB`);
       }
@@ -288,6 +308,12 @@ export async function digestFolder(
       if (relativePath === keep) kept = content;
       update(relativePath, `f\0${relativePath}\0${content.length}\0`);
       update(relativePath, content);
+      collect?.({
+        kind: 'file',
+        path: relativePath,
+        content,
+        executable: isExecutable(content, mode),
+      });
     }
   };
   await walk('');
@@ -716,6 +742,37 @@ export class PluginsService {
         },
         digest: scanned.digest ?? '',
       }));
+  }
+
+  /**
+   * The plugins that run and may run something where an SSH workspace's files are, its code or a
+   * contribution not on this computer, which SSH hosts get a copy of, each with its digest.
+   */
+  pluginsForSshHosts(): { id: string; digest: string }[] {
+    return this.running()
+      .filter(
+        ({ manifest }) =>
+          manifest.main ||
+          contributionEntries(manifest).some(({ entry }) => entry.runOn !== 'local')
+      )
+      .map(({ source, digest }) => ({ id: source.id, digest }));
+  }
+
+  /**
+   * The files of a plugin that runs, in the order its digest has them, and their digest, for a
+   * copy of it; throws unless they are still those of `digest`, so a copy has only the files the
+   * user turned on. A plugin in development runs its files as they change, so its copy takes them
+   * as they are.
+   */
+  async pluginFiles(id: string, digest: string): Promise<{ entries: TarEntry[]; digest: string }> {
+    const plugin = this.running().find(({ source }) => source.id === id);
+    if (!plugin) throw new Error(`Plugin ${id} doesn't run`);
+    const entries: TarEntry[] = [];
+    const read = await digestFolder(plugin.source.dir, undefined, (entry) => entries.push(entry));
+    if (!plugin.source.development && (read.digest !== digest || plugin.digest !== digest)) {
+      throw new Error(`Plugin ${plugin.source.name}'s files changed since it was turned on`);
+    }
+    return { entries, digest: read.digest };
   }
 
   /** The plugins that run and have code of their own, for the plugin host. */

@@ -458,4 +458,62 @@ describe('ActionService', () => {
     expect(actionService.list()).toEqual(before);
     expect(electronMock.BrowserWindow.getAllWindows).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['is not JSON', '{"actions": [{"id": "1",}]}'],
+    ['has actions that are not a list', '{"actions": {"id": "1"}}'],
+    ['has an entry that is not a quick command', '{"actions": [{"id": "1"}, null]}'],
+    ['has no actions list', '{}'],
+    ['has a null actions list', '{"actions": null}'],
+    [
+      'repeats an id',
+      '{"actions": [{"id": "1", "title": "A", "content": "a"}, {"id": "1", "title": "B", "content": "b"}]}',
+    ],
+  ])('keeps the current actions when a watched file %s', async (_case, content) => {
+    const created = actionService.create({ title: 'Mine', content: 'Do it' });
+    const before = actionService.list();
+    await actionService.init();
+    vfs.mock.writeFileSync('/mock/home/.komla/settings/actions.json', content);
+
+    mockWatcherCallback?.();
+    actionService.recordUsage(created.id);
+
+    expect(actionService.list().map((action) => action.id)).toEqual(
+      before.map((action) => action.id)
+    );
+  });
+
+  it("reports a file with an entry Komla can't read as unreadable, not as changed", () => {
+    vfs.mock.writeFileSync(
+      '/mock/home/.komla/settings/actions.json',
+      '{"actions": [{"id": "1", "title": "A", "content": "a"}, null]}'
+    );
+
+    expect(actionService.getStorageRevisionState()).toEqual({ status: 'unreadable' });
+  });
+
+  it('keeps no quick commands when a watched file the user emptied becomes unreadable', async () => {
+    for (const action of actionService.list()) actionService.delete(action.id);
+    await actionService.init();
+    vfs.mock.writeFileSync('/mock/home/.komla/settings/actions.json', '{"actions": [');
+
+    mockWatcherCallback?.();
+
+    expect(actionService.list()).toEqual([]);
+    expect(vfs.hasFile('/mock/home/.komla/settings/actions.invalid.json')).toBe(false);
+  });
+
+  it('sets an unreadable file aside at startup before falling back to the defaults', () => {
+    const broken = '{"actions": [{"id": "mine", "title": "Mine",}]}';
+    vfs.mock.writeFileSync('/mock/home/.komla/settings/actions.json', broken);
+
+    const service = new ActionService();
+    expect(service.getStorageRevisionState()).toMatchObject({ status: 'current' });
+    service.recordUsage(service.list()[0].id);
+
+    expect(vfs.mock.readFileSync('/mock/home/.komla/settings/actions.invalid.json', 'utf-8')).toBe(
+      broken
+    );
+    expect(service.list().length).toBeGreaterThan(0);
+  });
 });

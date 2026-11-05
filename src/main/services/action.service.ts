@@ -186,6 +186,33 @@ function createDefaultActionsConfig(): ActionsConfig {
   };
 }
 
+// What loading needs of each entry; the rest is as the file has it.
+function isActionEntry(value: unknown): value is Action {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.title === 'string' &&
+    typeof entry.content === 'string'
+  );
+}
+
+/** actions.json's Quick Commands. Throws for a file Komla can't read, as loading treats it. */
+function parseActionsFile(contents: string): Action[] {
+  const config = migrate(
+    JSON.parse(stripUtf8Bom(contents)) as Record<string, unknown>,
+    ACTIONS_VERSION,
+    ACTIONS_MIGRATIONS
+  ) as unknown as Partial<ActionsConfig>;
+  const actions: unknown = config.actions;
+  if (!Array.isArray(actions)) throw new Error('actions is not a list');
+  const unreadable = actions.findIndex((action) => !isActionEntry(action));
+  if (unreadable !== -1) throw new Error(`actions.${unreadable} is not a quick command`);
+  const ids = new Set(actions.map((action: Action) => action.id));
+  if (ids.size !== actions.length) throw new Error('actions repeat an id');
+  return actions as Action[];
+}
+
 export class ActionService {
   private settingsPath: string;
   private actionsPath: string;
@@ -203,7 +230,7 @@ export class ActionService {
     this.defaultActionsPath = join(this.defaultsPath, 'actions.json');
 
     this.ensureSettingsDirectory();
-    this.loadConfig();
+    this.loadConfig(true);
   }
 
   async init(): Promise<void> {
@@ -238,29 +265,38 @@ export class ActionService {
     }
   }
 
-  private loadConfig(): void {
+  /**
+   * Reads actions.json. A file Komla can't read keeps the actions it has: at startup the file is
+   * first set aside as actions.invalid.json, so the defaults written in its place don't lose it.
+   */
+  private loadConfig(atStartup: boolean): boolean {
+    let data: string | undefined;
     try {
       if (existsSync(this.actionsPath)) {
-        const data = readFileSync(this.actionsPath, 'utf-8');
-        const config = migrate(
-          JSON.parse(stripUtf8Bom(data)) as Record<string, unknown>,
-          ACTIONS_VERSION,
-          ACTIONS_MIGRATIONS
-        ) as unknown as ActionsConfig;
-        this.actions.clear();
-        for (const action of config.actions ?? []) {
-          this.actions.set(action.id, action);
-        }
-        return;
+        data = readFileSync(this.actionsPath, 'utf-8');
+        this.actions = new Map(parseActionsFile(data).map((action) => [action.id, action]));
+        return true;
       }
     } catch (error) {
       console.error('Failed to load actions config:', error);
+      if (!atStartup) return false;
+      if (data !== undefined) this.setAsideUnreadableConfig(data);
     }
 
     const fallback = createDefaultActionsConfig();
     this.actions.clear();
     for (const action of fallback.actions) {
       this.actions.set(action.id, action);
+    }
+    if (data !== undefined) this.saveConfig();
+    return true;
+  }
+
+  private setAsideUnreadableConfig(data: string): void {
+    try {
+      writeFileSync(join(this.settingsPath, 'actions.invalid.json'), data, 'utf-8');
+    } catch (error) {
+      console.error('Failed to set aside unreadable actions config:', error);
     }
   }
 
@@ -289,8 +325,7 @@ export class ActionService {
         this.selfWriteRevision = null;
         return;
       }
-      this.loadConfig();
-      this.notifyRenderer();
+      if (this.loadConfig(false)) this.notifyRenderer();
     });
     await this.watcher.start();
   }
@@ -323,12 +358,7 @@ export class ActionService {
     | { status: 'changed' | 'unreadable' } {
     try {
       const contents = readFileSync(this.actionsPath, 'utf-8');
-      const config = migrate(
-        JSON.parse(stripUtf8Bom(contents)) as Record<string, unknown>,
-        ACTIONS_VERSION,
-        ACTIONS_MIGRATIONS
-      ) as unknown as ActionsConfig;
-      if (JSON.stringify(config.actions ?? []) !== JSON.stringify(this.list())) {
+      if (JSON.stringify(parseActionsFile(contents)) !== JSON.stringify(this.list())) {
         return { status: 'changed' };
       }
       return {

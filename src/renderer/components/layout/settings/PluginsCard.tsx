@@ -485,6 +485,7 @@ function ContributionLine({ contribution }: { contribution: PluginContributionIn
       <p className="mt-0.5 text-[11px] text-muted-foreground">
         {contribution.when}
         {contribution.runOn === 'local' && ', on this computer'}
+        {contribution.runOn === 'local-per-workspace' && ', on this computer for each workspace'}
       </p>
       {contribution.page && (
         <p className="mt-0.5 text-[11px] text-muted-foreground">

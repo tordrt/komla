@@ -69,7 +69,7 @@ export const sidebarPanelSchema = z
     }),
     command: commandSchema.optional().meta({
       description:
-        "Runs in the user's shell when the panel opens and on each interval while it's open. Without `page`, it prints the panel: a JSON object with an `html` page or `markdown`, as under What `command` prints, or plain text, which shows as a terminal would show it, colors included. With `page`, the page gets what it prints as data: its JSON, or its text.",
+        "Runs in the user's shell when the panel opens and on each interval while it's open. Without `page`, it prints the panel: a JSON object with an `html` page or `markdown`, as under What `command` prints, or plain text, which shows as a terminal would show it, colors included. With `page`, the page gets what it prints as data: its JSON, or its text. It gets `KOMLA_WORKSPACE_ID`, which the `komla` CLI acts on, `KOMLA_WORKSPACE_NAME`, `KOMLA_BRANCH`, `KOMLA_PROJECT` and `KOMLA_REPO_URL` (the project's origin), unless it runs with `runOn: local`.",
     }),
     page: z
       .string()
@@ -99,7 +99,7 @@ export const sidebarPanelSchema = z
     }),
     runOn: runOnSchema.meta({
       description:
-        "`workspace`, the default, runs its commands where the workspace's files are. `local` runs them on this computer in the home folder, even for an SSH workspace, for panels that don't depend on the workspace, such as an account's usage.",
+        "`workspace`, the default, runs its commands where the workspace's files are. `local` runs them on this computer in the home folder, even for an SSH workspace, for panels that don't depend on the workspace, such as an account's usage. `local-per-workspace` runs them on this computer in the home folder for each workspace, with its variables, for panels about the workspace that need a login or a plugin's secret only this computer has, such as its branch's pull request.",
     }),
     projects: projectsSchema.meta({
       description: 'Project names or ids to show it in; every workspace when left out.',

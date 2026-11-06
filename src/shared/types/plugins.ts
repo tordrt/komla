@@ -21,8 +21,11 @@ export interface PluginContributionInfo {
   capabilities?: string[];
   /** When it runs, such as "Every 60 seconds" or "An agent finishes". */
   when: string;
-  /** Runs on this computer, in the home folder, not where the workspace's files are. */
-  runOn?: 'local';
+  /**
+   * Runs on this computer, in the home folder, not where the workspace's files are: once, or for
+   * each workspace.
+   */
+  runOn?: 'local' | 'local-per-workspace';
   /** Its other commands, such as its popover's or its buttons', which it runs when clicked. */
   moreCommands?: { label: string; command: string }[];
 }

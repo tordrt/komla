@@ -4,7 +4,11 @@ import { join } from 'path';
 import { z } from 'zod';
 
 import { HOOK_EVENTS, type HookEventDetails } from '../../shared/types/hooks';
-import { STATUS_ITEM_ID_PATTERN } from '../../shared/types/status-items';
+import {
+  RUN_ON_VALUES,
+  runsOnThisComputer,
+  STATUS_ITEM_ID_PATTERN,
+} from '../../shared/types/status-items';
 import { hasWorkspaceFiles } from '../../shared/types/workspace';
 import { onHookEvent } from '../lib/hook-events';
 import { createLogger } from '../lib/logger';
@@ -20,6 +24,12 @@ import {
   workspaceProjectKeys,
   WorkspaceCommandError,
 } from './workspace-command';
+import {
+  projectRepositoryUrl,
+  workspaceBranch,
+  workspaceEnvironment,
+  type WorkspaceEnvironmentDependencies,
+} from './workspace-environment';
 import { workspaceService } from './workspace.service';
 
 import type { PluginHook, PluginSource } from './plugins.service';
@@ -54,15 +64,15 @@ export const hookSchema = z
     }),
     command: z.string().trim().min(1).max(16_000).meta({
       description:
-        "Runs in the user's shell, which has the `komla` CLI. Its output is discarded, and its own notifications set off no hooks. It gets `KOMLA_EVENT` and `KOMLA_HOOK_ID`; when it runs for a workspace also `KOMLA_WORKSPACE_ID`, `KOMLA_WORKSPACE_NAME`, `KOMLA_BRANCH` and `KOMLA_PROJECT`, and for agent events `KOMLA_TERMINAL_ID`, `KOMLA_AGENT` (such as `claude-code`) and `KOMLA_MESSAGE` (the agent's last answer, what it asks for, or the prompt, up to 4,000 characters), when Komla has them.",
+        "Runs in the user's shell, which has the `komla` CLI. Its output is discarded, and its own notifications set off no hooks. It gets `KOMLA_EVENT` and `KOMLA_HOOK_ID`; when it runs for a workspace also `KOMLA_WORKSPACE_ID`, `KOMLA_WORKSPACE_NAME`, `KOMLA_BRANCH`, `KOMLA_PROJECT` and `KOMLA_REPO_URL` (the project's origin), and for agent events `KOMLA_TERMINAL_ID`, `KOMLA_AGENT` (such as `claude-code`) and `KOMLA_MESSAGE` (the agent's last answer, what it asks for, or the prompt, up to 4,000 characters), when Komla has them.",
     }),
     intervalSeconds: z.number().int().min(10).max(86_400).optional().meta({
       description:
         "How often an `interval` hook runs; only those take it, and they need it. Komla also runs them when it starts and after hooks.json changes, a few at a time, and doesn't start a run that's still going again.",
     }),
-    runOn: z.enum(['workspace', 'local']).optional().meta({
+    runOn: z.enum(RUN_ON_VALUES).optional().meta({
       description:
-        "`workspace`, the default, runs it in the workspace's folder or on its SSH host; an `interval` hook then runs in every workspace outside the Trash. `local` runs it on this computer in the home folder: once per interval for an `interval` hook, which then takes no `projects`, or for an event even while the workspace's SSH host is away.",
+        "`workspace`, the default, runs it in the workspace's folder or on its SSH host; an `interval` hook then runs in every workspace outside the Trash. `local` runs it on this computer in the home folder: once per interval for an `interval` hook, which then takes no `projects`, or for an event even while the workspace's SSH host is away. `local-per-workspace` runs it on this computer too, but an `interval` hook runs for every workspace outside the Trash, as with `workspace`, such as to ask a service about each workspace's branch with a token or login only this computer has; for an event it is the same as `local`.",
     }),
     timeoutSeconds: z.number().int().min(1).max(3600).default(60).meta({
       description: 'How long it may run before Komla stops it and everything it started.',
@@ -105,12 +115,10 @@ export function parseHooksFile(content: string): { hooks: Hook[]; problem?: stri
   return 'problem' in parsed ? { hooks: [], problem: parsed.problem } : parsed.value;
 }
 
-export interface HooksDependencies {
+export interface HooksDependencies extends WorkspaceEnvironmentDependencies {
   readFile(): string | undefined;
   getWorkspace(id: string): Workspace | undefined;
   listWorkspaces(): Workspace[];
-  /** Names of the workspace's project, its id and name, that `projects` can match. */
-  getProjectKeys(workspace: Workspace): string[];
   /** False while the workspace can't run commands, as when its SSH host is not connected. */
   canRun(workspace: Workspace): boolean;
   /** Runs the command where the workspace's files are; rejects with a WorkspaceCommandError. */
@@ -229,13 +237,14 @@ export class HooksService {
   }
 
   private intervalWorkspaces(hook: HookEntry): Workspace[] {
+    const here = runsOnThisComputer(hook.runOn);
     return this.dependencies.listWorkspaces().filter(
       (workspace) =>
         workspace.status !== 'trashed' &&
-        // Until its folder exists, a run there could only fail.
-        hasWorkspaceFiles(workspace) &&
         this.matchesProjects(hook, workspace) &&
-        this.dependencies.canRun(workspace)
+        // Until its folder exists it has no branch to ask about, and a run there could only fail.
+        hasWorkspaceFiles(workspace) &&
+        (here || this.dependencies.canRun(workspace))
     );
   }
 
@@ -254,7 +263,7 @@ export class HooksService {
         hook.event === details.event &&
         this.matchesProjects(hook, workspace) &&
         // A hook on this computer runs while the workspace's SSH host is away.
-        (hook.runOn === 'local' || this.dependencies.canRun(workspace))
+        (runsOnThisComputer(hook.runOn) || this.dependencies.canRun(workspace))
     );
     await Promise.all(hooks.map((hook) => this.runHook(hook, workspace, details)));
   }
@@ -278,17 +287,16 @@ export class HooksService {
     // A hook can fail in one workspace while it works in another, so each is reported on its own.
     const failingKey = `${hook.id}\0${workspace?.id ?? ''}`;
     const timeoutMs = hook.timeoutSeconds * 1000;
+    const here = runsOnThisComputer(hook.runOn);
     try {
       // A plugin's commands get its folder and settings, on an SSH host its copy there.
-      const plugin =
-        hook.plugin &&
-        (await pluginEnvironment(
-          hook.plugin,
-          hook.runOn === 'local' ? undefined : workspace,
-          hook.command
-        ));
-      const env = this.environment(hook, workspace, details, plugin);
-      if (hook.runOn === 'local' || !workspace) {
+      const env = await this.environment(
+        hook,
+        workspace,
+        details,
+        hook.plugin && pluginEnvironment(hook.plugin, here ? undefined : workspace, hook.command)
+      );
+      if (here || !workspace) {
         await this.dependencies.runLocal(hook.command, env, timeoutMs);
       } else {
         await this.dependencies.run(workspace, hook.command, env, timeoutMs);
@@ -315,25 +323,23 @@ export class HooksService {
     }
   }
 
-  private environment(
+  private async environment(
     hook: HookEntry,
     workspace: Workspace | undefined,
     details: HookRun,
-    plugin: Record<string, string> | undefined
-  ): Record<string, string> {
+    plugin: Promise<Record<string, string>> | undefined
+  ): Promise<Record<string, string>> {
+    // Built together, while a plugin's copy on the host may still be made.
+    const [plugins, workspaces] = await Promise.all([
+      plugin,
+      workspace && workspaceEnvironment(workspace, this.dependencies),
+    ]);
     // `komla notify` sends a hook's notifications as the hook's, which run no hooks.
-    const own = { KOMLA_EVENT: details.event, KOMLA_HOOK_ID: hook.id, ...plugin };
+    const own = { KOMLA_EVENT: details.event, KOMLA_HOOK_ID: hook.id, ...plugins };
     if (!workspace) return own;
-    const project = this.dependencies
-      .getProjectKeys(workspace)
-      .find((key) => key !== workspace.projectId);
     return {
       ...own,
-      KOMLA_WORKSPACE_ID: workspace.id,
-      // The title the sidebar shows, as the user or Komla named it.
-      KOMLA_WORKSPACE_NAME: workspace.customName || workspace.name,
-      ...(workspace.branchName && { KOMLA_BRANCH: workspace.branchName }),
-      ...(project && { KOMLA_PROJECT: project }),
+      ...workspaces,
       ...(details.terminalId && { KOMLA_TERMINAL_ID: details.terminalId }),
       ...(details.agent && { KOMLA_AGENT: details.agent }),
       ...(details.message && { KOMLA_MESSAGE: truncate(details.message, MAX_AGENT_MESSAGE) }),
@@ -354,6 +360,8 @@ export const hooksService = new HooksService({
   getWorkspace: (id) => workspaceService.get(id),
   listWorkspaces: () => workspaceService.list(),
   getProjectKeys: workspaceProjectKeys,
+  getBranch: workspaceBranch,
+  getRepositoryUrl: (workspace) => projectRepositoryUrl(workspace),
   canRun: canRunWorkspaceCommands,
   run: async (workspace, command, env, timeoutMs) => {
     await runWorkspaceCommand(workspace, command, { env, timeoutMs });

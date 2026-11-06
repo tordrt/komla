@@ -16,7 +16,7 @@ import {
   type PluginSettingField,
   type PluginState,
 } from '../../shared/types/plugins';
-import { STATUS_ITEM_ID_PATTERN } from '../../shared/types/status-items';
+import { runsOnThisComputer, STATUS_ITEM_ID_PATTERN } from '../../shared/types/status-items';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { createLogger } from '../lib/logger';
 import { parseSettingsFile } from '../lib/settings-file';
@@ -370,7 +370,7 @@ function statusItemInfo(pluginId: string, item: ConfiguredStatusCommand): Plugin
     title: item.label ?? item.id,
     command: item.command,
     when: `Every ${item.intervalSeconds} seconds${refreshOnText(item.refreshOn)}`,
-    ...(item.runOn === 'local' && { runOn: 'local' as const }),
+    ...(runsOnThisComputer(item.runOn) && { runOn: item.runOn }),
     ...(moreCommands.length > 0 && { moreCommands }),
   };
 }
@@ -401,9 +401,20 @@ function sidebarPanelInfo(pluginId: string, panel: ConfiguredSidebarPanel): Plug
     when: panel.command
       ? `Every ${panel.intervalSeconds} seconds while the panel is open${refreshOnText(panel.refreshOn)}`
       : 'While the panel is open',
-    ...(panel.runOn === 'local' && { runOn: 'local' as const }),
+    ...(runsOnThisComputer(panel.runOn) && { runOn: panel.runOn }),
     ...(moreCommands.length > 0 && { moreCommands }),
   };
+}
+
+/**
+ * When an interval hook runs, and where, unless what it runs on says so, as for one on this
+ * computer for each workspace.
+ */
+export function intervalHookWhen(hook: Pick<Hook, 'intervalSeconds' | 'runOn'>): string {
+  const every = `Every ${hook.intervalSeconds} seconds`;
+  if (hook.runOn === 'local') return `${every}, once`;
+  if (hook.runOn === 'local-per-workspace') return every;
+  return `${every}, in each workspace`;
 }
 
 function hookInfo(pluginId: string, hook: Hook): PluginContributionInfo {
@@ -412,11 +423,8 @@ function hookInfo(pluginId: string, hook: Hook): PluginContributionInfo {
     id: `${pluginId}.${hook.id}`,
     title: hook.id,
     command: hook.command,
-    when:
-      hook.event === 'interval'
-        ? `Every ${hook.intervalSeconds} seconds, ${hook.runOn === 'local' ? 'once' : 'in each workspace'}`
-        : HOOK_EVENT_LABELS[hook.event],
-    ...(hook.runOn === 'local' && { runOn: 'local' as const }),
+    when: hook.event === 'interval' ? intervalHookWhen(hook) : HOOK_EVENT_LABELS[hook.event],
+    ...(runsOnThisComputer(hook.runOn) && { runOn: hook.runOn }),
   };
 }
 
@@ -753,7 +761,7 @@ export class PluginsService {
       .filter(
         ({ manifest }) =>
           manifest.main ||
-          contributionEntries(manifest).some(({ entry }) => entry.runOn !== 'local')
+          contributionEntries(manifest).some(({ entry }) => !runsOnThisComputer(entry.runOn))
       )
       .map(({ source, digest }) => ({ id: source.id, digest }));
   }

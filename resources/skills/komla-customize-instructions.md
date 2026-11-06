@@ -82,7 +82,9 @@ how.
 ```
 
 An `interval` hook runs again and again, so keep its last state in a file and notify only when it
-changes. Tags a hook sets count as the user's, so Komla's Tag from pull requests stops moving them.
+changes. With `"runOn": "local-per-workspace"` it runs on this computer for each workspace, with
+its `KOMLA_BRANCH` and `KOMLA_REPO_URL`, such as to ask a service about each workspace's branch with
+the user's login here, SSH workspaces too; with `"local"` it runs once. Tags a hook sets count as the user's, so Komla's Tag from pull requests stops moving them.
 
 ## Plugins
 

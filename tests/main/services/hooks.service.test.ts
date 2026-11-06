@@ -45,6 +45,8 @@ function createService(file: unknown, overrides: Partial<HooksDependencies> = {}
     getWorkspace: (id) => (id === workspace.id ? workspace : undefined),
     listWorkspaces: () => [workspace],
     getProjectKeys: () => ['p-1', 'komla'],
+    getBranch: (candidate) => candidate.branchName,
+    getRepositoryUrl: async () => undefined,
     canRun: () => true,
     run: vi.fn(async () => {}),
     runLocal: vi.fn(async () => {}),
@@ -157,12 +159,27 @@ describe('HooksService intervals', () => {
       provisionError: 'git worktree add failed',
     } as Workspace;
     const { service, dependencies } = createService(
-      { hooks: [{ id: 'ci', event: 'interval', intervalSeconds: 60, command: 'check-ci' }] },
+      {
+        hooks: [
+          { id: 'ci', event: 'interval', intervalSeconds: 60, command: 'check-ci' },
+          // On this computer too, as such a workspace has no branch to ask about yet.
+          {
+            id: 'pr',
+            event: 'interval',
+            intervalSeconds: 60,
+            command: 'pr',
+            runOn: 'local-per-workspace',
+          },
+        ],
+      },
       { listWorkspaces: () => [workspace, making, failed] }
     );
     service.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(vi.mocked(dependencies.run).mock.calls.map(([target]) => target.id)).toEqual(['ws-1']);
+    expect(
+      vi.mocked(dependencies.runLocal).mock.calls.map(([, env]) => env.KOMLA_WORKSPACE_ID)
+    ).toEqual(['ws-1']);
     service.stop();
     vi.useRealTimers();
   });
@@ -229,6 +246,76 @@ describe('HooksService intervals', () => {
     expect(dependencies.notify).toHaveBeenCalledOnce();
     service.stop();
     vi.useRealTimers();
+  });
+
+  it('runs a `local-per-workspace` interval hook on this computer for each workspace', async () => {
+    vi.useFakeTimers();
+    const sshWorkspace = {
+      ...workspace,
+      id: 'ws-ssh',
+      name: 'On the host',
+      branchName: 'host-branch',
+      backend: { kind: 'ssh', hostId: 'host-1' },
+    } as Workspace;
+    const { service, dependencies } = createService(
+      {
+        hooks: [
+          {
+            id: 'pr',
+            event: 'interval',
+            intervalSeconds: 60,
+            runOn: 'local-per-workspace',
+            projects: ['komla'],
+            command: 'gh pr view "$KOMLA_BRANCH"',
+          },
+        ],
+      },
+      {
+        listWorkspaces: () => [workspace, sshWorkspace, trashed],
+        getRepositoryUrl: async () => 'git@github.com:acme/komla.git',
+        // Its SSH host is away, which a run on this computer doesn't need.
+        canRun: (candidate) => candidate.id !== 'ws-ssh',
+      }
+    );
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(dependencies.run).not.toHaveBeenCalled();
+    expect(vi.mocked(dependencies.runLocal).mock.calls.map(([, env]) => env)).toEqual([
+      {
+        KOMLA_EVENT: 'interval',
+        KOMLA_HOOK_ID: 'pr',
+        KOMLA_WORKSPACE_ID: 'ws-1',
+        KOMLA_WORKSPACE_NAME: 'Fix login',
+        KOMLA_BRANCH: 'fix-login',
+        KOMLA_PROJECT: 'komla',
+        KOMLA_REPO_URL: 'git@github.com:acme/komla.git',
+      },
+      {
+        KOMLA_EVENT: 'interval',
+        KOMLA_HOOK_ID: 'pr',
+        KOMLA_WORKSPACE_ID: 'ws-ssh',
+        KOMLA_WORKSPACE_NAME: 'On the host',
+        KOMLA_BRANCH: 'host-branch',
+        KOMLA_PROJECT: 'komla',
+        KOMLA_REPO_URL: 'git@github.com:acme/komla.git',
+      },
+    ]);
+    service.stop();
+    vi.useRealTimers();
+  });
+
+  it('runs a `local-per-workspace` event hook on this computer while the SSH host is away', async () => {
+    const { service, dependencies } = createService(
+      { hooks: [{ id: 'log', event: 'agent.done', runOn: 'local-per-workspace', command: 'log' }] },
+      { canRun: () => false }
+    );
+    await service.fire(done);
+    expect(dependencies.runLocal).toHaveBeenCalledWith(
+      'log',
+      expect.objectContaining({ KOMLA_EVENT: 'agent.done', KOMLA_WORKSPACE_ID: 'ws-1' }),
+      60_000
+    );
+    expect(dependencies.run).not.toHaveBeenCalled();
   });
 
   it('runs a local event hook on this computer while the SSH host is away', async () => {
@@ -325,11 +412,11 @@ describe('HooksService', () => {
     const first = service.fire(done);
     await service.fire(done);
     const otherTerminal = service.fire({ ...done, terminalId: 'term-2' });
-    expect(run).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
     for (const finish of finishers) finish();
     await Promise.all([first, otherTerminal]);
     void service.fire(done);
-    expect(run).toHaveBeenCalledTimes(3);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3));
   });
 
   it('reports a failing hook once until it succeeds again', async () => {

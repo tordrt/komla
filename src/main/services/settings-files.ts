@@ -17,6 +17,7 @@ import {
 } from '../../shared/types/agent-preset';
 import { HOOK_EVENT_LABELS, type HookEvent } from '../../shared/types/hooks';
 import { KOMLA_EVENT_LABELS, type KomlaEventType } from '../../shared/types/komla-events';
+import { runOnThisComputerLabel, type RunOn } from '../../shared/types/status-items';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { parseSettingsFile } from '../lib/settings-file';
 
@@ -24,6 +25,7 @@ import { pageOutputDescription } from './command-items';
 import { hooksFileSchema } from './hooks.service';
 import {
   contributionEntries,
+  intervalHookWhen,
   MAX_PLUGINS,
   NO_OTHER_FILES,
   PLUGIN_MANIFEST,
@@ -166,7 +168,7 @@ function commandFile<Entry extends CommandEntry>({
 
 interface StatusItemEntry extends CommandEntry {
   intervalSeconds?: number;
-  runOn?: 'workspace' | 'local';
+  runOn?: RunOn;
   label?: string;
   popoverCommand?: string;
   action?: string;
@@ -175,6 +177,12 @@ interface StatusItemEntry extends CommandEntry {
   icon?: string;
   iconColor?: string;
   commands?: Record<string, string>;
+}
+
+/** Where an entry's commands run, as a change's details say it, unless that's the workspace. */
+function runsOnDetails(runOn: RunOn | undefined) {
+  const value = runOnThisComputerLabel(runOn);
+  return value ? [{ label: 'Runs on', value }] : [];
 }
 
 /** The events an entry runs again on, as a change's details say them. */
@@ -198,7 +206,7 @@ function describeIcon(icon: string): string {
 interface SidebarPanelEntry extends CommandEntry {
   title: string;
   intervalSeconds?: number;
-  runOn?: 'workspace' | 'local';
+  runOn?: RunOn;
   icon?: string;
   commands?: Record<string, string>;
   page?: string;
@@ -217,7 +225,7 @@ function buttonContent(commands: Record<string, string> | undefined) {
 interface HookEntry extends CommandEntry {
   event: HookEvent;
   intervalSeconds?: number;
-  runOn?: 'workspace' | 'local';
+  runOn?: RunOn;
   timeoutSeconds?: number;
 }
 
@@ -457,9 +465,7 @@ function describeContribution(
     }),
     details: [
       { label: 'When', value: contribution.when },
-      ...(contribution.runOn === 'local'
-        ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
-        : []),
+      ...runsOnDetails(contribution.runOn),
       { label: 'Id', value: contribution.id },
     ],
   };
@@ -795,9 +801,7 @@ export function createSettingsFiles({
           details: [
             { label: 'Runs', value: `Every ${item.intervalSeconds ?? 60} seconds` },
             ...refreshOnDetails(item.refreshOn),
-            ...(item.runOn === 'local'
-              ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
-              : []),
+            ...runsOnDetails(item.runOn),
             ...(item.icon ? [{ label: 'Icon', value: describeIcon(item.icon) }] : []),
             ...(item.action
               ? [{ label: 'On click, runs the quick command', value: item.action }]
@@ -838,9 +842,7 @@ export function createSettingsFiles({
                   ...refreshOnDetails(panel.refreshOn),
                 ]
               : []),
-            ...(panel.runOn === 'local'
-              ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
-              : []),
+            ...runsOnDetails(panel.runOn),
             { label: 'Projects', value: projectsLabel(panel.projects) },
             { label: 'Id', value: panel.id },
           ],
@@ -862,13 +864,9 @@ export function createSettingsFiles({
           {
             label: 'When',
             value:
-              hook.event === 'interval'
-                ? `Every ${hook.intervalSeconds} seconds, ${hook.runOn === 'local' ? 'once' : 'in each workspace'}`
-                : HOOK_EVENT_LABELS[hook.event],
+              hook.event === 'interval' ? intervalHookWhen(hook) : HOOK_EVENT_LABELS[hook.event],
           },
-          ...(hook.runOn === 'local'
-            ? [{ label: 'Runs on', value: 'This computer, in your home folder' }]
-            : []),
+          ...runsOnDetails(hook.runOn),
           { label: 'Timeout', value: `${hook.timeoutSeconds ?? 60} seconds` },
           ...(hook.event === 'interval' && hook.runOn === 'local'
             ? []

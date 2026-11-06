@@ -6,6 +6,7 @@ import { isBrowserUrl } from '../../shared/lib/browser-tabs';
 import { KOMLA_EVENT_LABELS, KOMLA_EVENT_TYPES } from '../../shared/types/komla-events';
 import {
   isStatusItemColor,
+  RUN_ON_VALUES,
   MAX_STATUS_BUTTON_LABEL,
   MAX_STATUS_ICON_BYTES,
   MAX_STATUS_ITEM_TOOLTIP,
@@ -13,6 +14,7 @@ import {
   MAX_STATUS_POPOVER_MARKDOWN,
   STATUS_ITEM_ID_PATTERN,
   statusCommandScope,
+  type RunOn,
   type StatusButtonRunResult,
   type StatusPopoverButton,
   type StatusPopoverContent,
@@ -34,6 +36,12 @@ import {
   workspaceProjectKeys,
   WorkspaceCommandError,
 } from './workspace-command';
+import {
+  projectRepositoryUrl,
+  workspaceBranch,
+  workspaceEnvironment,
+  type WorkspaceEnvironmentDependencies,
+} from './workspace-environment';
 import { workspaceService } from './workspace.service';
 
 import type { PluginSource } from './plugins.service';
@@ -65,7 +73,7 @@ export const commandSchema = z.string().trim().min(1).max(16_000);
 export const entryIdSchema = z.string().regex(STATUS_ITEM_ID_PATTERN, ID_MESSAGE);
 export const intervalSecondsSchema = z.number().int().min(10).max(86_400).default(60);
 export const timeoutSecondsSchema = z.number().int().min(1).max(600).optional();
-export const runOnSchema = z.enum(['workspace', 'local']).optional();
+export const runOnSchema = z.enum(RUN_ON_VALUES).optional();
 export const projectsSchema = z.array(z.string().trim().min(1)).min(1).optional();
 export const refreshOnSchema = z
   .array(z.enum(KOMLA_EVENT_TYPES))
@@ -238,15 +246,13 @@ export function failureMessage(error: unknown, timeoutMs: number): string {
 export interface CommandEntry {
   id: string;
   projects?: string[];
-  runOn?: 'workspace' | 'local';
+  runOn?: RunOn;
   commands?: Record<string, string>;
   plugin?: PluginSource;
 }
 
-export interface CommandRunnerDependencies {
+export interface CommandRunnerDependencies extends WorkspaceEnvironmentDependencies {
   getWorkspace(id: string): Workspace | undefined;
-  /** Names of the workspace's project, its id and name, that `projects` can match. */
-  getProjectKeys(workspace: Workspace): string[];
   /** False while the workspace can't run commands, as when its SSH host is not connected. */
   canRun(workspace: Workspace): boolean;
   /** Runs the command where the workspace's files are and returns its standard output. */
@@ -256,7 +262,7 @@ export interface CommandRunnerDependencies {
     timeoutMs: number,
     env?: Record<string, string>
   ): Promise<string>;
-  /** Runs the command on this computer, in the user's home folder, for a `runOn: local` entry. */
+  /** Runs the command on this computer, in the user's home folder, for an entry run there. */
   runLocal(command: string, timeoutMs: number, env?: Record<string, string>): Promise<string>;
   now(): number;
 }
@@ -266,6 +272,8 @@ export function commandRunnerDependencies(maxOutput: number): CommandRunnerDepen
   return {
     getWorkspace: (id) => workspaceService.get(id),
     getProjectKeys: workspaceProjectKeys,
+    getBranch: workspaceBranch,
+    getRepositoryUrl: (workspace) => projectRepositoryUrl(workspace),
     canRun: canRunWorkspaceCommands,
     run: (workspace, command, timeoutMs, env) =>
       runWorkspaceCommand(workspace, command, { env, timeoutMs, maxOutput }),
@@ -368,25 +376,49 @@ export class CommandEntries<Entry extends CommandEntry> {
   }
 
   /**
-   * Where an entry's commands run, unless they can't run now, as while an SSH host is down. A
-   * plugin's commands get its folder, on an SSH host Komla's copy of it there. A plugin's
-   * environment is built only when a command runs, as callers also ask only whether one can.
+   * Where an entry's commands run, unless they can't run now, as while an SSH host is down. Those
+   * run for a workspace get what it is, and a plugin's get its folder, on an SSH host Komla's copy
+   * of it there. Their environment is built only when a command runs, as callers also ask only
+   * whether one can.
    */
   runner(workspaceId: string, entry: Entry): RunCommand | undefined {
     const { plugin } = entry;
+    // Its output is the same in every workspace, so the command isn't told which one.
     if (entry.runOn === 'local') {
       return async (command, timeoutMs) =>
         this.dependencies.runLocal(command, timeoutMs, plugin && (await pluginEnvironment(plugin)));
     }
     const workspace = this.dependencies.getWorkspace(workspaceId);
-    if (!workspace || !this.dependencies.canRun(workspace)) return undefined;
+    if (!workspace) return undefined;
+    // On this computer, so it runs while the workspace's SSH host is away.
+    if (entry.runOn === 'local-per-workspace') {
+      return async (command, timeoutMs) =>
+        this.dependencies.runLocal(
+          command,
+          timeoutMs,
+          await this.environment(workspace, plugin && pluginEnvironment(plugin))
+        );
+    }
+    if (!this.dependencies.canRun(workspace)) return undefined;
     return async (command, timeoutMs) =>
       this.dependencies.run(
         workspace,
         command,
         timeoutMs,
-        plugin && (await pluginEnvironment(plugin, workspace, command))
+        await this.environment(workspace, plugin && pluginEnvironment(plugin, workspace, command))
       );
+  }
+
+  /** What a command for the workspace gets, built while a plugin's copy may still be made. */
+  private async environment(
+    workspace: Workspace,
+    plugin: Promise<Record<string, string>> | undefined
+  ): Promise<Record<string, string>> {
+    const [own, plugins] = await Promise.all([
+      workspaceEnvironment(workspace, this.dependencies),
+      plugin,
+    ]);
+    return { ...own, ...plugins };
   }
 
   /** Runs one of an entry's named commands, for a button on its page. */

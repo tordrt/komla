@@ -672,14 +672,35 @@ describe('PluginsService', () => {
       name: 'Usage',
       contributes: { statusItems: [{ id: 'usage', command: 'echo 1', runOn: 'local' }] },
     });
+    writePlugin('pr-state', {
+      id: 'pr-state',
+      name: 'PR state',
+      contributes: {
+        statusItems: [{ id: 'pr', command: 'gh pr view', runOn: 'local-per-workspace' }],
+        hooks: [
+          {
+            id: 'poll',
+            event: 'interval',
+            intervalSeconds: 60,
+            command: 'poll',
+            runOn: 'local-per-workspace',
+          },
+        ],
+      },
+    });
     writePlugin('off', { ...prManifest, id: 'off' });
     await service.scan();
-    for (const id of ['github-prs', 'code', 'usage']) turnOn(id);
+    for (const id of ['github-prs', 'code', 'usage', 'pr-state']) turnOn(id);
 
     const digests = Object.fromEntries(service.list().map((plugin) => [plugin.id, plugin.digest]));
     expect(service.pluginsForSshHosts()).toEqual([
       { id: 'code', digest: digests.code },
       { id: 'github-prs', digest: digests['github-prs'] },
+    ]);
+    // Settings says where each runs.
+    expect(service.list().find((plugin) => plugin.id === 'pr-state')?.contributions).toEqual([
+      expect.objectContaining({ when: 'Every 60 seconds', runOn: 'local-per-workspace' }),
+      expect.objectContaining({ when: 'Every 60 seconds', runOn: 'local-per-workspace' }),
     ]);
   });
 

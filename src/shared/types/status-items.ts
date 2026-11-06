@@ -209,12 +209,33 @@ export interface StatusCommandResult {
 }
 
 /**
- * The workspace an item's runs belong to: its own, or none for an item that runs on this
- * computer, whose output is the same in every workspace.
+ * Where a status item's, sidebar panel's or hook's commands run: `workspace` where the workspace's
+ * files are, `local` on this computer once for every workspace, and `local-per-workspace` on this
+ * computer for each workspace, as for a service a workspace's branch is in.
  */
-export function statusCommandScope(
-  workspaceId: string,
-  item: { runOn?: 'local' | 'workspace' }
-): string {
+export const RUN_ON_VALUES = ['workspace', 'local', 'local-per-workspace'] as const;
+export type RunOn = (typeof RUN_ON_VALUES)[number];
+
+/** Whether the commands run on this computer, in the home folder, even for an SSH workspace. */
+export function runsOnThisComputer(
+  runOn: RunOn | undefined
+): runOn is 'local' | 'local-per-workspace' {
+  return runOn === 'local' || runOn === 'local-per-workspace';
+}
+
+/** Where commands that run on this computer run, as Settings and approvals say it. */
+export function runOnThisComputerLabel(runOn: RunOn | undefined): string | undefined {
+  if (runOn === 'local') return 'This computer, in your home folder';
+  if (runOn === 'local-per-workspace') {
+    return 'This computer, in your home folder, for each workspace';
+  }
+  return undefined;
+}
+
+/**
+ * The workspace an item's runs belong to: its own, or none for an item that runs on this
+ * computer once, whose output is the same in every workspace.
+ */
+export function statusCommandScope(workspaceId: string, item: { runOn?: RunOn }): string {
   return item.runOn === 'local' ? '' : workspaceId;
 }

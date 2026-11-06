@@ -31,6 +31,8 @@ import { WorkspaceCommandError } from '../../../src/main/services/workspace-comm
 import type { Workspace } from '../../../src/shared/types/workspace';
 
 const workspace = { id: 'ws-1', projectId: 'p-1', workingDirectory: '/repo' } as Workspace;
+/** What commands run for that workspace get about it. */
+const workspaceEnv = { KOMLA_WORKSPACE_ID: 'ws-1', KOMLA_PROJECT: 'komla' };
 const plugin = { id: 'ci', name: 'CI tools', dir: '/mock/.komla/plugins/ci' };
 
 function createService(file: unknown, overrides: Partial<SidebarPanelsDependencies> = {}) {
@@ -38,6 +40,8 @@ function createService(file: unknown, overrides: Partial<SidebarPanelsDependenci
     readFile: () => (typeof file === 'string' ? file : JSON.stringify(file)),
     getWorkspace: (id) => (id === workspace.id ? workspace : undefined),
     getProjectKeys: () => ['p-1', 'komla'],
+    getBranch: (candidate) => candidate.branchName,
+    getRepositoryUrl: async () => undefined,
     canRun: () => true,
     run: vi.fn(async () => '# Tests\n\nAll pass'),
     runLocal: vi.fn(async () => 'local'),
@@ -199,7 +203,7 @@ describe('SidebarPanelsService', () => {
         ],
       },
     });
-    expect(run).toHaveBeenCalledWith(workspace, 'sh ci.sh', 30_000, undefined);
+    expect(run).toHaveBeenCalledWith(workspace, 'sh ci.sh', 30_000, workspaceEnv);
   });
 
   it('serves an HTML panel as a page with the theme, one page per window, workspace and panel', async () => {
@@ -300,7 +304,7 @@ describe('SidebarPanelsService', () => {
       { run }
     );
     await expect(service.runButton('ws-1', 'ci', 'rerun')).resolves.toEqual({});
-    expect(run).toHaveBeenCalledWith(workspace, 'gh run rerun', 60_000, undefined);
+    expect(run).toHaveBeenCalledWith(workspace, 'gh run rerun', 60_000, workspaceEnv);
     await expect(service.runButton('ws-1', 'ci', 'toString')).resolves.toEqual({
       error: 'sidebar-panels.json has no command toString for ci',
     });
@@ -373,7 +377,7 @@ describe('SidebarPanelsService with pages of their own', () => {
     const run = vi.fn(async () => '[{"title":"Add search"}]');
     const service = createService({ panels: [board] }, { run });
     expect(await service.runData('ws-1', 'board')).toEqual({ data: [{ title: 'Add search' }] });
-    expect(run).toHaveBeenCalledWith(workspace, board.command, 30_000, undefined);
+    expect(run).toHaveBeenCalledWith(workspace, board.command, 30_000, workspaceEnv);
 
     run.mockResolvedValueOnce('\u001b[32mAll pass\u001b[0m\n');
     expect(await service.runData('ws-1', 'board')).toEqual({ data: 'All pass' });
@@ -461,9 +465,11 @@ describe('SidebarPanelsService with plugins', () => {
     await service.run('ws-1', 'ci.checks');
     await service.runButton('ws-1', 'ci.checks', 'rerun');
     expect(run).toHaveBeenNthCalledWith(1, workspace, pluginPanel.command, 30_000, {
+      ...workspaceEnv,
       KOMLA_PLUGIN_DIR: plugin.dir,
     });
     expect(run).toHaveBeenNthCalledWith(2, workspace, pluginPanel.commands.rerun, 60_000, {
+      ...workspaceEnv,
       KOMLA_PLUGIN_DIR: plugin.dir,
     });
     await expect(service.runButton('ws-1', 'ci.checks', 'missing')).resolves.toEqual({

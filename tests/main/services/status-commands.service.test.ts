@@ -40,12 +40,17 @@ import { WorkspaceCommandError } from '../../../src/main/services/workspace-comm
 import type { Workspace } from '../../../src/shared/types/workspace';
 
 const workspace = { id: 'ws-1', projectId: 'p-1', workingDirectory: '/repo' } as Workspace;
+/** What commands run for that workspace get about it. */
+const workspaceEnv = { KOMLA_WORKSPACE_ID: 'ws-1', KOMLA_PROJECT: 'komla' };
+const sshWorkspaceEnv = { ...workspaceEnv, KOMLA_WORKSPACE_ID: 'ws-ssh' };
 
 function createService(file: unknown, overrides: Partial<StatusCommandsDependencies> = {}) {
   const service = new StatusCommandsService({
     readFile: () => (typeof file === 'string' ? file : JSON.stringify(file)),
     getWorkspace: (id) => (id === workspace.id ? workspace : undefined),
     getProjectKeys: () => ['p-1', 'komla'],
+    getBranch: (candidate) => candidate.branchName,
+    getRepositoryUrl: async () => undefined,
     canRun: () => true,
     run: vi.fn(async () => 'ok'),
     runLocal: vi.fn(async () => 'local'),
@@ -500,7 +505,7 @@ describe('StatusCommandsService', () => {
       content: { text: 'All green' },
       ranAt: 42,
     });
-    expect(run).toHaveBeenCalledWith(workspace, 'gh pr checks', 15_000, undefined);
+    expect(run).toHaveBeenCalledWith(workspace, 'gh pr checks', 15_000, workspaceEnv);
   });
 
   it("runs an item's popover command and keeps the buttons it names", async () => {
@@ -532,7 +537,7 @@ describe('StatusCommandsService', () => {
       workspaceId: 'ws-1',
       content: { markdown: 'Checks', buttons: [{ label: 'Rerun', run: 'rerun' }] },
     });
-    expect(run).toHaveBeenCalledWith(workspace, 'gh pr view', 15_000, undefined);
+    expect(run).toHaveBeenCalledWith(workspace, 'gh pr view', 15_000, workspaceEnv);
     await expect(service.runPopover('ws-1', 'missing')).resolves.toMatchObject({ content: null });
   });
 
@@ -581,7 +586,7 @@ describe('StatusCommandsService', () => {
     );
 
     await expect(service.runButton('ws-1', 'pr', 'rerun')).resolves.toEqual({});
-    expect(run).toHaveBeenCalledWith(workspace, 'gh run rerun', 60_000, undefined);
+    expect(run).toHaveBeenCalledWith(workspace, 'gh run rerun', 60_000, workspaceEnv);
     for (const name of ['deploy', 'toString', '__proto__']) {
       await expect(service.runButton('ws-1', 'pr', name)).resolves.toEqual({
         error: `status-items.json has no command ${name} for pr`,
@@ -602,10 +607,12 @@ describe('StatusCommandsService', () => {
 
     const first = service.run('ws-1', 'ci');
     const second = service.run('ws-1', 'ci');
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
     finish('done');
     await expect(first).resolves.toEqual(await second);
     expect(run).toHaveBeenCalledOnce();
     const third = service.run('ws-1', 'ci');
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
     finish('again');
     await third;
     expect(run).toHaveBeenCalledTimes(2);
@@ -702,6 +709,68 @@ describe('StatusCommandsService', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it('runs a `local-per-workspace` item on this computer for each workspace, told which', async () => {
+    const run = vi.fn(async () => 'remote');
+    const runLocal = vi.fn(
+      async (_command: string, _timeoutMs: number, env?: Record<string, string>) =>
+        env?.KOMLA_BRANCH === 'host-branch' ? 'PR #2' : 'PR #1'
+    );
+    const servePopoverPage = vi.fn(async () => 'komla-preview://token/popover.html');
+    const sshWorkspace = {
+      ...workspace,
+      id: 'ws-ssh',
+      name: 'On the host',
+      branchName: 'host-branch',
+      backend: { kind: 'ssh', hostId: 'host-1' },
+    } as Workspace;
+    const service = createService(
+      {
+        items: [
+          {
+            id: 'pr',
+            command: 'gh pr view "$KOMLA_BRANCH" --repo "$KOMLA_REPO_URL"',
+            runOn: 'local-per-workspace',
+            popoverCommand: 'details',
+          },
+        ],
+      },
+      {
+        run,
+        runLocal,
+        servePopoverPage,
+        getWorkspace: (id) => [workspace, sshWorkspace].find((candidate) => candidate.id === id),
+        getRepositoryUrl: async () => 'https://github.com/acme/komla.git',
+        // The SSH host is away, which a run on this computer doesn't need.
+        canRun: () => false,
+      }
+    );
+
+    // Windows treat it as a workspace's own item.
+    expect(service.list('ws-ssh').items).toEqual([
+      { id: 'pr', intervalSeconds: 60, popover: true },
+    ]);
+    await expect(service.run('ws-1', 'pr')).resolves.toMatchObject({ content: { text: 'PR #1' } });
+    await expect(service.run('ws-ssh', 'pr')).resolves.toEqual({
+      id: 'pr',
+      workspaceId: 'ws-ssh',
+      content: { text: 'PR #2' },
+      ranAt: 42,
+    });
+    expect(runLocal).toHaveBeenLastCalledWith(expect.any(String), 15_000, {
+      KOMLA_WORKSPACE_ID: 'ws-ssh',
+      KOMLA_WORKSPACE_NAME: 'On the host',
+      KOMLA_BRANCH: 'host-branch',
+      KOMLA_PROJECT: 'komla',
+      KOMLA_REPO_URL: 'https://github.com/acme/komla.git',
+    });
+    await expect(service.refresh('ws-ssh', 'pr')).resolves.toMatchObject({ workspaceId: 'ws-ssh' });
+
+    runLocal.mockImplementation(async () => '{"html": "<p>pr</p>"}');
+    await service.runPopover('ws-ssh', 'pr');
+    expect(servePopoverPage).toHaveBeenCalledWith('status-popover::ws-ssh:pr', expect.any(String));
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it('refreshes an item after a run under way, telling listeners what it shows', async () => {
     const finishes: Array<(stdout: string) => void> = [];
     const run = vi.fn(() => new Promise<string>((resolve) => finishes.push(resolve)));
@@ -711,6 +780,7 @@ describe('StatusCommandsService', () => {
 
     const scheduled = service.run('ws-1', 'ci');
     const refreshed = service.refresh('ws-1', 'ci');
+    await vi.waitFor(() => expect(finishes).toHaveLength(1));
     finishes[0]('old');
     await scheduled;
     await vi.waitFor(() => expect(finishes).toHaveLength(2));
@@ -736,6 +806,7 @@ describe('StatusCommandsService', () => {
 
     void service.run('ws-1', 'ci');
     const refreshes = [1, 2, 3].map(() => service.refresh('ws-1', 'ci'));
+    await vi.waitFor(() => expect(finishes).toHaveLength(1));
     finishes[0]('old');
     await vi.waitFor(() => expect(finishes).toHaveLength(2));
     finishes[1]('new');
@@ -786,7 +857,7 @@ describe('StatusCommandsService', () => {
     service.reload();
     expect(service.list('ws-1').changedAt).toBe(50);
     const after = service.run('ws-1', 'ci');
-    expect(run).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
     finishes.forEach((finish) => finish(''));
     await expect(before).resolves.toMatchObject({ content: { text: 'old' } });
     await expect(after).resolves.toMatchObject({ content: { text: 'new' } });
@@ -900,9 +971,19 @@ describe('StatusCommandsService with plugins', () => {
     await service.run('ws-1', 'github-prs.usage');
 
     const env = { KOMLA_PLUGIN_DIR: '/plugins/prs' };
-    expect(run).toHaveBeenNthCalledWith(1, workspace, expect.any(String), 15_000, env);
+    expect(run).toHaveBeenNthCalledWith(1, workspace, expect.any(String), 15_000, {
+      ...workspaceEnv,
+      ...env,
+    });
     // No copy of the plugin on the SSH host, so no folder there.
-    expect(run).toHaveBeenNthCalledWith(2, sshWorkspace, expect.any(String), 15_000, {});
+    expect(run).toHaveBeenNthCalledWith(
+      2,
+      sshWorkspace,
+      expect.any(String),
+      15_000,
+      sshWorkspaceEnv
+    );
+    // It runs once for every workspace, so it isn't told about one.
     expect(runLocal).toHaveBeenCalledWith(expect.any(String), 15_000, env);
   });
 
@@ -930,11 +1011,13 @@ describe('StatusCommandsService with plugins', () => {
     }
 
     expect(run).toHaveBeenNthCalledWith(1, workspace, expect.any(String), 15_000, {
+      ...workspaceEnv,
       KOMLA_SETTING_REPO: 'cli/cli',
       KOMLA_SETTING_TOKEN: 'secret',
       KOMLA_PLUGIN_DIR: '/plugins/prs',
     });
     expect(run).toHaveBeenNthCalledWith(2, sshWorkspace, expect.any(String), 15_000, {
+      ...sshWorkspaceEnv,
       KOMLA_SETTING_REPO: 'cli/cli',
     });
   });
@@ -959,6 +1042,7 @@ describe('StatusCommandsService with plugins', () => {
 
     expect(folders).toHaveBeenCalledWith('host-1', 'github-prs', true);
     expect(run).toHaveBeenCalledWith(sshWorkspace, expect.any(String), 15_000, {
+      ...sshWorkspaceEnv,
       KOMLA_PLUGIN_DIR: '/data/plugins/me/github-prs/0123456789abcdef',
     });
   });
@@ -1010,7 +1094,7 @@ describe('StatusCommandsService with plugins', () => {
       providePluginHostFolders(async () => undefined);
     }
     expect(folders).toHaveBeenCalledWith('host-1', 'github-prs', false);
-    expect(run).toHaveBeenCalledWith(sshWorkspace, 'git status --short', 15_000, {});
+    expect(run).toHaveBeenCalledWith(sshWorkspace, 'git status --short', 15_000, sshWorkspaceEnv);
   });
 
   it("reads a plugin's icon files from its folder", async () => {

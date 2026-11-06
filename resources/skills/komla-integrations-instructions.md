@@ -265,12 +265,23 @@ An item is one part of what Komla can show; combine it with the rest:
   the Quick Command that runs the tests.
 - **Clicking** an item can run a Quick Command, with `action`, or open a sidebar panel, with
   `panel` and its id, in place of a popover: a count in the bar, with the list in the panel.
-- **Commands and buttons** run in the workspace's folder, unless `runOn` is `local`, with the
+- **Commands and buttons** run in the workspace's folder, unless `runOn` says otherwise, with the
   `komla` CLI, so they can tag the workspace, notify, or `komla launch` an agent to fix what the
   popover shows, or `komla launch --draft` to open New Workspace with it filled in for the user to
   start. An item's command runs again and again, so tag or notify only when what it sees
   changes, keeping the last state in a file. `komla skill customize` says how to keep tags and
   notifications short.
+- **Where they run** is `runOn`. `workspace`, the default, runs them where the workspace's files
+  are: in its folder, or on its SSH host. Pick it for anything that reads the project, such as its
+  tests or `git status`. `local` runs them on this computer in the home folder, once for every
+  workspace, which all show the same output: for what doesn't depend on the workspace, such as an
+  account's usage. `local-per-workspace` runs them on this computer in the home folder for each
+  workspace: for what is about the workspace but needs a login or a secret only this computer
+  has, such as its branch's pull request, which works the same for an SSH workspace:
+  `gh pr view "$KOMLA_BRANCH" --repo "$KOMLA_REPO_URL" --json state --jq .state`.
+- **Variables**: except with `local`, commands get `KOMLA_WORKSPACE_ID`, which the `komla` CLI
+  acts on, `KOMLA_WORKSPACE_NAME`, `KOMLA_BRANCH`, `KOMLA_PROJECT` and `KOMLA_REPO_URL`, the URL
+  of the project's origin.
 - **A plugin** bundles items and panels with the hooks and scripts they need, so the user can
   share them or turn them off as one. Make one when an item comes with a hook or a script of its
   own, or the user wants to share it; `komla skill customize` says how.
@@ -346,7 +357,8 @@ in under the plugin in Settings → Plugins:
   `komla.settings.get()`, and follows changes with `komla.settings.onChange(settings => …)`.
 - Its commands get them as variables, `KOMLA_SETTING_TEAM` and so on. On an SSH host they get
   every setting but the secrets, so a command there that needs a token runs with `"runOn":
-"local"`, or the plugin's code calls the service itself.
+"local-per-workspace"`, or `"local"` when it isn't about the workspace, or the plugin's code calls
+the service itself.
 - A secret is encrypted with the OS keychain. You can't read or set one: once the plugin is
   ready, tell the user which secret to enter in Settings → Plugins, and never ask them to paste
   it into the chat.

@@ -74,7 +74,7 @@ export const statusCommandSchema = z
     id: entryIdSchema.meta({ description: 'Unique in the file.' }),
     command: commandSchema.meta({
       description:
-        "Runs in the user's shell on each interval while the workspace is open. Komla shows the first line of its output, in the terminal colors it prints, with the rest as the tooltip, or a JSON object it prints, as under What `command` prints. Empty output hides the item.",
+        "Runs in the user's shell on each interval while the workspace is open. Komla shows the first line of its output, in the terminal colors it prints, with the rest as the tooltip, or a JSON object it prints, as under What `command` prints. Empty output hides the item. It gets `KOMLA_WORKSPACE_ID`, which the `komla` CLI acts on, `KOMLA_WORKSPACE_NAME`, `KOMLA_BRANCH`, `KOMLA_PROJECT` and `KOMLA_REPO_URL` (the project's origin), unless it runs with `runOn: local`.",
     }),
     intervalSeconds: intervalSecondsSchema.meta({
       description:
@@ -85,7 +85,7 @@ export const statusCommandSchema = z
     }),
     runOn: runOnSchema.meta({
       description:
-        "`workspace`, the default, runs its commands where the workspace's files are. `local` runs them on this computer in the home folder, even for an SSH workspace, and every workspace shows the same output, for items that don't depend on the workspace, such as an account's usage.",
+        "`workspace`, the default, runs its commands where the workspace's files are. `local` runs them on this computer in the home folder, even for an SSH workspace, and every workspace shows the same output, for items that don't depend on the workspace, such as an account's usage. `local-per-workspace` runs them on this computer in the home folder for each workspace, with its variables, for items about the workspace that need a login or a plugin's secret only this computer has, such as its branch's pull request: `gh pr view \"$KOMLA_BRANCH\" --repo \"$KOMLA_REPO_URL\"`.",
     }),
     label: z.string().trim().min(1).max(MAX_STATUS_ITEM_TEXT).optional().meta({
       description:

@@ -19,6 +19,7 @@ import {
   createSplitStep,
   resetIdCounter,
 } from '../../factories';
+import { resetModulesKeepingShared } from '../../helpers/reset-modules';
 import { mockElectron } from '../../mocks/electron';
 import { createVirtualFs, VirtualFilesystem } from '../../mocks/fs';
 
@@ -88,15 +89,13 @@ vi.mock('../../../src/main/services/remote-companion.service', () => ({
     hookInbox: '/home/dev/.komla/helpers/companion/deterministic-installation/inbox',
   })),
 }));
-// Create virtual filesystem
-let vfs: VirtualFilesystem;
+// One virtual filesystem for the file, emptied before each test. A new one each
+// test added its 30 mocks to every later vi.clearAllMocks(). Don't change a
+// vfs.mock implementation in a test: it would stay for the tests after it.
+const vfs: VirtualFilesystem = createVirtualFs();
 const mockRealpathSync = vi.fn((path: string) => path);
-beforeEach(() => {
-  vfs = createVirtualFs();
-});
 
 vi.mock('fs', () => {
-  // Return a dynamic getter that always returns the current vfs.mock
   return {
     existsSync: vi.fn((...args) => vfs.mock.existsSync(...args)),
     readFileSync: vi.fn((...args) => vfs.mock.readFileSync(...args)),
@@ -628,15 +627,13 @@ vi.mock('../../../src/main/lib/opencode-service', () => ({
     mockDeleteReleasingOpenCodeLocation(directory, remove),
 }));
 
-// Mock logger
-vi.mock('../../../src/main/lib/logger', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  }),
-}));
+// Mock logger, with plain functions rather than mocks: every module reloaded for a test makes its logger
+// again, and as mocks they would have added to every later vi.clearAllMocks().
+vi.mock('../../../src/main/lib/logger', () => {
+  const ignore = () => {};
+  const logger = { debug: ignore, info: ignore, warn: ignore, error: ignore };
+  return { createLogger: () => logger };
+});
 
 const mockGenerateBranchSuffix = vi.fn();
 vi.mock('../../../src/shared/lib/random-names', () => ({
@@ -749,7 +746,7 @@ describe('WorkspaceService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    vi.resetModules();
+    resetModulesKeepingShared();
     resetIdCounter();
     mockUuidCounter = 0;
     mockPtyStatusListener = undefined;

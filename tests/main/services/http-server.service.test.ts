@@ -4363,11 +4363,10 @@ describe('HttpServerService', () => {
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
-      await vi.dynamicImportSettled();
-      await new Promise((resolve) => setTimeout(resolve, 0));
 
+      // The request waits for the MCP SDK to load, which a fixed number of ticks may not cover.
+      await vi.waitFor(() => expect(mockTransportHandleRequest).toHaveBeenCalledWith(req, res));
       expect(mockMcpConnect).toHaveBeenCalled();
-      expect(mockTransportHandleRequest).toHaveBeenCalledWith(req, res);
     });
 
     it('should return 500 when MCP connect fails', async () => {
@@ -5858,7 +5857,8 @@ describe('HttpServerService', () => {
       ] as const) {
         mockTransportHandleRequest.mockClear();
         await sendRequest(method, url);
-        expect(mockTransportHandleRequest).toHaveBeenCalledTimes(1);
+        // The request waits for the MCP SDK to load, which sendRequest's one tick may not cover.
+        await vi.waitFor(() => expect(mockTransportHandleRequest).toHaveBeenCalledTimes(1));
       }
     });
 

@@ -1,4 +1,5 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
+import { once } from 'events';
 import {
   chmodSync,
   existsSync,
@@ -12,6 +13,7 @@ import {
 } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { createInterface } from 'readline';
 import { promisify } from 'util';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -45,6 +47,29 @@ async function hostShell(
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0', PATH: path },
   });
   return stdout;
+}
+
+/**
+ * A process the host's shell sees running until it is stopped, like a setup holding the lock.
+ * Its id comes from the host's shell, which on Windows numbers processes its own way.
+ */
+async function hostShellProcess(): Promise<{ pid: string; stop: () => Promise<void> }> {
+  const shell = spawn('sh', ['-c', 'echo $$; read _'], { stdio: ['pipe', 'pipe', 'ignore'] });
+  // Rejects too if sh can't start.
+  const exited = once(shell, 'exit');
+  const [pid] = (await Promise.race([
+    once(createInterface({ input: shell.stdout }), 'line'),
+    exited.then(() => {
+      throw new Error('The host shell exited before printing its process id');
+    }),
+  ])) as [string];
+  return {
+    pid,
+    stop: async () => {
+      shell.stdin.end();
+      await exited;
+    },
+  };
 }
 
 /** A PATH with just the commands the script needs, like a minimal image without ps. */
@@ -190,14 +215,19 @@ describe('sshWorkspaceGit.fetchOriginWithoutPrompts', () => {
   it('leaves a clone a workspace is being set up in alone, and takes over a stale lock', async () => {
     const lock = join(`${clone}.komla`, '.setup-lock');
     mkdirSync(lock, { recursive: true });
-    writeFileSync(join(lock, 'pid'), `${process.pid}\n`);
-    await git(elsewhere, 'commit', '--quiet', '--allow-empty', '-m', 'pushed elsewhere');
-    await git(elsewhere, 'push', '--quiet', 'origin', 'HEAD:main');
+    const setup = await hostShellProcess();
+    try {
+      writeFileSync(join(lock, 'pid'), `${setup.pid}\n`);
+      await git(elsewhere, 'commit', '--quiet', '--allow-empty', '-m', 'pushed elsewhere');
+      await git(elsewhere, 'push', '--quiet', 'origin', 'HEAD:main');
 
-    await expect(sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000)).resolves.toBe(
-      false
-    );
-    expect(existsSync(lock), "another setup's lock removed").toBe(true);
+      await expect(
+        sshWorkspaceGit.fetchOriginWithoutPrompts('host-1', clone, 20_000)
+      ).resolves.toBe(false);
+      expect(existsSync(lock), "another setup's lock removed").toBe(true);
+    } finally {
+      await setup.stop();
+    }
 
     // Left by a setup that was killed.
     const { stdout: deadPid } = await execFileAsync('sh', ['-c', 'echo $$']);

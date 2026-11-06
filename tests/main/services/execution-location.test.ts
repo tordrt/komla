@@ -518,11 +518,16 @@ describe('execution locations', () => {
     const handlers = () => ({ onData: vi.fn(), onExit: vi.fn(), onError: vi.fn() });
 
     it("quotes the workspace's values in a background command", () => {
-      expect(
+      const resolve = () =>
         locations
           .resolve(localWorkspace({ branchName: "it's" }))
-          .resolveLaunchVariables('git log {{branchName}}')
-      ).toBe(`git log 'it'"'"'s'`);
+          .resolveLaunchVariables('git log {{branchName}}');
+
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      expect(resolve()).toBe(`git log 'it'"'"'s'`);
+      // A Windows client runs background commands in PowerShell, like its terminals.
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      expect(resolve()).toBe(`git log 'it''s'`);
     });
 
     it('spawns in the local Workspace repository', () => {

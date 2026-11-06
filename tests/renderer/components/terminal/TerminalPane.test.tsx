@@ -36,6 +36,8 @@ import { flashPanes } from '../../../../src/renderer/stores/pane-flash.store';
 import { useTerminalCloseStore } from '../../../../src/renderer/stores/terminal-close.store';
 import { useToastStore } from '../../../../src/renderer/stores/toast.store';
 
+import type { AgentSkill } from '../../../../src/shared/types/agent-skill';
+
 const mocks = vi.hoisted(() => ({
   launchAction: vi.fn(),
   addTerminal: vi.fn(),
@@ -56,6 +58,7 @@ const mocks = vi.hoisted(() => ({
   showItemInFolder: vi.fn(),
   retryLocalCopySync: vi.fn(() => Promise.resolve()),
   copyToClipboard: vi.fn(),
+  listAgentSkills: vi.fn(),
   submenuKeyDown: vi.fn(),
   updateTerminalConfig: vi.fn(),
   tracksMouse: false,
@@ -410,6 +413,7 @@ describe('TerminalPane SSH reconnect', () => {
     mocks.pasteClipboardIntoTerminal.mockReset();
     mocks.showItemInFolder.mockReset();
     mocks.copyToClipboard.mockReset();
+    mocks.listAgentSkills.mockReset().mockResolvedValue([]);
     // Applies the update the way the store does once the main process saves it.
     mocks.updateTerminalConfig.mockReset().mockImplementation(async (updates: object) => {
       mocks.terminalConfig = {
@@ -441,6 +445,7 @@ describe('TerminalPane SSH reconnect', () => {
         showItemInFolder: mocks.showItemInFolder,
         retryLocalCopySync: mocks.retryLocalCopySync,
         copyToClipboard: mocks.copyToClipboard,
+        listAgentSkills: mocks.listAgentSkills,
       },
     });
   });
@@ -2561,17 +2566,23 @@ describe('TerminalPane SSH reconnect', () => {
         );
       });
 
-      it("pastes a skill's invocation from Paste Prompt's Skills tab, which opens on Prompts", async () => {
+      const WORKSPACE_PLACE = { kind: 'workspace', workspaceId: 'workspace-1' } as const;
+
+      /** The workspace's skills, already listed and listed again as the menu opens. */
+      function givenWorkspaceSkills(skills: AgentSkill[]): void {
+        mocks.listAgentSkills.mockResolvedValue(skills);
         useAgentSkillsStore.setState({
-          listings: {
-            [skillListingKey('claude', { kind: 'workspace', workspaceId: 'workspace-1' })]: [
-              { name: 'deploy', description: 'Ships it', source: 'user' },
-            ],
-          },
+          listings: { [skillListingKey('claude', WORKSPACE_PLACE)]: skills },
         });
+      }
+
+      it("pastes a skill's invocation from Paste Prompt's Skills tab, which opens on Prompts", async () => {
+        givenWorkspaceSkills([{ name: 'deploy', description: 'Ships it', source: 'user' }]);
         renderPane();
         // A closed menu doesn't follow the skills
         fireEvent.contextMenu(screen.getByTestId('terminal-view'));
+        // Opening it loads them
+        expect(mocks.listAgentSkills).toHaveBeenCalledWith('claude', WORKSPACE_PLACE);
 
         const pastePrompt = submenuOf(screen.getByRole('button', { name: /Paste$/ }));
         expect(within(pastePrompt).getByRole('radio', { name: 'Prompts' })).toBeChecked();
@@ -2591,16 +2602,12 @@ describe('TerminalPane SSH reconnect', () => {
 
       it('lists skills in Paste Prompt before there are Saved Prompts', async () => {
         mocks.actions.splice(0);
-        useAgentSkillsStore.setState({
-          listings: {
-            [skillListingKey('claude', { kind: 'workspace', workspaceId: 'workspace-1' })]: [
-              { name: 'deploy', description: 'Ships it', source: 'user' },
-            ],
-          },
-        });
+        givenWorkspaceSkills([{ name: 'deploy', description: 'Ships it', source: 'user' }]);
         renderPane();
         // A closed menu doesn't follow the skills
         fireEvent.contextMenu(screen.getByTestId('terminal-view'));
+        // Opening it loads them
+        expect(mocks.listAgentSkills).toHaveBeenCalledWith('claude', WORKSPACE_PLACE);
 
         const pastePrompt = submenuOf(
           screen.getByText((_, element) => element?.textContent === 'SkillsPaste')

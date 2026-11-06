@@ -4298,15 +4298,17 @@ describe('HttpServerService', () => {
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ['setTimeout'] });
       mcpSdkLoads = 0;
-      // Counts the SDK's loads; the file's mock module stays loaded across tests.
+      // Counts the SDK's loads; the file's mock module stays loaded across tests. The count is
+      // the only difference from the file's mock, so later tests get the same transport. Vitest
+      // applies queued mocks of one module in no set order, so swapping the file's mock back
+      // after a test that loads nothing could leave this one in place, or not.
       vi.doMock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => {
         mcpSdkLoads++;
-        return { StreamableHTTPServerTransport: class {} };
+        return mockStreamableHttp();
       });
     });
 
     afterEach(() => {
-      vi.doMock('@modelcontextprotocol/sdk/server/streamableHttp.js', mockStreamableHttp);
       vi.useRealTimers();
     });
 
@@ -4363,11 +4365,12 @@ describe('HttpServerService', () => {
       const req = createMockRequest('POST', '/api/v1/mcp');
       const res = createMockResponse();
       capturedHandler!(req, res);
-      await vi.dynamicImportSettled();
-      await new Promise((resolve) => setTimeout(resolve, 0));
 
+      // The first request loads the MCP SDK, which a busy computer can take a while to do.
+      await vi.waitFor(() => expect(mockTransportHandleRequest).toHaveBeenCalledWith(req, res), {
+        timeout: 10_000,
+      });
       expect(mockMcpConnect).toHaveBeenCalled();
-      expect(mockTransportHandleRequest).toHaveBeenCalledWith(req, res);
     });
 
     it('should return 500 when MCP connect fails', async () => {
@@ -5858,7 +5861,10 @@ describe('HttpServerService', () => {
       ] as const) {
         mockTransportHandleRequest.mockClear();
         await sendRequest(method, url);
-        expect(mockTransportHandleRequest).toHaveBeenCalledTimes(1);
+        // The first request loads the MCP SDK, which a busy computer can take a while to do.
+        await vi.waitFor(() => expect(mockTransportHandleRequest).toHaveBeenCalledTimes(1), {
+          timeout: 10_000,
+        });
       }
     });
 

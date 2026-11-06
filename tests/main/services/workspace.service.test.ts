@@ -469,7 +469,7 @@ function createMockSshWorkspacePlan(args: {
 
 const mockSshWorkspaceService = {
   createWorkspace: vi.fn(),
-  getHost: vi.fn(() => ({ id: 'ssh-dev', hostname: 'example.test', basePath: '~/.komla' })),
+  getHost: vi.fn(() => ({ id: 'ssh-dev', hostname: 'example.test' })),
   hasHost: vi.fn(() => true),
   ensureWorkspaceReady: vi.fn(() =>
     Promise.resolve({ createdBranch: true, createdWorktree: true })
@@ -3250,7 +3250,6 @@ describe('WorkspaceService', () => {
               id: 'ssh-dev',
               name: 'SSH Devbox',
               hostname: 'dev.example.com',
-              basePath: '~/.komla',
             },
           ],
         });
@@ -4858,7 +4857,6 @@ describe('WorkspaceService', () => {
               id: 'ssh-dev',
               name: 'SSH Devbox',
               hostname: 'dev.example.com',
-              basePath: '~/.komla',
             },
           ],
         });
@@ -4912,7 +4910,6 @@ describe('WorkspaceService', () => {
               id: 'ssh-dev',
               name: 'SSH Devbox',
               hostname: 'dev.example.com',
-              basePath: '~/.komla',
             },
           ],
         });
@@ -5128,7 +5125,6 @@ describe('WorkspaceService', () => {
               hostname: 'ssh.example',
               user: 'dev',
               port: 2222,
-              basePath: '~/.komla',
             },
           ],
         });
@@ -5180,7 +5176,6 @@ describe('WorkspaceService', () => {
               id: 'ssh-dev',
               name: 'SSH Devbox',
               hostname: 'dev.example.com',
-              basePath: '~/.komla',
             },
           ],
         });
@@ -5233,7 +5228,6 @@ describe('WorkspaceService', () => {
               id: 'ssh-dev',
               name: 'SSH Devbox',
               hostname: 'dev.example.com',
-              basePath: '~/.komla',
             },
           ],
         });
@@ -5279,7 +5273,6 @@ describe('WorkspaceService', () => {
               id: 'ssh-dev',
               name: 'SSH Devbox',
               hostname: 'dev.example.com',
-              basePath: '~/.komla',
             },
           ],
         });
@@ -12981,7 +12974,6 @@ describe('WorkspaceService', () => {
             id: 'ssh-dev',
             name: 'SSH Devbox',
             hostname: 'dev.example.com',
-            basePath: '~/.komla',
           },
         ],
       });
@@ -14410,7 +14402,6 @@ describe('WorkspaceService', () => {
         name: 'Devbox',
         hostname: 'dev.example.com',
         user: 'dev',
-        basePath: '~/.komla',
         forwardAgent: true,
         identityFile: '~/.ssh/id_ed25519',
         extraSshArgs: ['-J', 'bastion'],
@@ -14463,25 +14454,6 @@ describe('WorkspaceService', () => {
       ).toThrow('Remove existing SSH workspaces');
     });
 
-    it('rejects remote Komla path changes even when the SSH host has no workspaces', async () => {
-      const existingHost = {
-        id: 'ssh-dev',
-        name: 'Devbox',
-        hostname: 'dev.example.com',
-        user: 'dev',
-        basePath: '/home/dev/.komla',
-      };
-      mockConfigService.get.mockReturnValue({ sshHosts: [existingHost] });
-      const { workspaceService } = await import('../../../src/main/services/workspace.service');
-
-      expect(() =>
-        workspaceService.assertSshHostConnectionUpdateAllowed({
-          ...existingHost,
-          basePath: '/var/lib/dev/.komla',
-        })
-      ).toThrow('Remote Komla path is fixed after this machine is connected');
-    });
-
     it('deletes an SSH host and its workspace records locally, leaving their agents running on the host', async () => {
       const existingWorkspaces = [
         {
@@ -14525,7 +14497,6 @@ describe('WorkspaceService', () => {
             id: 'ssh-dev',
             name: 'Devbox',
             hostname: 'dev.example.com',
-            basePath: '/home/dev/.komla',
           },
         ],
       });
@@ -14578,7 +14549,6 @@ describe('WorkspaceService', () => {
             id: 'ssh-dev',
             name: 'Devbox',
             hostname: 'dev.example.com',
-            basePath: '/home/dev/.komla',
           },
         ],
       });
@@ -14603,7 +14573,6 @@ describe('WorkspaceService', () => {
             id: 'ssh-dev',
             name: 'Devbox',
             hostname: 'dev.example.com',
-            basePath: '/home/dev/.komla',
           },
         ],
         lastWorkspaceEnvironment: { kind: 'ssh', hostId: 'ssh-dev' },
@@ -14626,7 +14595,6 @@ describe('WorkspaceService', () => {
             id: 'ssh-dev',
             name: 'Devbox',
             hostname: 'dev.example.com',
-            basePath: '/home/dev/.komla',
           },
         ],
         agentLaunchDefaultSshHostId: 'ssh-dev',
@@ -14675,7 +14643,6 @@ describe('WorkspaceService', () => {
             id: 'ssh-dev',
             name: 'Devbox',
             hostname: 'dev.example.com',
-            basePath: '/home/dev/.komla',
           },
         ],
       });
@@ -14735,7 +14702,6 @@ describe('WorkspaceService', () => {
             id: 'ssh-dev',
             name: 'Devbox',
             hostname: 'dev.example.com',
-            basePath: '/home/dev/.komla',
           },
         ],
         lastWorkspaceEnvironment: { kind: 'ssh', hostId: 'ssh-dev' },

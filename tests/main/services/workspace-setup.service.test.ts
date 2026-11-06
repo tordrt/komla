@@ -39,7 +39,7 @@ function harness(
   });
   const workspaces = new Map([[workspace.id, workspace]]);
   const launches: string[] = [];
-  const host: SshHost = { id: 'host-1', name: 'Dev', hostname: 'dev.example', basePath: '/remote' };
+  const host: SshHost = { id: 'host-1', name: 'Dev', hostname: 'dev.example' };
   const preset = createClaudePreset();
   const stopBackgroundProcess = vi.fn(async () => undefined);
   // Execution stays real down to the background process and SSH leaves.

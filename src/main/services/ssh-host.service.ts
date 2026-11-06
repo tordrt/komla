@@ -3,9 +3,8 @@ import { join } from 'path';
 
 import {
   komlaSshRemoteDataPort,
-  isValidSshBasePath,
+  isSshKomlaFolder,
   isValidSshHostname,
-  normalizeSshBasePath,
   type SshHost,
   type SshHostCapabilities,
   type SshPortForward,
@@ -96,6 +95,11 @@ function normalizePortForwards(
   });
 }
 
+/** The saved ~/.komla location, kept only as the absolute path planned workspace paths need. */
+function komlaFolderField(value: unknown): Pick<SshHost, 'komlaFolder'> {
+  return isSshKomlaFolder(value) ? { komlaFolder: value } : {};
+}
+
 function normalizeHost(host: SshHost): SshHost {
   const id = host.id.trim();
   const name = host.name.trim();
@@ -104,11 +108,6 @@ function normalizeHost(host: SshHost): SshHost {
   if (!name) throw new Error('SSH host name is required');
   if (!isValidSshHostname(hostname)) {
     throw new Error('SSH hostname must be a hostname or IP address without user or port');
-  }
-  if (!isValidSshBasePath(host.basePath)) {
-    throw new Error(
-      'SSH base path must not resolve to the filesystem root or home directory or contain parent traversal'
-    );
   }
   if (
     host.port !== undefined &&
@@ -127,7 +126,7 @@ function normalizeHost(host: SshHost): SshHost {
     ...(optionalTrimmed(host.identityFile)
       ? { identityFile: optionalTrimmed(host.identityFile) }
       : {}),
-    basePath: normalizeSshBasePath(host.basePath),
+    ...komlaFolderField(host.komlaFolder),
     ...(host.forwardAgent ? { forwardAgent: true } : {}),
     ...(host.isolated ? { isolated: true } : {}),
     ...(host.extraSshArgs?.length ? { extraSshArgs: [...host.extraSshArgs] } : {}),
@@ -192,14 +191,9 @@ function parseCapabilities(value: unknown): SshHostCapabilities | undefined {
  */
 function parseStoredHost(value: unknown): SshHost {
   const host = (value ?? {}) as Record<string, unknown>;
-  const { id, name, hostname, user, port, identityFile, basePath } = host;
-  if (
-    typeof id !== 'string' ||
-    typeof name !== 'string' ||
-    typeof hostname !== 'string' ||
-    typeof basePath !== 'string'
-  ) {
-    throw new Error('a host is missing its id, name, hostname or base path');
+  const { id, name, hostname, user, port, identityFile } = host;
+  if (typeof id !== 'string' || typeof name !== 'string' || typeof hostname !== 'string') {
+    throw new Error('a host is missing its id, name or hostname');
   }
   const extraSshArgs = parseExtraSshArgs(host.extraSshArgs);
   const portForwards = parsePortForwards(id, host.portForwards);
@@ -212,7 +206,7 @@ function parseStoredHost(value: unknown): SshHost {
     ...(typeof user === 'string' && user ? { user } : {}),
     ...(validPort ? { port: port as number } : {}),
     ...(typeof identityFile === 'string' && identityFile ? { identityFile } : {}),
-    basePath,
+    ...komlaFolderField(host.komlaFolder),
     ...(host.forwardAgent === true ? { forwardAgent: true } : {}),
     ...(host.isolated === true ? { isolated: true } : {}),
     ...(extraSshArgs ? { extraSshArgs } : {}),

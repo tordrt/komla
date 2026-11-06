@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 const FIXTURE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const IMAGE_NAME = 'komla-ssh-integration:debian-13';
 const REMOTE_HOME = '/home/komla';
-const SSH_WORKSPACE_BASE_NAME = '.komla-ssh-integration';
+const SSH_WORKSPACE_BASE_NAME = '.komla';
 const SSH_WORKSPACE_FIXTURE_NAME = '.komla-ssh-integration-fixture';
 const testRoot = mkdtempSync(join(tmpdir(), 'komla-ssh-integration-'));
 
@@ -92,7 +92,6 @@ export async function setupTestContainer(): Promise<TestContainerHandle> {
       user: 'komla',
       port,
       identityFile: keyPath,
-      basePath: `~/${SSH_WORKSPACE_BASE_NAME}`,
       extraSshArgs: [
         '-o',
         'BatchMode=yes',

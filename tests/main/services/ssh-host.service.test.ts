@@ -34,7 +34,6 @@ const HOST: SshHost = {
   id: 'build',
   name: 'Build host',
   hostname: 'build.example.com',
-  basePath: '~/.komla',
 };
 
 // The schema every install's komla.db has, as the last release to use it created it.
@@ -112,7 +111,7 @@ describe('SshHostService', () => {
         user: ' dev ',
         port: 2222,
         identityFile: ' ~/.ssh/id_ed25519 ',
-        basePath: ' ~/.komla/ ',
+        komlaFolder: '/home/dev/.komla',
         forwardAgent: true,
         extraSshArgs: ['-J', 'bastion'],
         portForwards: [
@@ -132,7 +131,7 @@ describe('SshHostService', () => {
       user: 'dev',
       port: 2222,
       identityFile: '~/.ssh/id_ed25519',
-      basePath: '~/.komla/',
+      komlaFolder: '/home/dev/.komla',
       forwardAgent: true,
       extraSshArgs: ['-J', 'bastion'],
       portForwards: [
@@ -143,7 +142,6 @@ describe('SshHostService', () => {
       id: 'staging',
       name: 'Staging',
       hostname: 'staging.example.com',
-      basePath: '',
     });
 
     expect(sshHostService.list().map((host) => host.id)).toEqual(['build', 'staging']);
@@ -156,20 +154,17 @@ describe('SshHostService', () => {
       id: 'first',
       name: 'First',
       hostname: 'first.example.com',
-      basePath: '~/.komla',
     });
     sshHostService.save({
       id: 'second',
       name: 'Second',
       hostname: 'second.example.com',
-      basePath: '~/.komla',
     });
 
     sshHostService.save({
       id: 'first',
       name: 'Renamed',
       hostname: 'first.example.com',
-      basePath: '/srv/komla',
     });
 
     expect(sshHostService.list()).toEqual([
@@ -177,19 +172,17 @@ describe('SshHostService', () => {
         id: 'first',
         name: 'Renamed',
         hostname: 'first.example.com',
-        basePath: '/srv/komla',
       },
       {
         id: 'second',
         name: 'Second',
         hostname: 'second.example.com',
-        basePath: '~/.komla',
       },
     ]);
   });
 
   it('persists and clears whether the user marked a host isolated', () => {
-    const host = { id: 'box', name: 'Box', hostname: 'box.example.com', basePath: '' };
+    const host = { id: 'box', name: 'Box', hostname: 'box.example.com' };
     expect(sshHostService.save({ ...host, isolated: true })).toMatchObject({ isolated: true });
     expect(sshHostService.get('box')?.isolated).toBe(true);
     expect(sshHostService.list()[0].isolated).toBe(true);
@@ -203,7 +196,6 @@ describe('SshHostService', () => {
       id: 'first',
       name: 'First',
       hostname: 'first.example.com',
-      basePath: '~/.komla',
       setupPending: true,
     });
 
@@ -213,7 +205,6 @@ describe('SshHostService', () => {
       id: 'first',
       name: 'First',
       hostname: 'first.example.com',
-      basePath: '~/.komla',
       setupPending: false,
     });
 
@@ -235,7 +226,6 @@ describe('SshHostService', () => {
       id: 'capabilities',
       name: 'Capabilities',
       hostname: 'capabilities.example.com',
-      basePath: '~/.komla',
       capabilities,
     });
 
@@ -247,7 +237,6 @@ describe('SshHostService', () => {
       id: 'build',
       name: 'Build',
       hostname: 'build.example.com',
-      basePath: '~/.komla',
     });
 
     expect(sshHostService.delete('build')).toBe(true);
@@ -261,7 +250,6 @@ describe('SshHostService', () => {
         id: 'invalid',
         name: 'Invalid',
         hostname: 'user@example.com',
-        basePath: '~/.komla',
       })
     ).toThrow('SSH hostname');
     expect(() =>
@@ -269,23 +257,13 @@ describe('SshHostService', () => {
         id: ' ',
         name: 'Invalid',
         hostname: 'example.com',
-        basePath: '~/.komla',
       })
     ).toThrow('SSH host id');
-    expect(() =>
-      sshHostService.save({
-        id: 'root',
-        name: 'Root',
-        hostname: 'example.com',
-        basePath: '/',
-      })
-    ).toThrow('SSH base path must not resolve');
     expect(() =>
       sshHostService.save({
         id: 'duplicate-forwards',
         name: 'Duplicate forwards',
         hostname: 'example.com',
-        basePath: '~/.komla',
         portForwards: [
           { id: 'one', name: 'One', localPort: 5432, remotePort: 15432, enabled: true },
           { id: 'two', name: 'Two', localPort: 6379, remotePort: 15432, enabled: true },
@@ -302,7 +280,6 @@ describe('SshHostService', () => {
         id: hostId,
         name: 'Reserved forward',
         hostname: 'example.com',
-        basePath: '~/.komla',
         portForwards: [
           { id: 'postgres', name: 'PostgreSQL', localPort: 5432, remotePort, enabled: false },
         ],
@@ -314,7 +291,6 @@ describe('SshHostService', () => {
         id: hostId,
         name: 'Adjacent forward',
         hostname: 'example.com',
-        basePath: '~/.komla',
         portForwards: [
           {
             id: 'postgres',
@@ -333,7 +309,6 @@ describe('SshHostService', () => {
       id: 'remote-service',
       name: 'Remote service',
       hostname: 'example.com',
-      basePath: '~/.komla',
       portForwards: [
         {
           id: 'api',
@@ -365,7 +340,6 @@ describe('SshHostService', () => {
         id: 'duplicate-local-forwards',
         name: 'Duplicate local forwards',
         hostname: 'example.com',
-        basePath: '~/.komla',
         portForwards: [
           {
             id: 'one',
@@ -393,7 +367,6 @@ describe('SshHostService', () => {
       id: 'first',
       name: 'First',
       hostname: 'first.example.com',
-      basePath: '~/.komla',
       portForwards: [
         {
           id: 'api',
@@ -411,7 +384,6 @@ describe('SshHostService', () => {
         id: 'second',
         name: 'Second',
         hostname: 'second.example.com',
-        basePath: '~/.komla',
         portForwards: [
           {
             id: 'api',
@@ -429,7 +401,6 @@ describe('SshHostService', () => {
       id: 'second',
       name: 'Second',
       hostname: 'second.example.com',
-      basePath: '~/.komla',
       portForwards: [
         {
           id: 'api',
@@ -447,7 +418,6 @@ describe('SshHostService', () => {
         id: 'second',
         name: 'Second',
         hostname: 'second.example.com',
-        basePath: '~/.komla',
         portForwards: [
           {
             id: 'api',
@@ -473,7 +443,7 @@ describe('SshHostService', () => {
         user: 'dev',
         port: 2222,
         identityFile: '~/.ssh/id_ed25519',
-        basePath: '~/.komla',
+        komlaFolder: '/home/dev/.komla',
         forwardAgent: true,
         isolated: true,
         extraSshArgs: ['-J', 'bastion'],
@@ -767,6 +737,21 @@ describe('SshHostService', () => {
     });
   });
 
+  it.each(['~/.komla', 'data/komla', '', '/', 7])(
+    'drops a saved Komla folder %j that is not an absolute folder',
+    (komlaFolder) => {
+      writeFileSync(
+        join(directory, 'ssh-hosts.json'),
+        JSON.stringify({ version: 1, hosts: [{ ...HOST, komlaFolder }] })
+      );
+
+      expect(sshHostService.list()).toEqual([HOST]);
+      expect(
+        sshHostService.save({ ...HOST, komlaFolder: komlaFolder as string })
+      ).not.toHaveProperty('komlaFolder');
+    }
+  );
+
   describe('moving hosts out of komla.db', () => {
     const hostsPath = () => join(directory, 'ssh-hosts.json');
     const legacyFiles = () => readdirSync(directory).filter((name) => name.startsWith('komla.db'));
@@ -805,7 +790,6 @@ describe('SshHostService', () => {
           user: 'dev',
           port: 2222,
           identityFile: '~/.ssh/id_ed25519',
-          basePath: '~/.komla',
           forwardAgent: true,
           isolated: true,
           extraSshArgs: ['-J', 'bastion'],
@@ -824,13 +808,11 @@ describe('SshHostService', () => {
           id: 'second',
           name: 'second',
           hostname: 'second.example.com',
-          basePath: '~/.komla',
         },
         {
           id: 'tied-with-second',
           name: 'tied-with-second',
           hostname: 'tied-with-second.example.com',
-          basePath: '~/.komla',
         },
       ];
 
@@ -908,7 +890,6 @@ describe('SshHostService', () => {
         id: 'edited',
         name: 'Edited',
         hostname: 'edited.example.com',
-        basePath: '~/.komla',
       });
 
       const reloaded = new SshHostService(directory);
@@ -966,7 +947,7 @@ describe('SshHostService', () => {
       database.close();
 
       expect(sshHostService.list()).toEqual([
-        { id: 'old', name: 'old', hostname: 'dev@old.example.com:22', basePath: '/' },
+        { id: 'old', name: 'old', hostname: 'dev@old.example.com:22' },
       ]);
     });
 
@@ -984,7 +965,6 @@ describe('SshHostService', () => {
           id: 'damaged',
           name: 'damaged',
           hostname: 'damaged.example.com',
-          basePath: '~/.komla',
         },
       ]);
     });

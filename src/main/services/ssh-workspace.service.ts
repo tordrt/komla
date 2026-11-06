@@ -16,11 +16,7 @@ import {
   managedTmuxSessionName,
   type ManagedTmuxFindResult,
 } from '../../shared/lib/ssh-tmux-attach';
-import {
-  komlaSshRemoteDataPort,
-  isValidSshBasePath,
-  normalizeSshBasePath,
-} from '../../shared/types';
+import { komlaSshRemoteDataPort, SSH_KOMLA_FOLDER } from '../../shared/types';
 import {
   ANTIGRAVITY_ALERTS_SETTING,
   ANTIGRAVITY_CONFIG_DIR,
@@ -1047,36 +1043,24 @@ class SshWorkspaceService {
     );
   }
 
+  /** `~/.komla` on the host as a real path; a symlink there decides where it really lives. */
   private async resolveRemoteBasePath(host: SshHost, options?: SshRunOptions): Promise<string> {
-    const normalizedBasePath = normalizeSshBasePath(host.basePath);
-    if (normalizedBasePath !== '~' && !isValidSshBasePath(normalizedBasePath)) {
-      throw new Error(
-        'SSH base path must not resolve to the filesystem root or home directory or contain parent traversal'
-      );
-    }
     const script = [
-      `configured=${shellQuotePosix(normalizedBasePath)}`,
-      'case "$configured" in',
-      '  "~") resolved="$HOME" ;;',
-      '  "~/"*) resolved="$HOME/${configured#??}" ;;',
-      '  /*) resolved="$configured" ;;',
-      '  *) resolved="$(pwd -P)/$configured" ;;',
-      'esac',
-      'probe="$resolved"',
-      'suffix=',
-      'while [ ! -d "$probe" ]; do',
-      '  name=${probe##*/}',
-      '  [ -n "$name" ] || break',
-      '  suffix="/$name$suffix"',
-      '  parent=${probe%/*}',
-      '  [ -n "$parent" ] || parent=/',
-      '  [ "$parent" != "$probe" ] || break',
-      '  probe="$parent"',
-      'done',
-      'probe_real=$(cd -P "$probe" && pwd -P) || exit 1',
-      'resolved="${probe_real%/}$suffix"',
-      '[ -n "$resolved" ] || resolved=/',
       'home_real=$(cd -P "$HOME" && pwd -P) || exit 1',
+      'if [ -d "$HOME/.komla" ]; then',
+      '  resolved=$(cd -P "$HOME/.komla" && pwd -P) || exit 1',
+      // Anything else there, such as a link to a folder deleted with the host's data, would read as
+      // no data and fail later when the layout can't be made.
+      'elif [ -L "$HOME/.komla" ] && [ ! -e "$HOME/.komla" ]; then',
+      '  printf "[komla] ~/.komla links to a folder that does not exist\\n" >&2',
+      '  exit 1',
+      'elif [ -e "$HOME/.komla" ]; then',
+      '  printf "[komla] ~/.komla is not a folder\\n" >&2',
+      '  exit 1',
+      'else',
+      '  resolved="${home_real%/}/.komla"',
+      'fi',
+      // Removing the host deletes this folder, so it must never be the home or root folder.
       'if [ "$resolved" = / ] || [ "$resolved" = "$home_real" ]; then',
       '  printf "[komla] refusing to use an unsafe remote data path\\n" >&2',
       '  exit 1',
@@ -1271,19 +1255,18 @@ class SshWorkspaceService {
   }
 
   async checkHostCapabilities(host: SshHost): Promise<SshHostSetupResult> {
-    const normalizedHost = { ...host, basePath: normalizeSshBasePath(host.basePath) };
-    const basePath = await this.resolveRemoteBasePath(normalizedHost);
-    const git = await this.getRemoteGitStatus(normalizedHost);
+    const basePath = await this.resolveRemoteBasePath(host);
+    const git = await this.getRemoteGitStatus(host);
     const gitIdentity =
-      git.status === 'available' ? await this.getRemoteGitIdentity(normalizedHost) : undefined;
+      git.status === 'available' ? await this.getRemoteGitIdentity(host) : undefined;
     const localGitIdentity =
       gitIdentity && !gitIdentity.configured ? await this.getLocalGitIdentity() : undefined;
-    const tmux = await this.getCachedRemoteTmuxStatus(normalizedHost);
+    const tmux = await this.getCachedRemoteTmuxStatus(host);
     const [localRsync, remoteSupportTools] = await Promise.all([
       process.platform === 'win32'
         ? Promise.resolve<'missing'>('missing')
         : this.getLocalRsyncStatus(),
-      this.getRemoteSupportToolsStatus(normalizedHost),
+      this.getRemoteSupportToolsStatus(host),
     ]);
     return {
       ok: true,
@@ -1311,12 +1294,11 @@ class SshWorkspaceService {
     ) {
       return result;
     }
-    const normalizedHost = { ...host, basePath: normalizeSshBasePath(host.basePath) };
     const gitIdentity =
       result.gitIdentity && !result.gitIdentity.configured && result.localGitIdentity?.configured
-        ? await this.copyLocalGitIdentity(normalizedHost, result.localGitIdentity)
+        ? await this.copyLocalGitIdentity(host, result.localGitIdentity)
         : result.gitIdentity;
-    await this.ensureRemoteLayout(normalizedHost, result.resolvedBasePath, {
+    await this.ensureRemoteLayout(host, result.resolvedBasePath, {
       refreshNotifyScript: true,
     });
     return {
@@ -1610,6 +1592,7 @@ class SshWorkspaceService {
     this.integrationChecks.delete(hostId);
     this.remoteTmuxStatuses.delete(hostId);
     this.remoteTmuxStatusChecks.delete(hostId);
+    this.workspaceBasePathResolutions.delete(hostId);
   }
 
   private serializeIntegrationMutation(
@@ -2126,11 +2109,7 @@ class SshWorkspaceService {
   }
 
   private basePathConnectionKey(host: SshHost): string {
-    return JSON.stringify([
-      this.hostConnectionKey(host),
-      host.forwardAgent,
-      normalizeSshBasePath(host.basePath),
-    ]);
+    return JSON.stringify([this.hostConnectionKey(host), host.forwardAgent]);
   }
 
   /**
@@ -2138,10 +2117,12 @@ class SshWorkspaceService {
    * or waiting on a lookup still running, which may be waiting on a password.
    */
   knownWorkspaceBasePath(hostId: string): string | undefined {
-    const cached = this.workspaceBasePathResolutions.get(hostId);
-    return cached?.connectionKey === this.basePathConnectionKey(this.getHost(hostId))
-      ? cached.resolved
-      : undefined;
+    return this.knownBasePathFor(this.getHost(hostId));
+  }
+
+  private knownBasePathFor(host: SshHost): string | undefined {
+    const cached = this.workspaceBasePathResolutions.get(host.id);
+    return cached?.connectionKey === this.basePathConnectionKey(host) ? cached.resolved : undefined;
   }
 
   async resolveWorkspaceBasePath(hostId: string): Promise<string> {
@@ -2180,7 +2161,12 @@ class SshWorkspaceService {
     const host = this.getHost(args.hostId);
     const basePath = args.sourceBackend
       ? pathPosix.dirname(pathPosix.dirname(args.sourceBackend.remoteProjectRoot))
-      : stripTrailingSlash(args.resolvedBasePath ?? normalizeSshBasePath(host.basePath));
+      : stripTrailingSlash(
+          args.resolvedBasePath ??
+            this.knownBasePathFor(host) ??
+            host.komlaFolder ??
+            SSH_KOMLA_FOLDER
+        );
     const repoName = repoNameFromSource(args);
     const gitUrl = remoteGitUrlFromSource(host, args);
     const branchSlug = remoteBranchPathSegment(args.branchName);

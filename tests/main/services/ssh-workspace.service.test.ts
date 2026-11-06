@@ -68,76 +68,77 @@ const sshHosts = [
     name: 'Devbox',
     hostname: '203.0.113.20',
     user: 'devuser',
-    basePath: '~/.komla',
   },
   {
     id: 'ssh-agent',
     name: 'Agent Host',
     hostname: 'agent.example.com',
     user: 'dev',
-    basePath: '~/.komla',
     forwardAgent: true,
+  },
+  {
+    id: 'ssh-set-up',
+    name: 'Set Up Host',
+    hostname: 'set-up.example.com',
+    komlaFolder: '/data/dev/komla',
   },
   {
     id: 'ssh-unconfigured',
     name: 'Unconfigured Host',
     hostname: 'unconfigured.example.com',
-    basePath: '~/.komla',
   },
   {
     id: 'ssh-custom-home',
     name: 'Custom Home Host',
     hostname: 'custom-home.example.com',
-    basePath: '~/.komla',
   },
   {
     id: 'ssh-status-test',
     name: 'Status Test Host',
     hostname: 'status.example.com',
     user: 'dev',
-    basePath: '~/.komla',
   },
   {
     id: 'ssh-lazy-pool',
     name: 'Lazy Pool Host',
     hostname: 'lazy-pool.example.com',
     user: 'dev',
-    basePath: '~/.komla',
   },
   {
     id: 'ssh-expandable-pool',
     name: 'Expandable Pool Host',
     hostname: 'expandable-pool.example.com',
     user: 'dev',
-    basePath: '~/.komla',
+  },
+  {
+    id: 'ssh-workspace-base-forgotten',
+    name: 'Workspace Base Forgotten Host',
+    hostname: 'workspace-base-forgotten.example.com',
+    user: 'dev',
   },
   {
     id: 'ssh-workspace-base-cache',
     name: 'Workspace Base Cache Host',
     hostname: 'workspace-base-cache.example.com',
     user: 'dev',
-    basePath: '~/.komla',
   },
   {
     id: 'ssh-workspace-base-retry',
     name: 'Workspace Base Retry Host',
     hostname: 'workspace-base-retry.example.com',
     user: 'dev',
-    basePath: '~/.komla',
   },
   {
     id: 'ssh-integrations',
     name: 'Integrations Host',
     hostname: 'integrations.example.com',
     user: 'devuser',
-    basePath: '~/.komla',
   },
   {
     id: 'ssh-integrations-unresolved',
     name: 'Unresolved Integrations Host',
     hostname: 'integrations-unresolved.example.com',
     user: 'devuser',
-    basePath: '~/.komla',
   },
 ];
 
@@ -431,22 +432,16 @@ function createInlineTerminalHarness(root: string): void {
   );
 }
 
-async function resolveRemoteBasePathForTest(basePath: string): Promise<string> {
+async function resolveRemoteBasePathForTest(): Promise<string> {
   const { sshWorkspaceService } = await import('../../../src/main/services/ssh-workspace.service');
   return (
     sshWorkspaceService as unknown as {
-      resolveRemoteBasePath(host: {
-        id: string;
-        name: string;
-        hostname: string;
-        basePath: string;
-      }): Promise<string>;
+      resolveRemoteBasePath(host: { id: string; name: string; hostname: string }): Promise<string>;
     }
   ).resolveRemoteBasePath({
     id: 'ssh-path-resolution',
     name: 'Path resolution',
     hostname: 'path.example.com',
-    basePath,
   });
 }
 
@@ -576,7 +571,6 @@ describe('generateTmuxServerScript', () => {
         id: 'ssh-tmux-find',
         name: 'tmux find',
         hostname: 'tmux.example.com',
-        basePath: '~/.komla',
         // Checked before an upgrade: the running server's own version decides how to search.
         capabilities: { tmux: { status: 'available', version: 'tmux 3.0' } },
       };
@@ -1748,6 +1742,26 @@ describe('sshWorkspaceService', () => {
     run.mockRestore();
   });
 
+  it('looks up the folder again for a host that was forgotten', async () => {
+    const { sshWorkspaceService } =
+      await import('../../../src/main/services/ssh-workspace.service');
+    const run = vi
+      .spyOn(sshWorkspaceService, 'run')
+      .mockResolvedValueOnce('/home/dev/.komla\n')
+      .mockResolvedValueOnce('/data/dev/komla\n');
+
+    await expect(
+      sshWorkspaceService.resolveWorkspaceBasePath('ssh-workspace-base-forgotten')
+    ).resolves.toBe('/home/dev/.komla');
+    sshWorkspaceService.forgetHost('ssh-workspace-base-forgotten');
+
+    expect(sshWorkspaceService.knownWorkspaceBasePath('ssh-workspace-base-forgotten')).toBeUndefined();
+    await expect(
+      sshWorkspaceService.resolveWorkspaceBasePath('ssh-workspace-base-forgotten')
+    ).resolves.toBe('/data/dev/komla');
+    run.mockRestore();
+  });
+
   it('retries workspace base-path resolution after a failed probe', async () => {
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -2363,7 +2377,6 @@ describe('sshWorkspaceService', () => {
         name: 'Devbox',
         hostname: '203.0.113.20',
         user: 'devuser',
-        basePath: '~/.komla',
       },
       'printf ok'
     );
@@ -2411,7 +2424,6 @@ describe('sshWorkspaceService', () => {
             hostname: 'stream.example.com',
             user: 'dev',
             port: 2222,
-            basePath: '~/.komla',
           },
           "cd '/remote/work tree' || exit $?\nprintf ready",
           { onData: (data) => stdout.push(data), onErrorData: (data) => stderr.push(data) }
@@ -2455,7 +2467,6 @@ describe('sshWorkspaceService', () => {
         name: 'Streaming Host',
         hostname: 'stream.example.com',
         user: 'dev',
-        basePath: '~/.komla',
       };
 
       await sshWorkspaceService.runStreaming(host, 'printf first', {
@@ -2504,7 +2515,6 @@ describe('sshWorkspaceService', () => {
         name: 'Streaming Host',
         hostname: 'stream.example.com',
         user: 'dev',
-        basePath: '~/.komla',
       };
       runs = controllers.map((controller, index) =>
         sshWorkspaceService
@@ -2544,7 +2554,6 @@ describe('sshWorkspaceService', () => {
         user: 'devuser',
         port: 2222,
         identityFile: '/home/devuser/.ssh/id_ed25519',
-        basePath: '~/.komla',
         extraSshArgs: ['-J', 'bastion'],
       },
       'printf ok'
@@ -2578,7 +2587,6 @@ describe('sshWorkspaceService', () => {
       name: 'Devbox',
       hostname: '203.0.113.20',
       user: 'devuser',
-      basePath: '~/.komla',
     };
 
     const runs = Array.from({ length: 5 }, (_, index) =>
@@ -2609,7 +2617,6 @@ describe('sshWorkspaceService', () => {
       name: 'Devbox',
       hostname: '203.0.113.20',
       user: 'devuser',
-      basePath: '~/.komla',
     };
 
     const backgroundRuns = Array.from({ length: 4 }, (_, index) =>
@@ -2650,7 +2657,6 @@ describe('sshWorkspaceService', () => {
       name: 'Devbox',
       hostname: '203.0.113.20',
       user: 'devuser',
-      basePath: '~/.komla',
     };
 
     await sshWorkspaceService.run(host, 'printf background');
@@ -2694,7 +2700,6 @@ describe('sshWorkspaceService', () => {
           name: 'Devbox',
           hostname: '203.0.113.20',
           user: 'devuser',
-          basePath: '~/.komla',
         },
         'printf ok'
       )
@@ -2731,7 +2736,6 @@ describe('sshWorkspaceService', () => {
           name: 'Devbox',
           hostname: '203.0.113.20',
           user: 'devuser',
-          basePath: '~/.komla',
         },
         'printf ok'
       )
@@ -2753,7 +2757,6 @@ describe('sshWorkspaceService', () => {
       name: 'Devbox',
       hostname: '203.0.113.20',
       user: 'devuser',
-      basePath: '~/.komla',
     };
 
     await sshWorkspaceService.run(baseHost, 'printf first');
@@ -2782,7 +2785,6 @@ describe('sshWorkspaceService', () => {
         name: 'Devbox',
         hostname: '203.0.113.20',
         user: 'devuser',
-        basePath: '~/.komla',
       },
       'printf ok'
     );
@@ -3530,7 +3532,6 @@ describe('sshWorkspaceService', () => {
         name: 'Devbox',
         hostname: '203.0.113.20',
         user: 'devuser',
-        basePath: '~/.komla',
         extraSshArgs: ['-o', 'ControlPath=/tmp/user-ssh-control'],
       },
       'printf ok'
@@ -3558,7 +3559,6 @@ describe('sshWorkspaceService', () => {
         name: 'Devbox',
         hostname: '203.0.113.20',
         user: 'devuser',
-        basePath: '~/.komla',
         extraSshArgs: ['-oServerAliveInterval=10', '-o', 'ServerAliveCountMax=6'],
       },
       'printf ok'
@@ -6073,6 +6073,45 @@ describe('sshWorkspaceService', () => {
     expect(plan.backend.remoteDirectory).toBe('~/.komla/worktrees/komla/claude-deferred-home');
   });
 
+  it('plans from the folder saved at setup before Komla has asked the host again', async () => {
+    const { sshWorkspaceService } =
+      await import('../../../src/main/services/ssh-workspace.service');
+
+    const plan = sshWorkspaceService.createWorkspacePlan({
+      hostId: 'ssh-set-up',
+      gitUrl: 'git@github.com:komla-dev/komla.git',
+      projectName: 'komla',
+      branchName: 'claude/placeholder',
+    });
+
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(plan.backend).toMatchObject({
+      remoteRepoPath: '/data/dev/komla/repos/komla/repo.git',
+      remoteDirectory: '/data/dev/komla/worktrees/komla/claude-placeholder',
+    });
+  });
+
+  it('plans from a folder found this session over the one saved at setup', async () => {
+    const { sshWorkspaceService } =
+      await import('../../../src/main/services/ssh-workspace.service');
+    const run = vi.spyOn(sshWorkspaceService, 'run').mockResolvedValueOnce('/mnt/new/komla\n');
+    try {
+      await sshWorkspaceService.resolveWorkspaceBasePath('ssh-set-up');
+
+      const plan = sshWorkspaceService.createWorkspacePlan({
+        hostId: 'ssh-set-up',
+        gitUrl: 'git@github.com:komla-dev/komla.git',
+        projectName: 'komla',
+        branchName: 'claude/relinked',
+      });
+
+      expect(plan.backend.remoteDirectory).toBe('/mnt/new/komla/worktrees/komla/claude-relinked');
+    } finally {
+      sshWorkspaceService.forgetHost('ssh-set-up');
+      run.mockRestore();
+    }
+  });
+
   it('uses SSH clone URLs for forwarded-agent hosts with GitHub HTTPS remotes', async () => {
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');
@@ -6226,7 +6265,6 @@ describe('sshWorkspaceService', () => {
       name: 'Devbox',
       hostname: '203.0.113.20',
       user: 'devuser',
-      basePath: '/home/devuser/~/.komla',
     });
 
     expect(result).toEqual({
@@ -6270,38 +6308,79 @@ describe('sshWorkspaceService', () => {
     expect(layoutCall).toBeDefined();
   });
 
-  itWithPosixShell.each([
-    ['a home-relative path', '~/.komla-test', (home: string) => `${home}/.komla-test`],
-    ['an absolute path', '__ABSOLUTE__', (_home: string, absolute: string) => absolute],
-  ])('resolves %s with the real remote shell script', async (_name, configured, expectedPath) => {
+  itWithPosixShell('resolves ~/.komla under the real home before the folder exists', async () => {
     const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-base-path-'));
     const remoteHome = realpathSync(tempPath);
-    const absolutePath = `${remoteHome}/absolute-komla`;
     mockRemoteShell(remoteHome);
 
     try {
-      const basePath = configured === '__ABSOLUTE__' ? absolutePath : configured;
-      const resolved = await resolveRemoteBasePathForTest(basePath);
-
-      expect(resolved).toBe(expectedPath(remoteHome, absolutePath));
+      await expect(resolveRemoteBasePathForTest()).resolves.toBe(`${remoteHome}/.komla`);
     } finally {
       rmSync(tempPath, { recursive: true, force: true });
     }
   });
 
-  itWithPosixShell('resolves a bare tilde to home before rejecting it as an unsafe base path', async () => {
-    const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-home-path-'));
+  itWithPosixShell('follows a ~/.komla symlink to the folder it points at', async () => {
+    const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-base-path-'));
     const remoteHome = realpathSync(tempPath);
+    mkdirSync(join(remoteHome, 'data', 'komla'), { recursive: true });
+    symlinkSync(join(remoteHome, 'data', 'komla'), join(remoteHome, '.komla'));
     mockRemoteShell(remoteHome);
 
     try {
-      await expect(resolveRemoteBasePathForTest('~')).rejects.toThrow();
+      await expect(resolveRemoteBasePathForTest()).resolves.toBe(`${remoteHome}/data/komla`);
+    } finally {
+      rmSync(tempPath, { recursive: true, force: true });
+    }
+  });
 
-      const firstCall = execFileMock.mock.calls[0];
-      if (!firstCall) throw new Error('Expected the remote resolution command to run');
-      const resolutionCommand = String((firstCall[1] as string[]).at(-1));
-      expect(resolutionCommand).toContain('"~") resolved="$HOME"');
-      expect(resolutionCommand).toContain('[ "$resolved" = "$home_real" ]');
+  itWithPosixShell('refuses a ~/.komla symlink to a folder that is gone', async () => {
+    const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-base-path-'));
+    const remoteHome = realpathSync(tempPath);
+    symlinkSync(join(remoteHome, 'unmounted', 'komla'), join(remoteHome, '.komla'));
+    mockRemoteShell(remoteHome);
+
+    try {
+      await expect(resolveRemoteBasePathForTest()).rejects.toThrow(
+        '~/.komla links to a folder that does not exist'
+      );
+    } finally {
+      rmSync(tempPath, { recursive: true, force: true });
+    }
+  });
+
+  itWithPosixShell.each([
+    ['a file', (home: string) => writeFileSync(join(home, '.komla'), 'notes')],
+    [
+      'a link to a file',
+      (home: string) => {
+        writeFileSync(join(home, 'notes.txt'), 'notes');
+        symlinkSync(join(home, 'notes.txt'), join(home, '.komla'));
+      },
+    ],
+  ])('refuses a ~/.komla that is %s', async (_name, create) => {
+    const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-base-path-'));
+    const remoteHome = realpathSync(tempPath);
+    create(remoteHome);
+    mockRemoteShell(remoteHome);
+
+    try {
+      await expect(resolveRemoteBasePathForTest()).rejects.toThrow('~/.komla is not a folder');
+    } finally {
+      rmSync(tempPath, { recursive: true, force: true });
+    }
+  });
+
+  itWithPosixShell('refuses a ~/.komla symlink that points at the home folder', async () => {
+    const tempPath = mkdtempSync(join(tmpdir(), 'komla-ssh-home-path-'));
+    const remoteHome = realpathSync(tempPath);
+    symlinkSync(remoteHome, join(remoteHome, '.komla'));
+    mockRemoteShell(remoteHome);
+
+    try {
+      await expect(resolveRemoteBasePathForTest()).rejects.toThrow(
+        'refusing to use an unsafe remote data path'
+      );
     } finally {
       rmSync(tempPath, { recursive: true, force: true });
     }
@@ -6314,7 +6393,7 @@ describe('sshWorkspaceService', () => {
         return;
       }
       const command = String((args as string[]).at(-1));
-      const stdout = command.includes('probe_real=')
+      const stdout = command.includes('printf "%s\\n" "$resolved"')
         ? '/home/dev/.komla\n'
         : command.includes('command -v git')
           ? 'status=missing\n'
@@ -6332,7 +6411,6 @@ describe('sshWorkspaceService', () => {
       id: 'ssh-no-git',
       name: 'No Git',
       hostname: 'no-git.example.com',
-      basePath: '~/.komla',
     };
 
     await expect(sshWorkspaceService.checkHostCapabilities(host)).resolves.toMatchObject({
@@ -6360,7 +6438,7 @@ describe('sshWorkspaceService', () => {
         return;
       }
       const command = String((args as string[]).at(-1));
-      const stdout = command.includes('probe_real=')
+      const stdout = command.includes('printf "%s\\n" "$resolved"')
         ? '/home/dev/.komla\n'
         : command.includes('command -v git')
           ? 'status=available\nversion=git version 2.43.0\n'
@@ -6380,7 +6458,6 @@ describe('sshWorkspaceService', () => {
       id: 'ssh-missing-monitoring',
       name: 'Minimal host',
       hostname: 'minimal.example.com',
-      basePath: '~/.komla',
     };
 
     await expect(sshWorkspaceService.verifyAndPrepareHost(host)).resolves.toMatchObject({
@@ -6422,7 +6499,7 @@ describe('sshWorkspaceService', () => {
       }
       const command = String((args as string[]).at(-1));
       remoteCommands.push(command);
-      const stdout = command.includes('probe_real=')
+      const stdout = command.includes('printf "%s\\n" "$resolved"')
         ? '/home/dev/.komla\n'
         : command.includes('command -v git')
           ? 'status=available\nversion=git version 2.43.0\n'
@@ -6444,7 +6521,6 @@ describe('sshWorkspaceService', () => {
       id: 'ssh-dev',
       name: 'Devbox',
       hostname: 'dev.example.com',
-      basePath: '~/.komla',
     });
 
     expect(result.gitIdentity).toEqual({ configured: false });
@@ -6478,7 +6554,7 @@ describe('sshWorkspaceService', () => {
       const command = String((args as string[]).at(-1));
       remoteCommands.push(command);
       if (command.includes('git config --global user.email')) identityCopied = true;
-      const stdout = command.includes('probe_real=')
+      const stdout = command.includes('printf "%s\\n" "$resolved"')
         ? '/home/dev/.komla\n'
         : command.includes('command -v git')
           ? 'status=available\nversion=git version 2.43.0\n'
@@ -6500,7 +6576,6 @@ describe('sshWorkspaceService', () => {
       id: 'ssh-dev',
       name: 'Devbox',
       hostname: 'dev.example.com',
-      basePath: '~/.komla',
     });
 
     expect(result.gitIdentity).toEqual({
@@ -6547,7 +6622,7 @@ describe('sshWorkspaceService', () => {
       const command = String((args as string[]).at(-1));
       remoteCommands.push(command);
       if (command.includes('git config --global user.email')) identityCopyAttempted = true;
-      const stdout = command.includes('probe_real=')
+      const stdout = command.includes('printf "%s\\n" "$resolved"')
         ? '/home/dev/.komla\n'
         : command.includes('command -v git')
           ? 'status=available\nversion=git version 2.43.0\n'
@@ -6569,7 +6644,6 @@ describe('sshWorkspaceService', () => {
       id: 'ssh-dev',
       name: 'Devbox',
       hostname: 'dev.example.com',
-      basePath: '~/.komla',
     });
 
     expect(result).toMatchObject({
@@ -6618,7 +6692,6 @@ describe('sshWorkspaceService', () => {
       name: 'Devbox',
       hostname: 'dev.example.com',
       user: 'dev',
-      basePath: '~/.komla',
     });
 
     expect(result.localMirror).toEqual({
@@ -6635,7 +6708,7 @@ describe('sshWorkspaceService', () => {
     ).toBe(true);
   });
 
-  it('rejects a canonical home or root base path before creating the remote layout', async () => {
+  it('stops before creating the remote layout when ~/.komla resolves to home or root', async () => {
     execFileMock.mockImplementation((_file, _args, _options, callback) => {
       callback(
         Object.assign(new Error('remote command failed'), {
@@ -6656,13 +6729,11 @@ describe('sshWorkspaceService', () => {
         name: 'Devbox',
         hostname: '203.0.113.20',
         user: 'devuser',
-        basePath: '/home/devuser',
       })
     ).rejects.toThrow();
 
     expect(execFileMock).toHaveBeenCalledTimes(1);
     const resolutionCommand = String((execFileMock.mock.calls[0]?.[1] as string[]).at(-1));
-    expect(resolutionCommand).toContain('probe_real=$(cd -P "$probe" && pwd -P)');
     expect(resolutionCommand).toContain('home_real=$(cd -P "$HOME" && pwd -P)');
     expect(resolutionCommand).toContain('[ "$resolved" = / ]');
     expect(resolutionCommand).not.toContain('.komla-managed');
@@ -6696,7 +6767,6 @@ describe('sshWorkspaceService', () => {
       name: 'IPv6 host',
       hostname: '2001:db8::1',
       user: 'dev',
-      basePath: '~/.komla',
     });
 
     const sshTargets = execFileMock.mock.calls
@@ -6746,7 +6816,6 @@ describe('sshWorkspaceService', () => {
         name: 'Devbox',
         hostname: 'dev.example.com',
         user: 'dev',
-        basePath: '~/.komla',
       });
 
       expect(result).toMatchObject({
@@ -6824,7 +6893,7 @@ describe('sshWorkspaceService', () => {
         return;
       }
       const command = String((args as string[]).at(-1));
-      const stdout = command.includes('probe_real=')
+      const stdout = command.includes('printf "%s\\n" "$resolved"')
         ? '/home/dev/.komla\n'
         : command.includes('command -v git')
           ? 'status=available\nversion=git version 2.43.0\n'
@@ -6845,7 +6914,6 @@ describe('sshWorkspaceService', () => {
       name: 'Devbox',
       hostname: '203.0.113.20',
       user: 'devuser',
-      basePath: '~/.komla',
     };
     const backend = {
       kind: 'ssh' as const,
@@ -7232,7 +7300,7 @@ describe('sshWorkspaceService', () => {
         const isWrite = remoteCommand.includes('cat > "$temp_path"');
         if (remoteCommand.includes('printf "%s\\n" "$HOME"')) {
           callback(null, { stdout: '/home/devuser\n', stderr: '' });
-        } else if (remoteCommand.includes('configured=')) {
+        } else if (remoteCommand.includes('printf "%s\\n" "$resolved"')) {
           callback(null, { stdout: '/home/devuser/.komla\n', stderr: '' });
         } else if (remoteCommand.includes('printf "1"')) {
           callback(null, { stdout: '0', stderr: '' });
@@ -7898,7 +7966,7 @@ describe('sshWorkspaceService', () => {
   it('removes all Komla-managed data and integrations from an SSH host', async () => {
     execFileMock.mockImplementation((_file, args, _options, callback) => {
       const remoteCommand = String((args as string[]).at(-1));
-      const stdout = remoteCommand.includes('configured=')
+      const stdout = remoteCommand.includes('printf "%s\\n" "$resolved"')
         ? '/home/devuser/.komla\n'
         : remoteCommand.includes('printf "%s\\n" "$HOME"')
           ? '/home/devuser\n'

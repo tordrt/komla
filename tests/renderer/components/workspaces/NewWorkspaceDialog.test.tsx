@@ -3735,7 +3735,7 @@ describe('NewWorkspaceDialog', () => {
 
     it('picks a host staged for it while it is open', async () => {
       mockSshHostsHolder.value = [
-        { id: 'remote', name: 'Build Server', hostname: 'build.example.com', basePath: '~/.komla' },
+        { id: 'remote', name: 'Build Server', hostname: 'build.example.com' },
       ];
       const { rerender } = render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
       await screen.findByPlaceholderText(/what should the agent work on/i);
@@ -3827,7 +3827,6 @@ describe('NewWorkspaceDialog', () => {
           id: 'remote',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ];
 
@@ -3862,7 +3861,6 @@ describe('NewWorkspaceDialog', () => {
           id: 'remote',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ];
       mockDialogPrefill.value = { sshHostId: 'remote' };
@@ -3901,7 +3899,6 @@ describe('NewWorkspaceDialog', () => {
           id: 'remote',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ];
 
@@ -3936,7 +3933,6 @@ describe('NewWorkspaceDialog', () => {
           id: 'remote',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ];
 
@@ -3968,7 +3964,6 @@ describe('NewWorkspaceDialog', () => {
           id: 'remote',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ];
 
@@ -4000,7 +3995,6 @@ describe('NewWorkspaceDialog', () => {
           id: 'remote',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ];
 
@@ -4090,7 +4084,6 @@ describe('NewWorkspaceDialog', () => {
       id: 'remote',
       name: 'Build Server',
       hostname: 'build.example.com',
-      basePath: '~/.komla',
     };
     const localSource = {
       id: 'ws-source',

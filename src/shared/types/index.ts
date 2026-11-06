@@ -164,9 +164,9 @@ export type {
 } from './ssh';
 export {
   komlaSshRemoteDataPort,
-  isValidSshBasePath,
+  SSH_KOMLA_FOLDER,
+  isSshKomlaFolder,
   isValidSshHostname,
-  normalizeSshBasePath,
 } from './ssh';
 export type { RemoteSshWorkspace, SshWorkspaceManifest } from './ssh-workspace-manifest';
 

@@ -677,7 +677,7 @@ browser, can't reach the API. Every route also refuses requests with an `Origin`
 agents' MCP clients don't, so pages reaching Komla through an SSH host's gateway, which rewrites
 `Host`, are refused too. Browser-based MCP clients, such as the MCP Inspector, can't connect.
 
-On SSH hosts, enabling MCP configures each agent to launch `<base path>/helpers/komla mcp` over
+On SSH hosts, enabling MCP configures each agent to launch `~/.komla/helpers/komla mcp` over
 stdio rather than a tunnel URL, because agent configuration files are shared by every Komla
 installation that uses the host. Inside a managed terminal the adapter re-reads the tmux session
 environment before each request, so calls reach whichever desktop currently owns the terminal.

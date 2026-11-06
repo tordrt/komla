@@ -25,7 +25,6 @@ export interface VideoSshHost {
   user: string;
   port: number;
   identityFile: string;
-  basePath: string;
   extraSshArgs: string[];
 }
 
@@ -99,7 +98,6 @@ export function startSshHost(options: {
     user: 'komla',
     port,
     identityFile,
-    basePath: '~/.komla',
     extraSshArgs: [
       '-o',
       'BatchMode=yes',

@@ -1,8 +1,6 @@
 import {
   komlaSshRemoteDataPort,
-  isValidSshBasePath,
   isValidSshHostname,
-  normalizeSshBasePath,
   type SshHost,
   type SshHostCapabilities,
   type SshHostSetupResult,
@@ -15,7 +13,6 @@ export interface HostDraft {
   user: string;
   port: string;
   identityFile: string;
-  basePath: string;
   forwardAgent: boolean;
   isolated: boolean;
   extraSshArgs: string;
@@ -38,7 +35,6 @@ export const EMPTY_DRAFT: HostDraft = {
   user: '',
   port: '',
   identityFile: '',
-  basePath: '~/.komla',
   forwardAgent: true,
   isolated: true,
   extraSshArgs: '',
@@ -167,7 +163,6 @@ export function hostToDraft(host: SshHost): HostDraft {
     user: host.user ?? '',
     port: host.port ? String(host.port) : '',
     identityFile: host.identityFile ?? '',
-    basePath: host.basePath,
     forwardAgent: host.forwardAgent ?? false,
     isolated: host.isolated ?? false,
     extraSshArgs: formatExtraSshArgs(host.extraSshArgs),
@@ -190,7 +185,6 @@ export function draftToHost(draft: HostDraft, newHostId?: string): SshHost {
     user: draft.user.trim() || undefined,
     port: draft.port.trim() ? Number(draft.port.trim()) : undefined,
     identityFile: draft.identityFile.trim() || undefined,
-    basePath: normalizeSshBasePath(draft.basePath),
     forwardAgent: draft.forwardAgent,
     isolated: draft.isolated,
     extraSshArgs: parseExtraSshArgs(draft.extraSshArgs),
@@ -208,16 +202,13 @@ export function draftToHost(draft: HostDraft, newHostId?: string): SshHost {
   };
 }
 
-/** Why a saved host can't take these details: its remote path, or a connection workspaces use. */
+/** Why a saved host can't take these details: a connection its workspaces use. */
 export function savedHostChangeError(
   draft: HostDraft,
   savedHost: SshHost | undefined,
   hasWorkspaces: boolean
 ): string | null {
   if (!savedHost) return null;
-  if (normalizeSshBasePath(savedHost.basePath) !== normalizeSshBasePath(draft.basePath)) {
-    return 'Remote Komla path is fixed after this machine is connected. Remove and reconnect the machine to use a different path.';
-  }
   const connectionChanged =
     savedHost.hostname !== draft.hostname.trim() ||
     (savedHost.user ?? '') !== draft.user.trim() ||
@@ -234,10 +225,6 @@ export function validateDraft(draft: HostDraft, hostId: string): string | null {
   if (!draft.hostname.trim()) return 'Host is required.';
   if (!isValidSshHostname(draft.hostname)) {
     return 'Host must not include a username, port, URL, or path.';
-  }
-  if (!draft.basePath.trim()) return 'Base path is required.';
-  if (!isValidSshBasePath(draft.basePath)) {
-    return 'Base path must not resolve to the filesystem root or home directory or contain parent traversal.';
   }
   if (draft.port.trim()) {
     const port = Number(draft.port.trim());

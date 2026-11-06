@@ -463,7 +463,6 @@ function makeFixture({
         id: 'ssh-1',
         name: 'Build server',
         hostname: 'build.internal',
-        basePath: '~/.komla',
       },
     ]),
   };

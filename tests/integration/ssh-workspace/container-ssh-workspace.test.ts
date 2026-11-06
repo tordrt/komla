@@ -1897,52 +1897,6 @@ describe('SSH remote workspace through Docker OpenSSH', () => {
     }
   }, 120_000);
 
-  it('handles absolute and shell-sensitive remote base paths literally', async () => {
-    const { sshWorkspaceService } = sshWorkspaceModule;
-    const fixtureRoot = `${target.remoteHome}/.komla-ssh-integration-fixture`;
-    const sentinel = `${target.remoteHome}/KOMLA_SSH_PATH_INJECTION`;
-    const cases = [
-      {
-        id: 'ssh-integration-special-path',
-        basePath:
-          "~/.komla-ssh-integration-fixture/literal $HOME ; touch KOMLA_SSH_PATH_INJECTION 'quote'",
-        expected: `${fixtureRoot}/literal $HOME ; touch KOMLA_SSH_PATH_INJECTION 'quote'`,
-      },
-      {
-        id: 'ssh-integration-absolute-path',
-        basePath: `${fixtureRoot}/absolute-base`,
-        expected: `${fixtureRoot}/absolute-base`,
-      },
-    ];
-
-    await container.exec(['rm', '-f', sentinel]);
-    for (const pathCase of cases) {
-      const host: SshHost = { ...target.host, id: pathCase.id, basePath: pathCase.basePath };
-      const setup = await sshWorkspaceService.verifyAndPrepareHost(host);
-      expect(setup.resolvedBasePath).toBe(pathCase.expected);
-      expect(
-        (await container.exec(['test', '-x', `${pathCase.expected}/helpers/notify.sh`])).exitCode
-      ).toBe(0);
-    }
-    expect(
-      (await container.exec(['test', '-e', sentinel], { allowFailure: true })).exitCode
-    ).not.toBe(0);
-  }, 60_000);
-
-  it('rejects a base path whose existing symlink resolves to the remote home', async () => {
-    const { sshWorkspaceService } = sshWorkspaceModule;
-    const linkPath = `${target.remoteHome}/.komla-ssh-integration-fixture/unsafe-home-link`;
-    await container.exec(['ln', '-s', target.remoteHome, linkPath]);
-    const host: SshHost = {
-      ...target.host,
-      id: 'ssh-integration-unsafe-path',
-      basePath: '~/.komla-ssh-integration-fixture/unsafe-home-link',
-    };
-
-    await expect(sshWorkspaceService.verifyAndPrepareHost(host)).rejects.toThrow(
-      'refusing to use an unsafe remote data path'
-    );
-  }, 60_000);
   it('downloads SSH host files to this computer through real SSH, past the read buffer', async () => {
     const backend = await createPreparedWorkspace('file-download');
     await container.exec([

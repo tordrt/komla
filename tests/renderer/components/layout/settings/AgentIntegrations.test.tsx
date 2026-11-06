@@ -272,7 +272,6 @@ describe('AgentIntegrationsPanel', () => {
           id: 'server-1',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ],
     });
@@ -318,7 +317,6 @@ describe('AgentIntegrationsPanel', () => {
           id: 'server-1',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ],
     });
@@ -362,7 +360,6 @@ describe('AgentIntegrationsPanel', () => {
           id: 'server-1',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ],
     });
@@ -407,7 +404,6 @@ describe('AgentIntegrationsPanel', () => {
           id: 'server-1',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ],
     });
@@ -430,7 +426,6 @@ describe('AgentIntegrationsPanel', () => {
           id: 'server-1',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ],
     });
@@ -463,7 +458,6 @@ describe('AgentIntegrationsPanel', () => {
           id: 'server-1',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ],
     });
@@ -488,7 +482,6 @@ describe('AgentIntegrationsPanel', () => {
           id: 'server-1',
           name: 'Build Server',
           hostname: 'build.example.com',
-          basePath: '~/.komla',
         },
       ],
     });

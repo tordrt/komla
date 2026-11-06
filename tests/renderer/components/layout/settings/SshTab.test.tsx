@@ -24,7 +24,6 @@ const host = {
   id: 'ssh-dev',
   name: 'Devbox',
   hostname: 'dev.example.com',
-  basePath: '/home/dev/.komla',
   forwardAgent: true,
   identityFile: '~/.ssh/id_ed25519',
   extraSshArgs: ['-J', 'bastion'],
@@ -748,7 +747,7 @@ describe('SshTab', () => {
       expect(mockSaveHost).toHaveBeenCalledWith(
         expect.objectContaining({
           setupPending: true,
-          basePath: '/home/dev/.komla',
+          komlaFolder: '/home/dev/.komla',
           isolated: true,
         })
       );
@@ -1483,7 +1482,6 @@ describe('SshTab', () => {
       expect(within(dialog).getByLabelText('Host or alias')).toBeDisabled();
       expect(within(dialog).getByRole('switch', { name: 'Forward SSH agent' })).toBeEnabled();
       expect(within(dialog).getByLabelText('Identity file')).toBeDisabled();
-      expect(within(dialog).getByDisplayValue('/home/dev/.komla')).toBeDisabled();
       expect(within(dialog).getByLabelText('Extra SSH args')).toBeDisabled();
       expect(
         within(dialog).getByText(/Host address, user, port, identity file/)
@@ -1550,19 +1548,14 @@ describe('SshTab', () => {
       expect(screen.getByText(/needs its own Git credentials/)).toBeInTheDocument();
     });
 
-    it('keeps the remote Komla path fixed for a saved host without workspaces', async () => {
+    it('offers no Komla folder to choose, since every host keeps it in ~/.komla', async () => {
       const user = userEvent.setup();
       renderSsh();
 
       await user.click(screen.getByRole('button', { name: 'Edit SSH host' }));
       const dialog = await screen.findByRole('dialog');
 
-      expect(within(dialog).getByDisplayValue('/home/dev/.komla')).toBeDisabled();
-      expect(
-        within(dialog).getByText(
-          'Remote Komla path is fixed after this machine is connected. Remove and reconnect the machine to use a different path.'
-        )
-      ).toBeInTheDocument();
+      expect(within(dialog).queryByText('Remote Komla path')).not.toBeInTheDocument();
       expect(within(dialog).getByLabelText('Host or alias')).toBeEnabled();
     });
 

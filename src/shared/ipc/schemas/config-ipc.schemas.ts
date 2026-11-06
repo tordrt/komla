@@ -17,7 +17,7 @@ import {
 } from '../../lib/workspace-tags';
 import {
   ACTION_SSH_EXECUTION_LOCATIONS,
-  isValidSshBasePath,
+  isSshKomlaFolder,
   isValidSshHostname,
   SETUP_DESTINATIONS,
   SETUP_STEP_KINDS,
@@ -73,10 +73,10 @@ export const sshHostSchema = z
     user: z.string().optional(),
     port: z.number().int().min(1).max(65535).optional(),
     identityFile: z.string().optional(),
-    basePath: z.string().min(1).refine(isValidSshBasePath, {
-      message:
-        'base path must not resolve to the filesystem root or home directory or contain parent traversal',
-    }),
+    komlaFolder: z
+      .string()
+      .refine(isSshKomlaFolder, { message: 'Komla folder must be an absolute path below /' })
+      .optional(),
     forwardAgent: z.boolean().optional(),
     isolated: z.boolean().optional(),
     extraSshArgs: z.array(z.string()).optional(),

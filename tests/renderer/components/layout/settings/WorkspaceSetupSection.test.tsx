@@ -16,7 +16,6 @@ const sshHost: SshHost = {
   id: 'ssh-host',
   name: 'Development host',
   hostname: 'dev.example.com',
-  basePath: '~/.komla',
 };
 
 function renderSection(steps: SetupStep[] = [], hasSshHosts = true) {

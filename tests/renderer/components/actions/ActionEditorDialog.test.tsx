@@ -54,7 +54,7 @@ describe('ActionEditorDialog', () => {
 
   it('lets a Terminal Command choose where it runs in SSH workspaces, under Advanced', async () => {
     useSshHostsStore.setState({
-      hosts: [{ id: 'ssh-dev', name: 'Devbox', hostname: 'dev.example.com', basePath: '~/.komla' }],
+      hosts: [{ id: 'ssh-dev', name: 'Devbox', hostname: 'dev.example.com' }],
       hasLoaded: true,
     });
     const user = userEvent.setup();

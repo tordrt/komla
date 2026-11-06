@@ -47,7 +47,7 @@ import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import {
   isSshWorkspace,
-  normalizeSshBasePath,
+  SSH_KOMLA_FOLDER,
   type RemoteSshWorkspace,
   type SshHost,
   type SshHostCapabilities,
@@ -119,7 +119,6 @@ export function SshTab() {
       (workspace) => isSshWorkspace(workspace) && workspace.backend.hostId === hostId
     ).length;
   const deleteHostWorkspaceCount = deleteHostId ? workspaceCountOn(deleteHostId) : 0;
-  const selectedBasePath = normalizeSshBasePath(selectedIntegrationHost?.basePath ?? '~/.komla');
 
   // A first host's setup cut short, e.g. by quitting, picks up at its integrations step.
   const pendingHostId = hosts.find((host) => host.setupPending)?.id;
@@ -300,8 +299,8 @@ export function SshTab() {
                   <div className="space-y-2">
                     <div className="font-medium text-foreground">Remote layout</div>
                     <div className="space-y-1 font-mono">
-                      <div>{selectedBasePath}/repos/&lt;repo&gt;.git</div>
-                      <div>{selectedBasePath}/worktrees/&lt;repo&gt;/&lt;branch&gt;</div>
+                      <div>{SSH_KOMLA_FOLDER}/repos/&lt;repo&gt;.git</div>
+                      <div>{SSH_KOMLA_FOLDER}/worktrees/&lt;repo&gt;/&lt;branch&gt;</div>
                     </div>
                   </div>
 
@@ -349,9 +348,8 @@ export function SshTab() {
                 Delete all Komla data from this host
               </label>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Deletes {normalizeSshBasePath(deleteHostTarget?.basePath ?? '~/.komla')}, remote
-                worktrees and repo caches, and Komla-managed agent integrations. Uncommitted work
-                will be lost.
+                Deletes {SSH_KOMLA_FOLDER}, remote worktrees and repo caches, and Komla-managed
+                agent integrations. Uncommitted work will be lost.
               </p>
             </div>
             <Switch

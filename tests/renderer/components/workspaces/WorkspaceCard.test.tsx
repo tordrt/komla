@@ -746,7 +746,6 @@ describe('WorkspaceCard', () => {
           name: 'Dev box',
           hostname: 'dev.example.com',
           user: 'dev',
-          basePath: '/home/dev',
         },
       ],
     });
@@ -788,7 +787,6 @@ describe('WorkspaceCard', () => {
           name: 'Dev box',
           hostname: 'dev.example.com',
           user: 'dev',
-          basePath: '/home/dev',
         },
       ],
     });
@@ -834,7 +832,7 @@ describe('WorkspaceCard', () => {
 
   it('names an SSH host by its hostname when it has no name', () => {
     useSshHostsStore.setState({
-      hosts: [{ id: 'ssh-dev', name: '', hostname: 'dev.example.com', basePath: '/home/dev' }],
+      hosts: [{ id: 'ssh-dev', name: '', hostname: 'dev.example.com' }],
     });
     const workspace = createWorktreeWorkspace({
       branchName: 'agent/unnamed-host',

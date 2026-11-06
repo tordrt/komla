@@ -4,7 +4,7 @@ const { runMock } = vi.hoisted(() => ({ runMock: vi.fn() }));
 
 vi.mock('../../../../src/main/services/ssh-workspace.service', () => ({
   sshWorkspaceService: {
-    getHost: vi.fn((id: string) => ({ id, name: id, hostname: `${id}.lan`, basePath: '~' })),
+    getHost: vi.fn((id: string) => ({ id, name: id, hostname: `${id}.lan` })),
     run: runMock,
   },
 }));

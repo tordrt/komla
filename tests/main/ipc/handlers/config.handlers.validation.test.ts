@@ -136,9 +136,7 @@ vi.mock('../../../../src/main/services/ssh-host.service', () => ({
   sshHostService: {
     list: vi.fn(() => []),
     get: vi.fn((id: string) =>
-      id === 'ssh-devbox'
-        ? { id, name: 'Devbox', hostname: 'devbox.example.com', basePath: '~/.komla' }
-        : undefined
+      id === 'ssh-devbox' ? { id, name: 'Devbox', hostname: 'devbox.example.com' } : undefined
     ),
     save: vi.fn((host) => host),
   },
@@ -266,7 +264,6 @@ describe('config IPC validation', () => {
         id: 'ssh-devbox',
         name: 'Devbox',
         hostname: 'devbox.example.com',
-        basePath: '~/.komla',
         portForwards: [
           {
             id: 'postgres',

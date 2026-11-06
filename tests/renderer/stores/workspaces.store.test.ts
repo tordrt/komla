@@ -2409,7 +2409,6 @@ describe('workspaces.store', () => {
           id: 'ssh-dev',
           name: 'Devbox',
           hostname: 'dev.example.com',
-          basePath: '~/.komla',
         },
       ],
       hasLoaded: true,
@@ -2460,7 +2459,7 @@ describe('workspaces.store', () => {
     const api = createApiMock({ getWorkspaces: vi.fn().mockResolvedValue([workspace]) });
     (globalThis as { window: { api: ApiMock } }).window = { api };
     useSshHostsStore.setState({
-      hosts: [{ id: 'ssh-dev', name: 'Devbox', hostname: 'dev.example.com', basePath: '~/.komla' }],
+      hosts: [{ id: 'ssh-dev', name: 'Devbox', hostname: 'dev.example.com' }],
       hasLoaded: true,
     });
     useWorkspacesStore.setState({ workspaces: [workspace] });
@@ -2568,7 +2567,6 @@ describe('workspaces.store', () => {
       id: 'ssh-dev',
       name: 'Devbox',
       hostname: 'dev.example.com',
-      basePath: '~/.komla',
     };
     const hosts = createDeferred<(typeof configuredHost)[]>();
     const api = createApiMock({
@@ -2626,7 +2624,6 @@ describe('workspaces.store', () => {
           id: 'ssh-dev',
           name: 'Devbox',
           hostname: 'dev.example.com',
-          basePath: '~/.komla',
         },
       ],
       hasLoaded: true,
@@ -2661,7 +2658,6 @@ describe('workspaces.store', () => {
       id: 'ssh-dev',
       name: 'Devbox',
       hostname: 'dev.example.com',
-      basePath: '~/.komla',
     };
     const hosts = createDeferred<(typeof configuredHost)[]>();
     const api = createApiMock({
@@ -2753,7 +2749,6 @@ describe('workspaces.store', () => {
           id: 'ssh-dev',
           name: 'Devbox',
           hostname: 'dev.example.com',
-          basePath: '~/.komla',
         },
       ],
       hasLoaded: true,
@@ -2817,9 +2812,7 @@ describe('workspaces.store', () => {
     const api = createApiMock();
     (globalThis as { window: { api: ApiMock } }).window = { api };
     useSshHostsStore.setState({
-      hosts: [
-        { id: 'ssh-host-1', name: 'Devbox', hostname: 'dev.example.com', basePath: '~/.komla' },
-      ],
+      hosts: [{ id: 'ssh-host-1', name: 'Devbox', hostname: 'dev.example.com' }],
       hasLoaded: true,
     });
     useWorkspacesStore.setState({ workspaces: [workspace] });

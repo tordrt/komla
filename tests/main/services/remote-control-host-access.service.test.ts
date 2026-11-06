@@ -85,7 +85,7 @@ function device(overrides: Partial<PairedDeviceRecord> = {}): PairedDeviceRecord
   };
 }
 
-const host: SshHost = { id: 'host-1', name: 'devbox', hostname: 'devbox', basePath: '~/.komla' };
+const host: SshHost = { id: 'host-1', name: 'devbox', hostname: 'devbox' };
 
 const TAILSCALE_STATUS = JSON.stringify({
   BackendState: 'Running',

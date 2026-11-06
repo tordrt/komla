@@ -17,7 +17,6 @@ const host = {
   id: "ssh-dev",
   name: "Devbox",
   hostname: "dev.example.com",
-  basePath: "~/.komla",
   capabilities: {
     checkedAt: "2026-09-02T00:00:00.000Z",
     git: { status: "available" as const },

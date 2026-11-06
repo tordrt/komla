@@ -1,7 +1,6 @@
 import { existsSync } from 'fs';
 import { dirname } from 'path';
 
-import { normalizeSshBasePath, type SshHost } from '../../../shared/types/ssh';
 import { canDeleteWorkspaceBranch, isSshWorkspace } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
 import { deleteReleasingOpenCodeLocation } from '../../lib/opencode-service';
@@ -31,6 +30,7 @@ import type { WorkspaceNaming } from './naming';
 import type { WorkspaceProvisioning } from './provisioning';
 import type { WorkspaceTerminals } from './terminals';
 import type { Terminal, Workspace } from '../../../shared/types';
+import type { SshHost } from '../../../shared/types/ssh';
 import type { SshWorkspaceSync } from '../ssh-workspace-sync/ssh-workspace-sync';
 import type { TerminalAttention } from '../terminal-attention/terminal-attention';
 
@@ -486,11 +486,6 @@ export class WorkspaceLifecycle {
   assertSshHostConnectionUpdateAllowed(nextHost: SshHost): void {
     const currentHost = sshHostService.get(nextHost.id);
     if (!currentHost) return;
-    if (normalizeSshBasePath(currentHost.basePath) !== normalizeSshBasePath(nextHost.basePath)) {
-      throw new Error(
-        'Remote Komla path is fixed after this machine is connected. Remove and reconnect the machine to use a different path.'
-      );
-    }
     const lockedHostIds = new Set(
       Array.from(workspaceStore.workspaces.values())
         .filter(isSshWorkspace)
@@ -503,7 +498,6 @@ export class WorkspaceLifecycle {
         user: host.user?.trim() || '',
         port: host.port ?? null,
         identityFile: host.identityFile?.trim() || '',
-        basePath: normalizeSshBasePath(host.basePath),
         extraSshArgs: host.extraSshArgs ?? [],
       });
 
@@ -512,7 +506,7 @@ export class WorkspaceLifecycle {
       connectionProfile(currentHost) !== connectionProfile(nextHost)
     ) {
       throw new Error(
-        'Remove existing SSH workspaces for this host before changing its connection settings or remote Komla path.'
+        'Remove existing SSH workspaces for this host before changing its connection settings.'
       );
     }
   }

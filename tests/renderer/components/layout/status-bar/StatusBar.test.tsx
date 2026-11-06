@@ -765,7 +765,7 @@ describe('StatusBar', () => {
     setWorkspaces([local, remote]);
     useWorkspacesStore.setState({ selectWorkspace });
     useSshHostsStore.setState({
-      hosts: [{ id: 'devbox', name: 'devbox', hostname: 'devbox.lan', basePath: '~/.komla' }],
+      hosts: [{ id: 'devbox', name: 'devbox', hostname: 'devbox.lan' }],
     });
     const usage = (cpuPercent: number | null, memoryBytes: number) => ({ cpuPercent, memoryBytes });
     const localUsage = {
@@ -869,7 +869,7 @@ describe('StatusBar', () => {
   });
 
   describe('what the bar shows', () => {
-    const devbox = { id: 'devbox', name: 'devbox', hostname: 'devbox.lan', basePath: '~/.komla' };
+    const devbox = { id: 'devbox', name: 'devbox', hostname: 'devbox.lan' };
     const usage = (cpuPercent: number | null, memoryBytes: number) => ({ cpuPercent, memoryBytes });
     const machineUsage = (cores: number, cpuPercent: number | null) => ({
       machine: {
@@ -1166,7 +1166,7 @@ describe('StatusBar', () => {
         }),
       ]);
       useSshHostsStore.setState({
-        hosts: [{ id: 'devbox', name: 'devbox', hostname: 'devbox.lan', basePath: '~/.komla' }],
+        hosts: [{ id: 'devbox', name: 'devbox', hostname: 'devbox.lan' }],
       });
       const getResourceUsage = vi.fn((hostId: string | null) =>
         hostId === null
@@ -1210,8 +1210,8 @@ describe('StatusBar', () => {
   });
 
   describe('SSH hosts', () => {
-    const devbox = { id: 'devbox', name: 'devbox', hostname: 'devbox.lan', basePath: '~/.komla' };
-    const gpu = { id: 'gpu', name: 'gpu-box', hostname: 'gpu.lan', basePath: '~/.komla' };
+    const devbox = { id: 'devbox', name: 'devbox', hostname: 'devbox.lan' };
+    const gpu = { id: 'gpu', name: 'gpu-box', hostname: 'gpu.lan' };
     const statuses: SshHostStatus[] = [
       { hostId: 'devbox', state: 'connected', checkedAt: Date.now() },
       {

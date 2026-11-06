@@ -7,7 +7,6 @@ const host = {
   id: 'ssh-dev',
   name: 'Devbox',
   hostname: 'dev.example.com',
-  basePath: '~/.komla',
 };
 
 function resetStore(): void {

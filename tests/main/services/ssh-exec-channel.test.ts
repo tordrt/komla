@@ -291,7 +291,7 @@ describe('SshExecChannel', () => {
 });
 
 describe('SshExecChannels', () => {
-  const host = { id: 'host-1', name: 'Host', hostname: 'host', basePath: '~/.komla' };
+  const host = { id: 'host-1', name: 'Host', hostname: 'host' };
 
   function channels(enabled = true) {
     const children: FakeChannelProcess[] = [];

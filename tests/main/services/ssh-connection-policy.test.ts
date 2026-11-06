@@ -32,7 +32,6 @@ describe('SSH connection policy', () => {
         name: 'Devbox',
         hostname: 'example.com',
         user: 'dev',
-        basePath: '~/.komla',
       },
       { kind: 'background' }
     );

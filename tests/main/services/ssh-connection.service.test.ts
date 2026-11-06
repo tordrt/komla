@@ -42,7 +42,6 @@ const host = {
   name: 'SSH connection test',
   hostname: 'connection.example.com',
   user: 'dev',
-  basePath: '~/.komla',
 };
 
 describe('sshConnectionService', () => {

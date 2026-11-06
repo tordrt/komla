@@ -39,6 +39,7 @@ import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import {
   isSshWorkspace,
+  SSH_KOMLA_FOLDER,
   type SshConfigHost,
   type SshHost,
   type SshHostSetupResult,
@@ -206,7 +207,7 @@ export function SshHostDialog({ request, open, onOpenChange }: SshHostDialogProp
       }
       const configuredHost: SshHost = {
         ...host,
-        basePath: existingHost?.basePath ?? result.resolvedBasePath,
+        komlaFolder: result.resolvedBasePath,
         capabilities: capabilitySnapshot(result),
         // The first host stays pending until its integrations step closes.
         ...(isFirstHost ? { setupPending: true } : {}),
@@ -818,25 +819,6 @@ function AdvancedOptions({
               />
             )}
           </Field>
-          <Field
-            label="Remote Komla path"
-            hint={
-              isEdit
-                ? 'Remote Komla path is fixed after this machine is connected. Remove and reconnect the machine to use a different path.'
-                : 'Komla keeps repositories, worktrees and its runtime here. Keep the default unless this host needs a different disk.'
-            }
-          >
-            {(id, describedBy) => (
-              <Input
-                id={id}
-                aria-describedby={describedBy}
-                className="h-9"
-                value={draft.basePath}
-                onChange={(e) => onChange('basePath', e.target.value)}
-                disabled={isEdit}
-              />
-            )}
-          </Field>
           <Field label="Extra SSH args" hint="One argument per line. Values may contain spaces.">
             {(id, describedBy) => (
               <Textarea
@@ -1022,8 +1004,7 @@ function SetupExplainer({ isEdit }: { isEdit: boolean }) {
       <ul className="mt-2 list-disc space-y-1 pl-4">
         <li>Checks the remote OS, Git, required utilities, tmux, rsync, and Git identity.</li>
         <li>
-          Creates Komla-managed repository, worktree, and runtime folders under the configured Komla
-          folder.
+          Creates Komla-managed repository, worktree, and runtime folders under {SSH_KOMLA_FOLDER}.
         </li>
         <li>
           Installs or refreshes the Remote Companion and its private support files so Komla can

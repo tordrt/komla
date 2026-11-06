@@ -20,7 +20,6 @@ const host: SshHost = {
   id: 'ssh-dev',
   name: 'Dev host',
   hostname: 'dev.example.test',
-  basePath: '/home/dev/.komla',
 };
 
 function sshWorkspace(

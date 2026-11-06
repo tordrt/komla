@@ -59,7 +59,6 @@ const sshHostsState = {
     name: string;
     hostname: string;
     user: string;
-    basePath: string;
   }>,
 };
 
@@ -722,7 +721,6 @@ describe('Sidebar', () => {
         name: 'Devbox',
         hostname: 'devbox.example.com',
         user: 'developer',
-        basePath: '/home/developer',
       },
     ];
 

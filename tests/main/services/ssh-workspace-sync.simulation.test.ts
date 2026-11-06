@@ -25,6 +25,7 @@ import type { SshWorkspaceBackend, Terminal, Workspace } from '../../../src/shar
 
 const holder = vi.hoisted(() => ({
   host: undefined as undefined | Record<string, unknown>,
+  home: '',
   warnings: [] as unknown[],
 }));
 
@@ -36,8 +37,9 @@ vi.mock('child_process', async (importOriginal) => {
   type Callback = (error: Error | null, stdout: string, stderr: string) => void;
   function execFile(file: string, args: string[], options: object, callback?: Callback) {
     if (file !== 'ssh') return actual.execFile(file, args, options, callback);
-    // ssh's last argument is the remote command; run it on this machine instead.
-    return actual.execFile('sh', ['-c', String(args.at(-1))], options, callback);
+    // ssh's last argument is the remote command; run it on this machine, in the host's home.
+    const env = { ...process.env, ...(options as { env?: object }).env, HOME: holder.home };
+    return actual.execFile('sh', ['-c', String(args.at(-1))], { ...options, env }, callback);
   }
   (execFile as unknown as Record<symbol, unknown>)[promisify.custom] = (
     file: string,
@@ -85,6 +87,7 @@ vi.mock('../../../src/main/services/http-server.service', () => ({
 }));
 
 const { sshWorkspaceSyncHost } = await import('../../../src/main/services/ssh-workspace-sync/host');
+const { sshWorkspaceService } = await import('../../../src/main/services/ssh-workspace.service');
 const { SshWorkspaceSync } =
   await import('../../../src/main/services/ssh-workspace-sync/ssh-workspace-sync');
 const { buildSshWorkspaceManifest } =
@@ -329,9 +332,12 @@ const tabs = (entry: Device, workspaceId = 'ws-1') =>
 beforeEach(() => {
   // The host resolves its base path with `pwd -P`, and macOS's tmpdir is under the /var symlink.
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'komla-sync-')));
-  base = join(scratch, 'host', 'komla');
+  holder.home = join(scratch, 'host');
+  base = join(holder.home, '.komla');
   mkdirSync(base, { recursive: true });
-  holder.host = { id: 'ssh-dev', name: 'Host', hostname: 'localhost', user: 'dev', basePath: base };
+  holder.host = { id: 'ssh-dev', name: 'Host', hostname: 'localhost', user: 'dev' };
+  // Every test's host has the same connection, so the last test's resolved folder would stick.
+  sshWorkspaceService.forgetHost('ssh-dev');
   holder.warnings = [];
   live.clear();
 });

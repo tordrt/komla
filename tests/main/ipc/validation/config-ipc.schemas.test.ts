@@ -188,7 +188,6 @@ describe('configUpdateArgsSchema', () => {
           id: 'ssh-devbox',
           name: 'Devbox',
           hostname,
-          basePath: '~/.komla',
         },
       ]);
       expect(host.hostname).toBe(hostname);
@@ -201,7 +200,6 @@ describe('configUpdateArgsSchema', () => {
         id: 'ssh-devbox',
         name: 'Devbox',
         hostname: 'devbox.example.com',
-        basePath: '~/.komla',
         portForwards: [
           {
             id: 'api',
@@ -224,7 +222,6 @@ describe('configUpdateArgsSchema', () => {
         id: 'ssh-devbox',
         name: 'Devbox',
         hostname: 'devbox.example.com',
-        basePath: '~/.komla',
         capabilities: {
           checkedAt: '2026-08-06T12:00:00.000Z',
           git: { status: 'available', version: 'git version 2.43.0' },
@@ -262,43 +259,32 @@ describe('configUpdateArgsSchema', () => {
             id: 'ssh-devbox',
             name: 'Devbox',
             hostname,
-            basePath: '~/.komla',
           },
         ])
       ).toThrow();
     }
   });
 
-  it.each(['/', '~', '.', '..', '../komla', '/tmp/..', '~/.komla/../other'])(
-    'rejects unsafe SSH base path %s',
-    (basePath) => {
-      const host = {
-        id: 'ssh-devbox',
-        name: 'Devbox',
-        hostname: 'devbox.example.com',
-        basePath,
-      };
+  it('drops a base path, since every host keeps Komla in ~/.komla', () => {
+    const [host] = sshSaveHostArgsSchema.parse([
+      { id: 'ssh-devbox', name: 'Devbox', hostname: 'devbox.example.com', basePath: '/' },
+    ]);
 
-      expect(() => sshSaveHostArgsSchema.parse([host])).toThrow();
-      expect(() => configVerifySshHostArgsSchema.parse([host])).toThrow();
-    }
-  );
+    expect(host).not.toHaveProperty('basePath');
+  });
 
-  it.each(['~/.komla', '/srv/komla', 'komla-data', './komla-data'])(
-    'accepts safe SSH base path %s',
-    (basePath) => {
-      expect(() =>
-        sshSaveHostArgsSchema.parse([
-          {
-            id: 'ssh-devbox',
-            name: 'Devbox',
-            hostname: 'devbox.example.com',
-            basePath,
-          },
-        ])
-      ).not.toThrow();
-    }
-  );
+  it('rejects a saved Komla folder that is not an absolute path', () => {
+    expect(() =>
+      sshSaveHostArgsSchema.parse([
+        {
+          id: 'ssh-devbox',
+          name: 'Devbox',
+          hostname: 'devbox.example.com',
+          komlaFolder: '~/.komla',
+        },
+      ])
+    ).toThrow();
+  });
 
   it('validates SSH host verification payloads', () => {
     const [host] = configVerifySshHostArgsSchema.parse([
@@ -308,7 +294,6 @@ describe('configUpdateArgsSchema', () => {
         hostname: '192.168.1.50',
         user: 'devuser',
         port: 2222,
-        basePath: '~/.komla',
       },
     ]);
 

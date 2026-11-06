@@ -11,7 +11,11 @@ export interface SshHost {
   user?: string;
   port?: number;
   identityFile?: string;
-  basePath: string;
+  /**
+   * Where ~/.komla resolved on the host when it was last set up, so paths planned before Komla can
+   * ask the host again are already absolute.
+   */
+  komlaFolder?: string;
   forwardAgent?: boolean;
   /** The user treats the host as a sandbox, so agents may start modes there that skip prompts. */
   isolated?: boolean;
@@ -171,18 +175,12 @@ export interface SshLinkForward extends SshPreviewForward {
   started: boolean;
 }
 
-export function normalizeSshBasePath(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return '~/.komla';
-  return trimmed.replace(/\/~(?=\/|$)/g, '') || '~/.komla';
-}
+/** Komla's folder on every SSH host: its repositories, worktrees, helpers and runtime. */
+export const SSH_KOMLA_FOLDER = '~/.komla';
 
-export function isValidSshBasePath(value: string): boolean {
-  const normalized = normalizeSshBasePath(value);
-  const withoutTrailingSlash = normalized.replace(/\/+$/, '') || '/';
-  if (withoutTrailingSlash === '/' || withoutTrailingSlash === '~') return false;
-  if (withoutTrailingSlash === '.') return false;
-  return !normalized.split('/').includes('..');
+/** Whether a saved ~/.komla location is the absolute folder workspace paths can be planned in. */
+export function isSshKomlaFolder(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('/') && value.replace(/\/+$/, '') !== '';
 }
 
 export function isValidSshHostname(value: string): boolean {

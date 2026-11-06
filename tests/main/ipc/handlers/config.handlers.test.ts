@@ -328,7 +328,6 @@ describe('config IPC handlers', () => {
       id: 'ssh-dev',
       name: 'Devbox',
       hostname: 'dev.example.com',
-      basePath: '~/.komla',
     };
     const firstWindow = createMockBrowserWindow();
     const secondWindow = createMockBrowserWindow();
@@ -410,7 +409,6 @@ describe('config IPC handlers', () => {
       id: 'ssh-devbox',
       name: 'Devbox',
       hostname: '192.168.1.50',
-      basePath: '~/.komla',
     };
     const result = await ipcMain._invoke('config:verify-ssh-host', host);
 

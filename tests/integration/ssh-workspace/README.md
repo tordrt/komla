@@ -28,8 +28,6 @@ server through a random loopback port.
 - Workspace Setup uploads from a shell-sensitive local project path into the real remote worktree.
 - Successful visible Workspace Setup commands remain interactive in their remote terminal.
 - Remote Git status, restore, discard, push, and deletion operations.
-- Absolute and shell-sensitive configured base paths.
-- Canonical-path safety checks.
 - File downloads from the workspace and from a terminal's path, streamed past the SSH read buffer.
 
 `docker exec` is used only to seed the Git origin and inspect the test host.

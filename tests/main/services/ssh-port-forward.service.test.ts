@@ -275,7 +275,6 @@ describe('sshPortForwardService', () => {
       user: 'me',
       port: 2222,
       identityFile: '/home/me/.ssh/id_ed25519',
-      basePath: '~/.komla',
       forwardAgent: true,
       extraSshArgs: ['-J', 'bastion'],
     });
@@ -527,7 +526,6 @@ describe('sshPortForwardService', () => {
       name: 'Devbox',
       hostname: 'devbox.example.com',
       user: 'me',
-      basePath: '~/.komla',
       extraSshArgs,
     });
     const { sshPortForwardService } =
@@ -560,7 +558,6 @@ describe('sshPortForwardService', () => {
       id: 'ssh-devbox',
       name: 'Devbox',
       hostname: 'devbox.example.com',
-      basePath: '~/.komla',
       extraSshArgs: [
         '-n',
         '-f',
@@ -705,7 +702,6 @@ describe('sshPortForwardService', () => {
       hostname: 'devbox.example.com',
       user: 'me',
       port: 2222,
-      basePath: '~/.komla',
     }));
     const { sshPortForwardService } =
       await import('../../../src/main/services/ssh-port-forward.service');
@@ -754,7 +750,6 @@ describe('sshPortForwardService', () => {
       hostname: 'preview',
       user: 'me',
       port: 22,
-      basePath: '~/.komla',
     }));
     let probeCount = 0;
     mockExecFile.mockImplementation(
@@ -810,7 +805,6 @@ describe('sshPortForwardService', () => {
       name: hostId,
       hostname: 'devbox.example.com',
       user: 'me',
-      basePath: '~/.komla',
       extraSshArgs: [`-oPort=${hostId === 'ssh-devbox-1' ? 2201 : 2202}`],
     }));
     const { sshPortForwardService } =
@@ -860,7 +854,6 @@ describe('sshPortForwardService', () => {
       hostname: hostId === 'ssh-devbox-1' ? 'fe80::1%ETH0' : 'fe80::1%eth0',
       user: 'me',
       port: 22,
-      basePath: '~/.komla',
     }));
     mockExecFile.mockImplementation(
       (
@@ -915,7 +908,6 @@ describe('sshPortForwardService', () => {
       name: hostId,
       hostname: hostId === 'ssh-devbox-1' ? 'preview-one' : 'preview-two',
       user: 'me',
-      basePath: '~/.komla',
     }));
     mockExecFile.mockImplementation(
       (
@@ -978,7 +970,6 @@ describe('sshPortForwardService', () => {
       hostname: hostId === 'ssh-devbox-1' ? 'preview-one' : 'preview-two',
       user: 'me',
       port: 2222,
-      basePath: '~/.komla',
     }));
     let probeCount = 0;
     mockExecFile.mockImplementation(
@@ -1042,7 +1033,6 @@ describe('sshPortForwardService', () => {
         name: hostId,
         hostname: first ? 'preview-one' : 'preview-two',
         user: first ? 'alice' : 'bob',
-        basePath: '~/.komla',
         extraSshArgs: ['-oProxyCommand=route --alias %n --user %r'],
       };
     });
@@ -1420,7 +1410,6 @@ describe('sshPortForwardService', () => {
         name: 'Devbox',
         hostname: 'devbox-2.example.com',
         user: 'me',
-        basePath: '~/.komla',
       });
 
       await sshPortForwardService.startPreviewForward({
@@ -1467,7 +1456,6 @@ describe('sshPortForwardService', () => {
         name: 'Devbox',
         hostname: 'devbox.example.com',
         user: 'me',
-        basePath: '~/.komla',
         extraSshArgs: ['-o', 'ControlPath=~/.ssh/cm-%C'],
       });
 
@@ -1749,7 +1737,6 @@ describe('sshPortForwardService', () => {
       id: 'ssh-devbox',
       name: 'Devbox',
       hostname: 'devbox.example.com',
-      basePath: '~/.komla',
       portForwards: [
         { id: 'postgres', name: 'PostgreSQL', localPort: 5432, remotePort: 15432, enabled: true },
         { id: 'redis', name: 'Redis', localPort: 6379, remotePort: 16379, enabled: false },
@@ -1838,7 +1825,6 @@ describe('sshPortForwardService', () => {
       name: hostId,
       hostname: hostId === 'ssh-devbox-1' ? 'preview-one' : 'preview-two',
       user: 'me',
-      basePath: '~/.komla',
     }));
     mockExecFile
       .mockImplementationOnce(
@@ -1912,7 +1898,6 @@ describe('sshPortForwardService', () => {
       name: hostId,
       hostname: hostId === 'ssh-devbox-1' ? 'preview-one' : 'preview-two',
       user: 'me',
-      basePath: '~/.komla',
     }));
     mockExecFile
       .mockImplementationOnce(
@@ -1996,7 +1981,6 @@ describe('sshPortForwardService', () => {
       name: hostId,
       hostname: hostId === 'ssh-devbox-1' ? 'preview-one' : 'preview-two',
       user: 'me',
-      basePath: '~/.komla',
     }));
     const oldEndpoint = 'hostname old.internal\nport 22\naddressfamily any\n';
     const currentEndpoint = 'hostname current.internal\nport 22\naddressfamily any\n';
@@ -2077,7 +2061,6 @@ describe('sshPortForwardService', () => {
       user: 'me',
       port: 2222,
       identityFile: '/home/me/.ssh/id_ed25519',
-      basePath: '~/.komla',
       extraSshArgs: [
         '-o',
         'ClearAllForwardings=yes',
@@ -2176,7 +2159,6 @@ describe('sshPortForwardService', () => {
         id: 'ssh-devbox',
         name: 'Devbox',
         hostname: 'devbox.example.com',
-        basePath: '~/.komla',
         portForwards: [
           { id: 'postgres', name: 'PostgreSQL', localPort: 5432, remotePort: 15432, enabled: true },
         ],
@@ -2202,7 +2184,6 @@ describe('sshPortForwardService', () => {
       id: 'ssh-devbox',
       name: 'Devbox',
       hostname: 'devbox.example.com',
-      basePath: '~/.komla',
       portForwards: [
         {
           id: 'remote-api',
@@ -2248,7 +2229,6 @@ describe('sshPortForwardService', () => {
       id: 'ssh-devbox',
       name: 'Devbox',
       hostname: 'devbox.example.com',
-      basePath: '~/.komla',
       portForwards: [
         { id: 'postgres', name: 'PostgreSQL', localPort: 5432, remotePort: 15432, enabled: true },
       ],
@@ -2282,7 +2262,6 @@ describe('sshPortForwardService', () => {
       id: 'ssh-devbox',
       name: 'Devbox',
       hostname: 'devbox.example.com',
-      basePath: '~/.komla',
       portForwards: [
         { id: 'postgres', name: 'PostgreSQL', localPort: 5432, remotePort: 15432, enabled: true },
       ],
@@ -2333,7 +2312,6 @@ describe('sshPortForwardService', () => {
         id: 'ssh-devbox',
         name: 'Devbox',
         hostname: 'devbox.example.com',
-        basePath: '~/.komla',
       })
     ).toThrow('SSH port forward service is shutting down');
     expect(() => sshPortForwardService.ensureKomlaDataTunnel('ssh-devbox', 54183)).toThrow(
@@ -2351,7 +2329,6 @@ describe('sshPortForwardService', () => {
       id: 'ssh-devbox',
       name: 'Devbox',
       hostname: 'devbox.example.com',
-      basePath: '~/.komla',
       portForwards: [
         { id: 'postgres', name: 'PostgreSQL', localPort: 5432, remotePort: 15432, enabled: true },
       ],

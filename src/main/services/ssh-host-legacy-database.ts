@@ -9,7 +9,6 @@ interface LegacySshHostRow {
   user: string | null;
   port: number | null;
   identity_file: string | null;
-  base_path: string;
   forward_agent: number;
   isolated: number;
   extra_ssh_args_json: string | null;
@@ -57,7 +56,6 @@ export function readLegacySshHosts(databasePath: string): Record<string, unknown
       user: row.user,
       port: row.port,
       identityFile: row.identity_file,
-      basePath: row.base_path,
       forwardAgent: row.forward_agent === 1,
       isolated: row.isolated === 1,
       extraSshArgs: parseJsonColumn(row.extra_ssh_args_json),

@@ -357,7 +357,6 @@ describe('DashboardRow', () => {
         name: 'Devbox',
         hostname: 'devbox.example.com',
         user: 'developer',
-        basePath: '/home/developer',
       },
     });
 

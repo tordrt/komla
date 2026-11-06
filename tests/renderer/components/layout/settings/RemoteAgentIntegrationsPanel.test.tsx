@@ -44,7 +44,6 @@ const host: SshHost = {
   id: 'ssh-dev',
   name: 'Devbox',
   hostname: 'dev.example.com',
-  basePath: '~/.komla',
 };
 
 const emptyStatus: SshIntegrationStatus = {

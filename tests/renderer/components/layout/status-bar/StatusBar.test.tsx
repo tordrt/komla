@@ -1701,6 +1701,49 @@ describe('StatusBar', () => {
     });
 
     it.each([
+      ['claude-code', 'Claude Code', 'claude.ai', 'https://claude.ai/settings/usage'],
+      ['codex', 'Codex', 'chatgpt.com', 'https://chatgpt.com/codex/settings/usage'],
+    ] as const)(
+      "links %s's popover to its provider's usage page",
+      async (source, name, site, url) => {
+        mockState.config = { statusBarShownItems: [`${source}-usage`] };
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        const openExternal = vi.fn(() => Promise.resolve());
+        mockUsage({ [source]: reading({ source }) }, { openExternal });
+
+        renderStatusBar();
+
+        await user.click(await screen.findByRole('button', { name: new RegExp(`^${name} usage`) }));
+        await user.click(
+          within(screen.getByRole('dialog')).getByRole('button', {
+            name: `Open usage on ${site}`,
+          })
+        );
+        expect(openExternal).toHaveBeenCalledWith(url);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      }
+    );
+
+    it('says so when the usage page does not open', async () => {
+      mockState.config = { statusBarShownItems: ['claude-code-usage'] };
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const openExternal = vi.fn(() => Promise.reject(new Error('No browser to open it in')));
+      mockUsage({ 'claude-code': reading() }, { openExternal });
+
+      renderStatusBar();
+
+      await user.click(await screen.findByRole('button', { name: /^Claude Code usage/ }));
+      await user.click(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Open usage on claude.ai' })
+      );
+      await vi.waitFor(() =>
+        expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+          "Couldn't open https://claude.ai/settings/usage: No browser to open it in"
+        )
+      );
+    });
+
+    it.each([
       ['the five-hour limit reaches 85%', 85, 47, undefined, '85% 5h·47% 7d'],
       ['the five-hour limit is below 85%', 84, 91.4, undefined, '91% 7d'],
       ['the user picked the weekly limit', 95, 47, 'weekly', '47% 7d'],

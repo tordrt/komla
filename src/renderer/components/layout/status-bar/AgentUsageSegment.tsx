@@ -1,4 +1,4 @@
-import { ArrowClockwise, CaretDown } from '@phosphor-icons/react';
+import { ArrowClockwise, ArrowSquareOut, CaretDown } from '@phosphor-icons/react';
 import { useEffect, useId, useState } from 'react';
 
 import { AgentPresetIcon } from '@/components/terminal/AgentPresetIcon';
@@ -10,10 +10,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { IconButton } from '@/components/ui/icon-button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
+import { ipcErrorMessage } from '@/lib/ipc-error-message';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
+import { useToastStore } from '@/stores/toast.store';
 
 import {
   AGENT_USAGE_POLL_INTERVAL_MS,
@@ -32,6 +34,12 @@ import type { AppConfig } from '@/types';
 const AGENT_NAMES: Record<AgentUsageSource, string> = {
   'claude-code': 'Claude Code',
   codex: 'Codex',
+};
+
+/** Where each provider shows the signed-in account's usage on the web. */
+const USAGE_PAGES: Record<AgentUsageSource, { site: string; url: string }> = {
+  'claude-code': { site: 'claude.ai', url: 'https://claude.ai/settings/usage' },
+  codex: { site: 'chatgpt.com', url: 'https://chatgpt.com/codex/settings/usage' },
 };
 
 const MINUTE = 60_000;
@@ -270,6 +278,12 @@ function ResetTimeToggle() {
   );
 }
 
+function openUsagePage(url: string): void {
+  window.api.openExternal(url).catch((error: unknown) => {
+    useToastStore.getState().addToast(`Couldn't open ${url}: ${ipcErrorMessage(error)}`, 'error');
+  });
+}
+
 function UsagePopover({
   name,
   reading,
@@ -290,17 +304,28 @@ function UsagePopover({
   const problem = problemText(reading, name, now);
   const plan = reading.plan && `${reading.plan[0].toUpperCase()}${reading.plan.slice(1)} plan`;
   const detail = [plan, reading.account].filter(Boolean).join(' · ');
+  const usagePage = USAGE_PAGES[reading.source];
 
   return (
     <>
       <div className="flex items-center gap-1.5 border-b border-foreground/10 px-3 py-1.5 font-status">
         <AgentPresetIcon preset={{ name }} className="size-3.5 shrink-0" />
         <h2 className="truncate text-[13px] font-semibold">{name} usage</h2>
+        <PopoverClose asChild>
+          <IconButton
+            label={`Open usage on ${usagePage.site}`}
+            size="xs"
+            variant="ghost"
+            className="ml-auto"
+            onClick={() => openUsagePage(usagePage.url)}
+          >
+            <ArrowSquareOut />
+          </IconButton>
+        </PopoverClose>
         <IconButton
           label="Refresh"
           size="xs"
           variant="ghost"
-          className="ml-auto"
           disabled={refreshing || retryWait(reading, now) > 0}
           onClick={refresh}
         >

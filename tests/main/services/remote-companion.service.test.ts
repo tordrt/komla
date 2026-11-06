@@ -573,6 +573,7 @@ describe('RemoteCompanionService', () => {
           '#!/bin/sh',
           `state=${JSON.stringify(tmuxState)}`,
           'shift 2',
+          'if [ "$1" = -f ]; then printf "%s" "$2" > "$state/config-file"; shift 2; fi',
           'case "$1" in',
           '  has-session) [ -e "$state/session" ] ;;',
           '  new-session) touch "$state/session"; echo new-session >> "$state/log" ;;',
@@ -622,6 +623,8 @@ describe('RemoteCompanionService', () => {
         await start([workspace('a'), workspace('b')]);
 
         expect(lifecycle()).toEqual(['new-session']);
+        // The companion's tmux server must not run the user's ~/.tmux.conf or its plugins.
+        expect(readFileSync(join(tmuxState, 'config-file'), 'utf8')).toBe('/dev/null');
         const reloadedConfig = readFileSync(pointer, 'utf8').trim();
         expect(reloadedConfig).not.toBe(firstConfig);
         expect(JSON.parse(readFileSync(reloadedConfig, 'utf8')).workspaces).toEqual([

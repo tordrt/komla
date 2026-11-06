@@ -368,7 +368,9 @@ export class RemoteCompanionService {
           '  fi',
           'fi',
           'if ! tmux -L "$tmux_socket" has-session -t "=$session" 2>/dev/null; then',
-          '  tmux -L "$tmux_socket" new-session -d -s "$session" "$start_command"',
+          // Like the terminals' server, this one never reads ~/.tmux.conf, so its plugins
+          // and hooks don't run in a server the user can't see.
+          '  tmux -L "$tmux_socket" -f /dev/null new-session -d -s "$session" "$start_command"',
           'fi',
           'tmux -L "$tmux_socket" set-option -t "$session" @komla_config_hash "$config_hash"',
           'tmux -L "$tmux_socket" set-option -t "$session" @komla_runtime_hash "$runtime_hash"',

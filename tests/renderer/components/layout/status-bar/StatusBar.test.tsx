@@ -1293,6 +1293,36 @@ describe('StatusBar', () => {
       expect(window.api.checkSshHost).toHaveBeenCalledWith('gpu');
     });
 
+    it('disconnects from a host and connects again, leaving what it last saw aside', async () => {
+      const setSshHostConnected = vi.fn(() => Promise.resolve());
+      useSshHostsStore.setState({ hosts: [devbox, gpu] });
+      mockApi({ getSshHostStatuses: vi.fn(() => Promise.resolve(statuses)), setSshHostConnected });
+      mockState.config = { disconnectedSshHostIds: ['gpu'] };
+      renderStatusBar();
+
+      // An unreachable host the user disconnected from is no longer reported unreachable.
+      const button = await screen.findByRole('button', {
+        name: 'SSH hosts: 1 connected, 1 disconnected',
+      });
+      fireEvent.click(button);
+      expect(
+        screen.getByText('Disconnected. Its tmux sessions keep running there.')
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Check gpu-box' })).not.toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Connect to gpu-box' }));
+      });
+      expect(setSshHostConnected).toHaveBeenCalledWith('gpu', true);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Disconnect from devbox' }));
+      });
+      expect(setSshHostConnected).toHaveBeenCalledWith('devbox', false);
+      // Its tunnels closed, so the forwarded ports listed are read again.
+      expect(window.api.listSshForwardedPorts).toHaveBeenCalledTimes(3);
+    });
+
     it('lists what runs on each host, with its agents, and opens a workspace', async () => {
       const user = userEvent.setup();
       const selectWorkspace = vi.fn(() => Promise.resolve());

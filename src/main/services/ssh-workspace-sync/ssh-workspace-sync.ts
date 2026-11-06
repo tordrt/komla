@@ -95,6 +95,11 @@ export interface SshWorkspaceSyncHost {
   hasHost: (hostId: string) => boolean;
   /** The SSH hosts configured here whose setup has finished. */
   readyHosts: () => string[];
+  /**
+   * The user disconnected from the host: nothing is read or written there until they connect
+   * again, whose sync publishes what changed meanwhile.
+   */
+  disconnected: (hostId: string) => boolean;
   /** The host's Komla data directory, which holds its repositories and worktrees. */
   basePath: (hostId: string) => Promise<string>;
 }
@@ -266,11 +271,16 @@ export class SshWorkspaceSync {
     if (hostId === undefined) {
       const hostIds = this.dependencies.host
         .readyHosts()
-        .filter((candidate) => this.dependencies.syncsWith(candidate));
+        .filter(
+          (candidate) =>
+            this.dependencies.syncsWith(candidate) &&
+            !this.dependencies.host.disconnected(candidate)
+        );
       return Promise.all(hostIds.map((candidate) => this.syncSoon(candidate, { now }))).then(
         () => undefined
       );
     }
+    if (this.dependencies.host.disconnected(hostId)) return Promise.resolve();
     const minIntervalMs = now ? 0 : SYNC_INTERVAL_MS;
     const previous = this.hostSyncs.get(hostId);
     if (previous?.running) {
@@ -317,6 +327,7 @@ export class SshWorkspaceSync {
    */
   expectWorkspace(hostId: string): void {
     if (this.disposed || this.expecting.has(hostId)) return;
+    if (this.dependencies.host.disconnected(hostId)) return;
     void this.syncSoon(hostId, { now: true });
     const timer = setTimeout(() => {
       this.expecting.delete(hostId);
@@ -376,6 +387,8 @@ export class SshWorkspaceSync {
       const manifest = this.build(workspace, this.dependencies.now());
       const { backend } = workspace;
       if (!manifest || backend?.kind !== 'ssh') continue;
+      // Left unpublished, so the sync after connecting again writes it.
+      if (this.dependencies.host.disconnected(backend.hostId)) continue;
       const key = sshWorkspaceManifestContentKey(manifest);
       if (this.published.get(workspace.id) === key) continue;
       this.published.set(workspace.id, key);

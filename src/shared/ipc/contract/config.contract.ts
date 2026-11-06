@@ -2,6 +2,7 @@ import { IPC } from '../../constants/ipc-channels';
 import {
   configUpdateArgsSchema,
   sshCheckHostArgsSchema,
+  sshSetHostConnectedArgsSchema,
   sshSaveHostArgsSchema,
   configSaveOpenRouterApiKeyArgsSchema,
   configVerifySshHostArgsSchema,
@@ -42,6 +43,7 @@ export const configContract = {
   [IPC.SSH_LIST_CONFIG_HOSTS]: invoke().returns<SshConfigHost[]>(),
   [IPC.SSH_HOST_STATUSES_GET]: invoke().returns<SshHostStatus[]>(),
   [IPC.SSH_HOST_CHECK]: invoke(sshCheckHostArgsSchema).returns<SshHostStatus | undefined>(),
+  [IPC.SSH_HOST_SET_CONNECTED]: invoke(sshSetHostConnectedArgsSchema).returns<void>(),
   [IPC.SSH_SAVE_HOST]: invoke(sshSaveHostArgsSchema).returns<SshHost>(),
   [IPC.CONFIG_SAVE_OPENROUTER_API_KEY]: invoke(
     configSaveOpenRouterApiKeyArgsSchema

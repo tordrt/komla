@@ -13,6 +13,7 @@ import { notesService } from '../notes.service';
 import { projectService } from '../project.service';
 import { ptyService } from '../pty.service';
 import { remoteWorkspaceObservationService } from '../remote-workspace-observation.service';
+import { markSshHostDisconnected } from '../ssh-host-disconnection';
 import { sshHostService } from '../ssh-host.service';
 import { sshPortForwardService } from '../ssh-port-forward.service';
 import { sshWorkspaceProvisioningService } from '../ssh-workspace-provisioning.service';
@@ -475,6 +476,13 @@ export class WorkspaceLifecycle {
         workspaceSyncDisabledHostIds: syncDisabledHostIds.filter((id) => id !== hostId),
       });
     }
+    const disconnectedHostIds = configService.get().disconnectedSshHostIds;
+    if (disconnectedHostIds?.includes(hostId)) {
+      configService.update({
+        disconnectedSshHostIds: disconnectedHostIds.filter((id) => id !== hostId),
+      });
+    }
+    markSshHostDisconnected(hostId, false);
     sshWorkspaceService.forgetHost(hostId);
     sshHostService.delete(hostId);
     // Only now: a sync reading the host meanwhile could add them back. Adding the host back does.

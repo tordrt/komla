@@ -28,6 +28,7 @@ import {
   setFilePaneDraft,
 } from '../../../src/renderer/lib/pane-surfaces';
 import { PINNED_GROUP_KEY } from '../../../src/renderer/lib/sidebar-collapsed-groups';
+import { useConfigStore } from '../../../src/renderer/stores/config.store';
 import { useFileListStore } from '../../../src/renderer/stores/file-list.store';
 import { usePaneSurfacesStore } from '../../../src/renderer/stores/pane-surfaces.store';
 import { useDevServerPreviewStore } from '../../../src/renderer/stores/dev-server-preview.store';
@@ -2283,6 +2284,41 @@ describe('workspaces.store', () => {
       }
 
       expect(api.reconnectSshTerminal).not.toHaveBeenCalled();
+    });
+
+    it('leaves a workspace on a host the user disconnected from alone until they connect', async () => {
+      const shown = sshWorkspace('ssh-away');
+      const api = createApiMock({ getWorkspaces: vi.fn().mockResolvedValue([shown]) });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({
+        workspaces: [shown],
+        selectedWorkspaceId: shown.id,
+        showDashboard: false,
+      });
+      const config = useConfigStore.getState().config;
+      useConfigStore.setState({
+        config: { ...config, disconnectedSshHostIds: ['ssh-dev'] } as typeof config,
+      });
+
+      try {
+        await useWorkspacesStore.getState().reconnectAfterNetworkReturns();
+        await useWorkspacesStore.getState().selectWorkspace(shown.id);
+        expect(api.reconnectSshTerminal).not.toHaveBeenCalled();
+        expect(api.recoverSshSessions).not.toHaveBeenCalled();
+        expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe(shown.id);
+
+        // Connecting reconnects the workspace on screen, though the config may not say so yet.
+        await useWorkspacesStore.getState().reconnectSelectedOnHost('other-host');
+        expect(api.reconnectSshTerminal).not.toHaveBeenCalled();
+        await useWorkspacesStore.getState().reconnectSelectedOnHost('ssh-dev');
+        expect(api.reconnectSshTerminal).toHaveBeenCalledWith(
+          'ssh-away-term',
+          undefined,
+          undefined
+        );
+      } finally {
+        useConfigStore.setState({ config });
+      }
     });
 
     it('leaves workspaces alone while the overview is open', async () => {

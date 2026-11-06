@@ -13,6 +13,7 @@ import { buildKeptPathsCommand, keptPathRules, parseKeptPaths } from './local-co
 import { collectGitignoreProtectRules } from './local-copy-protect';
 import { syncWithSupportedOptions } from './local-copy-rsync';
 import { getKomlaBasePath } from './paths';
+import { isSshHostDisconnected } from './ssh-host-disconnection';
 import { sshWorkspaceService } from './ssh-workspace.service';
 
 import type { SshWorkspaceBackend } from '../../shared/types';
@@ -211,6 +212,11 @@ class LocalCopyService {
     backend: SshWorkspaceBackend,
     reason: SyncReason = 'remote-change'
   ): void {
+    if (isSshHostDisconnected(backend.hostId)) {
+      // Not current any more: the first refresh after connecting again syncs it.
+      this.syncedWorkspaceIds.delete(workspaceId);
+      return;
+    }
     if (this.syncs.has(workspaceId)) {
       traceSync('local copy sync requested', {
         workspaceId,

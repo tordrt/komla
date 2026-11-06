@@ -1,6 +1,7 @@
 import { posix as pathPosix } from 'path';
 
 import { shellQuotePosix } from '../../../shared/lib/shell-quote';
+import { isSshHostDisconnected } from '../ssh-host-disconnection';
 import { sshHostService } from '../ssh-host.service';
 import { joinRemote, sshWorkspaceService } from '../ssh-workspace.service';
 
@@ -156,6 +157,10 @@ export const sshWorkspaceSyncHost = {
 
   hasHost(hostId: string): boolean {
     return sshWorkspaceService.hasHost(hostId);
+  },
+
+  disconnected(hostId: string): boolean {
+    return isSshHostDisconnected(hostId);
   },
 
   readyHosts(): string[] {

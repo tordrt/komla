@@ -24,6 +24,11 @@ const backend: SshWorkspaceBackend = {
   gitUrl: 'git@example.com:repo.git',
 };
 
+interface Settle {
+  resolve: (ids: Set<string>) => void;
+  reject: (error: Error) => void;
+}
+
 function createHarness() {
   const terminal: Terminal = {
     id: 'term-1',
@@ -48,6 +53,8 @@ function createHarness() {
     },
     session: {
       hasHost: vi.fn(() => true),
+      isDisconnected: vi.fn(() => false),
+      assertConnected: vi.fn(),
       supportsPersistence: vi.fn(() => Promise.resolve(true)),
       observe: vi.fn(() => Promise.resolve(new Set<string>())),
       stopAndConfirmAbsent: vi.fn(() => Promise.resolve()),
@@ -716,5 +723,155 @@ describe('ManagedRemoteTerminalLifecycleService', () => {
     });
     expect(harness.terminal.status).toBe('stopped');
     expect(harness.terminal.remoteSessionActive).toBe(true);
+  });
+
+  it('detaches an attached Terminal and leaves its session running for a reconnect', () => {
+    const harness = createHarness();
+    harness.terminal.status = 'running';
+    harness.terminal.remoteSessionResumable = true;
+
+    harness.lifecycle.detach({ workspaceId: 'ws-1' });
+
+    expect(harness.adapters.attachment.stop).toHaveBeenCalledWith('term-1');
+    expect(harness.adapters.session.stopAndConfirmAbsent).not.toHaveBeenCalled();
+    expect(harness.adapters.session.observe).not.toHaveBeenCalled();
+    expect(harness.terminal).toMatchObject({
+      status: 'stopped',
+      remoteSessionActive: true,
+      remoteSessionResumable: true,
+    });
+    expect(harness.adapters.workspace.reconcileObservation).toHaveBeenCalled();
+  });
+
+  it('leaves a Terminal that is not attached as it was when detaching', () => {
+    const harness = createHarness();
+    harness.terminal.remoteSessionResumable = true;
+    harness.terminal.remoteSessionActive = false;
+
+    harness.lifecycle.detach({ workspaceId: 'ws-1' });
+
+    expect(harness.adapters.attachment.stop).not.toHaveBeenCalled();
+    expect(harness.terminal.remoteSessionActive).toBe(false);
+  });
+
+  it('does not check the host for a session whose attachment closed while disconnected', async () => {
+    const harness = createHarness();
+    harness.terminal.status = 'running';
+    harness.terminal.remoteSessionResumable = true;
+    harness.adapters.session.isDisconnected = vi.fn(() => true);
+
+    await harness.lifecycle.attachmentExited('term-1');
+
+    expect(harness.adapters.session.observe).not.toHaveBeenCalled();
+    expect(harness.terminal).toMatchObject({ status: 'stopped', remoteSessionActive: true });
+  });
+
+  it.each([
+    ['a session', true],
+    ['a session attached before Komla learned whether the host keeps it', undefined],
+  ])(
+    'keeps %s as last seen running when disconnecting closes its attachment',
+    async (_name, resumable) => {
+      const harness = createHarness();
+      harness.terminal.status = 'running';
+      harness.terminal.remoteSessionResumable = resumable;
+      harness.lifecycle.detach({ workspaceId: 'ws-1' });
+      harness.adapters.session.isDisconnected = vi.fn(() => true);
+
+      // As the closed attachment reports it: stopped, then exited.
+      harness.lifecycle.attachmentStatusChanged('term-1', 'stopped');
+      await harness.lifecycle.attachmentExited('term-1');
+
+      expect(harness.lifecycle.state('term-1').remoteSession).toEqual({
+        kind: 'unknown',
+        lastObserved: 'present',
+      });
+      expect(harness.terminal).toMatchObject({ status: 'stopped', remoteSessionActive: true });
+      expect(harness.adapters.session.observe).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not take a launch that never reached its session for running when disconnecting stops it', () => {
+    const harness = createHarness();
+    harness.lifecycle.create({
+      workspaceId: 'ws-1',
+      terminalId: 'term-1',
+      command: null,
+      keepShellOpenAfterCommand: false,
+    });
+    harness.lifecycle.detach({ workspaceId: 'ws-1' });
+    harness.adapters.session.isDisconnected = vi.fn(() => true);
+
+    harness.lifecycle.attachmentStatusChanged('term-1', 'stopped');
+
+    expect(harness.terminal.remoteSessionActive).not.toBe(true);
+  });
+
+  it.each([
+    ['answers', (settle: Settle) => settle.resolve(new Set())],
+    ['is refused', (settle: Settle) => settle.reject(new Error('Disconnected from dev'))],
+  ])(
+    'attaches nothing when the user disconnects while a retry checks the host, which %s',
+    async (_name, settleCheck) => {
+      const harness = createHarness();
+      harness.terminal.remoteSessionResumable = true;
+      let settle!: Settle;
+      harness.adapters.session.observe = vi.fn(
+        () => new Promise<Set<string>>((resolve, reject) => (settle = { resolve, reject }))
+      );
+
+      const replacing = harness.lifecycle.replace({
+        terminalId: 'term-1',
+        command: null,
+        keepShellOpenAfterCommand: false,
+      });
+      await vi.waitFor(() => expect(harness.adapters.session.observe).toHaveBeenCalled());
+      harness.lifecycle.detach({ workspaceId: 'ws-1' });
+      harness.adapters.session.assertConnected = vi.fn(() => {
+        throw new Error('Disconnected from dev');
+      });
+      settleCheck(settle);
+
+      // Says so plainly, not as a failed check.
+      await expect(replacing).rejects.toThrow(/^Disconnected from dev$/);
+      expect(harness.adapters.attachment.replace).not.toHaveBeenCalled();
+      expect(harness.adapters.attachment.spawn).not.toHaveBeenCalled();
+    }
+  );
+
+  it('refuses to attach to a host the user disconnected from, keeping what it last saw', async () => {
+    const harness = createHarness();
+    harness.terminal.remoteSessionResumable = true;
+    harness.terminal.remoteSessionActive = true;
+    harness.adapters.session.assertConnected = vi.fn(() => {
+      throw new Error('Disconnected from dev');
+    });
+
+    expect(() =>
+      harness.lifecycle.reconnect({
+        terminalId: 'term-1',
+        command: null,
+        keepShellOpenAfterCommand: false,
+      })
+    ).toThrow('Disconnected from dev');
+    await expect(
+      harness.lifecycle.replace({
+        terminalId: 'term-1',
+        command: null,
+        keepShellOpenAfterCommand: false,
+      })
+    ).rejects.toThrow('Disconnected from dev');
+    expect(() =>
+      harness.lifecycle.create({
+        workspaceId: 'ws-1',
+        terminalId: 'term-1',
+        command: null,
+        keepShellOpenAfterCommand: false,
+      })
+    ).toThrow('Disconnected from dev');
+
+    expect(harness.adapters.attachment.replace).not.toHaveBeenCalled();
+    expect(harness.adapters.attachment.spawn).not.toHaveBeenCalled();
+    expect(harness.terminal).toMatchObject({ status: 'stopped', remoteSessionActive: true });
   });
 });

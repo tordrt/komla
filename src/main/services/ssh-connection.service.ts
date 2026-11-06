@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'child_process';
-import { createReadStream } from 'fs';
+import { createReadStream, existsSync } from 'fs';
 import { Readable } from 'stream';
 import { promisify } from 'util';
 
@@ -7,6 +7,7 @@ import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import { createLogger } from '../lib/logger';
 import { applySshAskpassEnv, buildSshEnv, needsSshPrompt, sshTarget } from '../lib/ssh-client';
 import { sshConnectionFailure } from '../lib/ssh-connection-failure';
+import { SSH_TERMINAL_POOL_INDICES } from '../lib/terminal-control';
 
 import { askpassService } from './askpass.service';
 import { ExecChannelUnavailableError, SshExecChannels } from './ssh-connection/exec-channel';
@@ -19,6 +20,12 @@ import {
   sshOptionArgs,
 } from './ssh-connection/policy';
 import { SshTerminalPool } from './ssh-connection/terminal-pool';
+import {
+  assertSshHostConnected,
+  isSshHostDisconnected,
+  SshHostDisconnectedError,
+  sshHostDisconnects,
+} from './ssh-host-disconnection';
 import { isSshTimeout, sshHostStatusService } from './ssh-host-status.service';
 
 import type { SshHost, SshHostStatus } from '../../shared/types';
@@ -129,6 +136,7 @@ class SshConnectionService {
 
   /** Whether Komla already holds a background connection to `host`. Never logs in. */
   async hasOpenConnection(host: SshHost): Promise<boolean> {
+    if (isSshHostDisconnected(host.id)) return false;
     const controlPath = sshControlPath(host, BACKGROUND_PURPOSE);
     if (!controlPath) return false;
     try {
@@ -147,6 +155,7 @@ class SshConnectionService {
   }
 
   getRsyncTransport(host: SshHost): SshRsyncTransport {
+    assertSshHostConnected(host);
     const args = sshOptionArgs(host);
     const controlPath = sshControlPath(host, BACKGROUND_PURPOSE);
     if (controlPath) {
@@ -164,6 +173,7 @@ class SshConnectionService {
     remoteCommand: string,
     timeoutOrOptions: number | SshRunOptions = SSH_TIMEOUT_MS
   ): Promise<string> {
+    assertSshHostConnected(host);
     const options =
       typeof timeoutOrOptions === 'number'
         ? { timeout: timeoutOrOptions, purpose: BACKGROUND_PURPOSE }
@@ -185,12 +195,13 @@ class SshConnectionService {
     }
   }
 
-  runStreaming(
+  async runStreaming(
     host: SshHost,
     remoteCommand: string,
     options: SshStreamingRunOptions = {}
   ): Promise<number> {
-    return this.tracked(host, this.runStreamingWithRetry(host, remoteCommand, options));
+    assertSshHostConnected(host);
+    return await this.tracked(host, this.runStreamingWithRetry(host, remoteCommand, options));
   }
 
   private async runStreamingWithRetry(
@@ -229,19 +240,21 @@ class SshConnectionService {
     sourcePath: string,
     options: SshInputRunOptions = {}
   ): Promise<string> {
+    assertSshHostConnected(host);
     return await this.tracked(
       host,
       this.runWithInputSource(host, remoteCommand, () => createReadStream(sourcePath), options)
     );
   }
 
-  runWithInput(
+  async runWithInput(
     host: SshHost,
     remoteCommand: string,
     input: string,
     options: SshInputRunOptions = {}
   ): Promise<string> {
-    return this.tracked(host, this.runWithStringInput(host, remoteCommand, input, options));
+    assertSshHostConnected(host);
+    return await this.tracked(host, this.runWithStringInput(host, remoteCommand, input, options));
   }
 
   private async runWithStringInput(
@@ -325,6 +338,7 @@ class SshConnectionService {
    * from the local shell, which decides the agent it forwards.
    */
   warmConnections(host: SshHost): void {
+    if (isSshHostDisconnected(host.id)) return;
     void Promise.resolve()
       .then(() => {
         this.warmConnection(host, INTERACTIVE_PURPOSE);
@@ -452,11 +466,16 @@ class SshConnectionService {
    * learns nothing about the host from needing one.
    */
   private async tracked<T>(host: SshHost, run: Promise<T>, prompt = true): Promise<T> {
+    const disconnects = sshHostDisconnects(host.id);
     try {
       const result = await run;
       sshHostStatusService.reached(host.id);
       return result;
     } catch (error) {
+      // Refused here, or cut off by a disconnect: either says nothing about the host.
+      if (isSshHostDisconnected(host.id) || sshHostDisconnects(host.id) !== disconnects) {
+        throw new SshHostDisconnectedError(host);
+      }
       showSshFailureInMessage(host, error);
       if (!prompt && needsSshPrompt(error)) throw error;
       // A slow command and a host that doesn't answer both time out; a quick command tells them
@@ -469,9 +488,12 @@ class SshConnectionService {
 
   /** Runs a quick command on the host to learn whether it answers, for the status bar. */
   checkHost(host: SshHost): Promise<SshHostStatus | undefined> {
+    // What Komla last saw stays: the user asked it to leave the host alone.
+    if (isSshHostDisconnected(host.id)) return Promise.resolve(sshHostStatusService.get(host.id));
     const pending = this.hostChecks.get(host.id);
     if (pending) return pending;
     const check = (async () => {
+      const disconnects = sshHostDisconnects(host.id);
       try {
         const release = await this.acquireRunSlot(host, INTERACTIVE_PURPOSE);
         try {
@@ -481,7 +503,9 @@ class SshConnectionService {
           release();
         }
       } catch (error) {
-        sshHostStatusService.failed(host.id, error);
+        const cutOff =
+          isSshHostDisconnected(host.id) || sshHostDisconnects(host.id) !== disconnects;
+        if (!cutOff) sshHostStatusService.failed(host.id, error);
       }
       return sshHostStatusService.get(host.id);
     })().finally(() => this.hostChecks.delete(host.id));
@@ -557,7 +581,7 @@ class SshConnectionService {
     }
 
     let released = false;
-    return () => {
+    const release = () => {
       if (released) return;
       released = true;
       slots.active -= 1;
@@ -584,6 +608,12 @@ class SshConnectionService {
         this.runSlots.delete(connectionKey);
       }
     };
+    // The user may have disconnected from the host while this waited.
+    if (isSshHostDisconnected(host.id)) {
+      release();
+      assertSshHostConnected(host);
+    }
+    return release;
   }
 
   /**
@@ -596,6 +626,35 @@ class SshConnectionService {
 
   forgetExecChannel(hostId: string): void {
     this.execChannels.forget(hostId);
+  }
+
+  /**
+   * Closes the connections Komla keeps open to the host between commands: its SSH Exec Channels
+   * and the shared connections of every lane, which would otherwise linger for minutes. Asks only
+   * the local ssh processes holding them; `workspaceIds` names the workspaces whose streaming
+   * commands have lanes of their own.
+   */
+  async closeConnections(host: SshHost, workspaceIds: readonly string[] = []): Promise<void> {
+    this.execChannels.forget(host.id);
+    const purposes: SshConnectionPurpose[] = [
+      BACKGROUND_PURPOSE,
+      INTERACTIVE_PURPOSE,
+      ...SSH_TERMINAL_POOL_INDICES.map((poolIndex) => ({ kind: 'terminal' as const, poolIndex })),
+      ...workspaceIds.map((workspaceId) => ({ kind: 'workspace-stream' as const, workspaceId })),
+    ];
+    const controlPaths = purposes
+      .map((purpose) => sshControlPath(host, purpose))
+      .filter((path): path is string => path !== undefined && existsSync(path));
+    await Promise.all(
+      controlPaths.map((controlPath) =>
+        execFileAsync('ssh', ['-o', `ControlPath=${controlPath}`, '-O', 'exit', sshTarget(host)], {
+          timeout: 5_000,
+          env: buildSshEnv(askpassService),
+        }).catch((error: unknown) =>
+          logger.debug('Could not close a shared SSH connection', { hostId: host.id, error })
+        )
+      )
+    );
   }
 
   /**

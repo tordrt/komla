@@ -608,6 +608,12 @@ const api = {
   /** Runs a quick command on the host to learn whether it answers. */
   checkSshHost: (hostId: string): Promise<SshHostStatus | undefined> =>
     ipcRenderer.invoke(IPC.SSH_HOST_CHECK, hostId),
+  /**
+   * Disconnects from the host, so Komla leaves it alone, or connects to it again. Disconnecting
+   * detaches its terminals and leaves their tmux sessions running.
+   */
+  setSshHostConnected: (hostId: string, connected: boolean): Promise<void> =>
+    ipcRenderer.invoke(IPC.SSH_HOST_SET_CONNECTED, hostId, connected),
   onSshHostStatusesChange: (callback: (statuses: SshHostStatus[]) => void): (() => void) => {
     const handler = (_: Electron.IpcRendererEvent, statuses: SshHostStatus[]): void => {
       callback(statuses);

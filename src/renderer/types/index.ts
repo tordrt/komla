@@ -193,6 +193,8 @@ export interface AppConfig {
   hiddenWorkspaceTags?: string[]; // Tags (lowercased) whose workspaces sit on the sidebar's Filtered shelf
   tagsFromPullRequests?: boolean; // Tag pushed worktrees from their GitHub pull requests, read with gh
   workspaceSyncDisabledHostIds?: string[];
+  /** Set through `setSshHostConnected`, which also closes or opens what Komla keeps on the host. */
+  disconnectedSshHostIds?: string[];
   dashboardHiddenWorkspaceHostIds?: string[];
   remoteBranchesExpanded?: boolean;
   diffHideUnchangedRegions?: boolean; // Collapse unchanged regions in diff viewer

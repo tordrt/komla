@@ -46,6 +46,10 @@ export interface ManagedRemoteTerminalWorkspaceAdapter {
 
 export interface ManagedRemoteSessionAdapter {
   hasHost(backend: SshWorkspaceBackend): boolean;
+  /** The user disconnected from the host, so nothing may reach it. */
+  isDisconnected(backend: SshWorkspaceBackend): boolean;
+  /** Throws when the user disconnected from the host. */
+  assertConnected(backend: SshWorkspaceBackend): void;
   supportsPersistence(backend: SshWorkspaceBackend): Promise<boolean>;
   observe(backend: SshWorkspaceBackend, terminalIds: string[]): Promise<Set<string>>;
   stopAndConfirmAbsent(backend: SshWorkspaceBackend, terminalIds: string[]): Promise<void>;

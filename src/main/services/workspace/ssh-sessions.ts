@@ -14,6 +14,7 @@ import {
 } from '../managed-remote-terminal-lifecycle.service';
 import { publishRemoteWorkspaceChange } from '../remote-workspace-events';
 import { remoteWorkspaceObservationService } from '../remote-workspace-observation.service';
+import { isSshHostDisconnected } from '../ssh-host-disconnection';
 import { normalizePersistedTerminalLayout } from '../ssh-workspace-sync/terminal-layout';
 import { sshWorkspaceService } from '../ssh-workspace.service';
 
@@ -169,6 +170,8 @@ export class SshSessionRecovery {
       return workspace;
     }
     if (workspace.status !== 'active') return workspace;
+    // What it last saw stays until the user connects again.
+    if (isSshHostDisconnected(workspace.backend.hostId)) return workspace;
 
     const recovery = await managedRemoteTerminalLifecycleService
       .recover(workspaceId)

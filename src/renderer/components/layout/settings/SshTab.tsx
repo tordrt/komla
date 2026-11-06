@@ -36,6 +36,7 @@ import {
   sshHostIdFromTarget,
   type IntegrationTarget,
 } from '@/lib/integration-target';
+import { useSshHostDisconnected } from '@/lib/ssh-host-disconnected';
 import { cn } from '@/lib/utils';
 import { formatSshTarget } from '@/lib/workspace-host';
 import { useConfigStore } from '@/stores/config.store';
@@ -437,6 +438,7 @@ function HostRow({
   onEdit,
   onDelete,
 }: HostRowProps) {
+  const disconnected = useSshHostDisconnected(host.id);
   return (
     <div className="space-y-3 py-3!">
       <div className="flex items-center gap-3">
@@ -452,11 +454,11 @@ function HostRow({
             <span
               className={cn(
                 'flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground',
-                status?.state === 'unreachable' && 'text-error'
+                status?.state === 'unreachable' && !disconnected && 'text-error'
               )}
             >
-              <SshHostStatusDot status={status} />
-              {sshHostStateLabel(status)}
+              <SshHostStatusDot status={status} disconnected={disconnected} />
+              {sshHostStateLabel(status, disconnected)}
             </span>
           </div>
           <div className="truncate text-xs text-muted-foreground">

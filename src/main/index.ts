@@ -87,6 +87,7 @@ import { settingsHistoryService } from './services/settings-history.service';
 import { shortcutsService } from './services/shortcuts.service';
 import { stopWatchingSidebarPanels, watchSidebarPanels } from './services/sidebar-panels.service';
 import { sshConnectionService } from './services/ssh-connection.service';
+import { sshHostConnectionService } from './services/ssh-host-connection.service';
 import { sshHostStatusService } from './services/ssh-host-status.service';
 import { sshHostService } from './services/ssh-host.service';
 import { startSshPluginCopies } from './services/ssh-plugin-copies.service';
@@ -555,6 +556,8 @@ void app.whenReady().then(async () => {
   markStartup('app-ready');
   // If a pending-update relaunch is scheduled, skip all initialization.
   if (pendingRelaunch) return;
+  // Before anything reaches an SSH host: the user may have disconnected from some.
+  sshHostConnectionService.load();
   // Check that git is installed on first launch only; skip on subsequent starts
   const gitVerifiedPath = join(getKomlaBasePath(), 'git-verified');
   if (!existsSync(gitVerifiedPath)) {

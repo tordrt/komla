@@ -16,6 +16,7 @@ import {
 } from '@/components/workspaces/agent-state';
 import { ipcErrorMessage } from '@/lib/ipc-error-message';
 import { cn } from '@/lib/utils';
+import { useConfigStore } from '@/stores/config.store';
 import { useDevServerPreviewStore } from '@/stores/dev-server-preview.store';
 import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import { useSshHostDialogStore } from '@/stores/ssh-host-dialog.store';
@@ -255,32 +256,62 @@ function runningOn(workspaces: Workspace[]): Workspace[] {
   return workspaces.filter((workspace) => showsRunning(workspace));
 }
 
+/**
+ * Disconnects from the host, so Komla leaves it alone, or connects again and reattaches the
+ * terminals of the workspace on screen if it's one of the host's.
+ */
+async function setConnected(host: SshHost, connected: boolean): Promise<void> {
+  try {
+    await window.api.setSshHostConnected(host.id, connected);
+  } catch (error) {
+    useToastStore
+      .getState()
+      .addToast(
+        `Couldn't ${connected ? 'connect to' : 'disconnect from'} ${host.name}: ${ipcErrorMessage(error)}`,
+        'error'
+      );
+    return;
+  }
+  if (connected) await useWorkspacesStore.getState().reconnectSelectedOnHost(host.id);
+}
+
 function HostRow({
   host,
   status,
+  disconnected,
   workspaces,
   ports,
   onOpenWorkspace,
-  onPortStopped,
+  onPortsChanged,
   onEditHost,
 }: {
   host: SshHost;
   status: SshHostStatus | undefined;
+  /** The user disconnected from it: Komla leaves it alone. */
+  disconnected: boolean;
   /** The host's active workspaces. */
   workspaces: Workspace[];
   ports: SshForwardedPort[];
   onOpenWorkspace: () => void;
-  onPortStopped: () => void;
+  /** A port stopped, or the host's tunnels closed or opened: the list is read again. */
+  onPortsChanged: () => void;
   onEditHost: (hostId: string) => void;
 }) {
   const [checking, setChecking] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const check = async () => {
     setChecking(true);
     // Records whether the host answered.
     await window.api.checkSshHost(host.id).catch(() => {});
     setChecking(false);
   };
-  const detail = sshHostStatusDetail(status);
+  const switchConnection = async () => {
+    setSwitching(true);
+    await setConnected(host, disconnected);
+    setSwitching(false);
+    onPortsChanged();
+  };
+  const detail = sshHostStatusDetail(status, disconnected);
   const running = runningOn(workspaces);
   const agents = running.flatMap(workspaceAgents);
   const needInput = agents.filter(({ state }) => state === 'input').length;
@@ -296,13 +327,13 @@ function HostRow({
   return (
     <li className="px-2 py-1.5">
       <div className="flex items-start gap-2.5">
-        <SshHostStatusDot status={status} className="mt-1.5" />
+        <SshHostStatusDot status={status} disconnected={disconnected} className="mt-1.5" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] leading-[18px] font-medium">{host.name}</div>
           <div
             className={cn(
               'line-clamp-2 text-ui break-words text-muted-foreground',
-              status?.state === 'unreachable' && 'text-error'
+              status?.state === 'unreachable' && !disconnected && 'text-error'
             )}
             title={detail}
           >
@@ -312,16 +343,41 @@ function HostRow({
             <div className="text-ui text-muted-foreground tabular-nums">{counts}</div>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-mr-1 h-6 shrink-0 px-2 text-2xs text-muted-foreground hover:text-foreground"
-          disabled={checking}
-          onClick={() => void check()}
-          aria-label={`Check ${host.name}`}
-        >
-          {checking ? 'Checking…' : 'Check'}
-        </Button>
+        <div className="-mr-1 flex shrink-0 items-center">
+          {!disconnected && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-2xs text-muted-foreground hover:text-foreground"
+              disabled={checking || switching}
+              onClick={() => void check()}
+              aria-label={`Check ${host.name}`}
+            >
+              {checking ? 'Checking…' : 'Check'}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-2xs text-muted-foreground hover:text-foreground"
+            disabled={switching}
+            onClick={() => void switchConnection()}
+            aria-label={`${disconnected ? 'Connect to' : 'Disconnect from'} ${host.name}`}
+            title={
+              disconnected
+                ? undefined
+                : 'Stop all traffic to this host until you connect again. Its tmux sessions keep running.'
+            }
+          >
+            {disconnected
+              ? switching
+                ? 'Connecting…'
+                : 'Connect'
+              : switching
+                ? 'Disconnecting…'
+                : 'Disconnect'}
+          </Button>
+        </div>
       </div>
       {running.length > 0 && (
         <ul aria-label={`Active on ${host.name}`} className="mt-1 ml-1.5">
@@ -359,7 +415,7 @@ function HostRow({
         host={host}
         ports={ports}
         workspaces={workspaces}
-        onStopped={onPortStopped}
+        onStopped={onPortsChanged}
         onEdit={() => onEditHost(host.id)}
       />
     </li>
@@ -372,13 +428,18 @@ export function SshHostsStatusSegment() {
   const hosts = useSshHostsStore((s) => s.hosts);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const statuses = useSshHostStatuses();
+  const disconnectedIds = useConfigStore((s) => s.config?.disconnectedSshHostIds);
   const { ports, reread: rereadPorts, forget: forgetPorts } = useForwardedPorts(open);
   if (hosts.length === 0) return null;
 
-  const stateOf = (host: SshHost) => statuses.get(host.id)?.state;
+  const isDisconnected = (host: SshHost) => disconnectedIds?.includes(host.id) ?? false;
+  // What Komla last saw of a disconnected host no longer counts.
+  const stateOf = (host: SshHost) =>
+    isDisconnected(host) ? 'disconnected' : statuses.get(host.id)?.state;
   const unreachable = hosts.filter((host) => stateOf(host) === 'unreachable').length;
   const connected = hosts.filter((host) => stateOf(host) === 'connected').length;
-  const unchecked = hosts.length - unreachable - connected;
+  const disconnected = hosts.filter(isDisconnected).length;
+  const unchecked = hosts.length - unreachable - connected - disconnected;
   const workspacesOn = (host: SshHost) =>
     workspaces.filter(
       (workspace) =>
@@ -403,6 +464,7 @@ export function SshHostsStatusSegment() {
     connected > 0 && `${connected} connected`,
     unreachable > 0 && `${unreachable} unreachable`,
     unchecked > 0 && `${unchecked} not checked`,
+    disconnected > 0 && `${disconnected} disconnected`,
   ].filter(Boolean);
   const summary = [...states, running > 0 && `${running} active`].filter(Boolean).join(', ');
 
@@ -421,7 +483,7 @@ export function SshHostsStatusSegment() {
           tooltip={`SSH hosts: ${summary}`}
           className={cn(unreachable > 0 && 'text-error hover:text-error')}
         >
-          {unreachable > 0 ? (
+          {unreachable > 0 || disconnected === hosts.length ? (
             <CloudSlash aria-hidden="true" className="size-3.5" />
           ) : (
             <Cloud aria-hidden="true" className="size-3.5" />
@@ -449,10 +511,11 @@ export function SshHostsStatusSegment() {
               key={host.id}
               host={host}
               status={statuses.get(host.id)}
+              disconnected={isDisconnected(host)}
               workspaces={workspacesOn(host)}
               ports={ports.filter((port) => port.hostId === host.id)}
               onOpenWorkspace={() => setOpen(false)}
-              onPortStopped={rereadPorts}
+              onPortsChanged={rereadPorts}
               onEditHost={openEdit}
             />
           ))}

@@ -34,6 +34,7 @@ import { applyAccent } from '@/lib/primary-color';
 import { applyReduceEffects } from '@/lib/reduce-effects';
 import { resolveOpenSettingsTarget, type OpenSettingsDetail } from '@/lib/settings-navigation';
 import { reportShownWorkspace } from '@/lib/shown-workspace';
+import { followSshHostConnections } from '@/lib/ssh-host-connection';
 import { clearTerminalHost } from '@/lib/terminal-host-tracker';
 import { disposeTerminalRenderers } from '@/lib/terminal-renderer-runtime';
 import { syncPaletteFromTheme } from '@/lib/theme-palette';
@@ -555,6 +556,7 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
       reportWorkspacesShowingPaneSurfaces(),
       reportUnsavedFiles(),
       reportShownWorkspace(),
+      followSshHostConnections(),
 
       // A link that opens a new window opens as a tab next to its page, in its own browser.
       window.api.onDevPreviewOpenTab(({ workspaceId, tabId, url }) => {

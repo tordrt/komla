@@ -201,6 +201,7 @@ export const IPC = {
   SSH_HOSTS_CHANGED: 'ssh:hosts-changed',
   SSH_HOST_STATUSES_GET: 'ssh:host-statuses-get',
   SSH_HOST_CHECK: 'ssh:host-check',
+  SSH_HOST_SET_CONNECTED: 'ssh:host-set-connected',
   SSH_HOST_STATUSES_CHANGED: 'ssh:host-statuses-changed', // main → renderer
   CONFIG_VERIFY_SSH_HOST: 'config:verify-ssh-host',
   SSH_DELETE_HOST: 'ssh:delete-host',

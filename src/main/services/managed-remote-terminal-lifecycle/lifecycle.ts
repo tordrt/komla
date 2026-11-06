@@ -20,6 +20,18 @@ export * from './types';
 
 const logger = createLogger('ManagedRemoteTerminalLifecycleService');
 
+/**
+ * Its session as when the user disconnected from the host, which leaves sessions running: last
+ * seen running, unless the host keeps none.
+ */
+function lastSeenRunning(
+  current: ManagedRemoteTerminalState
+): ManagedRemoteTerminalState['remoteSession'] {
+  return current.persistence === 'unsupported'
+    ? { kind: 'unknown' }
+    : { kind: 'unknown', lastObserved: 'present' };
+}
+
 interface PendingExitObservation {
   backend: ManagedRemoteTerminalContext['backend'];
   terminals: Map<
@@ -49,6 +61,7 @@ export class ManagedRemoteTerminalLifecycleService {
   create(request: CreateManagedRemoteTerminalRequest): ManagedRemoteTerminalCreationTicket {
     this.assertAttachmentAllowed(request.terminalId, request.workspaceId);
     const context = this.requireContext(request.terminalId, request.workspaceId);
+    this.adapters.session.assertConnected(context.backend);
     const generation = this.nextGeneration(request.terminalId);
     const state: ManagedRemoteTerminalState = {
       terminalId: request.terminalId,
@@ -156,6 +169,32 @@ export class ManagedRemoteTerminalLifecycleService {
     }
   }
 
+  /**
+   * Closes the Terminal Attachments here and leaves their Managed Remote Terminal Sessions running,
+   * as when the user disconnects from the host. Each stays saved as last seen running, so
+   * connecting again reattaches it. Asks the host nothing.
+   */
+  detach(target: ManagedRemoteTerminalTarget): void {
+    for (const context of this.contextsFor(target)) {
+      const current = this.currentOrHydratedState(context);
+      const pending = this.registry.pendingIntent(context.terminal.id);
+      if (current.attachment.kind === 'absent' && !pending) continue;
+      const generation = this.registry.advanceGeneration(context.terminal.id);
+      // One still starting may not have reached its session; one attached had it running.
+      const mayHaveSession = pending ? pending.mayHaveRemoteSession : true;
+      this.commit(context, {
+        ...current,
+        generation,
+        attachment: { kind: 'absent' },
+        remoteSession: mayHaveSession ? lastSeenRunning(current) : { kind: 'unknown' },
+        failure: undefined,
+      });
+      if (pending) this.cancelPending(context.terminal.id);
+      this.adapters.attachment.stop(context.terminal.id);
+    }
+    this.adapters.workspace.reconcileObservation();
+  }
+
   cancelPendingLaunches(target: ManagedRemoteTerminalTarget): void {
     for (const context of this.contextsFor(target)) {
       const pending = this.registry.pendingIntent(context.terminal.id);
@@ -177,17 +216,23 @@ export class ManagedRemoteTerminalLifecycleService {
     const context = this.adapters.workspace.findTerminal(terminalId);
     if (!context) return;
     const current = this.currentOrHydratedState(context);
+    // Detached because the user disconnected from the host: `detach` saved what it last saw, and
+    // checking for the session would reach the host.
+    const disconnected = this.adapters.session.isDisconnected(context.backend);
+    if (disconnected && current.attachment.kind === 'absent') return;
     const generation = this.registry.advanceGeneration(terminalId);
     const detached: ManagedRemoteTerminalState = {
       ...current,
       generation,
       attachment: { kind: 'absent' },
-      remoteSession:
-        current.persistence === 'supported'
+      remoteSession: disconnected
+        ? lastSeenRunning(current)
+        : current.persistence === 'supported'
           ? { kind: 'unknown', lastObserved: 'present' }
           : { kind: 'unknown' },
     };
     this.commit(context, detached);
+    if (disconnected) return;
     if (current.persistence !== 'supported') {
       this.adapters.workspace.reconcileObservation();
       return;
@@ -200,6 +245,9 @@ export class ManagedRemoteTerminalLifecycleService {
     if (!context) return false;
     const current = this.currentOrHydratedState(context);
     const generation = this.registry.generation(terminalId) || current.generation;
+    // Closed because the user disconnected from the host, which leaves its session running.
+    const stoppedByDisconnect =
+      status === 'stopped' && this.adapters.session.isDisconnected(context.backend);
     this.commit(context, {
       ...current,
       generation,
@@ -209,7 +257,14 @@ export class ManagedRemoteTerminalLifecycleService {
           : status === 'starting'
             ? { kind: 'starting', generation }
             : { kind: 'absent' },
-      remoteSession: status === 'stopped' ? { kind: 'unknown' } : current.remoteSession,
+      remoteSession: stoppedByDisconnect
+        ? // `detach` already saved what it knew, such as a launch that never reached its session.
+          current.attachment.kind === 'absent'
+          ? current.remoteSession
+          : lastSeenRunning(current)
+        : status === 'stopped'
+          ? { kind: 'unknown' }
+          : current.remoteSession,
     });
     if (status === 'running') {
       this.adapters.workspace.prepareObservationInBackground(context.workspaceId);
@@ -418,6 +473,7 @@ export class ManagedRemoteTerminalLifecycleService {
   ): ManagedRemoteTerminalAttachmentResult | Promise<ManagedRemoteTerminalAttachmentResult> {
     this.assertAttachmentAllowed(request.terminalId);
     const context = this.requireContext(request.terminalId);
+    this.adapters.session.assertConnected(context.backend);
     const current = this.currentOrHydratedState(context);
     if (current.persistence === 'supported') {
       return this.fastReconnect(context, current, request);
@@ -553,12 +609,15 @@ export class ManagedRemoteTerminalLifecycleService {
   ): Promise<ManagedRemoteTerminalAttachmentResult> {
     this.assertAttachmentAllowed(request.terminalId);
     const context = this.requireContext(request.terminalId);
+    this.adapters.session.assertConnected(context.backend);
     let previous = this.currentOrHydratedState(context);
     if (action === 'replace' && !request.explicit && previous.remoteSession.kind === 'unknown') {
       let activeIds: Set<string>;
       try {
         activeIds = await this.adapters.session.observe(context.backend, [request.terminalId]);
       } catch (error) {
+        // Disconnected meanwhile, which says so plainly.
+        this.adapters.session.assertConnected(context.backend);
         throw new Error(
           `Could not confirm the remote agent state; terminal replacement was cancelled. ${String(error)}`
         );
@@ -572,6 +631,8 @@ export class ManagedRemoteTerminalLifecycleService {
       }
       previous = { ...previous, remoteSession: { kind: 'absent' } };
       this.commit(context, previous);
+      // The user may have disconnected meanwhile, which detached nothing yet pending here.
+      this.adapters.session.assertConnected(context.backend);
     }
 
     const generation = this.nextGeneration(request.terminalId);

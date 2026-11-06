@@ -4,6 +4,7 @@ import {
   RemoteWorkspaceObservationService,
   type RemoteWorkspaceObservationDependencies,
 } from '../../../src/main/services/remote-workspace-observation.service';
+import { markSshHostDisconnected } from '../../../src/main/services/ssh-host-disconnection';
 
 import type { SshHost, Workspace } from '../../../src/shared/types';
 
@@ -412,6 +413,35 @@ describe('RemoteWorkspaceObservationService', () => {
     expect(harness.dependencies.markRemoteDisconnected).toHaveBeenCalledWith(['workspace-1']);
     expect(harness.dependencies.invalidateRemoteCompanion).toHaveBeenCalledWith(host.id);
     expect(harness.service.companionForHost(host.id)).toBeUndefined();
+  });
+
+  it('lets go of a host the user disconnected from, though its sessions run on', async () => {
+    const harness = createHarness([
+      sshWorkspace('workspace-1', { status: 'stopped', remoteSessionActive: true }),
+    ]);
+    await harness.service.reconcile();
+    expect(harness.service.companionForHost(host.id)).toBe(harness.runtime);
+    vi.mocked(harness.dependencies.ensureRemoteCompanion).mockClear();
+    vi.mocked(harness.dependencies.ensureKomlaDataTunnel).mockClear();
+
+    markSshHostDisconnected(host.id, true);
+    try {
+      await harness.service.reconcile();
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(harness.dependencies.stopKomlaDataTunnelsExcept).toHaveBeenLastCalledWith(new Set());
+      expect(harness.dependencies.invalidateRemoteCompanion).toHaveBeenCalledWith(host.id);
+      expect(harness.dependencies.markRemoteDisconnected).toHaveBeenCalledWith(['workspace-1']);
+      expect(harness.service.companionForHost(host.id)).toBeUndefined();
+      expect(harness.dependencies.ensureRemoteCompanion).not.toHaveBeenCalled();
+      expect(harness.dependencies.ensureKomlaDataTunnel).not.toHaveBeenCalled();
+    } finally {
+      markSshHostDisconnected(host.id, false);
+    }
+
+    await harness.service.reconcile();
+    expect(harness.dependencies.ensureRemoteCompanion).toHaveBeenCalledTimes(1);
+    expect(harness.dependencies.ensureKomlaDataTunnel).toHaveBeenCalledTimes(1);
   });
 
   it('marks the host disconnected when its lifecycle ends without a companion runtime', async () => {

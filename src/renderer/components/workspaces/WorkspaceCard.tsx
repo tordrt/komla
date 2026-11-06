@@ -19,6 +19,7 @@ import {
   DotsThree,
   CircleNotch,
   Cloud,
+  CloudSlash,
   XCircle,
 } from '@phosphor-icons/react';
 import React, { lazy, useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
@@ -58,6 +59,7 @@ import { useSelectionGlide } from '@/hooks/useSelectionGlide';
 import { formatElapsed, formatRelativeTime } from '@/lib/format-time';
 import { openWorkspace } from '@/lib/open-workspace';
 import { waitsForNotification } from '@/lib/snooze';
+import { useSshHostDisconnected } from '@/lib/ssh-host-disconnected';
 import { cn } from '@/lib/utils';
 import { getUnreadBadge, getWorkspaceAttentionAppearance } from '@/lib/workspace-attention';
 import { useAutomationsStore } from '@/stores/automations.store';
@@ -257,6 +259,9 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   const runningHere = isRunningHere(workspace);
   const inTrash = workspace.status === 'trashed';
   const shownRunning = showsRunning(workspace);
+  const hostDisconnected = useSshHostDisconnected(
+    isSshWorkspace(workspace) ? workspace.backend.hostId : undefined
+  );
   const isAnyPreviewFullscreen = !!inlinePreview?.open && inlinePreview.layout === 'full';
   // The selected workspace's tab strip shows each agent and the user sees what's done there, so
   // its card keeps only what the workspace still carries, such as a prompt, and its working
@@ -517,6 +522,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
       footer={
         <ActivityRow
           workspace={workspace}
+          disconnectedFrom={hostDisconnected ? (sshHost?.name ?? 'its SSH host') : undefined}
           shownRunning={shownRunning}
           showGitStatus={showGitStatus}
           lead={!branchLineUnderTitle && branchOrProvisionLine}
@@ -1426,6 +1432,7 @@ function showsGitStatus(workspace: Workspace): boolean {
 
 function ActivityRow({
   workspace,
+  disconnectedFrom,
   shownRunning,
   showGitStatus,
   lead,
@@ -1433,6 +1440,8 @@ function ActivityRow({
   launchUndo,
 }: {
   workspace: Workspace;
+  /** The name of its SSH host, which the user disconnected from. */
+  disconnectedFrom: string | undefined;
   shownRunning: boolean;
   showGitStatus: boolean;
   /** What fills the row's free space ahead of the time, such as the branch. */
@@ -1445,7 +1454,15 @@ function ActivityRow({
   launchUndo: React.ReactNode;
 }) {
   const linkedCount = workspace.linkedWorkspaceIds?.length ?? 0;
-  if (!showGitStatus && !lead && linkedCount === 0 && !workspace.lastActivityAt) return null;
+  if (
+    !showGitStatus &&
+    !lead &&
+    linkedCount === 0 &&
+    !workspace.lastActivityAt &&
+    !disconnectedFrom
+  ) {
+    return null;
+  }
   return (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
       {showGitStatus && workspace.workingDirectory && (
@@ -1471,6 +1488,18 @@ function ActivityRow({
         </span>
       )}
       {launchUndo || <ActivityTime workspace={workspace} showWorkingClock={showWorkingClock} />}
+      {disconnectedFrom && (
+        <span
+          className={cn(
+            'flex shrink-0 items-center text-muted-foreground-70',
+            // After the time, which keeps the row's end; without it, this does.
+            !workspace.lastActivityAt && !launchUndo && 'ml-auto'
+          )}
+          title={`Disconnected from ${disconnectedFrom}. Its agents keep running there, and what shows here may be out of date.`}
+        >
+          <CloudSlash aria-label={`Disconnected from ${disconnectedFrom}`} className="size-3" />
+        </span>
+      )}
     </div>
   );
 }

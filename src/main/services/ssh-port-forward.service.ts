@@ -12,6 +12,7 @@ import { keepSshLeaseAlive, sshHeartbeatLeaseCommand } from '../lib/ssh-heartbea
 
 import { askpassService } from './askpass.service';
 import { sshTunnelControlPath } from './ssh-connection/policy';
+import { assertSshHostConnected, isSshHostDisconnected } from './ssh-host-disconnection';
 import { remoteKomlaDataPort, sshWorkspaceService } from './ssh-workspace.service';
 
 import type {
@@ -429,6 +430,7 @@ class SshPortForwardService {
         (forward) =>
           forward.hostId === args.backend.hostId && forward.remotePort === args.remotePort
       );
+      assertSshHostConnected(sshWorkspaceService.getHost(args.backend.hostId));
       if (existing) {
         // A tunnel that dropped, e.g. while the computer slept, starts again for it.
         if (this.previewTunnels.get(existing.hostId)?.process.exitCode !== null) {
@@ -463,6 +465,7 @@ class SshPortForwardService {
     args: StartSshPreviewForwardArgs,
     { givesWay = false }: { givesWay?: boolean } = {}
   ): Promise<SshPreviewForward> {
+    assertSshHostConnected(sshWorkspaceService.getHost(args.backend.hostId));
     const key = previewForwardKey(args.workspaceId, args.tabId);
     const previous = this.forwards.get(key);
     const existingTunnel = this.previewTunnels.get(args.backend.hostId);
@@ -614,6 +617,7 @@ class SshPortForwardService {
     remotePort: number,
     runningPorts: number[] | undefined
   ): Promise<number> {
+    assertSshHostConnected(sshWorkspaceService.getHost(hostId));
     const stopped = Array.from(this.vncTunnels.values()).filter(
       (tunnel) =>
         tunnel.hostId === hostId &&
@@ -819,6 +823,27 @@ class SshPortForwardService {
     ]);
   }
 
+  /**
+   * Closes every tunnel to the host, as when the user disconnects from it: its saved forwards,
+   * browser tabs', links' and desktops' forwards, and Komla's own. Saved forwards start again
+   * with `reconcileHostPortForwards`; the rest when they're next opened.
+   */
+  async closeHost(hostId: string): Promise<void> {
+    await Promise.all([
+      this.stopHostPortForwards(hostId),
+      this.serializePreviewMutation(async () => {
+        for (const [key, forward] of this.forwards) {
+          if (forward.hostId === hostId) this.forwards.delete(key);
+        }
+        const tunnel = this.previewTunnels.get(hostId);
+        if (!tunnel) return;
+        this.previewTunnels.delete(hostId);
+        await this.killForward(tunnel);
+      }),
+      this.stopKomlaDataTunnel(hostId),
+    ]);
+  }
+
   getHostPortForwardStatus(hostId: string): SshPortForwardStatus {
     return (
       this.configuredForwardStatuses.get(hostId) ?? {
@@ -904,7 +929,10 @@ class SshPortForwardService {
       await this.stopConfiguredForwardTunnel(hostId);
       return;
     }
-    const enabledForwards = host.portForwards?.filter((forward) => forward.enabled) ?? [];
+    // Connecting again reconciles them anew.
+    const enabledForwards = isSshHostDisconnected(hostId)
+      ? []
+      : (host.portForwards?.filter((forward) => forward.enabled) ?? []);
     if (enabledForwards.length === 0) {
       await this.stopConfiguredForwardTunnel(hostId);
       this.configuredForwardStatuses.set(hostId, { hostId, state: 'stopped' });
@@ -1087,7 +1115,8 @@ class SshPortForwardService {
   private scheduleConfiguredForwardRetry(hostId: string, reason: string): void {
     if (
       !this.configuredForwardTargets.has(hostId) ||
-      this.configuredForwardRetryTimers.has(hostId)
+      this.configuredForwardRetryTimers.has(hostId) ||
+      isSshHostDisconnected(hostId)
     ) {
       return;
     }
@@ -1177,6 +1206,7 @@ class SshPortForwardService {
     }
 
     const host = sshWorkspaceService.getHost(hostId);
+    assertSshHostConnected(host);
     const remotePort = remoteKomlaDataPort(hostId);
     validatePort(remotePort, 'remotePort');
     const gateway = await this.startHostScopedGateway(hostId, localPort);
@@ -1419,7 +1449,7 @@ class SshPortForwardService {
   ): number | undefined {
     const target = this.komlaDataTargets.get(hostId);
     if (!target || (expectedTarget && target !== expectedTarget)) return undefined;
-    if (this.komlaDataRetryTimers.has(hostId)) return undefined;
+    if (this.komlaDataRetryTimers.has(hostId) || isSshHostDisconnected(hostId)) return undefined;
 
     const delay = Math.min(
       KOMLA_DATA_RETRY_INITIAL_MS * 2 ** Math.min(target.retryAttempt, 5),
@@ -1538,6 +1568,7 @@ class SshPortForwardService {
     const hostForwards = Array.from(this.forwards.values()).filter(
       (forward) => forward.hostId === hostId
     );
+    if (hostForwards.length > 0) assertSshHostConnected(host);
     const refreshedHostEndpoint =
       hostForwards.length === 0 ? undefined : (hostEndpoint ?? (await sshHostEndpoint(host)));
 
@@ -1721,7 +1752,9 @@ class SshPortForwardService {
     hostId: string
   ): Promise<void> {
     const otherHostIds = new Set(
-      forwards.map((forward) => forward.hostId).filter((other) => other !== hostId)
+      forwards
+        .map((forward) => forward.hostId)
+        .filter((other) => other !== hostId && !isSshHostDisconnected(other))
     );
     await Promise.all(
       Array.from(otherHostIds, (other) =>

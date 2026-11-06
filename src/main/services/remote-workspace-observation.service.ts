@@ -9,12 +9,19 @@ import {
 } from '../../shared/types/workspace';
 import { createLogger } from '../lib/logger';
 
+import { isSshHostDisconnected } from './ssh-host-disconnection';
+
 import type {
   RemoteCompanionRuntime,
   StartRemoteCompanionOptions,
 } from './remote-companion.service';
 
 const logger = createLogger('RemoteWorkspaceObservationService');
+
+/** Monitored, on a host the user hasn't disconnected from: Komla keeps its status current. */
+function isObserved(workspace: Workspace & { backend: SshWorkspaceBackend }): boolean {
+  return isMonitored(workspace) && !isSshHostDisconnected(workspace.backend.hostId);
+}
 const REMOTE_COMPANION_RETRY_INTERVAL_MS = 10_000;
 
 export interface RemoteWorkspaceObservationDependencies {
@@ -123,7 +130,7 @@ export class RemoteWorkspaceObservationService {
     const sshWorkspaces = this.dependencies.listWorkspaces().filter(isSshWorkspace);
     const monitoredByHost = new Map<string, Workspace[]>();
     for (const workspace of sshWorkspaces) {
-      if (!isMonitored(workspace)) continue;
+      if (!isObserved(workspace)) continue;
       const monitored = monitoredByHost.get(workspace.backend.hostId) ?? [];
       monitored.push(workspace);
       monitoredByHost.set(workspace.backend.hostId, monitored);
@@ -150,7 +157,7 @@ export class RemoteWorkspaceObservationService {
   private syncKomlaDataTunnels(): void {
     const sshWorkspaces = this.dependencies.listWorkspaces().filter(isSshWorkspace);
     const activeHostIds = new Set(
-      sshWorkspaces.filter(isMonitored).map((workspace) => workspace.backend.hostId)
+      sshWorkspaces.filter(isObserved).map((workspace) => workspace.backend.hostId)
     );
     const trackedHostIds = new Set([
       ...this.hostLifecycleTokens.keys(),
@@ -254,7 +261,7 @@ export class RemoteWorkspaceObservationService {
     return (
       isSshWorkspace(workspace) &&
       workspace.backend.hostId === hostId &&
-      isMonitored(workspace) &&
+      isObserved(workspace) &&
       !this.dependencies.isWorkspaceDeleting(workspace.id)
     );
   }
@@ -345,7 +352,7 @@ export class RemoteWorkspaceObservationService {
           (workspace) =>
             isSshWorkspace(workspace) &&
             workspace.backend.hostId === hostId &&
-            isMonitored(workspace)
+            isObserved(workspace)
         );
       if (!stillMonitored) {
         this.dependencies.invalidateRemoteCompanion(hostId);
@@ -391,7 +398,7 @@ export class RemoteWorkspaceObservationService {
           isSshWorkspace(workspace) &&
           workspace.backend.hostId === hostId &&
           !this.dependencies.isWorkspaceDeleting(workspace.id) &&
-          isMonitored(workspace)
+          isObserved(workspace)
       );
   }
 

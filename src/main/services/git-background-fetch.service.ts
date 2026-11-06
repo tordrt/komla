@@ -10,6 +10,7 @@ import { RECENT_ORIGIN_FETCH_MS } from './git/git-branch';
 import { gitService } from './git.service';
 import { projectService } from './project.service';
 import { remoteWorkspaceObservationService } from './remote-workspace-observation.service';
+import { isSshHostDisconnected } from './ssh-host-disconnection';
 import { isSshConnectionFailure, sshHostStatusService } from './ssh-host-status.service';
 import { sshWorkspaceService } from './ssh-workspace.service';
 import { sshWorkspaceGit } from './workspace-git/ssh-git';
@@ -320,6 +321,7 @@ class GitBackgroundFetchService {
       if (!isSshWorkspace(workspace) || !gitProjectIds.has(workspace.projectId)) continue;
       const { hostId, remoteRepoPath } = workspace.backend;
       if (sshHostStatusService.get(hostId)?.state !== 'connected') continue;
+      if (isSshHostDisconnected(hostId)) continue;
       const key = sshCloneKey(hostId, remoteRepoPath);
       const clone = clones.get(key) ?? { hostId, repoPath: remoteRepoPath, workspaces: [] };
       clone.workspaces.push(workspace);

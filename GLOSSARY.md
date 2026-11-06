@@ -114,6 +114,13 @@ An SSH workspace whose files are gone from its host without a tombstone from a d
 installation. Komla keeps it but does not reconnect or restart it; the user removes it, or it
 recovers when its files return.
 
+**Disconnected SSH host**:
+An SSH host the user disconnected from, so this Komla installation sends it nothing until they
+connect again, across restarts: its terminals detach, leaving their Managed Remote Terminal
+Sessions running, its tunnels and connections close, and neither SSH Workspace Sync nor the Remote
+Companion reaches it. Its workspaces stay, showing Stale Workspace Status.
+_Avoid_: Offline host, paused host
+
 ## Quick Commands
 
 **Quick Command**:

@@ -57,6 +57,7 @@ import { replaceTerminal, replaceTerminalWithPaneSurface } from '@/lib/replace-t
 import { executeShortcutAction } from '@/lib/shortcut-actions';
 import { useSkillMenuGroups } from '@/lib/skill-actions';
 import { addLocalCopyTerminal, addTerminalForSplit } from '@/lib/split-terminal';
+import { useSshHostDisconnected } from '@/lib/ssh-host-disconnected';
 import { useTerminalHost } from '@/lib/terminal-host-tracker';
 import {
   focusTerminalRenderer,
@@ -324,20 +325,27 @@ export const TerminalPane = React.memo(function TerminalPane({
   const offersSshTerminal =
     !!remoteWorkspace && isLocalTerminalExecutionLocation(terminal?.executionLocation);
   const remoteHostLabel = remoteHost?.name || (remoteWorkspace ? 'SSH' : '');
+  // The user disconnected from its host: connecting again is the only way back.
+  const hostDisconnected = useSshHostDisconnected(remoteWorkspace?.backend.hostId);
   // Why its SSH connection is down, shown above the buttons that bring it back. Being offline
   // only explains a pane whose connection dropped, not an agent that ended on its own.
   const connectionProblem = !offer.stopped
     ? null
-    : terminal?.connectionError
+    : hostDisconnected
       ? {
-          title: isOnline
-            ? `Lost connection to ${remoteHost?.name || 'the remote host'}`
-            : 'You’re offline',
-          detail: terminal.connectionError,
+          title: `Disconnected from ${remoteHost?.name || 'the remote host'}`,
+          detail: 'Its tmux session keeps running there. Connect to see it again.',
         }
-      : !isOnline && offer.stopped === 'reconnect'
-        ? { title: 'You’re offline', detail: undefined }
-        : null;
+      : terminal?.connectionError
+        ? {
+            title: isOnline
+              ? `Lost connection to ${remoteHost?.name || 'the remote host'}`
+              : 'You’re offline',
+            detail: terminal.connectionError,
+          }
+        : !isOnline && offer.stopped === 'reconnect'
+          ? { title: 'You’re offline', detail: undefined }
+          : null;
   const remoteTarget = remoteHost ? formatSshTarget(remoteHost) : 'SSH workspace';
   const remotePath = remoteWorkspace
     ? abbreviateRemoteHome(remoteWorkspace.backend.remoteDirectory, remoteHost?.user)
@@ -646,6 +654,19 @@ export const TerminalPane = React.memo(function TerminalPane({
     if (!claimTerminal(terminalId, 'reconnect')) return;
     try {
       await reconnectAllSshTerminals(remoteWorkspace.id);
+    } finally {
+      releaseTerminal(terminalId);
+    }
+  }, [reconnectAllSshTerminals, remoteWorkspace, terminalId]);
+
+  const handleConnectHost = useCallback(async () => {
+    if (!remoteWorkspace) return;
+    if (!claimTerminal(terminalId, 'reconnect')) return;
+    try {
+      await window.api.setSshHostConnected(remoteWorkspace.backend.hostId, true);
+      await reconnectAllSshTerminals(remoteWorkspace.id);
+    } catch (error) {
+      useToastStore.getState().addToast(`Couldn't connect: ${ipcErrorMessage(error)}`, 'error');
     } finally {
       releaseTerminal(terminalId);
     }
@@ -1079,7 +1100,27 @@ export const TerminalPane = React.memo(function TerminalPane({
                     </div>
                   )}
                   <div className="flex items-center gap-2">
-                    {offer.stopped === 'reconnect' && (
+                    {hostDisconnected && (
+                      <button
+                        type="button"
+                        onClick={() => void handleConnectHost()}
+                        disabled={busyReason !== undefined}
+                        className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent disabled:cursor-wait disabled:opacity-80"
+                      >
+                        {busyReason === 'reconnect' ? (
+                          <>
+                            <Spinner size="md" />
+                            Connecting…
+                          </>
+                        ) : (
+                          <>
+                            <Cloud className="size-4" />
+                            Connect
+                          </>
+                        )}
+                      </button>
+                    )}
+                    {offer.stopped === 'reconnect' && !hostDisconnected && (
                       <button
                         type="button"
                         onClick={() => void handleReconnectSsh()}
@@ -1090,7 +1131,7 @@ export const TerminalPane = React.memo(function TerminalPane({
                         Reconnect session
                       </button>
                     )}
-                    {offer.stopped === 'restart' && (
+                    {offer.stopped === 'restart' && !hostDisconnected && (
                       <button
                         type="button"
                         onClick={() => void handleRestartSsh(false)}
@@ -1110,7 +1151,7 @@ export const TerminalPane = React.memo(function TerminalPane({
                         )}
                       </button>
                     )}
-                    {offer.stopped === 'restart' && (
+                    {offer.stopped === 'restart' && !hostDisconnected && (
                       <button
                         type="button"
                         onClick={() => void handleRestartSsh(true)}

@@ -27,6 +27,7 @@ import { publishRemoteWorkspaceChange } from '../../services/remote-workspace-ev
 import { remoteWorkspaceObservationService } from '../../services/remote-workspace-observation.service';
 import { listSshConfigHosts } from '../../services/ssh-config-hosts';
 import { sshConnectionService } from '../../services/ssh-connection.service';
+import { sshHostConnectionService } from '../../services/ssh-host-connection.service';
 import { sshHostStatusService } from '../../services/ssh-host-status.service';
 import { sshHostService } from '../../services/ssh-host.service';
 import { sshPortForwardService } from '../../services/ssh-port-forward.service';
@@ -127,6 +128,9 @@ export function registerConfigHandlers(): void {
   handleIpc(IPC.SSH_HOST_STATUSES_GET, (): SshHostStatus[] => sshHostStatusService.list());
   handleIpc(IPC.SSH_HOST_CHECK, (_, [hostId]): Promise<SshHostStatus | undefined> =>
     sshConnectionService.checkHost(sshWorkspaceService.getHost(hostId))
+  );
+  handleIpc(IPC.SSH_HOST_SET_CONNECTED, (_, [hostId, connected]): Promise<void> =>
+    sshHostConnectionService.setConnected(hostId, connected)
   );
   sshHostStatusService.onChange((statuses) => {
     for (const window of BrowserWindow.getAllWindows()) {

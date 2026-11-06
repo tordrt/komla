@@ -21,6 +21,7 @@ import {
   readStoredCollapsedGroups,
   storeCollapsedGroups,
 } from '../lib/sidebar-collapsed-groups';
+import { isSshHostDisconnected } from '../lib/ssh-host-disconnected';
 import {
   disposeTerminalRenderers,
   getTerminalRendererDimensions,
@@ -272,8 +273,13 @@ interface WorkspacesState {
   ) => Promise<boolean>;
   reconnectSshTerminal: (terminalId: string, cols?: number, rows?: number) => Promise<void>;
   reconnectAllSshTerminals: (workspaceId: string) => Promise<void>;
-  /** Reconnects what selecting the workspace on screen would, e.g. once the network is back. */
+  /**
+   * Reconnects what selecting the workspace on screen would, e.g. once the network is back,
+   * unless the user disconnected from its host.
+   */
   reconnectAfterNetworkReturns: () => Promise<void>;
+  /** Reconnects what selecting the workspace on screen would, if it is on the host. */
+  reconnectSelectedOnHost: (hostId: string) => Promise<void>;
   /** Resolves once the workspace is gone locally; `onSettled` runs when main has finished deleting it, or failed to. */
   deleteWorkspace: (
     workspaceId: string,
@@ -576,6 +582,43 @@ function reinitializeLayoutForRestart(workspaceId: string, restartedWorkspace: W
   if (restartedWorkspace.terminals.length <= 1) {
     const newTerminalId = restartedWorkspace.terminals[0]?.id;
     layoutStore.setCurrentWorkspace(workspaceId, newTerminalId);
+  }
+}
+
+/**
+ * Reconnects what selecting the workspace on screen would. With `hostId`, only a workspace on that
+ * host, which the user just connected to; without, none on a host the user disconnected from.
+ */
+async function reconnectSelectedSshWorkspace(
+  set: WorkspacesSet,
+  get: WorkspacesGet,
+  hostId?: string
+): Promise<void> {
+  const { selectedWorkspaceId, showDashboard, workspaces, reconnectingSshWorkspaceIds } = get();
+  if (!selectedWorkspaceId || showDashboard) return;
+  if (reconnectingSshWorkspaceIds.has(selectedWorkspaceId)) return;
+  const workspace = workspaces.find((item) => item.id === selectedWorkspaceId);
+  if (!workspace || !isSshWorkspace(workspace) || !probesOnSelect(workspace)) return;
+  if (
+    hostId ? workspace.backend.hostId !== hostId : isSshHostDisconnected(workspace.backend.hostId)
+  ) {
+    return;
+  }
+  // A pane's own Reconnect, Retry or shell is already bringing it back.
+  const { busyTerminals } = useTerminalBusyStore.getState();
+  if (workspace.terminals.some((terminal) => busyTerminals.has(terminal.id))) return;
+
+  set((state) => ({
+    reconnectingSshWorkspaceIds: new Set(state.reconnectingSshWorkspaceIds).add(workspace.id),
+  }));
+  try {
+    await get().reconnectAllSshTerminals(workspace.id);
+  } finally {
+    set((state) => {
+      const reconnectingSshWorkspaceIds = new Set(state.reconnectingSshWorkspaceIds);
+      reconnectingSshWorkspaceIds.delete(workspace.id);
+      return { reconnectingSshWorkspaceIds };
+    });
   }
 }
 
@@ -1181,29 +1224,9 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     if (error) useToastStore.getState().addToast(error, 'error');
   },
 
-  reconnectAfterNetworkReturns: async () => {
-    const { selectedWorkspaceId, showDashboard, workspaces, reconnectingSshWorkspaceIds } = get();
-    if (!selectedWorkspaceId || showDashboard) return;
-    if (reconnectingSshWorkspaceIds.has(selectedWorkspaceId)) return;
-    const workspace = workspaces.find((item) => item.id === selectedWorkspaceId);
-    if (!workspace || !isSshWorkspace(workspace) || !probesOnSelect(workspace)) return;
-    // A pane's own Reconnect, Retry or shell is already bringing it back.
-    const { busyTerminals } = useTerminalBusyStore.getState();
-    if (workspace.terminals.some((terminal) => busyTerminals.has(terminal.id))) return;
+  reconnectAfterNetworkReturns: () => reconnectSelectedSshWorkspace(set, get),
 
-    set((state) => ({
-      reconnectingSshWorkspaceIds: new Set(state.reconnectingSshWorkspaceIds).add(workspace.id),
-    }));
-    try {
-      await get().reconnectAllSshTerminals(workspace.id);
-    } finally {
-      set((state) => {
-        const reconnectingSshWorkspaceIds = new Set(state.reconnectingSshWorkspaceIds);
-        reconnectingSshWorkspaceIds.delete(workspace.id);
-        return { reconnectingSshWorkspaceIds };
-      });
-    }
-  },
+  reconnectSelectedOnHost: (hostId) => reconnectSelectedSshWorkspace(set, get, hostId),
 
   deleteWorkspace: async (workspaceId, force = false, deleteBranch = false, onSettled) => {
     const workspace = get().workspaces.find((w) => w.id === workspaceId);
@@ -1497,7 +1520,11 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       // A live SSH PTY is already attached to its managed tmux session. Switching
       // back to it is only a renderer visibility change; probing the host would
       // add a connection overlay and an unnecessary tmux redraw to every switch.
-      if (isRunningHere(workspace) && !probesOnSelect(workspace)) {
+      // A host the user disconnected from is left alone: its panes offer to connect.
+      if (
+        (isRunningHere(workspace) && !probesOnSelect(workspace)) ||
+        isSshHostDisconnected(workspace.backend.hostId)
+      ) {
         set((state) => ({
           workspaces: clearAttentionForSelected(state.workspaces, workspaceId),
           selectedWorkspaceId: workspaceId,

@@ -647,6 +647,7 @@ export const sshDeleteHostArgsSchema = z.tuple([
 ]);
 export const sshGetIntegrationStatusArgsSchema = z.tuple([idSchema]);
 export const sshCheckHostArgsSchema = z.tuple([idSchema]);
+export const sshSetHostConnectedArgsSchema = z.tuple([idSchema, z.boolean()]);
 export const sshGetPortForwardStatusArgsSchema = z.tuple([idSchema]);
 export const sshStopDesktopForwardArgsSchema = z.tuple([
   idSchema,

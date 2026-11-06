@@ -39,6 +39,7 @@ import { useToastStore } from '../../../../src/renderer/stores/toast.store';
 import type { AgentSkill } from '../../../../src/shared/types/agent-skill';
 
 const mocks = vi.hoisted(() => ({
+  config: null as { disconnectedSshHostIds?: string[] } | null,
   launchAction: vi.fn(),
   addTerminal: vi.fn(),
   addTerminalCommand: vi.fn(),
@@ -271,9 +272,10 @@ vi.mock('../../../../src/renderer/stores/agent-presets.store', () => ({
 }));
 
 vi.mock('../../../../src/renderer/stores/config.store', () => {
-  const state = { config: null };
-  const useConfigStore = (selector: (state: typeof state) => unknown) => selector(state);
-  useConfigStore.getState = () => state;
+  const state = () => ({ config: mocks.config });
+  const useConfigStore = (selector: (state: ReturnType<typeof state>) => unknown) =>
+    selector(state());
+  useConfigStore.getState = state;
   return { useConfigStore };
 });
 
@@ -403,6 +405,7 @@ describe('TerminalPane SSH reconnect', () => {
     mocks.restartTerminal.mockReset();
     mocks.reconnectSshTerminal.mockReset();
     mocks.reconnectAllSshTerminals.mockReset();
+    mocks.config = null;
     mocks.setPaneDefaultAction.mockReset();
     mocks.reconnectingSshWorkspaceIds.clear();
     mocks.setFocusedPane.mockReset();
@@ -2181,6 +2184,72 @@ describe('TerminalPane SSH reconnect', () => {
     expect(alert).toHaveTextContent('Lost connection to Hetzner');
     expect(alert).toHaveTextContent('Network is unreachable');
     expect(screen.getByRole('button', { name: 'Reconnect session' })).toBeEnabled();
+  });
+
+  it('offers to connect to a host the user disconnected from, in place of reconnecting', async () => {
+    mocks.sshHosts = [{ id: 'host-1', name: 'Hetzner', hostname: '203.0.113.10' }];
+    mocks.config = { disconnectedSshHostIds: ['host-1'] };
+    const setSshHostConnected = vi.fn().mockResolvedValue(undefined);
+    Object.assign(window.api, { setSshHostConnected });
+    mocks.reconnectAllSshTerminals.mockResolvedValue(undefined);
+    workspace.terminals = [
+      {
+        id: 'terminal-1',
+        name: 'Terminal',
+        status: 'stopped',
+        executionLocation: 'workspace',
+        remoteSessionActive: true,
+        remoteSessionResumable: true,
+      },
+    ];
+
+    render(
+      <TerminalPane
+        paneId="pane-1"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Disconnected from Hetzner');
+    expect(screen.queryByRole('button', { name: 'Reconnect session' })).not.toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    });
+
+    expect(setSshHostConnected).toHaveBeenCalledWith('host-1', true);
+    expect(mocks.reconnectAllSshTerminals).toHaveBeenCalledWith('workspace-1');
+    expect(setSshHostConnected.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.reconnectAllSshTerminals.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('offers only to connect when an agent on a disconnected host ended', () => {
+    mocks.config = { disconnectedSshHostIds: ['host-1'] };
+    workspace.terminals = [
+      {
+        id: 'terminal-1',
+        name: 'Terminal',
+        status: 'stopped',
+        executionLocation: 'workspace',
+        remoteSessionActive: false,
+        remoteSessionResumable: true,
+      },
+    ];
+
+    render(
+      <TerminalPane
+        paneId="pane-1"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: 'Connect' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Retry agent' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open shell' })).not.toBeInTheDocument();
   });
 
   it('leaves an agent that ended on its own alone while offline', () => {

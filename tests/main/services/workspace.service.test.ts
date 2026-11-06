@@ -535,6 +535,7 @@ const mockSshWorkspaceSyncHost = {
       .filter((host: { setupPending?: boolean }) => !host.setupPending)
       .map((host: { id: string }) => host.id)
   ),
+  disconnected: vi.fn(() => false),
   basePath: vi.fn((hostId: string) => mockSshWorkspaceService.resolveWorkspaceBasePath(hostId)),
   // Asks the same tmux as the host session checks, so tests set up both through one mock.
   findTerminalSessions: vi.fn((backend: unknown, terminalIds: string[]) =>

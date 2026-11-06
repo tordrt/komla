@@ -10,6 +10,7 @@ import { wslEnv } from '../lib/wsl';
 
 import { configService } from './config.service';
 import { projectService } from './project.service';
+import { isSshHostDisconnected } from './ssh-host-disconnection';
 import { sshHostService } from './ssh-host.service';
 import { joinRemote, remoteKomlaDataPort, sshWorkspaceService } from './ssh-workspace.service';
 
@@ -45,9 +46,14 @@ export function workspaceProjectKeys(workspace: Workspace): string[] {
   return project ? [project.id, project.name] : [];
 }
 
-/** False while the workspace can't run commands, as when its SSH host is not set up. */
+/**
+ * False while the workspace can't run commands, as when its SSH host is not set up or the user
+ * disconnected from it.
+ */
 export function canRunWorkspaceCommands(workspace: Workspace): boolean {
-  return isSshWorkspace(workspace) ? sshHostService.isReady(workspace.backend.hostId) : true;
+  if (!isSshWorkspace(workspace)) return true;
+  const { hostId } = workspace.backend;
+  return sshHostService.isReady(hostId) && !isSshHostDisconnected(hostId);
 }
 
 /** The last line of a failed command's error output. */

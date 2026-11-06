@@ -2345,6 +2345,105 @@ describe('sshPortForwardService', () => {
     });
   });
 
+  it('closes every tunnel to a host the user disconnected from and opens none until they connect', async () => {
+    const dataChild = createMockChild();
+    const previewChild = createMockChild();
+    const configuredChild = createMockChild();
+    mockSpawn
+      .mockReturnValueOnce(dataChild)
+      .mockReturnValueOnce(previewChild)
+      .mockReturnValueOnce(configuredChild);
+    const { sshPortForwardService } =
+      await import('../../../src/main/services/ssh-port-forward.service');
+    const { markSshHostDisconnected } =
+      await import('../../../src/main/services/ssh-host-disconnection');
+    const host = {
+      id: 'ssh-devbox',
+      name: 'Devbox',
+      hostname: 'devbox.example.com',
+      basePath: '~/.komla',
+      portForwards: [
+        { id: 'postgres', name: 'PostgreSQL', localPort: 5432, remotePort: 15432, enabled: true },
+      ],
+    };
+    const preview = {
+      workspaceId: 'ws-1',
+      tabId: 'tab-1',
+      backend: {
+        kind: 'ssh' as const,
+        hostId: host.id,
+        remoteDirectory: '/remote/worktree',
+        remoteRepoPath: '/remote/repo.git',
+        remoteProjectRoot: '/remote',
+      },
+      remotePort: 3000,
+    };
+    const data = sshPortForwardService.ensureKomlaDataTunnel(host.id, 54183);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(1));
+    markKomlaDataTunnelReady(dataChild);
+    await data;
+    await sshPortForwardService.startPreviewForward(preview);
+    const configured = sshPortForwardService.reconcileHostPortForwards(host);
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledTimes(3));
+    markConfiguredForwardReady(configuredChild, [15432]);
+    await configured;
+
+    markSshHostDisconnected(host.id, true);
+    try {
+      await sshPortForwardService.closeHost(host.id);
+
+      expect(dataChild.kill).toHaveBeenCalled();
+      expect(previewChild.kill).toHaveBeenCalled();
+      expect(configuredChild.kill).toHaveBeenCalled();
+      expect(sshPortForwardService.listForwardedPorts()).toEqual([]);
+
+      await sshPortForwardService.reconcileHostPortForwards(host);
+      expect(sshPortForwardService.getHostPortForwardStatus(host.id).state).toBe('stopped');
+      await expect(sshPortForwardService.startPreviewForward(preview)).rejects.toThrow(
+        'Disconnected from Devbox'
+      );
+      await expect(sshPortForwardService.ensureKomlaDataTunnel(host.id, 54183)).rejects.toThrow(
+        'Disconnected from Devbox'
+      );
+      await expect(sshPortForwardService.startVncForward(host.id, 5901)).rejects.toThrow(
+        'Disconnected from Devbox'
+      );
+      expect(mockSpawn).toHaveBeenCalledTimes(3);
+    } finally {
+      markSshHostDisconnected(host.id, false);
+    }
+  });
+
+  it('does not restart a dropped Komla data tunnel to a host the user disconnected from', async () => {
+    vi.useFakeTimers();
+    try {
+      const child = createMockChild();
+      mockSpawn.mockReturnValue(child);
+      const { sshPortForwardService } =
+        await import('../../../src/main/services/ssh-port-forward.service');
+      const { markSshHostDisconnected } =
+        await import('../../../src/main/services/ssh-host-disconnection');
+      const starting = sshPortForwardService.ensureKomlaDataTunnel('ssh-devbox', 54183);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      markKomlaDataTunnelReady(child);
+      await starting;
+
+      markSshHostDisconnected('ssh-devbox', true);
+      try {
+        child.exitCode = 255;
+        child.emit('exit', 255, null);
+        await vi.advanceTimersByTimeAsync(120_000);
+
+        expect(mockSpawn).toHaveBeenCalledTimes(1);
+      } finally {
+        markSshHostDisconnected('ssh-devbox', false);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reports a connection once when repeated ensures reuse the same data tunnel', async () => {
     const child = createMockChild();
     mockSpawn.mockReturnValue(child);

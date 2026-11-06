@@ -78,6 +78,7 @@ describe('ConfigService', () => {
         telemetryDistinctId: undefined,
         workspaceSyncDeviceId: undefined,
         workspaceSyncDisabledHostIds: [],
+        disconnectedSshHostIds: [],
         anonymousTelemetryEnabled: true,
         usageTelemetryEnabled: false,
         usageTelemetryConsentAnswered: false,

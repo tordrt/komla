@@ -453,6 +453,22 @@ describe('gitBackgroundFetchService', () => {
       expect(mocks.statusChange).not.toHaveBeenCalled();
     });
 
+    it('fetches nothing on a host the user disconnected from', async () => {
+      mocks.hostStates.set('h1', 'connected').set('h2', 'connected');
+      const { markSshHostDisconnected } =
+        await import('../../../src/main/services/ssh-host-disconnection');
+      const { gitBackgroundFetchService } =
+        await import('../../../src/main/services/git-background-fetch.service');
+      markSshHostDisconnected('h1', true);
+      try {
+        await gitBackgroundFetchService.fetchStale();
+      } finally {
+        markSshHostDisconnected('h1', false);
+      }
+
+      expect(mocks.sshFetch.mock.calls).toEqual([['h2', '/r/app', 20_000, undefined]]);
+    });
+
     it("refreshes the workspaces the Remote Companion doesn't watch when origin moved", async () => {
       mocks.hostStates.set('h1', 'connected');
       mocks.companionHostIds.add('h1');

@@ -425,6 +425,149 @@ describe('sshConnectionService', () => {
     expect(status()).toMatchObject({ state: 'connected' });
   });
 
+  it('runs nothing on a host the user disconnected from, and keeps what it last saw', async () => {
+    const { sshConnectionService } =
+      await import('../../../src/main/services/ssh-connection.service');
+    const { sshHostStatusService } =
+      await import('../../../src/main/services/ssh-host-status.service');
+    const { markSshHostDisconnected } =
+      await import('../../../src/main/services/ssh-host-disconnection');
+    const disconnected = { ...host, id: 'ssh-disconnected', name: 'Away' };
+    sshHostStatusService.reached(disconnected.id);
+    markSshHostDisconnected(disconnected.id, true);
+    try {
+      const refused = 'Disconnected from Away. Connect to it to use it again.';
+      await expect(sshConnectionService.run(disconnected, 'true')).rejects.toThrow(refused);
+      await expect(sshConnectionService.runWithInput(disconnected, 'cat', 'x')).rejects.toThrow(
+        refused
+      );
+      await expect(
+        sshConnectionService.runWithFileInput(disconnected, 'cat', '/dev/null')
+      ).rejects.toThrow(refused);
+      await expect(sshConnectionService.runStreaming(disconnected, 'true')).rejects.toThrow(
+        refused
+      );
+      expect(() => sshConnectionService.getRsyncTransport(disconnected)).toThrow(refused);
+      await expect(sshConnectionService.hasOpenConnection(disconnected)).resolves.toBe(false);
+      sshConnectionService.warmConnections(disconnected);
+      await expect(sshConnectionService.checkHost(disconnected)).resolves.toMatchObject({
+        state: 'connected',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(execFileMock).not.toHaveBeenCalled();
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(sshHostStatusService.get(disconnected.id)).toMatchObject({ state: 'connected' });
+    } finally {
+      markSshHostDisconnected(disconnected.id, false);
+    }
+  });
+
+  it('runs none of the commands still waiting for a slot when the user disconnects', async () => {
+    const { sshConnectionService } =
+      await import('../../../src/main/services/ssh-connection.service');
+    const { markSshHostDisconnected } =
+      await import('../../../src/main/services/ssh-host-disconnection');
+    const { sshHostStatusService } =
+      await import('../../../src/main/services/ssh-host-status.service');
+    const queuedHost = { ...host, id: 'ssh-disconnect-queued', hostname: 'queued.example.com' };
+    const callbacks: Array<(error: Error | null, stdout?: string) => void> = [];
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      const stdin = new PassThrough();
+      stdin.resume();
+      callbacks.push(callback);
+      return { stdin, kill: vi.fn() };
+    });
+    const active = Array.from({ length: 3 }, () =>
+      sshConnectionService.runWithInput(queuedHost, 'cat', 'input')
+    );
+    await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(3));
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      const stdin = new PassThrough();
+      stdin.resume();
+      queueMicrotask(() => callback(null, 'ran'));
+      return { stdin, kill: vi.fn() };
+    });
+    const queued = [
+      sshConnectionService.run(queuedHost, 'must-not-run'),
+      sshConnectionService.runWithInput(queuedHost, 'must-not-run', ''),
+      sshConnectionService.runStreaming(queuedHost, 'must-not-run'),
+    ];
+    markSshHostDisconnected(queuedHost.id, true);
+    try {
+      callbacks.forEach((callback) => callback(null, 'done'));
+      await Promise.all(active);
+      for (const run of queued) {
+        await expect(run).rejects.toThrow('Disconnected from SSH connection test');
+      }
+      expect(execFileMock).toHaveBeenCalledTimes(3);
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(sshHostStatusService.get(queuedHost.id)).toMatchObject({ state: 'connected' });
+    } finally {
+      markSshHostDisconnected(queuedHost.id, false);
+    }
+  });
+
+  it.each([
+    ['while disconnected', false],
+    ['after connecting again', true],
+  ])(
+    'keeps what it last saw of a host when disconnecting cuts off a command, which fails %s',
+    async (_name, reconnect) => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const { sshHostStatusService } =
+        await import('../../../src/main/services/ssh-host-status.service');
+      const { markSshHostDisconnected } =
+        await import('../../../src/main/services/ssh-host-disconnection');
+      const cutHost = { ...host, id: `ssh-disconnect-cut-${reconnect}`, hostname: 'cut.example.com' };
+      sshHostStatusService.reached(cutHost.id);
+      let finish!: (error: Error | null, stdout?: string) => void;
+      execFileMock.mockImplementation((_file, _args, _options, callback) => {
+        const stdin = new PassThrough();
+        stdin.resume();
+        finish = callback;
+        return { stdin, kill: vi.fn() };
+      });
+      const running = sshConnectionService.runWithInput(cutHost, 'cat', 'input');
+      await vi.waitFor(() => expect(execFileMock).toHaveBeenCalled());
+      markSshHostDisconnected(cutHost.id, true);
+      if (reconnect) markSshHostDisconnected(cutHost.id, false);
+      try {
+        finish(Object.assign(new Error('Connection closed by remote host'), { code: 255 }));
+        await expect(running).rejects.toThrow('Disconnected from SSH connection test');
+        expect(sshHostStatusService.get(cutHost.id)).toMatchObject({ state: 'connected' });
+      } finally {
+        markSshHostDisconnected(cutHost.id, false);
+      }
+    }
+  );
+
+  it('closes the shared connections a host has open, and asks only the local ssh holding them', async () => {
+    const { sshConnectionService } =
+      await import('../../../src/main/services/ssh-connection.service');
+    const { sshControlPath } = await import('../../../src/main/services/ssh-connection/policy');
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      callback(null, { stdout: '', stderr: '' });
+      return { stdin: new PassThrough(), kill: vi.fn() };
+    });
+    const background = sshControlPath(host, { kind: 'background' })!;
+    const stream = sshControlPath(host, { kind: 'workspace-stream', workspaceId: 'ws-1' })!;
+    writeFileSync(background, '');
+    writeFileSync(stream, '');
+    try {
+      await sshConnectionService.closeConnections(host, ['ws-1', 'ws-2']);
+    } finally {
+      rmSync(background, { force: true });
+      rmSync(stream, { force: true });
+    }
+
+    expect(execFileMock.mock.calls.map(([file, args]) => [file, ...(args as string[])])).toEqual([
+      ['ssh', '-o', `ControlPath=${background}`, '-O', 'exit', 'dev@connection.example.com'],
+      ['ssh', '-o', `ControlPath=${stream}`, '-O', 'exit', 'dev@connection.example.com'],
+    ]);
+  });
+
   it('fails with ssh’s own error rather than the command when ssh cannot connect', async () => {
     const { sshConnectionService } =
       await import('../../../src/main/services/ssh-connection.service');

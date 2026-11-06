@@ -259,6 +259,7 @@ export interface AppConfig {
   telemetryDistinctId?: string; // Anonymous random ID for app telemetry uniqueness
   workspaceSyncDeviceId?: string; // Random ID this installation records in the SSH workspace manifests it writes
   workspaceSyncDisabledHostIds?: string[]; // SSH hosts whose workspaces aren't synced with other devices
+  disconnectedSshHostIds?: string[]; // SSH hosts the user disconnected from, which Komla leaves alone until they connect again
   anonymousTelemetryEnabled?: boolean; // Send the anonymous install ping and daily heartbeat (on unless turned off)
   usageTelemetryEnabled?: boolean; // Opt-in: send identified usage analytics to help improve Komla
   usageTelemetryConsentAnswered?: boolean; // User has explicitly chosen on/off for usage analytics
@@ -391,6 +392,7 @@ const DEFAULT_CONFIG: AppConfig = {
   telemetryDistinctId: undefined,
   workspaceSyncDeviceId: undefined,
   workspaceSyncDisabledHostIds: [],
+  disconnectedSshHostIds: [],
   anonymousTelemetryEnabled: true,
   usageTelemetryEnabled: false,
   usageTelemetryConsentAnswered: false,
@@ -512,6 +514,7 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     telemetryDistinctId: pickWithDefault(rawConfig, 'telemetryDistinctId'),
     workspaceSyncDeviceId: pickWithDefault(rawConfig, 'workspaceSyncDeviceId'),
     workspaceSyncDisabledHostIds: pickWithDefault(rawConfig, 'workspaceSyncDisabledHostIds'),
+    disconnectedSshHostIds: pickWithDefault(rawConfig, 'disconnectedSshHostIds'),
     anonymousTelemetryEnabled: pickWithDefault(rawConfig, 'anonymousTelemetryEnabled'),
     // Usage analytics is opt-in, and only an answer to the consent question turns it on.
     usageTelemetryEnabled:

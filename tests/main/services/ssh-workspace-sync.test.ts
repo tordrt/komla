@@ -149,6 +149,7 @@ function service(
   const removeOrphaned = vi.fn(async () => undefined);
   const hasHost = vi.fn(() => true);
   const readyHosts = vi.fn(() => ['host-a']);
+  const disconnected = vi.fn((_hostId: string) => false);
   const basePath = vi.fn(async () => '/home/dev/.komla');
   const workspaces = new Map<string, Workspace>();
   const store = memoryStore(workspaces);
@@ -164,6 +165,7 @@ function service(
     removeOrphaned,
     hasHost,
     readyHosts,
+    disconnected,
     store,
     syncsWith,
     inUse,
@@ -182,6 +184,7 @@ function service(
         removeOrphaned,
         hasHost,
         readyHosts,
+        disconnected,
         basePath,
       },
       store,
@@ -792,6 +795,7 @@ describe('SshWorkspaceSync', () => {
         removeOrphaned: vi.fn(),
         hasHost: () => true,
         readyHosts: () => [],
+        disconnected: () => false,
         basePath: vi.fn(),
       },
       store: memoryStore(new Map()),
@@ -1677,5 +1681,33 @@ describe('SshWorkspaceSync scheduling', () => {
     await manifests.syncSoon();
 
     expect(read.mock.calls.map(([hostId]) => hostId)).toEqual(['host-a']);
+  });
+
+  it('leaves a host the user disconnected from alone, and catches up on connecting', async () => {
+    const { manifests, read, write, readyHosts, disconnected, hold } = service();
+    readyHosts.mockReturnValue(['host-a', 'host-b']);
+    disconnected.mockImplementation((hostId: string) => hostId === 'host-a');
+    const workspace = sshWorkspace();
+    hold(workspace);
+
+    await manifests.syncSoon();
+    await manifests.syncSoon('host-a', { now: true });
+    manifests.expectWorkspace('host-a');
+    manifests.saved([{ ...workspace, name: 'Renamed while away' }]);
+    await flush();
+
+    expect(read.mock.calls.map(([hostId]) => hostId)).toEqual(['host-b']);
+    expect(write).not.toHaveBeenCalled();
+
+    disconnected.mockReturnValue(false);
+    workspace.name = 'Renamed while away';
+    await manifests.syncSoon('host-a', { now: true });
+    await flush();
+
+    expect(read.mock.calls.map(([hostId]) => hostId)).toEqual(['host-b', 'host-a']);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(write.mock.calls[0]![2] as string)).toMatchObject({
+      name: 'Renamed while away',
+    });
   });
 });

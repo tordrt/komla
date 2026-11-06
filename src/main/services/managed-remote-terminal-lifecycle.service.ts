@@ -3,6 +3,7 @@ import { createLogger } from '../lib/logger';
 import { ManagedRemoteTerminalLifecycleService } from './managed-remote-terminal-lifecycle/lifecycle';
 import { getKomlaBasePath } from './paths';
 import { ptyService } from './pty.service';
+import { assertSshHostConnected, isSshHostDisconnected } from './ssh-host-disconnection';
 import { sshWorkspaceService } from './ssh-workspace.service';
 
 import type {
@@ -27,6 +28,12 @@ const productionAdapters: ManagedRemoteTerminalLifecycleAdapters = {
   workspace: unconfiguredWorkspaceAdapter,
   session: {
     hasHost: (backend) => sshWorkspaceService.hasHost(backend.hostId),
+    isDisconnected: (backend) => isSshHostDisconnected(backend.hostId),
+    assertConnected: (backend) => {
+      if (isSshHostDisconnected(backend.hostId)) {
+        assertSshHostConnected(sshWorkspaceService.getHost(backend.hostId));
+      }
+    },
     supportsPersistence: (backend) =>
       sshWorkspaceService.supportsPersistentTerminalSessions(backend),
     observe: (backend, terminalIds) =>

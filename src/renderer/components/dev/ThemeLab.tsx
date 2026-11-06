@@ -1,7 +1,7 @@
 // Theme Lab: a dev-build panel for trying style changes on the real UI.
 // Ctrl+Alt+Shift+T (Cmd+Alt+Shift+T on macOS) toggles it. Its own colors are fixed, so it stays
 // readable whatever the page's colors become. Changes live in this browser's localStorage only.
-// Past pickers (looks, surfaces, terminal shades, corners) are in git history.
+// Past pickers (looks, surfaces, terminal shades, corners, lines, panels) are in git history.
 
 import { ArrowCounterClockwise, Eye, X } from '@phosphor-icons/react';
 import {
@@ -13,30 +13,14 @@ import {
   type ReactNode,
 } from 'react';
 
+import { useTerminalBackground } from '@/lib/palette-runtime';
+import { DEFAULT_TERMINAL_THEME } from '@/lib/terminal-theme';
 import {
-  LAB_ACTIVE_TABS,
-  LAB_ALL_LINES,
-  LAB_BOTTOM_BARS,
-  LAB_BOTTOM_ROW_DIVIDERS,
-  LAB_FILE_PANEL_TOPS,
-  LAB_FILE_PANELS,
-  LAB_FILE_TREE_DIVIDERS,
-  LAB_NEW_WORKSPACE_BUTTONS,
-  LAB_PANE_BORDERS,
-  LAB_FOCUSED_PANES,
-  LAB_PANE_CORNERS,
-  LAB_PANE_GAPS,
-  LAB_QUICK_COMMANDS,
-  LAB_SELECTED_WORKSPACES,
-  LAB_SIDEBAR_PANELS,
-  LAB_SIDEBAR_TAB_LOOKS,
-  LAB_STATUS_BARS,
-  LAB_TAB_CORNERS,
-  LAB_TOP_ROW_DIVIDERS,
+  LAB_EMPTY_PAGES,
+  LAB_PANE_COLOR_VARIABLE,
   TODAY_OPTION_ID,
-  TODAY_STATUS_BAR_ID,
   optionCss,
-  statusBarCss,
+  paneColorCss,
   type LabOption,
 } from '@/lib/theme-lab';
 import { cn } from '@/lib/utils';
@@ -46,92 +30,19 @@ const CHOICES_KEY = 'komla.themeLab.choices';
 const FRAME_KEY = 'komla.themeLab.frame';
 
 interface LabChoices {
-  /** A LAB_STATUS_BARS id. */
-  statusBar: string;
-  /** A LAB_PANE_CORNERS id. */
-  paneCorners: string;
-  /** A LAB_PANE_GAPS id. */
-  paneGap: string;
-  /** A LAB_TAB_CORNERS id. */
-  tabCorners: string;
-  /** A LAB_BOTTOM_BARS id. */
-  bottomBar: string;
-  /** A LAB_BOTTOM_ROW_DIVIDERS id. */
-  bottomRowDivider: string;
-  /** A LAB_FILE_PANELS id. */
-  filePanel: string;
-  /** A LAB_FILE_PANEL_TOPS id. */
-  filePanelTop: string;
-  /** A LAB_FILE_TREE_DIVIDERS id. */
-  fileTreeDivider: string;
-  /** A LAB_TOP_ROW_DIVIDERS id. */
-  topRowDivider: string;
-  /** A LAB_ALL_LINES id. */
-  allLines: string;
-  /** A LAB_QUICK_COMMANDS id. */
-  quickCommands: string;
-  /** A LAB_PANE_BORDERS id. */
-  paneBorder: string;
-  /** A LAB_FOCUSED_PANES id. */
-  focusedPane: string;
-  /** A LAB_ACTIVE_TABS id. */
-  activeTab: string;
-  /** A LAB_SIDEBAR_PANELS id. */
-  sidebarPanels: string;
-  /** A LAB_NEW_WORKSPACE_BUTTONS id. */
-  newWorkspaceButton: string;
-  /** A LAB_SELECTED_WORKSPACES id. */
-  selectedWorkspace: string;
-  /** A LAB_SIDEBAR_TAB_LOOKS id. */
-  sidebarTabLook: string;
+  /** A LAB_EMPTY_PAGES id. */
+  emptyPage: string;
 }
 
-// The pickers whose options are LabOptions, in the panel's order.
+// The pickers, in the panel's order.
 const OPTION_PICKERS: readonly {
-  key: Exclude<keyof LabChoices, 'statusBar'>;
+  key: keyof LabChoices;
   heading: string;
   options: readonly LabOption[];
-}[] = [
-  { key: 'sidebarTabLook', heading: 'Sidebar tab look', options: LAB_SIDEBAR_TAB_LOOKS },
-  { key: 'bottomBar', heading: 'Bottom row', options: LAB_BOTTOM_BARS },
-  { key: 'bottomRowDivider', heading: 'Bottom row divider', options: LAB_BOTTOM_ROW_DIVIDERS },
-  { key: 'filePanel', heading: 'File panel', options: LAB_FILE_PANELS },
-  { key: 'filePanelTop', heading: 'File panel top', options: LAB_FILE_PANEL_TOPS },
-  { key: 'fileTreeDivider', heading: 'File tree divider', options: LAB_FILE_TREE_DIVIDERS },
-  { key: 'topRowDivider', heading: 'Top row divider', options: LAB_TOP_ROW_DIVIDERS },
-  { key: 'allLines', heading: 'All lines', options: LAB_ALL_LINES },
-  { key: 'paneBorder', heading: 'Pane border', options: LAB_PANE_BORDERS },
-  { key: 'focusedPane', heading: 'Focused pane', options: LAB_FOCUSED_PANES },
-  { key: 'activeTab', heading: 'Active tab', options: LAB_ACTIVE_TABS },
-  { key: 'quickCommands', heading: 'Quick commands', options: LAB_QUICK_COMMANDS },
-  { key: 'sidebarPanels', heading: 'Sidebar panels', options: LAB_SIDEBAR_PANELS },
-  { key: 'newWorkspaceButton', heading: 'New Workspace', options: LAB_NEW_WORKSPACE_BUTTONS },
-  { key: 'selectedWorkspace', heading: 'Selected workspace', options: LAB_SELECTED_WORKSPACES },
-  { key: 'paneCorners', heading: 'Pane corners', options: LAB_PANE_CORNERS },
-  { key: 'paneGap', heading: 'Pane gap', options: LAB_PANE_GAPS },
-  { key: 'tabCorners', heading: 'Tab corners', options: LAB_TAB_CORNERS },
-];
+}[] = [{ key: 'emptyPage', heading: 'Empty page', options: LAB_EMPTY_PAGES }];
 
 const DEFAULT_CHOICES: LabChoices = {
-  statusBar: TODAY_STATUS_BAR_ID,
-  paneCorners: TODAY_OPTION_ID,
-  paneGap: TODAY_OPTION_ID,
-  tabCorners: TODAY_OPTION_ID,
-  bottomBar: TODAY_OPTION_ID,
-  bottomRowDivider: TODAY_OPTION_ID,
-  filePanel: TODAY_OPTION_ID,
-  filePanelTop: TODAY_OPTION_ID,
-  fileTreeDivider: TODAY_OPTION_ID,
-  topRowDivider: TODAY_OPTION_ID,
-  allLines: TODAY_OPTION_ID,
-  quickCommands: TODAY_OPTION_ID,
-  paneBorder: TODAY_OPTION_ID,
-  focusedPane: TODAY_OPTION_ID,
-  activeTab: TODAY_OPTION_ID,
-  sidebarPanels: TODAY_OPTION_ID,
-  newWorkspaceButton: TODAY_OPTION_ID,
-  selectedWorkspace: TODAY_OPTION_ID,
-  sidebarTabLook: TODAY_OPTION_ID,
+  emptyPage: TODAY_OPTION_ID,
 };
 
 function readJson<T>(key: string, fallback: T): T {
@@ -245,10 +156,7 @@ function useFloatingFrame() {
 function savedChoices(saved: Partial<LabChoices>): LabChoices {
   const known = (options: readonly { id: string }[], id: string | undefined, fallback: string) =>
     options.find((option) => option.id === id)?.id ?? fallback;
-  const choices = {
-    ...DEFAULT_CHOICES,
-    statusBar: known(LAB_STATUS_BARS, saved.statusBar, DEFAULT_CHOICES.statusBar),
-  };
+  const choices = { ...DEFAULT_CHOICES };
   for (const { key, options } of OPTION_PICKERS) {
     choices[key] = known(options, saved[key], DEFAULT_CHOICES[key]);
   }
@@ -289,9 +197,10 @@ export function ThemeLab() {
     return () => sheet.remove();
   }, [sheet]);
 
-  const css =
-    statusBarCss(choices.statusBar) +
-    OPTION_PICKERS.map(({ key, options }) => optionCss(options, choices[key])).join('');
+  const paneColor = useTerminalBackground() || DEFAULT_TERMINAL_THEME.background!;
+  const tried = OPTION_PICKERS.map(({ key, options }) => optionCss(options, choices[key])).join('');
+  // Only an option that paints with the terminal's color gets it.
+  const css = tried.includes(LAB_PANE_COLOR_VARIABLE) ? paneColorCss(paneColor) + tried : tried;
   useLayoutEffect(() => {
     sheet.textContent = comparing ? '' : css;
   }, [sheet, css, comparing]);
@@ -361,13 +270,6 @@ function ThemeLabPanel({ choices, onChange, onReset, onClose, onCompare }: Panel
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <PickerHeading>Status bar</PickerHeading>
-        <OptionGrid
-          columns={3}
-          options={LAB_STATUS_BARS}
-          selected={choices.statusBar}
-          onSelect={(id) => onChange({ statusBar: id })}
-        />
         {OPTION_PICKERS.map(({ key, heading, options }) => (
           <div key={key}>
             <PickerHeading>{heading}</PickerHeading>

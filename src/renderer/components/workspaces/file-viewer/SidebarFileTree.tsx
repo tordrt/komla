@@ -1844,7 +1844,7 @@ function SidebarFileTreeHeader({
       ? 'Show uncommitted changes'
       : `Show all changes since ${targetBranchName || 'target branch'}`;
   return (
-    // `file-tree-header` names it for the Theme Lab.
+    // `file-tree-header` names it for globals.css, which softens its line in the file panel.
     <div className="file-tree-header flex h-9 shrink-0 items-center justify-between gap-0 border-b bg-card pr-2 pl-2.5 text-sm font-medium">
       <span ref={statsRef} className="flex min-w-0 flex-1 items-center overflow-hidden">
         {showDiffSummary && diffSummary ? (

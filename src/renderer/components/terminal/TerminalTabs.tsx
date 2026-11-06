@@ -576,8 +576,7 @@ function FileTreeModeTabs({
     // running under the corner buttons.
     <div
       aria-label="File panel view"
-      // `sidebar-tab-row` names it for the Theme Lab.
-      className="sidebar-tab-row flex min-w-0 items-stretch gap-3.5 self-stretch pl-1"
+      className="flex min-w-0 items-stretch gap-3.5 self-stretch pl-1"
       style={roomPx > 0 ? { maxWidth: roomPx } : undefined}
     >
       <SidebarTabs
@@ -967,11 +966,12 @@ function PreviewFileIcon({ filePath, isNote }: { filePath: string | null; isNote
 
 /**
  * A selected workspace's page while it restarts, sets up or fails its setup. It paints nothing, so
- * it shows the work column's chrome, as the sidebar beside it does.
+ * it shows the work column's chrome, as the sidebar beside it does. `workspace-status-page` names
+ * it for globals.css, which draws the sidebar's edge beside it, and for the Theme Lab.
  */
 function WorkspaceStatusPage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 pb-(--banner-inset) text-muted-foreground">
+    <div className="workspace-status-page flex h-full flex-col items-center justify-center gap-3 pb-(--banner-inset) text-muted-foreground">
       {children}
     </div>
   );

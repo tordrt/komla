@@ -585,7 +585,6 @@ export function SidebarTabs({
       <button
         key={view}
         data-sidebar-tab={view}
-        data-active={view === showing ? '' : undefined}
         onClick={() => show(view)}
         draggable={canKeep && tabs.length > 1}
         onDragStart={(event) => {
@@ -615,7 +614,6 @@ export function SidebarTabs({
         }}
         className={cn(
           tabClass(view === showing),
-          'sidebar-tab',
           // For the drop indicator.
           'relative',
           // A panel's title shortens when its tab alone is wider than the narrowest row.
@@ -663,10 +661,8 @@ export function SidebarTabs({
         {order.map((view) => (
           <div key={view} data-measure-view={view} className="flex shrink-0">
             <span
-              data-active={view === showing ? '' : undefined}
               className={cn(
                 tabClass(view === showing),
-                'sidebar-tab',
                 panelOf(view) && 'flex max-w-40 min-w-0 items-center'
               )}
             >

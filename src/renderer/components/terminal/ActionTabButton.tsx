@@ -32,9 +32,7 @@ interface ActionTabButtonProps {
 }
 
 // A ghost control, with no line or fill until hovered, so it can't be taken for a second terminal
-// tab in the same row. `quick-commands-control` names it for the Theme Lab.
-const EDGE_LINE = 'quick-commands-control';
-
+// tab in the same row.
 const buttonClass =
   'flex items-center text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
 
@@ -191,7 +189,7 @@ export function ActionTabButton({ workspaceId, tabRoom }: ActionTabButtonProps) 
                 type="button"
                 onClick={openEditorForNewAction}
                 aria-label="New quick command"
-                className={cn(buttonClass, 'h-6 gap-1.5 rounded-md px-1.5', EDGE_LINE)}
+                className={cn(buttonClass, 'h-6 gap-1.5 rounded-md px-1.5')}
               >
                 <Play weight="fill" className="size-3 shrink-0" />
                 {renderLabel('Quick command')}
@@ -214,10 +212,7 @@ export function ActionTabButton({ workspaceId, tabRoom }: ActionTabButtonProps) 
           Open is read from aria-expanded, since the tooltip owns the trigger's data-state. */}
       <div
         ref={buttonRef}
-        className={cn(
-          'group/action-split flex h-6 items-stretch overflow-hidden rounded-md',
-          EDGE_LINE
-        )}
+        className="group/action-split flex h-6 items-stretch overflow-hidden rounded-md"
       >
         <Tooltip delayDuration={600}>
           <TooltipTrigger asChild>

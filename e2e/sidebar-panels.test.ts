@@ -219,6 +219,7 @@ async function createWorkspace(appWindow: import('@playwright/test').Page, branc
 }
 
 type Page = import('@playwright/test').Page;
+type ElectronApplication = import('@playwright/test').ElectronApplication;
 
 /** Moves the sidebar's edge with the arrow keys, ArrowRight to narrow it, as far as it goes. */
 async function resizeSidebar(appWindow: Page, key: 'ArrowLeft' | 'ArrowRight') {
@@ -236,6 +237,34 @@ function sidebarWidth(appWindow: Page) {
 /** The sidebar's tabs as the row shows them, by name. */
 function sidebarTabNames(appWindow: Page) {
   return appWindow.locator('[data-sidebar-tab]').allTextContents();
+}
+
+/**
+ * The `data-` attributes on the body of a panel's page, read through Electron, or nothing while
+ * the page isn't there yet. Playwright runs everything it does in a frame as a user gesture, so
+ * polling the page with it before the page's own calls are done would let them through as if
+ * from a click.
+ */
+async function panelPageData(appWindow: Page, electronApp: ElectronApplication, panel: string) {
+  const url = await appWindow
+    .locator(`[data-sidebar-panel="${panel}"] iframe`)
+    .getAttribute('src', { timeout: 1_000 })
+    .catch(() => null);
+  if (!url) return undefined;
+  return electronApp.evaluate(async ({ webContents }, url) => {
+    try {
+      const page = webContents
+        .getAllWebContents()
+        .flatMap((contents) => contents.mainFrame.framesInSubtree)
+        .find((frame) => frame.url === url);
+      return (await page?.executeJavaScript('({ ...document.body?.dataset })', false)) as
+        | Record<string, string>
+        | undefined;
+    } catch {
+      // The frame went away as it was read, as when it's mounted again.
+      return undefined;
+    }
+  }, url);
 }
 
 test.describe('Sidebar panels', () => {
@@ -365,20 +394,24 @@ test.describe('Sidebar panels', () => {
 
   test('runs a page of its own that gets data and reaches Komla through komla', async ({
     appWindow,
+    electronApp,
   }) => {
     await createWorkspace(appWindow, 'sidebar-panels/board');
     await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click({ timeout: 20_000 });
     await appWindow.getByRole('menuitem', { name: 'Board' }).click();
 
+    // Without a click, a page can't run a command or open a folder, and nothing it didn't declare.
+    await expect
+      .poll(() => panelPageData(appWindow, electronApp, 'board'), { timeout: 20_000 })
+      .toMatchObject({
+        runAlone: 'NEEDS_USER_ACTION',
+        openAlone: 'NEEDS_USER_ACTION',
+        snooze: 'CAPABILITY_NOT_DECLARED',
+        ready: 'true',
+      });
     const page = appWindow.locator('[data-sidebar-panel="board"]').frameLocator('iframe');
-    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', {
-      timeout: 20_000,
-    });
     await expect(page.locator('#count')).toHaveText('Count 0');
     await expect(page.locator('#workspaces .k-item')).toHaveText(['Board']);
-    await expect(page.locator('body')).toHaveAttribute('data-run-alone', 'NEEDS_USER_ACTION');
-    await expect(page.locator('body')).toHaveAttribute('data-open-alone', 'NEEDS_USER_ACTION');
-    await expect(page.locator('body')).toHaveAttribute('data-snooze', 'CAPABILITY_NOT_DECLARED');
     // Komla's stylesheet styles the page in the window's theme.
     const radius = await page
       .locator('#bump')
@@ -422,10 +455,12 @@ test.describe('Sidebar panels', () => {
     await createWorkspace(appWindow, 'sidebar-panels/links');
     await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click({ timeout: 20_000 });
     await appWindow.getByRole('menuitem', { name: 'Board' }).click();
+    await expect
+      .poll(async () => (await panelPageData(appWindow, electronApp, 'board'))?.ready, {
+        timeout: 20_000,
+      })
+      .toBe('true');
     const page = appWindow.locator('[data-sidebar-panel="board"]').frameLocator('iframe');
-    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', {
-      timeout: 20_000,
-    });
 
     // Links in SVG and in a shadow root open as others do, and one to anything but the web stays
     // put rather than leaving an error page in the panel.
@@ -480,17 +515,20 @@ test.describe('Sidebar panels', () => {
 
   test("lets a plugin's page sign in with a token its code keeps, or open its settings", async ({
     appWindow,
+    electronApp,
   }) => {
     await createWorkspace(appWindow, 'sidebar-panels/sign-in');
     await appWindow.getByRole('button', { name: 'Files', exact: true }).click({ timeout: 20_000 });
     await appWindow
       .getByRole('button', { name: 'Code panel, opens its panel in the sidebar' })
       .click({ timeout: 30_000 });
-    const page = appWindow.locator('[data-sidebar-panel="coded.code"]').frameLocator('iframe');
     // Without a click, a page can't open Settings.
-    await expect(page.locator('body')).toHaveAttribute('data-open-alone', 'NEEDS_USER_ACTION', {
-      timeout: 30_000,
-    });
+    await expect
+      .poll(async () => (await panelPageData(appWindow, electronApp, 'coded.code'))?.openAlone, {
+        timeout: 30_000,
+      })
+      .toBe('NEEDS_USER_ACTION');
+    const page = appWindow.locator('[data-sidebar-panel="coded.code"]').frameLocator('iframe');
 
     await page.locator('#token').fill('tok_from_page');
     await page.getByRole('button', { name: 'Sign in' }).click();

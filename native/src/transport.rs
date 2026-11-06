@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use komla::CompanionSnapshotPayload;
 
+use crate::host_changes::HostChangeNotice;
 use crate::outbox::QueuedCommand;
 
 const MAX_HTTP_RESPONSE_BYTES: usize = 64 * 1024;
@@ -90,6 +91,11 @@ pub(crate) enum OutboundRequest {
         request_id: u64,
         command: Box<QueuedCommand>,
     },
+    /// Settles the host's changes up to `changes` once delivered.
+    HostChanged {
+        changes: u64,
+        notice: HostChangeNotice,
+    },
 }
 
 pub(crate) enum OutboundResult {
@@ -105,6 +111,10 @@ pub(crate) enum OutboundResult {
     Command {
         request_id: u64,
         delivery: CommandDelivery,
+    },
+    HostChanged {
+        changes: u64,
+        delivered: bool,
     },
 }
 
@@ -165,6 +175,10 @@ impl OutboundTransport {
                             request_id,
                             delivery,
                         }
+                    }
+                    OutboundRequest::HostChanged { changes, notice } => {
+                        let delivered = client.deliver_host_change(&notice);
+                        OutboundResult::HostChanged { changes, delivered }
                     }
                 };
                 if results.send(result).is_err() {
@@ -236,6 +250,31 @@ impl KomlaClient {
             Err(error) => {
                 eprintln!("terminal hook delivery failed: {error}");
                 HookDelivery::Retry
+            }
+        }
+    }
+
+    /// Tells the desktop the host changed, so it syncs it. Any success response accepts it.
+    pub(crate) fn deliver_host_change(&self, notice: &HostChangeNotice) -> bool {
+        let Some(base) = &self.api_base else {
+            return false;
+        };
+        let body = match serde_json::to_vec(notice) {
+            Ok(body) => body,
+            Err(error) => {
+                eprintln!("could not serialize host change notice: {error}");
+                return false;
+            }
+        };
+        match post_json(
+            &format!("{base}/api/v1/ssh-host-changed"),
+            &body,
+            Vec::new(),
+        ) {
+            Ok(_) => true,
+            Err(error) => {
+                eprintln!("host change notice delivery failed: {error}");
+                false
             }
         }
     }
@@ -735,6 +774,21 @@ mod tests {
         let endpoint = serve_once(503, "retry later");
 
         assert!(!client(endpoint).deliver_snapshot(&payload));
+    }
+
+    #[test]
+    fn host_change_notices_go_to_the_desktop_beside_its_snapshots() {
+        let (endpoint, request) = serve_once_capturing_request(204, "");
+        let client = KomlaClient::new(format!("{endpoint}/api/v1/ssh-workspace-status"));
+
+        assert!(client.deliver_host_change(&crate::host_changes::HostChangeNotice::new()));
+        let request = request.recv().unwrap();
+        assert!(request.starts_with("POST /api/v1/ssh-host-changed HTTP/1.1"));
+        assert!(request.ends_with(r#"{"protocolVersion":1,"kind":"ssh-host-changed"}"#));
+
+        let (endpoint, _) = serve_once_capturing_request(503, "");
+        let client = KomlaClient::new(format!("{endpoint}/api/v1/ssh-workspace-status"));
+        assert!(!client.deliver_host_change(&crate::host_changes::HostChangeNotice::new()));
     }
 
     #[test]

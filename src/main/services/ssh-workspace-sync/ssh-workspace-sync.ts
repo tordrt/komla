@@ -28,9 +28,16 @@ import type {
 
 const logger = createLogger('SshWorkspaceSync');
 
-// How often focusing Komla or opening a workspace checks its SSH host for changes made by other
-// Komla installations
-const SYNC_INTERVAL_MS = 30_000;
+// How often focusing Komla or opening a workspace checks an SSH host for changes made by other
+// Komla installations, where no Remote Companion tells Komla of them
+const SYNC_INTERVAL_MS = 10 * 60_000;
+
+// How often focusing Komla or opening a workspace checks a host whose Remote Companion tells Komla
+// of changes, in case it stopped without the desktop noticing
+const PUSHED_SYNC_INTERVAL_MS = 60 * 60_000;
+
+// How often a host is synced again while following up on another installation's change
+const FOLLOW_UP_INTERVAL_MS = 30_000;
 
 // How long a workspace's manifest keeps the agent's title before taking a newer one: agents
 // retitle their terminals often, and only the host's phone list shows it
@@ -41,8 +48,9 @@ const MAX_AGENT_TITLE_CHARS = 256;
 // again: the host may start the agent, whose hooks say so, just before it lists the workspace
 const EXPECTED_WORKSPACE_RECHECK_MS = 10_000;
 
-// How long a host is synced again each interval after another installation last changed its
-// workspaces there, such as one it started, whose tabs' sessions start after the sync adds it
+// How long a host is synced again each follow-up interval after another installation last changed
+// its workspaces there, such as one it started, whose tabs' sessions start after the sync adds it.
+// A host whose Remote Companion tells Komla of such changes needs none.
 const FOLLOW_UP_MS = 5 * 60_000;
 
 interface FollowUp {
@@ -185,6 +193,12 @@ export interface SshWorkspaceSyncDependencies {
   };
   /** The user is in Komla, e.g. a window is focused. Follow-up syncs wait for it. */
   inUse?: () => boolean;
+  /**
+   * The host's Remote Companion tells this installation when another changes a workspace there,
+   * or starts or ends a session, so focusing Komla or opening a workspace asks the host only
+   * hourly.
+   */
+  pushes?: (hostId: string) => boolean;
 }
 
 /**
@@ -263,9 +277,11 @@ export class SshWorkspaceSync {
 
   /**
    * Syncs a host, or every host this installation syncs with, unless it was
-   * synced within the last interval; `now` skips the interval. Concurrent calls
-   * share one pass, except that one asking for `now` also gets one after it,
-   * since e.g. a new connection can reach what the running pass could not.
+   * synced within the last interval, which is an hour when its Remote Companion
+   * tells this installation of changes; `now` syncs regardless.
+   * Concurrent calls share one pass, except that one asking for `now` also gets
+   * one after it, since e.g. a new connection can reach what the running pass
+   * could not.
    */
   syncSoon(hostId?: string, { now = false }: { now?: boolean } = {}): Promise<void> {
     if (hostId === undefined) {
@@ -281,7 +297,7 @@ export class SshWorkspaceSync {
       );
     }
     if (this.dependencies.host.disconnected(hostId)) return Promise.resolve();
-    const minIntervalMs = now ? 0 : SYNC_INTERVAL_MS;
+    const minIntervalMs = now ? 0 : this.minSyncIntervalMs(hostId);
     const previous = this.hostSyncs.get(hostId);
     if (previous?.running) {
       if (minIntervalMs > 0) return previous.running;
@@ -310,6 +326,12 @@ export class SshWorkspaceSync {
     return state.running;
   }
 
+  /** How long after a pass focusing Komla or opening a workspace syncs the host again. */
+  private minSyncIntervalMs(hostId: string): number {
+    if (this.dependencies.pushes?.(hostId)) return PUSHED_SYNC_INTERVAL_MS;
+    return this.followUps.has(hostId) ? FOLLOW_UP_INTERVAL_MS : SYNC_INTERVAL_MS;
+  }
+
   /** Stops syncing hosts again on its own, as when Komla quits. */
   dispose(): void {
     this.disposed = true;
@@ -319,6 +341,15 @@ export class SshWorkspaceSync {
     this.agentTitles.clear();
     for (const timer of this.expecting.values()) clearTimeout(timer);
     this.expecting.clear();
+  }
+
+  /**
+   * The host's Remote Companion says another installation changed a workspace there, or started
+   * or ended one of its sessions: the host is synced now.
+   */
+  hostChanged(hostId: string): void {
+    if (this.disposed) return;
+    void this.syncSoon(hostId, { now: true });
   }
 
   /**
@@ -343,6 +374,7 @@ export class SshWorkspaceSync {
    */
   private startedElsewhere(hostId: string): void {
     if (this.disposed || !this.dependencies.syncsWith(hostId)) return;
+    if (this.dependencies.pushes?.(hostId)) return;
     const pending = this.followUps.get(hostId) ?? { until: 0 };
     pending.until = this.dependencies.now() + FOLLOW_UP_MS;
     this.followUps.set(hostId, pending);
@@ -369,7 +401,8 @@ export class SshWorkspaceSync {
   private scheduleFollowUp(hostId: string, pending: FollowUp): void {
     pending.timer = setTimeout(() => {
       pending.timer = undefined;
-      if (!this.dependencies.syncsWith(hostId)) {
+      // Its Remote Companion tells of what follow-ups would have found.
+      if (!this.dependencies.syncsWith(hostId) || this.dependencies.pushes?.(hostId)) {
         this.followUps.delete(hostId);
         return;
       }
@@ -377,7 +410,7 @@ export class SshWorkspaceSync {
       if (this.dependencies.inUse?.() === false) return;
       // A pass still running follows up when it ends.
       void this.syncSoon(hostId);
-    }, SYNC_INTERVAL_MS);
+    }, FOLLOW_UP_INTERVAL_MS);
     pending.timer.unref?.();
   }
 

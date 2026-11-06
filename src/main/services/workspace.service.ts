@@ -248,6 +248,7 @@ class WorkspaceService {
             )
           : undefined,
       inUse: () => BrowserWindow.getFocusedWindow() !== null,
+      pushes: (hostId) => remoteWorkspaceObservationService.companionForHost(hostId) !== undefined,
       hostCopies: {
         read: () => {
           const path = sshWorkspaceSyncPath();
@@ -431,6 +432,7 @@ class WorkspaceService {
         }),
       invalidateRemoteCompanion: (hostId) => remoteCompanionService.invalidateHost(hostId),
       companionInstallationId: (hostId) => sshCompanionInstallationId(hostId),
+      workspaceSyncDeviceId: () => configService.getWorkspaceSyncDeviceId(),
       resolveCompanionRuntime: (remoteBasePath, installationId) =>
         resolveRemoteCompanionRuntime(remoteBasePath, installationId),
       markRemoteDisconnected: (workspaceIds) =>

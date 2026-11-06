@@ -417,6 +417,38 @@ describe('RemoteCompanionService', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it('tells the companion where the workspace manifests are and which of them are its own', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'komla-companion-manifests-'));
+    const artifact = join(root, 'x86_64-unknown-linux-musl', 'komla');
+    mkdirSync(join(artifact, '..'), { recursive: true });
+    writeFileSync(artifact, 'binary');
+    const run = vi.fn(async (_host: SshHost, command: string) =>
+      command.includes('uname -s') ? 'Linux\nx86_64\n' : ''
+    );
+    const configs: Array<Record<string, unknown>> = [];
+    const upload = vi.fn(async (_host: SshHost, command: string, sourcePath: string) => {
+      if (command.includes('companion/')) {
+        configs.push(JSON.parse(readFileSync(sourcePath, 'utf8')) as Record<string, unknown>);
+      }
+      return '';
+    });
+    const service = new RemoteCompanionService({ resourceRoot: () => root, run, upload });
+
+    await service.ensureRunning(host, {
+      remoteBasePath: '/home/dev/.komla',
+      endpoint: 'http://127.0.0.1:62000/api/v1/ssh-workspace-status',
+      installationId: 'installation-a',
+      workspaces: [{ workspaceId: 'workspace-1', workingTree: '/repo', targetBranch: 'main' }],
+      workspaceManifests: { directory: '/home/dev/.komla/workspaces', writtenBy: 'device-a' },
+    });
+
+    expect(configs[0]?.workspaceManifests).toEqual({
+      directory: '/home/dev/.komla/workspaces',
+      writtenBy: 'device-a',
+    });
+    rmSync(root, { recursive: true, force: true });
+  });
+
   it('does not rewrite managed remote terminal session context during companion startup', async () => {
     const root = mkdtempSync(join(tmpdir(), 'komla-companion-hook-routing-'));
     const artifact = join(root, 'x86_64-unknown-linux-musl', 'komla');

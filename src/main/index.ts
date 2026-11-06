@@ -155,6 +155,22 @@ if (app.isPackaged) {
   }
 }
 
+/**
+ * Syncs an SSH host as soon as it answers again after Komla couldn't reach it, since it may have
+ * changed meanwhile without a Remote Companion connected to say so.
+ */
+function syncSshHostsOnceReachableAgain(): void {
+  const unreachable = new Set<string>();
+  sshHostStatusService.onChange((statuses) => {
+    for (const { hostId, state } of statuses) {
+      if (state === 'unreachable') unreachable.add(hostId);
+      else if (unreachable.delete(hostId)) {
+        void workspaceService.sshSync.syncSoon(hostId, { now: true });
+      }
+    }
+  });
+}
+
 /** Create a new window and sync the title bar overlay with the app theme. */
 function openNewWindow(): ReturnType<typeof windowService.createWindow> {
   const result = windowService.createWindow();
@@ -679,7 +695,8 @@ void app.whenReady().then(async () => {
       ? flushGitRefreshes()
       : worktreeWatcherService.flushPendingNotification(workspaceId);
   app.on('browser-window-focus', flushGitRefreshes);
-  // Coming back to Komla picks up what other devices changed on shared SSH hosts.
+  // Coming back to Komla picks up what other devices changed on shared SSH hosts, now and then,
+  // where no Remote Companion tells it of their changes.
   app.on('browser-window-focus', () => void workspaceService.sshSync.syncSoon());
   // It also fetches origin, so commits behind (↓N) counts stay current.
   app.on('browser-window-focus', () => void gitBackgroundFetchService.fetchStale());
@@ -692,6 +709,8 @@ void app.whenReady().then(async () => {
   pullRequestStatusService.startTagging();
   // Reaching an SSH host fetches its clones, which a background fetch leaves alone until then.
   sshHostStatusService.onChange(() => void gitBackgroundFetchService.fetchStaleOnSshHosts());
+  // A host that answers again may have changed meanwhile, without a Remote Companion to say so.
+  syncSshHostsOnceReachableAgain();
   app.on('browser-window-created', (_, window) => {
     window.on('show', flushGitRefreshes);
     window.on('restore', flushGitRefreshes);

@@ -2637,6 +2637,7 @@ async function startCompanionRecovery(suffix: string) {
       ensureRemoteCompanion: (host, options) => remoteCompanionService.ensureRunning(host, options),
       invalidateRemoteCompanion: (id) => remoteCompanionService.invalidateHost(id),
       companionInstallationId: () => fixture.installationId,
+      workspaceSyncDeviceId: () => 'integration-device',
       resolveCompanionRuntime: resolveRemoteCompanionRuntime,
       markRemoteDisconnected: async (workspaceIds) => {
         await status.change({ kind: 'remote-source-unreachable', workspaceIds });

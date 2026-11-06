@@ -11,6 +11,7 @@ import { handleMcpRequest } from './routes/mcp';
 import { handleNotifyRequest } from './routes/notify';
 import { handleSettingsManagementRequest } from './routes/settings';
 import { handleSkillFileRequest } from './routes/skills';
+import { handleSshHostChangedRequest } from './routes/ssh-host-changed';
 import { handleSshWorkspaceStatusRequest } from './routes/ssh-workspace-status';
 
 import type http from 'http';
@@ -68,6 +69,10 @@ const ROUTES: readonly Route[] = [
   {
     matches: target(['POST'], '/api/v1/ssh-workspace-status'),
     handle: ({ req, res }) => handleSshWorkspaceStatusRequest(req, res),
+  },
+  {
+    matches: target(['POST'], '/api/v1/ssh-host-changed'),
+    handle: ({ req, res }) => handleSshHostChangedRequest(req, res),
   },
   {
     matches: target(['POST'], '/api/v1/workspace'),

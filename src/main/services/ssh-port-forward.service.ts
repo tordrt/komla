@@ -47,6 +47,7 @@ const REMOTE_GATEWAY_ROUTES = new Set([
   '/api/v1/health',
   '/api/v1/notify',
   '/api/v1/ssh-workspace-status',
+  '/api/v1/ssh-host-changed',
   '/api/v1/commands',
   '/api/v1/cli/mcp',
 ]);

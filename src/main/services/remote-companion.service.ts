@@ -60,6 +60,11 @@ export interface StartRemoteCompanionOptions {
   workspaces: MonitoredRemoteWorkspace[];
   /** Commands the CLI refuses while Komla is away, by operation type, with its answer. */
   turnedOffCommands?: Record<string, string>;
+  /**
+   * The host's workspace manifests, and the id this installation writes in its own. The companion
+   * tells Komla when another installation changes one, or starts or ends a session there.
+   */
+  workspaceManifests?: { directory: string; writtenBy: string };
 }
 
 export interface RemoteCompanionRuntime {
@@ -297,6 +302,7 @@ export class RemoteCompanionService {
       idleExitSeconds: 30,
       startupGraceSeconds: 180,
       hookInbox,
+      ...(options.workspaceManifests ? { workspaceManifests: options.workspaceManifests } : {}),
       workspaces: [...options.workspaces].sort((left, right) =>
         left.workspaceId.localeCompare(right.workspaceId)
       ),

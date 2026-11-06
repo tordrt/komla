@@ -15,6 +15,7 @@ use komla::{
 use serde::Deserialize;
 
 use crate::clock::now_ms;
+use crate::host_changes::{HostChanges, WorkspaceManifestsConfig};
 use crate::lifecycle::ManagedSessionMonitor;
 use crate::mailbox::HookMailbox;
 use crate::outbox::CommandOutbox;
@@ -40,6 +41,9 @@ struct CompanionConfig {
     #[serde(default = "default_startup_grace_seconds")]
     startup_grace_seconds: u64,
     hook_inbox: Option<PathBuf>,
+    /// Watched for other installations' changes, which the desktop then syncs.
+    #[serde(default)]
+    workspace_manifests: Option<WorkspaceManifestsConfig>,
     workspaces: Vec<WorkspaceConfig>,
 }
 
@@ -392,6 +396,7 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
             .saturating_add(2),
     );
 
+    let mut host_changes = HostChanges::new(config.workspace_manifests.clone(), now_ms());
     let mut outbox = CommandOutbox::open(config.hook_inbox.as_deref());
     let mut mailbox = HookMailbox::open(config.hook_inbox, now_ms())?;
     let mut scanner = SnapshotScanner::new();
@@ -406,7 +411,13 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
     loop {
         receive_events(&receiver, &mut workspaces);
         receive_scan_results(&mut scanner, &mut workspaces);
-        receive_outbound_results(&transport, &mut workspaces, &mut mailbox, &mut outbox);
+        receive_outbound_results(
+            &transport,
+            &mut workspaces,
+            &mut mailbox,
+            &mut outbox,
+            &mut host_changes,
+        );
         let now = now_ms();
         if let Some(reloaded) = reload.poll(now) {
             SYNC_DIAGNOSTICS.store(reloaded.diagnostics, Ordering::Relaxed);
@@ -429,6 +440,10 @@ fn run(mut config: CompanionConfig, mut reload: ConfigReload) -> anyhow::Result<
         if session_monitor.should_exit(now) {
             return Ok(());
         }
+        if let Some(sessions) = session_monitor.take_other_sessions() {
+            host_changes.sessions_observed(sessions);
+        }
+        host_changes.poll(now, &transport);
         mailbox.set_receiving(session_monitor.desktop_connected(now), now);
         outbox.poll(
             now,
@@ -599,6 +614,7 @@ fn receive_outbound_results(
     workspaces: &mut [WorkspaceRuntime],
     mailbox: &mut HookMailbox,
     outbox: &mut CommandOutbox,
+    host_changes: &mut HostChanges,
 ) {
     while let Some(result) = transport.try_recv() {
         match result {
@@ -634,6 +650,9 @@ fn receive_outbound_results(
                 request_id,
                 delivery,
             } => outbox.complete_delivery(request_id, delivery, now_ms()),
+            OutboundResult::HostChanged { changes, delivered } => {
+                host_changes.complete_delivery(changes, delivered, now_ms());
+            }
         }
     }
 }

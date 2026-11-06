@@ -155,6 +155,7 @@ function service(
   const store = memoryStore(workspaces);
   const syncsWith = vi.fn((_hostId: string) => true);
   const inUse = vi.fn(() => true);
+  const pushes = vi.fn((_hostId: string) => false);
   let now = 1_000;
   return {
     inspect,
@@ -169,6 +170,7 @@ function service(
     store,
     syncsWith,
     inUse,
+    pushes,
     /** Holds these workspaces here, as workspaceService would. */
     hold: (...held: Workspace[]) =>
       held.forEach((workspace) => workspaces.set(workspace.id, workspace)),
@@ -195,6 +197,7 @@ function service(
         workspace.tag ? { name: workspace.tag, tone: 'info', spinner: true } : undefined,
       hostCopies: saved,
       inUse,
+      pushes,
     }),
   };
 }
@@ -1470,9 +1473,41 @@ describe('SshWorkspaceSync scheduling', () => {
     const { manifests, read, advance } = service();
 
     await manifests.syncSoon('host-a');
-    advance(31_000);
+    advance(9 * 60_000);
+    await manifests.syncSoon('host-a');
+    expect(read).toHaveBeenCalledTimes(1);
+    advance(60_000);
     await manifests.syncSoon('host-a');
 
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits to be told of changes by a host’s Remote Companion, rather than asking on focus', async () => {
+    const { manifests, read, advance, pushes } = service();
+    pushes.mockReturnValue(true);
+
+    await manifests.syncSoon();
+    advance(59 * 60_000);
+    await manifests.syncSoon();
+    await manifests.syncSoon('host-a');
+    expect(read).toHaveBeenCalledTimes(1);
+
+    manifests.hostChanged('host-a');
+    await flush();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it('still asks a host whose Remote Companion tells of changes hourly, in case it stopped', async () => {
+    const { manifests, read, advance, pushes } = service();
+    pushes.mockReturnValue(true);
+
+    await manifests.syncSoon();
+    advance(59 * 60_000);
+    await manifests.syncSoon();
+    expect(read).toHaveBeenCalledTimes(1);
+
+    advance(60_000);
+    await manifests.syncSoon();
     expect(read).toHaveBeenCalledTimes(2);
   });
 
@@ -1579,6 +1614,18 @@ describe('SshWorkspaceSync scheduling', () => {
       await wait(30_000);
 
       expect(read).toHaveBeenCalledTimes(2);
+    });
+
+    it('leaves following up to a Remote Companion that tells of changes', async () => {
+      const { manifests, read, store, pushes, wait } = timed();
+      pushes.mockReturnValue(true);
+      read.mockResolvedValue([theirs()]);
+
+      await manifests.syncSoon('host-a', { now: true });
+      expect(store.add).toHaveBeenCalledTimes(1);
+      await wait(60_000);
+
+      expect(read).toHaveBeenCalledTimes(1);
     });
 
     it('stops once the host has gone a while without changes from elsewhere', async () => {

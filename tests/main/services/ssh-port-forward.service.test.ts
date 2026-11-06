@@ -2811,6 +2811,7 @@ describe('sshPortForwardService', () => {
         '/api/v1/health',
         '/api/v1/notify',
         '/api/v1/ssh-workspace-status',
+        '/api/v1/ssh-host-changed',
         '/terminals/terminal-1/api/v1/commands?cwd=%2Frepo',
         '/terminals/terminal-1/api/v1/cli/mcp',
         '/terminals/terminal-1/settings/actions?scope=current-project',

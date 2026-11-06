@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::process::{Command, Output, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
@@ -23,12 +24,15 @@ pub(crate) struct ManagedSessionMonitor {
     next_check_at_ms: u64,
     no_sessions_since_ms: Option<u64>,
     desktop_connected_until_ms: u64,
+    other_sessions: Option<BTreeSet<String>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct SessionCheck {
     pub(crate) owned: Option<bool>,
     pub(crate) desktop_connected: bool,
+    /// The managed sessions other installations own, when tmux answered.
+    pub(crate) other_sessions: Option<BTreeSet<String>>,
 }
 
 impl ManagedSessionMonitor {
@@ -56,7 +60,13 @@ impl ManagedSessionMonitor {
             next_check_at_ms: now_ms,
             no_sessions_since_ms: None,
             desktop_connected_until_ms: 0,
+            other_sessions: None,
         }
+    }
+
+    /// The managed sessions other installations own, once per check that listed them.
+    pub(crate) fn take_other_sessions(&mut self) -> Option<BTreeSet<String>> {
+        self.other_sessions.take()
     }
 
     pub(crate) fn should_exit(&mut self, now_ms: u64) -> bool {
@@ -70,12 +80,19 @@ impl ManagedSessionMonitor {
             let sender = self.sender.clone();
             self.check_in_flight = true;
             std::thread::spawn(move || {
-                let owned = managed_tmux_session_state(&socket, &installation_id);
+                let sessions = managed_tmux_sessions(&socket);
+                let owned = sessions
+                    .as_deref()
+                    .map(|sessions| has_managed_session(sessions, &installation_id));
+                let other_sessions = sessions
+                    .as_deref()
+                    .map(|sessions| other_managed_sessions(sessions, &installation_id));
                 let desktop_connected =
                     health_url.is_some_and(|url| desktop_answers(&url, DESKTOP_PROBE_TIMEOUT));
                 let _ = sender.send(SessionCheck {
                     owned,
                     desktop_connected,
+                    other_sessions,
                 });
             });
         }
@@ -84,7 +101,10 @@ impl ManagedSessionMonitor {
         };
         self.check_in_flight = false;
         self.next_check_at_ms = now_ms.saturating_add(5_000);
-        self.record_check(check, now_ms)
+        if check.other_sessions.is_some() {
+            self.other_sessions.clone_from(&check.other_sessions);
+        }
+        self.record_check(&check, now_ms)
     }
 
     /// Whether the desktop answered through its tunnel recently.
@@ -92,7 +112,7 @@ impl ManagedSessionMonitor {
         now_ms < self.desktop_connected_until_ms
     }
 
-    fn record_check(&mut self, check: SessionCheck, now_ms: u64) -> bool {
+    fn record_check(&mut self, check: &SessionCheck, now_ms: u64) -> bool {
         if check.desktop_connected {
             self.desktop_connected_until_ms = now_ms.saturating_add(DESKTOP_CONNECTION_VALID_MS);
         }
@@ -121,7 +141,8 @@ impl ManagedSessionMonitor {
     }
 }
 
-fn managed_tmux_session_state(socket: &str, installation_id: &str) -> Option<bool> {
+/// Each managed session's name and owner, a line each; empty when tmux runs no server.
+fn managed_tmux_sessions(socket: &str) -> Option<String> {
     let mut command = Command::new("tmux");
     command
         .args([
@@ -135,12 +156,9 @@ fn managed_tmux_session_state(socket: &str, installation_id: &str) -> Option<boo
         .stdin(Stdio::null());
     let output = run_command_with_deadline(&mut command, Duration::from_secs(1))?;
     if !output.status.success() {
-        return Some(false);
+        return Some(String::new());
     }
-    Some(has_managed_session(
-        &String::from_utf8_lossy(&output.stdout),
-        installation_id,
-    ))
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// A reverse tunnel can keep listening on the host after its desktop is gone, so the
@@ -150,15 +168,24 @@ fn desktop_answers(health_url: &str, timeout: Duration) -> bool {
         .is_ok_and(|response| response.status == 200)
 }
 
-fn has_managed_session(output: &str, installation_id: &str) -> bool {
-    output.lines().any(|line| {
-        let Some((name, owner)) = line.split_once('\t') else {
-            return false;
-        };
-        name.starts_with("komla-")
-            && !name.starts_with("komla-companion-")
-            && owner == installation_id
+/// The managed sessions in a listing, each with its owner.
+fn managed_sessions(output: &str) -> impl Iterator<Item = (&str, &str)> {
+    output.lines().filter_map(|line| {
+        let (name, owner) = line.split_once('\t')?;
+        (name.starts_with("komla-") && !name.starts_with("komla-companion-"))
+            .then_some((name, owner))
     })
+}
+
+fn has_managed_session(output: &str, installation_id: &str) -> bool {
+    managed_sessions(output).any(|(_, owner)| owner == installation_id)
+}
+
+fn other_managed_sessions(output: &str, installation_id: &str) -> BTreeSet<String> {
+    managed_sessions(output)
+        .filter(|(_, owner)| *owner != installation_id)
+        .map(|(name, _)| name.to_owned())
+        .collect()
 }
 
 fn run_command_with_deadline(command: &mut Command, timeout: Duration) -> Option<Output> {
@@ -190,7 +217,10 @@ mod tests {
 
     #[cfg(unix)]
     use super::run_command_with_deadline;
-    use super::{desktop_answers, has_managed_session, ManagedSessionMonitor, SessionCheck};
+    use super::{
+        desktop_answers, has_managed_session, other_managed_sessions, ManagedSessionMonitor,
+        SessionCheck,
+    };
 
     #[test]
     fn startup_grace_keeps_the_companion_alive_until_the_first_session() {
@@ -233,21 +263,23 @@ mod tests {
         let connected = SessionCheck {
             owned: Some(false),
             desktop_connected: true,
+            other_sessions: None,
         };
         let disconnected = SessionCheck {
             owned: Some(false),
             desktop_connected: false,
+            other_sessions: None,
         };
 
-        assert!(!monitor.record_check(connected, 10_000));
-        assert!(!monitor.record_check(connected, 500_000));
+        assert!(!monitor.record_check(&connected, 10_000));
+        assert!(!monitor.record_check(&connected, 500_000));
         assert!(monitor.desktop_connected(514_999));
         assert!(!monitor.desktop_connected(515_000));
         // The last connection counts for a while, then the usual idle exit applies.
-        assert!(!monitor.record_check(disconnected, 510_000));
-        assert!(!monitor.record_check(disconnected, 520_000));
-        assert!(!monitor.record_check(disconnected, 549_999));
-        assert!(monitor.record_check(disconnected, 550_000));
+        assert!(!monitor.record_check(&disconnected, 510_000));
+        assert!(!monitor.record_check(&disconnected, 520_000));
+        assert!(!monitor.record_check(&disconnected, 549_999));
+        assert!(monitor.record_check(&disconnected, 550_000));
     }
 
     #[test]
@@ -278,6 +310,10 @@ mod tests {
         assert!(has_managed_session(sessions, "install-a"));
         assert!(has_managed_session(sessions, "install-b"));
         assert!(!has_managed_session(sessions, "install-c"));
+        assert_eq!(
+            other_managed_sessions(sessions, "install-a"),
+            ["komla-terminal-b".to_owned()].into()
+        );
     }
 
     #[cfg(unix)]

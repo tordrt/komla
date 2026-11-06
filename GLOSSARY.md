@@ -207,8 +207,9 @@ _Avoid_: Notification state, hook history
 **Komla Remote Companion**:
 Komla's executable running as a user process on an SSH host, deployed automatically. While an SSH
 workspace outside the Trash has a Managed Remote Terminal Session, the companion relays its status
-and agent-hook notifications, so Komla keeps it current even off screen. It is best-effort: desktop
-refresh recovers anything it misses, and it does not interpret Attention.
+and agent-hook notifications, so Komla keeps it current even off screen, and says when another
+installation changes the host's workspaces or sessions, so SSH Workspace Sync seldom asks. It is
+best-effort: desktop refresh recovers anything it misses, and it does not interpret Attention.
 _Avoid_: Remote agent, daemon, sidecar
 
 **SSH Exec Channel**:

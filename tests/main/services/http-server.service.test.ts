@@ -71,7 +71,7 @@ const mockWorkspaceService = {
   onWorkspaceUpdated: vi.fn(() => () => {}),
   onAttentionRaised: vi.fn(() => () => {}),
   onPromptSubmitted: vi.fn(() => () => {}),
-  sshSync: { expectWorkspace: vi.fn() },
+  sshSync: { expectWorkspace: vi.fn(), hostChanged: vi.fn() },
   attention: {
     hook: vi.fn((): Promise<string> => Promise.resolve('taken')),
     hooksStopped: vi.fn(),
@@ -3245,6 +3245,51 @@ describe('HttpServerService', () => {
       const { res } = await sendRequest('GET', '/skills/missing.md');
 
       expect(res.writeHead).toHaveBeenCalledWith(404);
+    });
+  });
+
+  describe('POST /api/v1/ssh-host-changed', () => {
+    beforeEach(() => {
+      httpServerService.start();
+      mockWorkspaceService.sshSync.hostChanged.mockClear();
+      mockSshHostService.get.mockImplementation((hostId: unknown) =>
+        hostId === 'ssh-dev' ? { id: 'ssh-dev' } : undefined
+      );
+    });
+
+    const notice = JSON.stringify({ protocolVersion: 1, kind: 'ssh-host-changed' });
+
+    it('syncs the host whose Remote Companion says another installation changed it', async () => {
+      const { res } = await sendRequest('POST', '/api/v1/ssh-host-changed', notice, {
+        'x-komla-ssh-host-id': 'ssh-dev',
+      });
+
+      expect(res.writeHead).toHaveBeenCalledWith(204);
+      expect(mockWorkspaceService.sshSync.hostChanged).toHaveBeenCalledWith('ssh-dev');
+    });
+
+    it('turns away a notice without a known host or the companion envelope', async () => {
+      const unknown = await sendRequest('POST', '/api/v1/ssh-host-changed', notice, {
+        'x-komla-ssh-host-id': 'gone',
+      });
+      const unnamed = await sendRequest('POST', '/api/v1/ssh-host-changed', notice);
+      const malformed = await sendRequest(
+        'POST',
+        '/api/v1/ssh-host-changed',
+        JSON.stringify({ kind: 'ssh-host-changed' }),
+        { 'x-komla-ssh-host-id': 'ssh-dev' }
+      );
+
+      expect(unknown.res.writeHead).toHaveBeenCalledWith(404, {
+        'Content-Type': 'application/json',
+      });
+      expect(unnamed.res.writeHead).toHaveBeenCalledWith(404, {
+        'Content-Type': 'application/json',
+      });
+      expect(malformed.res.writeHead).toHaveBeenCalledWith(400, {
+        'Content-Type': 'application/json',
+      });
+      expect(mockWorkspaceService.sshSync.hostChanged).not.toHaveBeenCalled();
     });
   });
 

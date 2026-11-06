@@ -89,6 +89,7 @@ function createHarness(initialWorkspaces: Workspace[] = [sshWorkspace('workspace
     }),
     invalidateRemoteCompanion: vi.fn(),
     companionInstallationId: vi.fn(() => 'installation-id'),
+    workspaceSyncDeviceId: vi.fn(() => 'this-device'),
     resolveCompanionRuntime: vi.fn(() => ({
       installationKey: 'deterministic-installation',
       tmuxSocket: 'komla-companion-deterministic-installation',
@@ -165,6 +166,8 @@ describe('RemoteWorkspaceObservationService', () => {
           expect.objectContaining({ workspaceId: 'workspace-4' }),
           expect.objectContaining({ workspaceId: 'workspace-5' }),
         ],
+        // Where the companion watches for other installations' changes to tell Komla of.
+        workspaceManifests: { directory: '/home/dev/workspaces', writtenBy: 'this-device' },
       })
     );
     expect(harness.service.companionForHost(host.id)).toEqual(harness.runtime);

@@ -10,6 +10,7 @@ import {
 import { createLogger } from '../lib/logger';
 
 import { isSshHostDisconnected } from './ssh-host-disconnection';
+import { SSH_WORKSPACE_MANIFEST_DIRECTORY } from './ssh-workspace-sync/workspace-manifest';
 
 import type {
   RemoteCompanionRuntime,
@@ -41,6 +42,8 @@ export interface RemoteWorkspaceObservationDependencies {
   ) => Promise<RemoteCompanionRuntime | undefined>;
   invalidateRemoteCompanion: (hostId: string) => void;
   companionInstallationId: (hostId: string) => string;
+  /** The id this installation writes in the workspace manifests it publishes. */
+  workspaceSyncDeviceId: () => string;
   resolveCompanionRuntime: (
     remoteBasePath: string,
     installationId: string
@@ -340,6 +343,10 @@ export class RemoteWorkspaceObservationService {
         endpoint: `http://127.0.0.1:${komlaSshRemoteDataPort(hostId)}/api/v1/ssh-workspace-status`,
         installationId: this.dependencies.companionInstallationId(hostId),
         workspaces: monitored,
+        workspaceManifests: {
+          directory: pathPosix.join(remoteBasePath, SSH_WORKSPACE_MANIFEST_DIRECTORY),
+          writtenBy: this.dependencies.workspaceSyncDeviceId(),
+        },
       });
       if (!runtime) {
         await releaseAuthority();
@@ -428,6 +435,7 @@ const unconfiguredDependencies: RemoteWorkspaceObservationDependencies = {
   ensureRemoteCompanion: () => Promise.resolve(undefined),
   invalidateRemoteCompanion: () => undefined,
   companionInstallationId: () => '',
+  workspaceSyncDeviceId: () => '',
   resolveCompanionRuntime: () => {
     throw new Error('Remote Workspace Observation is not configured');
   },

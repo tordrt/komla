@@ -36,6 +36,28 @@ vi.mock('../../../src/main/lib/wsl', () => ({
   windowsPathToWsl: vi.fn((value: string) => value),
 }));
 
+const HOLD_COMMAND = 'cat';
+const isConnectionHold = (args: string[]) => args.at(-1) === HOLD_COMMAND;
+
+/** The ssh process of a connection hold, which stays up until it is told to exit. */
+function fakeHold() {
+  return Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stderr: new PassThrough(),
+    exitCode: null as number | null,
+    signalCode: null as NodeJS.Signals | null,
+    kill: vi.fn(),
+  });
+}
+
+/** The ssh commands run other than a connection hold's `ssh -O check`. */
+const nonHoldCommands = () =>
+  execFileMock.mock.calls.filter(([, args]) => !(args as string[]).includes('check'));
+
+/** The ssh processes started other than connection holds. */
+const nonHoldSpawns = () =>
+  spawnMock.mock.calls.filter(([, args]) => !isConnectionHold(args as string[]));
+
 const originalPlatform = process.platform;
 const host = {
   id: 'ssh-connection-test',
@@ -49,6 +71,7 @@ describe('sshConnectionService', () => {
     Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     execFileMock.mockReset();
     spawnMock.mockReset();
+    spawnMock.mockImplementation(() => fakeHold());
   });
 
   afterEach(() => {
@@ -63,7 +86,9 @@ describe('sshConnectionService', () => {
         await import('../../../src/main/services/ssh-connection.service');
       vi.useFakeTimers();
       const callbacks: Array<(error: Error | null, stdout?: string) => void> = [];
-      execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+        // A connection hold's check, after a command succeeded.
+        if (args.includes('-O')) return callback(null, { stdout: '', stderr: '' });
         const stdin = new PassThrough();
         stdin.resume();
         callbacks.push(callback);
@@ -83,7 +108,7 @@ describe('sshConnectionService', () => {
       callbacks.forEach((callback) => callback(null, 'done'));
       await Promise.all(active);
       await rejected;
-      expect(execFileMock).toHaveBeenCalledTimes(count);
+      expect(nonHoldCommands()).toHaveLength(count);
       const next = sshConnectionService.runWithInput(host, 'next', '');
       await vi.advanceTimersByTimeAsync(0);
       callbacks.at(-1)?.(null, 'next');
@@ -520,7 +545,11 @@ describe('sshConnectionService', () => {
         await import('../../../src/main/services/ssh-host-status.service');
       const { markSshHostDisconnected } =
         await import('../../../src/main/services/ssh-host-disconnection');
-      const cutHost = { ...host, id: `ssh-disconnect-cut-${reconnect}`, hostname: 'cut.example.com' };
+      const cutHost = {
+        ...host,
+        id: `ssh-disconnect-cut-${reconnect}`,
+        hostname: 'cut.example.com',
+      };
       sshHostStatusService.reached(cutHost.id);
       let finish!: (error: Error | null, stdout?: string) => void;
       execFileMock.mockImplementation((_file, _args, _options, callback) => {
@@ -716,6 +745,8 @@ describe('sshConnectionService', () => {
     let hostAnswers = true;
     execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
       const command = args[args.length - 1];
+      // A connection hold's check, after a command succeeded.
+      if (args.includes('-O')) return callback(null, { stdout: '', stderr: '' });
       commands.push(command);
       const quick = command === "sh -lc 'true'";
       callback(quick && hostAnswers ? null : timedOut(), { stdout: '', stderr: '' });
@@ -801,7 +832,7 @@ describe('sshConnectionService', () => {
     await vi.waitFor(() => expect(execFileMock).toHaveBeenCalledTimes(4));
     callbacks.forEach((callback) => callback(null, 'done'));
     await Promise.all([...active, interactive]);
-    expect(spawnMock).not.toHaveBeenCalled();
+    expect(nonHoldSpawns()).toHaveLength(0);
   });
 
   it('reopens file input when retrying a refused multiplexed session', async () => {
@@ -963,6 +994,463 @@ describe('sshConnectionService', () => {
     expect(args.at(-1)).toBe("sh -lc 'sh -s'");
   });
 
+  describe('holding shared connections open', () => {
+    let hostCount = 0;
+    /** A host of its own, since the service keeps the connections it holds across tests. */
+    const freshHost = (overrides: Record<string, unknown> = {}) => ({
+      ...host,
+      id: `ssh-connection-hold-${++hostCount}`,
+      hostname: `hold-${hostCount}.example.com`,
+      ...overrides,
+    });
+    const holds = () =>
+      spawnMock.mock.results
+        .filter((_result, index) => isConnectionHold(spawnMock.mock.calls[index][1] as string[]))
+        .map((result) => result.value as ReturnType<typeof fakeHold>);
+    const holdArgs = () =>
+      spawnMock.mock.calls
+        .map(([, args]) => args as string[])
+        .filter((args) => isConnectionHold(args));
+    const checks = () =>
+      execFileMock.mock.calls.filter(([, args]) => (args as string[]).includes('check'));
+    /** Lets a hold that is starting get past its `ssh -O check`. */
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    /** Answers commands with `ran`, and `ssh -O check` as `connectionOpen` says. */
+    function answer(connectionOpen = true) {
+      execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+        if (args.includes('-O')) {
+          callback(connectionOpen ? null : new Error('Control socket connect: No such file'), {
+            stdout: '',
+            stderr: '',
+          });
+          return undefined;
+        }
+        callback(null, { stdout: 'ran', stderr: '' });
+        return { stdin: new PassThrough(), kill: vi.fn() };
+      });
+    }
+
+    beforeEach(() => answer());
+
+    it('joins each lane’s open shared connection after a command used it, and never logs in itself', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const { sshControlPath } = await import('../../../src/main/services/ssh-connection/policy');
+      const held = freshHost({ forwardAgent: true });
+      const backgroundPath = sshControlPath(held, { kind: 'background' });
+
+      await sshConnectionService.run(held, 'git status');
+      await sshConnectionService.run(held, 'git status');
+      await settle();
+      await sshConnectionService.runWithInput(held, 'cat > file', 'saved');
+      await settle();
+      expect(holdArgs()).toHaveLength(1);
+      await sshConnectionService.run(held, 'cat file', { purpose: { kind: 'interactive' } });
+      await vi.waitFor(() => expect(holdArgs()).toHaveLength(2));
+
+      const target = `dev@${held.hostname}`;
+      // The proxy alone keeps it from logging in, with nothing to check first.
+      expect(checks()).toHaveLength(0);
+      expect(holdArgs()[0]).toEqual([
+        // Should the connection be closed, ssh would log in itself; this stops it.
+        '-o',
+        'ProxyCommand=false',
+        '-o',
+        'BatchMode=yes',
+        '-A',
+        ...holdArgs()[0].slice(5, -5),
+        // An idle session needs neither, whatever the host's own arguments ask for.
+        '-a',
+        '-x',
+        '-T',
+        target,
+        HOLD_COMMAND,
+      ]);
+      expect(holdArgs()[0]).toEqual(
+        expect.arrayContaining(['ControlMaster=no', `ControlPath=${backgroundPath}`])
+      );
+      expect(holdArgs()[0]).not.toContain('ControlPersist=60');
+      expect(holdArgs()[1]).toEqual(
+        expect.arrayContaining([`ControlPath=${sshControlPath(held, { kind: 'interactive' })}`])
+      );
+      const env = spawnMock.mock.calls.find(([, args]) => isConnectionHold(args as string[]))?.[2]
+        ?.env as NodeJS.ProcessEnv;
+      expect(env.SSH_ASKPASS_REQUIRE).toBe('never');
+    });
+
+    it('holds the interactive connection a host check used, and the one a file upload used', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const { sshControlPath } = await import('../../../src/main/services/ssh-connection/policy');
+      const checked = freshHost();
+      const directory = mkdtempSync(join(tmpdir(), 'komla-ssh-connection-hold-'));
+      const sourcePath = join(directory, 'upload.txt');
+      writeFileSync(sourcePath, 'upload');
+      execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+        if (args.includes('-O')) {
+          callback(null, { stdout: '', stderr: '' });
+          return undefined;
+        }
+        const stdin = new PassThrough();
+        stdin.resume();
+        if (args.at(-1)?.includes('upload')) stdin.on('end', () => callback(null, 'uploaded'));
+        else callback(null, { stdout: '', stderr: '' });
+        return { stdin, kill: vi.fn() };
+      });
+
+      try {
+        await sshConnectionService.checkHost(checked);
+        await sshConnectionService.runWithFileInput(checked, 'cat >upload', sourcePath);
+        await vi.waitFor(() => expect(holdArgs()).toHaveLength(2));
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+
+      expect(holdArgs()).toEqual([
+        expect.arrayContaining([`ControlPath=${sshControlPath(checked, { kind: 'interactive' })}`]),
+        expect.arrayContaining([`ControlPath=${sshControlPath(checked, { kind: 'background' })}`]),
+      ]);
+    });
+
+    it.each([['-J', 'bastion.example.com'], ['-AJ', 'bastion.example.com'], ['-Jbastion']])(
+      'leaves out the proxy for a host that jumps with %s, which takes none',
+      async (...extraSshArgs) => {
+        const { sshConnectionService } =
+          await import('../../../src/main/services/ssh-connection.service');
+        const jumping = freshHost({ extraSshArgs });
+
+        await sshConnectionService.run(jumping, 'git status');
+        await vi.waitFor(() => expect(holdArgs()).toHaveLength(1));
+
+        expect(holdArgs()[0]).not.toContain('ProxyCommand=false');
+        expect(holdArgs()[0].slice(0, 2)).toEqual(['-o', 'BatchMode=yes']);
+        // So it joins only a connection `ssh -O check` shows open.
+        expect(checks()).toHaveLength(1);
+      }
+    );
+
+    it.each([
+      ['-lJane'],
+      ['-i', '-Jkey'],
+      ['-o', 'ProxyJump=bastion.example.com'],
+      ['-oProxyJump=x'],
+    ])(
+      'keeps the proxy for a host whose arguments %s only look like -J',
+      async (...extraSshArgs) => {
+        const { sshConnectionService } =
+          await import('../../../src/main/services/ssh-connection.service');
+
+        await sshConnectionService.run(freshHost({ extraSshArgs }), 'git status');
+        await vi.waitFor(() => expect(holdArgs()).toHaveLength(1));
+
+        expect(holdArgs()[0].slice(0, 2)).toEqual(['-o', 'ProxyCommand=false']);
+      }
+    );
+
+    it('holds the connection a command ran on even when the command failed', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      execFileMock.mockImplementation((_file, _args, _options, callback) => {
+        callback(Object.assign(new Error('Command failed'), { code: 1, stderr: '' }), {
+          stdout: '',
+          stderr: '',
+        });
+        return undefined;
+      });
+
+      await expect(sshConnectionService.run(freshHost(), 'test -d missing')).rejects.toThrow();
+
+      await vi.waitFor(() => expect(holdArgs()).toHaveLength(1));
+    });
+
+    it('holds the interactive connection it opened ahead of time', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const { sshControlPath } = await import('../../../src/main/services/ssh-connection/policy');
+      const warmed = freshHost();
+      execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+        callback(args.includes('-O') ? new Error('Control socket connect: No such file') : null, {
+          stdout: args.includes('-G') ? 'user dev\nforwardagent yes\n' : '',
+          stderr: '',
+        });
+        return undefined;
+      });
+
+      sshConnectionService.warmConnections(warmed);
+
+      await vi.waitFor(() => expect(holdArgs()).toHaveLength(1));
+      expect(holdArgs()[0]).toEqual(
+        expect.arrayContaining([`ControlPath=${sshControlPath(warmed, { kind: 'interactive' })}`])
+      );
+    });
+
+    it('closes a held connection that stopped answering after the computer woke', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const { sshControlPath } = await import('../../../src/main/services/ssh-connection/policy');
+      const dead = freshHost();
+      const alive = freshHost();
+      await sshConnectionService.run(dead, 'ls');
+      await sshConnectionService.run(alive, 'ls');
+      await vi.waitFor(() => expect(holds()).toHaveLength(2));
+      const deadPath = sshControlPath(dead, { kind: 'background' });
+      const probes: string[][] = [];
+      execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+        if (args.at(-1) === 'true') {
+          probes.push(args);
+          const timedOut = args.includes(`ControlPath=${deadPath}`);
+          callback(
+            timedOut
+              ? Object.assign(new Error('Command failed'), { killed: true, code: null })
+              : null,
+            { stdout: '', stderr: '' }
+          );
+        } else {
+          callback(null, { stdout: '', stderr: '' });
+        }
+        return undefined;
+      });
+      execFileMock.mockClear();
+
+      await sshConnectionService.checkHeldConnections();
+
+      // Earlier tests' hosts are still held as well.
+      const ours = probes.filter((args) =>
+        [dead.hostname, alive.hostname].some((hostname) => args.includes(`dev@${hostname}`))
+      );
+      expect(ours).toHaveLength(2);
+      // A probe never logs in either.
+      for (const probe of ours) expect(probe.slice(0, 2)).toEqual(['-o', 'ProxyCommand=false']);
+      expect(
+        execFileMock.mock.calls.filter(([, args]) => (args as string[]).includes('exit'))
+      ).toEqual([
+        [
+          'ssh',
+          ['-o', `ControlPath=${deadPath}`, '-O', 'exit', `dev@${dead.hostname}`],
+          expect.anything(),
+          expect.any(Function),
+        ],
+      ]);
+    });
+
+    it('holds nothing while the connection it would join is closed, so it never logs in', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const closed = freshHost({ extraSshArgs: ['-J', 'bastion.example.com'] });
+      answer(false);
+
+      await sshConnectionService.run(closed, 'git status');
+      await vi.waitFor(() => expect(checks()).toHaveLength(1));
+      await settle();
+      await sshConnectionService.run(closed, 'git status');
+      await settle();
+
+      expect(spawnMock).not.toHaveBeenCalled();
+      // Not checked again on every command.
+      expect(checks()).toHaveLength(1);
+    });
+
+    it('holds nothing where connections are not shared, for a command run on its own, or after a failure', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+
+      await sshConnectionService.run(freshHost({ extraSshArgs: ['-o', 'ControlPath=none'] }), 'ls');
+      await sshConnectionService.runWithInput(freshHost(), 'cat', 'x', { multiplex: false });
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+      await sshConnectionService.run(freshHost(), 'ls');
+      Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+      execFileMock.mockImplementation((_file, _args, _options, callback) => {
+        callback(Object.assign(new Error('Command failed'), { code: 255, stderr: '' }), {
+          stdout: '',
+          stderr: '',
+        });
+        return { stdin: new PassThrough(), kill: vi.fn() };
+      });
+      await expect(sshConnectionService.run(freshHost(), 'ls')).rejects.toThrow();
+      await settle();
+
+      expect(checks()).toHaveLength(0);
+      expect(spawnMock).not.toHaveBeenCalled();
+    });
+
+    it('lets go of a connection the host refused a session on, for ten minutes', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const crowded = freshHost();
+      vi.useFakeTimers({ toFake: ['Date'] });
+      await sshConnectionService.run(crowded, 'ls');
+      await vi.waitFor(() => expect(holds()).toHaveLength(1));
+      let refuse = true;
+      execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+        if (refuse && !args.includes('ControlPath=none')) {
+          refuse = false;
+          callback(
+            Object.assign(new Error('Command failed'), {
+              code: 255,
+              stderr:
+                'mux_client_request_session: session request failed: Session open refused by peer',
+            }),
+            { stdout: '', stderr: '' }
+          );
+          return undefined;
+        }
+        callback(null, { stdout: 'ran', stderr: '' });
+        return undefined;
+      });
+
+      // Ran on its own after the refusal, which holds nothing either.
+      await expect(sshConnectionService.run(crowded, 'ls')).resolves.toBe('ran');
+      expect(holds()[0].stdin.writableEnded).toBe(true);
+      holds()[0].emit('exit', 0, null);
+      vi.setSystemTime(Date.now() + 9 * 60_000);
+      await sshConnectionService.run(crowded, 'ls');
+      await settle();
+      expect(holds()).toHaveLength(1);
+
+      vi.setSystemTime(Date.now() + 60_000);
+      await sshConnectionService.run(crowded, 'ls');
+      await vi.waitFor(() => expect(holds()).toHaveLength(2));
+    });
+
+    it('lets go of the background connection when a streaming command was refused a session on it', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const streaming = freshHost();
+      await sshConnectionService.run(streaming, 'ls');
+      await vi.waitFor(() => expect(holds()).toHaveLength(1));
+      spawnMock.mockImplementation((_file, args: string[]) => {
+        if (isConnectionHold(args)) return fakeHold();
+        const child = Object.assign(new EventEmitter(), {
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          kill: vi.fn(),
+        });
+        const refused = !args.includes('ControlPath=none');
+        setImmediate(() => {
+          if (refused) child.stderr.write('Session open refused by peer\n');
+          setImmediate(() => child.emit('close', refused ? 255 : 0, null));
+        });
+        return child;
+      });
+
+      await expect(sshConnectionService.runStreaming(streaming, 'setup')).resolves.toBe(0);
+
+      expect(holds()[0].stdin.writableEnded).toBe(true);
+    });
+
+    it('waits as long after the host refused the hold its session, or refused one before any hold', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const refusing = freshHost();
+      const early = freshHost();
+      vi.useFakeTimers({ toFake: ['Date'] });
+      await sshConnectionService.run(refusing, 'ls');
+      await vi.waitFor(() => expect(holds()).toHaveLength(1));
+      holds()[0].stderr.write(
+        'mux_client_request_session: session request failed: Session open refused by peer\n'
+      );
+      await settle();
+      holds()[0].emit('exit', 255, null);
+      let refuse = true;
+      execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+        const refused = refuse && !args.includes('ControlPath=none');
+        if (refused) refuse = false;
+        callback(
+          refused
+            ? Object.assign(new Error('Command failed'), {
+                code: 255,
+                stderr: 'Session open refused by peer',
+              })
+            : null,
+          { stdout: 'ran', stderr: '' }
+        );
+        return undefined;
+      });
+      await sshConnectionService.run(early, 'ls');
+
+      vi.setSystemTime(Date.now() + 5 * 60_000);
+      await sshConnectionService.run(refusing, 'ls');
+      await sshConnectionService.run(early, 'ls');
+      await settle();
+      expect(holds()).toHaveLength(1);
+      vi.setSystemTime(Date.now() + 5 * 60_000);
+      await sshConnectionService.run(refusing, 'ls');
+      await sshConnectionService.run(early, 'ls');
+      await vi.waitFor(() => expect(holds()).toHaveLength(3));
+    });
+
+    it('holds the connection again once it dropped, but not on every command when it cannot join', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const dropping = freshHost();
+      vi.useFakeTimers({ toFake: ['Date'] });
+
+      await sshConnectionService.run(dropping, 'git status');
+      await vi.waitFor(() => expect(holds()).toHaveLength(1));
+      vi.setSystemTime(Date.now() + 60 * 60_000);
+      holds()[0].emit('exit', 255, null);
+      await sshConnectionService.run(dropping, 'git status');
+      await vi.waitFor(() => expect(holds()).toHaveLength(2));
+
+      // It ended at once: the connection it would join had closed.
+      holds()[1].emit('exit', 255, null);
+      await sshConnectionService.run(dropping, 'git status');
+      await settle();
+      expect(holds()).toHaveLength(2);
+      vi.setSystemTime(Date.now() + 60_000);
+      await sshConnectionService.run(dropping, 'git status');
+      await vi.waitFor(() => expect(holds()).toHaveLength(3));
+    });
+
+    it('lets go of what it holds when the user disconnects, or the host is edited or removed', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const disconnected = freshHost();
+      const forgotten = freshHost();
+      const edited = freshHost();
+      await sshConnectionService.run(disconnected, 'ls');
+      await sshConnectionService.run(forgotten, 'ls');
+      await sshConnectionService.run(edited, 'ls');
+      await vi.waitFor(() => expect(holds()).toHaveLength(3));
+      const [disconnectedHold, forgottenHold, editedHold] = holds();
+
+      await sshConnectionService.closeConnections(disconnected);
+      sshConnectionService.forgetHostConnections(forgotten.id);
+      // Agent forwarding is part of the connection, though not of the host's address.
+      await sshConnectionService.run({ ...edited, forwardAgent: true }, 'ls');
+      await vi.waitFor(() => expect(holds()).toHaveLength(4));
+
+      // Its stdin closing ends the remote command, and the session with it.
+      expect(disconnectedHold.stdin.writableEnded).toBe(true);
+      expect(forgottenHold.stdin.writableEnded).toBe(true);
+      expect(editedHold.stdin.writableEnded).toBe(true);
+      expect(holds()[3].stdin.writableEnded).toBe(false);
+    });
+
+    it('holds nothing for a host forgotten while a command on it still ran', async () => {
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const removed = freshHost();
+      let finish!: () => void;
+      execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
+        if (args.includes('-O')) callback(null, { stdout: '', stderr: '' });
+        else finish = () => callback(null, { stdout: 'ran', stderr: '' });
+        return undefined;
+      });
+
+      const running = sshConnectionService.run(removed, 'git fetch');
+      await vi.waitFor(() => expect(finish).toBeDefined());
+      sshConnectionService.forgetHostConnections(removed.id);
+      finish();
+      await running;
+      await settle();
+
+      expect(checks()).toHaveLength(0);
+      expect(spawnMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('through an exec channel', () => {
     const channelHost = { ...host, id: 'ssh-connection-channel', hostname: 'channel.example.com' };
 
@@ -1003,6 +1491,21 @@ describe('sshConnectionService', () => {
       return { child, ready: () => send(0, 0, int32(1)) };
     }
 
+    /**
+     * Answers each `__exec-channel` ssh with the next of `children`, the last again once they run
+     * out, and a connection hold with a process that stays up.
+     */
+    function spawnChannels(...children: unknown[]) {
+      spawnMock.mockImplementation((_file, args: string[]) =>
+        isConnectionHold(args) ? fakeHold() : children.length > 1 ? children.shift() : children[0]
+      );
+    }
+
+    const channelSpawns = () =>
+      spawnMock.mock.calls.filter(([, args]) =>
+        ((args as string[]).at(-1) ?? '').endsWith('__exec-channel')
+      );
+
     /** Answers commands as their own ssh exec, and `ssh -O check` as `masterUp` says. */
     function plainExec(masterUp = true) {
       execFileMock.mockImplementation((_file, args: string[], _options, callback) => {
@@ -1024,19 +1527,19 @@ describe('sshConnectionService', () => {
     afterEach(async () => {
       const { sshConnectionService } =
         await import('../../../src/main/services/ssh-connection.service');
-      sshConnectionService.forgetExecChannel(channelHost.id);
+      sshConnectionService.forgetHostConnections(channelHost.id);
     });
 
     it('runs commands through it once it is open, and as their own ssh exec until then', async () => {
       const { sshConnectionService } =
         await import('../../../src/main/services/ssh-connection.service');
       const channel = fakeChannel((command) => ({ stdout: `channel ran ${command}`, code: 0 }));
-      spawnMock.mockReturnValue(channel.child);
+      spawnChannels(channel.child);
       plainExec();
 
       sshConnectionService.useExecChannel(channelHost, '/base/helpers/bin/komla');
-      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
-      const args = spawnMock.mock.calls[0][1] as string[];
+      await vi.waitFor(() => expect(channelSpawns()).toHaveLength(1));
+      const args = channelSpawns()[0][1] as string[];
       // It joins the connection a command opened, and never logs in itself.
       expect(args.slice(0, 4)).toEqual(['-o', 'BatchMode=yes', '-o', 'ControlMaster=no']);
       expect(args.at(-1)).toBe("'/base/helpers/bin/komla' __exec-channel");
@@ -1059,10 +1562,10 @@ describe('sshConnectionService', () => {
         inputs.push(input);
         return { stdout: 'saved', code: 0 };
       });
-      spawnMock.mockReturnValue(channel.child);
+      spawnChannels(channel.child);
       plainExec();
       sshConnectionService.useExecChannel(channelHost, '/komla');
-      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(channelSpawns()).toHaveLength(1));
       channel.ready();
       await new Promise((resolve) => setImmediate(resolve));
 
@@ -1078,17 +1581,17 @@ describe('sshConnectionService', () => {
         await import('../../../src/main/services/ssh-connection.service');
       const background = fakeChannel(() => ({ stdout: 'background', code: 0 }));
       const interactive = fakeChannel(() => ({ stdout: 'interactive', code: 0 }));
-      spawnMock.mockReturnValueOnce(background.child).mockReturnValueOnce(interactive.child);
+      spawnChannels(background.child, interactive.child);
       plainExec();
       sshConnectionService.useExecChannel(channelHost, '/komla');
-      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(channelSpawns()).toHaveLength(1));
       background.ready();
       const read = { purpose: { kind: 'interactive' as const } };
 
       await expect(sshConnectionService.run(channelHost, 'cat file', read)).resolves.toBe(
         'exec ran'
       );
-      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(channelSpawns()).toHaveLength(2));
       interactive.ready();
       await vi.waitFor(async () =>
         expect(await sshConnectionService.run(channelHost, 'cat file', read)).toBe('interactive')
@@ -1097,8 +1600,8 @@ describe('sshConnectionService', () => {
         const args = call[1] as string[];
         return args.find((arg) => arg.startsWith('ControlPath='));
       };
-      expect(controlPath(spawnMock.mock.calls[1])).toBeDefined();
-      expect(controlPath(spawnMock.mock.calls[1])).not.toBe(controlPath(spawnMock.mock.calls[0]));
+      expect(controlPath(channelSpawns()[1])).toBeDefined();
+      expect(controlPath(channelSpawns()[1])).not.toBe(controlPath(channelSpawns()[0]));
     });
 
     it('opens none while the connection it would share is down', async () => {
@@ -1110,7 +1613,7 @@ describe('sshConnectionService', () => {
       await new Promise((resolve) => setImmediate(resolve));
 
       await expect(sshConnectionService.run(channelHost, 'git status')).resolves.toBe('exec ran');
-      expect(spawnMock).not.toHaveBeenCalled();
+      expect(channelSpawns()).toHaveLength(0);
     });
 
     it('stops logging in a channel of its own on a host whose login asks for something', async () => {
@@ -1122,12 +1625,12 @@ describe('sshConnectionService', () => {
         extraSshArgs: ['-o', 'ControlPath=none'],
       };
       const refused = fakeChannel(() => ({ code: 0 }));
-      spawnMock.mockReturnValue(refused.child);
+      spawnChannels(refused.child);
       plainExec();
       vi.useFakeTimers({ toFake: ['Date'] });
       try {
         sshConnectionService.useExecChannel(unshared, '/komla');
-        await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(channelSpawns()).toHaveLength(1));
         refused.child.stderr.write('dev@channel.example.com: Permission denied (publickey).\n');
         await new Promise((resolve) => setImmediate(resolve));
         refused.child.emit('close', 255, null);
@@ -1136,9 +1639,9 @@ describe('sshConnectionService', () => {
         vi.setSystemTime(Date.now() + 10 * 60_000);
         await sshConnectionService.run(unshared, 'git status');
         await new Promise((resolve) => setImmediate(resolve));
-        expect(spawnMock).toHaveBeenCalledTimes(1);
+        expect(channelSpawns()).toHaveLength(1);
       } finally {
-        sshConnectionService.forgetExecChannel(unshared.id);
+        sshConnectionService.forgetHostConnections(unshared.id);
       }
     });
 
@@ -1149,10 +1652,10 @@ describe('sshConnectionService', () => {
         channel.child.emit('close', 255, null);
         return { code: 0 };
       });
-      spawnMock.mockReturnValue(channel.child);
+      spawnChannels(channel.child);
       plainExec();
       sshConnectionService.useExecChannel(channelHost, '/komla');
-      await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(channelSpawns()).toHaveLength(1));
       channel.ready();
       await new Promise((resolve) => setImmediate(resolve));
 

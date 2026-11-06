@@ -14,6 +14,8 @@ export const SSH_SERVER_ALIVE_INTERVAL_SECONDS = 30;
 export const SSH_SERVER_ALIVE_COUNT_MAX = 3;
 
 const SSH_CONTROL_OPTIONS = new Set(['controlmaster', 'controlpath', 'controlpersist']);
+// ssh's short options that take a value, from its getopt string.
+const SSH_OPTIONS_WITH_VALUE = new Set('bceilmopBDEFIJLOPQRSwW');
 // Darwin's sockaddr_un has 104 bytes including the trailing NUL. OpenSSH appends
 // a dot and 16 random characters while atomically creating a control listener.
 const SSH_CONTROL_PATH_MAX_BYTES = 103 - 17;
@@ -35,6 +37,25 @@ function hasSshOption(args: string[] | undefined, keyword: string): boolean {
       arg === '-o' ? (args[index + 1]?.trim() ?? '') : arg.slice(0, 2) === '-o' ? arg.slice(2) : '';
     const optionKeyword = option.replace(/^=/, '').split(/[=\s]/, 1)[0]?.toLowerCase();
     if (optionKeyword === keyword.toLowerCase()) return true;
+  }
+  return false;
+}
+
+/** Whether ssh arguments jump with `-J`, alone or among other short options. */
+export function jumpsWithFlag(args: readonly string[] | undefined): boolean {
+  if (!args) return false;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]?.trim() ?? '';
+    if (!arg.startsWith('-') || arg.startsWith('--')) continue;
+    for (let at = 1; at < arg.length; at++) {
+      const flag = arg.charAt(at);
+      if (flag === 'J') return true;
+      if (SSH_OPTIONS_WITH_VALUE.has(flag)) {
+        // The rest of the argument is the value, or else the next one is.
+        if (at === arg.length - 1) index++;
+        break;
+      }
+    }
   }
   return false;
 }

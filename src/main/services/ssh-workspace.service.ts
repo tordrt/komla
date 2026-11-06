@@ -1586,7 +1586,7 @@ class SshWorkspaceService {
 
   forgetHost(hostId: string): void {
     for (const listener of this.forgetHostListeners) listener(hostId);
-    sshConnectionService.forgetExecChannel(hostId);
+    sshConnectionService.forgetHostConnections(hostId);
     this.preparedNotifyScriptHosts.delete(hostId);
     this.setIntegrationUpdates(hostId);
     this.integrationChecks.delete(hostId);

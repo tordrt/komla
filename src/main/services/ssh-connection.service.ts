@@ -5,15 +5,27 @@ import { promisify } from 'util';
 
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
 import { createLogger } from '../lib/logger';
-import { applySshAskpassEnv, buildSshEnv, needsSshPrompt, sshTarget } from '../lib/ssh-client';
+import {
+  applySshAskpassEnv,
+  buildSshEnv,
+  needsSshPrompt,
+  sshErrorText,
+  sshTarget,
+} from '../lib/ssh-client';
 import { sshConnectionFailure } from '../lib/ssh-connection-failure';
 import { SSH_TERMINAL_POOL_INDICES } from '../lib/terminal-control';
 
 import { askpassService } from './askpass.service';
+import {
+  SSH_CONNECTION_HOLD_COMMAND,
+  SshConnectionHolds,
+  isSshSessionRefusal,
+} from './ssh-connection/connection-holds';
 import { ExecChannelUnavailableError, SshExecChannels } from './ssh-connection/exec-channel';
 import {
   SSH_CONTROL_PERSIST_SECONDS,
   isSshMultiplexedSessionFailure,
+  jumpsWithFlag,
   sshArgs,
   sshControlArgs,
   sshControlPath,
@@ -32,7 +44,7 @@ import type { SshHost, SshHostStatus } from '../../shared/types';
 import type { SshTerminalPoolAssignment } from '../lib/terminal-control';
 import type { ExecChannelLane } from './ssh-connection/exec-channel';
 import type { SshConnectionPurpose, SshRunPurpose } from './ssh-connection/policy';
-import type { ChildProcessWithoutNullStreams } from 'child_process';
+import type { ChildProcess, ChildProcessWithoutNullStreams } from 'child_process';
 
 const execFileAsync = promisify(execFile);
 const logger = createLogger('SshConnectionService');
@@ -48,6 +60,9 @@ const SSH_CONFIG_CHECK_TIMEOUT_MS = 10_000;
 // A terminal waits this long for a host that doesn't answer, instead of the minutes TCP gives up
 // after when the network drops its packets. Git's ssh waits as long.
 const SSH_TERMINAL_CONNECT_TIMEOUT_SECONDS = 15;
+// A held connection that doesn't run `true` this soon after the computer woke is taken as dead.
+// The network may take a while to come back after a wake, which the connection survives.
+const SSH_HELD_CONNECTION_CHECK_TIMEOUT_MS = 20_000;
 
 const BACKGROUND_PURPOSE = { kind: 'background' } as const;
 const INTERACTIVE_PURPOSE = { kind: 'interactive' } as const;
@@ -68,6 +83,15 @@ function showSshFailureInMessage(host: SshHost, error: unknown): void {
   if (typeof code !== 'number') return;
   const failure = sshConnectionFailure(code, typeof stderr === 'string' ? stderr : '');
   if (failure) error.message = failure;
+}
+
+/**
+ * Whether a failed command ran on the host, as one exiting non-zero does. ssh exits 255 when it
+ * couldn't connect or lost the connection.
+ */
+function ranOnHost(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'number' && code !== 255;
 }
 
 /** Prints the options ssh would connect to a host with, without connecting. */
@@ -132,6 +156,9 @@ class SshConnectionService {
       // A channel starts in batch mode, so it never asks; trying again would only fail to log in.
       if (needsSshPrompt(error)) this.promptingHosts.add(JSON.stringify(sshConfigArgs(host)));
     },
+  });
+  private readonly connectionHolds = new SshConnectionHolds({
+    start: (host, controlPath) => this.startConnectionHold(host, controlPath),
   });
 
   /** Whether Komla already holds a background connection to `host`. Never logs in. */
@@ -223,6 +250,7 @@ class SshConnectionService {
         return await run;
       } catch (error) {
         if (!sshControlPath(host, purpose) || !isSshMultiplexedSessionFailure(error)) throw error;
+        if (purpose.kind === 'background') this.sessionRefused(host, purpose, error);
         logger.debug('retrying streaming SSH command without multiplexing', {
           hostId: host.id,
           purpose: purpose.kind,
@@ -267,47 +295,19 @@ class SshConnectionService {
     const multiplex = options.multiplex ?? true;
     const release = await this.acquireRunSlot(host, purpose);
     const shellCommand = `sh -lc ${shellQuotePosix(remoteCommand)}`;
+    const run = (shared: boolean) =>
+      this.runStringInputNow(host, shellCommand, input, purpose, shared, options.timeout);
     try {
-      const viaChannel = multiplex
-        ? await this.runThroughExecChannel(
-            host,
-            remoteCommand,
-            purpose,
-            options.timeout ?? SSH_TIMEOUT_MS,
-            input
-          )
-        : undefined;
-      if (viaChannel !== undefined) return viaChannel;
-      try {
-        return await this.runStringInputNow(
+      if (!multiplex) return await run(false);
+      return await this.runShared(host, purpose, 'string-input command', run, () =>
+        this.runThroughExecChannel(
           host,
-          shellCommand,
-          input,
+          remoteCommand,
           purpose,
-          multiplex,
-          options.timeout
-        );
-      } catch (error) {
-        if (
-          !multiplex ||
-          !sshControlPath(host, purpose) ||
-          !isSshMultiplexedSessionFailure(error)
-        ) {
-          throw error;
-        }
-        logger.debug('retrying SSH string-input command without multiplexing', {
-          hostId: host.id,
-          purpose: purpose.kind,
-        });
-        return await this.runStringInputNow(
-          host,
-          shellCommand,
-          input,
-          purpose,
-          false,
-          options.timeout
-        );
-      }
+          options.timeout ?? SSH_TIMEOUT_MS,
+          input
+        )
+      );
     } finally {
       release();
     }
@@ -416,6 +416,10 @@ class SshConnectionService {
       env: { ...process.env, SSH_ASKPASS_REQUIRE: 'never' },
     };
     const target = sshTarget(host);
+    const holdConnection =
+      purpose.kind === 'interactive' || purpose.kind === 'background'
+        ? this.connectionHold(host, purpose)
+        : undefined;
     const warmUp = execFileAsync(
       'ssh',
       [...sshOptionArgs(host), ...sshControlArgs(controlPath, false, 0), '-O', 'check', target],
@@ -425,7 +429,7 @@ class SshConnectionService {
         execFileAsync('ssh', ['-o', 'BatchMode=yes', ...sshArgs(host, 'true', purpose)], options)
       )
       .then(
-        () => undefined,
+        () => holdConnection?.(),
         (error: unknown) => {
           // Trying again would only add a failed login to the host's log on every create.
           if (needsSshPrompt(error)) {
@@ -624,8 +628,13 @@ class SshConnectionService {
     this.execChannels.use(host, this.hostConnectionKey(host), executable);
   }
 
-  forgetExecChannel(hostId: string): void {
+  /**
+   * Forgets the host's SSH Exec Channels and lets go of the connections it holds open, as after
+   * the host was edited or removed.
+   */
+  forgetHostConnections(hostId: string): void {
     this.execChannels.forget(hostId);
+    this.connectionHolds.forget(hostId);
   }
 
   /**
@@ -636,6 +645,7 @@ class SshConnectionService {
    */
   async closeConnections(host: SshHost, workspaceIds: readonly string[] = []): Promise<void> {
     this.execChannels.forget(host.id);
+    this.connectionHolds.forget(host.id);
     const purposes: SshConnectionPurpose[] = [
       BACKGROUND_PURPOSE,
       INTERACTIVE_PURPOSE,
@@ -645,16 +655,44 @@ class SshConnectionService {
     const controlPaths = purposes
       .map((purpose) => sshControlPath(host, purpose))
       .filter((path): path is string => path !== undefined && existsSync(path));
-    await Promise.all(
-      controlPaths.map((controlPath) =>
-        execFileAsync('ssh', ['-o', `ControlPath=${controlPath}`, '-O', 'exit', sshTarget(host)], {
-          timeout: 5_000,
-          env: buildSshEnv(askpassService),
-        }).catch((error: unknown) =>
-          logger.debug('Could not close a shared SSH connection', { hostId: host.id, error })
-        )
-      )
+    await Promise.all(controlPaths.map((controlPath) => this.exitShared(host, controlPath)));
+  }
+
+  /** Asks the local ssh holding the shared connection at `controlPath` to close it. */
+  private async exitShared(host: SshHost, controlPath: string): Promise<void> {
+    await execFileAsync(
+      'ssh',
+      ['-o', `ControlPath=${controlPath}`, '-O', 'exit', sshTarget(host)],
+      {
+        timeout: 5_000,
+        env: buildSshEnv(askpassService),
+      }
+    ).catch((error: unknown) =>
+      logger.debug('Could not close a shared SSH connection', { hostId: host.id, error })
     );
+  }
+
+  /** Whether a shared connection is open at `controlPath`. Never logs in. */
+  private async isSharedOpen(host: SshHost, controlPath: string): Promise<boolean> {
+    try {
+      await execFileAsync(
+        'ssh',
+        [
+          ...sshOptionArgs(host),
+          ...sshControlArgs(controlPath, false, 0),
+          '-O',
+          'check',
+          sshTarget(host),
+        ],
+        {
+          timeout: SSH_CONFIG_CHECK_TIMEOUT_MS,
+          env: { ...process.env, SSH_ASKPASS_REQUIRE: 'never' },
+        }
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -671,21 +709,7 @@ class SshConnectionService {
     const controlPath = sshControlPath(host, purpose);
     const env = { ...process.env, SSH_ASKPASS_REQUIRE: 'never' };
     if (controlPath) {
-      try {
-        await execFileAsync(
-          'ssh',
-          [
-            ...sshOptionArgs(host),
-            ...sshControlArgs(controlPath, false, 0),
-            '-O',
-            'check',
-            sshTarget(host),
-          ],
-          { timeout: SSH_CONFIG_CHECK_TIMEOUT_MS, env }
-        );
-      } catch {
-        return undefined;
-      }
+      if (!(await this.isSharedOpen(host, controlPath))) return undefined;
     } else if (this.promptingHosts.has(JSON.stringify(sshConfigArgs(host)))) {
       return undefined;
     }
@@ -695,6 +719,94 @@ class SshConnectionService {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+  }
+
+  /**
+   * Taken as a command starts on the lane's shared connection: holds that connection open once
+   * the command succeeded on it (see SshConnectionHolds), unless the host was forgotten or
+   * disconnected meanwhile.
+   */
+  private connectionHold(host: SshHost, purpose: SshRunPurpose): () => void {
+    const controlPath = sshControlPath(host, purpose);
+    const generation = this.connectionHolds.generation(host.id);
+    return () => {
+      if (!controlPath || isSshHostDisconnected(host.id)) return;
+      this.connectionHolds.hold(host, purpose.kind, controlPath, generation);
+    };
+  }
+
+  /** A host that refused a session on a shared connection has none to spare for a hold. */
+  private sessionRefused(host: SshHost, purpose: SshRunPurpose, error: unknown): void {
+    const controlPath = sshControlPath(host, purpose);
+    if (controlPath && isSshSessionRefusal(sshErrorText(error))) {
+      this.connectionHolds.refused(host, purpose.kind, controlPath);
+    }
+  }
+
+  /**
+   * Options for an ssh that joins the shared connection at `controlPath` and never logs in itself:
+   * should that connection be closed, ssh would connect on its own, which a proxy that exits stops
+   * before anything reaches the network or the SSH agent. A host that jumps with `-J` can't take a
+   * ProxyCommand, so there callers check that the connection is open first. It forwards neither
+   * the agent nor X11, which it doesn't need.
+   */
+  private joinOnlyArgs(host: SshHost, controlPath: string): string[] {
+    return [
+      ...(jumpsWithFlag(host.extraSshArgs) ? [] : ['-o', 'ProxyCommand=false']),
+      '-o',
+      'BatchMode=yes',
+      ...sshOptionArgs(host),
+      ...sshControlArgs(controlPath, false, 0),
+      // After the host's own arguments, which may ask for either.
+      '-a',
+      '-x',
+      '-T',
+      sshTarget(host),
+    ];
+  }
+
+  /** Whether the shared connection at `controlPath` is open, where nothing else makes sure. */
+  private async canJoin(host: SshHost, controlPath: string): Promise<boolean> {
+    return !jumpsWithFlag(host.extraSshArgs) || (await this.isSharedOpen(host, controlPath));
+  }
+
+  /** Joins the shared connection at `controlPath` with a session that waits for stdin to close. */
+  private async startConnectionHold(
+    host: SshHost,
+    controlPath: string
+  ): Promise<ChildProcess | undefined> {
+    if (!(await this.canJoin(host, controlPath))) return undefined;
+    return spawn('ssh', [...this.joinOnlyArgs(host, controlPath), SSH_CONNECTION_HOLD_COMMAND], {
+      env: { ...process.env, SSH_ASKPASS_REQUIRE: 'never' },
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
+  }
+
+  /**
+   * After the computer slept, a connection Komla holds may be dead without ssh noticing for up to
+   * a minute and a half, and commands would wait on it all that time. Closes each one that
+   * doesn't answer soon, so the next command logs in again instead.
+   */
+  async checkHeldConnections(): Promise<void> {
+    const env = { ...process.env, SSH_ASKPASS_REQUIRE: 'never' as const };
+    await Promise.all(
+      this.connectionHolds.held().map(async ({ host, controlPath }) => {
+        if (!(await this.canJoin(host, controlPath))) return;
+        try {
+          await execFileAsync('ssh', [...this.joinOnlyArgs(host, controlPath), 'true'], {
+            timeout: SSH_HELD_CONNECTION_CHECK_TIMEOUT_MS,
+            env,
+          });
+        } catch (error) {
+          // It answered, or it is gone already.
+          if (!isSshTimeout(error)) return;
+          logger.debug('Closing a held SSH connection that stopped answering', {
+            hostId: host.id,
+          });
+          await this.exitShared(host, controlPath);
+        }
+      })
+    );
   }
 
   /** The command's output through the lane's SSH Exec Channel, or nothing when none took it. */
@@ -728,8 +840,6 @@ class SshConnectionService {
     prompt = true
   ): Promise<string> {
     const shellCommand = `sh -lc ${shellQuotePosix(remoteCommand)}`;
-    const viaChannel = await this.runThroughExecChannel(host, remoteCommand, purpose, timeout);
-    if (viaChannel !== undefined) return viaChannel;
     const options = {
       timeout,
       maxBuffer: SSH_MAX_BUFFER,
@@ -739,22 +849,59 @@ class SshConnectionService {
         : { ...process.env, SSH_ASKPASS_REQUIRE: 'never' as const },
     };
     const batch = prompt ? [] : ['-o', 'BatchMode=yes'];
+    return await this.runShared(
+      host,
+      purpose,
+      'command',
+      async (shared) => {
+        const args = shared
+          ? sshArgs(host, shellCommand, purpose)
+          : this.standaloneArgs(host, shellCommand, purpose);
+        const { stdout } = await execFileAsync('ssh', [...batch, ...args], options);
+        return stdout;
+      },
+      () => this.runThroughExecChannel(host, remoteCommand, purpose, timeout)
+    );
+  }
+
+  /**
+   * Runs a command through the lane's SSH Exec Channel or else over its shared connection, and
+   * again on its own if the host refused a session there. Once it ran on the shared connection,
+   * whatever it exited with, holds that connection open (see SshConnectionHolds).
+   */
+  private async runShared<T>(
+    host: SshHost,
+    purpose: SshRunPurpose,
+    label: string,
+    run: (shared: boolean) => Promise<T>,
+    throughChannel?: () => Promise<T | undefined>
+  ): Promise<T> {
+    const holdConnection = this.connectionHold(host, purpose);
+    const held = async <R>(result: Promise<R>): Promise<R> => {
+      try {
+        const value = await result;
+        // The channel didn't take it, so it ran nowhere yet.
+        if (value !== undefined) holdConnection();
+        return value;
+      } catch (error) {
+        if (ranOnHost(error)) holdConnection();
+        throw error;
+      }
+    };
+    if (throughChannel) {
+      const viaChannel = await held(throughChannel());
+      if (viaChannel !== undefined) return viaChannel;
+    }
     try {
-      const { stdout } = await execFileAsync(
-        'ssh',
-        [...batch, ...sshArgs(host, shellCommand, purpose)],
-        options
-      );
-      return stdout;
+      return await held(run(true));
     } catch (error) {
       if (!sshControlPath(host, purpose) || !isSshMultiplexedSessionFailure(error)) throw error;
-      logger.debug('retrying SSH command without multiplexing', {
+      this.sessionRefused(host, purpose, error);
+      logger.debug(`retrying SSH ${label} without multiplexing`, {
         hostId: host.id,
         purpose: purpose.kind,
       });
-      const args = [...batch, ...this.standaloneArgs(host, shellCommand, purpose)];
-      const { stdout } = await execFileAsync('ssh', args, options);
-      return stdout;
+      return await run(false);
     }
   }
 
@@ -818,30 +965,9 @@ class SshConnectionService {
     const release = await this.acquireRunSlot(host, purpose);
     const shellCommand = `sh -lc ${shellQuotePosix(remoteCommand)}`;
     try {
-      try {
-        return await this.runInputNow(
-          host,
-          shellCommand,
-          createInput,
-          purpose,
-          true,
-          options.timeout
-        );
-      } catch (error) {
-        if (!sshControlPath(host, purpose) || !isSshMultiplexedSessionFailure(error)) throw error;
-        logger.debug('retrying SSH input command without multiplexing', {
-          hostId: host.id,
-          purpose: purpose.kind,
-        });
-        return await this.runInputNow(
-          host,
-          shellCommand,
-          createInput,
-          purpose,
-          false,
-          options.timeout
-        );
-      }
+      return await this.runShared(host, purpose, 'input command', (shared) =>
+        this.runInputNow(host, shellCommand, createInput, purpose, shared, options.timeout)
+      );
     } finally {
       release();
     }

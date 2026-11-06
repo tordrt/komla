@@ -740,15 +740,15 @@ describe('VoiceTranscriptionService', () => {
 
       const models = voiceTranscriptionService.getAvailableModels();
       expect(models[0].urls).toEqual([
-        'https://downloads.getbaton.dev/models/voice/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.gz',
+        'https://downloads.komla.dev/models/voice/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.gz',
         'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2',
       ]);
       expect(models[1].urls).toEqual([
-        'https://downloads.getbaton.dev/models/voice/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.gz',
+        'https://downloads.komla.dev/models/voice/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.gz',
         'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2',
       ]);
       expect(models[2].urls).toEqual([
-        'https://downloads.getbaton.dev/models/voice/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.gz',
+        'https://downloads.komla.dev/models/voice/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.gz',
         'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.bz2',
       ]);
     });
@@ -1031,7 +1031,7 @@ describe('VoiceTranscriptionService', () => {
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://downloads.getbaton.dev/models/voice/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.gz',
+        'https://downloads.komla.dev/models/voice/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.gz',
         expect.any(Object)
       );
 
@@ -1093,7 +1093,7 @@ describe('VoiceTranscriptionService', () => {
 
       expect(mockFetch).toHaveBeenCalledTimes(2);
       expect(mockFetch.mock.calls[0][0]).toBe(
-        'https://downloads.getbaton.dev/models/voice/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.gz'
+        'https://downloads.komla.dev/models/voice/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.gz'
       );
       expect(mockFetch.mock.calls[1][0]).toBe(
         'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.bz2'

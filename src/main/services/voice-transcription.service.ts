@@ -50,7 +50,7 @@ const AVAILABLE_MODELS: ModelInfo[] = [
     sizeMB: 640,
     runtimeMemoryMB: '~0.9-1.2 GB',
     urls: [
-      'https://downloads.getbaton.dev/models/voice/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.gz',
+      'https://downloads.komla.dev/models/voice/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.gz',
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2',
     ],
     modelType: 'nemo_transducer',
@@ -68,7 +68,7 @@ const AVAILABLE_MODELS: ModelInfo[] = [
     sizeMB: 630,
     runtimeMemoryMB: '~0.9-1.2 GB',
     urls: [
-      'https://downloads.getbaton.dev/models/voice/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.gz',
+      'https://downloads.komla.dev/models/voice/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.gz',
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2',
     ],
     modelType: 'nemo_transducer',
@@ -86,7 +86,7 @@ const AVAILABLE_MODELS: ModelInfo[] = [
     sizeMB: 126,
     runtimeMemoryMB: '~200-400 MB',
     urls: [
-      'https://downloads.getbaton.dev/models/voice/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.gz',
+      'https://downloads.komla.dev/models/voice/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.gz',
       'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.bz2',
     ],
     modelType: 'nemo_ctc',

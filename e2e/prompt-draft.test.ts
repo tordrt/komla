@@ -14,6 +14,8 @@ const test = base.extend({
 });
 
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+// The start of the text, in Monaco or a textarea: macOS binds neither Cmd+Home nor Home to it.
+const toStart = process.platform === 'darwin' ? 'Meta+ArrowUp' : 'Control+Home';
 
 test('drafts a prompt over the full file viewer, referring to the lines selected', async ({
   electronApp,
@@ -44,7 +46,7 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
 
   // Lines 1 to 3 selected in the file.
   await editor.click();
-  await appWindow.keyboard.press(`${mod}+Home`);
+  await appWindow.keyboard.press(toStart);
   await appWindow.keyboard.press('Shift+ArrowDown');
   await appWindow.keyboard.press('Shift+ArrowDown');
   await appWindow.keyboard.press('Shift+End');
@@ -66,7 +68,7 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
   await expect(prompt).toHaveValue('Explain @server.ts:1-3 ');
 
   // Cmd+C with a part selected copies just that, not the viewer's @path, and stays open.
-  await appWindow.keyboard.press('Home');
+  await appWindow.keyboard.press(toStart);
   for (let i = 0; i < 'Explain'.length; i++) await appWindow.keyboard.press('Shift+ArrowRight');
   await appWindow.keyboard.press(`${mod}+C`);
   await expect

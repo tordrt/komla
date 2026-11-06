@@ -253,7 +253,10 @@ test.describe('Sidebar panels', () => {
     const narrowest = await sidebarWidth(appWindow);
     await appWindow.getByRole('button', { name: 'Sidebar tabs' }).click({ timeout: 20_000 });
     await appWindow.getByRole('menuitem', { name: 'Checks' }).click();
-    await expect(appWindow.getByRole('button', { name: 'Checks', exact: true })).toBeVisible();
+    // In the sidebar's tab row: the workspace, and so its terminal tab, is named Checks too.
+    await expect(
+      appWindow.getByTestId('file-panel-header').getByRole('button', { name: 'Checks', exact: true })
+    ).toBeVisible();
     // A panel's tab, wider than Files, doesn't widen the sidebar.
     expect(await sidebarWidth(appWindow)).toBe(narrowest);
 

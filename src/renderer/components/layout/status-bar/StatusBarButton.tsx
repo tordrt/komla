@@ -14,10 +14,13 @@ export const STATUS_BAR_BUTTON_CLASS = cn(
 export const STATUS_BAR_PILL_CLASS =
   'rounded-full bg-foreground/8 px-2 hover:bg-foreground/14 data-[state=open]:bg-foreground/14';
 
-/** A branch trigger's look in the status bar, or the title bar's ghost button. */
+/**
+ * A branch trigger's look in the status bar, or the title bar's ghost button. In the status bar it
+ * shrinks, cutting the branch name short, when its side has no room left for it whole.
+ */
 export function branchTriggerClass(inStatusBar: boolean): string {
   return inStatusBar
-    ? cn(STATUS_BAR_BUTTON_CLASS, 'min-w-0 [&_svg:not(.caret)]:size-3.5')
+    ? cn(STATUS_BAR_BUTTON_CLASS, 'min-w-0 shrink [&_svg:not(.caret)]:size-3.5')
     : 'no-drag h-7 min-w-0 gap-1.5 px-2';
 }
 

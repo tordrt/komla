@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import {
   chmodSync,
   existsSync,
@@ -14,7 +14,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const { run } = vi.hoisted(() => ({ run: vi.fn() }));
 
@@ -190,7 +190,16 @@ describe('sshWorkspaceGit.fetchOriginWithoutPrompts', () => {
   it('leaves a clone a workspace is being set up in alone, and takes over a stale lock', async () => {
     const lock = join(`${clone}.komla`, '.setup-lock');
     mkdirSync(lock, { recursive: true });
-    writeFileSync(join(lock, 'pid'), `${process.pid}\n`);
+    // A setup that is still running, numbered as the host's sh sees it: Git's sh on Windows
+    // doesn't know Windows process ids such as this test's own.
+    const setup = spawn('sh', ['-c', 'echo $$; exec sleep 60']);
+    onTestFinished(() => {
+      setup.kill();
+    });
+    const setupPid = await new Promise<string>((resolve) =>
+      setup.stdout.once('data', (data) => resolve(String(data)))
+    );
+    writeFileSync(join(lock, 'pid'), setupPid);
     await git(elsewhere, 'commit', '--quiet', '--allow-empty', '-m', 'pushed elsewhere');
     await git(elsewhere, 'push', '--quiet', 'origin', 'HEAD:main');
 

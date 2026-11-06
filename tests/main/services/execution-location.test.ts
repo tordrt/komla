@@ -522,7 +522,10 @@ describe('execution locations', () => {
         locations
           .resolve(localWorkspace({ branchName: "it's" }))
           .resolveLaunchVariables('git log {{branchName}}')
-      ).toBe(`git log 'it'"'"'s'`);
+      ).toBe(
+        // A Windows client runs background commands in PowerShell.
+        process.platform === 'win32' ? `git log 'it''s'` : `git log 'it'"'"'s'`
+      );
     });
 
     it('spawns in the local Workspace repository', () => {

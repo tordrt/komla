@@ -33,6 +33,7 @@ npm run release -- full patch            # Bump + build, then pause (default sub
 | `--platforms=X,Y`     | Platforms to build: mac, windows, linux (default: all)                                                                                 |
 | `--archs=X,Y`         | Architectures to build: arm64, x64 (default: all). Note: has no effect on Windows — both archs are always built in a single invocation |
 | `--skip-notarization` | Skip macOS notarization (testing only)                                                                                                 |
+| `--local-tests`       | Run `npm test` on this machine instead of requiring green CI for the commit                                                            |
 | `--skip-e2e`          | Skip Playwright e2e tests (escape hatch for hotfixes)                                                                                  |
 | `--skip-vm-security`  | Skip the Docker SSH integration tests (requires Docker otherwise)                                                                      |
 | `--dry-run`           | Validate setup without building                                                                                                        |
@@ -95,7 +96,7 @@ Use `--no-rollback` to disable for manual recovery.
 
 1. **Preflight** — Validates prerequisites: wrangler and the ripgrep binary always; cargo-xwin when building; notarization creds when notarizing; docker whenever building (the bundled Linux companions build in Docker for every platform; colima is started if Docker isn't running); wine when Windows is targeted, plus jsign and osslsigncode when [Windows signing](#windows-code-signing) is configured (a warning when it is not); a running Docker when running the integration tests
 2. **Version** — Bumps version, commits, and tags `v{version}`
-3. **Test** — Runs `npm test`
+3. **Test** — Requires a successful CI run for the commit being released, waiting for one still in progress. CI runs `npm test` on macOS, Linux and Windows, so the commit must be pushed. The version commit only bumps `package.json`, so its parent's run counts. With `--local-tests`, runs `npm test` here instead.
 4. **E2E** — Runs `npm run test:e2e` (Playwright) with `KOMLA_E2E_HIDE_WINDOWS=1`, so the app's windows open transparent, click-through and unfocusable (on Linux only unfocused and click-through). Skip with `--skip-e2e`.
 5. **Integration** — Runs `npm run test:integration`, the SSH remote-workspace suite in a disposable Debian 13 container. Requires Docker. Skip with `--skip-vm-security`.
 6. **Audit** — Fails on high/critical vulnerabilities in shipped packages, including the renderer libraries Vite bundles (`scripts/audit-shipped-deps.mjs`)

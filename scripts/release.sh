@@ -29,6 +29,7 @@ fi
 #   --platforms=X,Y      Platforms to build (mac,windows,linux) [default: all]
 #   --archs=X,Y          Architectures to build (arm64,x64) [default: all]
 #   --skip-notarization  Skip macOS notarization (for testing only)
+#   --local-tests        Run npm test here instead of requiring green CI for the commit
 #   --skip-e2e           Skip Playwright e2e tests
 #   --skip-vm-security   Skip the Docker SSH integration tests
 #   --staging            Build for staging env, upload to staging/ prefix, skip publish
@@ -61,6 +62,7 @@ RETENTION_COUNT=20
 # Options
 SUBCOMMAND="full"
 SKIP_NOTARIZATION=false
+LOCAL_TESTS=false
 SKIP_E2E=false
 SKIP_VM_SECURITY=false
 DRY_RUN=false
@@ -740,6 +742,14 @@ phase_preflight() {
     fi
   fi
 
+  # Last, since it can wait for CI, and before the version commit, so a red commit stops the
+  # release with nothing to roll back. A dry run reports a run in progress instead of waiting.
+  if [[ "$LOCAL_TESTS" != "true" ]] && [[ "$SUBCOMMAND" != "upload" ]]; then
+    if [[ -z "$RESUME_FROM" ]] || should_run_phase "test"; then
+      require_green_ci "$DRY_RUN"
+    fi
+  fi
+
   echo ""
 }
 
@@ -803,10 +813,71 @@ if (['patch', 'minor', 'major'].includes(bump)) {
   success "Committed and tagged v${VERSION}"
 }
 
+# The commit CI ran on: the version commit only bumps package.json, so its parent's run covers it.
+ci_commit() {
+  if git rev-parse -q --verify "refs/tags/v${VERSION:-}" >/dev/null \
+    && [[ "$(git rev-parse HEAD)" == "$(git rev-parse "v${VERSION}^{commit}")" ]]; then
+    git rev-parse HEAD^
+  else
+    git rev-parse HEAD
+  fi
+}
+
+# The newest CI run for the commit that wasn't cancelled: a push cancels the previous push's run,
+# and the latest run, not an earlier pull request's, says whether the commit is green.
+latest_ci_run() {
+  gh run list --workflow ci.yml --commit "$1" --limit 20 \
+    --json databaseId,status,conclusion,url \
+    --jq '[.[] | select(.conclusion != "cancelled")][0] // empty
+      | "\(.databaseId) \(.status) \(if (.conclusion // "") == "" then "-" else .conclusion end) \(.url)"'
+}
+
+# CI runs npm test on macOS, Linux and Windows, so a green run for the commit stands in for a
+# local run, which flakes when the machine is busy. With "true", reports a run in progress
+# instead of waiting for it.
+require_green_ci() {
+  local no_wait="${1:-false}" sha short run run_id status conclusion url
+  sha=$(ci_commit)
+  short=${sha:0:7}
+  [[ "${CI_PASSED_FOR:-}" == "$sha" ]] && { success "CI passed for ${short}"; return 0; }
+  command -v gh >/dev/null 2>&1 \
+    || die "gh CLI not found — install it to check CI, or pass --local-tests"
+  run=$(latest_ci_run "$sha") \
+    || die "Could not read CI runs from GitHub — run gh auth login, or pass --local-tests"
+  [[ -n "$run" ]] \
+    || die "No CI run for ${short} — push it and let CI finish (or rerun a cancelled one), or pass --local-tests"
+  read -r run_id status conclusion url <<<"$run"
+
+  if [[ "$status" != "completed" ]]; then
+    if [[ "$no_wait" == "true" ]]; then
+      warn "CI is still running for ${short}: $url — a release would wait for it"
+      return 0
+    fi
+    info "Waiting for CI on ${short}: $url"
+    # The run's status, read below, decides; watch only waits for it.
+    gh run watch "$run_id" --interval 30 >/dev/null 2>&1 || true
+    read -r status conclusion < <(gh run view "$run_id" --json status,conclusion \
+      --jq '"\(.status) \(if (.conclusion // "") == "" then "-" else .conclusion end)"') \
+      || die "Could not read CI run $url — check it, then run the release again"
+    [[ "$status" == "completed" ]] \
+      || die "Stopped waiting for CI run $url while it was ${status} — run the release again"
+  fi
+
+  [[ "$conclusion" == "success" ]] \
+    || die "CI has not passed for ${short}: ${conclusion} $url — fix it, or pass --local-tests"
+  success "CI passed for ${short}"
+  CI_PASSED_FOR="$sha"
+}
+
 phase_test() {
-  info "Running tests..."
-  npm test
-  success "Tests passed"
+  if [[ "$LOCAL_TESTS" == "true" ]]; then
+    info "Running tests..."
+    npm test
+    success "Tests passed"
+  else
+    info "Checking CI..."
+    require_green_ci
+  fi
 }
 
 phase_e2e() {
@@ -1586,6 +1657,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_NOTARIZATION=true
       shift
       ;;
+    --local-tests)
+      LOCAL_TESTS=true
+      shift
+      ;;
     --skip-e2e)
       SKIP_E2E=true
       shift
@@ -1700,6 +1775,7 @@ echo "  Platforms: ${PLATFORMS[*]:-all}"
 echo "  Archs: ${ARCHS[*]:-all}"
 [[ "$STAGING" == "true" ]] && echo "  Staging: true (upload prefix: $UPLOAD_PREFIX)"
 [[ "$SKIP_NOTARIZATION" == "true" ]] && echo "  Skip notarization: true"
+[[ "$LOCAL_TESTS" == "true" ]] && echo "  Local tests instead of CI: true"
 [[ "$SKIP_E2E" == "true" ]] && echo "  Skip e2e: true"
 [[ "$SKIP_VM_SECURITY" == "true" ]] && echo "  Skip vm-security: true"
 [[ "$FORCE_REBUILD" == "true" ]] && echo "  Force rebuild: true"

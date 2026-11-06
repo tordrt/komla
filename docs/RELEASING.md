@@ -33,6 +33,7 @@ npm run release -- full patch            # Bump + build, then pause (default sub
 | `--platforms=X,Y`     | Platforms to build: mac, windows, linux (default: all)                                                                                 |
 | `--archs=X,Y`         | Architectures to build: arm64, x64 (default: all). Note: has no effect on Windows — both archs are always built in a single invocation |
 | `--skip-notarization` | Skip macOS notarization (testing only)                                                                                                 |
+| `--local-tests`       | Run `npm test` on this machine instead of requiring green CI for the commit                                                            |
 | `--skip-e2e`          | Skip Playwright e2e tests (escape hatch for hotfixes)                                                                                  |
 | `--skip-vm-security`  | Skip the Docker SSH integration tests (requires Docker otherwise)                                                                      |
 | `--dry-run`           | Validate setup without building                                                                                                        |
@@ -95,7 +96,7 @@ Use `--no-rollback` to disable for manual recovery.
 
 1. **Preflight** — Validates prerequisites: wrangler and the ripgrep binary always; cargo-xwin when building; notarization creds when notarizing; docker whenever building (the bundled Linux companions build in Docker for every platform; colima is started if Docker isn't running); wine when Windows is targeted, plus jsign and osslsigncode when [Windows signing](#windows-code-signing) is configured (a warning when it is not); a running Docker when running the integration tests
 2. **Version** — Bumps version, commits, and tags `v{version}`
-3. **Test** — Runs `npm test`
+3. **Test** — Requires the commit's newest CI run that wasn't cancelled to have passed, waiting for it when it is still in progress. Preflight checks this too, so a red or unpushed commit stops the release before the version commit, and a release may wait there for a whole CI run. A dry run checks it too, but only warns about a run in progress. CI runs `npm test` on macOS, Linux and Windows. The version commit only bumps `package.json`, so its parent's run counts. With `--local-tests`, runs `npm test` here instead.
 4. **E2E** — Runs `npm run test:e2e` (Playwright) with `KOMLA_E2E_HIDE_WINDOWS=1`, so the app's windows open transparent, click-through and unfocusable (on Linux only unfocused and click-through). Skip with `--skip-e2e`.
 5. **Integration** — Runs `npm run test:integration`, the SSH remote-workspace suite in a disposable Debian 13 container. Requires Docker. Skip with `--skip-vm-security`.
 6. **Audit** — Fails on high/critical vulnerabilities in shipped packages, including the renderer libraries Vite bundles (`scripts/audit-shipped-deps.mjs`)
@@ -126,6 +127,7 @@ Use `--no-rollback` to disable for manual recovery.
 - **Apple notarization credentials** — in `.env`
 - **Utility token** — `KOMLA_UTILITY_TOKEN` in `.env`, the token the managed AI helpers send to `utility.komla.dev` (the worker's `KOMLA_APP_TOKEN` secret). It is not in the source tree, so official builds get it at build time
 - **jq** — for state tracking (pre-installed on macOS)
+- **GitHub CLI** — `brew install gh` + `gh auth login`, to check the commit's CI (not needed with `--local-tests`)
 
 ## Apple Notarization Setup
 

@@ -13,6 +13,7 @@ import {
   createProject,
   resetIdCounter,
 } from '../../factories';
+import { resetModulesKeepingShared } from '../../helpers/reset-modules';
 import { mockElectron, createMockBrowserWindow } from '../../mocks/electron';
 
 // ============================================================================
@@ -237,13 +238,15 @@ vi.mock('../../../src/main/services/telemetry.service', () => ({
   },
 }));
 
-// Logger — captured so we can assert on error calls
+// Logger — captured so we can assert on error calls. Debug is a plain function: a
+// mock made for each logger, by every module reloaded for a test, would have added
+// to every later vi.clearAllMocks().
 const mockLoggerError = vi.fn();
 const mockLoggerInfo = vi.fn();
 const mockLoggerWarn = vi.fn();
 vi.mock('../../../src/main/lib/logger', () => ({
   createLogger: () => ({
-    debug: vi.fn(),
+    debug: () => {},
     info: mockLoggerInfo,
     warn: mockLoggerWarn,
     error: mockLoggerError,
@@ -352,7 +355,7 @@ describe('HttpServerService', () => {
   let settingsApprovalService: (typeof import('../../../src/main/services/settings-approval.service'))['settingsApprovalService'];
 
   beforeEach(async () => {
-    vi.resetModules();
+    resetModulesKeepingShared();
     resetIdCounter();
     capturedHandler = null;
 
@@ -448,9 +451,12 @@ describe('HttpServerService', () => {
     ));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     // Also cancels the MCP preload a test's start() schedules.
     httpServerService.stop();
+    // Vitest drops a vi.doMock() made while an import is still resolving mocks,
+    // so let no import a test started run on into the next test's setup.
+    await vi.dynamicImportSettled();
   });
 
   describe('settings management API', () => {
@@ -4343,10 +4349,11 @@ describe('HttpServerService', () => {
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ['setTimeout'] });
       mcpSdkLoads = 0;
-      // Counts the SDK's loads; the file's mock module stays loaded across tests. The count is
-      // the only difference from the file's mock, so later tests get the same transport. Vitest
-      // applies queued mocks of one module in no set order, so swapping the file's mock back
-      // after a test that loads nothing could leave this one in place, or not.
+      // Counts the SDK's loads; the file's mock module stays loaded across tests.
+      // It stays registered after these tests, so it returns the file's transport:
+      // Vitest drops a vi.doMock() made while an import is still resolving mocks,
+      // and a load these tests start can still be resolving when they end, so an
+      // afterEach that put the file's mock back was sometimes lost.
       vi.doMock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => {
         mcpSdkLoads++;
         return mockStreamableHttp();

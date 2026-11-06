@@ -141,7 +141,9 @@ impl ManagedSessionMonitor {
     }
 }
 
-/// Each managed session's name and owner, a line each; empty when tmux runs no server.
+/// Each managed session's name and owner, a line each; empty when tmux runs no server. A colon
+/// parts them: tmux allows none in a session name, and without a UTF-8 locale it prints a tab as
+/// an underscore.
 fn managed_tmux_sessions(socket: &str) -> Option<String> {
     let mut command = Command::new("tmux");
     command
@@ -150,7 +152,7 @@ fn managed_tmux_sessions(socket: &str) -> Option<String> {
             socket,
             "list-sessions",
             "-F",
-            "#{session_name}\t#{@komla_installation_key}",
+            "#{session_name}:#{@komla_installation_key}",
         ])
         .env_remove("TMUX")
         .stdin(Stdio::null());
@@ -171,7 +173,7 @@ fn desktop_answers(health_url: &str, timeout: Duration) -> bool {
 /// The managed sessions in a listing, each with its owner.
 fn managed_sessions(output: &str) -> impl Iterator<Item = (&str, &str)> {
     output.lines().filter_map(|line| {
-        let (name, owner) = line.split_once('\t')?;
+        let (name, owner) = line.split_once(':')?;
         (name.starts_with("komla-") && !name.starts_with("komla-companion-"))
             .then_some((name, owner))
     })
@@ -305,7 +307,8 @@ mod tests {
 
     #[test]
     fn managed_sessions_are_scoped_to_the_companion_installation() {
-        let sessions = "komla-terminal-a\tinstall-a\nkomla-terminal-b\tinstall-b\nkomla-companion-a\tinstall-a\n";
+        let sessions =
+            "komla-terminal-a:install-a\nkomla-terminal-b:install-b\nkomla-companion-a:install-a\n";
 
         assert!(has_managed_session(sessions, "install-a"));
         assert!(has_managed_session(sessions, "install-b"));

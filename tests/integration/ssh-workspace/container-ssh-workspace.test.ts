@@ -2382,6 +2382,61 @@ describe('Komla Remote Companion through Docker OpenSSH', () => {
     }
   }, 90_000);
 
+  it('says when another installation changes a workspace or starts a session on the host', async () => {
+    const manifests = `${target.resolvedBasePath}/workspaces-companion-changes`;
+    const fixture = await startDirectCompanion('companion-changes', {
+      workspaceManifests: { directory: manifests, writtenBy: 'this-device' },
+    });
+    const hostChanges = async () =>
+      (await container.exec(['cat', fixture.recordPath], { allowFailure: true })).stdout
+        .split('\n')
+        .filter((line) => line.includes('/api/v1/ssh-host-changed')).length;
+    const writeManifest = (id: string, writtenBy: string) =>
+      container.exec([
+        'sh',
+        '-lc',
+        `mkdir -p "$1" && printf '%s' "$2" > "$1/$3.json"`,
+        'sh',
+        manifests,
+        JSON.stringify({ schema: 1, workspaceId: id, writtenBy }),
+        id,
+      ]);
+    try {
+      await waitForRecordedCompanionPost(fixture.recordPath, (post) =>
+        post.path.endsWith('/ssh-workspace-status')
+      );
+      // Its first listing and session check only set what later ones compare with.
+      await delay(6_000);
+      expect(await hostChanges()).toBe(0);
+
+      await writeManifest('mine', 'this-device');
+      await delay(5_000);
+      expect(await hostChanges()).toBe(0);
+
+      await writeManifest('theirs', 'other-device');
+      const notice = await waitForRecordedCompanionPost(fixture.recordPath, (post) =>
+        post.path.endsWith('/api/v1/ssh-host-changed')
+      );
+      expect(notice.payload).toEqual({ protocolVersion: 1, kind: 'ssh-host-changed' });
+
+      await container.exec([
+        'sh',
+        '-lc',
+        'tmux -L komla-v1 new-session -d -s komla-other-terminal && tmux -L komla-v1 set-option -t komla-other-terminal @komla_installation_key other-installation',
+      ]);
+      const deadline = Date.now() + 20_000;
+      while ((await hostChanges()) < 2 && Date.now() < deadline) await delay(250);
+      expect(await hostChanges()).toBe(2);
+    } finally {
+      await container
+        .exec(['sh', '-lc', 'tmux -L komla-v1 kill-session -t =komla-other-terminal || true'], {
+          allowFailure: true,
+        })
+        .catch(() => {});
+      await fixture.cleanup();
+    }
+  }, 90_000);
+
   it('forwards a pending terminal hook from the companion mailbox', async () => {
     const fixture = await startDirectCompanion('companion-hook');
     try {
@@ -2802,7 +2857,10 @@ interface DirectCompanion {
   cleanup: () => Promise<void>;
 }
 
-async function startDirectCompanion(suffix: string): Promise<DirectCompanion> {
+async function startDirectCompanion(
+  suffix: string,
+  extraConfig: Record<string, unknown> = {}
+): Promise<DirectCompanion> {
   const { sshWorkspaceService } = sshWorkspaceModule;
   const { remoteCompanionService } = remoteCompanionModule;
   await sshWorkspaceService.verifyAndPrepareHost(target.host);
@@ -2866,6 +2924,7 @@ async function startDirectCompanion(suffix: string): Promise<DirectCompanion> {
         targetBranch: 'main',
       },
     ],
+    ...extraConfig,
   };
   await container.exec([
     'sh',

@@ -57,6 +57,7 @@ import {
   REMOTE_READY_SHELL_COMMAND,
 } from '../lib/terminal-control';
 
+import { PUBLISHED_GIT_HOST_KEYS, publishedKeyHostForGitUrl } from './git-host-keys';
 import { buildOpenCodeNotifyPlugin } from './opencode-settings.service';
 import { getKomlaBasePath } from './paths';
 import { sshConnectionService } from './ssh-connection.service';
@@ -236,6 +237,29 @@ function repoNameFromSource(args: CreateSshWorkspaceArgs): string {
   return remoteBasenameFromGitUrl(args.gitUrl || args.localRepoPath || args.projectName);
 }
 
+/**
+ * Before a clone from GitHub, GitLab or Bitbucket on a host, writes the keys they publish to the
+ * host's known_hosts, so accept-new never has to trust the first key that answers. A host already
+ * listed there keeps what it has, and without ssh-keygen to check, nothing is written.
+ */
+function publishedHostKeyLines(gitUrl: string | undefined): string[] {
+  const keyHost = gitUrl ? publishedKeyHostForGitUrl(gitUrl) : null;
+  if (!keyHost) return [];
+  const keys = PUBLISHED_GIT_HOST_KEYS[keyHost].map(shellQuotePosix).join(' ');
+  return [
+    `  if command -v ssh-keygen >/dev/null 2>&1 && ! ssh-keygen -F ${shellQuotePosix(keyHost)} >/dev/null 2>&1; then`,
+    '    (',
+    '      umask 077',
+    '      known_hosts="$HOME/.ssh/known_hosts"',
+    '      mkdir -p "$HOME/.ssh" || exit 0',
+    // A last line without its newline would otherwise swallow the first key.
+    '      if [ -s "$known_hosts" ] && [ -n "$(tail -c 1 "$known_hosts")" ]; then echo >> "$known_hosts"; fi',
+    `      printf '%s\\n' ${keys} >> "$known_hosts"`,
+    '    ) || true',
+    '  fi',
+  ];
+}
+
 function httpsGitUrlToSsh(gitUrl: string): string | null {
   let parsed: URL;
   try {
@@ -244,7 +268,7 @@ function httpsGitUrlToSsh(gitUrl: string): string | null {
     return null;
   }
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null;
-  if (!['github.com', 'gitlab.com', 'bitbucket.org'].includes(parsed.hostname)) return null;
+  if (!Object.hasOwn(PUBLISHED_GIT_HOST_KEYS, parsed.hostname)) return null;
 
   const repoPath = parsed.pathname.replace(/^\/+|\/+$/g, '');
   if (!repoPath || !repoPath.includes('/')) return null;
@@ -2239,6 +2263,7 @@ class SshWorkspaceService {
       '  command -v ssh >/dev/null 2>&1 &&',
       '  ssh -o StrictHostKeyChecking=accept-new -G localhost >/dev/null 2>&1; then',
       `  export GIT_SSH_COMMAND=${shellQuotePosix('ssh -o StrictHostKeyChecking=accept-new')}`,
+      ...publishedHostKeyLines(backend.gitUrl),
       'fi',
       `if [ ! -d ${shellQuotePosix(backend.remoteRepoPath)} ] || [ ! -d ${shellQuotePosix(
         backend.remoteDirectory

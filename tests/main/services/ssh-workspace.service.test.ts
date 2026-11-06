@@ -2065,6 +2065,113 @@ describe('sshWorkspaceService', () => {
     }
   });
 
+  describe('published Git host keys', () => {
+    // Runs the transport setup for a clone from gitUrl with a fake ssh and an ssh-keygen whose
+    // -F looks up plain known_hosts lines, and returns the remote user's known_hosts afterwards.
+    async function knownHostsAfterBootstrap(
+      gitUrl: string,
+      options: { knownHosts?: string; env?: NodeJS.ProcessEnv } = {}
+    ): Promise<string | null> {
+      const root = mkdtempSync(join(tmpdir(), 'komla-host-keys-'));
+      const binPath = join(root, 'bin');
+      const homePath = join(root, 'home');
+      const knownHostsPath = join(homePath, '.ssh', 'known_hosts');
+      try {
+        mkdirSync(binPath);
+        mkdirSync(homePath);
+        writeFileSync(join(binPath, 'ssh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+        writeFileSync(
+          join(binPath, 'ssh-keygen'),
+          '#!/bin/sh\n[ "$1" = -F ] && grep -q "^$2 " "$HOME/.ssh/known_hosts" 2>/dev/null\n',
+          { mode: 0o755 }
+        );
+        if (options.knownHosts !== undefined) {
+          mkdirSync(join(homePath, '.ssh'));
+          writeFileSync(knownHostsPath, options.knownHosts);
+        }
+        await runGitSshBootstrap(
+          {
+            kind: 'ssh',
+            hostId: 'ssh-dev',
+            remoteDirectory: join(root, 'worktree'),
+            remoteRepoPath: join(root, 'repo.git'),
+            remoteProjectRoot: root,
+            gitUrl,
+            projectName: 'komla',
+            branchName: 'host-keys-test',
+            baseBranch: 'main',
+          },
+          {
+            ...process.env,
+            HOME: homePath,
+            PATH: `${binPath}:${process.env.PATH ?? ''}`,
+            GIT_SSH_COMMAND: undefined,
+            GIT_SSH: undefined,
+            ...options.env,
+          }
+        );
+        return existsSync(knownHostsPath) ? readFileSync(knownHostsPath, 'utf8') : null;
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+
+    itWithPosixShell('adds GitHub’s published keys before the first clone from it', async () => {
+      const knownHosts = await knownHostsAfterBootstrap('git@github.com:komla-dev/komla.git');
+      expect(knownHosts).toContain(
+        'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl'
+      );
+      expect(knownHosts?.split('\n').filter((line) => line.startsWith('github.com '))).toHaveLength(
+        3
+      );
+    });
+
+    itWithPosixShell('adds the keys for an ssh:// URL on the default port', async () => {
+      expect(await knownHostsAfterBootstrap('ssh://git@gitlab.com/group/repo.git')).toContain(
+        'gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM6tdG4SLp1Btn/nOeHHE5UOzRdf'
+      );
+    });
+
+    itWithPosixShell('accepts git+ssh:// and scp-style URLs with an absolute path', async () => {
+      expect(await knownHostsAfterBootstrap('git+ssh://git@github.com/owner/repo.git')).toContain(
+        'github.com ssh-ed25519 '
+      );
+      expect(await knownHostsAfterBootstrap('git@bitbucket.org:/team/repo.git')).toContain(
+        'bitbucket.org ssh-ed25519 '
+      );
+    });
+
+    itWithPosixShell('starts on a new line after a last entry without one', async () => {
+      const knownHosts = await knownHostsAfterBootstrap('git@github.com:komla-dev/komla.git', {
+        knownHosts: 'myhost ssh-ed25519 AAAAmine',
+      });
+      expect(knownHosts?.split('\n').slice(0, 2)).toEqual([
+        'myhost ssh-ed25519 AAAAmine',
+        expect.stringMatching(/^github\.com ssh-ed25519 /),
+      ]);
+    });
+
+    itWithPosixShell('keeps a known_hosts that already has the host', async () => {
+      const existing = 'bitbucket.org ssh-ed25519 AAAAexisting\n';
+      expect(
+        await knownHostsAfterBootstrap('git@bitbucket.org:team/repo.git', { knownHosts: existing })
+      ).toBe(existing);
+    });
+
+    itWithPosixShell('writes nothing for other Git servers', async () => {
+      expect(await knownHostsAfterBootstrap('git@git.example.com:team/repo.git')).toBeNull();
+      expect(await knownHostsAfterBootstrap('ssh://git@github.com:2222/team/repo.git')).toBeNull();
+    });
+
+    itWithPosixShell('writes nothing when the user set their own Git ssh command', async () => {
+      expect(
+        await knownHostsAfterBootstrap('git@github.com:komla-dev/komla.git', {
+          env: { GIT_SSH_COMMAND: 'ssh -i ~/.ssh/deploy' },
+        })
+      ).toBeNull();
+    });
+  });
+
   it('generates exact managed tmux start, reconnect, and replace operations', async () => {
     const { sshWorkspaceService } =
       await import('../../../src/main/services/ssh-workspace.service');

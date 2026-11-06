@@ -5,6 +5,10 @@
  * It provides common utilities and resets state between tests.
  */
 
+import { mkdtempSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { vi, beforeEach, afterEach } from 'vitest';
 
 // Inherited from `git rebase --exec`, hooks or `git -c`, these would point the
@@ -21,6 +25,15 @@ for (const key of [
 ]) {
   delete process.env[key];
 }
+
+// Shell scripts the tests run, such as an SSH workspace's setup, may write under $HOME (its
+// ~/.ssh/known_hosts, for one). Each test worker gets a home of its own so they never change
+// the real one on a developer's computer or a CI runner.
+// Rust's toolchain lives under the real home, and some tests build the companion with cargo.
+const realHome = homedir();
+process.env.RUSTUP_HOME ??= join(realHome, '.rustup');
+process.env.CARGO_HOME ??= join(realHome, '.cargo');
+process.env.HOME = mkdtempSync(join(tmpdir(), 'komla-test-home-'));
 
 // Reset all mocks before each test
 beforeEach(() => {

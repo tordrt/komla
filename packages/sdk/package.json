@@ -1,6 +1,7 @@
 {
   "name": "@komla/sdk",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Typed TypeScript client for Komla Operations, the actions and queries the komla CLI and MCP also use.",
   "type": "module",

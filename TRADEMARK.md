@@ -1,6 +1,6 @@
 # Komla Trademark Policy
 
-Komla's source code is free software under the [AGPL](LICENSE). The name "Komla", the Komla logo and the komla.dev domain are not. They belong to Tafjord Invest AS, and they tell people that what they're getting is Komla as we make it. This policy says how you can use them.
+Komla's source code is open source under the [MIT License](LICENSE). The name "Komla", the Komla logo and the komla.dev domain are not. They belong to Tafjord Invest AS, and they tell people that what they're getting is Komla as we make it. This policy says how you can use them.
 
 ## Without asking
 

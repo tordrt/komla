@@ -79,6 +79,8 @@ extraResources:
     to: remote-app/
   - from: native/artifacts/
     to: native/
+  - from: LICENSE
+    to: licenses/Komla-LICENSE.txt
   - from: src/renderer/assets/fonts/OFL.txt
     to: licenses/JetBrainsMono-OFL.txt
   - from: src/renderer/assets/fonts/Geist-OFL.txt

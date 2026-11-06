@@ -47,6 +47,6 @@ Bug reports and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.m
 
 Copyright © 2026 Tafjord Invest AS
 
-Komla is free software: you can redistribute it and modify it under the terms of the [GNU Affero General Public License, version 3](LICENSE).
+Komla is open source under the [MIT License](LICENSE).
 
 The license covers the code, not the Komla name or logo. If you distribute a modified version, give it a different name. [TRADEMARK.md](TRADEMARK.md) has the details.

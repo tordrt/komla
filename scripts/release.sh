@@ -29,6 +29,7 @@ fi
 #   --platforms=X,Y      Platforms to build (mac,windows,linux) [default: all]
 #   --archs=X,Y          Architectures to build (arm64,x64) [default: all]
 #   --skip-notarization  Skip macOS notarization (for testing only)
+#   --local-tests        Run npm test here instead of requiring green CI for the commit
 #   --skip-e2e           Skip Playwright e2e tests
 #   --skip-vm-security   Skip the Docker SSH integration tests
 #   --staging            Build for staging env, upload to staging/ prefix, skip publish
@@ -61,6 +62,7 @@ RETENTION_COUNT=20
 # Options
 SUBCOMMAND="full"
 SKIP_NOTARIZATION=false
+LOCAL_TESTS=false
 SKIP_E2E=false
 SKIP_VM_SECURITY=false
 DRY_RUN=false
@@ -803,10 +805,57 @@ if (['patch', 'minor', 'major'].includes(bump)) {
   success "Committed and tagged v${VERSION}"
 }
 
+# The commit CI ran on: the version commit only bumps package.json, so its parent's run covers it.
+ci_commit() {
+  if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null \
+    && [[ "$(git rev-parse HEAD)" == "$(git rev-parse "v${VERSION}^{commit}")" ]]; then
+    git rev-parse HEAD^
+  else
+    git rev-parse HEAD
+  fi
+}
+
+# CI runs npm test on macOS, Linux and Windows, so a green run for the commit stands in for a
+# local run, which flakes when the machine is busy.
+require_green_ci() {
+  local sha short runs run_id
+  sha=$(ci_commit)
+  short=${sha:0:7}
+  command -v gh >/dev/null 2>&1 \
+    || die "gh CLI not found — install it to check CI, or pass --local-tests"
+  runs=$(gh run list --workflow ci.yml --commit "$sha" --limit 20 \
+    --json databaseId,status,conclusion,url) \
+    || die "Could not read CI runs from GitHub — run gh auth login, or pass --local-tests"
+
+  if [[ $(jq '[.[] | select(.conclusion == "success")] | length' <<<"$runs") -eq 0 ]]; then
+    run_id=$(jq -r '[.[] | select(.status != "completed")][0].databaseId // empty' <<<"$runs")
+    if [[ -n "$run_id" ]]; then
+      info "Waiting for CI on ${short}: $(jq -r --argjson id "$run_id" '.[] | select(.databaseId == $id).url' <<<"$runs")"
+      # The run's conclusion, read below, decides; watch only waits for it.
+      gh run watch "$run_id" --interval 30 >/dev/null 2>&1 || true
+      runs=$(gh run list --workflow ci.yml --commit "$sha" --limit 20 \
+        --json databaseId,status,conclusion,url)
+    fi
+  fi
+
+  if [[ $(jq '[.[] | select(.conclusion == "success")] | length' <<<"$runs") -eq 0 ]]; then
+    if [[ $(jq length <<<"$runs") -eq 0 ]]; then
+      die "No CI run for ${short} — push it and let CI finish, or pass --local-tests"
+    fi
+    die "CI has not passed for ${short}: $(jq -r '.[0] | "\(.conclusion) \(.url)"' <<<"$runs") — fix it, or pass --local-tests"
+  fi
+  success "CI passed for ${short}"
+}
+
 phase_test() {
-  info "Running tests..."
-  npm test
-  success "Tests passed"
+  if [[ "$LOCAL_TESTS" == "true" ]]; then
+    info "Running tests..."
+    npm test
+    success "Tests passed"
+  else
+    info "Checking CI..."
+    require_green_ci
+  fi
 }
 
 phase_e2e() {
@@ -1584,6 +1633,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-notarization)
       SKIP_NOTARIZATION=true
+      shift
+      ;;
+    --local-tests)
+      LOCAL_TESTS=true
       shift
       ;;
     --skip-e2e)

@@ -441,6 +441,8 @@ describe('TerminalPane SSH reconnect', () => {
         showItemInFolder: mocks.showItemInFolder,
         retryLocalCopySync: mocks.retryLocalCopySync,
         copyToClipboard: mocks.copyToClipboard,
+        // Opening the context menu loads the workspace's skills for its menu.
+        listAgentSkills: vi.fn().mockResolvedValue([]),
       },
     });
   });

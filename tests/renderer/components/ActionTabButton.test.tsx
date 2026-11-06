@@ -41,10 +41,14 @@ vi.mock('../../../src/renderer/components/workspaces/SetupActivityPanel', () => 
     ) : null,
 }));
 
-vi.mock('../../../src/renderer/stores/agent-presets.store', () => ({
-  useAgentPresetsStore: (selector: any) =>
-    selector({ presets: [{ id: 'claude', name: 'Claude Code' }], activePresets: [] }),
-}));
+vi.mock('../../../src/renderer/stores/agent-presets.store', () => {
+  const state = { presets: [{ id: 'claude', name: 'Claude Code' }], activePresets: [] };
+  return {
+    useAgentPresetsStore: Object.assign((selector: any) => selector(state), {
+      getState: () => state,
+    }),
+  };
+});
 
 vi.mock('../../../src/renderer/stores/actions.store', () => ({
   useActionsStore: (selector?: any) => {
@@ -92,6 +96,8 @@ vi.mock('../../../src/renderer/components/ui/tooltip', () => ({
 
 global.window.api = {
   copyToClipboard: vi.fn(),
+  // Opening the menu loads the workspace's skills for it.
+  listAgentSkills: vi.fn().mockResolvedValue([]),
 } as any;
 
 const ranAction = (id: string) =>

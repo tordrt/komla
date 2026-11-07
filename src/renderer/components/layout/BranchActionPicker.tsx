@@ -3,10 +3,7 @@ import {
   GitMerge,
   GitFork,
   GitDiff,
-  ArrowsClockwise,
   Cloud,
-  CaretDown,
-  CaretRight,
   ArrowsLeftRight,
   Trash,
   Plus,
@@ -14,13 +11,19 @@ import {
 import { useRef, useState } from 'react';
 
 import {
+  BranchFilterInput,
+  branchRowKey,
+  handleMenuKeyDownAroundFilter,
+  RemoteBranchesHeader,
+  showsRemoteBranches,
+} from '@/components/layout/BranchMenuParts';
+import {
   DropdownMenuItem,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Spinner } from '@/components/ui/spinner';
-import { cn } from '@/lib/utils';
 
 import type { BranchInfo } from '@/types';
 
@@ -35,7 +38,7 @@ export interface BranchActionPickerProps {
   remoteExpanded: boolean;
   onRemoteExpandedChange: (expanded: boolean) => void;
   onLoadBranches: () => void;
-  onFetch: (e: React.MouseEvent) => Promise<void>;
+  onFetch: () => Promise<void>;
   isFetching: boolean;
   hasOriginRemote: boolean;
   onSwitch: (branchName: string) => void;
@@ -111,6 +114,8 @@ function BranchRow({
   allowDelete,
 }: BranchRowProps) {
   const inKeyDownRef = useRef(false);
+  // A remote row merges and rebases onto the remote's commits, not a local branch of that name.
+  const updateRef = (branch.isRemoteOnly && branch.remoteRef) || branch.name;
 
   if (isCurrent) {
     return (
@@ -175,7 +180,7 @@ function BranchRow({
           </DropdownMenuItem>
         )}
         <DropdownMenuItem
-          onClick={() => onMerge(branch.name)}
+          onClick={() => onMerge(updateRef)}
           disabled={isAnyActionRunning}
           className="gap-2"
         >
@@ -183,7 +188,7 @@ function BranchRow({
           Merge
         </DropdownMenuItem>
         <DropdownMenuItem
-          onClick={() => onRebase(branch.name)}
+          onClick={() => onRebase(updateRef)}
           disabled={isAnyActionRunning}
           className="gap-2"
         >
@@ -202,54 +207,6 @@ function BranchRow({
         )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
-  );
-}
-
-interface RemoteBranchesHeaderProps {
-  remoteCount: number;
-  remoteExpanded: boolean;
-  onRemoteExpandedChange: (expanded: boolean) => void;
-  isFetching: boolean;
-  onFetch: (e: React.MouseEvent) => void;
-}
-
-function RemoteBranchesHeader({
-  remoteCount,
-  remoteExpanded,
-  onRemoteExpandedChange,
-  isFetching,
-  onFetch,
-}: RemoteBranchesHeaderProps) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium text-muted-foreground">
-      <div
-        className="flex flex-1 cursor-pointer items-center gap-1.5"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onRemoteExpandedChange(!remoteExpanded);
-        }}
-      >
-        {remoteExpanded ? <CaretDown className="size-3" /> : <CaretRight className="size-3" />}
-        <Cloud className="size-3" />
-        Remote ({remoteCount})
-      </div>
-      <div
-        className={cn(
-          'flex items-center gap-1 rounded-sm px-1.5 py-0.5',
-          isFetching ? 'opacity-50' : 'cursor-pointer hover:bg-accent'
-        )}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!isFetching) onFetch(e);
-        }}
-        title={isFetching ? 'Fetching...' : 'Fetch from remote'}
-      >
-        <ArrowsClockwise className={cn('size-3.5', isFetching && 'animate-spin')} />
-        {isFetching ? 'Fetching' : 'Fetch'}
-      </div>
-    </div>
   );
 }
 
@@ -281,6 +238,7 @@ export function BranchActionPicker({
   allowDelete = true,
 }: BranchActionPickerProps) {
   const [filter, setFilter] = useState('');
+  const filterRef = useRef<HTMLInputElement>(null);
   const [openBranchActions, setOpenBranchActions] = useState<string | null>(null);
 
   const isAnyActionRunning = isSwitching || isMerging || isRebasing || isDeleting;
@@ -295,6 +253,7 @@ export function BranchActionPicker({
   const trimmedFilter = filter.trim();
   const exactMatch = trimmedFilter && branches.some((b) => b.name === trimmedFilter);
   const showCreateOption = trimmedFilter && !exactMatch && !isLoading;
+  const showRemoteBranches = showsRemoteBranches(remoteExpanded, filter);
 
   // behindTargetBranch is measured against the target branch only.
   const getBehindCount = (branchName: string): number | undefined => {
@@ -305,7 +264,7 @@ export function BranchActionPicker({
   };
 
   const renderBranch = (branch: BranchInfo) => {
-    const branchActionKey = `${branch.isRemoteOnly ? 'remote' : 'local'}:${branch.name}`;
+    const branchActionKey = branchRowKey(branch);
 
     return (
       <BranchRow
@@ -348,23 +307,18 @@ export function BranchActionPicker({
         <GitBranch />
         <span>Branches</span>
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="max-h-80 w-72 max-w-[calc(100vw-1rem)] overflow-y-auto !pt-0">
+      <DropdownMenuSubContent
+        className="max-h-80 w-72 max-w-[calc(100vw-1rem)] overflow-y-auto !pt-0"
+        onKeyDownCapture={(e) => handleMenuKeyDownAroundFilter(e, filterRef.current)}
+      >
         {/* Sticky header with search */}
         <div className="sticky top-0 z-10 -mx-1 mb-1 border-b border-foreground/10 bg-inherit p-1">
-          <input
-            type="text"
-            placeholder="Filter or create branch..."
+          <BranchFilterInput
+            ref={filterRef}
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onValueChange={setFilter}
+            onEnter={showCreateOption ? () => onCreate(trimmedFilter) : undefined}
             className="w-full bg-transparent px-2 py-1.5 text-[13px] outline-hidden placeholder:text-muted-foreground"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === 'Enter' && showCreateOption) {
-                e.preventDefault();
-                onCreate(trimmedFilter);
-              }
-            }}
           />
         </div>
 
@@ -401,12 +355,13 @@ export function BranchActionPicker({
                 <>
                   <RemoteBranchesHeader
                     remoteCount={remoteBranches.length}
-                    remoteExpanded={remoteExpanded}
-                    onRemoteExpandedChange={onRemoteExpandedChange}
+                    expanded={remoteExpanded}
+                    filter={filter}
+                    onExpandedChange={onRemoteExpandedChange}
                     isFetching={isFetching}
-                    onFetch={(e) => void onFetch(e)}
+                    onFetch={() => void onFetch()}
                   />
-                  {remoteExpanded && remoteBranches.map(renderBranch)}
+                  {showRemoteBranches && remoteBranches.map(renderBranch)}
                   {localBranches.length > 0 && <div className="my-1 border-t" />}
                 </>
               )}

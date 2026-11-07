@@ -3,7 +3,6 @@ import {
   ArrowLineDown,
   CaretDown,
   Check,
-  CaretRight,
   Cloud,
   CloudArrowUp,
   GitBranch,
@@ -13,8 +12,15 @@ import {
   ArrowCounterClockwise,
   Star,
 } from '@phosphor-icons/react';
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 
+import {
+  BranchFilterInput,
+  branchRowKey,
+  handleMenuKeyDownAroundFilter,
+  RemoteBranchesHeader,
+  showsRemoteBranches,
+} from '@/components/layout/BranchMenuParts';
 import { PublishRepoDialog } from '@/components/layout/PublishRepoDialog';
 import {
   branchTooltipSide,
@@ -47,6 +53,7 @@ import { pushWithAutoRecover } from '@/utils/push-with-recover';
 import { needsRepoPublish, resolveRemoteWriteAction } from '../../../shared/lib/ahead-action';
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
 
+import type { RemoteWriteAction } from '../../../shared/lib/ahead-action';
 import type { BranchInfo } from '@/types';
 
 interface TargetBranchSelectorProps {
@@ -83,6 +90,7 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
   const [isFetching, setIsFetching] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [filter, setFilter] = useState('');
+  const filterRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [isPushingTargetBranch, setIsPushingTargetBranch] = useState(false);
   const [isPullingTargetBranch, setIsPullingTargetBranch] = useState(false);
@@ -123,50 +131,45 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
     }
   }, [activeWorkspace, isRemoteWorkspace, repoPath]);
 
-  const handleFetch = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!activeProject || !activeWorkspace || isFetching) return;
-      setIsFetching(true);
-      try {
-        const result = isRemoteWorkspace
-          ? await window.api.fetchWorkspaceRemote(activeWorkspace.id)
-          : await window.api.fetchProject(activeProject.id);
-        if (!result.success) {
-          addToast(result.message, 'error');
-        } else if (!isRemoteWorkspace) {
-          await refreshProjectSyncStatus(activeProject.id, true);
-        }
-        // Refresh ahead/behind counts, as UnifiedMenu does after a fetch.
-        invalidateStatus(activeWorkspace.id);
-        await fetchStatus(
-          activeWorkspace.id,
-          activeWorkspace.workingDirectory,
-          activeWorkspace.projectId
-        );
-        const branchList = isRemoteWorkspace
-          ? await window.api.listWorkspaceBranches(activeWorkspace.id, true)
-          : await window.api.listBranches(repoPath, true);
-        setBranches(branchList);
-      } catch (error) {
-        addToast(`Failed to fetch: ${(error as Error).message}`, 'error');
-      } finally {
-        setIsFetching(false);
+  const handleFetch = useCallback(async () => {
+    if (!activeProject || !activeWorkspace || isFetching) return;
+    setIsFetching(true);
+    try {
+      const result = isRemoteWorkspace
+        ? await window.api.fetchWorkspaceRemote(activeWorkspace.id)
+        : await window.api.fetchProject(activeProject.id);
+      if (!result.success) {
+        addToast(result.message, 'error');
+      } else if (!isRemoteWorkspace) {
+        await refreshProjectSyncStatus(activeProject.id, true);
       }
-    },
-    [
-      activeProject,
-      activeWorkspace,
-      isRemoteWorkspace,
-      repoPath,
-      isFetching,
-      addToast,
-      refreshProjectSyncStatus,
-      invalidateStatus,
-      fetchStatus,
-    ]
-  );
+      // Refresh ahead/behind counts, as UnifiedMenu does after a fetch.
+      invalidateStatus(activeWorkspace.id);
+      await fetchStatus(
+        activeWorkspace.id,
+        activeWorkspace.workingDirectory,
+        activeWorkspace.projectId
+      );
+      const branchList = isRemoteWorkspace
+        ? await window.api.listWorkspaceBranches(activeWorkspace.id, true)
+        : await window.api.listBranches(repoPath, true);
+      setBranches(branchList);
+    } catch (error) {
+      addToast(`Failed to fetch: ${(error as Error).message}`, 'error');
+    } finally {
+      setIsFetching(false);
+    }
+  }, [
+    activeProject,
+    activeWorkspace,
+    isRemoteWorkspace,
+    repoPath,
+    isFetching,
+    addToast,
+    refreshProjectSyncStatus,
+    invalidateStatus,
+    fetchStatus,
+  ]);
 
   // Early return after all hooks
   if (!activeWorkspace || !activeProject || !isGitWorkspace) return null;
@@ -186,9 +189,6 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
   const targetBranchHasRemote = isRemoteWorkspace
     ? (gitStatus?.targetBranchHasRemote ?? false)
     : (projectSyncStatus?.hasRemote ?? false);
-  const displayedTargetBranchAheadRemote = targetBranchAheadRemote;
-  const displayedTargetBranchBehindRemote = targetBranchBehindRemote;
-  const _isOnTargetBranch = activeWorkspace.branchName === currentTarget;
   const effectiveDefault =
     activeProject?.baseBranch ||
     sshBackend?.defaultBranch ||
@@ -202,8 +202,6 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
       { ...activeWorkspace, baseBranch: undefined },
       activeProject.baseBranch
     ) || effectiveDefault;
-  // Pull does what Sync does when the target is only behind, so show just one of them.
-  const pullReplacesSync = targetBranchBehindRemote > 0 && targetBranchAheadRemote === 0;
   const hasOriginRemote = gitStatus?.hasOriginRemote ?? false;
   const showPublishRepo =
     !isRemoteWorkspace &&
@@ -216,14 +214,24 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
     hasOriginRemote,
     hasRemote: targetBranchHasRemote,
   });
+  // Whether this workspace's own target is on origin. Sync, Pull and Merge remote need it there;
+  // without it, the menu offers to publish it, unless Publish repo below already does.
+  const targetOnOrigin = gitStatus?.targetBranchHasRemote ?? false;
+  const showPublishTarget = hasOriginRemote && !targetOnOrigin && !showPublishRepo;
+  const showRemoteSection = (hasOriginRemote && targetOnOrigin) || showPublishTarget;
 
   async function handleTargetBranchChange(branch: string) {
     if (!activeProject || !activeWorkspace) return;
     const newBaseBranch = !branch || branch === followedTarget ? undefined : branch;
 
     // Update workspace only (not project — each workspace can have its own target branch)
-    await window.api.updateWorkspace(activeWorkspace.id, { baseBranch: newBaseBranch });
-    updateWorkspace(activeWorkspace.id, { baseBranch: newBaseBranch });
+    try {
+      await window.api.updateWorkspace(activeWorkspace.id, { baseBranch: newBaseBranch });
+      updateWorkspace(activeWorkspace.id, { baseBranch: newBaseBranch });
+    } catch (error) {
+      addToast(`Failed to change the target branch: ${(error as Error).message}`, 'error');
+      return;
+    }
 
     // Force-fetch fresh git status (not fetchStatusIfStale, which may skip if loading)
     void fetchStatus(
@@ -239,7 +247,9 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
       await updateProject(activeProject.id, { baseBranch: branch });
       // Clear this workspace's override once it matches the project target
       if (activeWorkspace?.baseBranch === branch) {
-        await window.api.updateWorkspace(activeWorkspace.id, { baseBranch: undefined });
+        await window.api.updateWorkspace(activeWorkspace.id, {
+          baseBranch: undefined,
+        });
         updateWorkspace(activeWorkspace.id, { baseBranch: undefined });
       }
       // Refresh status for all workspaces in this project
@@ -260,14 +270,22 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
     if (!activeWorkspace || !branchName.trim() || isCreating) return;
     setIsCreating(true);
     try {
-      // Start from the current target rather than this workspace's branch.
-      await window.api.createWorkspaceBranch(activeWorkspace.id, branchName.trim(), currentTarget);
-      // Set the new branch as the target
+      try {
+        // Start from the current target rather than this workspace's branch.
+        await window.api.createWorkspaceBranch(
+          activeWorkspace.id,
+          branchName.trim(),
+          currentTarget
+        );
+      } catch (err) {
+        addToast(`Failed to create branch: ${(err as Error).message}`, 'error');
+        return;
+      }
+      // Set the new branch as the target. That reports its own failure: the branch exists
+      // either way.
       await handleTargetBranchChange(branchName.trim());
       setFilter('');
       setOpen(false);
-    } catch (err) {
-      addToast(`Failed to create branch: ${(err as Error).message}`, 'error');
     } finally {
       setIsCreating(false);
     }
@@ -370,6 +388,7 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
   const trimmedFilter = filter.trim();
   const exactMatch = trimmedFilter && branches.some((b) => b.name === trimmedFilter);
   const showCreateOption = trimmedFilter && !exactMatch && !isLoading;
+  const showRemoteBranches = showsRemoteBranches(remoteExpanded, filter);
 
   const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
 
@@ -400,12 +419,10 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
                 <span className="max-w-[120px] truncate font-mono text-ui" title={currentTarget}>
                   {currentTarget}
                 </span>
-                {displayedTargetBranchBehindRemote > 0 && (
-                  <span className="text-xs text-behind">↓{displayedTargetBranchBehindRemote}</span>
+                {targetBranchBehindRemote > 0 && (
+                  <span className="text-xs text-behind">↓{targetBranchBehindRemote}</span>
                 )}
-                {displayedTargetBranchAheadRemote > 0 && (
-                  <UnpushedCount count={displayedTargetBranchAheadRemote} />
-                )}
+                {targetBranchAheadRemote > 0 && <UnpushedCount count={targetBranchAheadRemote} />}
                 {isPullingTargetBranch || isPushingTargetBranch ? (
                   <Spinner size="xs" />
                 ) : (
@@ -418,55 +435,34 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
             Target branch for diffs, PRs, and sync status
           </TooltipContent>
         </Tooltip>
-        <DropdownMenuContent className="w-80 max-w-[calc(100vw-1rem)]" align="start">
-          {/* Sync section: Sync unless a specific Pull replaces it, plus Merge/Push when counts are known */}
-          {hasOriginRemote && (
-            <>
-              <DropdownMenuLabel className="flex items-center gap-1.5">
-                <Cloud className="size-3" />
-                <span className="min-w-0 font-mono leading-4 break-all whitespace-normal">
-                  {currentTarget}
-                </span>
-              </DropdownMenuLabel>
-              {!pullReplacesSync && (
-                <DropdownMenuItem onClick={handlePullTargetBranch} disabled={isPullingTargetBranch}>
-                  {isPullingTargetBranch ? <Spinner /> : <ArrowsClockwise />}
-                  <span>Sync</span>
-                </DropdownMenuItem>
-              )}
-              {targetBranchBehindRemote > 0 && (
-                <DropdownMenuItem
-                  onClick={
-                    targetBranchAheadRemote > 0
-                      ? handleMergeTargetBranchFromRemote
-                      : handlePullTargetBranch
-                  }
-                  disabled={isPullingTargetBranch}
-                  className="gap-2"
-                >
-                  {isPullingTargetBranch ? (
-                    <Spinner />
-                  ) : targetBranchAheadRemote > 0 ? (
-                    <GitMerge />
-                  ) : (
-                    <ArrowLineDown />
-                  )}
-                  <span>{targetBranchAheadRemote > 0 ? 'Merge remote' : 'Pull'}</span>
-                  <span className="ml-auto text-xs text-behind">↓{targetBranchBehindRemote}</span>
-                </DropdownMenuItem>
-              )}
-              {targetBranchAheadRemote > 0 && (
-                <DropdownMenuItem onClick={handlePushTargetBranch} disabled={isPushingTargetBranch}>
-                  {isPushingTargetBranch ? <Spinner /> : <CloudArrowUp />}
-                  <span>{targetBranchWriteAction === 'publish' ? 'Publish' : 'Push'}</span>
-                  <span className="ml-auto text-xs text-ahead">{targetBranchAheadRemote}</span>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-            </>
+        <DropdownMenuContent
+          className="w-80 max-w-[calc(100vw-1rem)]"
+          align="start"
+          // Picking a branch is what this menu is for, so typing goes to its filter at once.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            filterRef.current?.focus();
+          }}
+          onKeyDownCapture={(e) => handleMenuKeyDownAroundFilter(e, filterRef.current)}
+        >
+          {/* Remote section: Publish for a target not on origin; otherwise Sync unless a specific
+              Pull replaces it, plus Merge/Push when counts are known */}
+          {showRemoteSection && (
+            <TargetRemoteSection
+              target={currentTarget}
+              publishOnly={showPublishTarget}
+              ahead={targetBranchAheadRemote}
+              behind={targetBranchBehindRemote}
+              writeAction={targetBranchWriteAction}
+              isPulling={isPullingTargetBranch}
+              isPushing={isPushingTargetBranch}
+              onPull={handlePullTargetBranch}
+              onMergeRemote={handleMergeTargetBranchFromRemote}
+              onPush={handlePushTargetBranch}
+            />
           )}
           {/* Change target branch section: the menu's header, unless sync goes first */}
-          {hasOriginRemote ? (
+          {showRemoteSection ? (
             <DropdownMenuLabel className="flex items-center gap-1.5">
               <GitBranch className="size-3" />
               Target branch for this workspace
@@ -474,38 +470,30 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
           ) : (
             <MenuHeader title="Target branch">for this workspace</MenuHeader>
           )}
-          <div className="space-y-1 px-2 pb-1.5">
-            <input
-              type="text"
-              placeholder="Filter or create branch..."
+          <div className="px-2 pb-1.5">
+            <BranchFilterInput
+              ref={filterRef}
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === 'Enter' && showCreateOption) {
-                  e.preventDefault();
-                  void handleCreateBranch(trimmedFilter);
-                }
-              }}
+              onValueChange={setFilter}
+              onEnter={showCreateOption ? () => void handleCreateBranch(trimmedFilter) : undefined}
               className="w-full rounded-md border border-foreground/10 bg-transparent px-2 py-1 text-[13px] placeholder:text-muted-foreground focus:ring-1 focus:ring-primary focus:outline-hidden"
-              onClick={(e) => e.stopPropagation()}
             />
-            {activeWorkspace.baseBranch && (
-              <div
-                className="flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  void handleTargetBranchChange('');
-                }}
-              >
-                <ArrowCounterClockwise className="size-3" />
-                {followedTarget === effectiveDefault
-                  ? `Reset to project target (${followedTarget})`
-                  : `Reset to default (${followedTarget})`}
-              </div>
-            )}
           </div>
+          {activeWorkspace.baseBranch && (
+            <DropdownMenuItem
+              className="gap-1.5 text-xs font-medium text-muted-foreground"
+              onClick={(e) => {
+                // Keeps the menu open, as on the old row.
+                e.preventDefault();
+                void handleTargetBranchChange('');
+              }}
+            >
+              <ArrowCounterClockwise className="size-3" />
+              {followedTarget === effectiveDefault
+                ? `Reset to project target (${followedTarget})`
+                : `Reset to default (${followedTarget})`}
+            </DropdownMenuItem>
+          )}
           <div className="max-h-48 overflow-x-hidden overflow-y-auto">
             {showCreateOption && (
               <>
@@ -547,7 +535,7 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
                 const isProjectTarget = branch.name === effectiveDefault;
                 return (
                   <DropdownMenuItem
-                    key={`${branch.name}-${branch.isRemoteOnly ? 'remote' : 'local'}`}
+                    key={branchRowKey(branch)}
                     onClick={() => void handleTargetBranchChange(branch.name)}
                     className="group gap-2"
                   >
@@ -614,39 +602,17 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
                 <>
                   {hasOriginRemote && (
                     <>
-                      <div className="flex items-center gap-1.5 rounded-sm px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                        <div
-                          className="flex flex-1 cursor-pointer items-center gap-1.5"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            void updateConfig({ remoteBranchesExpanded: !remoteExpanded });
-                          }}
-                        >
-                          {remoteExpanded ? (
-                            <CaretDown className="size-3" />
-                          ) : (
-                            <CaretRight className="size-3" />
-                          )}
-                          <Cloud className="size-3" />
-                          Remote ({remoteBranches.length})
-                        </div>
-                        <div
-                          className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 ${isFetching ? 'opacity-50' : 'cursor-pointer hover:bg-accent'}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (!isFetching) void handleFetch(e);
-                          }}
-                          title={isFetching ? 'Fetching...' : 'Fetch from remote'}
-                        >
-                          <ArrowsClockwise
-                            className={`size-3.5 ${isFetching ? 'animate-spin' : ''}`}
-                          />
-                          {isFetching ? 'Fetching' : 'Fetch'}
-                        </div>
-                      </div>
-                      {remoteExpanded && remoteBranches.map(renderBranch)}
+                      <RemoteBranchesHeader
+                        remoteCount={remoteBranches.length}
+                        expanded={remoteExpanded}
+                        filter={filter}
+                        onExpandedChange={(expanded) =>
+                          void updateConfig({ remoteBranchesExpanded: expanded })
+                        }
+                        isFetching={isFetching}
+                        onFetch={() => void handleFetch()}
+                      />
+                      {showRemoteBranches && remoteBranches.map(renderBranch)}
                       {localBranches.length > 0 && <DropdownMenuSeparator />}
                     </>
                   )}
@@ -688,6 +654,83 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
           }}
         />
       )}
+    </>
+  );
+}
+
+interface TargetRemoteSectionProps {
+  target: string;
+  /** The target isn't on origin, so publishing it is all there is to do. */
+  publishOnly: boolean;
+  ahead: number;
+  behind: number;
+  writeAction: RemoteWriteAction;
+  isPulling: boolean;
+  isPushing: boolean;
+  onPull: () => void;
+  onMergeRemote: () => void;
+  onPush: () => void;
+}
+
+/**
+ * The target branch against origin: Publish for a target not on it; otherwise Sync unless a
+ * specific Pull replaces it, plus Merge remote or Push when the counts call for them.
+ */
+function TargetRemoteSection({
+  target,
+  publishOnly,
+  ahead,
+  behind,
+  writeAction,
+  isPulling,
+  isPushing,
+  onPull,
+  onMergeRemote,
+  onPush,
+}: TargetRemoteSectionProps) {
+  // Pull does what Sync does when the target is only behind, so show just one of them.
+  const pullReplacesSync = behind > 0 && ahead === 0;
+  return (
+    <>
+      <DropdownMenuLabel className="flex items-center gap-1.5">
+        <Cloud className="size-3" />
+        <span className="min-w-0 font-mono leading-4 break-all whitespace-normal">{target}</span>
+      </DropdownMenuLabel>
+      {publishOnly ? (
+        <DropdownMenuItem onClick={onPush} disabled={isPushing}>
+          {isPushing ? <Spinner /> : <CloudArrowUp />}
+          <span>Publish</span>
+          <span className="ml-auto text-xs text-muted-foreground">Not on origin</span>
+        </DropdownMenuItem>
+      ) : (
+        <>
+          {!pullReplacesSync && (
+            <DropdownMenuItem onClick={onPull} disabled={isPulling}>
+              {isPulling ? <Spinner /> : <ArrowsClockwise />}
+              <span>Sync</span>
+            </DropdownMenuItem>
+          )}
+          {behind > 0 && (
+            <DropdownMenuItem
+              onClick={ahead > 0 ? onMergeRemote : onPull}
+              disabled={isPulling}
+              className="gap-2"
+            >
+              {isPulling ? <Spinner /> : ahead > 0 ? <GitMerge /> : <ArrowLineDown />}
+              <span>{ahead > 0 ? 'Merge remote' : 'Pull'}</span>
+              <span className="ml-auto text-xs text-behind">↓{behind}</span>
+            </DropdownMenuItem>
+          )}
+          {ahead > 0 && (
+            <DropdownMenuItem onClick={onPush} disabled={isPushing}>
+              {isPushing ? <Spinner /> : <CloudArrowUp />}
+              <span>{writeAction === 'publish' ? 'Publish' : 'Push'}</span>
+              <span className="ml-auto text-xs text-ahead">{ahead}</span>
+            </DropdownMenuItem>
+          )}
+        </>
+      )}
+      <DropdownMenuSeparator />
     </>
   );
 }

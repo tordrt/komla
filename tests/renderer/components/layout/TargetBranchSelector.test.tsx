@@ -26,8 +26,12 @@ vi.mock('../../../../src/renderer/components/ui/dropdown-menu', () => ({
   ),
   DropdownMenuTrigger: ({ children }: React.PropsWithChildren) => <>{children}</>,
   DropdownMenuContent: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
-  DropdownMenuItem: ({ children, onClick }: React.PropsWithChildren<{ onClick?: () => void }>) => (
-    <button role="menuitem" onClick={onClick}>
+  DropdownMenuItem: ({
+    children,
+    onClick,
+    title,
+  }: React.PropsWithChildren<{ onClick?: (e: React.MouseEvent) => void; title?: string }>) => (
+    <button role="menuitem" onClick={onClick} title={title}>
       {children}
     </button>
   ),
@@ -71,6 +75,9 @@ vi.mock('../../../../src/renderer/stores/projects.store', () => ({
       updateProject,
     }),
 }));
+const gitStatus = vi.hoisted(() => ({
+  overrides: {} as Record<string, unknown>,
+}));
 vi.mock('../../../../src/renderer/stores/git-status.store', () => ({
   useGitStatusStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
@@ -89,6 +96,7 @@ vi.mock('../../../../src/renderer/stores/git-status.store', () => ({
             targetBranchHasRemote: true,
             targetBranchAheadRemote: 0,
             targetBranchBehindRemote: 0,
+            ...gitStatus.overrides,
           },
         }),
       },
@@ -107,9 +115,10 @@ vi.mock('../../../../src/renderer/stores/project-sync-status.store', () => ({
       refreshStatus: refreshProjectSyncStatus,
     }),
 }));
+const configState = vi.hoisted(() => ({ remoteBranchesExpanded: false }));
 vi.mock('../../../../src/renderer/stores/config.store', () => ({
   useConfigStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ config: { remoteBranchesExpanded: false }, updateConfig: vi.fn() }),
+    selector({ config: configState, updateConfig: vi.fn() }),
 }));
 vi.mock('../../../../src/renderer/stores/toast.store', () => ({
   useToastStore: (selector: (state: { addToast: typeof addToast }) => unknown) =>
@@ -135,6 +144,8 @@ describe('TargetBranchSelector', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     projectSync.status = undefined;
+    gitStatus.overrides = {};
+    configState.remoteBranchesExpanded = false;
     workspacesState.workspaces[0].baseBranch = undefined;
     workspacesState.workspaces[0].backend = undefined;
     fetchProject.mockResolvedValue({ success: true, message: 'Fetched' });
@@ -331,5 +342,141 @@ describe('TargetBranchSelector', () => {
     await waitFor(() =>
       expect(addToast).toHaveBeenCalledWith(expect.stringContaining('Network down'), 'error')
     );
+  });
+  it("offers to publish a target that isn't on origin, instead of a Sync that can only fail", async () => {
+    gitStatus.overrides = { targetBranchHasRemote: false };
+    const pushTargetBranch = vi
+      .fn()
+      .mockResolvedValue({ success: true, message: 'Published main to origin' });
+    window.api = { ...window.api, pushTargetBranch } as unknown as typeof window.api;
+    await openMenu();
+
+    expect(screen.queryByRole('menuitem', { name: /Sync/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /Pull/ })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Publish/ }));
+
+    await waitFor(() => expect(pushTargetBranch).toHaveBeenCalledWith('/worktrees/feature'));
+    expect(addToast).toHaveBeenCalledWith('Published main to origin', 'success');
+  });
+
+  it("leaves publishing to Publish repo when origin has neither the branch nor its target", async () => {
+    gitStatus.overrides = { hasRemote: false, targetBranchHasRemote: false };
+    await openMenu();
+
+    expect(screen.queryByRole('menuitem', { name: /Sync/ })).toBeNull();
+    expect(screen.getAllByRole('menuitem', { name: /Publish/ })).toHaveLength(1);
+    expect(screen.getByRole('menuitem', { name: /Publish repo/ })).toBeInTheDocument();
+  });
+
+  it('reports a target branch change that fails to save', async () => {
+    const updateWorkspace = vi.fn().mockRejectedValue(new Error('Disk full'));
+    window.api = { ...window.api, updateWorkspace } as unknown as typeof window.api;
+    await openMenu();
+
+    const developRow = screen
+      .getAllByRole('menuitem')
+      .find((item) => item.textContent?.startsWith('develop'))!;
+    fireEvent.click(developRow);
+
+    await waitFor(() =>
+      expect(addToast).toHaveBeenCalledWith(expect.stringContaining('Disk full'), 'error')
+    );
+    expect(workspacesState.updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("doesn't call a created branch a failure when only making it the target fails", async () => {
+    const createWorkspaceBranch = vi.fn().mockResolvedValue(undefined);
+    const updateWorkspace = vi.fn().mockRejectedValue(new Error('Disk full'));
+    window.api = {
+      ...window.api,
+      createWorkspaceBranch,
+      updateWorkspace,
+    } as unknown as typeof window.api;
+    await openMenu();
+
+    fireEvent.change(screen.getByPlaceholderText('Filter or create branch...'), {
+      target: { value: 'release' },
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Create release/ }));
+
+    await waitFor(() =>
+      expect(addToast).toHaveBeenCalledWith(expect.stringContaining('Disk full'), 'error')
+    );
+    expect(createWorkspaceBranch).toHaveBeenCalled();
+    expect(addToast).not.toHaveBeenCalledWith(
+      expect.stringContaining('Failed to create branch'),
+      'error'
+    );
+  });
+
+  it('lists the same branch on two remotes without a key collision', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    listBranches.mockResolvedValue([
+      { name: 'main', isRemoteOnly: false },
+      { name: 'topic', isRemoteOnly: true, remoteRef: 'origin/topic' },
+      { name: 'topic', isRemoteOnly: true, remoteRef: 'upstream/topic' },
+    ]);
+    configState.remoteBranchesExpanded = true;
+    await openMenu();
+
+    expect(
+      screen.getAllByRole('menuitem').filter((item) => item.textContent?.startsWith('topic'))
+    ).toHaveLength(2);
+    const keyWarnings = consoleError.mock.calls.filter((args) =>
+      args.some((arg) => String(arg).includes('same key'))
+    );
+    consoleError.mockRestore();
+    expect(keyWarnings).toEqual([]);
+  });
+  it('resets to the followed target from a menu item the keyboard can reach', async () => {
+    workspacesState.workspaces[0].baseBranch = 'develop';
+    const updateWorkspace = vi.fn().mockResolvedValue(undefined);
+    window.api = { ...window.api, updateWorkspace } as unknown as typeof window.api;
+    await openMenu();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /Reset to project target \(main\)/ }));
+
+    await waitFor(() =>
+      expect(updateWorkspace).toHaveBeenCalledWith('ws-1', { baseBranch: undefined })
+    );
+  });
+
+  it('shows remote branches matching the filter while the Remote section is collapsed', async () => {
+    listBranches.mockResolvedValue([
+      { name: 'main', isRemoteOnly: false },
+      { name: 'topic', isRemoteOnly: true, remoteRef: 'origin/topic' },
+    ]);
+    await openMenu();
+    const topicRow = () =>
+      screen.getAllByRole('menuitem').find((item) => item.textContent?.startsWith('topic'));
+    expect(topicRow()).toBeUndefined();
+
+    fireEvent.change(screen.getByPlaceholderText('Filter or create branch...'), {
+      target: { value: 'top' },
+    });
+
+    expect(topicRow()).toBeDefined();
+  });
+  it('lets a branch be created again after making the last one the target threw', async () => {
+    const createWorkspaceBranch = vi.fn().mockResolvedValue(undefined);
+    const updateWorkspace = vi.fn().mockResolvedValue(undefined);
+    workspacesState.updateWorkspace.mockImplementationOnce(() => {
+      throw new Error('store broke');
+    });
+    window.api = {
+      ...window.api,
+      createWorkspaceBranch,
+      updateWorkspace,
+    } as unknown as typeof window.api;
+    await openMenu();
+    const input = screen.getByPlaceholderText('Filter or create branch...');
+
+    fireEvent.change(input, { target: { value: 'release' } });
+    fireEvent.click(screen.getByRole('menuitem', { name: /Create release/ }));
+    await waitFor(() => expect(createWorkspaceBranch).toHaveBeenCalledTimes(1));
+    fireEvent.change(input, { target: { value: 'release-2' } });
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Create release-2/ }));
+
+    await waitFor(() => expect(createWorkspaceBranch).toHaveBeenCalledTimes(2));
   });
 });

@@ -18,10 +18,10 @@ for (const workspace of workspaces) {
 }
 await komla.status.set({ id: 'tests', text: '142/150 passing', tone: 'warning' });
 // Notifying needs no capability, as `komla notify` needs none.
-await komla.workspace.notify({ title: 'CI failed', badge: 'CI', color: 'error' });
+await komla.workspace.notify({ title: 'CI passed', badge: 'CI', color: 'success' });
 
 try {
-  await komla.workspace.tag({ tag: 'CI failed', ifTag: 'CI running' });
+  await komla.workspace.tag({ tag: 'Deploying', spinner: true, ifTag: 'CI running' });
 } catch (error) {
   if (error instanceof KomlaError && error.code === 'CAPABILITY_DISABLED') {
     // The user turned `komla tag` off in Settings.

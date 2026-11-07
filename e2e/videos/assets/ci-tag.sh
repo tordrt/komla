@@ -25,10 +25,7 @@ state="${TMPDIR:-/tmp}/komla-ci-$KOMLA_WORKSPACE_ID"
 last=$(cat "$state" 2>/dev/null)
 # No open pull request with checks, such as one merged or a branch without one: its tag goes.
 if [ "$ci" = none ]; then
-  case $last in
-    pending) komla untag "CI running" ;;
-    fail) komla untag "CI failed" ;;
-  esac
+  [ "$last" = pending ] && komla untag "CI running"
   rm -f "$state"
   exit 0
 fi
@@ -40,8 +37,9 @@ if [ "$ci" = pending ]; then
 fi
 # Checks that ended before this script saw them run are no news.
 [ "$last" = pending ] || exit 0
+# A failure waits on a fix, which the notification says, not on review.
 if [ "$ci" = fail ]; then
-  komla tag "CI failed" --tone error --if "CI running"
+  komla untag "CI running"
   komla notify "CI failed" --badge CI --color error
   exit 0
 fi

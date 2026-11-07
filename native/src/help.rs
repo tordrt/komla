@@ -81,7 +81,7 @@ const COMMANDS: &[Command] = &[
         ],
         examples: &[
             "komla tag \"CI running\" --spinner --tone info",
-            "komla tag \"CI failed\" --tone error --if \"CI running\"",
+            "komla tag \"Deploying\" --spinner --tone info --if \"CI running\"",
         ],
     },
     Command {

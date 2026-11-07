@@ -79,12 +79,14 @@ Both print the ids the workspace is linked to afterward, and the user can turn t
 `workspace.link` in Settings → Integrations & MCP.
 
 `komla tag <tag>` gives the workspace its one tag, shown on its card while no agent is busy there
-until it's taken off or replaced, so scripts use tags for what stays, such as CI under way:
+until it's taken off or replaced, so scripts use tags for what stays, such as CI under way, and
+`komla notify` for how the work ended:
 
 ```bash
 komla tag "CI running" --spinner --tone info --tooltip "build 7 of 9" --workspace "$id"
-komla tag "CI failed" --tone error --if "CI running" --workspace "$id"
+# The checks ended: take the tag off, unless the user has changed it since, and say how.
 komla untag "CI running" --workspace "$id"
+komla notify "CI failed" --badge CI --color error --workspace "$id"
 ```
 
 A tag Komla doesn't have yet joins the user's tag list, with `--tone` (`neutral`, `info`,

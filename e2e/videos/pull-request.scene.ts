@@ -83,8 +83,8 @@ export const PULL_REQUEST_PASSED: VideoPullRequest = {
 export const CHECKOUT = BACKGROUND_WORKSPACES[0];
 
 /**
- * The CI script the hooks guide gave before it was cut down to its short form, so the video shows
- * a hook users set up.
+ * A CI script like the one the hooks guide gave before it was cut down to its short form, so the
+ * video shows a hook users set up.
  */
 function ciScript(): string {
   return fs.readFileSync(fileURLToPath(new URL('./assets/ci-tag.sh', import.meta.url)), 'utf8');

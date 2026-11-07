@@ -79,7 +79,7 @@ import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWindowStore } from '@/stores/window.store';
-import { useWorkspacesStore } from '@/stores/workspaces.store';
+import { type PendingWorkspaceAction, useWorkspacesStore } from '@/stores/workspaces.store';
 import {
   canStop,
   isRunningHere,
@@ -177,6 +177,11 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   const restartWorkspace = useWorkspacesStore((s) => s.restartWorkspace);
   const isRestarting = useWorkspacesStore(
     (s) => s.restartingWorkspaceIds?.has(workspace.id) ?? false
+  );
+  const pendingAction = useWorkspacesStore(
+    (s): CardPendingAction | undefined =>
+      s.pendingWorkspaceActions?.get(workspace.id)?.at(-1) ??
+      (s.reconnectingSshWorkspaceIds?.has(workspace.id) ? 'connecting' : undefined)
   );
   const deleteWorkspace = useWorkspacesStore((s) => s.deleteWorkspace);
   const setWorkspaceTrashed = useWorkspacesStore((s) => s.setWorkspaceTrashed);
@@ -523,6 +528,12 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
         <ActivityRow
           workspace={workspace}
           disconnectedFrom={hostDisconnected ? (sshHost?.name ?? 'its SSH host') : undefined}
+          pending={
+            pendingAction && {
+              action: pendingAction,
+              hostName: isRemoteWorkspace ? sshHost?.name || 'its SSH host' : undefined,
+            }
+          }
           shownRunning={shownRunning}
           showGitStatus={showGitStatus}
           lead={!branchLineUnderTitle && branchOrProvisionLine}
@@ -663,6 +674,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
             onMoveToWindow={handleMoveToWindow}
             onMoveToNewWindow={() => void handleMoveToNewWindow()}
             onStop={handleStop}
+            pendingAction={pendingAction}
             onRestart={handleRestart}
             isRestarting={isRestarting}
             onNewFromHere={handleNewFromHere}
@@ -1434,9 +1446,48 @@ function showsGitStatus(workspace: Workspace): boolean {
   );
 }
 
+type CardPendingAction = PendingWorkspaceAction | 'connecting';
+
+const PENDING_ACTIONS: Record<
+  CardPendingAction,
+  { label: string; onHost: (hostName: string) => string }
+> = {
+  stopping: { label: 'Stopping…', onHost: (host) => `Stopping its terminals on ${host}…` },
+  trashing: {
+    label: 'Moving to the Trash…',
+    onHost: (host) => `Moving to the Trash, which waits on ${host}…`,
+  },
+  connecting: { label: 'Connecting…', onHost: (host) => `Connecting to ${host}…` },
+};
+
+/**
+ * What the workspace is waiting on, in the time's place, so a stop or reconnect held up by an SSH
+ * host doesn't look like a frozen card.
+ */
+function PendingActionStatus({
+  action,
+  hostName,
+}: {
+  action: CardPendingAction;
+  hostName?: string;
+}) {
+  const { label, onHost } = PENDING_ACTIONS[action];
+  return (
+    <span
+      role="status"
+      className="ml-auto flex min-w-0 items-center gap-1 text-ui whitespace-nowrap text-muted-foreground-70"
+      title={hostName ? onHost(hostName) : undefined}
+    >
+      <Spinner size="xs" />
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 function ActivityRow({
   workspace,
   disconnectedFrom,
+  pending,
   shownRunning,
   showGitStatus,
   lead,
@@ -1446,6 +1497,8 @@ function ActivityRow({
   workspace: Workspace;
   /** The name of its SSH host, which the user disconnected from. */
   disconnectedFrom: string | undefined;
+  /** A stop, move to the Trash or reconnect that hasn't finished, and the SSH host it waits on. */
+  pending: { action: CardPendingAction; hostName: string | undefined } | undefined;
   shownRunning: boolean;
   showGitStatus: boolean;
   /** What fills the row's free space ahead of the time, such as the branch. */
@@ -1463,7 +1516,8 @@ function ActivityRow({
     !lead &&
     linkedCount === 0 &&
     !workspace.lastActivityAt &&
-    !disconnectedFrom
+    !disconnectedFrom &&
+    !pending
   ) {
     return null;
   }
@@ -1491,13 +1545,18 @@ function ActivityRow({
           {linkedCount}
         </span>
       )}
-      {launchUndo || <ActivityTime workspace={workspace} showWorkingClock={showWorkingClock} />}
+      {launchUndo ||
+        (pending ? (
+          <PendingActionStatus action={pending.action} hostName={pending.hostName} />
+        ) : (
+          <ActivityTime workspace={workspace} showWorkingClock={showWorkingClock} />
+        ))}
       {disconnectedFrom && (
         <span
           className={cn(
             'flex shrink-0 items-center text-muted-foreground-70',
             // After the time, which keeps the row's end; without it, this does.
-            !workspace.lastActivityAt && !launchUndo && 'ml-auto'
+            !workspace.lastActivityAt && !launchUndo && !pending && 'ml-auto'
           )}
           title={`Disconnected from ${disconnectedFrom}. Its agents keep running there, and what shows here may be out of date.`}
         >
@@ -1787,6 +1846,27 @@ function TrashMenuItem({
   );
 }
 
+function StopMenuItem({
+  onStop,
+  pending,
+}: {
+  onStop: (e: React.MouseEvent) => void;
+  pending: CardPendingAction | undefined;
+}) {
+  // A reconnect doesn't hold up a stop.
+  return pending === 'stopping' || pending === 'trashing' ? (
+    <ContextMenuItem disabled>
+      <Spinner size="md" />
+      {pending === 'trashing' ? 'Moving to the Trash...' : 'Stopping Workspace...'}
+    </ContextMenuItem>
+  ) : (
+    <ContextMenuItem onClick={onStop}>
+      <Square />
+      Stop Workspace
+    </ContextMenuItem>
+  );
+}
+
 function WorkspaceMenuItems({
   workspace,
   runningHere,
@@ -1805,6 +1885,7 @@ function WorkspaceMenuItems({
   onStop,
   onRestart,
   isRestarting,
+  pendingAction,
   onNewFromHere,
   onLinkWorkspaces,
   onEnterSelectionMode,
@@ -1831,6 +1912,7 @@ function WorkspaceMenuItems({
   onStop: (e: React.MouseEvent) => void;
   onRestart: (e: React.MouseEvent) => void;
   isRestarting: boolean;
+  pendingAction: CardPendingAction | undefined;
   onNewFromHere: () => void;
   onLinkWorkspaces: () => void;
   onEnterSelectionMode: () => void;
@@ -1987,10 +2069,7 @@ function WorkspaceMenuItems({
               Stop Spinner
             </ContextMenuItem>
           )}
-          <ContextMenuItem onClick={onStop}>
-            <Square />
-            Stop Workspace
-          </ContextMenuItem>
+          <StopMenuItem onStop={onStop} pending={pendingAction} />
         </>
       )}
       <ContextMenuSeparator />

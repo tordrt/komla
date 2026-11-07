@@ -46,6 +46,10 @@ import {
   _resetPendingDeletions,
 } from '../../../src/renderer/stores/workspaces.store';
 
+/** The latest unfinished stop or move to the Trash of the workspace, which its card shows. */
+const pendingOf = (workspaceId: string) =>
+  useWorkspacesStore.getState().pendingWorkspaceActions.get(workspaceId)?.at(-1);
+
 interface ApiMock {
   removeMissingSshWorkspace?: ReturnType<typeof vi.fn>;
   getWorkspaceDiffAgainstBranch?: ReturnType<typeof vi.fn>;
@@ -3275,6 +3279,129 @@ describe('workspaces.store', () => {
     stop.resolve();
     await stopping;
     expect(disposeTerminalRenderersMock).toHaveBeenCalledWith([terminal.id]);
+  });
+
+  // A stop can wait minutes on an unreachable SSH host; its card says so meanwhile.
+  it.each([
+    ['succeeds', () => undefined],
+    [
+      'fails',
+      () => {
+        throw new Error('host unreachable');
+      },
+    ],
+  ])('marks a workspace stopping until its stop %s', async (_, settle) => {
+    const workspace = createWorkspace({
+      id: 'ws-1',
+      terminals: [createTerminal({ status: 'running' })],
+    });
+    const stop = createDeferred<void>();
+    const api = createApiMock({
+      stopWorkspace: vi.fn(() => stop.promise.then(settle)),
+      getWorkspaces: vi.fn().mockResolvedValue([{ ...workspace, terminals: [] }]),
+    });
+    (globalThis as { window: { api: ApiMock } }).window = { api };
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+
+    const stopping = useWorkspacesStore.getState().stopWorkspace(workspace.id);
+    expect(pendingOf(workspace.id)).toBe('stopping');
+
+    stop.resolve();
+    await stopping;
+    expect(pendingOf(workspace.id)).toBeUndefined();
+  });
+
+  it('marks a workspace moving to the Trash until its stop and cleanup finish', async () => {
+    const workspace = createWorkspace({
+      id: 'ws-1',
+      terminals: [createTerminal({ status: 'running' })],
+    });
+    const cleanup = createDeferred<void>();
+    const api = createApiMock({
+      stopWorkspace: vi.fn().mockResolvedValue(undefined),
+      updateWorkspace: vi.fn(() => cleanup.promise),
+      getWorkspaces: vi.fn().mockResolvedValue([{ ...workspace, status: 'trashed' }]),
+    });
+    (globalThis as { window: { api: ApiMock } }).window = { api };
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+
+    const trashing = useWorkspacesStore.getState().setWorkspaceTrashed(workspace.id, true);
+    await flushMicrotasks();
+    expect(api.updateWorkspace).toHaveBeenCalled();
+    expect(pendingOf(workspace.id)).toBe('trashing');
+
+    cleanup.resolve();
+    await trashing;
+    expect(pendingOf(workspace.id)).toBeUndefined();
+  });
+
+  it('keeps a workspace marked while an overlapping stop or Trash is still running', async () => {
+    const workspace = createWorkspace({
+      id: 'ws-1',
+      terminals: [createTerminal({ status: 'running' })],
+    });
+    const firstStop = createDeferred<void>();
+    const api = createApiMock({
+      stopWorkspace: vi
+        .fn()
+        .mockImplementationOnce(() => firstStop.promise)
+        .mockRejectedValue(new Error('host unreachable')),
+      updateWorkspace: vi.fn().mockRejectedValue(new Error('cleanup failed')),
+      getWorkspaces: vi.fn().mockResolvedValue([workspace]),
+    });
+    (globalThis as { window: { api: ApiMock } }).window = { api };
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+
+    const stopping = useWorkspacesStore.getState().stopWorkspace(workspace.id);
+    await useWorkspacesStore.getState().stopWorkspace(workspace.id, { quiet: true });
+    expect(pendingOf(workspace.id)).toBe('stopping');
+
+    await useWorkspacesStore.getState().setWorkspaceTrashed(workspace.id, true);
+    expect(pendingOf(workspace.id)).toBe('stopping');
+
+    firstStop.resolve();
+    await stopping;
+    expect(pendingOf(workspace.id)).toBeUndefined();
+  });
+
+  it('marks every workspace of a bulk stop until its own turn finishes', async () => {
+    const [first, second] = ['ws-1', 'ws-2'].map((id) =>
+      createWorkspace({ id, terminals: [createTerminal({ id: `${id}-t`, status: 'running' })] })
+    );
+    const firstStop = createDeferred<void>();
+    const api = createApiMock({
+      stopWorkspace: vi
+        .fn()
+        .mockImplementationOnce(() => firstStop.promise)
+        .mockResolvedValue(undefined),
+      getWorkspaces: vi.fn().mockResolvedValue([first, second]),
+    });
+    (globalThis as { window: { api: ApiMock } }).window = { api };
+    useWorkspacesStore.setState({
+      workspaces: [first, second],
+      selectedWorkspaceIds: new Set([first.id, second.id]),
+    });
+
+    const stopping = useWorkspacesStore.getState().stopSelectedWorkspaces();
+    await flushMicrotasks();
+    expect(pendingOf(first.id)).toBe('stopping');
+    expect(pendingOf(second.id)).toBe('stopping');
+
+    firstStop.resolve();
+    await stopping;
+    expect(pendingOf(first.id)).toBeUndefined();
+    expect(pendingOf(second.id)).toBeUndefined();
+  });
+
+  it('leaves the pending actions alone when restoring from the Trash', async () => {
+    const workspace = createWorkspace({ id: 'ws-1', status: 'trashed' });
+    (globalThis as { window: { api: ApiMock } }).window = { api: createApiMock() };
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    const before = useWorkspacesStore.getState().pendingWorkspaceActions;
+
+    await useWorkspacesStore.getState().setWorkspaceTrashed(workspace.id, false);
+
+    expect(useWorkspacesStore.getState().pendingWorkspaceActions).toBe(before);
   });
 
   it('deselects a workspace reselected while its stop is pending', async () => {

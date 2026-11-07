@@ -71,6 +71,8 @@ const workspacesState = {
   snoozeWorkspace: vi.fn(),
   selectionMode: false,
   selectedWorkspaceIds: new Set<string>(),
+  pendingWorkspaceActions: new Map<string, ('stopping' | 'trashing')[]>(),
+  reconnectingSshWorkspaceIds: new Set<string>(),
   enterSelectionMode: vi.fn(),
   toggleWorkspaceSelection: vi.fn(),
   shiftSelectWorkspaces: vi.fn(),
@@ -433,6 +435,8 @@ describe('WorkspaceCard', () => {
     workspacesState.selectedWorkspaceId = null;
     workspacesState.keyboardNavigationWorkspaceId = null;
     workspacesState.selectedWorkspaceIds = new Set<string>();
+    workspacesState.pendingWorkspaceActions = new Map();
+    workspacesState.reconnectingSshWorkspaceIds = new Set<string>();
     fileViewerState.inlineFilePreviewByWorkspace = {};
     fileViewerState.inlineFileTreeByWorkspace = {};
     fileViewerState.fileViewerWorkspaceId = null;
@@ -1737,6 +1741,56 @@ describe('WorkspaceCard', () => {
     fireEvent.click(screen.getByText('Stop Workspace'));
 
     expect(workspacesState.stopWorkspace).toHaveBeenCalledWith(workspace.id);
+  });
+
+  describe('while it waits on a stop or its SSH host', () => {
+    it('says it is stopping, and offers no second Stop', () => {
+      const workspace = createWorktreeWorkspace({ terminalCount: 1, lastActivityAt: Date.now() });
+      workspacesState.pendingWorkspaceActions = new Map([[workspace.id, ['stopping']]]);
+
+      render(<WorkspaceCard workspace={workspace} />);
+
+      expect(screen.getByRole('status')).toHaveTextContent('Stopping…');
+      expect(screen.queryByText('just now')).not.toBeInTheDocument();
+      expect(screen.queryByText('Stop Workspace')).not.toBeInTheDocument();
+      expect(screen.getByText('Stopping Workspace...')).toHaveAttribute('disabled');
+    });
+
+    it('says it is moving to the Trash, naming the SSH host it waits on', () => {
+      useSshHostsStore.setState({
+        hosts: [{ id: 'ssh-host-1', name: 'Dev box', hostname: 'dev.example.com' }] as any,
+      });
+      const workspace = createSshWorkspace({
+        terminals: [createTerminal({ status: 'running' })],
+      });
+      workspacesState.pendingWorkspaceActions = new Map([[workspace.id, ['stopping', 'trashing']]]);
+
+      render(<WorkspaceCard workspace={workspace} />);
+
+      const status = screen.getByRole('status');
+      expect(status).toHaveTextContent('Moving to the Trash…');
+      expect(status).toHaveAttribute('title', 'Moving to the Trash, which waits on Dev box…');
+      expect(screen.getByText('Moving to the Trash...')).toHaveAttribute('disabled');
+    });
+
+    it('says it is connecting while it reconnects to its SSH host', () => {
+      const workspace = createSshWorkspace({
+        terminals: [createTerminal({ status: 'stopped', remoteSessionResumable: true })],
+      });
+      workspacesState.reconnectingSshWorkspaceIds = new Set([workspace.id]);
+
+      render(<WorkspaceCard workspace={workspace} />);
+
+      expect(screen.getByRole('status')).toHaveTextContent('Connecting…');
+    });
+
+    it('shows its time again once nothing is pending', () => {
+      const workspace = createWorktreeWorkspace({ lastActivityAt: Date.now() });
+
+      render(<WorkspaceCard workspace={workspace} />);
+
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
   });
 
   it('offers no Stop while the tmux sessions of a stopped workspace are unchecked', () => {

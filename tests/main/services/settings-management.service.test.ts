@@ -9,6 +9,7 @@ import { themeChoice, themeMode } from '../../../src/shared/lib/appearance';
 
 import type { DesiredWorkspaceEnvironment } from '../../../src/shared/lib/agent-environment';
 import type { Automation, AutomationTarget } from '../../../src/shared/types/automation';
+import type { SshHostCapabilities } from '../../../src/shared/types/ssh';
 import type {
   Action,
   ActivePresetEntry,
@@ -62,7 +63,7 @@ function fixture() {
   const environmentConfiguration = {
     lastWorkspaceEnvironment: undefined as DesiredWorkspaceEnvironment | undefined,
     defaultSshWorkspaceMode: 'remote' as const,
-    sshHosts: [] as Array<{ id: string }>,
+    sshHosts: [] as Array<{ id: string; localCopy?: SshHostCapabilities['localCopy'] }>,
   };
   let theme: ThemeConfig = {
     mode: 'dark',
@@ -342,12 +343,54 @@ describe('SettingsManagementService', () => {
         configured: true,
         selectedForNewWorkspaces: false,
         actionsRunInLocalCopy: false,
+        localCopySupported: true,
       },
     });
 
     environmentConfiguration.lastWorkspaceEnvironment = { kind: 'ssh', hostId: 'ssh-1' };
     const capabilities = service.readWorkspaceSetup({ terminalId: 'terminal-1' }).setupCapabilities;
     expect(capabilities.ssh.selectedForNewWorkspaces).toBe(true);
+  });
+
+  it('reports whether a Local copy can run for the SSH host this setup targets', () => {
+    const { service, environmentConfiguration, workspace } = fixture();
+    const read = () =>
+      service.readWorkspaceSetup({ terminalId: 'terminal-1' }).setupCapabilities.ssh
+        .localCopySupported;
+    const ready = {
+      platform: 'supported',
+      localRsync: 'available',
+      remoteRsync: 'available',
+    } as const;
+
+    expect(read()).toBe(false);
+
+    environmentConfiguration.sshHosts.push(
+      { id: 'ssh-1', localCopy: { ...ready, remoteRsync: 'missing' } },
+      { id: 'ssh-2', localCopy: ready }
+    );
+    expect(read()).toBe(true);
+
+    environmentConfiguration.lastWorkspaceEnvironment = { kind: 'ssh', hostId: 'ssh-1' };
+    expect(read()).toBe(false);
+
+    workspace.backend = {
+      kind: 'ssh',
+      hostId: 'ssh-2',
+      remoteDirectory: '/remote/worktree',
+      remoteRepoPath: '/remote/repo.git',
+      remoteProjectRoot: '/remote',
+      gitUrl: 'git@example.com:repo.git',
+    };
+    expect(read()).toBe(true);
+
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    try {
+      expect(read()).toBe(false);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    }
   });
 
   it('reports when project command Actions run in the SSH Local copy', () => {

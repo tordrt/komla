@@ -100,8 +100,8 @@ desktop apps that open native windows. When `currentEnvironment.kind` is `ssh` o
 or `selectedForNewWorkspaces` is true, and the project has such an app, recommend `ssh-local-copy`
 dependency setup and give the app's Quick Command `"sshExecutionLocation": "local-copy"`. When SSH
 is only configured, offer that pair under **Other useful options**: it installs on this computer
-for every new SSH Workspace. It needs no Trash cleanup; the Trash discards the Local copy. State
-its prerequisites: rsync on this computer and the SSH host, and a desktop that isn't Windows.
+for every new SSH Workspace. It needs no Trash cleanup; the Trash discards the Local copy. Skip
+both when `ssh.localCopySupported` is false: Windows, or rsync missing on this computer or the host.
 
 For directory projects, omit setup and cleanup. Preserve the current layout unless the user chooses
 a workflow change.

@@ -290,9 +290,7 @@ describe('installBundledSkills', () => {
       'When SSH is only configured, offer that pair under **Other useful options**'
     );
     expect(content).toContain('It needs no Trash cleanup; the Trash discards the Local copy.');
-    expect(content).toContain(
-      'rsync on this computer and the SSH host, and a desktop that isn\'t Windows'
-    );
+    expect(content).toContain('Skip both when `ssh.localCopySupported` is false');
   });
 
   it('project setup keeps new current-project Quick Command entries free of persistence identity', () => {

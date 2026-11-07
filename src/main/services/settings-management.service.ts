@@ -25,6 +25,7 @@ import {
   automationExtraArgumentsError,
   DEFAULT_AUTOMATION_MISSED_RUN_GRACE_MINUTES,
 } from '../../shared/types/automation';
+import { localCopyUnsupported } from '../lib/local-copy-support';
 import { describeSettingsSchema, settingsJsonSchema } from '../lib/settings-schema';
 
 import {
@@ -56,6 +57,7 @@ import type {
   AutomationTargetSnapshot,
   SaveAutomationParams,
 } from '../../shared/types/automation';
+import type { SshHostCapabilities } from '../../shared/types/ssh';
 import type { SettingsSchemaSection } from '../lib/settings-schema';
 
 export type SettingsActionScope = 'global' | 'current-project';
@@ -97,6 +99,11 @@ export interface WorkspaceSetupCapabilities {
     configured: boolean;
     selectedForNewWorkspaces: boolean;
     actionsRunInLocalCopy: boolean;
+    /**
+     * Whether a Local copy can run for the SSH host this setup targets: the current SSH
+     * workspace's, else the one new workspaces start on, else any configured host.
+     */
+    localCopySupported: boolean;
   };
 }
 
@@ -197,6 +204,9 @@ type StorageRevisionState =
   | { status: 'changed' }
   | { status: 'unreadable' };
 
+/** An SSH host Workspace Setup can target, with whether it can keep a Local copy. */
+type SetupSshHost = { id: string; localCopy?: SshHostCapabilities['localCopy'] };
+
 interface Dependencies {
   actions: {
     list(): Action[];
@@ -236,7 +246,7 @@ interface Dependencies {
   environmentConfiguration(): {
     lastWorkspaceEnvironment?: DesiredWorkspaceEnvironment;
     defaultSshWorkspaceMode?: SshWorkspaceMode;
-    sshHosts: Array<{ id: string }>;
+    sshHosts: SetupSshHost[];
   };
   files: Record<SettingsFileResource, SettingsFileAdapter>;
   automations: {
@@ -1792,8 +1802,24 @@ export class SettingsManagementService {
             configuration.defaultSshWorkspaceMode,
             project.sshWorkspaceMode
           ) === 'local-copy-actions',
+        localCopySupported: this.localCopySupported(configuration.sshHosts, workspace, selected),
       },
     };
+  }
+
+  private localCopySupported(
+    hosts: SetupSshHost[],
+    workspace: Workspace | undefined,
+    selected: DesiredWorkspaceEnvironment | undefined
+  ): boolean {
+    const targetId =
+      workspace && isSshWorkspace(workspace)
+        ? workspace.backend.hostId
+        : selected?.kind === 'ssh'
+          ? selected.hostId
+          : undefined;
+    const targets = targetId ? hosts.filter((host) => host.id === targetId) : hosts;
+    return targets.some((host) => !localCopyUnsupported(host.localCopy));
   }
 
   private currentEnvironment(

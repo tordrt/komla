@@ -63,7 +63,7 @@ export function getSettingsManagementService(): SettingsManagementService {
         sshHosts: sshHostService
           .list()
           .filter((host) => !host.setupPending)
-          .map(({ id }) => ({ id })),
+          .map(({ id, capabilities }) => ({ id, localCopy: capabilities?.localCopy })),
       };
     },
     files: createSettingsFiles({

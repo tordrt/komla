@@ -435,7 +435,8 @@ replaced.
 Workspace Setup GET responses include read-only `setupCapabilities`: the current execution
 environment and SSH availability. Whether new workspaces start on an SSH host is marked separately
 from SSH being merely configured. The SSH capability also reports whether project Terminal Commands run in the SSH Local
-copy. Callers omit this metadata from PUT bodies.
+copy, and whether a Local copy can run for the SSH host the setup targets (`localCopySupported`): it
+can't on Windows, or when rsync is missing on this computer or the SSH host. Callers omit this metadata from PUT bodies.
 
 ## SDK
 

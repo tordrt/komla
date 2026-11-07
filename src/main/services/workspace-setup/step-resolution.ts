@@ -3,6 +3,7 @@ import {
   isProjectSetupPrompt,
 } from '../../../shared/constants/project-setup-prompt';
 import { isSshWorkspace } from '../../../shared/types/workspace';
+import { localCopyUnsupported } from '../../lib/local-copy-support';
 import { createLogger } from '../../lib/logger';
 import { substituteVariables } from '../../lib/workspace-launch-variables';
 
@@ -155,13 +156,9 @@ export class SetupStepResolver {
       };
     }
     if (destination === 'ssh-local-copy') {
-      const localCopyCapability = this.dependencies.hosts.get(workspace.backend.hostId)
-        ?.capabilities?.localCopy;
-      const unsupported =
-        process.platform === 'win32' ||
-        localCopyCapability?.platform === 'unsupported' ||
-        localCopyCapability?.localRsync === 'missing' ||
-        localCopyCapability?.remoteRsync === 'missing';
+      const unsupported = localCopyUnsupported(
+        this.dependencies.hosts.get(workspace.backend.hostId)?.capabilities?.localCopy
+      );
       const unsupportedReason = 'SSH Local copy requires rsync on this computer and the SSH host';
       return {
         destination,

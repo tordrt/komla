@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 
 import { createMockBrowserWindow, type MockBrowserWindow } from '../../mocks/electron';
+import { addToShellHistoryCommand } from '../../../src/main/lib/shell-history';
 
 const mockEmitTerminalOscNotification = vi.hoisted(() => vi.fn());
 const mockEmitTerminalTitle = vi.hoisted(() => vi.fn());
@@ -616,6 +617,39 @@ describe('PtyService', () => {
         ['-ilc', expectedActionStartupScript("'ssh user@host'", 'ssh user@host')],
         expect.objectContaining({ cwd: '/home/user' })
       );
+    });
+
+    it('adds a command it is asked to keep to the shell history before running it', async () => {
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+
+      ptyService.restart(
+        'term-1',
+        '/home/user',
+        'npm run dev:fresh',
+        'ws-1',
+        undefined,
+        undefined,
+        'echo-command',
+        true,
+        true
+      );
+
+      const script = mockSpawn.mock.calls.at(-1)?.[1]?.[1] as string;
+      const historyCommand = addToShellHistoryCommand('/bin/zsh', 'npm run dev:fresh')!;
+      expect(script).toBe(
+        expectedActionStartupScript("'npm run dev:fresh'", 'npm run dev:fresh').replace(
+          ACTION_HANDOFF_SCRIPT,
+          `${historyCommand}; ${ACTION_HANDOFF_SCRIPT}`
+        )
+      );
+    });
+
+    it("leaves a command out of the shell history unless it's asked to keep it", async () => {
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+
+      ptyService.spawn('term-1', '/home/user', 'claude');
+
+      expect(mockSpawn.mock.calls.at(-1)?.[1]?.[1]).not.toContain('fc -AI');
     });
 
     it('starts an SSH launch without the local startup files when asked', async () => {

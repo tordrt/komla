@@ -149,7 +149,11 @@ export class WorkspaceTerminals {
     // Resolve the spawn command FIRST — if this throws, we must not leave
     // behind a phantom terminal or a saved auto-activation that never
     // actually started a PTY.
-    const resolved = location.buildCommand(command ?? null, { commandKind, terminalId });
+    const resolved = location.buildCommand(command ?? null, {
+      commandKind,
+      terminalId,
+      setupStep: setupStepId !== undefined,
+    });
 
     // Auto-activate dormant workspaces when starting
     if (workspace.status !== 'active') {
@@ -499,6 +503,7 @@ export class WorkspaceTerminals {
     const resolved = location.buildCommand(command, {
       commandKind: options?.commandKind ?? 'agent',
       terminalId,
+      setupStep: terminal.setupStepId !== undefined,
     });
 
     const applyRestartMetadata = (): void => {

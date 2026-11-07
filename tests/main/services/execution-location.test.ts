@@ -164,8 +164,31 @@ describe('execution locations', () => {
         keepShellOpenAfterCommand: false,
       });
 
-      expect(pty.spawn).toHaveBeenCalledWith('term-1', workspaceDir, 'npm test');
+      expect(pty.spawn).toHaveBeenCalledWith('term-1', workspaceDir, 'npm test', undefined);
       expect(localCopy.ensureInitialSync).not.toHaveBeenCalled();
+    });
+
+    it("asks the Local copy's shell to keep a Terminal Command in its history", () => {
+      const location = attached(sshWorkspace(), 'local-copy');
+      const terminalCommand = location.buildCommand('npm run dev:fresh', { commandKind: 'host' });
+
+      location.restart({
+        workspaceId: 'ws-ssh',
+        terminalId: 'term-1',
+        command: terminalCommand,
+        cols: 120,
+        rows: 40,
+      });
+
+      expect(pty.restart).toHaveBeenCalledWith(
+        'term-1',
+        localCopyDir,
+        'npm run dev:fresh',
+        'ws-ssh',
+        120,
+        40,
+        true
+      );
     });
 
     it('skips the Local copy sync when spawning fails', () => {
@@ -201,14 +224,15 @@ describe('execution locations', () => {
         rows: 40,
       });
 
-      expect(pty.spawn).toHaveBeenCalledWith('term-1', localCopyDir, 'npm test');
+      expect(pty.spawn).toHaveBeenCalledWith('term-1', localCopyDir, 'npm test', undefined);
       expect(pty.restart).toHaveBeenCalledWith(
         'term-1',
         localCopyDir,
         'npm run dev',
         'ws-ssh',
         120,
-        40
+        40,
+        undefined
       );
       expect(localCopy.ensureInitialSync).toHaveBeenCalledTimes(2);
     });
@@ -496,6 +520,7 @@ describe('execution locations', () => {
         )
       ).toEqual({
         command: `git push origin 'a$(id)' && echo "My App in ${workspaceDir}"`,
+        addToHistory: true,
       });
     });
 
@@ -505,8 +530,21 @@ describe('execution locations', () => {
       });
     });
 
-    it('runs host commands as given', () => {
-      expect(build('npm install', { commandKind: 'host' })).toEqual({ command: 'npm install' });
+    it('runs host commands as given, kept in the shell history', () => {
+      expect(build('npm install', { commandKind: 'host' })).toEqual({
+        command: 'npm install',
+        addToHistory: true,
+      });
+    });
+
+    it("keeps an agent's launch command out of the shell history", () => {
+      expect(build('claude --continue')).toEqual({ command: 'claude --continue' });
+    });
+
+    it('keeps a setup step out of the shell history', () => {
+      expect(build('npm install', { commandKind: 'host', setupStep: true })).toEqual({
+        command: 'npm install',
+      });
     });
 
     it('opens an empty shell for host-shell', () => {

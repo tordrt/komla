@@ -20,6 +20,8 @@ import { extractHostOsc, isLocalHost, splitPendingOsc } from '../lib/host-osc';
 import { createLogger } from '../lib/logger';
 import { powerShellCommandArgs } from '../lib/powershell-native-arguments';
 import { buildTerminalEnv, getShell, getShellArgs } from '../lib/shell';
+import { addToShellHistoryCommand } from '../lib/shell-history';
+import { isZshShell } from '../lib/shell-kind';
 import {
   extractManagedRemoteTerminalSessionReplacedOsc,
   extractRemoteReadyOsc,
@@ -504,7 +506,8 @@ class PtyService {
     cols?: number,
     rows?: number,
     startupMode: PtyStartupMode = 'echo-command',
-    localLoginShell = true
+    localLoginShell = true,
+    addToHistory = false
   ): void {
     if (this.processes.has(terminalId)) {
       throw new Error(`PTY already exists for terminal ${terminalId}`);
@@ -518,7 +521,7 @@ class PtyService {
     // execute it directly.  This avoids the timing race that garbles the prompt
     // when writing to stdin after the shell starts.  After the command exits,
     // `exec $SHELL` drops the user back into a fresh interactive shell.
-    const isZsh = shell.endsWith('/zsh') || shell.endsWith('/zsh5');
+    const isZsh = isZshShell(shell);
     let spawnShell = shell;
     let spawnArgs = shellArgs;
     let pendingCommand: string | null = null;
@@ -544,9 +547,14 @@ class PtyService {
         `exec ${shellQuotePosix(shell)} ${execArgs}`,
       ].join('; ');
       const handoffFunction = `__komla_action_handoff() { ${handoffCommand}; }`;
-      const parts = [echoCommand, handoffFunction, 'trap __komla_action_handoff INT'].filter(
-        (part): part is string => part !== null
-      );
+      // Up arrow in the shell the command hands over to brings the command back, as if typed.
+      const historyCommand = addToHistory ? addToShellHistoryCommand(shell, startupCommand) : null;
+      const parts = [
+        echoCommand,
+        historyCommand,
+        handoffFunction,
+        'trap __komla_action_handoff INT',
+      ].filter((part): part is string => part !== null);
       parts.push(startupCommand);
       // Ctrl-C can terminate a foreground startup command before it restores
       // tty flags (echo/canonical/isig). Reset them before handing the PTY to
@@ -1361,7 +1369,8 @@ class PtyService {
     cols?: number,
     rows?: number,
     startupMode: PtyStartupMode = 'echo-command',
-    localLoginShell = true
+    localLoginShell = true,
+    addToHistory = false
   ): void {
     const process = this.processes.get(terminalId);
     const windowId = process?.windowId ?? this.terminalToWindow.get(terminalId);
@@ -1390,7 +1399,8 @@ class PtyService {
       cols,
       rows,
       startupMode,
-      localLoginShell
+      localLoginShell,
+      addToHistory
     );
     this.broadcastToAll(IPC.TERMINAL_RESET, terminalId);
     this.updateStatus(terminalId, 'starting');

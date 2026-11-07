@@ -34,9 +34,39 @@ export const executionLocations = createExecutionLocations({
   isWslMode: () => isWslMode(),
   windowsPathToWsl: (path) => windowsPathToWsl(path),
   pty: {
-    spawn: (terminalId, cwd, command) => ptyService.spawn(terminalId, cwd, command),
-    restart: (terminalId, cwd, command, workspaceId, cols, rows) =>
-      ptyService.restart(terminalId, cwd, command, workspaceId, cols, rows),
+    // Only a command bound for the shell history passes ptyService's trailing options; the rest
+    // are left to its defaults.
+    spawn: (terminalId, cwd, command, addToHistory) =>
+      addToHistory
+        ? ptyService.spawn(
+            terminalId,
+            cwd,
+            command,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            true
+          )
+        : ptyService.spawn(terminalId, cwd, command),
+    restart: (terminalId, cwd, command, workspaceId, cols, rows, addToHistory) =>
+      addToHistory
+        ? ptyService.restart(
+            terminalId,
+            cwd,
+            command,
+            workspaceId,
+            cols,
+            rows,
+            undefined,
+            undefined,
+            true
+          )
+        : ptyService.restart(terminalId, cwd, command, workspaceId, cols, rows),
     kill: (terminalId) => ptyService.kill(terminalId),
     releaseTerminal: (terminalId) => ptyService.releaseTerminal(terminalId),
     releaseTerminalAndWait: (terminalId) => ptyService.releaseTerminalAndWait(terminalId),

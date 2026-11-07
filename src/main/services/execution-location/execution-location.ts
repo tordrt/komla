@@ -12,10 +12,14 @@ export type { ShellFamily };
 export interface LaunchCommandOptions {
   commandKind?: CommandKind;
   terminalId?: string;
+  /** A Workspace Setup step, which runs on its own each time a workspace starts. */
+  setupStep?: boolean;
 }
 
 export interface LaunchCommand {
   command: string | null;
+  /** The shell keeps the command in its history, as though the user had typed it. */
+  addToHistory?: boolean;
 }
 
 export interface SpawnTerminalRequest {

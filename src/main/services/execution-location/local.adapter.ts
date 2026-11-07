@@ -19,14 +19,15 @@ export interface LocalExecutionDependencies extends CommandValuesDependencies {
   isWslMode(): boolean;
   windowsPathToWsl(path: string): string;
   pty: {
-    spawn(terminalId: string, cwd: string, command: string | null): void;
+    spawn(terminalId: string, cwd: string, command: string | null, addToHistory?: boolean): void;
     restart(
       terminalId: string,
       cwd: string,
       command: string | null,
       workspaceId: string,
       cols?: number,
-      rows?: number
+      rows?: number,
+      addToHistory?: boolean
     ): void;
     kill(terminalId: string): void;
     releaseTerminal(terminalId: string): void;
@@ -76,7 +77,7 @@ export function createLocalExecution(
 
   const buildCommand: AttachedExecutionLocation['buildCommand'] = (
     rawCommand,
-    { commandKind = 'agent' } = {}
+    { commandKind = 'agent', setupStep = false } = {}
   ) => {
     // An agent's prompt keeps the workspace's values as typed; only commands get them quoted.
     const command = resolveLaunchVariables(
@@ -85,8 +86,12 @@ export function createLocalExecution(
       'desktop',
       commandKind === 'agent' ? undefined : commandValues
     );
-    if (root.kind === 'local-copy') return { command };
-    return commandKind === 'host-shell' ? { command: null } : { command };
+    if (commandKind === 'host-shell' && root.kind !== 'local-copy') return { command: null };
+    // A Terminal Command the user launches stands in for one they'd type, so up arrow brings it
+    // back. An agent's launch command and a setup step aren't ones to run again by hand.
+    return commandKind === 'host' && command && !setupStep
+      ? { command, addToHistory: true }
+      : { command };
   };
 
   // PTYs start in the configured directory; only {{workspacePath}} is canonicalized.
@@ -111,11 +116,19 @@ export function createLocalExecution(
       return { stop: () => process.stop() };
     },
     spawn({ terminalId, command }) {
-      dependencies.pty.spawn(terminalId, spawnCwd(), command.command);
+      dependencies.pty.spawn(terminalId, spawnCwd(), command.command, command.addToHistory);
       afterLaunch();
     },
     restart({ workspaceId, terminalId, command, cols, rows }) {
-      dependencies.pty.restart(terminalId, spawnCwd(), command.command, workspaceId, cols, rows);
+      dependencies.pty.restart(
+        terminalId,
+        spawnCwd(),
+        command.command,
+        workspaceId,
+        cols,
+        rows,
+        command.addToHistory
+      );
       afterLaunch();
     },
     stop: (terminalId) => dependencies.pty.kill(terminalId),

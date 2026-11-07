@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 
 import { addKomlaCliToEnv } from './komla-cli';
 import { createLogger } from './logger';
+import { isZshShell } from './shell-kind';
 import { isWslMode, getWslShell, getWslShellArgs, windowsPathToWsl } from './wsl';
 
 const logger = createLogger('Shell');
@@ -180,7 +181,7 @@ export function getShellArgs(wslDistro?: string): string[] {
   }
   const shell = getShell();
   // Suppress zsh's PROMPT_SP ('%' marker on first line) for cleaner terminal startup
-  if (shell.endsWith('/zsh') || shell.endsWith('/zsh5')) {
+  if (isZshShell(shell)) {
     return ['-l', '-o', 'nopromptsp'];
   }
   return ['-l'];

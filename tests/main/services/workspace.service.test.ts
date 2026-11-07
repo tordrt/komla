@@ -225,6 +225,10 @@ let mockLocalCopySyncStatusListener:
     }) => void)
   | undefined;
 
+// The trailing ptyService arguments that keep a Terminal Command in the shell history.
+const SHELL_HISTORY_SPAWN_ARGS = [...Array<undefined>(8).fill(undefined), true] as const;
+const SHELL_HISTORY_RESTART_ARGS = [undefined, undefined, true] as const;
+
 const mockPtyService = {
   spawn: vi.fn(),
   restart: vi.fn(),
@@ -6173,7 +6177,8 @@ describe('WorkspaceService', () => {
           expect(mockPtyService.spawn).toHaveBeenCalledWith(
             terminal.id,
             '/mock/home/.komla/local-copies/ssh-ws-1',
-            'npm run dev'
+            'npm run dev',
+            ...SHELL_HISTORY_SPAWN_ARGS
           )
         );
         expect(mockSshWorkspaceService.buildTerminalLaunchCommand).not.toHaveBeenCalled();
@@ -11636,11 +11641,59 @@ describe('WorkspaceService', () => {
         'npm run dev',
         'ws-1',
         95,
-        42
+        42,
+        ...SHELL_HISTORY_RESTART_ARGS
       );
       expect(mockAgentPresetService.recordPresetUsage).not.toHaveBeenCalled();
     });
 
+
+    it('keeps a restarted setup step out of the shell history', async () => {
+      const existingWorkspaces = [
+        {
+          id: 'ws-1',
+          name: 'Workspace',
+          workingDirectory: '/ws1',
+          isWorktree: false,
+          projectId: null,
+          windowId: null,
+          categoryId: null,
+          createdAt: 1000,
+          lastActivityAt: 1000,
+          order: 0,
+        },
+      ];
+      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(existingWorkspaces));
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      const terminal = workspaceService.addTerminal(
+        'ws-1',
+        'Install',
+        'npm install',
+        undefined,
+        'host',
+        'workspace',
+        undefined,
+        'setup-install'
+      ) as Terminal;
+      expect(mockPtyService.spawn).toHaveBeenLastCalledWith(terminal.id, '/ws1', 'npm install');
+      mockPtyService.restart.mockClear();
+
+      workspaceService.restartTerminal(terminal.id, undefined, undefined, 95, 42, {
+        command: 'npm install',
+        commandKind: 'host',
+      });
+
+      expect(mockPtyService.restart).toHaveBeenCalledWith(
+        terminal.id,
+        '/ws1',
+        'npm install',
+        'ws-1',
+        95,
+        42
+      );
+    });
     it('clears terminal activity and attention before replacing its PTY', async () => {
       const existingWorkspaces = [
         {
@@ -12151,7 +12204,8 @@ describe('WorkspaceService', () => {
         'npm run dev',
         'ssh-ws',
         90,
-        30
+        30,
+        ...SHELL_HISTORY_RESTART_ARGS
       );
       expect(mockLocalCopyService.ensureInitialSync).toHaveBeenCalledWith('ssh-ws', backend);
     });

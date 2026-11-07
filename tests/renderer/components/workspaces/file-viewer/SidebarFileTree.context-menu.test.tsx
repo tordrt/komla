@@ -1024,6 +1024,17 @@ describe('SidebarFileTree context menu actions', () => {
       expect(input).toHaveFocus();
     });
 
+    it('leaves Cmd+Shift+X, Toggle prompt draft, to the app instead of cutting', () => {
+      mockFocusedPath = 'src/index.ts';
+      const onCutNode = vi.fn();
+      const row = renderTree({ onCutNode });
+
+      // macOS reports a lowercase key while Cmd is held, Shift or not.
+      fireEvent.keyDown(row, { key: 'x', metaKey: true, shiftKey: true });
+
+      expect(onCutNode).not.toHaveBeenCalled();
+    });
+
     it('claims the keys it handles, so the file viewer does not act on them too', () => {
       mockFocusedPath = 'src/index.ts';
       const onCopyNode = vi.fn();

@@ -34,11 +34,20 @@ function requireKeyboardLayout(): { getCurrentKeyboardLayout(): string } | null 
   return _keyboardLayoutModule;
 }
 
-const SHORTCUTS_VERSION = 1;
+const SHORTCUTS_VERSION = 2;
 const SHORTCUTS_MIGRATIONS: Record<
   number,
   (data: Record<string, unknown>) => Record<string, unknown>
-> = {};
+> = {
+  // Toggle prompt draft's first default, Cmd+Shift+Y, is macOS's Make New Sticky Note. Dropping
+  // it lets the new default take its place, unless the user already has those keys.
+  2: (data) => {
+    const shortcuts = data.shortcuts as Record<string, string> | undefined;
+    if (shortcuts?.['promptDraft.toggle'] !== 'Cmd+Shift+Y') return data;
+    const { 'promptDraft.toggle': _old, ...rest } = shortcuts;
+    return { ...data, shortcuts: rest };
+  },
+};
 
 // The same keys whatever the case or modifier order, e.g. "Shift+Cmd+p" and "Cmd+Shift+P",
 // and whichever name the platform's Cmd goes by, e.g. "Cmd+." and "Ctrl+." on Linux.
@@ -115,8 +124,10 @@ const DEFAULT_SHORTCUTS: ShortcutsConfig = {
     'inline.file.tree': 'Cmd+B',
     // As in Orca. Not Cmd+Shift+N, which opens a new window.
     'note.new': 'Cmd+Shift+M',
-    // Not a key Monaco takes with Cmd+Shift, so it works from a file's editor too.
-    'promptDraft.toggle': 'Cmd+Shift+Y',
+    // Not a key Monaco or the markdown editor takes with Cmd+Shift, so it works from a file's
+    // editor too. Not Cmd+Shift+Y, macOS's Make New Sticky Note, nor Cmd+Shift+R or I, which
+    // force-reload and open DevTools in development.
+    'promptDraft.toggle': 'Cmd+Shift+X',
     'tab.next': 'Cmd+]',
     'tab.previous': 'Cmd+[',
     'terminal.scrollToBottom': 'Cmd+Shift+ArrowDown',
@@ -342,12 +353,18 @@ export class ShortcutsService {
   private loadConfig(): ShortcutsConfig {
     try {
       if (existsSync(this.shortcutsPath)) {
-        const data = readFileSync(this.shortcutsPath, 'utf-8');
+        const data = JSON.parse(readFileSync(this.shortcutsPath, 'utf-8')) as Record<
+          string,
+          unknown
+        >;
         const parsed = migrate(
-          JSON.parse(data) as Record<string, unknown>,
+          data,
           SHORTCUTS_VERSION,
           SHORTCUTS_MIGRATIONS
         ) as unknown as ShortcutsConfig;
+        // Saved as migrated, so a key the user then sets by hand isn't migrated again.
+        const savedVersion = typeof data._version === 'number' ? data._version : 1;
+        if (savedVersion < SHORTCUTS_VERSION) this.writeConfig(parsed);
         return this.mergeWithDefaults(parsed);
       }
     } catch (error) {

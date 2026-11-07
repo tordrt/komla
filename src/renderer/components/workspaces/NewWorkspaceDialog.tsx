@@ -2220,7 +2220,9 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       (e.key.length === 1 && !isCommand) ||
       e.key === 'Backspace' ||
       e.key === 'Delete' ||
-      (isCommand && ['v', 'x', 'z'].includes(e.key.toLowerCase()));
+      (isCommand && ['v', 'z'].includes(e.key.toLowerCase())) ||
+      // Unlike Cmd+Shift+Z (redo) and Cmd+Shift+V (paste), Cmd+Shift+X edits nothing.
+      (isCommand && !e.shiftKey && e.key.toLowerCase() === 'x');
     if (
       (isVoiceStarting || isVoiceRecording) &&
       editsText &&

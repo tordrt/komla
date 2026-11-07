@@ -52,7 +52,7 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
   await appWindow.keyboard.press('Shift+End');
 
   // Pressed in the editor, which passes the shortcut on.
-  await appWindow.keyboard.press(`${mod}+Shift+Y`);
+  await appWindow.keyboard.press(`${mod}+Shift+X`);
   const draft = viewer.getByRole('dialog', { name: 'Prompt draft' });
   const prompt = draft.getByRole('textbox', { name: 'Prompt' });
   await expect(prompt).toBeFocused();
@@ -93,7 +93,7 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
   await expect.poll(editorFocused).toBe(true);
 
   // The text stays for the next time.
-  await appWindow.keyboard.press(`${mod}+Shift+Y`);
+  await appWindow.keyboard.press(`${mod}+Shift+X`);
   await expect(prompt).toHaveValue('Explain @server.ts:1-3 ');
 
   // Cmd+C with nothing selected copies all of it and closes, back to the editor.
@@ -105,7 +105,7 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
   await expect.poll(editorFocused).toBe(true);
 
   // Next time it's all selected, for the next prompt to replace as it's typed.
-  await appWindow.keyboard.press(`${mod}+Shift+Y`);
+  await appWindow.keyboard.press(`${mod}+Shift+X`);
   await appWindow.keyboard.type('Keep this plan');
   await expect(prompt).toHaveValue('Keep this plan');
 
@@ -116,6 +116,6 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
     timeout: 10_000,
   });
   await expect(viewer.getByRole('region', { name: 'Notes' })).toContainText('Keep this plan');
-  await appWindow.keyboard.press(`${mod}+Shift+Y`);
+  await appWindow.keyboard.press(`${mod}+Shift+X`);
   await expect(prompt).toHaveValue('');
 });

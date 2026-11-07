@@ -2827,6 +2827,8 @@ describe('NewWorkspaceDialog', () => {
         fireEvent.keyDown(textarea, { key });
       }
       fireEvent.keyDown(textarea, { key: 'a', metaKey: true });
+      // Toggle prompt draft; macOS reports a lowercase key while Cmd is held.
+      fireEvent.keyDown(textarea, { key: 'x', metaKey: true, shiftKey: true });
       expect(mockVoiceInput.cancelRecording).not.toHaveBeenCalled();
 
       fireEvent.keyDown(textarea, { key: 'x' });

@@ -242,7 +242,7 @@ function ImportedFileRow({
         ? undefined
         : cmd && event.key === 'c'
           ? onCopyNode && (() => onCopyNode(path, false))
-          : cmd && event.key === 'x'
+          : cmd && !event.shiftKey && event.key === 'x'
             ? onCutNode && (() => onCutNode(path, false))
             : undefined;
     if (!action) return;

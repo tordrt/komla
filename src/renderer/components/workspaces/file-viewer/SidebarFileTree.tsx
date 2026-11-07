@@ -1402,7 +1402,7 @@ export function SidebarFileTree({
         handled = handleDelete(focusedPath);
       } else if (cmd && e.key === 'c') {
         handled = handleCopy(focusedPath);
-      } else if (cmd && e.key === 'x') {
+      } else if (cmd && !e.shiftKey && e.key === 'x') {
         handled = handleCut(focusedPath);
       } else if (cmd && e.key === 'v') {
         handled = handlePaste(focusedPath);

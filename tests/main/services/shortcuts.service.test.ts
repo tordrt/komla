@@ -151,6 +151,101 @@ describe('ShortcutsService', () => {
     }
   );
 
+  it.each(['darwin', 'win32', 'linux'] as const)(
+    'binds Toggle prompt draft off the macOS sticky note key, without clashing on %s',
+    (platform) => {
+      vfs.clear();
+      const service = new ShortcutsService({ getCurrentKeyboardLayout: () => 'us' }, platform);
+      vi.advanceTimersByTime(1000);
+
+      const { shortcuts } = service.getConfig();
+      expect(shortcuts['promptDraft.toggle']).toBe('Cmd+Shift+X');
+      const clashes = Object.entries(shortcuts).filter(
+        ([action, shortcut]) => action !== 'promptDraft.toggle' && shortcut === 'Cmd+Shift+X'
+      );
+      expect(clashes).toEqual([]);
+    }
+  );
+
+  it('moves an upgrading user off the old prompt draft default', () => {
+    vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
+    vfs.mock.writeFileSync(
+      '/mock/home/.komla/settings/shortcuts.json',
+      JSON.stringify({
+        _version: 1,
+        shortcuts: { 'promptDraft.toggle': 'Cmd+Shift+Y', 'tab.next': 'Ctrl+Tab' },
+      })
+    );
+
+    const { shortcuts } = new ShortcutsService(
+      { getCurrentKeyboardLayout: () => 'com.apple.keylayout.US' },
+      'darwin'
+    ).getConfig();
+
+    expect(shortcuts['promptDraft.toggle']).toBe('Cmd+Shift+X');
+    expect(shortcuts['tab.next']).toBe('Ctrl+Tab');
+  });
+
+  it('saves the moved prompt draft key, so choosing Cmd+Shift+Y again by hand sticks', () => {
+    const path = '/mock/home/.komla/settings/shortcuts.json';
+    vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
+    vfs.mock.writeFileSync(
+      path,
+      JSON.stringify({
+        _version: 1,
+        shortcuts: { 'promptDraft.toggle': 'Cmd+Shift+Y', 'tab.next': 'Ctrl+Tab' },
+      })
+    );
+
+    new ShortcutsService({ getCurrentKeyboardLayout: () => 'com.apple.keylayout.US' }, 'darwin');
+    vi.advanceTimersByTime(1000);
+
+    const saved = JSON.parse(vfs.getFile(path) as string);
+    expect(saved).toEqual({ _version: 2, shortcuts: { 'tab.next': 'Ctrl+Tab' } });
+
+    saved.shortcuts['promptDraft.toggle'] = 'Cmd+Shift+Y';
+    vfs.mock.writeFileSync(path, JSON.stringify(saved));
+    const { shortcuts } = new ShortcutsService(
+      { getCurrentKeyboardLayout: () => 'com.apple.keylayout.US' },
+      'darwin'
+    ).getConfig();
+    expect(shortcuts['promptDraft.toggle']).toBe('Cmd+Shift+Y');
+  });
+
+  it('keeps the old prompt draft default unbound when the upgrading user has its new keys', () => {
+    vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
+    vfs.mock.writeFileSync(
+      '/mock/home/.komla/settings/shortcuts.json',
+      JSON.stringify({
+        _version: 1,
+        shortcuts: { 'promptDraft.toggle': 'Cmd+Shift+Y', 'note.new': 'Cmd+Shift+X' },
+      })
+    );
+
+    const { shortcuts } = new ShortcutsService(
+      { getCurrentKeyboardLayout: () => 'com.apple.keylayout.US' },
+      'darwin'
+    ).getConfig();
+
+    expect(shortcuts['promptDraft.toggle']).toBe('');
+    expect(shortcuts['note.new']).toBe('Cmd+Shift+X');
+  });
+
+  it('keeps a prompt draft key the user chose', () => {
+    vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
+    vfs.mock.writeFileSync(
+      '/mock/home/.komla/settings/shortcuts.json',
+      JSON.stringify({ _version: 1, shortcuts: { 'promptDraft.toggle': 'Cmd+Alt+P' } })
+    );
+
+    const { shortcuts } = new ShortcutsService(
+      { getCurrentKeyboardLayout: () => 'com.apple.keylayout.US' },
+      'darwin'
+    ).getConfig();
+
+    expect(shortcuts['promptDraft.toggle']).toBe('Cmd+Alt+P');
+  });
+
   it('binds Open folder to Cmd+O on macOS only, without clashing', () => {
     vfs.clear();
     const mac = new ShortcutsService({ getCurrentKeyboardLayout: () => 'us' }, 'darwin');
@@ -338,7 +433,7 @@ describe('ShortcutsService', () => {
   it('does not overwrite shortcut configs from a newer app version', () => {
     vfs.mock.mkdirSync('/mock/home/.komla/settings', { recursive: true });
     const futureConfig = JSON.stringify({
-      _version: 2,
+      _version: 3,
       shortcuts: { 'diff.toggle': 'Cmd+Ctrl+D' },
       futureSetting: { enabled: true },
     });

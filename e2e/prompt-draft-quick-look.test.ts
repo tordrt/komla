@@ -83,7 +83,7 @@ test('drafts a prompt over Quick Look, opened from a /tmp link in a terminal', a
   // Back over the workspace once Quick Look closes, with the text kept.
   await appWindow.keyboard.press('Escape');
   // Pressed straight away, while Quick Look is still fading out.
-  await appWindow.keyboard.press(`${mod}+Shift+Y`);
+  await appWindow.keyboard.press(`${mod}+Shift+X`);
   await expect(appWindow.getByRole('textbox', { name: 'Prompt' })).toHaveValue(
     `@${OUTSIDE_FILE} why did step 2 fail @${OUTSIDE_FILE} ?`
   );

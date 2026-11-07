@@ -136,6 +136,15 @@ describe('ImportedFilesSection', () => {
     expect(onCutNode).toHaveBeenCalledWith(DESIGN, false);
   });
 
+  it('leaves Cmd+Shift+X, Toggle prompt draft, to the app instead of cutting', () => {
+    renderSection();
+
+    // macOS reports a lowercase key while Cmd is held, Shift or not.
+    fireEvent.keyDown(row('design.png'), { key: 'x', metaKey: true, shiftKey: true });
+
+    expect(onCutNode).not.toHaveBeenCalled();
+  });
+
   it('leaves copying and cutting out of an SSH workspace, as its menu and the tree do', () => {
     renderSection({ isRemoteWorkspace: true });
 

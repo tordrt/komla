@@ -1514,9 +1514,12 @@ describe('RemoteControlSessionService', () => {
   });
 
   it('sends output after a quiet spell at once and batches the output that follows it', async () => {
+    // Fake timers: on real ones, a stall on a busy runner fires the window's timer and the wait
+    // below in the same turn, so the window the flush reopens is still open for 'd'.
+    vi.useFakeTimers();
     const { peer, emitData } = makeFixture({ outputBatchMs: 20 });
     peer.emitJson({ type: 'app:terminal:attach', requestId: 'r1', workspaceId: 'w1' });
-    await flush();
+    await vi.advanceTimersByTimeAsync(0);
     peer.sent.length = 0;
     const sentData = () => peer.sent.map((frame) => (frame as { data: string }).data);
 
@@ -1525,8 +1528,10 @@ describe('RemoteControlSessionService', () => {
     emitData('t1', 'b', 9);
     emitData('t1', 'c', 10);
     expect(sentData()).toEqual(['a']);
-    await wait(60);
+    // The window closes at 20 ms, sending 'bc' and opening another, which closes empty at 40 ms.
+    await vi.advanceTimersByTimeAsync(20);
     expect(sentData()).toEqual(['a', 'bc']);
+    await vi.advanceTimersByTimeAsync(20);
 
     emitData('t1', 'd', 11);
     expect(sentData()).toEqual(['a', 'bc', 'd']);

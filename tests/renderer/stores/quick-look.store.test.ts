@@ -55,15 +55,16 @@ describe('quick-look.store', () => {
         folder: sections?.folder.files.map((item) => item.path),
       };
     };
-    // The folder lists what the sections above don't.
+    // The folder lists all its files, as a file tree does, Recent's too.
     expect(paths()).toEqual({
       recent: ['/tmp/out/a.png', '/tmp/out/build.zip', '/tmp/other/x.png'],
-      folder: ['/tmp/out/b.png'],
+      folder: ['/tmp/out/b.png', '/tmp/out/a.png'],
     });
+    expect(quickLookSidebar(useQuickLookStore.getState(), listed)?.current).toBe('recent');
 
     // A file on screen that its folder's listing leaves out, such as a type it skips, comes first.
     open('ws-1', terminalItem('/tmp/out/build.tar'));
-    expect(paths().folder).toEqual(['/tmp/out/build.tar', '/tmp/out/b.png']);
+    expect(paths().folder).toEqual(['/tmp/out/build.tar', '/tmp/out/b.png', '/tmp/out/a.png']);
   });
 
   it('lists the files from terminals each once', () => {
@@ -81,7 +82,7 @@ describe('quick-look.store', () => {
       '/tmp/other/x.png',
       '/tmp/out/b.png',
     ]);
-    // The file on screen is listed above, so its folder doesn't list it again.
+    // The file on screen is at its row in Recent, so its folder, still loading, doesn't list it.
     expect(sections?.folder.files).toEqual([]);
   });
 
@@ -146,7 +147,7 @@ describe('quick-look.store', () => {
     open('ws-1', terminalItem('/tmp/shots/'));
     await vi.waitFor(() => expect(useQuickLookStore.getState().folder?.status).toBe('loaded'));
     listViewerFolder.mockResolvedValue(listing('a.png'));
-    show(useQuickLookStore.getState().folder!.items[0]);
+    show(useQuickLookStore.getState().folder!.items[0], 'folder');
     await vi.waitFor(() =>
       expect(useQuickLookStore.getState().folder?.items[0]?.path).toBe('/tmp/shots/before/a.png')
     );
@@ -258,6 +259,63 @@ describe('quick-look.store', () => {
     expect(canStepQuickLook(useQuickLookStore.getState(), -1, listed)).toBe(false);
     useQuickLookStore.getState().step(1, listed);
     expect(useQuickLookStore.getState().session?.item.path).toBe('/tmp/shots/b.png');
+    // On down the folder, to its row for the file Recent lists too, and no further.
+    useQuickLookStore.getState().step(1, listed);
+    expect(useQuickLookStore.getState().session?.item.path).toBe('/tmp/shots/a.png');
+    expect(quickLookSidebar(useQuickLookStore.getState(), listed)?.current).toBe('folder');
+    expect(canStepQuickLook(useQuickLookStore.getState(), 1, listed)).toBe(false);
+  });
+
+  it('steps past the other row of the file on screen, which would show it again', async () => {
+    listViewerFolder.mockResolvedValue(listing('a.png', 'c.png'));
+    const listed = [terminalItem('/tmp/other/x.png'), terminalItem('/tmp/shots/a.png')];
+    useQuickLookStore.getState().open('ws-1', terminalItem('/tmp/shots/a.png'));
+    await vi.waitFor(() => expect(useQuickLookStore.getState().folder?.status).toBe('loaded'));
+
+    // Down from Recent's last row, past the folder's row for the same file.
+    useQuickLookStore.getState().step(1, listed);
+    expect(useQuickLookStore.getState().session?.item.path).toBe('/tmp/shots/c.png');
+    useQuickLookStore.getState().step(-1, listed);
+    useQuickLookStore.getState().step(-1, listed);
+    expect(useQuickLookStore.getState().session?.item.path).toBe('/tmp/other/x.png');
+  });
+
+  it('lists a file on screen from Recent in its folder too, once the folder skips it', async () => {
+    listViewerFolder.mockResolvedValue(listing('b.png'));
+    const listed = [terminalItem('/tmp/out/build.tar')];
+    useQuickLookStore.getState().open('ws-1', terminalItem('/tmp/out/build.tar'));
+    const files = () =>
+      quickLookSidebar(useQuickLookStore.getState(), listed)?.folder.files.map((item) => item.path);
+
+    // Not while the folder loads, so it doesn't move once listed.
+    expect(files()).toEqual([]);
+    await vi.waitFor(() => expect(useQuickLookStore.getState().folder?.status).toBe('loaded'));
+    expect(files()).toEqual(['/tmp/out/build.tar', '/tmp/out/b.png']);
+    expect(quickLookSidebar(useQuickLookStore.getState(), listed)?.current).toBe('recent');
+  });
+
+  it('steps on from the row a file was shown from, when Recent lists it too', async () => {
+    listViewerFolder.mockResolvedValue(listing('c.png', 'b.png', 'a.png'));
+    const listed = [terminalItem('/tmp/shots/b.png'), terminalItem('/tmp/other/y.png')];
+    const { open, show, step } = useQuickLookStore.getState();
+    const onScreen = () => useQuickLookStore.getState().session?.item.path;
+    open('ws-1', terminalItem('/tmp/other/y.png'));
+
+    // Shown from the folder's section, it steps through the folder's files around it.
+    show(terminalItem('/tmp/shots/b.png'), 'folder');
+    await vi.waitFor(() => expect(useQuickLookStore.getState().folder?.status).toBe('loaded'));
+    expect(quickLookSidebar(useQuickLookStore.getState(), listed)?.current).toBe('folder');
+    step(1, listed);
+    expect(onScreen()).toBe('/tmp/shots/a.png');
+    step(-1, listed);
+    step(-1, listed);
+    expect(onScreen()).toBe('/tmp/shots/c.png');
+
+    // Shown from Recent, it steps through Recent.
+    show(terminalItem('/tmp/shots/b.png'), 'recent');
+    expect(quickLookSidebar(useQuickLookStore.getState(), listed)?.current).toBe('recent');
+    step(1, listed);
+    expect(onScreen()).toBe('/tmp/other/y.png');
   });
 
   it('steps from a file opened from a link to the recent files around it', async () => {

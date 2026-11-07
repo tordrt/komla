@@ -11,7 +11,11 @@ const editor = vi.hoisted(() => ({
   // A mounted editor, with nothing selected.
   getModel: vi.fn((): object | null => ({})),
   getSelection: vi.fn(
-    (): { startLineNumber: number; endLineNumber: number; isEmpty: () => boolean } | null => null
+    (): {
+      startLineNumber: number;
+      endLineNumber: number;
+      isEmpty: () => boolean;
+    } | null => null
   ),
 }));
 const focusTerminalRenderer = vi.hoisted(() => vi.fn());
@@ -28,7 +32,9 @@ vi.mock('../../../../src/renderer/lib/terminal-renderer-runtime', () => ({
 }));
 
 // The Windows height, so the test fails if the viewer hard-codes the 36px one.
-vi.mock('@/lib/monaco-loader', () => ({ ensureMonacoInitialized: () => Promise.resolve() }));
+vi.mock('@/lib/monaco-loader', () => ({
+  ensureMonacoInitialized: () => Promise.resolve(),
+}));
 vi.mock('@/components/workspaces/file-viewer/EditorPane', async () => {
   const { useEffect } = await import('react');
   return {
@@ -91,7 +97,10 @@ const images = [terminalItem('/tmp/shots/a.png'), workspaceItem('out/b.png')];
 
 /** A folder listing of these files, newest first: modified now, a minute ago, and so on. */
 const listing = (...names: string[]) =>
-  names.map((name, index) => ({ name, modifiedMs: Date.now() - index * 60_000 }));
+  names.map((name, index) => ({
+    name,
+    modifiedMs: Date.now() - index * 60_000,
+  }));
 
 const base64 = (text: string) => Buffer.from(text).toString('base64');
 
@@ -100,7 +109,9 @@ function focusTerminal(terminalId: string) {
   useLayoutStore.setState({
     activeTabByWorkspace: { 'ws-1': 'tab-1' },
     focusedPaneByTab: { 'ws-1': { 'tab-1': 'pane-1' } },
-    layoutsByTab: { 'ws-1': { 'tab-1': { type: 'leaf', id: 'pane-1', terminalId } } },
+    layoutsByTab: {
+      'ws-1': { 'tab-1': { type: 'leaf', id: 'pane-1', terminalId } },
+    },
   });
 }
 
@@ -137,7 +148,11 @@ describe('QuickLookDialog', () => {
     editor.getSelection.mockReturnValue(null);
     window.localStorage.clear();
     useQuickLookStore.setState(useQuickLookStore.getInitialState(), true);
-    useLayoutStore.setState({ activeTabByWorkspace: {}, focusedPaneByTab: {}, layoutsByTab: {} });
+    useLayoutStore.setState({
+      activeTabByWorkspace: {},
+      focusedPaneByTab: {},
+      layoutsByTab: {},
+    });
     useToastStore.setState({ toasts: [] });
     terminalFiles.listed = [];
     api.readViewerFile.mockImplementation(
@@ -195,7 +210,9 @@ describe('QuickLookDialog', () => {
     openViewer(images);
 
     expect(
-      await within(sidebarList('shots')).findByRole('button', { name: 'c.png' })
+      await within(sidebarList('shots')).findByRole('button', {
+        name: 'c.png',
+      })
     ).toHaveAttribute('title', expect.stringMatching(/^\/tmp\/shots\/c\.png\nModified .+/));
     expect(api.listViewerFolder).toHaveBeenCalledWith('ws-1', 'term-1', images[0].source);
     const nav = screen.getByRole('navigation', { name: 'Files' });
@@ -209,15 +226,20 @@ describe('QuickLookDialog', () => {
       ['a.png', '/tmp/shots/'],
       ['b.png', 'out/'],
     ]);
-    expect(within(nav).getByRole('button', { name: 'a.png' })).toHaveAttribute(
+    expect(within(sidebarList('Recent')).getByRole('button', { name: 'a.png' })).toHaveAttribute(
       'aria-current',
       'true'
     );
-    // The folder on screen lists its other files, newest first, each with when it was modified.
+    // The folder on screen lists all its files, Recent's too, newest first, each with when it was
+    // modified. Only the row the file was shown from is the current one.
     expect(sidebarRows('shots')).toEqual([
       ['c.png', 'now'],
+      ['a.png', '1m'],
       ['notes.md', '2m'],
     ]);
+    expect(within(sidebarList('shots')).getByRole('button', { name: 'a.png' })).not.toHaveAttribute(
+      'aria-current'
+    );
   });
 
   it('steps down the recent files, then the folder of the file on screen', async () => {
@@ -246,14 +268,29 @@ describe('QuickLookDialog', () => {
       filePath: 'out/d.png',
     });
     expect(screen.getByRole('dialog')).toHaveTextContent('out/d.png');
+    // On to the folder's own row for the recent file in it, the last.
+    await user.keyboard('{ArrowRight}');
+    await vi.waitFor(() =>
+      expect(within(sidebarList('out')).getByRole('button', { name: 'b.png' })).toHaveAttribute(
+        'aria-current',
+        'true'
+      )
+    );
     expect(screen.queryByRole('button', { name: 'Next file' })).not.toBeInTheDocument();
 
-    await user.keyboard('{ArrowLeft}');
-    expect(await screen.findByRole('img', { name: 'b.png' })).toBeInTheDocument();
+    await user.keyboard('{ArrowLeft}{ArrowLeft}');
+    await vi.waitFor(() =>
+      expect(within(sidebarList('Recent')).getByRole('button', { name: 'b.png' })).toHaveAttribute(
+        'aria-current',
+        'true'
+      )
+    );
     await user.click(screen.getByRole('button', { name: 'Previous file' }));
     expect(await screen.findByRole('img', { name: 'a.png' })).toBeInTheDocument();
     expect(
-      await within(sidebarList('shots')).findByRole('button', { name: 'c.png' })
+      await within(sidebarList('shots')).findByRole('button', {
+        name: 'c.png',
+      })
     ).toBeVisible();
   });
 
@@ -262,12 +299,11 @@ describe('QuickLookDialog', () => {
     const user = userEvent.setup();
     renderViewer();
     openViewer(images);
-    const nav = screen.getByRole('navigation', { name: 'Files' });
     await within(sidebarList('shots')).findByRole('button', { name: 'c.png' });
 
     await user.keyboard('{ArrowDown}');
     expect(await screen.findByRole('img', { name: 'b.png' })).toBeInTheDocument();
-    expect(within(nav).getByRole('button', { name: 'b.png' })).toHaveAttribute(
+    expect(within(sidebarList('Recent')).getByRole('button', { name: 'b.png' })).toHaveAttribute(
       'aria-current',
       'true'
     );
@@ -322,7 +358,9 @@ describe('QuickLookDialog', () => {
     renderViewer();
     openViewer(images);
     const row = (name: string) => within(sidebarList('shots')).getByRole('button', { name });
-    await within(sidebarList('shots')).findByRole('button', { name: 'notes.md' });
+    await within(sidebarList('shots')).findByRole('button', {
+      name: 'notes.md',
+    });
     await screen.findByRole('img', { name: 'a.png' });
 
     // A click leaves focus on the viewer, not on the file clicked or a button that had it.
@@ -332,19 +370,43 @@ describe('QuickLookDialog', () => {
     expect(screen.getByRole('dialog')).toHaveFocus();
 
     // Tabbed to, the file on screen keeps focus as the arrows move on from it.
+    // Down the folder's rows, through its row for the recent file in it too.
     row('c.png').focus();
+    await user.keyboard('{ArrowDown}');
+    await vi.waitFor(() => expect(row('a.png')).toHaveFocus());
     await user.keyboard('{ArrowDown}');
     await vi.waitFor(() =>
       expect(useQuickLookStore.getState().session?.item.path).toBe('/tmp/shots/notes.md')
     );
     expect(row('notes.md')).toHaveFocus();
-    await user.keyboard('{ArrowUp}');
+    await user.keyboard('{ArrowUp}{ArrowUp}');
     expect(row('c.png')).toHaveFocus();
 
     // Up into the recent files, and on into another folder, which no longer lists the file left.
     await user.keyboard('{ArrowUp}');
     expect(await screen.findByRole('img', { name: 'b.png' })).toBeInTheDocument();
     expect(within(sidebarList('Recent')).getByRole('button', { name: 'b.png' })).toHaveFocus();
+  });
+
+  it('moves focus to Recent when a folder there turns out to have no files to step into', async () => {
+    let resolveListing!: (files: unknown[]) => void;
+    api.listViewerFolder.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveListing = resolve;
+      })
+    );
+    renderViewer();
+    openViewer([terminalItem('/tmp/shots/', '/tmp/shots/')]);
+
+    // While it loads, the folder is at its own section, above the files to come.
+    const heading = screen.getByRole('button', { name: 'Show shots' });
+    expect(heading).toHaveAttribute('aria-current', 'true');
+    heading.focus();
+    await act(async () => resolveListing(listing('before/')));
+
+    const recentRow = within(sidebarList('Recent')).getByRole('button', { name: 'shots' });
+    expect(recentRow).toHaveAttribute('aria-current', 'true');
+    expect(recentRow).toHaveFocus();
   });
 
   it('shows 8 of a long folder, and more to reach the file on screen', async () => {
@@ -357,7 +419,9 @@ describe('QuickLookDialog', () => {
 
     expect(sidebarRows('shots')).toHaveLength(8);
     expect(
-      within(sidebarList('shots')).getByRole('button', { name: 'Show 3 more…' })
+      within(sidebarList('shots')).getByRole('button', {
+        name: 'Show 4 more…',
+      })
     ).toBeVisible();
 
     // Stepped past the eighth, the folder shows as far as the file on screen.
@@ -367,8 +431,12 @@ describe('QuickLookDialog', () => {
     );
     expect(sidebarRows('shots')).toHaveLength(9);
 
-    await user.click(within(sidebarList('shots')).getByRole('button', { name: 'Show 2 more…' }));
-    expect(sidebarRows('shots')).toHaveLength(11);
+    await user.click(
+      within(sidebarList('shots')).getByRole('button', {
+        name: 'Show 3 more…',
+      })
+    );
+    expect(sidebarRows('shots')).toHaveLength(12);
   });
 
   it('keeps a folder with many subfolders from hiding its files', async () => {
@@ -386,12 +454,18 @@ describe('QuickLookDialog', () => {
       ...files.slice(0, 8),
       ...folders.slice(0, 8).map((folder) => folder.slice(0, -1)),
     ]);
-    await user.click(within(sidebarList('shots')).getByRole('button', { name: 'Show 2 more…' }));
-    expect(names()).toHaveLength(10 + 8);
     await user.click(
-      within(sidebarList('shots')).getByRole('button', { name: 'Show 2 more folders…' })
+      within(sidebarList('shots')).getByRole('button', {
+        name: 'Show 3 more…',
+      })
     );
-    expect(names()).toHaveLength(10 + 10);
+    expect(names()).toHaveLength(11 + 8);
+    await user.click(
+      within(sidebarList('shots')).getByRole('button', {
+        name: 'Show 2 more folders…',
+      })
+    );
+    expect(names()).toHaveLength(11 + 10);
   });
 
   it('hides the sidebar with its button or Cmd+B, and remembers that', async () => {
@@ -429,7 +503,11 @@ describe('QuickLookDialog', () => {
     renderViewer();
     openViewer([terminalItem('/tmp/shots/a.png', '/tmp/shots/a.png')]);
 
-    await user.click(await within(sidebarList('shots')).findByRole('button', { name: 'c.png' }));
+    await user.click(
+      await within(sidebarList('shots')).findByRole('button', {
+        name: 'c.png',
+      })
+    );
 
     expect(await screen.findByRole('img', { name: 'c.png' })).toBeInTheDocument();
     expect(api.readViewerFile).toHaveBeenLastCalledWith('ws-1', 'term-1', {
@@ -462,7 +540,9 @@ describe('QuickLookDialog', () => {
     renderViewer();
     openViewer([terminalItem('/tmp/shots/', '/tmp/shots/')]);
 
-    const contents = await screen.findByRole('list', { name: 'Contents of shots' });
+    const contents = await screen.findByRole('list', {
+      name: 'Contents of shots',
+    });
     expect(screen.getByRole('dialog', { name: 'shots' })).toHaveTextContent('/tmp/shots/');
     expect(
       (await within(contents).findAllByRole('button')).map((button) => button.textContent)
@@ -591,7 +671,10 @@ describe('QuickLookDialog', () => {
   });
 
   it('goes back to the preview after a line link, but keeps a Source view chosen by hand', async () => {
-    api.readViewerFile.mockResolvedValue({ data: base64('# Notes'), mimeType: 'text/markdown' });
+    api.readViewerFile.mockResolvedValue({
+      data: base64('# Notes'),
+      mimeType: 'text/markdown',
+    });
     const user = userEvent.setup();
     renderViewer();
     const showLink = (item: QuickLookItem) =>
@@ -623,20 +706,29 @@ describe('QuickLookDialog', () => {
   });
 
   it('shows code from a link at the line it points to', async () => {
-    api.readViewerFile.mockResolvedValue({ data: base64('a\nb\nc'), mimeType: 'text/plain' });
+    api.readViewerFile.mockResolvedValue({
+      data: base64('a\nb\nc'),
+      mimeType: 'text/plain',
+    });
     renderViewer();
     openViewer([{ ...terminalItem('/tmp/migrate.py'), lineNumber: 2 }]);
 
     expect(await screen.findByLabelText('Editor for /tmp/migrate.py')).toHaveTextContent('a b c');
     // The editor mounts in an effect, which can run after the text shows.
     await waitFor(() =>
-      expect(editor.setPosition).toHaveBeenCalledWith({ lineNumber: 2, column: 1 })
+      expect(editor.setPosition).toHaveBeenCalledWith({
+        lineNumber: 2,
+        column: 1,
+      })
     );
     expect(editor.revealLineInCenter).toHaveBeenCalledWith(2);
   });
 
   it('shows the source of a Markdown file a link points into, at its line', async () => {
-    api.readViewerFile.mockResolvedValue({ data: base64('# Notes'), mimeType: 'text/markdown' });
+    api.readViewerFile.mockResolvedValue({
+      data: base64('# Notes'),
+      mimeType: 'text/markdown',
+    });
     renderViewer();
     openViewer([{ ...workspaceItem('docs/NOTES.md'), lineNumber: 1 }]);
 
@@ -702,7 +794,11 @@ describe('QuickLookDialog', () => {
       kind: 'mode',
       workspaceId: 'ws-1',
       mode: 'browse',
-      after: { kind: 'browse-file', filePath: 'out/b.png', lineNumber: undefined },
+      after: {
+        kind: 'browse-file',
+        filePath: 'out/b.png',
+        lineNumber: undefined,
+      },
     });
     useFileViewerStore.setState({ fileViewerWorkspaceId: null });
   });
@@ -746,7 +842,10 @@ describe('QuickLookDialog', () => {
   });
 
   it('names the lines selected in the source in the @path', async () => {
-    api.readViewerFile.mockResolvedValue({ data: base64('a\nb\nc\nd'), mimeType: 'text/plain' });
+    api.readViewerFile.mockResolvedValue({
+      data: base64('a\nb\nc\nd'),
+      mimeType: 'text/plain',
+    });
     editor.getSelection.mockReturnValue({
       startLineNumber: 2,
       endLineNumber: 3,
@@ -907,7 +1006,10 @@ describe('QuickLookDialog', () => {
     const prompt = () => screen.getByRole('textbox', { name: 'Prompt' });
 
     it('opens inside the viewer, putting in the file with the lines selected', async () => {
-      api.readViewerFile.mockResolvedValue({ data: base64('a\nb\nc'), mimeType: 'text/plain' });
+      api.readViewerFile.mockResolvedValue({
+        data: base64('a\nb\nc'),
+        mimeType: 'text/plain',
+      });
       editor.getSelection.mockReturnValue({
         startLineNumber: 2,
         endLineNumber: 3,

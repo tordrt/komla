@@ -35,9 +35,17 @@ export interface QuickLookItem {
   lineNumber?: number;
 }
 
+/** Where in the sidebar a file is: in Recent, or in the folder's section. */
+export type QuickLookSection = 'recent' | 'folder';
+
 export interface QuickLookSession {
   workspaceId: string;
   item: QuickLookItem;
+  /**
+   * The section it was chosen in, for a file both list: Recent, unless shown from the folder.
+   * The arrows step on from there.
+   */
+  from?: QuickLookSection;
 }
 
 /** The subfolders and viewable files of the folder on screen, or of the file's folder. */
@@ -55,8 +63,8 @@ interface QuickLookState {
   toggleSidebar: () => void;
   /** Shows a workspace's file from terminals, as a link or the files list opens it. */
   open: (workspaceId: string, item: QuickLookItem) => void;
-  /** Shows a file from the sidebar. */
-  show: (item: QuickLookItem) => void;
+  /** Shows a file from the sidebar, chosen in `from`: Recent, or the folder's section. */
+  show: (item: QuickLookItem, from: QuickLookSection) => void;
   /** Moves through the sidebar's files, with `listed` the terminal files it lists. */
   step: (delta: number, listed?: QuickLookListed) => void;
   close: () => void;
@@ -109,8 +117,8 @@ export interface QuickLookFolderSection {
   /** The folder it is in, to go up to, unless it is the top: the workspace, root or ~/. */
   parent: QuickLookItem | null;
   /**
-   * The files the viewer can show in it, newest first, but those listed above. The file on screen
-   * comes first when the listing leaves it out, such as a type it skips.
+   * The files the viewer can show in it, newest first, Recent's too. The file on screen comes
+   * first when the listing leaves it out, such as a type it skips.
    */
   files: QuickLookItem[];
   folders: QuickLookItem[];
@@ -124,9 +132,13 @@ export interface QuickLookFolderSection {
 export interface QuickLookSidebarSections {
   recent: QuickLookItem[];
   folder: QuickLookFolderSection;
+  /** The section whose row is the one on screen, for a file or folder both list. */
+  current: QuickLookSection;
 }
 
-function withoutRepeats(items: QuickLookItem[], seen: Set<string>): QuickLookItem[] {
+/** The files from terminals, each once, where it was opened or printed last. */
+function withoutRepeats(items: QuickLookItem[]): QuickLookItem[] {
+  const seen = new Set<string>();
   return items.filter((item) => {
     const key = quickLookItemKey(item);
     if (seen.has(key)) return false;
@@ -135,23 +147,48 @@ function withoutRepeats(items: QuickLookItem[], seen: Set<string>): QuickLookIte
   });
 }
 
-/** The sidebar, with each file once: in the first section that lists it. */
+/**
+ * Where the row on screen is, for a file or folder both sections list: a file where it was chosen,
+ * and a folder at its own section while it has files to step into.
+ */
+function sectionInBoth(
+  onScreen: QuickLookItem,
+  from: QuickLookSection | undefined,
+  intoFiles: boolean
+): QuickLookSection {
+  if (isQuickLookFolder(onScreen)) return intoFiles ? 'folder' : 'recent';
+  return from ?? 'recent';
+}
+
+/**
+ * The sidebar. The folder's section lists all its files, as a file tree does, so a file can be in
+ * Recent too: the one on screen is in the section it was chosen in. A folder on screen is at its
+ * section, just above its files, even when Recent lists it too, so the arrows go into a folder
+ * opened from a link; one with no files to go into stays in Recent.
+ */
 export function quickLookSidebar(
   { session, folder }: Pick<QuickLookState, 'session' | 'folder'>,
   listed: QuickLookListed = NOTHING_LISTED
 ): QuickLookSidebarSections | null {
   if (!session) return null;
-  const { workspaceId, item: onScreen } = session;
-  const seen = new Set<string>();
-  const recent = withoutRepeats(listed, seen);
+  const { workspaceId, item: onScreen, from } = session;
+  const onScreenKey = quickLookItemKey(onScreen);
+  const recent = withoutRepeats(listed);
+  const inRecent = recent.some((item) => quickLookItemKey(item) === onScreenKey);
 
   const key = folderKey(workspaceId, onScreen);
-  const loaded = folder?.key === key && folder.status === 'loaded' ? folder.items : [];
-  const files = withoutRepeats(
-    loaded.filter((item) => !isQuickLookFolder(item)),
-    seen
-  );
-  if (!isQuickLookFolder(onScreen) && !seen.has(quickLookItemKey(onScreen))) {
+  const status = folder?.key === key ? folder.status : undefined;
+  const loaded = status === 'loaded' ? folder!.items : [];
+  const files = loaded.filter((item) => !isQuickLookFolder(item));
+  const intoFiles = files.length > 0 || status === 'loading';
+  const current = inRecent ? sectionInBoth(onScreen, from, intoFiles) : 'folder';
+  // Not while the folder loads, for a file on screen in Recent, as it would move once listed.
+  const listsOnScreen = files.some((item) => quickLookItemKey(item) === onScreenKey);
+  if (
+    !isQuickLookFolder(onScreen) &&
+    !listsOnScreen &&
+    (current === 'folder' || status === 'loaded')
+  ) {
     files.unshift(onScreen);
   }
   const folderOnScreen = containingFolder(onScreen);
@@ -163,8 +200,9 @@ export function quickLookSidebar(
       parent: parentFolder(folderOnScreen),
       files,
       folders: loaded.filter(isQuickLookFolder),
-      status: folder?.key === key ? folder.status : undefined,
+      status,
     },
+    current,
   };
 }
 
@@ -219,34 +257,42 @@ function containingFolder(item: QuickLookItem): QuickLookItem {
   return isQuickLookFolder(item) ? item : folderItem(item, { name: '' });
 }
 
+interface SidebarRow {
+  item: QuickLookItem;
+  section: QuickLookSection;
+}
+
 /**
- * The file `delta` places from the one on screen, down the sidebar, skipping folders. A folder on
- * screen steps from its own section, just above its files, even when Recent lists it too, so the
- * arrows go into a folder opened from a link; one with no files to go into stays in Recent.
+ * The file `delta` places from the row on screen, down the sidebar, skipping folders and the other
+ * row of the file on screen: Recent's, then the folder's, with a folder on screen at its section
+ * just above its files.
  */
 function stepTarget(
   state: QuickLookState,
   delta: number,
   listed: QuickLookListed = NOTHING_LISTED
-): QuickLookItem | undefined {
+): SidebarRow | undefined {
   const sections = quickLookSidebar(state, listed);
   if (!state.session || !sections) return undefined;
   const { item } = state.session;
   const onScreen = quickLookItemKey(item);
-  const isFolder = isQuickLookFolder(item);
-  const { files, status } = sections.folder;
-  const intoFiles = files.length > 0 || status === 'loading';
-  const above =
-    isFolder && intoFiles
-      ? sections.recent.filter((recent) => quickLookItemKey(recent) !== onScreen)
-      : sections.recent;
-  // A folder on screen that Recent no longer lists here comes just above its files.
-  const folderOnScreen = isFolder && !above.some((other) => quickLookItemKey(other) === onScreen);
-  const items = [...above, ...(folderOnScreen ? [item] : []), ...files].filter(
-    (other) => quickLookItemKey(other) === onScreen || !isQuickLookFolder(other)
+  const { current } = sections;
+  const rows: SidebarRow[] = [
+    ...sections.recent.map((recent) => ({ item: recent, section: 'recent' as const })),
+    ...(isQuickLookFolder(item) && current === 'folder'
+      ? [{ item, section: 'folder' as const }]
+      : []),
+    ...sections.folder.files.map((file) => ({ item: file, section: 'folder' as const })),
+  ];
+  const isOnScreen = (row: SidebarRow) =>
+    row.section === current && quickLookItemKey(row.item) === onScreen;
+  // A step to the file's other row would show the same file again.
+  const steps = rows.filter(
+    (row) =>
+      isOnScreen(row) || (!isQuickLookFolder(row.item) && quickLookItemKey(row.item) !== onScreen)
   );
-  const index = items.findIndex((other) => quickLookItemKey(other) === onScreen);
-  return index < 0 ? undefined : items[index + delta];
+  const index = steps.findIndex(isOnScreen);
+  return index < 0 ? undefined : steps[index + delta];
 }
 
 export function canStepQuickLook(
@@ -295,10 +341,10 @@ export const useQuickLookStore = create<QuickLookState>((set, get) => {
       syncFolder();
     },
 
-    show: (item) => {
+    show: (item, from) => {
       const { session } = get();
       if (!session) return;
-      set({ session: { ...session, item } });
+      set({ session: { workspaceId: session.workspaceId, item, from } });
       syncFolder();
     },
 
@@ -306,7 +352,8 @@ export const useQuickLookStore = create<QuickLookState>((set, get) => {
       const state = get();
       const next = stepTarget(state, delta, listed);
       if (!state.session || !next) return;
-      set({ session: { ...state.session, item: next } });
+      const { workspaceId } = state.session;
+      set({ session: { workspaceId, item: next.item, from: next.section } });
       syncFolder();
     },
 

@@ -76,6 +76,7 @@ import {
   type QuickLookFolderSection,
   type QuickLookItem,
   type QuickLookListed,
+  type QuickLookSection,
   type QuickLookSession,
 } from '@/stores/quick-look.store';
 import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
@@ -598,11 +599,13 @@ function QuickLookSidebar({
     rememberTerminalFiles(session.workspaceId);
   }, [session.workspaceId]);
 
-  // Focus moves with the file on screen while a file here has it.
+  // Focus moves with the file on screen while a file here has it, and with its row when the file
+  // on screen moves to the other section's row, as a folder does once its listing comes in.
+  const current = sections?.current;
   useEffect(() => {
     if (!hasFocus.current) return;
     navRef.current?.querySelector<HTMLElement>('[aria-current="true"]')?.focus();
-  }, [onScreen]);
+  }, [onScreen, current]);
 
   if (!sections) return null;
   return (
@@ -619,12 +622,16 @@ function QuickLookSidebar({
       className="quick-look-chrome flex w-60 shrink-0 flex-col gap-3 overflow-y-auto p-1.5"
     >
       {sections.recent.length > 0 && (
-        <TerminalSection title="Recent" items={sections.recent} onScreen={onScreen} />
+        <TerminalSection
+          title="Recent"
+          items={sections.recent}
+          onScreen={sections.current === 'recent' ? onScreen : null}
+        />
       )}
       <FolderSection
         key={sections.folder.key}
         section={sections.folder}
-        onScreen={onScreen}
+        onScreen={sections.current === 'folder' ? onScreen : null}
         separated={sections.recent.length > 0}
       />
     </nav>
@@ -632,7 +639,7 @@ function QuickLookSidebar({
 }
 
 /** How many of a list's rows show: SECTION_ROWS, or more to reach the file on screen. */
-function useShownRows(items: QuickLookItem[], onScreen: string) {
+function useShownRows(items: QuickLookItem[], onScreen: string | null) {
   const [expanded, setExpanded] = useState(false);
   const index = items.findIndex((item) => quickLookItemKey(item) === onScreen);
   const shown = expanded ? items.length : Math.max(SECTION_ROWS, index + 1);
@@ -674,20 +681,21 @@ function TerminalSection({
 }: {
   title: string;
   items: QuickLookItem[];
-  onScreen: string;
+  /** The file on screen, when its row is in this section. */
+  onScreen: string | null;
 }) {
   return (
     <section aria-label={title} className="flex flex-col gap-0.5">
       <h3 className="px-2 pb-0.5 text-ui font-medium text-muted-foreground-60">{title}</h3>
-      <SidebarRows items={items} onScreen={onScreen} folderHints />
+      <SidebarRows items={items} section="recent" onScreen={onScreen} folderHints />
     </section>
   );
 }
 
 /**
- * The folder on screen, or of the file on screen, as a tree: its other files, in the order the
- * arrows step through them, then its subfolders, under its name, with a way up to the folder it
- * is in. Each shows SECTION_ROWS, so many subfolders can't push its files out of sight.
+ * The folder on screen, or of the file on screen, as a tree: all its files, Recent's too, in the
+ * order the arrows step through them, then its subfolders, under its name, with a way up to the
+ * folder it is in. Each shows SECTION_ROWS, so many subfolders can't push its files out of sight.
  */
 function FolderSection({
   section,
@@ -695,7 +703,8 @@ function FolderSection({
   separated,
 }: {
   section: QuickLookFolderSection;
-  onScreen: string;
+  /** The file or folder on screen, when its row is in this section. */
+  onScreen: string | null;
   /** Whether sections above it, which it is set apart from. */
   separated: boolean;
 }) {
@@ -723,7 +732,7 @@ function FolderSection({
               aria-label={`Show ${title}`}
               aria-current={isOnScreen || undefined}
               onMouseDown={focusViewer}
-              onClick={() => show(folder)}
+              onClick={() => show(folder, 'folder')}
               className={cn(
                 'flex min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
                 isOnScreen && 'bg-accent text-foreground'
@@ -741,7 +750,7 @@ function FolderSection({
             size="xs"
             className="text-muted-foreground"
             onMouseDown={focusViewer}
-            onClick={() => show(parent)}
+            onClick={() => show(parent, 'folder')}
           >
             <ArrowUp className="size-3.5" />
           </IconButton>
@@ -750,8 +759,8 @@ function FolderSection({
       {/* Indented under the folder, along a guide line, as a file tree nests them. */}
       {files.length + folders.length > 0 && (
         <div className="ml-[15px] flex flex-col gap-0.5 border-l border-border pl-1.5">
-          <SidebarRows items={files} onScreen={onScreen} />
-          <SidebarRows items={folders} onScreen={onScreen} noun="folders" />
+          <SidebarRows items={files} section="folder" onScreen={onScreen} />
+          <SidebarRows items={folders} section="folder" onScreen={onScreen} noun="folders" />
         </div>
       )}
       {status === 'loading' && <Spinner size="sm" className="mx-2 my-1 text-muted-foreground" />}
@@ -765,12 +774,16 @@ function FolderSection({
 /** A list of the sidebar's files or folders, SECTION_ROWS of them, or more to reach the file on screen. */
 function SidebarRows({
   items,
+  section,
   onScreen,
   folderHints = false,
   noun,
 }: {
   items: QuickLookItem[];
-  onScreen: string;
+  /** The section the rows are in, which the arrows step on from once one is shown. */
+  section: QuickLookSection;
+  /** The file on screen, when its row is in this section. */
+  onScreen: string | null;
   /** Whether each row names the folder its file is in, for files listed away from their folder. */
   folderHints?: boolean;
   noun?: string;
@@ -786,6 +799,7 @@ function SidebarRows({
             <SidebarFile
               key={key}
               item={item}
+              section={section}
               isCurrent={key === onScreen}
               folderHint={folderHints ? parentPath(item.path) : undefined}
             />
@@ -855,7 +869,7 @@ function FolderBody({ item, name }: { item: QuickLookItem; name: string }) {
                   type="button"
                   title={entry.path}
                   onMouseDown={focusViewer}
-                  onClick={() => show(entry)}
+                  onClick={() => show(entry, 'folder')}
                   className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors duration-150 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
                 >
                   <EntryIcon item={entry} className="size-4" />
@@ -888,10 +902,12 @@ function ModifiedTime({ modifiedMs }: { modifiedMs: number | undefined }) {
 
 function SidebarFile({
   item,
+  section,
   isCurrent,
   folderHint,
 }: {
   item: QuickLookItem;
+  section: QuickLookSection;
   isCurrent: boolean;
   /** The folder the file is in, for a file listed away from its folder. */
   folderHint?: string;
@@ -922,7 +938,7 @@ function SidebarFile({
           title={title}
           aria-current={isCurrent || undefined}
           onMouseDown={focusViewer}
-          onClick={() => show(item)}
+          onClick={() => show(item, section)}
           className={cn(
             'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
             isCurrent

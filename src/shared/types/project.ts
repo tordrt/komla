@@ -82,6 +82,9 @@ export interface SetupStep {
   trigger?: SetupTrigger;
 }
 
+/** An agent that asks before it starts whether the user trusts a folder it hasn't worked in. */
+export type FolderTrustAgent = 'claude-code' | 'codex';
+
 export interface Project {
   id: string;
   kind?: ProjectKind;
@@ -97,6 +100,11 @@ export interface Project {
   iconPromptWorkspaceId?: string;
   /** Set once icons were offered, so a project kept with its color dot isn't asked again. */
   iconPromptAsked?: boolean;
+  /**
+   * The agents that have started in the project. Komla stops watching their new Terminals for the
+   * prompt that asks the user to trust the folder.
+   */
+  folderTrustWatchDone?: FolderTrustAgent[];
   setupSteps?: SetupStep[];
   baseBranch?: string;
   agentPlacement?: AgentPlacement;

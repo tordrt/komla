@@ -33,6 +33,8 @@ export function createAttentionHarness(initial: Workspace[] = []) {
   const agentReplied = vi.fn<(workspaceId: string, reply: string, terminalId?: string) => void>();
   const turnActivity = vi.fn<(workspaceId: string) => void>();
   const milestone = vi.fn<(name: string, properties: Record<string, unknown>) => void>();
+  const agentReported =
+    vi.fn<(workspace: Workspace, source: string | undefined, terminalId?: string) => void>();
   const attention = new TerminalAttention({
     store,
     windows,
@@ -41,6 +43,7 @@ export function createAttentionHarness(initial: Workspace[] = []) {
     agentReplied,
     turnActivity,
     milestone,
+    agentReported,
   });
 
   return {
@@ -52,6 +55,7 @@ export function createAttentionHarness(initial: Workspace[] = []) {
     agentReplied,
     turnActivity,
     milestone,
+    agentReported,
     add: (workspace: Workspace): void => {
       workspaces.set(workspace.id, workspace);
     },

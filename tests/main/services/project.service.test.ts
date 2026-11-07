@@ -836,6 +836,27 @@ describe('ProjectService', () => {
     expect(updated).not.toHaveProperty('icon');
   });
 
+  it("remembers each agent that started in a project, so its folder trust prompt isn't watched for again", async () => {
+    const { projectService } = await import('../../../src/main/services/project.service');
+    const project = await projectService.createFromRemote({
+      remoteUrl: 'https://github.com/org/repo.git',
+    });
+    expect(projectService.isFolderTrustWatchDone(project.id, 'claude-code')).toBe(false);
+
+    projectService.markFolderTrustWatchDone(project.id, 'claude-code');
+    projectService.markFolderTrustWatchDone(project.id, 'claude-code');
+    projectService.markFolderTrustWatchDone('missing', 'codex');
+
+    expect(projectService.isFolderTrustWatchDone(project.id, 'claude-code')).toBe(true);
+    expect(projectService.isFolderTrustWatchDone(project.id, 'codex')).toBe(false);
+    const saved = JSON.parse(
+      vfs.mock.readFileSync('/mock/home/.komla/settings/projects.json', 'utf-8') as string
+    ) as { projects: { id: string; folderTrustWatchDone?: string[] }[] };
+    expect(saved.projects.find((entry) => entry.id === project.id)?.folderTrustWatchDone).toEqual([
+      'claude-code',
+    ]);
+  });
+
   it('offers icons at a new workspace until they were offered once', async () => {
     const { projectService } = await import('../../../src/main/services/project.service');
     const project = await projectService.createFromRemote({

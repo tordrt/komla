@@ -30,6 +30,7 @@ import type {
   AgentPlacement,
   SetupStep,
   Project,
+  FolderTrustAgent,
   FolderProjectMatch,
   CreateProjectParams,
   CreateProjectFromRemoteParams,
@@ -644,6 +645,20 @@ class ProjectService {
     project.iconPromptAsked = true;
     this.saveProjects();
     this.notifyRenderer();
+  }
+
+  /** Whether Komla stopped watching the project's Terminals for this agent's folder trust prompt. */
+  isFolderTrustWatchDone(id: string, agent: FolderTrustAgent): boolean {
+    return this.projects.get(id)?.folderTrustWatchDone?.includes(agent) ?? false;
+  }
+
+  /** The agent started in the project, so Komla stops watching for its folder trust prompt. */
+  markFolderTrustWatchDone(id: string, agent: FolderTrustAgent): void {
+    const project = this.projects.get(id);
+    if (!project || project.folderTrustWatchDone?.includes(agent)) return;
+    project.folderTrustWatchDone = [...(project.folderTrustWatchDone ?? []), agent];
+    // Only main reads it, so no window needs the list again.
+    this.saveProjects();
   }
 
   setSshWorkspaceModeIfUnset(id: string, mode: SshWorkspaceMode): Project {

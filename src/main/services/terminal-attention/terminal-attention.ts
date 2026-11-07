@@ -13,6 +13,7 @@ import { publishRemoteWorkspaceChange } from '../remote-workspace-events';
 
 import { isLongRunningCommand } from './background-command';
 import { CodexTitleStatus } from './codex-title-status';
+import { FOLDER_TRUST_AGENT_NAMES } from './folder-trust-watch';
 import {
   BACKGROUND_HOLD_LIMIT_MS,
   hookIdentity,
@@ -24,6 +25,7 @@ import {
 
 import type { TerminalProgramStatus } from '../../../shared/lib/terminal-escape';
 import type {
+  FolderTrustAgent,
   Terminal,
   Workspace,
   WorkspaceAttention,
@@ -268,7 +270,12 @@ export interface TerminalAttentionDependencies {
   turnActivity(workspaceId: string): void;
   /** Telemetry for the first routed notification of each kind and source. */
   milestone(name: string, properties: { notificationKind: string; source?: string }): void;
+  /** An agent ran a hook, or a Terminal's program reported its status, in the workspace. */
+  agentReported(workspace: Workspace, source: string | undefined, terminalId?: string): void;
 }
+
+/** The pill a folder trust prompt shows, in place of "Needs input". */
+export const FOLDER_TRUST_BADGE = 'Trust project';
 
 function toAttentionSource(value: string | undefined): WorkspaceAttentionSource {
   return value ?? 'generic';
@@ -335,6 +342,7 @@ export class TerminalAttention {
     if (target.terminalId) this.settleClaudePermission(hook, target.terminalId);
     if (isIgnoredHook(hook)) return this.recordIgnoredHook(hook, target) ? 'ignored' : 'unmatched';
     if (!target.workspace) return 'unmatched';
+    this.reportAgent(target.workspace, hook.source, target.terminalId);
 
     const liveScopes = new Set(
       Array.from(this.deps.store.workspaces()).flatMap((workspace) => [
@@ -466,6 +474,7 @@ export class TerminalAttention {
     if (!status.app && !(status.state === 'clear' && current)) return;
     const workspace = this.findWorkspaceByTerminalId(terminalId);
     if (!workspace) return;
+    this.reportAgent(workspace, status.app, terminalId);
     if (status.state === 'clear' || (current && current.source !== status.app)) {
       this.forgetProgramStatus(terminalId);
       this.clearTerminalSourcesOnly(workspace.id, terminalId);
@@ -548,6 +557,36 @@ export class TerminalAttention {
       if (this.programStatuses.get(terminalId) !== program) return;
       this.clearInputRequest(terminalId, program.source);
     }, ANSWER_REPORT_WAIT_MS);
+  }
+
+  /**
+   * The Terminal's agent asks the user to trust its folder before it starts. It runs no hook and
+   * reports no status until the user answers, so Komla read the prompt off the Terminal's screen.
+   */
+  folderTrustAsked(terminalId: string, agent: FolderTrustAgent): void {
+    const workspace = this.findWorkspaceByTerminalId(terminalId);
+    if (!workspace) return;
+    const attention: WorkspaceAttention = {
+      kind: 'input-required',
+      source: agent,
+      updatedAt: Date.now(),
+      badge: FOLDER_TRUST_BADGE,
+      message: `${FOLDER_TRUST_AGENT_NAMES[agent]} asks you to trust this project`,
+      terminalId,
+    };
+    this.showAttention(workspace.id, attention, terminalId);
+    this.deps.windows.attentionRaised({
+      workspaceId: workspace.id,
+      attention,
+      workspaceAttention: attention,
+    });
+    this.updateAttentionIndicator();
+  }
+
+  /** The folder trust prompt is gone, answered or with its Terminal. */
+  folderTrustAnswered(terminalId: string, agent: FolderTrustAgent): void {
+    if (this.getTerminal(terminalId)?.attention?.badge !== FOLDER_TRUST_BADGE) return;
+    this.clearInputRequest(terminalId, agent);
   }
 
   /** The Terminal's attachment ended: its settling and held hooks close. */
@@ -1485,6 +1524,11 @@ export class TerminalAttention {
       { workspace, terminalId, hasInvalidTerminalId: false },
       true
     );
+  }
+
+  /** An agent, or a Terminal's program, made itself known: it got past its folder trust prompt. */
+  private reportAgent(workspace: Workspace, source: string | undefined, terminalId?: string): void {
+    if (source) this.deps.agentReported(workspace, source, terminalId);
   }
 
   private forgetProgramStatus(terminalId: string): void {

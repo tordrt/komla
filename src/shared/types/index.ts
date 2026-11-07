@@ -96,6 +96,7 @@ export type {
   ProjectKind,
   SetupStep,
   Project,
+  FolderTrustAgent,
   FolderProjectMatch,
   ProjectIconCandidate,
   ProjectIconSource,

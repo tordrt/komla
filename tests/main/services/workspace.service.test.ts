@@ -236,6 +236,9 @@ const mockPtyService = {
   onAbort: vi.fn(),
   onAnswerKey: vi.fn(),
   onExit: vi.fn(),
+  onReset: vi.fn(),
+  onData: vi.fn(),
+  readText: vi.fn(() => Promise.resolve(undefined)),
   onManagedRemoteTerminalSessionReplaced: vi.fn(),
   onSshTerminalPoolAssignment: vi.fn(),
   onStatus: vi.fn(
@@ -278,6 +281,8 @@ const mockProjectService = {
   list: vi.fn(() => [mockProject]),
   update: vi.fn(),
   armIconPrompt: vi.fn(),
+  isFolderTrustWatchDone: vi.fn(() => false),
+  markFolderTrustWatchDone: vi.fn(),
   findOrCreateDirectoryProject: vi.fn(findOrCreateFolderProject),
 };
 vi.mock('../../../src/main/services/project.service', () => ({
@@ -9598,6 +9603,63 @@ describe('WorkspaceService', () => {
   // ============================================================================
   // Workspace Lifecycle Tests
   // ============================================================================
+
+  describe('folder trust prompts', () => {
+    it("shows the trust prompt of a new project's agent, and stops watching once the agent starts", async () => {
+      vi.useFakeTimers();
+      try {
+        vfs.setFile(
+          '/mock/home/.komla/workspaces.json',
+          JSON.stringify([
+            {
+              id: 'ws-1',
+              name: 'Workspace',
+              workingDirectory: '/ws1',
+              isWorktree: false,
+              projectId: 'project-1',
+              windowId: null,
+              categoryId: null,
+              createdAt: 1000,
+              lastActivityAt: 1000,
+              order: 0,
+            },
+          ])
+        );
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+        const terminal = workspaceService.addTerminal('ws-1', 'Claude');
+        const started = mockPtyService.onReset.mock.calls[0]?.[0] as (terminalId: string) => void;
+        const printed = mockPtyService.onData.mock.calls[0]?.[0] as (
+          terminalId: string,
+          data: string
+        ) => void;
+        mockPtyService.readText.mockResolvedValue({
+          text: ' ❯ No, exit\n   Yes, I trust this folder\n Enter to confirm · Esc to cancel',
+          bracketedPaste: false,
+        } as never);
+
+        started(terminal.id);
+        printed(terminal.id, 'Yes, I trust this folder');
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(workspaceService.get('ws-1')?.attention).toMatchObject({
+          kind: 'input-required',
+          source: 'claude-code',
+          badge: 'Trust project',
+        });
+
+        await hookTerminal(workspaceService, terminal.id, {
+          kind: 'activity',
+          source: 'claude-code',
+        });
+        expect(mockProjectService.markFolderTrustWatchDone).toHaveBeenCalledWith(
+          'project-1',
+          'claude-code'
+        );
+        expect(terminal.attention).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 
   describe('stop', () => {
     it('should stop all terminals in workspace', async () => {

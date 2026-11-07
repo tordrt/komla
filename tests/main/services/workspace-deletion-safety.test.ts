@@ -46,6 +46,8 @@ describe('Workspace Stale Cleanup', () => {
         onAbort: vi.fn(),
         onAnswerKey: vi.fn(),
         onExit: vi.fn(),
+        onReset: vi.fn(),
+        onData: vi.fn(),
         onSshTerminalPoolAssignment: vi.fn(),
         onManagedRemoteTerminalSessionReplaced: vi.fn(),
         onStatus: vi.fn(),

@@ -64,6 +64,7 @@ import { sshWorkspaceSyncHost } from './ssh-workspace-sync/host';
 import { SshWorkspaceSync } from './ssh-workspace-sync/ssh-workspace-sync';
 import { sshCompanionInstallationId, sshWorkspaceService } from './ssh-workspace.service';
 import { telemetryService } from './telemetry.service';
+import { FolderTrustWatch } from './terminal-attention/folder-trust-watch';
 import { TerminalAttention, type AgentHook } from './terminal-attention/terminal-attention';
 import { electronAttentionWindows } from './terminal-attention/windows';
 import { resolveAgentCommand, resolvePreset } from './workspace/agent-launch';
@@ -164,6 +165,7 @@ function isRestorable(workspace: Workspace): boolean {
 class WorkspaceService {
   readonly sshSync: SshWorkspaceSync;
   readonly attention: TerminalAttention;
+  private readonly folderTrust: FolderTrustWatch;
   private readonly naming: WorkspaceNaming;
   private readonly terminals: WorkspaceTerminals;
   private readonly creation: WorkspaceCreation;
@@ -295,7 +297,21 @@ class WorkspaceService {
         this.naming.recordAgentReply(workspaceId, reply, terminalId),
       turnActivity: (workspaceId) => this.recordAgentTurnActivity(workspaceId),
       milestone: (name, properties) => telemetryService.sendIntegrationMilestone(name, properties),
+      agentReported: (workspace, source, terminalId) =>
+        this.folderTrust.agentReported(workspace.projectId, source, terminalId),
     });
+    this.folderTrust = new FolderTrustWatch({
+      projectOf: (terminalId) =>
+        workspaceStore.findWorkspaceByTerminalId(terminalId)?.projectId ?? undefined,
+      isDone: (projectId, agent) => projectService.isFolderTrustWatchDone(projectId, agent),
+      markDone: (projectId, agent) => projectService.markFolderTrustWatchDone(projectId, agent),
+      readScreen: async (terminalId) => (await ptyService.readText(terminalId, 0))?.text,
+      asked: (terminalId, agent) => this.attention.folderTrustAsked(terminalId, agent),
+      answered: (terminalId, agent) => this.attention.folderTrustAnswered(terminalId, agent),
+    });
+    ptyService.onReset((terminalId) => this.folderTrust.started(terminalId));
+    ptyService.onData((terminalId, data) => this.folderTrust.output(terminalId, data));
+    ptyService.onExit((terminalId) => this.folderTrust.ended(terminalId));
     workspaceStore.attach({
       workspacesPath: join(komlaPath, 'workspaces.json'),
       terminalStatus: (terminalId) => ptyService.getStatus(terminalId),
@@ -645,6 +661,7 @@ class WorkspaceService {
   // even when no other workspace metadata is waiting to be persisted.
   async dispose(): Promise<void> {
     this.sshSync.dispose();
+    this.folderTrust.dispose();
     for (const workspace of workspaceStore.workspaces.values()) {
       this.terminals.cancelDeferredWorkspaceLaunches(workspace);
       if (isSshWorkspace(workspace)) {

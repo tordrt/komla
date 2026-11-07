@@ -105,7 +105,7 @@ import {
   type AgentState,
   type WorkspaceCardStatus,
 } from './agent-state';
-import { AgentDetails, agentName, agentSaid, AgentTime } from './AgentDetails';
+import { AgentDetails, agentName, agentSaid, AgentTime, WorkingStopwatch } from './AgentDetails';
 import {
   ATTENTION_CARD_CLASS_NAME,
   AttentionCard,
@@ -1356,7 +1356,10 @@ function BranchLine({ workspace }: { workspace: Workspace }) {
   );
 }
 
-/** How long the workspace's agent has been working, to the minute. */
+/**
+ * How long the workspace's agent has been working, to the minute. A stopwatch tells it from the
+ * time since the last activity, which takes the same place.
+ */
 function WorkingClock({ since }: { since: number }) {
   const elapsed = formatElapsed(useNow() - since);
   return (
@@ -1364,6 +1367,7 @@ function WorkingClock({ since }: { since: number }) {
       title={`Working for ${elapsed}`}
       className="ml-auto text-ui whitespace-nowrap text-muted-foreground-70 tabular-nums"
     >
+      <WorkingStopwatch />
       {elapsed}
     </span>
   );

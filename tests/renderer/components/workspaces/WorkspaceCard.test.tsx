@@ -1002,7 +1002,10 @@ describe('WorkspaceCard', () => {
 
       render(<WorkspaceCard workspace={workspace} />);
 
-      expect(screen.getByText('2m')).toHaveAttribute('title', 'Working for 2m');
+      const clock = screen.getByText('2m');
+      expect(clock).toHaveAttribute('title', 'Working for 2m');
+      // A stopwatch tells the working time from the time since the last activity.
+      expect(clock.querySelector('svg')).toBeInTheDocument();
       expect(screen.queryByText('now')).not.toBeInTheDocument();
 
       act(() => {
@@ -1030,7 +1033,9 @@ describe('WorkspaceCard', () => {
 
     render(<WorkspaceCard workspace={workspace} />);
 
-    expect(screen.getByText('now')).toBeInTheDocument();
+    const lastActivity = screen.getByText('now');
+    expect(lastActivity).toBeInTheDocument();
+    expect(lastActivity.querySelector('svg')).not.toBeInTheDocument();
     expect(screen.queryByText('2m')).not.toBeInTheDocument();
   });
 

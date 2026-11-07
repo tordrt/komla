@@ -17,6 +17,11 @@ export function agentWhen(agent: Agent, now: number): string | undefined {
   return agent.state === 'working' ? formatElapsed(now - since) : formatRelativeTime(since);
 }
 
+/** Marks a time as how long an agent has worked, not how long ago something happened. */
+export function WorkingStopwatch() {
+  return <Timer aria-hidden className="mr-0.5 inline size-3 align-[-2px]" />;
+}
+
 /** The row's time, where a stopwatch tells how long it has worked from how long ago it got there. */
 export function AgentTime({ agent, className }: { agent: Agent; className?: string }) {
   const when = agentWhen(agent, useNow());
@@ -26,9 +31,7 @@ export function AgentTime({ agent, className }: { agent: Agent; className?: stri
       title={agent.state === 'working' ? `Working for ${when}` : undefined}
       className={cn('shrink-0 text-2xs text-muted-foreground tabular-nums', className)}
     >
-      {agent.state === 'working' && (
-        <Timer aria-hidden className="mr-0.5 inline size-3 align-[-2px]" />
-      )}
+      {agent.state === 'working' && <WorkingStopwatch />}
       {when}
     </span>
   );

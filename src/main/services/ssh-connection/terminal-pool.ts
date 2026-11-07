@@ -12,7 +12,13 @@ import {
 } from '../../lib/terminal-control';
 import { isWslMode, windowsPathToWsl } from '../../lib/wsl';
 
-import { SSH_CONTROL_PERSIST_SECONDS, sshControlPath, sshOptionArgs } from './policy';
+import { logSshLogin, watchSshTerminalLogins } from './logins';
+import {
+  SSH_CONTROL_PERSIST_SECONDS,
+  sshConnectionName,
+  sshControlPath,
+  sshOptionArgs,
+} from './policy';
 
 import type { SshHost } from '../../../shared/types';
 import type { SshTerminalPoolAssignment, SshTerminalPoolIndex } from '../../lib/terminal-control';
@@ -23,6 +29,7 @@ interface TerminalPoolMember {
 }
 
 interface TerminalPoolReservation {
+  hostId: string;
   poolKey: string;
   assignment: SshTerminalPoolAssignment;
 }
@@ -53,6 +60,13 @@ export class SshTerminalPool {
         Boolean(candidate.path)
       );
     const controlPath = controlPaths[0]?.path;
+    for (const { poolIndex, path } of controlPaths) {
+      watchSshTerminalLogins(path, {
+        hostId: host.id,
+        connection: sshConnectionName({ kind: 'terminal', poolIndex }),
+      });
+    }
+    if (!controlPath) logSshLogin({ hostId: host.id, connection: 'terminal (not shared)' });
     const standaloneArgs = [
       ...sshOptionArgs(host, true),
       ...connectionArgs,
@@ -167,6 +181,10 @@ export class SshTerminalPool {
     if (reservation.assignment.kind === 'standalone' && nextAssignment.kind === 'standalone') {
       return;
     }
+    if (nextAssignment.kind === 'standalone') {
+      // Every shared connection refused it a session, so it logs in by itself.
+      logSshLogin({ hostId: reservation.hostId, connection: 'terminal (not shared)' });
+    }
     if (
       reservation.assignment.kind === 'pooled' &&
       nextAssignment.kind === 'pooled' &&
@@ -247,6 +265,7 @@ export class SshTerminalPool {
     member.terminalIds.add(terminalId);
     members.set(poolIndex, member);
     this.assignments.set(terminalId, {
+      hostId: host.id,
       poolKey,
       assignment: { kind: 'pooled', poolIndex },
     });

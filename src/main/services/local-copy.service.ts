@@ -334,6 +334,7 @@ class LocalCopyService {
       readKeptPathRules(workspaceId, backend),
     ]);
     const transport = sshWorkspaceService.getRsyncTransport(backend.hostId);
+    transport.logLogin?.();
     const remotePath = `${transport.remoteTarget}:${backend.remoteDirectory}/`;
     const legacyRemotePath = `${transport.remoteTarget}:${shellQuotePosix(`${backend.remoteDirectory}/`)}`;
     try {

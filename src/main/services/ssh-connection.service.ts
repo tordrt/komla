@@ -23,12 +23,18 @@ import {
 } from './ssh-connection/connection-holds';
 import { ExecChannelUnavailableError, SshExecChannels } from './ssh-connection/exec-channel';
 import {
+  logSshLogin,
+  logSshLoginUnlessShared,
+  watchSshTerminalLogins,
+} from './ssh-connection/logins';
+import {
   SSH_CONTROL_PERSIST_SECONDS,
   isSshMultiplexedSessionFailure,
   jumpsWithFlag,
   sshArgs,
   sshControlArgs,
   sshControlPath,
+  sshConnectionName,
   sshOptionArgs,
 } from './ssh-connection/policy';
 import { SshTerminalPool } from './ssh-connection/terminal-pool';
@@ -125,6 +131,8 @@ export interface SshStreamingRunOptions {
 export interface SshRsyncTransport {
   remoteTarget: string;
   remoteShell: string;
+  /** Logs the login rsync's ssh makes when it starts with no shared connection open. */
+  logLogin?: () => void;
 }
 
 /** What `ssh -G` shows ssh connects to a host with. */
@@ -192,6 +200,14 @@ class SshConnectionService {
     return {
       remoteTarget: host.user ? `${host.user}@${hostname}` : hostname,
       remoteShell: ['ssh', ...args].map(shellQuotePosix).join(' '),
+      logLogin: () => {
+        if (controlPath) {
+          logSshLoginUnlessShared(controlPath, {
+            hostId: host.id,
+            connection: 'background (sync)',
+          });
+        }
+      },
     };
   }
 
@@ -426,7 +442,11 @@ class SshConnectionService {
       options
     )
       .catch(() =>
-        execFileAsync('ssh', ['-o', 'BatchMode=yes', ...sshArgs(host, 'true', purpose)], options)
+        execFileAsync(
+          'ssh',
+          ['-o', 'BatchMode=yes', ...this.sharedArgs(host, 'true', purpose)],
+          options
+        )
       )
       .then(
         () => holdConnection?.(),
@@ -855,7 +875,7 @@ class SshConnectionService {
       'command',
       async (shared) => {
         const args = shared
-          ? sshArgs(host, shellCommand, purpose)
+          ? this.sharedArgs(host, shellCommand, purpose)
           : this.standaloneArgs(host, shellCommand, purpose);
         const { stdout } = await execFileAsync('ssh', [...batch, ...args], options);
         return stdout;
@@ -914,7 +934,7 @@ class SshConnectionService {
   ): Promise<number> {
     return new Promise<number>((resolve, reject) => {
       const args = multiplex
-        ? sshArgs(host, shellCommand, purpose)
+        ? this.sharedArgs(host, shellCommand, purpose)
         : this.standaloneArgs(host, shellCommand, purpose);
       const child = spawn('ssh', args, {
         env: buildSshEnv(askpassService),
@@ -992,7 +1012,7 @@ class SshConnectionService {
         else resolve(stdout);
       };
       const args = multiplex
-        ? sshArgs(host, shellCommand, purpose)
+        ? this.sharedArgs(host, shellCommand, purpose)
         : this.standaloneArgs(host, shellCommand, purpose);
       const child = execFile(
         'ssh',
@@ -1030,7 +1050,7 @@ class SshConnectionService {
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const args = multiplex
-        ? sshArgs(host, shellCommand, purpose)
+        ? this.sharedArgs(host, shellCommand, purpose)
         : this.standaloneArgs(host, shellCommand, purpose);
       const child = execFile(
         'ssh',
@@ -1056,11 +1076,30 @@ class SshConnectionService {
     });
   }
 
+  /**
+   * The arguments of a command on the purpose's shared connection, which logs the login it makes
+   * when no connection is open there.
+   */
+  private sharedArgs(
+    host: SshHost,
+    remoteCommand: string,
+    purpose: SshConnectionPurpose
+  ): string[] {
+    const controlPath = sshControlPath(host, purpose);
+    const source = { hostId: host.id, connection: sshConnectionName(purpose) };
+    // A terminal connection is logged as it opens, whichever ssh opens it.
+    if (controlPath && purpose.kind === 'terminal') watchSshTerminalLogins(controlPath, source);
+    else if (controlPath) logSshLoginUnlessShared(controlPath, source);
+    return sshArgs(host, remoteCommand, purpose);
+  }
+
+  /** The arguments of a command that logs in by itself, which it logs as it does. */
   private standaloneArgs(
     host: SshHost,
     shellCommand: string,
     purpose: SshConnectionPurpose
   ): string[] {
+    logSshLogin({ hostId: host.id, connection: `${sshConnectionName(purpose)} (not shared)` });
     const args = sshArgs(host, undefined, purpose, { multiplex: false });
     args.splice(args.length - 1, 0, '-o', 'ControlPath=none');
     args.push(shellCommand);

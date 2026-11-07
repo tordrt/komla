@@ -152,6 +152,18 @@ function hashedControlPath(host: SshHost, scope: Record<string, unknown>): strin
   return join(getSshControlDirectory(), hash);
 }
 
+/** The connection a purpose's commands use, as logs name it. */
+export function sshConnectionName(purpose: SshConnectionPurpose): string {
+  switch (purpose.kind) {
+    case 'terminal':
+      return `terminal ${purpose.poolIndex}`;
+    case 'workspace-stream':
+      return 'workspace stream';
+    default:
+      return purpose.kind;
+  }
+}
+
 export function sshControlPath(host: SshHost, purpose: SshConnectionPurpose): string | undefined {
   const policy = purposePolicy(purpose);
   return hashedControlPath(host, {

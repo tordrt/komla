@@ -11,6 +11,7 @@ import { buildSshEnv, sshTarget } from '../lib/ssh-client';
 import { keepSshLeaseAlive, sshHeartbeatLeaseCommand } from '../lib/ssh-heartbeat-lease';
 
 import { askpassService } from './askpass.service';
+import { logSshLogin } from './ssh-connection/logins';
 import { sshTunnelControlPath } from './ssh-connection/policy';
 import { assertSshHostConnected, isSshHostDisconnected } from './ssh-host-disconnection';
 import { remoteKomlaDataPort, sshWorkspaceService } from './ssh-workspace.service';
@@ -644,6 +645,7 @@ class SshPortForwardService {
     const localPort = await this.allocateLocalPort(remotePort);
     validatePort(localPort, 'localPort');
     const sshArgs = localForwardArgs(host, [{ localPort, remotePort }]);
+    logSshLogin({ hostId: host.id, connection: 'desktop tunnel' });
     const child = spawn('ssh', sshArgs, {
       env: buildSshEnv(askpassService),
       stdio: ['pipe', 'ignore', 'pipe'],
@@ -1017,6 +1019,7 @@ class SshPortForwardService {
       sshTarget(host),
       remoteCommand,
     ];
+    logSshLogin({ hostId: host.id, connection: 'port forwards tunnel' });
     const child = spawn('ssh', args, {
       env: buildSshEnv(askpassService),
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -1236,6 +1239,7 @@ class SshPortForwardService {
       `printf '${KOMLA_DATA_TUNNEL_READY_MARKER}\\n'; ${SSH_HEARTBEAT_LEASE_COMMAND}`,
     ];
 
+    logSshLogin({ hostId, connection: 'data tunnel' });
     const child = spawn('ssh', args, {
       env: buildSshEnv(askpassService),
       // The open stdin pipe is the tunnel's parent lease. If Komla exits
@@ -1603,6 +1607,7 @@ class SshPortForwardService {
 
     // A master killed before it could remove its socket would leave the next one unshared.
     if (controlPath) rmSync(controlPath, { force: true });
+    logSshLogin({ hostId: host.id, connection: 'preview tunnel' });
     const child = spawn('ssh', localForwardArgs(host, hostForwards, controlPath), {
       env: buildSshEnv(askpassService),
       stdio: ['pipe', 'ignore', 'pipe'],

@@ -14,6 +14,7 @@ import {
 import { automationScheduleError } from '../../shared/lib/automation-schedule';
 import { skipsPermissionPrompts } from '../../shared/lib/launch-mode-permissions';
 import { levelPickerOf, shownReasoningLevels } from '../../shared/lib/level-picker';
+import { secretFileProblem } from '../../shared/lib/secret-file';
 import { setupStepPane } from '../../shared/lib/setup-panes';
 import {
   resolveSshWorkspaceMode,
@@ -1653,6 +1654,7 @@ export class SettingsManagementService {
         id: step.id || this.generateId(),
         destination: step.destination ?? 'workspace-repository',
         trigger: step.trigger ?? 'every-workspace-start',
+        ...(step.kind === 'secret-file' ? { placement: 'background' as const } : {}),
       })),
     };
   }
@@ -1678,6 +1680,17 @@ export class SettingsManagementService {
           'A browser or note step runs no agent or Quick Command.',
           422
         );
+      }
+      if (step.kind === 'secret-file') {
+        if (step.agent || step.actionId !== undefined) {
+          throw new SettingsManagementError(
+            'INVALID_SETUP_STEP',
+            'A Secret file step runs no agent or Quick Command.',
+            422
+          );
+        }
+        const problem = secretFileProblem(step.file);
+        if (problem) throw new SettingsManagementError('INVALID_SETUP_STEP', problem, 422);
       }
     }
   }

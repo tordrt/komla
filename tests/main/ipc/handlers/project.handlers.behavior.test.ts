@@ -123,6 +123,16 @@ vi.mock('../../../../src/main/services/ssh-project-sync.service', () => ({
   sshProjectSync: mockSshProjectSync,
 }));
 
+const mockSecretFileStore = {
+  status: vi.fn(() => ({})),
+  keychainAvailable: vi.fn(async () => true),
+  set: vi.fn(async () => ({ names: ['API_KEY'], storage: 'keychain' })),
+  clear: vi.fn(),
+};
+vi.mock('../../../../src/main/services/secret-files.service', () => ({
+  secretFileStore: mockSecretFileStore,
+}));
+
 vi.mock('../../../../src/main/lib/logger', () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(),
@@ -146,6 +156,63 @@ describe('project IPC behavior', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+  });
+
+  describe('Secret files', () => {
+    const withSteps = (steps: Array<{ id: string; kind?: string }>) => ({
+      id: 'p1',
+      setupSteps: steps,
+    });
+
+    it('saves contents only for a saved Secret file step', async () => {
+      const ipcMain = await setup();
+      mockProjectService.get.mockReturnValue(withSteps([{ id: 'terminal' }]));
+
+      await expect(
+        ipcMain._invoke('project:set-secret-file', 'p1', 'terminal', 'A=1')
+      ).rejects.toThrow(/Save the Secret file step first/);
+      await expect(
+        ipcMain._invoke('project:set-secret-file', 'p1', 'unsaved', 'A=1')
+      ).rejects.toThrow(/Save the Secret file step first/);
+      expect(mockSecretFileStore.set).not.toHaveBeenCalled();
+    });
+
+    it('returns what the contents set, never the contents', async () => {
+      const ipcMain = await setup();
+      mockProjectService.get.mockReturnValue(withSteps([{ id: 's', kind: 'secret-file' }]));
+
+      await expect(
+        ipcMain._invoke('project:set-secret-file', 'p1', 's', 'API_KEY=1')
+      ).resolves.toEqual({
+        names: ['API_KEY'],
+        storage: 'keychain',
+      });
+      expect(mockSecretFileStore.set).toHaveBeenCalledWith('p1', 's', 'API_KEY=1');
+    });
+
+    it('says what each step holds and whether the keychain encrypts them', async () => {
+      const ipcMain = await setup();
+      mockSecretFileStore.status.mockReturnValue({ s: { names: ['A'], storage: 'file' } });
+      mockSecretFileStore.keychainAvailable.mockResolvedValue(false);
+
+      await expect(ipcMain._invoke('project:secret-files-status', 'p1')).resolves.toEqual({
+        keychain: false,
+        steps: { s: { names: ['A'], storage: 'file' } },
+      });
+      expect(mockSecretFileStore.status).toHaveBeenCalledWith('p1');
+    });
+
+    it('forgets contents whose step went while the keychain encrypted them', async () => {
+      const ipcMain = await setup();
+      mockProjectService.get
+        .mockReturnValueOnce(withSteps([{ id: 's', kind: 'secret-file' }]))
+        .mockReturnValue(withSteps([]));
+
+      await expect(ipcMain._invoke('project:set-secret-file', 'p1', 's', 'A=1')).rejects.toThrow(
+        /removed/
+      );
+      expect(mockSecretFileStore.clear).toHaveBeenCalledWith('p1', 's');
+    });
   });
 
   const presetDraft = {

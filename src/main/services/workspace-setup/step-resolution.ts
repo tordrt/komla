@@ -2,6 +2,7 @@ import {
   buildProjectSetupPrompt,
   isProjectSetupPrompt,
 } from '../../../shared/constants/project-setup-prompt';
+import { secretFileProblem } from '../../../shared/lib/secret-file';
 import { isSshWorkspace } from '../../../shared/types/workspace';
 import { localCopyUnsupported } from '../../lib/local-copy-support';
 import { createLogger } from '../../lib/logger';
@@ -39,6 +40,24 @@ function getSetupDestination(step: SetupStep): SetupDestination {
   return step.destination ?? 'workspace-repository';
 }
 
+/** A Secret file step, which Komla writes itself, in the background, running nothing. */
+function resolveSecretFile(
+  step: SetupStep,
+  destinationResolution: SetupDestinationResolution,
+  strict: boolean
+): ResolvedSetupStep {
+  const problem = secretFileProblem(step.file);
+  if (problem && strict) throw new Error(problem);
+  return {
+    ...step,
+    command: '',
+    placement: 'background',
+    commandKind: 'host',
+    destinationResolution,
+    ...(problem ? { validationError: problem } : {}),
+  };
+}
+
 export class SetupStepResolver {
   constructor(private readonly dependencies: WorkspaceSetupDependencies) {}
 
@@ -70,6 +89,7 @@ export class SetupStepResolver {
       };
     }
     if (!destinationResolution) return null;
+    if (step.kind === 'secret-file') return resolveSecretFile(step, destinationResolution, strict);
     const action =
       launchedAction ?? (step.actionId ? this.dependencies.actions.get(step.actionId) : undefined);
     const resolved = this.resolveSetupStep(

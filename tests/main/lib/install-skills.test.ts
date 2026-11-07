@@ -391,7 +391,7 @@ describe('installBundledSkills', () => {
       /Do not read or print values from ignored or local\s+environment files/i
     );
     expect(content).toMatch(/Do not put secret values/i);
-    expect(content).toMatch(/manual prerequisite/i);
+    expect(content).toMatch(/Secret file\s+step/i);
   });
 
   it('project setup leaves worktree-safe port selection to project commands', () => {
@@ -483,6 +483,6 @@ describe('installBundledSkills', () => {
   it('keeps project setup instructions concise', () => {
     const instructions = readProjectSetupInstructions();
 
-    expect(instructions.trim().split(/\s+/).length).toBeLessThanOrEqual(2100);
+    expect(instructions.trim().split(/\s+/).length).toBeLessThanOrEqual(2150);
   });
 });

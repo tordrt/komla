@@ -163,6 +163,19 @@ function describeSetupStep(
       ],
     };
   }
+  if (step.kind === 'secret-file') {
+    // Its contents stay on each computer, so only where it writes them can change here.
+    return {
+      operation,
+      kind: 'setup-step',
+      title: step.name,
+      details: [
+        { label: 'Writes', value: `Secret file ${step.file || '(no file)'}` },
+        { label: 'Run in', value: setupDestinationLabel(step.destination) },
+        { label: 'Run on', value: setupTriggerLabel(step.trigger) },
+      ],
+    };
+  }
   const action = step.actionId
     ? actions.find((candidate) => candidate.id === step.actionId)
     : undefined;

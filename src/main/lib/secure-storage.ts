@@ -71,3 +71,19 @@ export async function decryptStoredString(
   }
   return result;
 }
+
+/**
+ * The OS keychain as a store of secrets takes it: whether it protects what it encrypts, and
+ * strings to and from base64, with whether Electron asks to encrypt one again under a newer key.
+ */
+export const keychainCipher = {
+  available: canUseSecureStorageAsync,
+  encrypt: async (text: string): Promise<string> =>
+    (await safeStorage.encryptStringAsync(text)).toString('base64'),
+  decrypt: async (base64: string): Promise<{ text: string; reEncrypt: boolean }> => {
+    const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(
+      Buffer.from(base64, 'base64')
+    );
+    return { text: result, reEncrypt: shouldReEncrypt };
+  },
+};

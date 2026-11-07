@@ -211,9 +211,9 @@ export class WorkspaceSetupService {
       if (resolved) resolvedSteps.push(resolved);
     }
 
-    // Skip background steps with empty commands.
+    // Skip background steps with empty commands; a Secret file step runs none.
     const validSteps = resolvedSteps.filter(
-      (s) => s.placement !== 'background' || s.command.trim()
+      (s) => s.placement !== 'background' || s.kind === 'secret-file' || s.command.trim()
     );
 
     // Dispatch in configured list order without awaiting any step. The primary
@@ -409,6 +409,10 @@ export class WorkspaceSetupService {
       );
       if (this.dependencies.getWorkspace(workspace.id) !== workspace || !activityIsCurrent) return;
       this.setSetupActivityRunning(workspace, activity.id);
+      if (step.kind === 'secret-file') {
+        this.writeSecretFile(workspace, step, destination, activity.id);
+        return;
+      }
       let cancellable: CancellableSetupRun | undefined;
       const settle = () => {
         this.actionRunStops.delete(activity.id);
@@ -471,6 +475,29 @@ export class WorkspaceSetupService {
     } else {
       launch();
     }
+  }
+
+  private writeSecretFile(
+    workspace: Workspace,
+    step: ResolvedSetupStep,
+    destination: NonNullable<ResolvedSetupStep['destinationResolution']>,
+    activityId: string
+  ): void {
+    const file = step.file ?? '';
+    void this.dependencies
+      .writeSecretFile(workspace, step, destination)
+      .then(({ gitIgnored }) => {
+        if (this.dependencies.getWorkspace(workspace.id) !== workspace) return;
+        this.appendSetupActivityOutput(
+          workspace,
+          activityId,
+          gitIgnored === false
+            ? `Wrote ${file}, but Git doesn’t ignore it, so it could be committed. Add it to .gitignore.\n`
+            : `Wrote ${file}.\n`
+        );
+        this.finishSetupActivity(workspace, activityId, 'succeeded', {});
+      })
+      .catch((error) => this.failBackgroundRun(workspace, activityId, error));
   }
 
   private failBackgroundRun(workspace: Workspace, activityId: string, error: unknown): void {
@@ -640,7 +667,7 @@ export class WorkspaceSetupService {
     const project = this.dependencies.projects.get(workspace.projectId);
     const step = project?.setupSteps?.find((candidate) => candidate.id === stepId);
     if (!project || !step) throw new Error(`Setup step ${stepId} not found`);
-    if (setupStepPane(step) || step.placement !== 'background') {
+    if (setupStepPane(step) || (step.kind !== 'secret-file' && step.placement !== 'background')) {
       throw new Error('Only background Setup steps have retryable activity');
     }
     const resolved = this.resolver.resolve(step, workspace, project, true);

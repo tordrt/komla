@@ -105,6 +105,8 @@ export type {
   BranchDeletionResult,
   WorktreeCleanupCheck,
   WorkspaceCleanupStatus,
+  SecretFileStatus,
+  SecretFilesStatus,
   CreateProjectParams,
   CreateProjectFromRemoteParams,
   CreateProjectFromNewParams,

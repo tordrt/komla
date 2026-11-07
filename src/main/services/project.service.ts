@@ -84,6 +84,7 @@ function isValidSetupStep(value: unknown): boolean {
     (step.kind === undefined || (typeof step.kind === 'string' && setupKinds.has(step.kind))) &&
     (step.urls === undefined ||
       (Array.isArray(step.urls) && step.urls.every((url) => typeof url === 'string'))) &&
+    (step.file === undefined || typeof step.file === 'string') &&
     (step.destination === undefined ||
       (typeof step.destination === 'string' && setupDestinations.has(step.destination))) &&
     (step.trigger === undefined ||
@@ -100,6 +101,8 @@ function normalizeSetupSteps(project: Project): Project {
       ...step,
       destination: step.destination ?? 'workspace-repository',
       trigger: step.trigger ?? 'every-workspace-start',
+      // Komla writes a Secret file itself, out of sight.
+      ...(step.kind === 'secret-file' ? { placement: 'background' as const } : {}),
     })),
   };
 }
@@ -142,6 +145,9 @@ class ProjectService {
   private creationsInProgress: Set<string> = new Set();
   private selfWriteRevision: string | null = null;
   private gitSettingsListeners = new Set<(projectId: string) => void>();
+  private secretFileStepListeners = new Set<
+    (projectId: string, stepIds: ReadonlySet<string>) => void
+  >();
 
   constructor() {
     const komlaPath = getKomlaBasePath();
@@ -561,6 +567,7 @@ class ProjectService {
 
     const revision = this.getStorageRevision();
     this.selfWriteRevision = revision;
+    this.secretFileStepsChanged(projectId);
     this.notifyRenderer();
     return revision;
   }
@@ -600,10 +607,36 @@ class ProjectService {
       delete project.icon;
     }
     this.saveProjects();
+    if (updates.setupSteps) this.secretFileStepsChanged(id);
     if (project.baseBranch !== baseBranch || project.defaultBranchPrefix !== defaultBranchPrefix) {
       for (const listener of this.gitSettingsListeners) listener(id);
     }
     return project;
+  }
+
+  /**
+   * Calls `listener` with the ids of a project's Secret file steps after its Workspace Setup
+   * changes here, or with none once the project is deleted.
+   */
+  onSecretFileStepsChange(
+    listener: (projectId: string, stepIds: ReadonlySet<string>) => void
+  ): () => void {
+    this.secretFileStepListeners.add(listener);
+    return () => this.secretFileStepListeners.delete(listener);
+  }
+
+  private secretFileStepsChanged(projectId: string): void {
+    const steps = this.projects.get(projectId)?.setupSteps ?? [];
+    const stepIds = new Set(
+      steps.filter((step) => step.kind === 'secret-file').map((step) => step.id)
+    );
+    for (const listener of this.secretFileStepListeners) {
+      try {
+        listener(projectId, stepIds);
+      } catch (error) {
+        logger.warn('A Secret file step listener failed', error);
+      }
+    }
   }
 
   /** Calls `listener` after a project's target branch or branch prefix changes here. */
@@ -735,6 +768,7 @@ class ProjectService {
 
     this.projects.delete(id);
     this.saveProjects();
+    this.secretFileStepsChanged(id);
   }
 
   async validateRepository(path: string): Promise<boolean> {

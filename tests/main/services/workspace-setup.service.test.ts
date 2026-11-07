@@ -16,7 +16,7 @@ import {
 import { createDeferred } from '../../setup';
 
 import type { WorkspaceSetupDependencies } from '../../../src/main/services/workspace-setup.service';
-import type { Workspace, Project, SshHost } from '../../../src/shared/types';
+import type { Workspace, Project, SetupStep, SshHost } from '../../../src/shared/types';
 
 vi.mock('../../../src/main/lib/logger', () => ({
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
@@ -111,6 +111,9 @@ function harness(
       killForWorkspace: vi.fn(),
       killForWorkspaceAndWait: vi.fn(async () => undefined),
     },
+    writeSecretFile: vi.fn<WorkspaceSetupDependencies['writeSecretFile']>(async () => ({
+      gitIgnored: true,
+    })),
     notifyActionRunFinished: vi.fn<WorkspaceSetupDependencies['notifyActionRunFinished']>(),
   } satisfies WorkspaceSetupDependencies;
   const setup = new WorkspaceSetupService(dependencies);
@@ -527,7 +530,9 @@ describe('Workspace Setup Automation', () => {
 
     function actionHarness() {
       const h = harness();
-      h.dependencies.actions.get.mockImplementation((id) => (id === watchCi.id ? watchCi : undefined));
+      h.dependencies.actions.get.mockImplementation((id) =>
+        id === watchCi.id ? watchCi : undefined
+      );
       return h;
     }
 
@@ -623,7 +628,11 @@ describe('Workspace Setup Automation', () => {
 
     it('runs only Terminal Commands', () => {
       const h = actionHarness();
-      h.dependencies.actions.get.mockReturnValue({ id: 'review', title: 'Review', content: '# Review' });
+      h.dependencies.actions.get.mockReturnValue({
+        id: 'review',
+        title: 'Review',
+        content: '# Review',
+      });
 
       expect(() => h.setup.runAction(h.workspace.id, 'review')).toThrow('Only Terminal Commands');
       expect(() => h.setup.runAction(h.workspace.id, 'missing')).toThrow();
@@ -740,5 +749,109 @@ describe('browser and note steps', () => {
       undefined,
       'server',
     ]);
+  });
+});
+
+describe('Secret file steps', () => {
+  const secretFile = (overrides: Partial<SetupStep> = {}): SetupStep => ({
+    id: 'secret',
+    name: 'Secret .env',
+    command: '',
+    placement: 'background',
+    kind: 'secret-file',
+    file: '.env',
+    trigger: 'workspace-creation',
+    ...overrides,
+  });
+
+  it('writes the file in the background, running no command, and shows it with Setup', async () => {
+    const h = harness({ setupSteps: [secretFile()] });
+
+    h.setup.start(h.workspace, 'claude', 'create');
+
+    expect(h.launches).toEqual(['Workspace']);
+    expect(h.execution.background.spawn).not.toHaveBeenCalled();
+    expect(h.dependencies.writeSecretFile).toHaveBeenCalledWith(
+      h.workspace,
+      expect.objectContaining({ id: 'secret', file: '.env' }),
+      expect.objectContaining({ cwd: h.workspace.workingDirectory, executionLocation: 'workspace' })
+    );
+    await vi.waitFor(() =>
+      expect(h.workspace.setupActivities?.[0]).toMatchObject({
+        stepId: 'secret',
+        state: 'succeeded',
+        retryable: true,
+        output: 'Wrote .env.\n',
+      })
+    );
+  });
+
+  it('warns when Git would commit the file it wrote', async () => {
+    const h = harness({ setupSteps: [secretFile()] });
+    h.dependencies.writeSecretFile.mockResolvedValue({ gitIgnored: false });
+
+    h.setup.start(h.workspace, 'claude', 'create');
+
+    await vi.waitFor(() =>
+      expect(h.workspace.setupActivities?.[0]?.output).toMatch(/could be committed/)
+    );
+    expect(h.workspace.setupActivities?.[0]?.state).toBe('succeeded');
+  });
+
+  it('fails when the file can’t be written, and writes it again on retry', async () => {
+    const h = harness({ setupSteps: [secretFile()] });
+    h.dependencies.writeSecretFile.mockRejectedValueOnce(new Error('No contents yet'));
+
+    h.setup.start(h.workspace, 'claude', 'create');
+    await vi.waitFor(() =>
+      expect(h.workspace.setupActivities?.[0]).toMatchObject({
+        state: 'failed',
+        error: 'No contents yet',
+      })
+    );
+
+    h.setup.retry(h.workspace.id, 'secret');
+    await vi.waitFor(() => expect(h.workspace.setupActivities?.[0]?.state).toBe('succeeded'));
+    expect(h.dependencies.writeSecretFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails a file outside the workspace without writing, as a host’s settings could name', () => {
+    const h = harness({ setupSteps: [secretFile({ file: '../../.ssh/authorized_keys' })] });
+
+    h.setup.start(h.workspace, 'claude', 'create');
+
+    expect(h.dependencies.writeSecretFile).not.toHaveBeenCalled();
+    expect(h.workspace.setupActivities?.[0]).toMatchObject({ state: 'failed' });
+    expect(h.workspace.setupActivities?.[0]?.error).toMatch(/inside the workspace/);
+  });
+
+  it('writes again on every start only when its trigger says so', () => {
+    const h = harness({
+      setupSteps: [
+        secretFile({ id: 'once' }),
+        secretFile({ id: 'always', file: '.env.local', trigger: 'every-workspace-start' }),
+      ],
+    });
+
+    h.setup.start(h.workspace, 'claude', 'start');
+
+    expect(h.dependencies.writeSecretFile.mock.calls.map(([, step]) => step.id)).toEqual([
+      'always',
+    ]);
+  });
+
+  it('writes an SSH workspace’s Local copy once it is prepared', async () => {
+    const h = harness({ setupSteps: [secretFile({ destination: 'ssh-local-copy' })] }, {
+      backend: sshBackend,
+    } as Partial<Workspace>);
+
+    h.setup.start(h.workspace, 'claude', 'create');
+
+    await vi.waitFor(() => expect(h.dependencies.writeSecretFile).toHaveBeenCalled());
+    expect(h.dependencies.prepareLocalCopy).toHaveBeenCalledWith(h.workspace.id);
+    expect(h.dependencies.writeSecretFile.mock.calls[0][2]).toMatchObject({
+      cwd: '/local-copy',
+      executionLocation: 'local-copy',
+    });
   });
 });

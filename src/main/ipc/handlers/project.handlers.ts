@@ -23,6 +23,7 @@ import {
 } from '../../services/project-icon.service';
 import { projectService, Project } from '../../services/project.service';
 import { recordOpenedFolder, refreshRecentFolders } from '../../services/recent-folders.service';
+import { secretFileStore } from '../../services/secret-files.service';
 import { sshProjectSync } from '../../services/ssh-project-sync.service';
 import { workspaceService } from '../../services/workspace.service';
 import { handleIpc } from '../validation/ipc-validators';
@@ -33,6 +34,8 @@ import type {
   LeftoverBranches,
   ProjectIconCandidate,
   ProjectIconSource,
+  SecretFileStatus,
+  SecretFilesStatus,
   WorkspaceCleanupStatus,
 } from '../../../shared/types';
 import type { ActivePresetEntry } from '../../../shared/types/agent-preset';
@@ -160,6 +163,33 @@ export function registerProjectHandlers(): void {
 
     return { deletedWorkspaceIds };
   });
+
+  // Settings gets only the names a Secret file sets; its contents go one way, to the main process.
+  handleIpc(IPC.PROJECT_SECRET_FILES_STATUS, async (_, [id]): Promise<SecretFilesStatus> => ({
+    keychain: await secretFileStore.keychainAvailable(),
+    steps: secretFileStore.status(id),
+  }));
+
+  handleIpc(
+    IPC.PROJECT_SET_SECRET_FILE,
+    async (_, [id, stepId, contents]): Promise<SecretFileStatus | null> => {
+      const step = projectService.get(id)?.setupSteps?.find((candidate) => candidate.id === stepId);
+      // Only a saved step's, so contents never outlive a step that was never saved.
+      if (step?.kind !== 'secret-file') throw new Error('Save the Secret file step first');
+      const status = await secretFileStore.set(id, stepId, contents);
+      // Encrypting can wait on the keychain, while the step can go.
+      const kept = projectService
+        .get(id)
+        ?.setupSteps?.some(
+          (candidate) => candidate.id === stepId && candidate.kind === 'secret-file'
+        );
+      if (!kept) {
+        secretFileStore.clear(id, stepId);
+        throw new Error('The Secret file step was removed');
+      }
+      return status;
+    }
+  );
 
   handleIpc(IPC.PROJECT_VALIDATE_REPO, async (_, [path]): Promise<boolean> => {
     return projectService.validateRepository(path);

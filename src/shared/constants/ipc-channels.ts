@@ -265,6 +265,8 @@ export const IPC = {
   PROJECT_LIST_ON_SSH_HOST: 'project:list-on-ssh-host',
   PROJECT_IMPORT_FROM_SSH_HOST: 'project:import-from-ssh-host',
   PROJECT_FETCH_IN_BACKGROUND: 'project:fetch-in-background',
+  PROJECT_SECRET_FILES_STATUS: 'project:secret-files-status',
+  PROJECT_SET_SECRET_FILE: 'project:set-secret-file',
 
   // Project events (main → renderer)
   PROJECTS_CHANGED: 'projects:changed',

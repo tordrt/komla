@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-import { setupStepUrlsSchema } from '../../../../shared/ipc/schemas/config-ipc.schemas';
+import {
+  setupStepFileSchema,
+  setupStepUrlsSchema,
+} from '../../../../shared/ipc/schemas/config-ipc.schemas';
 import { BRANCH_NAME_PATTERN } from '../../../../shared/ipc/schemas/primitives';
 import {
   ACTION_SSH_EXECUTION_LOCATIONS,
@@ -66,6 +69,7 @@ const settingsSetupStepSchema = z
       .optional(),
     kind: z.enum(SETUP_STEP_KINDS).optional(),
     urls: setupStepUrlsSchema.optional(),
+    file: setupStepFileSchema.optional(),
     destination: z.enum(SETUP_DESTINATIONS).optional(),
     trigger: z.enum(SETUP_TRIGGERS).optional(),
   })

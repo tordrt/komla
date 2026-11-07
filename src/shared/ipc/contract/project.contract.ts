@@ -5,6 +5,8 @@ import {
   projectUpdateArgsSchema,
   projectSetSshWorkspaceModeIfUnsetArgsSchema,
   projectDeleteArgsSchema,
+  projectSecretFilesStatusArgsSchema,
+  projectSetSecretFileArgsSchema,
   projectValidateRepoArgsSchema,
   projectFindForFolderArgsSchema,
   projectFolderOpenedArgsSchema,
@@ -43,6 +45,8 @@ import type {
   LeftoverBranches,
   Project,
   ProjectIconCandidate,
+  SecretFileStatus,
+  SecretFilesStatus,
   WorkspaceCleanupStatus,
 } from '../../types/project';
 import type { SshHostProject, SshHostProjectImportResult } from '../../types/ssh-project-manifest';
@@ -58,6 +62,12 @@ export const projectContract = {
   [IPC.PROJECT_DELETE]: invoke(projectDeleteArgsSchema).returns<{
     deletedWorkspaceIds: string[];
   }>(),
+  [IPC.PROJECT_SECRET_FILES_STATUS]: invoke(
+    projectSecretFilesStatusArgsSchema
+  ).returns<SecretFilesStatus>(),
+  [IPC.PROJECT_SET_SECRET_FILE]: invoke(
+    projectSetSecretFileArgsSchema
+  ).returns<SecretFileStatus | null>(),
   [IPC.PROJECT_VALIDATE_REPO]: invoke(projectValidateRepoArgsSchema).returns<boolean>(),
   [IPC.PROJECT_FIND_FOR_FOLDER]: invoke(
     projectFindForFolderArgsSchema

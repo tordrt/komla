@@ -7,8 +7,15 @@ import { IconButton } from '@/components/ui/icon-button';
 import { InfoTip } from '@/components/ui/info-tip';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 
+import {
+  DEFAULT_SECRET_FILE,
+  MAX_SECRET_FILE_CONTENTS,
+  secretFileNames,
+  secretFileProblem,
+} from '../../../../shared/lib/secret-file';
 import { setupStepPane } from '../../../../shared/lib/setup-panes';
 import { SETUP_STEP_KINDS } from '../../../../shared/types/project';
 
@@ -19,6 +26,7 @@ import type {
   Action,
   AgentPlacement,
   AgentPreset,
+  SecretFileStatus,
   SetupDestination,
   SetupStep,
   SetupStepKind,
@@ -35,6 +43,8 @@ interface SetupPreset {
   agent?: boolean;
   destination?: SetupDestination;
   trigger?: SetupTrigger;
+  /** A Secret file, written to this file, in place of a command. */
+  secretFile?: string;
 }
 
 const INSTALL_PRESETS: SetupPreset[] = [
@@ -117,6 +127,14 @@ const DEV_SERVER_PRESETS: SetupPreset[] = [
 
 const FILES_CONFIG_PRESETS: SetupPreset[] = [
   {
+    label: 'Secret .env',
+    name: 'Secret .env',
+    command: '',
+    placement: 'background',
+    trigger: 'workspace-creation',
+    secretFile: DEFAULT_SECRET_FILE,
+  },
+  {
     label: 'Copy .env',
     name: 'Copy .env',
     command: 'cp "{{localProjectPath}}/.env" .env',
@@ -193,6 +211,14 @@ interface WorkspaceSetupSectionProps {
   onAgentLayoutOrderChange: (order: number) => void;
   /** Shown beside the Setup steps title. */
   action?: React.ReactNode;
+  /** What this computer holds for each saved Secret file step, by step. */
+  secretFiles?: Record<string, SecretFileStatus>;
+  /** Whether this computer's keychain encrypts Secret files, or undefined until Komla knows. */
+  keychain?: boolean;
+  /** New contents for Secret file steps, by step, '' to remove them, saved with the project. */
+  pendingSecretFiles?: Record<string, string>;
+  /** Sets a step's new contents, or with undefined keeps what it has. */
+  onSecretFileChange?: (stepId: string, contents: string | undefined) => void;
 }
 
 export function WorkspaceSetupSection({
@@ -205,6 +231,10 @@ export function WorkspaceSetupSection({
   onAgentPlacementChange,
   onAgentLayoutOrderChange,
   action,
+  secretFiles = {},
+  keychain,
+  pendingSecretFiles = {},
+  onSecretFileChange = () => {},
 }: WorkspaceSetupSectionProps) {
   const sshDestinationsAvailable = useSshHostsStore(
     (state) => !state.hasLoaded || state.hosts.length > 0
@@ -231,6 +261,7 @@ export function WorkspaceSetupSection({
         destination: preset.destination ?? 'workspace-repository',
         trigger: preset.trigger ?? 'workspace-creation',
         ...(preset.agent ? { agent: {} } : {}),
+        ...(preset.secretFile ? { kind: 'secret-file' as const, file: preset.secretFile } : {}),
       },
     ]);
   };
@@ -243,9 +274,13 @@ export function WorkspaceSetupSection({
         name: kind === 'terminal' ? '' : STEP_KIND_NAMES[kind],
         command: '',
         // A browser or note always shows, so it opens beside the item before it.
-        placement: kind === 'terminal' ? 'background' : 'split-right',
+        placement: setupStepPane({ kind }) ? 'split-right' : 'background',
         destination: 'workspace-repository',
-        ...(kind === 'terminal' ? { trigger: 'workspace-creation' as const } : { kind }),
+        ...(kind === 'terminal'
+          ? { trigger: 'workspace-creation' as const }
+          : kind === 'secret-file'
+            ? { kind, file: DEFAULT_SECRET_FILE, trigger: 'workspace-creation' as const }
+            : { kind }),
       },
     ]);
   };
@@ -391,6 +426,7 @@ export function WorkspaceSetupSection({
                     }
                     const currentStepId = s.id;
                     const stepPane = setupStepPane(s);
+                    const secretFile = s.kind === 'secret-file';
                     const stepAgent = s.agent;
                     const stepAgentPreset = stepAgent?.presetId
                       ? presetsById.get(stepAgent.presetId)
@@ -452,22 +488,24 @@ export function WorkspaceSetupSection({
                               </option>
                             ))}
                           </Select>
-                          <Select
-                            compact
-                            aria-label={`Show in for ${s.name || 'setup step'}`}
-                            value={s.placement}
-                            onChange={(e) =>
-                              updateStep(currentStepId, {
-                                placement: e.target.value as SetupStepPlacement,
-                              })
-                            }
-                            className="w-[120px] shrink-0"
-                          >
-                            {!stepPane && <option value="background">Background</option>}
-                            <option value="tab">New tab</option>
-                            <option value="split-right">Split right</option>
-                            <option value="split-bottom">Split bottom</option>
-                          </Select>
+                          {!secretFile && (
+                            <Select
+                              compact
+                              aria-label={`Show in for ${s.name || 'setup step'}`}
+                              value={s.placement}
+                              onChange={(e) =>
+                                updateStep(currentStepId, {
+                                  placement: e.target.value as SetupStepPlacement,
+                                })
+                              }
+                              className="w-[120px] shrink-0"
+                            >
+                              {!stepPane && <option value="background">Background</option>}
+                              <option value="tab">New tab</option>
+                              <option value="split-right">Split right</option>
+                              <option value="split-bottom">Split bottom</option>
+                            </Select>
+                          )}
                           <MoveButtons
                             name={s.name || 'step'}
                             isFirst={isFirst}
@@ -545,7 +583,7 @@ export function WorkspaceSetupSection({
                             </Select>
                           </div>
                         )}
-                        {!stepPane && (
+                        {!stepPane && !secretFile && (
                           <div className="order-4">
                             <SetupVariableExamples
                               destination={s.destination ?? 'workspace-repository'}
@@ -558,6 +596,16 @@ export function WorkspaceSetupSection({
                             name={s.name || 'setup step'}
                             urls={s.urls ?? []}
                             onUrlsChange={(urls) => updateStep(currentStepId, { urls })}
+                          />
+                        ) : secretFile ? (
+                          <SecretFileTarget
+                            name={s.name || 'setup step'}
+                            file={s.file ?? ''}
+                            status={secretFiles[s.id]}
+                            keychain={keychain}
+                            pending={pendingSecretFiles[s.id]}
+                            onFileChange={(file) => updateStep(currentStepId, { file })}
+                            onContentsChange={(contents) => onSecretFileChange(s.id, contents)}
                           />
                         ) : stepAgent ? (
                           <div className="order-1 grid grid-cols-[64px_minmax(0,1fr)] items-start gap-2">
@@ -706,7 +754,7 @@ export function WorkspaceSetupSection({
             className="rounded-lg border border-dashed border-border/60 light:border-foreground/20"
             icon={<ListChecks weight="duotone" />}
             title="No setup steps yet"
-            description="Add a terminal, browser or note, or one from Quick add below."
+            description="Add a terminal, browser, note or secret file, or one from Quick add below."
             action={<AddStepButtons onAdd={addStep} />}
           />
         )}
@@ -768,13 +816,15 @@ const STEP_KIND_NAMES: Record<SetupStepKind, string> = {
   terminal: 'Terminal',
   browser: 'Browser',
   note: 'Note',
+  'secret-file': 'Secret file',
 };
 
 /**
  * The step as another kind: a browser or note runs no agent or Quick Command, always shows and
  * opens only as the workspace is created, so it takes a visible placement and no trigger; a
- * terminal drops the pages and runs on creation, as a new one does. A name that was only the old
- * kind's takes the new one's.
+ * Secret file runs nothing either, out of sight, and writes .env on creation unless it already
+ * named a file; a terminal drops the pages and runs on creation, as a new one does. A name that
+ * was only the old kind's takes the new one's.
  */
 function withStepKind(step: SetupStep, kind: SetupStepKind): SetupStep {
   const previous = step.kind ?? 'terminal';
@@ -784,6 +834,7 @@ function withStepKind(step: SetupStep, kind: SetupStepKind): SetupStep {
   const {
     kind: _kind,
     urls,
+    file,
     agent: _agent,
     actionId: _actionId,
     trigger: _trigger,
@@ -791,6 +842,18 @@ function withStepKind(step: SetupStep, kind: SetupStepKind): SetupStep {
   } = step;
   // Only a terminal runs an agent or a Quick Command, so a pane step had none to keep.
   if (kind === 'terminal') return { ...rest, name, trigger: 'workspace-creation' };
+  if (kind === 'secret-file') {
+    return {
+      ...rest,
+      name,
+      kind,
+      // It runs none, so a terminal's command would only linger unseen.
+      command: '',
+      file: file ?? DEFAULT_SECRET_FILE,
+      placement: 'background',
+      trigger: 'workspace-creation',
+    };
+  }
   return {
     ...rest,
     name,
@@ -809,7 +872,7 @@ function AddStepButtons({
   dashed?: boolean;
 }) {
   return (
-    <div className={dashed ? 'grid grid-cols-3 gap-1.5' : 'flex flex-wrap justify-center gap-1.5'}>
+    <div className={dashed ? 'grid grid-cols-4 gap-1.5' : 'flex flex-wrap justify-center gap-1.5'}>
       {SETUP_STEP_KINDS.map((kind) => (
         <Button
           key={kind}
@@ -932,6 +995,169 @@ function PaneStepTarget({
       </div>
     </div>
   );
+}
+
+/**
+ * The file a Secret file step writes and what it holds: the names its saved contents set, never
+ * their values, which only go one way, from here to this computer's keychain.
+ */
+function SecretFileTarget({
+  name,
+  file,
+  status,
+  keychain,
+  pending,
+  onFileChange,
+  onContentsChange,
+}: {
+  name: string;
+  file: string;
+  status: SecretFileStatus | undefined;
+  keychain: boolean | undefined;
+  /** New contents to save, '' to remove them, or undefined to keep what is saved. */
+  pending: string | undefined;
+  onFileChange: (file: string) => void;
+  onContentsChange: (contents: string | undefined) => void;
+}) {
+  // Editing, though nothing is typed yet: '' would mean removing the contents.
+  const [editing, setEditing] = React.useState(false);
+  // Contents that saved close the editor, which shows what they set; the same again doesn't.
+  const statusKey = JSON.stringify(status ?? null);
+  const [shownStatus, setShownStatus] = React.useState(statusKey);
+  if (statusKey !== shownStatus) {
+    setShownStatus(statusKey);
+    setEditing(false);
+  }
+  const fileProblem = secretFileProblem(file);
+  const typing = editing || (pending !== undefined && pending !== '');
+  const names = typing ? secretFileNames(pending ?? '') : (status?.names ?? []);
+  return (
+    <>
+      <label className="order-1 grid grid-cols-[64px_minmax(0,1fr)] items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">Write</span>
+        <Input
+          aria-label={`File for ${name}`}
+          value={file}
+          onChange={(e) => onFileChange(e.target.value)}
+          placeholder={DEFAULT_SECRET_FILE}
+          className="h-8 font-mono text-xs"
+        />
+      </label>
+      <div className="order-1 grid grid-cols-[64px_minmax(0,1fr)] items-start gap-2">
+        <span className="pt-1.5 text-xs font-medium text-muted-foreground">Contents</span>
+        <div className="space-y-1.5">
+          {typing ? (
+            <>
+              <Textarea
+                aria-label={`Contents for ${name}`}
+                autoFocus={editing && pending === undefined}
+                value={pending ?? ''}
+                onChange={(e) => {
+                  setEditing(true);
+                  // Emptied while typing keeps what is saved; Remove removes it.
+                  onContentsChange(e.target.value || undefined);
+                }}
+                placeholder={'API_KEY=…\nDATABASE_URL=…'}
+                spellCheck={false}
+                autoComplete="off"
+                className="min-h-24 font-mono text-xs"
+              />
+              <div className="flex items-center gap-1.5">
+                <p className="flex-1 text-ui leading-tight text-muted-foreground">
+                  {status
+                    ? 'Replaces the saved contents when you save.'
+                    : 'Saved to this computer when you save.'}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => {
+                    setEditing(false);
+                    onContentsChange(undefined);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : pending === '' ? (
+            <div className="flex items-center gap-1.5">
+              <p className="flex-1 pt-1.5 text-xs text-muted-foreground">
+                Removed from this computer when you save.
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onContentsChange(undefined)}
+              >
+                Keep them
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <p className="min-w-0 flex-1 pt-1.5 text-xs text-muted-foreground">
+                {status
+                  ? names.length > 0
+                    ? `Sets ${names.join(', ')}`
+                    : 'Saved, without a NAME=value line'
+                  : 'None yet. Until there are, this step fails.'}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setEditing(true)}
+              >
+                {status ? 'Replace' : 'Add contents'}
+              </Button>
+              {status && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs hover:text-error"
+                  onClick={() => onContentsChange('')}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          )}
+          {typing && (pending?.length ?? 0) > MAX_SECRET_FILE_CONTENTS && (
+            <StepWarning>A Secret file holds at most 64 KB, so these won’t save.</StepWarning>
+          )}
+          {typing && names.length > 0 && (
+            <p className="text-ui leading-tight text-muted-foreground">Sets {names.join(', ')}</p>
+          )}
+          {status?.storage === 'keychain' && keychain === false && (
+            <StepWarning>
+              This computer’s keychain isn’t available, so the step can’t decrypt them.
+            </StepWarning>
+          )}
+          {keychain !== undefined && (
+            <p className="text-ui leading-tight text-muted-foreground">
+              {secretFileStorageNote(status, keychain)} Agents in the workspace can read the file
+              once it’s written.
+            </p>
+          )}
+        </div>
+      </div>
+      {fileProblem && <StepWarning>{fileProblem}</StepWarning>}
+    </>
+  );
+}
+
+/** Where a Secret file's contents are kept, which is never the project's settings. */
+function secretFileStorageNote(status: SecretFileStatus | undefined, keychain: boolean): string {
+  if (!keychain) {
+    return status?.storage === 'keychain'
+      ? 'Encrypted by the keychain and kept out of the project’s settings.'
+      : 'This computer has no keychain, so they’re kept unencrypted, readable by you alone, and out of the project’s settings.';
+  }
+  return status?.storage === 'file'
+    ? 'Kept unencrypted from before this computer had a keychain, until the step next runs, and out of the project’s settings.'
+    : 'Encrypted by this computer’s keychain and kept out of the project’s settings.';
 }
 
 function StepWarning({ children }: { children: React.ReactNode }) {

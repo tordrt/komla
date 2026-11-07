@@ -12,12 +12,15 @@ export const SETUP_DESTINATIONS = [
   'ssh-local-copy',
 ] as const;
 export const SETUP_TRIGGERS = ['workspace-creation', 'every-workspace-start'] as const;
-/** What a Setup step opens in its pane. */
-export const SETUP_STEP_KINDS = ['terminal', 'browser', 'note'] as const;
+/**
+ * What a Setup step does: run a terminal, open a browser or a note in a pane, or write a Secret
+ * file, whose contents Komla keeps encrypted on this computer.
+ */
+export const SETUP_STEP_KINDS = ['terminal', 'browser', 'note', 'secret-file'] as const;
 export type SetupStepPlacement = (typeof SETUP_STEP_PLACEMENTS)[number];
 export type SetupStepKind = (typeof SETUP_STEP_KINDS)[number];
 /** The kinds of Setup step that open a pane of Komla's own rather than a terminal. */
-export type SetupStepPane = Exclude<SetupStepKind, 'terminal'>;
+export type SetupStepPane = Extract<SetupStepKind, 'browser' | 'note'>;
 export type SetupDestination = (typeof SETUP_DESTINATIONS)[number];
 export type SetupTrigger = (typeof SETUP_TRIGGERS)[number];
 
@@ -76,10 +79,31 @@ export interface SetupStep {
    * the SSH host.
    */
   urls?: string[];
+  /**
+   * The file a Secret file step writes, relative to where it runs, such as `.env`. Its contents
+   * stay on this computer, encrypted, and never in the project's settings. A Secret file step
+   * runs in the background and runs no command, agent or Quick Command.
+   */
+  file?: string;
   /** Defaults to workspace-repository. */
   destination?: SetupDestination;
   /** Defaults to every-workspace-start. */
   trigger?: SetupTrigger;
+}
+
+/**
+ * What Settings knows of a Secret file step's contents: the names it sets, and whether the OS
+ * keychain encrypts it or, on a computer without one, Komla's settings folder holds it as it is.
+ */
+export interface SecretFileStatus {
+  names: string[];
+  storage: 'keychain' | 'file';
+}
+
+/** A project's Secret files by step id, and whether this computer's keychain can encrypt them. */
+export interface SecretFilesStatus {
+  keychain: boolean;
+  steps: Record<string, SecretFileStatus>;
 }
 
 /** An agent that asks before it starts whether the user trusts a folder it hasn't worked in. */

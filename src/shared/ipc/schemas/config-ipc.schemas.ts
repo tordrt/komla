@@ -6,6 +6,7 @@ import { ACTIVITY_SPINNER_STYLES } from '../../lib/activity-spinner';
 import { MAX_BROWSER_TABS, MAX_BROWSER_URL_LENGTH } from '../../lib/browser-tabs';
 import { MAX_PROJECT_ICON_DATA_URL_LENGTH, PROJECT_ICON_DATA_URL } from '../../lib/project-icon';
 import { REMOTE_PASSKEY_WINDOW_MINUTES } from '../../lib/remote-passkey-window';
+import { MAX_SECRET_FILE_CONTENTS } from '../../lib/secret-file';
 import { STATUS_BAR_SIZES } from '../../lib/status-bar-size';
 import { WORKSPACE_GROUPINGS } from '../../lib/workspace-grouping';
 import {
@@ -104,6 +105,9 @@ export const setupStepUrlsSchema = z
   .array(z.string().max(MAX_BROWSER_URL_LENGTH))
   .max(MAX_BROWSER_TABS);
 
+/** The file a Secret file Setup step writes; where it may write is checked as it runs. */
+export const setupStepFileSchema = z.string().max(1024);
+
 const setupStepSchema = z
   .object({
     id: idSchema,
@@ -120,6 +124,7 @@ const setupStepSchema = z
       .optional(),
     kind: z.enum(SETUP_STEP_KINDS).optional(),
     urls: setupStepUrlsSchema.optional(),
+    file: setupStepFileSchema.optional(),
     destination: z.enum(SETUP_DESTINATIONS).optional(),
     trigger: z.enum(SETUP_TRIGGERS).optional(),
   })
@@ -677,6 +682,12 @@ export const projectSetSshWorkspaceModeIfUnsetArgsSchema = z.tuple([
   z.enum(['remote', 'local-copy-actions']),
 ]);
 export const projectDeleteArgsSchema = z.tuple([idSchema]);
+export const projectSecretFilesStatusArgsSchema = z.tuple([idSchema]);
+export const projectSetSecretFileArgsSchema = z.tuple([
+  idSchema,
+  idSchema,
+  z.string().max(MAX_SECRET_FILE_CONTENTS),
+]);
 export const projectValidateRepoArgsSchema = z.tuple([safePathSchema]);
 export const projectFindForFolderArgsSchema = z.tuple([safePathSchema]);
 export const projectFolderOpenedArgsSchema = z.tuple([safePathSchema]);

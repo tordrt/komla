@@ -1,8 +1,6 @@
 import { join } from 'path';
 
-import { safeStorage } from 'electron';
-
-import { canUseSecureStorageAsync } from '../lib/secure-storage';
+import { keychainCipher } from '../lib/secure-storage';
 
 import { getKomlaBasePath } from './paths';
 import { providePluginSettingsEnvironment } from './plugin-environment';
@@ -14,16 +12,7 @@ import { statusCommandsService } from './status-commands.service';
 /** What the user set for plugins' settings, with secrets encrypted by the OS keychain. */
 export const pluginSettingsStore = new PluginSettingsStore(
   join(getKomlaBasePath(), 'settings', 'plugin-settings.json'),
-  {
-    available: canUseSecureStorageAsync,
-    encrypt: async (text) => (await safeStorage.encryptStringAsync(text)).toString('base64'),
-    decrypt: async (base64) => {
-      const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(
-        Buffer.from(base64, 'base64')
-      );
-      return { text: result, reEncrypt: shouldReEncrypt };
-    },
-  }
+  keychainCipher
 );
 
 let stopFeeding: (() => void) | undefined;

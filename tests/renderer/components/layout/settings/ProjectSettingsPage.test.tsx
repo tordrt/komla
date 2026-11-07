@@ -48,11 +48,33 @@ vi.mock('../../../../../src/renderer/components/layout/settings/ProjectSetupSkil
 vi.mock('../../../../../src/renderer/components/layout/settings/WorkspaceSetupSection', () => ({
   WorkspaceSetupSection: ({
     onStepsChange,
+    onSecretFileChange,
   }: {
     onStepsChange: (steps: Array<Record<string, unknown>>) => void;
+    onSecretFileChange: (stepId: string, contents: string | undefined) => void;
   }) => (
     <div>
       Setup controls
+      <button
+        type="button"
+        onClick={() => {
+          onStepsChange([
+            {
+              id: 'secret-step',
+              name: 'Secret .env',
+              command: '',
+              placement: 'background',
+              kind: 'secret-file',
+              file: '.env',
+            },
+          ]);
+          onSecretFileChange('secret-step', 'API_KEY=1');
+          // Contents for a step the draft doesn't have aren't saved.
+          onSecretFileChange('gone-step', 'TOKEN=2');
+        }}
+      >
+        Add test secret file
+      </button>
       <button
         type="button"
         onClick={() =>
@@ -146,7 +168,32 @@ describe('ProjectSettingsPage', () => {
     window.api = {
       findProjectIcons: vi.fn().mockResolvedValue([]),
       getMainBranch: vi.fn().mockResolvedValue('main'),
+      getSecretFilesStatus: vi.fn().mockResolvedValue({ keychain: true, steps: {} }),
+      setSecretFile: vi.fn().mockResolvedValue({ names: ['API_KEY'], storage: 'keychain' }),
     } as never;
+  });
+
+  it("saves a Secret file's contents after the step they belong to, and only for its steps", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    mocks.updateProject.mockImplementation(async () => {
+      order.push('steps');
+    });
+    vi.mocked(window.api.setSecretFile).mockImplementation(async (_projectId, stepId) => {
+      order.push(`contents of ${stepId}`);
+      return { names: ['API_KEY'], storage: 'keychain' };
+    });
+    renderPage();
+    showSection('setup');
+
+    await user.click(screen.getByRole('button', { name: 'Add test secret file' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(mocks.addToast).toHaveBeenCalledWith('Project updated', 'success'));
+    expect(order).toEqual(['steps', 'contents of secret-step']);
+    expect(window.api.setSecretFile).toHaveBeenCalledWith(project.id, 'secret-step', 'API_KEY=1');
+    expect(mocks.updateProject.mock.calls[0][1]).not.toHaveProperty('secretFiles');
+    expect(JSON.stringify(mocks.updateProject.mock.calls)).not.toContain('API_KEY=1');
   });
 
   it('picks where SSH Terminal Commands run from a radio group', async () => {

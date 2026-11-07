@@ -10,7 +10,7 @@ import { WorkspaceSetupSection } from '../../../../../src/renderer/components/la
 import { TooltipProvider } from '../../../../../src/renderer/components/ui/tooltip';
 import { useSshHostsStore } from '../../../../../src/renderer/stores/ssh-hosts.store';
 
-import type { SetupStep, SshHost } from '../../../../../src/shared/types';
+import type { SecretFileStatus, SetupStep, SshHost } from '../../../../../src/shared/types';
 
 const sshHost: SshHost = {
   id: 'ssh-host',
@@ -47,6 +47,62 @@ function renderSection(steps: SetupStep[] = [], hasSshHosts = true) {
   );
 
   return onStepsChange;
+}
+
+/** A Secret file step's row, with what this computer holds for it and the draft's new contents. */
+function SecretFileSection({
+  status,
+  keychain = true,
+  initialPending = {},
+}: {
+  status?: SecretFileStatus;
+  /** null: Komla doesn't know yet. */
+  keychain?: boolean | null;
+  initialPending?: Record<string, string>;
+}) {
+  const [steps, setSteps] = React.useState<SetupStep[]>([
+    {
+      id: 'secret',
+      name: 'Secret .env',
+      command: '',
+      placement: 'background',
+      kind: 'secret-file',
+      file: '.env',
+      trigger: 'workspace-creation',
+    },
+  ]);
+  const [pending, setPending] = React.useState(initialPending);
+  // A save clears the draft's contents and brings what this computer now holds.
+  const [savedStatus, setSavedStatus] = React.useState(status);
+  if (status !== savedStatus) {
+    setSavedStatus(status);
+    setPending({});
+  }
+  return (
+    <>
+      <WorkspaceSetupSection
+        steps={steps}
+        agentPlacement="tab"
+        agentLayoutOrder={0}
+        actions={[]}
+        presets={[]}
+        onStepsChange={setSteps}
+        onAgentPlacementChange={vi.fn()}
+        onAgentLayoutOrderChange={vi.fn()}
+        secretFiles={status ? { secret: status } : {}}
+        keychain={keychain ?? undefined}
+        pendingSecretFiles={pending}
+        onSecretFileChange={(stepId, contents) =>
+          setPending((prev) => {
+            const { [stepId]: _, ...rest } = prev;
+            return contents === undefined ? rest : { ...rest, [stepId]: contents };
+          })
+        }
+      />
+      <output data-testid="pending">{JSON.stringify(pending)}</output>
+      <output data-testid="steps">{JSON.stringify(steps)}</output>
+    </>
+  );
 }
 
 function StatefulSection() {
@@ -86,7 +142,7 @@ describe('WorkspaceSetupSection', () => {
     const onStepsChange = renderSection();
 
     expect(screen.getByText('No setup steps yet')).toBeInTheDocument();
-    for (const name of ['Add terminal', 'Add browser', 'Add note']) {
+    for (const name of ['Add terminal', 'Add browser', 'Add note', 'Add secret file']) {
       expect(screen.getAllByRole('button', { name })).toHaveLength(1);
     }
     await userEvent.click(screen.getByRole('button', { name: 'Add terminal' }));
@@ -94,6 +150,193 @@ describe('WorkspaceSetupSection', () => {
     expect(onStepsChange).toHaveBeenCalledWith([
       expect.objectContaining({ name: '', placement: 'background' }),
     ]);
+  });
+
+  describe('Secret file steps', () => {
+    it('adds one that writes .env in the background as the workspace is created', async () => {
+      const onStepsChange = renderSection();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Add secret file' }));
+
+      expect(onStepsChange).toHaveBeenCalledWith([
+        expect.objectContaining({
+          name: 'Secret file',
+          kind: 'secret-file',
+          file: '.env',
+          placement: 'background',
+          trigger: 'workspace-creation',
+        }),
+      ]);
+    });
+
+    it('offers a Secret .env in Quick add', async () => {
+      const onStepsChange = renderSection();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Secret .env' }));
+
+      expect(onStepsChange).toHaveBeenCalledWith([
+        expect.objectContaining({ name: 'Secret .env', kind: 'secret-file', file: '.env' }),
+      ]);
+    });
+
+    it('lists the names its saved contents set, never a value, with no placement to pick', () => {
+      render(<SecretFileSection status={{ names: ['API_KEY', 'DB_URL'], storage: 'keychain' }} />, {
+        wrapper: TooltipProvider,
+      });
+
+      expect(screen.getByText('Sets API_KEY, DB_URL')).toBeInTheDocument();
+      expect(screen.getByText(/^Encrypted by this computer’s keychain/)).toBeInTheDocument();
+      expect(screen.getByText(/Agents in the workspace can read the file/)).toBeInTheDocument();
+      expect(screen.queryByRole('combobox', { name: 'Show in for Secret .env' })).toBeNull();
+      expect(screen.queryByText('Variables available for this destination')).toBeNull();
+      expect(screen.getByRole('combobox', { name: 'Run in for Secret .env' })).toBeInTheDocument();
+    });
+
+    it('says the keychain encrypts them before any are saved, on a computer that has one', () => {
+      render(<SecretFileSection />, { wrapper: TooltipProvider });
+
+      expect(screen.getByText(/^Encrypted by this computer’s keychain/)).toBeInTheDocument();
+      expect(screen.queryByText(/where it has one/)).toBeNull();
+    });
+
+    it('says a computer without a keychain keeps them unencrypted', () => {
+      render(<SecretFileSection status={{ names: [], storage: 'file' }} keychain={false} />, {
+        wrapper: TooltipProvider,
+      });
+
+      expect(screen.getByText(/has no keychain, so they’re kept unencrypted/)).toBeInTheDocument();
+      expect(screen.getByText('Saved, without a NAME=value line')).toBeInTheDocument();
+    });
+
+    it('says contents saved before there was a keychain stay unencrypted until the step runs', () => {
+      render(<SecretFileSection status={{ names: ['A'], storage: 'file' }} />, {
+        wrapper: TooltipProvider,
+      });
+
+      expect(screen.getByText(/^Kept unencrypted from before/)).toBeInTheDocument();
+    });
+
+    it('warns that the step can’t decrypt them while the keychain that encrypted them is away', () => {
+      render(
+        <SecretFileSection status={{ names: ['A'], storage: 'keychain' }} keychain={false} />,
+        {
+          wrapper: TooltipProvider,
+        }
+      );
+
+      expect(
+        screen.getByText(/keychain isn’t available, so the step can’t decrypt/)
+      ).toBeInTheDocument();
+    });
+
+    it('says nothing of encryption until it knows whether there is a keychain', () => {
+      render(<SecretFileSection keychain={null} />, { wrapper: TooltipProvider });
+
+      expect(screen.queryByText(/keychain/)).toBeNull();
+    });
+
+    it('takes new contents into the draft, and emptying them while typing keeps what is saved', async () => {
+      const user = userEvent.setup();
+      render(<SecretFileSection status={{ names: ['OLD'], storage: 'keychain' }} />, {
+        wrapper: TooltipProvider,
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Replace' }));
+      const contents = screen.getByRole('textbox', { name: 'Contents for Secret .env' });
+      await user.type(contents, 'NEW_KEY=1');
+      expect(screen.getByTestId('pending')).toHaveTextContent('{"secret":"NEW_KEY=1"}');
+      expect(screen.getByText('Sets NEW_KEY')).toBeInTheDocument();
+
+      await user.clear(contents);
+      expect(screen.getByTestId('pending')).toHaveTextContent('{}');
+
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.getByText('Sets OLD')).toBeInTheDocument();
+    });
+
+    it('closes the editor once new contents save, showing what they set', async () => {
+      const user = userEvent.setup();
+      const view = render(<SecretFileSection />, { wrapper: TooltipProvider });
+
+      await user.click(screen.getByRole('button', { name: 'Add contents' }));
+      await user.type(screen.getByRole('textbox', { name: 'Contents for Secret .env' }), 'KEY=1');
+      // Saving clears the draft's contents and brings what this computer now holds.
+      view.rerender(<SecretFileSection status={{ names: ['KEY'], storage: 'keychain' }} />);
+
+      expect(screen.queryByRole('textbox', { name: 'Contents for Secret .env' })).toBeNull();
+      expect(screen.getByText('Sets KEY')).toBeInTheDocument();
+    });
+
+    it('keeps the editor open when the same status comes again', async () => {
+      const user = userEvent.setup();
+      const view = render(<SecretFileSection status={{ names: ['OLD'], storage: 'keychain' }} />, {
+        wrapper: TooltipProvider,
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Replace' }));
+      // The page reads it again after any change to the project, as a new object.
+      view.rerender(<SecretFileSection status={{ names: ['OLD'], storage: 'keychain' }} />);
+
+      expect(screen.getByRole('textbox', { name: 'Contents for Secret .env' })).toBeInTheDocument();
+    });
+
+    it('removes the saved contents on save, until kept', async () => {
+      const user = userEvent.setup();
+      render(<SecretFileSection status={{ names: ['OLD'], storage: 'keychain' }} />, {
+        wrapper: TooltipProvider,
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Remove' }));
+      expect(screen.getByTestId('pending')).toHaveTextContent('{"secret":""}');
+      expect(screen.getByText('Removed from this computer when you save.')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Keep them' }));
+      expect(screen.getByTestId('pending')).toHaveTextContent('{}');
+    });
+
+    it('warns of contents too long to save, rather than cutting them short', async () => {
+      const long = `A=${'x'.repeat(64 * 1024)}`;
+      render(<SecretFileSection initialPending={{ secret: long }} />, { wrapper: TooltipProvider });
+
+      expect(screen.getByRole('textbox', { name: 'Contents for Secret .env' })).toHaveValue(long);
+      expect(screen.getByText(/at most 64 KB/)).toBeInTheDocument();
+    });
+
+    it('warns of a file it can’t write', async () => {
+      const user = userEvent.setup();
+      render(<SecretFileSection />, { wrapper: TooltipProvider });
+
+      expect(screen.getByText('None yet. Until there are, this step fails.')).toBeInTheDocument();
+      const file = screen.getByRole('textbox', { name: 'File for Secret .env' });
+      await user.clear(file);
+      await user.type(file, '../.env');
+
+      expect(screen.getByText(/must be inside the workspace/)).toBeInTheDocument();
+    });
+
+    it('drops the file when switched to a terminal, and starts from .env when switched back', async () => {
+      const user = userEvent.setup();
+      render(<SecretFileSection />, { wrapper: TooltipProvider });
+
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: 'Kind for Secret .env' }),
+        'terminal'
+      );
+      expect(screen.getByTestId('steps')).not.toHaveTextContent('"file"');
+
+      await user.type(screen.getByPlaceholderText('Shell command'), 'npm run dev');
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: 'Kind for Secret .env' }),
+        'secret-file'
+      );
+      expect(JSON.parse(screen.getByTestId('steps').textContent ?? '')[0]).toMatchObject({
+        kind: 'secret-file',
+        file: '.env',
+        placement: 'background',
+        command: '',
+      });
+      expect(screen.queryByText(/Background steps should run a command/)).toBeNull();
+    });
   });
 
   it('names the reorder and remove buttons of each row', async () => {
@@ -163,11 +406,18 @@ describe('WorkspaceSetupSection', () => {
       },
     ]);
 
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Kind for Browser' }), 'terminal');
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Kind for Browser' }),
+      'terminal'
+    );
 
     const [[steps]] = onStepsChange.mock.calls;
     expect(steps).toEqual([
-      expect.objectContaining({ name: 'Terminal', placement: 'tab', trigger: 'workspace-creation' }),
+      expect.objectContaining({
+        name: 'Terminal',
+        placement: 'tab',
+        trigger: 'workspace-creation',
+      }),
     ]);
     expect(steps[0]).not.toHaveProperty('kind');
     expect(steps[0]).not.toHaveProperty('urls');
@@ -187,8 +437,12 @@ describe('WorkspaceSetupSection', () => {
         )
       ).not.toBeInTheDocument();
       // It opens each start, with what it showed when the workspace stopped.
-      expect(screen.queryByRole('combobox', { name: `Run on for ${name}` })).not.toBeInTheDocument();
-      expect(screen.queryByRole('combobox', { name: `Run in for ${name}` })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('combobox', { name: `Run on for ${name}` })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('combobox', { name: `Run in for ${name}` })
+      ).not.toBeInTheDocument();
     }
     expect(screen.getByText(/A blank note/)).toBeInTheDocument();
 

@@ -83,6 +83,7 @@ import { remoteControlKeepAwakeService } from './services/remote-control-keep-aw
 import { remoteMayOpenAttention } from './services/remote-control-local-access';
 import { remoteControlPushService } from './services/remote-control-push.service';
 import { configureRemoteObservationKomlaPort } from './services/remote-workspace-observation.service';
+import { forgetRemovedSecretFiles } from './services/secret-files.service';
 import { settingsHistoryService } from './services/settings-history.service';
 import { shortcutsService } from './services/shortcuts.service';
 import { stopWatchingSidebarPanels, watchSidebarPanels } from './services/sidebar-panels.service';
@@ -791,6 +792,7 @@ void app.whenReady().then(async () => {
   const pluginSecrets = loadPluginSettings().catch((error: unknown) =>
     logger.warn("Could not read plugins' settings", error)
   );
+  forgetRemovedSecretFiles();
   const watchers = Promise.allSettled([
     customizationService.init(),
     shortcutsService.init(),

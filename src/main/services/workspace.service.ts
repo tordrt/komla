@@ -103,6 +103,7 @@ import {
 } from './workspace/worktree-branches';
 import { sshWorkspaceGit } from './workspace-git/ssh-git';
 import { backgroundActionNotification } from './workspace-setup/action-run-notification';
+import { writeWorkspaceSecretFile } from './workspace-setup/secret-file-writing';
 import { configureWorkspaceSetup, workspaceSetupService } from './workspace-setup.service';
 import { wakeWorkspace, WorkspaceSnoozeAlarm } from './workspace-snooze';
 import { configureWorkspaceStatus, workspaceStatusService } from './workspace-status.service';
@@ -389,6 +390,8 @@ class WorkspaceService {
       hosts: sshHostService,
       ssh: sshWorkspaceService,
       background: backgroundProcessService,
+      writeSecretFile: (workspace, step, destination) =>
+        writeWorkspaceSecretFile(workspace, step, destination),
       notifyActionRunFinished: (workspace, run) =>
         this.notifyWorkspace(workspace, backgroundActionNotification(run)),
     });

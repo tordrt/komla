@@ -1,5 +1,5 @@
 import { Warning } from '@phosphor-icons/react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { BranchCleanupDialog } from '@/components/projects/BranchCleanupDialog';
 import { ProjectIconPicker } from '@/components/projects/ProjectIconPicker';
@@ -38,6 +38,7 @@ import {
   draftToUpdates,
   isDraftChanged,
   projectToDraft,
+  secretFileChanges,
   type ProjectDraft,
 } from './project-settings-draft';
 import { ProjectSetupSkillButton } from './ProjectSetupSkillButton';
@@ -48,7 +49,7 @@ import { TrashCleanupCard } from './TrashCleanupCard';
 import { WorkspaceSetupSection } from './WorkspaceSetupSection';
 
 import type { ProjectSection } from './project-settings-sections';
-import type { Project, SshWorkspaceMode } from '@/types';
+import type { Project, SecretFilesStatus, SshWorkspaceMode } from '@/types';
 
 function DeleteProjectWarning({ project }: { project: Project }) {
   const count = useWorkspacesStore(
@@ -191,6 +192,18 @@ export function ProjectSettingsPage({
     void loadPresets();
   }, [loadPresets]);
 
+  // What this computer holds for each Secret file step, only the names its contents set, and
+  // whether its keychain encrypts them.
+  const [secretFiles, setSecretFiles] = useState<SecretFilesStatus>();
+  const refreshSecretFiles = useCallback(() => {
+    if (isDirectory) return;
+    window.api
+      .getSecretFilesStatus(project.id)
+      .then(setSecretFiles)
+      .catch(() => setSecretFiles(undefined));
+  }, [isDirectory, project.id]);
+  useEffect(refreshSecretFiles, [refreshSecretFiles, project]);
+
   const iconCandidates = useProjectIconCandidates({ projectId: project.id });
   // The saved icon stays a choice after its file moved or changed.
   const iconOptions =
@@ -218,14 +231,24 @@ export function ProjectSettingsPage({
       return;
     }
     const updates = draftToUpdates(draft, saved, project.kind);
+    const secretFileSaves = secretFileChanges(draft);
     setIsSaving(true);
     try {
-      await updateProject(project.id, updates);
+      if (Object.keys(updates).length > 0 || secretFileSaves.length === 0) {
+        await updateProject(project.id, updates);
+      }
+      // After the steps, which must be saved to take contents.
+      for (const [stepId, contents] of secretFileSaves) {
+        await window.api.setSecretFile(project.id, stepId, contents);
+      }
+      if (secretFileSaves.length > 0) refreshSecretFiles();
       // The saved project then replaces these values, normalized.
       setSaved(draft);
       addToast('Project updated', 'success');
     } catch (err) {
       addToast((err as Error).message, 'error');
+      // Contents that saved before the failure show as saved.
+      if (secretFileSaves.length > 0) refreshSecretFiles();
     } finally {
       setIsSaving(false);
     }
@@ -412,6 +435,18 @@ export function ProjectSettingsPage({
               )}
               presets={presets}
               onStepsChange={(setupSteps) => update({ setupSteps })}
+              secretFiles={secretFiles?.steps}
+              keychain={secretFiles?.keychain}
+              pendingSecretFiles={draft.secretFiles}
+              onSecretFileChange={(stepId, contents) =>
+                setDraft((prev) => {
+                  const { [stepId]: _, ...rest } = prev.secretFiles;
+                  return {
+                    ...prev,
+                    secretFiles: contents === undefined ? rest : { ...rest, [stepId]: contents },
+                  };
+                })
+              }
               onAgentPlacementChange={(agentPlacement) => update({ agentPlacement })}
               onAgentLayoutOrderChange={(agentLayoutOrder) => update({ agentLayoutOrder })}
               action={<ProjectSetupSkillButton />}

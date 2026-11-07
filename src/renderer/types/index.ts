@@ -85,6 +85,8 @@ export type {
   SetupStepPlacement,
   SetupStepKind,
   SetupStepPane,
+  SecretFileStatus,
+  SecretFilesStatus,
   SetupDestination,
   SetupTrigger,
   AgentPlacement,

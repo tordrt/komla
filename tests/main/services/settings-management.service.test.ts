@@ -785,6 +785,58 @@ describe('SettingsManagementService', () => {
     });
   });
 
+  it('lets an agent add a Secret file step that writes in the background, but not its contents', async () => {
+    const { service, approve } = fixture();
+    const result = await service.proposeWorkspaceSetup(
+      { terminalId: 'terminal-1' },
+      {
+        setupSteps: [
+          { name: 'Secrets', command: '', placement: 'tab', kind: 'secret-file', file: '.env' },
+        ],
+        agentPlacement: 'tab',
+        agentLayoutOrder: 0,
+        trashCleanupScript: '',
+      }
+    );
+
+    expect(approve.mock.calls[0][0].changes).toEqual([
+      expect.objectContaining({
+        kind: 'setup-step',
+        details: expect.arrayContaining([{ label: 'Writes', value: 'Secret file .env' }]),
+      }),
+    ]);
+    expect(result).toMatchObject({ status: 'applied', applied: true });
+    expect(result.value?.setupSteps[0]).toMatchObject({
+      kind: 'secret-file',
+      file: '.env',
+      placement: 'background',
+    });
+  });
+
+  it('rejects a Secret file step outside the workspace, or one that names an agent', async () => {
+    const { service } = fixture();
+    const propose = (step: Record<string, unknown>) =>
+      service.proposeWorkspaceSetup(
+        { terminalId: 'terminal-1' },
+        {
+          setupSteps: [
+            { name: 'Secrets', command: '', placement: 'background', kind: 'secret-file', ...step },
+          ],
+          agentPlacement: 'tab',
+          agentLayoutOrder: 0,
+          trashCleanupScript: '',
+        }
+      );
+
+    await expect(propose({ file: '../.env' })).rejects.toMatchObject({
+      code: 'INVALID_SETUP_STEP',
+      status: 422,
+    });
+    await expect(propose({ file: '.env', agent: {} })).rejects.toMatchObject({
+      code: 'INVALID_SETUP_STEP',
+    });
+  });
+
   it('rejects Workspace Setup writes for directory projects', async () => {
     const { service, projects, approve } = fixture();
     projects[0].kind = 'directory';

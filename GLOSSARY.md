@@ -16,10 +16,18 @@ _Avoid_: Project Setup
 
 **Setup step**:
 A command Workspace Setup launches when a workspace is created or every time it starts, in the
-workspace or its Local copy, or a browser or blank note it opens in a pane beside them when the
-workspace is created; after that the Saved layout opens them again. Steps run independently in the
-background and never hold up the workspace or each other; list order is launch order, not
-dependency order.
+workspace or its Local copy, a Secret file it writes there, or a browser or blank note it opens in
+a pane beside them when the workspace is created; after that the Saved layout opens them again.
+Steps run independently in the background and never hold up the workspace or each other; list
+order is launch order, not dependency order.
+
+**Secret file**:
+A Setup step that writes a file, such as `.env`, from contents the user keeps in Komla on this
+computer, encrypted by its keychain. The project's settings and its Project manifest hold only the
+step and the file's path, so each Komla installation sets its own contents, and agents never read
+or set them through Komla. Once written, the file is the workspace's like any other, so agents
+working there can read it.
+_Avoid_: Secret, which a Plugin Setting already names; vault, env secrets
 
 **Saved layout**:
 A workspace's tabs as it last showed them while it had a browser or a note. When the workspace

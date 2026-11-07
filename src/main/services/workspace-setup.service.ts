@@ -9,6 +9,7 @@ import type { sshHostService } from './ssh-host.service';
 import type { sshWorkspaceService } from './ssh-workspace.service';
 import type {
   SetupActivityRun,
+  SetupStep,
   Workspace,
   Terminal,
   TerminalExecutionLocation,
@@ -47,6 +48,15 @@ export interface WorkspaceSetupDependencies {
   hosts: Pick<typeof sshHostService, 'get'>;
   ssh: Pick<typeof sshWorkspaceService, 'getRsyncTransport'>;
   background: Pick<typeof backgroundProcessService, 'killForWorkspace' | 'killForWorkspaceAndWait'>;
+  /**
+   * Writes a Secret file step's contents to its file where it runs, resolving with whether Git
+   * ignores it there.
+   */
+  writeSecretFile(
+    workspace: Workspace,
+    step: SetupStep,
+    destination: { cwd: string; executionLocation: TerminalExecutionLocation }
+  ): Promise<{ gitIgnored?: boolean }>;
   /** Tells the user a background command Action's run ended. */
   notifyActionRunFinished(workspace: Workspace, run: SetupActivityRun): void;
 }

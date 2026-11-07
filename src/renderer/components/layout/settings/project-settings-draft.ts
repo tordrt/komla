@@ -34,6 +34,11 @@ export interface ProjectDraft {
   agentPlacement: AgentPlacement;
   agentLayoutOrder: number;
   trashCleanupScript: string;
+  /**
+   * New contents for Secret file steps, by step, '' to remove them. They save to this computer's
+   * keychain after the steps, and never with the project's settings.
+   */
+  secretFiles: Record<string, string>;
 }
 
 // Each group saves as a whole, and only when one of its fields changed, so saving
@@ -145,6 +150,7 @@ export function projectToDraft(project: Project): ProjectDraft {
     agentPlacement: normalizeAgentPlacement(project.agentPlacement),
     agentLayoutOrder: project.agentLayoutOrder ?? 0,
     trashCleanupScript: project.trashCleanupScript ?? '',
+    secretFiles: {},
   };
 }
 
@@ -158,10 +164,18 @@ function changed(
 
 export function isDraftChanged(draft: ProjectDraft, saved: ProjectDraft): boolean {
   return changed(
-    [...IDENTITY_FIELDS, ...AHEAD_FIELDS, ...GIT_FIELDS, ...SETUP_FIELDS],
+    [...IDENTITY_FIELDS, ...AHEAD_FIELDS, ...GIT_FIELDS, ...SETUP_FIELDS, 'secretFiles'],
     draft,
     saved
   );
+}
+
+/** The Secret file contents to save, for steps the draft still has as Secret files. */
+export function secretFileChanges(draft: ProjectDraft): Array<[stepId: string, contents: string]> {
+  const secretFiles = new Set(
+    draft.setupSteps.filter((step) => step.kind === 'secret-file').map((step) => step.id)
+  );
+  return Object.entries(draft.secretFiles).filter(([stepId]) => secretFiles.has(stepId));
 }
 
 function gitUpdates(draft: ProjectDraft): Partial<Project> {

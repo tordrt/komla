@@ -90,6 +90,8 @@ import type {
   DevPreviewTabRef,
   LeftoverBranches,
   WorkspaceCleanupStatus,
+  SecretFileStatus,
+  SecretFilesStatus,
   LinkPreview,
   LinkPreviewRequest,
   AgentsMenuBarDrawRequest,
@@ -456,6 +458,18 @@ const api = {
 
   deleteProject: (id: string): Promise<{ deletedWorkspaceIds: string[] }> =>
     ipcRenderer.invoke(IPC.PROJECT_DELETE, id),
+
+  /** What Settings may know of each saved Secret file step's contents: the names they set. */
+  getSecretFilesStatus: (projectId: string): Promise<SecretFilesStatus> =>
+    ipcRenderer.invoke(IPC.PROJECT_SECRET_FILES_STATUS, projectId),
+
+  /** Replaces a saved Secret file step's contents; '' removes them. */
+  setSecretFile: (
+    projectId: string,
+    stepId: string,
+    contents: string
+  ): Promise<SecretFileStatus | null> =>
+    ipcRenderer.invoke(IPC.PROJECT_SET_SECRET_FILE, projectId, stepId, contents),
 
   validateProjectRepo: (path: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC.PROJECT_VALIDATE_REPO, path),

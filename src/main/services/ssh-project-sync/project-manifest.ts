@@ -7,6 +7,7 @@ import {
   aheadTargetActionSchema,
   behindTargetActionSchema,
   projectIconSchema,
+  setupStepFileSchema,
   setupStepUrlsSchema,
   simpleAheadActionSchema,
 } from '../../../shared/ipc/schemas/config-ipc.schemas';
@@ -68,6 +69,7 @@ const manifestSchema = z.object({
             agent: agentSchema.optional(),
             kind: z.enum(SETUP_STEP_KINDS).optional(),
             urls: setupStepUrlsSchema.optional(),
+            file: setupStepFileSchema.optional(),
             destination: z.enum(SETUP_DESTINATIONS).optional(),
             trigger: z.enum(SETUP_TRIGGERS).optional(),
           })

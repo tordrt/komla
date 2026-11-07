@@ -730,6 +730,53 @@ describe('ProjectService', () => {
     expect(listener.mock.calls).toEqual([[project.id], [project.id]]);
   });
 
+  it('tells listeners which Secret file steps a project keeps after its setup changes or it’s deleted', async () => {
+    const { projectService } = await import('../../../src/main/services/project.service');
+    const project = await projectService.create({ repositoryPath: '/repo/one', name: 'First' });
+    const listener = vi.fn();
+    projectService.onSecretFileStepsChange(listener);
+    const secretFile = (id: string) => ({
+      id,
+      name: 'Secrets',
+      command: '',
+      placement: 'tab' as const,
+      kind: 'secret-file' as const,
+      file: '.env',
+    });
+
+    await projectService.update(project.id, { name: 'Renamed' });
+    expect(listener).not.toHaveBeenCalled();
+    await projectService.update(project.id, {
+      setupSteps: [secretFile('kept'), { ...secretFile('now-terminal'), kind: 'terminal' }],
+    });
+    await projectService.delete(project.id);
+
+    expect(listener.mock.calls).toEqual([
+      [project.id, new Set(['kept'])],
+      [project.id, new Set()],
+    ]);
+  });
+
+  it('saves a Secret file step to run in the background', async () => {
+    const { projectService } = await import('../../../src/main/services/project.service');
+    const project = await projectService.create({ repositoryPath: '/repo/one', name: 'First' });
+
+    const updated = await projectService.update(project.id, {
+      setupSteps: [
+        {
+          id: 's',
+          name: 'Secrets',
+          command: '',
+          placement: 'tab',
+          kind: 'secret-file',
+          file: '.env',
+        },
+      ],
+    });
+
+    expect(updated.setupSteps?.[0]).toMatchObject({ placement: 'background', file: '.env' });
+  });
+
   it('uses stored project folder ownership after a managed project is renamed', async () => {
     const { projectService } = await import('../../../src/main/services/project.service');
 

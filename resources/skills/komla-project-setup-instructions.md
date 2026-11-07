@@ -79,8 +79,9 @@ Quick Command:
 
 - **Install dependencies on creation and environment readiness.** Prefer a lockfile-native
   `workspace-creation` step and project-owned bootstrap. A checked-in template may use a creation
-  step that never overwrites an existing file. When secrets or user-specific values are required, state the
-  manual prerequisite instead. Do not put secret values in chat, commands, or settings. Pair it
+  step that never overwrites an existing file. When secrets are required, propose a Secret file
+  step for the ignored file; the user adds its contents in Settings. Do not put secret values in
+  chat, commands, or settings. Pair it
   with a Trash cleanup that frees what setup re-creates, such as `rm -rf node_modules dist`; a
   failing cleanup keeps the workspace out of the Trash. Restoring doesn't reinstall, so tell the user.
 - **Primary development command** as a manual Project Quick Command, using the canonical command.
@@ -192,6 +193,8 @@ Workspace Setup:
   server's visible step opens it once it listens (POSIX shell; steps don't share variables):
   `PORT=$(<free-port command>); (<wait for $PORT> && komla preview --open "http://localhost:$PORT/<path>") & <dev command> --port "$PORT"`.
   `"kind": "note"` opens a blank note. Both open on creation; omit `trigger`.
+- `"kind": "secret-file"` writes `file`, a Git-ignored path inside the destination such as `.env`,
+  from contents only the user sets. Send `"command": ""` and `"placement": "background"`.
 
 Use `workspace-creation` for one-time preparation and `every-workspace-start` for terminal layout
 or processes Komla should recreate on each start. Komla runs nothing when a workspace stops, so

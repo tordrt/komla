@@ -46,7 +46,7 @@ The mark, then "Komla" in the regular text color in the app's sans-serif (Geist)
 
 ![One komla](brand/komla.svg)
 
-One komla on its own (`Komla` in code, `brand/komla.svg`) is decoration, not the logo. It's only for the komlas floating behind the setup wizard and the empty main window.
+One komla on its own (`brand/komla.svg`) is decoration, not the logo. The app doesn't use it: its pages stay flat, with the mark as the only brand color.
 
 ## Don't
 
@@ -61,7 +61,7 @@ One komla on its own (`Komla` in code, `brand/komla.svg`) is decoration, not the
 | --- | --- |
 | `resources/icon.svg` | The app icon master: tile plus mark. |
 | `scripts/generate-icons.mjs` | Renders `icon.png`, `.icns`, `.ico` and `resources/icons/` from the master, writes the three `docs/brand/komla-mark*.svg` files, and renders the site's favicons when `KOMLA_SITE_PUBLIC_DIR` points at the site's `public/` folder. |
-| `src/renderer/components/ui/komla-mark.tsx` | `KomlaMark` (the in-app mark) and `Komla` (the single komla). |
-| `docs/brand/` | Standalone SVGs with transparent backgrounds. `komla.svg` is a copy of `Komla`; the rest are generated. |
+| `src/renderer/components/ui/komla-mark.tsx` | `KomlaMark`, the in-app mark. |
+| `docs/brand/` | Standalone SVGs with transparent backgrounds. `komla.svg` is drawn by hand; the rest are generated. |
 
 The three komla outlines live in `icon.svg` (`komla-0`..`komla-2`). To change the shape, edit them there and run `node scripts/generate-icons.mjs`. Then update `KomlaMark`'s copy, which holds the same outlines scaled into a 100-unit box (the square `docs/brand/komla-mark.svg`'s viewBox frames). `tests/renderer/components/ui/komla-mark.test.tsx` fails if either copy falls behind `icon.svg`.

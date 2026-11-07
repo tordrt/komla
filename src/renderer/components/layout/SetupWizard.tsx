@@ -6,7 +6,6 @@ import { AgentPresetIcon, hasAgentPresetLogo } from '@/components/terminal/Agent
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/callout';
 import { Input } from '@/components/ui/input';
-import { KomlaBackdrop } from '@/components/ui/komla-backdrop';
 import { KomlaMark } from '@/components/ui/komla-mark';
 import { Spinner } from '@/components/ui/spinner';
 import { clearOnboardingProjectId, storeOnboardingProjectId } from '@/lib/onboarding-progress';
@@ -126,7 +125,7 @@ const machineStep = 4;
 const analyticsStep = 5;
 const stepLabels = ['Project', 'Agent', 'Connect', 'Machine'];
 
-// Every step's Back and Continue, in a band along the bottom of the card.
+// Every step's Back and Continue, in a band along the bottom of the column.
 const WIZARD_FOOTER_CLASS =
   'flex shrink-0 items-center justify-between gap-3 border-t border-foreground/8 px-7 py-4';
 
@@ -464,12 +463,11 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
     step === agentStep && !detecting && !templatesFailed && !usesDetectedAgents;
 
   return (
-    <div className="relative flex h-full justify-center overflow-hidden px-8 pt-[calc(1.25rem+var(--wizard-top-inset,0px))] pb-5">
-      <KomlaBackdrop />
+    <div className="wizard-page relative flex h-full justify-center overflow-hidden px-8 pt-5 pb-5">
       <OnboardingZoomControl className="absolute bottom-4 left-4" />
-      {/* One card holds the header and the step, centered in the window. Every step shares a
+      {/* One column holds the header and the step, centered in the window. Every step shares a
           height, so it stays put from step to step. */}
-      <div className="wizard-card floating-surface relative flex max-h-full min-h-0 w-full max-w-[35rem] flex-col items-stretch gap-5 self-center overflow-hidden rounded-2xl border pt-7">
+      <div className="relative flex max-h-full min-h-0 w-full max-w-[35rem] flex-col items-stretch gap-5 self-center overflow-hidden pt-7">
         <div className="flex shrink-0 flex-col items-center gap-4">
           <h1 className="flex items-center gap-2.5 text-2xl font-semibold tracking-tight">
             <KomlaMark className="size-7" />
@@ -760,12 +758,12 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
                   defaultBranchPrefix={getDefaultBranchPrefix(selectedTemplateName)}
                   skipLabel="Skip for now"
                   className="flex flex-1 flex-col"
-                  // Pinned to the card's bottom as the other steps' footers are, over the card's
-                  // color, so a clone or new repo form scrolls under it.
+                  // Pinned to the bottom as the other steps' footers are, over the page's color,
+                  // so a clone or new repo form scrolls under it.
                   actionsClassName={cn(
                     '-mx-7 mt-auto',
                     WIZARD_FOOTER_CLASS,
-                    'sticky bottom-0 z-10 bg-[color:var(--wizard-card-bg)]'
+                    'sticky bottom-0 z-10 bg-[color:var(--wizard-bg)]'
                   )}
                   onSkip={handleSkipProject}
                   disabled={isCreating}

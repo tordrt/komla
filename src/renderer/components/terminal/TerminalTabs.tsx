@@ -49,7 +49,6 @@ import {
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { ShortcutHint } from '@/components/ui/kbd';
-import { KomlaBackdrop } from '@/components/ui/komla-backdrop';
 import { KomlaMark } from '@/components/ui/komla-mark';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
@@ -986,8 +985,6 @@ function renderTerminalTabsEmptyState(params: {
   hasAnyWorkspaces: boolean;
   isRestarting: boolean;
   restartAgent: WorkspaceRestartAgent;
-  /** The empty page's komlas float only while the left sidebar is collapsed. */
-  sidebarCollapsed: boolean;
   onNewWorkspaceDialogChange?: (open: boolean) => void;
 }): React.ReactElement | null {
   const {
@@ -999,7 +996,6 @@ function renderTerminalTabsEmptyState(params: {
     hasAnyWorkspaces,
     isRestarting,
     restartAgent,
-    sidebarCollapsed,
     onNewWorkspaceDialogChange,
   } = params;
 
@@ -1024,10 +1020,9 @@ function renderTerminalTabsEmptyState(params: {
     }
     if (hasActiveWorkspaces) {
       return (
-        <div className="empty-work-area relative h-full bg-card pb-(--banner-inset)">
-          {sidebarCollapsed && <KomlaBackdrop />}
+        <div className="empty-work-area h-full bg-card pb-(--banner-inset)">
           <EmptyState
-            className="relative h-full"
+            className="h-full"
             icon={<KomlaMark />}
             iconClassName="bg-foreground/10 light:bg-popover light:shadow-xs"
             title="No workspace selected"
@@ -1059,9 +1054,8 @@ function renderTerminalTabsEmptyState(params: {
     }
     return (
       <FolderDropZone className="empty-work-area h-full bg-card pb-(--banner-inset)">
-        {sidebarCollapsed && <KomlaBackdrop />}
         <EmptyState
-          className="relative h-full"
+          className="h-full"
           icon={<KomlaMark />}
           // Neutral, like the rest of the empty page, so the logo brings the only color.
           iconClassName="bg-foreground/10 light:bg-popover light:shadow-xs"
@@ -2089,7 +2083,6 @@ export const TerminalTabs = memo(function TerminalTabs({
     hasAnyWorkspaces,
     isRestarting,
     restartAgent,
-    sidebarCollapsed,
     onNewWorkspaceDialogChange,
   });
   // The Overview covers the workspace layers instead of replacing them, so opening and closing it

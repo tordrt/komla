@@ -329,7 +329,7 @@ describe('installBundledSkills', () => {
     expect(content).not.toContain('Would you like to use these defaults');
     expect(content).toContain('Install dependencies on creation');
     // What setup installs, Trash cleanup frees, and the user hears that restoring doesn't reinstall.
-    expect(content).toMatch(/Pair it\s+with a Trash cleanup that frees what setup re-creates/);
+    expect(content).toMatch(/Pair the install with a Trash cleanup that frees\s+what setup re-creates/);
     expect(content).toMatch(/Restoring doesn't reinstall/);
     expect(content).toMatch(/Primary development command/i);
     expect(content).toMatch(/Offer more\s+choices only when the\s+user asks/);
@@ -392,6 +392,12 @@ describe('installBundledSkills', () => {
     );
     expect(content).toMatch(/Do not put secret values/i);
     expect(content).toMatch(/Secret file\s+step/i);
+    expect(content).toContain('op run --env-file=.env.tpl -- npm run dev');
+    expect(content).toContain('infisical run -- npm run dev');
+    expect(content).toMatch(/When secrets are required and\s+the repo uses a secrets manager/);
+    expect(content).toMatch(/`op:\/\/` references/);
+    expect(content).toMatch(/Secret file step for the ignored file/);
+    expect(content).toMatch(/rather than\s+writing or copying a `\.env`/);
   });
 
   it('project setup leaves worktree-safe port selection to project commands', () => {
@@ -483,6 +489,6 @@ describe('installBundledSkills', () => {
   it('keeps project setup instructions concise', () => {
     const instructions = readProjectSetupInstructions();
 
-    expect(instructions.trim().split(/\s+/).length).toBeLessThanOrEqual(2150);
+    expect(instructions.trim().split(/\s+/).length).toBeLessThanOrEqual(2200);
   });
 });

@@ -11,8 +11,9 @@ Build a runnable component inventory:
   and infrastructure, but exclude dependency, build, cache, and vendored directories.
 - Inspect scripts, task runners, Compose files, and workflow docs.
 - Check lockfiles, submodules, required ignored files, and re-creatable paths.
-- Find environment templates such as `.env.example`, project-owned bootstrap commands, startup
-  docs, and config validators. Classify required files as tracked, templated, or local/ignored.
+- Find environment templates such as `.env.example`, secrets-manager config such as
+  `.infisical.json` or `doppler.yaml`, project-owned bootstrap commands, startup docs, and config
+  validators. Classify required files as tracked, templated, or local/ignored.
   Do not read or print values from ignored or local environment files.
 
 For each runnable component, record its path, purpose, prerequisites, commands, environment files,
@@ -79,11 +80,14 @@ Quick Command:
 
 - **Install dependencies on creation and environment readiness.** Prefer a lockfile-native
   `workspace-creation` step and project-owned bootstrap. A checked-in template may use a creation
-  step that never overwrites an existing file. When secrets are required, propose a Secret file
-  step for the ignored file; the user adds its contents in Settings. Do not put secret values in
-  chat, commands, or settings. Pair it
-  with a Trash cleanup that frees what setup re-creates, such as `rm -rf node_modules dist`; a
-  failing cleanup keeps the workspace out of the Trash. Restoring doesn't reinstall, so tell the user.
+  step that never overwrites an existing file. Pair the install with a Trash cleanup that frees
+  what setup re-creates, such as `rm -rf node_modules dist`; a failing cleanup keeps the workspace
+  out of the Trash. Restoring doesn't reinstall, so tell the user. When secrets are required and
+  the repo uses a secrets manager, such as `op://` references in a `.env.tpl`, `.infisical.json`
+  or `doppler.yaml`, wrap the commands needing them in its runner, such as
+  `op run --env-file=.env.tpl -- npm run dev` or `infisical run -- npm run dev`, rather than
+  writing or copying a `.env`. Otherwise propose a Secret file step for the ignored file; the user
+  adds its contents in Settings. Do not put secret values in chat, commands, or settings.
 - **Primary development command** as a manual Project Quick Command, using the canonical command.
 - **Secondary development commands**: group selected services while creating separate manual Quick Commands.
 

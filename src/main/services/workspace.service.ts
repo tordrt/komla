@@ -641,10 +641,11 @@ class WorkspaceService {
       if (workspacesList === null) return;
 
       for (const rawPersisted of workspacesList) {
-        const { workspace, agentSources, runningAtQuit } = hydrateWorkspace(rawPersisted);
+        const { workspace, agentSources, agentStartedAt, runningAtQuit } =
+          hydrateWorkspace(rawPersisted);
         workspaceStore.workspaces.set(workspace.id, workspace);
         if (runningAtQuit) workspaceStore.runningAtQuitIds.add(workspace.id);
-        this.attention.restored(workspace, agentSources);
+        this.attention.restored(workspace, agentSources, agentStartedAt);
       }
       // Give workspaces that share a position their own; dragging between them does nothing.
       const ordered = [...workspaceStore.workspaces.values()].sort(

@@ -16806,6 +16806,7 @@ describe('WorkspaceService', () => {
                   ignoredStringCount: '1',
                   ['x'.repeat(65)]: 1,
                 },
+                agentActiveSince: 5_000,
               },
             ],
           },
@@ -16815,12 +16816,56 @@ describe('WorkspaceService', () => {
 
       expect(workspaceService.get('ws-ssh')?.agentActive).toBe(true);
       expect(workspaceService.getTerminal('terminal-1')?.agentActive).toBe(true);
+      // It has been working since before the restart.
+      expect(workspaceService.getTerminal('terminal-1')?.agentActiveSince).toBe(5_000);
+      expect(workspaceService.get('ws-ssh')?.agentActiveSince).toBe(5_000);
       expect(workspaceService.attention.persistedSources('ws-ssh', 'terminal-1')).toEqual({
         codex: 1,
       });
 
       workspaceService.attention.sessionGone('terminal-1');
       expect(workspaceService.get('ws-ssh')?.agentActive).toBe(false);
+    });
+
+    it.each([
+      ['in the future', Date.now() + 60 * 60_000],
+      ['not a time', 'yesterday'],
+      ['negative', -1],
+    ])('counts a restored agent as working from now when its saved start is %s', async (_, since) => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          {
+            ...baseWorkspace,
+            id: 'ws-ssh',
+            workingDirectory: 'ssh://ssh-dev/home/dev/worktree',
+            backend: {
+              kind: 'ssh',
+              hostId: 'ssh-dev',
+              remoteDirectory: '/home/dev/worktree',
+              remoteRepoPath: '/home/dev/repo.git',
+              remoteProjectRoot: '/home/dev',
+              gitUrl: 'git@example.com:repo.git',
+            },
+            terminals: [
+              {
+                id: 'terminal-1',
+                name: 'Agent',
+                createdAt: 1_001,
+                remoteSessionActive: true,
+                activeAgentSources: { codex: 1 },
+                agentActiveSince: since,
+              },
+            ],
+          },
+        ])
+      );
+      const before = Date.now();
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      const restoredSince = workspaceService.getTerminal('terminal-1')?.agentActiveSince;
+      expect(restoredSince).toBeGreaterThanOrEqual(before);
+      expect(restoredSince).toBeLessThanOrEqual(Date.now());
     });
 
     it('persists terminal-scoped activity before acknowledging an SSH hook', async () => {
@@ -16856,9 +16901,13 @@ describe('WorkspaceService', () => {
       await workspaceService.persistSshAttention('ws-ssh');
 
       const written = JSON.parse(mockWriteFileAtomic.mock.calls.at(-1)?.[1] as string) as Array<{
-        terminals?: Array<{ activeAgentSources?: Record<string, number> }>;
+        terminals?: Array<{ activeAgentSources?: Record<string, number>; agentActiveSince?: number }>;
       }>;
       expect(written[0]?.terminals?.[0]?.activeAgentSources).toEqual({ codex: 1 });
+      expect(written[0]?.terminals?.[0]?.agentActiveSince).toBe(
+        workspaceService.getTerminal('terminal-1')?.agentActiveSince
+      );
+      expect(written[0]?.terminals?.[0]?.agentActiveSince).toEqual(expect.any(Number));
     });
 
     it('saves a background run ending on an SSH workspace at once', async () => {

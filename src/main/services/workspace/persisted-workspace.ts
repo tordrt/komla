@@ -79,6 +79,8 @@ export type PersistedWorkspace = {
     remoteSessionActive?: boolean;
     attention?: WorkspaceAttention;
     activeAgentSources?: Record<string, number>;
+    /** When its agent started working, saved with `activeAgentSources`. */
+    agentActiveSince?: number;
     lastAcceptedHookDeliveryId?: string;
     lastJournalDeliveryId?: string;
   }>;
@@ -221,6 +223,11 @@ function normalizePersistedActiveAgentSources(
   return sources;
 }
 
+/** A saved time an agent started working; a time still to come counts as now when restored. */
+function normalizePersistedAgentActiveSince(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
 const GIT_FILE_STATUSES = new Set(['added', 'modified', 'deleted', 'renamed', 'untracked']);
 
 function hasFieldsOfType(
@@ -348,6 +355,8 @@ export function hydrateWorkspace(rawPersisted: PersistedWorkspace): {
   workspace: Workspace;
   /** Saved spinner sources by Terminal id, restored once the workspace is in the store. */
   agentSources: Map<string, Map<WorkspaceAttentionSource, number>>;
+  /** When each Terminal's agent started working, saved with its spinner sources. */
+  agentStartedAt: Map<string, number>;
   /** Whether it was saved as running when Komla last quit, outside the Trash. */
   runningAtQuit: boolean;
 } {
@@ -424,16 +433,34 @@ export function hydrateWorkspace(rawPersisted: PersistedWorkspace): {
     windowId: null, // Reset on startup - windows get new UUIDs each launch
     agentActive: false,
   };
+  return {
+    workspace,
+    ...persistedAgentActivity(persisted.terminals, terminals),
+    runningAtQuit: persistedRunningAtQuit === true && !inTrash,
+  };
+}
+
+/** The saved spinner sources of the Terminals restored, and when each one's agent started. */
+function persistedAgentActivity(
+  persistedTerminals: PersistedWorkspace['terminals'],
+  terminals: readonly Terminal[]
+): {
+  agentSources: Map<string, Map<WorkspaceAttentionSource, number>>;
+  agentStartedAt: Map<string, number>;
+} {
   const terminalIds = new Set(terminals.map((terminal) => terminal.id));
   const agentSources = new Map<string, Map<WorkspaceAttentionSource, number>>();
-  for (const terminal of persisted.terminals ?? []) {
+  const agentStartedAt = new Map<string, number>();
+  for (const terminal of persistedTerminals ?? []) {
     if (!terminalIds.has(terminal.id)) continue;
     agentSources.set(
       terminal.id,
       normalizePersistedActiveAgentSources(terminal.activeAgentSources)
     );
+    const since = normalizePersistedAgentActiveSince(terminal.agentActiveSince);
+    if (since !== undefined) agentStartedAt.set(terminal.id, since);
   }
-  return { workspace, agentSources, runningAtQuit: persistedRunningAtQuit === true && !inTrash };
+  return { agentSources, agentStartedAt };
 }
 
 export type PersistedTerminalSources = ReturnType<TerminalAttention['persistedSources']>;
@@ -474,20 +501,24 @@ export function serializeWorkspace(
       : persistedTerminals[0]?.id,
     lastDynamicTitle: w.lastDynamicTitle,
     terminals: isSshWorkspace(w)
-      ? persistedTerminals.map((terminal) => ({
-          id: terminal.id,
-          name: terminal.name,
-          dynamicTitle: terminal.dynamicTitle,
-          createdAt: terminal.createdAt,
-          layoutHint: terminal.layoutHint,
-          setupStepId: terminal.setupStepId,
-          executionLocation: 'workspace',
-          remoteSessionActive: persistedRemoteSessionActive(terminal),
-          attention: terminal.attention,
-          lastAcceptedHookDeliveryId: terminal.lastAcceptedHookDeliveryId,
-          lastJournalDeliveryId: terminal.lastJournalDeliveryId,
-          activeAgentSources: persistedSources(w.id, terminal.id),
-        }))
+      ? persistedTerminals.map((terminal) => {
+          const activeAgentSources = persistedSources(w.id, terminal.id);
+          return {
+            id: terminal.id,
+            name: terminal.name,
+            dynamicTitle: terminal.dynamicTitle,
+            createdAt: terminal.createdAt,
+            layoutHint: terminal.layoutHint,
+            setupStepId: terminal.setupStepId,
+            executionLocation: 'workspace',
+            remoteSessionActive: persistedRemoteSessionActive(terminal),
+            attention: terminal.attention,
+            lastAcceptedHookDeliveryId: terminal.lastAcceptedHookDeliveryId,
+            lastJournalDeliveryId: terminal.lastJournalDeliveryId,
+            activeAgentSources,
+            agentActiveSince: activeAgentSources ? terminal.agentActiveSince : undefined,
+          };
+        })
       : undefined,
     terminalLayout: isSshWorkspace(w)
       ? normalizePersistedTerminalLayout(w.terminalLayout, persistedTerminalIds)

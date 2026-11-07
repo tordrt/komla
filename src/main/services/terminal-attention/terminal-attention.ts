@@ -899,12 +899,13 @@ export class TerminalAttention {
 
   /**
    * Restores spinner sources saved with the workspace, by Terminal id, once it is in the store
-   * but before it is announced, and counts its saved attention. Writes the fields without
-   * broadcasting.
+   * but before it is announced, and counts its saved attention. An agent works on from when it
+   * started, as saved by Terminal id. Writes the fields without broadcasting.
    */
   restored(
     workspace: Workspace,
-    sourcesByTerminal: ReadonlyMap<string, ReadonlyMap<string, number>>
+    sourcesByTerminal: ReadonlyMap<string, ReadonlyMap<string, number>>,
+    startedAtByTerminal: ReadonlyMap<string, number> = new Map()
   ): void {
     const activeScopes = new Map<string, Map<WorkspaceAttentionSource, number>>();
     for (const [terminalId, sources] of sourcesByTerminal) {
@@ -912,7 +913,9 @@ export class TerminalAttention {
     }
     if (activeScopes.size > 0) {
       this.activeAgentSources.set(workspace.id, activeScopes);
-      this.recomputeAgentActive(workspace);
+      this.recomputeAgentActive(workspace, (terminalId) =>
+        terminalId === undefined ? undefined : startedAtByTerminal.get(terminalId)
+      );
     }
     workspace.needsAttention = needsAttention(workspace.attention);
     this.updateAttentionIndicator();
@@ -1156,7 +1159,12 @@ export class TerminalAttention {
         if (terminalId) this.clearTerminalAttention(terminalId);
         else if (!hasInvalidTerminalId) this.workspaceSeen(matchingWorkspace.id);
       }
-      this.ensureSource(matchingWorkspace.id, toAttentionSource(payload.source), terminalId);
+      this.ensureSource(
+        matchingWorkspace.id,
+        toAttentionSource(payload.source),
+        terminalId,
+        payload.replayedAt
+      );
       this.updateAttentionIndicator();
       return matchingWorkspace;
     }
@@ -1177,10 +1185,10 @@ export class TerminalAttention {
       }
       const promptSource = toAttentionSource(payload.source);
       if (terminalId) {
-        this.ensureSource(matchingWorkspace.id, promptSource, terminalId);
+        this.ensureSource(matchingWorkspace.id, promptSource, terminalId, payload.replayedAt);
       } else if (!hasInvalidTerminalId) {
         // A Terminal that is gone is old news: its done couldn't stop the spinner.
-        this.addSource(matchingWorkspace.id, promptSource);
+        this.addSource(matchingWorkspace.id, promptSource, payload.replayedAt);
       }
       // The attached installation names the workspace from the prompt, and the name syncs.
       if (payload.copy) return matchingWorkspace;
@@ -1247,7 +1255,12 @@ export class TerminalAttention {
       // Use `ensure` (not increment) — input-required is midstream within an
       // already-in-flight turn, so incrementing here would leave the spinner
       // stuck after the matching turn-complete.
-      this.ensureSource(matchingWorkspace.id, attention.source, attention.terminalId);
+      this.ensureSource(
+        matchingWorkspace.id,
+        attention.source,
+        attention.terminalId,
+        payload.replayedAt
+      );
       if (attention.terminalId && payload.hookInput?.hook_event_name === 'PermissionRequest') {
         this.recordClaudePermission(attention.terminalId, payload);
       }
@@ -2013,10 +2026,18 @@ export class TerminalAttention {
     return terminalId ?? WORKSPACE_AGENT_SCOPE;
   }
 
-  private recomputeAgentActive(workspace: Workspace): boolean {
+  /**
+   * `startedAt` tells when the agent that turns on started, by Terminal id or, without one, the
+   * workspace's own, when that was before now, such as a hook replayed from its Hook Journal.
+   */
+  private recomputeAgentActive(
+    workspace: Workspace,
+    startedAt: (terminalId?: string) => number | undefined = () => undefined
+  ): boolean {
     const scopes = this.activeAgentSources.get(workspace.id);
     const workspaceActive = !!scopes && scopes.size > 0;
     const now = Date.now();
+    const since = (terminalId?: string) => Math.min(now, startedAt(terminalId) ?? now);
     let terminalChanged = false;
     for (const terminal of workspace.terminals) {
       const sources = scopes?.get(terminal.id);
@@ -2024,7 +2045,7 @@ export class TerminalAttention {
       if (!active) this.dropCopiedAgentActivity(terminal.id);
       if (!!terminal.agentActive !== active) {
         terminal.agentActive = active;
-        terminal.agentActiveSince = active ? now : undefined;
+        terminal.agentActiveSince = active ? since(terminal.id) : undefined;
         terminalChanged = true;
       }
       const commandActive =
@@ -2035,25 +2056,36 @@ export class TerminalAttention {
       }
     }
     const workspaceChanged = !!workspace.agentActive !== workspaceActive;
-    if (workspaceChanged) workspace.agentActiveSince = workspaceActive ? now : undefined;
+    // Working since it turned on, or since an agent it has started before that, as a replayed one.
+    workspace.agentActiveSince = workspaceActive
+      ? Math.min(
+          workspaceChanged ? since() : (workspace.agentActiveSince ?? now),
+          ...workspace.terminals.flatMap((t) => (t.agentActiveSince ? [t.agentActiveSince] : []))
+        )
+      : undefined;
     workspace.agentActive = workspaceActive;
     return workspaceChanged || terminalChanged;
   }
 
-  private broadcastIfAgentActiveChanged(workspace: Workspace): void {
-    if (this.recomputeAgentActive(workspace)) {
+  /** `startedAt` is when an agent that turns on started, if before now. */
+  private broadcastIfAgentActiveChanged(workspace: Workspace, startedAt?: number): void {
+    if (this.recomputeAgentActive(workspace, () => startedAt)) {
       this.deps.store.broadcast(workspace);
     }
   }
 
   // Increment the in-flight count for a source. Use for task-start events
   // (prompt-submit without a terminal).
-  private addSource(workspaceId: string, source: WorkspaceAttentionSource): void {
+  private addSource(
+    workspaceId: string,
+    source: WorkspaceAttentionSource,
+    startedAt?: number
+  ): void {
     const workspace = this.deps.store.get(workspaceId);
     if (!workspace) return;
     const sources = this.scopeSources(workspaceId, this.getAgentScope());
     sources.set(source, (sources.get(source) ?? 0) + 1);
-    this.broadcastIfAgentActiveChanged(workspace);
+    this.broadcastIfAgentActiveChanged(workspace, startedAt);
   }
 
   // Ensure a source is marked active (count >= 1) without incrementing if it
@@ -2064,14 +2096,15 @@ export class TerminalAttention {
   private ensureSource(
     workspaceId: string,
     source: WorkspaceAttentionSource,
-    terminalId?: string
+    terminalId?: string,
+    startedAt?: number
   ): void {
     const workspace = this.deps.store.get(workspaceId);
     if (!workspace) return;
     const sources = this.scopeSources(workspaceId, this.getAgentScope(terminalId));
     if ((sources.get(source) ?? 0) >= 1) return;
     sources.set(source, 1);
-    this.broadcastIfAgentActiveChanged(workspace);
+    this.broadcastIfAgentActiveChanged(workspace, startedAt);
   }
 
   private scopeSources(workspaceId: string, scope: string): Map<WorkspaceAttentionSource, number> {

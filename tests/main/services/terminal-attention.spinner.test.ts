@@ -791,12 +791,13 @@ describe('Terminal Attention State: spinner and attention', () => {
       const { attention, windows, store, promptSubmitted, workspace, terminal } =
         createAttentionHarness([sshWorkspace()]);
 
-      await read(attention, [
-        journaled(claude('activity', 'd2'), 60_000),
-        journaled(claude('prompt-submit', 'd1', { prompt: 'fix it' }), 5 * 60_000),
-      ]);
+      const prompt = journaled(claude('prompt-submit', 'd1', { prompt: 'fix it' }), 5 * 60_000);
+      await read(attention, [journaled(claude('activity', 'd2'), 60_000), prompt]);
 
       expect(workspace('ws-42').agentActive).toBe(true);
+      // Working since its prompt, not since the journal was read.
+      expect(terminal('t1').agentActiveSince).toBe(prompt.writtenAt);
+      expect(workspace('ws-42').agentActiveSince).toBe(prompt.writtenAt);
       expect(windows.attentionRaised).not.toHaveBeenCalled();
       expect(promptSubmitted).not.toHaveBeenCalled();
       // Saved as taken, apart from what this installation's own mailbox took.
@@ -820,6 +821,22 @@ describe('Terminal Attention State: spinner and attention', () => {
       expect(terminal('t1').attention?.kind).toBe('turn-complete');
       expect(windows.attentionRaised).not.toHaveBeenCalled();
       expect(agentReplied).not.toHaveBeenCalled();
+    });
+
+    it('counts the workspace as working since a replayed turn that started before its own', async () => {
+      const { attention, workspace, terminal, toTerminal } = createAttentionHarness([
+        createSshWorkspace({
+          id: 'ws-42',
+          terminals: [createTerminal({ id: 't1', status: 'stopped' }), createTerminal({ id: 't2' })],
+        }),
+      ]);
+      await attention.hook(toTerminal('t2'), working('codex'));
+
+      const prompt = journaled(claude('prompt-submit', 'd1'), 20 * 60_000);
+      await read(attention, [prompt, journaled(claude('activity', 'd2'), 60_000)]);
+
+      expect(terminal('t1').agentActiveSince).toBe(prompt.writtenAt);
+      expect(workspace('ws-42').agentActiveSince).toBe(prompt.writtenAt);
     });
 
     it('counts the copies’ timeout from when its newest hook ran', async () => {

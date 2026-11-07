@@ -100,6 +100,7 @@ import { useProjectSyncStatusStore } from '@/stores/project-sync-status.store';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import { useShortcutsStore } from '@/stores/shortcuts.store';
+import { skillUsageKey, useSkillUsageStore } from '@/stores/skill-usage.store';
 import { useSshHostDialogStore } from '@/stores/ssh-host-dialog.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -113,6 +114,7 @@ import {
   ACTION_TARGET_BRANCH_TOKEN,
   actionNeedsInjection,
 } from '../../../shared/lib/action-injection';
+import { actionLastUse, byRecentUse } from '../../../shared/lib/action-order';
 import { resolveWorkspaceCreationEnvironment } from '../../../shared/lib/agent-environment';
 import { canStartWithPrompt } from '../../../shared/lib/agent-preset-prompt';
 import {
@@ -554,14 +556,23 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     }, 0);
   };
 
+  // Saved Prompts, the most recently run or pasted first, the rest in their saved order
+  const promptActions = React.useMemo(
+    () =>
+      byRecentUse(
+        actions.filter((a) => a.type !== 'command'),
+        actionLastUse
+      ),
+    [actions]
+  );
+
   // Slash-filtered prompt actions
   const slashFilteredActions = React.useMemo(() => {
     if (slashFilter === null) return [];
-    const promptActions = actions.filter((a) => a.type !== 'command');
     if (!slashFilter) return promptActions;
     const lower = slashFilter.toLowerCase();
     return promptActions.filter((a) => a.title.toLowerCase().includes(lower));
-  }, [actions, slashFilter]);
+  }, [promptActions, slashFilter]);
 
   const selectedWorkspaceProjectId = useWorkspacesStore(
     (state) =>
@@ -697,9 +708,18 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const skillProjectId = selectedProject?.id ?? null;
   const skillHostId = isSshLaunch && effectiveSshHostId ? effectiveSshHostId : null;
   const agentSkills = useAgentSkills(skillFamily, skillProjectId, skillHostId, open);
+  const skillLastUsed = useSkillUsageStore((state) => state.lastUsed);
+  const recordSkillUse = useSkillUsageStore((state) => state.recordSkillUse);
   const promptMenuItems = useMemo(
-    () => buildPromptMenuItems(agentSkills, skillFamily, skillQuery, slashFilteredActions),
-    [agentSkills, skillFamily, skillQuery, slashFilteredActions]
+    () =>
+      buildPromptMenuItems(
+        agentSkills,
+        skillFamily,
+        skillQuery,
+        slashFilteredActions,
+        skillLastUsed
+      ),
+    [agentSkills, skillFamily, skillQuery, slashFilteredActions, skillLastUsed]
   );
   const highlightedMenuIndex = promptMenuItems.findIndex((item) => item.key === highlightedMenuKey);
   const slashMenuNavigated = highlightedMenuIndex >= 0;
@@ -2117,6 +2137,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
   const handleSkillPick = (skill: AgentSkill) => {
     if (skillFamily) {
       putSkillInPrompt(startPromptWithSkill(initialPromptText, skillFamily, skill.name), true);
+      recordSkillUse(skillUsageKey(skillFamily, skill.name));
     }
   };
 
@@ -2129,6 +2150,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
         putSkillInPrompt(
           insertSkill(initialPromptText, caret, query.start, query.family, item.skill.name)
         );
+        recordSkillUse(skillUsageKey(query.family, item.skill.name));
       } else closePromptMenu();
       return;
     }
@@ -2547,7 +2569,8 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                   }
                   onCloseSlashMenu={() => setSlashMenuOpen(false)}
                   promptTextareaRef={promptTextareaRef}
-                  actions={actions}
+                  promptActions={promptActions}
+                  skillLastUsed={skillLastUsed}
                   actionId={actionId}
                   onActionSelect={handleActionSelect}
                   onOpenActionsSettings={() => {
@@ -2829,16 +2852,24 @@ type PromptMenuItem =
   | { kind: 'skill'; key: string; skill: AgentSkill; invocation: string }
   | { kind: 'action'; key: string; action: Action };
 
-/** The skills matching the typed name, then the Saved Prompts matching the `/` filter. */
+/**
+ * The skills matching the typed name, the most recently used first among those matching alike,
+ * then the Saved Prompts matching the `/` filter.
+ */
 function buildPromptMenuItems(
   skills: AgentSkill[],
   family: AgentSkillFamily | null,
   query: SkillQuery | null,
-  actions: Action[]
+  actions: Action[],
+  skillLastUsed: Record<string, number>
 ): PromptMenuItem[] {
   const skillItems =
     family && query?.family === family
-      ? filterSkills(skills, query.query).map((skill): PromptMenuItem => ({
+      ? filterSkills(
+          skills,
+          query.query,
+          (skill) => skillLastUsed[skillUsageKey(family, skill.name)] ?? 0
+        ).map((skill): PromptMenuItem => ({
           kind: 'skill',
           key: `skill:${skill.name}`,
           skill,
@@ -2865,7 +2896,9 @@ interface PromptAreaProps {
   onRemoveAttachment: (path: string) => void;
   onCloseSlashMenu: () => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  actions: Action[];
+  /** The Saved Prompts, in the order the menu lists them. */
+  promptActions: Action[];
+  skillLastUsed: Record<string, number>;
   actionId: string;
   onActionSelect: (id: string) => void | Promise<void>;
   onOpenActionsSettings: () => void;
@@ -2900,7 +2933,8 @@ function PromptArea({
   onRemoveAttachment,
   onCloseSlashMenu,
   promptTextareaRef,
-  actions,
+  promptActions,
+  skillLastUsed,
   actionId,
   onActionSelect,
   onOpenActionsSettings,
@@ -2916,10 +2950,14 @@ function PromptArea({
   onSkillPick,
   readSkill,
 }: PromptAreaProps) {
-  const promptActions = actions.filter((a) => a.type !== 'command');
+  // The most recently used first, the rest by name.
   const sortedSkills = useMemo(
-    () => [...skills].sort((a, b) => a.name.localeCompare(b.name)),
-    [skills]
+    () =>
+      byRecentUse(
+        [...skills].sort((a, b) => a.name.localeCompare(b.name)),
+        (skill) => (skillFamily ? (skillLastUsed[skillUsageKey(skillFamily, skill.name)] ?? 0) : 0)
+      ),
+    [skills, skillFamily, skillLastUsed]
   );
   const closeSlashMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

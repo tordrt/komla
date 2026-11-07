@@ -35,7 +35,8 @@ interface ActionsState {
   ) => Promise<Action>;
   reorderAction: (id: string, newOrder: number) => Promise<void>;
   deleteAction: (id: string) => Promise<void>;
-  /** `pasted` leaves the last use as it was, so the run button's default doesn't move. */
+  /** `pasted` records a paste and leaves the last use as it was, so the run button's default
+   *  doesn't move. */
   recordActionUsage: (id: string, userInput?: string, pasted?: boolean) => Promise<Action>;
   subscribeToChanges: () => () => void;
 }

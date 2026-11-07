@@ -90,6 +90,17 @@ describe('filterSkills', () => {
     ]);
     expect(filterSkills(skills, '')).toHaveLength(4);
   });
+
+  it('puts the most recently used first among those that start with the query alike', () => {
+    const skills = [skill('code-review'), skill('re-run'), skill('review-pr'), skill('pre-flight')];
+    const lastUse = (s: AgentSkill) => ({ 'review-pr': 1, 'pre-flight': 2 })[s.name] ?? 0;
+    expect(filterSkills(skills, 're', lastUse).map((s) => s.name)).toEqual([
+      'review-pr',
+      're-run',
+      'pre-flight',
+      'code-review',
+    ]);
+  });
 });
 
 describe('insertSkill', () => {

@@ -1096,6 +1096,7 @@ function localQuickCommand(
     ...(command ? { type: 'command' as const } : {}),
     ...(projectIds ? { projectIds } : {}),
     ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
+    ...(existing?.lastPastedAt !== undefined ? { lastPastedAt: existing.lastPastedAt } : {}),
     ...(existing?.lastUserInput !== undefined ? { lastUserInput: existing.lastUserInput } : {}),
     ...ids,
     ...(command && entry.sshExecutionLocation

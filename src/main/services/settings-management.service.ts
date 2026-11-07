@@ -1569,6 +1569,7 @@ export class SettingsManagementService {
           : {}),
         ...(input.type === 'command' && input.background ? { background: true } : {}),
         ...(existing?.lastUsedAt !== undefined ? { lastUsedAt: existing.lastUsedAt } : {}),
+        ...(existing?.lastPastedAt !== undefined ? { lastPastedAt: existing.lastPastedAt } : {}),
         ...(existing?.lastUserInput !== undefined ? { lastUserInput: existing.lastUserInput } : {}),
       };
     });

@@ -13,7 +13,10 @@ export interface Action {
   content: string;
   type?: ActionType;
   projectIds?: string[];
+  /** When it last ran. Picks the run button's Action, which pasting doesn't change. */
   lastUsedAt?: number;
+  /** When it was last pasted into a terminal, which counts toward the Quick Commands list's order. */
+  lastPastedAt?: number;
   lastUserInput?: string;
   presetId?: string;
   launchModeId?: string;

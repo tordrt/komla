@@ -1,9 +1,12 @@
+import { actionLastUse, byRecentUse } from '../../shared/lib/action-order';
+
 import type { AgentSkill, AgentSkillFamily, AgentSkillPlace } from '../../shared/types/agent-skill';
 import type { Action, Project } from '@/types';
 
 /**
  * A skill listed with the Quick Commands, as a Saved Prompt that starts its agent with the
- * skill's invocation. It isn't saved, so it has no usage to record and is no place's default.
+ * skill's invocation. It isn't saved, so it's no place's default, and its use is remembered in
+ * the renderer (see skill-usage.store.ts).
  */
 export interface SkillAction extends Action {
   skill: SkillActionSkill;
@@ -30,8 +33,8 @@ export interface ActionMenuGroup {
   actions: Action[];
 }
 
-/** The Actions available in a project, the project's own before global ones within each
- *  type, matching the sections Settings → Actions reorders them in. */
+/** The Actions available in a project, within each type the most recently run or pasted first,
+ *  then the ones never used, the project's own before global ones. */
 export function getActionMenuGroups(
   actions: Action[],
   projectId: string | null | undefined
@@ -53,10 +56,22 @@ export function getActionMenuGroups(
 
   return [
     ...(commands.length > 0
-      ? [{ type: 'command' as const, label: 'Terminal Commands', actions: commands }]
+      ? [
+          {
+            type: 'command' as const,
+            label: 'Terminal Commands',
+            actions: byRecentUse(commands, actionLastUse),
+          },
+        ]
       : []),
     ...(prompts.length > 0
-      ? [{ type: 'prompt' as const, label: 'Saved Prompts', actions: prompts }]
+      ? [
+          {
+            type: 'prompt' as const,
+            label: 'Saved Prompts',
+            actions: byRecentUse(prompts, actionLastUse),
+          },
+        ]
       : []),
   ];
 }
@@ -150,12 +165,13 @@ export function filterActionMenuGroups(
 }
 
 /** The Action a workspace's run button repeats: its default while still shown, else the
- *  most recently used one shown, else the first. Never a skill. */
+ *  most recently run one shown, else the first shown. While nothing shown has run, that's the
+ *  first Terminal Command as listed, so pasting one there moves it. Never a skill. */
 export function getDefaultAction(
   groups: ActionMenuGroup[],
   defaultActionId?: string
 ): Action | null {
-  // A skill isn't saved, so it has no usage to go by and isn't what the button repeats.
+  // A skill isn't saved, so it isn't what the button repeats.
   const shown = groups.filter((group) => group.type !== 'skill').flatMap((group) => group.actions);
   const picked = defaultActionId && shown.find((action) => action.id === defaultActionId);
   if (picked) return picked;

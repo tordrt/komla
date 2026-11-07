@@ -230,6 +230,8 @@ describe('ActionService', () => {
     const saved = actionService.list().find((action) => action.id === prompt.id);
     // The last use picks the run button's Action, which a paste leaves as it was.
     expect(saved?.lastUsedAt).not.toBe(Number.MAX_SAFE_INTEGER);
+    // The paste still counts toward the order Quick Commands are listed in.
+    expect(saved?.lastPastedAt).toBe(Number.MAX_SAFE_INTEGER);
     expect(saved?.lastUserInput).toBe('the tests');
   });
 

@@ -27,6 +27,7 @@ import {
 } from '../../../packages/remote-protocol/src/app/frames';
 import { IPC } from '../../shared/constants/ipc-channels';
 import { fillActionText } from '../../shared/lib/action-injection';
+import { actionLastUse, byRecentUse } from '../../shared/lib/action-order';
 import { projectColorHex } from '../../shared/lib/project-color';
 import {
   workspaceTagAppearance,
@@ -1611,7 +1612,9 @@ class RemoteControlAppSession implements RemoteControlSession {
           name: host.name,
         })),
       ],
-      actions: this.deps.actions.list().map((action) => ({
+      // The most recently run or pasted first, as the desktop lists them. Ones used alike keep
+      // their saved order, where the desktop lists a project's own first.
+      actions: byRecentUse(this.deps.actions.list(), actionLastUse).map((action) => ({
         id: action.id,
         title: action.title,
         type: action.type === 'command' ? ('command' as const) : ('prompt' as const),

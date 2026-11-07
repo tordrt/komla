@@ -127,13 +127,23 @@ export function findSkillQuery(
   return SKILL_QUERY_PATTERN.test(query) ? { start, query } : null;
 }
 
-/** Skills whose name holds the query, those starting with it first, each group by name. */
-export function filterSkills(skills: AgentSkill[], query: string): AgentSkill[] {
+/**
+ * Skills whose name holds the query, those starting with it first, each group by `lastUse`
+ * (most recent first, as when the skill was last used) and then by name.
+ */
+export function filterSkills(
+  skills: AgentSkill[],
+  query: string,
+  lastUse: (skill: AgentSkill) => number = () => 0
+): AgentSkill[] {
   const lower = query.toLowerCase();
   const matches = skills.filter((skill) => skill.name.toLowerCase().includes(lower));
   const starts = (skill: AgentSkill) => skill.name.toLowerCase().startsWith(lower);
   return matches.sort(
-    (a, b) => Number(starts(b)) - Number(starts(a)) || a.name.localeCompare(b.name)
+    (a, b) =>
+      Number(starts(b)) - Number(starts(a)) ||
+      lastUse(b) - lastUse(a) ||
+      a.name.localeCompare(b.name)
   );
 }
 

@@ -877,6 +877,22 @@ describe('RemoteControlSessionService', () => {
     });
   });
 
+  it('lists Quick Commands most recently run or pasted first, as the desktop does', async () => {
+    const { peer, actions } = makeFixture();
+    actions.list.mockReturnValue([
+      { id: 'never', title: 'Never', content: 'a' },
+      { id: 'run', title: 'Run', content: 'b', lastUsedAt: 1 },
+      { id: 'pasted', title: 'Pasted', content: 'c', lastPastedAt: 2 },
+    ] as never);
+
+    peer.emitJson({ type: 'app:launch-options:get', requestId: 'r1' });
+    await flush();
+
+    expect(
+      (peer.sent[0] as { actions: { id: string }[] }).actions.map((action) => action.id)
+    ).toEqual(['pasted', 'run', 'never']);
+  });
+
   it('gives a project without a saved color the one the desktop derives from its name', async () => {
     const { peer, projects } = makeFixture();
     projects.list.mockReturnValue([

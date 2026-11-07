@@ -22,6 +22,7 @@ import { useConfigStore } from '../../../src/renderer/stores/config.store';
 import { useLayoutStore } from '../../../src/renderer/stores/layout.store';
 import { usePaneSurfacesStore } from '../../../src/renderer/stores/pane-surfaces.store';
 import { useProjectsStore } from '../../../src/renderer/stores/projects.store';
+import { useSkillUsageStore } from '../../../src/renderer/stores/skill-usage.store';
 import { useSshCommandExecutionLocationStore } from '../../../src/renderer/stores/ssh-command-execution-location.store';
 import { useTerminalCloseStore } from '../../../src/renderer/stores/terminal-close.store';
 import { useToastStore } from '../../../src/renderer/stores/toast.store';
@@ -617,7 +618,7 @@ describe('launchAction', () => {
       );
     });
 
-    it("starts a skill's agent with its name, keeping no default and recording no usage", async () => {
+    it("starts a skill's agent with its name, keeping no default but remembering its use", async () => {
       seed({ presetId: 'claude-code' });
       const skill: SkillAction = {
         id: 'skill:codex:review',
@@ -636,6 +637,8 @@ describe('launchAction', () => {
       // It isn't saved, so the run button keeps repeating a saved Action.
       expect(workspace().defaultActionId).toBeUndefined();
       expect(api.recordActionUsage).not.toHaveBeenCalled();
+      // The Skills tab lists it first next time.
+      expect(useSkillUsageStore.getState().lastUsed['skill:codex:review']).toBeTypeOf('number');
     });
 
     it('fills in the tokens of a Terminal Command, asking for its input first', async () => {

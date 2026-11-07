@@ -86,6 +86,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 // rewrites them, which isn't a change to the settings.
 const USAGE_KEYS = new Set([
   'lastUsedAt',
+  'lastPastedAt',
   'lastUserInput',
   'lastLaunchModeId',
   'lastReasoningLevelId',

@@ -26,6 +26,7 @@ import { IconButton } from '@/components/ui/icon-button';
 import { Spinner } from '@/components/ui/spinner';
 import { ActionInputDialog } from '@/components/workspaces/ActionInputDialog';
 import { startCommandInCreatedWorkspace } from '@/lib/action-launch';
+import { getActionMenuGroups } from '@/lib/action-menu-order';
 import { createFolderWorkspace, openFolder } from '@/lib/open-folder';
 import { qualifyBaseBranch, refreshIfBaseIsRemoteOnly } from '@/lib/remote-base-branch';
 import { useActionsStore } from '@/stores/actions.store';
@@ -83,15 +84,13 @@ export function QuickCreateMenu({ className }: { className?: string }) {
     }
   };
 
-  // Get actions visible for a given project: global + scoped to that project
-  const getActionsForProject = (projectId: string) =>
-    actions.filter((t) => !t.projectIds?.length || t.projectIds.includes(projectId));
-
-  const getCommandsForProject = (projectId: string) =>
-    getActionsForProject(projectId).filter((t) => t.type === 'command');
-
-  const getPromptsForProject = (projectId: string) =>
-    getActionsForProject(projectId).filter((t) => t.type !== 'command');
+  // A project's Actions, global and its own, in the order Quick Commands lists them.
+  const getProjectActions = (projectId: string) => {
+    const groups = getActionMenuGroups(actions, projectId);
+    const of = (type: 'command' | 'prompt') =>
+      groups.find((group) => group.type === type)?.actions ?? [];
+    return { commands: of('command'), prompts: of('prompt') };
+  };
 
   const handleProjectClick = async (project: Project) => {
     if (isCreating) return;
@@ -483,8 +482,7 @@ export function QuickCreateMenu({ className }: { className?: string }) {
 
   const renderActionSubContent = (
     project: Project,
-    commands: Action[],
-    prompts: Action[],
+    { commands, prompts }: { commands: Action[]; prompts: Action[] },
     mode: ActionLaunchMode,
     branchForCommand?: { branch: string; exact: boolean; fetchRemote?: boolean },
     baseBranchForNew?: string,
@@ -707,8 +705,7 @@ export function QuickCreateMenu({ className }: { className?: string }) {
           <DropdownMenuSubContent>
             {renderActionSubContent(
               project,
-              getCommandsForProject(project.id),
-              getPromptsForProject(project.id),
+              getProjectActions(project.id),
               mode === 'open' ? 'branch' : 'fromBranch',
               mode === 'open' ? branchSpec : undefined,
               mode === 'newFrom' ? branch.name : undefined,
@@ -783,8 +780,8 @@ export function QuickCreateMenu({ className }: { className?: string }) {
             <DropdownMenuItem disabled>No projects configured</DropdownMenuItem>
           ) : (
             projects.map((project) => {
-              const cmds = getCommandsForProject(project.id);
-              const prms = getPromptsForProject(project.id);
+              const projectActions = getProjectActions(project.id);
+              const { commands: cmds, prompts: prms } = projectActions;
               return (
                 <div key={project.id} className="my-0.5 flex items-center gap-1">
                   <DropdownMenuItem
@@ -807,7 +804,7 @@ export function QuickCreateMenu({ className }: { className?: string }) {
                       <span className="sr-only">Quick commands</span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                      {renderActionSubContent(project, cmds, prms, 'clean')}
+                      {renderActionSubContent(project, projectActions, 'clean')}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 </div>

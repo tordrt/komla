@@ -481,7 +481,8 @@ export class ActionService {
 
   /**
    * A pasted prompt keeps its last use as it was: the most recently used Action stands in for
-   * the run button's default, and pasting into a terminal doesn't pick that.
+   * the run button's default, and pasting into a terminal doesn't pick that. The paste is
+   * recorded apart, as the Quick Commands list orders by either.
    */
   recordUsage(id: string, userInput?: string, pasted = false): Action {
     const action = this.actions.get(id);
@@ -491,7 +492,7 @@ export class ActionService {
 
     const updated: Action = {
       ...action,
-      ...(pasted ? {} : { lastUsedAt: Date.now() }),
+      ...(pasted ? { lastPastedAt: Date.now() } : { lastUsedAt: Date.now() }),
       ...(userInput?.trim() ? { lastUserInput: userInput.trim() } : {}),
     };
     this.actions.set(id, updated);

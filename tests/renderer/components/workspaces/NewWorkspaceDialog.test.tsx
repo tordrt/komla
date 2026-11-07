@@ -15,6 +15,7 @@ import { dismissLaunchUndo } from '../../../../src/renderer/stores/launch-undo.s
 import { useOpenFolderStore } from '../../../../src/renderer/stores/open-folder.store';
 import { useSettingsDialogStore } from '../../../../src/renderer/stores/settings-dialog.store';
 import { useShortcutsStore } from '../../../../src/renderer/stores/shortcuts.store';
+import { useSkillUsageStore } from '../../../../src/renderer/stores/skill-usage.store';
 import { handleCreateError } from '../../../../src/renderer/utils/workspace-error';
 import { seedShortcuts } from '../../../helpers/shortcuts';
 import { useSshHostDialogStore } from '../../../../src/renderer/stores/ssh-host-dialog.store';
@@ -2904,6 +2905,7 @@ describe('NewWorkspaceDialog', () => {
       Element.prototype.scrollIntoView = vi.fn();
       // Each test lists its own skills, not the ones an earlier test left in the store
       useAgentSkillsStore.setState({ listings: {} });
+      useSkillUsageStore.setState({ lastUsed: {} });
     });
     // The Quick Commands button lists the skills too, so look for them in the suggestions only
     const findSuggestion = async (text: string) =>
@@ -2955,6 +2957,60 @@ describe('NewWorkspaceDialog', () => {
       await user.click(items[1]);
 
       expect(textarea).toHaveValue('$review-pr fix the login bug');
+    });
+
+    it('lists the most recently used first in the Quick Commands button, and remembers a pick', async () => {
+      mockActionsHolder.value = [
+        { id: 'never', title: 'Never used', type: 'prompt', content: 'a' },
+        { id: 'pasted', title: 'Pasted lately', type: 'prompt', content: 'b', lastPastedAt: 2 },
+        { id: 'run', title: 'Run lately', type: 'prompt', content: 'c', lastUsedAt: 1 },
+      ];
+      useSkillUsageStore.setState({ lastUsed: { 'skill:codex:review-pr': 1 } });
+      window.api.listAgentSkills = vi.fn().mockResolvedValue(skills);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.click(await screen.findByRole('button', { name: 'Quick Commands' }));
+      const menu = (await screen.findByText('Skills')).closest('[data-dropdown-content]');
+      const items = within(menu as HTMLElement)
+        .getAllByRole('button')
+        .filter((item) => !item.getAttribute('aria-label')?.startsWith('Copy'));
+      expect(items.map((item) => item.textContent)).toEqual([
+        'Pasted lately',
+        'Run lately',
+        'Never used',
+        '$review-prReviews a pull request',
+        '$deployShips it',
+        'Manage Quick Commands…',
+      ]);
+      await user.click(items[4]);
+
+      expect(useSkillUsageStore.getState().lastUsed['skill:codex:deploy']).toBeTypeOf('number');
+    });
+
+    it('suggests the most recently used skill first among those matching alike', async () => {
+      useSkillUsageStore.setState({ lastUsed: { 'skill:codex:review-pr': 1 } });
+      window.api.listAgentSkills = vi.fn().mockResolvedValue([
+        ...skills,
+        { name: 'retry', description: '', source: 'user' },
+      ]);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      const textarea = await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.type(textarea, '$re');
+      const suggestions = await screen.findByRole('listbox', { name: 'Suggestions' });
+      await waitFor(() =>
+        expect(within(suggestions).getAllByRole('option').map((o) => o.textContent)).toEqual([
+          expect.stringContaining('$review-pr'),
+          expect.stringContaining('$retry'),
+        ])
+      );
+      await user.keyboard('{Tab}');
+
+      expect(textarea).toHaveValue('$review-pr ');
+      expect(useSkillUsageStore.getState().lastUsed['skill:codex:review-pr']).toBeGreaterThan(1);
     });
 
     it("copies a skill's instructions, not its name, from the Quick Commands button", async () => {

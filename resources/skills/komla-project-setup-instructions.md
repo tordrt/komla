@@ -95,6 +95,14 @@ files, so it lacks ignored dependencies such as `node_modules` even when the SSH
 quick and safe on every start, install in the command, as in `npm install && npm run dev`. Keep
 remote dependency setup for agents on the SSH host.
 
+Users run some apps on this computer: mobile apps (iOS, Android, React Native, Expo, Flutter) and
+desktop apps that open native windows. When `currentEnvironment.kind` is `ssh` or `ssh-local-copy`
+or `selectedForNewWorkspaces` is true, and the project has such an app, recommend `ssh-local-copy`
+dependency setup and give the app's Quick Command `"sshExecutionLocation": "local-copy"`. When SSH
+is only configured, offer that pair under **Other useful options**: it installs on this computer
+for every new SSH Workspace. It needs no Trash cleanup; the Trash discards the Local copy. State
+its prerequisites: rsync on this computer and the SSH host, and a desktop that isn't Windows.
+
 For directory projects, omit setup and cleanup. Preserve the current layout unless the user chooses
 a workflow change.
 
@@ -114,8 +122,7 @@ user asks; show a small relevant subset. Add a line there for each of these that
   desktop), a manual Quick Command `komla desktop run -- <command>` with
   `"sshExecutionLocation": "remote"` runs the app on a virtual desktop on the host (prerequisite, if
   missing: `sudo apt install -y tigervnc-standalone-server openbox novnc websockify`).
-  Keep the plain development command as the recommendation; many users run apps in the Local
-  copy.
+  Keep the development command, or its Local copy pair above, as the recommendation.
 
 Choose the recommended setup for its concrete benefit. Mention existing settings only when they
 materially constrain a change. For Git projects, state once:

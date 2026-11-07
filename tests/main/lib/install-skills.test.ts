@@ -279,6 +279,22 @@ describe('installBundledSkills', () => {
     expect(content).toMatch(/remote.*dependency.*agent/is);
   });
 
+  it('project setup prepares the Local copy for apps users run on this computer', () => {
+    const content = readProjectSetupInstructions().replace(/\s+/g, ' ');
+
+    expect(content).toContain('mobile apps (iOS, Android, React Native, Expo, Flutter)');
+    expect(content).toContain(
+      'When `currentEnvironment.kind` is `ssh` or `ssh-local-copy` or `selectedForNewWorkspaces` is true'
+    );
+    expect(content).toContain(
+      'When SSH is only configured, offer that pair under **Other useful options**'
+    );
+    expect(content).toContain('It needs no Trash cleanup; the Trash discards the Local copy.');
+    expect(content).toContain(
+      'rsync on this computer and the SSH host, and a desktop that isn\'t Windows'
+    );
+  });
+
   it('project setup keeps new current-project Quick Command entries free of persistence identity', () => {
     const content = readProjectSetupInstructions();
 
@@ -469,6 +485,6 @@ describe('installBundledSkills', () => {
   it('keeps project setup instructions concise', () => {
     const instructions = readProjectSetupInstructions();
 
-    expect(instructions.trim().split(/\s+/).length).toBeLessThanOrEqual(2000);
+    expect(instructions.trim().split(/\s+/).length).toBeLessThanOrEqual(2100);
   });
 });

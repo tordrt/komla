@@ -77,7 +77,7 @@ describe('project setup instructions', () => {
     expect(instructions).toContain('komla desktop run -- <command>');
     expect(instructions).toMatch(/tigervnc-standalone-server\s+openbox\s+novnc\s+websockify/);
     expect(instructions).toContain('optional extra');
-    expect(instructions).toContain('Keep the plain development command as the recommendation');
+    expect(instructions).toContain('Keep the development command, or its Local copy pair above');
     expect(instructions.replace(/\s+/g, ' ')).toContain(
       '`komla desktop run -- <command>` with `"sshExecutionLocation": "remote"`'
     );

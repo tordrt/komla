@@ -169,10 +169,11 @@ export function TitleBar({
       }}
     >
       <div ref={contentRef} className="flex h-full items-center justify-between gap-2 px-4">
+        {/* Shows only while the sidebar is collapsed. Outside the clipping row below, which would
+            cut off the part its negative margin pulls into the padding. */}
+        <SidebarExpandButton className="-ml-2" />
         {/* Shrinks and clips first so the actions on the right always stay on screen. */}
         <div className="flex h-full min-w-0 flex-1 items-center gap-2 overflow-hidden">
-          {/* Shows only while the sidebar is collapsed. */}
-          <SidebarExpandButton className="-ml-2" />
           {selectedWorkspaceId && (
             <FileViewerTabs
               mode={effectiveFileViewerMode}

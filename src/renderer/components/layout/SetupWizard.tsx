@@ -483,10 +483,7 @@ export function SetupWizard({ onComplete, resumeProjectId }: SetupWizardProps) {
             'min-h-[min(29rem,100%)]'
           )}
         >
-          <div
-            key={step}
-            className="wizard-step-enter flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pt-6"
-          >
+          <div key={step} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-7 pt-6">
             {step === agentStep && detecting && (
               <p
                 role="status"

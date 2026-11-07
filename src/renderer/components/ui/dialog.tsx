@@ -55,7 +55,7 @@ const DialogContent = React.forwardRef<
         data-native-overlay="dialog"
         ref={ref}
         className={cn(
-          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-5rem)] w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border p-6 shadow-xl duration-200 focus:outline-hidden has-[>[data-dialog-body]]:flex has-[>[data-dialog-body]]:flex-col sm:rounded-lg',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-5rem)] w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto border p-6 shadow-xl duration-200 focus:outline-hidden has-[>[data-dialog-body]]:flex has-[>[data-dialog-body]]:flex-col sm:rounded-lg',
           floating ? 'floating-surface' : 'border-border bg-card ring-1 ring-border/20',
           className
         )}

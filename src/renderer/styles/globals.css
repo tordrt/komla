@@ -37,30 +37,6 @@
   --shadow-soft-lg: 0 2px 8px -2px rgba(0, 0, 0, 0.1), 0 1px 3px -1px rgba(0, 0, 0, 0.06);
 
   --animate-indeterminate-progress: indeterminate-progress 1.5s ease-in-out infinite;
-  /* The done check draws in from the left, the way a pen would: a clipping window slides in
-     while the check slides the other way inside it, so the check holds still. Transforms, not
-     clip-path, so it keeps moving while the renderer is busy. */
-  --animate-check-reveal: check-reveal 450ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  --animate-check-reveal-content: check-reveal-content 450ms cubic-bezier(0.16, 1, 0.3, 1) both;
-
-  @keyframes check-reveal {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: none;
-    }
-  }
-
-  @keyframes check-reveal-content {
-    from {
-      transform: translateX(100%);
-    }
-    to {
-      transform: none;
-    }
-  }
-
   @keyframes indeterminate-progress {
     0% {
       transform: translateX(-100%);
@@ -122,26 +98,19 @@
   --radius-sm: calc(var(--radius) - 3px);
 }
 
-/* Overlay animations for the Radix primitives, a local subset of tailwindcss-animate:
-   `animate-in` / `animate-out` plus `fade-*`, `zoom-*` and `slide-in-from-*` /
-   `slide-out-to-*` modifiers that set the variables the `enter` / `exit` keyframes read.
-   Radix Presence waits for the exit animation to end before unmounting, so `animate-out`
-   must always finish. Tailwind's translate utilities set the separate `translate`
-   property, which composes with these transforms, so a Dialog centered with
-   `translate-x-[-50%]` animates in place. */
+/* Overlay fades for the Radix primitives, a local subset of tailwindcss-animate:
+   `animate-in` / `animate-out` plus `fade-*` modifiers that set the opacity the `enter` /
+   `exit` keyframes read. Overlays only fade: nothing zooms or slides. Radix Presence waits
+   for the exit animation to end before unmounting, so `animate-out` must always finish. */
 @keyframes enter {
   from {
     opacity: var(--tw-enter-opacity, 1);
-    transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
-      scale(var(--tw-enter-scale, 1));
   }
 }
 
 @keyframes exit {
   to {
     opacity: var(--tw-exit-opacity, 1);
-    transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0)
-      scale(var(--tw-exit-scale, 1));
   }
 }
 
@@ -163,64 +132,6 @@
 @utility fade-out-* {
   --tw-exit-opacity: calc(--value(integer) / 100);
   --tw-exit-opacity: --value([number], [percentage]);
-}
-
-@utility zoom-in-* {
-  --tw-enter-scale: calc(--value(integer) / 100);
-  --tw-enter-scale: --value([number], [percentage]);
-}
-
-@utility zoom-out-* {
-  --tw-exit-scale: calc(--value(integer) / 100);
-  --tw-exit-scale: --value([number], [percentage]);
-}
-
-@utility slide-in-from-top-* {
-  --tw-enter-translate-y: calc(var(--spacing) * --value(number) * -1);
-  --tw-enter-translate-y: calc(--value(ratio) * -100%);
-  --tw-enter-translate-y: calc(--value([length], [percentage]) * -1);
-}
-
-@utility slide-in-from-bottom-* {
-  --tw-enter-translate-y: calc(var(--spacing) * --value(number));
-  --tw-enter-translate-y: calc(--value(ratio) * 100%);
-  --tw-enter-translate-y: --value([length], [percentage]);
-}
-
-@utility slide-in-from-left-* {
-  --tw-enter-translate-x: calc(var(--spacing) * --value(number) * -1);
-  --tw-enter-translate-x: calc(--value(ratio) * -100%);
-  --tw-enter-translate-x: calc(--value([length], [percentage]) * -1);
-}
-
-@utility slide-in-from-right-* {
-  --tw-enter-translate-x: calc(var(--spacing) * --value(number));
-  --tw-enter-translate-x: calc(--value(ratio) * 100%);
-  --tw-enter-translate-x: --value([length], [percentage]);
-}
-
-@utility slide-out-to-top-* {
-  --tw-exit-translate-y: calc(var(--spacing) * --value(number) * -1);
-  --tw-exit-translate-y: calc(--value(ratio) * -100%);
-  --tw-exit-translate-y: calc(--value([length], [percentage]) * -1);
-}
-
-@utility slide-out-to-bottom-* {
-  --tw-exit-translate-y: calc(var(--spacing) * --value(number));
-  --tw-exit-translate-y: calc(--value(ratio) * 100%);
-  --tw-exit-translate-y: --value([length], [percentage]);
-}
-
-@utility slide-out-to-left-* {
-  --tw-exit-translate-x: calc(var(--spacing) * --value(number) * -1);
-  --tw-exit-translate-x: calc(--value(ratio) * -100%);
-  --tw-exit-translate-x: calc(--value([length], [percentage]) * -1);
-}
-
-@utility slide-out-to-right-* {
-  --tw-exit-translate-x: calc(var(--spacing) * --value(number));
-  --tw-exit-translate-x: calc(--value(ratio) * 100%);
-  --tw-exit-translate-x: --value([length], [percentage]);
 }
 
 /* A scrolling list's bottom fades out while more of it is below, instead of ending in a hard cut,
@@ -965,22 +876,6 @@ html[data-status-bar-row='large'] [data-status-bar] {
   animation: project-attention 1.4s ease-in-out 0.15s;
 }
 
-/* Setup wizard step fade-in */
-@keyframes wizard-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.wizard-step-enter {
-  animation: wizard-fade-in 0.25s ease-out;
-}
-
 /* The setup wizard's page: flat, in the sidebar's --chrome, with the controls a floating surface
    gives a dialog. --wizard-bg is the page's color, for the footer and scroll fade that cover what
    scrolls under them. Its primary actions, checks and switches take Komla's blue, as its progress
@@ -1019,7 +914,6 @@ html[data-status-bar-row='large'] [data-status-bar] {
 .wizard-collapsible {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.2s ease-out;
 }
 
 .wizard-collapsible[data-open='true'] {
@@ -1092,26 +986,16 @@ html[data-status-bar-row='large'] [data-status-bar] {
   right: -2px;
 }
 
-/* Toast animations */
-@keyframes toast-slide-in {
+/* Toasts fade in and out. */
+@keyframes toast-fade-in {
   from {
     opacity: 0;
-    transform: translateX(var(--toast-slide-offset, 100%));
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
   }
 }
 
-@keyframes toast-slide-out {
-  from {
-    opacity: 1;
-    transform: translateX(0);
-  }
+@keyframes toast-fade-out {
   to {
     opacity: 0;
-    transform: translateX(var(--toast-slide-offset, 100%));
   }
 }
 
@@ -1127,16 +1011,11 @@ html[data-status-bar-row='large'] [data-status-bar] {
 }
 
 .toast-enter {
-  animation: toast-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: toast-fade-in 0.15s ease-out forwards;
 }
 
 .toast-exit {
-  animation: toast-slide-out 0.2s ease-in forwards;
-}
-
-/* Toasts moved to the bottom-left (clear of a browser preview) slide from the left edge */
-.toast-stack-left {
-  --toast-slide-offset: -100%;
+  animation: toast-fade-out 0.2s ease-in forwards;
 }
 
 /* Sidebar truncation: use ".." instead of "…" */
@@ -1291,23 +1170,9 @@ html[data-status-bar-row='large'] [data-status-bar] {
 }
 
 /* Workspace card hover. Only hovering fades the background: a selection change shows at
-   once, so the highlight keeps up with a keyboard switch. Cards run flush to their panel, so
-   hovering doesn't nudge them sideways past its edge. */
-.workspace-card-hover {
-  transition:
-    transform 120ms ease,
-    box-shadow 120ms ease,
-    opacity 200ms ease;
-}
+   once, so the highlight keeps up with a keyboard switch. */
 .workspace-card-hover:hover {
-  transition:
-    transform 120ms ease,
-    box-shadow 120ms ease,
-    background-color 150ms ease,
-    opacity 200ms ease;
-}
-.workspace-card-hover:active {
-  transform: scale(0.99);
+  transition: background-color 150ms ease;
 }
 
 /* Flat tabs: the active tab lifts by a 6% foreground wash (light themes) and carries a 2px
@@ -1513,44 +1378,6 @@ html[data-status-bar-row='large'] [data-status-bar] {
 .pane-outline[data-attention='true'] {
   border-color: color-mix(in oklab, var(--pane-attention) 60%, oklch(var(--muted-foreground)));
 }
-/* Reduced motion: overlays and toasts fade instead of zooming or sliding, and decorative
-   movement is removed. Redefining a keyframe here replaces the earlier definition while
-   the query matches, so exit animations still end and Radix can unmount overlays.
-   Spinners, pulses and progress bars keep running because they convey state. */
-@media (prefers-reduced-motion: reduce) {
-  @keyframes enter {
-    from {
-      opacity: var(--tw-enter-opacity, 1);
-    }
-  }
-  @keyframes exit {
-    to {
-      opacity: var(--tw-exit-opacity, 1);
-    }
-  }
-  @keyframes toast-slide-in {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes toast-slide-out {
-    to {
-      opacity: 0;
-    }
-  }
-  @keyframes wizard-fade-in {
-    from {
-      opacity: 0;
-    }
-  }
-  .workspace-card-hover:active {
-    transform: none;
-  }
-  .wizard-collapsible {
-    transition: none;
-  }
-}
-
 /* Reduce effects (Settings > Appearance), for slower computers: spinners and pulses hold still,
    still showing what they show, and nothing blurs what is behind it. */
 :root[data-reduce-effects] :is(.animate-spin, .animate-pulse, .activity-glyph, .activity-glyph *) {

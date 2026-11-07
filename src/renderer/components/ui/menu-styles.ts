@@ -5,7 +5,7 @@
 // No exit animation: a menu kept mounted to animate out takes focus back from what its item
 // opened (see menu-close.test.tsx).
 export const menuContentClass =
-  'floating-surface z-50 max-h-(--radix-popper-available-height) min-w-44 origin-(--radix-popper-transform-origin) overflow-x-hidden overflow-y-auto rounded-[calc(var(--radius)+2px)] border p-1 text-popover-foreground shadow-xl data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.98] data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1';
+  'floating-surface z-50 max-h-(--radix-popper-available-height) min-w-44 overflow-x-hidden overflow-y-auto rounded-[calc(var(--radius)+2px)] border p-1 text-popover-foreground shadow-xl data-[state=open]:animate-in data-[state=open]:fade-in-0';
 
 // 12px at weight 450, as Orca sets them, reads crisper than 13px regular. Icons default to 14px;
 // one with its own size keeps it.

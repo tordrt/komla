@@ -56,7 +56,6 @@ import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getDiffComparison } from '@/hooks/useDiffComparison';
 import { useNow } from '@/hooks/useNow';
-import { useSelectionGlide } from '@/hooks/useSelectionGlide';
 import { formatElapsed, formatRelativeTime } from '@/lib/format-time';
 import { openWorkspace } from '@/lib/open-workspace';
 import { waitsForNotification } from '@/lib/snooze';
@@ -240,7 +239,6 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   );
   const isMultiSelected = selectedWorkspaceIds.has(workspace.id);
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const highlightRef = useSelectionGlide(cardRef, isVisuallySelected);
   useEffect(() => {
     if (isVisuallySelected) {
       cardRef.current?.scrollIntoView({ block: 'nearest' });
@@ -640,10 +638,9 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
         >
           {isVisuallySelected && (
             <span
-              ref={highlightRef}
               aria-hidden
               className={cn(
-                'pointer-events-none absolute inset-0 -z-10 origin-top rounded-[inherit]',
+                'pointer-events-none absolute inset-0 -z-10 rounded-[inherit]',
                 SIDEBAR_SELECTED_CARD_FILL
               )}
             />
@@ -805,8 +802,9 @@ function getCardClassName({
     // headers below the list share that inset, so a shelf's cards line up with its header.
     'relative group flex cursor-pointer items-center gap-2 rounded-xl px-2.5 scroll-my-10 workspace-card-hover',
     compact ? 'py-2' : 'py-2.5',
-    // The selected card's highlight is its own layer, so it can glide between cards; `isolate`
-    // keeps it above the sidebar and under the card's content.
+    // The selected card's highlight is its own layer, so the multi-select and drag styles stack
+    // on it instead of replacing parts of it, and the hover fade doesn't catch a click
+    // selection. `isolate` keeps it above the sidebar and under the card's content.
     isSelected ? 'isolate' : cn(SIDEBAR_CARD_LIGHT_HOVER, 'dark:hover:bg-accent/50'),
     isDragging && 'opacity-60 scale-[0.97] ring-2 ring-primary/30',
     dropPosition === 'before' && 'drop-indicator-before',

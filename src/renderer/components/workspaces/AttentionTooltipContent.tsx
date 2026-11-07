@@ -1,6 +1,7 @@
 import {
   Alarm,
   Bell,
+  Check,
   Moon,
   Question,
   Warning,
@@ -14,8 +15,6 @@ import { formatRelativeTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
 import { SNOOZE_ATTENTION_SOURCE } from '@/lib/workspace-attention';
 
-import { DoneCheck } from './DoneCheck';
-
 import type { WorkspaceAttentionAppearance } from '@/lib/workspace-attention';
 import type { WorkspaceAttention } from '@/types';
 
@@ -23,7 +22,7 @@ import type { WorkspaceAttention } from '@/types';
 export const ATTENTION_GLYPHS: Record<WorkspaceAttention['kind'], PhosphorIcon> = {
   'input-required': Question,
   error: Warning,
-  'turn-complete': DoneCheck,
+  'turn-complete': Check,
   idle: Moon,
   generic: Bell,
 };

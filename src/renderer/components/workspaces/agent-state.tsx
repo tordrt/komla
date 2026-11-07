@@ -1,4 +1,4 @@
-import { Question, Warning } from '@phosphor-icons/react';
+import { Check, Question, Warning } from '@phosphor-icons/react';
 import { useLayoutEffect, useRef } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -23,7 +23,6 @@ import {
 } from '../../../shared/lib/agent-state';
 
 import { ActivitySpinner, StillActivityGlyph, useActivityGlyph } from './activity-spinners';
-import { DoneCheck } from './DoneCheck';
 
 export type { Agent, AgentState };
 export { AGENT_STATES_BY_URGENCY, agentStateOf, urgency, workspaceAgents };
@@ -184,7 +183,7 @@ export function AgentStateIcon({
   }
   if (state === 'done') {
     return (
-      <DoneCheck
+      <Check
         aria-hidden="true"
         weight="bold"
         className={cn('size-3 shrink-0 text-success', className)}

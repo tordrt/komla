@@ -16,8 +16,11 @@ function declarations(selector: string): string | undefined {
 describe('workspace card highlight', () => {
   // A keyboard switch shows the new workspace at once, so a fading highlight trails behind it.
   it('moves the selected background at once and fades it in only on hover', () => {
-    expect(declarations('.workspace-card-hover')).toContain('transform 120ms');
-    expect(declarations('.workspace-card-hover')).not.toContain('background-color');
+    expect(declarations('.workspace-card-hover')).toBeUndefined();
     expect(declarations('.workspace-card-hover:hover')).toContain('background-color 150ms');
+  });
+
+  it("doesn't shrink a card while it is pressed", () => {
+    expect(declarations('.workspace-card-hover:active')).toBeUndefined();
   });
 });

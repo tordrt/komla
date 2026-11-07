@@ -148,7 +148,7 @@ function CalloutBody({
       aria-labelledby={titleId}
       data-native-overlay="browser-offer"
       data-browser-offer={offer.kind}
-      className="floating-surface fixed z-50 w-72 rounded-[calc(var(--radius)+2px)] border p-3 text-popover-foreground shadow-xl animate-in fade-in-0 slide-in-from-top-2"
+      className="floating-surface fixed z-50 w-72 rounded-[calc(var(--radius)+2px)] border p-3 text-popover-foreground shadow-xl animate-in fade-in-0"
       style={{ top: position.top, right: position.right }}
     >
       <div className="flex items-start gap-2">

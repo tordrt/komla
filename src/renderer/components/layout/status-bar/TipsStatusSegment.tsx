@@ -134,7 +134,7 @@ function TipsPointer({
       role="dialog"
       aria-label="Tips"
       style={position}
-      className="floating-surface fixed z-50 w-64 space-y-3 rounded-[calc(var(--radius)+2px)] border p-3 text-popover-foreground shadow-xl animate-in fade-in-0 slide-in-from-bottom-2"
+      className="floating-surface fixed z-50 w-64 space-y-3 rounded-[calc(var(--radius)+2px)] border p-3 text-popover-foreground shadow-xl animate-in fade-in-0"
       onKeyDown={(e) => {
         if (e.key !== 'Escape') return;
         e.preventDefault();

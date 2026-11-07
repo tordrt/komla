@@ -264,7 +264,7 @@ function WaitingCard({
       aria-labelledby={titleId}
       // A browser preview under the card steps aside for it, as for a dialog.
       data-native-overlay="settings-approval"
-      className="floating-surface fixed right-4 bottom-[calc(1rem_+_var(--status-bar-height,0px)_+_var(--window-banner-inset,0px))] z-50 w-80 rounded-[calc(var(--radius)+2px)] border p-3 shadow-xl animate-in fade-in-0 slide-in-from-bottom-2"
+      className="floating-surface fixed right-4 bottom-[calc(1rem_+_var(--status-bar-height,0px)_+_var(--window-banner-inset,0px))] z-50 w-80 rounded-[calc(var(--radius)+2px)] border p-3 shadow-xl animate-in fade-in-0"
     >
       <div className="flex items-start gap-2.5">
         <div className="rounded-md bg-primary/10 p-1.5 text-primary">

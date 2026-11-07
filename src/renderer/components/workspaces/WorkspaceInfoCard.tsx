@@ -5,7 +5,10 @@ import { cn } from '@/lib/utils';
 import { formatSshTarget } from '@/lib/workspace-host';
 import { isSshWorkspace } from '@/types';
 
-import { getWorkspaceDynamicTitle } from '../../../shared/lib/workspace-title';
+import {
+  getWorkspaceDisplayTitle,
+  getWorkspaceLiveTitle,
+} from '../../../shared/lib/workspace-title';
 
 import { WorkspaceTagBadge } from './WorkspaceTagBadge';
 
@@ -14,6 +17,7 @@ import type { SshHost, Workspace } from '@/types';
 export {
   getWorkspaceDisplayTitle,
   getWorkspaceDynamicTitle,
+  getWorkspaceLiveTitle,
 } from '../../../shared/lib/workspace-title';
 
 // Spinner glyphs agents such as Claude Code put in front of their terminal title.
@@ -41,11 +45,9 @@ export function WorkspaceInfoCardContent({
   /** Whether the footer names the branch; off where the card already shows it. */
   showBranch?: boolean;
 }) {
-  const dynamicTitle = getWorkspaceDynamicTitle(workspace);
-  const displayTitle = workspace.customName || dynamicTitle || workspace.name;
+  const displayTitle = getWorkspaceDisplayTitle(workspace);
   // A custom name hides the agent's live terminal title, so the details show it.
-  const liveTitle =
-    workspace.customName && dynamicTitle !== workspace.customName ? dynamicTitle : undefined;
+  const liveTitle = getWorkspaceLiveTitle(workspace);
   const isRemoteWorkspace = isSshWorkspace(workspace);
   const branchName = showBranch && workspace.isWorktree ? workspace.branchName : undefined;
   const hasBranchLine = !!branchName || !!workspace.branchedFrom;

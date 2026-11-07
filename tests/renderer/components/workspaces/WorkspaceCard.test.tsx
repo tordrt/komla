@@ -2120,10 +2120,94 @@ describe('WorkspaceCard', () => {
     expect(within(line).getByText((_, element) => element?.textContent === message)).toHaveClass(
       'truncate'
     );
+    // Without the blank line, which would take one of the reply's four lines.
     const card = screen
       .getAllByTestId('tooltip-content')
-      .find((tooltip) => tooltip.querySelector('p')?.textContent === message);
+      .find(
+        (tooltip) =>
+          tooltip.querySelector('p')?.textContent ===
+          'Refactored the session store.\nTests pass; the staging secret is still missing.'
+      );
     expect(card).toHaveTextContent('Done');
+  });
+
+  it("leaves a done agent's reply to a hover where its line is named by the agent's title", () => {
+    const workspace = createWorktreeWorkspace({
+      customName: 'Hiding polish',
+      terminals: [
+        createTerminal({
+          id: 't1',
+          name: 'Claude',
+          dynamicTitle: 'Graceful hiding',
+          attention: {
+            kind: 'turn-complete',
+            source: 'claude-code',
+            terminalId: 't1',
+            updatedAt: 1000,
+            message: 'It fades now.',
+          },
+        }),
+      ],
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+    expect(detailsAgentTexts()).toEqual([expect.stringMatching(/^Done:Graceful hiding\d/)]);
+    expect(
+      screen
+        .getAllByTestId('tooltip-content')
+        .some((tooltip) => tooltip.querySelector('p')?.textContent === 'It fades now.')
+    ).toBe(true);
+  });
+
+  it("keeps a done agent's reply on its line where its title is just its name", () => {
+    const workspace = createWorktreeWorkspace({
+      customName: 'Store rename',
+      terminals: [
+        createTerminal({
+          id: 't1',
+          name: 'Claude Code',
+          dynamicTitle: 'Claude Code',
+          attention: {
+            kind: 'turn-complete',
+            source: 'claude-code',
+            terminalId: 't1',
+            updatedAt: 1000,
+            message: 'Renamed the store.',
+          },
+        }),
+      ],
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+    expect(detailsAgentTexts()).toEqual([
+      expect.stringMatching(/^Done:Claude CodeRenamed the store\.\d/),
+    ]);
+  });
+
+  it("keeps a done agent's reply on its line where its title only repeats the card's", () => {
+    const workspace = createWorktreeWorkspace({
+      customName: 'Fading cards',
+      terminals: [
+        createTerminal({
+          id: 't1',
+          name: 'Claude',
+          dynamicTitle: '✳ Fading cards',
+          attention: {
+            kind: 'turn-complete',
+            source: 'claude-code',
+            terminalId: 't1',
+            updatedAt: 1000,
+            message: 'It fades now.',
+          },
+        }),
+      ],
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+
+    expect(detailsAgentTexts()).toEqual([expect.stringMatching(/It fades now\.\d/)]);
   });
 
   it('shows a working agent in the details, with how long it has worked', () => {

@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { getProjectInfo } from '@/components/dashboard/dashboard-view-model';
 import { ProjectMark } from '@/components/projects/ProjectMark';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
-import { WorkspaceDetailsCard } from '@/components/workspaces/WorkspaceCard';
+import { WorkspaceDetailsCard, WorkspaceTitleStatus } from '@/components/workspaces/WorkspaceCard';
 import { getWorkspaceDisplayTitle } from '@/components/workspaces/WorkspaceInfoCard';
 import { formatRelativeTime } from '@/lib/format-time';
 import { openWorkspace } from '@/lib/open-workspace';
@@ -51,32 +51,49 @@ export function RecentWorkspacesList({ className }: { className?: string }) {
         {recent.map((workspace) => (
           <li key={workspace.id}>
             <RecentWorkspaceHover workspace={workspace}>
-              <button
-                type="button"
-                onClick={() => void openWorkspace(workspace, currentWindowId)}
-                className="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-3 py-1.5 text-left transition-colors hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
-              >
-                <span className="flex w-full min-w-0 items-baseline gap-2">
-                  <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                    {getWorkspaceDisplayTitle(workspace)}
-                  </span>
-                  {workspace.lastActivityAt > 0 && (
-                    <span className="shrink-0 text-ui text-muted-foreground-60 tabular-nums">
-                      {formatRelativeTime(workspace.lastActivityAt)}
-                    </span>
-                  )}
-                </span>
-                {/* Under the name, as in the palette, so every row's branch starts at one edge. */}
-                <RecentWorkspaceMeta
-                  workspace={workspace}
-                  project={getProjectInfo(workspace, projects, projectMap)}
-                />
-              </button>
+              <RecentWorkspaceRow
+                workspace={workspace}
+                project={getProjectInfo(workspace, projects, projectMap)}
+                onOpen={() => void openWorkspace(workspace, currentWindowId)}
+              />
             </RecentWorkspaceHover>
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+function RecentWorkspaceRow({
+  workspace,
+  project,
+  onOpen,
+}: {
+  workspace: Workspace;
+  project: ReturnType<typeof getProjectInfo>;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-3 py-1.5 text-left transition-colors hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+    >
+      <span className="flex w-full min-w-0 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+          {getWorkspaceDisplayTitle(workspace)}
+        </span>
+        {/* What the sidebar card shows beside the title, so a waiting agent stands out here too. */}
+        <WorkspaceTitleStatus workspace={workspace} />
+        {workspace.lastActivityAt > 0 && (
+          <span className="shrink-0 text-ui text-muted-foreground-60 tabular-nums">
+            {formatRelativeTime(workspace.lastActivityAt)}
+          </span>
+        )}
+      </span>
+      {/* Under the name, as in the palette, so every row's branch starts at one edge. */}
+      <RecentWorkspaceMeta workspace={workspace} project={project} />
+    </button>
   );
 }
 

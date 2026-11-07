@@ -280,18 +280,13 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
           ),
         }
       : workspaceCardStatus(workspace);
-  // An unread mark shows when nothing an agent raised outranks it, and not while it's open.
-  const unreadBadge = cardStatus.attention || isSelected ? undefined : getUnreadBadge(workspace);
-  const displayAttention = cardStatus.attention ?? unreadBadge?.attention;
-  const otherAgents = showAgentSpinner
-    ? cardStatus.others
-    : cardStatus.others.filter((agent) => agent.state !== 'working');
-  const attentionAppearance =
-    unreadBadge?.appearance ?? getWorkspaceAttentionAppearance(displayAttention);
-  // An unread mark isn't an agent's: it stays a badge of its own.
-  const collapsedBadge = unreadBadge
-    ? null
-    : collapseBadge(displayAttention, attentionAppearance, otherAgents);
+  const {
+    attention: displayAttention,
+    appearance: attentionAppearance,
+    unread,
+    otherAgents,
+    collapsed: collapsedBadge,
+  } = titleStatus(workspace, cardStatus, { isSelected, showAgentSpinner });
 
   // Get display title - prefer customName, then primary terminal's dynamic title,
   // fall back to first terminal, then persisted lastDynamicTitle, then workspace name
@@ -500,7 +495,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
         >
           <StatusDetails
             workspace={workspace}
-            {...detailsStatus(workspace, displayAttention, !!unreadBadge, otherAgents)}
+            {...detailsStatus(workspace, displayAttention, unread, otherAgents)}
             appearance={attentionAppearance}
           />
         </WorkspaceInfoCardContent>
@@ -901,14 +896,8 @@ function StateGlyph({
  * it isn't selected, such as in the empty work area's Recent list.
  */
 export function WorkspaceDetailsCard({ workspace }: { workspace: Workspace }) {
-  const showAgentSpinner = useConfigStore((state) => state.config?.showAgentSpinner) !== false;
   const sshHosts = useSshHostsStore((state) => state.hosts);
-  const cardStatus = workspaceCardStatus(workspace);
-  const unreadBadge = cardStatus.attention ? undefined : getUnreadBadge(workspace);
-  const attention = cardStatus.attention ?? unreadBadge?.attention;
-  const otherAgents = showAgentSpinner
-    ? cardStatus.others
-    : cardStatus.others.filter((agent) => agent.state !== 'working');
+  const { attention, appearance, unread, otherAgents } = useOutOfViewTitleStatus(workspace);
   const sshHost =
     isSshWorkspace(workspace) && sshHosts
       ? (sshHosts.find((host) => host.id === workspace.backend.hostId) ?? null)
@@ -917,11 +906,70 @@ export function WorkspaceDetailsCard({ workspace }: { workspace: Workspace }) {
     <WorkspaceInfoCardContent workspace={workspace} sshHost={sshHost}>
       <StatusDetails
         workspace={workspace}
-        {...detailsStatus(workspace, attention, !!unreadBadge, otherAgents)}
-        appearance={unreadBadge?.appearance ?? getWorkspaceAttentionAppearance(attention)}
+        {...detailsStatus(workspace, attention, unread, otherAgents)}
+        appearance={appearance}
       />
     </WorkspaceInfoCardContent>
   );
+}
+
+/**
+ * What the card shows beside its title, for a workspace listed elsewhere while it isn't selected,
+ * such as in the empty work area's Recent list: its badge, and its other agents' marks.
+ */
+export function WorkspaceTitleStatus({ workspace }: { workspace: Workspace }) {
+  const restarting = useWorkspacesStore(
+    (s) => s.restartingWorkspaceIds?.has(workspace.id) ?? false
+  );
+  const { attention, appearance, otherAgents, collapsed } = useOutOfViewTitleStatus(workspace);
+  return (
+    <TitleAdornment
+      attention={attention}
+      attentionAppearance={appearance}
+      collapsed={collapsed}
+      otherAgents={otherAgents}
+      restarting={restarting}
+    />
+  );
+}
+
+/** The title status of a workspace shown outside its card, which never counts as selected. */
+function useOutOfViewTitleStatus(workspace: Workspace): ReturnType<typeof titleStatus> {
+  const showAgentSpinner = useConfigStore((state) => state.config?.showAgentSpinner) !== false;
+  return titleStatus(workspace, workspaceCardStatus(workspace), {
+    isSelected: false,
+    showAgentSpinner,
+  });
+}
+
+/** What the card shows beside its title, from the agents' status it shows. */
+function titleStatus(
+  workspace: Workspace,
+  cardStatus: WorkspaceCardStatus,
+  { isSelected, showAgentSpinner }: { isSelected: boolean; showAgentSpinner: boolean }
+): {
+  attention: WorkspaceAttention | undefined;
+  appearance: AttentionAppearance;
+  /** Whether the badge is the unread mark, which is no agent's. */
+  unread: boolean;
+  otherAgents: Agent[];
+  collapsed: CollapsedBadge | null;
+} {
+  // An unread mark shows when nothing an agent raised outranks it, and not while it's open.
+  const unreadBadge = cardStatus.attention || isSelected ? undefined : getUnreadBadge(workspace);
+  const attention = cardStatus.attention ?? unreadBadge?.attention;
+  const appearance = unreadBadge?.appearance ?? getWorkspaceAttentionAppearance(attention);
+  const otherAgents = showAgentSpinner
+    ? cardStatus.others
+    : cardStatus.others.filter((agent) => agent.state !== 'working');
+  return {
+    attention,
+    appearance,
+    unread: !!unreadBadge,
+    otherAgents,
+    // An unread mark isn't an agent's: it stays a badge of its own.
+    collapsed: unreadBadge ? null : collapseBadge(attention, appearance, otherAgents),
+  };
 }
 
 /**
@@ -1143,9 +1191,9 @@ function TitleAdornment({
   otherAgents: Agent[];
   restarting: boolean;
   /** Shows in the badge's place when no agent has anything to show. */
-  tag: string | undefined;
-  tagFromPullRequest: boolean;
-  tagTooltip: string | undefined;
+  tag?: string;
+  tagFromPullRequest?: boolean;
+  tagTooltip?: string;
 }) {
   const states = stateCounts(collapsed, otherAgents, restarting);
   const workingCommands = otherAgents.filter(

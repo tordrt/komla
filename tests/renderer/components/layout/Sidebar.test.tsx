@@ -316,6 +316,29 @@ describe('Sidebar', () => {
     });
   });
 
+  it('folds working workspaces away when the Inbox is turned on', () => {
+    const updateConfig = vi.fn(async (updates: Partial<AppConfig>) => updates as AppConfig);
+    window.api = { platform: 'linux', updateConfig } as unknown as typeof window.api;
+    useConfigStore.setState({ config: {} as AppConfig });
+    onTestFinished(() => useConfigStore.setState({ config: null }));
+    const { rerender } = renderSidebar();
+
+    const inbox = screen.getByRole('menuitemcheckbox', { name: 'Inbox mode' });
+    // Its tooltip says what it does.
+    expect(inbox.parentElement?.textContent).toContain('Workspaces that need you move to the top');
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Inbox mode' }));
+    expect(updateConfig).toHaveBeenLastCalledWith({ inboxMode: true });
+    expect(workspaceState.setHideWorking).toHaveBeenCalledWith(true);
+
+    // Turning it off leaves them folded away.
+    workspaceState.setHideWorking.mockClear();
+    useConfigStore.setState({ config: { inboxMode: true } as AppConfig });
+    rerender(<Sidebar width={240} onResize={vi.fn()} onNewWorkspaceDialogChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Inbox mode' }));
+    expect(updateConfig).toHaveBeenLastCalledWith({ inboxMode: false });
+    expect(workspaceState.setHideWorking).not.toHaveBeenCalled();
+  });
+
   it('lists only projects with workspaces in the current window, in project order', () => {
     workspaceState.hiddenProjectIds = new Set();
     workspaceState.workspaces = [

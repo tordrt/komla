@@ -220,6 +220,7 @@ export function SidebarFilterMenu() {
           <GroupingRow />
           <CardOptionsSubmenu />
         </div>
+        <InboxItem />
         {(showProjects || showHosts || showTags) && <DropdownMenuSeparator />}
         {showProjects && (
           <ProjectFilterItems projectOptions={projectOptions} canReorder={canReorder} />
@@ -313,6 +314,39 @@ function GroupingRow() {
         </DropdownMenuSegmentItem>
       </span>
     </DropdownMenuRadioGroup>
+  );
+}
+
+/**
+ * Switched on, workspaces that need the user lead their group above a line: input and errors
+ * first, then done and notices, each joining at the bottom so the cards above stay put while the
+ * user works down. Each seen to and left leads the workspaces below the line. Turning it on
+ * also folds working workspaces away, as the Inbox is made for; they can be listed again after.
+ */
+function InboxItem() {
+  const inboxMode = useConfigStore((s) => s.config?.inboxMode === true);
+  const updateConfig = useConfigStore((s) => s.updateConfig);
+  const hideWorking = useWorkspacesStore((s) => s.hideWorking);
+  const setHideWorking = useWorkspacesStore((s) => s.setHideWorking);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <DropdownMenuSwitchItem
+          checked={inboxMode}
+          onSelect={(event) => event.preventDefault()}
+          onCheckedChange={(checked) => {
+            void updateConfig({ inboxMode: checked });
+            if (checked && !hideWorking) setHideWorking(true);
+          }}
+        >
+          <span className="truncate">Inbox mode</span>
+        </DropdownMenuSwitchItem>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-60">
+        Workspaces that need you move to the top of their project, input and errors first. Once
+        you've seen to one and moved on, it goes just below the line.
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -1,5 +1,12 @@
 import { getWorkspaceLastTouchedAt } from '@/lib/workspace-state-groups';
-import { isWorkspaceSnoozed, type Workspace } from '@/types';
+import {
+  isWorkspaceAttentionActionable,
+  isWorkspaceSnoozed,
+  needsAttention,
+  type Workspace,
+} from '@/types';
+
+import { workspaceCardStatus } from './agent-state';
 
 export interface WorkspaceGroup {
   key: string;
@@ -107,4 +114,123 @@ export function getWorkspaceDropTarget(
   return index < cards.length
     ? { workspaceId: cards[index].id, position: 'before' }
     : { workspaceId: cards[cards.length - 1].id, position: 'after' };
+}
+
+/** How urgently a workspace needs the user: an agent waiting on input or failed, then the rest. */
+export type NeedsYouTier = 'input' | 'notice';
+
+export interface NeedsYouEntry {
+  tier: NeedsYouTier;
+  /** When it joined its tier, to order the top of its group by: the latest joins at the bottom. */
+  at: number;
+}
+
+/**
+ * Whether the workspace's card says it needs the user, and how urgently: a prompt or error leads,
+ * then a done, notice or unread mark. An idle reminder doesn't count.
+ */
+export function getNeedsYouEntry(workspace: Workspace): NeedsYouEntry | undefined {
+  const { attention } = workspaceCardStatus(workspace);
+  if (attention && isWorkspaceAttentionActionable(attention)) {
+    return { tier: 'input', at: attention.updatedAt };
+  }
+  if (needsAttention(attention)) return { tier: 'notice', at: attention!.updatedAt };
+  if (workspace.unread) return { tier: 'notice', at: workspace.unread.at };
+  return undefined;
+}
+
+const TIER_RANK: Record<NeedsYouTier, number> = { input: 0, notice: 1 };
+
+function byNeedsYou(
+  a: { workspace: Workspace; entry: NeedsYouEntry },
+  b: { workspace: Workspace; entry: NeedsYouEntry }
+): number {
+  return (
+    TIER_RANK[a.entry.tier] - TIER_RANK[b.entry.tier] ||
+    a.entry.at - b.entry.at ||
+    (a.workspace.order ?? 0) - (b.workspace.order ?? 0)
+  );
+}
+
+/** Where to drop a workspace among the others in its list, as dragging it there would. */
+export interface WorkspaceMove {
+  workspaceId: string;
+  targetId: string;
+  position: 'before' | 'after';
+}
+
+/** The order a workspace gets when dropped before or after another, as the stored order counts. */
+export function getDropOrder(
+  oldOrder: number,
+  targetOrder: number,
+  position: 'before' | 'after'
+): number {
+  if (position === 'before') return oldOrder < targetOrder ? targetOrder - 1 : targetOrder;
+  return oldOrder > targetOrder ? targetOrder + 1 : targetOrder;
+}
+
+/**
+ * Where workspaces that just left the Inbox go in their group: to the top of the workspaces below
+ * it, in their own order, so the last seen to leads the rest. The moves are made one after another.
+ */
+export function placeLeftInbox(
+  group: Workspace[],
+  inbox: ReadonlyMap<string, NeedsYouEntry>,
+  leftIds: ReadonlySet<string>
+): WorkspaceMove[] {
+  const byOrder = [...group].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const top = byOrder.find((w) => !inbox.has(w.id) && !leftIds.has(w.id));
+  if (!top) return [];
+  return byOrder
+    .filter((w) => leftIds.has(w.id))
+    .map((w) => ({ workspaceId: w.id, targetId: top.id, position: 'before' }));
+}
+
+/**
+ * Who is in the Inbox at the top of their group now, given who was before (null on the first
+ * look). A workspace keeps the place it joined at while it stays in its tier, so a second
+ * notification doesn't move it again, and the open workspace keeps its place, in the Inbox or not,
+ * until it's left, so seeing to it doesn't move the card under the user. One that joins or changes
+ * tier after the first look does so at `now`, so it lands at the bottom of its tier even when its
+ * attention is older, as when it was raised while the workspace was open.
+ */
+export function trackInbox(
+  previous: ReadonlyMap<string, NeedsYouEntry> | null,
+  workspaces: Workspace[],
+  openWorkspaceId: string | null,
+  now: number
+): Map<string, NeedsYouEntry> {
+  const next = new Map<string, NeedsYouEntry>();
+  for (const workspace of workspaces) {
+    const before = previous?.get(workspace.id);
+    if (previous && workspace.id === openWorkspaceId) {
+      if (before) next.set(workspace.id, before);
+      continue;
+    }
+    const current = getNeedsYouEntry(workspace);
+    if (!current) continue;
+    if (before?.tier === current.tier) next.set(workspace.id, before);
+    else next.set(workspace.id, previous ? { tier: current.tier, at: now } : current);
+  }
+  return next;
+}
+
+/**
+ * Puts the workspaces in the Inbox first, input before notices and each tier in the order they
+ * joined it, and leaves the rest in their order.
+ */
+export function sortInboxFirst(
+  workspaces: Workspace[],
+  entries: ReadonlyMap<string, NeedsYouEntry>
+): Workspace[] {
+  const inbox = workspaces.flatMap((workspace) => {
+    const entry = entries.get(workspace.id);
+    return entry ? [{ workspace, entry }] : [];
+  });
+  if (inbox.length === 0) return workspaces;
+  inbox.sort(byNeedsYou);
+  return [
+    ...inbox.map(({ workspace }) => workspace),
+    ...workspaces.filter((w) => !entries.has(w.id)),
+  ];
 }

@@ -267,6 +267,7 @@ export interface AppConfig {
   autoNameBranches?: boolean; // Use AI to generate descriptive branch names from initial prompts
   alwaysShowBranchNameInWorkspaceCards?: boolean; // Off: a card shows its branch only when its activity row has room
   compactWorkspaceList?: boolean; // Tighter workspace cards in the sidebar
+  inboxMode?: boolean; // Workspaces that need the user lead their sidebar group, above a line
   defaultSearchOpenMode?: 'viewer' | 'preview' | 'current'; // Default target when opening search results ('current' = match the active view)
   hiddenProjectIds?: string[]; // Project IDs hidden from the sidebar workspace list
   dashboardFilterProject?: string | null; // Last selected project filter in dashboard
@@ -396,6 +397,7 @@ const DEFAULT_CONFIG: AppConfig = {
   autoNameBranches: false,
   alwaysShowBranchNameInWorkspaceCards: true,
   compactWorkspaceList: false,
+  inboxMode: false,
   defaultSearchOpenMode: 'current',
   hiddenProjectIds: [],
   showSystemMetrics: false,
@@ -525,6 +527,7 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
         ? rawConfig.alwaysShowBranchNameInWorkspaceCards
         : DEFAULT_CONFIG.alwaysShowBranchNameInWorkspaceCards,
     compactWorkspaceList: pickWithDefault(rawConfig, 'compactWorkspaceList'),
+    inboxMode: pickWithDefault(rawConfig, 'inboxMode'),
     defaultSearchOpenMode: pickWithDefault(rawConfig, 'defaultSearchOpenMode'),
     hiddenProjectIds: pickWithDefault(rawConfig, 'hiddenProjectIds'),
     dashboardFilterProject: (rawConfig.dashboardFilterProject as string | null | undefined) ?? null,

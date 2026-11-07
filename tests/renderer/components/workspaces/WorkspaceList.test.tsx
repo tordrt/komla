@@ -3,13 +3,14 @@
  */
 import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SIDEBAR_CARD_DRAG_ATTRIBUTE } from '../../../../src/renderer/components/workspaces/workspace-list-ordering';
 import { WorkspaceList } from '../../../../src/renderer/components/workspaces/WorkspaceList';
+import { useConfigStore } from '../../../../src/renderer/stores/config.store';
 import { createTerminal, createWorktreeWorkspace } from '../../../factories';
 
-import type { Workspace, WorkspaceAttention } from '../../../../src/renderer/types';
+import type { AppConfig, Workspace, WorkspaceAttention } from '../../../../src/renderer/types';
 
 const workspacesState = {
   workspaces: [] as Workspace[],
@@ -37,8 +38,10 @@ const workspacesState = {
 };
 
 vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
-  useWorkspacesStore: <T,>(selector: (state: typeof workspacesState) => T) =>
-    selector(workspacesState),
+  useWorkspacesStore: Object.assign(
+    <T,>(selector: (state: typeof workspacesState) => T) => selector(workspacesState),
+    { getState: () => workspacesState }
+  ),
 }));
 
 const defaultProjects = [{ id: 'project-1', name: 'Komla', color: '#3b82f6', order: 0 }];
@@ -1297,5 +1300,183 @@ describe('WorkspaceList empty states', () => {
 
     expect(screen.queryByText('No workspaces yet')).toBeNull();
     expect(screen.queryByText(/hidden|stopped/)).toBeNull();
+  });
+});
+
+describe('WorkspaceList as agents come back from the Working shelf', () => {
+  type State = 'idle' | 'working' | 'done' | 'input';
+  let at = 0;
+  const terminalFor = (id: string, state: State) =>
+    createTerminal({
+      id: `term-${id}`,
+      status: 'running',
+      ...(state === 'working' || state === 'input' ? { agentActive: true } : {}),
+      ...(state === 'done' || state === 'input'
+        ? {
+            attention: {
+              kind: state === 'done' ? 'turn-complete' : 'input-required',
+              source: 'claude-code',
+              updatedAt: ++at,
+            } satisfies WorkspaceAttention,
+          }
+        : {}),
+    });
+  /** The list to start from: each workspace in its project and order, its agent in that state. */
+  const listOf = (states: [id: string, state: State, projectId?: string][]) =>
+    states.map(([id, state, projectId], order) =>
+      createWorktreeWorkspace({
+        id,
+        order,
+        windowId: 'window-1',
+        ...(projectId ? { projectId } : {}),
+        terminals: [terminalFor(id, state)],
+      })
+    );
+  /** Moves agents on, keeping each workspace's order, as it was last stored. */
+  const agents = (states: Record<string, State>) => {
+    workspacesState.workspaces = workspacesState.workspaces.map((w) =>
+      states[w.id] ? { ...w, terminals: [terminalFor(w.id, states[w.id])] } : w
+    );
+  };
+  /** Stores a new order as the store does: the cards in between shift by one. */
+  const reorder = (workspaceId: string, newOrder: number) => {
+    const oldOrder = workspacesState.workspaces.find((w) => w.id === workspaceId)!.order ?? 0;
+    workspacesState.workspaces = workspacesState.workspaces.map((w) => {
+      const order = w.order ?? 0;
+      if (w.id === workspaceId) return { ...w, order: newOrder };
+      if (oldOrder < newOrder && order > oldOrder && order <= newOrder) {
+        return { ...w, order: order - 1 };
+      }
+      if (oldOrder > newOrder && order >= newOrder && order < oldOrder) {
+        return { ...w, order: order + 1 };
+      }
+      return w;
+    });
+    return Promise.resolve();
+  };
+  const cardIds = () =>
+    screen.getAllByTestId(/^card-/).map((card) => card.dataset.testid?.replace('card-', ''));
+
+  beforeEach(() => {
+    resetState();
+    workspacesState.hideWorking = true;
+    workspacesState.reorderWorkspace.mockImplementation(reorder);
+    projectsState.projects = [
+      ...defaultProjects,
+      { id: 'project-2', name: 'Docs', color: '#ef4444', order: 1 },
+    ];
+  });
+
+  afterEach(() => {
+    workspacesState.reorderWorkspace.mockReset();
+    useConfigStore.setState({ config: null });
+  });
+
+  it('puts a workspace back in its own place, outside the Inbox', () => {
+    workspacesState.workspaces = listOf([
+      ['ws-1', 'idle'],
+      ['ws-2', 'working'],
+      ['ws-3', 'idle'],
+    ]);
+    const { rerender } = render(<WorkspaceList />);
+    expect(cardIds()).toEqual(['ws-1', 'ws-3']);
+
+    agents({ 'ws-2': 'input' });
+    rerender(<WorkspaceList />);
+    rerender(<WorkspaceList />);
+    expect(cardIds()).toEqual(['ws-1', 'ws-2', 'ws-3']);
+    expect(workspacesState.reorderWorkspace).not.toHaveBeenCalled();
+  });
+
+  describe('in the Inbox', () => {
+    beforeEach(() => {
+      useConfigStore.setState({ config: { inboxMode: true } as AppConfig });
+    });
+
+    it('leads each group with the workspaces that need the user, above a line', () => {
+      workspacesState.hideWorking = false;
+      workspacesState.workspaces = listOf([
+        ['ws-1', 'idle'],
+        ['ws-2', 'done'],
+        ['ws-3', 'input'],
+        ['docs-1', 'idle', 'project-2'],
+      ]);
+      render(<WorkspaceList />);
+
+      expect(cardIds()).toEqual(['ws-3', 'ws-2', 'ws-1', 'docs-1']);
+      expect(screen.getAllByRole('separator', { name: 'End of Inbox' })).toHaveLength(1);
+      expect(workspacesState.reorderWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('moves a workspace seen to and left to the top of the workspaces below the line', () => {
+      workspacesState.workspaces = listOf([
+        ['ws-1', 'idle'],
+        ['ws-2', 'idle'],
+        ['ws-3', 'working'],
+      ]);
+      const { rerender } = render(<WorkspaceList />);
+      agents({ 'ws-2': 'done' });
+      rerender(<WorkspaceList />);
+      agents({ 'ws-2': 'done', 'ws-3': 'done' });
+      rerender(<WorkspaceList />);
+      expect(cardIds()).toEqual(['ws-2', 'ws-3', 'ws-1']);
+
+      // Seeing to the open one holds it in place until it's left.
+      workspacesState.selectedWorkspaceId = 'ws-3';
+      agents({ 'ws-3': 'idle' });
+      rerender(<WorkspaceList />);
+      expect(cardIds()).toEqual(['ws-2', 'ws-3', 'ws-1']);
+
+      workspacesState.selectedWorkspaceId = 'ws-2';
+      rerender(<WorkspaceList />);
+      rerender(<WorkspaceList />);
+      expect(cardIds()).toEqual(['ws-2', 'ws-3', 'ws-1']);
+      expect(screen.getByRole('separator', { name: 'End of Inbox' })).toBeTruthy();
+
+      agents({ 'ws-2': 'idle' });
+      workspacesState.selectedWorkspaceId = 'ws-1';
+      rerender(<WorkspaceList />);
+      rerender(<WorkspaceList />);
+      expect(cardIds()).toEqual(['ws-2', 'ws-3', 'ws-1']);
+      expect(screen.queryByRole('separator')).toBeNull();
+      expect(workspacesState.reorderWorkspace).toHaveBeenCalled();
+    });
+
+    it('lets only the workspaces below the line be dragged', () => {
+      workspacesState.workspaces = listOf([
+        ['ws-1', 'idle'],
+        ['ws-2', 'done'],
+      ]);
+      render(<WorkspaceList />);
+
+      expect(screen.getByTestId('card-ws-2')).toHaveAttribute('draggable', 'false');
+      expect(screen.getByTestId('card-ws-1')).toHaveAttribute('draggable', 'true');
+    });
+
+    it('takes in the open workspace when the list loads after the sidebar', () => {
+      workspacesState.selectedWorkspaceId = 'ws-2';
+      workspacesState.workspaces = [];
+      const { rerender } = render(<WorkspaceList />);
+
+      workspacesState.workspaces = listOf([
+        ['ws-1', 'idle'],
+        ['ws-2', 'input'],
+      ]);
+      rerender(<WorkspaceList />);
+      expect(cardIds()).toEqual(['ws-2', 'ws-1']);
+    });
+
+    it('leaves the order alone while nothing leaves the Inbox', () => {
+      workspacesState.workspaces = listOf([
+        ['ws-1', 'idle'],
+        ['ws-2', 'done'],
+      ]);
+      const { rerender } = render(<WorkspaceList />);
+      workspacesState.selectedWorkspaceId = 'ws-1';
+      rerender(<WorkspaceList />);
+
+      expect(cardIds()).toEqual(['ws-2', 'ws-1']);
+      expect(workspacesState.reorderWorkspace).not.toHaveBeenCalled();
+    });
   });
 });

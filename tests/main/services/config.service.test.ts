@@ -89,6 +89,7 @@ describe('ConfigService', () => {
         autoNameBranches: false,
         alwaysShowBranchNameInWorkspaceCards: true,
         compactWorkspaceList: false,
+        inboxMode: false,
         defaultSearchOpenMode: 'current',
         hiddenProjectIds: [],
         utilityProvider: 'komla-managed',

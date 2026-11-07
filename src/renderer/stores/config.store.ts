@@ -55,6 +55,7 @@ const DEFAULT_CONFIG: AppConfig = {
   errorReportingEnabled: true,
   alwaysShowBranchNameInWorkspaceCards: true,
   compactWorkspaceList: false,
+  inboxMode: false,
   showAgentSpinner: true,
   activitySpinner: DEFAULT_ACTIVITY_SPINNER,
   reduceEffects: false,

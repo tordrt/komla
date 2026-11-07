@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getDropOrder,
   getVisibleOrderedWorkspaceIds,
   getWorkspaceDropTarget,
+  placeLeftInbox,
+  sortInboxFirst,
   splitWorkspaceListSections,
+  trackInbox,
+  type NeedsYouEntry,
   type WorkspaceGroup,
+  type WorkspaceMove,
 } from '../../../../src/renderer/components/workspaces/workspace-list-ordering';
+import type { Workspace, WorkspaceAttention } from '../../../../src/renderer/types';
 import { createWorkspace } from '../../../factories';
 
 function makeGroup(
@@ -201,12 +208,21 @@ describe('getWorkspaceDropTarget', () => {
   ];
 
   it('drops before a card when the pointer is above its middle', () => {
-    expect(getWorkspaceDropTarget(cards, 'a', 100)).toEqual({ workspaceId: 'c', position: 'before' });
-    expect(getWorkspaceDropTarget(cards, 'c', 30)).toEqual({ workspaceId: 'b', position: 'before' });
+    expect(getWorkspaceDropTarget(cards, 'a', 100)).toEqual({
+      workspaceId: 'c',
+      position: 'before',
+    });
+    expect(getWorkspaceDropTarget(cards, 'c', 30)).toEqual({
+      workspaceId: 'b',
+      position: 'before',
+    });
   });
 
   it('drops in the gap between cards, as before the card below it', () => {
-    expect(getWorkspaceDropTarget(cards, 'c', 42)).toEqual({ workspaceId: 'b', position: 'before' });
+    expect(getWorkspaceDropTarget(cards, 'c', 42)).toEqual({
+      workspaceId: 'b',
+      position: 'before',
+    });
   });
 
   it('drops before the first card above the list', () => {
@@ -217,14 +233,26 @@ describe('getWorkspaceDropTarget', () => {
   });
 
   it('drops after the last card below its middle', () => {
-    expect(getWorkspaceDropTarget(cards, 'a', 120)).toEqual({ workspaceId: 'c', position: 'after' });
-    expect(getWorkspaceDropTarget(cards, 'a', 400)).toEqual({ workspaceId: 'c', position: 'after' });
+    expect(getWorkspaceDropTarget(cards, 'a', 120)).toEqual({
+      workspaceId: 'c',
+      position: 'after',
+    });
+    expect(getWorkspaceDropTarget(cards, 'a', 400)).toEqual({
+      workspaceId: 'c',
+      position: 'after',
+    });
   });
 
   it('names one slot the same way, whichever card the pointer is nearer', () => {
     // Just below a's middle and just above b's: the slot between them both times.
-    expect(getWorkspaceDropTarget(cards, 'c', 21)).toEqual({ workspaceId: 'b', position: 'before' });
-    expect(getWorkspaceDropTarget(cards, 'c', 63)).toEqual({ workspaceId: 'b', position: 'before' });
+    expect(getWorkspaceDropTarget(cards, 'c', 21)).toEqual({
+      workspaceId: 'b',
+      position: 'before',
+    });
+    expect(getWorkspaceDropTarget(cards, 'c', 63)).toEqual({
+      workspaceId: 'b',
+      position: 'before',
+    });
   });
 
   it('has no target where the dragged workspace already is', () => {
@@ -240,5 +268,151 @@ describe('getWorkspaceDropTarget', () => {
   it('has no target when the dragged workspace is in another list', () => {
     expect(getWorkspaceDropTarget(cards, 'elsewhere', 60)).toBeNull();
     expect(getWorkspaceDropTarget([], 'a', 60)).toBeNull();
+  });
+});
+
+const raised = (
+  kind: WorkspaceAttention['kind'],
+  updatedAt: number,
+  extra: Partial<WorkspaceAttention> = {}
+): WorkspaceAttention => ({ kind, source: 'claude-code', updatedAt, ...extra });
+
+const workspace = (id: string, order: number, overrides: Partial<Workspace> = {}) =>
+  createWorkspace({ id, order, ...overrides });
+
+const ids = (list: Workspace[]) => list.map((w) => w.id);
+
+describe('dropping a workspace next to another', () => {
+  it('gives the order a drop before or after another card leaves', () => {
+    expect(getDropOrder(5, 2, 'before')).toBe(2);
+    expect(getDropOrder(1, 4, 'before')).toBe(3);
+    expect(getDropOrder(5, 2, 'after')).toBe(3);
+    expect(getDropOrder(1, 4, 'after')).toBe(4);
+  });
+});
+
+describe('workspaces that leave the Inbox', () => {
+  const inbox = (...list: string[]) =>
+    new Map(list.map((id) => [id, { tier: 'notice' as const, at: 1 }]));
+
+  it('go to the top of the workspaces below it, in their own order', () => {
+    const group = [workspace('i', 0), workspace('a', 1), workspace('x', 2), workspace('y', 3)];
+
+    expect(placeLeftInbox(group, inbox('i'), new Set(['y', 'x']))).toEqual([
+      { workspaceId: 'x', targetId: 'a', position: 'before' },
+      { workspaceId: 'y', targetId: 'a', position: 'before' },
+    ]);
+  });
+
+  it('stay put when nothing else is below it', () => {
+    const group = [workspace('i', 0), workspace('x', 1)];
+
+    expect(placeLeftInbox(group, inbox('i'), new Set(['x']))).toEqual([]);
+  });
+});
+
+describe('the Inbox', () => {
+  interface Look {
+    workspaces: Workspace[];
+    open?: string | null;
+  }
+
+  /** Looks at the list once per step, as the sidebar does on each change, and sorts the last. */
+  function sortAfter(looks: Look[]) {
+    let entries: ReadonlyMap<string, NeedsYouEntry> | null = null;
+    for (const [i, look] of looks.entries()) {
+      entries = trackInbox(entries, look.workspaces, look.open ?? null, 1000 + i);
+    }
+    return ids(sortInboxFirst(looks.at(-1)!.workspaces, entries!));
+  }
+
+  it('puts the workspaces that need the user first, input and errors before done', () => {
+    const list = [
+      workspace('a', 0),
+      workspace('b', 1, { attention: raised('turn-complete', 10) }),
+      workspace('c', 2, { attention: raised('error', 30) }),
+      workspace('d', 3, { attention: raised('input-required', 20) }),
+      workspace('e', 4, { unread: { at: 5 } }),
+    ];
+
+    expect(sortAfter([{ workspaces: list }])).toEqual(['d', 'c', 'e', 'b', 'a']);
+  });
+
+  it('adds a workspace to the bottom of its tier', () => {
+    const first = [
+      workspace('a', 0),
+      workspace('b', 1, { attention: raised('turn-complete', 10) }),
+    ];
+    const then = [workspace('a', 0, { attention: raised('turn-complete', 20) }), first[1]];
+
+    expect(sortAfter([{ workspaces: first }, { workspaces: then }])).toEqual(['b', 'a']);
+  });
+
+  it('keeps the place of a workspace notified again, and moves one up a tier for input', () => {
+    const first = [
+      workspace('a', 0, { attention: raised('turn-complete', 10) }),
+      workspace('b', 1, { attention: raised('turn-complete', 20) }),
+    ];
+    const again = [workspace('a', 0, { attention: raised('turn-complete', 30) }), first[1]];
+    const input = [first[0], workspace('b', 1, { attention: raised('input-required', 40) })];
+
+    expect(sortAfter([{ workspaces: first }, { workspaces: again }])).toEqual(['a', 'b']);
+    expect(sortAfter([{ workspaces: first }, { workspaces: input }])).toEqual(['b', 'a']);
+  });
+
+  it('adds a workspace left out while open to the bottom, by when it joins', () => {
+    const quiet = [workspace('a', 0), workspace('b', 1)];
+    const aDone = [workspace('a', 0, { attention: raised('turn-complete', 100) }), quiet[1]];
+    const bDone = [aDone[0], workspace('b', 1, { attention: raised('turn-complete', 200) })];
+
+    expect(
+      sortAfter([
+        { workspaces: quiet, open: 'a' },
+        { workspaces: aDone, open: 'a' },
+        { workspaces: bDone, open: 'a' },
+        { workspaces: bDone, open: null },
+      ])
+    ).toEqual(['b', 'a']);
+  });
+
+  it('drops a workspace back to its place once seen to and left', () => {
+    const first = [
+      workspace('a', 0),
+      workspace('b', 1, { attention: raised('turn-complete', 10) }),
+    ];
+    const seen = [workspace('a', 0), workspace('b', 1)];
+
+    expect(
+      sortAfter([{ workspaces: first }, { workspaces: seen, open: 'b' }, { workspaces: seen }])
+    ).toEqual(['a', 'b']);
+  });
+
+  it('holds the open workspace in place until it is left', () => {
+    const first = [
+      workspace('a', 0),
+      workspace('b', 1, { attention: raised('turn-complete', 10) }),
+    ];
+    const seen = [workspace('a', 0), workspace('b', 1)];
+    const done = [workspace('a', 0, { attention: raised('turn-complete', 20) }), first[1]];
+
+    expect(
+      sortAfter([
+        { workspaces: first, open: 'b' },
+        { workspaces: seen, open: 'b' },
+      ])
+    ).toEqual(['b', 'a']);
+    expect(
+      sortAfter([
+        { workspaces: seen, open: 'a' },
+        { workspaces: done, open: 'a' },
+      ])
+    ).toEqual(['b', 'a']);
+    expect(
+      sortAfter([
+        { workspaces: seen, open: 'a' },
+        { workspaces: done, open: 'a' },
+        { workspaces: done, open: 'b' },
+      ])
+    ).toEqual(['b', 'a']);
   });
 });

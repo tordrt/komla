@@ -14,7 +14,7 @@ import {
   Warning,
   type Icon,
 } from '@phosphor-icons/react';
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -56,12 +56,18 @@ import {
 } from './workspace-list-filtering';
 import {
   getVisibleOrderedWorkspaceIds,
+  getDropOrder,
   getWorkspaceDropTarget,
+  placeLeftInbox,
   readDraggableCards,
   sortByLastTouched,
+  sortInboxFirst,
   splitWorkspaceListSections,
+  trackInbox,
+  type NeedsYouEntry,
   type WorkspaceDropTarget,
   type WorkspaceGroup,
+  type WorkspaceMove,
 } from './workspace-list-ordering';
 import { WorkspaceCard } from './WorkspaceCard';
 
@@ -522,6 +528,79 @@ function useOpenPlacement(
   return placement;
 }
 
+/**
+ * Who leads their group in the Inbox, while it's on; null while it's off. Each look builds on the
+ * last, so a workspace keeps the place it joined at.
+ */
+function useInboxEntries(
+  enabled: boolean,
+  workspaces: Workspace[],
+  selectedWorkspaceId: string | null
+): ReadonlyMap<string, NeedsYouEntry> | null {
+  const previous = useRef<ReadonlyMap<string, NeedsYouEntry> | null>(null);
+  const entries = useMemo(
+    () =>
+      enabled ? trackInbox(previous.current, workspaces, selectedWorkspaceId, Date.now()) : null,
+    [enabled, workspaces, selectedWorkspaceId]
+  );
+  useEffect(() => {
+    // Until the workspaces load, the next look is still the first.
+    previous.current = workspaces.length > 0 ? entries : null;
+  }, [entries, workspaces]);
+  return entries;
+}
+
+/** Drops each workspace where a move says, as a drag would, reading the order each left behind. */
+function applyMoves(
+  moves: WorkspaceMove[],
+  reorderWorkspace: (workspaceId: string, newOrder: number) => Promise<void>
+): void {
+  for (const move of moves) {
+    // Each reorder updates the store at once, so the next move sees the order it left.
+    const { workspaces } = useWorkspacesStore.getState();
+    const workspace = workspaces.find((w) => w.id === move.workspaceId);
+    const target = workspaces.find((w) => w.id === move.targetId);
+    if (!workspace || !target) continue;
+    const oldOrder = workspace.order ?? 0;
+    const newOrder = getDropOrder(oldOrder, target.order ?? 0, move.position);
+    if (newOrder !== oldOrder) void reorderWorkspace(move.workspaceId, newOrder);
+  }
+}
+
+/**
+ * In the Inbox, a workspace seen to and left goes to the top of the workspaces below the line
+ * rather than back to its old place, so the last handled leads the rest: it's moved in the manual
+ * order, as if dragged, before the list paints.
+ */
+function usePlaceLeftInbox(
+  inbox: ReadonlyMap<string, NeedsYouEntry> | null,
+  groups: WorkspaceGroup[],
+  reorderWorkspace: (workspaceId: string, newOrder: number) => Promise<void>
+): void {
+  const previousInbox = useRef<ReadonlyMap<string, NeedsYouEntry> | null>(null);
+  useLayoutEffect(() => {
+    const before = previousInbox.current;
+    previousInbox.current = inbox;
+    if (!inbox || !before) return;
+    const moves = groups.flatMap((group) => {
+      const left = new Set(
+        group.workspaces.filter((w) => before.has(w.id) && !inbox.has(w.id)).map((w) => w.id)
+      );
+      return left.size > 0 ? placeLeftInbox(group.workspaces, inbox, left) : [];
+    });
+    if (moves.length > 0) applyMoves(moves, reorderWorkspace);
+  }, [inbox, groups, reorderWorkspace]);
+}
+
+/** The line under a group's Inbox, between it and the workspaces that don't need the user. */
+function InboxDivider() {
+  return (
+    <div role="separator" aria-label="End of Inbox" className="px-2.5 py-1">
+      <div className="h-px bg-border/60" />
+    </div>
+  );
+}
+
 type ShelfKey = 'working' | 'tagged' | 'snoozed' | 'stopped' | 'trash';
 
 interface Shelf {
@@ -754,6 +833,7 @@ export function WorkspaceList({
   const grouping = useWorkspacesStore((s) => s.grouping);
   const hiddenWorkspaceHostIds = useWorkspacesStore((s) => s.hiddenWorkspaceHostIds);
   const compact = useConfigStore((s) => s.config?.compactWorkspaceList) === true;
+  const inboxMode = useConfigStore((s) => s.config?.inboxMode) === true;
   const hideWorking = useWorkspacesStore((s) => s.hideWorking);
   const hiddenWorkspaceTags = useWorkspacesStore((s) => s.hiddenWorkspaceTags);
   const showAllWorkspaceHosts = useWorkspacesStore((s) => s.showAllWorkspaceHosts);
@@ -939,6 +1019,8 @@ export function WorkspaceList({
     [visibleWorkspaces]
   );
 
+  const inboxEntries = useInboxEntries(inboxMode, workspaces, selectedWorkspaceId);
+
   const openPlacement = useOpenPlacement(
     workspaces,
     selectedWorkspaceId,
@@ -1089,11 +1171,12 @@ export function WorkspaceList({
 
       for (const group of groups) {
         group.workspaces.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        if (inboxEntries) group.workspaces = sortInboxFirst(group.workspaces, inboxEntries);
       }
 
       return groups;
     },
-    [getGroupKey, getProjectInfo, projectMap]
+    [getGroupKey, getProjectInfo, projectMap, inboxEntries]
   );
 
   const allActiveGroups = useMemo((): WorkspaceGroup[] => {
@@ -1124,7 +1207,9 @@ export function WorkspaceList({
         projectInfo: null,
         projectId: null,
         isDirectory: false,
-        workspaces: sections.grouped,
+        workspaces: inboxEntries
+          ? sortInboxFirst(sections.grouped, inboxEntries)
+          : sections.grouped,
       },
     ];
   }, [
@@ -1134,7 +1219,10 @@ export function WorkspaceList({
     sections.grouped,
     groupWorkspaces,
     grouping,
+    inboxEntries,
   ]);
+
+  usePlaceLeftInbox(inboxEntries, allActiveGroups, reorderWorkspace);
 
   // Filter out hidden project groups
   const workspaceGroups = useMemo(
@@ -1216,13 +1304,7 @@ export function WorkspaceList({
       const targetWorkspace = target && ws.find((w) => w.id === target.workspaceId);
       if (target && draggedWorkspace && targetWorkspace) {
         const oldOrder = draggedWorkspace.order ?? 0;
-        const targetOrder = targetWorkspace.order ?? 0;
-        let newOrder: number;
-        if (target.position === 'before') {
-          newOrder = oldOrder < targetOrder ? targetOrder - 1 : targetOrder;
-        } else {
-          newOrder = oldOrder > targetOrder ? targetOrder + 1 : targetOrder;
-        }
+        const newOrder = getDropOrder(oldOrder, targetWorkspace.order ?? 0, target.position);
         if (newOrder !== oldOrder) {
           void reorderWorkspace(currentDraggedId, newOrder);
         }
@@ -1371,6 +1453,26 @@ export function WorkspaceList({
       />
     ) : null;
 
+  // A group's cards, with a line under its Inbox when cards that don't need the user follow it.
+  // The Inbox orders itself, so only the cards below the line can be dragged.
+  const renderGroupCards = (
+    workspaces: Workspace[],
+    renderCard: (workspace: Workspace, dndEnabled: boolean) => React.ReactNode
+  ): React.ReactNode[] => {
+    const cards = workspaces.map((workspace) =>
+      renderCard(workspace, !selectionMode && !inboxEntries?.has(workspace.id))
+    );
+    const inboxCount = inboxEntries
+      ? workspaces.filter((workspace) => inboxEntries.has(workspace.id)).length
+      : 0;
+    if (inboxCount === 0 || inboxCount === workspaces.length) return cards;
+    return [
+      ...cards.slice(0, inboxCount),
+      <InboxDivider key="inbox-divider" />,
+      ...cards.slice(inboxCount),
+    ];
+  };
+
   const renderWorkspaceCard = (
     workspace: Workspace,
     projectInfo: { name: string; color: string; icon?: string } | null,
@@ -1464,8 +1566,13 @@ export function WorkspaceList({
                         compact ? 'space-y-0.5' : 'space-y-1'
                       )}
                     >
-                      {group.workspaces.map((workspace) =>
-                        renderWorkspaceCard(workspace, getProjectInfo(workspace))
+                      {renderGroupCards(group.workspaces, (workspace, dndEnabled) =>
+                        renderWorkspaceCard(
+                          workspace,
+                          getProjectInfo(workspace),
+                          undefined,
+                          dndEnabled
+                        )
                       )}
                     </div>
                   </div>
@@ -1541,8 +1648,8 @@ export function WorkspaceList({
                         compact ? 'space-y-0.5' : 'space-y-1'
                       )}
                     >
-                      {group.workspaces.map((workspace) =>
-                        renderWorkspaceCard(workspace, null, group.isDirectory)
+                      {renderGroupCards(group.workspaces, (workspace, dndEnabled) =>
+                        renderWorkspaceCard(workspace, null, group.isDirectory, dndEnabled)
                       )}
                     </div>
                   )}

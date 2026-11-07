@@ -1787,7 +1787,7 @@ also-malformed`;
             }
           }
           const cmd = `${file} ${actualArgs.join(' ')}`;
-          if (cmd.includes('git for-each-ref --format=%(refname) %(objectname) refs/remotes/')) {
+          if (cmd.includes('git for-each-ref --format=%(refname) %(objectname) %(symref) refs/remotes/')) {
             refCalls++;
             const stdout = refCalls === 1 ? beforeRefs : afterRefs;
             setImmediate(() => callback?.(null, stdout, ''));

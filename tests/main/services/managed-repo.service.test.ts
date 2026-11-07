@@ -33,6 +33,7 @@ vi.mock('../../../src/main/services/git.service', () => ({ gitService: mockGitSe
 
 const mockGitExec = {
   execGitAsync: vi.fn(),
+  getCheckedOutBranch: vi.fn(),
 };
 vi.mock('../../../src/main/services/git/git-exec', () => ({ gitExec: mockGitExec }));
 
@@ -64,6 +65,7 @@ describe('ManagedRepoService', () => {
     mockGitService.isBareRepo.mockResolvedValue(true);
     mockGitService.getRemoteUrlByName.mockResolvedValue('git@github.com:org/repo.git');
     mockGitExec.execGitAsync.mockResolvedValue('');
+    mockGitExec.getCheckedOutBranch.mockResolvedValue(undefined);
   });
 
   it('creates a managed repo and rewires origin when source has a remote', async () => {
@@ -106,7 +108,7 @@ describe('ManagedRepoService', () => {
   it('copies remote-tracking refs from source repo when origin exists', async () => {
     mockGitExec.execGitAsync.mockImplementation(async (_path: string, args: string[]) => {
       if (args[0] === 'for-each-ref') {
-        return 'refs/remotes/origin/main abc123\nrefs/remotes/origin/dev def456\n';
+        return 'refs/remotes/origin/main abc123 \nrefs/remotes/origin/dev def456';
       }
       return '';
     });
@@ -116,7 +118,7 @@ describe('ManagedRepoService', () => {
 
     expect(mockGitExec.execGitAsync).toHaveBeenCalledWith('/src/repo', [
       'for-each-ref',
-      '--format=%(refname) %(objectname)',
+      '--format=%(refname) %(objectname) %(symref)',
       'refs/remotes/origin/',
     ]);
     expect(mockGitExec.execGitAsync).toHaveBeenCalledWith(repoPathOf('with-refs', '.git'), [
@@ -134,7 +136,7 @@ describe('ManagedRepoService', () => {
   it('skips refs/remotes/origin/HEAD when copying remote-tracking refs', async () => {
     mockGitExec.execGitAsync.mockImplementation(async (_path: string, args: string[]) => {
       if (args[0] === 'for-each-ref') {
-        return 'refs/remotes/origin/HEAD abc123\nrefs/remotes/origin/main def456\n';
+        return 'refs/remotes/origin/HEAD def456 refs/remotes/origin/main\nrefs/remotes/origin/main def456';
       }
       return '';
     });
@@ -142,11 +144,11 @@ describe('ManagedRepoService', () => {
 
     await managedRepoService.createManagedRepo('/src/repo', 'skip-head');
 
-    // Should NOT copy HEAD
+    // Should NOT copy HEAD as a plain ref
     expect(mockGitExec.execGitAsync).not.toHaveBeenCalledWith(expect.any(String), [
       'update-ref',
       'refs/remotes/origin/HEAD',
-      'abc123',
+      'def456',
     ]);
     // Should copy main
     expect(mockGitExec.execGitAsync).toHaveBeenCalledWith(repoPathOf('skip-head', '.git'), [

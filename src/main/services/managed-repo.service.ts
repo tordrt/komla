@@ -140,7 +140,8 @@ class ManagedRepoService {
       // Copy remote-tracking refs from the source repo so the bare clone
       // starts with the same remote branch info the user already has locally.
       // This avoids a network fetch while still providing useful remote refs.
-      await this.copyRemoteTrackingRefs(sourcePath, managedRepoPath);
+      const originHead = await this.copyRemoteTrackingRefs(sourcePath, managedRepoPath);
+      await this.recordOriginHead(managedRepoPath, originHead);
     } else {
       // No remote configured - remove the useless local path remote
       await gitService.removeRemote(managedRepoPath, 'origin');
@@ -153,22 +154,29 @@ class ManagedRepoService {
    * Copy remote-tracking refs (refs/remotes/origin/*) from a source repo
    * into the bare clone. This gives the bare clone the same remote branch
    * info the user already has locally, without hitting the network.
+   *
+   * @returns The ref the source's origin/HEAD points at, or null when it records none
    */
-  private async copyRemoteTrackingRefs(sourcePath: string, managedRepoPath: string): Promise<void> {
+  private async copyRemoteTrackingRefs(
+    sourcePath: string,
+    managedRepoPath: string
+  ): Promise<string | null> {
+    let originHead: string | null = null;
     try {
       const output = await gitExec.execGitAsync(sourcePath, [
         'for-each-ref',
-        '--format=%(refname) %(objectname)',
+        '--format=%(refname) %(objectname) %(symref)',
         'refs/remotes/origin/',
       ]);
 
-      if (!output.trim()) return;
-
-      for (const line of output.trim().split('\n')) {
-        const [refname, sha] = line.split(' ');
+      for (const line of output.split('\n')) {
+        const [refname, sha, symref] = line.split(' ');
+        // origin/HEAD is a symbolic ref, recorded once the branch it names is copied.
+        if (refname === 'refs/remotes/origin/HEAD') {
+          originHead = symref || null;
+          continue;
+        }
         if (!refname || !sha) continue;
-        // Skip the symbolic HEAD ref (refs/remotes/origin/HEAD)
-        if (refname === 'refs/remotes/origin/HEAD') continue;
 
         try {
           await gitExec.execGitAsync(managedRepoPath, ['update-ref', refname, sha]);
@@ -180,6 +188,31 @@ class ManagedRepoService {
     } catch (error) {
       // Non-fatal — the bare clone still works, just without remote-tracking refs
       logger.warn('Failed to copy remote-tracking refs:', error);
+    }
+    return originHead;
+  }
+
+  /**
+   * Point `origin/HEAD` at `target`, the remote's default branch, as a normal clone does:
+   * `git clone --bare` never writes it, and tools such as `git log origin/HEAD...` fail
+   * without it. Skipped when the default is unknown or the clone doesn't have it.
+   */
+  private async recordOriginHead(managedRepoPath: string, target: string | null): Promise<void> {
+    if (!target?.startsWith('refs/remotes/origin/')) return;
+    try {
+      await gitExec.execGitAsync(managedRepoPath, ['rev-parse', '--verify', '--quiet', target]);
+    } catch {
+      return;
+    }
+    try {
+      await gitExec.execGitAsync(managedRepoPath, [
+        'symbolic-ref',
+        'refs/remotes/origin/HEAD',
+        target,
+      ]);
+    } catch (error) {
+      // Non-fatal: everything else works without origin/HEAD.
+      logger.warn('Failed to record origin/HEAD:', error);
     }
   }
 
@@ -216,6 +249,13 @@ class ManagedRepoService {
     // The clone command includes a --config flag that sets up the fetch refspec
     // for remote tracking refs (refs/remotes/origin/*), so they are populated
     // during the clone itself — no separate fetch needed.
+
+    // The clone's HEAD is the remote's default branch.
+    const defaultBranch = await gitExec.getCheckedOutBranch(managedRepoPath);
+    await this.recordOriginHead(
+      managedRepoPath,
+      defaultBranch ? `refs/remotes/origin/${defaultBranch}` : null
+    );
 
     return managedRepoPath;
   }

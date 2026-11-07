@@ -2317,12 +2317,13 @@ class GitBranchService {
     try {
       const output = await gitExec.execGitAsync(repoPath, [
         'for-each-ref',
-        '--format=%(refname) %(objectname)',
+        '--format=%(refname) %(objectname) %(symref)',
         'refs/remotes/',
       ]);
       for (const line of output.split('\n')) {
-        const match = line.match(/^([^ ]+) ([a-f0-9]+)$/);
-        if (match) {
+        const match = line.match(/^([^ ]+) ([a-f0-9]+)(?: (.*))?$/);
+        // A symbolic ref such as origin/HEAD repeats the branch it points at.
+        if (match && !match[3]) {
           refs.set(match[1], match[2]);
         }
       }

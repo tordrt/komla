@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 
 import { Spinner } from '@/components/ui/spinner';
 import { nativeViewRects, rectsIntersect } from '@/lib/native-view-layout';
+import { ACTION_TOAST_MS } from '@/lib/toast-durations';
 import { Toast, useToastStore } from '@/stores/toast.store';
 
 import { TOAST_OVERLAY_MESSAGE_MAX_LENGTH } from '../../../shared/types';
@@ -39,7 +40,7 @@ export function ToastItem({ toast, mirrored = false, overlay }: ToastItemProps) 
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const paused = hovered || focused || mirrored;
-  const duration = toast.action ? 7000 : toast.type === 'error' ? 8000 : 3000;
+  const duration = toast.action ? ACTION_TOAST_MS : toast.type === 'error' ? 8000 : 3000;
   const toastRef = useRef<HTMLDivElement>(null);
   const exitingRef = useRef(false);
   const remainingRef = useRef(duration);

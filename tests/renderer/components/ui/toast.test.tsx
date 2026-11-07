@@ -53,6 +53,22 @@ describe('ToastContainer', () => {
     expect(useToastStore.getState().toasts).toHaveLength(0);
   });
 
+  it('leaves an Undo ten seconds before it goes', () => {
+    act(() => {
+      useToastStore.getState().addToast('Workspace created in komla', 'success', {
+        quiet: true,
+        action: { label: 'Undo', onClick: vi.fn() },
+      });
+    });
+    render(<ToastContainer />);
+
+    advance(9999);
+    expect(toastElement('Workspace created in komla')).not.toHaveClass('toast-exit');
+
+    advance(1);
+    expect(toastElement('Workspace created in komla')).toHaveClass('toast-exit');
+  });
+
   it('pauses auto-dismiss while the pointer is over the toast', () => {
     act(() => {
       useToastStore.getState().addToast('Saved', 'success');

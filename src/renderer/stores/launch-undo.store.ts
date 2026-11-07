@@ -1,7 +1,12 @@
 import { create } from 'zustand';
 
-/** How long a launch can be taken back, not counting time spent hovering or focusing its row. */
-export const LAUNCH_UNDO_MS = 8000;
+import { ACTION_TOAST_MS } from '@/lib/toast-durations';
+
+/**
+ * How long a launch can be taken back, not counting time spent hovering or focusing its row: as
+ * long as the toast that offers it when no row is in sight.
+ */
+export const LAUNCH_UNDO_MS = ACTION_TOAST_MS;
 
 interface LaunchUndoOffer {
   workspaceIds: string[];

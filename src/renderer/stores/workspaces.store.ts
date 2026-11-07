@@ -78,9 +78,29 @@ import type {
 // (triggered by unrelated WORKSPACE_UPDATED events) doesn't resurrect them.
 const pendingDeletions = new Set<string>();
 
+// Workspaces on their way to the Trash. They leave the list at once, while their terminals stop
+// and Trash cleanup runs in main; each resolves true once it's in the Trash, false if it stays.
+const pendingTrashes = new Map<string, Promise<boolean>>();
+// Settles once the Trash cleanup under way finishes; the next one waits for it.
+let trashCleanups: Promise<void> = Promise.resolve();
+
 /** @internal Exposed for test cleanup only. */
 export function _resetPendingDeletions(): void {
   pendingDeletions.clear();
+  pendingTrashes.clear();
+  trashCleanups = Promise.resolve();
+}
+
+/** Main's workspaces as this window shows them while deletions and moves to the Trash finish. */
+async function fetchWorkspaces(): Promise<Workspace[]> {
+  const workspaces = await window.api.getWorkspaces();
+  return workspaces.flatMap((workspace) => {
+    if (pendingDeletions.has(workspace.id)) return [];
+    if (pendingTrashes.has(workspace.id) && workspace.status !== 'trashed') {
+      return [{ ...workspace, status: 'trashed' as const, trashedAt: Date.now() }];
+    }
+    return [workspace];
+  });
 }
 
 // Debounce tracking for dynamic title persistence
@@ -394,7 +414,7 @@ interface WorkspacesState {
 type WorkspacesSet = StoreApi<WorkspacesState>['setState'];
 type WorkspacesGet = StoreApi<WorkspacesState>['getState'];
 
-export type PendingWorkspaceAction = 'stopping' | 'trashing';
+export type PendingWorkspaceAction = 'stopping';
 
 /**
  * Marks the workspaces as `action` pending, so their cards can say so, until each is released.
@@ -452,6 +472,7 @@ function reportFailure(set: WorkspacesSet, message: string): void {
 interface WorkspaceFailure {
   name: string;
   reason: string;
+  workspaceId?: string;
 }
 
 /** One toast for the workspaces a bulk action failed on, instead of one each. */
@@ -474,6 +495,151 @@ const stopFailed = ({ name, reason }: WorkspaceFailure) =>
   `Failed to stop workspace "${name}": ${reason}`;
 const moveFailed = ({ name, reason }: WorkspaceFailure) =>
   `Failed to move workspace "${name}" to another window: ${reason}`;
+const trashFailed = ({ name, reason }: WorkspaceFailure) =>
+  `Failed to move ${name} to the Trash: ${reason}`;
+
+/**
+ * Asks before a move to the Trash discards unsaved files, resolving false if the user keeps them.
+ * Undefined when nothing is unsaved, so the move can start without waiting a tick.
+ */
+function askToDiscardUnsaved(workspaceIds: string[]): Promise<boolean> | undefined {
+  const unsaved = getUnsavedFileNames(workspaceIds);
+  return unsaved.length > 0 ? confirmDiscardingUnsavedFiles(unsaved) : undefined;
+}
+
+/**
+ * Moves workspaces to the Trash. They leave the list before this returns, so the user needn't
+ * wait on their terminals stopping or Trash cleanup. Resolves once main has them in the Trash,
+ * with a failure for each that stays: it comes back to the list. `stopsOnlyRunning` skips
+ * stopping workspaces with nothing running here.
+ */
+async function moveToTrash(
+  set: WorkspacesSet,
+  get: WorkspacesGet,
+  workspaces: Workspace[],
+  { stopsOnlyRunning = false }: { stopsOnlyRunning?: boolean } = {}
+): Promise<WorkspaceFailure[]> {
+  const ids = new Set(workspaces.map((w) => w.id));
+  const selectedId = get().selectedWorkspaceId;
+  const hidesSelected = selectedId !== null && ids.has(selectedId);
+  if (hidesSelected) useLayoutStore.getState().setCurrentWorkspace(null);
+  const trashedAt = Date.now();
+  set((state) => ({
+    workspaces: state.workspaces.map((w) =>
+      ids.has(w.id) ? { ...w, status: 'trashed' as const, trashedAt } : w
+    ),
+    selectedWorkspaceId: hidesSelected ? null : state.selectedWorkspaceId,
+  }));
+
+  const settles = new Map<string, (trashed: boolean) => void>();
+  for (const w of workspaces) {
+    pendingTrashes.set(w.id, new Promise((resolve) => settles.set(w.id, resolve)));
+  }
+  const settle = (workspaceId: string, trashed: boolean) => {
+    pendingTrashes.delete(workspaceId);
+    settles.get(workspaceId)?.(trashed);
+    settles.delete(workspaceId);
+  };
+
+  const toStop = stopsOnlyRunning ? workspaces.filter(isRunningHere) : workspaces;
+  let failures: WorkspaceFailure[];
+  try {
+    failures = await finishMovingToTrash(set, get, workspaces, toStop, settle);
+  } finally {
+    if (settles.size > 0) {
+      // It broke partway: show main's workspaces as they are.
+      for (const workspaceId of settles.keys()) settle(workspaceId, false);
+      await refreshWorkspaces(set, get);
+    }
+  }
+
+  // Reopen the one the user had open if it stays, unless they've since gone elsewhere.
+  const stayed = hidesSelected && failures.some((failure) => failure.workspaceId === selectedId);
+  const { selectedWorkspaceId, showDashboard } = get();
+  if (
+    stayed &&
+    selectedWorkspaceId === null &&
+    !showDashboard &&
+    get().workspaces.some((w) => w.id === selectedId)
+  ) {
+    useLayoutStore.getState().setCurrentWorkspace(selectedId);
+    set({ selectedWorkspaceId: selectedId });
+  }
+  return failures;
+}
+
+/** Replaces the workspaces with main's; a failure leaves them, so the caller still reports its own. */
+async function refreshWorkspaces(set: WorkspacesSet, get: WorkspacesGet): Promise<void> {
+  try {
+    set({
+      workspaces: clearAttentionForSelected(await fetchWorkspaces(), get().selectedWorkspaceId),
+    });
+  } catch {
+    // The next refresh catches up.
+  }
+}
+
+/** Stops the workspaces, then has main put each in the Trash, settling each as it's done. */
+async function finishMovingToTrash(
+  set: WorkspacesSet,
+  get: WorkspacesGet,
+  workspaces: Workspace[],
+  toStop: Workspace[],
+  settle: (workspaceId: string, trashed: boolean) => void
+): Promise<WorkspaceFailure[]> {
+  // Stop PTYs first so the trash cleanup script doesn't fight running processes
+  // (especially relevant on Windows where node_modules may be locked).
+  for (const w of toStop) {
+    try {
+      await window.api.stopWorkspace(w.id);
+      useDevServerPreviewStore.getState().clearSshPreviewForwardState(w.id, { keepStopped: true });
+    } catch {
+      // Main stops an SSH workspace again before cleanup, and a failure there keeps it out.
+    }
+  }
+
+  // One workspace at a time, across moves too: cleanup scripts can do heavy disk IO
+  // (rm -rf node_modules), and parallel runs cause disk thrash and Windows file-lock failures.
+  const previousCleanup = trashCleanups;
+  let cleanedUp!: () => void;
+  trashCleanups = new Promise((resolve) => (cleanedUp = resolve));
+  const failures: WorkspaceFailure[] = [];
+  try {
+    await previousCleanup;
+    for (const w of workspaces) {
+      try {
+        await window.api.updateWorkspace(w.id, { status: 'trashed' });
+      } catch (error) {
+        failures.push({
+          workspaceId: w.id,
+          name: w.name,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        // Back in the list, as main still has it, even if the refetch fails.
+        settle(w.id, false);
+        set((state) => ({
+          workspaces: state.workspaces.map((x) =>
+            x.id === w.id ? { ...x, status: w.status, trashedAt: w.trashedAt } : x
+          ),
+        }));
+        await refreshWorkspaces(set, get);
+        continue;
+      }
+      if (!isSshWorkspace(w)) {
+        useFileListStore.getState().invalidate(w.workingDirectory, w.id);
+      }
+      disposeTerminalRenderers(w.terminals.map((t) => t.id));
+      useLayoutStore.getState().clearWorkspaceLayout(w.id);
+      await window.api.notifyWorkspacesChanged().catch(() => {});
+      // Still pending until the refetch is in, so a restore can't race it.
+      await refreshWorkspaces(set, get);
+      settle(w.id, true);
+    }
+  } finally {
+    cleanedUp();
+  }
+  return failures;
+}
 
 // Cancel any pending attention-clear and restore the previous workspace's
 // notification. Prevents notifications from being cleared when quickly
@@ -710,9 +876,7 @@ async function restartStoppedWorkspace(
     useDevServerPreviewStore.getState().clearSshPreviewForwardState(workspaceId);
 
     // Reload to get the new terminal
-    const refreshedWorkspaces = (await window.api.getWorkspaces()).filter(
-      (w) => !pendingDeletions.has(w.id)
-    );
+    const refreshedWorkspaces = await fetchWorkspaces();
     const currentSelectedWorkspaceId = get().selectedWorkspaceId;
     const workspaces = clearAttentionForSelected(refreshedWorkspaces, currentSelectedWorkspaceId);
     const restartedWorkspace = workspaces.find((w) => w.id === workspaceId);
@@ -866,9 +1030,8 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   loadWorkspaces: async (preferredWorkspaceId) => {
     set({ isLoading: true, error: null });
     try {
-      const fetchedWorkspaces = await window.api.getWorkspaces();
+      const availableWorkspaces = await fetchWorkspaces();
       const currentSelectedWorkspaceId = get().selectedWorkspaceId;
-      const availableWorkspaces = fetchedWorkspaces.filter((w) => !pendingDeletions.has(w.id));
       const validWorkspaceIds = new Set(availableWorkspaces.map((w) => w.id));
       const selectedWorkspaceId =
         currentSelectedWorkspaceId && validWorkspaceIds.has(currentSelectedWorkspaceId)
@@ -977,7 +1140,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
 
       // Reload all workspaces to get the terminal that was created with the workspace
       const targetId = shouldAutoFocus ? workspace.id : selectedWorkspaceId;
-      const workspaces = clearAttentionForSelected(await window.api.getWorkspaces(), targetId);
+      const workspaces = clearAttentionForSelected(await fetchWorkspaces(), targetId);
       set({
         workspaces,
         isLoading: false,
@@ -1061,7 +1224,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       );
       // Reload workspaces to get updated state
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces, isLoading: false });
@@ -1116,7 +1279,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
         options
       );
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces, isLoading: false });
@@ -1133,7 +1296,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       await window.api.removeTerminal(workspaceId, terminalId);
       // Reload workspaces to get updated state
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces });
@@ -1186,10 +1349,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
 
         // Reload workspaces to get updated state
         const newSelectedId = get().selectedWorkspaceId;
-        const workspaces = clearAttentionForSelected(
-          await window.api.getWorkspaces(),
-          newSelectedId
-        );
+        const workspaces = clearAttentionForSelected(await fetchWorkspaces(), newSelectedId);
         set({
           workspaces,
           selectedWorkspaceId: newSelectedId,
@@ -1219,7 +1379,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       await window.api.stopTerminal(terminalId);
       // Reload workspaces to get updated state
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces });
@@ -1233,7 +1393,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       cancelDynamicTitleDebounce(terminalId);
       await window.api.restartTerminal(terminalId, presetId, launchModeId, cols, rows, options);
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces });
@@ -1249,7 +1409,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       cancelDynamicTitleDebounce(terminalId);
       await window.api.reconnectSshTerminal(terminalId, cols, rows);
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces });
@@ -1273,7 +1433,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       })
     );
     const workspaces = clearAttentionForSelected(
-      await window.api.getWorkspaces(),
+      await fetchWorkspaces(),
       get().selectedWorkspaceId
     );
     const failures = results.filter((result) => result.status === 'rejected');
@@ -1300,15 +1460,19 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     // Track pending deletion so loadWorkspaces() doesn't resurrect this workspace
     pendingDeletions.add(workspaceId);
 
-    // Fire-and-forget backend deletion; restore state on failure
-    window.api
-      .deleteWorkspace(workspaceId, force, deleteBranch)
+    // Fire-and-forget backend deletion; restore state on failure. A move to the Trash still
+    // running cleanup finishes first, so the two don't race in main.
+    const trashing = pendingTrashes.get(workspaceId);
+    const deleting = trashing
+      ? trashing.then(() => window.api.deleteWorkspace(workspaceId, force, deleteBranch))
+      : window.api.deleteWorkspace(workspaceId, force, deleteBranch);
+    void deleting
       .then(async () => {
         useDevServerPreviewStore.getState().clearSshPreviewForwardState(workspaceId);
         pendingDeletions.delete(workspaceId);
         try {
           const workspaces = clearAttentionForSelected(
-            (await window.api.getWorkspaces()).filter((w) => !pendingDeletions.has(w.id)),
+            await fetchWorkspaces(),
             get().selectedWorkspaceId
           );
           set({ workspaces });
@@ -1352,6 +1516,8 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     get().removeWorkspaceLocally(workspaceId);
     pendingDeletions.add(workspaceId);
     try {
+      // A move to the Trash under way finishes first, so the two don't race in main.
+      await pendingTrashes.get(workspaceId);
       await window.api.removeMissingSshWorkspace(workspaceId);
     } catch (error) {
       useToastStore
@@ -1427,7 +1593,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
 
       // Reload workspaces to get updated state
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces });
@@ -2229,90 +2395,17 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   },
 
   trashWorkspaces: async (workspaceIds) => {
-    const unsaved = getUnsavedFileNames(workspaceIds);
-    if (unsaved.length > 0 && !(await confirmDiscardingUnsavedFiles(unsaved))) return;
+    const asking = askToDiscardUnsaved(workspaceIds);
+    if (asking && !(await asking)) return;
     const ids = new Set(workspaceIds);
     const toTrash = get().workspaces.filter((w) => ids.has(w.id) && w.status !== 'trashed');
-    await whilePending(
+    if (toTrash.length === 0) return;
+    const failures = await moveToTrash(set, get, toTrash, { stopsOnlyRunning: true });
+    reportBulkFailures(
       set,
-      toTrash.map((w) => w.id),
-      'trashing',
-      async () => {
-        // Stop PTYs first so the trash cleanup script doesn't fight running processes
-        // (especially relevant on Windows where node_modules may be locked).
-        for (const w of toTrash) {
-          if (isRunningHere(w)) {
-            try {
-              await window.api.stopWorkspace(w.id);
-              useDevServerPreviewStore
-                .getState()
-                .clearSshPreviewForwardState(w.id, { keepStopped: true });
-            } catch {
-              // The trash flow handles any subsequent persistence failure below.
-            }
-          }
-        }
-
-        // Persist next so a failing cleanup script aborts before local teardown.
-        // Run sequentially: cleanup scripts can do heavy disk IO (rm -rf node_modules),
-        // and parallel runs cause disk thrash and Windows file-lock failures.
-        type TrashResult =
-          | { workspace: Workspace; ok: true }
-          | { workspace: Workspace; ok: false; error: string };
-        const results: TrashResult[] = [];
-        for (const w of toTrash) {
-          try {
-            await window.api.updateWorkspace(w.id, { status: 'trashed' });
-            results.push({ workspace: w, ok: true });
-          } catch (error) {
-            results.push({
-              workspace: w,
-              ok: false,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-
-        const trashed = results.flatMap((r) => (r.ok ? [r.workspace] : []));
-        const failed = results.flatMap((r) => (!r.ok ? [r] : []));
-
-        for (const w of trashed) {
-          if (!isSshWorkspace(w)) {
-            useFileListStore.getState().invalidate(w.workingDirectory, w.id);
-          }
-          disposeTerminalRenderers(w.terminals.map((t) => t.id));
-          useLayoutStore.getState().clearWorkspaceLayout(w.id);
-        }
-
-        const trashedIds = new Set(trashed.map((w) => w.id));
-        if (trashedIds.has(get().selectedWorkspaceId ?? '')) {
-          useLayoutStore.getState().setCurrentWorkspace(null);
-        }
-        set((state) => ({
-          workspaces: state.workspaces.map((w) =>
-            trashedIds.has(w.id) ? { ...w, status: 'trashed' as const } : w
-          ),
-          selectedWorkspaceId: trashedIds.has(state.selectedWorkspaceId ?? '')
-            ? null
-            : state.selectedWorkspaceId,
-        }));
-
-        await window.api.notifyWorkspacesChanged();
-        const freshWorkspaces = clearAttentionForSelected(
-          await window.api.getWorkspaces(),
-          get().selectedWorkspaceId
-        );
-        set({ workspaces: freshWorkspaces });
-
-        if (failed.length > 0) {
-          const summary =
-            failed.length === 1
-              ? `Failed to move ${failed[0].workspace.name} to the Trash: ${failed[0].error}`
-              : `Failed to move ${failed.length} workspaces to the Trash. First error: ${failed[0].error}`;
-          set({ error: summary });
-          useToastStore.getState().addToast(summary, 'error');
-        }
-      }
+      failures,
+      trashFailed,
+      (count) => `Failed to move ${count} workspaces to the Trash`
     );
   },
 
@@ -2399,7 +2492,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       useToastStore.getState().addToast(message, 'error');
     }
     const workspaces = clearAttentionForSelected(
-      await window.api.getWorkspaces(),
+      await fetchWorkspaces(),
       get().selectedWorkspaceId
     );
     set({ workspaces });
@@ -2407,124 +2500,67 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   },
 
   setWorkspaceTrashed: async (workspaceId, trash, restoreOrder) => {
-    const unsaved = trash ? getUnsavedFileNames([workspaceId]) : [];
-    if (unsaved.length > 0 && !(await confirmDiscardingUnsavedFiles(unsaved))) return;
-    await whilePending(set, trash ? [workspaceId] : [], 'trashing', async () => {
-      const newStatus = trash ? 'trashed' : 'active';
+    if (trash) {
+      const asking = askToDiscardUnsaved([workspaceId]);
+      if (asking && !(await asking)) return;
       const workspace = get().workspaces.find((w) => w.id === workspaceId);
-      const previousStatus = workspace?.status;
-      const previousOrder = workspace?.order;
-      const previousWindowId = workspace?.windowId;
+      if (!workspace || workspace.status === 'trashed') return;
+      const [failure] = await moveToTrash(set, get, [workspace]);
+      if (failure) reportFailure(set, failure.reason);
+      return;
+    }
 
-      // When trashing, stop PTYs first so the cleanup script doesn't fight running
-      // processes. Defer terminal/layout teardown until persistence resolves — if the
-      // cleanup script throws, we want to leave the UI intact so the user can retry.
-      if (trash && workspace) {
-        try {
-          await window.api.stopWorkspace(workspaceId);
-          useDevServerPreviewStore
-            .getState()
-            .clearSshPreviewForwardState(workspaceId, { keepStopped: true });
-        } catch {
-          // Workspace may already be stopped, continue with the move
-        }
-      }
+    // A restore waits for a move to the Trash still under way; one that failed left it active.
+    const trashing = pendingTrashes.get(workspaceId);
+    if (trashing && !(await trashing)) return;
+    const workspace = get().workspaces.find((w) => w.id === workspaceId);
+    const previousStatus = workspace?.status;
+    const previousOrder = workspace?.order;
+    const previousWindowId = workspace?.windowId;
 
-      // When restoring, place at bottom of active list and assign to current window
-      let order = workspace?.order != null ? Math.round(workspace.order) : undefined;
-      let newWindowId: string | null | undefined;
-      if (!trash) {
-        const activeOrders = get()
-          .workspaces.filter((w) => w.id !== workspaceId && w.status === 'active')
-          .map((w) => w.order ?? 0);
-        order = restoreOrder ?? (activeOrders.length > 0 ? Math.max(...activeOrders) + 1 : 0);
-        newWindowId = useWindowStore.getState().windowId;
-      }
+    // Place it at the bottom of the active list, in this window.
+    const activeOrders = get()
+      .workspaces.filter((w) => w.id !== workspaceId && w.status === 'active')
+      .map((w) => w.order ?? 0);
+    const order = restoreOrder ?? (activeOrders.length > 0 ? Math.max(...activeOrders) + 1 : 0);
+    const newWindowId = useWindowStore.getState().windowId;
 
-      // For a restore, optimistic local update is fine — no destructive backend work.
-      if (!trash) {
-        set((state) => ({
-          workspaces: state.workspaces.map((w) =>
-            w.id === workspaceId
-              ? {
-                  ...w,
-                  status: newStatus,
-                  order: order ?? w.order,
-                  ...(newWindowId != null ? { windowId: newWindowId } : {}),
-                }
-              : w
-          ),
-        }));
-      }
+    // Optimistic: a restore does no destructive backend work.
+    set((state) => ({
+      workspaces: state.workspaces.map((w) =>
+        w.id === workspaceId
+          ? {
+              ...w,
+              status: 'active' as const,
+              order,
+              ...(newWindowId != null ? { windowId: newWindowId } : {}),
+            }
+          : w
+      ),
+    }));
 
-      try {
-        await window.api.updateWorkspace(workspaceId, {
-          status: newStatus,
-          order,
-          ...(newWindowId != null ? { windowId: newWindowId } : {}),
-        });
-
-        if (trash && workspace) {
-          const wasSelected = get().selectedWorkspaceId === workspaceId;
-          if (!isSshWorkspace(workspace)) {
-            useFileListStore.getState().invalidate(workspace.workingDirectory, workspace.id);
-          }
-          disposeTerminalRenderers(workspace.terminals.map((t) => t.id));
-          useLayoutStore.getState().clearWorkspaceLayout(workspaceId);
-          if (wasSelected) {
-            useLayoutStore.getState().setCurrentWorkspace(null);
-            set({ selectedWorkspaceId: null });
-          }
-          set((state) => ({
-            workspaces: state.workspaces.map((w) =>
-              w.id === workspaceId
-                ? { ...w, status: 'trashed' as const, order: order ?? w.order }
-                : w
-            ),
-          }));
-        }
-
-        await window.api.notifyWorkspacesChanged();
-        if (trash) {
-          const workspaces = clearAttentionForSelected(
-            await window.api.getWorkspaces(),
-            get().selectedWorkspaceId
-          );
-          set({ workspaces });
-        }
-      } catch (error) {
-        if (!trash) {
-          // Restore: revert the optimistic update.
-          set((state) => ({
-            workspaces: state.workspaces.map((w) =>
-              w.id === workspaceId
-                ? {
-                    ...w,
-                    status: previousStatus!,
-                    order: previousOrder!,
-                    windowId: previousWindowId!,
-                  }
-                : w
-            ),
-          }));
-        } else {
-          // Trash: PTYs were already stopped before cleanup ran, so the workspace
-          // is in a stale state in the store. Refetch so terminal running flags sync.
-          try {
-            const workspaces = clearAttentionForSelected(
-              await window.api.getWorkspaces(),
-              get().selectedWorkspaceId
-            );
-            set({ workspaces });
-          } catch {
-            // If the refetch fails, keep going so the user still sees the toast.
-          }
-        }
-        const message = (error as Error).message;
-        set({ error: message });
-        useToastStore.getState().addToast(message, 'error');
-      }
-    });
+    try {
+      await window.api.updateWorkspace(workspaceId, {
+        status: 'active',
+        order,
+        ...(newWindowId != null ? { windowId: newWindowId } : {}),
+      });
+      await window.api.notifyWorkspacesChanged();
+    } catch (error) {
+      set((state) => ({
+        workspaces: state.workspaces.map((w) =>
+          w.id === workspaceId
+            ? {
+                ...w,
+                status: previousStatus!,
+                order: previousOrder!,
+                windowId: previousWindowId!,
+              }
+            : w
+        ),
+      }));
+      reportFailure(set, (error as Error).message);
+    }
   },
 
   trashWorkspaceForAgent: async ({ workspaceId, refusal }) => {
@@ -2552,19 +2588,29 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     workspaceId,
     message = (title) => `Moved "${title}" to the Trash`
   ) => {
-    const workspace = get().workspaces.find((w) => w.id === workspaceId);
-    if (!workspace || workspace.status !== 'active') return;
+    const find = () => get().workspaces.find((w) => w.id === workspaceId);
+    if (find()?.status !== 'active') return;
+    const asking = askToDiscardUnsaved([workspaceId]);
+    if (asking && !(await asking)) return;
+    const workspace = find();
+    if (workspace?.status !== 'active') return;
     const wasSelected = get().selectedWorkspaceId === workspaceId;
-    await get().setWorkspaceTrashed(workspaceId, true);
-    if (get().workspaces.find((w) => w.id === workspaceId)?.status !== 'trashed') return;
+    const moving = moveToTrash(set, get, [workspace]);
     const undo = async () => {
       await get().setWorkspaceTrashed(workspaceId, false, workspace.order);
       const restored = get().workspaces.find((w) => w.id === workspaceId);
       if (wasSelected && restored?.status === 'active') await get().selectWorkspace(workspaceId);
     };
-    useToastStore.getState().addToast(message(getWorkspaceDisplayTitle(workspace)), 'success', {
+    const toastStore = useToastStore.getState();
+    const toastId = toastStore.addToast(message(getWorkspaceDisplayTitle(workspace)), 'success', {
       action: { label: 'Undo', onClick: () => void undo() },
     });
+    // The toast shows while the move finishes; one that fails takes its undo back.
+    const [failure] = await moving;
+    if (failure) {
+      toastStore.removeToast(toastId);
+      reportFailure(set, failure.reason);
+    }
   },
 
   linkWorkspaces: async (originId, targetIds) => {
@@ -2572,7 +2618,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     try {
       await window.api.linkWorkspaces(originId, targetIds);
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces });
@@ -2581,7 +2627,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       const message = (error as Error).message;
       try {
         const workspaces = clearAttentionForSelected(
-          await window.api.getWorkspaces(),
+          await fetchWorkspaces(),
           get().selectedWorkspaceId
         );
         set({ workspaces, error: message });
@@ -2597,7 +2643,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     try {
       await window.api.unlinkWorkspace(originId, targetId);
       const workspaces = clearAttentionForSelected(
-        await window.api.getWorkspaces(),
+        await fetchWorkspaces(),
         get().selectedWorkspaceId
       );
       set({ workspaces });

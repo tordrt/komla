@@ -396,6 +396,7 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
           focusedTerminalId: getFocusedTerminalId(workspaceId),
           userAway,
           snoozed: event.snoozed === true,
+          inTrash: workspace?.status === 'trashed',
         });
 
         if (awaitReturn) {

@@ -342,6 +342,14 @@ describe('resolveAttentionDelivery', () => {
     });
   });
 
+  it('plays no sound for a workspace on its way to the Trash, even when it asks for input', () => {
+    for (const asked of [done, { ...attention('input-required'), terminalId: 't1' }]) {
+      expect(
+        resolveAttentionDelivery(asked, { ...base, isSelected: false, inTrash: true })
+      ).toEqual({ action: 'set', playSound: false });
+    }
+  });
+
   it('delivers input requests from a snoozed workspace, since they wake it', () => {
     const input = { ...attention('input-required'), terminalId: 't1' };
     expect(resolveAttentionDelivery(input, { ...base, isSelected: false, snoozed: true })).toEqual({

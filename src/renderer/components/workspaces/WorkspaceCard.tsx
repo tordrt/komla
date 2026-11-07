@@ -1480,10 +1480,6 @@ const PENDING_ACTIONS: Record<
   { label: string; onHost: (hostName: string) => string }
 > = {
   stopping: { label: 'Stopping…', onHost: (host) => `Stopping its terminals on ${host}…` },
-  trashing: {
-    label: 'Moving to the Trash…',
-    onHost: (host) => `Moving to the Trash, which waits on ${host}…`,
-  },
   connecting: { label: 'Connecting…', onHost: (host) => `Connecting to ${host}…` },
 };
 
@@ -1881,10 +1877,10 @@ function StopMenuItem({
   pending: CardPendingAction | undefined;
 }) {
   // A reconnect doesn't hold up a stop.
-  return pending === 'stopping' || pending === 'trashing' ? (
+  return pending === 'stopping' ? (
     <ContextMenuItem disabled>
       <Spinner size="md" />
-      {pending === 'trashing' ? 'Moving to the Trash...' : 'Stopping Workspace...'}
+      Stopping Workspace...
     </ContextMenuItem>
   ) : (
     <ContextMenuItem onClick={onStop}>

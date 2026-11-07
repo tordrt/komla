@@ -71,7 +71,7 @@ const workspacesState = {
   snoozeWorkspace: vi.fn(),
   selectionMode: false,
   selectedWorkspaceIds: new Set<string>(),
-  pendingWorkspaceActions: new Map<string, ('stopping' | 'trashing')[]>(),
+  pendingWorkspaceActions: new Map<string, 'stopping'[]>(),
   reconnectingSshWorkspaceIds: new Set<string>(),
   enterSelectionMode: vi.fn(),
   toggleWorkspaceSelection: vi.fn(),
@@ -1754,23 +1754,6 @@ describe('WorkspaceCard', () => {
       expect(screen.queryByText('just now')).not.toBeInTheDocument();
       expect(screen.queryByText('Stop Workspace')).not.toBeInTheDocument();
       expect(screen.getByText('Stopping Workspace...')).toHaveAttribute('disabled');
-    });
-
-    it('says it is moving to the Trash, naming the SSH host it waits on', () => {
-      useSshHostsStore.setState({
-        hosts: [{ id: 'ssh-host-1', name: 'Dev box', hostname: 'dev.example.com' }] as any,
-      });
-      const workspace = createSshWorkspace({
-        terminals: [createTerminal({ status: 'running' })],
-      });
-      workspacesState.pendingWorkspaceActions = new Map([[workspace.id, ['stopping', 'trashing']]]);
-
-      render(<WorkspaceCard workspace={workspace} />);
-
-      const status = screen.getByRole('status');
-      expect(status).toHaveTextContent('Moving to the Trash…');
-      expect(status).toHaveAttribute('title', 'Moving to the Trash, which waits on Dev box…');
-      expect(screen.getByText('Moving to the Trash...')).toHaveAttribute('disabled');
     });
 
     it('says it is connecting while it reconnects to its SSH host', () => {

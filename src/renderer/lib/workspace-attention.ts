@@ -89,6 +89,8 @@ export interface AttentionDeliveryContext {
   userAway?: boolean;
   /** The workspace is snoozed: attention that doesn't wake it plays no sound. */
   snoozed?: boolean;
+  /** The workspace is in the Trash, or on its way while its agents stop: it plays no sound. */
+  inTrash?: boolean;
 }
 
 export interface AttentionDelivery {
@@ -117,7 +119,8 @@ export function resolveAttentionDelivery(
     (!ctx.openWindows.some((w) => w.id === ctx.ownerWindowId) &&
       getFirstWindowId(ctx.openWindows) === ctx.currentWindowId);
   // A snoozed workspace stays quiet; what wakes it is heard.
-  const playSound = isSoundWindow && !(ctx.snoozed && !isWorkspaceAttentionActionable(attention));
+  const playSound =
+    isSoundWindow && !ctx.inTrash && !(ctx.snoozed && !isWorkspaceAttentionActionable(attention));
 
   if (!ctx.isSelected || !ctx.windowFocused) {
     return { action: 'set', playSound };

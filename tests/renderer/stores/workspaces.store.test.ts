@@ -3316,30 +3316,6 @@ describe('workspaces.store', () => {
     expect(pendingOf(workspace.id)).toBeUndefined();
   });
 
-  it('marks a workspace moving to the Trash until its stop and cleanup finish', async () => {
-    const workspace = createWorkspace({
-      id: 'ws-1',
-      terminals: [createTerminal({ status: 'running' })],
-    });
-    const cleanup = createDeferred<void>();
-    const api = createApiMock({
-      stopWorkspace: vi.fn().mockResolvedValue(undefined),
-      updateWorkspace: vi.fn(() => cleanup.promise),
-      getWorkspaces: vi.fn().mockResolvedValue([{ ...workspace, status: 'trashed' }]),
-    });
-    (globalThis as { window: { api: ApiMock } }).window = { api };
-    useWorkspacesStore.setState({ workspaces: [workspace] });
-
-    const trashing = useWorkspacesStore.getState().setWorkspaceTrashed(workspace.id, true);
-    await flushMicrotasks();
-    expect(api.updateWorkspace).toHaveBeenCalled();
-    expect(pendingOf(workspace.id)).toBe('trashing');
-
-    cleanup.resolve();
-    await trashing;
-    expect(pendingOf(workspace.id)).toBeUndefined();
-  });
-
   it('keeps a workspace marked while an overlapping stop or Trash is still running', async () => {
     const workspace = createWorkspace({
       id: 'ws-1',
@@ -4331,6 +4307,353 @@ describe('workspaces.store', () => {
       expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
         'Trash cleanup script failed',
       ]);
+    });
+
+    it('hides a workspace and offers undo as soon as it moves to the Trash, before its terminals stop', async () => {
+      const ws = createWorkspace({
+        id: 'ws-1',
+        customName: 'Fix login',
+        terminals: [],
+      });
+      const stop = createDeferred<void>();
+      const api = createApiMock({
+        stopWorkspace: vi.fn().mockReturnValue(stop.promise),
+        getWorkspaces: vi.fn().mockResolvedValue([{ ...ws, status: 'trashed' as const }]),
+        updateWorkspace: vi.fn().mockResolvedValue(undefined),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({
+        workspaces: [ws],
+        selectedWorkspaceId: 'ws-1',
+      });
+
+      const moving = useWorkspacesStore.getState().trashWorkspaceWithUndo('ws-1');
+      await flushMicrotasks();
+
+      expect(useWorkspacesStore.getState().workspaces[0].status).toBe('trashed');
+      // Its Trash card counts down from now, not from a previous stay in the Trash.
+      expect(useWorkspacesStore.getState().workspaces[0].trashedAt).toBeGreaterThan(0);
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBeNull();
+      expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+        'Moved "Fix login" to the Trash'
+      );
+      expect(api.updateWorkspace).not.toHaveBeenCalled();
+
+      stop.resolve();
+      await moving;
+      expect(api.updateWorkspace).toHaveBeenCalledWith('ws-1', {
+        status: 'trashed',
+      });
+      expect(useWorkspacesStore.getState().workspaces[0].status).toBe('trashed');
+    });
+
+    it('keeps a workspace on its way to the Trash out of the list when the workspaces reload', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      const cleanup = createDeferred<void>();
+      const api = createApiMock({
+        // Main still has it active until Trash cleanup finishes.
+        getWorkspaces: vi.fn().mockResolvedValue([ws]),
+        updateWorkspace: vi.fn().mockReturnValue(cleanup.promise),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      const moving = useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', true);
+      await useWorkspacesStore.getState().loadWorkspaces();
+
+      expect(useWorkspacesStore.getState().workspaces[0].status).toBe('trashed');
+
+      api.getWorkspaces.mockResolvedValue([{ ...ws, status: 'trashed' as const }]);
+      cleanup.resolve();
+      await moving;
+      expect(useWorkspacesStore.getState().workspaces[0].status).toBe('trashed');
+    });
+
+    it('brings a workspace back, without its undo, when Trash cleanup fails after it left the list', async () => {
+      const ws = createWorkspace({
+        id: 'ws-1',
+        customName: 'Fix login',
+        terminals: [],
+      });
+      const cleanup = createDeferred<void>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([ws]),
+        updateWorkspace: vi.fn().mockReturnValue(cleanup.promise),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      const moving = useWorkspacesStore.getState().trashWorkspaceWithUndo('ws-1');
+      await flushMicrotasks();
+      expect(useWorkspacesStore.getState().workspaces[0].status).toBe('trashed');
+
+      cleanup.reject(new Error('Trash cleanup script failed'));
+      await moving;
+
+      expect(useWorkspacesStore.getState().workspaces[0].status).toBe('active');
+      expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
+        'Trash cleanup script failed',
+      ]);
+    });
+
+    it('restores a workspace whose undo was pressed while it was still moving to the Trash', async () => {
+      const ws = createWorkspace({
+        id: 'ws-1',
+        customName: 'Fix login',
+        order: 0,
+        terminals: [],
+      });
+      const cleanup = createDeferred<void>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([{ ...ws, status: 'trashed' as const }]),
+        updateWorkspace: vi.fn().mockReturnValueOnce(cleanup.promise).mockResolvedValue(undefined),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      const moving = useWorkspacesStore.getState().trashWorkspaceWithUndo('ws-1');
+      await flushMicrotasks();
+      useToastStore.getState().toasts.at(-1)?.action?.onClick();
+      await flushMicrotasks();
+
+      // The restore waits, so it can't race Trash cleanup in main.
+      expect(api.updateWorkspace).toHaveBeenCalledTimes(1);
+
+      cleanup.resolve();
+      await moving;
+      await vi.waitFor(() =>
+        expect(api.updateWorkspace).toHaveBeenLastCalledWith(
+          'ws-1',
+          expect.objectContaining({ status: 'active', order: 0 })
+        )
+      );
+    });
+
+    it('deletes a workspace for good only once its move to the Trash finishes', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      const cleanup = createDeferred<void>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([{ ...ws, status: 'trashed' as const }]),
+        updateWorkspace: vi.fn().mockReturnValue(cleanup.promise),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      const moving = useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', true);
+      useWorkspacesStore.getState().deleteWorkspace('ws-1');
+      await flushMicrotasks();
+
+      expect(useWorkspacesStore.getState().workspaces).toEqual([]);
+      expect(api.deleteWorkspace).not.toHaveBeenCalled();
+
+      cleanup.resolve();
+      await moving;
+      await vi.waitFor(() =>
+        expect(api.deleteWorkspace).toHaveBeenCalledWith('ws-1', false, false)
+      );
+      // The move's own refresh doesn't bring the deleted workspace back.
+      expect(useWorkspacesStore.getState().workspaces).toEqual([]);
+    });
+
+    it('runs Trash cleanup for one move at a time when the user trashes another before the first finishes', async () => {
+      const ws1 = createWorkspace({ id: 'ws-1', terminals: [] });
+      const ws2 = createWorkspace({ id: 'ws-2', terminals: [] });
+      const cleanup = createDeferred<void>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([]),
+        updateWorkspace: vi.fn().mockReturnValueOnce(cleanup.promise).mockResolvedValue(undefined),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws1, ws2] });
+
+      const first = useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', true);
+      const second = useWorkspacesStore.getState().setWorkspaceTrashed('ws-2', true);
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(api.updateWorkspace).toHaveBeenCalledTimes(1);
+
+      cleanup.resolve();
+      await Promise.all([first, second]);
+      expect(api.updateWorkspace).toHaveBeenCalledWith('ws-2', { status: 'trashed' });
+    });
+
+    it('stops only the running workspaces in a bulk move to the Trash', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([{ ...ws, status: 'trashed' as const }]),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      await useWorkspacesStore.getState().trashWorkspaces(['ws-1']);
+
+      expect(api.stopWorkspace).not.toHaveBeenCalled();
+      expect(api.updateWorkspace).toHaveBeenCalledWith('ws-1', { status: 'trashed' });
+    });
+
+    it('reopens the workspace a failed move to the Trash took away, when nothing else was opened', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([ws]),
+        updateWorkspace: vi.fn().mockRejectedValue(new Error('Trash cleanup script failed')),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws], selectedWorkspaceId: 'ws-1' });
+
+      await useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', true);
+
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBe('ws-1');
+      expect(useLayoutStore.getState().currentWorkspaceId).toBe('ws-1');
+    });
+
+    it('restores one workspace of a bulk move to the Trash without waiting for the rest', async () => {
+      const ws1 = createWorkspace({ id: 'ws-1', terminals: [] });
+      const ws2 = createWorkspace({ id: 'ws-2', terminals: [] });
+      const secondCleanup = createDeferred<void>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([{ ...ws1, status: 'trashed' as const }, ws2]),
+        updateWorkspace: vi.fn((id: string, updates: { status?: string }) =>
+          id === 'ws-2' && updates.status === 'trashed'
+            ? secondCleanup.promise
+            : Promise.resolve(undefined)
+        ),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws1, ws2] });
+
+      const moving = useWorkspacesStore.getState().trashWorkspaces(['ws-1', 'ws-2']);
+      await vi.waitFor(() =>
+        expect(api.updateWorkspace).toHaveBeenCalledWith('ws-2', { status: 'trashed' })
+      );
+      await useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', false);
+
+      expect(api.updateWorkspace).toHaveBeenCalledWith(
+        'ws-1',
+        expect.objectContaining({ status: 'active' })
+      );
+
+      secondCleanup.resolve();
+      await moving;
+    });
+
+    it('holds a restore until the move’s own refresh is in, so the refresh can’t undo it', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      const refresh = createDeferred<ReturnType<typeof createWorkspace>[]>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockReturnValueOnce(refresh.promise).mockResolvedValue([ws]),
+        updateWorkspace: vi.fn().mockResolvedValue(undefined),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      const moving = useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', true);
+      await vi.waitFor(() => expect(api.getWorkspaces).toHaveBeenCalledTimes(1));
+      const restoring = useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', false);
+      await flushMicrotasks();
+
+      expect(api.updateWorkspace).toHaveBeenCalledTimes(1);
+
+      refresh.resolve([{ ...ws, status: 'trashed' as const }]);
+      await Promise.all([moving, restoring]);
+      expect(useWorkspacesStore.getState().workspaces[0].status).toBe('active');
+    });
+
+    it('doesn’t reopen a workspace that was deleted while its move to the Trash failed', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([ws]),
+        updateWorkspace: vi.fn().mockRejectedValue(new Error('Trash cleanup script failed')),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws], selectedWorkspaceId: 'ws-1' });
+
+      const moving = useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', true);
+      useWorkspacesStore.getState().deleteWorkspace('ws-1');
+      await moving;
+
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBeNull();
+    });
+
+    it('leaves the user Home when a move to the Trash fails after they went there', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [] });
+      const cleanup = createDeferred<void>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([ws]),
+        updateWorkspace: vi.fn().mockReturnValue(cleanup.promise),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws], selectedWorkspaceId: 'ws-1' });
+
+      const moving = useWorkspacesStore.getState().setWorkspaceTrashed('ws-1', true);
+      useWorkspacesStore.setState({ showDashboard: true });
+      cleanup.reject(new Error('Trash cleanup script failed'));
+      await moving;
+
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBeNull();
+    });
+
+    it('does nothing for a bulk move to the Trash with nothing left to move', async () => {
+      const ws = createWorkspace({ id: 'ws-1', terminals: [], status: 'trashed' as const });
+      const api = createApiMock();
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws] });
+
+      await useWorkspacesStore.getState().trashWorkspaces(['ws-1']);
+
+      expect(api.getWorkspaces).not.toHaveBeenCalled();
+    });
+
+    it('shows main’s workspaces again when a move to the Trash breaks partway', async () => {
+      const ws1 = createWorkspace({ id: 'ws-1', terminals: [] });
+      const ws2 = createWorkspace({ id: 'ws-2', terminals: [] });
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([{ ...ws1, status: 'trashed' as const }, ws2]),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({ workspaces: [ws1, ws2] });
+      disposeTerminalRenderersMock.mockImplementationOnce(() => {
+        throw new Error('renderer gone');
+      });
+
+      await expect(useWorkspacesStore.getState().trashWorkspaces(['ws-1', 'ws-2'])).rejects.toThrow(
+        'renderer gone'
+      );
+
+      expect(useWorkspacesStore.getState().workspaces.map((w) => w.status)).toEqual([
+        'trashed',
+        'active',
+      ]);
+    });
+
+    it('hides every workspace in a bulk move to the Trash at once', async () => {
+      const ws1 = createWorkspace({ id: 'ws-1', terminals: [] });
+      const ws2 = createWorkspace({ id: 'ws-2', terminals: [] });
+      const cleanup = createDeferred<void>();
+      const api = createApiMock({
+        getWorkspaces: vi.fn().mockResolvedValue([
+          { ...ws1, status: 'trashed' as const },
+          { ...ws2, status: 'trashed' as const },
+        ]),
+        updateWorkspace: vi.fn().mockReturnValue(cleanup.promise),
+      });
+      (globalThis as { window: { api: ApiMock } }).window = { api };
+      useWorkspacesStore.setState({
+        workspaces: [ws1, ws2],
+        selectedWorkspaceId: 'ws-2',
+      });
+
+      const moving = useWorkspacesStore.getState().trashWorkspaces(['ws-1', 'ws-2']);
+      await flushMicrotasks();
+
+      expect(useWorkspacesStore.getState().workspaces.map((w) => w.status)).toEqual([
+        'trashed',
+        'trashed',
+      ]);
+      expect(useWorkspacesStore.getState().selectedWorkspaceId).toBeNull();
+
+      cleanup.resolve();
+      await moving;
     });
 
     it('keeps a workspace its agent asked to trash when Komla says why not', async () => {

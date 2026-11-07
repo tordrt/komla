@@ -25,7 +25,14 @@ if ! command -v cargo >/dev/null 2>&1; then
   echo 'Skipped the native Rust tests: cargo is not installed (https://rustup.rs).' >"$rust_log"
   rust_after_vitest=0
 elif [ "$rust_after_vitest" -eq 0 ]; then
-  nice -n 10 bash scripts/test-native.sh >"$rust_log" 2>&1 &
+  # Without job control, bash starts a & job ignoring SIGINT and SIGQUIT, and the
+  # Rust tests would inherit that: Ctrl+C would leave cargo running after this
+  # script exits, and a test that sends Ctrl+C to a child it starts would see
+  # it ignored. The subshell puts back what a terminal gives a command.
+  (
+    trap - INT QUIT
+    exec nice -n 10 bash scripts/test-native.sh
+  ) >"$rust_log" 2>&1 &
   rust_pid=$!
 fi
 

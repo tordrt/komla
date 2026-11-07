@@ -5,6 +5,7 @@ import {
   buildProjectSetupPrompt,
   isProjectSetupPrompt,
 } from '../../../shared/constants/project-setup-prompt';
+import { promptSkillFamily } from '../../../shared/lib/agent-skills';
 import { isSshWorkspace } from '../../../shared/types/workspace';
 import { publishHookEvent } from '../../lib/hook-events';
 import { agentPresetService } from '../agent-preset.service';
@@ -112,6 +113,24 @@ export function resolveInitialCommand(
     params.extraArguments,
     workspace.modelId
   );
+}
+
+/**
+ * Whether the first agent starts working on a prompt and reports working without hooks of its
+ * own, so its Terminal shows working from the launch: Claude Code or Codex, by the executable its
+ * preset starts, whatever the preset is called. Another agent might never report, and its spinner
+ * would only flicker on and off, as would one opened without the prompt.
+ */
+export function startsWorkingOnPrompt(
+  params: CreateWorkspaceParams,
+  activePreset: AgentPreset | null | undefined
+): boolean {
+  // Files pasted without words are a prompt of their own.
+  if (params.initialCommand || (!params.initialPrompt?.trim() && !params.attachments?.length)) {
+    return false;
+  }
+  const family = promptSkillFamily(activePreset);
+  return family === 'claude' || family === 'codex';
 }
 
 /**

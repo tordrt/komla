@@ -53,7 +53,12 @@ const SSH_BACKEND: Workspace['backend'] = {
 function workspace(
   kind: 'local' | 'ssh',
   terminals: Array<Partial<Fields>>,
-  extra: { agentActive?: boolean; provisioning?: boolean; showsPaneSurfaces?: boolean } = {}
+  extra: {
+    agentActive?: boolean;
+    agentLaunching?: boolean;
+    provisioning?: boolean;
+    showsPaneSurfaces?: boolean;
+  } = {}
 ) {
   return {
     backend: kind === 'ssh' ? SSH_BACKEND : undefined,
@@ -512,6 +517,16 @@ describe('Terminal Execution State', () => {
 
   it('shows the spinner only while the agent is active', () => {
     expect(showsWorking(workspace('local', [{ status: 'running' }]))).toBe(false);
+  });
+
+  it('shows the spinner of a workspace still being created to start an agent on a prompt', () => {
+    const launching = { agentActive: true, agentLaunching: true };
+    expect(showsWorking(workspace('local', [], launching))).toBe(true);
+    expect(showsWorking(workspace('ssh', [], launching))).toBe(true);
+    // A spinner turned on by hand while it is created shows nothing yet, as before.
+    expect(showsWorking(workspace('local', [], { provisioning: true, agentActive: true }))).toBe(
+      false
+    );
   });
 
   it('returns the same offer object for the same answer, so selectors stay stable', () => {

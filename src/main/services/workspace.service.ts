@@ -334,7 +334,7 @@ class WorkspaceService {
     this.naming = naming;
     this.terminals = terminals;
     this.lifecycle = lifecycle;
-    this.creation = new WorkspaceCreation({ naming, terminals, provisioning });
+    this.creation = new WorkspaceCreation({ attention, naming, terminals, provisioning });
     this.sessions = new SshSessionRecovery({ attention, sshSync });
     this.adoption = new SshWorkspaceAdoption({ attention, lifecycle, naming });
     this.sshAttention = new SshAttentionPersistence();

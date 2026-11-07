@@ -430,6 +430,7 @@ export interface Workspace {
   wakesOnNotification?: boolean;
   agentActive?: boolean; // True while the agent is processing (set on prompt-submit, activity, or Claude Code input-required; cleared on accepted turn-complete/idle)
   agentActiveSince?: number; // When agentActive last turned on
+  agentLaunching?: boolean; // True while it is set up to start an agent on a prompt, which shows working before it has a Terminal
   showsPaneSurfaces?: boolean; // True while a window shows a browser or note pane of it, which keeps it running without a terminal (not persisted)
   status: WorkspaceStatus;
   /** When it moved to the Trash, which deletes it for good {@link TRASH_RETENTION_MS} later. */

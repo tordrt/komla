@@ -23,6 +23,7 @@ import {
   importPromptAttachments,
   publishCreated,
   resolveInitialCommand,
+  startsWorkingOnPrompt,
   resolveLaunchModeId,
   resolvePreset,
   resolveReasoningLevelId,
@@ -65,6 +66,33 @@ export class WorkspaceProvisioning {
   constructor(private readonly deps: WorkspaceProvisioningDeps) {}
 
   async finishProvisioning(
+    workspaceId: string,
+    params: CreateWorkspaceParams,
+    project: Project
+  ): Promise<void> {
+    try {
+      await this.provision(workspaceId, params, project);
+    } finally {
+      // However it ended, a launch no agent's Terminal took over stops showing working.
+      this.deps.attention.launchSettled(workspaceId);
+    }
+  }
+
+  async finishSshProvisioning(
+    workspaceId: string,
+    params: CreateWorkspaceParams,
+    project: Project,
+    gitUrl: string
+  ): Promise<void> {
+    try {
+      await this.provisionSsh(workspaceId, params, project, gitUrl);
+    } finally {
+      // However it ended, a launch no agent's Terminal took over stops showing working.
+      this.deps.attention.launchSettled(workspaceId);
+    }
+  }
+
+  private async provision(
     workspaceId: string,
     params: CreateWorkspaceParams,
     project: Project
@@ -205,7 +233,7 @@ export class WorkspaceProvisioning {
     }
   }
 
-  async finishSshProvisioning(
+  private async provisionSsh(
     workspaceId: string,
     params: CreateWorkspaceParams,
     project: Project,
@@ -665,9 +693,11 @@ export class WorkspaceProvisioning {
       await importPromptAttachments(workspace, params, activePreset)
     );
 
+    const working = startsWorkingOnPrompt(params, activePreset);
     if (params.projectId) {
       const primaryTerminal = workspaceSetupService.start(workspace, command, 'create');
       if (primaryTerminal) {
+        if (working) this.deps.attention.agentLaunched(primaryTerminal.id);
         workspaceStore.broadcastWorkspaceUpdate(workspace);
         publishCreated(
           workspace,
@@ -679,6 +709,7 @@ export class WorkspaceProvisioning {
 
     const terminal = await this.deps.terminals.addTerminal(workspace.id, workspace.name, command);
     workspace.primaryTerminalId = terminal.id;
+    if (working) this.deps.attention.agentLaunched(terminal.id);
 
     workspaceStore.broadcastWorkspaceUpdate(workspace);
     publishCreated(

@@ -741,6 +741,32 @@ describe('WorkspaceList pins and snoozes', () => {
       ]);
     });
 
+    it('keeps a workspace still being created to start an agent on a prompt on the shelf', () => {
+      workspacesState.workspaces = [
+        createWorktreeWorkspace({ id: 'ws-1', windowId: 'window-1' }),
+        createWorktreeWorkspace({
+          id: 'ws-2',
+          windowId: 'window-1',
+          terminals: [],
+          provisioning: true,
+          agentActive: true,
+          agentLaunching: true,
+        }),
+        // Its spinner was turned on by hand: no agent is on its way.
+        createWorktreeWorkspace({
+          id: 'ws-3',
+          windowId: 'window-1',
+          terminals: [],
+          provisioning: true,
+          agentActive: true,
+        }),
+      ];
+      render(<WorkspaceList />);
+
+      expect(screen.getByRole('button', { name: /Working/ })).toHaveTextContent('1');
+      expect(cardIds()).toEqual(['ws-1', 'ws-3']);
+    });
+
     it('keeps the open workspace in the list while its agent starts working', () => {
       workspacesState.workspaces = [
         createWorktreeWorkspace({ id: 'ws-1', windowId: 'window-1', terminals: running() }),

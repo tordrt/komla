@@ -39,6 +39,7 @@ import {
   importPromptAttachments,
   publishCreated,
   resolveInitialCommand,
+  startsWorkingOnPrompt,
   resolveLaunchModeId,
   resolvePreset,
   resolveReasoningLevelId,
@@ -68,6 +69,7 @@ import type { WorkspaceProvisioning } from './provisioning';
 import type { WorkspaceTerminals } from './terminals';
 import type { CreateWorkspaceParams, Project, Workspace } from '../../../shared/types';
 import type { SshHost } from '../../../shared/types/ssh';
+import type { TerminalAttention } from '../terminal-attention/terminal-attention';
 
 const logger = createLogger('WorkspaceService');
 
@@ -125,6 +127,7 @@ function newWorkspaceSidebarView(
 }
 
 export interface WorkspaceCreationDeps {
+  attention: TerminalAttention;
   naming: WorkspaceNaming;
   terminals: WorkspaceTerminals;
   provisioning: WorkspaceProvisioning;
@@ -423,7 +426,12 @@ export class WorkspaceCreation {
         });
     }
 
-    return this.spawnPrimaryTerminal(workspace, params, command);
+    return this.spawnPrimaryTerminal(
+      workspace,
+      params,
+      command,
+      startsWorkingOnPrompt(params, activePreset)
+    );
   }
 
   // Its files, here or on its SSH host, are where the project's icons are found.
@@ -490,17 +498,20 @@ export class WorkspaceCreation {
   private async spawnPrimaryTerminal(
     workspace: Workspace,
     params: CreateWorkspaceParams,
-    command: string | null
+    command: string | null,
+    working: boolean
   ): Promise<Workspace> {
     if (params.mode === 'worktree' && params.projectId) {
       const primaryTerminal = workspaceSetupService.start(workspace, command, 'create');
       if (primaryTerminal) {
+        if (working) this.deps.attention.agentLaunched(primaryTerminal.id);
         publishCreated(workspace, this.deps.naming.maybeAutoName(workspace, params));
         return workspace;
       }
     }
     const terminal = await this.deps.terminals.addTerminal(workspace.id, workspace.name, command);
     workspace.primaryTerminalId = terminal.id;
+    if (working) this.deps.attention.agentLaunched(terminal.id);
     publishCreated(workspace, this.deps.naming.maybeAutoName(workspace, params));
     return workspace;
   }
@@ -582,6 +593,9 @@ export class WorkspaceCreation {
     workspaceStore.saveWorkspaces();
     metricsCollectorService.increment('workspacesCreated');
     this.armProjectIconPrompt(workspace);
+    if (startsWorkingOnPrompt(params, placeholderPreset)) {
+      this.deps.attention.agentLaunching(workspace.id);
+    }
 
     // Fire-and-forget: finish provisioning in the background. The outer catch
     // is a safety net — finishProvisioning has its own try/catch, but if an
@@ -713,6 +727,9 @@ export class WorkspaceCreation {
     workspaceStore.saveWorkspaces();
     metricsCollectorService.increment('workspacesCreated');
     this.armProjectIconPrompt(workspace);
+    if (startsWorkingOnPrompt(params, placeholderPreset)) {
+      this.deps.attention.agentLaunching(workspace.id);
+    }
 
     this.deps.provisioning
       .finishSshProvisioning(workspace.id, params, project, gitUrl)

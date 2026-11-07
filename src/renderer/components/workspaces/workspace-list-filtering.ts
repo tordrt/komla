@@ -70,9 +70,10 @@ export function isListedOnStoppedShelf(
 /**
  * Whether the sidebar's Working shelf takes the workspace while working ones are hidden: an agent
  * works in it, and none needs input, failed or finished a turn the user hasn't seen, nor does an
- * alert of the workspace's own, which its card shows too. A command started with `komla notify --`
- * or a spinner turned on by hand isn't an agent and may never notify, so it doesn't count. Pinned
- * and snoozed workspaces keep their own places.
+ * alert of the workspace's own, which its card shows too. A workspace still being created to start
+ * an agent on a prompt goes there already. A command started with `komla notify --` or a spinner
+ * turned on by hand isn't an agent and may never notify, so it doesn't count. Pinned and snoozed
+ * workspaces keep their own places.
  */
 export function goesOnWorkingShelf(workspace: Workspace): boolean {
   if (workspace.pinned || isWorkspaceSnoozed(workspace)) return false;
@@ -80,7 +81,9 @@ export function goesOnWorkingShelf(workspace: Workspace): boolean {
   const agents = workspaceAgents(workspace);
   return (
     agents.every((agent) => agent.state === 'working') &&
-    agents.some((agent) => agent.terminal && !agent.terminal.commandActive)
+    agents.some((agent) =>
+      agent.terminal ? !agent.terminal.commandActive : !!workspace.agentLaunching
+    )
   );
 }
 

@@ -65,6 +65,13 @@ export const ANSWER_REPORT_WAIT_MS = 2000;
 const WORKSPACE_AGENT_SCOPE = '__workspace__';
 // The source of the spinner the user turns on by hand, in the workspace scope.
 const MANUAL_SPINNER_SOURCE = 'manual';
+// How long an agent launched with a prompt shows working before it reports. Claude Code and Codex
+// report within a few seconds of starting; one that hasn't by then may wait on a prompt of its own.
+export const LAUNCH_REPORT_WAIT_MS = 20_000;
+// The same on an SSH host, whose session starts over SSH and whose hooks come through its mailbox.
+export const SSH_LAUNCH_REPORT_WAIT_MS = 45_000;
+// The source of the spinner a Terminal shows from its agent's launch until the agent reports.
+const LAUNCH_SOURCE = 'launch';
 // The synthetic prompts Claude resumes a turn with after background work.
 const CLAUDE_RESUME_PROMPT = /^<(?:task-notification|agent-message)[\s>]/;
 
@@ -305,6 +312,8 @@ export class TerminalAttention {
   >();
   /** Spinners only copies of another installation's hooks keep on, which it can't see stop. */
   private readonly copiedAgentActivity = new Map<string, ReturnType<typeof setTimeout>>();
+  /** When the spinner of each agent launched with a prompt stops if the agent hasn't reported. */
+  private readonly launchTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Copied spinners a reconnect or wake left for the host's next session check to confirm. */
   private readonly unconfirmedCopies = new Set<string>();
   /** The delivery of the newest copy each Terminal took, live or from its Hook Journal. */
@@ -490,6 +499,67 @@ export class TerminalAttention {
     this.recentStructuredNotificationByTerminal.clear();
   }
 
+  // ── Agent launches ───────────────────────────────────────────────────────
+
+  /**
+   * The workspace is being set up to start an agent on a prompt. It shows working while it has no
+   * Terminal yet, however long its setup takes, until the agent launches or the setup ends.
+   */
+  agentLaunching(workspaceId: string): void {
+    const workspace = this.deps.store.get(workspaceId);
+    if (!workspace) return;
+    workspace.agentLaunching = true;
+    this.scopeSources(workspaceId, WORKSPACE_AGENT_SCOPE).set(LAUNCH_SOURCE, 1);
+    this.recomputeAgentActive(workspace);
+    this.deps.store.broadcast(workspace);
+  }
+
+  /**
+   * The workspace's setup ended. A launch no agent's Terminal took over, as when the setup failed,
+   * no longer shows working.
+   */
+  launchSettled(workspaceId: string): void {
+    const workspace = this.deps.store.get(workspaceId);
+    if (!workspace || !this.dropWorkspaceLaunch(workspace)) return;
+    this.recomputeAgentActive(workspace);
+    this.deps.store.broadcast(workspace);
+  }
+
+  /**
+   * An agent started in the Terminal with a prompt, which it works on from the start. The Terminal
+   * shows working until the agent reports, which takes over the spinner, or until it has stayed
+   * silent too long, as while it waits on a prompt of its own. It takes over the launch its
+   * workspace showed while it was set up.
+   */
+  agentLaunched(terminalId: string): void {
+    const workspace = this.findWorkspaceByTerminalId(terminalId);
+    if (!workspace) return;
+    // The Terminal's launch takes it over, so the workspace stays working.
+    const tookOver = this.dropWorkspaceLaunch(workspace);
+    clearTimeout(this.launchTimers.get(terminalId));
+    const waitMs = isSshWorkspace(workspace) ? SSH_LAUNCH_REPORT_WAIT_MS : LAUNCH_REPORT_WAIT_MS;
+    const timer = setTimeout(() => {
+      this.launchTimers.delete(terminalId);
+      const current = this.findWorkspaceByTerminalId(terminalId);
+      if (current) this.clearTerminalSource(current.id, terminalId, LAUNCH_SOURCE);
+    }, waitMs);
+    this.launchTimers.set(terminalId, timer);
+    const sources = this.scopeSources(workspace.id, terminalId);
+    if (!sources.has(LAUNCH_SOURCE)) sources.set(LAUNCH_SOURCE, 1);
+    if (this.recomputeAgentActive(workspace) || tookOver) this.deps.store.broadcast(workspace);
+  }
+
+  /**
+   * Forgets the launch the workspace showed while it was set up, leaving the broadcast to the
+   * caller. Returns whether it showed one.
+   */
+  private dropWorkspaceLaunch(workspace: Workspace): boolean {
+    if (!workspace.agentLaunching) return false;
+    workspace.agentLaunching = undefined;
+    this.dropWorkspaceScopeSource(workspace.id, LAUNCH_SOURCE);
+    return true;
+  }
+
   // ── Terminal output ──────────────────────────────────────────────────────
 
   /**
@@ -608,6 +678,8 @@ export class TerminalAttention {
   folderTrustAsked(terminalId: string, agent: FolderTrustAgent): void {
     const workspace = this.findWorkspaceByTerminalId(terminalId);
     if (!workspace) return;
+    // It waits on the user, not working on its prompt yet.
+    this.clearTerminalSource(workspace.id, terminalId, LAUNCH_SOURCE);
     const attention: WorkspaceAttention = {
       kind: 'input-required',
       source: agent,
@@ -746,6 +818,8 @@ export class TerminalAttention {
     this.journalSources.delete(terminalId);
     this.dropCopiedAgentActivity(terminalId);
     this.claudePermissions.delete(terminalId);
+    clearTimeout(this.launchTimers.get(terminalId));
+    this.launchTimers.delete(terminalId);
     this.clearTerminalSources(workspaceId, terminalId);
     this.clearTerminalAttention(terminalId);
     // Dropped already, its attention can't be cleared, but the workspace mustn't keep showing it.
@@ -925,8 +999,11 @@ export class TerminalAttention {
   persistedSources(workspaceId: string, terminalId: string): Record<string, number> | undefined {
     // Copies stop while this installation is away, so this one could be stale on restart.
     if (this.copiedAgentActivity.has(terminalId)) return undefined;
-    const sources = this.activeAgentSources.get(workspaceId)?.get(terminalId);
-    return sources && sources.size > 0 ? Object.fromEntries(sources.entries()) : undefined;
+    // A launch's spinner would have no timer to stop it after a restart.
+    const sources = Array.from(
+      this.activeAgentSources.get(workspaceId)?.get(terminalId)?.entries() ?? []
+    ).filter(([source]) => source !== LAUNCH_SOURCE);
+    return sources.length > 0 ? Object.fromEntries(sources) : undefined;
   }
 
   hookMark(terminalId: string): HookMark {
@@ -2041,6 +2118,8 @@ export class TerminalAttention {
     let terminalChanged = false;
     for (const terminal of workspace.terminals) {
       const sources = scopes?.get(terminal.id);
+      // The agent reported, so its own sources keep the spinner from here.
+      if (sources && sources.size > 1) this.dropLaunchSource(sources, terminal.id);
       const active = !!sources;
       if (!active) this.dropCopiedAgentActivity(terminal.id);
       if (!!terminal.agentActive !== active) {
@@ -2155,17 +2234,31 @@ export class TerminalAttention {
 
   /** Stops the spinner the user turned on by hand, leaving the broadcast to the caller. */
   private dropManualSource(workspaceId: string): void {
+    this.dropWorkspaceScopeSource(workspaceId, MANUAL_SPINNER_SOURCE);
+  }
+
+  /** Forgets one source of the workspace scope, leaving the broadcast to the caller. */
+  private dropWorkspaceScopeSource(workspaceId: string, source: WorkspaceAttentionSource): void {
     const scopes = this.activeAgentSources.get(workspaceId);
     const sources = scopes?.get(WORKSPACE_AGENT_SCOPE);
-    if (!scopes || !sources?.delete(MANUAL_SPINNER_SOURCE)) return;
+    if (!scopes || !sources?.delete(source)) return;
     if (sources.size === 0) scopes.delete(WORKSPACE_AGENT_SCOPE);
     if (scopes.size === 0) this.activeAgentSources.delete(workspaceId);
+  }
+
+  /** Forgets a launch's spinner in the Terminal's sources, leaving the broadcast to the caller. */
+  private dropLaunchSource(sources: Map<WorkspaceAttentionSource, number>, terminalId: string) {
+    if (!sources.delete(LAUNCH_SOURCE)) return;
+    clearTimeout(this.launchTimers.get(terminalId));
+    this.launchTimers.delete(terminalId);
   }
 
   private clearAllSources(workspaceId: string): void {
     const workspace = this.deps.store.get(workspaceId);
     if (!workspace) return;
     this.activeAgentSources.delete(workspaceId);
+    // Its launch went with them.
+    workspace.agentLaunching = undefined;
     if (this.recomputeAgentActive(workspace)) {
       this.deps.store.broadcast(workspace);
     }
@@ -2202,7 +2295,9 @@ export class TerminalAttention {
       this.activeAgentSources.delete(workspaceId);
     }
     this.broadcastIfAgentActiveChanged(workspace);
-    if (sources.length > 0) this.deps.relay.interrupted(workspace, terminalId, sources);
+    // The other installations never saw the launch's spinner, which is this one's own.
+    const relayed = sources.filter((source) => source !== LAUNCH_SOURCE);
+    if (relayed.length > 0) this.deps.relay.interrupted(workspace, terminalId, relayed);
   }
 
   /** Stops one source's spinner in a terminal, leaving any other source there working. */

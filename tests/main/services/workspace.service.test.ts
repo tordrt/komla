@@ -4666,6 +4666,84 @@ describe('WorkspaceService', () => {
         );
       });
 
+      it('shows the agent working from its launch with a prompt', async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'directory',
+          directoryPath: '/some/path',
+          initialPrompt: 'Help me with tests',
+        });
+
+        expect(workspace.terminals[0].agentActive).toBe(true);
+        expect(workspace.agentActive).toBe(true);
+      });
+
+      it.each([
+        ['without a prompt', { initialPrompt: '  ' }],
+        ['with a command of its own', { initialPrompt: 'Help', initialCommand: 'npm install' }],
+      ])('shows no agent working from a launch %s', async (_case, params) => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'directory',
+          directoryPath: '/some/path',
+          ...params,
+        });
+
+        expect(workspace.terminals[0].agentActive).toBeFalsy();
+      });
+
+      it('shows the agent working from a prompt under a name of its own', async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        mockAgentPresetService.getActive.mockReturnValue(
+          createClaudePreset({ id: 'yolo', name: 'Claude (yolo)' })
+        );
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'directory',
+          directoryPath: '/some/path',
+          initialPrompt: 'Help me with tests',
+        });
+
+        expect(workspace.terminals[0].agentActive).toBe(true);
+      });
+
+      it('shows no agent working from a prompt the agent opens without', async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        mockAgentPresetService.getActive.mockReturnValue(
+          createClaudePreset({ id: 'no-prompt', promptCommand: '' })
+        );
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'directory',
+          directoryPath: '/some/path',
+          initialPrompt: 'Help me with tests',
+        });
+
+        expect(workspace.terminals[0].agentActive).toBeFalsy();
+      });
+
+      it('shows no agent working from a prompt for an agent that may never report', async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        mockAgentPresetService.getActive.mockReturnValue(
+          createClaudePreset({ id: 'aider', name: 'Aider', promptCommand: 'aider {{prompt}}' })
+        );
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'directory',
+          directoryPath: '/some/path',
+          initialPrompt: 'Help me with tests',
+        });
+
+        expect(workspace.terminals[0].agentActive).toBeFalsy();
+      });
+
       it('should use initialCommand when provided', async () => {
         vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
 
@@ -7114,6 +7192,82 @@ describe('WorkspaceService', () => {
             null
           )
         );
+      });
+
+      it.each([
+        ['here', undefined],
+        ['on an SSH host', { kind: 'ssh' as const, hostId: 'ssh-dev' }],
+      ])(
+        'shows the agent working from its launch once a deferred worktree %s is ready',
+        async (_case, location) => {
+          const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+          const workspace = await workspaceService.create({
+            mode: 'worktree',
+            projectId: 'project-1',
+            branchName: 'agent/fix-login',
+            useExactBranchName: true,
+            initialPrompt: 'Fix login',
+            deferBranchNaming: true,
+            ...(location ? { location } : {}),
+          });
+
+          expect(workspace.agentActive).toBe(true);
+          expect(workspace.agentLaunching).toBe(true);
+          await vi.waitFor(() =>
+            expect(workspaceService.get(workspace.id)?.terminals[0]?.agentActive).toBe(true)
+          );
+        }
+      );
+
+      it('shows the agent working from a launch with only pasted files for its prompt', async () => {
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'worktree',
+          projectId: 'project-1',
+          branchName: 'agent/fix-login',
+          useExactBranchName: true,
+          attachments: ['/tmp/shot.png'],
+          deferBranchNaming: true,
+        });
+
+        expect(workspace.agentLaunching).toBe(true);
+      });
+
+      it('stops showing the agent working when its deferred worktree fails', async () => {
+        mockGitService.createWorktree.mockRejectedValueOnce(new Error('disk full'));
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'worktree',
+          projectId: 'project-1',
+          branchName: 'agent/fix-login',
+          useExactBranchName: true,
+          initialPrompt: 'Fix login',
+          deferBranchNaming: true,
+        });
+        expect(workspace.agentActive).toBe(true);
+
+        await vi.waitFor(() =>
+          expect(workspaceService.get(workspace.id)?.provisionError).toBeTruthy()
+        );
+        expect(workspaceService.get(workspace.id)?.agentActive).toBe(false);
+        expect(workspaceService.get(workspace.id)?.agentLaunching).toBeFalsy();
+      });
+
+      it('shows no agent working while a deferred worktree without a prompt is created', async () => {
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const workspace = await workspaceService.create({
+          mode: 'worktree',
+          projectId: 'project-1',
+          branchName: 'agent/plain',
+          useExactBranchName: true,
+          deferBranchNaming: true,
+        });
+
+        expect(workspace.agentActive).toBeFalsy();
       });
 
       it('uploads attachments to the SSH host when the branch is named up front', async () => {

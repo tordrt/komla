@@ -24,6 +24,7 @@ type ExecutionWorkspace = Pick<Workspace, 'backend'> & {
   terminals: readonly ExecutionTerminal[];
   provisioning?: boolean;
   agentActive?: boolean;
+  agentLaunching?: boolean;
   showsPaneSurfaces?: boolean;
 };
 
@@ -154,9 +155,12 @@ export function canStop(workspace: ExecutionWorkspace | null | undefined): boole
   return showsRunning(workspace);
 }
 
-/** Shows the agent working spinner, also for an agent another device runs on the host. */
+/**
+ * Shows the agent working spinner, also for an agent another device runs on the host, and for one
+ * a workspace still being created will start on a prompt.
+ */
 export function showsWorking(workspace: ExecutionWorkspace | null | undefined): boolean {
-  return !!workspace?.agentActive && showsRunning(workspace);
+  return !!workspace?.agentActive && (showsRunning(workspace) || !!workspace.agentLaunching);
 }
 
 /**

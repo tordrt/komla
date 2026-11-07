@@ -8,9 +8,13 @@ on:
 permissions:
   contents: read
 
+# A pull request's push cancels its run in progress. main's runs finish instead, so it shows red
+# when it is: main gets pushes minutes apart, and cancelling there left most runs unfinished and a
+# failing platform unnoticed for days. A run waiting behind main's is still replaced by the newer
+# push, so main runs one at a time, on its newest commit.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test:

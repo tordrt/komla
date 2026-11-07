@@ -266,7 +266,10 @@ function DeleteBranchDialog({
               id="also-delete-remote"
               checked={state.alsoDeleteRemote}
               onCheckedChange={(checked) =>
-                onStateChange((prev) => ({ ...prev, alsoDeleteRemote: checked }))
+                onStateChange((prev) => ({
+                  ...prev,
+                  alsoDeleteRemote: checked,
+                }))
               }
             />
           </div>
@@ -297,7 +300,11 @@ function AheadAgentPromptItem({
   aheadTargetBranch: number;
   onClick: () => void;
 }) {
-  const templateId = resolveActionId({ project, targetBranch, remoteDefaultBranch });
+  const templateId = resolveActionId({
+    project,
+    targetBranch,
+    remoteDefaultBranch,
+  });
   if (!templateId) return null;
   const template = useActionsStore.getState().actions.find((t) => t.id === templateId);
   if (!template) return null;
@@ -341,8 +348,6 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
-  const [_isPushingTargetBranch, setIsPushingTargetBranch] = useState(false);
-  const [_isPullingTargetBranch, setIsPullingTargetBranch] = useState(false);
   // Single branch list (unified)
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [isBranchesLoading, setIsBranchesLoading] = useState(false);
@@ -440,12 +445,6 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
   const projectSyncStatus = useProjectSyncStatusStore((s) =>
     activeProject ? s.statuses.get(activeProject.id) : undefined
   );
-  const targetBranchAheadRemote = isRemoteWorkspace
-    ? (gitStatus?.targetBranchAheadRemote ?? 0)
-    : (projectSyncStatus?.aheadRemote ?? 0);
-  const _targetBranchBehindRemote = isRemoteWorkspace
-    ? (gitStatus?.targetBranchBehindRemote ?? 0)
-    : (projectSyncStatus?.behindRemote ?? 0);
   const targetBranchHasRemote =
     (isRemoteWorkspace ? gitStatus?.targetBranchHasRemote : projectSyncStatus?.hasRemote) ??
     gitStatus?.targetBranchHasRemote ??
@@ -573,7 +572,11 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
         ? await window.api.rebaseWorkspaceOnBranch(activeWorkspace.id, targetBranch, options)
         : await window.api.rebaseOnTargetBranch(activeWorkspace.workingDirectory, options);
       if (!result.success && result.message.startsWith(UNCOMMITTED_CHANGES_PREFIX)) {
-        setStashDialog({ open: true, operation: 'rebase', branchName: targetBranch });
+        setStashDialog({
+          open: true,
+          operation: 'rebase',
+          branchName: targetBranch,
+        });
         return;
       }
       await refreshActiveGitStatus();
@@ -622,29 +625,30 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
         : await window.api.mergeToTargetBranch(activeWorkspace.workingDirectory);
       await refreshActiveGitStatus();
 
-      if (
-        result.success &&
+      if (!result.success) {
+        addToast(result.message, 'error');
+      } else if (
         activeProject?.autoPushAfterMerge !== false &&
         targetBranchWriteAction !== 'none'
       ) {
+        // The push confirms itself, so the fast-forward needs no toast of its own.
         void handlePushTargetBranch();
-      } else if (
-        result.success &&
-        isManaged &&
-        activeProject &&
-        targetBranchAheadRemote === 0 &&
-        targetBranchWriteAction !== 'none'
-      ) {
-        addToast(result.message, 'success', {
-          action: {
-            label: targetBranchWriteAction === 'publish' ? 'Publish branch' : 'Push to remote',
-            onClick: () => {
-              void handlePushTargetBranch();
-            },
-          },
-        });
       } else {
-        if (!result.success) addToast(result.message, 'error');
+        addToast(
+          result.message,
+          'success',
+          targetBranchWriteAction === 'none'
+            ? undefined
+            : {
+                action: {
+                  label:
+                    targetBranchWriteAction === 'publish' ? 'Publish branch' : 'Push to remote',
+                  onClick: () => {
+                    void handlePushTargetBranch();
+                  },
+                },
+              }
+        );
       }
     } catch (error) {
       addToast((error as Error).message, 'error');
@@ -657,85 +661,24 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
   const handlePushTargetBranch = async () => {
     if (!activeWorkspace) return;
 
-    setIsPushingTargetBranch(true);
-    try {
-      const result = await pushWithAutoRecover({
-        workingDir: activeWorkspace.workingDirectory,
-        operationPrefix: 'push-main',
-        workspaceKey: activeWorkspace.id,
-        pushFn: isRemoteWorkspace
-          ? () => window.api.pushWorkspaceTargetBranch(activeWorkspace.id)
-          : window.api.pushTargetBranch,
-        pullFn: isRemoteWorkspace
-          ? () => window.api.pullWorkspaceTargetBranch(activeWorkspace.id)
-          : window.api.pullTargetBranch,
-        recoverySuccessMessage: `Pulled and pushed ${targetBranch}`,
-        startOperation,
-        endOperation,
-        addToast,
-      });
-      await refreshActiveGitStatus();
-      if (result.success && activeProject) {
-        await refreshProjectSyncStatus(activeProject.id, true);
-      }
-    } finally {
-      setIsPushingTargetBranch(false);
-    }
-  };
-
-  const _handlePullTargetBranch = async () => {
-    if (!activeWorkspace) return;
-
-    const operationId = `pull-main-${activeWorkspace.id}-${Date.now()}`;
-    setIsPullingTargetBranch(true);
-    startOperation(operationId, 'pull', activeWorkspace.workingDirectory);
-    try {
-      const result = isRemoteWorkspace
-        ? await window.api.pullWorkspaceTargetBranch(activeWorkspace.id)
-        : await window.api.pullTargetBranch(activeWorkspace.workingDirectory);
-      if (!result.success) addToast(result.message, 'error');
-      invalidateStatus(activeWorkspace.id);
-      void fetchStatusIfStale(
-        activeWorkspace.id,
-        activeWorkspace.workingDirectory,
-        activeWorkspace.projectId
-      );
-      if (result.success && activeProject) {
-        await refreshProjectSyncStatus(activeProject.id, true);
-      }
-    } catch (error) {
-      addToast((error as Error).message, 'error');
-    } finally {
-      endOperation(operationId);
-      setIsPullingTargetBranch(false);
-    }
-  };
-
-  const _handleMergeTargetBranchFromRemote = async () => {
-    if (!activeWorkspace) return;
-
-    const operationId = `merge-main-remote-${activeWorkspace.id}-${Date.now()}`;
-    setIsPullingTargetBranch(true);
-    startOperation(operationId, 'merge', activeWorkspace.workingDirectory);
-    try {
-      const result = isRemoteWorkspace
-        ? await window.api.mergeWorkspaceTargetBranchFromRemote(activeWorkspace.id)
-        : await window.api.mergeTargetBranchFromRemote(activeWorkspace.workingDirectory);
-      if (!result.success) addToast(result.message, 'error');
-      invalidateStatus(activeWorkspace.id);
-      void fetchStatusIfStale(
-        activeWorkspace.id,
-        activeWorkspace.workingDirectory,
-        activeWorkspace.projectId
-      );
-      if (result.success && activeProject) {
-        await refreshProjectSyncStatus(activeProject.id, true);
-      }
-    } catch (error) {
-      addToast((error as Error).message, 'error');
-    } finally {
-      endOperation(operationId);
-      setIsPullingTargetBranch(false);
+    const result = await pushWithAutoRecover({
+      workingDir: activeWorkspace.workingDirectory,
+      operationPrefix: 'push-main',
+      workspaceKey: activeWorkspace.id,
+      pushFn: isRemoteWorkspace
+        ? () => window.api.pushWorkspaceTargetBranch(activeWorkspace.id)
+        : window.api.pushTargetBranch,
+      pullFn: isRemoteWorkspace
+        ? () => window.api.pullWorkspaceTargetBranch(activeWorkspace.id)
+        : window.api.pullTargetBranch,
+      recoverySuccessMessage: `Pulled and pushed ${targetBranch}`,
+      startOperation,
+      endOperation,
+      addToast,
+    });
+    await refreshActiveGitStatus();
+    if (result.success && activeProject) {
+      await refreshProjectSyncStatus(activeProject.id, true);
     }
   };
 
@@ -792,9 +735,7 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
     }
   };
 
-  const handleFetchBranches = async (e?: React.MouseEvent) => {
-    e?.preventDefault();
-    e?.stopPropagation();
+  const handleFetchBranches = async () => {
     if (!activeWorkspace || isFetching) return;
 
     const operationId = `fetch-${activeWorkspace.id}-${Date.now()}`;
@@ -1206,7 +1147,8 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
                       <span>Fast-forward {targetBranch}</span>
                       {behindTargetBranch > 0 && (
                         <span className="text-xs text-muted-foreground">
-                          Update from {targetBranch} first (↓{behindTargetBranch})
+                          Update from {targetBranch} first (↓
+                          {behindTargetBranch})
                         </span>
                       )}
                     </span>
@@ -1257,7 +1199,10 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
                 <DropdownMenuItem onClick={handlePush} disabled={isPushing}>
                   {isPushing ? <Spinner /> : <CloudArrowUp />}
                   <span>
-                    {resolveRemoteWriteAction({ hasOriginRemote, hasRemote }) === 'publish'
+                    {resolveRemoteWriteAction({
+                      hasOriginRemote,
+                      hasRemote,
+                    }) === 'publish'
                       ? 'Publish branch'
                       : 'Push'}
                   </span>

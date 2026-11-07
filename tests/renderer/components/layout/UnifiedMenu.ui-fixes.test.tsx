@@ -61,12 +61,21 @@ const state = {
   hasOriginRemote: false,
   hasRemote: false,
   unpushedCommits: 0,
+  autoPushAfterMerge: undefined as boolean | undefined,
 };
 
 vi.mock('../../../../src/renderer/stores/projects.store', () => ({
   useProjectsStore: (selector: (state: Record<string, unknown>) => unknown) =>
     selector({
-      projects: [{ id: 'project-1', name: 'Project', repositoryPath: '/repo', kind: 'git' }],
+      projects: [
+        {
+          id: 'project-1',
+          name: 'Project',
+          repositoryPath: '/repo',
+          kind: 'git',
+          autoPushAfterMerge: state.autoPushAfterMerge,
+        },
+      ],
     }),
 }));
 vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
@@ -139,7 +148,7 @@ vi.mock('../../../../src/renderer/stores/actions.store', () => ({
 import { UnifiedMenu } from '../../../../src/renderer/components/layout/UnifiedMenu';
 import { useGitProgressStore } from '../../../../src/renderer/stores/git-progress.store';
 
-type PickerProps = { onFetch: (e?: React.MouseEvent) => Promise<void> };
+type PickerProps = { onFetch: () => Promise<void> };
 
 describe('UnifiedMenu', () => {
   beforeEach(() => {
@@ -152,6 +161,7 @@ describe('UnifiedMenu', () => {
     state.hasOriginRemote = false;
     state.hasRemote = false;
     state.unpushedCommits = 0;
+    state.autoPushAfterMerge = undefined;
     window.api = {
       fetchProject: vi.fn().mockResolvedValue({ success: true, message: 'Fetched' }),
       fetchFromRemote: vi.fn().mockResolvedValue({ success: true, message: 'Fetched' }),
@@ -227,6 +237,59 @@ describe('UnifiedMenu', () => {
     const mergeItem = screen.getByRole('menuitem', { name: /Fast-forward develop/ });
     expect(mergeItem).toBeEnabled();
     expect(mergeItem).not.toHaveTextContent('first');
+  });
+
+  it('pushes the target after a fast-forward, when the project pushes after merging', async () => {
+    state.aheadTargetBranch = 2;
+    state.hasOriginRemote = true;
+    const mergeToTargetBranch = vi
+      .fn()
+      .mockResolvedValue({ success: true, message: 'Fast-forwarded develop' });
+    const pushTargetBranch = vi
+      .fn()
+      .mockResolvedValue({ success: true, message: 'Published develop to origin' });
+    window.api = { ...window.api, mergeToTargetBranch, pushTargetBranch } as typeof window.api;
+    render(<UnifiedMenu />);
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /Fast-forward develop/ }));
+
+    await waitFor(() => expect(pushTargetBranch).toHaveBeenCalledWith('/worktrees/feature'));
+  });
+
+  it('confirms a fast-forward and offers the push when the project does not push after merging', async () => {
+    state.aheadTargetBranch = 2;
+    state.hasOriginRemote = true;
+    state.autoPushAfterMerge = false;
+    const mergeToTargetBranch = vi
+      .fn()
+      .mockResolvedValue({ success: true, message: 'Fast-forwarded develop' });
+    const pushTargetBranch = vi.fn();
+    window.api = { ...window.api, mergeToTargetBranch, pushTargetBranch } as typeof window.api;
+    render(<UnifiedMenu />);
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /Fast-forward develop/ }));
+
+    await waitFor(() =>
+      expect(addToast).toHaveBeenCalledWith('Fast-forwarded develop', 'success', {
+        action: expect.objectContaining({ label: 'Publish branch' }),
+      })
+    );
+    expect(pushTargetBranch).not.toHaveBeenCalled();
+  });
+
+  it('confirms a fast-forward in a repo without origin, with nothing to push to', async () => {
+    state.aheadTargetBranch = 2;
+    const mergeToTargetBranch = vi
+      .fn()
+      .mockResolvedValue({ success: true, message: 'Fast-forwarded develop' });
+    window.api = { ...window.api, mergeToTargetBranch } as typeof window.api;
+    render(<UnifiedMenu />);
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /Fast-forward develop/ }));
+
+    await waitFor(() =>
+      expect(addToast).toHaveBeenCalledWith('Fast-forwarded develop', 'success', undefined)
+    );
   });
 
   it('reports a failed fetch for a workspace without a project', async () => {

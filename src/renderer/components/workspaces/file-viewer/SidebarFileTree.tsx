@@ -13,7 +13,6 @@ import {
   FilePlus,
   FileText,
   FolderPlus,
-  GitBranch,
   GitDiff,
   Globe,
   MagnifyingGlass,
@@ -41,7 +40,6 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingState } from '@/components/ui/loading-state';
 import { menuItemClass, menuSeparatorClass } from '@/components/ui/menu-styles';
-import { Spinner } from '@/components/ui/spinner';
 import { useKomlaEditorTheme } from '@/hooks/useKomlaEditorTheme';
 import { downloadViewerFile } from '@/lib/download-viewer-file';
 import { createNote } from '@/lib/notes';
@@ -59,6 +57,7 @@ import { isMonitored } from '@/types';
 
 import { isBrowserPreviewableFile } from '../../../../shared/image-utils';
 
+import { BranchComparisonToggle } from './BranchComparisonToggle';
 import { getAncestorPaths } from './file-viewer-utils';
 import { ImportedFilesSection } from './ImportedFilesSection';
 import { NotesSection } from './notes/NotesSection';
@@ -1828,10 +1827,6 @@ function SidebarFileTreeHeader({
   onCreateFile,
 }: SidebarFileTreeHeaderProps) {
   const showDiffSummary = !!changedFilesOnly && !!diffSummary && diffSummary.filesChanged > 0;
-  const branchComparisonLabel =
-    comparisonBranch && useMergeBase
-      ? 'Show uncommitted changes'
-      : `Show all changes since ${targetBranchName || 'target branch'}`;
   return (
     // `file-tree-header` names it for globals.css, which softens its line in the file panel.
     <div className="file-tree-header flex h-9 shrink-0 items-center justify-between gap-0 border-b bg-card pr-2 pl-2.5 text-sm font-medium">
@@ -1903,25 +1898,13 @@ function SidebarFileTreeHeader({
           </IconButton>
         )}
         {onToggleBranchComparison && changedFilesOnly && (
-          <IconButton
-            label={diffLoading ? 'Loading changes' : branchComparisonLabel}
-            size="xs"
-            tooltipSide="bottom"
-            onClick={onToggleBranchComparison}
-            disabled={diffLoading}
-            aria-pressed={!!comparisonBranch && !!useMergeBase}
-            className={cn(
-              comparisonBranch && useMergeBase
-                ? TOGGLE_ON_CLASS
-                : 'text-muted-foreground-80 hover:text-foreground'
-            )}
-          >
-            {diffLoading ? (
-              <Spinner size="sm" />
-            ) : (
-              <GitBranch aria-hidden="true" className="size-3.5" />
-            )}
-          </IconButton>
+          <BranchComparisonToggle
+            showingAllChanges={!!comparisonBranch && !!useMergeBase}
+            targetBranchName={targetBranchName}
+            loading={diffLoading}
+            onToggle={onToggleBranchComparison}
+            pressedClassName={TOGGLE_ON_CLASS}
+          />
         )}
       </div>
     </div>

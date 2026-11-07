@@ -259,6 +259,7 @@ vi.mock('@/components/ui/context-menu', async () => {
 
   return {
     ContextMenu: Passthrough,
+    ContextMenuCheckboxItem: Item,
     ContextMenuContent: Passthrough,
     ContextMenuItem: Item,
     ContextMenuSeparator: () => <hr />,

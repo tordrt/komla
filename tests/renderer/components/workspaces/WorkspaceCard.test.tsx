@@ -71,7 +71,6 @@ const workspacesState = {
   snoozeWorkspace: vi.fn(),
   selectionMode: false,
   selectedWorkspaceIds: new Set<string>(),
-  pendingWorkspaceActions: new Map<string, 'stopping'[]>(),
   reconnectingSshWorkspaceIds: new Set<string>(),
   enterSelectionMode: vi.fn(),
   toggleWorkspaceSelection: vi.fn(),
@@ -435,7 +434,6 @@ describe('WorkspaceCard', () => {
     workspacesState.selectedWorkspaceId = null;
     workspacesState.keyboardNavigationWorkspaceId = null;
     workspacesState.selectedWorkspaceIds = new Set<string>();
-    workspacesState.pendingWorkspaceActions = new Map();
     workspacesState.reconnectingSshWorkspaceIds = new Set<string>();
     fileViewerState.inlineFilePreviewByWorkspace = {};
     fileViewerState.inlineFileTreeByWorkspace = {};
@@ -1744,18 +1742,6 @@ describe('WorkspaceCard', () => {
   });
 
   describe('while it waits on a stop or its SSH host', () => {
-    it('says it is stopping, and offers no second Stop', () => {
-      const workspace = createWorktreeWorkspace({ terminalCount: 1, lastActivityAt: Date.now() });
-      workspacesState.pendingWorkspaceActions = new Map([[workspace.id, ['stopping']]]);
-
-      render(<WorkspaceCard workspace={workspace} />);
-
-      expect(screen.getByRole('status')).toHaveTextContent('Stopping…');
-      expect(screen.queryByText('just now')).not.toBeInTheDocument();
-      expect(screen.queryByText('Stop Workspace')).not.toBeInTheDocument();
-      expect(screen.getByText('Stopping Workspace...')).toHaveAttribute('disabled');
-    });
-
     it('says it is connecting while it reconnects to its SSH host', () => {
       const workspace = createSshWorkspace({
         terminals: [createTerminal({ status: 'stopped', remoteSessionResumable: true })],

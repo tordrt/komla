@@ -84,7 +84,7 @@ import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWindowStore } from '@/stores/window.store';
-import { type PendingWorkspaceAction, useWorkspacesStore } from '@/stores/workspaces.store';
+import { useWorkspacesStore } from '@/stores/workspaces.store';
 import {
   canStop,
   isRunningHere,
@@ -183,10 +183,8 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   const isRestarting = useWorkspacesStore(
     (s) => s.restartingWorkspaceIds?.has(workspace.id) ?? false
   );
-  const pendingAction = useWorkspacesStore(
-    (s): CardPendingAction | undefined =>
-      s.pendingWorkspaceActions?.get(workspace.id)?.at(-1) ??
-      (s.reconnectingSshWorkspaceIds?.has(workspace.id) ? 'connecting' : undefined)
+  const pendingAction = useWorkspacesStore((s): CardPendingAction | undefined =>
+    s.reconnectingSshWorkspaceIds?.has(workspace.id) ? 'connecting' : undefined
   );
   const deleteWorkspace = useWorkspacesStore((s) => s.deleteWorkspace);
   const setWorkspaceTrashed = useWorkspacesStore((s) => s.setWorkspaceTrashed);
@@ -680,7 +678,6 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
             onMoveToWindow={handleMoveToWindow}
             onMoveToNewWindow={() => void handleMoveToNewWindow()}
             onStop={handleStop}
-            pendingAction={pendingAction}
             onRestart={handleRestart}
             isRestarting={isRestarting}
             onNewFromHere={handleNewFromHere}
@@ -1473,19 +1470,18 @@ function showsGitStatus(workspace: Workspace): boolean {
   );
 }
 
-type CardPendingAction = PendingWorkspaceAction | 'connecting';
+type CardPendingAction = 'connecting';
 
 const PENDING_ACTIONS: Record<
   CardPendingAction,
   { label: string; onHost: (hostName: string) => string }
 > = {
-  stopping: { label: 'Stopping…', onHost: (host) => `Stopping its terminals on ${host}…` },
   connecting: { label: 'Connecting…', onHost: (host) => `Connecting to ${host}…` },
 };
 
 /**
- * What the workspace is waiting on, in the time's place, so a stop or reconnect held up by an SSH
- * host doesn't look like a frozen card.
+ * What the workspace is waiting on, in the time's place, so a reconnect held up by an SSH host
+ * doesn't look like a frozen card.
  */
 function PendingActionStatus({
   action,
@@ -1520,7 +1516,7 @@ function ActivityRow({
   workspace: Workspace;
   /** The name of its SSH host, which the user disconnected from. */
   disconnectedFrom: string | undefined;
-  /** A stop, move to the Trash or reconnect that hasn't finished, and the SSH host it waits on. */
+  /** A reconnect that hasn't finished, and the SSH host it waits on. */
   pending: { action: CardPendingAction; hostName: string | undefined } | undefined;
   shownRunning: boolean;
   showGitStatus: boolean;
@@ -1869,27 +1865,6 @@ function TrashMenuItem({
   );
 }
 
-function StopMenuItem({
-  onStop,
-  pending,
-}: {
-  onStop: (e: React.MouseEvent) => void;
-  pending: CardPendingAction | undefined;
-}) {
-  // A reconnect doesn't hold up a stop.
-  return pending === 'stopping' ? (
-    <ContextMenuItem disabled>
-      <Spinner size="md" />
-      Stopping Workspace...
-    </ContextMenuItem>
-  ) : (
-    <ContextMenuItem onClick={onStop}>
-      <Square />
-      Stop Workspace
-    </ContextMenuItem>
-  );
-}
-
 function WorkspaceMenuItems({
   workspace,
   runningHere,
@@ -1908,7 +1883,6 @@ function WorkspaceMenuItems({
   onStop,
   onRestart,
   isRestarting,
-  pendingAction,
   onNewFromHere,
   onLinkWorkspaces,
   onEnterSelectionMode,
@@ -1935,7 +1909,6 @@ function WorkspaceMenuItems({
   onStop: (e: React.MouseEvent) => void;
   onRestart: (e: React.MouseEvent) => void;
   isRestarting: boolean;
-  pendingAction: CardPendingAction | undefined;
   onNewFromHere: () => void;
   onLinkWorkspaces: () => void;
   onEnterSelectionMode: () => void;
@@ -2092,7 +2065,10 @@ function WorkspaceMenuItems({
               Stop Spinner
             </ContextMenuItem>
           )}
-          <StopMenuItem onStop={onStop} pending={pendingAction} />
+          <ContextMenuItem onClick={onStop}>
+            <Square />
+            Stop Workspace
+          </ContextMenuItem>
         </>
       )}
       <ContextMenuSeparator />

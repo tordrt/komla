@@ -43,6 +43,7 @@ import {
   needsAttention,
   probesOnSelect,
   reconnectableTerminals,
+  shownStoppedTerminal,
 } from '../types';
 import { isOpenCodeHoldsWorktreeError, stripErrorPrefix } from '../utils/workspace-error';
 
@@ -81,6 +82,31 @@ const pendingDeletions = new Set<string>();
 // Workspaces on their way to the Trash. They leave the list at once, while their terminals stop
 // and Trash cleanup runs in main; each resolves true once it's in the Trash, false if it stays.
 const pendingTrashes = new Map<string, Promise<boolean>>();
+// Workspaces whose stop hasn't finished: they show as stopped at once. Each keeps the workspace
+// as it was and the stop under way, which resolves true once main has stopped it. A bulk stop
+// shows them all before it reaches each; the stop that reaches it claims it, and only that one
+// settles it.
+interface PendingStop {
+  before: Workspace;
+  stoppedAt: number;
+  stopped: Promise<boolean>;
+  settle: (stopped: boolean) => void;
+  claimed: boolean;
+}
+const pendingStops = new Map<string, PendingStop>();
+// Counts calls to selectWorkspace, so one waiting on a stop can tell the user opened another since.
+let selectRequests = 0;
+
+/** A workspace as it is once stopped: no terminal or pane keeps it running. */
+function shownStopped(workspace: Workspace, stoppedAt: number): Workspace {
+  return {
+    ...workspace,
+    showsPaneSurfaces: undefined,
+    lastStoppedAt: stoppedAt,
+    terminals: workspace.terminals.map(shownStoppedTerminal),
+  };
+}
+
 // Settles once the Trash cleanup under way finishes; the next one waits for it.
 let trashCleanups: Promise<void> = Promise.resolve();
 
@@ -88,14 +114,18 @@ let trashCleanups: Promise<void> = Promise.resolve();
 export function _resetPendingDeletions(): void {
   pendingDeletions.clear();
   pendingTrashes.clear();
+  for (const pending of pendingStops.values()) pending.settle(false);
+  pendingStops.clear();
   trashCleanups = Promise.resolve();
 }
 
 /** Main's workspaces as this window shows them while deletions and moves to the Trash finish. */
 async function fetchWorkspaces(): Promise<Workspace[]> {
   const workspaces = await window.api.getWorkspaces();
-  return workspaces.flatMap((workspace) => {
-    if (pendingDeletions.has(workspace.id)) return [];
+  return workspaces.flatMap((fetched) => {
+    if (pendingDeletions.has(fetched.id)) return [];
+    const stopping = pendingStops.get(fetched.id);
+    const workspace = stopping ? shownStopped(fetched, stopping.stoppedAt) : fetched;
     if (pendingTrashes.has(workspace.id) && workspace.status !== 'trashed') {
       return [{ ...workspace, status: 'trashed' as const, trashedAt: Date.now() }];
     }
@@ -217,11 +247,6 @@ interface WorkspacesState {
   displayOrderedWorkspaceIds: string[] | null;
   restartingWorkspaceIds: Set<string>;
   reconnectingSshWorkspaceIds: Set<string>;
-  /**
-   * The stops and moves to the Trash that haven't finished, by workspace, oldest first; they can
-   * wait on an SSH host. A card shows the latest.
-   */
-  pendingWorkspaceActions: ReadonlyMap<string, readonly PendingWorkspaceAction[]>;
 
   // Multi-select
   selectionMode: boolean;
@@ -414,55 +439,6 @@ interface WorkspacesState {
 type WorkspacesSet = StoreApi<WorkspacesState>['setState'];
 type WorkspacesGet = StoreApi<WorkspacesState>['getState'];
 
-export type PendingWorkspaceAction = 'stopping';
-
-/**
- * Marks the workspaces as `action` pending, so their cards can say so, until each is released.
- * Each mark is its own entry, so one that ends first leaves another still running on show.
- */
-function markPending(
-  set: WorkspacesSet,
-  workspaceIds: string[],
-  action: PendingWorkspaceAction
-): (workspaceId: string) => void {
-  if (workspaceIds.length === 0) return () => {};
-  const held = new Set(workspaceIds);
-  set((state) => {
-    const pendingWorkspaceActions = new Map(state.pendingWorkspaceActions);
-    for (const id of held) {
-      pendingWorkspaceActions.set(id, [...(pendingWorkspaceActions.get(id) ?? []), action]);
-    }
-    return { pendingWorkspaceActions };
-  });
-  return (workspaceId) => {
-    if (!held.delete(workspaceId)) return;
-    set((state) => {
-      const actions = [...(state.pendingWorkspaceActions.get(workspaceId) ?? [])];
-      const index = actions.lastIndexOf(action);
-      if (index !== -1) actions.splice(index, 1);
-      const pendingWorkspaceActions = new Map(state.pendingWorkspaceActions);
-      if (actions.length > 0) pendingWorkspaceActions.set(workspaceId, actions);
-      else pendingWorkspaceActions.delete(workspaceId);
-      return { pendingWorkspaceActions };
-    });
-  };
-}
-
-/** Marks the workspaces as `action` pending while `run` runs. */
-async function whilePending<T>(
-  set: WorkspacesSet,
-  workspaceIds: string[],
-  action: PendingWorkspaceAction,
-  run: () => Promise<T>
-): Promise<T> {
-  const release = markPending(set, workspaceIds, action);
-  try {
-    return await run();
-  } finally {
-    workspaceIds.forEach(release);
-  }
-}
-
 /** A failure of something the user started, which `error` alone never puts on screen. */
 function reportFailure(set: WorkspacesSet, message: string): void {
   set({ error: message });
@@ -508,6 +484,133 @@ function askToDiscardUnsaved(workspaceIds: string[]): Promise<boolean> | undefin
 }
 
 /**
+ * Shows the workspaces stopped until their stops settle, so the user needn't wait on them, and
+ * closes one that's open: its panes would show stopped terminals still running.
+ */
+function showStopping(set: WorkspacesSet, get: WorkspacesGet, workspaceIds: string[]): void {
+  const ids = new Set(workspaceIds.filter((id) => !pendingStops.has(id)));
+  const stoppedAt = Date.now();
+  for (const before of get().workspaces) {
+    if (!ids.has(before.id)) continue;
+    let settle!: (stopped: boolean) => void;
+    const stopped = new Promise<boolean>((resolve) => (settle = resolve));
+    pendingStops.set(before.id, { before, stoppedAt, stopped, settle, claimed: false });
+  }
+  const selectedId = get().selectedWorkspaceId;
+  const closesSelected = selectedId !== null && ids.has(selectedId);
+  if (closesSelected) useLayoutStore.getState().setCurrentWorkspace(null);
+  set((state) => ({
+    workspaces: state.workspaces.map((w) => (ids.has(w.id) ? shownStopped(w, stoppedAt) : w)),
+    ...(closesSelected ? { selectedWorkspaceId: null } : {}),
+  }));
+}
+
+/**
+ * Ends a stop showStopping showed. One that failed shows the workspace running again as it was,
+ * before anyone waiting on the stop goes on, then as main has it.
+ */
+async function settleStopping(
+  set: WorkspacesSet,
+  get: WorkspacesGet,
+  workspaceId: string,
+  stopped: boolean
+): Promise<void> {
+  const pending = pendingStops.get(workspaceId);
+  if (!pending) return;
+  pendingStops.delete(workspaceId);
+  if (!stopped) {
+    const { terminals, showsPaneSurfaces, lastStoppedAt } = pending.before;
+    set((state) => ({
+      workspaces: state.workspaces.map((w) =>
+        w.id === workspaceId ? { ...w, terminals, showsPaneSurfaces, lastStoppedAt } : w
+      ),
+    }));
+  }
+  pending.settle(stopped);
+  if (!stopped) await refreshWorkspaces(set, get);
+}
+
+/**
+ * Stops a workspace, showing it stopped at once. Resolves to why it failed, if it did; `quiet`
+ * leaves telling the user to the caller.
+ */
+async function stopShownStopped(
+  set: WorkspacesSet,
+  get: WorkspacesGet,
+  workspaceId: string,
+  options?: { quiet?: boolean }
+): Promise<string | undefined> {
+  const wasSelected = get().selectedWorkspaceId === workspaceId;
+  showStopping(set, get, [workspaceId]);
+  // A second stop of a workspace already stopping leaves the first to settle it.
+  const pending = pendingStops.get(workspaceId);
+  const owns = pending !== undefined && !pending.claimed;
+  if (pending) pending.claimed = true;
+  let stopCompleted = false;
+  try {
+    const workspace = get().workspaces.find((w) => w.id === workspaceId);
+    const terminalIds = workspace?.terminals.map((t) => t.id) || [];
+
+    terminalIds.forEach(cancelDynamicTitleDebounce);
+    if (wasSelected) {
+      set({ selectedWorkspaceId: null });
+      useLayoutStore.getState().setCurrentWorkspace(null);
+    }
+    await window.api.stopWorkspace(workspaceId);
+    stopCompleted = true;
+    useDevServerPreviewStore
+      .getState()
+      .clearSshPreviewForwardState(workspaceId, { keepStopped: true });
+
+    // Dispose ALL terminal instances (including first terminal)
+    disposeTerminalRenderers(terminalIds);
+
+    // Clear layout for stopped workspace (terminals are killed)
+    useLayoutStore.getState().clearWorkspaceLayout(workspaceId);
+
+    // Preserve the file-list / diff summary cache so the workspace card keeps
+    // showing the last-known additions/deletions while stopped — symmetric
+    // with the git-status cache, which is also retained on stop.
+
+    // Once the stop succeeds it no longer has terminals, so drop a stale selection of it and
+    // preserve any different workspace the user selected meanwhile.
+    if (get().selectedWorkspaceId === workspaceId) {
+      set({ selectedWorkspaceId: null });
+    }
+    if (useLayoutStore.getState().currentWorkspaceId === workspaceId) {
+      useLayoutStore.getState().setCurrentWorkspace(null);
+    }
+
+    // Reload workspaces to get updated state
+    const newSelectedId = get().selectedWorkspaceId;
+    const workspaces = clearAttentionForSelected(await fetchWorkspaces(), newSelectedId);
+    set({
+      workspaces,
+      selectedWorkspaceId: newSelectedId,
+    });
+    if (owns) await settleStopping(set, get, workspaceId, true);
+  } catch (error) {
+    // A refetch that fails after the stop leaves it stopped.
+    if (owns) await settleStopping(set, get, workspaceId, stopCompleted);
+    if (!stopCompleted && wasSelected && get().selectedWorkspaceId === null) {
+      const workspace = get().workspaces.find((candidate) => candidate.id === workspaceId);
+      if (workspace) {
+        set({ selectedWorkspaceId: workspaceId });
+        useLayoutStore.setState({ currentWorkspaceId: workspaceId });
+      }
+    }
+    const failure = {
+      name: get().workspaces.find((w) => w.id === workspaceId)?.name ?? workspaceId,
+      reason: stripErrorPrefix(error as Error),
+    };
+    if (options?.quiet) set({ error: stopFailed(failure) });
+    else reportFailure(set, stopFailed(failure));
+    return failure.reason;
+  }
+  return undefined;
+}
+
+/**
  * Moves workspaces to the Trash. They leave the list before this returns, so the user needn't
  * wait on their terminals stopping or Trash cleanup. Resolves once main has them in the Trash,
  * with a failure for each that stays: it comes back to the list. `stopsOnlyRunning` skips
@@ -541,7 +644,10 @@ async function moveToTrash(
     settles.delete(workspaceId);
   };
 
-  const toStop = stopsOnlyRunning ? workspaces.filter(isRunningHere) : workspaces;
+  // One shown stopped while its stop finishes still needs that stop before cleanup.
+  const toStop = stopsOnlyRunning
+    ? workspaces.filter((w) => isRunningHere(w) || pendingStops.has(w.id))
+    : workspaces;
   let failures: WorkspaceFailure[];
   try {
     failures = await finishMovingToTrash(set, get, workspaces, toStop, settle);
@@ -591,6 +697,7 @@ async function finishMovingToTrash(
   // (especially relevant on Windows where node_modules may be locked).
   for (const w of toStop) {
     try {
+      await pendingStops.get(w.id)?.stopped;
       await window.api.stopWorkspace(w.id);
       useDevServerPreviewStore.getState().clearSshPreviewForwardState(w.id, { keepStopped: true });
     } catch {
@@ -1021,7 +1128,6 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   displayOrderedWorkspaceIds: null,
   restartingWorkspaceIds: new Set(),
   reconnectingSshWorkspaceIds: new Set(),
-  pendingWorkspaceActions: new Map(),
 
   selectionMode: false,
   selectedWorkspaceIds: new Set<string>(),
@@ -1307,71 +1413,9 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   },
 
   stopWorkspace: async (workspaceId, options) => {
-    const unsaved = getUnsavedFileNames([workspaceId]);
-    if (unsaved.length > 0 && !(await confirmDiscardingUnsavedFiles(unsaved))) return;
-    return whilePending(set, [workspaceId], 'stopping', async () => {
-      const wasSelected = get().selectedWorkspaceId === workspaceId;
-      let stopCompleted = false;
-      try {
-        const workspace = get().workspaces.find((w) => w.id === workspaceId);
-        const terminalIds = workspace?.terminals.map((t) => t.id) || [];
-
-        terminalIds.forEach(cancelDynamicTitleDebounce);
-        if (wasSelected) {
-          set({ selectedWorkspaceId: null });
-          useLayoutStore.getState().setCurrentWorkspace(null);
-        }
-        await window.api.stopWorkspace(workspaceId);
-        stopCompleted = true;
-        useDevServerPreviewStore
-          .getState()
-          .clearSshPreviewForwardState(workspaceId, { keepStopped: true });
-
-        // Dispose ALL terminal instances (including first terminal)
-        disposeTerminalRenderers(terminalIds);
-
-        // Clear layout for stopped workspace (terminals are killed)
-        useLayoutStore.getState().clearWorkspaceLayout(workspaceId);
-
-        // Preserve the file-list / diff summary cache so the workspace card keeps
-        // showing the last-known additions/deletions while stopped — symmetric
-        // with the git-status cache, which is also retained on stop.
-
-        // A workspace can be reselected while its stop is pending. Once the stop
-        // succeeds it no longer has terminals, so drop only that stale selection
-        // and preserve any different workspace the user selected meanwhile.
-        if (get().selectedWorkspaceId === workspaceId) {
-          set({ selectedWorkspaceId: null });
-        }
-        if (useLayoutStore.getState().currentWorkspaceId === workspaceId) {
-          useLayoutStore.getState().setCurrentWorkspace(null);
-        }
-
-        // Reload workspaces to get updated state
-        const newSelectedId = get().selectedWorkspaceId;
-        const workspaces = clearAttentionForSelected(await fetchWorkspaces(), newSelectedId);
-        set({
-          workspaces,
-          selectedWorkspaceId: newSelectedId,
-        });
-      } catch (error) {
-        if (!stopCompleted && wasSelected && get().selectedWorkspaceId === null) {
-          const workspace = get().workspaces.find((candidate) => candidate.id === workspaceId);
-          if (workspace) {
-            set({ selectedWorkspaceId: workspaceId });
-            useLayoutStore.setState({ currentWorkspaceId: workspaceId });
-          }
-        }
-        const failure = {
-          name: get().workspaces.find((w) => w.id === workspaceId)?.name ?? workspaceId,
-          reason: stripErrorPrefix(error as Error),
-        };
-        if (options?.quiet) set({ error: stopFailed(failure) });
-        else reportFailure(set, stopFailed(failure));
-        return failure.reason;
-      }
-      return undefined;
-    });
+    const asking = askToDiscardUnsaved([workspaceId]);
+    if (asking && !(await asking)) return;
+    return stopShownStopped(set, get, workspaceId, options);
   },
 
   stopTerminal: async (terminalId) => {
@@ -1698,6 +1742,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   },
 
   selectWorkspace: async (workspaceId) => {
+    const request = ++selectRequests;
     restoreDeferredAttentionClear(set);
     clearTimeout(pendingUnreadClear);
     if (get().keyboardNavigationWorkspaceId !== null) {
@@ -1706,6 +1751,35 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
 
     if (!workspaceId) {
       set({ selectedWorkspaceId: null, showDashboard: true });
+      return;
+    }
+
+    // One shown stopped while its stop finishes opens on what main has once that's done, which
+    // starts it again if it stopped.
+    const stopping = pendingStops.get(workspaceId)?.stopped;
+    if (stopping) {
+      const { selectedWorkspaceId: selectedBefore, showDashboard: dashboardBefore } = get();
+      set((state) => ({
+        restartingWorkspaceIds: new Set(state.restartingWorkspaceIds).add(workspaceId),
+      }));
+      try {
+        await stopping;
+      } finally {
+        set((state) => {
+          const restartingWorkspaceIds = new Set(state.restartingWorkspaceIds);
+          restartingWorkspaceIds.delete(workspaceId);
+          return { restartingWorkspaceIds };
+        });
+      }
+      // Unless the user has opened something else since, by any path.
+      const { selectedWorkspaceId: selectedNow, showDashboard: dashboardNow } = get();
+      if (
+        request === selectRequests &&
+        selectedNow === selectedBefore &&
+        dashboardNow === dashboardBefore
+      ) {
+        await get().selectWorkspace(workspaceId);
+      }
       return;
     }
 
@@ -2368,22 +2442,18 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     const { selectedWorkspaceIds, workspaces } = get();
     const toStop = workspaces.filter((w) => selectedWorkspaceIds.has(w.id) && canStop(w));
     set({ selectionMode: false, selectedWorkspaceIds: new Set() });
-    // Reuse single-workspace stopWorkspace for full cleanup (terminal disposal, layout, status transition)
-    const failures: WorkspaceFailure[] = [];
-    // Each waits its turn, so each shows as stopping from the start, not only once it's reached.
-    const release = markPending(
+    const asking = askToDiscardUnsaved(toStop.map((w) => w.id));
+    if (asking && !(await asking)) return;
+    // Each waits its turn, so each shows as stopped from the start, not only once it's reached.
+    showStopping(
       set,
-      toStop.map((w) => w.id),
-      'stopping'
+      get,
+      toStop.map((w) => w.id)
     );
-    try {
-      for (const w of toStop) {
-        const reason = await get().stopWorkspace(w.id, { quiet: true });
-        release(w.id);
-        if (reason) failures.push({ name: w.name, reason });
-      }
-    } finally {
-      toStop.forEach((w) => release(w.id));
+    const failures: WorkspaceFailure[] = [];
+    for (const w of toStop) {
+      const reason = await stopShownStopped(set, get, w.id, { quiet: true });
+      if (reason) failures.push({ name: w.name, reason });
     }
     reportBulkFailures(set, failures, stopFailed, (count) => `Failed to stop ${count} workspaces`);
   },

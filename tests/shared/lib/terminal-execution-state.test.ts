@@ -20,6 +20,7 @@ import {
   probesOnSelect,
   reconnectableTerminals,
   sessionEndedHere,
+  shownStoppedTerminal,
   showsRunning,
   showsWorking,
   type PaneOffer,
@@ -519,6 +520,17 @@ describe('Terminal Execution State', () => {
       paneOffer(ws, { status: 'stopped', remoteSessionResumable: true, remoteSessionOnHost: false })
     );
     expect(Object.isFrozen(paneOffer(ws, ws.terminals[0]))).toBe(true);
+  });
+});
+
+describe('shownStoppedTerminal', () => {
+  it.each(Object.keys(ROWS))('shows %s as stopped, here and on the host', (name) => {
+    const row = ROWS[name];
+    const ws = workspace(row.kind, [shownStoppedTerminal({ status: 'stopped', ...row.terminal })]);
+    expect({ runningHere: isRunningHere(ws), showsRunning: showsRunning(ws) }).toEqual({
+      runningHere: false,
+      showsRunning: false,
+    });
   });
 });
 

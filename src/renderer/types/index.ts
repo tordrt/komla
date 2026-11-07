@@ -43,6 +43,7 @@ export {
   reconnectableTerminals,
   runningTerminalCount,
   showsRunning,
+  shownStoppedTerminal,
   showsTerminalRunning,
   showsWorking,
   type PaneOffer,

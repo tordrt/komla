@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 // The exceptions are the field declarations, the workspaces.json format, and the
 // lifecycle's own checks that nothing changed while it waited on the host.
 const ALLOWED: Record<string, number> = {
-  'shared/lib/terminal-execution-state.ts': 26,
+  'shared/lib/terminal-execution-state.ts': 28,
   'shared/types/terminal.ts': 3,
   'main/services/workspace/persisted-workspace.ts': 3,
   'main/services/managed-remote-terminal-lifecycle/lifecycle.ts': 5,
@@ -36,7 +36,8 @@ describe('Terminal Execution State ownership', () => {
   it('lets only the lifecycle registry write its state', () => {
     const writers = SOURCE_FILES.filter(
       (file) =>
-        file !== 'shared/lib/terminal-execution-state.ts' && countIn(file, /kind: 'managed',\s+attachment:/g) > 0
+        file !== 'shared/lib/terminal-execution-state.ts' &&
+        countIn(file, /kind: 'managed',\s+attachment:/g) > 0
     );
     expect(writers).toEqual(['main/services/managed-remote-terminal-lifecycle/registry.ts']);
   });

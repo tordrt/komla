@@ -329,6 +329,19 @@ export function hostCheckStamp(terminal: ExecutionTerminal): string {
   return `${String(terminal.remoteSessionActive)}|${String(terminal.remoteSessionOnHost)}`;
 }
 
+/**
+ * The terminal as its workspace's stop leaves it, so the renderer can show a stop before main
+ * finishes it: it runs neither here nor, as far as this device knows, on the host.
+ */
+export function shownStoppedTerminal<T extends ExecutionTerminal>(terminal: T): T {
+  return {
+    ...terminal,
+    status: 'stopped',
+    remoteSessionActive: false,
+    remoteSessionOnHost: undefined,
+  };
+}
+
 // --- Writing (main only) ---
 
 export type TerminalExecutionFields = Partial<

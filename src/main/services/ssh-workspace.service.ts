@@ -16,6 +16,10 @@ import {
   managedTmuxSessionName,
   type ManagedTmuxFindResult,
 } from '../../shared/lib/ssh-tmux-attach';
+import {
+  extractTerminalProgramStatuses,
+  type TerminalProgramStatus,
+} from '../../shared/lib/terminal-escape';
 import { komlaSshRemoteDataPort, SSH_KOMLA_FOLDER } from '../../shared/types';
 import {
   ANTIGRAVITY_ALERTS_SETTING,
@@ -2721,25 +2725,59 @@ class SshWorkspaceService {
     terminalIds: string[],
     { background = false }: { background?: boolean } = {}
   ): Promise<Set<string>> {
-    if (terminalIds.length === 0) return new Set();
+    const sessions = await this.queryTerminalSessions(backend, terminalIds, background, false);
+    return new Set(sessions.keys());
+  }
+
+  /**
+   * The terminals among `terminalIds` whose Managed Remote Terminal Session runs on the host, each
+   * with what its program last reported (OSC 7501). The companion's PTY proxy keeps that in the
+   * session's `@komla_status`, so it is there without a Terminal Attachment; there is none while
+   * no program reports, or under a companion from before it did.
+   */
+  readTerminalSessions(
+    backend: SshWorkspaceBackend,
+    terminalIds: string[],
+    { background = false }: { background?: boolean } = {}
+  ): Promise<Map<string, TerminalProgramStatus | undefined>> {
+    return this.queryTerminalSessions(backend, terminalIds, background, true);
+  }
+
+  private async queryTerminalSessions(
+    backend: SshWorkspaceBackend,
+    terminalIds: string[],
+    background: boolean,
+    withStatus: boolean
+  ): Promise<Map<string, TerminalProgramStatus | undefined>> {
+    if (terminalIds.length === 0) return new Map();
     const host = this.getHost(backend.hostId);
     const output = await this.run(
       host,
       terminalIds
-        .map(
-          (terminalId) =>
-            `if tmux -L ${TMUX_SOCKET_NAME} has-session -t ${tmuxExactTarget(terminalId)} 2>/dev/null; then printf '%s\\n' ${shellQuotePosix(terminalId)}; fi`
-        )
+        .map((terminalId) => {
+          const found = `if tmux -L ${TMUX_SOCKET_NAME} has-session -t ${tmuxExactTarget(terminalId)} 2>/dev/null; then`;
+          if (!withStatus) return `${found} printf '%s\\n' ${shellQuotePosix(terminalId)}; fi`;
+          // A pane target can't take the exact-match prefix alone, so it names the session's window.
+          const window = shellQuotePosix(`=${managedTmuxSessionName(terminalId)}:`);
+          const status = `"$(tmux -L ${TMUX_SOCKET_NAME} show-options -qv -t ${window} @komla_status 2>/dev/null)"`;
+          return `${found} printf '%s\\t%s\\n' ${shellQuotePosix(terminalId)} ${status}; fi`;
+        })
         .join('\n'),
       { purpose: { kind: background ? 'background' : 'interactive' } }
     );
     const expected = new Set(terminalIds);
-    return new Set(
-      output
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((terminalId) => expected.has(terminalId))
-    );
+    const sessions = new Map<string, TerminalProgramStatus | undefined>();
+    for (const line of output.split('\n')) {
+      const tab = line.indexOf('\t');
+      const terminalId = (tab < 0 ? line : line.slice(0, tab)).trim();
+      if (!expected.has(terminalId)) continue;
+      const fields = tab < 0 ? '' : line.slice(tab + 1).trim();
+      sessions.set(
+        terminalId,
+        fields ? extractTerminalProgramStatuses(`\x1b]7501;${fields}\x1b\\`)[0] : undefined
+      );
+    }
+    return sessions;
   }
 
   /**

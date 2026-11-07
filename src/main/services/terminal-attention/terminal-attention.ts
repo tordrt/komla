@@ -295,6 +295,10 @@ export class TerminalAttention {
   >();
   /** Spinners only copies of another installation's hooks keep on, which it can't see stop. */
   private readonly copiedAgentActivity = new Map<string, ReturnType<typeof setTimeout>>();
+  /** What the session check last read for each Terminal not attached here; see sessionStatusRead. */
+  private readonly sessionReports = new Map<string, string>();
+  /** How many hooks each Terminal took, for the session check's marks; late news isn't counted. */
+  private readonly hooksArrived = new Map<string, number>();
   /** Until when each Terminal's tool activity is late news; see isLateAgentActivity. */
   private readonly lateActivityUntil = new Map<string, number>();
   private readonly pendingOscNotifications = new Map<
@@ -329,6 +333,7 @@ export class TerminalAttention {
     // undelivered activity in this installation's mailbox; the first one stops the whole tab.
     if (hook.copy && hook.kind === 'interrupted') {
       if (target.workspace && target.terminalId) {
+        this.countHook(target.terminalId);
         this.dropManualSource(target.workspace.id);
         this.clearTerminalSourcesOnly(target.workspace.id, target.terminalId);
         this.broadcastIfAgentActiveChanged(target.workspace);
@@ -432,7 +437,10 @@ export class TerminalAttention {
     }
     if (decision === 'accept') {
       this.handleHook(hook, { ...target, workspace: target.workspace });
-      if (target.terminalId) this.noteAgentHook(target.terminalId, !!hook.copy);
+      if (target.terminalId) {
+        this.countHook(target.terminalId);
+        this.noteAgentHook(target.terminalId, !!hook.copy);
+      }
     }
     return 'taken';
   }
@@ -696,6 +704,8 @@ export class TerminalAttention {
   /** The Terminal is being removed from the workspace, which may have dropped it already. */
   removed(workspaceId: string, terminalId: string): void {
     this.forgetProgramStatus(terminalId);
+    this.hooksArrived.delete(terminalId);
+    this.sessionReports.delete(terminalId);
     this.claudePermissions.delete(terminalId);
     this.clearTerminalSources(workspaceId, terminalId);
     this.clearTerminalAttention(terminalId);
@@ -729,11 +739,13 @@ export class TerminalAttention {
   /** Spinners kept on only by copied hooks may be stale after an SSH host reconnects. */
   hostConnected(hostId: string): void {
     this.forgetCopiedAgentActivity(hostId);
+    this.forgetSessionReports(hostId);
   }
 
   /** Hooks aren't copied here while the computer sleeps, so copied spinners may be stale. */
   machineResumed(): void {
     this.forgetCopiedAgentActivity();
+    this.forgetSessionReports();
   }
 
   // ── The user ─────────────────────────────────────────────────────────────
@@ -798,6 +810,12 @@ export class TerminalAttention {
   /** The workspace is gone. Call after its Terminals were torn down. */
   workspaceDeleted(workspaceId: string): void {
     this.activeAgentSources.delete(workspaceId);
+    // It has left the store already, so its Terminals are the ones no workspace has.
+    for (const terminals of [this.hooksArrived, this.sessionReports]) {
+      for (const terminalId of terminals.keys()) {
+        if (!this.findWorkspaceByTerminalId(terminalId)) terminals.delete(terminalId);
+      }
+    }
     this.updateAttentionIndicator();
   }
 
@@ -838,15 +856,59 @@ export class TerminalAttention {
   }
 
   hookMark(terminalId: string): HookMark {
-    return { copiedHookTimer: this.copiedAgentActivity.get(terminalId) } as unknown as HookMark;
+    return { arrived: this.hooksArrived.get(terminalId) ?? 0 } as unknown as HookMark;
   }
 
-  /** Whether a copied hook arrived for the Terminal since the mark was taken. */
+  /**
+   * Whether the Terminal took a hook since the mark was taken, copied or this installation's
+   * own: it is newer than what the session check read from the host. One from an older turn is
+   * not.
+   */
   hookArrivedSince(terminalId: string, mark: HookMark): boolean {
-    const { copiedHookTimer } = mark as unknown as {
-      copiedHookTimer: ReturnType<typeof setTimeout> | undefined;
-    };
-    return this.copiedAgentActivity.get(terminalId) !== copiedHookTimer;
+    const { arrived } = mark as unknown as { arrived: number };
+    return (this.hooksArrived.get(terminalId) ?? 0) !== arrived;
+  }
+
+  /**
+   * What the program in a Terminal not attached here last reported (OSC 7501), as the session
+   * check read it from its Managed Remote Terminal Session. Copies of hooks reach only an
+   * installation that is connected, so this is how one that connects learns which agents work in
+   * sessions it isn't attached to: a program at work turns the spinner on as a copy would, until
+   * a hook or the copies' timeout stops it.
+   *
+   * Only a report that changed since the last check counts, or the first one read after the host
+   * reconnects or the computer wakes, as copied spinners stop then. Codex reports working on
+   * while a server it started runs, after its Stop ended the turn here, so the same report read
+   * again says nothing new. A report says less than hooks about how a turn ends, so any other
+   * leaves the spinner to them: Claude reports done while background work its Stop named still
+   * holds the turn. Nothing is announced: what the program raised meanwhile was for the
+   * installations there. A hook that arrived while the host was read is newer than the report,
+   * which is then only noted.
+   */
+  sessionStatusRead(
+    terminalId: string,
+    status: TerminalProgramStatus | undefined,
+    { hookSince = false }: { hookSince?: boolean } = {}
+  ): void {
+    // Attached here, its own reports are current, and the next read after it detaches counts.
+    if (this.programStatuses.has(terminalId)) {
+      this.sessionReports.delete(terminalId);
+      return;
+    }
+    const report = JSON.stringify(status ?? null);
+    if (this.sessionReports.get(terminalId) === report) return;
+    this.sessionReports.set(terminalId, report);
+    if (hookSince || status?.state !== 'working' || !status.app || status.id !== undefined) return;
+    const workspace = this.findWorkspaceByTerminalId(terminalId);
+    if (!workspace) return;
+    // A turn that works again makes the last one's done old news, as its tool activity would.
+    const attention = this.getTerminal(terminalId)?.attention;
+    if (attention?.kind === 'turn-complete' || attention?.kind === 'idle') {
+      this.clearTerminalAttention(terminalId);
+      this.updateAttentionIndicator();
+    }
+    this.ensureSource(workspace.id, status.app, terminalId);
+    this.noteAgentHook(terminalId, true);
   }
 
   // ── Hook interpretation ──────────────────────────────────────────────────
@@ -2007,6 +2069,23 @@ export class TerminalAttention {
       this.dropCopiedAgentActivity(terminalId);
       if (workspace) this.clearTerminalSourcesOnly(workspace.id, terminalId);
     }
+  }
+
+  /** Makes the session check's next read count, on one host or all of them. */
+  private forgetSessionReports(hostId?: string): void {
+    for (const terminalId of Array.from(this.sessionReports.keys())) {
+      const workspace = this.findWorkspaceByTerminalId(terminalId);
+      if (
+        !hostId ||
+        (workspace && isSshWorkspace(workspace) && workspace.backend.hostId === hostId)
+      ) {
+        this.sessionReports.delete(terminalId);
+      }
+    }
+  }
+
+  private countHook(terminalId: string): void {
+    this.hooksArrived.set(terminalId, (this.hooksArrived.get(terminalId) ?? 0) + 1);
   }
 
   private dropCopiedAgentActivity(terminalId: string): void {

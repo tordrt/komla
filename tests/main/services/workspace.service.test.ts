@@ -27,6 +27,7 @@ import type {
   AgentHook,
   TerminalAttention,
 } from '../../../src/main/services/terminal-attention/terminal-attention';
+import type { TerminalProgramStatus } from '../../../src/shared/lib/terminal-escape';
 import type { Project } from '../../../src/shared/types/project';
 import type { Terminal } from '../../../src/shared/types/terminal';
 import type { OriginStartPoint } from '../../../src/main/services/git/git-branch';
@@ -501,6 +502,19 @@ const mockSshWorkspaceService = {
   forgetHost: vi.fn(),
   killTerminalSessions: vi.fn(() => Promise.resolve()),
   findTerminalSessions: vi.fn(() => Promise.resolve(new Set<string>())),
+  // Asks findTerminalSessions which sessions run, as the service does, so tests set both through it.
+  readTerminalSessions: vi.fn(
+    async (
+      backend: unknown,
+      terminalIds: string[],
+      options?: unknown
+    ): Promise<Map<string, TerminalProgramStatus | undefined>> => {
+      const running = await (
+        mockSshWorkspaceService.findTerminalSessions as (...args: unknown[]) => Promise<Set<string>>
+      )(backend, terminalIds, options);
+      return new Map(Array.from(running, (terminalId) => [terminalId, undefined]));
+    }
+  ),
   relayInterrupt: vi.fn(() => Promise.resolve()),
   warmConnections: vi.fn(),
   supportsPersistentTerminalSessions: vi.fn(() => Promise.resolve(true)),
@@ -10339,6 +10353,28 @@ describe('WorkspaceService', () => {
       expect(other?.remoteSessionActive).toBeUndefined();
       expect(workspaceService.get('ws-42')?.terminals[0]?.remoteSessionOnHost).toBe(false);
       expect(vfs.getFile('/mock/home/.komla/workspaces.json')).not.toContain('remoteSessionOnHost');
+    });
+
+    it("shows the spinner of a tab whose session's program works, unopened", async () => {
+      mockPtyService.getStatus.mockReturnValue(undefined);
+      onHost(startedElsewhere);
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      mockSshWorkspaceService.readTerminalSessions.mockResolvedValueOnce(
+        new Map([['t-other', { state: 'working', app: 'claude-code' }]])
+      );
+
+      // Its turn started while this installation was away, so no copy of its hooks came.
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.advanceTimersByTimeAsync(600);
+      expect(workspaceService.get('ws-other')?.agentActive).toBe(true);
+
+      // How its turn ends is the hooks' to tell: background work may still hold it.
+      mockSshWorkspaceService.readTerminalSessions.mockResolvedValueOnce(
+        new Map([['t-other', { state: 'idle', app: 'claude-code' }]])
+      );
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.advanceTimersByTimeAsync(600);
+      expect(workspaceService.get('ws-other')?.agentActive).toBe(true);
     });
 
     // Added before its agent's tmux session starts, it showed in the sidebar but counted as

@@ -663,6 +663,57 @@ describe('generateTmuxServerScript', () => {
   );
 });
 
+describe('sshWorkspaceService against a real tmux', () => {
+  it.skipIf(spawnSync('tmux', ['-V']).status !== 0)(
+    "reads the status the PTY proxy keeps in each session's option",
+    async () => {
+      const { sshWorkspaceService } =
+        await import('../../../src/main/services/ssh-workspace.service');
+      const tempPath = mkdtempSync(join(tmpdir(), 'komla-tmux-status-'));
+      const { TMUX: _tmux, TMUX_PANE: _pane, ...env } = process.env;
+      const tmuxEnv = { ...env, TMUX_TMPDIR: tempPath };
+      const tmux = (...args: string[]) =>
+        execFileSync('tmux', ['-L', 'komla-v1', ...args], { env: tmuxEnv, encoding: 'utf8' });
+      const host = { id: 'ssh-tmux-status', name: 'tmux status', hostname: 'tmux.example.com' };
+      sshHosts.push(host as (typeof sshHosts)[number]);
+      const run = vi
+        .spyOn(sshWorkspaceService, 'run')
+        .mockImplementation(async (_host, command) =>
+          execFileSync('/bin/sh', ['-c', command], { env: tmuxEnv, encoding: 'utf8' })
+        );
+      const backend = {
+        kind: 'ssh' as const,
+        hostId: host.id,
+        remoteDirectory: tempPath,
+        remoteRepoPath: '/home/dev/repo.git',
+        remoteProjectRoot: '/home/dev',
+        gitUrl: 'git@example.com:repo.git',
+      };
+
+      try {
+        // A session whose name the other starts with, which only an exact target tells apart.
+        tmux('new-session', '-d', '-s', 'komla-term-a', 'exec sleep 60');
+        tmux('new-session', '-d', '-s', 'komla-term-ab', 'exec sleep 60');
+        tmux('set-option', '-t', '=komla-term-ab:', '@komla_status', 'state=working:app=codex');
+
+        await expect(
+          sshWorkspaceService.readTerminalSessions(backend, ['term-a', 'term-ab', 'term-gone'])
+        ).resolves.toEqual(
+          new Map([
+            ['term-a', undefined],
+            ['term-ab', { state: 'working', app: 'codex' }],
+          ])
+        );
+      } finally {
+        run.mockRestore();
+        sshHosts.splice(sshHosts.indexOf(host as (typeof sshHosts)[number]), 1);
+        spawnSync('tmux', ['-L', 'komla-v1', 'kill-server'], { env: tmuxEnv });
+        rmSync(tempPath, { recursive: true, force: true });
+      }
+    }
+  );
+});
+
 describe('sshWorkspaceService', () => {
   beforeEach(() => {
     execFileMock.mockReset();
@@ -2324,9 +2375,57 @@ describe('sshWorkspaceService', () => {
     const remoteCommand = (execFileMock.mock.calls[0][1] as string[]).at(-1) ?? '';
     expect(remoteCommand).toContain('=komla-term-a');
     expect(remoteCommand).toContain('=komla-term-b');
+    // Only the session check reads what each program reported.
+    expect(remoteCommand).not.toContain('@komla_status');
     expect(remoteCommand).not.toContain('list-sessions');
     expect(remoteCommand).not.toContain('command -v tmux');
     expect(remoteCommand).not.toContain('list-commands');
+  });
+
+  it("reads what each running session's program last reported", async () => {
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      callback(null, {
+        stdout: [
+          'term-a\tstate=working:app=claude-code:msg=UnVuIGxzPw==',
+          'term-b\t',
+          'term-c\tstate=bogus',
+          'term-x\tstate=working:app=codex',
+          '',
+        ].join('\n'),
+        stderr: '',
+      });
+    });
+    const { sshWorkspaceService } =
+      await import('../../../src/main/services/ssh-workspace.service');
+    const backend = {
+      kind: 'ssh' as const,
+      hostId: 'ssh-dev',
+      remoteDirectory: '/home/devuser/.komla/worktrees/komla/tmux-test',
+      remoteRepoPath: '/home/devuser/.komla/repos/komla/repo.git',
+      remoteProjectRoot: '/home/devuser/.komla/worktrees/komla',
+      gitUrl: 'https://github.com/komla-dev/komla.git',
+      projectName: 'komla',
+    };
+
+    const sessions = await sshWorkspaceService.readTerminalSessions(backend, [
+      'term-a',
+      'term-b',
+      'term-c',
+      'term-d',
+    ]);
+
+    expect(sessions).toEqual(
+      new Map([
+        ['term-a', { state: 'working', app: 'claude-code', msg: 'Run ls?' }],
+        ['term-b', undefined],
+        ['term-c', undefined],
+      ])
+    );
+    const remoteCommand = (execFileMock.mock.calls[0][1] as string[]).at(-1) ?? '';
+    // A pane target can't take the exact-match prefix alone.
+    expect(remoteCommand).toContain('=komla-term-a:');
+    expect(remoteCommand).toContain('@komla_status');
+    expect(remoteCommand).not.toContain('list-sessions');
   });
 
   it('relays an interrupt through the companion this device installed', async () => {

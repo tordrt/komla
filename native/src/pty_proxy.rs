@@ -15,10 +15,16 @@
 //! which a shell started without the proxy ignores, and the proxy repeats a `working` or
 //! `blocked` the program is still in; Komla doesn't ask again for a prompt it still shows. A turn
 //! that ended meanwhile is left to the hooks waiting in the companion's mailbox.
+//!
+//! Hooks reach another installation only while it is connected, so one that connects learns from
+//! the session itself which of the terminals it isn't attached to have a program at work: the
+//! proxy keeps the session's `@komla_status` at the program's latest report.
 
 use std::borrow::Cow;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -32,6 +38,8 @@ use base64::Engine;
 const STATUS_PREFIX: &[u8] = b"\x1b]7501;";
 const QUERY_REPLY: &[u8] = b"\x1b]7501;?\x1b\\";
 const CLEAR_REPORT: &[u8] = b"\x1b]7501;state=clear\x1b\\";
+/// The session option that holds the fields of the program's latest report.
+const STATUS_OPTION: &str = "@komla_status";
 // Reports are a few hundred bytes; a longer sequence passes through as it came.
 const MAX_STATUS_BYTES: usize = 8 * 1024;
 // Input waiting for the shell to read it before the proxy stops reading more.
@@ -54,8 +62,18 @@ const LENIENT_BASE64: GeneralPurpose = GeneralPurpose::new(
 pub(crate) enum ProgramReport {
     /// A `working` or `blocked` as it came, to repeat once a client attaches.
     Ongoing(Vec<u8>),
-    Reporting,
+    /// An `idle`, `done` or `error` as it came.
+    Reporting(Vec<u8>),
     Clear,
+}
+
+impl ProgramReport {
+    fn sequence(&self) -> Option<&[u8]> {
+        match self {
+            Self::Ongoing(sequence) | Self::Reporting(sequence) => Some(sequence),
+            Self::Clear => None,
+        }
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -231,7 +249,7 @@ fn program_report(body: &[u8], sequence: &[u8]) -> Option<ProgramReport> {
     match state? {
         b"clear" => Some(ProgramReport::Clear),
         b"working" | b"blocked" => Some(ProgramReport::Ongoing(sequence.to_vec())),
-        b"idle" | b"done" | b"error" => Some(ProgramReport::Reporting),
+        b"idle" | b"done" | b"error" => Some(ProgramReport::Reporting(sequence.to_vec())),
         _ => None,
     }
 }
@@ -342,7 +360,10 @@ fn relay(master: &OwnedFd, signals: RawFd, child: &mut Child) -> anyhow::Result<
     let mut carry_since: Option<Instant> = None;
     // The foreground process group of the program that reports its status.
     let mut reporter: Option<libc::pid_t> = None;
-    let mut ongoing: Option<Vec<u8>> = None;
+    // The program's latest report until it clears: the session's status shows it, and a
+    // `working` or `blocked` is repeated to a client that attaches.
+    let mut latest: Option<ProgramReport> = None;
+    let mut session_status = SessionStatus::from_environment();
     let mut input = io::stdin().lock();
     let mut output = io::stdout().lock();
     let mut buffer = vec![0; READ_BYTES];
@@ -376,14 +397,15 @@ fn relay(master: &OwnedFd, signals: RawFd, child: &mut Child) -> anyhow::Result<
             if signal.contains(&(libc::SIGWINCH as u8)) {
                 copy_window_size(master_fd);
             }
-            if let Some(report) = ongoing
-                .as_deref()
+            if let Some(ProgramReport::Ongoing(report)) = latest
+                .as_ref()
                 .filter(|_| signal.contains(&(libc::SIGCONT as u8)))
             {
                 output.write_all(&tmux_passthrough(report))?;
                 output.flush()?;
             }
             if signal.contains(&(libc::SIGCHLD as u8)) {
+                session_status.update();
                 if let Some(status) = child.try_wait()? {
                     // Anything the shell wrote before it exited is still to be read.
                     drain(master_fd, &mut filter, &mut output, &mut buffer)?;
@@ -423,30 +445,132 @@ fn relay(master: &OwnedFd, signals: RawFd, child: &mut Child) -> anyhow::Result<
                 pending_input.write_to(master_fd)?;
             }
             output.write_all(&filtered.output)?;
+            let reported = !filtered.reports.is_empty();
             for report in filtered.reports {
-                (reporter, ongoing) = match report {
-                    ProgramReport::Clear => (None, None),
-                    ProgramReport::Ongoing(report) => (
-                        reporter.or_else(|| foreground_group(master_fd)),
-                        Some(report),
-                    ),
-                    ProgramReport::Reporting => {
-                        (reporter.or_else(|| foreground_group(master_fd)), None)
-                    }
-                };
+                if report == ProgramReport::Clear {
+                    (reporter, latest) = (None, None);
+                } else {
+                    reporter = reporter.or_else(|| foreground_group(master_fd));
+                    latest = Some(report);
+                }
             }
             // A killed program sends no clear. Without job control it shares the shell's group,
             // and nothing tells.
-            if reporter.is_some_and(|group| {
+            let killed = reporter.is_some_and(|group| {
                 group != shell_group
                     && (!group_exists(group) || foreground_group(master_fd) == Some(shell_group))
-            }) {
-                (reporter, ongoing) = (None, None);
+            });
+            if killed {
+                (reporter, latest) = (None, None);
                 output.write_all(&tmux_passthrough(CLEAR_REPORT))?;
             }
             output.flush()?;
+            if reported || killed {
+                session_status.show(latest.as_ref().and_then(ProgramReport::sequence));
+            }
         }
     }
+}
+
+/// Keeps the session's `@komla_status` at the fields of the program's latest report, or unset
+/// while no program reports. One tmux runs at a time, so a report can't land before the one it
+/// follows; a report that comes meanwhile waits for it to exit, and only the latest is sent.
+struct SessionStatus {
+    program: OsString,
+    /// The tmux socket and the pane's id, or None outside a tmux pane or once tmux can't be run.
+    target: Option<(OsString, OsString)>,
+    shown: Option<Vec<u8>>,
+    wanted: Option<Vec<u8>>,
+    setter: Option<Child>,
+}
+
+impl SessionStatus {
+    fn from_environment() -> Self {
+        // `$TMUX` is the socket's path, the server's pid and the session's index.
+        let socket = std::env::var_os("TMUX").and_then(|value| {
+            let socket = value.as_bytes().split(|&byte| byte == b',').next()?;
+            (!socket.is_empty()).then(|| OsString::from_vec(socket.to_vec()))
+        });
+        let pane = std::env::var_os("TMUX_PANE").filter(|pane| !pane.is_empty());
+        Self::new(OsString::from("tmux"), socket.zip(pane))
+    }
+
+    fn new(program: OsString, target: Option<(OsString, OsString)>) -> Self {
+        Self {
+            program,
+            target,
+            shown: None,
+            wanted: None,
+            setter: None,
+        }
+    }
+
+    /// Shows the report's fields, or unsets the option for None.
+    fn show(&mut self, report: Option<&[u8]>) {
+        self.wanted = report.and_then(option_value).map(<[u8]>::to_vec);
+        self.update();
+    }
+
+    /// Sends the latest report once the tmux before it has exited. Called again on SIGCHLD.
+    fn update(&mut self) {
+        if let Some(setter) = &mut self.setter {
+            if matches!(setter.try_wait(), Ok(None)) {
+                return;
+            }
+            self.setter = None;
+        }
+        if self.wanted == self.shown {
+            return;
+        }
+        let Some((socket, pane)) = &self.target else {
+            return;
+        };
+        let mut command = Command::new(&self.program);
+        command.arg("-S").arg(socket).arg("set-option");
+        match &self.wanted {
+            Some(value) => command
+                .arg("-t")
+                .arg(pane)
+                .arg(STATUS_OPTION)
+                .arg(OsStr::from_bytes(value)),
+            None => command.args(["-u", "-t"]).arg(pane).arg(STATUS_OPTION),
+        };
+        // Its output would land in the pane.
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        match command.spawn() {
+            Ok(setter) => {
+                self.setter = Some(setter);
+                self.shown = self.wanted.clone();
+            }
+            // Without a tmux to run, Komla learns of the program once it attaches. A failure that
+            // may pass, as at the process limit, leaves it for the next report.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                self.target = None;
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+/// A report's fields as the session's option holds them, or None for a report Komla would read
+/// differently there: tmux takes an argument ending in `;` as the end of its command, and one
+/// starting with `-` as a flag.
+fn option_value(report: &[u8]) -> Option<&[u8]> {
+    let body = report.strip_prefix(STATUS_PREFIX)?;
+    let body = body
+        .strip_suffix(b"\x07")
+        .or_else(|| body.strip_suffix(b"\x1b\\"))?;
+    let printable = body.iter().all(|byte| (0x20..=0x7e).contains(byte));
+    (printable && !body.is_empty() && !body.starts_with(b"-") && !body.ends_with(b";"))
+        .then_some(body)
 }
 
 fn drain(
@@ -779,7 +903,7 @@ mod tests {
             vec![
                 ProgramReport::Ongoing(b"\x1b]7501;state=working:app=x\x07".to_vec()),
                 ProgramReport::Ongoing(b"\x1b]7501;state=blocked:kind=permission\x07".to_vec()),
-                ProgramReport::Reporting,
+                ProgramReport::Reporting(b"\x1b]7501;state=idle\x07".to_vec()),
                 ProgramReport::Clear
             ]
         );
@@ -806,10 +930,104 @@ mod tests {
         assert_eq!(
             filtered.reports,
             vec![
-                ProgramReport::Reporting,
-                ProgramReport::Reporting,
-                ProgramReport::Reporting
+                ProgramReport::Reporting(b"\x1b]7501;state=done:msg=aGk\x07".to_vec()),
+                ProgramReport::Reporting(b"\x1b]7501;state=done:msg=aGl=\x07".to_vec()),
+                ProgramReport::Reporting(b"\x1b]7501;state=done:msg=\x07".to_vec())
             ]
         );
+    }
+
+    #[test]
+    fn keeps_the_fields_of_a_report_tmux_reads_as_they_are() {
+        assert_eq!(
+            option_value(b"\x1b]7501;state=working:app=x:msg=aGk=\x1b\\"),
+            Some(b"state=working:app=x:msg=aGk=".as_slice())
+        );
+        assert_eq!(
+            option_value(b"\x1b]7501;state=done\x07"),
+            Some(b"state=done".as_slice())
+        );
+        for unreadable in [
+            b"\x1b]7501;\x07".as_slice(),
+            b"\x1b]7501;state=working:title=a\nb\x07",
+            "\x1b]7501;state=working:app=\u{e9}\x07".as_bytes(),
+            b"\x1b]7501;state=working:app=x;\x07",
+            b"\x1b]7501;-state=working\x07",
+        ] {
+            assert_eq!(option_value(unreadable), None, "{unreadable:?}");
+        }
+    }
+
+    /// A tmux that logs its arguments a line each, and takes its time.
+    fn slow_tmux(directory: &std::path::Path) -> (OsString, std::path::PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = directory.join("calls");
+        let program = directory.join("tmux");
+        std::fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\nsleep 0.2\nprintf '%s\\n' \"$*\" >> '{}'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        (program.into_os_string(), log)
+    }
+
+    fn wait_for_setter(status: &mut SessionStatus) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while status.setter.is_some() || status.wanted != status.shown {
+            assert!(Instant::now() < deadline, "tmux never finished");
+            std::thread::sleep(Duration::from_millis(20));
+            status.update();
+        }
+    }
+
+    #[test]
+    fn sends_the_session_only_the_latest_report_one_tmux_at_a_time() {
+        let directory = tempfile::tempdir().unwrap();
+        let (program, log) = slow_tmux(directory.path());
+        let mut status = SessionStatus::new(
+            program,
+            Some((OsString::from("/tmp/socket"), OsString::from("%3"))),
+        );
+
+        status.show(Some(b"\x1b]7501;state=working:app=x\x07"));
+        // These come while the first tmux runs; only the last is sent after it.
+        status.show(Some(b"\x1b]7501;state=blocked:app=x\x07"));
+        status.show(None);
+        status.show(Some(b"\x1b]7501;state=idle:app=x\x07"));
+        wait_for_setter(&mut status);
+        // Already shown.
+        status.show(Some(b"\x1b]7501;state=idle:app=x\x07"));
+        assert!(status.setter.is_none());
+        status.show(Some(b"\x1b]7501;state=bogus\nfield\x07"));
+        wait_for_setter(&mut status);
+
+        assert_eq!(
+            std::fs::read_to_string(log).unwrap(),
+            "-S /tmp/socket set-option -t %3 @komla_status state=working:app=x\n\
+             -S /tmp/socket set-option -t %3 @komla_status state=idle:app=x\n\
+             -S /tmp/socket set-option -u -t %3 @komla_status\n"
+        );
+    }
+
+    #[test]
+    fn leaves_the_session_alone_outside_tmux_or_without_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let (program, log) = slow_tmux(directory.path());
+        let mut outside = SessionStatus::new(program, None);
+        outside.show(Some(b"\x1b]7501;state=working:app=x\x07"));
+        assert!(outside.setter.is_none());
+
+        let mut missing = SessionStatus::new(
+            directory.path().join("missing").into_os_string(),
+            Some((OsString::from("/tmp/socket"), OsString::from("%3"))),
+        );
+        missing.show(Some(b"\x1b]7501;state=working:app=x\x07"));
+        missing.show(None);
+        assert!(missing.target.is_none());
+        assert!(!log.exists());
     }
 }

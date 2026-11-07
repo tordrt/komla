@@ -499,6 +499,34 @@ describe('Terminal Attention State: spinner and attention', () => {
       expect(attention.hookArrivedSince('t1', mark)).toBe(true);
       expect(attention.hookArrivedSince('t1', attention.hookMark('t1'))).toBe(false);
     });
+
+    it("tells the session check of a copied done, and of this installation's own hooks", async () => {
+      const { attention, toTerminal } = createAttentionHarness([sshWorkspace()]);
+
+      // No copy keeps the spinner on, so the done changes no timeout.
+      let mark = attention.hookMark('t1');
+      await attention.hook(toTerminal('t1'), { ...done('claude-code'), copy: true });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(attention.hookArrivedSince('t1', mark)).toBe(true);
+
+      // Hooks waiting in its companion's mailbox come as it connects.
+      mark = attention.hookMark('t1');
+      await attention.hook(toTerminal('t1'), working('claude-code'));
+      expect(attention.hookArrivedSince('t1', mark)).toBe(true);
+      expect(attention.hookArrivedSince('t2', attention.hookMark('t2'))).toBe(false);
+    });
+
+    it("forgets the hooks of a deleted workspace's Terminals", async () => {
+      const { attention, remove, toTerminal } = createAttentionHarness([sshWorkspace()]);
+      await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
+      expect(attention.hookArrivedSince('t1', attention.hookMark('t1'))).toBe(false);
+
+      remove('ws-42');
+      attention.workspaceDeleted('ws-42');
+
+      // As for a Terminal no hook ever came for.
+      expect(attention.hookMark('t1')).toEqual(createAttentionHarness().attention.hookMark('t1'));
+    });
   });
 
   describe('a Terminal whose session is gone from its host', () => {
@@ -514,6 +542,148 @@ describe('Terminal Attention State: spinner and attention', () => {
       expect(terminal('t1').agentActive).toBe(false);
       expect(relay.interrupted).not.toHaveBeenCalled();
     });
+  });
+
+  describe('a Terminal not attached here whose session the check read', () => {
+    it('shows the spinner of a program at work, without announcing anything', () => {
+      const { attention, relay, windows, turnActivity, workspace, terminal } =
+        createAttentionHarness([sshWorkspace()]);
+
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+
+      expect(workspace('ws-42').agentActive).toBe(true);
+      expect(terminal('t1').agentActive).toBe(true);
+      expect(windows.attentionRaised).not.toHaveBeenCalled();
+      expect(turnActivity).not.toHaveBeenCalled();
+      expect(relay.interrupted).not.toHaveBeenCalled();
+    });
+
+    it("doesn't apply an unchanged report again: a server keeps Codex reporting working", async () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+      attention.sessionStatusRead('t1', { state: 'working', app: 'codex' });
+      expect(workspace('ws-42').agentActive).toBe(true);
+
+      // Its Stop ended the turn where it is attached, so no copy keeps the spinner on.
+      await vi.advanceTimersByTimeAsync(31 * 60_000);
+      expect(workspace('ws-42').agentActive).toBe(false);
+      attention.sessionStatusRead('t1', { state: 'working', app: 'codex' });
+      expect(workspace('ws-42').agentActive).toBe(false);
+
+      // A new turn reports again.
+      attention.sessionStatusRead('t1', { state: 'idle', app: 'codex' });
+      attention.sessionStatusRead('t1', { state: 'working', app: 'codex' });
+      expect(workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('applies the same report again once the host reconnects or the computer wakes', () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+
+      attention.hostConnected('ssh-host-1');
+      expect(workspace('ws-42').agentActive).toBe(false);
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      expect(workspace('ws-42').agentActive).toBe(true);
+
+      attention.machineResumed();
+      expect(workspace('ws-42').agentActive).toBe(false);
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      expect(workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('only notes a report read while a hook arrived, which is newer', () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+
+      attention.sessionStatusRead('t1', { state: 'working', app: 'codex' }, { hookSince: true });
+      attention.sessionStatusRead('t1', { state: 'working', app: 'codex' });
+
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('applies the first report after the Terminal was attached here', () => {
+      const { attention, workspace, terminal } = createAttentionHarness([sshWorkspace('running')]);
+      attention.programStatusChanged('t1', { state: 'idle', app: 'claude-code' });
+      // Its own reports are current here.
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+
+      attention.attachmentEnded('t1');
+      terminal('t1').status = 'stopped';
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      expect(workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('keeps it on as copies would, until their timeout or the host reconnects', async () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      expect(attention.persistedSources('ws-42', 't1')).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(31 * 60_000);
+      expect(workspace('ws-42').agentActive).toBe(false);
+
+      attention.hostConnected('ssh-host-1');
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      attention.hostConnected('ssh-host-1');
+      expect(workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('ends with the copy of its done', async () => {
+      const { attention, workspace, toTerminal } = createAttentionHarness([sshWorkspace()]);
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+
+      await attention.hook(toTerminal('t1'), { ...done('claude-code'), copy: true });
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it.each(['idle', 'done', 'error', 'blocked'])(
+      'leaves a spinner its hooks keep on to them when its program reports %s',
+      async (state) => {
+        const { attention, workspace, toTerminal } = createAttentionHarness([sshWorkspace()]);
+        await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
+        // Claude reports done while the background tests its Stop named still hold the turn.
+        await attention.hook(toTerminal('t1'), {
+          ...done('claude-code'),
+          copy: true,
+          hookInput: {
+            hook_event_name: 'Stop',
+            background_tasks: [{ type: 'shell', status: 'running', command: 'npm test' }],
+          },
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(workspace('ws-42').agentActive).toBe(true);
+
+        attention.sessionStatusRead('t1', { state, app: 'claude-code' });
+
+        expect(workspace('ws-42').agentActive).toBe(true);
+      }
+    );
+
+    it("makes the last turn's done old news once its program works again", async () => {
+      const { attention, workspace, terminal, toTerminal } = createAttentionHarness([
+        sshWorkspace(),
+      ]);
+      await attention.hook(toTerminal('t1'), { ...done('claude-code'), copy: true });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(terminal('t1').attention?.kind).toBe('turn-complete');
+
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+
+      expect(terminal('t1').attention).toBeUndefined();
+      expect(workspace('ws-42').needsAttention).toBe(false);
+    });
+
+    it('leaves the spinner off without a report, or with one Komla ignores', () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+
+      attention.sessionStatusRead('t1', undefined);
+      // A record of the program's own, or one that names no program.
+      attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code', id: 'agent-1' });
+      attention.sessionStatusRead('t1', { state: 'working' });
+
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+    });
+
   });
 
   describe('saved spinners', () => {

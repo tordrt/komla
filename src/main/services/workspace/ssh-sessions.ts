@@ -20,6 +20,7 @@ import { sshWorkspaceService } from '../ssh-workspace.service';
 
 import { workspaceStore } from './store';
 
+import type { TerminalProgramStatus } from '../../../shared/lib/terminal-escape';
 import type { Terminal, Workspace } from '../../../shared/types';
 import type { SshWorkspaceSync } from '../ssh-workspace-sync/ssh-workspace-sync';
 import type { HookMark, TerminalAttention } from '../terminal-attention/terminal-attention';
@@ -91,13 +92,13 @@ export class SshSessionRecovery {
       }
     }
     const [first] = checks;
-    const running = first
-      ? await sshWorkspaceService.findTerminalSessions(
+    const sessions = first
+      ? await sshWorkspaceService.readTerminalSessions(
           first.workspace.backend,
           checks.map(({ terminal }) => terminal.id),
           { background: true }
         )
-      : new Set<string>();
+      : new Map<string, TerminalProgramStatus | undefined>();
     for (const { workspace, terminal, ...seen } of checks) {
       // The workspace, or this device's own view of the session, changed while the host was checked.
       if (
@@ -108,17 +109,24 @@ export class SshSessionRecovery {
       ) {
         continue;
       }
-      const onHost = running.has(terminal.id);
-      // A hook copied during the check means its session may have started after the host was read.
-      const copiedSince = this.deps.attention.hookArrivedSince(terminal.id, seen.hooks);
+      const onHost = sessions.has(terminal.id);
+      // A hook during the check is newer than the host it read: its session may have started, or
+      // its program changed state, since.
+      const hookSince = this.deps.attention.hookArrivedSince(terminal.id, seen.hooks);
       // Kept on by copies of hooks from a session that has since ended.
-      if (!onHost && !copiedSince) this.deps.attention.sessionGone(terminal.id);
+      if (!onHost && !hookSince) this.deps.attention.sessionGone(terminal.id);
+      // Copies of the hooks that ran while this installation was away never come.
+      if (onHost) {
+        this.deps.attention.sessionStatusRead(terminal.id, sessions.get(terminal.id), {
+          hookSince,
+        });
+      }
       if (!onHost && seen.endsIfGone) {
         // Gone after it was seen running, e.g. stopped elsewhere: selecting it restarts the
         // agent, where reconnecting would open a shell in a new, empty session. If that can't
         // be settled now, it stays as it was for the next sync: "missing" would never end.
         if (
-          !copiedSince &&
+          !hookSince &&
           managedRemoteTerminalLifecycleService.sessionGoneFromHost(terminal.id, seen.tracked)
         ) {
           ended = true;

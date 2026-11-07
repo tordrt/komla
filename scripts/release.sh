@@ -587,31 +587,31 @@ run_smoke_test() {
     success "Bundled version matches: $bundled_version"
   fi
 
-  # Launch app and capture stderr
-  local stderr_log
-  stderr_log=$(mktemp)
-  open -g -a "$app_path" 2>"$stderr_log" &
-  local open_pid=$!
+  # Launch the app's executable itself, with data of its own, and watch that process. `open`
+  # would only bring forward a Komla of the same bundle ID already running here, such as the
+  # one this release runs in, as macOS runs one app per bundle ID; and finding the app by name
+  # could find, and kill, that one.
+  local smoke_dir
+  smoke_dir=$(mktemp -d)
+  local stderr_log="$smoke_dir/stderr.log"
+  KOMLA_DATA_DIR="$smoke_dir/data" "$app_path/Contents/MacOS/${app_name%.app}" \
+    --user-data-dir="$smoke_dir/user-data" >/dev/null 2>"$stderr_log" &
+  local app_pid=$!
   sleep 5
 
-  # Find the actual app process
-  local app_pid
-  app_pid=$(pgrep -f "${app_name}/Contents/MacOS/" 2>/dev/null || true)
-
-  if [[ -n "$app_pid" ]]; then
-    # App is running, kill it
+  if kill -0 "$app_pid" 2>/dev/null; then
     kill "$app_pid" 2>/dev/null || true
-    wait "$open_pid" 2>/dev/null || true
+    wait "$app_pid" 2>/dev/null || true
     success "Smoke test passed — app launched successfully"
   else
-    # Check if it crashed
-    wait "$open_pid" 2>/dev/null || true
+    local status=0
+    wait "$app_pid" 2>/dev/null || status=$?
     if [[ -s "$stderr_log" ]]; then
       warn "App stderr output:"
-      cat "$stderr_log" >&2
+      tail -40 "$stderr_log" >&2
     fi
-    rm -f "$stderr_log"
-    die "Smoke test failed — app crashed on launch"
+    rm -rf "$smoke_dir"
+    die "Smoke test failed — app exited on launch (status $status)"
   fi
 
   # Report any stderr warnings (don't fail — some Electron noise is normal)
@@ -619,7 +619,7 @@ run_smoke_test() {
     warn "App produced stderr output during launch:"
     head -20 "$stderr_log" >&2
   fi
-  rm -f "$stderr_log"
+  rm -rf "$smoke_dir"
 }
 
 # ---- phase ordering --------------------------------------------------------

@@ -100,6 +100,157 @@ describe('AgentsMenuBarPopover', () => {
     expect(api.resizeAgentsMenuBar).toHaveBeenCalled();
   });
 
+  it('tells what an agent did or does by its title, or else by its reply or prompt', async () => {
+    const user = userEvent.setup();
+    // Its title names the row, so under it, what it replied.
+    const finished = createWorkspace({
+      name: 'finished',
+      terminals: [
+        createTerminal({
+          status: 'running',
+          attention: attention('turn-complete', 'Yes. On main the card just disappeared.'),
+        }),
+      ],
+    });
+    // Its custom name hides the title the agent set, which says what it did.
+    const titledDone = createWorkspace({
+      name: 'titled-done',
+      customName: 'Hiding polish',
+      terminals: [
+        createTerminal({
+          status: 'running',
+          dynamicTitle: 'Graceful hiding',
+          attention: attention('turn-complete', 'It fades now.'),
+        }),
+      ],
+    });
+    // Its custom name hides the title the agent set while working, which says what it's on now.
+    const titled = createWorkspace({
+      name: 'titled',
+      customName: 'Hiding transition',
+      agentActive: true,
+      promptSubmits: [{ prompt: 'make hiding graceful', submittedAt: Date.now() }],
+      terminals: [
+        createTerminal({ status: 'running', agentActive: true, dynamicTitle: '✳ Fading cards' }),
+      ],
+    });
+    // Its title already names the row, so under it, what it was asked.
+    const untitled = createWorkspace({
+      name: 'untitled',
+      agentActive: true,
+      promptSubmits: [{ prompt: 'fix the flaky test', submittedAt: Date.now() }],
+      terminals: [
+        createTerminal({ status: 'running', agentActive: true, dynamicTitle: 'Flaky test' }),
+      ],
+    });
+    render(<AgentsMenuBarPopover />);
+    act(() => sendState(state({ workspaces: [finished, titledDone, titled, untitled] })));
+
+    expect(screen.getByRole('button', { name: /finished/ })).toHaveTextContent(
+      /^Done:finished5mYes\. On main the card just disappeared\.$/
+    );
+    expect(screen.getByRole('button', { name: /Hiding polish/ })).toHaveTextContent(
+      /^Done:Hiding polish5mGraceful hiding$/
+    );
+    expect(screen.getByRole('button', { name: /Hiding transition/ })).toHaveTextContent(
+      /^Working:Hiding transitionFading cards$/
+    );
+    expect(screen.getByRole('button', { name: /Flaky test/ })).toHaveTextContent(
+      /^Working:Flaky testfix the flaky test$/
+    );
+
+    // Its reply is a hover away.
+    await user.hover(screen.getByRole('button', { name: /Hiding polish/ }));
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('It fades now.');
+  });
+
+  it("doesn't take a title that tells nothing new for what an agent did", () => {
+    // The title it starts with is just its name.
+    const generic = createWorkspace({
+      name: 'generic',
+      customName: 'Generic title',
+      terminals: [
+        createTerminal({
+          status: 'running',
+          name: 'Claude Code',
+          dynamicTitle: '✳ Claude Code',
+          attention: attention('turn-complete', 'Renamed the store.'),
+        }),
+      ],
+    });
+    // Its title is the row's name but for the spinner glyph.
+    const glyphed = createWorkspace({
+      name: 'glyphed',
+      customName: 'Fading cards',
+      agentActive: true,
+      promptSubmits: [{ prompt: 'fade the cards', submittedAt: Date.now() }],
+      terminals: [
+        createTerminal({ status: 'running', agentActive: true, dynamicTitle: '✳ Fading cards' }),
+      ],
+    });
+    // Its title is the row's name but for case and the glyph.
+    const recased = createWorkspace({
+      name: 'recased',
+      customName: 'fading tabs ',
+      terminals: [
+        createTerminal({
+          status: 'running',
+          dynamicTitle: '✳ Fading tabs',
+          attention: attention('turn-complete', 'Tabs fade too.'),
+        }),
+      ],
+    });
+    // The heading its notification gave says more than its terminal's title.
+    const headed = createWorkspace({
+      name: 'headed',
+      customName: 'Headed',
+      terminals: [
+        createTerminal({
+          status: 'running',
+          dynamicTitle: 'Open the PR',
+          attention: { ...attention('turn-complete', 'Opened #42.'), title: 'PR opened' },
+        }),
+      ],
+    });
+    render(<AgentsMenuBarPopover />);
+    act(() => sendState(state({ workspaces: [generic, glyphed, recased, headed] })));
+
+    expect(screen.getByRole('button', { name: /Generic title/ })).toHaveTextContent(
+      /^Done:Generic title5mRenamed the store\.$/
+    );
+    expect(screen.getByRole('button', { name: /Fading cards/ })).toHaveTextContent(
+      /^Working:Fading cardsfade the cards$/
+    );
+    expect(screen.getByRole('button', { name: /fading tabs/ })).toHaveTextContent(
+      /Tabs fade too\.$/
+    );
+    expect(screen.getByRole('button', { name: /Headed/ })).toHaveTextContent(
+      /^Done:Headed5mPR opened$/
+    );
+  });
+
+  it("names the agent in its card only where the card's title doesn't already", async () => {
+    const user = userEvent.setup();
+    const named = createWorkspace({
+      name: 'named',
+      customName: 'Hiding transition',
+      terminals: [
+        createTerminal({
+          status: 'running',
+          dynamicTitle: 'Graceful hiding',
+          attention: attention('turn-complete', 'It fades now.'),
+        }),
+      ],
+    });
+    render(<AgentsMenuBarPopover />);
+    act(() => sendState(state({ workspaces: [named] })));
+
+    await user.hover(screen.getByRole('button', { name: /Hiding transition/ }));
+    const card = await screen.findByRole('tooltip');
+    // Under the custom name, the agent's title; not again beside its state.
+    expect(within(card).getAllByText('Graceful hiding')).toHaveLength(1);
+  });
+
   it('marks how long an agent has worked apart from how long ago one got to its state', () => {
     vi.useFakeTimers();
     try {

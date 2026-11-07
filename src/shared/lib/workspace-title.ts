@@ -21,3 +21,12 @@ export function getWorkspaceDynamicTitle(workspace: TitledWorkspace): string | u
 export function getWorkspaceDisplayTitle(workspace: TitledWorkspace): string {
   return workspace.customName || getWorkspaceDynamicTitle(workspace) || workspace.name;
 }
+
+/**
+ * The agent's live terminal title, where a custom name hides it from the workspace's title, as
+ * the workspace's card shows it under that name.
+ */
+export function getWorkspaceLiveTitle(workspace: TitledWorkspace): string | undefined {
+  const dynamicTitle = getWorkspaceDynamicTitle(workspace);
+  return workspace.customName && dynamicTitle !== workspace.customName ? dynamicTitle : undefined;
+}

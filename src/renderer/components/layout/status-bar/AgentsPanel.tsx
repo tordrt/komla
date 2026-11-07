@@ -24,10 +24,12 @@ import {
   AgentDetails,
   agentName,
   agentSaid,
+  agentTaskTitle,
   AgentTime,
 } from '@/components/workspaces/AgentDetails';
 import {
   getWorkspaceDisplayTitle,
+  getWorkspaceLiveTitle,
   WorkspaceInfoCardContent,
 } from '@/components/workspaces/WorkspaceInfoCard';
 import { getProjectColor } from '@/lib/project-colors';
@@ -108,7 +110,11 @@ function AgentCard({
       >
         {/* The row already tells the project and branch. */}
         <WorkspaceInfoCardContent workspace={workspace} sshHost={null} showLocation={false}>
-          <AgentDetails agent={agent} />
+          {/* Not named again where the card's title, under the custom name, already does. */}
+          <AgentDetails
+            agent={agent}
+            showName={agentName(agent) !== getWorkspaceLiveTitle(workspace)}
+          />
         </WorkspaceInfoCardContent>
       </TooltipContent>
     </Tooltip>
@@ -159,9 +165,13 @@ function AgentRow({
 }: RowProps & { agent: Agent }) {
   const { workspace, state } = agent;
   const selected = selectedWorkspaceId === workspace.id;
-  // Why it needs you, or what it did, at a glance; working, what it was asked.
-  const said = agentSaid(agent);
-  const asked = state === 'working' ? workspace.promptSubmits?.at(-1)?.prompt : undefined;
+  const title = getWorkspaceDisplayTitle(workspace);
+  // What a done or working agent is on, by its terminal's title; else why it needs you, what
+  // went wrong or its reply. Working without such a title, what it was asked.
+  const titled = state === 'done' || state === 'working' ? agentTaskTitle(agent) : undefined;
+  const line = titled ?? agentSaid(agent);
+  const asked =
+    state === 'working' && !titled ? workspace.promptSubmits?.at(-1)?.prompt : undefined;
   return (
     <li>
       <AgentCard agent={agent} {...card}>
@@ -181,20 +191,18 @@ function AgentRow({
           <span className="sr-only">{AGENT_STATES[state].title}:</span>
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-baseline gap-2">
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                {getWorkspaceDisplayTitle(workspace)}
-              </span>
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{title}</span>
               <AgentTime agent={agent} />
             </span>
             <WorkspacePlace workspace={workspace} projects={projects} />
-            {said && (
+            {line && (
               <span
                 className={cn(
                   'mt-0.5 block truncate text-xs',
                   state === 'done' ? 'text-muted-foreground' : 'text-foreground/80'
                 )}
               >
-                {said}
+                {line}
               </span>
             )}
             {asked && (

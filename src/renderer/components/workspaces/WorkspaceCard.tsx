@@ -109,7 +109,14 @@ import {
   type AgentState,
   type WorkspaceCardStatus,
 } from './agent-state';
-import { AgentDetails, agentName, agentSaid, AgentTime, WorkingStopwatch } from './AgentDetails';
+import {
+  AgentDetails,
+  agentName,
+  agentSaid,
+  agentTaskTitle,
+  AgentTime,
+  WorkingStopwatch,
+} from './AgentDetails';
 import {
   ATTENTION_CARD_CLASS_NAME,
   AttentionCard,
@@ -1065,7 +1072,9 @@ function StatusLineCard({
 function AgentLine({ agent, unnamed }: { agent: Agent; unnamed: string | undefined }) {
   const { title } = AGENT_STATES[agent.state];
   const name = agent.terminal ? agentName(agent) : unnamed;
-  const said = agentSaid(agent);
+  // What it said; done, its reply waits for a hover where its title already names the line.
+  const namedByTitle = !!agentTaskTitle(agent) && name === agent.terminal?.dynamicTitle;
+  const said = agent.state === 'done' && namedByTitle ? undefined : agentSaid(agent);
   return (
     <Tooltip>
       <TooltipTrigger asChild>

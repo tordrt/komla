@@ -504,27 +504,31 @@ describe('createDevPreviewServiceDetector', () => {
     expect(result.services).toEqual([]);
   });
 
-  it('matches a folder reached through a link, as the kernel reports its real path', async () => {
-    const real = realpathSync(mkdtempSync(join(tmpdir(), 'komla-real-ws-')));
-    const link = join(realpathSync(tmpdir()), `komla-link-ws-${process.pid}`);
-    symlinkSync(real, link);
-    try {
-      workspace = { workingDirectory: link, isWorktree: true, terminals: [] };
-      deps.collectListeningPorts.mockResolvedValueOnce({
-        processes: [...snapshot.processes, { pid: 900, ppid: 1, name: 'python3' }],
-        listeners: [...snapshot.listeners, { pid: 900, address: '127.0.0.1', port: 8765 }],
-        cwds: new Map([[900, join(real, 'site')]]),
-      });
-      const detector = createDevPreviewServiceDetector(deps);
+  // Working directories are never read on Windows, so a folder there claims no processes.
+  it.skipIf(process.platform === 'win32')(
+    'matches a folder reached through a link, as the kernel reports its real path',
+    async () => {
+      const real = realpathSync(mkdtempSync(join(tmpdir(), 'komla-real-ws-')));
+      const link = join(realpathSync(tmpdir()), `komla-link-ws-${process.pid}`);
+      symlinkSync(real, link);
+      try {
+        workspace = { workingDirectory: link, isWorktree: true, terminals: [] };
+        deps.collectListeningPorts.mockResolvedValueOnce({
+          processes: [...snapshot.processes, { pid: 900, ppid: 1, name: 'python3' }],
+          listeners: [...snapshot.listeners, { pid: 900, address: '127.0.0.1', port: 8765 }],
+          cwds: new Map([[900, join(real, 'site')]]),
+        });
+        const detector = createDevPreviewServiceDetector(deps);
 
-      const result = await detector.detect('ws-1', []);
+        const result = await detector.detect('ws-1', []);
 
-      expect(result.services.map(({ port }) => port)).toEqual([8765]);
-    } finally {
-      rmSync(link, { force: true });
-      rmSync(real, { recursive: true, force: true });
+        expect(result.services.map(({ port }) => port)).toEqual([8765]);
+      } finally {
+        rmSync(link, { force: true });
+        rmSync(real, { recursive: true, force: true });
+      }
     }
-  });
+  );
 
   it("hides the internal ports of a folder server's child, as for a terminal's", async () => {
     workspace = { workingDirectory: '/work/ws-1', isWorktree: true, terminals: [] };

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -70,7 +70,8 @@ describe('SSH login log', () => {
     const source = { hostId: 'devbox', connection: 'terminal 2' };
     watchSshTerminalLogins(socket, source);
     watchSshTerminalLogins(socket, source);
-    const watched = watches.filter((watch) => watch.directory === directory);
+    // join() normalizes separators, so on Windows the watched folder isn't spelled like `directory`.
+    const watched = watches.filter((watch) => watch.directory === dirname(socket));
     expect(watched).toHaveLength(1);
     const { emit } = watched[0];
 
@@ -99,18 +100,20 @@ describe('SSH login log', () => {
     const { watchSshTerminalLogins } =
       await import('../../../src/main/services/ssh-connection/logins');
     const source = { hostId: 'devbox', connection: 'terminal 0' };
+    const socket = join(directory, 'first');
+    const watchesOfFolder = () => watches.filter((watch) => watch.directory === dirname(socket));
     watchFailures.push(Object.assign(new Error('too many open files'), { code: 'EMFILE' }));
 
-    watchSshTerminalLogins(join(directory, 'first'), source);
+    watchSshTerminalLogins(socket, source);
     expect(warn).toHaveBeenCalledWith("Could not log terminals' SSH logins", expect.anything());
-    watchSshTerminalLogins(join(directory, 'first'), source);
-    const watched = watches.filter((watch) => watch.directory === directory);
+    watchSshTerminalLogins(socket, source);
+    const watched = watchesOfFolder();
     expect(watched).toHaveLength(1);
 
     watched[0].watcher.emit('error', new Error('gone'));
     expect(warn).toHaveBeenCalledWith("Stopped logging terminals' SSH logins", expect.anything());
-    watchSshTerminalLogins(join(directory, 'first'), source);
-    expect(watches.filter((watch) => watch.directory === directory)).toHaveLength(2);
+    watchSshTerminalLogins(socket, source);
+    expect(watchesOfFolder()).toHaveLength(2);
   });
 
   it('logs a terminal that every shared connection refused, which logs in by itself', async () => {

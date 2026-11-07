@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import {
   createExecutionLocations,
@@ -841,6 +841,10 @@ describe('Secret file steps', () => {
   });
 
   it('writes an SSH workspace’s Local copy once it is prepared', async () => {
+    // Local copy never runs on Windows.
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { ...originalPlatform, value: 'linux' });
+    onTestFinished(() => Object.defineProperty(process, 'platform', originalPlatform));
     const h = harness({ setupSteps: [secretFile({ destination: 'ssh-local-copy' })] }, {
       backend: sshBackend,
     } as Partial<Workspace>);

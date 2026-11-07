@@ -1,9 +1,11 @@
 import { execFileSync } from 'child_process';
 import {
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -155,8 +157,23 @@ describe.skipIf(process.platform === 'win32')('remoteSecretFileCommand', () => {
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  const run = (file: string, input = CONTENTS) =>
-    execFileSync('sh', ['-c', remoteSecretFileCommand(dir, file)], { input, encoding: 'utf-8' });
+  // stdin comes from a file, not a pipe: a command that refuses before reading it would otherwise
+  // fail some runs with EPIPE instead of its own error.
+  const run = (file: string, input = CONTENTS, cwd = dir) => {
+    const inputDir = mkdtempSync(join(tmpdir(), 'komla-secret-input-'));
+    const inputFile = join(inputDir, 'input');
+    writeFileSync(inputFile, input);
+    const stdin = openSync(inputFile, 'r');
+    try {
+      return execFileSync('sh', ['-c', remoteSecretFileCommand(cwd, file)], {
+        stdio: [stdin, 'pipe', 'pipe'],
+        encoding: 'utf-8',
+      });
+    } finally {
+      closeSync(stdin);
+      rmSync(inputDir, { recursive: true, force: true });
+    }
+  };
 
   it('writes stdin to the file, readable by the user alone, and says Git ignores it', () => {
     const output = run('.env');
@@ -212,12 +229,7 @@ describe.skipIf(process.platform === 'win32')('remoteSecretFileCommand', () => {
   it('fails without making the folder it writes in, when it’s gone', () => {
     const removed = join(dir, 'removed');
 
-    expect(() =>
-      execFileSync('sh', ['-c', remoteSecretFileCommand(removed, '.env')], {
-        input: CONTENTS,
-        stdio: 'pipe',
-      })
-    ).toThrow();
+    expect(() => run('.env', CONTENTS, removed)).toThrow();
     expect(existsSync(removed)).toBe(false);
   });
 });

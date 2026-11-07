@@ -308,6 +308,17 @@ function fixture() {
   };
 }
 
+// Local copy never runs on Windows, so tests that expect it pin the platform.
+function onPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
+  const original = process.platform;
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  try {
+    return run();
+  } finally {
+    Object.defineProperty(process, 'platform', { value: original, configurable: true });
+  }
+}
+
 describe('SettingsManagementService', () => {
   it('names the project a request is about, preferring its terminal, then workspace, then cwd', () => {
     const { service, projects } = fixture();
@@ -340,7 +351,10 @@ describe('SettingsManagementService', () => {
     const { service, environmentConfiguration } = fixture();
     environmentConfiguration.sshHosts.push({ id: 'ssh-1' });
 
-    expect(service.readWorkspaceSetup({ terminalId: 'terminal-1' }).setupCapabilities).toEqual({
+    expect(
+      onPlatform('linux', () => service.readWorkspaceSetup({ terminalId: 'terminal-1' }))
+        .setupCapabilities
+    ).toEqual({
       currentEnvironment: { kind: 'local' },
       ssh: {
         configured: true,
@@ -357,9 +371,13 @@ describe('SettingsManagementService', () => {
 
   it('reports whether a Local copy can run for the SSH host this setup targets', () => {
     const { service, environmentConfiguration, workspace } = fixture();
-    const read = () =>
-      service.readWorkspaceSetup({ terminalId: 'terminal-1' }).setupCapabilities.ssh
-        .localCopySupported;
+    const read = (platform: NodeJS.Platform = 'linux') =>
+      onPlatform(
+        platform,
+        () =>
+          service.readWorkspaceSetup({ terminalId: 'terminal-1' }).setupCapabilities.ssh
+            .localCopySupported
+      );
     const ready = {
       platform: 'supported',
       localRsync: 'available',
@@ -387,13 +405,7 @@ describe('SettingsManagementService', () => {
     };
     expect(read()).toBe(true);
 
-    const originalPlatform = process.platform;
-    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
-    try {
-      expect(read()).toBe(false);
-    } finally {
-      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
-    }
+    expect(read('win32')).toBe(false);
   });
 
   it('reports when project command Actions run in the SSH Local copy', () => {

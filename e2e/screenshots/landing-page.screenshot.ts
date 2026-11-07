@@ -750,6 +750,7 @@ const landingTest = base.extend<ScreenshotFixtures>({
             createdAt: now - 3 * HOUR,
             lastActivityAt: now - 60000,
             order: 0,
+            fileTreeOpen: true,
             terminals: [],
           },
           {
@@ -765,6 +766,7 @@ const landingTest = base.extend<ScreenshotFixtures>({
             createdAt: now - HOUR,
             lastActivityAt: now - 2 * DAY,
             order: 1,
+            fileTreeOpen: true,
             terminals: [],
           },
           {
@@ -780,6 +782,7 @@ const landingTest = base.extend<ScreenshotFixtures>({
             createdAt: now - 5 * HOUR,
             lastActivityAt: now - 12 * 60000,
             order: 2,
+            fileTreeOpen: true,
             terminals: [],
           },
           {
@@ -795,6 +798,7 @@ const landingTest = base.extend<ScreenshotFixtures>({
             createdAt: now - 8 * HOUR,
             lastActivityAt: now - 5 * 60000,
             order: 3,
+            fileTreeOpen: true,
             terminals: [],
           },
 
@@ -811,6 +815,7 @@ const landingTest = base.extend<ScreenshotFixtures>({
             createdAt: now - 5 * DAY,
             lastActivityAt: now - 3 * DAY,
             order: 4,
+            fileTreeOpen: true,
             terminals: [],
           },
 

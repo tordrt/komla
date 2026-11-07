@@ -109,7 +109,12 @@ function setUpWorkspace(
   {
     activeTabId = tabIds[0],
     attention,
-  }: { activeTabId?: string; attention?: Record<string, WorkspaceAttention> } = {}
+    fileTreeOpen,
+  }: {
+    activeTabId?: string;
+    attention?: Record<string, WorkspaceAttention>;
+    fileTreeOpen?: boolean;
+  } = {}
 ) {
   useWorkspacesStore.setState({
     workspaces: [
@@ -117,6 +122,7 @@ function setUpWorkspace(
         id: WORKSPACE_ID,
         workingDirectory: '/repo',
         isWorktree: true,
+        fileTreeOpen,
         terminals: tabIds.map((id) =>
           createTerminal({ id, name: `Tab ${id}`, attention: attention?.[id] })
         ),
@@ -974,6 +980,28 @@ describe('TerminalTabs', () => {
     );
   });
 
+  describe('file panel open state', () => {
+    beforeEach(() => {
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
+    });
+
+    it('stays closed for a workspace with no saved state, as new workspaces start', () => {
+      setUpWorkspace(['t1']);
+      render(<TerminalTabs />);
+
+      expect(
+        screen.queryByRole('separator', { name: 'Resize file tree panel' })
+      ).not.toBeInTheDocument();
+    });
+
+    it('opens for a workspace saved with it open', () => {
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
+      render(<TerminalTabs />);
+
+      expect(screen.getByRole('separator', { name: 'Resize file tree panel' })).toBeInTheDocument();
+    });
+  });
+
   describe('file panel tabs', () => {
     afterEach(() => {
       (window.api as { platform: string }).platform = 'linux';
@@ -983,7 +1011,7 @@ describe('TerminalTabs', () => {
     it("on darwin, sits in the panel's header in the top row", () => {
       (window.api as { platform: string }).platform = 'darwin';
       vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
-      setUpWorkspace(['t1']);
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
       render(<TerminalTabs />);
 
       const header = screen.getByTestId('file-panel-header');
@@ -997,7 +1025,7 @@ describe('TerminalTabs', () => {
       (platform) => {
         (window.api as { platform: string }).platform = platform;
         vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
-        setUpWorkspace(['t1']);
+        setUpWorkspace(['t1'], { fileTreeOpen: true });
         render(<TerminalTabs />);
 
         const tabs = screen.getByTestId('file-panel-tabs');
@@ -1009,7 +1037,7 @@ describe('TerminalTabs', () => {
 
     it('puts the browser button beside the panel toggle, in the panel header', () => {
       vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
-      setUpWorkspace(['t1']);
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
       render(<TerminalTabs />);
 
       const browser = screen.getByRole('button', { name: 'Open in default browser' });
@@ -1022,7 +1050,7 @@ describe('TerminalTabs', () => {
     it.each(['darwin', 'linux'] as const)('on %s, underlines the view that shows', (platform) => {
       (window.api as { platform: string }).platform = platform;
       vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
-      setUpWorkspace(['t1']);
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
       render(<TerminalTabs />);
 
       const view = screen.getByLabelText('File panel view');
@@ -1074,7 +1102,7 @@ describe('TerminalTabs', () => {
         }
       );
       vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
-      setUpWorkspace(['t1']);
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
       render(<TerminalTabs />);
 
       const handle = screen.getByRole('separator', { name: 'Resize file tree panel' });
@@ -1084,7 +1112,7 @@ describe('TerminalTabs', () => {
     it("collapses the file panel's header to nothing until the work area is measured", () => {
       (window.api as { platform: string }).platform = 'darwin';
       vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
-      setUpWorkspace(['t1']);
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
       render(<TerminalTabs />);
 
       // Its padding and line would otherwise keep a sliver with a line at its end.
@@ -1121,7 +1149,7 @@ describe('TerminalTabs', () => {
           }
         );
         vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1000);
-        setUpWorkspace(['t1']);
+        setUpWorkspace(['t1'], { fileTreeOpen: true });
         render(<TerminalTabs />);
 
         expect(screen.getByTestId('terminal-tab-row')).toHaveStyle({ paddingRight });
@@ -1135,7 +1163,7 @@ describe('TerminalTabs', () => {
     });
 
     it('resizes the file tree from the keyboard and resets it on double-click', () => {
-      setUpWorkspace(['t1']);
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
       render(<TerminalTabs />);
 
       const handle = screen.getByRole('separator', { name: 'Resize file tree panel' });
@@ -1152,7 +1180,7 @@ describe('TerminalTabs', () => {
     });
 
     it("lets a drag's mouse events past frames while it lasts, so letting go over a panel's page ends it", () => {
-      setUpWorkspace(['t1']);
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
       render(<TerminalTabs />);
 
       const handle = screen.getByRole('separator', { name: 'Resize file tree panel' });
@@ -1163,7 +1191,7 @@ describe('TerminalTabs', () => {
     });
 
     it('resizes a side-by-side preview from the keyboard', () => {
-      setUpWorkspace(['t1']);
+      setUpWorkspace(['t1'], { fileTreeOpen: true });
       useFileViewerStore.setState({
         inlineFilePreviewByWorkspace: {
           [WORKSPACE_ID]: {

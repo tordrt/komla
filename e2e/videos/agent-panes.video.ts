@@ -4,7 +4,7 @@
  * open a terminal below Codex to run the tests, and drag it under Claude.
  */
 import { CODEX_TESTS, GO, HOLD, PANES_WORLD, RETRIES } from './agent-panes.scene';
-import { videoTest as test, expect, waitForAgentAt } from './video-fixtures';
+import { videoTest as test, expect, setFilePanel, waitForAgentAt } from './video-fixtures';
 
 // Same aspect as the 1280×732 slot on the landing page.
 test.use({ world: PANES_WORLD, windowSize: { width: 1152, height: 659 } });
@@ -22,7 +22,7 @@ test('agent panes', async ({ appWindow: page, director }) => {
 
   await page.getByRole('button', { name: `Workspace details for ${RETRIES.title}` }).click();
   // The terminals get the width; the file panel isn't what this video is about.
-  await page.getByRole('button', { name: 'Toggle file panel' }).click();
+  await setFilePanel(page, false);
   await waitForAgentAt(RETRIES.branch, GO);
   await terminal.first().focus();
 

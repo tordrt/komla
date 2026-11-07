@@ -96,7 +96,7 @@ import { isWorkspaceLayoutPlaceholder } from '@/lib/workspace-layout-hydration';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { useConfigStore } from '@/stores/config.store';
 import { useFileListStore } from '@/stores/file-list.store';
-import { useFileViewerStore } from '@/stores/file-viewer.store';
+import { isInlineFileTreeOpen, useFileViewerStore } from '@/stores/file-viewer.store';
 import { useLayoutStore } from '@/stores/layout.store';
 import { useNotesStore } from '@/stores/notes.store';
 import { usePaneSurfacesStore } from '@/stores/pane-surfaces.store';
@@ -310,7 +310,7 @@ const WorkspaceLayer = memo(function WorkspaceLayer({
   const wsPreviewWidthRatio = useFileViewerStore(
     (s) => s.inlineFilePreviewWidthByWorkspace[wsId] ?? INLINE_PREVIEW_DEFAULT_WIDTH_RATIO
   );
-  const wsFileTreeOpen = useFileViewerStore((s) => s.inlineFileTreeByWorkspace[wsId]?.open ?? true);
+  const wsFileTreeOpen = useFileViewerStore((s) => isInlineFileTreeOpen(s, wsId));
   // A sidebar panel shows in place of the tree, which stays loaded beneath it.
   const { current: wsSidebarPanel, shown: wsSidebarPanelShown } = useSidebarPanelChoice(wsId);
   const wsTreeWidthRatio = useFileViewerStore(
@@ -1183,7 +1183,7 @@ export const TerminalTabs = memo(function TerminalTabs({
     (s) => s.requestInlineFilePreviewModeChange
   );
   const isFileTreeOpen = useFileViewerStore((s) =>
-    currentWorkspaceId ? (s.inlineFileTreeByWorkspace[currentWorkspaceId]?.open ?? true) : false
+    currentWorkspaceId ? isInlineFileTreeOpen(s, currentWorkspaceId) : false
   );
   const fileTreeMode = useFileViewerStore((s) =>
     currentWorkspaceId ? (s.inlineFileTreeByWorkspace[currentWorkspaceId]?.mode ?? 'diff') : 'diff'
@@ -1913,7 +1913,7 @@ export const TerminalTabs = memo(function TerminalTabs({
         store.inlineFilePreviewWidthByWorkspace[workspaceId] ?? INLINE_PREVIEW_DEFAULT_WIDTH_RATIO;
       const containerWidth = contentRef.current.clientWidth;
       // Compute available width excluding file tree (same basis used for resolution)
-      const treeOpen = store.inlineFileTreeByWorkspace[workspaceId]?.open ?? true;
+      const treeOpen = isInlineFileTreeOpen(store, workspaceId);
       const treeRatio =
         store.inlineFileTreeWidthByWorkspace[workspaceId] ?? INLINE_TREE_DEFAULT_WIDTH_RATIO;
       const treePx = treeOpen
@@ -1972,7 +1972,7 @@ export const TerminalTabs = memo(function TerminalTabs({
 
       // Read per-workspace panel state from store at event time
       const store = useFileViewerStore.getState();
-      const wsTreeOpen = store.inlineFileTreeByWorkspace[workspaceId]?.open ?? true;
+      const wsTreeOpen = isInlineFileTreeOpen(store, workspaceId);
       const wsTreeWidthRatio =
         store.inlineFileTreeWidthByWorkspace[workspaceId] ?? INLINE_TREE_DEFAULT_WIDTH_RATIO;
       const wsTreeWidthPx = wsTreeOpen

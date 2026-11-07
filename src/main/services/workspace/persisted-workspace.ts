@@ -112,6 +112,8 @@ export type PersistedWorkspace = {
   reasoningLevelId?: string | null;
   modelId?: string | null;
   linkedWorkspaceIds?: string[];
+  /** Whether the workspace's file panel is open. */
+  fileTreeOpen?: boolean;
   savedLayout?: WorkspaceSavedLayout;
   recentLinks?: WorkspaceRecentLink[];
   virtualDesktops?: WorkspaceVirtualDesktop[];
@@ -384,6 +386,7 @@ export function hydrateWorkspace(rawPersisted: PersistedWorkspace): {
         : undefined,
     attention: persistedAttention,
     customNameSource: normalizeCustomNameSource(persisted.customNameSource),
+    fileTreeOpen: typeof persisted.fileTreeOpen === 'boolean' ? persisted.fileTreeOpen : undefined,
     // The IPC schema checks panes already; this scrubs a hand-edited file.
     savedLayout: normalizeSavedLayout(persisted.savedLayout),
     recentLinks: normalizeRecentLinks(persisted.recentLinks),
@@ -504,6 +507,7 @@ export function serializeWorkspace(
     modelId: w.modelId || undefined,
     linkedWorkspaceIds:
       w.linkedWorkspaceIds && w.linkedWorkspaceIds.length > 0 ? w.linkedWorkspaceIds : undefined,
+    fileTreeOpen: w.fileTreeOpen,
     savedLayout: w.savedLayout,
     recentLinks: w.recentLinks && w.recentLinks.length > 0 ? w.recentLinks : undefined,
     virtualDesktops:

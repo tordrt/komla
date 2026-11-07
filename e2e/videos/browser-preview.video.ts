@@ -12,7 +12,13 @@ import {
   PREVIEW_PORT,
   YEARLY_PROMPT,
 } from './browser-preview.scene';
-import { videoTest as test, expect, waitForAgentTurn, waitForPageLoaded } from './video-fixtures';
+import {
+  videoTest as test,
+  expect,
+  setFilePanel,
+  waitForAgentTurn,
+  waitForPageLoaded,
+} from './video-fixtures';
 
 // Wide enough for the terminal and the page side by side; renders to the 1280×736 slot.
 test.use({ world: BROWSER_WORLD, windowSize: { width: 1440, height: 828 } });
@@ -25,7 +31,7 @@ test('browser preview', async ({ appWindow: page, electronApp, director }) => {
 
   await page.getByRole('button', { name: `Workspace details for ${ANNUAL.title}` }).click();
   // The terminal and the page share the width.
-  await page.getByRole('button', { name: 'Toggle file panel' }).click();
+  await setFilePanel(page, false);
   await page.waitForTimeout(2500); // agent banner
   await terminal.first().focus();
 

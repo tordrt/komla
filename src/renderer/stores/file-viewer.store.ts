@@ -310,6 +310,18 @@ interface FileViewerState {
   clearWorkspaceFileViewerState: (workspaceId: string) => void;
 }
 
+/**
+ * Whether a workspace's file panel is open. Until `TerminalTabs` seeds it from the workspace's saved
+ * `fileTreeOpen`, a workspace counts as closed, as one saved before that field existed does, so
+ * this agrees with `defaultFileTreeOpen`, off out of the box.
+ */
+export function isInlineFileTreeOpen(
+  state: Pick<FileViewerState, 'inlineFileTreeByWorkspace'>,
+  workspaceId: string
+): boolean {
+  return state.inlineFileTreeByWorkspace[workspaceId]?.open ?? false;
+}
+
 /** Opens a closed viewer in a transition's mode, on what the transition goes on to show. */
 function openClosedViewerForMode(
   request: Extract<FileViewerTransitionRequest, { kind: 'mode' }>,
@@ -504,7 +516,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   toggleInlineFileTree: (workspaceId) => {
     const { inlineFileTreeByWorkspace } = get();
     const current = inlineFileTreeByWorkspace[workspaceId];
-    const newOpen = !(current?.open ?? true);
+    const newOpen = !isInlineFileTreeOpen({ inlineFileTreeByWorkspace }, workspaceId);
     set({
       inlineFileTreeByWorkspace: {
         ...inlineFileTreeByWorkspace,
@@ -546,7 +558,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   },
 
   openInlineSidebarPanel: (workspaceId, id) => {
-    if (!(get().inlineFileTreeByWorkspace[workspaceId]?.open ?? true)) {
+    if (!isInlineFileTreeOpen(get(), workspaceId)) {
       get().toggleInlineFileTree(workspaceId);
     }
     get().showInlineSidebarPanel(workspaceId, id);
@@ -568,7 +580,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       inlineFileTreeByWorkspace: {
         ...inlineFileTreeByWorkspace,
         [workspaceId]: {
-          open: current?.open ?? true,
+          open: isInlineFileTreeOpen({ inlineFileTreeByWorkspace }, workspaceId),
           mode,
           comparisonBranch: current?.comparisonBranch,
           useMergeBase: current?.useMergeBase,
@@ -580,7 +592,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   },
 
   revealInFileTree: (workspaceId, folderPath) => {
-    if (!(get().inlineFileTreeByWorkspace[workspaceId]?.open ?? true)) {
+    if (!isInlineFileTreeOpen(get(), workspaceId)) {
       get().toggleInlineFileTree(workspaceId);
     }
     get().requestInlineFilePreviewModeChange(workspaceId, 'browse');
@@ -606,7 +618,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       inlineFileTreeByWorkspace: {
         ...inlineFileTreeByWorkspace,
         [workspaceId]: {
-          open: current?.open ?? true,
+          open: isInlineFileTreeOpen({ inlineFileTreeByWorkspace }, workspaceId),
           mode: current?.mode ?? 'diff',
           comparisonBranch: branch,
           useMergeBase: useMergeBase ?? false,

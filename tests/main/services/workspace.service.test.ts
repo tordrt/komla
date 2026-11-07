@@ -2359,6 +2359,40 @@ describe('WorkspaceService', () => {
       expect(written[0]?.savedLayout).toEqual(savedLayout);
     });
 
+    it('restores whether the file panel is open, and drops a value that is not one', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          { ...persistedWorkspace, _version: 1, fileTreeOpen: true },
+          { ...persistedWorkspace, _version: 1, id: 'ws-2', fileTreeOpen: 'yes' },
+        ])
+      );
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      expect(workspaceService.get('ws-1')?.fileTreeOpen).toBe(true);
+      expect(workspaceService.get('ws-2')?.fileTreeOpen).toBeUndefined();
+    });
+
+    it('writes whether the file panel is open back to disk, so a restart keeps it', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const created = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir1',
+      });
+      workspaceService.update(created.id, { fileTreeOpen: true });
+
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+
+      const written = JSON.parse(mockWriteFileAtomic.mock.calls.at(-1)![1] as string) as Array<
+        Record<string, unknown>
+      >;
+      expect(written[0]?.fileTreeOpen).toBe(true);
+    });
+
     it('saves recent links and drops ones that are not links to other sites', async () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
 

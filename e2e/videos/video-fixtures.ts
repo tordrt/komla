@@ -576,6 +576,7 @@ function seedWorld(world: VideoWorld): VideoSshHost | null {
           windowId: null,
           categoryId: null,
           ...placement(workspace, order, now),
+          fileTreeOpen: true,
           terminals: [],
         };
       });

@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useConfigStore } from '../../../src/renderer/stores/config.store';
-import { useFileViewerStore } from '../../../src/renderer/stores/file-viewer.store';
+import {
+  isInlineFileTreeOpen,
+  useFileViewerStore,
+} from '../../../src/renderer/stores/file-viewer.store';
 import type { AppConfig } from '../../../src/renderer/types';
 
 function resetStore(): void {
@@ -173,12 +176,35 @@ describe('file-viewer.store', () => {
 
   // Inline file tree
   it('toggleInlineFileTree toggles open state', () => {
-    // First toggle: initial open state defaults to true, so toggling sets to false
-    useFileViewerStore.getState().toggleInlineFileTree('ws-1');
-    expect(useFileViewerStore.getState().inlineFileTreeByWorkspace['ws-1']?.open).toBe(false);
-
+    // A workspace with no saved state starts closed, as new workspaces do by default.
     useFileViewerStore.getState().toggleInlineFileTree('ws-1');
     expect(useFileViewerStore.getState().inlineFileTreeByWorkspace['ws-1']?.open).toBe(true);
+    expect(window.api.updateWorkspace).toHaveBeenLastCalledWith('ws-1', { fileTreeOpen: true });
+
+    useFileViewerStore.getState().toggleInlineFileTree('ws-1');
+    expect(useFileViewerStore.getState().inlineFileTreeByWorkspace['ws-1']?.open).toBe(false);
+  });
+
+  it('treats a workspace with no saved file tree state as closed', () => {
+    expect(isInlineFileTreeOpen(useFileViewerStore.getState(), 'ws-1')).toBe(false);
+
+    useFileViewerStore.getState().setInlineFileTreeMode('ws-1', 'browse');
+    useFileViewerStore.getState().setInlineFileTreeComparisonBranch('ws-2', 'develop');
+    const state = useFileViewerStore.getState();
+    expect(state.inlineFileTreeByWorkspace['ws-1']?.open).toBe(false);
+    expect(state.inlineFileTreeByWorkspace['ws-2']?.open).toBe(false);
+  });
+
+  it('openInlineSidebarPanel opens a workspace tree with no saved state', () => {
+    useFileViewerStore.getState().openInlineSidebarPanel('ws-1', 'panel-a');
+    const state = useFileViewerStore.getState();
+    expect(isInlineFileTreeOpen(state, 'ws-1')).toBe(true);
+    expect(state.inlineSidebarPanelByWorkspace['ws-1']).toEqual({ id: 'panel-a', shown: true });
+  });
+
+  it('revealInFileTree opens a workspace tree with no saved state', () => {
+    useFileViewerStore.getState().revealInFileTree('ws-1', 'src');
+    expect(isInlineFileTreeOpen(useFileViewerStore.getState(), 'ws-1')).toBe(true);
   });
 
   it('setInlineFileTreeOpen sets open state directly', () => {

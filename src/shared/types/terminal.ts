@@ -54,4 +54,6 @@ export interface Terminal {
   attention?: WorkspaceAttention;
   /** Durable idempotency cursor for the latest accepted remote terminal hook. */
   lastAcceptedHookDeliveryId?: string;
+  /** The delivery of the newest hook taken in from its Hook Journal. */
+  lastJournalDeliveryId?: string;
 }

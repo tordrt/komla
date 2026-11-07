@@ -63,6 +63,11 @@ import { getKomlaBasePath } from './paths';
 import { sshConnectionService } from './ssh-connection.service';
 import { sshHostService } from './ssh-host.service';
 import {
+  hookJournalFolder,
+  parseHookJournalEntry,
+  type HookJournalEntry,
+} from './terminal-attention/hook-journal';
+import {
   forgetOriginFetchLines,
   ORIGIN_FETCH_REFSPEC,
   originFetchedRecentlyLines,
@@ -943,6 +948,19 @@ elif command -v wget >/dev/null 2>&1; then
 fi
 exit 0
 `;
+}
+
+/** Starts a shell `if` whose body runs when the Terminal's Managed Remote Terminal Session does. */
+function ifSessionRuns(terminalId: string): string {
+  return `if tmux -L ${TMUX_SOCKET_NAME} has-session -t ${tmuxExactTarget(terminalId)} 2>/dev/null; then`;
+}
+
+/** What the session check read of a Managed Remote Terminal Session that runs on its host. */
+export interface TerminalSessionRead {
+  /** What its program last reported (OSC 7501), if it reports. */
+  status?: TerminalProgramStatus;
+  /** Its Hook Journal, in no order. */
+  journal: HookJournalEntry[];
 }
 
 class SshWorkspaceService {
@@ -2818,57 +2836,94 @@ class SshWorkspaceService {
     terminalIds: string[],
     { background = false }: { background?: boolean } = {}
   ): Promise<Set<string>> {
-    const sessions = await this.queryTerminalSessions(backend, terminalIds, background, false);
-    return new Set(sessions.keys());
-  }
-
-  /**
-   * The terminals among `terminalIds` whose Managed Remote Terminal Session runs on the host, each
-   * with what its program last reported (OSC 7501). The companion's PTY proxy keeps that in the
-   * session's `@komla_status`, so it is there without a Terminal Attachment; there is none while
-   * no program reports, or under a companion from before it did.
-   */
-  readTerminalSessions(
-    backend: SshWorkspaceBackend,
-    terminalIds: string[],
-    { background = false }: { background?: boolean } = {}
-  ): Promise<Map<string, TerminalProgramStatus | undefined>> {
-    return this.queryTerminalSessions(backend, terminalIds, background, true);
-  }
-
-  private async queryTerminalSessions(
-    backend: SshWorkspaceBackend,
-    terminalIds: string[],
-    background: boolean,
-    withStatus: boolean
-  ): Promise<Map<string, TerminalProgramStatus | undefined>> {
-    if (terminalIds.length === 0) return new Map();
+    if (terminalIds.length === 0) return new Set();
     const host = this.getHost(backend.hostId);
     const output = await this.run(
       host,
       terminalIds
-        .map((terminalId) => {
-          const found = `if tmux -L ${TMUX_SOCKET_NAME} has-session -t ${tmuxExactTarget(terminalId)} 2>/dev/null; then`;
-          if (!withStatus) return `${found} printf '%s\\n' ${shellQuotePosix(terminalId)}; fi`;
-          // A pane target can't take the exact-match prefix alone, so it names the session's window.
-          const window = shellQuotePosix(`=${managedTmuxSessionName(terminalId)}:`);
-          const status = `"$(tmux -L ${TMUX_SOCKET_NAME} show-options -qv -t ${window} @komla_status 2>/dev/null)"`;
-          return `${found} printf '%s\\t%s\\n' ${shellQuotePosix(terminalId)} ${status}; fi`;
-        })
+        .map(
+          (terminalId) =>
+            `${ifSessionRuns(terminalId)} printf '%s\\n' ${shellQuotePosix(terminalId)}; fi`
+        )
         .join('\n'),
       { purpose: { kind: background ? 'background' : 'interactive' } }
     );
     const expected = new Set(terminalIds);
-    const sessions = new Map<string, TerminalProgramStatus | undefined>();
+    return new Set(
+      output
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((id) => expected.has(id))
+    );
+  }
+
+  /**
+   * The terminals among `terminalIds` whose Managed Remote Terminal Session runs on the host, each
+   * with what its program last reported (OSC 7501) and its Hook Journal. The companion's PTY
+   * proxy keeps the report in the session's `@komla_status`, so it is there without a Terminal
+   * Attachment; there is none while no program reports. The journal holds what its agents'
+   * hooks reported this turn, beside the companions' folder that holds `hookInbox`, with when each
+   * ran by this computer's clock; it is read for the terminals `journals` names. A companion from
+   * before either keeps neither.
+   */
+  async readTerminalSessions(
+    backend: SshWorkspaceBackend,
+    terminalIds: string[],
+    {
+      background = false,
+      hookInbox,
+      journals,
+    }: { background?: boolean; hookInbox?: string; journals?: ReadonlySet<string> } = {}
+  ): Promise<Map<string, TerminalSessionRead>> {
+    if (terminalIds.length === 0) return new Map();
+    const host = this.getHost(backend.hostId);
+    const sentAt = Date.now();
+    const output = await this.run(
+      host,
+      [
+        // Entries are timed by the host's clock.
+        `printf 'T\\t%s\\n' "$(date +%s)"`,
+        ...terminalIds.map((terminalId) => {
+          const id = shellQuotePosix(terminalId);
+          // A pane target can't take the exact-match prefix alone, so it names the session's window.
+          const window = shellQuotePosix(`=${managedTmuxSessionName(terminalId)}:`);
+          const status = `"$(tmux -L ${TMUX_SOCKET_NAME} show-options -qv -t ${window} @komla_status 2>/dev/null)"`;
+          // Each entry is a line of JSON.
+          const journal =
+            hookInbox && journals?.has(terminalId)
+              ? ` for entry in ${shellQuotePosix(hookJournalFolder(hookInbox, terminalId))}/*.json; do if [ -f "$entry" ]; then printf 'J\\t%s\\t' ${id}; cat "$entry"; printf '\\n'; fi; done;`
+              : '';
+          return `${ifSessionRuns(terminalId)} printf 'S\\t%s\\t%s\\n' ${id} ${status};${journal} fi`;
+        }),
+      ].join('\n'),
+      { purpose: { kind: background ? 'background' : 'interactive' } }
+    );
+    // Its clock was read on the way, about halfway.
+    const readAt = (sentAt + Date.now()) / 2;
+    let hostClockAhead = 0;
+    const expected = new Set(terminalIds);
+    const sessions = new Map<string, TerminalSessionRead>();
     for (const line of output.split('\n')) {
-      const tab = line.indexOf('\t');
-      const terminalId = (tab < 0 ? line : line.slice(0, tab)).trim();
-      if (!expected.has(terminalId)) continue;
-      const fields = tab < 0 ? '' : line.slice(tab + 1).trim();
-      sessions.set(
-        terminalId,
-        fields ? extractTerminalProgramStatuses(`\x1b]7501;${fields}\x1b\\`)[0] : undefined
-      );
+      const [tag, terminalId, ...rest] = line.split('\t');
+      if (tag === 'T' && /^\d+$/.test(terminalId?.trim() ?? '')) {
+        hostClockAhead = Number(terminalId.trim()) * 1000 - readAt;
+        continue;
+      }
+      if (!terminalId || !expected.has(terminalId)) continue;
+      const value = rest.join('\t').trim();
+      if (tag === 'S') {
+        sessions.set(terminalId, {
+          status: value ? extractTerminalProgramStatuses(`\x1b]7501;${value}\x1b\\`)[0] : undefined,
+          journal: [],
+        });
+        continue;
+      }
+      const entry = tag === 'J' ? parseHookJournalEntry(value) : undefined;
+      if (entry?.hook.terminalId !== terminalId) continue;
+      sessions.get(terminalId)?.journal.push(entry);
+    }
+    for (const { journal } of sessions.values()) {
+      for (const entry of journal) entry.writtenAt -= hostClockAhead;
     }
     return sessions;
   }

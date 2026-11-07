@@ -27,8 +27,18 @@ whose companion refreshed its receiving marker recently, which it does only whil
 answers, so those installations show alerts and the agent working too. No hook reports an agent
 interrupted by a keystroke or a session stopped or replaced, so the installation that did it relays
 an interrupt to the others through its companion over SSH. The others also stop the spinner when
-the terminal's session is gone, after a long stretch without hooks, and on waking or reconnecting,
-since copies aren't written while an installation is away. The attached installation alone names the workspace. The companion normalizes provider event names into
+the terminal's session is gone and after a long stretch without hooks. Copies aren't written while
+an installation is away, so while another installation's companion is on the host, the companion
+also keeps a Hook Journal beside the companions' folders, of what Komla reads of a copy: each
+agent's prompt in the terminal's current turn and its newest hooks since, with which
+installations each went to and when it ran. Nothing consumes it, and a prompt starts that agent's
+journal over. Once after Komla starts, and again after a host reconnects or the computer wakes,
+the session check reads the journals of the terminals that installation isn't attached to, in the
+same SSH command that finds their sessions. Komla main replays the hooks after the last it took
+through the same interpretation as live copies, announcing nothing and counting timeouts from
+when each hook ran; none when the newest went to that installation's mailbox. A spinner copies
+kept on that neither a journal nor the program's last report confirms stops at that check, or
+within a minute if none runs, as it may have missed its turn's end. The attached installation alone names the workspace. The companion normalizes provider event names into
 the existing hook transport shape, but Komla main owns and durably persists Remote Attention State
 and all notification precedence and consumption semantics. A hidden tmux session keeps the
 companion alive while managed terminal sessions remain and the mailbox file makes hook ingestion

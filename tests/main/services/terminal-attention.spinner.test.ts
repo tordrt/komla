@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSshWorkspace, createTerminal, createWorkspace } from '../../factories';
 import { createAttentionHarness } from '../../helpers/terminal-attention';
 
-import type { AgentHook } from '../../../src/main/services/terminal-attention/terminal-attention';
+import type { HookJournalEntry } from '../../../src/main/services/terminal-attention/hook-journal';
+import type {
+  AgentHook,
+  TerminalAttention,
+} from '../../../src/main/services/terminal-attention/terminal-attention';
 import type { TerminalStatus } from '../../../src/shared/types';
 
 vi.mock('electron', async () => (await import('../../mocks/electron')).mockElectron());
@@ -456,23 +460,64 @@ describe('Terminal Attention State: spinner and attention', () => {
       expect(relay.interrupted).not.toHaveBeenCalled();
     });
 
-    it('is forgotten when its host reconnects or the computer wakes', async () => {
+    it('is forgotten once its host is checked after it reconnects or the computer wakes', async () => {
       const { attention, relay, workspace, toTerminal } = createAttentionHarness([sshWorkspace()]);
       await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
 
       attention.hostConnected('another-host');
+      attention.hostChecked('another-host');
       expect(workspace('ws-42').agentActive).toBe(true);
+      // The check reads what this installation missed meanwhile.
       attention.hostConnected('ssh-host-1');
+      expect(workspace('ws-42').agentActive).toBe(true);
+      attention.hostChecked('ssh-host-1');
       expect(workspace('ws-42').agentActive).toBe(false);
 
       await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
       attention.machineResumed();
+      attention.hostChecked('ssh-host-1');
       expect(workspace('ws-42').agentActive).toBe(false);
 
       await attention.hook(toTerminal('t1'), working('claude-code'));
       attention.machineResumed();
+      attention.hostChecked('ssh-host-1');
       expect(workspace('ws-42').agentActive).toBe(true);
       expect(relay.interrupted).not.toHaveBeenCalled();
+    });
+
+    it('stops a minute after its host reconnects or the computer wakes, if no check reads it', async () => {
+      const { attention, workspace, toTerminal } = createAttentionHarness([sshWorkspace()]);
+      await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
+
+      attention.machineResumed();
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(workspace('ws-42').agentActive).toBe(true);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('stays on once attached here, where its own hooks keep it right', async () => {
+      const { attention, workspace, terminal, toTerminal } = createAttentionHarness([
+        sshWorkspace(),
+      ]);
+      await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
+
+      attention.hostConnected('ssh-host-1');
+      terminal('t1').status = 'running';
+      attention.hostChecked('ssh-host-1');
+
+      expect(workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('is confirmed by a copy that arrives before its host is checked', async () => {
+      const { attention, workspace, toTerminal } = createAttentionHarness([sshWorkspace()]);
+      await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
+
+      attention.hostConnected('ssh-host-1');
+      await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
+      attention.hostChecked('ssh-host-1');
+
+      expect(workspace('ws-42').agentActive).toBe(true);
     });
 
     it('loses its 30-minute timeout once it stops some other way', async () => {
@@ -520,12 +565,15 @@ describe('Terminal Attention State: spinner and attention', () => {
       const { attention, remove, toTerminal } = createAttentionHarness([sshWorkspace()]);
       await attention.hook(toTerminal('t1'), working('claude-code', { copy: true }));
       expect(attention.hookArrivedSince('t1', attention.hookMark('t1'))).toBe(false);
+      void attention.journalRead('t1', []);
+      expect(attention.wantsJournal('t1')).toBe(false);
 
       remove('ws-42');
       attention.workspaceDeleted('ws-42');
 
       // As for a Terminal no hook ever came for.
       expect(attention.hookMark('t1')).toEqual(createAttentionHarness().attention.hookMark('t1'));
+      expect(attention.wantsJournal('t1')).toBe(true);
     });
   });
 
@@ -575,18 +623,22 @@ describe('Terminal Attention State: spinner and attention', () => {
       expect(workspace('ws-42').agentActive).toBe(true);
     });
 
-    it('applies the same report again once the host reconnects or the computer wakes', () => {
+    it('applies the same report again once the host reconnects or the computer wakes', async () => {
       const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
       attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
 
+      // Read again, it keeps the spinner on, for another 30 minutes.
       attention.hostConnected('ssh-host-1');
-      expect(workspace('ws-42').agentActive).toBe(false);
       attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      attention.hostChecked('ssh-host-1');
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
       expect(workspace('ws-42').agentActive).toBe(true);
 
       attention.machineResumed();
-      expect(workspace('ws-42').agentActive).toBe(false);
       attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      attention.hostChecked('ssh-host-1');
+      await vi.advanceTimersByTimeAsync(20 * 60_000);
       expect(workspace('ws-42').agentActive).toBe(true);
     });
 
@@ -622,7 +674,9 @@ describe('Terminal Attention State: spinner and attention', () => {
 
       attention.hostConnected('ssh-host-1');
       attention.sessionStatusRead('t1', { state: 'working', app: 'claude-code' });
+      expect(workspace('ws-42').agentActive).toBe(true);
       attention.hostConnected('ssh-host-1');
+      attention.hostChecked('ssh-host-1');
       expect(workspace('ws-42').agentActive).toBe(false);
     });
 
@@ -683,7 +737,369 @@ describe('Terminal Attention State: spinner and attention', () => {
 
       expect(!!workspace('ws-42').agentActive).toBe(false);
     });
+  });
 
+  describe('a Terminal not attached here whose Hook Journal the check read', () => {
+    const claude = (
+      kind: 'prompt-submit' | 'activity' | 'turn-complete',
+      deliveryId: string,
+      hookInput: Record<string, unknown> = {}
+    ): AgentHook & { deliveryId: string } => ({
+      kind,
+      source: 'claude-code',
+      deliveryId,
+      hookInput: {
+        hook_event_name: {
+          'prompt-submit': 'UserPromptSubmit',
+          activity: 'PreToolUse',
+          'turn-complete': 'Stop',
+        }[kind],
+        session_id: 's1',
+        ...hookInput,
+      },
+    });
+    /** A hook the journal kept, which ran `ago` ms before now, sent to `owner`. */
+    const journaled = (
+      hook: AgentHook & { deliveryId: string },
+      ago: number,
+      owner = 'other-installation',
+      copiedTo: string[] = []
+    ): HookJournalEntry => ({
+      owner,
+      copiedTo,
+      writtenAt: Date.now() - ago,
+      hook: { cwd: '/repo', terminalId: 't1', ...hook } as HookJournalEntry['hook'],
+    });
+    /** Takes in the journal, letting the done it may end with settle. */
+    async function read(
+      attention: TerminalAttention,
+      journal: HookJournalEntry[],
+      options: Parameters<TerminalAttention['journalRead']>[2] = {}
+    ) {
+      const reading = attention.journalRead('t1', journal, {
+        installationKey: 'this-installation',
+        ...options,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await reading;
+    }
+    const backgroundTests = {
+      background_tasks: [{ type: 'shell', status: 'running', command: 'npm test' }],
+    };
+
+    it('turns the spinner on for a turn at work, without announcing anything', async () => {
+      const { attention, windows, store, promptSubmitted, workspace, terminal } =
+        createAttentionHarness([sshWorkspace()]);
+
+      await read(attention, [
+        journaled(claude('activity', 'd2'), 60_000),
+        journaled(claude('prompt-submit', 'd1', { prompt: 'fix it' }), 5 * 60_000),
+      ]);
+
+      expect(workspace('ws-42').agentActive).toBe(true);
+      expect(windows.attentionRaised).not.toHaveBeenCalled();
+      expect(promptSubmitted).not.toHaveBeenCalled();
+      // Saved as taken, apart from what this installation's own mailbox took.
+      expect(terminal('t1').lastJournalDeliveryId).toBe('d2');
+      expect(terminal('t1').lastAcceptedHookDeliveryId).toBeUndefined();
+      expect(store.save).toHaveBeenCalled();
+      expect(attention.persistedSources('ws-42', 't1')).toBeUndefined();
+    });
+
+    it('shows the done of a turn that ended meanwhile on the card alone', async () => {
+      const { attention, windows, agentReplied, workspace, terminal, toTerminal } =
+        createAttentionHarness([sshWorkspace()]);
+      await attention.hook(toTerminal('t1'), { ...claude('activity', 'd1'), copy: true });
+
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd0'), 10 * 60_000),
+        journaled(claude('turn-complete', 'd3'), 2 * 60_000),
+      ]);
+
+      expect(workspace('ws-42').agentActive).toBe(false);
+      expect(terminal('t1').attention?.kind).toBe('turn-complete');
+      expect(windows.attentionRaised).not.toHaveBeenCalled();
+      expect(agentReplied).not.toHaveBeenCalled();
+    });
+
+    it('counts the copies’ timeout from when its newest hook ran', async () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 40 * 60_000),
+        journaled(claude('activity', 'd2'), 25 * 60_000),
+      ]);
+      expect(workspace('ws-42').agentActive).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('keeps a turn background work holds working, and counts the hold from its Stop', async () => {
+      const { attention, workspace, terminal } = createAttentionHarness([sshWorkspace()]);
+
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 12 * 60_000),
+        journaled(claude('turn-complete', 'd2', backgroundTests), 10 * 60_000),
+      ]);
+      expect(workspace('ws-42').agentActive).toBe(true);
+      expect(terminal('t1').attention).toBeUndefined();
+
+      // As for copies taken live: their spinner lasts 30 minutes from the last one it took.
+      await vi.advanceTimersByTimeAsync(18 * 60_000);
+      expect(workspace('ws-42').agentActive).toBe(false);
+      expect(terminal('t1').attention).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(2 * 60_000);
+      expect(terminal('t1').attention?.kind).toBe('turn-complete');
+    });
+
+    it('takes nothing it already took, as the copy of the newest hook', async () => {
+      const { attention, workspace, terminal, toTerminal } = createAttentionHarness([
+        sshWorkspace(),
+      ]);
+      const copied = attention.hook(toTerminal('t1'), {
+        ...claude('turn-complete', 'd2'),
+        copy: true,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await copied;
+      attention.dismissed('t1');
+      expect(terminal('t1').attention).toBeUndefined();
+
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('turn-complete', 'd2'), 1_000),
+      ]);
+
+      expect(terminal('t1').attention).toBeUndefined();
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it("leaves this installation's own hooks to its mailbox", async () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000, 'this-installation'),
+        journaled(claude('activity', 'd2'), 1_000, 'this-installation'),
+      ]);
+
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('leaves a copy of the newest hook to its mailbox, which brings it announced', async () => {
+      const { attention, workspace, toTerminal } = createAttentionHarness([sshWorkspace()]);
+
+      const copiedHere = ['other-installation', 'this-installation'];
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000, 'other-installation', copiedHere),
+        journaled(claude('activity', 'd2'), 1_000, 'other-installation', copiedHere),
+      ]);
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+
+      await attention.hook(toTerminal('t1'), { ...claude('prompt-submit', 'd1'), copy: true });
+      expect(workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('after a restart, turns back on the spinner copies kept on, but not a done seen', async () => {
+      const working = sshWorkspace();
+      working.terminals[0].lastAcceptedHookDeliveryId = 'd2';
+      const first = createAttentionHarness([working]);
+      await read(first.attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('activity', 'd2'), 1_000),
+      ]);
+      expect(first.workspace('ws-42').agentActive).toBe(true);
+
+      const ended = sshWorkspace();
+      ended.terminals[0].lastAcceptedHookDeliveryId = 'd2';
+      const second = createAttentionHarness([ended]);
+      await read(second.attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('turn-complete', 'd2'), 1_000),
+      ]);
+      expect(second.terminal('t1').attention).toBeUndefined();
+
+      // Nor a request for input the user dismissed: what Komla shows is saved.
+      const blocked = sshWorkspace();
+      blocked.terminals[0].lastAcceptedHookDeliveryId = 'd2';
+      const third = createAttentionHarness([blocked]);
+      await read(third.attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled({ ...claude('activity', 'd2'), kind: 'input-required' }, 1_000),
+      ]);
+      expect(third.terminal('t1').attention).toBeUndefined();
+    });
+
+    it('confirms a copied spinner after its host reconnects', async () => {
+      const { attention, workspace, toTerminal } = createAttentionHarness([sshWorkspace()]);
+      await attention.hook(toTerminal('t1'), { ...claude('activity', 'd2'), copy: true });
+
+      attention.hostConnected('ssh-host-1');
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('activity', 'd2'), 1_000),
+      ]);
+      attention.hostChecked('ssh-host-1');
+
+      expect(workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('only confirms what it read while a hook arrived, which is newer', async () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+
+      await read(attention, [journaled(claude('prompt-submit', 'd1'), 1_000)], {
+        hookSince: true,
+      });
+
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('takes a journal in once while a check before is still taking it in', async () => {
+      const journal = [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('activity', 'd2'), 30_000),
+      ];
+      const { attention } = createAttentionHarness([sshWorkspace()]);
+      const taken = vi.spyOn(attention, 'hook');
+
+      const first = attention.journalRead('t1', journal, { installationKey: 'this-installation' });
+      const second = attention.journalRead('t1', journal, { installationKey: 'this-installation' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await Promise.all([first, second]);
+
+      expect(taken).toHaveBeenCalledTimes(2);
+    });
+
+    it('takes in only what came after the last hook it took', async () => {
+      const { attention, terminal, turnActivity, toTerminal } = createAttentionHarness([
+        sshWorkspace(),
+      ]);
+      const stop = attention.hook(toTerminal('t1'), {
+        ...claude('turn-complete', 'd2'),
+        copy: true,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await stop;
+      attention.dismissed('t1');
+      turnActivity.mockClear();
+      const taken = vi.spyOn(attention, 'hook');
+
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('turn-complete', 'd2'), 30_000),
+        journaled({ ...claude('activity', 'd3'), source: 'codex' }, 1_000),
+      ]);
+
+      expect(taken).toHaveBeenCalledTimes(1);
+      expect(taken).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ deliveryId: 'd3' })
+      );
+      // The done the user saw stays seen, and old news doesn't make the workspace recent.
+      expect(terminal('t1').attention).toBeUndefined();
+      expect(turnActivity).not.toHaveBeenCalled();
+    });
+
+    it('leaves a copy that waited in its mailbox while the journal brought newer ones', async () => {
+      const { attention, workspace, toTerminal } = createAttentionHarness([sshWorkspace()]);
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('activity', 'd2'), 30_000),
+        journaled(claude('turn-complete', 'd3'), 1_000),
+      ]);
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+
+      // Copied to it in the moments after it stopped answering.
+      const outcome = await attention.hook(toTerminal('t1'), {
+        ...claude('activity', 'd2'),
+        copy: true,
+      });
+
+      expect(outcome).toBe('ignored');
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('after a restart, sees past a subagent’s hook to its agent at work', async () => {
+      const restored = sshWorkspace();
+      restored.terminals[0].lastAcceptedHookDeliveryId = 'd3';
+      const { attention, workspace } = createAttentionHarness([restored]);
+
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('activity', 'd2'), 30_000),
+        journaled(claude('turn-complete', 'd3', { agent_id: 'subagent-1' }), 1_000),
+      ]);
+
+      expect(workspace('ws-42').agentActive).toBe(true);
+    });
+
+    it('takes in how a turn ended though hooks Komla ignores came after', async () => {
+      const { attention, workspace, terminal } = createAttentionHarness([sshWorkspace()]);
+
+      await read(attention, [
+        journaled(claude('prompt-submit', 'd1'), 60_000),
+        journaled(claude('turn-complete', 'd2'), 30_000),
+        journaled(
+          {
+            ...claude('turn-complete', 'd3'),
+            hookInput: { hook_event_name: 'SubagentStop', session_id: 's1' },
+          },
+          1_000
+        ),
+      ]);
+
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+      expect(terminal('t1').attention?.kind).toBe('turn-complete');
+    });
+
+    it('is read once, and again after its host reconnects or the computer wakes', () => {
+      const { attention } = createAttentionHarness([sshWorkspace()]);
+      expect(attention.wantsJournal('t1')).toBe(true);
+
+      void attention.journalRead('t1', [], { installationKey: 'this-installation' });
+      expect(attention.wantsJournal('t1')).toBe(false);
+      attention.hostConnected('another-host');
+      expect(attention.wantsJournal('t1')).toBe(false);
+      attention.hostConnected('ssh-host-1');
+      expect(attention.wantsJournal('t1')).toBe(true);
+
+      void attention.journalRead('t1', [], { installationKey: 'this-installation' });
+      attention.machineResumed();
+      expect(attention.wantsJournal('t1')).toBe(true);
+    });
+
+    it("leaves the status of the program whose hooks it holds to them: Codex's server", () => {
+      const { attention, workspace } = createAttentionHarness([sshWorkspace()]);
+      void attention.journalRead('t1', [
+        journaled({ ...claude('turn-complete', 'd1'), source: 'codex' }, 1_000, 'this-installation'),
+      ]);
+
+      attention.sessionStatusRead('t1', { state: 'working', app: 'codex' });
+
+      expect(!!workspace('ws-42').agentActive).toBe(false);
+    });
+
+    it('stops the replay once a hook arrives meanwhile', async () => {
+      const { attention, workspace, terminal, toTerminal } = createAttentionHarness([
+        sshWorkspace(),
+      ]);
+
+      const reading = attention.journalRead(
+        't1',
+        [
+          journaled(claude('turn-complete', 'd1'), 60_000),
+          journaled(claude('prompt-submit', 'd2'), 1_000),
+        ],
+        { installationKey: 'this-installation' }
+      );
+      // The replayed done settles, and a copy of the next turn's tool activity arrives.
+      await attention.hook(toTerminal('t1'), { ...claude('activity', 'd3'), copy: true });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await reading;
+
+      expect(workspace('ws-42').agentActive).toBe(true);
+      expect(terminal('t1').lastAcceptedHookDeliveryId).toBeUndefined();
+    });
   });
 
   describe('saved spinners', () => {

@@ -1300,8 +1300,10 @@ describe('agent hooks', () => {
       // The device attached to the terminal records that its hooks are wired.
       expect(harness.milestone).not.toHaveBeenCalled();
 
-      // Only a copy keeps the spinner on, so it may be stale once the host reconnects.
+      // Only a copy keeps the spinner on, so it may be stale once the host reconnects: the check
+      // that reads the host then stops it, as nothing there confirmed it.
       harness.attention.hostConnected('ssh-host-1');
+      harness.attention.hostChecked('ssh-host-1');
 
       expect(harness.terminal('term-1').agentActive).toBe(false);
       expect(harness.terminal('term-1').attention).toEqual(
@@ -1344,6 +1346,7 @@ describe('agent hooks', () => {
 
       // Only copies keep the spinner on, and none arrive while the computer sleeps.
       harness.attention.machineResumed();
+      harness.attention.hostChecked('ssh-host-1');
 
       expect(harness.terminal('term-1').agentActive).toBe(false);
     });

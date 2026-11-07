@@ -23,6 +23,7 @@ import {
   waitsForBackgroundWork,
 } from './notification-lifecycle';
 
+import type { HookJournalEntry } from './hook-journal';
 import type { TerminalProgramStatus } from '../../../shared/lib/terminal-escape';
 import type {
   FolderTrustAgent,
@@ -42,6 +43,8 @@ const RECENT_STRUCTURED_NOTIFICATION_SUPPRESSION_MS = 5000;
 // How long another installation's agent shows as working here without a hook from it. A missed
 // interrupt would otherwise keep its spinner on until the agent's next turn ends.
 const COPIED_AGENT_ACTIVITY_TIMEOUT_MS = 30 * 60_000;
+/** How long a reconnect or wake leaves copied spinners for a session check to confirm. */
+const UNCONFIRMED_COPIES_MS = 60_000;
 // How long tool activity after an interrupt counts as late news from the interrupted turn.
 export const LATE_ACTIVITY_AFTER_INTERRUPT_MS = 15_000;
 // The same after a keypress that may not have interrupted anything, such as an Esc that closed
@@ -152,6 +155,13 @@ export interface AgentHook {
   level?: string;
   /** A copy of a hook for a Terminal another Komla installation is attached to. */
   copy?: boolean;
+  /** The delivery it came in, which a copy shares with the hook's Hook Journal entry. */
+  deliveryId?: string;
+  /**
+   * A copy replayed from the Hook Journal, which ran at this time. Nothing announces it, and the
+   * time it waits for anything counts from then.
+   */
+  replayedAt?: number;
   hookInput?: {
     session_id?: string;
     turn_id?: string;
@@ -295,6 +305,20 @@ export class TerminalAttention {
   >();
   /** Spinners only copies of another installation's hooks keep on, which it can't see stop. */
   private readonly copiedAgentActivity = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Copied spinners a reconnect or wake left for the host's next session check to confirm. */
+  private readonly unconfirmedCopies = new Set<string>();
+  /** The delivery of the newest copy each Terminal took, live or from its Hook Journal. */
+  private readonly newestCopies = new Map<string, string>();
+  /** The deliveries of the hooks taken in from each Terminal's Hook Journal, the newest. */
+  private readonly replayedDeliveries = new Map<string, Set<string>>();
+  /** Terminals whose Hook Journal is being taken in, which a check meanwhile leaves alone. */
+  private readonly replaying = new Set<string>();
+  /** Terminals whose Hook Journal was read since Komla started, or their host last reconnected. */
+  private readonly journalsRead = new Set<string>();
+  /** The agents each Terminal's Hook Journal last read has hooks of. */
+  private readonly journalSources = new Map<string, Set<string>>();
+  /** Stops copied spinners no session check confirmed, by host, or '' for all of them. */
+  private readonly unconfirmedTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** What the session check last read for each Terminal not attached here; see sessionStatusRead. */
   private readonly sessionReports = new Map<string, string>();
   /** How many hooks each Terminal took, for the session check's marks; late news isn't counted. */
@@ -329,11 +353,21 @@ export class TerminalAttention {
    * changes has been written.
    */
   async hook(target: HookTarget, hook: AgentHook): Promise<HookOutcome> {
+    if (hook.copy && hook.deliveryId && target.terminalId) {
+      // Its journal brought it already, and newer ones since, while it waited in the mailbox.
+      if (
+        hook.replayedAt === undefined &&
+        this.replayedDeliveries.get(target.terminalId)?.has(hook.deliveryId)
+      ) {
+        return 'ignored';
+      }
+      this.newestCopies.set(target.terminalId, hook.deliveryId);
+    }
     // One arrives per source the attached installation had running, to replace that source's
     // undelivered activity in this installation's mailbox; the first one stops the whole tab.
     if (hook.copy && hook.kind === 'interrupted') {
       if (target.workspace && target.terminalId) {
-        this.countHook(target.terminalId);
+        if (hook.replayedAt === undefined) this.countHook(target.terminalId);
         this.dropManualSource(target.workspace.id);
         this.clearTerminalSourcesOnly(target.workspace.id, target.terminalId);
         this.broadcastIfAgentActiveChanged(target.workspace);
@@ -438,8 +472,8 @@ export class TerminalAttention {
     if (decision === 'accept') {
       this.handleHook(hook, { ...target, workspace: target.workspace });
       if (target.terminalId) {
-        this.countHook(target.terminalId);
-        this.noteAgentHook(target.terminalId, !!hook.copy);
+        if (hook.replayedAt === undefined) this.countHook(target.terminalId);
+        this.noteAgentHook(target.terminalId, !!hook.copy, hook.replayedAt);
       }
     }
     return 'taken';
@@ -706,6 +740,11 @@ export class TerminalAttention {
     this.forgetProgramStatus(terminalId);
     this.hooksArrived.delete(terminalId);
     this.sessionReports.delete(terminalId);
+    this.newestCopies.delete(terminalId);
+    this.replayedDeliveries.delete(terminalId);
+    this.journalsRead.delete(terminalId);
+    this.journalSources.delete(terminalId);
+    this.dropCopiedAgentActivity(terminalId);
     this.claudePermissions.delete(terminalId);
     this.clearTerminalSources(workspaceId, terminalId);
     this.clearTerminalAttention(terminalId);
@@ -736,16 +775,40 @@ export class TerminalAttention {
     if (workspace) this.clearTerminalSourcesOnly(workspace.id, terminalId);
   }
 
-  /** Spinners kept on only by copied hooks may be stale after an SSH host reconnects. */
+  /**
+   * Hooks aren't copied here while disconnected, so spinners kept on only by copies may be stale
+   * after an SSH host reconnects. They stay on until the host's next session check, which reads
+   * what this installation missed, or a minute if none does; see hostChecked.
+   */
   hostConnected(hostId: string): void {
-    this.forgetCopiedAgentActivity(hostId);
+    this.leaveCopiesUnconfirmed(hostId);
     this.forgetSessionReports(hostId);
+    this.forgetJournalsRead(hostId);
   }
 
-  /** Hooks aren't copied here while the computer sleeps, so copied spinners may be stale. */
+  /** Hooks aren't copied here while the computer sleeps either. */
   machineResumed(): void {
-    this.forgetCopiedAgentActivity();
+    this.leaveCopiesUnconfirmed();
     this.forgetSessionReports();
+    this.forgetJournalsRead();
+  }
+
+  /**
+   * The session check read the host after it reconnected or the computer woke, or couldn't. A
+   * spinner kept on only by copies that the Terminal's Hook Journal or program report didn't
+   * confirm stops, as the copies may have missed its turn ending; the agent's next hook turns it
+   * back on.
+   */
+  hostChecked(hostId: string): void {
+    this.forgetUnconfirmedCopies(hostId);
+  }
+
+  /**
+   * Whether the session check should read the Terminal's Hook Journal: once after Komla starts,
+   * and again after its host reconnects or the computer wakes. Copies come meanwhile.
+   */
+  wantsJournal(terminalId: string): boolean {
+    return !this.journalsRead.has(terminalId);
   }
 
   // ── The user ─────────────────────────────────────────────────────────────
@@ -811,7 +874,15 @@ export class TerminalAttention {
   workspaceDeleted(workspaceId: string): void {
     this.activeAgentSources.delete(workspaceId);
     // It has left the store already, so its Terminals are the ones no workspace has.
-    for (const terminals of [this.hooksArrived, this.sessionReports]) {
+    for (const terminals of [
+      this.hooksArrived,
+      this.sessionReports,
+      this.newestCopies,
+      this.replayedDeliveries,
+      this.journalSources,
+      this.journalsRead,
+      this.unconfirmedCopies,
+    ]) {
       for (const terminalId of terminals.keys()) {
         if (!this.findWorkspaceByTerminalId(terminalId)) terminals.delete(terminalId);
       }
@@ -899,6 +970,8 @@ export class TerminalAttention {
     if (this.sessionReports.get(terminalId) === report) return;
     this.sessionReports.set(terminalId, report);
     if (hookSince || status?.state !== 'working' || !status.app || status.id !== undefined) return;
+    // The journal tells of an agent whose hooks it holds, as of a Codex turn a server outlives.
+    if (this.journalSources.get(terminalId)?.has(status.app)) return;
     const workspace = this.findWorkspaceByTerminalId(terminalId);
     if (!workspace) return;
     // A turn that works again makes the last one's done old news, as its tool activity would.
@@ -911,6 +984,95 @@ export class TerminalAttention {
     this.noteAgentHook(terminalId, true);
   }
 
+  /**
+   * The Hook Journal of a Terminal not attached here, as the session check read it from its host:
+   * each agent's prompt this turn and its newest hooks since. Copies reach only an installation
+   * that is connected, so this one takes in the hooks it missed, those after the last it took, as
+   * the copies it would have taken, without announcing them. None are missed when the newest is
+   * this installation's own or a copy on its way, which its mailbox brings. Either way, a spinner
+   * copies keep on is confirmed. Komla saves what it shows but not a spinner only copies keep on,
+   * so after a restart an agent's turn still at work is taken in again to turn that back on. A
+   * hook that arrived while the host was read is newer, and one that arrives meanwhile ends the
+   * replay.
+   */
+  async journalRead(
+    terminalId: string,
+    journal: readonly HookJournalEntry[],
+    { hookSince = false, installationKey }: { hookSince?: boolean; installationKey?: string } = {}
+  ): Promise<void> {
+    if (this.programStatuses.has(terminalId)) return;
+    const sources = journal.flatMap(({ hook }) => (hook.source ? [hook.source] : []));
+    this.journalSources.set(terminalId, new Set(sources));
+    if (journal.length > 0) this.unconfirmedCopies.delete(terminalId);
+    const terminal = this.getTerminal(terminalId);
+    if (hookSince || !terminal) return;
+    this.journalsRead.add(terminalId);
+    const missed = this.missedJournalEntries(terminal, journal, installationKey);
+    if (missed.length === 0 || this.replaying.has(terminalId)) return;
+    this.noteReplayed(terminalId, missed);
+    this.replaying.add(terminalId);
+    try {
+      const mark = this.hookMark(terminalId);
+      for (const { hook, writtenAt } of missed) {
+        const workspace = this.findWorkspaceByTerminalId(terminalId);
+        if (!workspace || this.programStatuses.has(terminalId)) return;
+        if (this.hookArrivedSince(terminalId, mark)) return;
+        await this.hook(
+          { workspace, terminalId, hasInvalidTerminalId: false },
+          { ...hook, copy: true, replayedAt: writtenAt }
+        );
+      }
+    } finally {
+      this.replaying.delete(terminalId);
+    }
+    const { deliveryId } = missed[missed.length - 1].hook;
+    if (deliveryId && this.findWorkspaceByTerminalId(terminalId)?.terminals.includes(terminal)) {
+      // Saved so that a restart knows it was taken.
+      terminal.lastJournalDeliveryId = deliveryId;
+      this.deps.store.save();
+    }
+  }
+
+  /** The entries of a Terminal's Hook Journal this installation should take in; see journalRead. */
+  private missedJournalEntries(
+    terminal: Terminal,
+    journal: readonly HookJournalEntry[],
+    installationKey: string | undefined
+  ): HookJournalEntry[] {
+    const entries = [...journal].sort((a, b) => a.writtenAt - b.writtenAt);
+    const newest = entries.at(-1);
+    if (!newest || newest.owner === installationKey) return [];
+    const taken = new Set(
+      [
+        this.newestCopies.get(terminal.id),
+        terminal.lastJournalDeliveryId,
+        terminal.lastAcceptedHookDeliveryId,
+      ].filter((deliveryId) => deliveryId !== undefined)
+    );
+    const missed = entries.slice(
+      entries.findLastIndex(({ hook }) => !!hook.deliveryId && taken.has(hook.deliveryId)) + 1
+    );
+    const tookAny = this.newestCopies.has(terminal.id);
+    if (missed.length > 0) {
+      if (installationKey && newest.copiedTo.includes(installationKey)) return [];
+      return tookAny ? missed : withPrompts(entries, missed);
+    }
+    if (tookAny) return [];
+    // Restarted: what each agent last did that counts, as one at work turns its spinner back on.
+    const working = Array.from(lastCountingHooks(entries).values()).filter(({ hook }) =>
+      keepsAgentWorking(hook)
+    );
+    return working.length > 0 ? withPrompts(entries, working) : [];
+  }
+
+  /** Remembers the deliveries a replay takes in, so that their copies left in a mailbox don't. */
+  private noteReplayed(terminalId: string, entries: readonly HookJournalEntry[]): void {
+    const replayed = Array.from(this.replayedDeliveries.get(terminalId) ?? []);
+    for (const { hook } of entries) if (hook.deliveryId) replayed.push(hook.deliveryId);
+    // A journal holds at most nine of each agent's.
+    this.replayedDeliveries.set(terminalId, new Set(replayed.slice(-64)));
+  }
+
   // ── Hook interpretation ──────────────────────────────────────────────────
 
   private handleHook(
@@ -920,7 +1082,8 @@ export class TerminalAttention {
   ): Workspace {
     const workspace = this.interpretHook(payload, target, inferredTitle);
     // After the hook's own changes, so the update that activity sends carries them.
-    if (payload.kind && TURN_ACTIVITY_KINDS.has(payload.kind)) {
+    // Activity long past doesn't make the workspace recent.
+    if (payload.kind && TURN_ACTIVITY_KINDS.has(payload.kind) && payload.replayedAt === undefined) {
       this.deps.turnActivity(workspace.id);
     }
     return workspace;
@@ -1118,11 +1281,14 @@ export class TerminalAttention {
         preservedWorkspaceAttention.terminalId
       );
     }
-    this.deps.windows.attentionRaised({
-      workspaceId: matchingWorkspace.id,
-      attention,
-      workspaceAttention: preservedWorkspaceAttention ?? attention,
-    });
+    // What a Hook Journal replays was for the installations connected when it ran.
+    if (payload.replayedAt === undefined) {
+      this.deps.windows.attentionRaised({
+        workspaceId: matchingWorkspace.id,
+        attention,
+        workspaceAttention: preservedWorkspaceAttention ?? attention,
+      });
+    }
     this.updateAttentionIndicator();
     logger.debug(
       `Notification received: workspace=${matchingWorkspace.name} kind=${attention.kind} source=${attention.source}`
@@ -2038,36 +2204,64 @@ export class TerminalAttention {
    * Records whose hooks keep a tab's spinner on: this installation's own, or copies from the one
    * attached to the tab, which this one can't see interrupted.
    */
-  private noteAgentHook(terminalId: string, copied: boolean): void {
+  private noteAgentHook(terminalId: string, copied: boolean, ranAt?: number): void {
     this.dropCopiedAgentActivity(terminalId);
     if (!copied || !this.getTerminal(terminalId)?.agentActive) return;
+    const age = ranAt === undefined ? 0 : Math.max(0, Date.now() - ranAt);
     const timer = setTimeout(() => {
       this.copiedAgentActivity.delete(terminalId);
+      this.unconfirmedCopies.delete(terminalId);
       const workspace = this.findWorkspaceByTerminalId(terminalId);
       const terminal = workspace?.terminals.find((candidate) => candidate.id === terminalId);
       // Attached here since: this installation's own hooks and keystrokes keep its spinner right.
       if (!workspace || terminal?.status !== 'stopped') return;
       this.clearTerminalSourcesOnly(workspace.id, terminalId);
-    }, COPIED_AGENT_ACTIVITY_TIMEOUT_MS);
+    }, COPIED_AGENT_ACTIVITY_TIMEOUT_MS - age);
     this.copiedAgentActivity.set(terminalId, timer);
   }
 
-  /**
-   * Stops the spinners that only another installation's hooks keep on, on one host or all of
-   * them. Hooks aren't copied here while asleep or disconnected, so these may be stale; the
-   * agent's next hook turns its spinner back on.
-   */
-  private forgetCopiedAgentActivity(hostId?: string): void {
-    for (const terminalId of Array.from(this.copiedAgentActivity.keys())) {
+  /** Leaves the spinners only copies keep on for the next session check, on one host or all. */
+  private leaveCopiesUnconfirmed(hostId?: string): void {
+    for (const terminalId of this.copiedAgentActivity.keys()) {
+      if (this.onHost(terminalId, hostId)) this.unconfirmedCopies.add(terminalId);
+    }
+    const key = hostId ?? '';
+    clearTimeout(this.unconfirmedTimers.get(key));
+    this.unconfirmedTimers.set(
+      key,
+      setTimeout(() => {
+        this.unconfirmedTimers.delete(key);
+        this.forgetUnconfirmedCopies(hostId);
+      }, UNCONFIRMED_COPIES_MS)
+    );
+  }
+
+  /** Stops the copied spinners left unconfirmed, on one host or all, but not one attached here. */
+  private forgetUnconfirmedCopies(hostId?: string): void {
+    for (const terminalId of Array.from(this.unconfirmedCopies)) {
+      if (!this.onHost(terminalId, hostId)) continue;
+      this.unconfirmedCopies.delete(terminalId);
       const workspace = this.findWorkspaceByTerminalId(terminalId);
-      if (
-        hostId &&
-        !(workspace && isSshWorkspace(workspace) && workspace.backend.hostId === hostId)
-      ) {
-        continue;
-      }
+      const terminal = workspace?.terminals.find((candidate) => candidate.id === terminalId);
+      // Attached here since: this installation's own hooks and keystrokes keep its spinner right.
+      if (workspace && terminal?.status !== 'stopped') continue;
       this.dropCopiedAgentActivity(terminalId);
       if (workspace) this.clearTerminalSourcesOnly(workspace.id, terminalId);
+    }
+  }
+
+  /** Whether the Terminal is on the SSH host, or any host when none is named, or is gone. */
+  private onHost(terminalId: string, hostId: string | undefined): boolean {
+    const workspace = this.findWorkspaceByTerminalId(terminalId);
+    return (
+      !hostId || !workspace || (isSshWorkspace(workspace) && workspace.backend.hostId === hostId)
+    );
+  }
+
+  /** Makes the session check read the Hook Journals again, on one host or all of them. */
+  private forgetJournalsRead(hostId?: string): void {
+    for (const terminalId of Array.from(this.journalsRead)) {
+      if (this.onHost(terminalId, hostId)) this.journalsRead.delete(terminalId);
     }
   }
 
@@ -2091,6 +2285,7 @@ export class TerminalAttention {
   private dropCopiedAgentActivity(terminalId: string): void {
     clearTimeout(this.copiedAgentActivity.get(terminalId));
     this.copiedAgentActivity.delete(terminalId);
+    this.unconfirmedCopies.delete(terminalId);
   }
 
   /** The Terminal's agent was interrupted just now; see isLateAgentActivity. */
@@ -2144,6 +2339,42 @@ export class TerminalAttention {
       (terminal) => terminal.id === terminalId
     );
   }
+}
+
+/** Each agent's newest entry that isn't a hook Komla ignores, such as a subagent's. */
+function lastCountingHooks(entries: readonly HookJournalEntry[]): Map<string, HookJournalEntry> {
+  const last = new Map<string, HookJournalEntry>();
+  for (const entry of entries) {
+    if (isIgnoredHook(entry.hook) || isSubagentLifecycle(entry.hook)) continue;
+    last.set(entry.hook.source ?? '', entry);
+  }
+  return last;
+}
+
+/** The entries `picked` with the prompts of their agents' turns, in the journal's order. */
+function withPrompts(
+  entries: readonly HookJournalEntry[],
+  picked: readonly HookJournalEntry[]
+): HookJournalEntry[] {
+  const sources = new Set(picked.map(({ hook }) => hook.source));
+  return entries.filter(
+    (entry) =>
+      picked.includes(entry) ||
+      (entry.hook.kind === 'prompt-submit' && sources.has(entry.hook.source))
+  );
+}
+
+/**
+ * Whether the agent works on after the hook, as its turn goes on, or background work holds it.
+ * A hook the journal holds is its agent's newest, or its prompt. A request for input counts as
+ * what it showed, which Komla saves.
+ */
+function keepsAgentWorking(hook: AgentHook): boolean {
+  return (
+    hook.kind === 'prompt-submit' ||
+    hook.kind === 'activity' ||
+    (hook.kind === 'turn-complete' && waitsForBackgroundWork(hook))
+  );
 }
 
 /** Claude subagent completions and background-task notifications don't change what's shown. */

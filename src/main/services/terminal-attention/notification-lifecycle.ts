@@ -5,6 +5,8 @@ export interface LifecycleNotification {
   kind?: string;
   source?: string;
   hookInput?: Record<string, unknown>;
+  /** Replayed from the Hook Journal: when the hook ran, which a hold counts from. */
+  replayedAt?: number;
 }
 
 type Decision =
@@ -261,10 +263,11 @@ export class NotificationLifecycle {
     }
     state.stopped = true;
     if (!waitsForBackgroundWork(payload)) return undefined;
+    const age = payload.replayedAt === undefined ? 0 : Math.max(0, Date.now() - payload.replayedAt);
     state.held = setTimeout(() => {
       state.held = undefined;
       onHoldExpired?.();
-    }, BACKGROUND_HOLD_LIMIT_MS);
+    }, BACKGROUND_HOLD_LIMIT_MS - age);
     return 'background';
   }
 

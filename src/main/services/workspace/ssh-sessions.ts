@@ -16,11 +16,10 @@ import { publishRemoteWorkspaceChange } from '../remote-workspace-events';
 import { remoteWorkspaceObservationService } from '../remote-workspace-observation.service';
 import { isSshHostDisconnected } from '../ssh-host-disconnection';
 import { normalizePersistedTerminalLayout } from '../ssh-workspace-sync/terminal-layout';
-import { sshWorkspaceService } from '../ssh-workspace.service';
+import { sshWorkspaceService, type TerminalSessionRead } from '../ssh-workspace.service';
 
 import { workspaceStore } from './store';
 
-import type { TerminalProgramStatus } from '../../../shared/lib/terminal-escape';
 import type { Terminal, Workspace } from '../../../shared/types';
 import type { SshWorkspaceSync } from '../ssh-workspace-sync/ssh-workspace-sync';
 import type { HookMark, TerminalAttention } from '../terminal-attention/terminal-attention';
@@ -92,13 +91,29 @@ export class SshSessionRecovery {
       }
     }
     const [first] = checks;
-    const sessions = first
-      ? await sshWorkspaceService.readTerminalSessions(
+    const companion = first
+      ? remoteWorkspaceObservationService.companionForWorkspace(first.workspace.backend)
+      : undefined;
+    const journals = new Set(
+      checks
+        .map(({ terminal }) => terminal.id)
+        .filter((terminalId) => this.deps.attention.wantsJournal(terminalId))
+    );
+    let sessions = new Map<string, TerminalSessionRead>();
+    try {
+      if (first) {
+        sessions = await sshWorkspaceService.readTerminalSessions(
           first.workspace.backend,
           checks.map(({ terminal }) => terminal.id),
-          { background: true }
-        )
-      : new Map<string, TerminalProgramStatus | undefined>();
+          { background: true, hookInbox: companion?.hookInbox, journals }
+        );
+      }
+    } catch (error) {
+      // Nothing confirmed what copies kept on.
+      this.deps.attention.hostChecked(hostId);
+      throw error;
+    }
+    const reads: Promise<void>[] = [];
     for (const { workspace, terminal, ...seen } of checks) {
       // The workspace, or this device's own view of the session, changed while the host was checked.
       if (
@@ -115,11 +130,29 @@ export class SshSessionRecovery {
       const hookSince = this.deps.attention.hookArrivedSince(terminal.id, seen.hooks);
       // Kept on by copies of hooks from a session that has since ended.
       if (!onHost && !hookSince) this.deps.attention.sessionGone(terminal.id);
-      // Copies of the hooks that ran while this installation was away never come.
-      if (onHost) {
-        this.deps.attention.sessionStatusRead(terminal.id, sessions.get(terminal.id), {
-          hookSince,
+      // Copies of the hooks that ran while this installation was away never come: its journal
+      // keeps them. What the program last reported counts for an agent the journal holds no hooks
+      // of, as one that reports without hooks or under a companion from before.
+      const read = sessions.get(terminal.id);
+      const readStatus = () => {
+        if (!read) return;
+        this.deps.attention.sessionStatusRead(terminal.id, read.status, {
+          hookSince: this.deps.attention.hookArrivedSince(terminal.id, seen.hooks),
         });
+      };
+      if (read && journals.has(terminal.id)) {
+        // The report is newer than the journal's turn it doesn't speak for.
+        reads.push(
+          this.deps.attention
+            .journalRead(terminal.id, read.journal, {
+              hookSince,
+              installationKey: companion?.installationKey,
+            })
+            .then(readStatus)
+            .catch((error) => logger.warn('Could not take in a Hook Journal', error))
+        );
+      } else {
+        readStatus();
       }
       if (!onHost && seen.endsIfGone) {
         // Gone after it was seen running, e.g. stopped elsewhere: selecting it restarts the
@@ -137,6 +170,8 @@ export class SshSessionRecovery {
       Object.assign(terminal, encodeTerminalExecution({ kind: 'host-checked', onHost }));
       if (hostCheckStamp(terminal) !== seen.stamp) changed.add(workspace);
     }
+    // Once what was read confirmed what it could.
+    void Promise.all(reads).then(() => this.deps.attention.hostChecked(hostId));
     if (changed.size === 0) return;
     if (ended) workspaceStore.saveWorkspaces();
     // Each workspace's own update would make every window reload them all again.

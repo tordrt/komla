@@ -27,7 +27,7 @@ import type {
   AgentHook,
   TerminalAttention,
 } from '../../../src/main/services/terminal-attention/terminal-attention';
-import type { TerminalProgramStatus } from '../../../src/shared/lib/terminal-escape';
+import type { TerminalSessionRead } from '../../../src/main/services/ssh-workspace.service';
 import type { Project } from '../../../src/shared/types/project';
 import type { Terminal } from '../../../src/shared/types/terminal';
 import type { OriginStartPoint } from '../../../src/main/services/git/git-branch';
@@ -507,12 +507,12 @@ const mockSshWorkspaceService = {
     async (
       backend: unknown,
       terminalIds: string[],
-      options?: unknown
-    ): Promise<Map<string, TerminalProgramStatus | undefined>> => {
+      { background }: { background?: boolean } = {}
+    ): Promise<Map<string, TerminalSessionRead>> => {
       const running = await (
         mockSshWorkspaceService.findTerminalSessions as (...args: unknown[]) => Promise<Set<string>>
-      )(backend, terminalIds, options);
-      return new Map(Array.from(running, (terminalId) => [terminalId, undefined]));
+      )(backend, terminalIds, { background });
+      return new Map(Array.from(running, (terminalId) => [terminalId, { journal: [] }]));
     }
   ),
   relayInterrupt: vi.fn(() => Promise.resolve()),
@@ -10463,7 +10463,7 @@ describe('WorkspaceService', () => {
       onHost(startedElsewhere);
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
       mockSshWorkspaceService.readTerminalSessions.mockResolvedValueOnce(
-        new Map([['t-other', { state: 'working', app: 'claude-code' }]])
+        new Map([['t-other', { status: { state: 'working', app: 'claude-code' }, journal: [] }]])
       );
 
       // Its turn started while this installation was away, so no copy of its hooks came.
@@ -10473,11 +10473,113 @@ describe('WorkspaceService', () => {
 
       // How its turn ends is the hooks' to tell: background work may still hold it.
       mockSshWorkspaceService.readTerminalSessions.mockResolvedValueOnce(
-        new Map([['t-other', { state: 'idle', app: 'claude-code' }]])
+        new Map([['t-other', { status: { state: 'idle', app: 'claude-code' }, journal: [] }]])
       );
       await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
       await vi.advanceTimersByTimeAsync(600);
       expect(workspaceService.get('ws-other')?.agentActive).toBe(true);
+    });
+
+    it('takes in the Hook Journal of a tab whose turn ran while this device was away', async () => {
+      mockPtyService.getStatus.mockReturnValue(undefined);
+      onHost(startedElsewhere);
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const entry = (kind: 'prompt-submit' | 'turn-complete', deliveryId: string, ago: number) => ({
+        owner: 'other-installation',
+        copiedTo: [],
+        writtenAt: Date.now() - ago,
+        hook: {
+          terminalId: 't-other',
+          cwd: '/repo',
+          kind,
+          source: 'claude-code',
+          deliveryId,
+          hookInput: { hook_event_name: kind === 'turn-complete' ? 'Stop' : 'UserPromptSubmit' },
+        },
+      });
+      mockSshWorkspaceService.readTerminalSessions.mockResolvedValueOnce(
+        new Map([['t-other', { journal: [entry('prompt-submit', 'd1', 60_000)] }]])
+      );
+
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.advanceTimersByTimeAsync(600);
+      expect(mockSshWorkspaceService.readTerminalSessions).toHaveBeenCalledWith(
+        expect.objectContaining({ hostId: 'ssh-dev' }),
+        expect.arrayContaining(['t-other']),
+        expect.objectContaining({
+          hookInbox: expect.stringMatching(/\/helpers\/companion\/[^/]+\/inbox$/),
+          journals: new Set(['t-other']),
+        })
+      );
+      expect(workspaceService.get('ws-other')?.agentActive).toBe(true);
+
+      // The turn ended while this installation was away.
+      workspaceService.attention.hostConnected('ssh-dev');
+      mockSshWorkspaceService.readTerminalSessions.mockResolvedValueOnce(
+        new Map([
+          [
+            't-other',
+            {
+              journal: [entry('prompt-submit', 'd1', 60_000), entry('turn-complete', 'd2', 1_000)],
+            },
+          ],
+        ])
+      );
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.advanceTimersByTimeAsync(1_500);
+      const other = workspaceService.get('ws-other');
+      expect(other?.agentActive).toBe(false);
+      expect(other?.terminals[0]).toMatchObject({
+        attention: expect.objectContaining({ kind: 'turn-complete' }),
+        lastJournalDeliveryId: 'd2',
+      });
+    });
+
+    it('reads what a program that reports without hooks last reported, beside a journal', async () => {
+      mockPtyService.getStatus.mockReturnValue(undefined);
+      onHost(startedElsewhere);
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      // Claude's last turn ended long ago; the program now at work reports only its status.
+      const stop = {
+        owner: 'other-installation',
+        copiedTo: [],
+        writtenAt: Date.now() - 60 * 60_000,
+        hook: {
+          terminalId: 't-other',
+          cwd: '/repo',
+          kind: 'turn-complete' as const,
+          source: 'claude-code',
+          deliveryId: 'd1',
+          hookInput: { hook_event_name: 'Stop' },
+        },
+      };
+      mockSshWorkspaceService.readTerminalSessions.mockResolvedValueOnce(
+        new Map([['t-other', { status: { state: 'working', app: 'pi' }, journal: [stop] }]])
+      );
+
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      expect(workspaceService.get('ws-other')?.agentActive).toBe(true);
+    });
+
+    it('stops what only copies kept on when the check after a reconnect fails', async () => {
+      mockPtyService.getStatus.mockReturnValue(undefined);
+      onHost(startedElsewhere);
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      mockSshWorkspaceService.readTerminalSessions.mockResolvedValueOnce(
+        new Map([['t-other', { status: { state: 'working', app: 'claude-code' }, journal: [] }]])
+      );
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.advanceTimersByTimeAsync(600);
+      expect(workspaceService.get('ws-other')?.agentActive).toBe(true);
+
+      workspaceService.attention.hostConnected('ssh-dev');
+      mockSshWorkspaceService.readTerminalSessions.mockRejectedValueOnce(new Error('timed out'));
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(workspaceService.get('ws-other')?.agentActive).toBe(false);
     });
 
     // Added before its agent's tmux session starts, it showed in the sidebar but counted as

@@ -28,6 +28,7 @@ import type { SshWorkspaceBackend, Workspace } from '../../../src/shared/types';
 import { komlaSshRemoteDataPort } from '../../../src/shared/types/ssh';
 import { sshWorkspaceDiff } from '../../../src/main/services/workspace-git/ssh-diff';
 import { sshWorkspaceGit } from '../../../src/main/services/workspace-git/ssh-git';
+import { hookJournalFolder } from '../../../src/main/services/terminal-attention/hook-journal';
 import { CLAUDE_VERSION_CACHE_MS } from '../../../src/main/lib/claude-hook-events';
 
 const { execFileMock, askpassMock, configGetMock, generateCommitMessageMock } = vi.hoisted(() => ({
@@ -844,20 +845,40 @@ describe('sshWorkspaceService against a real tmux', () => {
         gitUrl: 'git@example.com:repo.git',
       };
 
+      const hookInbox = join(tempPath, 'helpers', 'companion', 'key', 'inbox');
+      const journal = hookJournalFolder(hookInbox, 'term-a');
+      mkdirSync(journal, { recursive: true });
+      const ranAt = Date.now() - 60_000;
+      const hook = { terminalId: 'term-a', cwd: '/repo', kind: 'activity', source: 'claude-code' };
+      writeFileSync(
+        join(journal, 'abc.json'),
+        JSON.stringify({ owner: 'other', writtenAtMs: ranAt, hook })
+      );
+      // Written as it is published, which the read leaves out.
+      writeFileSync(join(journal, '.abc.json.1.2.tmp'), '{');
+
       try {
         // A session whose name the other starts with, which only an exact target tells apart.
         tmux('new-session', '-d', '-s', 'komla-term-a', 'exec sleep 60');
         tmux('new-session', '-d', '-s', 'komla-term-ab', 'exec sleep 60');
         tmux('set-option', '-t', '=komla-term-ab:', '@komla_status', 'state=working:app=codex');
 
-        await expect(
-          sshWorkspaceService.readTerminalSessions(backend, ['term-a', 'term-ab', 'term-gone'])
-        ).resolves.toEqual(
-          new Map([
-            ['term-a', undefined],
-            ['term-ab', { state: 'working', app: 'codex' }],
-          ])
+        const sessions = await sshWorkspaceService.readTerminalSessions(
+          backend,
+          ['term-a', 'term-ab', 'term-gone'],
+          { hookInbox, journals: new Set(['term-a', 'term-ab']) }
         );
+
+        expect([...sessions.keys()]).toEqual(['term-a', 'term-ab']);
+        expect(sessions.get('term-ab')).toEqual({
+          status: { state: 'working', app: 'codex' },
+          journal: [],
+        });
+        const [entry, ...others] = sessions.get('term-a')?.journal ?? [];
+        expect(others).toEqual([]);
+        expect(entry).toMatchObject({ owner: 'other', hook });
+        // By this computer's clock, read to the second.
+        expect(Math.abs((entry?.writtenAt ?? 0) - ranAt)).toBeLessThan(2_000);
       } finally {
         run.mockRestore();
         sshHosts.splice(sshHosts.indexOf(host as (typeof sshHosts)[number]), 1);
@@ -2536,14 +2557,29 @@ describe('sshWorkspaceService', () => {
     expect(remoteCommand).not.toContain('list-commands');
   });
 
-  it("reads what each running session's program last reported", async () => {
+  it("reads what each running session's program last reported, and its Hook Journal", async () => {
+    const prompt = {
+      terminalId: 'term-a',
+      cwd: '/repo',
+      kind: 'prompt-submit',
+      source: 'claude-code',
+      deliveryId: 'd1',
+      hookInput: { hook_event_name: 'UserPromptSubmit' },
+    };
     execFileMock.mockImplementation((_file, _args, _options, callback) => {
       callback(null, {
         stdout: [
-          'term-a\tstate=working:app=claude-code:msg=UnVuIGxzPw==',
-          'term-b\t',
-          'term-c\tstate=bogus',
-          'term-x\tstate=working:app=codex',
+          // The host's clock is a minute ahead.
+          `T\t${Math.floor((Date.now() + 60_000) / 1000)}`,
+          'S\tterm-a\tstate=working:app=claude-code:msg=UnVuIGxzPw==',
+          `J\tterm-a\t${JSON.stringify({ owner: 'key', writtenAtMs: Date.now(), hook: prompt })}`,
+          // Not this Terminal's, nor a hook Komla takes.
+          `J\tterm-a\t${JSON.stringify({ owner: 'key', writtenAtMs: 1, hook: { ...prompt, terminalId: 'term-b' } })}`,
+          `J\tterm-a\t${JSON.stringify({ owner: 'key', writtenAtMs: 1, hook: { ...prompt, kind: 'bogus' } })}`,
+          'J\tterm-a\t{',
+          'S\tterm-b\t',
+          'S\tterm-c\tstate=bogus',
+          'S\tterm-x\tstate=working:app=codex',
           '',
         ].join('\n'),
         stderr: '',
@@ -2561,24 +2597,33 @@ describe('sshWorkspaceService', () => {
       projectName: 'komla',
     };
 
-    const sessions = await sshWorkspaceService.readTerminalSessions(backend, [
-      'term-a',
-      'term-b',
-      'term-c',
-      'term-d',
-    ]);
-
-    expect(sessions).toEqual(
-      new Map([
-        ['term-a', { state: 'working', app: 'claude-code', msg: 'Run ls?' }],
-        ['term-b', undefined],
-        ['term-c', undefined],
-      ])
+    const hookInbox = '/home/devuser/.komla/helpers/companion/key/inbox';
+    const sessions = await sshWorkspaceService.readTerminalSessions(
+      backend,
+      ['term-a', 'term-b', 'term-c', 'term-d'],
+      { hookInbox, journals: new Set(['term-a']) }
     );
+
+    expect([...sessions.keys()]).toEqual(['term-a', 'term-b', 'term-c']);
+    expect(sessions.get('term-a')?.status).toEqual({
+      state: 'working',
+      app: 'claude-code',
+      msg: 'Run ls?',
+    });
+    const [entry, ...others] = sessions.get('term-a')?.journal ?? [];
+    expect(others).toEqual([]);
+    // Taken in as a copy.
+    expect(entry?.hook).toEqual({ ...prompt, copy: true });
+    expect(Math.abs((entry?.writtenAt ?? 0) - (Date.now() - 60_000))).toBeLessThan(2_000);
+    expect(sessions.get('term-b')).toEqual({ status: undefined, journal: [] });
+    expect(sessions.get('term-c')).toEqual({ status: undefined, journal: [] });
     const remoteCommand = (execFileMock.mock.calls[0][1] as string[]).at(-1) ?? '';
     // A pane target can't take the exact-match prefix alone.
     expect(remoteCommand).toContain('=komla-term-a:');
     expect(remoteCommand).toContain('@komla_status');
+    expect(remoteCommand).toContain(hookJournalFolder(hookInbox, 'term-a'));
+    // Only where asked.
+    expect(remoteCommand).not.toContain(hookJournalFolder(hookInbox, 'term-b'));
     expect(remoteCommand).not.toContain('list-sessions');
   });
 

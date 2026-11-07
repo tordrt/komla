@@ -210,6 +210,14 @@ installation changes the host's workspaces or sessions, so SSH Workspace Sync se
 best-effort: desktop refresh recovers anything it misses, and it does not interpret Attention.
 _Avoid_: Remote agent, daemon, sidecar
 
+**Hook Journal**:
+What a Komla Remote Companion keeps on its SSH host of each terminal's current turn: every agent's
+prompt and its newest hooks since, whichever installation they went to. Hooks are copied only to the
+installations connected when they run, so one that connects reads the journal of the terminals it
+isn't attached to and takes in the hooks it missed, as it would have taken the copies, without
+announcing them. A prompt starts an agent's journal over.
+_Avoid_: Hook log, hook history
+
 **SSH Exec Channel**:
 A role of the Komla executable that Komla starts over its own SSH session to run the shell commands
 it composes on that host, without an ssh exec per command. It lives only as long as that session

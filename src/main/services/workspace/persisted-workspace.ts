@@ -80,6 +80,7 @@ export type PersistedWorkspace = {
     attention?: WorkspaceAttention;
     activeAgentSources?: Record<string, number>;
     lastAcceptedHookDeliveryId?: string;
+    lastJournalDeliveryId?: string;
   }>;
   terminalLayout?: Workspace['terminalLayout'];
   windowId: string | null;
@@ -193,6 +194,8 @@ export function normalizePersistedSshTerminals(value: PersistedWorkspace['termin
         typeof item.lastAcceptedHookDeliveryId === 'string'
           ? item.lastAcceptedHookDeliveryId
           : undefined,
+      lastJournalDeliveryId:
+        typeof item.lastJournalDeliveryId === 'string' ? item.lastJournalDeliveryId : undefined,
     });
   }
   return terminals;
@@ -482,6 +485,7 @@ export function serializeWorkspace(
           remoteSessionActive: persistedRemoteSessionActive(terminal),
           attention: terminal.attention,
           lastAcceptedHookDeliveryId: terminal.lastAcceptedHookDeliveryId,
+          lastJournalDeliveryId: terminal.lastJournalDeliveryId,
           activeAgentSources: persistedSources(w.id, terminal.id),
         }))
       : undefined,

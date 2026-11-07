@@ -603,6 +603,8 @@ void app.whenReady().then(async () => {
   // Other devices' agents' hooks aren't copied here while asleep, so their spinners may be stale.
   powerMonitor.on('resume', () => {
     workspaceService.attention.machineResumed();
+    // Reads what the copies missed meanwhile.
+    void workspaceService.sshSync.syncSoon(undefined, { now: true });
     void sshConnectionService.checkHeldConnections();
     void automationService.tick();
   });

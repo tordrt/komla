@@ -1,8 +1,6 @@
 import { createLogger } from '../../../lib/logger';
-import {
-  notificationDeliveryService,
-  notificationPayloadSchema,
-} from '../../notification-delivery.service';
+import { notificationDeliveryService } from '../../notification-delivery.service';
+import { notificationPayloadSchema } from '../../notification-payload';
 import { readJsonBody, singleHeader, writeValidationError } from '../http-io';
 
 import type http from 'http';

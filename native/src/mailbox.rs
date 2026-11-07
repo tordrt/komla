@@ -11,6 +11,7 @@ use notify::Watcher;
 use sha2::Digest;
 
 use crate::clock::now_ms;
+use crate::hook_journal;
 use crate::transport::{HookDelivery, OutboundRequest, OutboundTransport};
 
 const SCAN_INTERVAL_MS: u64 = 1_000;
@@ -366,10 +367,12 @@ pub(crate) fn ingest(args: &[String]) -> anyhow::Result<()> {
 }
 
 /// Queues a hook for the device that owns the terminal, and copies it for every other
-/// device whose companion receives on this host.
+/// device whose companion receives on this host. The Hook Journal keeps it for the devices
+/// that aren't.
 pub(crate) fn deliver(inbox: &Path, hook: &PendingTerminalHook) -> anyhow::Result<()> {
     ingest_pending(inbox, hook)?;
-    copy_to_other_devices(inbox, hook);
+    let copied_to = copy_to_other_devices(inbox, hook);
+    hook_journal::record(inbox, hook, &copied_to);
     Ok(())
 }
 
@@ -391,13 +394,16 @@ pub(crate) fn relay_interrupt(inbox: &Path, terminal_id: &str, sources: &[String
             String::new(),
             serde_json::json!({}),
         );
-        copy_to_other_devices(inbox, &hook);
+        let copied_to = copy_to_other_devices(inbox, &hook);
+        hook_journal::record(inbox, &hook, &copied_to);
     }
 }
 
-fn copy_to_other_devices(inbox: &Path, hook: &PendingTerminalHook) {
+/// Returns the keys of the companions it copied the hook to.
+fn copy_to_other_devices(inbox: &Path, hook: &PendingTerminalHook) -> Vec<String> {
+    let mut copied_to = Vec::new();
     let Some(owner) = inbox.parent() else {
-        return;
+        return copied_to;
     };
     // Companions live in `helpers/companion/<key>/inbox` under the host's Komla data folder.
     let Some(Ok(companions)) = owner
@@ -405,7 +411,7 @@ fn copy_to_other_devices(inbox: &Path, hook: &PendingTerminalHook) {
         .filter(|root| root.file_name() == Some(OsStr::new("companion")))
         .map(fs::read_dir)
     else {
-        return;
+        return copied_to;
     };
     let copy = PendingTerminalHook {
         copy: true,
@@ -418,8 +424,11 @@ fn copy_to_other_devices(inbox: &Path, hook: &PendingTerminalHook) {
             continue;
         }
         // Best effort: the owner already has the hook.
-        let _ = ingest_pending(&companion.path().join("inbox"), &copy);
+        if ingest_pending(&companion.path().join("inbox"), &copy).is_ok() {
+            copied_to.push(companion.file_name().to_string_lossy().into_owned());
+        }
     }
+    copied_to
 }
 
 pub(crate) fn ingest_pending(inbox: &Path, hook: &PendingTerminalHook) -> anyhow::Result<()> {
@@ -603,6 +612,43 @@ mod tests {
         assert!(
             pending_hooks(&gone.join("inbox")).is_empty(),
             "a device whose companion stopped must not collect hooks"
+        );
+    }
+
+    #[test]
+    fn hooks_and_relayed_interrupts_are_journaled_for_devices_that_are_away() {
+        let temp = tempdir().unwrap();
+        let helpers = temp.path().join("helpers");
+        let owner = helpers.join("companion").join("owner");
+        std::fs::create_dir_all(owner.join("inbox")).unwrap();
+        let journal = helpers
+            .join(crate::hook_journal::JOURNAL_DIRECTORY)
+            .join(crate::hook_journal::terminal_directory_name("terminal"));
+
+        let other = helpers.join("companion").join("other");
+        std::fs::create_dir_all(other.join("inbox")).unwrap();
+        super::mark_receiving(&other);
+        super::deliver(&owner.join("inbox"), &hook("prompt-submit")).unwrap();
+        super::relay_interrupt(
+            &owner.join("inbox"),
+            "terminal",
+            &["claude-code".to_owned()],
+        );
+
+        let mut kinds: Vec<String> = pending_hooks(&journal)
+            .into_iter()
+            .map(|entry| entry["hook"]["kind"].as_str().unwrap().to_owned())
+            .collect();
+        kinds.sort();
+        assert_eq!(kinds, ["interrupted", "prompt-submit"]);
+        // Its mailbox brings those, so it needn't take them in from the journal.
+        assert!(pending_hooks(&journal)
+            .iter()
+            .all(|entry| entry["copiedTo"] == serde_json::json!(["other"])));
+        assert_eq!(
+            pending_hooks(&owner.join("inbox")).len(),
+            1,
+            "the interrupt is only for the other devices"
         );
     }
 

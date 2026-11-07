@@ -8,6 +8,7 @@ mod desktop;
 #[cfg(unix)]
 mod exec_channel;
 mod help;
+mod hook_journal;
 mod host_changes;
 mod lifecycle;
 mod mailbox;

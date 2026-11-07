@@ -623,24 +623,47 @@ function ShelfHeader({
   icon: ShelfIcon,
   count,
   expanded,
+  onPanel,
   onToggle,
 }: {
   label: string;
   icon: Icon;
   count: number;
   expanded: boolean;
+  /** The shelf shows cards, so it sits on a panel this header titles. */
+  onPanel: boolean;
   onToggle: () => void;
 }) {
+  // Without cards, it's a quiet line under the projects. With them, it heads their panel as a
+  // project's header does, so it reads as the panel's title and is as easy to hit to close.
   return (
     <button
       type="button"
       aria-expanded={expanded}
       onClick={onToggle}
-      className="flex w-full items-center gap-1.5 rounded-xl py-1.5 pr-2 pl-2.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
+      className={cn(
+        'flex w-full items-center rounded-xl py-1.5 pr-2 transition-colors hover:bg-accent/30 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden',
+        onPanel
+          ? 'gap-2 pl-2 text-sm focus-visible:ring-inset'
+          : 'gap-1.5 pl-2.5 text-2xs font-medium text-muted-foreground hover:text-foreground'
+      )}
     >
-      <ShelfIcon aria-hidden="true" weight="bold" className="size-3" />
-      {label}
-      <span className="ml-auto flex items-center gap-1 tabular-nums">
+      <span className={cn('flex shrink-0 items-center justify-center', onPanel && 'size-5')}>
+        <ShelfIcon
+          aria-hidden="true"
+          weight="bold"
+          className={onPanel ? 'size-3.5 text-muted-foreground' : 'size-3'}
+        />
+      </span>
+      <span className={cn(onPanel && 'font-semibold tracking-normal text-foreground')}>
+        {label}
+      </span>
+      <span
+        className={cn(
+          'ml-auto flex items-center gap-1 tabular-nums',
+          expanded && 'text-2xs text-muted-foreground'
+        )}
+      >
         {count}
         <CaretRight
           aria-hidden="true"
@@ -748,6 +771,7 @@ function ShelfDock({
             icon={shelf.icon}
             count={shelf.count}
             expanded={shelf.open}
+            onPanel={shelf.shown.length > 0}
             onToggle={() => onToggle(shelf)}
           />
           {shelf.shown.length > 0 && (

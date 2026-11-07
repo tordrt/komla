@@ -272,23 +272,20 @@ test.describe('Critical Workflows', () => {
     // Click workspace to make sure it's active
     await sidebarBranchLocator(appWindow, 'test/e2e-tabs').click();
     await expect(appWindow.locator('.xterm').first()).toBeVisible({ timeout: 10_000 });
+    // Terminal tabs only: browser tabs carry data-tab-id too. The project has no Workspace
+    // Setup, so the workspace opens with one.
+    const tabs = appWindow
+      .locator('[data-tab-id]')
+      .filter({ has: appWindow.getByRole('button', { name: /terminal tab$/ }) });
+    await expect(tabs).toHaveCount(1);
 
     // Open a terminal from the "New tab" menu
     await appWindow.getByRole('button', { name: 'New tab' }).click();
     await appWindow.getByRole('menuitem', { name: /New terminal/ }).click();
+    await expect(tabs).toHaveCount(2);
 
-    // Wait for the second tab to appear
-    await appWindow.waitForTimeout(1000);
-
-    // Get all tab close buttons (X buttons inside tabs)
-    const closeBtns = appWindow.locator('[class*="group/tab"] button');
-    const count = await closeBtns.count();
-    expect(count).toBeGreaterThanOrEqual(2);
-
-    // Close the last tab
-    await closeBtns.last().click();
-
-    // Should be back to fewer close buttons
-    await expect(closeBtns).toHaveCount(count - 1, { timeout: 5_000 });
+    // Close the new tab
+    await tabs.last().getByRole('button', { name: 'Close terminal tab' }).click();
+    await expect(tabs).toHaveCount(1);
   });
 });

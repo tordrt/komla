@@ -38,39 +38,8 @@ if [ "${KOMLA_DEV_DRY_RUN:-0}" = 1 ]; then
   exit 0
 fi
 
-# Build inputs are the files git sees under native, minus tests and
-# build output, plus the outside files the build reads. Hidden files such as
-# editor swap files and .DS_Store are skipped. The Local copy of an SSH
-# Workspace has no .git, so there find lists every file; its sync already left
-# out the files the SSH host's .gitignore ignores.
-list_inputs() {
-  local input
-  {
-    if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-      git -C "$repo_root" ls-files -co --exclude-standard -- native \
-        ':(exclude)native/tests' ':(exclude)native/artifacts' \
-        ':(exclude)native/target' src/shared/git-line-count-policy.json \
-        scripts/ensure-dev-companion.sh
-    else
-      printf '%s\n' src/shared/git-line-count-policy.json scripts/ensure-dev-companion.sh
-      (cd "$repo_root" && find native \( -path native/tests \
-        -o -path native/artifacts -o -path native/target \) -prune \
-        -o ! -type d -print)
-    fi
-  } | LC_ALL=C sort |
-    while IFS= read -r input; do
-      case "${input##*/}" in .*) continue ;; esac
-      if [ -f "$repo_root/$input" ]; then printf '%s\n' "$input"; fi
-    done
-}
-
-# git hash-object needs no repository.
-source_key() {
-  {
-    printf '%s\n' "$1"
-    printf '%s\n' "$1" | (cd "$repo_root" && git hash-object --no-filters --stdin-paths)
-  } | git hash-object --stdin
-}
+# shellcheck source=scripts/native-inputs.sh
+. "$repo_root/scripts/native-inputs.sh"
 
 dev_mark() {
   printf '%s/.dev-build' "$(dirname "$1")"
@@ -95,8 +64,8 @@ artifact_is_current() {
 
 # Worktrees share builds through a cache keyed by the companion's build inputs,
 # so a worktree only builds when no cached build matches its companion sources.
-inputs=$(list_inputs)
-key=$(source_key "$inputs")
+inputs=$(native_inputs "$repo_root" build)
+key=$(native_inputs_key "$repo_root" "$inputs")
 cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/komla-companion-artifacts"
 cache_entry="$cache_root/$key"
 
@@ -199,7 +168,7 @@ for target in "${uncached_targets[@]}"; do
   build_dev_artifact "$target"
 done
 
-if [ "$(source_key "$(list_inputs)")" != "$key" ]; then
+if [ "$(native_inputs_key "$repo_root" "$(native_inputs "$repo_root" build)")" != "$key" ]; then
   printf 'Companion sources changed during the build, so these artifacts are out of date and not cached.\n'
   printf 'Run npm run dev -- --companion again to rebuild them.\n'
   exit 0

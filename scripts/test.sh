@@ -12,7 +12,8 @@ npm run -s typecheck
 # a lower priority isn't enough: the Rust tests' git processes pushed vitest's
 # git tests past their timeouts, so there the Rust suite runs after vitest,
 # with its output shown as it runs. Without a Rust toolchain it is skipped with
-# a warning.
+# a warning. scripts/test-native.sh also skips it when a run for the same native
+# sources already passed in any worktree on this machine.
 case "$(uname -s)" in
   MINGW* | MSYS* | CYGWIN*) rust_after_vitest=1 ;;
   *) rust_after_vitest=0 ;;
@@ -24,7 +25,7 @@ if ! command -v cargo >/dev/null 2>&1; then
   echo 'Skipped the native Rust tests: cargo is not installed (https://rustup.rs).' >"$rust_log"
   rust_after_vitest=0
 elif [ "$rust_after_vitest" -eq 0 ]; then
-  nice -n 10 npm run test:native -- --quiet >"$rust_log" 2>&1 &
+  nice -n 10 bash scripts/test-native.sh >"$rust_log" 2>&1 &
   rust_pid=$!
 fi
 
@@ -35,7 +36,7 @@ rust_status=0
 if [ -n "$rust_pid" ]; then
   wait "$rust_pid" || rust_status=$?
 elif [ "$rust_after_vitest" -eq 1 ]; then
-  npm run test:native -- --quiet || rust_status=$?
+  bash scripts/test-native.sh || rust_status=$?
 fi
 
 if [ "$vitest_status" -ne 0 ]; then

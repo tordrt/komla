@@ -148,6 +148,7 @@ describe('shared development companion cache', () => {
     }
     execFileSync('git', ['init', '-q'], { cwd: root });
     copyFileSync(companionScript, join(root, 'scripts/ensure-dev-companion.sh'));
+    copyFileSync(resolve('scripts/native-inputs.sh'), join(root, 'scripts/native-inputs.sh'));
     for (const input of [
       'native/Cargo.toml',
       'native/Cargo.lock',

@@ -872,7 +872,8 @@ require_green_ci() {
 phase_test() {
   if [[ "$LOCAL_TESTS" == "true" ]]; then
     info "Running tests..."
-    npm test
+    # A release runs the Rust tests even when another worktree passed them.
+    KOMLA_FORCE_NATIVE_TESTS=1 npm test
     success "Tests passed"
   else
     info "Checking CI..."

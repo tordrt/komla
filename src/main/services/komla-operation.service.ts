@@ -206,6 +206,7 @@ const productionDependencies: KomlaOperationDependencies = {
   },
   getMainWindowId: () => windowService.getMainWindowId(),
   getVncAppName,
+  isWorkspaceShown: (workspaceId) => windowService.isWorkspaceShown(workspaceId),
   isAgentTurnActive,
   watchAgentTurnEnd: (workspaceId, terminalId, ended) =>
     watchAgentTurnEnd(

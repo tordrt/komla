@@ -36,14 +36,18 @@ command's first words show each command they start, such as every `status` comma
 and keep only when and how to use them.
 
 `komla preview <url>` offers the user a page, such as a dev server an agent started, without opening
-it. The window that shows the workspace shows a toast with Open in browser, which opens the page in
-the default browser through a tunnel from an SSH host, and Open in Komla, which opens it in the
-workspace's browser. The globe button lists the page with its servers or links, and a dot marks the
-offer until the user opens that list or opens the page, by either button, from the list, by a
-terminal's link or through `--open` for it. A later preview in the same workspace replaces the
-toast. `--open` opens the page in Komla's browser right away, as `komla desktop run --browser` does
-for a desktop; without a URL it shows the workspace's browser, or a new one that finds its dev
-server. Without a URL or `--open`, it fails with `PREVIEW_URL_REQUIRED`. The MCP tool
+it. The workspace asks where to open it, in a callout from its globe button: Open in browser opens
+the page in the default browser through a tunnel from an SSH host, and Open in Komla in the
+workspace's browser. The callout shows only while the workspace is on screen, so an agent in
+another workspace waits, marked by a globe on its sidebar card, instead of interrupting. It takes no
+focus and stays until answered or dismissed, so typing to the agent, Escape included, leaves it up.
+Remember for this project opens the project's later previews there without asking, once their
+workspace is on screen; the globe button's list says so, with Ask each time to undo it. The globe
+button lists the page with its servers or links, and a dot marks the offer until the user opens that
+list or opens the page, from the callout, the list, a terminal's link or through `--open` for it. A
+later preview in the same workspace replaces the offer. `--open` opens the page in Komla's browser
+right away, as `komla desktop run --browser` does for a desktop; without a URL it shows the
+workspace's browser, or a new one that finds its dev server. Without a URL or `--open`, it fails with `PREVIEW_URL_REQUIRED`. The MCP tool
 `open_browser_preview` takes `open` for the same choice. `--open` takes a browser's blank tab.
 
 A browser Setup step opens its pages as the workspace is created; with no pages it finds the dev
@@ -610,7 +614,7 @@ Spawn a new AI agent in a new tab within the current Komla workspace. Only use w
 
 #### `open_browser_preview`
 
-Offer the user a page, as `komla preview` does: a toast opens it in the default browser or in Komla's browser, and the globe button marks it.
+Offer the user a page, as `komla preview` does: the workspace asks whether to open it in the default browser or in Komla's browser, and the globe button marks it.
 
 | Parameter | Required | Description                                                                          |
 | --------- | -------- | ------------------------------------------------------------------------------------ |

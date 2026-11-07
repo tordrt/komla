@@ -66,35 +66,87 @@ async function createWorkspace(appWindow: Page, branch: string): Promise<string>
   );
 }
 
+function sidebarCard(appWindow: Page, branch: string) {
+  return appWindow
+    .locator('.sidebar-surface .workspace-card-hover')
+    .filter({ hasText: branch })
+    .first();
+}
+
 test.describe('komla preview', () => {
   test.describe.configure({ timeout: 60_000 });
 
-  test('offers the page with a toast and a dot on the globe button, opening nothing', async ({
-    appWindow,
-  }) => {
+  // A project's remembered choice outlives the run in the Electron profile, and would open the
+  // page without asking.
+  test.beforeEach(async ({ appWindow }) => {
+    const stored = await appWindow.evaluate(() =>
+      localStorage.getItem('komla:browser-offer-targets')
+    );
+    if (stored === null) return;
+    await appWindow.evaluate(() => localStorage.removeItem('komla:browser-offer-targets'));
+    await appWindow.reload();
+  });
+
+  test('asks in the workspace where to open the page, opening nothing', async ({ appWindow }) => {
     const cwd = await createWorkspace(appWindow, 'preview-offer/one');
     const port = await readServerPort();
     const globeDot = appWindow
       .getByRole('button', { name: 'Open in default browser' })
       .locator('[data-offer-dot]');
+    const ask = appWindow.getByRole('dialog', { name: 'Preview ready' });
 
     expect(await previewOverMcp(port, { cwd, url: 'http://localhost:5173/' })).toContain('offered');
 
-    const toast = appWindow.locator('.toast-enter').filter({ hasText: 'Preview ready' });
-    await expect(toast).toHaveText(/Preview ready: localhost:5173/);
-    await expect(toast.getByRole('button', { name: 'Open in browser' })).toBeVisible();
+    await expect(ask).toContainText('localhost:5173');
+    await expect(ask.getByRole('button', { name: 'Open in browser' })).toBeVisible();
     await expect(globeDot).toBeVisible();
+    // The workspace on screen asks in the callout, so its card needs no mark.
+    await expect(
+      sidebarCard(appWindow, 'preview-offer/one').locator('[data-offer-mark]')
+    ).toHaveCount(0);
+    await expect(appWindow.locator('.toast-enter')).toHaveCount(0);
     await expect(appWindow.locator('[data-browser-address]')).toHaveCount(0);
+
+    // Typing to the agent, Escape included, leaves the question up.
+    await appWindow.locator('.xterm').filter({ visible: true }).click();
+    await appWindow.keyboard.press('Escape');
+    await appWindow.keyboard.type('ls');
+    await expect(ask).toBeVisible();
     await appWindow.screenshot({ path: test.info().outputPath('offer.png') });
 
-    // An agent restarting its server on another port replaces the toast.
+    // An agent restarting its server on another port replaces the question.
     await previewOverMcp(port, { cwd, url: 'http://localhost:5174/' });
-    await expect(toast).toHaveCount(1);
-    await expect(toast).toHaveText(/localhost:5174/);
+    await expect(ask).toHaveCount(1);
+    await expect(ask).toContainText('localhost:5174');
 
-    await toast.getByRole('button', { name: 'Open in Komla' }).click();
+    await ask.getByRole('button', { name: 'Open in Komla' }).click();
     await expect(appWindow.locator('[data-browser-address]')).toBeVisible();
+    await expect(ask).toHaveCount(0);
     await expect(globeDot).toHaveCount(0);
+  });
+
+  test('waits for its own workspace instead of interrupting another', async ({ appWindow }) => {
+    const cwd = await createWorkspace(appWindow, 'preview-offer/first');
+    await createWorkspace(appWindow, 'preview-offer/second');
+    const port = await readServerPort();
+    const ask = appWindow.getByRole('dialog', { name: 'Preview ready' });
+    const firstCard = sidebarCard(appWindow, 'preview-offer/first');
+
+    await previewOverMcp(port, { cwd, url: 'http://localhost:5173/' });
+
+    await expect(firstCard.locator('[data-offer-mark]')).toBeVisible();
+    await expect(ask).toHaveCount(0);
+    await expect(appWindow.locator('.toast-enter')).toHaveCount(0);
+
+    await firstCard.click();
+    await expect(ask).toContainText('localhost:5173');
+    await expect(firstCard.locator('[data-offer-mark]')).toHaveCount(0);
+
+    await ask.getByRole('button', { name: 'Dismiss' }).click();
+    await expect(ask).toHaveCount(0);
+    await expect(
+      appWindow.getByRole('button', { name: 'Open in default browser' }).locator('[data-offer-dot]')
+    ).toHaveCount(0);
   });
 
   test("opens the page in Komla's browser right away when asked to, clearing an offer", async ({
@@ -103,19 +155,18 @@ test.describe('komla preview', () => {
     const cwd = await createWorkspace(appWindow, 'preview-offer/open');
     const port = await readServerPort();
     const globe = appWindow.getByRole('button', { name: 'Open in default browser' });
-    const toast = appWindow.locator('.toast-enter').filter({ hasText: 'Preview ready' });
+    const ask = appWindow.getByRole('dialog', { name: 'Preview ready' });
 
     await previewOverMcp(port, { cwd, url: 'http://localhost:5173/' });
     await expect(globe.locator('[data-offer-dot]')).toBeVisible();
     await expect(globe).toHaveAccessibleDescription('An agent offered a page');
-    await expect(toast).toHaveCount(1);
+    await expect(ask).toHaveCount(1);
 
     await previewOverMcp(port, { cwd, url: 'http://localhost:5173/', open: true });
 
     await expect(appWindow.locator('[data-browser-address]')).toBeVisible();
-    // Well before the toast would time out on its own.
-    await expect(toast).toHaveCount(0, { timeout: 2_000 });
-    // The page shows, so its offer no longer waits in a toast or under the globe button.
+    // The page shows, so its offer no longer waits in a question or under the globe button.
+    await expect(ask).toHaveCount(0);
     await expect(globe.locator('[data-offer-dot]')).toHaveCount(0);
   });
 });

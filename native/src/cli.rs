@@ -989,6 +989,9 @@ fn show_desktop_with(
     })?;
     let desktop = &result["desktop"];
     let shown = match (desktop["viewer"].as_str(), desktop["vncApp"].as_str()) {
+        (Some("vnc-app"), Some(name)) if desktop["opensWhenShown"] == true => Shown::VncAppLater {
+            name: name.to_owned(),
+        },
         (Some("vnc-app"), Some(name)) => Shown::VncApp {
             name: name.to_owned(),
         },
@@ -3697,7 +3700,7 @@ fn write_operation_result(
                 .unwrap_or("the page");
             writeln!(
                 output,
-                "Offered {url}: the user can open it from Komla's toast or globe button."
+                "Offered {url}: the user can open it from where Komla asks, or its globe button."
             )?;
         }
         return Ok(());
@@ -4201,6 +4204,31 @@ mod tests {
         );
         let request = serde_json::from_slice::<Value>(&api.requests[0].body).unwrap();
         assert_eq!(request["viewer"], "vnc-app");
+    }
+
+    #[test]
+    fn says_when_the_vnc_app_waits_for_the_workspace_to_show() {
+        let mut api = FakeApi::responding(json!({
+            "ok": true,
+            "result": {"desktop": {
+                "viewer": "vnc-app",
+                "vncApp": "Screen Sharing",
+                "opensWhenShown": true,
+            }},
+        }));
+        let view = DesktopView {
+            viewer: Some(Viewer::VncApp),
+            ..desktop_view()
+        };
+
+        let shown = show_desktop_with(&mut api, &environment(), &view).unwrap();
+
+        assert_eq!(
+            shown,
+            Shown::VncAppLater {
+                name: "Screen Sharing".to_owned()
+            }
+        );
     }
 
     #[test]
@@ -5060,7 +5088,7 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
         assert!(body.get("open").is_none());
         assert_eq!(
             printed,
-            "Offered http://localhost:3000: the user can open it from Komla's toast or globe button.\n"
+            "Offered http://localhost:3000: the user can open it from where Komla asks, or its globe button.\n"
         );
 
         let mut api = FakeApi::responding(json!({

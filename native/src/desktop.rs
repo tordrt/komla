@@ -49,6 +49,8 @@ pub(crate) enum Shown {
     Preview,
     /// In the VNC app on the user's computer.
     VncApp { name: String },
+    /// In the VNC app once a Komla window shows the workspace, which none does yet.
+    VncAppLater { name: String },
 }
 
 /// Komla's answer when it has nowhere to show the desktop: the user's computer has no VNC app,
@@ -472,6 +474,11 @@ or add --app or --browser to open it right away.",
             ),
             Ok(Shown::VncApp { name }) => println!(
                 "Showing the desktop in {name}. If it asks for a password, enter {}.",
+                desktop.password
+            ),
+            Ok(Shown::VncAppLater { name }) => println!(
+                "The desktop opens in {name} once Komla shows this workspace. If it asks for a \
+password, enter {}.",
                 desktop.password
             ),
             Ok(Shown::Preview) if viewer == Some(Viewer::VncApp) => println!(

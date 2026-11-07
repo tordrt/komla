@@ -61,7 +61,10 @@ import type {
   ActivePresetEntry,
   ReasoningLevel,
 } from '../../../shared/types/agent-preset';
-import type { VirtualDesktopViewer } from '../../../shared/types/dev-preview';
+import type {
+  VirtualDesktopStartedEvent,
+  VirtualDesktopViewer,
+} from '../../../shared/types/dev-preview';
 import type { SshHost } from '../../../shared/types/ssh';
 import type {
   StatusItemContent,
@@ -398,6 +401,8 @@ export interface KomlaOperationDependencies {
   getMainWindowId(): string | null;
   /** The app this computer opens vnc:// links with, such as Screen Sharing; '' when none. */
   getVncAppName(): string;
+  /** Whether a window on screen shows the workspace, rather than another or the overview. */
+  isWorkspaceShown(workspaceId: string): boolean;
   /** Whether an agent is mid-turn in the terminal, as when the agent itself runs a command. */
   isAgentTurnActive(terminalId: string): boolean;
   /**
@@ -695,8 +700,9 @@ export class KomlaOperationService {
    * Lists a virtual desktop from `komla desktop run` under the workspace's globe button, and
    * opens it right away where `viewer` asks: in the app this computer opens vnc:// links with
    * (`--app`), or through noVNC at `url` in Komla's browser (`--browser`). Without a VNC app,
-   * `--app` falls back to Komla's browser. Without `viewer`, the window showing the workspace
-   * says the desktop is ready, with a way to open it.
+   * `--app` falls back to Komla's browser. While no window shows the workspace, `--app` waits
+   * for one to, so another workspace's agent doesn't open a window over the user's work. Without
+   * `viewer`, the workspace asks the user where to open it once a window shows it.
    */
   private async openDesktop(
     context: KomlaOperationContext,
@@ -730,28 +736,51 @@ export class KomlaOperationService {
     const desktop = this.rememberDesktop(workspace, operation, vncApp);
     const shown = { workspaceId: workspace.id, ...(vncApp ? { vncApp } : {}) };
     if (viewer === 'vnc-app') {
-      try {
-        await this.dependencies.openInVncApp(
-          workspace,
-          operation.vncPort,
-          operation.vncPassword,
-          operation.vncPorts
-        );
-      } catch (error) {
-        throw new KomlaOperationError(
-          'DESKTOP_VIEWER_FAILED',
-          `Couldn’t open the desktop in ${vncApp}: ${error instanceof Error ? error.message : String(error)}`,
-          502
-        );
-      }
-      return { desktop: { ...shown, viewer: 'vnc-app' } };
+      return { desktop: { ...shown, ...(await this.showInVncApp(workspace, operation, desktop)) } };
     }
     if (viewer === 'preview') {
       this.openPreview(context, operation.url);
       return { desktop: { ...shown, viewer: 'preview' } };
     }
-    this.dependencies.publish(IPC.VIRTUAL_DESKTOP_STARTED, { workspaceId: workspace.id, desktop });
+    this.dependencies.publish(IPC.VIRTUAL_DESKTOP_STARTED, {
+      workspaceId: workspace.id,
+      desktop,
+    } satisfies VirtualDesktopStartedEvent);
     return { desktop: shown };
+  }
+
+  /**
+   * Opens the desktop in the VNC app for `--app`, or, while no window shows the workspace, has the
+   * workspace open it there once one does.
+   */
+  private async showInVncApp(
+    workspace: KomlaOperationWorkspace,
+    operation: Extract<KomlaOperation, { type: 'desktop.open' }>,
+    desktop: WorkspaceVirtualDesktop
+  ): Promise<{ viewer: 'vnc-app'; opensWhenShown?: true }> {
+    if (!this.dependencies.isWorkspaceShown(workspace.id)) {
+      this.dependencies.publish(IPC.VIRTUAL_DESKTOP_STARTED, {
+        workspaceId: workspace.id,
+        desktop,
+        opensIn: 'vnc-app',
+      } satisfies VirtualDesktopStartedEvent);
+      return { viewer: 'vnc-app', opensWhenShown: true };
+    }
+    try {
+      await this.dependencies.openInVncApp(
+        workspace,
+        operation.vncPort,
+        operation.vncPassword,
+        operation.vncPorts
+      );
+    } catch (error) {
+      throw new KomlaOperationError(
+        'DESKTOP_VIEWER_FAILED',
+        `Couldn’t open the desktop in ${desktop.vncApp}: ${error instanceof Error ? error.message : String(error)}`,
+        502
+      );
+    }
+    return { viewer: 'vnc-app' };
   }
 
   /**

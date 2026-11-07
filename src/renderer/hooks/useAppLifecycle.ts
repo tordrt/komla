@@ -8,7 +8,11 @@ import {
   retryPendingTerminalExits,
   retryPendingTerminalExitsOnChange,
 } from '@/lib/close-terminal-pane';
-import { offerDevPreview } from '@/lib/dev-preview-offers';
+import {
+  offerDevPreview,
+  offerVirtualDesktop,
+  followBrowserOffers,
+} from '@/lib/dev-preview-offers';
 import { getFocusedTerminalId } from '@/lib/focused-terminal';
 import { cacheCustomSound, CUSTOM_PREFIX, playNotificationSound } from '@/lib/notification-sounds';
 import { openFolder } from '@/lib/open-folder';
@@ -38,7 +42,6 @@ import { followSshHostConnections } from '@/lib/ssh-host-connection';
 import { clearTerminalHost } from '@/lib/terminal-host-tracker';
 import { disposeTerminalRenderers } from '@/lib/terminal-renderer-runtime';
 import { syncPaletteFromTheme } from '@/lib/theme-palette';
-import { announceVirtualDesktop } from '@/lib/virtual-desktops';
 import { resolveAttentionDelivery } from '@/lib/workspace-attention';
 import {
   hydratePersistedWorkspaceLayout,
@@ -525,9 +528,11 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
 
       window.api.onNewWorkspaceDraft(openNewWorkspaceDraft),
 
-      window.api.onVirtualDesktopStarted(({ workspaceId, desktop }) => {
-        announceVirtualDesktop(workspaceId, desktop);
+      window.api.onVirtualDesktopStarted(({ workspaceId, desktop, opensIn }) => {
+        offerVirtualDesktop(workspaceId, desktop, opensIn);
       }),
+
+      followBrowserOffers(),
 
       // A tab keeps the page it shows, with its title.
       window.api.onDevPreviewNavigationStateChanged((state) => {

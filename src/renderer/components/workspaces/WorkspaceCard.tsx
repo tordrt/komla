@@ -9,6 +9,7 @@ import {
   Folder,
   Alarm,
   CalendarDots,
+  Globe,
   EnvelopeSimple,
   PushPin,
   PushPinSlash,
@@ -64,6 +65,10 @@ import { cn } from '@/lib/utils';
 import { getUnreadBadge, getWorkspaceAttentionAppearance } from '@/lib/workspace-attention';
 import { useAutomationsStore } from '@/stores/automations.store';
 import { useConfigStore } from '@/stores/config.store';
+import {
+  selectWaitingOfferKind,
+  useDevPreviewOffersStore,
+} from '@/stores/dev-preview-offers.store';
 import { openNewWorkspaceDialog } from '@/stores/dialogs.store';
 import { useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
@@ -573,6 +578,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
               className="size-3 shrink-0 text-muted-foreground"
             />
           )}
+          <OfferMark workspaceId={workspace.id} />
           {automationName !== undefined && (
             <CalendarDots
               role="img"
@@ -1433,6 +1439,27 @@ function ActivityTime({
 /** Whether the activity row shows anything ahead of the time, other than what fills free space. */
 function activityRowInUse(workspace: Workspace, gitStatusShown: boolean): boolean {
   return gitStatusShown || !!workspace.linkedWorkspaceIds?.length;
+}
+
+/**
+ * A globe while what an agent offered in the workspace, a page or a desktop, waits to be opened:
+ * the workspace asks where once it's on screen, which is why the one on screen has no globe.
+ */
+function OfferMark({ workspaceId }: { workspaceId: string }) {
+  const kind = useDevPreviewOffersStore((s) => selectWaitingOfferKind(s, workspaceId));
+  const onScreen = useWorkspacesStore(
+    (s) => s.selectedWorkspaceId === workspaceId && !s.showDashboard
+  );
+  if (kind === undefined || onScreen) return null;
+  return (
+    <Globe
+      role="img"
+      aria-label={kind === 'page' ? 'A preview is ready' : 'A desktop is ready'}
+      data-offer-mark
+      weight="bold"
+      className="size-3 shrink-0 text-primary"
+    />
+  );
 }
 
 /** Whether the activity row keeps a git status indicator, which hides itself while clean. */

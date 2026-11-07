@@ -1,4 +1,5 @@
 import type { TerminalExecutionLocation } from './terminal';
+import type { WorkspaceVirtualDesktop } from './workspace';
 
 export interface DevPreviewBounds {
   x: number;
@@ -112,3 +113,14 @@ export interface LinkPreview {
  */
 export const VIRTUAL_DESKTOP_VIEWERS = ['preview', 'vnc-app'] as const;
 export type VirtualDesktopViewer = (typeof VIRTUAL_DESKTOP_VIEWERS)[number];
+
+/**
+ * `komla desktop run` started a virtual desktop for the workspace. With `opensIn`, the agent
+ * already chose where it opens, which it does once a window shows the workspace; without, the
+ * workspace asks the user.
+ */
+export interface VirtualDesktopStartedEvent {
+  workspaceId: string;
+  desktop: WorkspaceVirtualDesktop;
+  opensIn?: 'vnc-app';
+}

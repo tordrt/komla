@@ -51,6 +51,14 @@ export function virtualDesktopDisplay(desktop: WorkspaceVirtualDesktop): string 
   return `:${desktop.vncPort - FIRST_VNC_PORT}`;
 }
 
+/** The program the desktop's app runs, as in "xterm" for `/usr/bin/xterm -fa Monospace`. */
+export function virtualDesktopAppName(desktop: WorkspaceVirtualDesktop): string | undefined {
+  const command = desktop.app?.trim() ?? '';
+  const quoted = /^(["'])(.*?)\1/.exec(command);
+  const program = quoted ? quoted[2] : command.split(/\s+/)[0];
+  return program ? program.split(/[\\/]/).pop() || undefined : undefined;
+}
+
 /** The port its noVNC page is served on, if it has one. */
 export function virtualDesktopViewerPort(desktop: WorkspaceVirtualDesktop): number | undefined {
   if (!desktop.url) return undefined;

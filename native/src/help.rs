@@ -418,7 +418,7 @@ const COMMANDS: &[Command] = &[
         usages: &["<url> [--open] [--json]", "--open [--json]"],
         summary: "Offer the user a page, such as a dev server",
         description: &[
-            "Offers the user a page, such as a running dev server, without opening it: Komla shows a toast that opens it in the default browser, forwarded from an SSH host, or in Komla's browser, and a dot on its globe button, which lists it. A later preview in the same workspace replaces the toast. `komla preview open` is the same.",
+            "Offers the user a page, such as a running dev server, without opening it: the workspace asks the user whether to open it in the default browser, forwarded from an SSH host, or in Komla's browser, and a dot on its globe button, which lists it, marks it. A later preview in the same workspace replaces the offer. `komla preview open` is the same.",
             "--open opens the page in Komla's browser right away instead, once it responds; without a URL, it shows the workspace's browser, or a new one that finds its dev server. Use it only when the user asked to see the page in Komla.",
         ],
         options: &[

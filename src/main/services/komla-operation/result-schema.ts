@@ -378,7 +378,11 @@ export const komlaOperationResultSchemas = {
           viewer: z
             .enum(['vnc-app', 'preview'])
             .optional()
-            .describe('Where it opened; absent when the window only says the desktop is ready.'),
+            .describe('Where it opened; absent when the workspace asks the user where to open it.'),
+          opensWhenShown: z
+            .literal(true)
+            .optional()
+            .describe('It opens there once a window shows the workspace, which none does yet.'),
         })
         .strict(),
     })

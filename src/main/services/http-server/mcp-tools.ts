@@ -267,7 +267,7 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
 
   registerTool(
     'open_browser_preview',
-    "Offer the user a page, such as a dev server you started; any http(s) URL works. Komla shows a toast that opens it in the user's default browser or in Komla's browser, and marks it under the globe button, without opening it. Set open only when the user asked to see the page in Komla: it opens Komla's browser for this workspace right away, in a new tab of its browser pane (or the tab already at that URL), or in a tab of its own when it has none. With open and no URL, Komla shows the browser as it is, or a new one that detects a local dev URL.",
+    "Offer the user a page, such as a dev server you started; any http(s) URL works. Komla asks the user, in this workspace, whether to open it in their default browser or in Komla's browser, and marks it under the globe button, without opening it. Set open only when the user asked to see the page in Komla: it opens Komla's browser for this workspace right away, in a new tab of its browser pane (or the tab already at that URL), or in a tab of its own when it has none. With open and no URL, Komla shows the browser as it is, or a new one that detects a local dev URL.",
     {
       cwd: z.string().describe('Current working directory of the calling agent.'),
       url: z
@@ -287,7 +287,7 @@ export function createMcpServer(requestContext: KomlaOperationContext = {}): Mcp
         { type: 'preview.open', url, ...(open ? { open } : {}) },
         () =>
           !open
-            ? `Browser preview offered at ${url}: the user can open it from Komla's toast or globe button.`
+            ? `Browser preview offered at ${url}: the user can open it from where Komla asks or from the globe button.`
             : url !== undefined
               ? `Browser preview opened at ${url}`
               : 'Browser preview opened.'

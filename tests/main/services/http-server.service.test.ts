@@ -194,6 +194,8 @@ const mockWindowService = {
   getWindowId: vi.fn((): string | undefined => undefined),
   sendWhenReady: vi.fn(),
   sendToWindowOrNext: vi.fn(),
+  // The workspace shows, so `--app` opens the VNC app right away.
+  isWorkspaceShown: vi.fn(() => true),
   broadcastToAll: vi.fn(),
 };
 vi.mock('../../../src/main/services/window.service', () => ({

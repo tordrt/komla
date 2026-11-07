@@ -192,18 +192,15 @@ describe('openTerminalUrl and recent links', () => {
 
 describe('openTerminalUrl and an offered page', () => {
   it("settles the workspace's offer once its page opens, however it is reached", () => {
-    useDevPreviewOffersStore.setState({ offers: {}, unseen: {} });
-    useDevPreviewOffersStore
-      .getState()
-      .offer('local-ws', { url: 'http://localhost:3000/', executionLocation: 'workspace' });
-    useToastStore.getState().addToast('Preview ready: localhost:3000', 'info', {
-      key: 'dev-preview-offer:local-ws',
+    useDevPreviewOffersStore.setState({ offers: {}, pending: {} });
+    useDevPreviewOffersStore.getState().offer('local-ws', {
+      kind: 'page',
+      page: { url: 'http://localhost:3000/', executionLocation: 'workspace' },
     });
 
     openTerminalUrl('http://127.0.0.1:3000', 'external', { workspaceId: 'local-ws' });
 
-    expect(useDevPreviewOffersStore.getState().unseen).toEqual({});
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(useDevPreviewOffersStore.getState().pending).toEqual({});
   });
 });
 

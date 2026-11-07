@@ -114,6 +114,7 @@ import type {
   SaveAutomationParams,
 } from '../shared/types/automation';
 import type { CommitGraph, CommitGraphQuery } from '../shared/types/commit-graph';
+import type { VirtualDesktopStartedEvent } from '../shared/types/dev-preview';
 import type { GitIdentityStatus } from '../shared/types/git-identity';
 import type { KomlaEvent } from '../shared/types/komla-events';
 import type { KomlaSkillStatus } from '../shared/types/komla-skill';
@@ -154,7 +155,6 @@ import type {
   NewWorkspaceDraft,
   OpenDevPreviewEvent,
   WorkspaceTrashRequest,
-  WorkspaceVirtualDesktop,
 } from '../shared/types/workspace';
 
 export type IpcCallback = (event: Electron.IpcRendererEvent, ...args: unknown[]) => void;
@@ -1566,14 +1566,11 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.WORKSPACE_AGENT_TAB_ADDED, handler);
   },
 
-  /** `komla desktop run` started a virtual desktop for the workspace without opening it. */
+  /** `komla desktop run` started a virtual desktop for the workspace without opening it yet. */
   onVirtualDesktopStarted: (
-    callback: (event: { workspaceId: string; desktop: WorkspaceVirtualDesktop }) => void
+    callback: (event: VirtualDesktopStartedEvent) => void
   ): (() => void) => {
-    const handler = (
-      _: Electron.IpcRendererEvent,
-      event: { workspaceId: string; desktop: WorkspaceVirtualDesktop }
-    ): void => {
+    const handler = (_: Electron.IpcRendererEvent, event: VirtualDesktopStartedEvent): void => {
       callback(event);
     };
     ipcRenderer.on(IPC.VIRTUAL_DESKTOP_STARTED, handler);

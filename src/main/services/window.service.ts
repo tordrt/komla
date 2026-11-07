@@ -279,12 +279,25 @@ class WindowService {
    * reported yet counts as showing them all.
    */
   isWorkspaceOffScreen(workspaceId: string): boolean {
-    for (const [windowId, window] of this.windows) {
-      if (window.isDestroyed() || !window.isVisible() || window.isMinimized()) continue;
+    for (const windowId of this.windowIdsOnScreen()) {
       const shown = this.shownWorkspaces.get(windowId);
       if (shown === undefined || shown === null || shown === workspaceId) return false;
     }
     return true;
+  }
+
+  /** Whether a window on screen shows the workspace itself, not another or the overview. */
+  isWorkspaceShown(workspaceId: string): boolean {
+    return this.windowIdsOnScreen().some(
+      (windowId) => this.shownWorkspaces.get(windowId) === workspaceId
+    );
+  }
+
+  /** The windows open, visible and not minimized. */
+  private windowIdsOnScreen(): string[] {
+    return [...this.windows]
+      .filter(([, window]) => !window.isDestroyed() && window.isVisible() && !window.isMinimized())
+      .map(([windowId]) => windowId);
   }
 
   /** Asks before quitting throws away unsaved edits. Returns whether to quit. */

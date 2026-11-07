@@ -50,6 +50,7 @@ function createDependencies(
     publish: vi.fn(),
     getMainWindowId: () => undefined,
     getVncAppName: () => '',
+    isWorkspaceShown: () => true,
     isAgentTurnActive: () => false,
     watchAgentTurnEnd: vi.fn(() => () => {}),
     requestTrash: vi.fn(),
@@ -3500,6 +3501,40 @@ describe('KomlaOperationService', () => {
         virtualDesktops: [expect.objectContaining({ vncPort: 5901, vncApp: 'Screen Sharing' })],
       });
       expect(publish).not.toHaveBeenCalledWith('virtual-desktop:started', expect.anything());
+    });
+
+    it('holds --app until a window shows the workspace, instead of opening the VNC app', async () => {
+      const openInVncApp = vi.fn();
+      const publish = vi.fn();
+      const service = new KomlaOperationService(
+        desktopDependencies({
+          findWorkspaceByTerminalId: () => sshWorkspace,
+          getVncAppName: () => 'Screen Sharing',
+          isWorkspaceShown: () => false,
+          openInVncApp,
+          publish,
+        })
+      );
+
+      await expect(
+        service.execute(
+          { terminalId: 'terminal-1' },
+          { type: 'desktop.open', vncPort: 5901, url: viewerUrl, viewer: 'vnc-app' }
+        )
+      ).resolves.toEqual({
+        desktop: {
+          workspaceId: 'workspace-1',
+          viewer: 'vnc-app',
+          vncApp: 'Screen Sharing',
+          opensWhenShown: true,
+        },
+      });
+      expect(openInVncApp).not.toHaveBeenCalled();
+      expect(publish).toHaveBeenCalledWith('virtual-desktop:started', {
+        workspaceId: 'workspace-1',
+        desktop: expect.objectContaining({ vncPort: 5901, vncApp: 'Screen Sharing' }),
+        opensIn: 'vnc-app',
+      });
     });
 
     it("opens the desktop in Komla's browser right away for --browser", async () => {

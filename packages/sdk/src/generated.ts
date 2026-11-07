@@ -836,8 +836,10 @@ export interface DesktopOpenResult {
     workspaceId: string;
     /** The app this computer opens vnc:// links with. */
     vncApp?: string;
-    /** Where it opened; absent when the window only says the desktop is ready. */
+    /** Where it opened; absent when the workspace asks the user where to open it. */
     viewer?: 'vnc-app' | 'preview';
+    /** It opens there once a window shows the workspace, which none does yet. */
+    opensWhenShown?: true;
   };
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   normalizeVirtualDesktops,
+  virtualDesktopAppName,
   virtualDesktopDisplay,
   virtualDesktopViewerPort,
 } from '../../../src/shared/lib/virtual-desktops';
@@ -49,5 +50,17 @@ describe('virtual desktops', () => {
     expect(virtualDesktopDisplay(desktop)).toBe(':3');
     expect(virtualDesktopViewerPort(desktop)).toBe(6083);
     expect(virtualDesktopViewerPort({ vncPort: 5903, shownAt: 0 })).toBeUndefined();
+  });
+
+  it("names the desktop's app by its program, without its folder or arguments", () => {
+    const named = (app?: string) => virtualDesktopAppName({ vncPort: 5901, shownAt: 0, app });
+    expect(named('electron .')).toBe('electron');
+    expect(named('firefox-esr http://localhost:5173/')).toBe('firefox-esr');
+    expect(named('/usr/bin/xterm -fa Monospace')).toBe('xterm');
+    expect(named('C:\\Tools\\app.exe --flag')).toBe('app.exe');
+    expect(named('"/opt/My App/bin/app" --flag')).toBe('app');
+    expect(named("'/usr/bin/xterm'")).toBe('xterm');
+    expect(named('  ')).toBeUndefined();
+    expect(named()).toBeUndefined();
   });
 });

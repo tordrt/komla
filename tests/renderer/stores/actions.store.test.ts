@@ -21,7 +21,6 @@ function mockApi(overrides: Record<string, any> = {}): Record<string, any> {
       ...updates,
     })),
     deleteAction: vi.fn().mockResolvedValue(undefined),
-    reorderAction: vi.fn().mockResolvedValue(undefined),
     recordActionUsage: vi.fn().mockImplementation(async (id: string) => ({
       ...action1,
       id,
@@ -79,26 +78,6 @@ describe('actions.store', () => {
     useActionsStore.setState({ actions: [action1, action2] as any });
     await useActionsStore.getState().deleteAction('t-1');
     expect(useActionsStore.getState().actions.map((t) => t.id)).toEqual(['t-2']);
-  });
-
-  it('reorderAction reorders optimistically', async () => {
-    const api = mockApi();
-    useActionsStore.setState({ actions: [action1, action2] as any });
-
-    await useActionsStore.getState().reorderAction('t-2', 0);
-
-    expect(useActionsStore.getState().actions.map((t) => t.id)).toEqual(['t-2', 't-1']);
-    expect(api.reorderAction).toHaveBeenCalledWith('t-2', 0);
-  });
-
-  it('reorderAction rolls back on failure', async () => {
-    mockApi({ reorderAction: vi.fn().mockRejectedValue(new Error('nope')) });
-    useActionsStore.setState({ actions: [action1, action2] as any });
-
-    await expect(useActionsStore.getState().reorderAction('t-2', 0)).rejects.toThrow('nope');
-
-    expect(useActionsStore.getState().actions.map((t) => t.id)).toEqual(['t-1', 't-2']);
-    expect(useActionsStore.getState().error).toBe('nope');
   });
 
   it('subscribeToChanges updates actions from external events', () => {

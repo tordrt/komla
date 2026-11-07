@@ -21,6 +21,7 @@ const mockShowTabInFullPane = vi.hoisted(() => vi.fn());
 const mockDeleteWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockSelectWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockRecordActionUsage = vi.fn().mockResolvedValue(undefined);
+const mockExtraActions = vi.hoisted(() => [] as any[]);
 const mockProjects = vi.hoisted(() => [] as any[]);
 const mockOpenFolder = vi.hoisted(() => vi.fn());
 let mockConfig = { remoteBranchesExpanded: false };
@@ -136,6 +137,7 @@ vi.mock('../../../../src/renderer/stores/actions.store', () => ({
         presetId: 'preset-Y',
         launchModeId: 'mode-Y',
       },
+      ...mockExtraActions,
     ],
     loadActions: vi.fn().mockResolvedValue(undefined),
     recordActionUsage: mockRecordActionUsage,
@@ -184,6 +186,7 @@ vi.mock('../../../../src/shared/lib/action-injection', () => ({
 describe('QuickCreateMenu action wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExtraActions.length = 0;
     mockConfig = { remoteBranchesExpanded: false };
     mockSelectedWorkspaceId = 'ws-existing';
     mockProjects.splice(0, mockProjects.length, {
@@ -225,6 +228,25 @@ describe('QuickCreateMenu action wiring', () => {
     await waitFor(() =>
       expect(screen.getByRole('menuitem', { name: 'Open Folder…' })).toBeEnabled()
     );
+  });
+
+  it('lists Quick Commands most recently run or pasted first', async () => {
+    mockExtraActions.push(
+      { id: 'never', title: 'Never run', content: 'a', type: 'command' },
+      { id: 'pasted', title: 'Pasted lately', content: 'b', type: 'command', lastPastedAt: 2 },
+      { id: 'run', title: 'Run lately', content: 'c', type: 'command', lastUsedAt: 1 }
+    );
+
+    render(<QuickCreateMenu />);
+
+    await waitFor(() => {
+      const names = ['Pasted lately', 'Run lately', 'Test Command', 'Never run'];
+      const shown = screen
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent?.trim() ?? '')
+        .filter((text) => names.includes(text));
+      expect(shown.slice(0, 4)).toEqual(names);
+    });
   });
 
   it('uses the canonical action category names', async () => {

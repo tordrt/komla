@@ -33,6 +33,7 @@ import { DeferredDialog } from '@/components/ui/DeferredDialog';
 import { Spinner } from '@/components/ui/spinner';
 import { ActionInputDialog } from '@/components/workspaces/ActionInputDialog';
 import { startCommandInCreatedWorkspace } from '@/lib/action-launch';
+import { getActionMenuGroups } from '@/lib/action-menu-order';
 import { getRevealInFileManagerLabel } from '@/lib/platform-labels';
 import { qualifyBaseBranch, refreshIfBaseIsRemoteOnly } from '@/lib/remote-base-branch';
 import { useActionsStore } from '@/stores/actions.store';
@@ -231,12 +232,10 @@ export function ProjectGroupContextMenu({ project, children }: ProjectGroupConte
     }
   };
 
-  // Filter actions: global + scoped to this project
-  const visibleActions = actions.filter(
-    (t) => !t.projectIds?.length || t.projectIds.includes(project.id)
-  );
-  const commandActions = visibleActions.filter((t) => t.type === 'command');
-  const promptActions = visibleActions.filter((t) => t.type !== 'command');
+  // Global Actions and the project's own, in the order Quick Commands lists them.
+  const actionGroups = getActionMenuGroups(actions, project.id);
+  const commandActions = actionGroups.find((group) => group.type === 'command')?.actions ?? [];
+  const promptActions = actionGroups.find((group) => group.type === 'prompt')?.actions ?? [];
 
   const createWorkspaceWithCommand = async (
     action: Action,

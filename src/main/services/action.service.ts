@@ -10,7 +10,6 @@ import {
 } from '../../shared/constants/customize-prompt';
 import { IPC } from '../../shared/constants/ipc-channels';
 import { buildProjectSetupPrompt } from '../../shared/constants/project-setup-prompt';
-import { moveItem } from '../../shared/lib/move-item';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { migrate } from '../lib/migration';
 
@@ -396,24 +395,6 @@ export class ActionService {
     return revision;
   }
 
-  reorder(id: string, newOrder: number): void {
-    const actions = this.list();
-    const sourceIndex = actions.findIndex((action) => action.id === id);
-    if (sourceIndex < 0) {
-      throw new Error(`Action with id "${id}" not found`);
-    }
-
-    const reordered = moveItem(actions, sourceIndex, newOrder);
-    if (reordered === actions) return;
-
-    this.actions.clear();
-    for (const action of reordered) {
-      this.actions.set(action.id, action);
-    }
-    this.saveConfig();
-    this.notifyRenderer();
-  }
-
   create(params: CreateActionParams): Action {
     const action: Action = {
       id: randomUUID(),
@@ -481,7 +462,8 @@ export class ActionService {
 
   /**
    * A pasted prompt keeps its last use as it was: the most recently used Action stands in for
-   * the run button's default, and pasting into a terminal doesn't pick that.
+   * the run button's default, and pasting into a terminal doesn't pick that. The paste is
+   * recorded apart, as the Quick Commands list orders by either.
    */
   recordUsage(id: string, userInput?: string, pasted = false): Action {
     const action = this.actions.get(id);
@@ -491,7 +473,7 @@ export class ActionService {
 
     const updated: Action = {
       ...action,
-      ...(pasted ? {} : { lastUsedAt: Date.now() }),
+      ...(pasted ? { lastPastedAt: Date.now() } : { lastUsedAt: Date.now() }),
       ...(userInput?.trim() ? { lastUserInput: userInput.trim() } : {}),
     };
     this.actions.set(id, updated);

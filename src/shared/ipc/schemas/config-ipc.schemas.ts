@@ -774,7 +774,6 @@ export const customizationUpdateTerminalArgsSchema = z.tuple([terminalUpdateSche
 export const shortcutsUpdateArgsSchema = z.tuple([shortcutsUpdateSchema]);
 export const actionCreateArgsSchema = z.tuple([actionCreateSchema]);
 export const actionUpdateArgsSchema = z.tuple([idSchema, actionUpdateSchema]);
-export const actionReorderArgsSchema = z.tuple([idSchema, z.number().int().min(0)]);
 export const actionDeleteArgsSchema = z.tuple([idSchema]);
 export const actionRecordUsageArgsSchema = z.tuple([actionRecordUsageSchema]);
 export const feedbackSendArgsSchema = z.tuple([feedbackPayloadSchema]);

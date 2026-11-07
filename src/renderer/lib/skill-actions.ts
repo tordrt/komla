@@ -4,7 +4,9 @@ import { useShallow } from 'zustand/react/shallow';
 import { resolveLaunchablePresets } from '@/lib/agent-launch';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
 import { skillListingKey, useAgentSkillsStore } from '@/stores/agent-skills.store';
+import { skillUsageKey, useSkillUsageStore } from '@/stores/skill-usage.store';
 
+import { byRecentUse } from '../../shared/lib/action-order';
 import { promptSkillFamily, skillInvocation } from '../../shared/lib/agent-skills';
 import { AGENT_SKILL_FAMILIES } from '../../shared/types/agent-skill';
 
@@ -24,9 +26,8 @@ export function skillAgentPresets(
   activePresets: ActivePresetEntry[]
 ): SkillAgentPreset[] {
   const launchable = resolveLaunchablePresets(presets, activePresets);
-  const byRecentUse = [...activePresets].sort((a, b) => b.lastUsedAt - a.lastUsedAt);
   const found = new Map<AgentSkillFamily, SkillAgentPreset>();
-  for (const entry of byRecentUse) {
+  for (const entry of byRecentUse(activePresets, (active) => active.lastUsedAt)) {
     const preset = launchable.find((candidate) => candidate.id === entry.presetId);
     const family = promptSkillFamily(preset);
     if (!preset || !family || found.has(family)) continue;
@@ -41,12 +42,14 @@ export function skillAgentPresets(
 
 /**
  * The Skills group of a workspace's Quick Commands, from the last listings: each agent's skills,
- * by name, starting that agent. Empty until a listing has skills.
+ * starting that agent, the ones in `lastUsed` most recent first, then the rest by agent and
+ * name. Empty until a listing has skills.
  */
 export function getSkillMenuGroups(
   listings: Record<string, AgentSkill[]>,
   workspaceId: string,
-  agents: SkillAgentPreset[]
+  agents: SkillAgentPreset[],
+  lastUsed: Record<string, number> = {}
 ): ActionMenuGroup[] {
   const place: AgentSkillPlace = { kind: 'workspace', workspaceId };
   const actions: SkillAction[] = agents.flatMap(({ family, preset, launchModeId }) => {
@@ -56,7 +59,7 @@ export function getSkillMenuGroups(
       .map((skill) => {
         const invocation = skillInvocation(family, skill.name);
         return {
-          id: `skill:${family}:${skill.name}`,
+          id: skillUsageKey(family, skill.name),
           title: invocation,
           content: invocation,
           type: 'prompt' as const,
@@ -73,7 +76,15 @@ export function getSkillMenuGroups(
         };
       });
   });
-  return actions.length > 0 ? [{ type: 'skill', label: 'Skills', actions }] : [];
+  return actions.length > 0
+    ? [
+        {
+          type: 'skill',
+          label: 'Skills',
+          actions: byRecentUse(actions, (action) => lastUsed[action.id] ?? 0),
+        },
+      ]
+    : [];
 }
 
 /** A listed skill's instructions, read again where its agent finds it, or null once it's gone. */
@@ -86,6 +97,7 @@ export function readSkillText(
 const NO_PRESETS: AgentPreset[] = [];
 const NO_ACTIVE_PRESETS: ActivePresetEntry[] = [];
 const NO_LISTINGS: Record<string, AgentSkill[]> = {};
+const NO_USAGE: Record<string, number> = {};
 
 /** The listings of a workspace's own skills, one per agent family. */
 function workspaceListings(
@@ -125,12 +137,18 @@ export function useSkillMenuGroups(
       active && workspaceId ? workspaceListings(state.listings, workspaceId) : NO_LISTINGS
     )
   );
+  const lastUsed = useSkillUsageStore((state) => (active ? state.lastUsed : NO_USAGE));
   const skillGroups = useMemo(
     () =>
       active && workspaceId
-        ? getSkillMenuGroups(listings, workspaceId, skillAgentPresets(presets, activePresets))
+        ? getSkillMenuGroups(
+            listings,
+            workspaceId,
+            skillAgentPresets(presets, activePresets),
+            lastUsed
+          )
         : [],
-    [active, listings, workspaceId, presets, activePresets]
+    [active, listings, workspaceId, presets, activePresets, lastUsed]
   );
   const loadSkills = useCallback(() => {
     if (!workspaceId) return;

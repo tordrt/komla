@@ -1,19 +1,10 @@
-import {
-  DotsSixVertical,
-  PencilSimple,
-  Robot,
-  Sparkle,
-  Terminal,
-  Trash,
-} from '@phosphor-icons/react';
+import { PencilSimple, Robot, Sparkle, Terminal, Trash } from '@phosphor-icons/react';
 
 import { Badge } from '@/components/ui/badge';
 import { IconButton } from '@/components/ui/icon-button';
 import { getActionPreview } from '@/lib/action-menu-order';
-import { cn } from '@/lib/utils';
 
 import type { Action, AgentPreset } from '@/types';
-import type React from 'react';
 
 interface ActionListItemProps {
   action: Action;
@@ -23,12 +14,6 @@ interface ActionListItemProps {
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   deleteDisabled: boolean;
-  isDragging?: boolean;
-  dropPosition?: 'before' | 'after' | null;
-  onDragStart?: (e: React.DragEvent, id: string) => void;
-  onDragEnd?: () => void;
-  onDragOver?: (e: React.DragEvent, id: string) => void;
-  onDrop?: (e: React.DragEvent, id: string) => void;
 }
 
 export function ActionListItem({
@@ -38,35 +23,10 @@ export function ActionListItem({
   onEdit,
   onDelete,
   deleteDisabled,
-  isDragging,
-  dropPosition,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDrop,
 }: ActionListItemProps) {
   const Icon = action.type === 'command' ? Terminal : Sparkle;
   return (
-    <div
-      className={cn(
-        'relative flex items-center gap-3 !py-3 !pl-3 transition-colors hover:bg-accent/50',
-        isDragging && 'opacity-60',
-        dropPosition === 'before' && 'shadow-[inset_0_2px_0_0_var(--color-primary)]',
-        dropPosition === 'after' && 'shadow-[inset_0_-2px_0_0_var(--color-primary)]'
-      )}
-      onDragOver={(e) => onDragOver?.(e, action.id)}
-      onDrop={(e) => onDrop?.(e, action.id)}
-    >
-      <IconButton
-        label={`Drag ${action.title} to reorder`}
-        size="md"
-        draggable
-        onDragStart={(e) => onDragStart?.(e, action.id)}
-        onDragEnd={onDragEnd}
-        className="cursor-grab rounded-md hover:bg-muted active:cursor-grabbing"
-      >
-        <DotsSixVertical className="size-4" />
-      </IconButton>
+    <div className="relative flex items-center gap-3 !py-3 transition-colors hover:bg-accent/50">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <Icon className="size-3.5 shrink-0 text-muted-foreground" style={{ color: iconColor }} />

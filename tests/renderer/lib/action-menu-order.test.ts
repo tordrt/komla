@@ -62,6 +62,47 @@ describe('getActionMenuGroups', () => {
       { type: 'prompt', label: 'Saved Prompts', actions: [actions[3], actions[2]] },
     ]);
   });
+
+  it('takes a use it cannot read as none', () => {
+    const actions = [
+      { id: 'a', title: 'A', type: 'prompt', content: 'a', lastPastedAt: '2026-11-01' },
+      { id: 'b', title: 'B', type: 'prompt', content: 'b', lastUsedAt: 1 },
+      { id: 'c', title: 'C', type: 'prompt', content: 'c' },
+    ] as unknown as Action[];
+
+    expect(getActionMenuGroups(actions, null)[0].actions.map((action) => action.id)).toEqual([
+      'b',
+      'a',
+      'c',
+    ]);
+  });
+
+  it('lists the most recently run or pasted first, then the rest in their saved order', () => {
+    const actions: Action[] = [
+      { id: 'never', title: 'Never', type: 'prompt', content: 'a' },
+      { id: 'run-long-ago', title: 'Run long ago', type: 'prompt', content: 'b', lastUsedAt: 1 },
+      { id: 'pasted', title: 'Pasted', type: 'prompt', content: 'c', lastPastedAt: 3 },
+      {
+        id: 'project-never',
+        title: 'Project never',
+        type: 'prompt',
+        content: 'd',
+        projectIds: ['project-1'],
+      },
+      {
+        id: 'run-since-paste',
+        title: 'Run since paste',
+        type: 'prompt',
+        content: 'e',
+        lastUsedAt: 4,
+        lastPastedAt: 2,
+      },
+    ];
+
+    expect(getActionMenuGroups(actions, 'project-1')[0].actions.map((action) => action.id)).toEqual(
+      ['run-since-paste', 'pasted', 'run-long-ago', 'project-never', 'never']
+    );
+  });
 });
 
 describe('filterActionMenuGroups', () => {

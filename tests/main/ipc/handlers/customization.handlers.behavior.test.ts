@@ -22,7 +22,6 @@ const mockActionService = {
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
-  reorder: vi.fn(),
   delete: vi.fn(),
   recordUsage: vi.fn(),
 };
@@ -181,15 +180,6 @@ describe('customization IPC behavior', () => {
 
     expect(mockActionService.update).toHaveBeenCalledWith('t1', updates);
     expect(result).toEqual(updated);
-  });
-
-  it('action:reorder passes id and new order to actionService.reorder', async () => {
-    const ipcMain = await setup();
-    mockActionService.reorder.mockResolvedValue(undefined);
-
-    await ipcMain._invoke('action:reorder', 't1', 2);
-
-    expect(mockActionService.reorder).toHaveBeenCalledWith('t1', 2);
   });
 
   it('action:delete passes id to actionService.delete', async () => {

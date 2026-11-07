@@ -85,6 +85,29 @@ describe('getSkillMenuGroups', () => {
     ]);
   });
 
+  it('lists the most recently used skills first, across agents, then the rest by name', () => {
+    const listings = {
+      [skillListingKey('claude', { kind: 'workspace' as const, workspaceId: 'w1' })]: [
+        { name: 'review', description: '', source: 'user' as const },
+        { name: 'deploy', description: '', source: 'user' as const },
+        { name: 'audit', description: '', source: 'user' as const },
+      ],
+      [skillListingKey('codex', { kind: 'workspace' as const, workspaceId: 'w1' })]: [
+        { name: 'lint', description: '', source: 'user' as const },
+      ],
+    };
+    const lastUsed = { 'skill:codex:lint': 2, 'skill:claude:review': 1 };
+
+    const [group] = getSkillMenuGroups(listings, 'w1', agents, lastUsed);
+
+    expect(group.actions.map(({ title }) => title)).toEqual([
+      '$lint',
+      '/review',
+      '/audit',
+      '/deploy',
+    ]);
+  });
+
   it('has no group until a listing has skills', () => {
     expect(getSkillMenuGroups({}, 'w1', agents)).toEqual([]);
   });

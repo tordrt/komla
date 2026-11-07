@@ -1,7 +1,5 @@
 import { create } from 'zustand';
 
-import { moveItem } from '../../shared/lib/move-item';
-
 import type { Action, ActionSshExecutionLocation } from '../types';
 
 interface ActionsState {
@@ -33,14 +31,14 @@ interface ActionsState {
       background?: boolean | null;
     }
   ) => Promise<Action>;
-  reorderAction: (id: string, newOrder: number) => Promise<void>;
   deleteAction: (id: string) => Promise<void>;
-  /** `pasted` leaves the last use as it was, so the run button's default doesn't move. */
+  /** `pasted` records a paste and leaves the last use as it was, so the run button's default
+   *  doesn't move. */
   recordActionUsage: (id: string, userInput?: string, pasted?: boolean) => Promise<Action>;
   subscribeToChanges: () => () => void;
 }
 
-export const useActionsStore = create<ActionsState>((set, get) => ({
+export const useActionsStore = create<ActionsState>((set) => ({
   actions: [],
   isLoading: false,
   error: null,
@@ -75,21 +73,6 @@ export const useActionsStore = create<ActionsState>((set, get) => ({
       return updated;
     } catch (error) {
       set({ error: (error as Error).message });
-      throw error;
-    }
-  },
-
-  reorderAction: async (id, newOrder) => {
-    const sourceActions = get().actions;
-    const sourceIndex = sourceActions.findIndex((action) => action.id === id);
-    const reordered = moveItem(sourceActions, sourceIndex, newOrder);
-    if (reordered === sourceActions) return;
-
-    set({ actions: reordered });
-    try {
-      await window.api.reorderAction(id, newOrder);
-    } catch (error) {
-      set({ actions: sourceActions, error: (error as Error).message });
       throw error;
     }
   },

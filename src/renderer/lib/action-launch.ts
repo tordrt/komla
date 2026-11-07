@@ -11,6 +11,7 @@ import { useConfigStore } from '@/stores/config.store';
 import { useGitStatusStore } from '@/stores/git-status.store';
 import { useLayoutStore } from '@/stores/layout.store';
 import { useProjectsStore } from '@/stores/projects.store';
+import { useSkillUsageStore } from '@/stores/skill-usage.store';
 import { useSshCommandExecutionLocationStore } from '@/stores/ssh-command-execution-location.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
@@ -76,7 +77,7 @@ export async function launchAction(request: ActionLaunchRequest): Promise<Action
   if (!workspace) return 'failed';
   if (input === undefined && actionNeedsInjection(action.content)) return 'needs-input';
 
-  // A skill isn't saved, so it's no place's default and has no usage to record.
+  // A skill isn't saved, so it's no place's default and its use is remembered apart.
   const saved = !isSkillAction(action);
   const workspaces = useWorkspacesStore.getState();
   if (saved && place.kind === 'type') workspaces.setPaneDefaultAction(workspace.id, action.id);
@@ -100,6 +101,7 @@ export async function launchAction(request: ActionLaunchRequest): Promise<Action
     return 'failed';
   }
 
+  if (outcome === 'launched' && !saved) useSkillUsageStore.getState().recordSkillUse(action.id);
   if (outcome === 'launched' && saved) {
     try {
       await useActionsStore.getState().recordActionUsage(action.id, input, place.kind === 'type');

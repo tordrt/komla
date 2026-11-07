@@ -17,7 +17,8 @@ import {
 /**
  * How each tone is named and drawn in tag pickers. Literal classes, so Tailwind sees them. Light
  * themes' gray and amber tokens are dark enough for text, which leaves a small dot near-black and
- * brown beside the red, so their dots take lighter ones.
+ * brown beside the red, so their dots take lighter ones. Violet has a color of its own, since
+ * the attention blue sits too close to Blue's.
  */
 export const WORKSPACE_TAG_TONE_LABELS: Record<WorkspaceTagTone, { label: string; dot: string }> = {
   neutral: {
@@ -25,7 +26,10 @@ export const WORKSPACE_TAG_TONE_LABELS: Record<WorkspaceTagTone, { label: string
     dot: 'bg-muted-foreground light:bg-[oklch(0.64_0_0)]',
   },
   info: { label: 'Blue', dot: 'bg-info' },
-  attention: { label: 'Violet', dot: 'bg-attention' },
+  attention: {
+    label: 'Violet',
+    dot: 'bg-[oklch(0.75_0.14_285)] light:bg-[oklch(0.48_0.19_285)]',
+  },
   success: { label: 'Green', dot: 'bg-success' },
   warning: { label: 'Amber', dot: 'bg-warning light:bg-[oklch(0.74_0.16_70)]' },
   error: { label: 'Red', dot: 'bg-error' },

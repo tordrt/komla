@@ -66,11 +66,15 @@ class BackgroundProcessService {
     const completionCommand = isPowerShell
       ? `$global:LASTEXITCODE = $null; ${command}; $komlaSetupSucceeded = $?; $komlaSetupExitCode = $LASTEXITCODE; if ($null -eq $komlaSetupExitCode) { $komlaSetupExitCode = if ($komlaSetupSucceeded) { 0 } else { 1 } }; exit $komlaSetupExitCode`
       : `${withKomlaCliOnPath(command, env, shell)}; exit $?`;
-    // PowerShell runs the command from its arguments when they fit on a Windows
-    // command line. Other shells and longer commands get it typed in.
+    // The shell runs the command from its arguments, as visible terminals' startup commands do: a
+    // typed command would land in the user's shell history. -ilc loads the same login and rc files
+    // as a typed one would get. PowerShell runs it from its arguments when they fit on a Windows
+    // command line. WSL and longer PowerShell commands still get it typed in.
     const commandArgs = isPowerShell
       ? powerShellCommandArgs(shell, shellArgs, completionCommand)
-      : null;
+      : process.platform !== 'win32'
+        ? ['-ilc', completionCommand]
+        : null;
 
     const ptyProcess = pty.spawn(shell, commandArgs ?? shellArgs, {
       name: 'xterm-256color',

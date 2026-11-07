@@ -115,6 +115,12 @@ function onUnix(): void {
   vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
 }
 
+// WSL's shell starts behind wsl.exe, so its command is still typed in.
+function onWsl(): void {
+  vi.spyOn(process, 'platform', 'get').mockReturnValue('win32');
+  mockGetShell.mockReturnValue('C:\\Windows\\System32\\wsl.exe');
+}
+
 describe('BackgroundProcessService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -131,7 +137,8 @@ describe('BackgroundProcessService', () => {
   });
 
   describe('spawn', () => {
-    it('should spawn a PTY with login shell and terminal env', async () => {
+    it("runs the command from the shell's arguments, so it never reaches the shell's history", async () => {
+      onUnix();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 
@@ -139,7 +146,7 @@ describe('BackgroundProcessService', () => {
 
       expect(mockPtySpawn).toHaveBeenCalledWith(
         '/bin/zsh',
-        ['-l'],
+        ['-ilc', 'npm run dev; exit $?'],
         expect.objectContaining({
           name: 'xterm-256color',
           cols: 120,
@@ -147,9 +154,13 @@ describe('BackgroundProcessService', () => {
           cwd: '/path/to/cwd',
         })
       );
+      spawnedPtys[0]._simulateData('$ ');
+      vi.advanceTimersByTime(5000);
+      expect(spawnedPtys[0].write).not.toHaveBeenCalled();
     });
 
     it('lets the command run `komla` for its workspace, after a login profile sets PATH', async () => {
+      onUnix();
       mockBuildTerminalEnv.mockReturnValueOnce({ KOMLA_CLI: '/home/a/.komla/bin/komla' });
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
@@ -158,18 +169,16 @@ describe('BackgroundProcessService', () => {
 
       expect(mockPtySpawn).toHaveBeenCalledWith(
         '/bin/zsh',
-        ['-l'],
+        [
+          '-ilc',
+          `PATH='/home/a/.komla/bin':"$PATH"; export PATH; komla preview --open x; exit $?`,
+        ],
         expect.objectContaining({ env: expect.objectContaining({ KOMLA_WORKSPACE_ID: 'workspace-1' }) })
-      );
-      spawnedPtys[0]._simulateData('$ ');
-      vi.advanceTimersByTime(150);
-      expect(spawnedPtys[0].write).toHaveBeenCalledWith(
-        `PATH='/home/a/.komla/bin':"$PATH"; export PATH; komla preview --open x; exit $?\r`
       );
     });
 
     it('passes the workspace into WSL, which gets only the variables WSLENV names', async () => {
-      mockGetShell.mockReturnValueOnce('C:\\Windows\\System32\\wsl.exe');
+      onWsl();
       mockBuildTerminalEnv.mockReturnValueOnce({ WSLENV: 'USERPROFILE/p' });
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
@@ -185,7 +194,8 @@ describe('BackgroundProcessService', () => {
       );
     });
 
-    it('should write command on first shell output', async () => {
+    it('types the command into WSL once its shell output settles', async () => {
+      onWsl();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 
@@ -275,6 +285,7 @@ describe('BackgroundProcessService', () => {
     });
 
     it('should not write command if process exits before shell output', async () => {
+      onWsl();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 
@@ -290,6 +301,7 @@ describe('BackgroundProcessService', () => {
     });
 
     it('should write command after fallback timeout if shell never emits output', async () => {
+      onWsl();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 
@@ -304,6 +316,7 @@ describe('BackgroundProcessService', () => {
     });
 
     it('should not double-write command when fallback fires after shell output', async () => {
+      onWsl();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 
@@ -320,6 +333,7 @@ describe('BackgroundProcessService', () => {
     });
 
     it('should clear fallback timeout on natural exit', async () => {
+      onWsl();
       const { backgroundProcessService } =
         await import('../../../src/main/services/background-process.service');
 

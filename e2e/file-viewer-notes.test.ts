@@ -125,8 +125,11 @@ test('opens a note inside the full-screen file and diff viewer, leaving it open'
   await appWindow.mouse.down();
   await appWindow.mouse.move(at.x - 120, at.y, { steps: 4 });
   await appWindow.mouse.up();
+  // The last moves can still be on their way to the draft as the button comes up.
+  await expect
+    .poll(async () => Math.round((await draft.boundingBox())!.width))
+    .toBe(Math.round(before.width + 120));
   const after = (await draft.boundingBox())!;
-  expect(after.width).toBeCloseTo(before.width + 120, 0);
   expect(after.x + after.width).toBeCloseTo(before.x + before.width, 0);
   await appWindow.screenshot({ path: test.info().outputPath('prompt-draft-over-diff.png') });
 

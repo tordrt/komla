@@ -882,9 +882,13 @@ app.on('before-quit', (event) => {
   workspaceService.rememberRunningAtQuit();
 
   // Hide windows immediately so the close feels instant — async cleanup
-  // (PTY teardown, service disposal) can take ~a second.
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) window.hide();
+  // (PTY teardown, service disposal) can take ~a second. Not on Linux: a window
+  // hidden there just before quitting sometimes never closed, so its renderer
+  // never unloaded and Komla kept running, out of sight.
+  if (process.platform !== 'linux') {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.hide();
+    }
   }
 
   automationService.stop();

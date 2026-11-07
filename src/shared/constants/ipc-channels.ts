@@ -428,6 +428,7 @@ export const IPC = {
   AGENTS_MENU_BAR_DRAW: 'agents-menu-bar:draw', // main → app window: draw the item's image
   AGENTS_MENU_BAR_IMAGE: 'agents-menu-bar:image', // app window → main
   AGENTS_MENU_BAR_RESIZE: 'agents-menu-bar:resize', // popover page → main
+  AGENTS_MENU_BAR_PASS_THROUGH: 'agents-menu-bar:pass-through', // popover page → main
   AGENTS_MENU_BAR_OPEN: 'agents-menu-bar:open', // popover page → main
   AGENTS_MENU_BAR_CLOSE: 'agents-menu-bar:close', // popover page → main
   AGENTS_MENU_BAR_THEME: 'agents-menu-bar:theme', // app window → main

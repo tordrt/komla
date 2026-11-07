@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/config.store';
 
 import { agentSince, clearedFromOverview } from '../../../../shared/lib/agent-state';
+import { AGENTS_MENU_BAR_CARD } from '../../../../shared/types';
 
 import type { AgentsMenuBarProject } from '../../../../shared/types';
 import type { Workspace } from '@/types';
@@ -94,16 +95,16 @@ function AgentCard({
       <TooltipContent
         side="left"
         align="start"
-        sideOffset={8}
+        sideOffset={AGENTS_MENU_BAR_CARD.gap}
         collisionPadding={8}
         avoidCollisions={avoidCollisions}
         className={cn(
           'rounded-[calc(var(--radius)+2px)] p-0 shadow-xl select-text',
           // Beside the panel, the card narrows to the room the window has on its side.
-          avoidCollisions
-            ? 'w-[clamp(13rem,var(--radix-tooltip-content-available-width),20rem)]'
-            : 'w-80'
+          avoidCollisions && 'w-[clamp(13rem,var(--radix-tooltip-content-available-width),20rem)]'
         )}
+        // In the menu bar's popover, the room its window keeps for it.
+        style={avoidCollisions ? undefined : { width: AGENTS_MENU_BAR_CARD.width }}
       >
         {/* The row already tells the project and branch. */}
         <WorkspaceInfoCardContent workspace={workspace} sshHost={null} showLocation={false}>

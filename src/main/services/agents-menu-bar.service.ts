@@ -10,6 +10,7 @@ import {
   clearedFromOverview,
   workspaceAgents,
 } from '../../shared/lib/agent-state';
+import { AGENTS_MENU_BAR_CARD } from '../../shared/types';
 import { createLogger } from '../lib/logger';
 import { MAIN_BUNDLE_DIR } from '../lib/module-path';
 
@@ -33,6 +34,8 @@ const logger = createLogger('AgentsMenuBar');
 /** As wide as the status bar's agents popover, with room for its shadow around it. */
 const POPOVER_WIDTH = 400;
 const POPOVER_MARGIN = 12;
+/** Room on the panel's left for a hovered row's card. */
+const POPOVER_CARD_ROOM = AGENTS_MENU_BAR_CARD.width + AGENTS_MENU_BAR_CARD.gap;
 /** Keeps the item where the user put it in the menu bar each time it comes back. */
 const TRAY_GUID = '6f1d3c2a-8b4e-4f7a-9c5d-2e8a1b3f4c6d';
 
@@ -209,9 +212,9 @@ class AgentsMenuBarService {
   }
 
   /**
-   * Fits the popover to its page: the panel, and a hovered row's card beside it on the left,
-   * where the window grows while the panel stays under the item. Shows it once the page has
-   * drawn, so it doesn't flash.
+   * Fits the popover to its page: the panel, and a hovered row's card beside it on the left, in
+   * room the window keeps for it, so a card only lengthens it. Shows it once the page has drawn,
+   * so it doesn't flash.
    */
   resizePopover(width: number, height: number): void {
     const popover = this.popover;
@@ -221,6 +224,17 @@ class AgentsMenuBarService {
       popover.show();
       popover.focus();
     }
+  }
+
+  /**
+   * Whether clicks go through the popover to what's under it, as its page asks while the pointer
+   * is in the room it keeps for a card and no card is there. The page still sees the pointer
+   * move, to say when it comes back onto the panel or a card.
+   */
+  setPopoverPassThrough(passThrough: boolean): void {
+    const popover = this.popover;
+    if (!popover || popover.isDestroyed()) return;
+    popover.setIgnoreMouseEvents(passThrough, { forward: true });
   }
 
   /**
@@ -429,9 +443,11 @@ class AgentsMenuBarService {
   }
 
   /**
-   * The panel under the menu bar item, its left edge on the item's, kept on the item's screen;
-   * what the page needs beyond the panel's width extends the window to the left, with room for
-   * the shadow all around.
+   * The panel under the menu bar item, its left edge on the item's, kept on the item's screen,
+   * with room for a row's card on its left and for the shadow all around. Moving or widening the
+   * window as a card opens would show the panel out of place for a frame on macOS, off the row
+   * the pointer hovers, which closes the card again; so only what the page needs beyond that room
+   * extends it to the left. Clicks go through that room while no card is there.
    */
   private popoverBounds(width: number, height: number): Rectangle {
     const item = this.tray && !this.tray.isDestroyed() ? this.tray.getBounds() : null;
@@ -442,7 +458,10 @@ class AgentsMenuBarService {
       (item?.x ?? area.x + area.width) + POPOVER_WIDTH,
       area.x + area.width - POPOVER_MARGIN
     );
-    const left = Math.max(area.x, right - Math.max(width, POPOVER_WIDTH) - POPOVER_MARGIN);
+    const left = Math.max(
+      area.x,
+      right - Math.max(width, POPOVER_WIDTH + POPOVER_CARD_ROOM) - POPOVER_MARGIN
+    );
     return {
       x: Math.round(left),
       y: Math.round(item ? item.y + item.height : area.y),

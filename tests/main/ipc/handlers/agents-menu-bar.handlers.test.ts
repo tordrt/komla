@@ -15,6 +15,7 @@ const service = vi.hoisted(() => ({
   setImage: vi.fn(),
   setTheme: vi.fn(),
   resizePopover: vi.fn(),
+  setPopoverPassThrough: vi.fn(),
   open: vi.fn(),
   closePopover: vi.fn(),
   sendState: vi.fn(),
@@ -70,11 +71,13 @@ describe('agents menu bar IPC handlers', () => {
       listeners.get(IPC.AGENTS_MENU_BAR_STATE_REQUEST)?.(event);
       listeners.get(IPC.AGENTS_MENU_BAR_OPEN)?.(event, 'ws-1', 'term-1');
       listeners.get(IPC.AGENTS_MENU_BAR_RESIZE)?.(event, 400, 240);
+      listeners.get(IPC.AGENTS_MENU_BAR_PASS_THROUGH)?.(event, true);
       listeners.get(IPC.AGENTS_MENU_BAR_CLOSE)?.(event);
     }
 
     expect(service.open.mock.calls).toEqual([['ws-1', 'term-1']]);
     expect(service.resizePopover.mock.calls).toEqual([[400, 240]]);
+    expect(service.setPopoverPassThrough.mock.calls).toEqual([[true]]);
     expect(service.closePopover).toHaveBeenCalledTimes(1);
     expect(service.sendState).toHaveBeenCalledTimes(1);
   });

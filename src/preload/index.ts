@@ -2272,6 +2272,9 @@ const api = {
   resizeAgentsMenuBar: (width: number, height: number): void =>
     ipcRenderer.send(IPC.AGENTS_MENU_BAR_RESIZE, width, height),
 
+  setAgentsMenuBarPassThrough: (passThrough: boolean): void =>
+    ipcRenderer.send(IPC.AGENTS_MENU_BAR_PASS_THROUGH, passThrough),
+
   openFromAgentsMenuBar: (workspaceId: string, terminalId?: string): void =>
     ipcRenderer.send(IPC.AGENTS_MENU_BAR_OPEN, workspaceId, terminalId),
 

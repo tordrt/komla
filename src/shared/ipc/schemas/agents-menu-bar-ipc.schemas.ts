@@ -29,6 +29,8 @@ export const agentsMenuBarImageArgsSchema = z.tuple([
 
 export const agentsMenuBarResizeArgsSchema = z.tuple([sizeSchema, sizeSchema]);
 
+export const agentsMenuBarPassThroughArgsSchema = z.tuple([z.boolean()]);
+
 export const agentsMenuBarOpenArgsSchema = z.tuple([idSchema, idSchema.optional()]);
 
 export const agentsMenuBarThemeArgsSchema = z.tuple([

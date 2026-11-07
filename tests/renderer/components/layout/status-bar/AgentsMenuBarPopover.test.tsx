@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -39,6 +39,7 @@ const api = {
   resizeAgentsMenuBar: vi.fn(),
   openFromAgentsMenuBar: vi.fn(),
   closeAgentsMenuBar: vi.fn(),
+  setAgentsMenuBarPassThrough: vi.fn(),
 };
 
 const waiting = createWorkspace({
@@ -188,6 +189,58 @@ describe('AgentsMenuBarPopover', () => {
 
     expect(await screen.findByRole('tooltip')).toHaveTextContent('Allow git push?');
     expect(api.resizeAgentsMenuBar).toHaveBeenLastCalledWith(730, 288);
+  });
+
+  it('lets clicks through beside the panel, where the window keeps room for a card', async () => {
+    const user = userEvent.setup();
+    // The panel spans 340–740 across and 12–112 down; a row's card, 12–332 and 12–300.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element
+    ) {
+      return (
+        this.matches('[data-radix-popper-content-wrapper]')
+          ? { left: 12, right: 332, top: 12, bottom: 300 }
+          : { left: 340, right: 740, top: 12, bottom: 112 }
+      ) as DOMRect;
+    });
+    const moveTo = (clientX: number, clientY: number, buttons = 0) =>
+      // On whatever an open menu, turning off the page's pointer events, leaves the move to.
+      document.documentElement.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, clientX, clientY, buttons })
+      );
+    const { unmount } = render(<AgentsMenuBarPopover />);
+    act(() => sendState(state()));
+    // It takes clicks on the panel, as main opens it.
+    moveTo(500, 50);
+    expect(api.setAgentsMenuBarPassThrough).not.toHaveBeenCalled();
+
+    // Hovering moves the pointer about.
+    await user.hover(screen.getByRole('button', { name: /waiting/ }));
+    await screen.findByRole('tooltip');
+    moveTo(500, 50);
+    api.setAgentsMenuBarPassThrough.mockClear();
+    // And on the card.
+    moveTo(100, 250);
+    // Nor lets go of a drag, as a selection in the card, that leaves it, until it's let go there.
+    moveTo(500, 250, 1);
+    expect(api.setAgentsMenuBarPassThrough).not.toHaveBeenCalled();
+    document.documentElement.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    // Under the panel, beside the card, a click reaches what's under the window.
+    expect(api.setAgentsMenuBarPassThrough.mock.calls).toEqual([[true]]);
+    moveTo(510, 260);
+    expect(api.setAgentsMenuBarPassThrough.mock.calls).toEqual([[true]]);
+    moveTo(100, 250);
+    expect(api.setAgentsMenuBarPassThrough.mock.calls).toEqual([[true], [false]]);
+
+    // The card closing under a pointer at rest leaves room a click goes through.
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(api.setAgentsMenuBarPassThrough.mock.calls).toEqual([[true], [false], [true]])
+    );
+
+    // A page that goes leaves the window taking clicks.
+    unmount();
+    expect(api.setAgentsMenuBarPassThrough).toHaveBeenLastCalledWith(false);
   });
 
   it('says so while no agent needs the user, and closes on Escape', async () => {

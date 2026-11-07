@@ -51,6 +51,7 @@ const electron = vi.hoisted(() => {
       loadFile: vi.fn(() => Promise.resolve()),
     };
     setBounds = vi.fn();
+    setIgnoreMouseEvents = vi.fn();
     setVisibleOnAllWorkspaces = vi.fn();
     show = vi.fn(() => {
       this.visible = true;
@@ -378,23 +379,44 @@ describe('agentsMenuBarService', () => {
     });
 
     expect(service.isPopover(popover.webContents.id)).toBe(true);
+    // As wide as the panel and a row's card beside it on the left, from the start.
     service.resizePopover(400, 200);
     expect(popover.setBounds).toHaveBeenLastCalledWith({
-      x: 888,
+      x: 560,
       y: 24,
-      width: 424,
+      width: 752,
       height: 224,
     });
     expect(popover.visible).toBe(true);
 
-    // A row's card beside the panel widens the window to the left; the panel stays put.
-    service.resizePopover(730, 300);
+    // A card opening only lengthens it: moved or widened, macOS would show the panel out of
+    // place for a frame, off the row the pointer hovers, which would close the card again.
+    service.resizePopover(728, 300);
     expect(popover.setBounds).toHaveBeenLastCalledWith({
-      x: 558,
+      x: 560,
       y: 24,
-      width: 754,
+      width: 752,
       height: 324,
     });
+  });
+
+  it('lets clicks through the room it keeps for a card when its page asks', async () => {
+    const service = await startService();
+    service.setPopoverPassThrough(true);
+
+    electron.trays[0].events.emit('click');
+    const [popover] = electron.windows;
+    // It takes them until the pointer leaves the panel.
+    expect(popover.setIgnoreMouseEvents).not.toHaveBeenCalled();
+    // Seeing the pointer move still, to tell when it comes back onto the panel.
+    service.setPopoverPassThrough(true);
+    expect(popover.setIgnoreMouseEvents).toHaveBeenLastCalledWith(true, { forward: true });
+    service.setPopoverPassThrough(false);
+    expect(popover.setIgnoreMouseEvents).toHaveBeenLastCalledWith(false, { forward: true });
+
+    popover.events.emit('blur');
+    service.setPopoverPassThrough(true);
+    expect(popover.setIgnoreMouseEvents).toHaveBeenCalledTimes(2);
   });
 
   it("opens an agent's pane in the window that shows it, and closes the popover", async () => {

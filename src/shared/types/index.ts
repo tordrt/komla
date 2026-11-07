@@ -226,7 +226,7 @@ export type {
 export { VIRTUAL_DESKTOP_VIEWERS } from './dev-preview';
 
 // The macOS menu bar's agents item
-export { AGENTS_MENU_BAR_IMAGE_MAX_DATA_URL_LENGTH } from './agents-menu-bar';
+export { AGENTS_MENU_BAR_CARD, AGENTS_MENU_BAR_IMAGE_MAX_DATA_URL_LENGTH } from './agents-menu-bar';
 export type {
   AgentsMenuBarCounts,
   AgentsMenuBarDrawRequest,

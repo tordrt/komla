@@ -31,6 +31,10 @@ export function registerAgentsMenuBarHandlers(): void {
     if (fromPopover(event)) agentsMenuBarService.resizePopover(width, height);
   });
 
+  onIpc(IPC.AGENTS_MENU_BAR_PASS_THROUGH, (event, [passThrough]) => {
+    if (fromPopover(event)) agentsMenuBarService.setPopoverPassThrough(passThrough);
+  });
+
   onIpc(IPC.AGENTS_MENU_BAR_OPEN, (event, [workspaceId, terminalId]) => {
     if (fromPopover(event)) agentsMenuBarService.open(workspaceId, terminalId);
   });

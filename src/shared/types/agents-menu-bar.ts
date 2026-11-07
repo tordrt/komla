@@ -2,6 +2,12 @@ import type { Project } from './project';
 import type { Workspace } from './workspace';
 import type { AgentState } from '../lib/agent-state';
 
+/**
+ * A hovered row's card in the menu bar's popover, on the panel's left: how wide it is and how far
+ * from the panel. The popover's window keeps that room, as growing into it would move the window.
+ */
+export const AGENTS_MENU_BAR_CARD = { width: 320, gap: 8 } as const;
+
 /** Komla's theme as its windows' root carries it, for pages drawn outside them. */
 export interface AgentsMenuBarTheme {
   className: string;

@@ -7,6 +7,16 @@ import { AgentsPanel, listAgents } from './AgentsPanel';
 
 import type { AgentsMenuBarState } from '../../../../shared/types';
 
+/** Where the cards and menus Radix has placed beside the panel are. */
+function placedCards(): DOMRect[] {
+  return (
+    [...document.querySelectorAll('[data-radix-popper-content-wrapper]')]
+      .map((card) => card.getBoundingClientRect())
+      // Radix parks a card above the window until it has placed it.
+      .filter((card) => card.bottom > 0)
+  );
+}
+
 /**
  * The status bar's agents popover, under the macOS menu bar's item: every window's agents, in
  * Komla's theme. Main fits the window to it, shows it once it has drawn, and opens what's clicked.
@@ -46,19 +56,35 @@ export function AgentsMenuBarPopover() {
     document.documentElement.style.cssText = theme.style;
   }, [theme]);
 
-  // The window fits the panel, and a hovered row's card beside it on the left, where main grows
-  // the window while the panel stays put on the right. Radix's wrapper is measured, not the card,
-  // which scales as it opens.
+  // The window fits the panel, and a hovered row's card beside it on the left, in room main keeps
+  // for it so the window only lengthens. Radix's wrapper is measured, not the card, which scales
+  // as it opens. Clicks in that room go through to what's under the window while the pointer is
+  // off the panel and its cards, as main checks with the page. Where the pointer is tells, not
+  // what it's over: an open menu turns off the page's pointer events.
   useLayoutEffect(() => {
     const element = panel.current;
     if (!loaded || !element) return;
     let reported = '';
+    let pointer: { x: number; y: number } | null = null;
+    // A drag, as a selection in a card, keeps the window until it's let go.
+    let dragging = false;
+    // Main opens the window taking clicks.
+    let passingThrough = false;
+    const passThrough = (cards: DOMRect[]) => {
+      if (!pointer || dragging) return;
+      const { x, y } = pointer;
+      const onPage = [element.getBoundingClientRect(), ...cards].some(
+        (rect) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+      );
+      if (onPage !== passingThrough) return;
+      passingThrough = !onPage;
+      window.api.setAgentsMenuBarPassThrough(passingThrough);
+    };
     const report = () => {
       const rect = element.getBoundingClientRect();
-      const cards = [...document.querySelectorAll('[data-radix-popper-content-wrapper]')]
-        .map((card) => card.getBoundingClientRect())
-        // Radix parks a card above the window until it has placed it.
-        .filter((card) => card.bottom > 0);
+      const cards = placedCards();
+      // As the page changes under the pointer at rest.
+      passThrough(cards);
       const left = Math.min(rect.left, ...cards.map((card) => card.left));
       const bottom = Math.max(rect.bottom, ...cards.map((card) => card.bottom));
       const [width, height] = [rect.right - left, bottom - rect.top];
@@ -67,7 +93,18 @@ export function AgentsMenuBarPopover() {
       reported = `${width}x${height}`;
       window.api.resizeAgentsMenuBar(width, height);
     };
+    const onMouseMove = ({ clientX: x, clientY: y, buttons }: MouseEvent) => {
+      pointer = { x, y };
+      dragging = buttons !== 0;
+      passThrough(placedCards());
+    };
+    const onMouseUp = () => {
+      dragging = false;
+      passThrough(placedCards());
+    };
     report();
+    addEventListener('mousemove', onMouseMove);
+    addEventListener('mouseup', onMouseUp);
     const resizes = new ResizeObserver(report);
     resizes.observe(element);
     // A card mounts, is placed and unmounts in the body, outside the panel.
@@ -79,8 +116,12 @@ export function AgentsMenuBarPopover() {
       attributeFilter: ['style'],
     });
     return () => {
+      removeEventListener('mousemove', onMouseMove);
+      removeEventListener('mouseup', onMouseUp);
       resizes.disconnect();
       cards.disconnect();
+      // What opens the page again starts out taking clicks.
+      if (passingThrough) window.api.setAgentsMenuBarPassThrough(false);
     };
   }, [loaded]);
 

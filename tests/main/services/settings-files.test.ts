@@ -90,7 +90,9 @@ describe('settings files', () => {
             commands: { open: 'gh pr view --web' },
           },
         ],
-        hooks: [{ id: 'ping', event: 'interval', intervalSeconds: 600, runOn: 'local', command: 'x' }],
+        hooks: [
+          { id: 'ping', event: 'interval', intervalSeconds: 600, runOn: 'local', command: 'x' },
+        ],
       },
     };
 
@@ -102,7 +104,10 @@ describe('settings files', () => {
       expect(read).toMatchObject({
         plugins: [{ id: 'github-prs', enabled: false, state: 'off', name: 'GitHub PRs' }],
       });
-      expect(files.plugins.prepare(read)).toEqual({ next: { enable: {}, manifests: [] }, changes: [] });
+      expect(files.plugins.prepare(read)).toEqual({
+        next: { enable: {}, manifests: [] },
+        changes: [],
+      });
     });
 
     it('turns a plugin on, listing every command it runs', async () => {
@@ -160,7 +165,9 @@ describe('settings files', () => {
       writePlugin({ ...manifest, name: 'Something else' });
       await plugins.scan();
 
-      await expect(async () => files.plugins.write(prepared.next)).rejects.toThrow(/github-prs's files changed/);
+      await expect(async () => files.plugins.write(prepared.next)).rejects.toThrow(
+        /github-prs's files changed/
+      );
       expect(plugins.list()[0].state).toBe('off');
     });
 
@@ -174,8 +181,41 @@ describe('settings files', () => {
       expect(prepared).toMatchObject({
         next: { enable: { 'github-prs': false }, manifests: [] },
         changes: [{ operation: 'delete' }, { operation: 'delete' }],
+        // Turning off runs nothing new, so an agent on an SSH host can undo a plugin it made.
+        withoutApproval: {
+          notice:
+            'Komla turned off the GitHub PRs plugin, as `komla settings apply` asked. Settings → Plugins turns it on again.',
+        },
       });
       expect(prepared).not.toHaveProperty('warning');
+    });
+
+    it('asks before turning one plugin off and another on', async () => {
+      writePlugin(manifest);
+      writePlugin({ ...manifest, id: 'other', name: 'Other' }, 'other');
+      await plugins.scan();
+      const prs = plugins.list().find(({ id }) => id === 'github-prs')!;
+      plugins.setEnabled({ 'github-prs': prs.digest! });
+
+      const prepared = files.plugins.prepare({
+        plugins: [
+          { id: 'github-prs', enabled: false },
+          { id: 'other', enabled: true },
+        ],
+      });
+
+      expect(prepared).not.toHaveProperty('withoutApproval');
+    });
+
+    it('asks before writing the manifest of a plugin it leaves off', async () => {
+      await plugins.scan();
+
+      const prepared = files.plugins.prepare({
+        plugins: [{ id: 'github-prs', enabled: false, manifest }],
+      });
+
+      expect(prepared).not.toHaveProperty('problems');
+      expect(prepared).not.toHaveProperty('withoutApproval');
     });
 
     it('turns off a plugin whose files changed, so it forgets them', async () => {
@@ -217,7 +257,10 @@ describe('settings files', () => {
           },
         ],
       });
-      expect(files.plugins.prepare(read)).toEqual({ next: { enable: {}, manifests: [] }, changes: [] });
+      expect(files.plugins.prepare(read)).toEqual({
+        next: { enable: {}, manifests: [] },
+        changes: [],
+      });
       const prepared = files.plugins.prepare({ plugins: [{ id: 'github-prs', enabled: true }] });
       if ('problems' in prepared) throw new Error(prepared.problems.join('\n'));
       await files.plugins.write(prepared.next);
@@ -278,7 +321,9 @@ describe('settings files', () => {
 
         const prepared = await apply({ plugins: [{ id: 'github-prs', enabled: true, manifest }] });
 
-        expect(prepared.changes.map(({ operation, kind, title }) => [operation, kind, title])).toEqual([
+        expect(
+          prepared.changes.map(({ operation, kind, title }) => [operation, kind, title])
+        ).toEqual([
           ['add', 'plugin', 'GitHub PRs'],
           ['add', 'status-item', 'GitHub PRs: pr'],
           ['add', 'hook', 'GitHub PRs: ping'],
@@ -317,20 +362,28 @@ describe('settings files', () => {
               manifest: {
                 ...manifest,
                 contributes: {
-                  statusItems: [{ ...manifest.contributes.statusItems[0], command: 'gh pr checks' }],
+                  statusItems: [
+                    { ...manifest.contributes.statusItems[0], command: 'gh pr checks' },
+                  ],
                 },
               },
             },
           ],
         });
 
-        expect(prepared.changes.map(({ operation, kind, title }) => [operation, kind, title])).toEqual([
+        expect(
+          prepared.changes.map(({ operation, kind, title }) => [operation, kind, title])
+        ).toEqual([
           ['edit', 'plugin', 'GitHub PRs'],
           ['edit', 'status-item', 'GitHub PRs: pr'],
           ['delete', 'hook', 'GitHub PRs: ping'],
         ]);
         expect(plugins.list()).toEqual([
-          expect.objectContaining({ folder: 'prs', state: 'on', contributions: [expect.anything()] }),
+          expect.objectContaining({
+            folder: 'prs',
+            state: 'on',
+            contributions: [expect.anything()],
+          }),
         ]);
       });
 
@@ -354,7 +407,9 @@ describe('settings files', () => {
         writePlugin({ ...manifest, contributes: {} });
         await plugins.scan();
 
-        await apply({ plugins: [{ id: 'prs', enabled: true, manifest: { ...manifest, id: 'prs' } }] });
+        await apply({
+          plugins: [{ id: 'prs', enabled: true, manifest: { ...manifest, id: 'prs' } }],
+        });
 
         expect(plugins.list()).toEqual([expect.objectContaining({ id: 'prs', state: 'on' })]);
       });
@@ -376,9 +431,9 @@ describe('settings files', () => {
         writePlugin(manifest, 'P');
         await plugins.scan();
 
-        expect(files.plugins.prepare({ plugins: [{ id, enabled: true, manifest: written }] })).toEqual(
-          { problems: [problem] }
-        );
+        expect(
+          files.plugins.prepare({ plugins: [{ id, enabled: true, manifest: written }] })
+        ).toEqual({ problems: [problem] });
       });
 
       it("doesn't turn on a script that changed while the approval was open", async () => {
@@ -396,7 +451,9 @@ describe('settings files', () => {
           "Plugin github-prs's files changed since the approval listed them. Apply it again."
         );
         expect(
-          JSON.parse(readFileSync(join(settingsPath, 'plugins', 'prs', 'komla-plugin.json'), 'utf-8'))
+          JSON.parse(
+            readFileSync(join(settingsPath, 'plugins', 'prs', 'komla-plugin.json'), 'utf-8')
+          )
         ).toEqual(manifest);
         expect(plugins.list()[0].state).toBe('off');
       });
@@ -454,9 +511,7 @@ describe('settings files', () => {
             ],
           })
         ).toEqual({
-          problems: [
-            'b: Komla reads only 100 plugins, and this would be one more',
-          ],
+          problems: ['b: Komla reads only 100 plugins, and this would be one more'],
         });
       });
 
@@ -528,7 +583,9 @@ describe('settings files', () => {
         await plugins.scan();
 
         const prepared = files.plugins.prepare({
-          plugins: [{ id: 'github-prs', enabled: true, manifest: { ...manifest, contributes: {} } }],
+          plugins: [
+            { id: 'github-prs', enabled: true, manifest: { ...manifest, contributes: {} } },
+          ],
         });
 
         expect(prepared).toEqual({ problems: ['plugins.0.manifest.contributes: adds nothing'] });
@@ -859,9 +916,9 @@ describe('settings files', () => {
     });
 
     it('names what is wrong with panels it is asked to apply', () => {
-      expect(
-        files['sidebar-panels'].prepare({ panels: [{ id: 'ci', command: 'x' }] })
-      ).toEqual({ problems: [expect.stringMatching(/^panels\.0\.title/)] });
+      expect(files['sidebar-panels'].prepare({ panels: [{ id: 'ci', command: 'x' }] })).toEqual({
+        problems: [expect.stringMatching(/^panels\.0\.title/)],
+      });
     });
   });
 

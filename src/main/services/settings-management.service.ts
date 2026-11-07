@@ -174,10 +174,17 @@ export interface SettingsFileAdapter {
   /** Changes whenever the file does, so a change made while the user decides isn't lost. */
   revision(): string;
   /** What Komla saves for the desired settings and how it differs, or what is wrong with them. */
-  prepare(
-    desired: Record<string, unknown>
-  ):
-    | { next: unknown; changes: SettingsApprovalChange[]; warning?: string }
+  prepare(desired: Record<string, unknown>):
+    | {
+        next: unknown;
+        changes: SettingsApprovalChange[];
+        warning?: string;
+        /**
+         * For a change that only stops something, which Komla makes without asking: what it then
+         * tells the user it changed.
+         */
+        withoutApproval?: { notice: string };
+      }
     | { problems: string[] };
   write(next: unknown): void | Promise<void>;
 }
@@ -276,7 +283,7 @@ interface Dependencies {
     timeZone(): string;
   };
   approve(request: SettingsApprovalRequest, signal?: AbortSignal): Promise<boolean>;
-  feedback(message: string, workspace?: Workspace): void;
+  feedback(message: string, workspace?: Workspace, tone?: 'error' | 'info'): void;
   generateId?: () => string;
 }
 
@@ -1334,15 +1341,17 @@ export class SettingsManagementService {
     if (prepared.changes.length === 0) return { status: 'unchanged', applied: false };
     this.acquire(resource);
     try {
-      const approved = await this.deps.approve(
-        {
-          resource,
-          ...this.askedFrom(context, this.findWorkspace(context)),
-          changes: prepared.changes,
-          ...(prepared.warning && { warning: prepared.warning }),
-        },
-        signal
-      );
+      const approved =
+        prepared.withoutApproval !== undefined ||
+        (await this.deps.approve(
+          {
+            resource,
+            ...this.askedFrom(context, this.findWorkspace(context)),
+            changes: prepared.changes,
+            ...(prepared.warning && { warning: prepared.warning }),
+          },
+          signal
+        ));
       if (!approved || signal?.aborted) {
         return { status: 'cancelled', applied: false };
       }
@@ -1350,6 +1359,9 @@ export class SettingsManagementService {
         throw new SettingsManagementError('STALE_VERSION', `${file.name} has changed.`, 412);
       }
       await file.write(prepared.next);
+      if (prepared.withoutApproval) {
+        this.deps.feedback(prepared.withoutApproval.notice, this.findWorkspace(context), 'info');
+      }
       return { status: 'applied', applied: true, value: file.read() };
     } finally {
       this.pending.delete(resource);

@@ -407,7 +407,7 @@ const pluginsSchema = z
           id: z.string().meta({ description: 'The plugin, as `get` lists it.' }),
           enabled: z.boolean().meta({
             description:
-              "`true` turns it on as its files are now, also after they changed; `false` turns it off. `get` shows the rest, such as each plugin's `state` and what it adds, which apply leaves as they are.",
+              "`true` turns it on as its files are now, also after they changed; `false` turns it off, which Komla does without asking when that's all the apply changes. `get` shows the rest, such as each plugin's `state` and what it adds, which apply leaves as they are.",
           }),
           manifest: pluginManifestSchema.optional().meta({
             description: `The plugin's \`${PLUGIN_MANIFEST}\`, which apply writes into its folder, making the folder \`<id>\` for a new plugin, so a plugin can be made from any computer. Leave it out, or as \`get\` lists it, to keep it as it is. ${pluginManifestSchema.meta()?.description ?? ''}`,
@@ -527,6 +527,14 @@ function manifestProblem(
  */
 function changesPlugin(state: PluginState, enabled: boolean): boolean {
   return enabled ? state !== 'on' : state === 'on' || state === 'changed';
+}
+
+/** What Komla tells the user once it turned plugins off without asking. */
+function turnedOffNotice(names: string[]): string {
+  const what =
+    names.length === 1 ? `the ${names[0]} plugin` : `${names.length} plugins: ${names.join(', ')}`;
+  const them = names.length === 1 ? 'it' : 'them';
+  return `Komla turned off ${what}, as \`komla settings apply\` asked. Settings → Plugins turns ${them} on again.`;
 }
 
 /** What changes in what runs, from a plugin's items, hooks and panels before to after. */
@@ -738,6 +746,12 @@ export function createSettingsFiles({
           }
         });
         if (problems.length > 0) return { problems };
+        // Turning plugins off runs nothing new, as deleting a plugin's folder doesn't, so an agent
+        // can undo a plugin it made also from an SSH host, where that folder isn't.
+        const onlyTurnsOff =
+          changes.length > 0 &&
+          next.manifests.length === 0 &&
+          Object.values(next.enable).every((digest) => digest === false);
         return {
           next,
           changes,
@@ -745,6 +759,11 @@ export function createSettingsFiles({
             (change) => change.kind !== 'plugin' && change.operation !== 'delete'
           ) && {
             warning: PLUGINS_WARNING,
+          }),
+          ...(onlyTurnsOff && {
+            withoutApproval: {
+              notice: turnedOffNotice(Object.keys(next.enable).map((id) => find(id)?.name ?? id)),
+            },
           }),
         };
       },

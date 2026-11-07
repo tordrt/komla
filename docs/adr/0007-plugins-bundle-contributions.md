@@ -24,7 +24,10 @@ the phone, as Komla draws them; arbitrary plugin UI would not.
 - **Trust.** Komla runs a plugin only once the user turns it on, in Settings or by approving
   `komla settings apply plugins`, and records a digest of the plugin's files at that point. When
   the files change, as after a `git pull`, the plugin stops until it is turned on again, so new
-  commands never run unseen. The digest is of the files the user saw: if they change before the
+  commands never run unseen. Turning plugins off, and nothing else, applies without asking: it
+  runs nothing, as deleting a plugin's folder doesn't, and an agent on an SSH host can't reach
+  that folder to undo a plugin it made. Komla then says which plugins it turned off, so a
+  plugin the user relies on doesn't stop unnoticed. The digest is of the files the user saw: if they change before the
   approval is written, nothing is turned on. Komla follows changes only to the plugins folder, so a
   plugin's links must lead to files in its own folder, and a plugin folder that is itself a link
   doesn't run. Plugins are installed for the user, in `~/.komla/plugins/`; a

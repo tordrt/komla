@@ -1758,8 +1758,14 @@ const api = {
     return () => ipcRenderer.removeListener(IPC.HOOK_NOTICE, handler);
   },
 
-  onSettingsFeedback: (callback: (message: string) => void): (() => void) => {
-    const handler = (_: Electron.IpcRendererEvent, message: string): void => callback(message);
+  onSettingsFeedback: (
+    callback: (message: string, tone: 'error' | 'info') => void
+  ): (() => void) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      message: string,
+      tone?: 'error' | 'info'
+    ): void => callback(message, tone === 'info' ? 'info' : 'error');
     ipcRenderer.on(IPC.SETTINGS_FEEDBACK, handler);
     return () => ipcRenderer.removeListener(IPC.SETTINGS_FEEDBACK, handler);
   },

@@ -92,7 +92,8 @@ export function getSettingsManagementService(): SettingsManagementService {
       timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     },
     approve: (request, signal) => settingsApprovalService.approve(request, signal),
-    feedback: (message, workspace) => settingsApprovalService.sendFeedback(message, workspace),
+    feedback: (message, workspace, tone) =>
+      settingsApprovalService.sendFeedback(message, workspace, tone),
   });
   return settingsService;
 }

@@ -189,7 +189,8 @@ class SettingsApprovalService {
     return this.sendToWindow(pending.window, IPC.SETTINGS_APPROVAL_REQUESTED, pending.prompt);
   }
 
-  sendFeedback(message: string, workspace?: Workspace): void {
+  /** Tells the user in a Komla window what went wrong, or with `info`, what Komla changed. */
+  sendFeedback(message: string, workspace?: Workspace, tone: 'error' | 'info' = 'error'): void {
     const request = { workspace, changes: [], resource: 'actions' as const };
     const window = this.selectWindow(request);
     if (!window) return;
@@ -197,7 +198,7 @@ class SettingsApprovalService {
     const now = Date.now();
     if (now - (this.recentFeedback.get(key) ?? 0) < 2_000) return;
     this.recentFeedback.set(key, now);
-    window.webContents.send(IPC.SETTINGS_FEEDBACK, message);
+    window.webContents.send(IPC.SETTINGS_FEEDBACK, message, tone);
     setTimeout(() => this.recentFeedback.delete(key), 2_000).unref();
   }
 

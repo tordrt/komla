@@ -237,7 +237,10 @@ function fixture() {
           ? { status: 'current' as const, revision: 'projects-1' }
           : { status: 'changed' as const },
       replaceWorkspaceSetup: vi.fn((_expected, id, setup) => {
-        Object.assign(projects.find((project) => project.id === id)!, setup);
+        Object.assign(
+          projects.find((project) => project.id === id)!,
+          setup
+        );
         return 'projects-2';
       }),
     },
@@ -656,20 +659,23 @@ describe('SettingsManagementService', () => {
 
   it('generates setup-step IDs and returns the applied Workspace Setup view', async () => {
     const { service, approve } = fixture();
-    const result = await service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-      setupSteps: [
-        {
-          name: 'Install',
-          command: 'npm install',
-          placement: 'background',
-          destination: 'ssh-workspace-repository',
-          trigger: 'workspace-creation',
-        },
-      ],
-      agentPlacement: 'tab',
-      agentLayoutOrder: 0,
-      trashCleanupScript: 'rm -rf node_modules',
-    });
+    const result = await service.proposeWorkspaceSetup(
+      { terminalId: 'terminal-1' },
+      {
+        setupSteps: [
+          {
+            name: 'Install',
+            command: 'npm install',
+            placement: 'background',
+            destination: 'ssh-workspace-repository',
+            trigger: 'workspace-creation',
+          },
+        ],
+        agentPlacement: 'tab',
+        agentLayoutOrder: 0,
+        trashCleanupScript: 'rm -rf node_modules',
+      }
+    );
 
     expect(result).toMatchObject({ status: 'applied', applied: true });
     expect(result.value?.setupSteps[0]).toMatchObject({
@@ -696,21 +702,24 @@ describe('SettingsManagementService', () => {
   it('applies a browser step, which approval describes by the page it opens', async () => {
     const { service, approve } = fixture();
 
-    const result = await service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-      setupSteps: [
-        {
-          name: 'App',
-          command: '',
-          placement: 'split-right',
-          kind: 'browser',
-          urls: ['http://localhost:5173', 'https://docs.test'],
-          trigger: 'every-workspace-start',
-        },
-      ],
-      agentPlacement: 'tab',
-      agentLayoutOrder: 0,
-      trashCleanupScript: '',
-    });
+    const result = await service.proposeWorkspaceSetup(
+      { terminalId: 'terminal-1' },
+      {
+        setupSteps: [
+          {
+            name: 'App',
+            command: '',
+            placement: 'split-right',
+            kind: 'browser',
+            urls: ['http://localhost:5173', 'https://docs.test'],
+            trigger: 'every-workspace-start',
+          },
+        ],
+        agentPlacement: 'tab',
+        agentLayoutOrder: 0,
+        trashCleanupScript: '',
+      }
+    );
 
     expect(result.value?.setupSteps[0]).toMatchObject({
       kind: 'browser',
@@ -735,12 +744,15 @@ describe('SettingsManagementService', () => {
   it('describes a pane step saved as background as the tab Setup opens it in', async () => {
     const { service, approve } = fixture();
 
-    await service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-      setupSteps: [{ name: 'Note', command: '', placement: 'background', kind: 'note' }],
-      agentPlacement: 'tab',
-      agentLayoutOrder: 0,
-      trashCleanupScript: '',
-    });
+    await service.proposeWorkspaceSetup(
+      { terminalId: 'terminal-1' },
+      {
+        setupSteps: [{ name: 'Note', command: '', placement: 'background', kind: 'note' }],
+        agentPlacement: 'tab',
+        agentLayoutOrder: 0,
+        trashCleanupScript: '',
+      }
+    );
 
     expect(approve).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -757,12 +769,15 @@ describe('SettingsManagementService', () => {
   it('rejects a browser or note step that names an agent', async () => {
     const { service } = fixture();
     const propose = (step: Record<string, unknown>) =>
-      service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-        setupSteps: [{ name: 'Note', command: '', placement: 'tab', kind: 'note', ...step }],
-        agentPlacement: 'tab',
-        agentLayoutOrder: 0,
-        trashCleanupScript: '',
-      });
+      service.proposeWorkspaceSetup(
+        { terminalId: 'terminal-1' },
+        {
+          setupSteps: [{ name: 'Note', command: '', placement: 'tab', kind: 'note', ...step }],
+          agentPlacement: 'tab',
+          agentLayoutOrder: 0,
+          trashCleanupScript: '',
+        }
+      );
 
     await expect(propose({ agent: {} })).rejects.toMatchObject({
       code: 'INVALID_SETUP_STEP',
@@ -775,20 +790,23 @@ describe('SettingsManagementService', () => {
     projects[0].kind = 'directory';
 
     await expect(
-      service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-        setupSteps: [
-          {
-            name: 'Install',
-            command: 'npm install',
-            placement: 'background',
-            destination: 'workspace-repository',
-            trigger: 'workspace-creation',
-          },
-        ],
-        agentPlacement: 'tab',
-        agentLayoutOrder: 0,
-        trashCleanupScript: '',
-      })
+      service.proposeWorkspaceSetup(
+        { terminalId: 'terminal-1' },
+        {
+          setupSteps: [
+            {
+              name: 'Install',
+              command: 'npm install',
+              placement: 'background',
+              destination: 'workspace-repository',
+              trigger: 'workspace-creation',
+            },
+          ],
+          agentPlacement: 'tab',
+          agentLayoutOrder: 0,
+          trashCleanupScript: '',
+        }
+      )
     ).rejects.toMatchObject({ code: 'WORKSPACE_SETUP_UNSUPPORTED', status: 422 });
     expect(approve).not.toHaveBeenCalled();
   });
@@ -871,12 +889,15 @@ describe('SettingsManagementService', () => {
     const setup = service.readWorkspaceSetup({ terminalId: 'terminal-1' });
     setProjectsStorageCurrent(false);
     await expect(
-      service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-        setupSteps: [],
-        agentPlacement: setup.agentPlacement,
-        agentLayoutOrder: setup.agentLayoutOrder,
-        trashCleanupScript: setup.trashCleanupScript,
-      })
+      service.proposeWorkspaceSetup(
+        { terminalId: 'terminal-1' },
+        {
+          setupSteps: [],
+          agentPlacement: setup.agentPlacement,
+          agentLayoutOrder: setup.agentLayoutOrder,
+          trashCleanupScript: setup.trashCleanupScript,
+        }
+      )
     ).rejects.toMatchObject({ code: 'STALE_VERSION', status: 412 });
     expect(approve).not.toHaveBeenCalled();
     expect(feedback).toHaveBeenCalledTimes(2);
@@ -889,9 +910,10 @@ describe('SettingsManagementService', () => {
       return true;
     });
 
-    await expect(
-      service.proposeActions({}, 'global', { actions: [] })
-    ).rejects.toMatchObject({ code: 'STALE_VERSION', status: 412 });
+    await expect(service.proposeActions({}, 'global', { actions: [] })).rejects.toMatchObject({
+      code: 'STALE_VERSION',
+      status: 412,
+    });
     expect(getActions()).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'global' })])
     );
@@ -906,17 +928,20 @@ describe('SettingsManagementService', () => {
     });
 
     await expect(
-      service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-        ...read,
-        setupSteps: [
-          {
-            name: 'Test',
-            command: '',
-            placement: 'tab',
-            actionId: 'local',
-          },
-        ],
-      })
+      service.proposeWorkspaceSetup(
+        { terminalId: 'terminal-1' },
+        {
+          ...read,
+          setupSteps: [
+            {
+              name: 'Test',
+              command: '',
+              placement: 'tab',
+              actionId: 'local',
+            },
+          ],
+        }
+      )
     ).rejects.toMatchObject({ code: 'STALE_VERSION', status: 412 });
     expect(projects[0].setupSteps).toEqual([]);
   });
@@ -953,13 +978,16 @@ describe('SettingsManagementService', () => {
       { id: 'delete', name: 'Delete', command: 'delete', placement: 'background' },
     ];
     const read = service.readWorkspaceSetup({ terminalId: 'terminal-1' });
-    await service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-      ...read,
-      setupSteps: [
-        { id: 'edit', name: 'Edited', command: 'new', placement: 'background' },
-        { name: 'Added', command: 'add', placement: 'background' },
-      ],
-    });
+    await service.proposeWorkspaceSetup(
+      { terminalId: 'terminal-1' },
+      {
+        ...read,
+        setupSteps: [
+          { id: 'edit', name: 'Edited', command: 'new', placement: 'background' },
+          { name: 'Added', command: 'add', placement: 'background' },
+        ],
+      }
+    );
 
     expect(approve).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -998,17 +1026,20 @@ describe('SettingsManagementService', () => {
     getActions().find((action) => action.id === 'local')!.type = 'command';
     const read = service.readWorkspaceSetup({ terminalId: 'terminal-1' });
 
-    await service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, {
-      ...read,
-      setupSteps: [
-        {
-          name: 'Run tests',
-          command: '',
-          placement: 'tab',
-          actionId: 'local',
-        },
-      ],
-    });
+    await service.proposeWorkspaceSetup(
+      { terminalId: 'terminal-1' },
+      {
+        ...read,
+        setupSteps: [
+          {
+            name: 'Run tests',
+            command: '',
+            placement: 'tab',
+            actionId: 'local',
+          },
+        ],
+      }
+    );
 
     expect(approve).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1103,6 +1134,34 @@ describe('SettingsManagementService', () => {
         applied: false,
       });
       expect(hooksFile.write).not.toHaveBeenCalled();
+    });
+
+    it('writes without asking when the file says the change needs no approval', async () => {
+      const { service, approve, hooksFile, feedback } = fixture();
+      hooksFile.prepare.mockReturnValueOnce({
+        next: desired,
+        changes: [
+          {
+            operation: 'delete',
+            kind: 'hook',
+            title: 'lint',
+            contentLabel: 'Command',
+            content: 'npm run lint',
+            details: [],
+          },
+        ],
+        withoutApproval: { notice: 'Komla turned off Lint.' },
+      });
+
+      await expect(service.proposeSettingsFile({}, 'hooks', desired)).resolves.toEqual({
+        status: 'applied',
+        applied: true,
+        value: desired,
+      });
+      expect(approve).not.toHaveBeenCalled();
+      expect(hooksFile.write).toHaveBeenCalledWith(desired);
+      // What Komla changed without asking, it says it changed.
+      expect(feedback).toHaveBeenCalledWith('Komla turned off Lint.', undefined, 'info');
     });
 
     it('asks nothing when the settings would not change', async () => {

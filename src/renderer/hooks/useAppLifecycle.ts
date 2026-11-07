@@ -578,8 +578,8 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
         }
       }),
 
-      window.api.onSettingsFeedback((message) => {
-        useToastStore.getState().addToast(message, 'error');
+      window.api.onSettingsFeedback((message, tone) => {
+        useToastStore.getState().addToast(message, tone);
       }),
 
       window.api.onHookNotice((message) => {

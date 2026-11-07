@@ -729,6 +729,52 @@ describe('TerminalPane SSH reconnect', () => {
     expect(screen.getByTestId('pane-outline')).toHaveAttribute('data-focused', 'false');
   });
 
+  it('outlines an unfocused split pane in the color of the notification waiting on it', () => {
+    mocks.terminalConfig = { colors: { background: '#282c34' }, showPaneHeaders: false };
+    workspace.terminals = [
+      {
+        ...workspace.terminals[0],
+        attention: { kind: 'input', source: 'lifecycle', updatedAt: 1 },
+      } as (typeof workspace.terminals)[number],
+    ];
+
+    render(
+      <TerminalPane
+        paneId="pane-2"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+      />
+    );
+
+    expect(screen.getByTestId('pane-outline')).toHaveAttribute('data-attention', 'true');
+  });
+
+  it("leaves a lone pane's outline neutral while a notification waits on it", () => {
+    mocks.terminalConfig = { colors: { background: '#282c34' }, showPaneHeaders: false };
+    workspace.terminals = [
+      {
+        ...workspace.terminals[0],
+        attention: { kind: 'input', source: 'lifecycle', updatedAt: 1 },
+      } as (typeof workspace.terminals)[number],
+    ];
+
+    // In view, but unfocused: the tab's focus names a pane it no longer holds, as a restored
+    // layout can.
+    render(
+      <TerminalPane
+        paneId="pane-2"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+        isOnlyPane
+      />
+    );
+
+    // The border only tells panes apart.
+    expect(screen.getByTestId('pane-outline')).not.toHaveAttribute('data-attention');
+  });
+
   it('outlines the focused pane of a split tab in the accent', () => {
     mocks.terminalConfig = {
       colors: { background: '#282c34' },

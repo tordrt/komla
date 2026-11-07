@@ -79,7 +79,7 @@ export function PanesSettingsCard() {
 
       <SettingsRow
         label="Notification pane border"
-        description="Show a subtle colored border around unfocused terminal panes with notifications"
+        description="In a split tab, show a subtle colored border around unfocused panes with notifications"
       >
         <Switch
           checked={terminalConfig?.notificationPaneBorder ?? true}

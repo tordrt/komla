@@ -751,8 +751,9 @@ export const TerminalPane = React.memo(function TerminalPane({
   };
 
   const attentionAppearance = getWorkspaceAttentionAppearance(terminal?.attention);
+  // The border tells panes apart; in a lone pane's tab, the tab's badge already says it.
   const showAttentionBorder =
-    notificationPaneBorder && !!attentionAppearance && !(isTabActive && isFocused);
+    notificationPaneBorder && !!attentionAppearance && !isOnlyPane && !(isTabActive && isFocused);
 
   const terminalContentStyle = useMemo(
     () => ({ opacity: isFocused ? 1 : unfocusedPaneDimOpacity }),

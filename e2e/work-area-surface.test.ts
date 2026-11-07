@@ -48,6 +48,9 @@ test.describe('Work area surface', () => {
         activeTabBottomRadius: getComputedStyle(activeTab).borderBottomLeftRadius,
         activeTabGapBelow:
           topRow.getBoundingClientRect().bottom - activeTab.getBoundingClientRect().bottom,
+        pillWidths: tabs.map(
+          (tab) => tab.querySelector('[role="button"]')!.getBoundingClientRect().width
+        ),
       };
     });
 
@@ -67,6 +70,8 @@ test.describe('Work area surface', () => {
     expect(surface.activeTabRadius).toBe('8px');
     expect(surface.activeTabBottomRadius).toBe('8px');
     expect(surface.activeTabGapBelow).toBeGreaterThan(0);
+    // The first tab, at the column's edge, is as wide as the rest.
+    expect(surface.pillWidths[0]).toBe(surface.pillWidths[1]);
   });
 
   test('sets split panes apart on a 6px gutter of the sidebar color', async ({ appWindow }) => {
@@ -316,10 +321,16 @@ test.describe('Work area surface', () => {
     const pane = appWindow.getByTestId('pane-outline').filter({ visible: true });
     await expect(pane).toHaveCount(1, { timeout: 10_000 });
     const paneLeft = Math.round((await pane.boundingBox())!.x);
+    const tabPill = appWindow.locator(
+      '[data-testid="terminal-tab-row"] [data-tab-id] [role="button"]'
+    );
+    const tabLeft = Math.round((await tabPill.first().boundingBox())!.x);
 
     expect(edge.lineDrawn).toBe(true);
     expect(paneLeft).toBe(edge.sidebarRight + 6);
     expect(edge.lineLeft).toBe(paneLeft);
+    // The first tab lines up with the pane below it.
+    expect(tabLeft).toBe(paneLeft);
     expect(edge.dividerLeft).toBe(edge.sidebarRight - 1);
   });
 });

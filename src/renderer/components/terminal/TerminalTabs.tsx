@@ -1186,8 +1186,8 @@ export const TerminalTabs = memo(function TerminalTabs({
   const movePaneToNewTab = useLayoutStore((s) => s.movePaneToNewTab);
   const initializeWorkspaceLayout = useLayoutStore((s) => s.initializeWorkspaceLayout);
   const sidebarCollapsed = useSidebarCollapsed();
-  // The first tab sits by the sidebar's line, unless the collapsed sidebar's buttons sit before it.
-  const firstTabAtEdge = !sidebarCollapsed;
+  // The tabs start at the column's edge, unless the collapsed sidebar's buttons sit before them.
+  const tabsAtColumnEdge = !sidebarCollapsed;
   const [topRowActionsRef, topRowActionsWidth] = useElementWidth();
   // The file panel's tabs at their narrowest, two tabs, so more show as the panel widens.
   const [treeTabsWidth, setTreeTabsWidth] = useState(0);
@@ -2141,7 +2141,12 @@ export const TerminalTabs = memo(function TerminalTabs({
               // the absolutely positioned browser/file-panel toggles.
               <div
                 data-testid="terminal-tab-row"
-                className="flex h-full min-w-0 flex-1 items-center"
+                // At the column's edge the row is inset so the first pill, inside its tab's 1px,
+                // lines up with the panes, which sit the pane gap in.
+                className={cn(
+                  'flex h-full min-w-0 flex-1 items-center',
+                  tabsAtColumnEdge && 'pl-[calc(var(--pane-gap)-1px)]'
+                )}
                 style={
                   {
                     paddingRight: isInlinePreviewOpen ? undefined : topRowEndReservePx,
@@ -2195,9 +2200,7 @@ export const TerminalTabs = memo(function TerminalTabs({
                         <ContextMenuTrigger asChild>
                           <div
                             className={cn(
-                              'group/tab relative flex w-[180px] min-w-[96px] items-stretch py-1.5 xl:w-[220px]',
-                              // Clear of the sidebar's line.
-                              firstTabAtEdge && tabIndex === 0 ? 'pr-px pl-1' : 'px-px',
+                              'group/tab relative flex w-[180px] min-w-[96px] items-stretch px-px py-1.5 xl:w-[220px]',
                               draggedTabId === terminalId && 'opacity-50',
                               dropTarget?.tabId === terminalId &&
                                 dropTarget.position === 'before' &&

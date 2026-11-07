@@ -4,12 +4,14 @@ import React, { Suspense, useEffect, useReducer, useSyncExternalStore } from 're
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { linkedFileOpener } from '@/components/terminal/file-panel';
 import { Button } from '@/components/ui/button';
+import { LoadingState } from '@/components/ui/loading-state';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
 
 import { isPdfFile, isUnsupportedBinaryFile } from '../../../../shared/image-utils';
 
 import { BrowserPreviewFrame } from './BrowserPreviewFrame';
+import { isNewFileStatus } from './file-viewer-utils';
 import {
   getHtmlDiffViewMode,
   getHtmlViewMode,
@@ -26,7 +28,7 @@ import type { HtmlDiffViewMode, HtmlViewMode } from './html-view-mode';
 import type { MarkdownEditorHandle } from './markdown/RichMarkdownEditor';
 import type { FileViewerMode, ViewMode } from './types';
 import type { BlameLineMap } from './useBlameState';
-import type { FileDiffContent, BlameHunk } from '@/types';
+import type { FileChange, FileDiffContent, BlameHunk } from '@/types';
 import type { editor as monacoEditor } from 'monaco-editor';
 
 const EditorPane = React.lazy(() =>
@@ -43,6 +45,8 @@ const HTML_DIFF_VIEW_MODE_OPTIONS = [
   { value: 'browser', label: 'Browser', icon: <Globe className="size-3.5" /> },
   { value: 'diff', label: 'Diff', icon: <GitDiff className="size-3.5" /> },
 ] as const;
+
+const DIRTY_PREVIEW_TITLE = 'The preview is off while the file has unsaved changes';
 
 const editorFallback = (
   <div className="flex h-full items-center justify-center gap-2 text-muted-foreground">
@@ -97,6 +101,8 @@ interface ContentAreaProps {
   diffContent: FileDiffContent | null;
   viewMode: ViewMode;
   selectedFile: string | null;
+  /** How the diff changes the selected file, known before its content loads. */
+  diffFileStatus?: FileChange['status'] | null;
   diffLoading: boolean;
   diffLoadingFile: boolean;
   diffError: string | null;
@@ -305,6 +311,10 @@ interface BrowserPreviewDiffContentAreaProps {
    */
   previewContent?: string | null;
   previewContentLoading?: boolean;
+  /** The diff adds the file, so it opens on the preview. */
+  newFile: boolean;
+  /** The diff has unsaved edits, which showing the preview in its place would drop. */
+  isDirty: boolean;
   diffNode: React.ReactNode;
 }
 
@@ -315,13 +325,18 @@ function BrowserPreviewDiffContentArea({
   diffBrowserPreviewVersion,
   previewContent,
   previewContentLoading = false,
+  newFile,
+  isDirty,
   diffNode,
 }: BrowserPreviewDiffContentAreaProps) {
-  const htmlDiffViewMode = useSyncExternalStore<HtmlDiffViewMode>(
+  const preferredViewMode = useSyncExternalStore<HtmlDiffViewMode>(
     subscribeHtmlViewMode,
-    () => getHtmlDiffViewMode(workingDirectory),
-    () => 'diff'
+    () => getHtmlDiffViewMode(workingDirectory, newFile),
+    () => getHtmlDiffViewMode(workingDirectory, newFile)
   );
+  // A PDF's diff is only "Binary file changed", so it always shows the preview.
+  const diffAvailable = !isPdfFile(diffBrowserPreviewFilePath);
+  const htmlDiffViewMode = !diffAvailable ? 'browser' : isDirty ? 'diff' : preferredViewMode;
   const [browserPreview, dispatchBrowserPreview] = useReducer(browserPreviewReducer, {
     filePath: null,
     url: null,
@@ -363,20 +378,30 @@ function BrowserPreviewDiffContentArea({
   ]);
 
   const selectHtmlDiffViewMode = (mode: HtmlDiffViewMode): void => {
-    setHtmlDiffViewMode(workingDirectory, mode);
+    setHtmlDiffViewMode(workingDirectory, mode, newFile);
   };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-8 shrink-0 items-center justify-between border-b border-border bg-background px-2">
         <span className="text-xs font-medium text-muted-foreground">Preview</span>
-        <SegmentedControl
-          aria-label="Preview mode"
-          iconOnly
-          value={htmlDiffViewMode}
-          onValueChange={selectHtmlDiffViewMode}
-          options={HTML_DIFF_VIEW_MODE_OPTIONS}
-        />
+        {diffAvailable && (
+          <SegmentedControl
+            aria-label="Preview mode"
+            iconOnly
+            value={htmlDiffViewMode}
+            onValueChange={selectHtmlDiffViewMode}
+            options={
+              isDirty
+                ? HTML_DIFF_VIEW_MODE_OPTIONS.map((option) =>
+                    option.value === 'browser'
+                      ? { ...option, disabled: true, title: DIRTY_PREVIEW_TITLE }
+                      : option
+                  )
+                : HTML_DIFF_VIEW_MODE_OPTIONS
+            }
+          />
+        )}
       </div>
       {htmlDiffViewMode === 'browser' ? (
         <BrowserPreviewPane
@@ -436,6 +461,65 @@ function BrowserPreviewPane({
   return <BrowserPreviewFrame filePath={filePath} url={browserUrl} />;
 }
 
+/** Reads the images a Markdown file shows through the workspace, local or remote. */
+function markdownImageReader(workingDirectory: string, workspaceId: string | undefined) {
+  return (path: string) =>
+    workspaceId
+      ? window.api.readWorkspaceImageFile(workspaceId, path)
+      : window.api.readImageFile(workingDirectory, path);
+}
+
+/**
+ * A new Markdown file as rich text, with its all-added diff as the source. Rich text only shows
+ * the file: edits go through the diff, which stays in front while they're unsaved. Until the
+ * file's diff loads, the diff's loading state shows.
+ */
+function NewMarkdownDiff({
+  workingDirectory,
+  workspaceId,
+  filePath,
+  diffContent,
+  loadingFile,
+  isDirty,
+  diffNode,
+}: {
+  workingDirectory: string;
+  workspaceId: string | undefined;
+  filePath: string;
+  diffContent: FileDiffContent | null;
+  loadingFile: boolean;
+  isDirty: boolean;
+  diffNode: React.ReactNode;
+}) {
+  return (
+    <MarkdownContentArea
+      filePath={filePath}
+      fileContent={diffContent?.path === filePath ? diffContent.newContent : null}
+      loadingFile={loadingFile}
+      fileError={null}
+      readOnly
+      sourceOnly={isDirty ? 'Rich text is off while the file has unsaved changes' : null}
+      readImage={markdownImageReader(workingDirectory, workspaceId)}
+      fileLinks={workspaceId ? linkedFileOpener(workspaceId) : undefined}
+      // Until its own diff arrives, DiffPane would show the last file's under this file's header.
+      sourceEditor={
+        diffContent?.path === filePath || !loadingFile ? (
+          diffNode
+        ) : (
+          <LoadingState label="Loading diff" />
+        )
+      }
+    />
+  );
+}
+
+function isNewMarkdownDiff(
+  selectedFile: string | null,
+  status: FileChange['status'] | null | undefined
+): selectedFile is string {
+  return !!selectedFile && isMarkdownFile(selectedFile) && isNewFileStatus(status);
+}
+
 export function ContentArea({
   mode,
   workingDirectory,
@@ -478,6 +562,7 @@ export function ContentArea({
   diffContent,
   viewMode,
   selectedFile,
+  diffFileStatus,
   diffLoading,
   diffLoadingFile,
   diffError,
@@ -583,15 +668,11 @@ export function ContentArea({
           loadingFile={loadingFile}
           fileError={fileError}
           readOnly={readOnly}
-          sourceOnly={!!blameEnabled}
+          sourceOnly={blameEnabled ? 'Rich text is off while blame is shown' : null}
           autoFocus={autoFocus}
           onChange={onChange}
           onMarkdownEditorMount={onMarkdownEditorMount}
-          readImage={(path) =>
-            workspaceId
-              ? window.api.readWorkspaceImageFile(workspaceId, path)
-              : window.api.readImageFile(workingDirectory, path)
-          }
+          readImage={markdownImageReader(workingDirectory, workspaceId)}
           fileLinks={workspaceId ? linkedFileOpener(workspaceId) : undefined}
           sourceEditor={editorPane}
         />
@@ -652,6 +733,23 @@ export function ContentArea({
         diffBrowserPreviewVersion={diffBrowserPreviewVersion}
         previewContent={previewContent}
         previewContentLoading={diffLoading || diffLoadingFile}
+        newFile={isNewFileStatus(diffFileStatus)}
+        isDirty={isDirty}
+        diffNode={diffNode}
+      />
+    );
+  }
+
+  if (!diffError && isNewMarkdownDiff(selectedFile, diffFileStatus)) {
+    return (
+      <NewMarkdownDiff
+        key={selectedFile}
+        workingDirectory={workingDirectory}
+        workspaceId={workspaceId}
+        filePath={selectedFile}
+        diffContent={diffContent}
+        loadingFile={diffLoadingFile}
+        isDirty={isDirty}
         diffNode={diffNode}
       />
     );

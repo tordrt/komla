@@ -312,9 +312,14 @@ export function getStatusLabel(status: FileChange['status']): string {
   }
 }
 
+/** Whether the diff adds the file, so it has no old side worth comparing against. */
+export function isNewFileStatus(status: FileChange['status'] | null | undefined): boolean {
+  return status === 'added' || status === 'untracked';
+}
+
 /** Added and deleted files have nothing on one side, so a split diff would be half empty. */
 export function isOneSidedDiff(status: FileChange['status'] | undefined): boolean {
-  return status === 'added' || status === 'untracked' || status === 'deleted';
+  return isNewFileStatus(status) || status === 'deleted';
 }
 
 // ============================================================================

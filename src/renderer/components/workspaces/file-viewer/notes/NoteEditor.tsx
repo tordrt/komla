@@ -378,7 +378,7 @@ function NoteEditorContent({
         loadingFile={false}
         fileError={null}
         readOnly={false}
-        sourceOnly={false}
+        sourceOnly={null}
         autoFocus={startedBlank}
         focusRequested={focusRequested}
         onFocused={onFocused}

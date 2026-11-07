@@ -571,6 +571,14 @@ export function InlineFilePreviewPanel({
   const handleDiffEditorMount = useCallback(
     (ed: monacoEditor.IStandaloneDiffEditor) => {
       diffEditorRef.current = ed;
+      // A file shown as rich text or a preview disposes the diff, whose emptied text would
+      // otherwise read as an edit against the last file's baseline.
+      ed.getModifiedEditor().onDidDispose(() => {
+        if (diffEditorRef.current !== ed) return;
+        diffEditorRef.current = null;
+        diffBaselineRef.current = null;
+        setTotalChanges(0);
+      });
       removeNonFunctionalActions(ed.getModifiedEditor());
       removeNonFunctionalActions(ed.getOriginalEditor());
 
@@ -1079,17 +1087,17 @@ export function InlineFilePreviewPanel({
 
   // Diff-mode browser toggle: same gating as the full dialog — only
   // surface for directly renderable files whose working copy still exists.
+  const diffFileStatus = diff.grouped.files.find((f) => f.path === diff.selectedFile)?.status;
   const diffBrowserPreviewFilePath = (() => {
     if (!diff.selectedFile) return null;
     const path = diff.selectedFile;
-    const fileChange = diff.grouped.files.find((f) => f.path === path);
     if (
       !shouldOfferDiffBrowserPreview({
         mode,
         filePath: path,
-        fileStatus: fileChange?.status,
+        fileStatus: diffFileStatus,
       }) ||
-      !fileChange
+      !diffFileStatus
     ) {
       return null;
     }
@@ -1161,6 +1169,7 @@ export function InlineFilePreviewPanel({
             onDiffEditorMount={handleDiffEditorMount}
             hasFiles={(diff.diffData?.files.length ?? 0) > 0}
             isDirty={editor.isDirty}
+            diffFileStatus={diffFileStatus}
             diffBrowserPreviewFilePath={diffBrowserPreviewFilePath}
             diffBrowserPreviewVersion={diff.browserPreviewVersion}
           />

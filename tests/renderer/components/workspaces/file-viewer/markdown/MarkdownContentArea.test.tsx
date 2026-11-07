@@ -47,7 +47,7 @@ function area(props: Partial<React.ComponentProps<typeof MarkdownContentArea>> =
       loadingFile={false}
       fileError={null}
       readOnly={false}
-      sourceOnly={false}
+      sourceOnly={null}
       readImage={vi.fn()}
       sourceEditor={<div data-testid="source">Monaco</div>}
       {...props}
@@ -148,7 +148,7 @@ describe('MarkdownContentArea', () => {
   });
 
   it('shows the source while blame is on', () => {
-    renderArea({ sourceOnly: true });
+    renderArea({ sourceOnly: 'Rich text is off while blame is shown' });
     expect(screen.getByTestId('source')).toBeInTheDocument();
     expect(screen.getByText('Rich text is off while blame is shown')).toBeInTheDocument();
   });

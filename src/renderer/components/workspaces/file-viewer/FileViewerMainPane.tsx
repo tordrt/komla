@@ -322,14 +322,16 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
   // Diff-mode browser toggle: only surface for directly renderable files the diff
   // doesn't delete (deleted files have nothing to render). A history diff renders
   // the commit's text, which a PDF doesn't have.
+  const diffFilePath = isHistory ? state.diff.historySelectedFile : state.diff.selectedFile;
+  const diffFileStatus = (
+    isHistory ? state.diff.commitDiff?.files : state.diff.grouped.files
+  )?.find((f) => f.path === diffFilePath)?.status;
   const diffBrowserPreviewFilePath = (() => {
     if (!isDiffMode) return null;
-    const path = isHistory ? state.diff.historySelectedFile : state.diff.selectedFile;
-    if (!path || !isBrowserPreviewableFile(path) || (isHistory && isPdfFile(path))) return null;
-    const files = isHistory ? state.diff.commitDiff?.files : state.diff.grouped.files;
-    const fileChange = files?.find((f) => f.path === path);
-    if (!fileChange || fileChange.status === 'deleted') return null;
-    return path;
+    if (!diffFilePath || !isBrowserPreviewableFile(diffFilePath)) return null;
+    if (isHistory && isPdfFile(diffFilePath)) return null;
+    if (!diffFileStatus || diffFileStatus === 'deleted') return null;
+    return diffFilePath;
   })();
 
   // The toolbar's controls for the file or diff show it again from under a note.
@@ -549,6 +551,7 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
               inlineBreakpointPx={500}
               onDiffEditorMount={handleDiffEditorMount}
               isDirty={state.editor.isDirty}
+              diffFileStatus={diffFileStatus}
               diffBrowserPreviewFilePath={diffBrowserPreviewFilePath}
               diffBrowserPreviewVersion={state.diff.browserPreviewVersion}
             />

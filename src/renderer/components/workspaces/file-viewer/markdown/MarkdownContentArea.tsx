@@ -42,8 +42,8 @@ interface MarkdownContentAreaProps {
   loadingFile: boolean;
   fileError: string | null;
   readOnly: boolean;
-  /** Blame needs the source editor's gutter. */
-  sourceOnly: boolean;
+  /** Why rich text is off, as blame needs the source editor's gutter; null when it's open. */
+  sourceOnly: string | null;
   onChange?: (content: string) => void;
   onMarkdownEditorMount?: (handle: MarkdownEditorHandle | null) => void;
   readImage: (path: string) => Promise<{ data: string; mimeType: string }>;
@@ -133,11 +133,7 @@ export function MarkdownContentArea({
   const dragBar = usePaneDragBar();
   const ready = useContentReady(fileContent, loadingFile, fileError);
   const tooLarge = (fileContent?.length ?? 0) > RICH_MARKDOWN_MAX_LENGTH;
-  const richUnavailable = sourceOnly
-    ? 'Rich text is off while blame is shown'
-    : tooLarge
-      ? 'Too large to edit as rich text'
-      : null;
+  const richUnavailable = sourceOnly ?? (tooLarge ? 'Too large to edit as rich text' : null);
   const mode: MarkdownViewMode = preferredMode === 'rich' && !richUnavailable ? 'rich' : 'source';
   const shortcut = formatShortcutForDisplay(TOGGLE_SHORTCUT, window.api?.platform);
 

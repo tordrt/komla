@@ -8,9 +8,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { TooltipProvider } from '../../../../../src/renderer/components/ui/tooltip';
 import { ContentArea } from '../../../../../src/renderer/components/workspaces/file-viewer/ContentArea';
 import {
+  getHtmlDiffViewMode,
   setHtmlDiffViewMode,
   setHtmlViewMode,
 } from '../../../../../src/renderer/components/workspaces/file-viewer/html-view-mode';
+import { setMarkdownViewMode } from '../../../../../src/renderer/components/workspaces/file-viewer/markdown/markdown-view-mode';
+
+import type { FileDiffContent } from '../../../../../src/renderer/types';
 
 vi.mock('../../../../../src/renderer/components/workspaces/file-viewer/EditorPane', () => ({
   EditorPane: ({ missingOnDisk }: { missingOnDisk?: boolean }) => (
@@ -44,6 +48,38 @@ vi.mock('../../../../../src/renderer/components/workspaces/file-viewer/DiffPane'
     </div>
   ),
 }));
+
+vi.mock(
+  '../../../../../src/renderer/components/workspaces/file-viewer/markdown/RichMarkdownEditor',
+  () => ({
+    RichMarkdownEditor: ({
+      content,
+      readOnly,
+      toolbarEnd,
+    }: {
+      content: string;
+      readOnly: boolean;
+      toolbarEnd: React.ReactNode;
+    }) => (
+      <div>
+        <div data-testid="rich" data-read-only={String(readOnly)}>
+          {content}
+        </div>
+        {toolbarEnd}
+      </div>
+    ),
+  })
+);
+
+function diffOf(path: string, status: FileDiffContent['status']): FileDiffContent {
+  return {
+    path,
+    oldContent: status === 'modified' ? '# Old' : null,
+    newContent: '# New',
+    status,
+    isBinary: false,
+  };
+}
 
 function contentAreaNode(
   overrides: Partial<ComponentProps<typeof ContentArea>> = {}
@@ -473,5 +509,201 @@ describe('ContentArea', () => {
     await waitFor(() =>
       expect(getHtmlPreviewUrl).toHaveBeenCalledWith('/history-repo', 'diagram.svg', svg)
     );
+  });
+
+  describe('a file the diff adds', () => {
+    it('shows a new Markdown file as read-only rich text, with its diff as the source', async () => {
+      setMarkdownViewMode('rich');
+      renderContentArea({
+        mode: 'diff',
+        filePath: null,
+        selectedFile: 'docs/PLAN.md',
+        diffFileStatus: 'untracked',
+        diffContent: diffOf('docs/PLAN.md', 'untracked'),
+      });
+
+      const rich = await screen.findByTestId('rich');
+      expect(rich).toHaveTextContent('# New');
+      expect(rich).toHaveAttribute('data-read-only', 'true');
+      expect(screen.queryByText('Diff Pane')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('radio', { name: /Source/ }));
+      expect(await screen.findByText('Diff Pane')).toBeInTheDocument();
+      expect(screen.queryByTestId('rich')).not.toBeInTheDocument();
+    });
+
+    it('keeps the diff of a new Markdown file in front while it has unsaved edits', async () => {
+      setMarkdownViewMode('rich');
+      renderContentArea({
+        mode: 'diff',
+        filePath: null,
+        selectedFile: 'NOTES.md',
+        diffFileStatus: 'added',
+        diffContent: diffOf('NOTES.md', 'added'),
+        isDirty: true,
+      });
+
+      expect(await screen.findByText('Diff Pane')).toBeInTheDocument();
+      expect(screen.queryByTestId('rich')).not.toBeInTheDocument();
+      expect(screen.getByRole('radio', { name: /Rich text/ })).toBeDisabled();
+    });
+
+    it('shows the diff of a changed Markdown file', async () => {
+      setMarkdownViewMode('rich');
+      renderContentArea({
+        mode: 'diff',
+        filePath: null,
+        selectedFile: 'README.md',
+        diffFileStatus: 'modified',
+        diffContent: diffOf('README.md', 'modified'),
+      });
+
+      expect(await screen.findByText('Diff Pane')).toBeInTheDocument();
+      expect(screen.queryByTestId('rich')).not.toBeInTheDocument();
+    });
+
+    it('opens a new HTML file on its browser preview, and a changed one on its diff', async () => {
+      window.api = {
+        ...window.api,
+        getHtmlPreviewUrl: vi.fn().mockResolvedValue('komla-preview://token/page.html'),
+      } as typeof window.api;
+      const props = {
+        mode: 'diff',
+        workingDirectory: '/new-html-repo',
+        filePath: null,
+        selectedFile: 'page.html',
+        diffBrowserPreviewFilePath: 'page.html',
+      } as const;
+
+      const { rerender } = renderContentArea({
+        ...props,
+        diffFileStatus: 'untracked',
+        diffContent: diffOf('page.html', 'untracked'),
+      });
+      expect(await screen.findByTitle('page.html browser preview')).toBeInTheDocument();
+      expect(screen.queryByText('Diff Pane')).not.toBeInTheDocument();
+
+      rerender(
+        contentAreaNode({
+          ...props,
+          diffFileStatus: 'modified',
+          diffContent: diffOf('page.html', 'modified'),
+        })
+      );
+      expect(await screen.findByText('Diff Pane')).toBeInTheDocument();
+      expect(screen.queryByTitle('page.html browser preview')).not.toBeInTheDocument();
+    });
+
+    it('opens a new HTML file on its preview before its diff loads', async () => {
+      window.api = {
+        ...window.api,
+        getHtmlPreviewUrl: vi.fn().mockResolvedValue('komla-preview://token/new.html'),
+      } as typeof window.api;
+      renderContentArea({
+        mode: 'diff',
+        workingDirectory: '/new-html-loading',
+        filePath: null,
+        selectedFile: 'new.html',
+        diffFileStatus: 'untracked',
+        diffContent: diffOf('old.ts', 'modified'),
+        diffLoadingFile: true,
+        diffBrowserPreviewFilePath: 'new.html',
+      });
+
+      expect(await screen.findByTitle('new.html browser preview')).toBeInTheDocument();
+      expect(screen.queryByText('Diff Pane')).not.toBeInTheDocument();
+    });
+
+    it("waits for a new Markdown file's own text before showing it as rich text", async () => {
+      setMarkdownViewMode('rich');
+      const props = {
+        mode: 'diff',
+        filePath: null,
+        selectedFile: 'NEW.md',
+        diffFileStatus: 'untracked',
+      } as const;
+      const { rerender } = renderContentArea({
+        ...props,
+        diffContent: diffOf('old.ts', 'modified'),
+        diffLoadingFile: true,
+      });
+
+      // Not the last file's diff under this one's header.
+      expect(await screen.findByText('Loading diff…')).toBeInTheDocument();
+      expect(screen.queryByText('Diff Pane')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('rich')).not.toBeInTheDocument();
+
+      rerender(contentAreaNode({ ...props, diffContent: diffOf('NEW.md', 'untracked') }));
+      expect(await screen.findByTestId('rich')).toHaveTextContent('# New');
+    });
+
+    it('keeps the diff of an HTML file in front while it has unsaved edits', async () => {
+      setHtmlDiffViewMode('/dirty-html', 'browser', true);
+      renderContentArea({
+        mode: 'diff',
+        workingDirectory: '/dirty-html',
+        filePath: null,
+        selectedFile: 'page.html',
+        diffBrowserPreviewFilePath: 'page.html',
+        diffFileStatus: 'untracked',
+        diffContent: diffOf('page.html', 'untracked'),
+        isDirty: true,
+      });
+
+      expect(await screen.findByText('Diff Pane')).toBeInTheDocument();
+      const toggle = screen.getByRole('radiogroup', { name: 'Preview mode' });
+      expect(within(toggle).getByRole('radio', { name: /Browser/ })).toBeDisabled();
+      expect(within(toggle).getByRole('radio', { name: /Diff/ })).toBeChecked();
+    });
+
+    it('remembers Diff for new HTML files apart from changed ones', async () => {
+      window.api = {
+        ...window.api,
+        getHtmlPreviewUrl: vi.fn().mockResolvedValue('komla-preview://token/page.html'),
+      } as typeof window.api;
+      renderContentArea({
+        mode: 'diff',
+        workingDirectory: '/new-html-choice',
+        filePath: null,
+        selectedFile: 'page.html',
+        diffBrowserPreviewFilePath: 'page.html',
+        diffFileStatus: 'added',
+        diffContent: diffOf('page.html', 'added'),
+      });
+
+      const toggle = screen.getByRole('radiogroup', { name: 'Preview mode' });
+      fireEvent.click(within(toggle).getByRole('radio', { name: /Diff/ }));
+
+      expect(await screen.findByText('Diff Pane')).toBeInTheDocument();
+      expect(getHtmlDiffViewMode('/new-html-choice', true)).toBe('diff');
+      setHtmlDiffViewMode('/new-html-choice', 'browser');
+      expect(getHtmlDiffViewMode('/new-html-choice', true)).toBe('diff');
+    });
+  });
+
+  it('shows a changed PDF as its preview, as its diff has nothing to show', async () => {
+    window.api = {
+      ...window.api,
+      getHtmlPreviewUrl: vi.fn().mockResolvedValue('komla-preview://token/report.pdf'),
+    } as typeof window.api;
+
+    renderContentArea({
+      mode: 'diff',
+      workingDirectory: '/changed-pdf-repo',
+      filePath: null,
+      selectedFile: 'report.pdf',
+      diffContent: {
+        path: 'report.pdf',
+        oldContent: null,
+        newContent: null,
+        status: 'modified',
+        isBinary: true,
+      },
+      diffBrowserPreviewFilePath: 'report.pdf',
+    });
+
+    expect(await screen.findByTitle('report.pdf browser preview')).toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Preview mode' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Diff Pane')).not.toBeInTheDocument();
   });
 });

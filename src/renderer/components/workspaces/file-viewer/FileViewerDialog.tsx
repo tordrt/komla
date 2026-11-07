@@ -1516,6 +1516,14 @@ export function FileViewerDialog({
   const handleDiffEditorMount = useCallback(
     (editor: monacoEditor.IStandaloneDiffEditor) => {
       diffEditorRef.current = editor;
+      // A file shown as rich text or a preview disposes the diff, whose emptied text would
+      // otherwise read as an edit against the last file's baseline.
+      editor.getModifiedEditor().onDidDispose(() => {
+        if (diffEditorRef.current !== editor) return;
+        diffEditorRef.current = null;
+        diffBaselineRef.current = null;
+        setTotalChanges(0);
+      });
       removeNonFunctionalActions(editor.getModifiedEditor());
       removeNonFunctionalActions(editor.getOriginalEditor());
       registerSaveAction(editor.getModifiedEditor(), isDirtyKeyDiffRef);

@@ -235,40 +235,6 @@ describe('ActionService', () => {
     expect(saved?.lastUserInput).toBe('the tests');
   });
 
-  it('reorders actions and persists the configured order', () => {
-    const first = actionService.create({
-      title: 'First',
-      content: 'first',
-    });
-    const second = actionService.create({
-      title: 'Second',
-      content: 'second',
-    });
-    const third = actionService.create({
-      title: 'Third',
-      content: 'third',
-    });
-
-    actionService.reorder(third.id, 0);
-
-    const actionIds = actionService.list().map((action) => action.id);
-    expect(actionIds[0]).toBe(third.id);
-    expect(actionIds.indexOf(first.id)).toBeLessThan(actionIds.indexOf(second.id));
-
-    const saved = JSON.parse(
-      vfs.mock.readFileSync('/mock/home/.komla/settings/actions.json', 'utf-8') as string
-    ) as { actions: Array<{ id: string }> };
-    const savedIds = saved.actions.map((action) => action.id);
-    expect(savedIds[0]).toBe(third.id);
-    expect(savedIds.indexOf(first.id)).toBeLessThan(savedIds.indexOf(second.id));
-  });
-
-  it('throws when reordering a missing action', () => {
-    expect(() => actionService.reorder('missing-action', 0)).toThrow(
-      'Action with id "missing-action" not found'
-    );
-  });
-
   it('tracks action usage only when actions are run', () => {
     const prompt = actionService.create({
       title: 'Prompt',

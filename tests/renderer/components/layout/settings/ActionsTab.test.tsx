@@ -13,7 +13,6 @@ vi.mock('../../../../../src/renderer/stores/actions.store', () => ({
   useActionsStore: () => ({
     actions: [],
     loadActions: vi.fn(),
-    reorderAction: vi.fn(),
     deleteAction: vi.fn(),
   }),
 }));

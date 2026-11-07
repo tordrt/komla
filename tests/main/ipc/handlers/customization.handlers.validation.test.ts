@@ -22,7 +22,6 @@ const mockActionService = {
   list: vi.fn(),
   create: vi.fn(),
   update: vi.fn(),
-  reorder: vi.fn(),
   delete: vi.fn(),
   recordUsage: vi.fn(),
 };
@@ -220,22 +219,6 @@ describe('customization IPC validation', () => {
     expect(mockActionService.update).toHaveBeenCalledWith('t1', {
       title: 'Updated',
     });
-  });
-
-  it('rejects action:reorder with negative order', async () => {
-    const { registerCustomizationHandlers } =
-      await import('../../../../src/main/ipc/handlers/customization.handlers');
-    const { ipcMain } = (await import('electron')) as unknown as {
-      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
-    };
-
-    registerCustomizationHandlers();
-
-    await expect(ipcMain._invoke('action:reorder', 't1', -1)).rejects.toMatchObject({
-      code: 'IPC_VALIDATION_ERROR',
-    });
-
-    expect(mockActionService.reorder).not.toHaveBeenCalled();
   });
 
   it('rejects action:delete with empty id', async () => {

@@ -360,7 +360,6 @@ export const IPC = {
   ACTION_LIST: 'action:list',
   ACTION_CREATE: 'action:create',
   ACTION_UPDATE: 'action:update',
-  ACTION_REORDER: 'action:reorder',
   ACTION_DELETE: 'action:delete',
   ACTION_RECORD_USAGE: 'action:record-usage',
 

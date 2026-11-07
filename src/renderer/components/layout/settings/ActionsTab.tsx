@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { getActionSettingsGroups, type ActionSettingsGroup } from '@/lib/action-menu-order';
+import { getActionSettingsGroups } from '@/lib/action-menu-order';
 import { getProjectColor } from '@/lib/project-colors';
 import { openActionEditor } from '@/stores/action-editor.store';
 import { useActionsStore } from '@/stores/actions.store';
@@ -20,14 +20,13 @@ import { ProjectSetupSkillButton } from './ProjectSetupSkillButton';
 import { SettingsCard } from './SettingsCard';
 
 import type { Action } from '@/types';
-import type React from 'react';
 
 interface ActionsTabProps {
   onClose: () => void;
 }
 
 export function ActionsTab({ onClose: _onClose }: ActionsTabProps) {
-  const { actions, loadActions, reorderAction, deleteAction } = useActionsStore();
+  const { actions, loadActions, deleteAction } = useActionsStore();
   const { projects } = useProjectsStore();
   const addToast = useToastStore((s) => s.addToast);
   const { presets, loadPresets } = useAgentPresetsStore();
@@ -53,14 +52,6 @@ export function ActionsTab({ onClose: _onClose }: ActionsTabProps) {
     () => getActionSettingsGroups(actions, projects),
     [actions, projects]
   );
-  const {
-    draggedActionId,
-    dropTarget,
-    handleActionDragStart,
-    handleActionDragEnd,
-    handleActionDragOver,
-    handleActionDrop,
-  } = useActionDragReorder({ actions, actionGroups, reorderAction, addToast });
 
   // Settings has no workspace to imply a project, so new Actions start global with
   // the scope choice in view.
@@ -156,12 +147,6 @@ export function ActionsTab({ onClose: _onClose }: ActionsTabProps) {
                 onEdit={handleEditAction}
                 onDelete={requestDelete}
                 deleteDisabled={isSavingAction}
-                draggedActionId={draggedActionId}
-                dropTarget={dropTarget}
-                onDragStart={handleActionDragStart}
-                onDragEnd={handleActionDragEnd}
-                onDragOver={handleActionDragOver}
-                onDrop={handleActionDrop}
               />
             ))}
           </div>
@@ -180,104 +165,6 @@ export function ActionsTab({ onClose: _onClose }: ActionsTabProps) {
   );
 }
 
-interface ActionDragReorderArgs {
-  actions: Action[];
-  actionGroups: ActionSettingsGroup[];
-  reorderAction: (id: string, newOrder: number) => Promise<void>;
-  addToast: (message: string, type: 'success' | 'error') => void;
-}
-
-function useActionDragReorder({
-  actions,
-  actionGroups,
-  reorderAction,
-  addToast,
-}: ActionDragReorderArgs) {
-  const [dragState, setDragState] = useState<{
-    draggedActionId: string | null;
-    dropTarget: { id: string; position: 'before' | 'after' } | null;
-  }>({
-    draggedActionId: null,
-    dropTarget: null,
-  });
-  const { draggedActionId, dropTarget } = dragState;
-  // Rows only move within their own section and type, which is what they render next to.
-  const sectionById = useMemo(
-    () =>
-      new Map(
-        actionGroups.flatMap((group) =>
-          group.actions.map((action) => [action.id, `${group.key}:${action.type ?? 'prompt'}`])
-        )
-      ),
-    [actionGroups]
-  );
-  const sameSection = (a: string, b: string) => sectionById.get(a) === sectionById.get(b);
-
-  const handleActionDragStart = (e: React.DragEvent, id: string) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', id);
-    setDragState({ draggedActionId: id, dropTarget: null });
-  };
-
-  const handleActionDragEnd = () => {
-    setDragState({ draggedActionId: null, dropTarget: null });
-  };
-
-  const handleActionDragOver = (e: React.DragEvent, id: string) => {
-    if (!draggedActionId || draggedActionId === id) return;
-    if (!sameSection(draggedActionId, id)) {
-      if (dropTarget) setDragState((state) => ({ ...state, dropTarget: null }));
-      return;
-    }
-
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const rect = e.currentTarget.getBoundingClientRect();
-    const position = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
-    setDragState((state) => ({ ...state, dropTarget: { id, position } }));
-  };
-
-  const handleActionDrop = async (e: React.DragEvent, id: string) => {
-    e.preventDefault();
-    if (!draggedActionId || draggedActionId === id) {
-      handleActionDragEnd();
-      return;
-    }
-
-    const sourceIndex = actions.findIndex((action) => action.id === draggedActionId);
-    const targetIndex = actions.findIndex((action) => action.id === id);
-    if (sourceIndex < 0 || targetIndex < 0) {
-      handleActionDragEnd();
-      return;
-    }
-    if (!sameSection(draggedActionId, id)) {
-      handleActionDragEnd();
-      return;
-    }
-
-    const position = dropTarget?.id === id ? dropTarget.position : 'before';
-    let nextIndex = targetIndex + (position === 'after' ? 1 : 0);
-    if (sourceIndex < nextIndex) nextIndex -= 1;
-
-    try {
-      await reorderAction(draggedActionId, nextIndex);
-    } catch {
-      addToast('Failed to reorder quick command', 'error');
-    } finally {
-      handleActionDragEnd();
-    }
-  };
-
-  return {
-    draggedActionId,
-    dropTarget,
-    handleActionDragStart,
-    handleActionDragEnd,
-    handleActionDragOver,
-    handleActionDrop,
-  };
-}
-
 interface ActionGroupProps {
   title: string;
   /** The section's project colors, in sidebar order. */
@@ -287,12 +174,6 @@ interface ActionGroupProps {
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   deleteDisabled: boolean;
-  draggedActionId: string | null;
-  dropTarget: { id: string; position: 'before' | 'after' } | null;
-  onDragStart: (e: React.DragEvent, id: string) => void;
-  onDragEnd: () => void;
-  onDragOver: (e: React.DragEvent, id: string) => void;
-  onDrop: (e: React.DragEvent, id: string) => void;
 }
 
 function ActionGroup({
@@ -303,12 +184,6 @@ function ActionGroup({
   onEdit,
   onDelete,
   deleteDisabled,
-  draggedActionId,
-  dropTarget,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-  onDrop,
 }: ActionGroupProps) {
   return (
     <SettingsCard
@@ -336,12 +211,6 @@ function ActionGroup({
           onEdit={onEdit}
           onDelete={onDelete}
           deleteDisabled={deleteDisabled}
-          isDragging={draggedActionId === action.id}
-          dropPosition={dropTarget?.id === action.id ? dropTarget.position : null}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
         />
       ))}
     </SettingsCard>

@@ -89,7 +89,7 @@ type ScopeProject = Pick<Project, 'id' | 'name' | 'color' | 'order'>;
 
 /** Settings → Actions sections: All projects, then each project scope in sidebar order
  *  (a multi-project scope follows its first project), then Actions whose projects are all
- *  gone. Terminal Commands come before Saved Prompts, each in configured order. */
+ *  gone. Terminal Commands come before Saved Prompts, each in the order they were saved. */
 export function getActionSettingsGroups(
   actions: Action[],
   projects: ScopeProject[]

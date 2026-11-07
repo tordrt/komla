@@ -5,7 +5,6 @@ import {
   shortcutsUpdateArgsSchema,
   actionCreateArgsSchema,
   actionUpdateArgsSchema,
-  actionReorderArgsSchema,
   actionDeleteArgsSchema,
   actionRecordUsageArgsSchema,
 } from '../schemas/config-ipc.schemas';
@@ -32,7 +31,6 @@ export const customizationContract = {
   [IPC.ACTION_LIST]: invoke().returns<Action[]>(),
   [IPC.ACTION_CREATE]: invoke(actionCreateArgsSchema).returns<Action>(),
   [IPC.ACTION_UPDATE]: invoke(actionUpdateArgsSchema).returns<Action>(),
-  [IPC.ACTION_REORDER]: invoke(actionReorderArgsSchema).returns<void>(),
   [IPC.ACTION_DELETE]: invoke(actionDeleteArgsSchema).returns<void>(),
   [IPC.ACTION_RECORD_USAGE]: invoke(actionRecordUsageArgsSchema).returns<Action>(),
 } as const;

@@ -63,10 +63,6 @@ export function registerCustomizationHandlers(): void {
     return actionService.update(id, updates);
   });
 
-  handleIpc(IPC.ACTION_REORDER, async (_, [id, newOrder]): Promise<void> => {
-    actionService.reorder(id, newOrder);
-  });
-
   handleIpc(IPC.ACTION_DELETE, async (_, [id]): Promise<void> => {
     const usages = setupStepsUsingAction(projectService.list(), id);
     if (usages.length) {

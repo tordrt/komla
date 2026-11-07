@@ -10,7 +10,6 @@ import {
 } from '../../shared/constants/customize-prompt';
 import { IPC } from '../../shared/constants/ipc-channels';
 import { buildProjectSetupPrompt } from '../../shared/constants/project-setup-prompt';
-import { moveItem } from '../../shared/lib/move-item';
 import { writeFileAtomicSync } from '../lib/atomic-write';
 import { migrate } from '../lib/migration';
 
@@ -394,24 +393,6 @@ export class ActionService {
     this.selfWriteRevision = revision;
     this.notifyRenderer();
     return revision;
-  }
-
-  reorder(id: string, newOrder: number): void {
-    const actions = this.list();
-    const sourceIndex = actions.findIndex((action) => action.id === id);
-    if (sourceIndex < 0) {
-      throw new Error(`Action with id "${id}" not found`);
-    }
-
-    const reordered = moveItem(actions, sourceIndex, newOrder);
-    if (reordered === actions) return;
-
-    this.actions.clear();
-    for (const action of reordered) {
-      this.actions.set(action.id, action);
-    }
-    this.saveConfig();
-    this.notifyRenderer();
   }
 
   create(params: CreateActionParams): Action {

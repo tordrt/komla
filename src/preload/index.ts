@@ -1736,9 +1736,6 @@ const api = {
     }
   ): Promise<Action> => ipcRenderer.invoke(IPC.ACTION_UPDATE, id, updates),
 
-  reorderAction: (id: string, newOrder: number): Promise<void> =>
-    ipcRenderer.invoke(IPC.ACTION_REORDER, id, newOrder),
-
   deleteAction: (id: string): Promise<void> => ipcRenderer.invoke(IPC.ACTION_DELETE, id),
 
   recordActionUsage: (id: string, userInput?: string, pasted?: boolean): Promise<Action> =>

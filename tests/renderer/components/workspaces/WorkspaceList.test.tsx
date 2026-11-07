@@ -1109,8 +1109,15 @@ describe('WorkspaceList group headers', () => {
         },
       }),
     ];
-    render(<WorkspaceList />);
+    const { rerender } = render(<WorkspaceList />);
 
+    expect(screen.getByText(/not a project here yet/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add app as a project' })).toBeInTheDocument();
+
+    // A collapsed group still says so, since its cards no longer show.
+    workspacesState.collapsedWorkspaceGroupKeys = new Set(['repo:app']);
+    rerender(<WorkspaceList />);
+    expect(screen.queryByText('From laptop')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add app as a project' })).toBeInTheDocument();
   });
 

@@ -41,8 +41,8 @@ import { GroupHeaderIcon } from './GroupHeaderIcon';
 import { ProjectGroupContextMenu } from './ProjectGroupContextMenu';
 import { SIDEBAR_PANEL_CLASS } from './sidebar-panel';
 import {
-  AddSshRepositoryAsProjectButton,
   SshRepositoryGroupContextMenu,
+  SshRepositoryNotAProjectCallout,
   sshWorkspacesWithoutProject,
 } from './SshRepositoryGroupContextMenu';
 import {
@@ -279,15 +279,6 @@ function GroupHeaderAction({ group, groupProject }: GroupHeaderActionProps) {
       >
         <Palette className="size-3.5" />
       </IconButton>
-    );
-  }
-  const [sshWorkspace] = sshWorkspacesWithoutProject(group);
-  if (sshWorkspace) {
-    return (
-      <AddSshRepositoryAsProjectButton
-        workspace={sshWorkspace}
-        repoName={group.projectInfo!.name}
-      />
     );
   }
   return null;
@@ -1486,6 +1477,7 @@ export function WorkspaceList({
               const containsSelection =
                 !expanded && group.workspaces.some((w) => w.id === selectedWorkspaceId);
               const groupProject = group.projectId ? projectMap.get(group.projectId) : undefined;
+              const [unaddedSshWorkspace] = sshWorkspacesWithoutProject(group);
 
               const dragHandlers: GroupDragHandlers = isGroupDraggable
                 ? buildGroupDragHandlers(
@@ -1531,6 +1523,15 @@ export function WorkspaceList({
                       onToggle={toggleWorkspaceGroupCollapsed}
                     />
                   </div>
+                  {/* Shown collapsed too, so workspaces synced in for a repository not added here
+                      stand out until the user adds it. */}
+                  {unaddedSshWorkspace && (
+                    <SshRepositoryNotAProjectCallout
+                      workspace={unaddedSshWorkspace}
+                      repoName={group.projectInfo.name}
+                      className="mx-1 mt-0.5 mb-1"
+                    />
+                  )}
                   {expanded && (
                     // The clip keeps a selection gliding in from another group from sweeping
                     // across the gap and this group's header.

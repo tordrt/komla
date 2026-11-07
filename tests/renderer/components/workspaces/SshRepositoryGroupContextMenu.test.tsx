@@ -6,8 +6,8 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  AddSshRepositoryAsProjectButton,
   SshRepositoryGroupContextMenu,
+  SshRepositoryNotAProjectCallout,
   sshWorkspacesWithoutProject,
 } from '../../../../src/renderer/components/workspaces/SshRepositoryGroupContextMenu';
 import { useProjectsStore } from '../../../../src/renderer/stores/projects.store';
@@ -103,11 +103,12 @@ describe('SSH repository groups', () => {
     ).toEqual([]);
   });
 
-  it('adds the repository as a project from the group header', async () => {
+  it('adds the repository as a project from the callout under the group header', async () => {
     let finish: (project: { name: string }) => void = () => undefined;
     createProjectFromRemote.mockReturnValue(new Promise((resolve) => (finish = resolve)));
-    render(<AddSshRepositoryAsProjectButton workspace={sshWorkspace()} repoName="app" />);
+    render(<SshRepositoryNotAProjectCallout workspace={sshWorkspace()} repoName="app" />);
 
+    expect(screen.getByText(/not a project here yet/)).toBeInTheDocument();
     const button = screen.getByRole('button', { name: 'Add app as a project' });
     fireEvent.click(button);
 

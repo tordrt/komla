@@ -1,6 +1,8 @@
 import { FolderPlus, Link } from '@phosphor-icons/react';
 import React, { useSyncExternalStore } from 'react';
 
+import { Button } from '@/components/ui/button';
+import { Callout } from '@/components/ui/callout';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -10,7 +12,6 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { IconButton } from '@/components/ui/icon-button';
 import { Spinner } from '@/components/ui/spinner';
 import { useProjectsStore } from '@/stores/projects.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -30,7 +31,7 @@ export function sshWorkspacesWithoutProject(group: WorkspaceGroup): SshWorkspace
   );
 }
 
-// Repositories being cloned, shared by a group's header button and its context menu.
+// Repositories being cloned, shared by a group's callout and its context menu.
 let addingRemoteUrls: ReadonlySet<string> = new Set();
 const addingListeners = new Set<() => void>();
 function setAdding(remoteUrl: string, adding: boolean): void {
@@ -68,27 +69,40 @@ function useAddAsProject(workspace: SshWorkspace) {
   return { adding, add };
 }
 
-/** Clones the repository of SSH workspaces that have no project here, so they join it. */
-export function AddSshRepositoryAsProjectButton({
+/**
+ * Says under a group's header that its SSH workspaces have no project here, e.g. ones another Komla
+ * installation added on the host, and offers to clone their repository so they join one.
+ */
+export function SshRepositoryNotAProjectCallout({
   workspace,
   repoName,
+  className,
 }: {
   workspace: SshWorkspace;
   repoName: string;
+  className?: string;
 }) {
   const { adding, add } = useAddAsProject(workspace);
   return (
-    <IconButton
-      size="xs"
-      // Faint so it doesn't compete with the repository name.
-      className="size-5 text-muted-foreground-50 hover:text-foreground"
-      label={`Add ${repoName} as a project`}
-      tooltipSide="right"
-      disabled={adding}
-      onClick={() => void add()}
+    <Callout
+      tone="info"
+      size="sm"
+      icon={<FolderPlus className="size-3.5" weight="fill" />}
+      className={className}
     >
-      {adding ? <Spinner size="sm" /> : <FolderPlus className="size-3.5" />}
-    </IconButton>
+      <p>On an SSH host, but not a project here yet.</p>
+      <Button
+        size="sm"
+        className="mt-1.5 h-6 gap-1.5 px-2 text-xs"
+        // The visible label leaves the repository to the header above; a screen reader needs it.
+        aria-label={`Add ${repoName} as a project`}
+        disabled={adding}
+        onClick={() => void add()}
+      >
+        {adding && <Spinner size="sm" />}
+        Add as project
+      </Button>
+    </Callout>
   );
 }
 

@@ -8,6 +8,7 @@ Komla is an Electron desktop app for running multiple AI coding agent CLIs in pa
 
 - **Red-green:** for a bug, first reproduce it with a failing test. For validation, cover invalid inputs. For a refactor, establish the relevant baseline before editing.
 - **Scope:** report unrelated problems without changing them. Remove only dead code created by your own change.
+- **Tests that hold up:** a release needs green CI, which runs `npm test` on macOS, Linux and Windows, and then a full e2e run. Pin `process.platform` with `tests/helpers/platform.ts` rather than assuming the host's, build expected paths with `path.join()`, and wait on state rather than time, with fake timers for timer-driven code. After landing on main, check its CI: `gh run list --workflow ci.yml --branch main`. For e2e tests, see `e2e/AGENTS.md`.
 
 ## Verification
 

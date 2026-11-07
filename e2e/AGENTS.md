@@ -26,6 +26,18 @@ npm run screenshots:landing  # Landing-page screenshots + processing for the def
 - **testMatch is broad:** files ending in `.test.ts`, `.spec.ts`, `.screenshot.ts`, `.demo.ts`, `.video.ts` all run. Use the suffix that matches intent.
 - **Runners:** tests share the sandbox directory, so preserve the serial runner configuration.
 - **Helpers:** `agent-profiles.ts`, `demo-fixtures.ts`, `screenshot-fixtures.ts` — prefer these over re-implementing setup.
+- **Launching:** a fixture of a file's own launches the app with `launchElectronApp()`, which also keeps the app from opening native menus (see below).
+
+## Reliable tests
+
+The release runs the whole suite serially with `KOMLA_E2E_HIDE_WINDOWS=1` and stops at the first red run, so a test that passes alone but not in the full suite blocks it. Races show up under the full suite's load, not in a test run alone.
+
+- **Wait on state, not time.** Use a retrying assertion (`expect(locator).toHaveCount()`, `toBeFocused()`, `expect.poll()`) instead of `waitForTimeout()` followed by a one-shot `count()`, `isVisible()` or `boundingBox()`. A fixed wait is only for checking that something *doesn't* happen, with a comment saying so.
+- **Wait for data a menu or list loads** before acting on its items: the keyboard can land on an item that the loaded data removes or moves.
+- **Keep the pointer off a menu in keyboard tests** (`mouse.move(0, 0)`): Radix focuses the item under the pointer, so items that move under it take the focus.
+- **Wait for the render after a pointer gesture.** A drag's last moves can still be on their way when `mouse.up()` returns; poll the box you measure.
+- **Native menus never open in `*.test.ts` runs.** `launchElectronApp()` replaces `Menu.prototype.popup` with a counter, read with `nativeMenuCount()`. An open native menu holds macOS in its own event loop, so the app can't close and teardown hangs. The screenshot, demo and video fixtures still launch on their own, so a right-click in a plain text field there opens a real menu.
+- **Before landing a new or changed test,** run it several times (`--repeat-each=5`) and then in a full `npm run test:e2e` run with `KOMLA_E2E_HIDE_WINDOWS=1`, as the release does.
 
 ## Screenshots & demos
 

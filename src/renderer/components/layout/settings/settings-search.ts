@@ -233,8 +233,7 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
       'File tree',
       'Show file tree by default',
       'Default mode',
-      'Show changes since target branch by default',
-      'Live follow by default'
+      'Show changes since target branch by default'
     ),
     card('Search'),
     ...rows('Search', 'Open search results in'),

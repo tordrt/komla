@@ -141,8 +141,6 @@ interface FileViewerState {
   pendingFileViewerBlameRequest: { workspaceId: string; nonce: number } | null;
   // Inline file preview width ratio per workspace (0-1 of terminal+preview area, excluding file tree)
   inlineFilePreviewWidthByWorkspace: Record<string, number>;
-  // Live follow mode per workspace (auto-navigate to latest changed file)
-  liveFollowByWorkspace: Record<string, boolean>;
   // Split/unified diff layout chosen by the user (all workspaces, remembered across restarts)
   diffViewMode: DiffViewMode;
   setDiffViewMode: (mode: DiffViewMode) => void;
@@ -197,7 +195,7 @@ interface FileViewerState {
   setInlineFileTreeOpen: (workspaceId: string, open: boolean) => void;
   /**
    * Shows the tree in `mode`, hiding a sidebar panel shown in its place, unless `keepSidebarPanel`:
-   * for a change the user didn't make here, such as restoring the saved mode or live follow.
+   * for a change the user didn't make here, such as restoring the saved mode.
    */
   setInlineFileTreeMode: (
     workspaceId: string,
@@ -292,9 +290,6 @@ interface FileViewerState {
   // Notes section collapsed (per workspace, not persisted)
   notesCollapsedByWorkspace: Record<string, boolean>;
   setNotesCollapsed: (workspaceId: string, collapsed: boolean) => void;
-  // Live follow actions
-  setLiveFollow: (workspaceId: string, enabled: boolean) => void;
-  toggleLiveFollow: (workspaceId: string) => void;
   // File picker query persistence (per workspace)
   filePickerQueryByWorkspace: Record<string, string>;
   setFilePickerQuery: (workspaceId: string, query: string) => void;
@@ -370,7 +365,6 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   pendingFileViewerTransition: null,
   pendingFileViewerBlameRequest: null,
   inlineFilePreviewWidthByWorkspace: {},
-  liveFollowByWorkspace: {},
   diffViewMode: readStoredDiffViewMode(),
   diffSubModeByWorkspace: {},
   diffSelectedFileByWorkspace: {},
@@ -808,9 +802,9 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       if (get().inlineFilePreviewNavRequestByWorkspace[workspaceId] !== options.requestId) return;
     }
     const current = get().inlineFilePreviewByWorkspace[workspaceId];
-    // Same-file mode swap (e.g. live-follow nudging from browse to diff on the
-    // currently dirty file) also reloads the editor, so treat mode mismatch as
-    // a blocking transition.
+    // Same-file mode swap (e.g. from browse to diff on the currently dirty
+    // file) also reloads the editor, so treat mode mismatch as a blocking
+    // transition.
     const blockingDirty =
       !!current?.open &&
       !!current.isDirty &&
@@ -1097,24 +1091,6 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     };
   },
 
-  setLiveFollow: (workspaceId, enabled) => {
-    set((state) => ({
-      liveFollowByWorkspace: {
-        ...state.liveFollowByWorkspace,
-        [workspaceId]: enabled,
-      },
-    }));
-  },
-
-  toggleLiveFollow: (workspaceId) => {
-    set((state) => ({
-      liveFollowByWorkspace: {
-        ...state.liveFollowByWorkspace,
-        [workspaceId]: !state.liveFollowByWorkspace[workspaceId],
-      },
-    }));
-  },
-
   setImportedFilesCollapsed: (workspaceId, collapsed) => {
     set((state) => ({
       importedFilesCollapsedByWorkspace: {
@@ -1340,7 +1316,6 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       inlineFilePreviewPendingNavByWorkspace,
       inlineFilePreviewPendingCloseByWorkspace,
       inlineFilePreviewPendingModeChangeByWorkspace,
-      liveFollowByWorkspace,
       diffSubModeByWorkspace,
       diffSelectedFileByWorkspace,
       diffSelectedCommitByWorkspace,
@@ -1366,7 +1341,6 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const newInlinePendingNav = { ...inlineFilePreviewPendingNavByWorkspace };
     const newInlinePendingClose = { ...inlineFilePreviewPendingCloseByWorkspace };
     const newInlinePendingModeChange = { ...inlineFilePreviewPendingModeChangeByWorkspace };
-    const newLiveFollow = { ...liveFollowByWorkspace };
     const newDiffSubMode = { ...diffSubModeByWorkspace };
     const newDiffSelectedFile = { ...diffSelectedFileByWorkspace };
     const newDiffSelectedCommit = { ...diffSelectedCommitByWorkspace };
@@ -1392,7 +1366,6 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     delete newInlinePendingNav[workspaceId];
     delete newInlinePendingClose[workspaceId];
     delete newInlinePendingModeChange[workspaceId];
-    delete newLiveFollow[workspaceId];
     delete newDiffSubMode[workspaceId];
     delete newDiffSelectedFile[workspaceId];
     delete newDiffSelectedCommit[workspaceId];
@@ -1420,7 +1393,6 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       inlineFilePreviewPendingNavByWorkspace: newInlinePendingNav,
       inlineFilePreviewPendingCloseByWorkspace: newInlinePendingClose,
       inlineFilePreviewPendingModeChangeByWorkspace: newInlinePendingModeChange,
-      liveFollowByWorkspace: newLiveFollow,
       diffSubModeByWorkspace: newDiffSubMode,
       diffSelectedFileByWorkspace: newDiffSelectedFile,
       diffSelectedCommitByWorkspace: newDiffSelectedCommit,

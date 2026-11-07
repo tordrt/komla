@@ -638,7 +638,6 @@ export interface DiffViewerState {
   diffData: WorktreeDiff | null;
   grouped: GroupedFiles;
   loading: boolean;
-  hasFullDiff: boolean;
   error: string | null;
   selectedFile: string | null;
   fileContent: FileDiffContent | null;
@@ -820,7 +819,6 @@ export function useDiffViewerState(
   const cachedDiff = getCachedDiff(workingDirectory, comparisonBranch, useMergeBase, workspaceId);
   const diffData = cachedDiff?.data ?? null;
   const loading = cachedDiff?.isLoading ?? false;
-  const hasFullDiff = cachedDiff?.hasFullDiff ?? false;
 
   // Derive grouped files from diffData
   const grouped = useMemo(() => {
@@ -1580,7 +1578,6 @@ export function useDiffViewerState(
     diffData,
     grouped,
     loading,
-    hasFullDiff,
     error,
     selectedFile,
     fileContent,

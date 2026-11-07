@@ -182,9 +182,6 @@ function seedDemoSandbox() {
       notificationsEnabled: true,
       autoNameBranches: false,
       agentLaunchDefaultPresetId: 'demo-claude-preset',
-      // Disable live-follow auto-enable for new workspaces so accepted file
-      // changes don't auto-navigate (workspace 3 permission demo should be clean).
-      defaultLiveFollow: false,
       // Hide the lightbulb tips icon in the title bar.
       showTipsInToolbar: false,
     })

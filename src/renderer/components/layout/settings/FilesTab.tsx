@@ -49,17 +49,6 @@ export function FilesTab() {
             }}
           />
         </SettingsRow>
-        <SettingsRow
-          label="Live follow by default"
-          description="Auto-navigate to the latest changed file in diff mode"
-        >
-          <Switch
-            checked={config?.defaultLiveFollow === true}
-            onCheckedChange={async (checked) => {
-              await updateConfig({ defaultLiveFollow: checked });
-            }}
-          />
-        </SettingsRow>
       </SettingsCard>
 
       <SettingsCard title="Search">

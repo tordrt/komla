@@ -1,7 +1,6 @@
 import {
   AppWindow,
   ArrowCounterClockwise,
-  ArrowLineDown,
   ArrowSquareOut,
   ArrowsInSimple,
   ArrowsOutSimple,
@@ -116,8 +115,6 @@ interface SidebarFileTreeProps {
   onRollbackAll?: () => void;
   side?: 'left' | 'right';
   embedded?: boolean;
-  liveFollow?: boolean;
-  onToggleLiveFollow?: () => void;
   comparisonBranch?: string | null;
   useMergeBase?: boolean;
   targetBranchName?: string;
@@ -578,8 +575,6 @@ export function SidebarFileTree({
   onRollbackAll,
   side = 'left',
   embedded,
-  liveFollow,
-  onToggleLiveFollow,
   comparisonBranch,
   useMergeBase,
   targetBranchName,
@@ -1630,8 +1625,6 @@ export function SidebarFileTree({
         useMergeBase={useMergeBase}
         targetBranchName={targetBranchName}
         diffLoading={diffLoading}
-        onToggleLiveFollow={onToggleLiveFollow}
-        liveFollow={liveFollow}
         isRemoteWorkspace={isRemoteWorkspace}
         onCreateFile={onCreateFile}
       />
@@ -1810,8 +1803,6 @@ interface SidebarFileTreeHeaderProps {
   useMergeBase?: boolean;
   targetBranchName?: string;
   diffLoading?: boolean;
-  onToggleLiveFollow?: () => void;
-  liveFollow?: boolean;
   isRemoteWorkspace: boolean;
   onCreateFile?: (parentDir: string) => void;
 }
@@ -1833,8 +1824,6 @@ function SidebarFileTreeHeader({
   useMergeBase,
   targetBranchName,
   diffLoading,
-  onToggleLiveFollow,
-  liveFollow,
   isRemoteWorkspace,
   onCreateFile,
 }: SidebarFileTreeHeaderProps) {
@@ -1932,20 +1921,6 @@ function SidebarFileTreeHeader({
             ) : (
               <GitBranch aria-hidden="true" className="size-3.5" />
             )}
-          </IconButton>
-        )}
-        {onToggleLiveFollow && (
-          <IconButton
-            label={liveFollow ? 'Stop following changes' : 'Follow latest changes'}
-            size="xs"
-            tooltipSide="bottom"
-            onClick={onToggleLiveFollow}
-            aria-pressed={!!liveFollow}
-            className={cn(
-              liveFollow ? TOGGLE_ON_CLASS : 'text-muted-foreground-80 hover:text-foreground'
-            )}
-          >
-            <ArrowLineDown className="size-3.5" />
           </IconButton>
         )}
       </div>

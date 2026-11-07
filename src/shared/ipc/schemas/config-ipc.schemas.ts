@@ -148,7 +148,6 @@ const appConfigUpdateSchema = z
     commitMessagePrompt: z.string().max(MAX_UTILITY_PROMPT_CHARS).optional(),
     defaultFileTreeOpen: z.boolean().optional(),
     defaultFileTreeMode: z.enum(['diff', 'browse']).optional(),
-    defaultLiveFollow: z.boolean().optional(),
     defaultCompareTargetBranch: z.boolean().optional(),
     defaultInlinePreviewLayout: z.enum(['full', 'side-by-side']).optional(),
     defaultDevServerPreviewAutoReload: z.boolean().optional(),

@@ -12,9 +12,7 @@ function makeParams(overrides: Partial<InitDefaultsParams> = {}): InitDefaultsPa
     workspaceId: 'ws-1',
     resolvedTargetBranch: 'develop',
     targetBranch: 'develop',
-    defaultLiveFollow: false,
     defaultCompareTargetBranch: true,
-    currentLiveFollow: undefined,
     currentComparisonBranch: undefined,
     ...overrides,
   };
@@ -25,7 +23,6 @@ describe('computeInitDefaults', () => {
     it('does not initialize when workspace is inactive', () => {
       const result = computeInitDefaults(makeParams({ isActive: false }));
       expect(result.initialized).toBe(false);
-      expect(result.setLiveFollow).toBeUndefined();
       expect(result.setComparisonBranch).toBeUndefined();
     });
   });
@@ -83,54 +80,15 @@ describe('computeInitDefaults', () => {
     });
   });
 
-  describe('live follow initialization', () => {
-    it('sets live follow when defaultLiveFollow is enabled and not yet set', () => {
-      const result = computeInitDefaults(
-        makeParams({
-          defaultLiveFollow: true,
-          currentLiveFollow: undefined,
-        })
-      );
-      expect(result.setLiveFollow).toBe(true);
-    });
-
-    it('does not override existing live follow setting', () => {
-      const result = computeInitDefaults(
-        makeParams({
-          defaultLiveFollow: true,
-          currentLiveFollow: false,
-        })
-      );
-      expect(result.setLiveFollow).toBeUndefined();
-    });
-
-    it('sets live follow even while waiting for branch data', () => {
-      const result = computeInitDefaults(
-        makeParams({
-          defaultLiveFollow: true,
-          currentLiveFollow: undefined,
-          defaultCompareTargetBranch: true,
-          resolvedTargetBranch: undefined,
-          targetBranch: 'main',
-        })
-      );
-      // Not fully initialized (waiting for branch), but live follow is set
-      expect(result.initialized).toBe(false);
-      expect(result.setLiveFollow).toBe(true);
-    });
-  });
-
   describe('non-git workspaces', () => {
     it('completes immediately without setting any defaults', () => {
       const result = computeInitDefaults(
         makeParams({
           isGitWorkspace: false,
-          defaultLiveFollow: true,
           defaultCompareTargetBranch: true,
         })
       );
       expect(result.initialized).toBe(true);
-      expect(result.setLiveFollow).toBeUndefined();
       expect(result.setComparisonBranch).toBeUndefined();
     });
   });

@@ -11,12 +11,8 @@ export interface InitDefaultsParams {
   resolvedTargetBranch: string | undefined;
   /** Full target branch with 'main' fallback */
   targetBranch: string;
-  /** Whether defaultLiveFollow is enabled in config */
-  defaultLiveFollow: boolean;
   /** Whether defaultCompareTargetBranch is enabled in config */
   defaultCompareTargetBranch: boolean;
-  /** Current live follow value for this workspace (undefined = never set) */
-  currentLiveFollow: boolean | undefined;
   /** Current comparison branch for this workspace (undefined/null = never set) */
   currentComparisonBranch: string | null | undefined;
 }
@@ -24,8 +20,6 @@ export interface InitDefaultsParams {
 export interface InitDefaultsResult {
   /** Whether initialization completed (all conditions met) */
   initialized: boolean;
-  /** If set, the live follow value to persist */
-  setLiveFollow?: boolean;
   /** If set, the comparison branch + useMergeBase to persist */
   setComparisonBranch?: { branch: string; useMergeBase: boolean };
 }
@@ -34,8 +28,7 @@ export interface InitDefaultsResult {
  * Determines what defaults to apply and whether initialization is complete.
  *
  * Returns `initialized: false` when we should retry later (e.g. waiting for
- * authoritative branch data). Live follow can still be set in that case since
- * it doesn't depend on branch resolution.
+ * authoritative branch data).
  */
 export function computeInitDefaults(params: InitDefaultsParams): InitDefaultsResult {
   const {
@@ -44,9 +37,7 @@ export function computeInitDefaults(params: InitDefaultsParams): InitDefaultsRes
     workspaceId: _workspaceId,
     resolvedTargetBranch,
     targetBranch,
-    defaultLiveFollow,
     defaultCompareTargetBranch,
-    currentLiveFollow,
     currentComparisonBranch,
   } = params;
 
@@ -57,11 +48,6 @@ export function computeInitDefaults(params: InitDefaultsParams): InitDefaultsRes
   const result: InitDefaultsResult = { initialized: true };
 
   if (isGitWorkspace) {
-    // Live follow initialization (idempotent — only sets if never configured)
-    if (defaultLiveFollow && currentLiveFollow === undefined) {
-      result.setLiveFollow = true;
-    }
-
     // Comparison branch — wait for an authoritative branch source so we don't
     // permanently persist 'main' for repos with a different default branch
     if (defaultCompareTargetBranch) {

@@ -61,7 +61,6 @@ Settings → Git sets branch prefixes, what the ahead/behind counts do, and back
 A Monaco diff viewer with split and unified modes, a file sidebar, and controls to restore or discard files.
 Write a commit message or ask AI for a draft from the diff, then commit staged or all changes.
 Compare against uncommitted changes, the target branch, or any other branch.
-Live follow mode jumps to the latest file your agent changed.
 
 ## Commit History
 

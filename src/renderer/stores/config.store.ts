@@ -37,7 +37,6 @@ const DEFAULT_CONFIG: AppConfig = {
   openRouterBaseUrl: 'https://openrouter.ai/api/v1',
   defaultFileTreeOpen: false,
   defaultFileTreeMode: 'diff',
-  defaultLiveFollow: false,
   defaultCompareTargetBranch: false,
   defaultDevServerPreviewAutoReload: true,
   webLinkOpenTarget: 'external',

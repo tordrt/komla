@@ -211,7 +211,7 @@ describe('SidebarTabs', () => {
     expect(screen.getByRole('button', { name: 'Files' })).toHaveClass('active-tab');
   });
 
-  it("keeps the panel when the tree's mode changes without the user, as on restore or live follow", async () => {
+  it("keeps the panel when the tree's mode changes without the user, as on restore", async () => {
     mockApi();
     useFileViewerStore.setState({
       inlineSidebarPanelByWorkspace: { 'ws-1': { id: 'ci', shown: true } },

@@ -40,7 +40,6 @@ import { setHtmlViewMode } from '../workspaces/file-viewer/html-view-mode';
 
 import { computeInitDefaults } from './inline-file-tree-defaults';
 import { LinkedWorkspacesSection } from './LinkedWorkspacesSection';
-import { pickBestLiveFollowFile } from './live-follow-picker';
 import { useConfirmDialog } from './useConfirmDialog';
 
 // Lazy so the file tree library (@pierre/trees) stays out of the startup bundle.
@@ -89,8 +88,6 @@ export function InlineFileTreePanel({
   );
   const targetBranch = resolvedTargetBranch || 'main';
 
-  const liveFollow = useFileViewerStore((s) => !!s.liveFollowByWorkspace[workspaceId]);
-
   const previewState = useFileViewerStore((s) => s.inlineFilePreviewByWorkspace[workspaceId]);
   const reveal = useFileViewerStore((s) => s.fileTreeRevealByWorkspace[workspaceId] ?? null);
   // Fall back to the full-screen viewer's active tab only while that viewer is
@@ -123,9 +120,6 @@ export function InlineFileTreePanel({
     prevPendingNavRef.current = pendingNav;
   }, [pendingNav]);
 
-  // Track previous diff files for change detection in live follow mode
-  const prevDiffFilesRef = useRef<FileChange[] | null>(null);
-
   // Initialize defaults from config once the workspace is active and branch data is ready.
   // Gated on isActive so hidden workspaces don't eagerly persist the 'main' fallback
   // before real git metadata arrives.
@@ -141,15 +135,10 @@ export function InlineFileTreePanel({
       workspaceId,
       resolvedTargetBranch,
       targetBranch,
-      defaultLiveFollow: !!config?.defaultLiveFollow,
       defaultCompareTargetBranch: !!config?.defaultCompareTargetBranch,
-      currentLiveFollow: store.liveFollowByWorkspace[workspaceId],
       currentComparisonBranch: store.inlineFileTreeByWorkspace[workspaceId]?.comparisonBranch,
     });
 
-    if (result.setLiveFollow !== undefined) {
-      store.setLiveFollow(workspaceId, result.setLiveFollow);
-    }
     if (result.setComparisonBranch) {
       store.setInlineFileTreeComparisonBranch(
         workspaceId,
@@ -163,7 +152,6 @@ export function InlineFileTreePanel({
   const { getDiff, fetchDiffIfNeeded } = useFileListStore();
   const cached = getDiff(workingDirectory, comparisonBranch, useMergeBase, workspaceId);
   const diffData = cached?.data;
-  const hasFullDiff = cached?.hasFullDiff ?? false;
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const comparisonLoadingRef = useRef(false);
 
@@ -246,63 +234,6 @@ export function InlineFileTreePanel({
   }, [diffData?.files]);
 
   const diffSummary = diffData?.summary;
-
-  // Toggle live follow mode
-  const handleToggleLiveFollow = useCallback(() => {
-    const store = useFileViewerStore.getState();
-    const wasEnabled = !!store.liveFollowByWorkspace[workspaceId];
-    store.toggleLiveFollow(workspaceId);
-
-    // On enabling: navigate to the most-changed file in diff mode. Route
-    // through requestInlineFilePreviewNav so a dirty preview prompts before
-    // being reloaded to a different file.
-    if (!wasEnabled && diffData?.files) {
-      const files = diffData.files.filter((f) => !f.isDirectory);
-      if (files.length > 0) {
-        // Pick the file with the most changes
-        const best = files.reduce((a, b) =>
-          a.additions + a.deletions >= b.additions + b.deletions ? a : b
-        );
-        store.requestInlineFilePreviewNav(workspaceId, 'diff', best.path);
-      }
-    }
-  }, [workspaceId, diffData?.files]);
-
-  // Live follow: auto-navigate to the most-changed file on diff refresh
-  useEffect(() => {
-    // Don't baseline from the loading placeholder (hasFullDiff is false while
-    // fetchDiff is in-flight with a cold cache, which creates files: []).
-    if (!liveFollow || !diffData?.files || !hasFullDiff) {
-      if (hasFullDiff) {
-        prevDiffFilesRef.current = diffData?.files ?? null;
-      }
-      return;
-    }
-
-    const prevFiles = prevDiffFilesRef.current;
-    prevDiffFilesRef.current = diffData.files;
-
-    const bestPath = pickBestLiveFollowFile(prevFiles, diffData.files);
-    if (!bestPath) return;
-
-    const store = useFileViewerStore.getState();
-    const current = store.inlineFilePreviewByWorkspace[workspaceId];
-    // Don't interrupt browse mode - only auto-navigate when already in diff mode or preview is closed
-    if (current?.open && current.mode !== 'diff') return;
-
-    // Route through requestInlineFilePreviewNav so a dirty preview prompts
-    // before being reloaded to a different file.
-    store.requestInlineFilePreviewNav(workspaceId, 'diff', bestPath);
-    // Default to split view when live follow opens a new preview (not already open)
-    if (!current?.open) {
-      store.setInlineFilePreviewLayout(workspaceId, 'side-by-side');
-    }
-    // Switch the file tree tab to diff if it's currently in browse mode; a sidebar panel the
-    // user opened stays, with the preview beside it.
-    if (store.inlineFileTreeByWorkspace[workspaceId]?.mode !== 'diff') {
-      store.setInlineFileTreeMode(workspaceId, 'diff', { keepSidebarPanel: true });
-    }
-  }, [liveFollow, diffData?.files, hasFullDiff, workspaceId]);
 
   // The mode is read fresh from the store rather than closed over —
   // otherwise a mode switch rebuilds this callback, which re-runs the
@@ -847,10 +778,6 @@ export function InlineFileTreePanel({
             changedFiles={effectiveMode === 'diff' ? changedFiles : undefined}
             diffFileStatuses={effectiveMode === 'diff' ? diffFileStatuses : undefined}
             diffSummary={isGitWorkspace ? diffSummary : undefined}
-            liveFollow={liveFollow}
-            onToggleLiveFollow={
-              isGitWorkspace && effectiveMode === 'diff' ? handleToggleLiveFollow : undefined
-            }
             comparisonBranch={comparisonBranch}
             useMergeBase={useMergeBase}
             targetBranchName={targetBranch}

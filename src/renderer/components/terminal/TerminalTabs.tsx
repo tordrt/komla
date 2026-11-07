@@ -1241,9 +1241,7 @@ export const TerminalTabs = memo(function TerminalTabs({
   const previewHideUnchanged = config?.diffHideUnchangedRegions ?? true;
 
   // Toolbar Beside/Full clicks: update the workspace's layout AND persist as the
-  // user's preferred default so future workspaces seed from this choice. The
-  // live-follow auto-set in InlineFileTreePanel uses the raw store action and
-  // intentionally does NOT touch the global preference.
+  // user's preferred default so future workspaces seed from this choice.
   // Mirror the new preference into the renderer config store synchronously
   // (before the IPC roundtrip resolves) so any same-tick openInlineFilePreview
   // in another workspace reads the up-to-date value. updateConfig itself only

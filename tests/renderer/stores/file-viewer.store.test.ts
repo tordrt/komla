@@ -379,7 +379,7 @@ describe('file-viewer.store', () => {
       // active layout — only closed/uninitialized entries are re-seeded.
       setPreferredLayout('full');
       useFileViewerStore.getState().openInlineFilePreview('ws-1', 'diff', '/path/a.ts');
-      // Simulate the user (or live-follow) flipping to side-by-side mid-session.
+      // Simulate the user flipping to side-by-side mid-session.
       useFileViewerStore.getState().setInlineFilePreviewLayout('ws-1', 'side-by-side');
       useFileViewerStore.getState().openInlineFilePreview('ws-1', 'diff', '/path/b.ts');
       const preview = useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1'];
@@ -784,19 +784,6 @@ describe('file-viewer.store', () => {
     expect(useFileViewerStore.getState().inlineFilePreviewWidthByWorkspace['ws-1']).toBe(0.95);
   });
 
-  // Live follow
-  it('setLiveFollow sets follow state', () => {
-    useFileViewerStore.getState().setLiveFollow('ws-1', true);
-    expect(useFileViewerStore.getState().liveFollowByWorkspace['ws-1']).toBe(true);
-  });
-
-  it('toggleLiveFollow toggles follow state', () => {
-    useFileViewerStore.getState().toggleLiveFollow('ws-1');
-    expect(useFileViewerStore.getState().liveFollowByWorkspace['ws-1']).toBe(true);
-    useFileViewerStore.getState().toggleLiveFollow('ws-1');
-    expect(useFileViewerStore.getState().liveFollowByWorkspace['ws-1']).toBe(false);
-  });
-
   it('browse tabs support preview, activation, close requests, and persistent promotion', () => {
     const store = useFileViewerStore.getState();
 
@@ -905,7 +892,6 @@ describe('file-viewer.store', () => {
     useFileViewerStore.getState().setInlineFileTreeWidth('ws-1', 0.3);
     useFileViewerStore.getState().openInlineFilePreview('ws-1', 'browse', '/file');
     useFileViewerStore.getState().setInlineFilePreviewWidth('ws-1', 0.4);
-    useFileViewerStore.getState().setLiveFollow('ws-1', true);
     useFileViewerStore.getState().openFileViewer('ws-1', 'diff');
     useFileViewerStore.getState().saveDiffSelections('ws-1', {
       selectedFile: 'src/a.ts',
@@ -927,7 +913,6 @@ describe('file-viewer.store', () => {
     expect(state.inlineFileTreeWidthByWorkspace['ws-1']).toBeUndefined();
     expect(state.inlineFilePreviewByWorkspace['ws-1']).toBeUndefined();
     expect(state.inlineFilePreviewWidthByWorkspace['ws-1']).toBeUndefined();
-    expect(state.liveFollowByWorkspace['ws-1']).toBeUndefined();
     expect(state.getDiffSubMode('ws-1')).toBe('changes');
     expect(state.getDiffSelections('ws-1')).toEqual({
       selectedFile: null,
@@ -942,10 +927,10 @@ describe('file-viewer.store', () => {
   });
 
   it('clearWorkspaceFileViewerState preserves other workspaces', () => {
-    useFileViewerStore.getState().setLiveFollow('ws-1', true);
-    useFileViewerStore.getState().setLiveFollow('ws-2', true);
+    useFileViewerStore.getState().setInlineFilePreviewWidth('ws-1', 0.4);
+    useFileViewerStore.getState().setInlineFilePreviewWidth('ws-2', 0.4);
     useFileViewerStore.getState().clearWorkspaceFileViewerState('ws-1');
-    expect(useFileViewerStore.getState().liveFollowByWorkspace['ws-2']).toBe(true);
+    expect(useFileViewerStore.getState().inlineFilePreviewWidthByWorkspace['ws-2']).toBe(0.4);
   });
 
   it('clearWorkspaceFileViewerState clears inline pending nav/close/mode-change maps', () => {

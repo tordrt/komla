@@ -23,7 +23,6 @@ function mockApi(configOverrides: Record<string, unknown> = {}): Record<string, 
   const baseConfig = {
     defaultFileTreeOpen: true,
     defaultFileTreeMode: 'diff' as const,
-    defaultLiveFollow: true,
     defaultCompareTargetBranch: true,
     scrollbackLines: 10000,
     theme: 'system',
@@ -59,16 +58,16 @@ describe('GeneralTab settings behavior', () => {
   });
 
   describe('file tree defaults independence', () => {
-    it('disabling defaultFileTreeOpen does not reset defaultLiveFollow', async () => {
+    it('disabling defaultFileTreeOpen does not reset defaultCompareTargetBranch', async () => {
       await useConfigStore.getState().loadConfig();
 
       // Simulate what GeneralTab does when toggling "Show file tree by default" off
       await useConfigStore.getState().updateConfig({ defaultFileTreeOpen: false });
 
       expect(api.updateConfig).toHaveBeenCalledWith({ defaultFileTreeOpen: false });
-      // defaultLiveFollow must remain untouched
+      // defaultCompareTargetBranch must remain untouched
       const config = useConfigStore.getState().config;
-      expect(config?.defaultLiveFollow).toBe(true);
+      expect(config?.defaultCompareTargetBranch).toBe(true);
     });
   });
 

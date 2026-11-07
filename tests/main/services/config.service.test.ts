@@ -60,7 +60,6 @@ describe('ConfigService', () => {
         directRemotePasskeyWindowMinutes: 15,
         defaultFileTreeOpen: false,
         defaultFileTreeMode: 'diff',
-        defaultLiveFollow: false,
         defaultCompareTargetBranch: false,
         defaultDevServerPreviewAutoReload: true,
         webLinkOpenTarget: 'external',

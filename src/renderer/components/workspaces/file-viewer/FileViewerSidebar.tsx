@@ -41,8 +41,6 @@ interface FileViewerSidebarProps {
   diffSummary?: { additions: number; deletions: number; filesChanged: number };
   comparisonBranch?: string | null;
   useMergeBase: boolean;
-  liveFollow: boolean;
-  onToggleLiveFollow?: () => void;
   onShowFileHistory?: (path: string) => void;
   onOpenHtmlInBrowser?: (path: string) => void;
 }
@@ -92,8 +90,6 @@ export function FileViewerSidebar(props: FileViewerSidebarProps) {
     diffSummary,
     comparisonBranch,
     useMergeBase,
-    liveFollow,
-    onToggleLiveFollow,
     onShowFileHistory,
     onOpenHtmlInBrowser,
   } = props;
@@ -129,8 +125,6 @@ export function FileViewerSidebar(props: FileViewerSidebarProps) {
           diffSummary={diffSummary}
           comparisonBranch={comparisonBranch}
           useMergeBase={useMergeBase}
-          liveFollow={liveFollow}
-          onToggleLiveFollow={onToggleLiveFollow}
           onShowFileHistory={onShowFileHistory}
           onOpenHtmlInBrowser={onOpenHtmlInBrowser}
           autoFocus

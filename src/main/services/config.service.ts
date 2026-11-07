@@ -233,7 +233,6 @@ export interface AppConfig {
   commitMessagePrompt?: string; // A custom endpoint's system prompt for commit messages, '' for the default
   defaultFileTreeOpen?: boolean;
   defaultFileTreeMode?: 'diff' | 'browse';
-  defaultLiveFollow?: boolean;
   defaultCompareTargetBranch?: boolean; // Auto-compare against target branch in diff mode
   defaultInlinePreviewLayout?: 'full' | 'side-by-side'; // Last user-chosen file preview layout, seeds new workspaces
   defaultDevServerPreviewAutoReload?: boolean; // Initial auto-reload state for browser previews
@@ -368,7 +367,6 @@ const DEFAULT_CONFIG: AppConfig = {
   openRouterBaseUrl: 'https://openrouter.ai/api/v1',
   defaultFileTreeOpen: false,
   defaultFileTreeMode: 'diff',
-  defaultLiveFollow: false,
   defaultCompareTargetBranch: false,
   defaultDevServerPreviewAutoReload: true,
   webLinkOpenTarget: 'external',
@@ -480,7 +478,6 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     commitMessagePrompt: normalizeUtilityPrompt(rawConfig.commitMessagePrompt),
     defaultFileTreeOpen: pickWithDefault(rawConfig, 'defaultFileTreeOpen'),
     defaultFileTreeMode: pickWithDefault(rawConfig, 'defaultFileTreeMode'),
-    defaultLiveFollow: pickWithDefault(rawConfig, 'defaultLiveFollow'),
     defaultCompareTargetBranch: pickWithDefault(rawConfig, 'defaultCompareTargetBranch'),
     defaultDevServerPreviewAutoReload: pickWithDefault(
       rawConfig,

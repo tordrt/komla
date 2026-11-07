@@ -178,7 +178,6 @@ export interface AppConfig {
   commitMessagePrompt?: string; // A custom endpoint's system prompt for commit messages, '' for the default
   defaultFileTreeOpen?: boolean;
   defaultFileTreeMode?: 'diff' | 'browse';
-  defaultLiveFollow?: boolean;
   defaultCompareTargetBranch?: boolean; // Auto-compare against target branch in diff mode
   defaultInlinePreviewLayout?: 'full' | 'side-by-side'; // Last user-chosen file preview layout, seeds new workspaces
   defaultDevServerPreviewAutoReload?: boolean; // Initial auto-reload state for browser previews

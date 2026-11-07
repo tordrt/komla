@@ -50,7 +50,6 @@ interface FileViewerMainPaneProps {
   focusAlignmentSignal?: number;
   changedFiles: FileTreeItem[];
   diffFileStatuses: Map<string, FileChange['status']> | undefined;
-  liveFollow: boolean;
   copiedPath: string | null;
   targetBranch: string;
   // The history sidebar's "exit history" toggle reloads Monaco with different
@@ -71,7 +70,6 @@ interface FileViewerMainPaneProps {
   handleCopyNode: (path: string, isDirectory: boolean) => void;
   handleCutNode: (path: string, isDirectory: boolean) => void;
   handlePasteInto: (targetDir: string) => Promise<void>;
-  handleToggleLiveFollow: () => void;
   handleShowFileHistory: (path: string) => void;
   handleOpenInBrowserPreview: (path: string) => void;
   // Toolbar
@@ -168,29 +166,24 @@ function selectHistorySidebarProps(params: {
 function selectSidebarHandlers(params: {
   isGitWorkspace: boolean;
   isBrowseMode: boolean;
-  isDiffMode: boolean;
   hasComparison: boolean;
   handleRestoreFile: FileViewerMainPaneProps['handleRestoreFile'];
   handleRollbackAll: () => void;
-  handleToggleLiveFollow: () => void;
   handleShowFileHistory: (path: string) => void;
   handleFileDoubleClick: (path: string) => void;
 }) {
   const {
     isGitWorkspace,
     isBrowseMode,
-    isDiffMode,
     hasComparison,
     handleRestoreFile,
     handleRollbackAll,
-    handleToggleLiveFollow,
     handleShowFileHistory,
     handleFileDoubleClick,
   } = params;
   return {
     onRestoreFile: hasComparison ? undefined : handleRestoreFile,
     onRollbackAll: isGitWorkspace && !hasComparison ? handleRollbackAll : undefined,
-    onToggleLiveFollow: isGitWorkspace && isDiffMode ? handleToggleLiveFollow : undefined,
     onShowFileHistory: isGitWorkspace ? handleShowFileHistory : undefined,
     onFileDoubleClick: isBrowseMode ? handleFileDoubleClick : undefined,
   };
@@ -263,7 +256,6 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
     focusAlignmentSignal,
     changedFiles,
     diffFileStatuses,
-    liveFollow,
     copiedPath,
     targetBranch,
     onExitHistory,
@@ -280,7 +272,6 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
     handleCopyNode,
     handleCutNode,
     handlePasteInto,
-    handleToggleLiveFollow,
     handleShowFileHistory,
     handleOpenInBrowserPreview,
     tabs,
@@ -313,16 +304,13 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
   const sidebarHandlers = selectSidebarHandlers({
     isGitWorkspace,
     isBrowseMode,
-    isDiffMode,
     hasComparison,
     handleRestoreFile,
     handleRollbackAll,
-    handleToggleLiveFollow,
     handleShowFileHistory,
     handleFileDoubleClick,
   });
-  const { onRestoreFile, onRollbackAll, onToggleLiveFollow, onShowFileHistory, onFileDoubleClick } =
-    sidebarHandlers;
+  const { onRestoreFile, onRollbackAll, onShowFileHistory, onFileDoubleClick } = sidebarHandlers;
 
   const contentAreaProps = selectContentAreaProps({
     state,
@@ -473,8 +461,6 @@ export function FileViewerMainPane(props: FileViewerMainPaneProps) {
             diffSummary={state.diff.diffData?.summary}
             comparisonBranch={state.diff.comparisonBranch}
             useMergeBase={state.diff.useMergeBase}
-            liveFollow={liveFollow}
-            onToggleLiveFollow={onToggleLiveFollow}
             onShowFileHistory={onShowFileHistory}
             onOpenHtmlInBrowser={handleOpenInBrowserPreview}
           />

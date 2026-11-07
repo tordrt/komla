@@ -68,7 +68,6 @@ import {
 } from './useFileViewerEffects';
 import { useFileViewerState } from './useFileViewerState';
 import { useFileWatcherSync } from './useFileWatcherSync';
-import { useLiveFollow } from './useLiveFollow';
 
 import type { MarkdownEditorHandle } from './markdown/RichMarkdownEditor';
 import type { FileViewerMode } from './types';
@@ -248,9 +247,6 @@ export function FileViewerDialog({
     (filePath: string, options?: { skipDirtyCheck?: boolean }) => void
   >(() => {});
   const closeViewerRef = useRef<() => void>(() => {});
-
-  // Live follow state
-  const liveFollow = useFileViewerStore((s) => !!s.liveFollowByWorkspace[workspace.id]);
 
   // Blame state
   const blame = useBlameState();
@@ -735,9 +731,6 @@ export function FileViewerDialog({
   );
   const handleSidebarFileClickRef = useRef(handleSidebarFileClickImpl);
   handleSidebarFileClickRef.current = handleSidebarFileClickImpl;
-  const handleSidebarFileClick = useCallback((path: string) => {
-    handleSidebarFileClickRef.current(path);
-  }, []);
   // A click in the tree, unlike a file the viewer picks itself, goes back from a note to the file;
   // with unsaved edits, once they're discarded.
   const isDirtyRef = useRef(state.editor.isDirty);
@@ -811,26 +804,6 @@ export function FileViewerDialog({
     },
     [handleModeChange]
   );
-
-  // Live follow: toggle handler
-  const handleToggleLiveFollow = useCallback(() => {
-    const store = useFileViewerStore.getState();
-    const wasEnabled = !!store.liveFollowByWorkspace[workspace.id];
-    store.toggleLiveFollow(workspace.id);
-
-    // On enabling: navigate to the most-changed file
-    if (!wasEnabled && state.diff.diffData?.files) {
-      const files = state.diff.diffData.files.filter((f) => !f.isDirectory);
-      if (files.length > 0) {
-        const best = files.reduce((a, b) =>
-          a.additions + a.deletions >= b.additions + b.deletions ? a : b
-        );
-        handleSidebarFileClick(best.path);
-      }
-    }
-  }, [workspace.id, state.diff.diffData?.files, handleSidebarFileClick]);
-
-  // Live follow: auto-navigate to the most-changed file on diff refresh
 
   const confirmRollbackAll = useCallback(async () => {
     setRollbackAllConfirmOpen(false);
@@ -1747,14 +1720,6 @@ export function FileViewerDialog({
     editor: state.editor,
   });
 
-  // Live follow: auto-navigate to the most-changed file on diff refresh
-  useLiveFollow({
-    liveFollow,
-    diffFiles: state.diff.diffData?.files,
-    hasFullDiff: state.diff.hasFullDiff,
-    onSelectMostChanged: (path) => handleSidebarFileClickRef.current(path),
-  });
-
   // Handle dialog close with unsaved check
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -2068,7 +2033,6 @@ export function FileViewerDialog({
             }}
             changedFiles={changedFiles}
             diffFileStatuses={diffFileStatuses}
-            liveFollow={liveFollow}
             copiedPath={copiedPath}
             targetBranch={targetBranch}
             handleSidebarFileClick={handleTreeFileClick}
@@ -2084,7 +2048,6 @@ export function FileViewerDialog({
             handleCopyNode={handleCopyNode}
             handleCutNode={handleCutNode}
             handlePasteInto={handlePasteInto}
-            handleToggleLiveFollow={handleToggleLiveFollow}
             handleShowFileHistory={handleShowFileHistory}
             handleOpenInBrowserPreview={handleOpenInBrowserPreview}
             tabs={tabs}

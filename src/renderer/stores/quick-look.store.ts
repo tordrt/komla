@@ -221,7 +221,8 @@ function containingFolder(item: QuickLookItem): QuickLookItem {
 
 /**
  * The file `delta` places from the one on screen, down the sidebar, skipping folders. A folder on
- * screen that no section above lists counts as just above its files.
+ * screen steps from its own section, just above its files, even when Recent lists it too, so the
+ * arrows go into a folder opened from a link; one with no files to go into stays in Recent.
  */
 function stepTarget(
   state: QuickLookState,
@@ -230,17 +231,21 @@ function stepTarget(
 ): QuickLookItem | undefined {
   const sections = quickLookSidebar(state, listed);
   if (!state.session || !sections) return undefined;
-  const onScreen = quickLookItemKey(state.session.item);
-  const above = sections.recent;
-  const folderOnScreen =
-    isQuickLookFolder(state.session.item) &&
-    !above.some((item) => quickLookItemKey(item) === onScreen)
-      ? [state.session.item]
-      : [];
-  const items = [...above, ...folderOnScreen, ...sections.folder.files].filter(
-    (item) => quickLookItemKey(item) === onScreen || !isQuickLookFolder(item)
+  const { item } = state.session;
+  const onScreen = quickLookItemKey(item);
+  const isFolder = isQuickLookFolder(item);
+  const { files, status } = sections.folder;
+  const intoFiles = files.length > 0 || status === 'loading';
+  const above =
+    isFolder && intoFiles
+      ? sections.recent.filter((recent) => quickLookItemKey(recent) !== onScreen)
+      : sections.recent;
+  // A folder on screen that Recent no longer lists here comes just above its files.
+  const folderOnScreen = isFolder && !above.some((other) => quickLookItemKey(other) === onScreen);
+  const items = [...above, ...(folderOnScreen ? [item] : []), ...files].filter(
+    (other) => quickLookItemKey(other) === onScreen || !isQuickLookFolder(other)
   );
-  const index = items.findIndex((item) => quickLookItemKey(item) === onScreen);
+  const index = items.findIndex((other) => quickLookItemKey(other) === onScreen);
   return index < 0 ? undefined : items[index + delta];
 }
 

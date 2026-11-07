@@ -204,4 +204,69 @@ describe('quick-look.store', () => {
     step(-1);
     expect(useQuickLookStore.getState().session?.item.path).toBe('/tmp/shots/b.png');
   });
+
+  it('steps into a folder opened from a link, as its section lists it above its files', async () => {
+    listViewerFolder.mockResolvedValue(listing('before/', 'b.png', 'a.png'));
+    const listed = [
+      terminalItem('/tmp/out/x.png'),
+      terminalItem('/tmp/shots/'),
+      terminalItem('/tmp/other/y.png'),
+    ];
+    useQuickLookStore.getState().open('ws-1', terminalItem('/tmp/shots/'));
+    await vi.waitFor(() => expect(useQuickLookStore.getState().folder?.status).toBe('loaded'));
+    const { step } = useQuickLookStore.getState();
+    const onScreen = () => useQuickLookStore.getState().session?.item.path;
+
+    // Above it, the last recent file, as Recent is drawn above the folder's section.
+    expect(canStepQuickLook(useQuickLookStore.getState(), -1, listed)).toBe(true);
+    step(1, listed);
+    expect(onScreen()).toBe('/tmp/shots/b.png');
+    step(1, listed);
+    expect(onScreen()).toBe('/tmp/shots/a.png');
+    expect(canStepQuickLook(useQuickLookStore.getState(), 1, listed)).toBe(false);
+    // Back up its files, then up the sidebar past the folders to the last recent file.
+    step(-1, listed);
+    step(-1, listed);
+    expect(onScreen()).toBe('/tmp/other/y.png');
+  });
+
+  it('steps on down Recent from a recent folder with no files to step into', async () => {
+    const listed = [terminalItem('/tmp/shots/'), terminalItem('/tmp/other/y.png')];
+    const { open, step } = useQuickLookStore.getState();
+    const nextFrom = async (listingResult: Promise<ViewerFolderFile[]>) => {
+      listViewerFolder.mockReturnValue(listingResult);
+      open('ws-1', terminalItem('/tmp/other/y.png'));
+      open('ws-1', terminalItem('/tmp/shots/'));
+      await vi.waitFor(() =>
+        expect(useQuickLookStore.getState().folder?.status).not.toBe('loading')
+      );
+      step(1, listed);
+      return useQuickLookStore.getState().session?.item.path;
+    };
+
+    // Only subfolders, then a listing that failed.
+    expect(await nextFrom(Promise.resolve(listing('before/')))).toBe('/tmp/other/y.png');
+    expect(await nextFrom(Promise.reject(new Error('gone')))).toBe('/tmp/other/y.png');
+  });
+
+  it('steps from a file in a recent folder down the sidebar, not into that folder', async () => {
+    listViewerFolder.mockResolvedValue(listing('b.png', 'a.png'));
+    const listed = [terminalItem('/tmp/shots/'), terminalItem('/tmp/shots/a.png')];
+    useQuickLookStore.getState().open('ws-1', terminalItem('/tmp/shots/a.png'));
+    await vi.waitFor(() => expect(useQuickLookStore.getState().folder?.status).toBe('loaded'));
+
+    expect(canStepQuickLook(useQuickLookStore.getState(), -1, listed)).toBe(false);
+    useQuickLookStore.getState().step(1, listed);
+    expect(useQuickLookStore.getState().session?.item.path).toBe('/tmp/shots/b.png');
+  });
+
+  it('steps from a file opened from a link to the recent files around it', async () => {
+    listViewerFolder.mockResolvedValue(listing('b.png', 'a.png'));
+    const listed = [terminalItem('/tmp/shots/a.png'), terminalItem('/tmp/other/y.png')];
+    useQuickLookStore.getState().open('ws-1', terminalItem('/tmp/shots/a.png'));
+    await vi.waitFor(() => expect(useQuickLookStore.getState().folder?.status).toBe('loaded'));
+
+    useQuickLookStore.getState().step(1, listed);
+    expect(useQuickLookStore.getState().session?.item.path).toBe('/tmp/other/y.png');
+  });
 });

@@ -22,7 +22,6 @@ import { AppShell } from '@/components/layout/AppShell';
 import { BannerHost } from '@/components/layout/BannerHost';
 import { CommandCenterButton } from '@/components/layout/CommandCenterButton';
 import { PassphraseDialog } from '@/components/layout/PassphraseDialog';
-import { PortChangedBanner } from '@/components/layout/PortChangedBanner';
 import { PublishRepoDialogHost } from '@/components/layout/PublishRepoDialogHost';
 import { PushConflictDialog } from '@/components/layout/PushConflictDialog';
 import { RebaseAbortDialog } from '@/components/layout/RebaseAbortDialog';
@@ -121,11 +120,10 @@ function TitleBarSlot({ tabsAtTop, children }: { tabsAtTop: boolean; children: R
 const openCommandCenter = () => executeShortcutAction('commandCenter.open');
 
 /** The app's banners, floating at the work area's bottom, so they never push the tab row down. */
-function AppBanners({ onOpenIntegrationsSettings }: { onOpenIntegrationsSettings: () => void }) {
+function AppBanners() {
   return (
     <BannerHost>
       <UpdateBanner />
-      <PortChangedBanner onOpenSettings={onOpenIntegrationsSettings} />
       <RunningAtLastQuitBanner />
       <AgentIntegrationUpdateBanner />
       <UsageAnalyticsConsentBanner />
@@ -262,7 +260,6 @@ export default function App() {
   });
 
   const { openSettings } = useSettingsDialogStore.getState();
-  const openIntegrationsSettings = () => openSettings({ tab: 'integrations' });
 
   // In the sidebar's corner, or in the tab row while the sidebar is collapsed.
   const renderAppMenu = useCallback(
@@ -368,9 +365,7 @@ export default function App() {
             // status bar.
             className="work-column relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
           >
-            <WorkArea
-              banners={<AppBanners onOpenIntegrationsSettings={openIntegrationsSettings} />}
-            >
+            <WorkArea banners={<AppBanners />}>
               <TitleBarSlot tabsAtTop={tabsAtTop}>
                 <TitleBar
                   sidebarVisible={sidebarShown}

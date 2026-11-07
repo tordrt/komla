@@ -65,7 +65,6 @@ export const agentSettingsContract = {
   [IPC.MCP_RUN_CODEX_REMOVE_CLI]: invoke().returns<McpCliResult>(),
   [IPC.MCP_RUN_ANTIGRAVITY_CLI]: invoke().returns<McpCliResult>(),
   [IPC.MCP_RUN_ANTIGRAVITY_REMOVE_CLI]: invoke().returns<McpCliResult>(),
-  [IPC.SERVER_GET_PORT_CHANGE]: invoke().returns<{ oldPort: number; newPort: number } | null>(),
   [IPC.SERVER_GET_PORT]: invoke().returns<number>(),
   [IPC.MCP_RECONFIGURE_ALL]: invoke().returns<{
     success: boolean;

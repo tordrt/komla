@@ -1477,9 +1477,6 @@ const api = {
     update?: NotificationIntegrationUpdate;
   }> => ipcRenderer.invoke(IPC.OPENCODE_NOTIFICATIONS_GET_HOOK_DETAILS),
 
-  getPortChange: (): Promise<{ oldPort: number; newPort: number } | null> =>
-    ipcRenderer.invoke(IPC.SERVER_GET_PORT_CHANGE),
-
   getServerPort: (): Promise<number> => ipcRenderer.invoke(IPC.SERVER_GET_PORT),
 
   reconfigureMcp: (): Promise<{
@@ -1602,19 +1599,6 @@ const api = {
     };
     ipcRenderer.on(IPC.WORKSPACE_TRASH_REQUESTED, handler);
     return () => ipcRenderer.removeListener(IPC.WORKSPACE_TRASH_REQUESTED, handler);
-  },
-
-  onPortChanged: (
-    callback: (event: { oldPort: number; newPort: number }) => void
-  ): (() => void) => {
-    const handler = (
-      _: Electron.IpcRendererEvent,
-      event: { oldPort: number; newPort: number }
-    ): void => {
-      callback(event);
-    };
-    ipcRenderer.on(IPC.SERVER_PORT_CHANGED, handler);
-    return () => ipcRenderer.removeListener(IPC.SERVER_PORT_CHANGED, handler);
   },
 
   onWorktreeChanged: (

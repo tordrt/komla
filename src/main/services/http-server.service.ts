@@ -1,9 +1,6 @@
 import { writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
-import { BrowserWindow } from 'electron';
-
-import { IPC } from '../../shared/constants/ipc-channels';
 import { createLogger } from '../lib/logger';
 import { http } from '../lib/node-http';
 
@@ -31,7 +28,6 @@ class HttpServerService {
     reject: (error: Error) => void;
   }> = [];
   private startError: Error | null = null;
-  private portChangeEvent: { oldPort: number; newPort: number } | null = null;
   private mcpPreloadTimer: NodeJS.Timeout | null = null;
 
   start(preferredPort?: number): void {
@@ -98,20 +94,8 @@ class HttpServerService {
       }
 
       if (port !== this.preferredPort) {
-        // Persist fallback port so future boots use it. Always — even on first
-        // run — so the chosen port becomes sticky from boot 2 onwards.
+        // Persist the fallback port so later launches start on it.
         configService.update({ notificationPort: port });
-        // Only surface the "port changed" banner when there was a prior known
-        // port to deviate from. On a first run (no config.json on disk), the
-        // port we end up on is just our initial assignment, not a change —
-        // and no MCP integrations can be pointing at a stale port yet.
-        if (configService.wasLoadedFromDisk()) {
-          this.portChangeEvent = { oldPort: this.preferredPort, newPort: port };
-          const windows = BrowserWindow.getAllWindows();
-          for (const window of windows) {
-            window.webContents.send(IPC.SERVER_PORT_CHANGED, this.portChangeEvent);
-          }
-        }
         logger.info(
           `Notification server listening on fallback port ${port} (preferred ${this.preferredPort} was in use)`
         );
@@ -188,10 +172,6 @@ class HttpServerService {
       return;
     }
     this.startedCallbacks.push(callback);
-  }
-
-  getPortChangeEvent(): { oldPort: number; newPort: number } | null {
-    return this.portChangeEvent;
   }
 }
 

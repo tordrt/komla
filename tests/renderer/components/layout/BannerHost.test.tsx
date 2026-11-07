@@ -19,7 +19,6 @@ import {
   useAnyBannerShowing,
   useBannerSlot,
 } from '../../../../src/renderer/components/layout/BannerHost';
-import { PortChangedBanner } from '../../../../src/renderer/components/layout/PortChangedBanner';
 import { UpdateBanner } from '../../../../src/renderer/components/layout/UpdateBanner';
 import { UsageAnalyticsConsentBanner } from '../../../../src/renderer/components/layout/UsageAnalyticsConsentBanner';
 import { Banner } from '../../../../src/renderer/components/ui/banner';
@@ -162,8 +161,6 @@ describe('BannerHost', () => {
 describe('BannerHost with the app banners', () => {
   beforeEach(() => {
     window.api = {
-      getPortChange: vi.fn().mockResolvedValue({ oldPort: 52863, newPort: 52864 }),
-      onPortChanged: vi.fn(() => vi.fn()),
       dismissAnnouncement: vi.fn(),
       openExternal: vi.fn(),
       websiteUrl: 'https://example.test',
@@ -186,29 +183,25 @@ describe('BannerHost with the app banners', () => {
     });
   });
 
-  it('orders update, port changed, consent, then announcements', async () => {
+  it('orders update, consent, then announcements', async () => {
     renderHost(
       <>
         <AnnouncementBanner />
         <UsageAnalyticsConsentBanner />
-        <PortChangedBanner onOpenSettings={vi.fn()} />
         <UpdateBanner />
       </>
     );
     await act(async () => {});
 
     expect(screen.getByText(/Komla v2\.0\.0 is ready to install/)).toBeInTheDocument();
-    expect(screen.getByText('1 of 4')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Next notice' }));
-    expect(screen.getByText(/MCP port changed from 52863 to 52864/)).toBeInTheDocument();
+    expect(screen.getByText('1 of 3')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next notice' }));
     expect(screen.getByText('Share usage analytics?')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next notice' }));
     expect(screen.getByText('Hello there')).toBeInTheDocument();
-    expect(screen.getByText('4 of 4')).toBeInTheDocument();
+    expect(screen.getByText('3 of 3')).toBeInTheDocument();
   });
 
   it('gives the update and consent banners different tints', async () => {

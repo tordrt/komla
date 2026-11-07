@@ -45,9 +45,6 @@ vi.mock('../../src/renderer/components/layout/UsageAnalyticsConsentBanner', () =
 vi.mock('../../src/renderer/components/layout/AgentIntegrationUpdateBanner', () => ({
   AgentIntegrationUpdateBanner: Null,
 }));
-vi.mock('../../src/renderer/components/layout/PortChangedBanner', () => ({
-  PortChangedBanner: Null,
-}));
 vi.mock('../../src/renderer/components/layout/PassphraseDialog', () => ({
   PassphraseDialog: Null,
 }));

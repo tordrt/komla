@@ -602,7 +602,6 @@ class ConfigService {
   private configPath: string;
   private config: AppConfig;
   private branchPrefixListeners = new Set<() => void>();
-  private configFileExistedAtLoad = false;
   private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly SAVE_DEBOUNCE_MS = 500;
 
@@ -617,9 +616,7 @@ class ConfigService {
       if (existsSync(this.configPath)) {
         const data = readFileSync(this.configPath, 'utf-8');
         const rawConfig = migrate(JSON.parse(data), CONFIG_VERSION, CONFIG_MIGRATIONS);
-        const normalized = normalizeConfig(rawConfig);
-        this.configFileExistedAtLoad = true;
-        return normalized;
+        return normalizeConfig(rawConfig);
       }
     } catch (error) {
       console.error('Failed to load config:', error);
@@ -649,15 +646,6 @@ class ConfigService {
 
   get(): AppConfig {
     return { ...this.config };
-  }
-
-  // True iff config.json was loaded successfully when this service first ran.
-  // False on fresh installs (no file) AND on corrupt/unparseable configs —
-  // both cases yield the defaults and have no usable prior port to compare
-  // against. Used to suppress the "port changed" banner when the port we end
-  // up on is just our initial assignment, not a deviation from a known value.
-  wasLoadedFromDisk(): boolean {
-    return this.configFileExistedAtLoad;
   }
 
   getTelemetryDistinctId(): string {

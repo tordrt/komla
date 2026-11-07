@@ -215,7 +215,6 @@ vi.mock('../../../src/main/services/git.service', () => ({
 const mockConfigService = {
   get: vi.fn().mockReturnValue({}),
   update: vi.fn(),
-  wasLoadedFromDisk: vi.fn(() => true),
 };
 vi.mock('../../../src/main/services/config.service', () => ({
   configService: mockConfigService,
@@ -436,8 +435,6 @@ describe('HttpServerService', () => {
     mockConfigService.get.mockReset();
     mockConfigService.get.mockReturnValue({});
     mockConfigService.update.mockReset();
-    mockConfigService.wasLoadedFromDisk.mockReset();
-    mockConfigService.wasLoadedFromDisk.mockReturnValue(true);
     (
       electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
     ).getAllWindows.mockReturnValue([]);
@@ -1954,13 +1951,7 @@ describe('HttpServerService', () => {
       await expect(httpServerService.waitForActualPort()).rejects.toBe(bindError);
     });
 
-    it('should persist fallback port and emit server:port-changed when prior config existed on disk', () => {
-      mockConfigService.wasLoadedFromDisk.mockReturnValue(true);
-      const win = createMockBrowserWindow();
-      (
-        electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
-      ).getAllWindows.mockReturnValue([win]);
-
+    it('persists the fallback port so later launches start on it', () => {
       let listenCallCount = 0;
       mockServer.listen.mockImplementation((_port: number, _host: string, callback: () => void) => {
         listenCallCount++;
@@ -1969,45 +1960,9 @@ describe('HttpServerService', () => {
       });
 
       httpServerService.start();
-      // Fire EADDRINUSE to trigger retry on port 52864
       errorHandlers[0]({ code: 'EADDRINUSE' });
 
       expect(mockConfigService.update).toHaveBeenCalledWith({ notificationPort: 52864 });
-      expect(win.webContents.send).toHaveBeenCalledWith('server:port-changed', {
-        oldPort: 52863,
-        newPort: 52864,
-      });
-    });
-
-    it('should persist fallback port and suppress server:port-changed on first run (no config on disk)', () => {
-      // First-run scenario: no config.json existed at load. The port we end up
-      // on is just our initial assignment, not a deviation — so the banner
-      // must NOT fire even though we fell back from the default.
-      mockConfigService.wasLoadedFromDisk.mockReturnValue(false);
-      const win = createMockBrowserWindow();
-      (
-        electronMock.BrowserWindow as unknown as { getAllWindows: ReturnType<typeof vi.fn> }
-      ).getAllWindows.mockReturnValue([win]);
-
-      let listenCallCount = 0;
-      mockServer.listen.mockImplementation((_port: number, _host: string, callback: () => void) => {
-        listenCallCount++;
-        if (listenCallCount === 2) callback();
-      });
-
-      httpServerService.start();
-      errorHandlers[0]({ code: 'EADDRINUSE' });
-
-      // Sticky-port persistence still happens — boot 2 should remember 52864.
-      expect(mockConfigService.update).toHaveBeenCalledWith({ notificationPort: 52864 });
-      // But no banner event.
-      expect(win.webContents.send).not.toHaveBeenCalledWith(
-        'server:port-changed',
-        expect.anything()
-      );
-      // And getPortChange() returns null so a late-mounting renderer doesn't
-      // pick up a stale event either.
-      expect(httpServerService.getPortChangeEvent()).toBeNull();
     });
   });
 

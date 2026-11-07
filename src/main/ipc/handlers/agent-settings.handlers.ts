@@ -552,10 +552,6 @@ It walks through wiring up Komla's notification hook and the Komla skill, and st
     }
   );
 
-  handleIpc(IPC.SERVER_GET_PORT_CHANGE, (): { oldPort: number; newPort: number } | null => {
-    return httpServerService.getPortChangeEvent();
-  });
-
   handleIpc(IPC.SERVER_GET_PORT, (): Promise<number> => {
     // Wait for the server to bind before answering. The renderer can ask
     // before startup finishes, and getPort() would otherwise return the

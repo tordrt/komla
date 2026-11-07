@@ -15,12 +15,11 @@ import type { PropsWithChildren, ReactNode } from 'react';
 /** Lower numbers win. Only the winning banner shows; the rest wait behind a pager. */
 export const BANNER_PRIORITY = {
   update: 0,
-  portChanged: 1,
-  runningAtLastQuit: 2,
-  integrationUpdate: 3,
-  usageConsent: 4,
-  announcement: 5,
-  aiHelpersOff: 6,
+  runningAtLastQuit: 1,
+  integrationUpdate: 2,
+  usageConsent: 3,
+  announcement: 4,
+  aiHelpersOff: 5,
 } as const;
 
 interface BannerSlot {

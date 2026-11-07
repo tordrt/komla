@@ -757,34 +757,4 @@ describe('ConfigService', () => {
       expect(config1).toEqual(config2); // Same content
     });
   });
-
-  describe('wasLoadedFromDisk', () => {
-    it('should return false on a fresh install (no config.json)', async () => {
-      mockExistsSync.mockReturnValue(false);
-
-      const { configService } = await import('../../../src/main/services/config.service');
-
-      expect(configService.wasLoadedFromDisk()).toBe(false);
-    });
-
-    it('should return true when config.json loads successfully', async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({ notificationPort: 52864 }));
-
-      const { configService } = await import('../../../src/main/services/config.service');
-
-      expect(configService.wasLoadedFromDisk()).toBe(true);
-    });
-
-    it('should return false when config.json exists but fails to parse (treated as fresh)', async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue('not valid json');
-
-      const { configService } = await import('../../../src/main/services/config.service');
-
-      // Parse error path returns DEFAULT_CONFIG without setting the flag — that
-      // matches the spirit of "no usable prior state on disk".
-      expect(configService.wasLoadedFromDisk()).toBe(false);
-    });
-  });
 });

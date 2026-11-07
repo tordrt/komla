@@ -499,11 +499,7 @@ export const IPC = {
   // Search
 
   // Server
-  SERVER_GET_PORT_CHANGE: 'server:get-port-change',
   SERVER_GET_PORT: 'server:get-port',
-
-  // Server events (main → renderer)
-  SERVER_PORT_CHANGED: 'server:port-changed',
 
   // Askpass
   ASKPASS_REQUEST: 'askpass:request',

@@ -54,7 +54,7 @@ export interface BannerProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 
   dismissLabel?: string;
 }
 
-/** A rounded card floating over the work area's bottom: update ready, port changed, announcements. */
+/** A rounded card floating over the work area's bottom: update ready, announcements. */
 export const Banner = React.forwardRef<HTMLDivElement, BannerProps>(
   (
     {

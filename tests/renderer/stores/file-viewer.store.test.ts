@@ -217,6 +217,42 @@ describe('file-viewer.store', () => {
     expect(useFileViewerStore.getState().inlineFileTreeByWorkspace['ws-1']?.mode).toBe('browse');
   });
 
+  it('saves the sidebar panel a workspace shows, and that none shows once Diff or Files does', () => {
+    const store = useFileViewerStore.getState();
+    store.showInlineSidebarPanel('ws-1', 'checks');
+    expect(window.api.updateWorkspace).toHaveBeenLastCalledWith('ws-1', {
+      sidebarPanelId: 'checks',
+    });
+
+    store.setInlineFileTreeMode('ws-1', 'browse');
+    expect(useFileViewerStore.getState().inlineSidebarPanelByWorkspace['ws-1']).toEqual({
+      id: 'checks',
+      shown: false,
+    });
+    expect(window.api.updateWorkspace).toHaveBeenLastCalledWith('ws-1', {
+      fileTreeMode: 'browse',
+      sidebarPanelId: null,
+    });
+
+    // With no panel showing, only the mode changes.
+    store.setInlineFileTreeMode('ws-1', 'diff');
+    expect(window.api.updateWorkspace).toHaveBeenLastCalledWith('ws-1', { fileTreeMode: 'diff' });
+  });
+
+  it('sets the mode without saving it when told not to, as when restoring it', () => {
+    useFileViewerStore.getState().setInlineFileTreeMode('ws-1', 'browse', { save: false });
+    expect(useFileViewerStore.getState().inlineFileTreeByWorkspace['ws-1']?.mode).toBe('browse');
+    expect(window.api.updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('keeps a saved panel showing when the tree takes its saved mode', () => {
+    const store = useFileViewerStore.getState();
+    store.showInlineSidebarPanel('ws-1', 'checks');
+    store.setInlineFileTreeMode('ws-1', 'browse', { keepSidebarPanel: true });
+    expect(useFileViewerStore.getState().inlineSidebarPanelByWorkspace['ws-1']?.shown).toBe(true);
+    expect(window.api.updateWorkspace).toHaveBeenLastCalledWith('ws-1', { fileTreeMode: 'browse' });
+  });
+
   it('setInlineFileTreeComparisonBranch sets branch', () => {
     useFileViewerStore.getState().setInlineFileTreeComparisonBranch('ws-1', 'develop');
     expect(useFileViewerStore.getState().inlineFileTreeByWorkspace['ws-1']?.comparisonBranch).toBe(

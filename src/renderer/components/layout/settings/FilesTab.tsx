@@ -26,7 +26,10 @@ export function FilesTab() {
             }}
           />
         </SettingsRow>
-        <SettingsRow label="Default mode" description="Initial file tree mode for new workspaces">
+        <SettingsRow
+          label="Default mode"
+          description="What new workspaces open on. In a project whose sidebar tabs you've arranged, they open on its first tab instead"
+        >
           <SegmentedControl
             aria-label="Default mode"
             size="md"

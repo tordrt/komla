@@ -110,10 +110,14 @@ function setUpWorkspace(
     activeTabId = tabIds[0],
     attention,
     fileTreeOpen,
+    fileTreeMode,
+    sidebarPanelId,
   }: {
     activeTabId?: string;
     attention?: Record<string, WorkspaceAttention>;
     fileTreeOpen?: boolean;
+    fileTreeMode?: 'diff' | 'browse';
+    sidebarPanelId?: string;
   } = {}
 ) {
   useWorkspacesStore.setState({
@@ -123,6 +127,8 @@ function setUpWorkspace(
         workingDirectory: '/repo',
         isWorktree: true,
         fileTreeOpen,
+        fileTreeMode,
+        sidebarPanelId,
         terminals: tabIds.map((id) =>
           createTerminal({ id, name: `Tab ${id}`, attention: attention?.[id] })
         ),
@@ -992,6 +998,38 @@ describe('TerminalTabs', () => {
       expect(
         screen.queryByRole('separator', { name: 'Resize file tree panel' })
       ).not.toBeInTheDocument();
+    });
+
+    it('shows the sidebar panel a workspace was saved showing', () => {
+      setUpWorkspace(['t1'], { fileTreeOpen: true, sidebarPanelId: 'checks' });
+      render(<TerminalTabs />);
+
+      expect(useFileViewerStore.getState().inlineSidebarPanelByWorkspace[WORKSPACE_ID]).toEqual({
+        id: 'checks',
+        shown: true,
+      });
+    });
+
+    it('restores the saved view without saving it again', () => {
+      const updateWorkspace = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('api', { ...window.api, updateWorkspace });
+      setUpWorkspace(['t1'], { fileTreeOpen: true, fileTreeMode: 'browse' });
+      render(<TerminalTabs />);
+
+      expect(useFileViewerStore.getState().inlineFileTreeByWorkspace[WORKSPACE_ID]?.mode).toBe(
+        'browse'
+      );
+      expect(updateWorkspace).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+
+    it('restores a workspace saved with only its panel once, closed', () => {
+      setUpWorkspace(['t1'], { sidebarPanelId: 'checks' });
+      render(<TerminalTabs />);
+
+      expect(useFileViewerStore.getState().inlineFileTreeByWorkspace[WORKSPACE_ID]?.open).toBe(
+        false
+      );
     });
 
     it('opens for a workspace saved with it open', () => {

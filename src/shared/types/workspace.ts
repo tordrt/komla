@@ -376,6 +376,8 @@ export interface Workspace {
   // UI state
   fileTreeOpen?: boolean;
   fileTreeMode?: 'diff' | 'browse';
+  /** The Sidebar Panel showing in place of its file tree, by id; null or none shows the tree. */
+  sidebarPanelId?: string | null;
   /** Its browsers and notes, in their places among its tabs, which open again when it starts again. */
   savedLayout?: WorkspaceSavedLayout;
   /** The panes Setup opened besides terminals as the workspace was created. Not saved. */

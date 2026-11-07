@@ -2393,6 +2393,50 @@ describe('WorkspaceService', () => {
       expect(written[0]?.fileTreeOpen).toBe(true);
     });
 
+    it('writes the view a sidebar shows back to disk, so a restart keeps it', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const created = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir1',
+      });
+      workspaceService.update(created.id, { fileTreeMode: 'browse', sidebarPanelId: 'checks' });
+
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+
+      const written = JSON.parse(mockWriteFileAtomic.mock.calls.at(-1)![1] as string) as Array<
+        Record<string, unknown>
+      >;
+      expect(written[0]).toMatchObject({ fileTreeMode: 'browse', sidebarPanelId: 'checks' });
+    });
+
+    it('restores the view a sidebar shows, and drops values that are not one', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          { ...persistedWorkspace, _version: 1, fileTreeMode: 'browse', sidebarPanelId: 'checks' },
+          {
+            ...persistedWorkspace,
+            _version: 1,
+            id: 'ws-2',
+            fileTreeMode: 'tree',
+            sidebarPanelId: '../x',
+          },
+        ])
+      );
+
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      expect(workspaceService.get('ws-1')).toMatchObject({
+        fileTreeMode: 'browse',
+        sidebarPanelId: 'checks',
+      });
+      expect(workspaceService.get('ws-2')?.fileTreeMode).toBeUndefined();
+      expect(workspaceService.get('ws-2')?.sidebarPanelId).toBeUndefined();
+    });
+
     it('saves recent links and drops ones that are not links to other sites', async () => {
       vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
 
@@ -4183,6 +4227,31 @@ describe('WorkspaceService', () => {
         });
 
         expect(mockGitService.fetchOriginStartPoint).toHaveBeenCalledWith('/some/repo', 'develop');
+      });
+
+      it("opens a new workspace's sidebar on the first tab in its project's order", async () => {
+        vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+        mockConfigService.get.mockReturnValue({
+          defaultFileTreeMode: 'diff',
+          projectSidebarTabs: { 'project-1': ['panel:checks', 'files', 'diff'] },
+        });
+        mockProjectService.get.mockReturnValue(
+          createProject({ id: 'project-1', name: 'repo', repositoryPath: '/mock/repo' })
+        );
+
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        const created = await workspaceService.create({
+          mode: 'worktree',
+          name: 'Feature',
+          branchName: 'my-feature',
+          projectId: 'project-1',
+        });
+
+        expect(workspaceService.get(created.id)).toMatchObject({
+          fileTreeMode: 'browse',
+          sidebarPanelId: 'checks',
+        });
       });
 
       it('starts branch names with the app-wide prefix when the project has none', async () => {

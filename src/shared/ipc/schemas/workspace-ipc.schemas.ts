@@ -10,6 +10,7 @@ import { NOTE_NAME_PATTERN } from '../../lib/notes';
 import { MAX_RECENT_LINKS } from '../../lib/recent-links';
 import { MAX_SAVED_LAYOUT_PANES } from '../../lib/saved-layout';
 import { MAX_WORKSPACE_TAG_LENGTH, MAX_WORKSPACE_TAG_TOOLTIP } from '../../lib/workspace-tags';
+import { STATUS_ITEM_ID_PATTERN } from '../../types/status-items';
 import { MAX_PROMPT_ATTACHMENTS } from '../../types/workspace';
 
 import {
@@ -130,6 +131,7 @@ export const workspaceUpdateSchema = z
     windowId: idSchema.nullable().optional(),
     fileTreeOpen: z.boolean().optional(),
     fileTreeMode: z.enum(['diff', 'browse']).optional(),
+    sidebarPanelId: z.string().regex(STATUS_ITEM_ID_PATTERN).nullable().optional(),
     // Only cleared: the window that laid out Setup's panes has them now.
     setupPanes: z
       .array(z.unknown())

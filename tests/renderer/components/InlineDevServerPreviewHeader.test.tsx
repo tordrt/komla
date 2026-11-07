@@ -250,6 +250,7 @@ vi.mock('../../../src/renderer/lib/scan-terminal-urls', () => ({
   },
 }));
 
+import { resetRememberedServers } from '../../../src/renderer/components/terminal/BrowserLinksList';
 import { InlineDevServerPreviewHeader } from '../../../src/renderer/components/terminal/InlineDevServerPreviewHeader';
 import { LIVE_REFRESH_MS } from '../../../src/renderer/hooks/useDevPreviewServices';
 import { usePaneSurfacesStore } from '../../../src/renderer/stores/pane-surfaces.store';
@@ -294,6 +295,7 @@ function header() {
 }
 
 beforeEach(() => {
+  resetRememberedServers();
   bumpReloadKey.mockReset();
   bumpProbeKey.mockReset();
   toggleAutoReload.mockReset();
@@ -739,7 +741,7 @@ describe('InlineDevServerPreviewHeader', () => {
       expect(screen.queryByText('localhost:5173')).toBeNull();
     });
 
-    it('checks again each time the picker opens', async () => {
+    it('checks again each time the picker opens, showing the servers it found last meanwhile', async () => {
       scannerResult = ['http://localhost:5173/'];
       render(header());
 
@@ -749,9 +751,13 @@ describe('InlineDevServerPreviewHeader', () => {
       fireEvent.click(screen.getByText('localhost:5173'));
       fireEvent.click(screen.getByLabelText('Pick a running server or link'));
 
-      expect(screen.getByText('Checking running servers…')).toBeTruthy();
+      expect(screen.queryByText('Checking running servers…')).toBeNull();
+      expect(screen.getByText('localhost:5173')).toBeTruthy();
+      expect(screen.getByRole('status', { name: 'Updating servers' })).toBeTruthy();
       await waitFor(() => expect(detectDevPreviewServices).toHaveBeenCalledTimes(2));
-      await waitFor(() => expect(screen.queryByText('Checking running servers…')).toBeNull());
+      await waitFor(() =>
+        expect(screen.queryByRole('status', { name: 'Updating servers' })).toBeNull()
+      );
     });
 
     it('keeps checking while the picker stays open', async () => {
@@ -828,9 +834,7 @@ describe('InlineDevServerPreviewHeader', () => {
       fireEvent.click(await screen.findByText('localhost:3001/dashboard'));
 
       expect(startSshPreviewForward).not.toHaveBeenCalled();
-      expect(tabWrites).toContainEqual(
-        tabUpdate('http://localhost:3001/dashboard', 'local-copy')
-      );
+      expect(tabWrites).toContainEqual(tabUpdate('http://localhost:3001/dashboard', 'local-copy'));
     });
 
     it('hides SSH forwarding actions for a saved local-copy URL', () => {

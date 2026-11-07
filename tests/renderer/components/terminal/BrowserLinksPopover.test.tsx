@@ -12,6 +12,7 @@ vi.mock('../../../../src/renderer/lib/terminal-renderer-runtime', () => ({
   getTerminalRendererOutputSinceLastScan: recentOutput,
 }));
 
+import { resetRememberedServers } from '../../../../src/renderer/components/terminal/BrowserLinksList';
 import { BrowserLinksPopover } from '../../../../src/renderer/components/terminal/BrowserLinksPopover';
 import { TooltipProvider } from '../../../../src/renderer/components/ui/tooltip';
 import {
@@ -72,6 +73,7 @@ function renderPopover() {
 beforeEach(() => {
   vi.clearAllMocks();
   resetAheadChecks();
+  resetRememberedServers();
   openExternal.mockResolvedValue(undefined);
   updateWorkspace.mockResolvedValue(undefined);
   detectDevPreviewServices.mockResolvedValue({
@@ -779,6 +781,189 @@ describe('BrowserLinksPopover', () => {
     expect(detectDevPreviewServices).toHaveBeenCalledTimes(2);
   });
 
+  it('shows the servers it found last, titled, while it checks again on reopening', async () => {
+    getLinkPreview.mockImplementation(async ({ url }: { url: string }) =>
+      url === 'http://localhost:5173/' ? { title: 'Acme Admin' } : null
+    );
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.click(button);
+    expect(await screen.findByText('Acme Admin')).toBeTruthy();
+    expect(screen.queryByRole('status', { name: 'Updating servers' })).toBeNull();
+    fireEvent.click(button);
+    await act(async () => {});
+
+    let answer!: (detection: unknown) => void;
+    detectDevPreviewServices.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    getLinkPreview.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(button);
+    await act(async () => {});
+
+    expect(screen.getByText('Acme Admin')).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'Updating servers' })).toBeTruthy();
+    expect(screen.queryByText('Checking running servers…')).toBeNull();
+
+    await act(async () => answer({ services: [], openPorts: [5173], otherServers: [] }));
+    await vi.waitFor(
+      () => expect(screen.queryByRole('status', { name: 'Updating servers' })).toBeNull(),
+      { timeout: 2_000 }
+    );
+    // Main hasn't read the page again yet, so it keeps the title it had.
+    expect(screen.getByText('Acme Admin')).toBeTruthy();
+  });
+
+  it('remembers the servers it found though a page never answers for its title', async () => {
+    detectDevPreviewServices.mockResolvedValue({
+      services: [],
+      openPorts: [5173],
+      otherServers: [
+        { port: 8765, scheme: 'http', processName: 'python3', executionLocation: 'workspace' },
+      ],
+    });
+    getLinkPreview.mockImplementation(({ url }: { url: string }) =>
+      url === 'http://localhost:8765/' ? new Promise(() => {}) : Promise.resolve(null)
+    );
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.click(button);
+    expect(await screen.findByText('localhost:5173', {}, { timeout: 2_000 })).toBeTruthy();
+    fireEvent.click(button);
+    await act(async () => {});
+
+    detectDevPreviewServices.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(button);
+    await act(async () => {});
+
+    expect(screen.getByText('localhost:5173')).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'Updating servers' })).toBeTruthy();
+  });
+
+  it('keeps the servers it found last in place, one found since after them, until it opens again', async () => {
+    const docs = {
+      port: 3000,
+      scheme: 'http',
+      pid: 3000,
+      processName: 'node',
+      terminalId: 't1',
+      executionLocation: 'workspace',
+    };
+    recentOutput.mockReturnValue([]);
+    detectDevPreviewServices.mockResolvedValue({
+      services: [docs],
+      openPorts: [],
+      otherServers: [],
+    });
+    getLinkPreview.mockImplementation(async ({ url }: { url: string }) =>
+      url === 'http://localhost:3000/'
+        ? { title: 'Docs' }
+        : url === 'http://localhost:5173/'
+          ? { title: 'Acme Admin' }
+          : null
+    );
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    const reopen = async () => {
+      fireEvent.click(button);
+      await act(async () => {});
+      fireEvent.click(button);
+      await vi.waitFor(() => {
+        expect(screen.getByText('Acme Admin')).toBeTruthy();
+        expect(screen.queryByRole('status', { name: 'Updating servers' })).toBeNull();
+      });
+    };
+    const titlesInOrder = () =>
+      screen.getAllByText(/^(Docs|Acme Admin)$/).map((title) => title.textContent);
+    fireEvent.click(button);
+    expect(await screen.findByText('Docs')).toBeTruthy();
+
+    // A URL printed since ranks ahead of a port that's listened on, but comes after it.
+    recentOutput.mockReturnValue([
+      {
+        terminalId: 't1',
+        executionLocation: 'workspace',
+        logicalLines: ['http://localhost:5173/'],
+      },
+    ]);
+    detectDevPreviewServices.mockResolvedValue({
+      services: [docs],
+      openPorts: [5173],
+      otherServers: [],
+    });
+    await reopen();
+    expect(titlesInOrder()).toEqual(['Docs', 'Acme Admin']);
+
+    await reopen();
+    expect(titlesInOrder()).toEqual(['Acme Admin', 'Docs']);
+  });
+
+  it("never shows a workspace the servers another workspace's list found", async () => {
+    useWorkspacesStore.setState({
+      workspaces: [
+        ...useWorkspacesStore.getState().workspaces,
+        { id: 'ws-2', backend: { kind: 'local' }, terminals: [] },
+      ] as unknown as Workspace[],
+    });
+    const { unmount } = renderPopover();
+    fireEvent.click(screen.getByRole('button', { name: 'Links' }));
+    expect(await screen.findByText('localhost:5173')).toBeTruthy();
+    unmount();
+
+    detectDevPreviewServices.mockReturnValue(new Promise(() => {}));
+    render(popover('ws-2'));
+    fireEvent.click(screen.getByRole('button', { name: 'Links' }));
+    await act(async () => {});
+
+    expect(screen.getByText('Checking running servers…')).toBeTruthy();
+    expect(screen.queryByText('localhost:5173')).toBeNull();
+  });
+
+  it('shows the servers found last for a workspace the open list comes to follow', async () => {
+    recentOutput.mockReturnValue([]);
+    useWorkspacesStore.setState({
+      workspaces: [
+        ...useWorkspacesStore.getState().workspaces,
+        { id: 'ws-2', backend: { kind: 'local' }, terminals: [{ id: 't2' }] },
+      ] as unknown as Workspace[],
+    });
+    const docs = {
+      port: 3000,
+      scheme: 'http',
+      pid: 3000,
+      processName: 'node',
+      terminalId: 't2',
+      executionLocation: 'workspace',
+    };
+    detectDevPreviewServices.mockResolvedValue({
+      services: [docs],
+      openPorts: [],
+      otherServers: [],
+    });
+    getLinkPreview.mockImplementation(async ({ url }: { url: string }) =>
+      url === 'http://localhost:3000/' ? { title: 'Docs' } : null
+    );
+    const { rerender } = render(popover('ws-2'));
+    const button = () => screen.getByRole('button', { name: 'Links' });
+    fireEvent.click(button());
+    expect(await screen.findByText('Docs')).toBeTruthy();
+    fireEvent.click(button());
+    await act(async () => {});
+
+    detectDevPreviewServices.mockResolvedValue({ services: [], openPorts: [], otherServers: [] });
+    rerender(popover('ws-1'));
+    fireEvent.click(button());
+    await vi.waitFor(() => expect(screen.queryByText('Checking running servers…')).toBeNull(), {
+      timeout: 2_000,
+    });
+
+    // The list follows ws-2 while its check is on its way.
+    detectDevPreviewServices.mockReturnValue(new Promise(() => {}));
+    rerender(popover('ws-2'));
+    await act(async () => {});
+
+    expect(screen.getByText('Docs')).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'Updating servers' })).toBeTruthy();
+  });
+
   it('reads ahead once as the pointer reaches the button and the click focuses it', async () => {
     renderPopover();
     const button = screen.getByRole('button', { name: 'Links' });
@@ -890,6 +1075,63 @@ describe('BrowserLinksPopover', () => {
     await screen.findByText('localhost:5173');
     expect(screen.queryByText('Checking virtual desktops…')).toBeNull();
     expect(screen.queryByText('xterm')).toBeNull();
+    expect(forgetVirtualDesktops).not.toHaveBeenCalled();
+  });
+
+  it('shows the desktops it found last while it checks again on reopening', async () => {
+    withDesktops({ kind: 'ssh', hostId: 'host-1' } as Workspace['backend'], [xtermDesktop]);
+    detectDevPreviewServices.mockResolvedValue({
+      services: [],
+      openPorts: [],
+      remoteOpenPorts: [5173],
+      ownOpenPorts: [5901],
+      checkedAt: 2_000,
+      otherServers: [],
+    });
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.click(button);
+    expect(await screen.findByText('xterm')).toBeTruthy();
+    fireEvent.click(button);
+    await act(async () => {});
+
+    detectDevPreviewServices.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(button);
+    await act(async () => {});
+
+    expect(screen.getByText('xterm')).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'Updating virtual desktops' })).toBeTruthy();
+    expect(screen.queryByText('Checking virtual desktops…')).toBeNull();
+  });
+
+  it('has main forget no desktop by the answer it found last', async () => {
+    withDesktops({ kind: 'ssh', hostId: 'host-1' } as Workspace['backend'], [
+      xtermDesktop,
+      { vncPort: 5903, app: 'gedit', vncApp: 'Screen Sharing', shownAt: 1_000 },
+    ]);
+    detectDevPreviewServices.mockResolvedValue({
+      services: [],
+      openPorts: [],
+      remoteOpenPorts: [5173],
+      ownOpenPorts: [5901],
+      checkedAt: 2_000,
+      otherServers: [],
+    });
+    renderPopover();
+    const button = screen.getByRole('button', { name: 'Links' });
+    fireEvent.click(button);
+    await screen.findByText('xterm');
+    await vi.waitFor(() => expect(forgetVirtualDesktops).toHaveBeenCalledTimes(1));
+    fireEvent.click(button);
+    await act(async () => {});
+    forgetVirtualDesktops.mockClear();
+
+    // Main kept gedit's desktop, which may run again by the time the list reopens.
+    detectDevPreviewServices.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(button);
+    await act(async () => {});
+
+    expect(screen.getByText('xterm')).toBeTruthy();
     expect(forgetVirtualDesktops).not.toHaveBeenCalled();
   });
 

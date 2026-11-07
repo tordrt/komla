@@ -6,7 +6,9 @@ import {
   getCandidatePorts,
   groupPreviewCandidates,
   isNonHttpListener,
+  keepPopoverServerPlaces,
   mergeDetectedServices,
+  popoverServerPlaces,
   rankPopoverServers,
   splitListeningPorts,
   withOfferedPage,
@@ -88,11 +90,11 @@ describe('withOfferedPage', () => {
 
   it('lists the page an agent offered first, though no terminal printed it', () => {
     expect(
-      withOfferedPage(printed, { url: 'http://127.0.0.1:8080/admin', executionLocation: 'workspace' })
-    ).toEqual([
-      { url: 'http://127.0.0.1:8080/admin', executionLocation: 'workspace' },
-      ...printed,
-    ]);
+      withOfferedPage(printed, {
+        url: 'http://127.0.0.1:8080/admin',
+        executionLocation: 'workspace',
+      })
+    ).toEqual([{ url: 'http://127.0.0.1:8080/admin', executionLocation: 'workspace' }, ...printed]);
   });
 
   it('lists it as the URL a terminal printed for it, under any loopback alias', () => {
@@ -109,7 +111,10 @@ describe('withOfferedPage', () => {
 
   it('leaves out a page on another site, which the links list', () => {
     expect(
-      withOfferedPage(printed, { url: 'https://preview.example.com/', executionLocation: 'workspace' })
+      withOfferedPage(printed, {
+        url: 'https://preview.example.com/',
+        executionLocation: 'workspace',
+      })
     ).toEqual(printed);
     expect(withOfferedPage(printed, undefined)).toEqual(printed);
   });
@@ -469,5 +474,33 @@ describe('formatPreviewUrl', () => {
     );
     expect(formatPreviewUrl('https://localhost:6006/')).toBe('https://localhost:6006');
     expect(formatPreviewUrl('not a url')).toBe('not a url');
+  });
+});
+
+describe('keepPopoverServerPlaces', () => {
+  const url = (candidate: PreviewUrlCandidate) => candidate.url;
+  const a = scanned('http://localhost:3000/');
+  const b = scanned('http://localhost:4000/');
+  const c = scanned('http://localhost:5000/');
+  const d = scanned('http://localhost:6000/');
+
+  it('ranks afresh without places', () => {
+    const servers = { shown: [b, a], more: [c], outside: [] };
+    expect(keepPopoverServerPlaces(servers, null, url)).toBe(servers);
+  });
+
+  it('keeps each server in its place, drops the gone ones and adds new ones where they rank', () => {
+    const places = popoverServerPlaces({ shown: [a, b], more: [c], outside: [] }, url);
+    // b now ranks first and c in view; d is new, ahead of a; c stopped.
+    const kept = keepPopoverServerPlaces({ shown: [d, b, a], more: [], outside: [] }, places, url);
+    expect(kept).toEqual({ shown: [a, b, d], more: [], outside: [] });
+  });
+
+  it("takes each server's latest details", () => {
+    const places = popoverServerPlaces({ shown: [a], more: [b], outside: [] }, url);
+    const stopped = { ...b, live: false };
+    expect(
+      keepPopoverServerPlaces({ shown: [stopped], more: [a], outside: [] }, places, url)
+    ).toEqual({ shown: [a], more: [stopped], outside: [] });
   });
 });

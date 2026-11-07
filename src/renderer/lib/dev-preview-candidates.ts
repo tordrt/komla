@@ -239,6 +239,71 @@ export function splitListeningPorts(
   return { shown, folded: otherPorts.filter((candidate) => !inView.has(candidate)) };
 }
 
+/** The links popover's servers by where it lists them. */
+export interface PopoverServers {
+  /** In view. */
+  shown: PreviewUrlCandidate[];
+  /** Behind "Show more". */
+  more: PreviewUrlCandidate[];
+  /** Outside Komla, after the links. */
+  outside: PreviewUrlCandidate[];
+}
+
+const POPOVER_SERVER_GROUPS = ['shown', 'more', 'outside'] as const;
+
+/** The keys of the servers of each group, in order. */
+export type PopoverServerPlaces = Record<keyof PopoverServers, string[]>;
+
+export function popoverServerPlaces(
+  servers: PopoverServers,
+  keyOf: (candidate: PreviewUrlCandidate) => string
+): PopoverServerPlaces {
+  return {
+    shown: servers.shown.map(keyOf),
+    more: servers.more.map(keyOf),
+    outside: servers.outside.map(keyOf),
+  };
+}
+
+/**
+ * `servers` with each one `places` holds in its group there, in that order, then the
+ * rest where `servers` ranks them, so a list keeps its rows in place as checks come in.
+ * A server `servers` lacks is gone.
+ */
+export function keepPopoverServerPlaces(
+  servers: PopoverServers,
+  places: PopoverServerPlaces | null,
+  keyOf: (candidate: PreviewUrlCandidate) => string
+): PopoverServers {
+  if (!places) return servers;
+  const byKey = new Map<string, PreviewUrlCandidate>();
+  for (const group of POPOVER_SERVER_GROUPS) {
+    for (const candidate of servers[group]) {
+      const key = keyOf(candidate);
+      if (!byKey.has(key)) byKey.set(key, candidate);
+    }
+  }
+  const placed = new Set<string>();
+  const kept: PopoverServers = { shown: [], more: [], outside: [] };
+  for (const group of POPOVER_SERVER_GROUPS) {
+    for (const key of places[group]) {
+      const candidate = byKey.get(key);
+      if (!candidate || placed.has(key)) continue;
+      placed.add(key);
+      kept[group].push(candidate);
+    }
+  }
+  for (const group of POPOVER_SERVER_GROUPS) {
+    for (const candidate of servers[group]) {
+      const key = keyOf(candidate);
+      if (placed.has(key)) continue;
+      placed.add(key);
+      kept[group].push(candidate);
+    }
+  }
+  return kept;
+}
+
 /**
  * The links popover's servers: printed URLs that answer and titled pages first
  * (`shown`), then behind "Show more" the other ports and printed URLs nothing answers
@@ -248,7 +313,7 @@ export function splitListeningPorts(
 export function rankPopoverServers(
   candidates: PreviewUrlCandidate[],
   titleOf: (candidate: PreviewUrlCandidate) => string | undefined
-): { shown: PreviewUrlCandidate[]; more: PreviewUrlCandidate[]; outside: PreviewUrlCandidate[] } {
+): PopoverServers {
   const { printed, otherPorts, otherServers, stopped } = groupPreviewCandidates(candidates);
   const ports = splitListeningPorts(printed, otherPorts, titleOf);
   const httpPorts = ports.folded.filter((candidate) => !isNonHttpListener(candidate));

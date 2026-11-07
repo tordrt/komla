@@ -13,6 +13,7 @@ vi.mock('@/lib/terminal-renderer-runtime', () => ({
     args[2] === 'files' ? output(...args) : [],
 }));
 
+import { resetRememberedServers } from '@/components/terminal/BrowserLinksList';
 import { BrowserLinksPopover } from '@/components/terminal/BrowserLinksPopover';
 import { useTerminalFiles } from '@/components/terminal/terminal-files';
 import { openTerminalFileLink } from '@/components/terminal/TerminalView';
@@ -73,6 +74,7 @@ function print(lines: string[], printedAt?: number[], terminalId = 't1') {
 
 beforeEach(() => {
   resetAheadChecks();
+  resetRememberedServers();
   vi.spyOn(Date, 'now').mockReturnValue(NOW);
   listViewerFolder.mockResolvedValue([]);
   output.mockReturnValue([]);

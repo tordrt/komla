@@ -7,15 +7,18 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   ReadStream,
   lstatSync,
+  lutimesSync,
   readlinkSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer, connect, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
@@ -480,7 +483,7 @@ describe('generateTmuxServerScript', () => {
       expect(calls).toContain(
         '-L komla-v1 set-hook -g client-attached run-shell -b "kill -CONT #{pane_pid} 2>/dev/null || true"'
       );
-      expect(calls.at(-1)).toBe('-L komla-v1 set-option -g @komla_config_version 9');
+      expect(calls.at(-1)).toBe('-L komla-v1 set-option -g @komla_config_version 10');
     } finally {
       rmSync(tempPath, { recursive: true, force: true });
     }
@@ -658,6 +661,157 @@ describe('generateTmuxServerScript', () => {
         sshHosts.splice(sshHosts.indexOf(host as (typeof sshHosts)[number]), 1);
         spawnSync('tmux', ['-L', 'komla-v1', 'kill-server'], { env: tmuxEnv });
         rmSync(tempPath, { recursive: true, force: true });
+      }
+    }
+  );
+
+  const hasTmux = process.platform !== 'win32' && spawnSync('tmux', ['-V']).status === 0;
+  // bash's failglob refuses an unmatched glob, as zsh's default nomatch does.
+  it.skipIf(!hasTmux).each(['/bin/sh -c', 'bash -O failglob -c'])(
+    "keeps a running terminal's agent forwarded across a reconnect and a change of installation (%s)",
+    async (remoteShell) => {
+      const { sshWorkspaceService, TMUX_CLIENT_ACTIVE_SCRIPT } =
+        await import('../../../src/main/services/ssh-workspace.service');
+      const { sshConnectionService } =
+        await import('../../../src/main/services/ssh-connection.service');
+      const forwardsAgent = vi.spyOn(sshConnectionService, 'forwardsAgent').mockReturnValue(true);
+      const root = mkdtempSync(join(tmpdir(), 'komla-agent-'));
+      writeFileSync(
+        join(root, 'ssh'),
+        [
+          '#!/bin/sh',
+          'last=',
+          'for argument do last="$argument"; done',
+          'case " $* " in *" -O check "*) exit 1 ;; esac',
+          `exec ${remoteShell} "$last"`,
+          '',
+        ].join('\n'),
+        { mode: 0o755 }
+      );
+      // A private socket directory and home keep the real tmux server and profile out of it.
+      const { TMUX: _tmux, TMUX_PANE: _pane, ...env } = process.env;
+      const tmuxEnv = {
+        ...env,
+        HOME: root,
+        SHELL: '/bin/sh',
+        TMUX_TMPDIR: root,
+        PATH: `${root}:${env.PATH ?? ''}`,
+      };
+      const tmux = (...args: string[]) =>
+        execFileSync('tmux', ['-L', 'komla-v1', ...args], { env: tmuxEnv, encoding: 'utf8' });
+      // sshd forwards each connection's agent on a socket of its own, gone when it closes.
+      const forwardedAgent = async (name: string): Promise<Server> => {
+        const server = createServer((socket) => socket.end(name));
+        await new Promise<void>((resolve) => server.listen(join(root, name), resolve));
+        return server;
+      };
+      const askAgent = (path: string) =>
+        new Promise<string>((resolve) => {
+          let reply = '';
+          const socket = connect(path);
+          socket.on('data', (data) => (reply += data));
+          socket.on('end', () => resolve(reply));
+          socket.on('error', (error: NodeJS.ErrnoException) => resolve(error.code ?? 'error'));
+        });
+      const backend = {
+        kind: 'ssh' as const,
+        hostId: 'ssh-dev',
+        remoteDirectory: root,
+        remoteRepoPath: join(root, 'repos', 'komla', 'repo.git'),
+        remoteProjectRoot: join(root, 'worktrees', 'komla'),
+        gitUrl: 'git@example.com:repo.git',
+      };
+      const agentPathFile = join(root, 'agent-path');
+      const attach = (
+        agentSocket: string,
+        action: 'start' | 'reconnect',
+        terminalId = 'term-agent'
+      ) => {
+        const launch = sshWorkspaceService.buildTerminalLaunchCommand(
+          backend,
+          `printf %s "$SSH_AUTH_SOCK" > ${agentPathFile}-${terminalId}; exec sleep 60`,
+          terminalId,
+          'ws-agent',
+          action
+        );
+        // Without a terminal of its own the client can't attach, but the session stays.
+        spawnSync('/bin/sh', ['-c', launch.command], {
+          env: { ...tmuxEnv, SSH_AUTH_SOCK: join(root, agentSocket) },
+          encoding: 'utf8',
+        });
+      };
+      const agentPathOf = async (terminalId: string) => {
+        const file = `${agentPathFile}-${terminalId}`;
+        await vi.waitFor(() => expect(existsSync(file) && readFileSync(file, 'utf8')).toBeTruthy());
+        return readFileSync(file, 'utf8');
+      };
+      const servers: Server[] = [];
+      const linkDirectory = join(root, 'ssh-agent');
+
+      try {
+        // The host's first terminal, with no links yet.
+        servers.push(await forwardedAgent('first.sock'));
+        attach('first.sock', 'start');
+        const agentPath = await agentPathOf('term-agent');
+        expect(agentPath).toBe(join(linkDirectory, 'term-agent'));
+        await expect(askAgent(agentPath)).resolves.toBe('first.sock');
+
+        // The connection drops, and Komla reconnects on another.
+        await new Promise((resolve) => servers[0].close(resolve));
+        servers.push(await forwardedAgent('second.sock'));
+        attach('second.sock', 'reconnect');
+        await expect(askAgent(agentPath)).resolves.toBe('second.sock');
+
+        // Another installation's client, attached on its own connection, becomes the latest. A client
+        // without a terminal has no tty, as tmux's run-shell from outside a client has none.
+        servers.push(await forwardedAgent('other-installation.sock'));
+        tmux(
+          'set-option',
+          '-t',
+          'komla-term-agent',
+          '@komla_route_',
+          `api\tinbox\tkey\t${join(root, 'other-installation.sock')}`
+        );
+        tmux('set-hook', '-R', '-t', 'komla-term-agent', 'client-active');
+        await vi.waitFor(() => expect(askAgent(agentPath)).resolves.toBe('other-installation.sock'));
+
+        // A client whose shell already reached the agent through the link records the link. The
+        // hook's script runs here in the foreground, so it has finished before the check.
+        const linkRoute = `api\tinbox\tkey\t${agentPath}`;
+        tmux('set-option', '-t', 'komla-term-agent', '@komla_route_', linkRoute);
+        tmux('run-shell', '-t', 'komla-term-agent', TMUX_CLIENT_ACTIVE_SCRIPT);
+        await expect(askAgent(agentPath)).resolves.toBe('other-installation.sock');
+
+        // A new terminal clears the links of terminals whose sessions have ended, even one on an
+        // agent still up, and one a pointing left half done. It keeps those of sessions still
+        // running, and a link too young to tell from one a terminal starting alongside pointed.
+        servers.push(await forwardedAgent('ended-live.sock'));
+        const ended = ['term-ended', 'term-ended-live-agent', 'term-agent.4242'];
+        symlinkSync(join(root, 'closed.sock'), join(linkDirectory, 'term-ended'));
+        symlinkSync(join(root, 'ended-live.sock'), join(linkDirectory, 'term-ended-live-agent'));
+        symlinkSync(join(root, 'closed.sock'), join(linkDirectory, 'term-agent.4242'));
+        const anHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        for (const name of [...ended, 'term-agent']) {
+          lutimesSync(join(linkDirectory, name), anHourAgo, anHourAgo);
+        }
+        symlinkSync(join(root, 'closed.sock'), join(linkDirectory, 'term-starting'));
+        attach('other-installation.sock', 'start', 'term-next');
+        await expect(askAgent(await agentPathOf('term-next'))).resolves.toBe(
+          'other-installation.sock'
+        );
+        expect(readdirSync(linkDirectory).sort()).toEqual([
+          'term-agent',
+          'term-next',
+          'term-starting',
+        ]);
+        await expect(askAgent(agentPath)).resolves.toBe('other-installation.sock');
+      } finally {
+        forwardsAgent.mockRestore();
+        spawnSync('tmux', ['-L', 'komla-v1', 'kill-server'], { env: tmuxEnv });
+        await Promise.all(
+          servers.map((server) => new Promise((resolve) => server.close(() => resolve(null))))
+        );
+        rmSync(root, { recursive: true, force: true });
       }
     }
   );
@@ -1350,8 +1504,8 @@ describe('sshWorkspaceService', () => {
     expect(command).not.toContain('/helpers/terminal.sh');
     expect(command).toContain('tmux -L komla-v1 new-session -d -s');
     expect(command).toContain('komla-term-inline');
-    expect(command).toMatch(/@komla_config_version 2>[^\n]+ != ['"]+9['"]+ \]; then/);
-    expect(command).toMatch(/set-option -g @komla_config_version ['"]+9['"]+/);
+    expect(command).toMatch(/@komla_config_version 2>[^\n]+ != ['"]+10['"]+ \]; then/);
+    expect(command).toMatch(/set-option -g @komla_config_version ['"]+10['"]+/);
     expect(command).toContain('tmux -L komla-v1 set-option -g set-titles on');
     expect(command).toContain('tmux -L komla-v1 set-option -g set-titles-string "#{pane_title}"');
     expect(command).toContain('codex --resume');
@@ -1693,7 +1847,7 @@ describe('sshWorkspaceService', () => {
         const calls = readFileSync(tmuxLog, 'utf8').trim().split('\n');
         const attach = calls.findIndex((call) => call.includes(' attach-session '));
         const bind = calls.findIndex((call) => call.includes(' bind-key -n User0 '));
-        const configured = calls.indexOf('-L komla-v1 set-option -g @komla_config_version 9');
+        const configured = calls.indexOf('-L komla-v1 set-option -g @komla_config_version 10');
 
         expect(result.status, result.stderr).toBe(0);
         expect(calls.some((call) => call.includes(' new-session '))).toBe(false);

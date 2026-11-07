@@ -122,7 +122,7 @@ const CLAUDE_VERSION_COMMAND = [
 const SSH_DATA_MARKER_FILE = '.komla-managed';
 const SSH_DATA_MARKER_CONTENT = 'komla-ssh-data-v1';
 const TMUX_HISTORY_LIMIT = 10_000;
-const TMUX_CONFIG_VERSION = 9;
+const TMUX_CONFIG_VERSION = 10;
 // Komla's terminals always decode UTF-8, so the client writes it even when the remote command's
 // locale names none, as zsh gets on RHEL-family hosts. Clients of other devices stay attached
 // where the window takes the size of the client used last, tmux's default since 3.1; before it,
@@ -130,9 +130,14 @@ const TMUX_CONFIG_VERSION = 9;
 const TMUX_ATTACH = `tmux -u -L ${TMUX_SOCKET_NAME} attach-session $([ "$(tmux -L ${TMUX_SOCKET_NAME} show-options -gqv window-size 2>/dev/null)" = latest ] || echo -d) -t`;
 /** The session option holding the routing of the device whose client is on the shell's tty. */
 const TMUX_CLIENT_ROUTE_OPTION = '"@komla_route_$(printf %s "$komla_tty" | tr -c A-Za-z0-9 _)"';
+/** The session option holding the path its shell reaches the forwarded agent through. */
+const TMUX_AGENT_LINK_OPTION = '@komla_agent_link';
+// macOS fits 104 bytes in a socket path, its terminating NUL among them.
+const MAX_SOCKET_PATH_BYTES = 103;
 // Hands a session's routing to the device whose client became its latest, as at a keypress
 // there. Run by tmux with formats expanded, so it holds no `#` of its own, nor single quotes.
-const TMUX_CLIENT_ACTIVE_SCRIPT = [
+// It ends in success, since tmux shows a failing run-shell in the pane.
+export const TMUX_CLIENT_ACTIVE_SCRIPT = [
   'komla_tty="#{client_tty}"',
   `route=$(tmux -L ${TMUX_SOCKET_NAME} show-options -qv -t "#{session_name}" ${TMUX_CLIENT_ROUTE_OPTION})`,
   '[ -n "$route" ] || exit 0',
@@ -141,6 +146,15 @@ const TMUX_CLIENT_ACTIVE_SCRIPT = [
     'set-environment -t "=#{session_name}" KOMLA_API_URL "$(printf %s "$route" | cut -f1)" \\;',
     'set-environment -t "=#{session_name}" KOMLA_COMPANION_INBOX "$(printf %s "$route" | cut -f2)" \\;',
     'set-option -t "#{session_name}" @komla_installation_key "$(printf %s "$route" | cut -f3)"',
+  ].join(' '),
+  'agent=$(printf %s "$route" | cut -f4)',
+  [
+    'if [ -S "$agent" ]; then',
+    `link=$(tmux -L ${TMUX_SOCKET_NAME} show-options -qv -t "#{session_name}" ${TMUX_AGENT_LINK_OPTION}) ;`,
+    'if [ -n "$link" ] && [ "$agent" != "$link" ]; then',
+    'ln -sfn "$agent" "$link.$$" && mv -f "$link.$$" "$link" || rm -f "$link.$$" ;',
+    'fi ;',
+    'fi 2>/dev/null',
   ].join(' '),
 ].join(' ; ');
 
@@ -585,15 +599,73 @@ export function generateTmuxServerScript(): string {
   return `#!/bin/sh\n# Komla tmux server setup - auto-managed, do not edit\n${remoteTmuxServerStartCommand()}\n`;
 }
 
+/**
+ * Where a terminal's shell reaches the forwarded agent. sshd forwards it on a socket of each
+ * connection's own, gone once that connection closes, while a running agent keeps the path it
+ * started with. This one stays, pointing at the agent of the connection attached last.
+ */
+function remoteAgentLinkPath(remoteBasePath: string, terminalId: string): string | null {
+  const path = joinRemote(remoteBasePath, 'ssh-agent', terminalId);
+  return Buffer.byteLength(path) <= MAX_SOCKET_PATH_BYTES ? path : null;
+}
+
+/**
+ * Points a terminal's agent link at the agent this SSH connection forwards, if it forwards one,
+ * replacing it in one rename so an agent never finds it missing.
+ */
+function pointAgentLinkCommand(agentLink: string): string {
+  const directory = shellQuotePosix(pathPosix.dirname(agentLink));
+  const link = shellQuotePosix(agentLink);
+  const staging = `${link}.$$`;
+  return [
+    `if [ -S "\${SSH_AUTH_SOCK-}" ] && [ "$SSH_AUTH_SOCK" != ${link} ]; then`,
+    `  { mkdir -p ${directory} && chmod 700 ${directory} && ln -sfn "$SSH_AUTH_SOCK" ${staging} && mv -f ${staging} ${link}; } 2>/dev/null || rm -f ${staging}`,
+    'fi',
+  ].join('\n');
+}
+
+/**
+ * Removes the agent links of terminals whose sessions have ended, and any a pointing left behind
+ * half done. A link younger than a minute stays, as it may be one a terminal starting alongside
+ * has pointed before its session exists. `find` rather than a glob, which the login shell, such
+ * as zsh, may refuse to leave unmatched; one listing of the sessions serves every link.
+ */
+function pruneAgentLinksCommand(agentLink: string): string {
+  const directory = shellQuotePosix(pathPosix.dirname(agentLink));
+  const prune = [
+    'for link do',
+    `  case "$KOMLA_SESSIONS" in *" ${managedTmuxSessionName('')}\${link##*/} "*) ;; *) rm -f "$link" ;; esac`,
+    'done',
+  ].join('\n');
+  return [
+    `if [ -d ${directory} ] && komla_sessions=$(tmux -L ${TMUX_SOCKET_NAME} list-sessions -F '#{session_name}' 2>/dev/null); then`,
+    `  KOMLA_SESSIONS=" $(printf '%s' "$komla_sessions" | tr '\\n' ' ') " find ${directory}/ -mindepth 1 -type l -mmin +1 -exec sh -c ${shellQuotePosix(prune)} sh {} + 2>/dev/null || true`,
+    'fi',
+  ].join('\n');
+}
+
+/** Tells the session's client-active hook which link to point at the latest client's agent. */
+function agentLinkOptionCommand(sessionName: string, agentLink: string): string {
+  return `tmux -L ${TMUX_SOCKET_NAME} set-option -t ${sessionName} ${TMUX_AGENT_LINK_OPTION} ${shellQuotePosix(agentLink)} 2>/dev/null || true`;
+}
+
 function remoteTerminalLoginCommand(
   environment: Record<string, string | number | undefined>,
   command: string | null,
-  keepShellOpenAfterCommand: boolean
+  keepShellOpenAfterCommand: boolean,
+  agentLink: string | null
 ): string {
   const lines = Object.entries(environment)
     .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
     .map(([key, value]) => `export ${key}=${shellQuotePosix(String(value))}`);
   lines.push('if [ -n "${KOMLA_CLI-}" ]; then PATH="${KOMLA_CLI%/*}:${PATH-}"; export PATH; fi');
+  if (agentLink) {
+    // A shell whose startup files chose another agent keeps it.
+    const link = shellQuotePosix(agentLink);
+    lines.push(
+      `if [ -n "\${SSH_AUTH_SOCK-}" ] && [ "$SSH_AUTH_SOCK" = "$(readlink ${link} 2>/dev/null)" ]; then SSH_AUTH_SOCK=${link}; export SSH_AUTH_SOCK; fi`
+    );
+  }
   const openShell = [
     'if [ -x "${SHELL:-/bin/bash}" ]; then exec "${SHELL:-/bin/bash}" -i; fi',
     'exec /bin/sh -i',
@@ -620,7 +692,8 @@ function remoteTerminalLoginCommand(
  */
 function claimRemoteTerminalSessionCommands(
   environment: Record<string, string | number | undefined>,
-  terminalId: string
+  terminalId: string,
+  agentLink: string | null
 ): string[] {
   const target = tmuxExactTarget(terminalId);
   // tmux resolves set-option targets as panes, which reject the exact-match prefix.
@@ -631,22 +704,28 @@ function claimRemoteTerminalSessionCommands(
         `tmux -L ${TMUX_SOCKET_NAME} set-environment -t ${target} ${name} ${shellQuotePosix(String(environment[name] ?? ''))} 2>/dev/null || true`
     ),
     `tmux -L ${TMUX_SOCKET_NAME} set-option -t ${sessionName} @komla_installation_key ${shellQuotePosix(String(environment.KOMLA_INSTALLATION_KEY ?? ''))} 2>/dev/null || true`,
-    rememberClientRouteCommand(environment, sessionName),
+    ...(agentLink
+      ? [pointAgentLinkCommand(agentLink), agentLinkOptionCommand(sessionName, agentLink)]
+      : []),
+    rememberClientRouteCommand(environment, sessionName, agentLink),
   ];
 }
 
 /**
- * Remembers this device's routing for the client it attaches on the shell's tty, which takes the
- * session's routing whenever it becomes the session's latest client.
+ * Remembers this installation's routing, and the agent its connection forwards, for the client
+ * it attaches on the shell's tty, which takes them whenever it becomes the session's latest client.
  */
 function rememberClientRouteCommand(
   environment: Record<string, string | number | undefined>,
-  sessionName: string
+  sessionName: string,
+  agentLink: string | null
 ): string {
-  const route = ['KOMLA_API_URL', 'KOMLA_COMPANION_INBOX', 'KOMLA_INSTALLATION_KEY']
-    .map((name) => shellQuotePosix(String(environment[name] ?? '')))
-    .join(' ');
-  return `if komla_tty=$(tty 2>/dev/null); then tmux -L ${TMUX_SOCKET_NAME} set-option -t ${sessionName} ${TMUX_CLIENT_ROUTE_OPTION} "$(printf '%s\\t%s\\t%s' ${route})" 2>/dev/null || true; fi`;
+  const route = ['KOMLA_API_URL', 'KOMLA_COMPANION_INBOX', 'KOMLA_INSTALLATION_KEY'].map((name) =>
+    shellQuotePosix(String(environment[name] ?? ''))
+  );
+  if (agentLink) route.push('"${SSH_AUTH_SOCK-}"');
+  const format = route.map(() => '%s').join('\\t');
+  return `if komla_tty=$(tty 2>/dev/null); then tmux -L ${TMUX_SOCKET_NAME} set-option -t ${sessionName} ${TMUX_CLIENT_ROUTE_OPTION} "$(printf '${format}' ${route.join(' ')})" 2>/dev/null || true; fi`;
 }
 
 /**
@@ -655,11 +734,12 @@ function rememberClientRouteCommand(
  */
 function reattachRemoteTerminalSessionCommands(
   environment: Record<string, string | number | undefined>,
-  terminalId: string
+  terminalId: string,
+  agentLink: string | null
 ): string[] {
   return [
     ...remoteTmuxServerSetupCommand().split('\n'),
-    ...claimRemoteTerminalSessionCommands(environment, terminalId),
+    ...claimRemoteTerminalSessionCommands(environment, terminalId, agentLink),
   ];
 }
 
@@ -670,12 +750,18 @@ function remoteTerminalCreationCommand(
   command: string | null,
   action: Exclude<SshTerminalSessionAction, 'reconnect'>,
   keepShellOpenAfterCommand: boolean,
+  agentLink: string | null,
   reportReplacement = false
 ): string {
   const sessionName = managedTmuxSessionName(terminalId);
   const target = `=${sessionName}`;
   const mayFinishBeforeAttachment = command !== null && !keepShellOpenAfterCommand;
-  const loginCommand = remoteTerminalLoginCommand(environment, command, keepShellOpenAfterCommand);
+  const loginCommand = remoteTerminalLoginCommand(
+    environment,
+    command,
+    keepShellOpenAfterCommand,
+    agentLink
+  );
   // A plain zsh hands off to `zsh -i`, which reads .zshrc itself; reading it here too would run it
   // twice before the first prompt. bash's login files source .bashrc, which expects an interactive
   // shell, so bash reads it in both.
@@ -727,7 +813,9 @@ function remoteTerminalCreationCommand(
   } else {
     lines.push(
       `if tmux -L ${TMUX_SOCKET_NAME} has-session -t "$target" 2>/dev/null; then`,
-      ...reattachRemoteTerminalSessionCommands(environment, terminalId).map((line) => `  ${line}`),
+      ...reattachRemoteTerminalSessionCommands(environment, terminalId, agentLink).map(
+        (line) => `  ${line}`
+      ),
       `  ${REMOTE_READY_SHELL_COMMAND}`,
       `  ${TMUX_ATTACH} "$target" && exit 0`,
       'fi'
@@ -735,9 +823,12 @@ function remoteTerminalCreationCommand(
   }
   lines.push(
     remoteTmuxServerStartCommand(),
+    // The new shell starts on the link, so it points at this connection's agent first.
+    ...(agentLink ? [pruneAgentLinksCommand(agentLink), pointAgentLinkCommand(agentLink)] : []),
     `if tmux -L ${TMUX_SOCKET_NAME} new-session -d -s "$session_name" ${shellQuotePosix(sessionCommand)}; then`,
     ...sessionEnvironmentCommands.map((line) => `  ${line}`),
-    `  ${rememberClientRouteCommand(environment, '"$session_name"')}`,
+    ...(agentLink ? [`  ${agentLinkOptionCommand('"$session_name"', agentLink)}`] : []),
+    `  ${rememberClientRouteCommand(environment, '"$session_name"', agentLink)}`,
     ...(reportReplacement ? [`  ${MANAGED_REMOTE_TERMINAL_SESSION_REPLACED_SHELL_COMMAND}`] : []),
     'else',
     `  tmux -L ${TMUX_SOCKET_NAME} has-session -t "$target" 2>/dev/null || exit 1`,
@@ -856,6 +947,8 @@ exit 0
 
 class SshWorkspaceService {
   private integrationMutations = new Map<string, Promise<void>>();
+  // Hosts and base paths too long for a terminal's agent link, warned about once each.
+  private readonly agentLinkTooLongWarned = new Set<string>();
   private preparedNotifyScriptHosts = new Map<string, Set<string>>();
   // Agents whose notification setup needed an update at each host's last integration check,
   // with the configuration Komla would install for each.
@@ -2883,6 +2976,19 @@ class SshWorkspaceService {
       COLORTERM: 'truecolor',
       FORCE_HYPERLINK: '1',
     };
+    const forwardsAgent = sshConnectionService.forwardsAgent(host);
+    const agentLink = forwardsAgent ? remoteAgentLinkPath(remoteBasePath, terminalId) : null;
+    const agentLinkWarning = `${backend.hostId}\0${remoteBasePath}`;
+    if (forwardsAgent && !agentLink && !this.agentLinkTooLongWarned.has(agentLinkWarning)) {
+      this.agentLinkTooLongWarned.add(agentLinkWarning);
+      logger.warn(
+        "Agent link path is too long for a socket; terminals keep their connection's own agent socket",
+        {
+          hostId: backend.hostId,
+          remoteBasePath,
+        }
+      );
+    }
     const creationCommand = remoteTerminalCreationCommand(
       backend,
       terminalEnvironment,
@@ -2890,15 +2996,18 @@ class SshWorkspaceService {
       command,
       action === 'reconnect' ? 'start' : action,
       options.keepShellOpenAfterCommand ?? false,
+      agentLink,
       action === 'reconnect'
     );
     const remoteCommand =
       action === 'reconnect'
         ? [
             `if tmux -L ${TMUX_SOCKET_NAME} has-session -t ${tmuxExactTarget(terminalId)} 2>/dev/null; then`,
-            ...reattachRemoteTerminalSessionCommands(terminalEnvironment, terminalId).map(
-              (line) => `  ${line}`
-            ),
+            ...reattachRemoteTerminalSessionCommands(
+              terminalEnvironment,
+              terminalId,
+              agentLink
+            ).map((line) => `  ${line}`),
             `  ${REMOTE_READY_SHELL_COMMAND}`,
             `  ${TMUX_ATTACH} ${tmuxExactTarget(terminalId)} && exit 0`,
             'fi',
@@ -2908,7 +3017,7 @@ class SshWorkspaceService {
         : creationCommand;
     return {
       startupMode: 'wait-for-marker',
-      localLoginShell: sshConnectionService.forwardsAgent(host),
+      localLoginShell: forwardsAgent,
       command: sshConnectionService.buildTerminalCommand(
         host,
         terminalId,

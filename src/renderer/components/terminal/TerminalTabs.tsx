@@ -590,6 +590,24 @@ function FileTreeModeTabs({
 }
 
 /**
+ * Gives a workspace's file panel what it saved: whether it's open, its tree's mode and its panel.
+ * It always makes the tree's entry, which marks the workspace restored. Nothing is saved back.
+ */
+function restoreFilePanel(ws: Workspace): void {
+  const fileViewer = useFileViewerStore.getState();
+  fileViewer.setInlineFileTreeOpen(ws.id, ws.fileTreeOpen ?? false);
+  if (ws.fileTreeMode) {
+    fileViewer.setInlineFileTreeMode(ws.id, ws.fileTreeMode, {
+      keepSidebarPanel: true,
+      save: false,
+    });
+  }
+  if (ws.sidebarPanelId) {
+    fileViewer.showInlineSidebarPanel(ws.id, ws.sidebarPanelId, { save: false });
+  }
+}
+
+/**
  * Full screen, the preview takes the panes' place, so it is framed as a pane: a rounded block on
  * the chrome, inset by the same gutter. Its right edge lines up with the panes', which give part
  * of the gutter to the file tree's resize handle.
@@ -1407,17 +1425,7 @@ export const TerminalTabs = memo(function TerminalTabs({
         // with the real terminal ID now that provisioning has completed.
         initializeWorkspaceLayout(ws.id, terminals[0].id, true);
       }
-      // Initialize inline file tree state from persisted workspace data
-      if (!(ws.id in inlineFileTreeByWorkspace)) {
-        if (ws.fileTreeOpen !== undefined) {
-          useFileViewerStore.getState().setInlineFileTreeOpen(ws.id, ws.fileTreeOpen);
-        }
-        if (ws.fileTreeMode) {
-          useFileViewerStore
-            .getState()
-            .setInlineFileTreeMode(ws.id, ws.fileTreeMode, { keepSidebarPanel: true });
-        }
-      }
+      if (!(ws.id in inlineFileTreeByWorkspace)) restoreFilePanel(ws);
     }
   }, [
     workspaces,

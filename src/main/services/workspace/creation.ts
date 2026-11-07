@@ -44,6 +44,7 @@ import {
   resolveReasoningLevelId,
   resolveModelId,
 } from './agent-launch';
+import { initialSidebarView } from './initial-sidebar-view';
 import { workspaceStore } from './store';
 import {
   AUTO_BRANCH_MAX_ATTEMPTS,
@@ -61,6 +62,7 @@ import {
   withBranchPrefix,
 } from './worktree-branches';
 
+import type { AppConfig } from '../config.service';
 import type { WorkspaceNaming } from './naming';
 import type { WorkspaceProvisioning } from './provisioning';
 import type { WorkspaceTerminals } from './terminals';
@@ -105,6 +107,21 @@ function computeBranchedFrom(params: CreateWorkspaceParams, project: Project): s
   if (!params.baseBranch) return undefined;
   if (params.baseBranch === project.baseBranch) return undefined;
   return params.baseBranch;
+}
+
+/** The view a new workspace's sidebar opens on, from the settings. */
+function newWorkspaceSidebarView(
+  appConfig: AppConfig,
+  projectId: string | null,
+  isGitWorkspace: boolean
+): Pick<Workspace, 'fileTreeMode' | 'sidebarPanelId'> {
+  return initialSidebarView({
+    projectId,
+    isGitWorkspace,
+    defaultMode: appConfig.defaultFileTreeMode ?? 'diff',
+    projectSidebarTabs: appConfig.projectSidebarTabs,
+    projectHiddenItems: appConfig.projectHiddenItems,
+  });
 }
 
 export interface WorkspaceCreationDeps {
@@ -455,7 +472,7 @@ export class WorkspaceCreation {
       windowId: params.windowId || null,
       categoryId: params.categoryId || null,
       fileTreeOpen: appConfig.defaultFileTreeOpen,
-      fileTreeMode: appConfig.defaultFileTreeMode,
+      ...newWorkspaceSidebarView(appConfig, projectId, isWorktree),
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
       order: 0,
@@ -539,7 +556,7 @@ export class WorkspaceCreation {
       windowId: params.windowId || null,
       categoryId: params.categoryId || null,
       fileTreeOpen: appConfig.defaultFileTreeOpen,
-      fileTreeMode: appConfig.defaultFileTreeMode,
+      ...newWorkspaceSidebarView(appConfig, project.id, true),
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
       order: 0,
@@ -673,7 +690,7 @@ export class WorkspaceCreation {
       windowId: params.windowId || null,
       categoryId: params.categoryId || null,
       fileTreeOpen: false,
-      fileTreeMode: appConfig.defaultFileTreeMode,
+      ...newWorkspaceSidebarView(appConfig, project.id, true),
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
       order: 0,

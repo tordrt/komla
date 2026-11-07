@@ -553,6 +553,44 @@ describe('workspace IPC validation', () => {
     expect(mockWorkspaceService.update).toHaveBeenCalledWith('ws-1', { color: null });
   });
 
+  it("passes a sidebar panel's id through workspace update, and null to show the tree", async () => {
+    const { registerWorkspaceHandlers } =
+      await import('../../../../src/main/ipc/handlers/workspace.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+
+    mockWorkspaceService.get.mockReturnValue({ id: 'ws-1', status: 'active' });
+    mockWorkspaceService.update.mockReturnValue({ id: 'ws-1' });
+
+    registerWorkspaceHandlers();
+
+    await ipcMain._invoke('workspace:update', 'ws-1', { sidebarPanelId: 'acme.checks' });
+    expect(mockWorkspaceService.update).toHaveBeenLastCalledWith('ws-1', {
+      sidebarPanelId: 'acme.checks',
+    });
+    await ipcMain._invoke('workspace:update', 'ws-1', { sidebarPanelId: null });
+    expect(mockWorkspaceService.update).toHaveBeenLastCalledWith('ws-1', { sidebarPanelId: null });
+  });
+
+  it.each(['', '../checks', 'a'.repeat(41), 42])(
+    'rejects %j as a sidebar panel id',
+    async (sidebarPanelId) => {
+      const { registerWorkspaceHandlers } =
+        await import('../../../../src/main/ipc/handlers/workspace.handlers');
+      const { ipcMain } = (await import('electron')) as unknown as {
+        ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+      };
+
+      registerWorkspaceHandlers();
+
+      await expect(
+        ipcMain._invoke('workspace:update', 'ws-1', { sidebarPanelId })
+      ).rejects.toMatchObject({ code: 'IPC_VALIDATION_ERROR' });
+      expect(mockWorkspaceService.update).not.toHaveBeenCalled();
+    }
+  );
+
   it('rejects the stashed status, which was folded into trashed', async () => {
     const { registerWorkspaceHandlers } =
       await import('../../../../src/main/ipc/handlers/workspace.handlers');
@@ -728,7 +766,14 @@ describe('workspace IPC validation', () => {
         [{ ...browser('https://example.com/'), extra: true }],
         [leaf({ kind: 'note', name: '../secret.md' })],
         [leaf({ kind: 'file', path: '/etc/passwd' })],
-        [{ type: 'split', direction: 'diagonal', sizes: [50, 50], children: [browser(''), browser('')] }],
+        [
+          {
+            type: 'split',
+            direction: 'diagonal',
+            sizes: [50, 50],
+            children: [browser(''), browser('')],
+          },
+        ],
         Array.from({ length: 65 }, () => browser('')),
       ]) {
         await expect(

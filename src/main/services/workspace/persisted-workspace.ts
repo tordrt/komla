@@ -13,6 +13,7 @@ import {
   PULL_REQUEST_TAG_STATES,
   type PullRequestTagState,
 } from '../../../shared/lib/workspace-tags';
+import { STATUS_ITEM_ID_PATTERN } from '../../../shared/types/status-items';
 import { isLocalTerminalExecutionLocation } from '../../../shared/types/terminal';
 import {
   isSshWorkspace,
@@ -114,6 +115,8 @@ export type PersistedWorkspace = {
   linkedWorkspaceIds?: string[];
   /** Whether the workspace's file panel is open. */
   fileTreeOpen?: boolean;
+  fileTreeMode?: Workspace['fileTreeMode'];
+  sidebarPanelId?: string;
   savedLayout?: WorkspaceSavedLayout;
   recentLinks?: WorkspaceRecentLink[];
   virtualDesktops?: WorkspaceVirtualDesktop[];
@@ -387,6 +390,15 @@ export function hydrateWorkspace(rawPersisted: PersistedWorkspace): {
     attention: persistedAttention,
     customNameSource: normalizeCustomNameSource(persisted.customNameSource),
     fileTreeOpen: typeof persisted.fileTreeOpen === 'boolean' ? persisted.fileTreeOpen : undefined,
+    fileTreeMode:
+      persisted.fileTreeMode === 'diff' || persisted.fileTreeMode === 'browse'
+        ? persisted.fileTreeMode
+        : undefined,
+    sidebarPanelId:
+      typeof persisted.sidebarPanelId === 'string' &&
+      STATUS_ITEM_ID_PATTERN.test(persisted.sidebarPanelId)
+        ? persisted.sidebarPanelId
+        : undefined,
     // The IPC schema checks panes already; this scrubs a hand-edited file.
     savedLayout: normalizeSavedLayout(persisted.savedLayout),
     recentLinks: normalizeRecentLinks(persisted.recentLinks),
@@ -508,6 +520,8 @@ export function serializeWorkspace(
     linkedWorkspaceIds:
       w.linkedWorkspaceIds && w.linkedWorkspaceIds.length > 0 ? w.linkedWorkspaceIds : undefined,
     fileTreeOpen: w.fileTreeOpen,
+    fileTreeMode: w.fileTreeMode,
+    sidebarPanelId: w.sidebarPanelId || undefined,
     savedLayout: w.savedLayout,
     recentLinks: w.recentLinks && w.recentLinks.length > 0 ? w.recentLinks : undefined,
     virtualDesktops:

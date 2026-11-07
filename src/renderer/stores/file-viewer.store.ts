@@ -186,8 +186,11 @@ interface FileViewerState {
    * of the file tree. Choosing Diff or Files, or anything that shows the tree, hides it.
    */
   inlineSidebarPanelByWorkspace: Record<string, { id: string; shown: boolean }>;
-  /** Shows a sidebar panel in place of the file tree. */
-  showInlineSidebarPanel: (workspaceId: string, id: string) => void;
+  /**
+   * Shows a sidebar panel in place of the file tree, and saves that it does unless `save` is
+   * false, as when restoring what was saved.
+   */
+  showInlineSidebarPanel: (workspaceId: string, id: string, options?: { save?: boolean }) => void;
   /** Shows a sidebar panel, opening the sidebar first if it's closed, as a status item's click. */
   openInlineSidebarPanel: (workspaceId: string, id: string) => void;
   // Inline file tree panel actions
@@ -200,7 +203,8 @@ interface FileViewerState {
   setInlineFileTreeMode: (
     workspaceId: string,
     mode: 'diff' | 'browse',
-    options?: { keepSidebarPanel?: boolean }
+    /** `save` false sets the mode without saving it, as when restoring what was saved. */
+    options?: { keepSidebarPanel?: boolean; save?: boolean }
   ) => void;
   // Opens the inline file tree on its files and has it show a workspace folder.
   revealInFileTree: (workspaceId: string, folderPath: string) => void;
@@ -548,13 +552,15 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     });
   },
 
-  showInlineSidebarPanel: (workspaceId, id) => {
+  showInlineSidebarPanel: (workspaceId, id, options) => {
     set((state) => ({
       inlineSidebarPanelByWorkspace: {
         ...state.inlineSidebarPanelByWorkspace,
         [workspaceId]: { id, shown: true },
       },
     }));
+    if (options?.save === false) return;
+    window.api.updateWorkspace(workspaceId, { sidebarPanelId: id }).catch(() => {});
   },
 
   openInlineSidebarPanel: (workspaceId, id) => {
@@ -568,15 +574,15 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const { inlineFileTreeByWorkspace, inlineSidebarPanelByWorkspace } = get();
     const current = inlineFileTreeByWorkspace[workspaceId];
     const panel = inlineSidebarPanelByWorkspace[workspaceId];
+    const hidesPanel = panel?.shown && !options?.keepSidebarPanel;
     set({
       // The tree shows again; the panel's tab keeps the panel for next time.
-      ...(panel?.shown &&
-        !options?.keepSidebarPanel && {
-          inlineSidebarPanelByWorkspace: {
-            ...inlineSidebarPanelByWorkspace,
-            [workspaceId]: { ...panel, shown: false },
-          },
-        }),
+      ...(hidesPanel && {
+        inlineSidebarPanelByWorkspace: {
+          ...inlineSidebarPanelByWorkspace,
+          [workspaceId]: { ...panel, shown: false },
+        },
+      }),
       inlineFileTreeByWorkspace: {
         ...inlineFileTreeByWorkspace,
         [workspaceId]: {
@@ -587,8 +593,13 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         },
       },
     });
-    // Persist to workspace
-    window.api.updateWorkspace(workspaceId, { fileTreeMode: mode }).catch(() => {});
+    if (options?.save === false) return;
+    window.api
+      .updateWorkspace(workspaceId, {
+        fileTreeMode: mode,
+        ...(hidesPanel && { sidebarPanelId: null }),
+      })
+      .catch(() => {});
   },
 
   revealInFileTree: (workspaceId, folderPath) => {

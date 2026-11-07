@@ -7,7 +7,11 @@ import { afterEach } from 'vitest';
 
 if (typeof document !== 'undefined') {
   await import('@testing-library/jest-dom/vitest');
-  const { cleanup } = await import('@testing-library/react');
+  const { cleanup, configure } = await import('@testing-library/react');
+  // findBy* and waitFor give up after 1 s by default. A full `npm test`, with the Rust tests
+  // building beside it, can stall a worker that long, and a test that passed alone then fails.
+  // Waiting longer costs nothing while a test passes.
+  configure({ asyncUtilTimeout: 5000 });
   const React = await import('react');
 
   // React's development build captures a stack (an Error and a console task) for

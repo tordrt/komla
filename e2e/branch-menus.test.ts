@@ -131,14 +131,19 @@ test.describe('Branch menus', () => {
     await expect.poll(() => workspaceTarget(appWindow)).toBe('other');
 
     await appWindow.getByRole('button', { name: 'other', exact: true }).last().click();
+    // Off the menu, so the items Reset moves don't pass under the pointer, which focuses the menu.
+    await appWindow.mouse.move(0, 0);
     await expect(filter).toBeFocused();
+    // The branches load as the menu opens, below Reset.
+    const remote = appWindow.getByRole('menuitem', { name: /^Remote \(/ });
+    await expect(remote).toBeVisible();
     await appWindow.keyboard.press('ArrowDown');
     await expect(reset).toBeFocused();
     await appWindow.keyboard.press('Enter');
     await expect.poll(() => workspaceTarget(appWindow)).toBe(null);
     // Reset leaves with the reset, and the menu hands the focus to the item after it.
     await expect(reset).toBeHidden();
-    await expect(appWindow.getByRole('menuitem', { name: /^Remote \(/ })).toBeFocused();
+    await expect(remote).toBeFocused();
     await appWindow.keyboard.press('ArrowUp');
     await expect(filter).toBeFocused();
   });

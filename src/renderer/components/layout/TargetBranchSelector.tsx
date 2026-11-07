@@ -485,6 +485,14 @@ export function TargetBranchSelector({ inStatusBar = false }: TargetBranchSelect
               onClick={(e) => {
                 // Keeps the menu open, as on the old row.
                 e.preventDefault();
+                // The reset removes this item, so the focus moves to the one after it rather than
+                // leaving the menu, where the keyboard would no longer reach it.
+                const items = Array.from(
+                  e.currentTarget
+                    .closest('[role="menu"]')
+                    ?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-disabled])') ?? []
+                );
+                items[items.indexOf(e.currentTarget) + 1]?.focus();
                 void handleTargetBranchChange('');
               }}
             >

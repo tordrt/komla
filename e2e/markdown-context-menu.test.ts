@@ -165,13 +165,13 @@ test.describe('Markdown editor context menu', () => {
     appWindow,
   }) => {
     const { dialog, editor } = await openReadme(appWindow);
+    // Counts native menus without opening them: an open one holds macOS in its own event loop,
+    // so the app couldn't close after the test.
     await electronApp.evaluate(({ Menu }) => {
       const state = globalThis as unknown as { popups: number };
       state.popups = 0;
-      const { popup } = Menu.prototype;
-      Menu.prototype.popup = function (...args) {
+      Menu.prototype.popup = () => {
         state.popups += 1;
-        return popup.apply(this, args);
       };
     });
     const nativePopups = () =>

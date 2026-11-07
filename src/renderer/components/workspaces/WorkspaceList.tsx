@@ -563,7 +563,7 @@ function ShelfHeader({
       type="button"
       aria-expanded={expanded}
       onClick={onToggle}
-      className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
+      className="flex w-full items-center gap-1.5 rounded-xl py-1.5 pr-2 pl-2.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden"
     >
       <ShelfIcon aria-hidden="true" weight="bold" className="size-3" />
       {label}
@@ -639,8 +639,9 @@ function PaneEmptyState({
   );
 }
 
-// Docked at the bottom of the pane; one shelf opens at a time, growing up to half of it and
-// scrolling.
+// Docked at the bottom of the pane, as wide as the panels above it; one shelf opens at a time,
+// growing up to half of it and scrolling. A shelf showing cards sits on a panel, as a project does,
+// so it stands apart from the closed shelves' headers.
 function ShelfDock({
   shelves,
   compact,
@@ -658,13 +659,16 @@ function ShelfDock({
 }) {
   if (shelves.length === 0) return null;
   return (
-    <div className="flex max-h-1/2 shrink-0 flex-col border-t border-border/20 px-1.5 pt-1">
+    <div className="flex max-h-1/2 shrink-0 flex-col border-t border-border/20 pt-1 pr-0.5 pl-2.5">
       {shelves.map((shelf) => (
         <section
           key={shelf.key}
           aria-label={shelf.label}
           // Only a shelf showing cards gives up height; a closed one keeps its header.
-          className={cn('flex flex-col', shelf.shown.length > 0 ? 'min-h-0' : 'shrink-0')}
+          className={cn(
+            'flex flex-col',
+            shelf.shown.length > 0 ? ['my-1 min-h-0', SIDEBAR_PANEL_CLASS] : 'shrink-0'
+          )}
         >
           <ShelfHeader
             label={shelf.label}
@@ -678,6 +682,7 @@ function ShelfDock({
               type="scroll"
               className="min-h-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-scrollbar]]:w-1"
             >
+              {/* Room under the last card for the selected card's shadow, which the viewport clips. */}
               <div className={cn('pb-1', compact ? 'space-y-0.5' : 'space-y-1')}>
                 {shelf.shown.map(renderCard)}
                 {shelf.overflow > 0 && (
@@ -695,7 +700,7 @@ function ShelfDock({
           )}
           {/* Below the cards, so it stays in sight however many there are. */}
           {shelf.key === 'trash' && shelf.open && (
-            <div className="flex shrink-0 items-center justify-between gap-2 pb-1 pl-2.5 text-2xs text-muted-foreground">
+            <div className="flex shrink-0 items-center justify-between gap-2 pr-1 pb-1 pl-2.5 text-2xs text-muted-foreground">
               Deleted after {TRASH_RETENTION_DAYS} days
               <Button
                 variant="ghost"

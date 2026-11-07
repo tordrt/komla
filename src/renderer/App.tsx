@@ -142,16 +142,27 @@ function WorkArea({ banners, children }: { banners: React.ReactNode; children: R
 
   // The banner floats over the panes, so its height goes to `--banner-inset`: panes at the
   // work area's bottom pad by it, their own background running on under the banner. Written to
-  // the DOM, not React state, so the inset changes in the frame the banner does.
+  // the DOM, not React state, so the inset changes in the frame the banner does. The root gets it
+  // as `--window-banner-inset`, for what floats over the whole window above the banner, such as a
+  // settings change left waiting; a name of its own keeps it from padding what's portaled out of
+  // the work area.
   useLayoutEffect(() => {
     const workArea = workAreaRef.current;
     const layer = bannerLayerRef.current;
     if (!workArea || !layer || typeof ResizeObserver === 'undefined') return;
-    const update = () => workArea.style.setProperty('--banner-inset', `${layer.offsetHeight}px`);
+    const root = document.documentElement;
+    const update = () => {
+      const inset = `${layer.offsetHeight}px`;
+      workArea.style.setProperty('--banner-inset', inset);
+      root.style.setProperty('--window-banner-inset', inset);
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(layer);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--window-banner-inset');
+    };
   }, []);
 
   return (

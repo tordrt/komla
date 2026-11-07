@@ -7,12 +7,19 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingsApprovalDialog } from '../../../../src/renderer/components/layout/SettingsApprovalDialog';
+import { openWorkspace } from '../../../../src/renderer/lib/open-workspace';
 import { useCustomizationStore } from '../../../../src/renderer/stores/customization.store';
+import { useWindowStore } from '../../../../src/renderer/stores/window.store';
+import { useWorkspacesStore } from '../../../../src/renderer/stores/workspaces.store';
+import { createTerminal, createWorktreeWorkspace } from '../../../factories';
 
 import type { SettingsApprovalPrompt, ThemeConfig } from '../../../../src/shared/types';
 
 vi.mock('../../../../src/renderer/lib/monaco-loader', () => ({}));
 vi.mock('../../../../src/renderer/lib/terminal-renderer-runtime', () => ({}));
+vi.mock('../../../../src/renderer/lib/open-workspace', () => ({
+  openWorkspace: vi.fn().mockResolvedValue(undefined),
+}));
 
 const dialog = vi.hoisted(() => ({
   onOpenChange: undefined as ((open: boolean) => void) | undefined,
@@ -29,22 +36,38 @@ vi.mock('../../../../src/renderer/components/ui/dialog', () => ({
   },
   DialogContent: ({
     children,
+    onPointerDownOutside,
+    onFocusOutside,
     onInteractOutside,
-  }: React.PropsWithChildren<{ onInteractOutside?: (event: Event) => void }>) => (
-    <div>
-      {children}
-      <button
-        onClick={() => {
-          // Radix closes the dialog on an outside click unless the handler prevents it.
-          const event = new Event('interactoutside', { cancelable: true });
-          onInteractOutside?.(event);
-          if (!event.defaultPrevented) dialog.onOpenChange?.(false);
-        }}
-      >
-        Outside
-      </button>
-    </div>
-  ),
+    onCloseAutoFocus,
+  }: React.PropsWithChildren<{
+    onPointerDownOutside?: (event: Event) => void;
+    onFocusOutside?: (event: Event) => void;
+    onInteractOutside?: (event: Event) => void;
+    onCloseAutoFocus?: (event: Event) => void;
+  }>) => {
+    // Radix moves focus back once the dialog closes, unless the handler prevents it.
+    const closeAutoFocus = React.useRef(onCloseAutoFocus);
+    closeAutoFocus.current = onCloseAutoFocus;
+    React.useEffect(
+      () => () => closeAutoFocus.current?.(new Event('closeautofocus', { cancelable: true })),
+      []
+    );
+    // Radix closes the dialog on an outside press or focus unless a handler prevents it.
+    const outside = (handler?: (event: Event) => void) => () => {
+      const event = new Event('interactoutside', { cancelable: true });
+      handler?.(event);
+      onInteractOutside?.(event);
+      if (!event.defaultPrevented) dialog.onOpenChange?.(false);
+    };
+    return (
+      <div>
+        {children}
+        <button onClick={outside(onPointerDownOutside)}>Outside</button>
+        <button onClick={outside(onFocusOutside)}>Focus outside</button>
+      </div>
+    );
+  },
   DialogHeader: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   DialogFooter: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
   DialogDescription: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
@@ -98,6 +121,9 @@ describe('SettingsApprovalDialog', () => {
     } as typeof window.api;
     getTheme.mockResolvedValue(savedTheme);
     useCustomizationStore.setState({ theme: savedTheme });
+    useWorkspacesStore.setState({ workspaces: [] });
+    useWindowStore.setState({ windowId: 'window-1' });
+    vi.mocked(openWorkspace).mockClear();
   });
 
   it('shows proposed appearance until the user cancels it', async () => {
@@ -151,7 +177,7 @@ describe('SettingsApprovalDialog', () => {
     await waitFor(() => expect(useCustomizationStore.getState().theme).toBe(appliedTheme));
   });
 
-  it('keeps previewing when the user clicks outside the dialog', async () => {
+  it('keeps previewing while the user clicks outside the dialog to look around', async () => {
     const user = userEvent.setup();
     render(<SettingsApprovalDialog />);
     act(() => onRequested?.(appearancePrompt));
@@ -159,18 +185,224 @@ describe('SettingsApprovalDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Outside' }));
 
     expect(resolveSettingsApproval).not.toHaveBeenCalled();
-    expect(screen.getByRole('heading', { name: 'Review settings changes' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Review settings changes' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Settings changes waiting' })).toBeInTheDocument();
     expect(useCustomizationStore.getState().theme).toMatchObject({ palette: 'nord' });
   });
 
-  it('cancels a proposal without a preview when the user clicks outside the dialog', async () => {
+  it('keeps waiting for a decision when the user clicks outside the dialog', async () => {
     const user = userEvent.setup();
     render(<SettingsApprovalDialog />);
     act(() => onRequested?.({ ...appearancePrompt, id: 'approval-2', preview: undefined }));
 
     await user.click(screen.getByRole('button', { name: 'Outside' }));
 
-    expect(resolveSettingsApproval).toHaveBeenCalledWith('approval-2', 'cancel');
+    expect(resolveSettingsApproval).not.toHaveBeenCalled();
+    const waiting = screen.getByRole('region', { name: 'Settings changes waiting' });
+    await user.click(within(waiting).getByRole('button', { name: 'Review' }));
+    expect(screen.getByRole('heading', { name: 'Review settings changes' })).toBeInTheDocument();
+  });
+
+  it('stays open when focus moves outside the dialog', async () => {
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-8', preview: undefined }));
+
+    await user.click(screen.getByRole('button', { name: 'Focus outside' }));
+
+    expect(resolveSettingsApproval).not.toHaveBeenCalled();
+    expect(screen.getByRole('heading', { name: 'Review settings changes' })).toBeInTheDocument();
+  });
+
+  it('lifts toasts above the card left while the user looks around', async () => {
+    const user = userEvent.setup();
+    const root = document.documentElement;
+    render(<SettingsApprovalDialog />);
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-9', preview: undefined }));
+    expect(root.style.getPropertyValue('--toast-inset')).toBe('');
+
+    await user.click(screen.getByRole('button', { name: 'Look around first' }));
+    expect(root.style.getPropertyValue('--toast-inset')).not.toBe('');
+
+    const waiting = screen.getByRole('region', { name: 'Settings changes waiting' });
+    await user.click(within(waiting).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(root.style.getPropertyValue('--toast-inset')).toBe(''));
+  });
+
+  it('says the card is cancelling while the decision goes through', async () => {
+    resolveSettingsApproval.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-12', preview: undefined }));
+
+    await user.click(screen.getByRole('button', { name: 'Look around first' }));
+    const waiting = screen.getByRole('region', { name: 'Settings changes waiting' });
+    await user.click(within(waiting).getByRole('button', { name: 'Cancel' }));
+
+    expect(within(waiting).getByRole('button', { name: 'Cancelling…' })).toBeDisabled();
+    expect(within(waiting).getByRole('button', { name: 'Review' })).toBeDisabled();
+  });
+
+  it('moves focus to the card when the user looks around', async () => {
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-13', preview: undefined }));
+
+    await user.click(screen.getByRole('button', { name: 'Look around first' }));
+
+    const waiting = screen.getByRole('region', { name: 'Settings changes waiting' });
+    expect(within(waiting).getByRole('button', { name: 'Review' })).toHaveFocus();
+  });
+
+  it('cancels from the card left while the user looks around', async () => {
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-3', preview: undefined }));
+
+    await user.click(screen.getByRole('button', { name: 'Look around first' }));
+    const waiting = screen.getByRole('region', { name: 'Settings changes waiting' });
+    await user.click(within(waiting).getByRole('button', { name: 'Cancel' }));
+
+    expect(resolveSettingsApproval).toHaveBeenCalledWith('approval-3', 'cancel');
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('region', { name: 'Settings changes waiting' })
+      ).not.toBeInTheDocument()
+    );
+  });
+
+  it('names the terminal that asked and opens it without deciding', async () => {
+    const terminal = createTerminal({ id: 'terminal-1', name: 'Claude Code' });
+    const workspace = createWorktreeWorkspace({
+      id: 'workspace-1',
+      customName: 'Fix login redirect',
+      terminals: [terminal],
+    });
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() =>
+      onRequested?.({
+        ...appearancePrompt,
+        id: 'approval-4',
+        preview: undefined,
+        source: { workspaceId: 'workspace-1', terminalId: 'terminal-1' },
+      })
+    );
+
+    expect(screen.getByText('Fix login redirect')).toBeInTheDocument();
+    expect(screen.getByText('Claude Code')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show terminal' }));
+
+    expect(openWorkspace).toHaveBeenCalledWith(workspace, 'window-1', 'terminal-1');
+    expect(resolveSettingsApproval).not.toHaveBeenCalled();
+    const waiting = screen.getByRole('region', { name: 'Settings changes waiting' });
+    expect(within(waiting).getByText('Fix login redirect')).toBeInTheDocument();
+    await user.click(within(waiting).getByRole('button', { name: 'Review' }));
+    await user.click(screen.getByRole('button', { name: 'Apply changes' }));
+    expect(resolveSettingsApproval).toHaveBeenCalledWith('approval-4', 'apply');
+  });
+
+  it('names a terminal only once when its workspace is titled after it', () => {
+    const terminal = createTerminal({ id: 'terminal-1', name: 'Shell', dynamicTitle: 'npm test' });
+    const workspace = createWorktreeWorkspace({ id: 'workspace-1', terminals: [terminal] });
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    render(<SettingsApprovalDialog />);
+    act(() =>
+      onRequested?.({
+        ...appearancePrompt,
+        id: 'approval-7',
+        preview: undefined,
+        source: { workspaceId: 'workspace-1', terminalId: 'terminal-1' },
+      })
+    );
+
+    // Named as on its workspace's card, as the agent's own name beside the title.
+    expect(screen.getAllByText('npm test')).toHaveLength(1);
+    expect(screen.getByText('Shell')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show terminal' })).toBeInTheDocument();
+  });
+
+  it('names a workspace in the Trash without offering to open it', () => {
+    const workspace = createWorktreeWorkspace({
+      id: 'workspace-1',
+      customName: 'Old work',
+      status: 'trashed',
+      terminals: [],
+    });
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    render(<SettingsApprovalDialog />);
+    act(() =>
+      onRequested?.({
+        ...appearancePrompt,
+        id: 'approval-10',
+        preview: undefined,
+        source: { workspaceId: 'workspace-1' },
+      })
+    );
+
+    expect(screen.queryByRole('button', { name: /Show (terminal|workspace)/ })).not.toBeInTheDocument();
+  });
+
+  it('names who is waiting in the card to screen readers too', async () => {
+    const terminal = createTerminal({ id: 'terminal-1', name: 'Claude Code' });
+    const workspace = createWorktreeWorkspace({
+      id: 'workspace-1',
+      customName: 'Fix login redirect',
+      terminals: [terminal],
+    });
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() =>
+      onRequested?.({
+        ...appearancePrompt,
+        id: 'approval-11',
+        preview: undefined,
+        source: { workspaceId: 'workspace-1', terminalId: 'terminal-1' },
+      })
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Look around first' }));
+
+    const waiting = screen.getByRole('region', { name: 'Settings changes waiting' });
+    expect(
+      within(waiting).getByRole('button', { name: /Show terminal.*Fix login redirect.*Claude Code/ })
+    ).toBeInTheDocument();
+  });
+
+  it('opens the workspace that asked when its terminal is gone', async () => {
+    const workspace = createWorktreeWorkspace({
+      id: 'workspace-1',
+      customName: 'Docs',
+      terminals: [],
+    });
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() =>
+      onRequested?.({
+        ...appearancePrompt,
+        id: 'approval-5',
+        preview: undefined,
+        source: { workspaceId: 'workspace-1', terminalId: 'terminal-closed' },
+      })
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Show workspace' }));
+
+    expect(openWorkspace).toHaveBeenCalledWith(workspace, 'window-1', undefined);
+  });
+
+  it('cancels when the user presses Escape', () => {
+    render(<SettingsApprovalDialog />);
+    act(() => onRequested?.({ ...appearancePrompt, id: 'approval-6', preview: undefined }));
+
+    act(() => dialog.onOpenChange?.(false));
+
+    expect(resolveSettingsApproval).toHaveBeenCalledWith('approval-6', 'cancel');
   });
 
   it('restores the saved appearance when the agent stops waiting', async () => {

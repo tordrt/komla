@@ -625,6 +625,7 @@ describe('HttpServerService', () => {
         resource: 'automations',
         target: 'Scoped Project Automations',
         changes: [{ operation: 'add', kind: 'automation', title: 'Nightly deps' }],
+        source: { workspaceId: 'workspace-1', terminalId: 'terminal-1' },
       });
 
       settingsApprovalService.resolve(prompt.id, 'apply', window.webContents.id);
@@ -839,6 +840,7 @@ describe('HttpServerService', () => {
         target: 'web settings',
         description: 'Another computer changed web’s settings on Devbox.',
       });
+      expect(prompt).not.toHaveProperty('source');
       expect(window.show).not.toHaveBeenCalled();
       expect(window.focus).not.toHaveBeenCalled();
       expect(electronMock.app.focus).not.toHaveBeenCalled();

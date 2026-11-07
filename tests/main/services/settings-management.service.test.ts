@@ -397,6 +397,64 @@ describe('SettingsManagementService', () => {
     });
   });
 
+  it('names the terminal asking for approval only when it is in the workspace the request is about', async () => {
+    const { service, approve } = fixture();
+    const desired = {
+      setupSteps: [{ name: 'Install', command: 'npm install', placement: 'background' as const }],
+      agentPlacement: 'tab' as const,
+      agentLayoutOrder: 0,
+      trashCleanupScript: '',
+    };
+
+    await service.proposeWorkspaceSetup({ terminalId: 'terminal-1' }, desired);
+    expect(approve).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        workspace: expect.objectContaining({ id: 'workspace-1' }),
+        terminalId: 'terminal-1',
+      }),
+      undefined
+    );
+
+    await service.proposeWorkspaceSetup(
+      { terminalId: 'unknown', cwd: '/repo' },
+      { ...desired, trashCleanupScript: 'rm -rf node_modules' }
+    );
+    expect(approve).toHaveBeenCalledTimes(2);
+    expect(approve).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspace: expect.objectContaining({ id: 'workspace-1' }) }),
+      undefined
+    );
+    expect(approve.mock.lastCall?.[0]).not.toHaveProperty('terminalId');
+  });
+
+  it('names the terminal that proposed Global Quick Commands, though they belong to no project', async () => {
+    const { service, approve } = fixture();
+
+    await service.proposeActions({ terminalId: 'terminal-1' }, 'global', {
+      actions: [{ title: 'New', content: 'new prompt', type: 'prompt' }],
+    });
+
+    expect(approve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: expect.objectContaining({ id: 'workspace-1' }),
+        terminalId: 'terminal-1',
+      }),
+      undefined
+    );
+  });
+
+  it('names no source a forwarded SSH host could not have sent from', async () => {
+    const { service, approve } = fixture();
+
+    await service.proposeActions({ terminalId: 'terminal-1', sshHostId: 'host-1' }, 'global', {
+      actions: [{ title: 'New', content: 'new prompt', type: 'prompt' }],
+    });
+
+    const request = approve.mock.lastCall?.[0];
+    expect(request).not.toHaveProperty('workspace');
+    expect(request).not.toHaveProperty('terminalId');
+  });
+
   it('applies an approved complete Global Actions proposal and generates IDs', async () => {
     const { service, approve, getActions } = fixture();
     const result = await service.proposeActions({}, 'global', {
@@ -974,6 +1032,7 @@ describe('SettingsManagementService', () => {
         {
           resource: 'hooks',
           workspace,
+          terminalId: 'terminal-1',
           changes: [
             {
               operation: 'add',
@@ -1102,6 +1161,7 @@ describe('SettingsManagementService', () => {
         {
           resource: 'appearance',
           workspace,
+          terminalId: 'terminal-1',
           preview: desired,
           changes: [
             {
@@ -1758,6 +1818,7 @@ describe('SettingsManagementService', () => {
           resource: 'automations',
           project: { id: 'project-1', name: 'Komla' },
           workspace,
+          terminalId: 'terminal-1',
           changes: [
             {
               operation: 'change',

@@ -285,6 +285,8 @@ describe('ToastContainer next to a native browser preview', () => {
 
     expect(stack()).toHaveClass('left-4', 'toast-stack-left');
     expect(stack()).not.toHaveAttribute('data-native-overlay');
+    // What waits in the bottom-right corner, such as a settings change, leaves this one free.
+    expect(stack().className).not.toContain('--toast-inset');
   });
 
   it('returns to the bottom-right corner once the preview goes away', () => {

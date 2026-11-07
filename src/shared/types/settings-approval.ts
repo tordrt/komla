@@ -70,6 +70,8 @@ export interface SettingsApprovalPrompt {
   warning?: string;
   /** Appearance the window shows while the user decides, and keeps if they apply it. */
   preview?: AppearanceSettings;
+  /** The workspace the request came from, and its terminal when a managed one sent it. */
+  source?: { workspaceId: string; terminalId?: string };
 }
 
 export type SettingsApprovalDecision = 'apply' | 'cancel';

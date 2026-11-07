@@ -320,8 +320,11 @@ export function ToastContainer() {
       {hasToasts && (
         <div
           ref={stackRef}
-          className={`pointer-events-none fixed bottom-[calc(1rem_+_var(--status-bar-height,0px))] z-[100] flex flex-col gap-2 ${
-            placement === 'left' ? 'toast-stack-left left-4' : 'right-4'
+          className={`pointer-events-none fixed z-[100] flex flex-col gap-2 ${
+            placement === 'left'
+              ? 'toast-stack-left bottom-[calc(1rem_+_var(--status-bar-height,0px))] left-4'
+              : // What waits in this corner, such as a settings change, sets --toast-inset.
+                'right-4 bottom-[calc(1rem_+_var(--status-bar-height,0px)_+_var(--toast-inset,0px))]'
           } ${
             // While the overlay layer draws the toasts, any part of this copy
             // outside the preview would show as a second toast.

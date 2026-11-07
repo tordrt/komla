@@ -180,6 +180,8 @@ export interface SettingsApprovalRequest {
   scope?: SettingsActionScope;
   project?: { id: string; name: string };
   workspace?: Workspace;
+  /** The terminal in `workspace` that sent the request. */
+  terminalId?: string;
   changes: SettingsApprovalChange[];
   multiProjectWarning?: string;
   warning?: string;
@@ -519,7 +521,8 @@ export class SettingsManagementService {
           resource: 'actions',
           scope,
           project: resolved ? { id: resolved.project.id, name: resolved.project.name } : undefined,
-          workspace: resolved?.workspace,
+          // Global Quick Commands belong to no project, so their caller is found apart from it.
+          ...this.askedFrom(context, resolved ? resolved.workspace : this.findWorkspace(context)),
           changes,
           multiProjectWarning: this.multiProjectWarning(all, next),
         },
@@ -604,7 +607,7 @@ export class SettingsManagementService {
         {
           resource: 'workspace-setup',
           project: { id: resolved.project.id, name: resolved.project.name },
-          workspace: resolved.workspace,
+          ...this.askedFrom(context, resolved.workspace),
           changes: this.describeSetupChanges(workspaceSetup(resolved.project), normalized),
         },
         signal
@@ -679,7 +682,7 @@ export class SettingsManagementService {
         {
           resource: 'automations',
           project: { id: project.id, name: project.name },
-          workspace: resolved.workspace,
+          ...this.askedFrom(context, resolved.workspace),
           changes: plan.changes,
           ...(plan.startsAgents && {
             warning: automationsWarning(plan.skipPrompts),
@@ -1194,7 +1197,7 @@ export class SettingsManagementService {
       const approved = await this.deps.approve(
         {
           resource: 'appearance',
-          workspace: this.findWorkspace(context),
+          ...this.askedFrom(context, this.findWorkspace(context)),
           changes: this.describeAppearanceChanges(current, desired, shows),
           preview: desired,
         },
@@ -1324,7 +1327,7 @@ export class SettingsManagementService {
       const approved = await this.deps.approve(
         {
           resource,
-          workspace: this.findWorkspace(context),
+          ...this.askedFrom(context, this.findWorkspace(context)),
           changes: prepared.changes,
           ...(prepared.warning && { warning: prepared.warning }),
         },
@@ -1720,6 +1723,25 @@ export class SettingsManagementService {
     const message =
       error instanceof SettingsManagementError ? error.message : 'Failed to update settings.';
     this.deps.feedback(message, this.findWorkspace(context));
+  }
+
+  /** Where an approval comes from: the workspace, and the terminal in it that sent the request. */
+  private askedFrom(
+    context: SettingsRequestContext,
+    workspace: Workspace | undefined
+  ): Pick<SettingsApprovalRequest, 'workspace' | 'terminalId'> {
+    if (!workspace) return {};
+    // A forwarded SSH host can only ask from its own workspaces; naming another would vouch for it.
+    if (
+      context.sshHostId &&
+      (workspace.backend?.kind !== 'ssh' || workspace.backend.hostId !== context.sshHostId)
+    ) {
+      return {};
+    }
+    const sentFromIt =
+      context.terminalId !== undefined &&
+      this.deps.workspaces.findWorkspaceByTerminalId(context.terminalId)?.id === workspace.id;
+    return { workspace, ...(sentFromIt && { terminalId: context.terminalId }) };
   }
 
   // The caller's workspace when it has one, so Komla asks in that workspace's window.

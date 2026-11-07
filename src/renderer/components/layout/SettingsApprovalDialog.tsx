@@ -1,5 +1,13 @@
-import { ShieldCheck } from '@phosphor-icons/react';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { ArrowRight, ShieldCheck, TerminalWindow } from '@phosphor-icons/react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,12 +20,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { agentName } from '@/components/workspaces/AgentDetails';
 import { longestCommonSubsequence } from '@/lib/longest-common-subsequence';
+import { openWorkspace } from '@/lib/open-workspace';
 import { endAppearancePreview, previewAppearance } from '@/lib/theme-palette';
 import { cn } from '@/lib/utils';
+import { useWindowStore } from '@/stores/window.store';
+import { useWorkspacesStore } from '@/stores/workspaces.store';
+
+import { getWorkspaceDisplayTitle } from '../../../shared/lib/workspace-title';
 
 import type { BadgeTone } from '@/components/ui/badge';
-import type { SettingsApprovalDecision, SettingsApprovalPrompt } from '@/types';
+import type {
+  SettingsApprovalDecision,
+  SettingsApprovalPrompt,
+  Terminal,
+  Workspace,
+} from '@/types';
 
 const operationLabels = {
   add: 'Add',
@@ -161,13 +180,142 @@ function ContentDiff({ label, before, after }: { label: string; before: string; 
   );
 }
 
+/** The workspace a prompt came from, while it's open, and its terminal while that's open too. */
+function usePromptSource(
+  prompt: SettingsApprovalPrompt | undefined
+): { workspace: Workspace; terminal?: Terminal } | undefined {
+  const workspaceId = prompt?.source?.workspaceId;
+  const workspace = useWorkspacesStore((state) =>
+    workspaceId ? state.workspaces.find((candidate) => candidate.id === workspaceId) : undefined
+  );
+  // Opening one in the Trash would restore it, which looking at where a request came from shouldn't.
+  if (workspace?.status !== 'active') return undefined;
+  const terminalId = prompt?.source?.terminalId;
+  const terminal = terminalId
+    ? workspace.terminals.find((candidate) => candidate.id === terminalId)
+    : undefined;
+  return { workspace, terminal };
+}
+
+/** The workspace and terminal, named as on the workspace's card. */
+function SourceName({ workspace, terminal }: { workspace: Workspace; terminal?: Terminal }) {
+  const terminalName = terminal && agentName({ workspace, terminal });
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <TerminalWindow aria-hidden="true" className="size-3.5 shrink-0" />
+      <span className="truncate font-medium text-foreground">
+        {getWorkspaceDisplayTitle(workspace)}
+      </span>
+      {terminalName && (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="truncate">{terminalName}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/** Keeps toasts, which share the card's corner, stacked above it while it shows. */
+function useToastsAbove(card: RefObject<HTMLElement | null>): void {
+  useLayoutEffect(() => {
+    const element = card.current;
+    if (!element) return;
+    const root = document.documentElement;
+    const update = () =>
+      root.style.setProperty(
+        '--toast-inset',
+        `calc(${element.offsetHeight}px + 0.5rem + var(--window-banner-inset, 0px))`
+      );
+    update();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
+    observer?.observe(element);
+    return () => {
+      observer?.disconnect();
+      root.style.removeProperty('--toast-inset');
+    };
+  }, [card]);
+}
+
+/** What stays on screen while the user looks around Komla before deciding. */
+function WaitingCard({
+  prompt,
+  source,
+  submitting,
+  reviewRef,
+  onShowSource,
+  onReview,
+  onCancel,
+}: {
+  prompt: SettingsApprovalPrompt;
+  source: ReturnType<typeof usePromptSource>;
+  submitting: SettingsApprovalDecision | null;
+  reviewRef: RefObject<HTMLButtonElement | null>;
+  onShowSource: () => void;
+  onReview: () => void;
+  onCancel: () => void;
+}) {
+  const titleId = useId();
+  const cardRef = useRef<HTMLElement>(null);
+  useToastsAbove(cardRef);
+  return (
+    <section
+      ref={cardRef}
+      aria-labelledby={titleId}
+      // A browser preview under the card steps aside for it, as for a dialog.
+      data-native-overlay="settings-approval"
+      className="floating-surface fixed right-4 bottom-[calc(1rem_+_var(--status-bar-height,0px)_+_var(--window-banner-inset,0px))] z-50 w-80 rounded-[calc(var(--radius)+2px)] border p-3 shadow-xl animate-in fade-in-0 slide-in-from-bottom-2"
+    >
+      <div className="flex items-start gap-2.5">
+        <div className="rounded-md bg-primary/10 p-1.5 text-primary">
+          <ShieldCheck className="size-4" weight="duotone" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-0.5 text-xs text-muted-foreground">
+          <h2 id={titleId} className="text-sm font-semibold text-foreground">
+            Settings changes waiting
+          </h2>
+          <p className="truncate">
+            {prompt.target}
+            {prompt.preview && ' · previewing'}
+          </p>
+          {source && (
+            <button
+              type="button"
+              className="flex max-w-full items-center rounded-sm hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+              onClick={onShowSource}
+            >
+              <span className="sr-only">
+                {source.terminal ? 'Show terminal: ' : 'Show workspace: '}
+              </span>
+              <SourceName {...source} />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 flex justify-end gap-2">
+        <Button variant="outline" size="sm" disabled={submitting !== null} onClick={onCancel}>
+          {submitting === 'cancel' ? 'Cancelling…' : 'Cancel'}
+        </Button>
+        <Button ref={reviewRef} size="sm" disabled={submitting !== null} onClick={onReview}>
+          Review
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 export function SettingsApprovalDialog() {
   const [queue, setQueue] = useState<SettingsApprovalPrompt[]>([]);
   const [submitting, setSubmitting] = useState<SettingsApprovalDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Long lists start collapsed; the prompt the user expanded stays expanded.
   const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null);
+  // The prompt the user stepped away from to look around Komla, which waits in a card meanwhile.
+  const [steppedAwayFromId, setSteppedAwayFromId] = useState<string | null>(null);
+  const currentWindowId = useWindowStore((state) => state.windowId);
   const active = queue[0];
+  const source = usePromptSource(active);
+  const steppedAway = active !== undefined && steppedAwayFromId === active.id;
   const showAllChanges = active !== undefined && expandedPromptId === active.id;
   const visibleChanges =
     (showAllChanges ? active.changes : active?.changes.slice(0, MAX_VISIBLE_CHANGES)) ?? [];
@@ -209,6 +357,8 @@ export function SettingsApprovalDialog() {
       await window.api.resolveSettingsApproval(id, decision);
       setQueue((current) => current.filter((prompt) => prompt.id !== id));
     } catch (decisionError) {
+      // The error shows in the dialog, not the card.
+      setSteppedAwayFromId(null);
       setError(
         decisionError instanceof Error
           ? decisionError.message
@@ -219,165 +369,236 @@ export function SettingsApprovalDialog() {
     }
   };
 
+  // Where focus goes once the dialog steps aside: left where the user went, or to the card, since
+  // what had it before the dialog opened may be gone, such as the card's own Review button.
+  const focusAfterStepAwayRef = useRef<'left' | 'card' | null>(null);
+  const reviewRef = useRef<HTMLButtonElement>(null);
+  const stepAway = (focusMovedOn = false) => {
+    if (!active) return;
+    focusAfterStepAwayRef.current = focusMovedOn ? 'left' : 'card';
+    setSteppedAwayFromId(active.id);
+  };
+
+  const showSource = () => {
+    if (!source) return;
+    stepAway(true);
+    void openWorkspace(source.workspace, currentWindowId, source.terminal?.id);
+  };
+
   return (
-    <Dialog
-      open={Boolean(active)}
-      onOpenChange={(open) => {
-        if (!open) void decide('cancel');
-      }}
-    >
-      <DialogContent
-        className="max-w-2xl gap-0 overflow-hidden p-0"
-        showCloseButton={false}
-        // A preview needs the window behind the dialog to stay visible.
-        overlayClassName={preview ? 'bg-black/10' : undefined}
-        // Clicking the previewed window to look closer shouldn't cancel the change.
-        onInteractOutside={preview ? (event) => event.preventDefault() : undefined}
+    <>
+      {active && steppedAway && (
+        <WaitingCard
+          prompt={active}
+          source={source}
+          submitting={submitting}
+          reviewRef={reviewRef}
+          onShowSource={showSource}
+          onReview={() => setSteppedAwayFromId(null)}
+          onCancel={() => void decide('cancel')}
+        />
+      )}
+      <Dialog
+        open={Boolean(active) && !steppedAway}
+        onOpenChange={(open) => {
+          if (!open) void decide('cancel');
+        }}
       >
-        {active && (
-          <>
-            <DialogHeader className="border-b border-border px-5 py-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-md bg-primary/10 p-1.5 text-primary">
-                  <ShieldCheck className="size-4" weight="duotone" />
-                </div>
-                <div className="min-w-0 space-y-1">
-                  <DialogTitle>Review settings changes</DialogTitle>
-                  <DialogDescription>
-                    {active.description ?? (
-                      <>
-                        An agent wants Komla to update{' '}
-                        <span className="font-medium text-foreground">{active.target}</span>.
-                      </>
-                    )}
-                    {preview && ' Komla is previewing it; nothing is saved until you apply it.'}
-                  </DialogDescription>
-                </div>
-              </div>
-            </DialogHeader>
-
-            {active.warning && (
-              <div className="border-b border-border px-5 py-3">
-                <Callout tone="warning">{active.warning}</Callout>
-              </div>
-            )}
-
-            <div className="max-h-[60vh] overflow-y-auto bg-muted/10 px-5">
-              <div className="divide-y divide-border/70">
-                {visibleChanges.map((change, index) => {
-                  const typeDetail = change.details.find((detail) => detail.label === 'Type');
-                  const supportingDetails = change.details.filter(
-                    (detail) => detail.label !== 'Type'
-                  );
-
-                  return (
-                    <section
-                      key={`${change.kind}:${change.title}:${index}`}
-                      className="py-3.5 first:pt-3 last:pb-3"
-                    >
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="text-sm leading-5 font-semibold break-words text-foreground">
-                            {change.title}
-                          </h3>
-                          <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-                            <span className="capitalize">{change.kind.replaceAll('-', ' ')}</span>
-                            {(typeDetail?.value || change.contentLabel) && (
-                              <>
-                                <span aria-hidden="true">·</span>
-                                <span>{typeDetail?.value ?? change.contentLabel}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <Badge tone={operationTones[change.operation]} size="md">
-                          {operationLabels[change.operation]}
-                        </Badge>
+        <DialogContent
+          // One column no wider than the dialog, so a long workspace title truncates rather than
+          // widening it.
+          className="max-w-2xl grid-cols-1 gap-0 overflow-hidden p-0"
+          showCloseButton={false}
+          // A preview needs the window behind the dialog to stay visible.
+          overlayClassName={preview ? 'bg-black/10' : undefined}
+          // Clicking Komla behind the dialog means looking around before deciding, not cancelling.
+          onPointerDownOutside={(event) => {
+            event.preventDefault();
+            stepAway(true);
+          }}
+          // Focus leaving on its own, as when a terminal takes it, is neither.
+          onFocusOutside={(event) => event.preventDefault()}
+          // Once it steps aside, focus goes where stepAway said; a decision returns it as usual.
+          onCloseAutoFocus={(event) => {
+            const focusAfter = focusAfterStepAwayRef.current;
+            focusAfterStepAwayRef.current = null;
+            if (!focusAfter) return;
+            event.preventDefault();
+            if (focusAfter === 'card') reviewRef.current?.focus();
+          }}
+        >
+          {active && (
+            <>
+              <DialogHeader className="border-b border-border px-5 py-4">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-md bg-primary/10 p-1.5 text-primary">
+                    <ShieldCheck className="size-4" weight="duotone" />
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <DialogTitle>Review settings changes</DialogTitle>
+                    <DialogDescription>
+                      {active.description ?? (
+                        <>
+                          An agent wants Komla to update{' '}
+                          <span className="font-medium text-foreground">{active.target}</span>.
+                        </>
+                      )}
+                      {preview && ' Komla is previewing it; nothing is saved until you apply it.'}
+                    </DialogDescription>
+                    {source && (
+                      <div className="flex min-w-0 items-center gap-2 pt-1 text-xs text-muted-foreground">
+                        <span className="shrink-0">From</span>
+                        <SourceName {...source} />
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto shrink-0 gap-1 p-0 text-xs"
+                          onClick={showSource}
+                        >
+                          {source.terminal ? 'Show terminal' : 'Show workspace'}
+                          <ArrowRight aria-hidden="true" className="size-3" />
+                        </Button>
                       </div>
+                    )}
+                  </div>
+                </div>
+              </DialogHeader>
 
-                      {change.content !== undefined && (
-                        <pre className={cn('mt-2 px-2.5 py-1.5', codeBlockClassName)}>
-                          {change.content}
-                        </pre>
-                      )}
-
-                      {change.moreContent?.map((more) =>
-                        more.previous === undefined ? (
-                          <LabeledContent key={more.label} label={more.label}>
-                            <pre className={cn('mt-1 px-2.5 py-1.5', codeBlockClassName)}>
-                              {more.content}
-                            </pre>
-                          </LabeledContent>
-                        ) : (
-                          <ContentDiff
-                            key={more.label}
-                            label={more.label}
-                            before={more.previous}
-                            after={more.content}
-                          />
-                        )
-                      )}
-
-                      {supportingDetails.length > 0 && (
-                        <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                          {supportingDetails.map((detail) => (
-                            <div key={detail.label} className="flex min-w-0 gap-1">
-                              <dt className="shrink-0 text-muted-foreground">{detail.label}:</dt>
-                              <dd className="flex min-w-0 flex-wrap items-baseline gap-x-1 font-medium break-words text-foreground">
-                                {detail.previous !== undefined && (
-                                  <>
-                                    <del className="font-normal text-muted-foreground">
-                                      {detail.previous}
-                                    </del>
-                                    <span aria-hidden="true" className="text-muted-foreground">
-                                      →
-                                    </span>
-                                  </>
-                                )}
-                                <span>{detail.value}</span>
-                              </dd>
-                            </div>
-                          ))}
-                        </dl>
-                      )}
-                    </section>
-                  );
-                })}
-              </div>
-
-              {hiddenChangeCount > 0 && (
-                <div className="border-t border-border/70 py-2 text-center">
-                  <Button variant="ghost" size="sm" onClick={() => setExpandedPromptId(active.id)}>
-                    Show all {active.changes.length} changes
-                  </Button>
+              {active.warning && (
+                <div className="border-b border-border px-5 py-3">
+                  <Callout tone="warning">{active.warning}</Callout>
                 </div>
               )}
-            </div>
 
-            {error && (
-              <div className="border-t border-border px-5 py-3">
-                <Callout tone="error" role="alert">
-                  {error}
-                </Callout>
+              <div className="max-h-[60vh] overflow-y-auto bg-muted/10 px-5">
+                <div className="divide-y divide-border/70">
+                  {visibleChanges.map((change, index) => {
+                    const typeDetail = change.details.find((detail) => detail.label === 'Type');
+                    const supportingDetails = change.details.filter(
+                      (detail) => detail.label !== 'Type'
+                    );
+
+                    return (
+                      <section
+                        key={`${change.kind}:${change.title}:${index}`}
+                        className="py-3.5 first:pt-3 last:pb-3"
+                      >
+                        <div className="flex min-w-0 items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="text-sm leading-5 font-semibold break-words text-foreground">
+                              {change.title}
+                            </h3>
+                            <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+                              <span className="capitalize">{change.kind.replaceAll('-', ' ')}</span>
+                              {(typeDetail?.value || change.contentLabel) && (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span>{typeDetail?.value ?? change.contentLabel}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <Badge tone={operationTones[change.operation]} size="md">
+                            {operationLabels[change.operation]}
+                          </Badge>
+                        </div>
+
+                        {change.content !== undefined && (
+                          <pre className={cn('mt-2 px-2.5 py-1.5', codeBlockClassName)}>
+                            {change.content}
+                          </pre>
+                        )}
+
+                        {change.moreContent?.map((more) =>
+                          more.previous === undefined ? (
+                            <LabeledContent key={more.label} label={more.label}>
+                              <pre className={cn('mt-1 px-2.5 py-1.5', codeBlockClassName)}>
+                                {more.content}
+                              </pre>
+                            </LabeledContent>
+                          ) : (
+                            <ContentDiff
+                              key={more.label}
+                              label={more.label}
+                              before={more.previous}
+                              after={more.content}
+                            />
+                          )
+                        )}
+
+                        {supportingDetails.length > 0 && (
+                          <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                            {supportingDetails.map((detail) => (
+                              <div key={detail.label} className="flex min-w-0 gap-1">
+                                <dt className="shrink-0 text-muted-foreground">{detail.label}:</dt>
+                                <dd className="flex min-w-0 flex-wrap items-baseline gap-x-1 font-medium break-words text-foreground">
+                                  {detail.previous !== undefined && (
+                                    <>
+                                      <del className="font-normal text-muted-foreground">
+                                        {detail.previous}
+                                      </del>
+                                      <span aria-hidden="true" className="text-muted-foreground">
+                                        →
+                                      </span>
+                                    </>
+                                  )}
+                                  <span>{detail.value}</span>
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                      </section>
+                    );
+                  })}
+                </div>
+
+                {hiddenChangeCount > 0 && (
+                  <div className="border-t border-border/70 py-2 text-center">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setExpandedPromptId(active.id)}
+                    >
+                      Show all {active.changes.length} changes
+                    </Button>
+                  </div>
+                )}
               </div>
-            )}
 
-            <DialogFooter className="border-t border-border px-5 py-3">
-              <Button
-                variant="outline"
-                autoFocus
-                disabled={submitting !== null}
-                onClick={() => void decide('cancel')}
-              >
-                {submitting === 'cancel' ? 'Cancelling…' : 'Cancel'}
-              </Button>
-              <Button disabled={submitting !== null} onClick={() => void decide('apply')}>
-                {submitting === 'apply' ? 'Applying…' : 'Apply changes'}
-              </Button>
-            </DialogFooter>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+              {error && (
+                <div className="border-t border-border px-5 py-3">
+                  <Callout tone="error" role="alert">
+                    {error}
+                  </Callout>
+                </div>
+              )}
+
+              <DialogFooter className="border-t border-border px-5 py-3">
+                <Button
+                  variant="ghost"
+                  className="sm:mr-auto"
+                  disabled={submitting !== null}
+                  onClick={() => stepAway()}
+                >
+                  Look around first
+                </Button>
+                <Button
+                  variant="outline"
+                  autoFocus
+                  disabled={submitting !== null}
+                  onClick={() => void decide('cancel')}
+                >
+                  {submitting === 'cancel' ? 'Cancelling…' : 'Cancel'}
+                </Button>
+                <Button disabled={submitting !== null} onClick={() => void decide('apply')}>
+                  {submitting === 'apply' ? 'Applying…' : 'Apply changes'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

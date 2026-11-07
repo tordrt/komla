@@ -102,6 +102,12 @@ class SettingsApprovalService {
         : {}),
       ...(request.preview ? { preview: request.preview } : {}),
       ...(request.description ? { description: request.description } : {}),
+      ...(request.workspace && {
+        source: {
+          workspaceId: request.workspace.id,
+          ...(request.terminalId && { terminalId: request.terminalId }),
+        },
+      }),
     };
     return new Promise<SettingsApprovalDecision | 'unanswered'>((resolve) => {
       let settled = false;

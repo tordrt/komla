@@ -389,11 +389,18 @@ describe('App', () => {
         act(() => observed.get(bannerLayer)?.());
       };
 
+      const root = document.documentElement;
+
       resize(50);
       expect(workArea.style.getPropertyValue('--banner-inset')).toBe('50px');
+      // For what floats over the whole window, such as a settings change left waiting, under a
+      // name of its own so nothing portaled out of the work area pads by it.
+      expect(root.style.getPropertyValue('--window-banner-inset')).toBe('50px');
+      expect(root.style.getPropertyValue('--banner-inset')).toBe('');
 
       resize(0);
       expect(workArea.style.getPropertyValue('--banner-inset')).toBe('0px');
+      expect(root.style.getPropertyValue('--window-banner-inset')).toBe('0px');
     } finally {
       vi.unstubAllGlobals();
     }

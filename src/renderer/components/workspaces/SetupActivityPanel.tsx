@@ -2,12 +2,15 @@ import {
   ArrowClockwise,
   CaretRight,
   CheckCircle,
+  Copy,
+  CornersOut,
   Stop,
   WarningCircle,
   X,
 } from '@phosphor-icons/react';
 import React from 'react';
 
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { IconButton, ignoreFocusAfterPointer } from '@/components/ui/icon-button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Spinner } from '@/components/ui/spinner';
@@ -120,6 +123,9 @@ export function SetupActivityIndicator({
   const hasProblem = runs.some((run) => run.state === 'failed' || run.state === 'unsupported');
   const [showSuccess, setShowSuccess] = React.useState(false);
   const wasActive = React.useRef(Boolean(activeRun));
+  const [panelOpen, setPanelOpen] = React.useState(false);
+  const [viewedRunId, setViewedRunId] = React.useState<string>();
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   React.useEffect(() => {
     let hideTimer: ReturnType<typeof setTimeout> | undefined;
@@ -135,7 +141,29 @@ export function SetupActivityIndicator({
     };
   }, [activeRun, hasProblem, hasSucceeded]);
 
-  if (!activeRun && !showSuccess && !hasProblem) return null;
+  const visible = Boolean(activeRun) || showSuccess || hasProblem;
+  // The panel closes as the indicator leaves, so it doesn't open by itself when it shows again.
+  React.useEffect(() => {
+    if (!visible) setPanelOpen(false);
+  }, [visible]);
+
+  // The larger view of a run's output outlives the panel, and the indicator too once the run
+  // ends, until the user closes it or dismisses the run.
+  const viewedRun = runs.find((run) => run.id === viewedRunId);
+  const outputDialog = viewedRun && (
+    <RunOutputDialog
+      run={viewedRun}
+      onClose={() => setViewedRunId(undefined)}
+      onCloseAutoFocus={(event) => {
+        if (!triggerRef.current) return;
+        event.preventDefault();
+        triggerRef.current.focus();
+      }}
+    />
+  );
+
+  // The dialog stays first in both shapes, so the indicator leaving doesn't remount it.
+  if (!visible) return <>{outputDialog}</>;
 
   const problemRuns = runs.filter((run) => run.state === 'failed' || run.state === 'unsupported');
   const latestProblemRun = problemRuns.reduce<SetupActivityRun | undefined>(
@@ -160,40 +188,51 @@ export function SetupActivityIndicator({
   });
 
   return (
-    <Popover>
-      <OptionalTooltip label={compact ? label : undefined}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label={ariaLabel}
-            className={cn(
-              'no-drag flex h-7 shrink-0 items-center gap-1.5 px-1.5 text-ui font-medium transition-colors',
-              status === 'problem'
-                ? hasFailure
-                  ? 'text-error hover:text-error/80'
-                  : 'text-warning hover:text-warning/80'
-                : status === 'running'
-                  ? 'text-muted-foreground hover:text-foreground'
-                  : 'text-success hover:text-success/80'
-            )}
-          >
-            {status === 'problem' ? (
-              <WarningCircle className="size-3" weight="fill" />
-            ) : status === 'running' ? (
-              <Spinner size="xs" />
-            ) : (
-              <CheckCircle className="size-3" weight="fill" />
-            )}
-            <span {...{ [ACTIVITY_LABEL_ATTRIBUTE]: '' }} className={cn(compact && 'sr-only')}>
-              {label}
-            </span>
-          </button>
-        </PopoverTrigger>
-      </OptionalTooltip>
-      <PopoverContent align="end" className="w-96 p-0 text-xs">
-        <SetupActivityPanel workspace={workspace} runs={visibleRuns} />
-      </PopoverContent>
-    </Popover>
+    <>
+      {outputDialog}
+      <Popover open={panelOpen} onOpenChange={setPanelOpen}>
+        <OptionalTooltip label={compact ? label : undefined}>
+          <PopoverTrigger asChild>
+            <button
+              ref={triggerRef}
+              type="button"
+              aria-label={ariaLabel}
+              className={cn(
+                'no-drag flex h-7 shrink-0 items-center gap-1.5 px-1.5 text-ui font-medium transition-colors',
+                status === 'problem'
+                  ? hasFailure
+                    ? 'text-error hover:text-error/80'
+                    : 'text-warning hover:text-warning/80'
+                  : status === 'running'
+                    ? 'text-muted-foreground hover:text-foreground'
+                    : 'text-success hover:text-success/80'
+              )}
+            >
+              {status === 'problem' ? (
+                <WarningCircle className="size-3" weight="fill" />
+              ) : status === 'running' ? (
+                <Spinner size="xs" />
+              ) : (
+                <CheckCircle className="size-3" weight="fill" />
+              )}
+              <span {...{ [ACTIVITY_LABEL_ATTRIBUTE]: '' }} className={cn(compact && 'sr-only')}>
+                {label}
+              </span>
+            </button>
+          </PopoverTrigger>
+        </OptionalTooltip>
+        <PopoverContent align="end" className="w-96 p-0 text-xs">
+          <SetupActivityPanel
+            workspace={workspace}
+            runs={visibleRuns}
+            onOpenOutput={(run) => {
+              setPanelOpen(false);
+              setViewedRunId(run.id);
+            }}
+          />
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
 
@@ -217,9 +256,10 @@ const OUTPUT_END_SLACK_PX = 4;
 
 /**
  * A run's output, opened at its end, where the latest lines and any error are. It follows new
- * output while scrolled to the end, and stays put while the user reads further up.
+ * output while scrolled to the end, and stays put while the user reads further up. Each line is
+ * its own text node, so new output leaves alone what the user selected in the lines before it.
  */
-function RunOutput({ id, text }: { id: string; text: string }) {
+function RunOutput({ id, text, className }: { id?: string; text: string; className?: string }) {
   const ref = React.useRef<HTMLPreElement>(null);
   const atEnd = React.useRef(true);
   React.useLayoutEffect(() => {
@@ -233,9 +273,14 @@ function RunOutput({ id, text }: { id: string; text: string }) {
         const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
         atEnd.current = scrollHeight - scrollTop - clientHeight <= OUTPUT_END_SLACK_PX;
       }}
-      className="thin-scrollbar mt-0.5 mr-1 mb-1.5 ml-[1.875rem] max-h-36 overflow-auto rounded-md bg-foreground/[0.05] px-2 py-1.5 font-mono text-2xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
+      className={cn(
+        'thin-scrollbar overflow-auto rounded-md bg-foreground/[0.05] px-2 py-1.5 font-mono leading-relaxed break-words whitespace-pre-wrap',
+        className
+      )}
     >
-      {text}
+      {text.split('\n').map((line, index) => (
+        <React.Fragment key={index}>{index === 0 ? line : `\n${line}`}</React.Fragment>
+      ))}
     </pre>
   );
 }
@@ -364,8 +409,92 @@ function RunActions({ workspace, run }: { workspace: Workspace; run: SetupActivi
   );
 }
 
-function RunRow({ workspace, run }: { workspace: Workspace; run: SetupActivityRun }) {
-  const text = `${run.error ? `${run.error}${run.output ? '\n' : ''}` : ''}${readableRunOutput(run.output)}`;
+/** What a run shows as its output: how it went wrong, if it did, then what it wrote. */
+function runOutputText(run: SetupActivityRun): string {
+  return `${run.error ? `${run.error}${run.output ? '\n' : ''}` : ''}${readableRunOutput(run.output)}`;
+}
+
+function copyRunOutput(run: SetupActivityRun, text: string): void {
+  window.api.copyToClipboard(text);
+  useToastStore.getState().addToast(`Copied ${run.stepName} output`, 'success');
+}
+
+function RunOutputActions({
+  run,
+  text,
+  onOpenOutput,
+}: {
+  run: SetupActivityRun;
+  text: string;
+  onOpenOutput?: (run: SetupActivityRun) => void;
+}) {
+  return (
+    <>
+      <IconButton label="Copy output" size="xs" onClick={() => copyRunOutput(run, text)}>
+        <Copy />
+      </IconButton>
+      {onOpenOutput && (
+        <IconButton label="Open output" size="xs" onClick={() => onOpenOutput(run)}>
+          <CornersOut />
+        </IconButton>
+      )}
+    </>
+  );
+}
+
+/** A run's output at a size for reading it and selecting part of it, following the run. */
+function RunOutputDialog({
+  run,
+  onClose,
+  onCloseAutoFocus,
+}: {
+  run: SetupActivityRun;
+  onClose: () => void;
+  onCloseAutoFocus: (event: Event) => void;
+}) {
+  const text = runOutputText(run);
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="flex h-[min(48rem,calc(100dvh-5rem))] max-w-[min(64rem,calc(100vw-4rem))] flex-col gap-3 p-4"
+        closeButtonClassName="top-[1.125rem]"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
+        <div className="flex min-w-0 items-center gap-2 pr-8">
+          <RunStateIcon run={run} />
+          <DialogTitle className="truncate text-[13px]">{run.stepName}</DialogTitle>
+          <DialogDescription asChild>
+            <div className="text-ui">
+              <RunStatus run={run} />
+            </div>
+          </DialogDescription>
+          <div className="ml-auto flex shrink-0 items-center">
+            <IconButton
+              label="Copy output"
+              size="sm"
+              disabled={text.trim() === ''}
+              onClick={() => copyRunOutput(run, text)}
+            >
+              <Copy />
+            </IconButton>
+          </div>
+        </div>
+        <RunOutput text={text} className="min-h-0 flex-1 px-3 py-2 text-xs text-foreground" />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function RunRow({
+  workspace,
+  run,
+  onOpenOutput,
+}: {
+  workspace: Workspace;
+  run: SetupActivityRun;
+  onOpenOutput?: (run: SetupActivityRun) => void;
+}) {
+  const text = runOutputText(run);
   const hasOutput = text.trim() !== '';
   // Running and failed runs open on their output; one that succeeded folds it away.
   const [toggled, setToggled] = React.useState<boolean>();
@@ -398,9 +527,16 @@ function RunRow({ workspace, run }: { workspace: Workspace; run: SetupActivityRu
           <span className="min-w-0 flex-1 truncate font-medium">{run.stepName}</span>
         )}
         <RunStatus run={run} />
+        {hasOutput && <RunOutputActions run={run} text={text} onOpenOutput={onOpenOutput} />}
         <RunActions workspace={workspace} run={run} />
       </div>
-      {expanded && <RunOutput id={outputId} text={text} />}
+      {expanded && (
+        <RunOutput
+          id={outputId}
+          text={text}
+          className="mt-0.5 mr-1 mb-1.5 ml-[1.875rem] max-h-36 text-2xs text-muted-foreground"
+        />
+      )}
     </li>
   );
 }
@@ -432,9 +568,12 @@ function summarize(runs: SetupActivityRun[]): string {
 export function SetupActivityPanel({
   workspace,
   runs = workspace.setupActivities ?? [],
+  onOpenOutput,
 }: {
   workspace: Workspace;
   runs?: SetupActivityRun[];
+  /** Opens a run's output in a larger view; without it, rows offer only to copy it. */
+  onOpenOutput?: (run: SetupActivityRun) => void;
 }) {
   if (runs.length === 0) return null;
   const heading = runs.every((run) => run.actionId)
@@ -449,7 +588,7 @@ export function SetupActivityPanel({
       </div>
       <ul className="thin-scrollbar max-h-[min(60vh,28rem)] space-y-0.5 overflow-y-auto p-1.5">
         {runs.map((run) => (
-          <RunRow key={run.id} workspace={workspace} run={run} />
+          <RunRow key={run.id} workspace={workspace} run={run} onOpenOutput={onOpenOutput} />
         ))}
       </ul>
     </section>

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, fireEvent, render as renderUi, screen } from '@testing-library/react';
+import { act, fireEvent, render as renderUi, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,6 +18,7 @@ const retrySetupStep = vi.fn(() => Promise.resolve());
 const dismissSetupActivity = vi.fn(() => Promise.resolve());
 const runBackgroundAction = vi.fn(() => Promise.resolve());
 const stopBackgroundActionRun = vi.fn(() => Promise.resolve());
+const copyToClipboard = vi.fn();
 const addToast = vi.hoisted(() => vi.fn());
 const selectWorkspace = vi.hoisted(() => vi.fn());
 
@@ -68,7 +69,13 @@ describe('SetupActivityPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.assign(window, {
-      api: { retrySetupStep, dismissSetupActivity, runBackgroundAction, stopBackgroundActionRun },
+      api: {
+        retrySetupStep,
+        dismissSetupActivity,
+        runBackgroundAction,
+        stopBackgroundActionRun,
+        copyToClipboard,
+      },
     });
   });
 
@@ -194,6 +201,121 @@ describe('SetupActivityPanel', () => {
         delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
       }
     }
+  });
+
+  it("copies a run's output as the text it shows", async () => {
+    const workspace = workspaceWithFailure();
+    workspace.setupActivities![0]!.output = '\x1b[31mFAIL\x1b[0m src/a.test.ts\r\n  expected 1\r\n';
+
+    render(<SetupActivityPanel workspace={workspace} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Copy output' }));
+
+    expect(copyToClipboard).toHaveBeenCalledWith(
+      'Command exited with code 1\nFAIL src/a.test.ts\n  expected 1\n'
+    );
+    expect(addToast).toHaveBeenCalledWith('Copied Install dependencies output', 'success');
+  });
+
+  it('keeps what the user selected in the output as new output arrives', () => {
+    const workspace = workspaceWithFailure();
+    workspace.setupActivities![0] = {
+      ...workspace.setupActivities![0]!,
+      state: 'running',
+      completedAt: undefined,
+      exitCode: undefined,
+      error: undefined,
+      output: 'FAIL src/a.test.ts\nexpected 1\n',
+    };
+    const { rerender } = render(<SetupActivityPanel workspace={workspace} />);
+    const output = screen.getByText(/FAIL src\/a\.test\.ts/);
+    const failLine = Array.from(output.childNodes).find((node) =>
+      node.textContent?.includes('FAIL')
+    )!;
+    const range = document.createRange();
+    range.setStart(failLine, 0);
+    range.setEnd(failLine, 'FAIL src/a.test.ts'.length);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+
+    workspace.setupActivities![0]!.output += 'PASS src/b.test.ts\n';
+    rerender(<SetupActivityPanel workspace={{ ...workspace }} />);
+
+    expect(output.textContent).toContain('PASS src/b.test.ts');
+    expect(window.getSelection()!.toString()).toBe('FAIL src/a.test.ts');
+  });
+
+  it("opens a run's output in a larger view that follows the run and copies it", async () => {
+    const workspace = workspaceWithFailure();
+    workspace.setupActivities![0] = {
+      ...workspace.setupActivities![0]!,
+      state: 'running',
+      completedAt: undefined,
+      exitCode: undefined,
+      error: undefined,
+      output: 'FAIL src/a.test.ts',
+    };
+    const { rerender } = render(<SetupActivityIndicator workspace={workspace} />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Setup running: 0 of 1 complete' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Open output' }));
+
+    const viewer = screen.getByRole('dialog', { name: 'Install dependencies' });
+    expect(screen.queryByText('Workspace setup')).not.toBeInTheDocument();
+    expect(within(viewer).getByText('FAIL src/a.test.ts')).toBeInTheDocument();
+
+    workspace.setupActivities![0]!.output += '\nPASS src/b.test.ts';
+    rerender(<SetupActivityIndicator workspace={{ ...workspace }} />);
+    expect(within(viewer).getByText(/PASS src\/b\.test\.ts/)).toBeInTheDocument();
+
+    // It stays open once the run ends and the indicator leaves.
+    vi.useFakeTimers();
+    try {
+      workspace.setupActivities![0] = {
+        ...workspace.setupActivities![0]!,
+        state: 'succeeded',
+        completedAt: 2,
+        exitCode: 0,
+      };
+      rerender(<SetupActivityIndicator workspace={{ ...workspace }} />);
+      act(() => vi.advanceTimersByTime(5_000));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(screen.queryByRole('button', { name: /Setup/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Install dependencies' })).toBe(viewer);
+
+    fireEvent.click(within(viewer).getByRole('button', { name: 'Copy output' }));
+    expect(copyToClipboard).toHaveBeenCalledWith('FAIL src/a.test.ts\nPASS src/b.test.ts');
+  });
+
+  it('opens closed when it shows again after leaving with its panel open', async () => {
+    const workspace = workspaceWithFailure();
+    const running = {
+      ...workspace.setupActivities![0]!,
+      state: 'running' as const,
+      completedAt: undefined,
+      exitCode: undefined,
+      error: undefined,
+    };
+    workspace.setupActivities = [running];
+    const { rerender } = render(<SetupActivityIndicator workspace={workspace} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Setup running: 0 of 1 complete' }));
+    expect(screen.getByText('Workspace setup')).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    try {
+      workspace.setupActivities = [{ ...running, state: 'succeeded', completedAt: 2, exitCode: 0 }];
+      rerender(<SetupActivityIndicator workspace={{ ...workspace }} />);
+      act(() => vi.advanceTimersByTime(5_000));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(screen.queryByRole('button', { name: /Setup/ })).not.toBeInTheDocument();
+
+    workspace.setupActivities = [{ ...running, id: 'run-2', setupRunId: 'setup-run-2' }];
+    rerender(<SetupActivityIndicator workspace={{ ...workspace }} />);
+    expect(screen.getByRole('button', { name: 'Setup running: 0 of 1 complete' })).toBeVisible();
+    expect(screen.queryByText('Workspace setup')).not.toBeInTheDocument();
   });
 
   it('shows active workspace Setup progress in a clickable top-bar indicator', async () => {

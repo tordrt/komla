@@ -1,6 +1,9 @@
+import { realpath } from 'fs/promises';
+
 import { managedTmuxSessionName } from '../../../shared/lib/ssh-tmux-attach';
 import { isLocalTerminalExecutionLocation } from '../../../shared/types/terminal';
 import { createLogger } from '../../lib/logger';
+import { isWithinRoot, samePathKey } from '../../lib/same-path';
 
 import {
   isLoopbackReachableAddress,
@@ -46,7 +49,10 @@ const NOT_WEB_SERVER_PROCESSES = new Set([
 const RESULT_REUSE_MS = 1_000;
 
 type HttpScheme = DevPreviewService['scheme'];
-type DetectorWorkspace = Pick<Workspace, 'backend' | 'terminals'>;
+type DetectorWorkspace = Pick<
+  Workspace,
+  'backend' | 'terminals' | 'workingDirectory' | 'isWorktree'
+>;
 
 interface TerminalRoot {
   /** Missing for a background run, which has no terminal. */
@@ -71,7 +77,8 @@ export interface DevPreviewServiceDetectorDeps {
   getBackgroundPids: (workspaceId: string) => number[];
   /** Komla's main process, whose tree holds Komla's helpers and every local terminal. */
   komlaPid: number;
-  collectListeningPorts: () => Promise<ListeningPortSnapshot>;
+  /** With `cwds`, the snapshot also has the working directory of each process that listens. */
+  collectListeningPorts: (options: { cwds: boolean }) => Promise<ListeningPortSnapshot>;
   probeHttpScheme: (port: number) => Promise<HttpScheme>;
   isLoopbackPortOpen: (port: number) => Promise<boolean>;
   collectRemoteListeningPorts: (hostId: string) => Promise<RemoteListeningPortSnapshot>;
@@ -82,7 +89,8 @@ export interface DevPreviewServiceDetectorDeps {
 export interface DevPreviewServiceDetector {
   /**
    * Lists the ports that processes started from the workspace's terminals and
-   * background runs listen on, the HTTP servers outside Komla on the machine they run on (the
+   * background runs listen on, or processes outside Komla working in the
+   * workspace's folder, the HTTP servers outside Komla on the machine they run on (the
    * SSH host for an SSH workspace), which of `ports` accept loopback
    * connections on this machine, and which of `remotePorts` something listens
    * on at an SSH workspace's host. `ports` and `remotePorts` are the ports of
@@ -109,38 +117,109 @@ function isRemoteTerminal(
   return workspace.backend?.kind === 'ssh' && !isLocalTerminalExecutionLocation(executionLocation);
 }
 
+/** Whether `directory` is `folder` or inside it, comparing whole path segments. */
+function isInFolder(directory: string, folder: string): boolean {
+  const base = folder.replace(/\/+$/, '');
+  return directory === base || directory.startsWith(`${base}/`);
+}
+
+/**
+ * Whether processes working in the workspace's folder count as its own: only in a worktree, a
+ * folder of its own that no other workspace's folder is in, unlike a directory workspace, which can
+ * be a folder of projects or the home folder, and only for an absolute POSIX path, since working
+ * directories are never read on Windows.
+ */
+function claimsProcessesInFolder(workspace: DetectorWorkspace, folder: string): boolean {
+  return workspace.isWorktree && folder.startsWith('/');
+}
+
+/**
+ * The listening processes outside Komla working in the workspace's folder, each as a root of
+ * its own, such as a server an agent started in the background from a shell
+ * that has since exited, leaving it a child of init. A process in a terminal's
+ * tree stays that terminal's, whichever workspace it serves; `inKomla` maps
+ * Komla's processes, and `launchers` are those that started Komla. Of a parent
+ * and its child both in the folder, the parent is the root, so the child's
+ * internal ports belong to the server it serves.
+ */
+function folderRoots(
+  snapshot: ListeningPortSnapshot,
+  inFolder: (cwd: string) => boolean,
+  inKomla: Map<number, number>,
+  launchers = new Set<number>()
+): Map<number, TerminalRoot> {
+  const roots = new Map<number, TerminalRoot>();
+  const { cwds } = snapshot;
+  if (!cwds || cwds.size === 0) return roots;
+  const processNames = new Map(snapshot.processes.map(({ pid, name }) => [pid, name]));
+  const candidates = new Set<number>();
+  for (const { pid } of snapshot.listeners) {
+    const cwd = cwds.get(pid);
+    if (
+      cwd === undefined ||
+      inKomla.has(pid) ||
+      launchers.has(pid) ||
+      NOT_WEB_SERVER_PROCESSES.has(processNames.get(pid) ?? '') ||
+      !inFolder(cwd)
+    ) {
+      continue;
+    }
+    candidates.add(pid);
+  }
+  const parents = new Map(snapshot.processes.map(({ pid, ppid }) => [pid, ppid]));
+  for (const pid of candidates) {
+    let hasCandidateAncestor = false;
+    const seen = new Set([pid]);
+    for (let parent = parents.get(pid); parent !== undefined && parent > 0;) {
+      if (seen.has(parent)) break;
+      if (candidates.has(parent)) {
+        hasCandidateAncestor = true;
+        break;
+      }
+      seen.add(parent);
+      parent = parents.get(parent);
+    }
+    if (!hasCandidateAncestor) roots.set(pid, { executionLocation: 'workspace' });
+  }
+  return roots;
+}
+
 /**
  * Assigns each loopback-reachable port to the terminal or background run whose
- * process tree listens on it. One serving one of `printedPorts` keeps only those:
+ * process tree listens on it, then the rest to the processes in the workspace's
+ * folder from `folderRoots`. One serving one of `printedPorts` keeps only those:
  * its other ports belong to the same server (a debugger, internal sockets, as
  * with the eight `wrangler dev` opens), so they are neither listed nor probed.
  */
 function attributeListeners(
   snapshot: ListeningPortSnapshot,
   roots: Map<number, TerminalRoot>,
-  printedPorts: Set<number>
+  printedPorts: Set<number>,
+  inFolder = new Map<number, TerminalRoot>()
 ): AttributedListener[] {
-  const owners = mapProcessesToRoots(snapshot.processes, roots.keys());
+  // Terminals' trees come first, so a process in the folder never claims one of theirs.
+  const owners = mapProcessesToRoots(snapshot.processes, [...roots.keys(), ...inFolder.keys()]);
   const processNames = new Map(snapshot.processes.map(({ pid, name }) => [pid, name]));
   const listeners = new Map<number, AttributedListener>();
-  for (const { pid, address, port } of snapshot.listeners) {
-    const rootPid = owners.get(pid);
-    if (rootPid === undefined || listeners.has(port) || !isLoopbackReachableAddress(address)) {
-      continue;
+  for (const tier of [roots, inFolder]) {
+    for (const { pid, address, port } of snapshot.listeners) {
+      const root = tier.get(owners.get(pid) ?? -1);
+      if (!root || listeners.has(port) || !isLoopbackReachableAddress(address)) continue;
+      // Outside a terminal, a port the system picked is an editor's or a kernel's, unless a
+      // terminal printed it, as of a server an agent started in the background.
+      if (tier === inFolder && port >= FIRST_EPHEMERAL_PORT && !printedPorts.has(port)) continue;
+      listeners.set(port, { port, pid, processName: processNames.get(pid) ?? '', root });
     }
-    listeners.set(port, {
-      port,
-      pid,
-      processName: processNames.get(pid) ?? '',
-      root: roots.get(rootPid)!,
-    });
   }
   const servingRoots = new Set(
     [...listeners.values()].filter(({ port }) => printedPorts.has(port)).map(({ root }) => root)
   );
+  // The terminals' servers first, so processes in the folder never crowd them out.
+  const folderRootSet = new Set(inFolder.values());
+  const tier = ({ root }: AttributedListener) => (folderRootSet.has(root) ? 1 : 0);
   return [...listeners.values()]
     .filter(({ port, root }) => printedPorts.has(port) || !servingRoots.has(root))
-    .sort((a, b) => a.port - b.port)
+    .sort((a, b) => tier(a) - tier(b) || a.port - b.port)
     .slice(0, MAX_SERVICES);
 }
 
@@ -166,16 +245,41 @@ function ancestorsOf(processes: ProcessEntry[], pid: number): Set<number> {
 }
 
 /**
- * The loopback-reachable listeners of processes outside Komla: neither in the
- * trees under `komlaRoots` (Komla itself, or every managed tmux pane on an SSH
- * host) nor among `launchers`, the processes that started Komla.
+ * The workspace's services, leaving out those of processes in its folder that don't answer HTTP:
+ * started outside its terminals, such a port is a debugger's or a tool's, not one the user started.
+ */
+function ownServices(
+  services: DevPreviewService[],
+  listeners: AttributedListener[],
+  inFolder: Map<number, TerminalRoot>
+): DevPreviewService[] {
+  const folderRootSet = new Set(inFolder.values());
+  return services.filter(
+    (service, index) => service.scheme !== null || !folderRootSet.has(listeners[index].root)
+  );
+}
+
+/** `inKomla` with the trees of the workspace's processes in its folder, whose ports are its own. */
+function withFolderTrees(
+  snapshot: ListeningPortSnapshot,
+  inKomla: Map<number, number>,
+  inFolder: Map<number, TerminalRoot>
+): Map<number, number> {
+  if (inFolder.size === 0) return inKomla;
+  return new Map([...inKomla, ...mapProcessesToRoots(snapshot.processes, inFolder.keys())]);
+}
+
+/**
+ * The loopback-reachable listeners of processes outside Komla: neither in
+ * `inKomla`, the trees under Komla itself or every managed tmux pane on an SSH
+ * host and those of the workspace's processes in its folder, nor among
+ * `launchers`, the processes that started Komla.
  */
 function findOutsideListeners(
   snapshot: ListeningPortSnapshot,
-  komlaRoots: Iterable<number>,
+  inKomla: Map<number, number>,
   launchers = new Set<number>()
 ): Listener[] {
-  const inKomla = mapProcessesToRoots(snapshot.processes, komlaRoots);
   // A process that inherited a socket from a terminal holds the same port.
   const komlaPorts = new Set(
     snapshot.listeners
@@ -308,21 +412,36 @@ export function createDevPreviewServiceDetector(
       return { services: [], otherServers: [], ownPorts: null };
     }
 
+    // An SSH workspace's folder is on the SSH host, so no working directory here is in it.
+    const claimsFolder =
+      workspace.backend?.kind !== 'ssh' &&
+      claimsProcessesInFolder(workspace, workspace.workingDirectory);
     let snapshot: ListeningPortSnapshot;
     try {
-      snapshot = await deps.collectListeningPorts();
+      snapshot = await deps.collectListeningPorts({ cwds: claimsFolder });
     } catch (error) {
       logger.warn('Failed to list listening ports', { error: errorMessage(error) });
       return { services: [], otherServers: [], ownPorts: null };
     }
-    const listeners =
-      roots.size > 0 ? attributeListeners(snapshot, roots, new Set(printedPorts)) : [];
-    const outside = listsOtherServers
-      ? findOutsideListeners(
-          snapshot,
-          [deps.komlaPid],
-          ancestorsOf(snapshot.processes, deps.komlaPid)
+    const launchers = ancestorsOf(snapshot.processes, deps.komlaPid);
+    const inKomla = mapProcessesToRoots(snapshot.processes, [deps.komlaPid]);
+    // Working directories are real paths, so the folder is compared as its real path too.
+    const realFolder = claimsFolder
+      ? samePathKey(
+          await realpath(workspace.workingDirectory).catch(() => workspace.workingDirectory)
         )
+      : '';
+    const inFolder = claimsFolder
+      ? folderRoots(
+          snapshot,
+          (cwd) => isWithinRoot(realFolder, samePathKey(cwd)),
+          inKomla,
+          launchers
+        )
+      : new Map<number, TerminalRoot>();
+    const listeners = attributeListeners(snapshot, roots, new Set(printedPorts), inFolder);
+    const outside = listsOtherServers
+      ? findOutsideListeners(snapshot, withFolderTrees(snapshot, inKomla, inFolder), launchers)
       : [];
     const schemes = await probeOnce(
       `local:${workspaceId}`,
@@ -335,7 +454,11 @@ export function createDevPreviewServiceDetector(
         )
     );
     return {
-      services: listeners.map((listener, index) => toService(listener, schemes[index] ?? null)),
+      services: ownServices(
+        listeners.map((listener, index) => toService(listener, schemes[index] ?? null)),
+        listeners,
+        inFolder
+      ),
       otherServers: toOtherServers(outside, schemes.slice(listeners.length)),
       ownPorts: ownListeningPorts(snapshot.listeners),
     };
@@ -376,10 +499,14 @@ export function createDevPreviewServiceDetector(
         roots.set(pid, root);
       }
     }
-    const listeners =
-      roots.size > 0 ? attributeListeners(snapshot, roots, new Set(remotePorts)) : [];
     // Every managed tmux pane on the host belongs to Komla, whichever workspace it serves.
-    const outside = findOutsideListeners(snapshot, [...snapshot.panePids.values()].flat());
+    const inKomla = mapProcessesToRoots(snapshot.processes, [...snapshot.panePids.values()].flat());
+    const { remoteDirectory } = workspace.backend;
+    const inFolder = claimsProcessesInFolder(workspace, remoteDirectory)
+      ? folderRoots(snapshot, (cwd) => isInFolder(cwd, remoteDirectory), inKomla)
+      : new Map<number, TerminalRoot>();
+    const listeners = attributeListeners(snapshot, roots, new Set(remotePorts), inFolder);
+    const outside = findOutsideListeners(snapshot, withFolderTrees(snapshot, inKomla, inFolder));
     const schemes = await probeOnce(`ssh:${workspaceId}`, [...listeners, ...outside], (ports) =>
       deps.probeRemoteHttpSchemes(hostId, ports).catch((error: unknown) => {
         logger.warn('Failed to probe ports on SSH host', { error: errorMessage(error) });
@@ -387,10 +514,14 @@ export function createDevPreviewServiceDetector(
       })
     );
     // A port the probe could not check is offered as HTTP rather than hidden.
-    const services = listeners.map((listener, index) => {
-      const scheme = schemes[index];
-      return toService(listener, scheme === undefined ? 'http' : scheme);
-    });
+    const services = ownServices(
+      listeners.map((listener, index) => {
+        const scheme = schemes[index];
+        return toService(listener, scheme === undefined ? 'http' : scheme);
+      }),
+      listeners,
+      inFolder
+    );
     const listening = snapshot.listeningPorts;
     return {
       services,

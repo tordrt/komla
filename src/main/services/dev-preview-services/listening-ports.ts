@@ -1,7 +1,8 @@
 /**
  * Finds the TCP ports the current user's processes listen on, with the whole
- * process table so callers can tell which process tree holds each one. Other
- * users' sockets are left out where the platform does not say who holds them.
+ * process table so callers can tell which process tree holds each one, and the
+ * working directory of each process that listens. Other users' sockets are left
+ * out where the platform does not say who holds them.
  */
 
 import { execFile } from 'child_process';
@@ -35,6 +36,8 @@ export interface ListeningSocket {
 export interface ListeningPortSnapshot {
   processes: ProcessEntry[];
   listeners: ListeningSocket[];
+  /** The working directory of each process in `listeners` whose directory could be read. */
+  cwds?: Map<number, string>;
 }
 
 /** Maps every process in the roots' trees, including each root, to its root PID. */
@@ -95,19 +98,34 @@ export function withoutPortsHeldBy(listeners: ListeningSocket[], pid: number): L
   return listeners.filter(({ port }) => !heldPorts.has(port));
 }
 
-export async function collectListeningPorts(): Promise<ListeningPortSnapshot> {
+/** With `cwds`, also reads each listening process's working directory, which costs a scan. */
+export async function collectListeningPorts({
+  cwds: withCwds,
+}: {
+  cwds: boolean;
+}): Promise<ListeningPortSnapshot> {
   if (process.platform === 'win32') {
+    // Windows keeps a process's working directory in its own memory, which only
+    // a native call could read, so no working directory is listed there.
     const snapshot = await readWindowsSnapshot();
     return { ...snapshot, listeners: withoutPortsHeldBy(snapshot.listeners, process.pid) };
   }
 
   const processes =
     process.platform === 'linux' ? await readLinuxProcesses() : await readPsProcesses();
-  const listeners =
+  const listeners = withoutPortsHeldBy(
     process.platform === 'linux'
       ? await readLinuxListeners(processes.map(({ pid }) => pid))
-      : await readLsofListeners();
-  return { processes, listeners: withoutPortsHeldBy(listeners, process.pid) };
+      : await readLsofListeners(),
+    process.pid
+  );
+  if (!withCwds) return { processes, listeners };
+  const listenerPids = [...new Set(listeners.map(({ pid }) => pid))];
+  const cwds =
+    process.platform === 'linux'
+      ? await readLinuxCwds(listenerPids)
+      : await readLsofCwds(listenerPids);
+  return { processes, listeners, cwds };
 }
 
 // ── Linux ──────────────────────────────────────────────────────────────────
@@ -181,6 +199,22 @@ async function readLinuxSocketInodes(pid: number): Promise<number[]> {
     const match = /^socket:\[(\d+)\]$/.exec(link);
     return match ? [Number(match[1])] : [];
   });
+}
+
+async function readLinuxCwds(pids: number[]): Promise<Map<number, string>> {
+  const cwds = await Promise.all(
+    pids.map(async (pid) => {
+      // Another user's process, or one that exited during the scan, has none.
+      const link = await readlink(`/proc/${pid}/cwd`).catch(() => null);
+      return [pid, link === null ? null : parseProcCwd(link)] as const;
+    })
+  );
+  return new Map(cwds.filter((entry): entry is readonly [number, string] => entry[1] !== null));
+}
+
+/** Reads the `/proc/<pid>/cwd` link, which Linux marks once the folder is removed. */
+export function parseProcCwd(link: string): string | null {
+  return link.endsWith(' (deleted)') ? null : link;
 }
 
 /** Parses the listening sockets in `/proc/net/tcp` or `/proc/net/tcp6`. */
@@ -276,6 +310,30 @@ export function parseLsofListeners(output: string): ListeningSocket[] {
     listeners.push({ pid, address: name.slice(0, separator).replace(/^\[|\]$/g, ''), port });
   }
   return listeners;
+}
+
+async function readLsofCwds(pids: number[]): Promise<Map<number, string>> {
+  if (pids.length === 0) return new Map();
+  const args = ['-a', '-d', 'cwd', '-Fn', '-p', pids.join(',')];
+  try {
+    const { stdout } = await execFileAsync('/usr/sbin/lsof', args, COMMAND_OPTIONS);
+    return parseLsofCwds(stdout);
+  } catch (error) {
+    // lsof exits 1 when one of the processes exited during the scan.
+    const { stdout } = error as { stdout?: unknown };
+    return typeof stdout === 'string' ? parseLsofCwds(stdout) : new Map();
+  }
+}
+
+/** Parses `lsof -a -d cwd -F n` output: a `p<pid>` line, then an `n<directory>` line. */
+export function parseLsofCwds(output: string): Map<number, string> {
+  const cwds = new Map<number, string>();
+  let pid = 0;
+  for (const line of output.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1));
+    else if (line.startsWith('n') && pid > 0 && !cwds.has(pid)) cwds.set(pid, line.slice(1));
+  }
+  return cwds;
 }
 
 // ── Windows ────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { execFile, execFileSync, spawn, type ChildProcess } from 'child_process';
-import { chmodSync, copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, copyFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { createServer as createHttpServer } from 'http';
 import { createServer as createNetServer, type Server } from 'net';
 import { tmpdir } from 'os';
@@ -71,6 +71,12 @@ describe('parseRemoteSnapshot', () => {
         'LISTEN 0 511 127.0.0.1:3000 0.0.0.0:* users:(("node",pid=501,fd=20))',
         'LISTEN 0 511 10.0.0.5:9000 0.0.0.0:* users:(("node",pid=501,fd=21))',
         'LISTEN 0 128 0.0.0.0:22 0.0.0.0:*',
+        '@@komla-cwds',
+        '#proc',
+        '501 /srv/my app',
+        // A process whose working directory was removed.
+        '502 /srv/old (deleted)',
+        'not-a-pid /x',
       ].join('\n')
     );
 
@@ -86,6 +92,7 @@ describe('parseRemoteSnapshot', () => {
       listeners: [{ pid: 501, address: '127.0.0.1', port: 3000 }],
       listeningPorts: new Set([3000, 22]),
       listenersListed: true,
+      cwds: new Map([[501, '/srv/my app']]),
     });
   });
 
@@ -103,6 +110,11 @@ describe('parseRemoteSnapshot', () => {
         'p501',
         'f20',
         'n*:3000',
+        '@@komla-cwds',
+        '#lsof',
+        'p501',
+        'fcwd',
+        'n/Users/me/app',
       ].join('\n')
     );
 
@@ -111,6 +123,7 @@ describe('parseRemoteSnapshot', () => {
       { pid: 501, ppid: 500, name: 'node' },
     ]);
     expect(snapshot.listeners).toEqual([{ pid: 501, address: '*', port: 3000 }]);
+    expect(snapshot.cwds).toEqual(new Map([[501, '/Users/me/app']]));
     // lsof shows only the caller's own processes, so other ports may be in use.
     expect(snapshot.listeningPorts).toBeNull();
     expect(snapshot.listenersListed).toBe(true);
@@ -193,6 +206,24 @@ describe.runIf(process.platform === 'linux' && hasCommand('ss') && hasCommand('c
       ]);
       expect(snapshot.listeningPorts?.has(port)).toBe(true);
       expect(REMOTE_SNAPSHOT_COMMAND).toContain('tmux -L komla-v1 list-panes -a');
+    });
+
+    it('reads the working directory of each process that listens, and only those', async () => {
+      fakeBin = realpathSync(mkdtempSync(join(tmpdir(), 'komla-listener-cwd-')));
+      const script =
+        "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>console.log(s.address().port))";
+      shell = spawn(process.execPath, ['-e', script], {
+        cwd: fakeBin,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'inherit'],
+      });
+      await new Promise<void>((resolve) => shell!.stdout!.once('data', () => resolve()));
+
+      const snapshot = await collectRemoteListeningPorts(runInShell);
+
+      expect(snapshot.cwds?.get(shell.pid!)).toBe(fakeBin);
+      const listenerPids = new Set(snapshot.listeners.map(({ pid }) => pid));
+      expect([...(snapshot.cwds?.keys() ?? [])].every((pid) => listenerPids.has(pid))).toBe(true);
     });
 
     it('reads process names that contain spaces and parentheses', async () => {

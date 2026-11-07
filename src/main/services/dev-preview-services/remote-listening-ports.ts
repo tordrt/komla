@@ -1,6 +1,6 @@
 /**
  * Finds the TCP ports listened on by processes in an SSH workspace's managed
- * tmux sessions, and which of them answer HTTP. Everything runs as two remote
+ * tmux sessions or working in its folder, and which of them answer HTTP. Everything runs as two remote
  * shell commands so a scan costs two round trips however many ports it finds.
  */
 
@@ -8,7 +8,9 @@ import { MANAGED_TMUX_SOCKET_NAME } from '../../../shared/lib/ssh-tmux-attach';
 
 import {
   isLoopbackReachableAddress,
+  parseLsofCwds,
   parseLsofListeners,
+  parseProcCwd,
   parseProcStat,
   parsePsOutput,
   type ListeningPortSnapshot,
@@ -30,19 +32,25 @@ export interface RemoteListeningPortSnapshot extends ListeningPortSnapshot {
 const PANES_SECTION = '@@komla-panes';
 const PROCESSES_SECTION = '@@komla-processes';
 const LISTENERS_SECTION = '@@komla-listeners';
+const CWDS_SECTION = '@@komla-cwds';
 
 // Linux hosts are read through /proc because minimal images ship without ps.
 // `ss -p` names only the caller's own processes, which is all Komla runs, but
 // lists every socket; lsof without root lists only the caller's own sockets.
 // A failing ss falls back to lsof so its empty output never reads as no ports.
-// Only pid, name, state and parent are kept from /proc so the output stays small.
+// Only pid, name, state and parent are kept from /proc so the output stays small,
+// and working directories are read only for the processes that listen.
 export const REMOTE_SNAPSHOT_COMMAND = [
   `printf '%s\\n' '${PANES_SECTION}'`,
   `tmux -L ${MANAGED_TMUX_SOCKET_NAME} list-panes -a -F '#{session_name} #{pane_pid}' 2>/dev/null`,
   `printf '%s\\n' '${PROCESSES_SECTION}'`,
   `if [ -r /proc/self/stat ]; then printf '%s\\n' '#proc'; cat /proc/[0-9]*/stat 2>/dev/null | sed -n 's/^\\([0-9]*\\) (\\(.*\\)) \\([A-Za-z]\\) \\([0-9]*\\) .*/\\1 (\\2) \\3 \\4/p'; else printf '%s\\n' '#ps'; ps -A -o pid= -o ppid= -o comm= 2>/dev/null; fi`,
   `printf '%s\\n' '${LISTENERS_SECTION}'`,
-  `if command -v ss >/dev/null 2>&1 && listeners=$(ss -ltnp 2>/dev/null); then printf '%s\\n' '#ss' "$listeners"; elif command -v lsof >/dev/null 2>&1; then printf '%s\\n' '#lsof'; lsof -nP -iTCP -sTCP:LISTEN -Fpn 2>/dev/null; fi`,
+  `pids=`,
+  `if command -v ss >/dev/null 2>&1 && listeners=$(ss -ltnp 2>/dev/null); then printf '%s\\n' '#ss' "$listeners"; pids=$(printf '%s\\n' "$listeners" | grep -o 'pid=[0-9]*'); elif command -v lsof >/dev/null 2>&1; then listeners=$(lsof -nP -iTCP -sTCP:LISTEN -Fpn 2>/dev/null); printf '%s\\n' '#lsof' "$listeners"; pids=$(printf '%s\\n' "$listeners" | grep '^p'); fi`,
+  `printf '%s\\n' '${CWDS_SECTION}'`,
+  `seen=' '; list=; for pid in $pids; do pid=\${pid#pid=}; pid=\${pid#p}; case "$seen" in *" $pid "*) continue ;; esac; seen="$seen$pid "; list="\${list:+$list,}$pid"; done`,
+  `if [ -d /proc/self ]; then printf '%s\\n' '#proc'; for pid in $seen; do cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null) && printf '%s %s\\n' "$pid" "$cwd"; done; elif [ -n "$list" ] && command -v lsof >/dev/null 2>&1; then printf '%s\\n' '#lsof'; lsof -a -d cwd -Fn -p "$list" 2>/dev/null; fi`,
   'true',
 ].join('\n');
 
@@ -76,7 +84,12 @@ export function parseRemoteSnapshot(output: string): RemoteListeningPortSnapshot
   const sections = new Map<string, string[]>();
   let current: string[] | null = null;
   for (const line of output.split('\n')) {
-    if (line === PANES_SECTION || line === PROCESSES_SECTION || line === LISTENERS_SECTION) {
+    if (
+      line === PANES_SECTION ||
+      line === PROCESSES_SECTION ||
+      line === LISTENERS_SECTION ||
+      line === CWDS_SECTION
+    ) {
       current = [];
       sections.set(line, current);
     } else {
@@ -113,12 +126,26 @@ export function parseRemoteSnapshot(output: string): RemoteListeningPortSnapshot
     listeners = parseLsofListeners(listenerLines.join('\n'));
   }
 
+  const [cwdFormat, ...cwdLines] = sections.get(CWDS_SECTION) ?? [];
+  const cwds =
+    cwdFormat === '#lsof'
+      ? parseLsofCwds(cwdLines.join('\n'))
+      : new Map(
+          cwdLines.flatMap((line): Array<[number, string]> => {
+            const match = /^(\d+) (.+)$/.exec(line);
+            if (!match) return [];
+            const cwd = parseProcCwd(match[2]);
+            return cwd === null ? [] : [[Number(match[1]), cwd]];
+          })
+        );
+
   return {
     panePids,
     processes,
     listeners,
     listeningPorts,
     listenersListed: listenerFormat === '#ss' || listenerFormat === '#lsof',
+    cwds,
   };
 }
 

@@ -1,5 +1,8 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { mkdtempSync, realpathSync, rmSync } from 'fs';
 import { createServer, type Server } from 'net';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -7,6 +10,7 @@ import {
   collectListeningPorts,
   isLoopbackReachableAddress,
   mapProcessesToRoots,
+  parseLsofCwds,
   parseLsofListeners,
   parseProcNetTcp,
   parseProcStat,
@@ -196,6 +200,25 @@ describe('parseLsofListeners', () => {
   });
 });
 
+describe('parseLsofCwds', () => {
+  it('pairs each working directory with the PID listed before it', () => {
+    expect(
+      parseLsofCwds(
+        ['p4242', 'fcwd', 'n/Users/me/app', 'p5000', 'fcwd', 'n/Users/me/my app', ''].join('\n')
+      )
+    ).toEqual(
+      new Map([
+        [4242, '/Users/me/app'],
+        [5000, '/Users/me/my app'],
+      ])
+    );
+  });
+
+  it('ignores names without a PID before them', () => {
+    expect(parseLsofCwds(['n/orphan', 'p0', 'n/zero'].join('\n'))).toEqual(new Map());
+  });
+});
+
 describe('parseWindowsSnapshot', () => {
   it('reads processes and listeners and strips the executable extension', () => {
     expect(
@@ -231,8 +254,11 @@ describe.runIf(process.platform === 'linux' || process.platform === 'darwin')(
   () => {
     let shell: ChildProcess | undefined;
     let unrelated: Server | undefined;
+    let directory: string | undefined;
 
     afterEach(() => {
+      if (directory) rmSync(directory, { recursive: true, force: true });
+      directory = undefined;
       // Kill the whole group so the node grandchild does not outlive the test.
       if (shell?.pid) process.kill(-shell.pid, 'SIGKILL');
       shell = undefined;
@@ -259,7 +285,7 @@ describe.runIf(process.platform === 'linux' || process.platform === 'darwin')(
         shell!.stdout!.once('data', (chunk: Buffer) => resolve(Number(chunk.toString().trim())));
       });
 
-      const snapshot = await collectListeningPorts();
+      const snapshot = await collectListeningPorts({ cwds: true });
       const owners = mapProcessesToRoots(snapshot.processes, [shell.pid!]);
       const attributed = snapshot.listeners.filter(({ pid }) => owners.has(pid));
 
@@ -270,5 +296,64 @@ describe.runIf(process.platform === 'linux' || process.platform === 'darwin')(
         false
       );
     });
+
+    it('reads the working directory of each process that listens', async () => {
+      directory = realpathSync(mkdtempSync(join(tmpdir(), 'komla-listener-cwd-')));
+      const script =
+        "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>console.log(s.address().port))";
+      shell = spawn(process.execPath, ['-e', script], {
+        cwd: directory,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'inherit'],
+      });
+      const port = await new Promise<number>((resolve) => {
+        shell!.stdout!.once('data', (chunk: Buffer) => resolve(Number(chunk.toString().trim())));
+      });
+
+      const snapshot = await collectListeningPorts({ cwds: true });
+
+      expect(snapshot.listeners).toContainEqual({ pid: shell.pid, address: '127.0.0.1', port });
+      expect(snapshot.cwds?.get(shell.pid!)).toBe(directory);
+    });
+
+    it("reads no working directory when the caller doesn't need one", async () => {
+      const script =
+        "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>console.log(s.address().port))";
+      shell = spawn(process.execPath, ['-e', script], {
+        detached: true,
+        stdio: ['ignore', 'pipe', 'inherit'],
+      });
+      const port = await new Promise<number>((resolve) => {
+        shell!.stdout!.once('data', (chunk: Buffer) => resolve(Number(chunk.toString().trim())));
+      });
+
+      const snapshot = await collectListeningPorts({ cwds: false });
+
+      expect(snapshot.listeners).toContainEqual({ pid: shell.pid, address: '127.0.0.1', port });
+      expect(snapshot).not.toHaveProperty('cwds');
+    });
+
+    it.runIf(process.platform === 'linux')(
+      'leaves out a working directory that was removed',
+      async () => {
+        directory = mkdtempSync(join(tmpdir(), 'komla-removed-cwd-'));
+        const script =
+          "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>console.log(s.address().port))";
+        shell = spawn(process.execPath, ['-e', script], {
+          cwd: directory,
+          detached: true,
+          stdio: ['ignore', 'pipe', 'inherit'],
+        });
+        const port = await new Promise<number>((resolve) => {
+          shell!.stdout!.once('data', (chunk: Buffer) => resolve(Number(chunk.toString().trim())));
+        });
+        rmSync(directory, { recursive: true, force: true });
+
+        const snapshot = await collectListeningPorts({ cwds: true });
+
+        expect(snapshot.listeners).toContainEqual({ pid: shell.pid, address: '127.0.0.1', port });
+        expect(snapshot.cwds?.has(shell.pid!)).toBe(false);
+      }
+    );
   }
 );

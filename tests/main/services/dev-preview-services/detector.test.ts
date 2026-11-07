@@ -1,3 +1,7 @@
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../src/main/lib/logger', () => ({
@@ -13,9 +17,14 @@ import type { ListeningPortSnapshot } from '../../../../src/main/services/dev-pr
 import type { RemoteListeningPortSnapshot } from '../../../../src/main/services/dev-preview-services/remote-listening-ports';
 import type { Terminal } from '../../../../src/shared/types';
 
-const sshBackend = { kind: 'ssh', hostId: 'host-1' } as NonNullable<
+const sshBackend = { kind: 'ssh', hostId: 'host-1', remoteDirectory: '/srv/ws-1' } as NonNullable<
   ReturnType<DevPreviewServiceDetectorDeps['getWorkspace']>
 >['backend'];
+const sshWorkspace = {
+  backend: sshBackend,
+  workingDirectory: 'ssh://host-1/srv/ws-1',
+  isWorktree: true,
+};
 
 function terminal(id: string, executionLocation?: Terminal['executionLocation']): Terminal {
   return { id, name: id, status: 'running', createdAt: 0, executionLocation };
@@ -70,7 +79,12 @@ const deps = {
   komlaPid: 50,
   collectListeningPorts: vi.fn(async () => snapshot),
   probeHttpScheme: vi.fn(
-    async (port: number) => (port === 5173 || port === 8765 ? 'http' : null) as 'http' | null
+    async (port: number) =>
+      // 5173 and 8765, and the folder servers' ports: a background dev server's, wrangler's,
+      // and a run of servers in one folder.
+      ([5173, 8765, 57897, 8787].includes(port) || (port >= 3000 && port < 3025)
+        ? 'http'
+        : null) as 'http' | null
   ),
   isLoopbackPortOpen: vi.fn(async (port: number) => port === 3000),
   collectRemoteListeningPorts: vi.fn(async (_hostId: string) => remoteSnapshot),
@@ -84,7 +98,11 @@ const deps = {
 beforeEach(() => {
   vi.clearAllMocks();
   clock = 0;
-  workspace = { terminals: [terminal('terminal-a'), terminal('terminal-b')] };
+  workspace = {
+    workingDirectory: '/work/ws-1',
+    isWorktree: true,
+    terminals: [terminal('terminal-a'), terminal('terminal-b')],
+  };
 });
 
 describe('createDevPreviewServiceDetector', () => {
@@ -130,7 +148,7 @@ describe('createDevPreviewServiceDetector', () => {
 
   it('lists Local copy ports on this machine and remote terminal ports on the SSH host', async () => {
     workspace = {
-      backend: sshBackend,
+      ...sshWorkspace,
       terminals: [terminal('remote-a'), terminal('terminal-b', 'local-copy')],
     };
     const detector = createDevPreviewServiceDetector(deps);
@@ -171,7 +189,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it("counts an SSH host's own ports as open only while this user's processes listen on them", async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     clock = 1_000;
     const detector = createDevPreviewServiceDetector(deps);
 
@@ -194,7 +212,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it("can't tell which own ports are open on an SSH host with neither ss nor lsof", async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     deps.collectRemoteListeningPorts.mockResolvedValueOnce({
       ...remoteSnapshot,
       listeners: [],
@@ -209,7 +227,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it("can't tell which own ports are open when the SSH host can't be read", async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     deps.collectRemoteListeningPorts.mockRejectedValueOnce(new Error('unreachable'));
     const detector = createDevPreviewServiceDetector(deps);
 
@@ -230,7 +248,7 @@ describe('createDevPreviewServiceDetector', () => {
     expect(local.services.map(({ port }) => port)).toEqual([5173, 8000]);
     expect(deps.probeHttpScheme.mock.calls.map(([port]) => port).sort()).toEqual([5173, 8000]);
 
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     const remote = await detector.detect('ws-1', [], [3000]);
 
     expect(remote.services.map(({ port }) => port)).toEqual([3000]);
@@ -262,7 +280,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it("lists an SSH workspace's background runs on its Local copy", async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     deps.getBackgroundPids.mockReturnValueOnce([200]);
     const detector = createDevPreviewServiceDetector(deps);
 
@@ -275,6 +293,312 @@ describe('createDevPreviewServiceDetector', () => {
       processName: 'python3',
       executionLocation: 'local-copy',
     });
+  });
+
+  it('lists a server outside every terminal by its working directory in the workspace', async () => {
+    workspace = {
+      workingDirectory: '/work/ws-1',
+      isWorktree: true,
+      terminals: [terminal('terminal-a')],
+    };
+    deps.collectListeningPorts.mockResolvedValueOnce({
+      processes: [
+        ...snapshot.processes,
+        // Started in the background from an agent's shell that has since exited.
+        { pid: 900, ppid: 1, name: 'python3' },
+        { pid: 901, ppid: 1, name: 'node' },
+        { pid: 902, ppid: 1, name: 'node' },
+        { pid: 903, ppid: 1, name: 'python3' },
+        // In another workspace's terminal.
+        { pid: 800, ppid: 50, name: 'zsh' },
+        { pid: 801, ppid: 800, name: 'node' },
+      ],
+      listeners: [
+        ...snapshot.listeners,
+        { pid: 900, address: '127.0.0.1', port: 57897 },
+        { pid: 901, address: '127.0.0.1', port: 57898 },
+        { pid: 902, address: '127.0.0.1', port: 57899 },
+        { pid: 903, address: '0.0.0.0', port: 8765 },
+        { pid: 801, address: '127.0.0.1', port: 5174 },
+      ],
+      cwds: new Map([
+        [900, '/work/ws-1/site'],
+        [901, '/work/ws-10'],
+        [902, '/tmp/preview'],
+        [903, '/work/ws-1'],
+        [801, '/work/ws-1/app'],
+        [201, '/work/ws-1'],
+      ]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', [57897]);
+
+    expect(result.services).toEqual([
+      expect.objectContaining({ port: 5173, terminalId: 'terminal-a' }),
+      {
+        port: 8765,
+        scheme: 'http',
+        pid: 903,
+        processName: 'python3',
+        executionLocation: 'workspace',
+      },
+      {
+        port: 57897,
+        scheme: 'http',
+        pid: 900,
+        processName: 'python3',
+        executionLocation: 'workspace',
+      },
+    ]);
+    // 8765 is the workspace's own, so it is neither another server nor probed twice.
+    expect(result.otherServers).toEqual([]);
+    expect(deps.probeHttpScheme.mock.calls.map(([port]) => port).sort((a, b) => a - b)).toEqual([
+      5173, 8765, 57897,
+    ]);
+  });
+
+  it('lists a server in the workspace folder even when the workspace has no terminal', async () => {
+    workspace = { workingDirectory: '/work/ws-1/', isWorktree: true, terminals: [] };
+    deps.collectListeningPorts.mockResolvedValueOnce({
+      processes: [...snapshot.processes, { pid: 900, ppid: 1, name: 'python3' }],
+      listeners: [...snapshot.listeners, { pid: 900, address: '127.0.0.1', port: 57897 }],
+      cwds: new Map([[900, '/work/ws-1']]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', [57897]);
+
+    expect(result.services).toEqual([
+      {
+        port: 57897,
+        scheme: 'http',
+        pid: 900,
+        processName: 'python3',
+        executionLocation: 'workspace',
+      },
+    ]);
+  });
+
+  it("keeps a terminal's port on the terminal when a process in the workspace folder also holds it", async () => {
+    workspace = {
+      workingDirectory: '/work/ws-1',
+      isWorktree: true,
+      terminals: [terminal('terminal-a')],
+    };
+    deps.collectListeningPorts.mockResolvedValueOnce({
+      processes: [...snapshot.processes, { pid: 900, ppid: 1, name: 'node' }],
+      // A daemon that inherited the terminal's socket, listed before the terminal's server.
+      listeners: [{ pid: 900, address: '127.0.0.1', port: 5173 }, ...snapshot.listeners],
+      cwds: new Map([[900, '/work/ws-1']]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', []);
+
+    expect(result.services).toEqual([
+      {
+        port: 5173,
+        scheme: 'http',
+        pid: 101,
+        processName: 'node',
+        terminalId: 'terminal-a',
+        executionLocation: 'workspace',
+      },
+    ]);
+  });
+
+  it("keeps a terminal's servers when many processes work in the folder", async () => {
+    workspace = {
+      workingDirectory: '/work/ws-1',
+      isWorktree: true,
+      terminals: [terminal('terminal-a')],
+    };
+    const helpers = Array.from({ length: 25 }, (_, index) => 900 + index);
+    deps.collectListeningPorts.mockResolvedValueOnce({
+      processes: [...snapshot.processes, ...helpers.map((pid) => ({ pid, ppid: 1, name: 'node' }))],
+      listeners: [
+        ...helpers.map((pid, index) => ({ pid, address: '127.0.0.1', port: 3000 + index })),
+        ...snapshot.listeners,
+      ],
+      cwds: new Map(helpers.map((pid) => [pid, '/work/ws-1'])),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', []);
+
+    expect(result.services[0]).toMatchObject({ port: 5173, terminalId: 'terminal-a' });
+    expect(result.services).toHaveLength(20);
+  });
+
+  it("doesn't list a database working in the folder, which never serves a page", async () => {
+    workspace = { workingDirectory: '/work/ws-1', isWorktree: true, terminals: [] };
+    deps.collectListeningPorts.mockResolvedValueOnce({
+      processes: [...snapshot.processes, { pid: 900, ppid: 1, name: 'postgres' }],
+      listeners: [...snapshot.listeners, { pid: 900, address: '127.0.0.1', port: 5433 }],
+      cwds: new Map([[900, '/work/ws-1/pgdata']]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', []);
+
+    expect(result.services).toEqual([]);
+    expect(deps.probeHttpScheme).not.toHaveBeenCalledWith(5433);
+  });
+
+  it("doesn't claim processes in a directory workspace's folder, which can hold other projects", async () => {
+    workspace = { workingDirectory: '/home/user/code', isWorktree: false, terminals: [] };
+    deps.collectListeningPorts.mockResolvedValueOnce({
+      processes: [...snapshot.processes, { pid: 900, ppid: 1, name: 'node' }],
+      listeners: [...snapshot.listeners, { pid: 900, address: '127.0.0.1', port: 3001 }],
+      cwds: new Map([[900, '/home/user/code/other-app']]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', []);
+
+    expect(result.services).toEqual([]);
+    expect(deps.collectListeningPorts).toHaveBeenCalledWith({ cwds: false });
+  });
+
+  it("lists a folder server on a port the system picked only once a terminal printed it, as an editor's language server isn't", async () => {
+    workspace = { workingDirectory: '/work/ws-1', isWorktree: true, terminals: [] };
+    deps.collectListeningPorts.mockResolvedValue({
+      processes: [
+        ...snapshot.processes,
+        { pid: 900, ppid: 1, name: 'python3' },
+        { pid: 901, ppid: 1, name: 'node' },
+      ],
+      listeners: [
+        ...snapshot.listeners,
+        { pid: 900, address: '127.0.0.1', port: 57897 },
+        { pid: 901, address: '127.0.0.1', port: 41234 },
+      ],
+      cwds: new Map([
+        [900, '/work/ws-1'],
+        [901, '/work/ws-1'],
+      ]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    expect((await detector.detect('ws-1', [])).services).toEqual([]);
+    clock += 5_000;
+    expect((await detector.detect('ws-1', [57897])).services.map(({ port }) => port)).toEqual([
+      57897,
+    ]);
+    deps.collectListeningPorts.mockResolvedValue(snapshot);
+  });
+
+  it('lists a folder server only once it answers HTTP, as a debugger or tool daemon there would not', async () => {
+    workspace = { workingDirectory: '/work/ws-1', isWorktree: true, terminals: [] };
+    deps.collectListeningPorts.mockResolvedValueOnce({
+      processes: [...snapshot.processes, { pid: 900, ppid: 1, name: 'node' }],
+      listeners: [...snapshot.listeners, { pid: 900, address: '127.0.0.1', port: 9229 }],
+      cwds: new Map([[900, '/work/ws-1']]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', []);
+
+    expect(deps.probeHttpScheme).toHaveBeenCalledWith(9229);
+    expect(result.services).toEqual([]);
+  });
+
+  it('matches a folder reached through a link, as the kernel reports its real path', async () => {
+    const real = realpathSync(mkdtempSync(join(tmpdir(), 'komla-real-ws-')));
+    const link = join(realpathSync(tmpdir()), `komla-link-ws-${process.pid}`);
+    symlinkSync(real, link);
+    try {
+      workspace = { workingDirectory: link, isWorktree: true, terminals: [] };
+      deps.collectListeningPorts.mockResolvedValueOnce({
+        processes: [...snapshot.processes, { pid: 900, ppid: 1, name: 'python3' }],
+        listeners: [...snapshot.listeners, { pid: 900, address: '127.0.0.1', port: 8765 }],
+        cwds: new Map([[900, join(real, 'site')]]),
+      });
+      const detector = createDevPreviewServiceDetector(deps);
+
+      const result = await detector.detect('ws-1', []);
+
+      expect(result.services.map(({ port }) => port)).toEqual([8765]);
+    } finally {
+      rmSync(link, { force: true });
+      rmSync(real, { recursive: true, force: true });
+    }
+  });
+
+  it("hides the internal ports of a folder server's child, as for a terminal's", async () => {
+    workspace = { workingDirectory: '/work/ws-1', isWorktree: true, terminals: [] };
+    deps.collectListeningPorts.mockResolvedValueOnce({
+      processes: [
+        ...snapshot.processes,
+        { pid: 900, ppid: 1, name: 'wrangler' },
+        { pid: 901, ppid: 900, name: 'workerd' },
+      ],
+      // The child's sockets are listed first.
+      listeners: [
+        ...snapshot.listeners,
+        { pid: 901, address: '127.0.0.1', port: 40001 },
+        { pid: 900, address: '127.0.0.1', port: 8787 },
+      ],
+      cwds: new Map([
+        [900, '/work/ws-1'],
+        [901, '/work/ws-1'],
+      ]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', [8787]);
+
+    expect(result.services.map(({ port }) => port)).toEqual([8787]);
+  });
+
+  it("reads working directories only where the workspace's folder is", async () => {
+    workspace = { ...sshWorkspace, terminals: [terminal('terminal-b', 'local-copy')] };
+    const detector = createDevPreviewServiceDetector(deps);
+
+    await detector.detect('ws-1', [], []);
+
+    expect(deps.collectListeningPorts).toHaveBeenCalledWith({ cwds: false });
+  });
+
+  it('lists a server on the SSH host by its working directory in the workspace', async () => {
+    workspace = { ...sshWorkspace, terminals: [terminal('terminal-b', 'local-copy')] };
+    deps.collectRemoteListeningPorts.mockResolvedValueOnce({
+      ...remoteSnapshot,
+      processes: [
+        ...remoteSnapshot.processes,
+        { pid: 700, ppid: 1, name: 'python3' },
+        { pid: 701, ppid: 1, name: 'python3' },
+      ],
+      listeners: [
+        ...remoteSnapshot.listeners,
+        { pid: 700, address: '127.0.0.1', port: 57897 },
+        { pid: 701, address: '127.0.0.1', port: 57898 },
+      ],
+      cwds: new Map([
+        [700, '/srv/ws-1/site'],
+        [701, '/srv/ws-1-old'],
+        // In managed tmux panes, which belong to other workspaces' terminals.
+        [501, '/srv/ws-1'],
+        [601, '/srv/ws-1'],
+      ]),
+    });
+    const detector = createDevPreviewServiceDetector(deps);
+
+    const result = await detector.detect('ws-1', [], [57897]);
+
+    expect(deps.probeRemoteHttpSchemes).toHaveBeenCalledWith('host-1', [57897]);
+    expect(result.services).toEqual([
+      expect.objectContaining({ port: 8000, executionLocation: 'local-copy' }),
+      {
+        port: 57897,
+        scheme: 'http',
+        pid: 700,
+        processName: 'python3',
+        executionLocation: 'workspace',
+      },
+    ]);
+    expect(result.otherServers).toEqual([]);
   });
 
   it('lists HTTP servers outside Komla on this machine', async () => {
@@ -335,7 +659,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('lists HTTP servers outside Komla on the SSH host, even with no terminal there', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('terminal-b', 'local-copy')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('terminal-b', 'local-copy')] };
     deps.collectRemoteListeningPorts.mockResolvedValueOnce({
       ...remoteSnapshot,
       processes: [
@@ -366,7 +690,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('checks local ports without waiting for the SSH host', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     let answerHost: (snapshot: RemoteListeningPortSnapshot) => void = () => {};
     deps.collectRemoteListeningPorts.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -383,7 +707,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('offers remote ports the probe could not check as HTTP', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     deps.probeRemoteHttpSchemes.mockResolvedValueOnce(new Map([[6379, null]]));
     const detector = createDevPreviewServiceDetector(deps);
 
@@ -396,7 +720,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('offers remote ports as HTTP when the probe fails', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     deps.probeRemoteHttpSchemes.mockRejectedValueOnce(new Error('connection reset'));
     const detector = createDevPreviewServiceDetector(deps);
 
@@ -409,7 +733,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('leaves remote ports unchecked when the SSH host cannot be read', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     deps.collectRemoteListeningPorts.mockRejectedValueOnce(new Error('timed out'));
     const detector = createDevPreviewServiceDetector(deps);
 
@@ -422,7 +746,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('leaves remote ports unchecked when the host has no tool to list listeners', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     deps.collectRemoteListeningPorts.mockResolvedValueOnce({
       ...remoteSnapshot,
       listeners: [],
@@ -441,7 +765,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('skips listing local processes in an SSH workspace without local terminals', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     const detector = createDevPreviewServiceDetector(deps);
 
     await expect(detector.detect('ws-1', [3000])).resolves.toMatchObject({ openPorts: [3000] });
@@ -486,7 +810,7 @@ describe('createDevPreviewServiceDetector', () => {
   });
 
   it('probes each remote listener once and asks again about ports it could not check', async () => {
-    workspace = { backend: sshBackend, terminals: [terminal('remote-a')] };
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
     deps.probeRemoteHttpSchemes.mockRejectedValueOnce(new Error('connection reset'));
     const detector = createDevPreviewServiceDetector(deps);
 

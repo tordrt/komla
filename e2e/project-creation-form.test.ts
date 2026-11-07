@@ -8,14 +8,13 @@ import {
   type ElectronApplication,
   type Locator,
   type Page,
-  _electron,
 } from '@playwright/test';
 
 import {
   E2E_GIT_IDENTITY_ENV,
-  ELECTRON_ARGS,
   e2eSandboxDir,
   firstRendererWindow,
+  launchElectronApp,
 } from './electron-app';
 
 const SANDBOX_DIR = e2eSandboxDir('komla-e2e-pcf');
@@ -77,15 +76,7 @@ const test = base.extend<Fixtures>({
         })
       );
 
-      const app = await _electron.launch({
-        args: ELECTRON_ARGS,
-        env: {
-          ...process.env,
-          ...E2E_GIT_IDENTITY_ENV,
-          KOMLA_DATA_DIR: SANDBOX_DIR,
-          NODE_ENV: 'test',
-        },
-      });
+      const app = await launchElectronApp(E2E_GIT_IDENTITY_ENV, SANDBOX_DIR);
 
       await provide(app);
       await app.close();

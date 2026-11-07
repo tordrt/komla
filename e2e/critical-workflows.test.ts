@@ -7,10 +7,9 @@ import {
   expect,
   type ElectronApplication,
   type Page,
-  _electron,
 } from '@playwright/test';
 
-import { ELECTRON_ARGS, firstRendererWindow, SANDBOX_DIR } from './electron-app';
+import { firstRendererWindow, launchElectronApp, SANDBOX_DIR } from './electron-app';
 
 interface CriticalFixtures {
   electronApp: ElectronApplication;
@@ -64,14 +63,7 @@ const test = base.extend<CriticalFixtures>({
         })
       );
 
-      const app = await _electron.launch({
-        args: ELECTRON_ARGS,
-        env: {
-          ...process.env,
-          KOMLA_DATA_DIR: SANDBOX_DIR,
-          NODE_ENV: 'test',
-        },
-      });
+      const app = await launchElectronApp();
 
       await provide(app);
       await app.close();

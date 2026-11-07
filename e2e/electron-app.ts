@@ -122,17 +122,56 @@ export function seedDefaultProject(
   return { repoDir, projectId };
 }
 
+/**
+ * Launches the built app with this checkout's Electron profile, with this process's environment
+ * and `env` over it (an undefined value removes a variable), always in test mode on `dataDir`.
+ * The fixtures of the *.test.ts files launch through this, so their apps open no native menus,
+ * counting them instead: Playwright can't reach one, and an open one holds macOS in its own
+ * event loop, so the app couldn't close after the test and its teardown hung. Read the count
+ * with nativeMenuCount(). The screenshot, demo and video fixtures still launch on their own.
+ */
+export async function launchElectronApp(
+  env: Record<string, string | undefined> = {},
+  dataDir = SANDBOX_DIR
+): Promise<ElectronApplication> {
+  const merged: Record<string, string | undefined> = {
+    ...process.env,
+    ...env,
+    KOMLA_DATA_DIR: dataDir,
+    NODE_ENV: 'test',
+  };
+  const launchEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(merged)) {
+    if (value !== undefined) launchEnv[key] = value;
+  }
+  const app = await _electron.launch({ args: ELECTRON_ARGS, env: launchEnv });
+  try {
+    await app.evaluate(({ Menu }) => {
+      const state = globalThis as unknown as { komlaE2eNativeMenus: number };
+      state.komlaE2eNativeMenus = 0;
+      Menu.prototype.popup = () => {
+        state.komlaE2eNativeMenus += 1;
+      };
+    });
+  } catch (error) {
+    // The caller never gets the app, so nothing else would close it.
+    await app.close().catch(() => {});
+    throw error;
+  }
+  return app;
+}
+
+/** How many native menus, such as a text field's, the app would have opened since it launched. */
+export function nativeMenuCount(app: ElectronApplication): Promise<number> {
+  return app.evaluate(
+    () => (globalThis as unknown as { komlaE2eNativeMenus: number }).komlaE2eNativeMenus
+  );
+}
+
 /** Launch the Electron app pointed at SANDBOX_DIR. Use for tests that need to
  *  restart the app within a single test (e.g. settings-persistence). */
 export async function launchApp(): Promise<{ app: ElectronApplication; window: Page }> {
-  const app = await _electron.launch({
-    args: ELECTRON_ARGS,
-    env: {
-      ...process.env,
-      KOMLA_DATA_DIR: SANDBOX_DIR,
-      NODE_ENV: 'test',
-    },
-  });
+  const app = await launchElectronApp();
   const window = await firstRendererWindow(app);
   return { app, window };
 }
@@ -178,19 +217,7 @@ export const test = base.extend<ElectronAppFixtures>({
   },
 
   electronApp: async ({ seedSandbox: _seedSandbox, appEnv }, provide) => {
-    const env: Record<string, string | undefined> = {
-      ...process.env,
-      ...appEnv,
-      KOMLA_DATA_DIR: SANDBOX_DIR,
-      NODE_ENV: 'test',
-    };
-    for (const key of Object.keys(env)) {
-      if (env[key] === undefined) delete env[key];
-    }
-    const app = await _electron.launch({
-      args: ELECTRON_ARGS,
-      env: env as Record<string, string>,
-    });
+    const app = await launchElectronApp(appEnv);
     await provide(app);
     await app.close();
   },

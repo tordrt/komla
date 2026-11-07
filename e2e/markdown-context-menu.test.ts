@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { test as base, expect, seedDefaultProject } from './electron-app';
+import { test as base, expect, nativeMenuCount, seedDefaultProject } from './electron-app';
 
 import type { ElectronApplication, Page } from '@playwright/test';
 
@@ -165,17 +165,8 @@ test.describe('Markdown editor context menu', () => {
     appWindow,
   }) => {
     const { dialog, editor } = await openReadme(appWindow);
-    // Counts native menus without opening them: an open one holds macOS in its own event loop,
-    // so the app couldn't close after the test.
-    await electronApp.evaluate(({ Menu }) => {
-      const state = globalThis as unknown as { popups: number };
-      state.popups = 0;
-      Menu.prototype.popup = () => {
-        state.popups += 1;
-      };
-    });
-    const nativePopups = () =>
-      electronApp.evaluate(() => (globalThis as unknown as { popups: number }).popups);
+    const nativePopups = () => nativeMenuCount(electronApp);
+    expect(await nativePopups()).toBe(0);
 
     // The editor's own menu takes the right-click, so no native one opens over it.
     await editor.getByText('A sample TypeScript project').click({ button: 'right' });

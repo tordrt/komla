@@ -207,6 +207,30 @@ function envWithoutKomlaTerminal(): NodeJS.ProcessEnv {
   );
 }
 
+// An origin whose default is `trunk`, beside a `main` that tests target, so a guess can't pass.
+function seedOriginWithTrunkDefault(root: string): string {
+  const originPath = join(root, 'origin.git');
+  const seedPath = join(root, 'seed');
+  runGit(['init', '--bare', originPath]);
+  runGit(['clone', originPath, seedPath]);
+  writeFileSync(join(seedPath, 'README.md'), 'origin head\n');
+  runGit(['add', 'README.md'], seedPath);
+  runGit(['commit', '-m', 'initial'], seedPath);
+  runGit(['push', 'origin', 'HEAD:refs/heads/trunk', 'HEAD:refs/heads/main'], seedPath);
+  runGit(['--git-dir', originPath, 'symbolic-ref', 'HEAD', 'refs/heads/trunk']);
+  return originPath;
+}
+
+// Git 2.48+ fetches create origin/HEAD themselves; older hosts' git doesn't.
+function envWithoutFollowRemoteHead(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'remote.origin.followRemoteHEAD',
+    GIT_CONFIG_VALUE_0: 'never',
+  };
+}
+
 function createTargetBranchTestRepo(): {
   root: string;
   originPath: string;
@@ -4802,6 +4826,106 @@ describe('sshWorkspaceService', () => {
 
       expect(readFileSync(join(projectRepoRoot, '.project-id'), 'utf8')).toBe('new-project-id\n');
       expect(existsSync(plan.backend.remoteDirectory)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // As a normal clone does, so tools such as `git log origin/HEAD...` work in its workspaces.
+  itWithPosixShell("records origin's default branch as origin/HEAD in a new clone", async () => {
+    const root = mkdtempSync(join(tmpdir(), 'komla-ssh-origin-head-'));
+
+    try {
+      const originPath = seedOriginWithTrunkDefault(root);
+
+      const { sshWorkspaceService } =
+        await import('../../../src/main/services/ssh-workspace.service');
+      const plan = sshWorkspaceService.createWorkspacePlan({
+        hostId: 'ssh-dev',
+        gitUrl: originPath,
+        projectId: 'origin-head-project',
+        projectName: 'origin-head',
+        branchName: 'agent/origin-head',
+        baseBranch: 'main',
+        resolvedBasePath: join(root, '.komla'),
+      });
+
+      execFileSync('/bin/sh', ['-c', await buildLazySetupCommand(plan.backend)], {
+        encoding: 'utf8',
+        env: envWithoutFollowRemoteHead(),
+      });
+
+      expect(
+        runGit(['symbolic-ref', 'refs/remotes/origin/HEAD'], plan.backend.remoteDirectory)
+      ).toBe('refs/remotes/origin/trunk');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Such as one whose first setup failed before recording it.
+  itWithPosixShell('records origin/HEAD in an existing clone that lacks it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'komla-ssh-existing-origin-head-'));
+
+    try {
+      const originPath = seedOriginWithTrunkDefault(root);
+
+      const { sshWorkspaceService } =
+        await import('../../../src/main/services/ssh-workspace.service');
+      const plan = sshWorkspaceService.createWorkspacePlan({
+        hostId: 'ssh-dev',
+        gitUrl: originPath,
+        projectId: 'existing-origin-head-project',
+        projectName: 'existing-origin-head',
+        branchName: 'agent/existing-origin-head',
+        baseBranch: 'main',
+        resolvedBasePath: join(root, '.komla'),
+      });
+      mkdirSync(join(plan.backend.remoteRepoPath, '..'), { recursive: true });
+      runGit(['clone', '--bare', originPath, plan.backend.remoteRepoPath]);
+
+      execFileSync('/bin/sh', ['-c', await buildLazySetupCommand(plan.backend)], {
+        encoding: 'utf8',
+        env: envWithoutFollowRemoteHead(),
+      });
+
+      expect(
+        runGit(['symbolic-ref', 'refs/remotes/origin/HEAD'], plan.backend.remoteDirectory)
+      ).toBe('refs/remotes/origin/trunk');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  itWithPosixShell('leaves origin/HEAD unset in a new clone of an empty origin', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'komla-ssh-empty-origin-head-'));
+    const originPath = join(root, 'origin.git');
+
+    try {
+      runGit(['init', '--bare', originPath]);
+      const { sshWorkspaceService } =
+        await import('../../../src/main/services/ssh-workspace.service');
+      const plan = sshWorkspaceService.createWorkspacePlan({
+        hostId: 'ssh-dev',
+        gitUrl: originPath,
+        projectId: 'empty-origin-project',
+        projectName: 'empty-origin',
+        branchName: 'agent/empty-origin',
+        baseBranch: 'main',
+        resolvedBasePath: join(root, '.komla'),
+      });
+
+      const result = spawnSync('/bin/sh', ['-c', await buildLazySetupCommand(plan.backend)], {
+        encoding: 'utf8',
+      });
+
+      // Setup gets past recording origin/HEAD, and stops only for want of a start point.
+      expect(result.stderr).toContain('selected starting revision is not available');
+      expect(
+        spawnSync('git', ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], {
+          cwd: plan.backend.remoteRepoPath,
+        }).status
+      ).not.toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

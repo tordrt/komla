@@ -2536,6 +2536,20 @@ class SshWorkspaceService {
         : fetchOriginLines.map((line) => `  ${line}`)),
       // A worktree directory removed by hand stays registered and keeps its branch checked out.
       `  git -C ${shellQuotePosix(backend.remoteRepoPath)} worktree prune || true`,
+      // The clone's HEAD is origin's default branch. `git clone --bare` doesn't record it as
+      // origin/HEAD the way a normal clone does, and tools such as `git log origin/HEAD...` fail
+      // without it. It's recorded once a fetch has copied the branch; an empty origin has none.
+      `  if ! git -C ${repo} symbolic-ref --quiet refs/remotes/origin/HEAD >/dev/null 2>&1; then`,
+      `    default_ref=$(git -C ${repo} symbolic-ref --quiet HEAD 2>/dev/null || true)`,
+      '    case "$default_ref" in',
+      '      refs/heads/?*)',
+      '        origin_head="refs/remotes/origin/${default_ref#refs/heads/}"',
+      `        if git -C ${repo} rev-parse --verify --quiet "$origin_head" >/dev/null; then`,
+      `          git -C ${repo} symbolic-ref refs/remotes/origin/HEAD "$origin_head" || true`,
+      '        fi',
+      '        ;;',
+      '    esac',
+      '  fi',
       'fi',
       ...(needsRemoteDefaultStartPoint
         ? [

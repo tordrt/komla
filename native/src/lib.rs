@@ -924,6 +924,58 @@ mod tests {
     }
 
     #[test]
+    fn falls_back_to_the_target_branch_when_origin_head_names_a_deleted_branch() {
+        let temp = tempdir().unwrap();
+        let repository = temp.path().join("repository");
+        fs::create_dir(&repository).unwrap();
+        git(&repository, &["init", "-b", "main"]);
+        git(&repository, &["config", "user.email", "komla@example.com"]);
+        git(&repository, &["config", "user.name", "Komla Test"]);
+        fs::write(repository.join("tracked.txt"), "initial\n").unwrap();
+        git(&repository, &["add", "tracked.txt"]);
+        git(&repository, &["commit", "-m", "initial"]);
+        git(&repository, &["remote", "add", "origin", "/tmp/origin.git"]);
+        git(
+            &repository,
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/trunk",
+            ],
+        );
+
+        let snapshot = RepositorySnapshot::read(&repository, "release").unwrap();
+
+        assert_eq!(snapshot.branch.default_branch, "release");
+    }
+
+    #[test]
+    fn falls_back_to_the_target_branch_when_origin_head_is_a_plain_ref() {
+        let temp = tempdir().unwrap();
+        let repository = temp.path().join("repository");
+        fs::create_dir(&repository).unwrap();
+        git(&repository, &["init", "-b", "main"]);
+        git(&repository, &["config", "user.email", "komla@example.com"]);
+        git(&repository, &["config", "user.name", "Komla Test"]);
+        fs::write(repository.join("tracked.txt"), "initial\n").unwrap();
+        git(&repository, &["add", "tracked.txt"]);
+        git(&repository, &["commit", "-m", "initial"]);
+        git(
+            &repository,
+            &[
+                "update-ref",
+                "--no-deref",
+                "refs/remotes/origin/HEAD",
+                "HEAD",
+            ],
+        );
+
+        let snapshot = RepositorySnapshot::read(&repository, "release").unwrap();
+
+        assert_eq!(snapshot.branch.default_branch, "release");
+    }
+
+    #[test]
     fn retains_status_with_large_untracked_files() {
         let temp = tempdir().unwrap();
         let repository = temp.path().join("repository");

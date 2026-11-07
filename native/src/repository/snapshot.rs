@@ -111,11 +111,25 @@ impl RepositorySnapshot {
         }
 
         let current_branch = git_text(working_tree, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+        // Resolved rather than read, since origin/HEAD outlives the branch it names when origin
+        // deletes its old default.
         let default_branch = git_text_if_success(
             working_tree,
-            &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            &[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--symbolic-full-name",
+                "refs/remotes/origin/HEAD",
+            ],
         )
-        .map(|branch| branch.strip_prefix("origin/").unwrap_or(&branch).to_owned())
+        // An origin/HEAD that is a plain ref, not a pointer to a branch, resolves to itself.
+        .and_then(|target| {
+            target
+                .strip_prefix("refs/remotes/origin/")
+                .filter(|branch| *branch != "HEAD")
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| target_branch.to_owned());
         let target = compare_target(working_tree, target_branch);
         let (behind_target_branch, ahead_target_branch) =

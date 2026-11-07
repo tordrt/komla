@@ -56,8 +56,11 @@ import {
 } from './workspace-list-filtering';
 import {
   getVisibleOrderedWorkspaceIds,
+  getWorkspaceDropTarget,
+  readDraggableCards,
   sortByLastTouched,
   splitWorkspaceListSections,
+  type WorkspaceDropTarget,
   type WorkspaceGroup,
 } from './workspace-list-ordering';
 import { WorkspaceCard } from './WorkspaceCard';
@@ -778,14 +781,8 @@ export function WorkspaceList({
 
   // Drag-and-drop state
   const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<{
-    workspaceId: string;
-    position: 'before' | 'after';
-  } | null>(null);
-  const dropTargetRef = useRef<{
-    workspaceId: string;
-    position: 'before' | 'after';
-  } | null>(null);
+  const [dropTarget, setDropTarget] = useState<WorkspaceDropTarget | null>(null);
+  const dropTargetRef = useRef<WorkspaceDropTarget | null>(null);
 
   // Working (while hidden), snoozed, stopped (while hidden) and trashed workspaces stay out of
   // sight on shelves at the bottom until one is opened.
@@ -1154,93 +1151,107 @@ export function WorkspaceList({
     [allActiveGroups, hiddenProjectIds]
   );
 
-  // Refs for stable drag callbacks — updated after commit, read at call time.
-  // Using useEffect (not render-phase writes) for React 18 StrictMode safety.
-  const draggedIdRef = useRef(draggedId);
+  // Refs for stable drag callbacks, read at call time. The drag handlers own draggedIdRef, so
+  // drag events between a drag starting and its render see it. The rest are updated after commit
+  // (not during render) for React 18 StrictMode safety.
+  const draggedIdRef = useRef<string | null>(null);
   const visibleWorkspacesRef = useRef(visibleWorkspaces);
-  const getGroupKeyRef = useRef(getGroupKey);
-  const groupingRef = useRef(grouping);
   useEffect(() => {
-    draggedIdRef.current = draggedId;
     visibleWorkspacesRef.current = visibleWorkspaces;
-    getGroupKeyRef.current = getGroupKey;
-    groupingRef.current = grouping;
   });
 
   // Drag handlers (stable references — safe to pass through React.memo)
   const handleDragStart = useCallback((workspaceId: string) => {
+    draggedIdRef.current = workspaceId;
     setDraggedId(workspaceId);
   }, []);
 
-  const handleDragEnd = useCallback(() => {
-    setDraggedId(null);
-    setDropTarget(null);
-    dropTargetRef.current = null;
-  }, []);
-
-  const handleDragOver = useCallback((workspaceId: string, position: 'before' | 'after') => {
-    const currentDraggedId = draggedIdRef.current;
-    if (currentDraggedId && workspaceId !== currentDraggedId) {
-      // Constrain to the Pinned shelf, or to the same group below it
-      const ws = visibleWorkspacesRef.current;
-      const draggedWs = ws.find((w) => w.id === currentDraggedId);
-      const targetWs = ws.find((w) => w.id === workspaceId);
-      if (draggedWs && targetWs) {
-        const bothPinned = Boolean(draggedWs.pinned) && Boolean(targetWs.pinned);
-        const sameSection =
-          Boolean(draggedWs.pinned) === Boolean(targetWs.pinned) &&
-          (bothPinned ||
-            groupingRef.current === 'none' ||
-            getGroupKeyRef.current(draggedWs).key === getGroupKeyRef.current(targetWs).key);
-        if (!sameSection) {
-          // Different section - reject drop
-          setDropTarget(null);
-          dropTargetRef.current = null;
-          return;
-        }
-      }
-      const target = { workspaceId, position };
-      setDropTarget(target);
-      dropTargetRef.current = target;
-    }
-  }, []);
-
-  const handleDrop = useCallback(() => {
-    const target = dropTargetRef.current;
-    const currentDraggedId = draggedIdRef.current;
-    if (!currentDraggedId || !target || currentDraggedId === target.workspaceId) {
-      setDraggedId(null);
-      setDropTarget(null);
-      dropTargetRef.current = null;
+  const showDropTarget = useCallback((target: WorkspaceDropTarget | null) => {
+    const current = dropTargetRef.current;
+    if (current?.workspaceId === target?.workspaceId && current?.position === target?.position) {
       return;
     }
+    dropTargetRef.current = target;
+    setDropTarget(target);
+  }, []);
 
-    const ws = visibleWorkspacesRef.current;
-    const draggedWorkspace = ws.find((w) => w.id === currentDraggedId);
-    const targetWorkspace = ws.find((w) => w.id === target.workspaceId);
-    if (draggedWorkspace && targetWorkspace) {
-      const oldOrder = draggedWorkspace.order ?? 0;
-      const targetOrder = targetWorkspace.order ?? 0;
-      let newOrder: number;
-      if (target.position === 'before') {
-        newOrder = oldOrder < targetOrder ? targetOrder - 1 : targetOrder;
-      } else {
-        newOrder = oldOrder > targetOrder ? targetOrder + 1 : targetOrder;
-      }
-      if (newOrder !== oldOrder) {
-        void reorderWorkspace(currentDraggedId, newOrder);
-      }
-    }
-
+  const handleDragEnd = useCallback(() => {
+    draggedIdRef.current = null;
     setDraggedId(null);
-    setDropTarget(null);
-    dropTargetRef.current = null;
-  }, [reorderWorkspace]);
+    showDropTarget(null);
+  }, [showDropTarget]);
+
+  // A workspace dragged over the list it's in (the Pinned shelf, or its group) goes to the slot
+  // nearest the pointer. Any other list refuses it. True when this list took the drag.
+  const handleCardListDragOver = useCallback(
+    (e: React.DragEvent<HTMLElement>): boolean => {
+      const currentDraggedId = draggedIdRef.current;
+      if (!currentDraggedId) return false;
+      const cards = readDraggableCards(e.currentTarget);
+      if (!cards.some((card) => card.id === currentDraggedId)) return false;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      showDropTarget(getWorkspaceDropTarget(cards, currentDraggedId, e.clientY));
+      return true;
+    },
+    [showDropTarget]
+  );
+
+  // Off the dragged workspace's list, a release leaves it where it was, so no line shows.
+  const handleListAreaDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (draggedIdRef.current && !e.defaultPrevented) showDropTarget(null);
+    },
+    [showDropTarget]
+  );
+  const handleListAreaDragLeave = useCallback(
+    (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) showDropTarget(null);
+    },
+    [showDropTarget]
+  );
+
+  const handleCardListDrop = useCallback(
+    (e: React.DragEvent<HTMLElement>): boolean => {
+      const currentDraggedId = draggedIdRef.current;
+      if (!currentDraggedId) return false;
+      if (!readDraggableCards(e.currentTarget).some((card) => card.id === currentDraggedId)) {
+        return false;
+      }
+      e.preventDefault();
+      const target = dropTargetRef.current;
+      const ws = visibleWorkspacesRef.current;
+      const draggedWorkspace = ws.find((w) => w.id === currentDraggedId);
+      const targetWorkspace = target && ws.find((w) => w.id === target.workspaceId);
+      if (target && draggedWorkspace && targetWorkspace) {
+        const oldOrder = draggedWorkspace.order ?? 0;
+        const targetOrder = targetWorkspace.order ?? 0;
+        let newOrder: number;
+        if (target.position === 'before') {
+          newOrder = oldOrder < targetOrder ? targetOrder - 1 : targetOrder;
+        } else {
+          newOrder = oldOrder > targetOrder ? targetOrder + 1 : targetOrder;
+        }
+        if (newOrder !== oldOrder) {
+          void reorderWorkspace(currentDraggedId, newOrder);
+        }
+      }
+      handleDragEnd();
+      return true;
+    },
+    [reorderWorkspace, handleDragEnd]
+  );
 
   // Group drag handlers
-  const handleGroupDragStart = useCallback((groupKey: string) => {
-    setDraggedGroupKey(groupKey);
-  }, []);
+  const handleGroupDragStart = useCallback(
+    (groupKey: string) => {
+      // A card that left its list mid-drag, as one a turn sends to the Working shelf does, never
+      // got its dragend; its drag mustn't take this one's drop.
+      handleDragEnd();
+      setDraggedGroupKey(groupKey);
+    },
+    [handleDragEnd]
+  );
 
   const handleGroupDragEnd = useCallback(() => {
     setDraggedGroupKey(null);
@@ -1389,8 +1400,6 @@ export function WorkspaceList({
       dndEnabled={dndEnabled}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
     />
   );
 
@@ -1410,11 +1419,17 @@ export function WorkspaceList({
         >
           {/* Little padding on the right: the panes' 6px gutter beyond the sidebar's edge makes up
               the rest, so a panel sits as far from the pane beside it as the pane from the drawer. */}
-          <div className="py-2.5 pr-0.5 pl-2.5">
+          <div
+            className="py-2.5 pr-0.5 pl-2.5"
+            onDragOver={handleListAreaDragOver}
+            onDragLeave={handleListAreaDragLeave}
+          >
             {sections.pinned.length > 0 && (
               <section
                 aria-label="Pinned"
                 className={cn(SIDEBAR_PANEL_CLASS, workspaceGroups.length > 0 && 'mb-2.5')}
+                onDragOver={handleCardListDragOver}
+                onDrop={handleCardListDrop}
               >
                 <PinnedShelfHeader
                   workspaces={sections.pinned}
@@ -1446,7 +1461,12 @@ export function WorkspaceList({
               // header, each naming its project
               if (!group.projectInfo) {
                 return (
-                  <div key={group.key} className={cn(SIDEBAR_PANEL_CLASS, index > 0 && 'mt-2.5')}>
+                  <div
+                    key={group.key}
+                    className={cn(SIDEBAR_PANEL_CLASS, index > 0 && 'mt-2.5')}
+                    onDragOver={handleCardListDragOver}
+                    onDrop={handleCardListDrop}
+                  >
                     <div
                       className={cn(
                         'relative [clip-path:inset(-4px_-100vw)]',
@@ -1491,8 +1511,12 @@ export function WorkspaceList({
                     isGroupBeingDragged && 'opacity-50',
                     getDropIndicatorClass(group.key, groupDropTarget)
                   )}
-                  onDragOver={dragHandlers.onDragOver}
-                  onDrop={dragHandlers.onDrop}
+                  onDragOver={(e) => {
+                    if (!handleCardListDragOver(e)) dragHandlers.onDragOver?.(e);
+                  }}
+                  onDrop={(e) => {
+                    if (!handleCardListDrop(e)) dragHandlers.onDrop?.(e);
+                  }}
                 >
                   <div
                     draggable={isGroupDraggable}

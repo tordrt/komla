@@ -69,3 +69,42 @@ export function sortByLastTouched(workspaces: Workspace[]): Workspace[] {
     (a, b) => getWorkspaceLastTouchedAt(b) - getWorkspaceLastTouchedAt(a)
   );
 }
+
+/** Marks a card that can be dragged, with its workspace's ID, for the list it's in to find. */
+export const SIDEBAR_CARD_DRAG_ATTRIBUTE = 'data-drag-workspace-id';
+
+/** The draggable cards in a list, top to bottom, with where each one is on screen. */
+export function readDraggableCards(
+  list: Element
+): Array<{ id: string; top: number; bottom: number }> {
+  return Array.from(list.querySelectorAll(`[${SIDEBAR_CARD_DRAG_ATTRIBUTE}]`), (card) => {
+    const { top, bottom } = card.getBoundingClientRect();
+    return { id: card.getAttribute(SIDEBAR_CARD_DRAG_ATTRIBUTE) ?? '', top, bottom };
+  });
+}
+
+export interface WorkspaceDropTarget {
+  workspaceId: string;
+  position: 'before' | 'after';
+}
+
+/**
+ * Where a workspace dragged over a list of cards would go: before the first card whose middle is
+ * below the pointer, else after the last. Each slot has one name, so its line doesn't jump between
+ * the cards either side, and the gaps between cards drop too. Null when the workspace would stay
+ * where it is, or isn't in this list (a workspace stays in its own group or shelf).
+ */
+export function getWorkspaceDropTarget(
+  cards: ReadonlyArray<{ id: string; top: number; bottom: number }>,
+  draggedId: string,
+  pointerY: number
+): WorkspaceDropTarget | null {
+  const draggedIndex = cards.findIndex((card) => card.id === draggedId);
+  if (draggedIndex === -1) return null;
+  const firstBelow = cards.findIndex((card) => pointerY < (card.top + card.bottom) / 2);
+  const index = firstBelow === -1 ? cards.length : firstBelow;
+  if (index === draggedIndex || index === draggedIndex + 1) return null;
+  return index < cards.length
+    ? { workspaceId: cards[index].id, position: 'before' }
+    : { workspaceId: cards[cards.length - 1].id, position: 'after' };
+}

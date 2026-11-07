@@ -1,10 +1,11 @@
 /**
  * @vitest-environment jsdom
  */
-import { fireEvent, render, screen } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SIDEBAR_CARD_DRAG_ATTRIBUTE } from '../../../../src/renderer/components/workspaces/workspace-list-ordering';
 import { WorkspaceList } from '../../../../src/renderer/components/workspaces/WorkspaceList';
 import { createTerminal, createWorktreeWorkspace } from '../../../factories';
 
@@ -101,38 +102,26 @@ vi.mock('../../../../src/renderer/components/workspaces/BulkDeleteDialog', () =>
     ) : null,
 }));
 
-// Like the real card: draggable only when manual DnD is enabled, and its drag
-// events bubble.
+// Like the real card: draggable, and marked for its list to find, only when manual DnD is
+// enabled. The list it's in takes the drag events that bubble up from it.
 vi.mock('../../../../src/renderer/components/workspaces/WorkspaceCard', () => ({
   WorkspaceCard: ({
     workspace,
     projectInfo,
     dndEnabled,
     onDragStart,
-    onDragOver,
-    onDrop,
   }: {
     workspace: Workspace;
     projectInfo?: { name: string } | null;
     dndEnabled?: boolean;
     onDragStart?: (workspaceId: string) => void;
-    onDragOver?: (workspaceId: string, position: 'before' | 'after') => void;
-    onDrop?: () => void;
   }) => (
     <div
       data-testid={`card-${workspace.id}`}
       data-project={projectInfo?.name}
       draggable={dndEnabled}
       onDragStart={() => onDragStart?.(workspace.id)}
-      onDragOver={
-        dndEnabled
-          ? (e) => {
-              e.preventDefault();
-              onDragOver?.(workspace.id, 'after');
-            }
-          : undefined
-      }
-      onDrop={dndEnabled ? () => onDrop?.() : undefined}
+      {...(dndEnabled ? { [SIDEBAR_CARD_DRAG_ATTRIBUTE]: workspace.id } : {})}
     >
       {workspace.name}
     </div>
@@ -141,6 +130,28 @@ vi.mock('../../../../src/renderer/components/workspaces/WorkspaceCard', () => ({
 
 function dataTransfer() {
   return { setData: vi.fn(), effectAllowed: 'none', dropEffect: 'none' };
+}
+
+// jsdom lays nothing out, so stack the draggable cards 40px tall in document order.
+const CARD_HEIGHT = 40;
+beforeEach(() => {
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const cards = Array.from(document.querySelectorAll(`[${SIDEBAR_CARD_DRAG_ATTRIBUTE}]`));
+    const top = Math.max(0, cards.indexOf(this)) * CARD_HEIGHT;
+    return DOMRect.fromRect({ x: 0, y: top, width: 200, height: CARD_HEIGHT });
+  });
+  return () => vi.restoreAllMocks();
+});
+
+/** Drags one card and releases it over the lower half of another, which drops it after that one. */
+function dragCardBelow(draggedId: string, targetId: string) {
+  fireEvent.dragStart(screen.getByTestId(`card-${draggedId}`), { dataTransfer: dataTransfer() });
+  const target = screen.getByTestId(`card-${targetId}`);
+  // jsdom has no DragEvent, so the event it makes leaves out the pointer's position.
+  const dragOver = createEvent.dragOver(target, { dataTransfer: dataTransfer() });
+  Object.defineProperty(dragOver, 'clientY', { value: target.getBoundingClientRect().bottom - 5 });
+  fireEvent(target, dragOver);
+  fireEvent.drop(target, { dataTransfer: dataTransfer() });
 }
 
 function getGroupHeader(): HTMLElement {
@@ -223,6 +234,34 @@ describe('WorkspaceList drag and drop', () => {
     fireEvent.drop(docsGroup, { dataTransfer: dataTransfer() });
 
     expect(projectsState.reorderProject).toHaveBeenCalledWith('project-1', 2);
+    projectsState.projects = defaultProjects;
+  });
+
+  it('moves a project group after a card drag that never ended', () => {
+    projectsState.projects = [
+      ...defaultProjects,
+      { id: 'project-2', name: 'Docs', color: '#ef4444', order: 1 },
+    ];
+    workspacesState.workspaces = [
+      createWorktreeWorkspace({ id: 'ws-1', windowId: 'window-1', projectId: 'project-1' }),
+      createWorktreeWorkspace({ id: 'ws-2', windowId: 'window-1', projectId: 'project-2' }),
+    ];
+    render(<WorkspaceList />);
+    const dragSourceFor = (name: string) => {
+      const source = screen.getByText(name).closest<HTMLElement>('[draggable="true"]');
+      if (!source?.parentElement) throw new Error(`${name} group not found`);
+      return source;
+    };
+
+    // A card that leaves the list mid-drag, as one a turn sends to the Working shelf does, never
+    // gets its dragend.
+    fireEvent.dragStart(screen.getByTestId('card-ws-1'), { dataTransfer: dataTransfer() });
+    fireEvent.dragStart(dragSourceFor('Komla'), { dataTransfer: dataTransfer() });
+    const docsGroup = dragSourceFor('Docs').parentElement!;
+    fireEvent.dragOver(docsGroup, { dataTransfer: dataTransfer(), clientY: 1 });
+    fireEvent.drop(docsGroup, { dataTransfer: dataTransfer() });
+
+    expect(projectsState.reorderProject).toHaveBeenCalled();
     projectsState.projects = defaultProjects;
   });
 
@@ -415,9 +454,7 @@ describe('WorkspaceList pins and snoozes', () => {
     render(<WorkspaceList />);
 
     // ws-3 is in Komla, ws-4 in Docs.
-    fireEvent.dragStart(screen.getByTestId('card-ws-3'), { dataTransfer: dataTransfer() });
-    fireEvent.dragOver(screen.getByTestId('card-ws-4'), { dataTransfer: dataTransfer() });
-    fireEvent.drop(screen.getByTestId('card-ws-4'), { dataTransfer: dataTransfer() });
+    dragCardBelow('ws-3', 'ws-4');
 
     expect(workspacesState.reorderWorkspace).toHaveBeenCalledWith('ws-3', 3);
   });
@@ -928,14 +965,10 @@ describe('WorkspaceList pins and snoozes', () => {
     ];
     render(<WorkspaceList />);
 
-    fireEvent.dragStart(screen.getByTestId('card-ws-3'), { dataTransfer: dataTransfer() });
-    fireEvent.dragOver(screen.getByTestId('card-ws-1'), { dataTransfer: dataTransfer() });
-    fireEvent.drop(screen.getByTestId('card-ws-1'), { dataTransfer: dataTransfer() });
+    dragCardBelow('ws-3', 'ws-1');
     expect(workspacesState.reorderWorkspace).not.toHaveBeenCalled();
 
-    fireEvent.dragStart(screen.getByTestId('card-ws-1'), { dataTransfer: dataTransfer() });
-    fireEvent.dragOver(screen.getByTestId('card-ws-2'), { dataTransfer: dataTransfer() });
-    fireEvent.drop(screen.getByTestId('card-ws-2'), { dataTransfer: dataTransfer() });
+    dragCardBelow('ws-1', 'ws-2');
     expect(workspacesState.reorderWorkspace).toHaveBeenCalledWith('ws-1', 1);
   });
 });
@@ -996,9 +1029,7 @@ describe('WorkspaceList without grouping', () => {
     render(<WorkspaceList />);
 
     // ws-1 is in Komla, ws-2 in Docs.
-    fireEvent.dragStart(screen.getByTestId('card-ws-1'), { dataTransfer: dataTransfer() });
-    fireEvent.dragOver(screen.getByTestId('card-ws-2'), { dataTransfer: dataTransfer() });
-    fireEvent.drop(screen.getByTestId('card-ws-2'), { dataTransfer: dataTransfer() });
+    dragCardBelow('ws-1', 'ws-2');
 
     expect(workspacesState.reorderWorkspace).toHaveBeenCalledWith('ws-1', 1);
   });

@@ -124,6 +124,7 @@ import { LinkWorkspacesDialog } from './LinkWorkspacesDialog';
 import { MoveToWindowMenuItems } from './MoveToWindowMenu';
 import { SIDEBAR_CARD_LIGHT_HOVER, SIDEBAR_SELECTED_CARD_FILL } from './sidebar-panel';
 import { CustomSnoozeDialog, SnoozeCountdown, SnoozeSubmenu, useCiRunning } from './SnoozeMenu';
+import { SIDEBAR_CARD_DRAG_ATTRIBUTE } from './workspace-list-ordering';
 import { getWorkspaceDynamicTitle, WorkspaceInfoCardContent } from './WorkspaceInfoCard';
 import { TagSubmenu, WorkspaceTagPill } from './WorkspaceTagMenu';
 
@@ -148,8 +149,6 @@ interface WorkspaceCardProps {
   dndEnabled?: boolean;
   onDragStart?: (workspaceId: string) => void;
   onDragEnd?: () => void;
-  onDragOver?: (workspaceId: string, position: 'before' | 'after') => void;
-  onDrop?: () => void;
 }
 
 export const WorkspaceCard = React.memo(function WorkspaceCard({
@@ -162,8 +161,6 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   dndEnabled,
   onDragStart,
   onDragEnd,
-  onDragOver,
-  onDrop,
 }: WorkspaceCardProps) {
   // Boolean selectors, so a switch re-renders only the two cards whose selection changed.
   const isSelected = useWorkspacesStore((s) => s.selectedWorkspaceId === workspace.id);
@@ -451,23 +448,6 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
     onDragStart?.(workspace.id);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const threshold = rect.height * 0.3;
-    // Use 30% zones at top/bottom to reduce flickering on the boundary
-    const position = e.clientY < rect.top + threshold ? 'before' : 'after';
-
-    onDragOver?.(workspace.id, position);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    onDrop?.();
-  };
-
   const isRemoteWorkspace = isSshWorkspace(workspace);
   const sshHost =
     isRemoteWorkspace && sshHosts
@@ -615,13 +595,13 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
     compact,
   });
 
+  // The list it's in takes the drop, so the gaps between cards and its header take it too.
   const dndProps = dndEnabled
     ? {
         draggable: !selectionMode,
         onDragStart: handleDragStart,
         onDragEnd,
-        onDragOver: handleDragOver,
-        onDrop: handleDrop,
+        [SIDEBAR_CARD_DRAG_ATTRIBUTE]: workspace.id,
       }
     : {};
 

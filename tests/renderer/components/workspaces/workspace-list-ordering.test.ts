@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getVisibleOrderedWorkspaceIds,
+  getWorkspaceDropTarget,
   splitWorkspaceListSections,
   type WorkspaceGroup,
 } from '../../../../src/renderer/components/workspaces/workspace-list-ordering';
@@ -188,5 +189,56 @@ describe('splitWorkspaceListSections', () => {
     expect(sections.tagged.map((w) => w.id)).toEqual(['tagged']);
     expect(sections.working.map((w) => w.id)).toEqual(['working-tagged']);
     expect(sections.grouped.map((w) => w.id)).toEqual(['plain']);
+  });
+});
+
+describe('getWorkspaceDropTarget', () => {
+  // Three 40px cards, 4px apart: a 0–40, b 44–84, c 88–128.
+  const cards = [
+    { id: 'a', top: 0, bottom: 40 },
+    { id: 'b', top: 44, bottom: 84 },
+    { id: 'c', top: 88, bottom: 128 },
+  ];
+
+  it('drops before a card when the pointer is above its middle', () => {
+    expect(getWorkspaceDropTarget(cards, 'a', 100)).toEqual({ workspaceId: 'c', position: 'before' });
+    expect(getWorkspaceDropTarget(cards, 'c', 30)).toEqual({ workspaceId: 'b', position: 'before' });
+  });
+
+  it('drops in the gap between cards, as before the card below it', () => {
+    expect(getWorkspaceDropTarget(cards, 'c', 42)).toEqual({ workspaceId: 'b', position: 'before' });
+  });
+
+  it('drops before the first card above the list', () => {
+    expect(getWorkspaceDropTarget(cards, 'c', -10)).toEqual({
+      workspaceId: 'a',
+      position: 'before',
+    });
+  });
+
+  it('drops after the last card below its middle', () => {
+    expect(getWorkspaceDropTarget(cards, 'a', 120)).toEqual({ workspaceId: 'c', position: 'after' });
+    expect(getWorkspaceDropTarget(cards, 'a', 400)).toEqual({ workspaceId: 'c', position: 'after' });
+  });
+
+  it('names one slot the same way, whichever card the pointer is nearer', () => {
+    // Just below a's middle and just above b's: the slot between them both times.
+    expect(getWorkspaceDropTarget(cards, 'c', 21)).toEqual({ workspaceId: 'b', position: 'before' });
+    expect(getWorkspaceDropTarget(cards, 'c', 63)).toEqual({ workspaceId: 'b', position: 'before' });
+  });
+
+  it('has no target where the dragged workspace already is', () => {
+    // Over the dragged card itself, either half.
+    expect(getWorkspaceDropTarget(cards, 'b', 50)).toBeNull();
+    expect(getWorkspaceDropTarget(cards, 'b', 80)).toBeNull();
+    // The slot just above a, which is a's own.
+    expect(getWorkspaceDropTarget(cards, 'a', -10)).toBeNull();
+    // Below c's middle, c's own slot.
+    expect(getWorkspaceDropTarget(cards, 'c', 120)).toBeNull();
+  });
+
+  it('has no target when the dragged workspace is in another list', () => {
+    expect(getWorkspaceDropTarget(cards, 'elsewhere', 60)).toBeNull();
+    expect(getWorkspaceDropTarget([], 'a', 60)).toBeNull();
   });
 });

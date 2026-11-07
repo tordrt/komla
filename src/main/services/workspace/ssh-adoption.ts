@@ -19,6 +19,7 @@ import { workspaceProject } from './projects';
 import { workspaceStore } from './store';
 
 import type { WorkspaceLifecycle } from './lifecycle';
+import type { WorkspaceNaming } from './naming';
 import type { Project, Workspace } from '../../../shared/types';
 import type {
   SshWorkspaceManifest,
@@ -32,6 +33,17 @@ const logger = createLogger('WorkspaceService');
 export interface SshWorkspaceAdoptionDeps {
   attention: TerminalAttention;
   lifecycle: WorkspaceLifecycle;
+  naming: WorkspaceNaming;
+}
+
+/**
+ * When a name another device generated counts as generated here: no later than now, as the
+ * devices' clocks differ, and now when that device didn't say, as an older version doesn't.
+ */
+function customNameGeneratedHere(manifest: SshWorkspaceManifest): number | undefined {
+  if (manifest.customNameSource !== 'generated') return undefined;
+  const now = Date.now();
+  return Math.min(manifest.customNameGeneratedAt || now, now);
 }
 
 /** Applies what SSH Workspace Sync reads from a host here, and matches SSH workspaces to projects. */
@@ -95,9 +107,17 @@ export class SshWorkspaceAdoption {
     const workspace = workspaceStore.workspaces.get(workspaceId);
     if (!workspace) return [];
     workspace.name = merged.name;
+    // A name another device gave it replaces any being generated here, and starts the count of
+    // prompts that drift from it.
+    if (merged.customName !== workspace.customName) {
+      this.deps.naming.abortAutoNaming(workspaceId);
+      workspace.autoNaming = false;
+      workspace.promptSubmitsSinceCustomNameGeneration = 0;
+    }
     workspace.customName = merged.customName;
     workspace.customDescription = merged.customDescription;
     workspace.customNameSource = merged.customNameSource;
+    workspace.customNameGeneratedAt = customNameGeneratedHere(merged);
     const addedTerminalIds = this.takeSshTerminalsFromOtherDevice(workspace, merged.terminals);
     const terminalIds = new Set(workspace.terminals.map((terminal) => terminal.id));
     workspace.terminalLayout = normalizePersistedTerminalLayout(merged.terminalLayout, terminalIds);
@@ -292,6 +312,7 @@ export class SshWorkspaceAdoption {
       customName: manifest.customName,
       customDescription: manifest.customDescription,
       customNameSource: manifest.customNameSource,
+      customNameGeneratedAt: customNameGeneratedHere(manifest),
       workingDirectory: `ssh://${hostId}${manifest.backend.remoteDirectory}`,
       backend: {
         kind: 'ssh',

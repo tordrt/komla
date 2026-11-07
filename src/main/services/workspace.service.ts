@@ -335,7 +335,7 @@ class WorkspaceService {
     this.lifecycle = lifecycle;
     this.creation = new WorkspaceCreation({ naming, terminals, provisioning });
     this.sessions = new SshSessionRecovery({ attention, sshSync });
-    this.adoption = new SshWorkspaceAdoption({ attention, lifecycle });
+    this.adoption = new SshWorkspaceAdoption({ attention, lifecycle, naming });
     this.sshAttention = new SshAttentionPersistence();
     onTerminalTitle((terminalId, title) => {
       if (title === null) this.attention.attachmentEnded(terminalId);

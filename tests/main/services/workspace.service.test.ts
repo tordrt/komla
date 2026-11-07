@@ -10801,6 +10801,174 @@ describe('WorkspaceService', () => {
       );
     });
 
+    it('renames an adopted workspace from the prompts sent here as its work drifts', async () => {
+      vi.setSystemTime(new Date('2026-05-29T00:00:00.000Z'));
+      mockPtyService.getStatus.mockReturnValue(undefined);
+      mockUtilityInferenceService.labelWorkspace.mockResolvedValueOnce({
+        title: 'OAuth Login',
+        description: 'Add OAuth to the login flow',
+      });
+      onHost({
+        ...manifest,
+        customName: 'Login Redirect',
+        customNameSource: 'generated',
+        customNameGeneratedAt: Date.now() - 60 * 60 * 1000,
+        ...otherDevice,
+      });
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await workspaceService.sshSync.adopt('ssh-dev', 'ws-42');
+      for (let index = 1; index <= 19; index++) {
+        workspaceService.recordPromptSubmit('ws-42', `Follow-up prompt ${index}`, 't1');
+      }
+      await Promise.resolve();
+      expect(mockUtilityInferenceService.labelWorkspace).not.toHaveBeenCalled();
+
+      workspaceService.recordPromptSubmit('ws-42', 'Add OAuth to the login flow', 't1');
+      await vi.waitFor(() => expect(workspaceService.get('ws-42')?.customName).toBe('OAuth Login'));
+
+      expect(mockUtilityInferenceService.labelWorkspace).toHaveBeenCalledWith(
+        expect.stringContaining('Follow-up prompt 1\n</prompt>'),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+      await vi.advanceTimersByTimeAsync(600);
+      const written = mockSshWorkspaceSyncHost.write.mock.calls
+        .filter((call) => (call as unknown[])[1] === 'ws-42')
+        .map((call) => JSON.parse(String((call as unknown[])[2])));
+      expect(written.at(-1)).toMatchObject({
+        customName: 'OAuth Login',
+        customNameGeneratedAt: workspaceService.get('ws-42')?.customNameGeneratedAt,
+      });
+      expect(workspaceService.get('ws-42')?.customNameGeneratedAt).toBeGreaterThan(
+        Date.parse('2026-05-29T00:00:00.000Z') - 1
+      );
+    });
+
+    it('waits to rename until the work drifts from a title generated on another device', async () => {
+      vi.setSystemTime(new Date('2026-05-29T00:00:00.000Z'));
+      mockPtyService.getStatus.mockReturnValue(undefined);
+      persistSshWorkspace();
+      const stored = JSON.parse(vfs.getFile('/mock/home/.komla/workspaces.json')!);
+      Object.assign(stored[0], {
+        customName: 'Login Redirect',
+        customNameSource: 'generated',
+        customNameGeneratedAt: Date.now() - 60 * 60 * 1000,
+        promptSubmitsSinceCustomNameGeneration: 25,
+        promptSubmits: [{ prompt: 'Fix the login redirect bug', submittedAt: 1500 }],
+      });
+      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(stored));
+      const generatedThere = Date.now() - 60 * 1000;
+      savedOnHost({
+        ...manifest,
+        terminals: [manifest.terminals[0]],
+        customName: 'Login Redirect',
+        customNameSource: 'generated',
+        ...otherDevice,
+      });
+      onHost({
+        ...manifest,
+        terminals: [manifest.terminals[0]],
+        customName: 'OAuth Login',
+        customNameSource: 'generated',
+        customNameGeneratedAt: generatedThere,
+        ...otherDevice,
+      });
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.waitFor(() => expect(workspaceService.get('ws-42')?.customName).toBe('OAuth Login'));
+      expect(workspaceService.get('ws-42')).toMatchObject({
+        customNameGeneratedAt: generatedThere,
+        promptSubmitsSinceCustomNameGeneration: 0,
+      });
+
+      workspaceService.recordPromptSubmit('ws-42', 'Also handle expired sessions', 't1');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(mockUtilityInferenceService.labelWorkspace).not.toHaveBeenCalled();
+    });
+
+    /** A workspace here with a generated title one prompt short of renaming as its work drifts. */
+    function persistGeneratedTitle() {
+      persistSshWorkspace();
+      const stored = JSON.parse(vfs.getFile('/mock/home/.komla/workspaces.json')!);
+      Object.assign(stored[0], {
+        customName: 'Login Redirect',
+        customNameSource: 'generated',
+        customNameGeneratedAt: Date.now() - 60 * 60 * 1000,
+        promptSubmitsSinceCustomNameGeneration: 19,
+        promptSubmits: [{ prompt: 'Fix the login redirect bug', submittedAt: 1500 }],
+      });
+      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify(stored));
+      savedOnHost({
+        ...manifest,
+        terminals: [manifest.terminals[0]],
+        customName: 'Login Redirect',
+        customNameSource: 'generated',
+        ...otherDevice,
+      });
+    }
+
+    it('keeps a title generated on another device over a rename still running here', async () => {
+      vi.setSystemTime(new Date('2026-05-29T00:00:00.000Z'));
+      mockPtyService.getStatus.mockReturnValue(undefined);
+      persistGeneratedTitle();
+      let finishRename: (label: { title: string; description: string }) => void = () => {};
+      mockUtilityInferenceService.labelWorkspace.mockReturnValueOnce(
+        new Promise((resolve) => (finishRename = resolve))
+      );
+      onHost({
+        ...manifest,
+        terminals: [manifest.terminals[0]],
+        customName: 'OAuth Login',
+        customNameSource: 'generated',
+        customNameGeneratedAt: Date.now() - 60 * 1000,
+        ...otherDevice,
+      });
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      workspaceService.recordPromptSubmit('ws-42', 'Also handle expired sessions', 't1');
+      expect(mockUtilityInferenceService.labelWorkspace).toHaveBeenCalledTimes(1);
+      await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+      await vi.waitFor(() => expect(workspaceService.get('ws-42')?.customName).toBe('OAuth Login'));
+      finishRename({ title: 'Expired Sessions', description: 'Handle expired sessions' });
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(workspaceService.get('ws-42')).toMatchObject({
+        customName: 'OAuth Login',
+        autoNaming: false,
+      });
+    });
+
+    it.each([
+      ['without saying when, as an older version', undefined],
+      ['later than now on this clock', Date.parse('2026-05-30T00:00:00.000Z')],
+    ])(
+      'counts a title generated on another device %s as generated now',
+      async (_, generatedThere) => {
+        vi.setSystemTime(new Date('2026-05-29T00:00:00.000Z'));
+        mockPtyService.getStatus.mockReturnValue(undefined);
+        persistGeneratedTitle();
+        onHost({
+          ...manifest,
+          terminals: [manifest.terminals[0]],
+          customName: 'OAuth Login',
+          customNameSource: 'generated',
+          customNameGeneratedAt: generatedThere,
+          ...otherDevice,
+        });
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+        await workspaceService.sshSync.syncSoon('ssh-dev', { now: true });
+        await vi.waitFor(() =>
+          expect(workspaceService.get('ws-42')?.customName).toBe('OAuth Login')
+        );
+
+        const generatedAt = workspaceService.get('ws-42')?.customNameGeneratedAt;
+        expect(generatedAt).toBeGreaterThanOrEqual(Date.parse('2026-05-29T00:00:00.000Z'));
+        expect(generatedAt).toBeLessThanOrEqual(Date.now());
+      }
+    );
+
     it('publishes a rename made before a restart over the host copy saved then', async () => {
       mockPtyService.getStatus.mockReturnValue(undefined);
       persistSshWorkspace();

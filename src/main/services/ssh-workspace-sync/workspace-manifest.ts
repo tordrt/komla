@@ -53,6 +53,7 @@ const manifestSchema = z.object({
   customName: optionalString,
   customDescription: optionalString,
   customNameSource: z.enum(['generated', 'manual']).optional(),
+  customNameGeneratedAt: z.number().finite().optional(),
   agentTitle: optionalString,
   tag: z
     .object({
@@ -142,6 +143,7 @@ export function buildSshWorkspaceManifest(
     customName: workspace.customName,
     customDescription: workspace.customDescription,
     customNameSource: workspace.customNameSource,
+    customNameGeneratedAt: workspace.customNameGeneratedAt,
     branchName: workspace.branchName,
     baseBranch: workspace.baseBranch,
     repoName: workspace.repoName,
@@ -333,12 +335,12 @@ export function mergeSshWorkspaceManifest(
 ): SshWorkspaceManifestMerge {
   const changedRemotely = <T>(theirs: T, before: T | undefined) =>
     !isDeepStrictEqual(theirs, before);
-  const pick = <K extends 'name' | 'customName' | 'customDescription'>(key: K) =>
+  const pick = <K extends 'name' | 'customDescription'>(key: K) =>
     changedRemotely(remote[key], base?.[key]) ? remote[key] : local[key];
-  // Whether a name was generated moves with it, so a rename made elsewhere isn't regenerated here.
-  const customNameSource = changedRemotely(remote.customName, base?.customName)
-    ? remote.customNameSource
-    : local.customNameSource;
+  // Whether and when a name was generated move with it, so a rename made elsewhere isn't
+  // regenerated here, and a generated one only once the work drifts from it.
+  const named = changedRemotely(remote.customName, base?.customName) ? remote : local;
+  const { customName, customNameSource, customNameGeneratedAt } = named;
 
   const baseTerminals = new Map(base?.terminals.map((terminal) => [terminal.id, terminal]));
   const remoteTerminals = new Map(remote.terminals.map((terminal) => [terminal.id, terminal]));
@@ -368,9 +370,10 @@ export function mergeSshWorkspaceManifest(
     manifest: {
       ...local,
       name: pick('name'),
-      customName: pick('customName'),
+      customName,
       customDescription: pick('customDescription'),
       customNameSource,
+      customNameGeneratedAt,
       status: statusChanged ? remote.status : local.status,
       terminals,
       terminalLayout,

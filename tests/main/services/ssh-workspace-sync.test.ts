@@ -332,6 +332,26 @@ describe('mergeSshWorkspaceManifest', () => {
     });
   });
 
+  it('keeps when a name was generated with the name, so only drift from it renames it', () => {
+    const generated = {
+      ...base,
+      customName: 'Fix login',
+      customNameSource: 'generated' as const,
+      customNameGeneratedAt: 1000,
+    };
+    const regenerated = { ...generated, customName: 'OAuth login', customNameGeneratedAt: 2000 };
+
+    expect(merge(generated, generated, regenerated)).toMatchObject({
+      customName: 'OAuth login',
+      customNameGeneratedAt: 2000,
+    });
+    expect(merge(generated, regenerated, generated).customNameGeneratedAt).toBe(2000);
+    expect(
+      merge(generated, generated, { ...generated, customNameGeneratedAt: 3000 })
+        .customNameGeneratedAt
+    ).toBe(1000);
+  });
+
   it('ignores a status the other device did not write', () => {
     const local = { ...base, status: 'trashed' as const };
     const remote = { ...base, status: undefined };

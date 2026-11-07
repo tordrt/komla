@@ -546,7 +546,7 @@ describe('StatusBar', () => {
     const inBackground = screen.getByRole('menuitemcheckbox', {
       name: 'Only while Komla is in the background',
     });
-    expect(inBackground).toBeChecked();
+    expect(inBackground).not.toBeChecked();
     expect(inBackground).toHaveAttribute('aria-disabled', 'true');
 
     await user.click(screen.getByRole('menuitemcheckbox', { name: 'Show in the menu bar' }));

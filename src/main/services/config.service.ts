@@ -404,7 +404,7 @@ const DEFAULT_CONFIG: AppConfig = {
   statusBarUsageResetTime: true,
   showAgentSpinner: true,
   showAgentsInMenuBar: true,
-  agentsMenuBarInBackgroundOnly: true,
+  agentsMenuBarInBackgroundOnly: false,
   activitySpinner: DEFAULT_ACTIVITY_SPINNER,
   reduceEffects: false,
   holdToQuit: false,

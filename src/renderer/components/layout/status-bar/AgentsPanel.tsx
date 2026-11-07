@@ -262,7 +262,7 @@ function WorkspaceAgents({
 /** The menu bar item's settings, at hand in both of the agents popovers. */
 function MenuBarSettings({ avoidCollisions = true }: Pick<RowProps, 'avoidCollisions'>) {
   const inMenuBar = useConfigStore((s) => s.config?.showAgentsInMenuBar === true);
-  const inBackgroundOnly = useConfigStore((s) => s.config?.agentsMenuBarInBackgroundOnly !== false);
+  const inBackgroundOnly = useConfigStore((s) => s.config?.agentsMenuBarInBackgroundOnly === true);
   const updateConfig = useConfigStore((s) => s.updateConfig);
   // Each switch keeps the menu open, so both can be set in one go.
   const keepOpen = (event: Event) => event.preventDefault();

@@ -57,18 +57,18 @@ describe('StatusBarSettingsCard', () => {
     expect(mockState.updateConfig).toHaveBeenCalledWith({ showAgentsInMenuBar: true });
   });
 
-  it('hides the menu bar item while Komla is in front by default, once it shows', () => {
+  it('shows the menu bar item while Komla is in front by default, once it shows', () => {
     Object.assign(window, { api: { platform: 'darwin' } });
     const { rerender } = render(<StatusBarSettingsCard />);
     const name = 'Only while Komla is in the background';
     expect(screen.getByRole('switch', { name })).toBeDisabled();
-    expect(screen.getByRole('switch', { name })).toBeChecked();
+    expect(screen.getByRole('switch', { name })).not.toBeChecked();
 
     mockState.config = { showAgentsInMenuBar: true };
     rerender(<StatusBarSettingsCard />);
     fireEvent.click(screen.getByRole('switch', { name }));
 
-    expect(mockState.updateConfig).toHaveBeenCalledWith({ agentsMenuBarInBackgroundOnly: false });
+    expect(mockState.updateConfig).toHaveBeenCalledWith({ agentsMenuBarInBackgroundOnly: true });
   });
 
   it('leaves the other bar items, such as the open button and Tips, to the status bar', () => {

@@ -99,7 +99,7 @@ describe('ConfigService', () => {
         statusBarUsageResetTime: true,
         showAgentSpinner: true,
         showAgentsInMenuBar: true,
-        agentsMenuBarInBackgroundOnly: true,
+        agentsMenuBarInBackgroundOnly: false,
         activitySpinner: 'arc',
         reduceEffects: false,
         holdToQuit: false,

@@ -25,7 +25,7 @@ import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 export function StatusBarSettingsCard() {
   const showStatusBar = useConfigStore((s) => s.config?.showStatusBar !== false);
   const showAgentsInMenuBar = useConfigStore((s) => s.config?.showAgentsInMenuBar === true);
-  const inBackgroundOnly = useConfigStore((s) => s.config?.agentsMenuBarInBackgroundOnly !== false);
+  const inBackgroundOnly = useConfigStore((s) => s.config?.agentsMenuBarInBackgroundOnly === true);
   const config = useConfigStore((s) => s.config);
   const showsResourceUsage = isStatusBarItemShown(config, 'system-metrics');
   const updateConfig = useConfigStore((s) => s.updateConfig);

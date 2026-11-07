@@ -1,8 +1,8 @@
-import { Check, Desktop, HardDrives } from '@phosphor-icons/react';
-import { useId } from 'react';
+import { ArrowRight, Desktop, GitBranch, HardDrives, Robot } from '@phosphor-icons/react';
+import { useId, useRef } from 'react';
 
+import { ChoiceCheck, choiceClass } from '@/components/layout/OnboardingChrome';
 import { Button } from '@/components/ui/button';
-import { Callout } from '@/components/ui/callout';
 import {
   Dialog,
   DialogBody,
@@ -32,6 +32,11 @@ interface SshCommandExecutionLocationDialogProps {
   onConfirm: () => void;
 }
 
+/**
+ * Asks once per project where Terminal Commands run in its SSH workspaces. The two options are
+ * drawn as the two machines, joined by the one-way sync that feeds the local copy, so the choice
+ * reads as where things run rather than as two paragraphs.
+ */
 export function SshCommandExecutionLocationDialog({
   open,
   projectName,
@@ -44,63 +49,96 @@ export function SshCommandExecutionLocationDialog({
   onConfirm,
 }: SshCommandExecutionLocationDialogProps) {
   const local = choice === 'local-copy-actions';
+  const overrideHintId = useId();
+  const host = hostName ?? 'the SSH host';
+  const confirmRef = useRef<HTMLButtonElement>(null);
 
   return (
     <Dialog open={open} onOpenChange={(choiceOpen) => !choiceOpen && onCancel()}>
-      <DialogContent>
+      <DialogContent
+        className="sm:max-w-xl"
+        // The confirm button, not the first card, takes focus: a focus ring on a card reads as a
+        // second selection, and Enter then confirms the choice that's shown.
+        onOpenAutoFocus={(event) => {
+          const confirmButton = confirmRef.current;
+          if (!confirmButton || confirmButton.disabled) return;
+          event.preventDefault();
+          confirmButton.focus();
+        }}
+      >
         <DialogHeader className="pr-6">
           <DialogTitle>Where should Terminal Commands run by default?</DialogTitle>
           <DialogDescription>
-            Applies to {projectName}. Change it in Project Settings, or override it for one command
-            under Advanced when you edit it. Agents and Git always stay on the remote machine.
+            Applies to {projectName}. You can change it later in Project Settings.
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-3">
+        <DialogBody className="space-y-4">
           <div
             role="group"
             aria-label="Where Terminal Commands run"
-            className="grid grid-cols-1 gap-2"
+            aria-describedby={overrideHintId}
+            className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:gap-0"
           >
-            <LocationCard
+            <MachineCard
               icon={HardDrives}
               title="Remote machine"
-              detail={hostName}
-              hint="Best for web, backend, CLI, and library development"
+              detail={hostName && <span className="font-mono">{hostName}</span>}
+              hint="Web, backend, CLI, and library work"
               selected={!local}
               onSelect={() => onChoiceChange('remote')}
-            >
-              Runs next to your agents and code. Open a dev server from the Browser dropdown and its
-              port is forwarded automatically.
-            </LocationCard>
-            <LocationCard
+              footer={
+                <>
+                  <Robot className="size-3.5" />
+                  <GitBranch className="size-3.5" />
+                  <span>Agents and Git stay here</span>
+                </>
+              }
+            />
+            <SyncLink active={local} />
+            <MachineCard
               icon={Desktop}
               title="This computer"
-              hint="Best for desktop, mobile, and locally interactive apps"
+              detail="Local copy"
+              hint="Desktop, mobile, and locally interactive apps"
               selected={local}
               onSelect={() => onChoiceChange('local-copy-actions')}
-            >
-              Runs in a disposable local copy synced from the SSH workspace, so you can try the app
-              by hand.
-            </LocationCard>
+              footer={<span>Synced from {host}, one way</span>}
+            />
           </div>
 
-          {local && (
-            <Callout tone="neutral" title="How the local copy works" className="leading-relaxed">
-              <ul className="list-disc space-y-1 pl-4">
-                <li>
-                  Source syncs one way from the SSH workspace when it changes. Edits made in the
-                  copy aren’t uploaded and are overwritten by the next sync.
-                </li>
-                <li>
-                  Gitignored files, such as dependencies, build caches, and{' '}
-                  <code className="font-mono">.env</code>, stay in the copy between syncs, so
-                  install and add secrets there, or with Workspace Setup.
-                </li>
-                <li>Git metadata isn’t copied.</li>
-              </ul>
-            </Callout>
-          )}
+          <div
+            aria-live="polite"
+            className="rounded-lg bg-muted/40 px-3.5 py-3 text-xs leading-relaxed text-muted-foreground"
+          >
+            {local ? (
+              <>
+                <p className="mb-1.5 font-medium text-foreground">How the Local copy works</p>
+                <ul className="list-disc space-y-1 pl-4 marker:text-komla/70">
+                  <li>
+                    Source syncs from {host} whenever it changes. Edits made in the Local copy
+                    aren’t uploaded, and the next sync overwrites them.
+                  </li>
+                  <li>
+                    Gitignored files, such as dependencies, build caches, and{' '}
+                    <code className="font-mono text-foreground/80">.env</code>, stay in the Local
+                    copy between syncs, so install and add secrets there, or with Workspace Setup.
+                  </li>
+                  <li>Git metadata isn’t copied.</li>
+                </ul>
+              </>
+            ) : (
+              <p>
+                Commands run next to your agents and code. Open a dev server from the Browser
+                dropdown and Komla forwards its port to this computer.
+              </p>
+            )}
+          </div>
+
+          <p id={overrideHintId} className="text-xs text-muted-foreground">
+            Want one command somewhere else, such as a dev server or test run? Override this default
+            for that Quick Command under Advanced.
+          </p>
         </DialogBody>
 
         {error && (
@@ -112,7 +150,7 @@ export function SshCommandExecutionLocationDialog({
           <Button type="button" variant="outline" disabled={saving} onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="button" disabled={saving} onClick={onConfirm}>
+          <Button ref={confirmRef} type="button" disabled={saving} onClick={onConfirm}>
             {saving && <Spinner className="mr-1.5" />}
             {local ? 'Run on this computer' : 'Run remotely'}
           </Button>
@@ -122,22 +160,53 @@ export function SshCommandExecutionLocationDialog({
   );
 }
 
-function LocationCard({
+/** The one-way sync between the two machines; lit while the local copy is chosen. */
+function SyncLink({ active }: { active: boolean }) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        'hidden w-12 flex-col items-center justify-center gap-1 transition-colors duration-200 sm:flex',
+        active ? 'text-komla' : 'text-muted-foreground/40'
+      )}
+    >
+      <span className="flex w-full items-center">
+        <span
+          className={cn(
+            'h-px flex-1 border-t transition-colors duration-200',
+            active ? 'border-solid border-komla/70' : 'border-dashed border-border'
+          )}
+        />
+        <ArrowRight
+          weight="bold"
+          className={cn(
+            '-ml-0.5 size-3 transition-transform duration-200 motion-reduce:transition-none',
+            active && 'translate-x-0.5'
+          )}
+        />
+      </span>
+      <span className="text-[10px] leading-none">sync</span>
+    </div>
+  );
+}
+
+function MachineCard({
   icon: CardIcon,
   title,
   detail,
   hint,
   selected,
   onSelect,
-  children,
-}: React.PropsWithChildren<{
+  footer,
+}: {
   icon: Icon;
   title: string;
-  detail?: string;
+  detail?: React.ReactNode;
   hint: string;
   selected: boolean;
   onSelect: () => void;
-}>) {
+  footer: React.ReactNode;
+}) {
   const titleId = useId();
   const descriptionId = useId();
   return (
@@ -147,40 +216,42 @@ function LocationCard({
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onClick={onSelect}
-      className={cn(
-        'flex items-start gap-3 rounded-lg border p-3 text-left transition-all focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
-        selected
-          ? 'border-primary/50 bg-primary/5 ring-2 ring-primary/50'
-          : 'border-border hover:bg-muted/50'
-      )}
+      className={cn('flex flex-col gap-3 rounded-xl p-4 text-left', choiceClass(selected))}
     >
-      <CardIcon
-        className={cn(
-          'mt-0.5 size-4 shrink-0',
-          selected ? 'text-primary' : 'text-muted-foreground'
-        )}
-      />
-      <span className="block min-w-0 flex-1 space-y-0.5">
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span id={titleId} className="shrink-0 text-sm font-medium">
-            {title}
-          </span>
-          {detail && (
-            <span className="truncate font-mono text-xs text-muted-foreground">{detail}</span>
+      <span className="flex w-full items-start justify-between">
+        <span
+          className={cn(
+            'flex size-10 items-center justify-center rounded-lg transition-colors',
+            selected ? 'bg-komla/15 text-komla' : 'bg-muted text-muted-foreground'
           )}
+        >
+          <CardIcon className="size-5" />
         </span>
-        <span id={descriptionId} className="block space-y-0.5 text-xs leading-relaxed">
-          <span className="block font-medium text-foreground/80">{hint}</span>
-          <span className="block text-muted-foreground">{children}</span>
-        </span>
+        {selected ? (
+          <ChoiceCheck />
+        ) : (
+          <span className="m-0.5 size-4 rounded-full ring-1 ring-border ring-inset" />
+        )}
       </span>
+
+      <span className="block min-w-0 space-y-0.5">
+        <span id={titleId} className="block text-sm font-medium">
+          {title}
+        </span>
+        {detail && <span className="block truncate text-xs text-muted-foreground">{detail}</span>}
+      </span>
+
+      <span id={descriptionId} className="block text-xs leading-relaxed text-foreground/80">
+        {hint}
+      </span>
+
       <span
         className={cn(
-          'flex size-5 shrink-0 items-center justify-center rounded-full border',
-          selected ? 'border-primary bg-primary' : 'border-border'
+          'mt-auto flex items-center gap-1.5 border-t pt-2.5 text-[11px] transition-colors',
+          selected ? 'border-komla/20 text-komla' : 'border-border text-muted-foreground'
         )}
       >
-        {selected && <Check className="size-3 text-primary-foreground" weight="bold" />}
+        {footer}
       </span>
     </button>
   );

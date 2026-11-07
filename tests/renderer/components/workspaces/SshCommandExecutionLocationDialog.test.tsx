@@ -80,12 +80,8 @@ describe('SshCommandExecutionLocationDialog', () => {
     renderDialog('remote');
 
     expect(screen.queryByText(/Recommended/)).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/Best for web, backend, CLI, and library development/)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Best for desktop, mobile, and locally interactive apps/)
-    ).toBeInTheDocument();
+    expect(screen.getByText('Web, backend, CLI, and library work')).toBeInTheDocument();
+    expect(screen.getByText('Desktop, mobile, and locally interactive apps')).toBeInTheDocument();
   });
 
   it('names the run button after the selected location', () => {
@@ -99,12 +95,27 @@ describe('SshCommandExecutionLocationDialog', () => {
 
   it('explains the local copy only when this computer is selected', () => {
     const { unmount } = renderDialog('remote');
-    expect(screen.queryByText('How the local copy works')).not.toBeInTheDocument();
+    expect(screen.queryByText('How the Local copy works')).not.toBeInTheDocument();
     unmount();
 
     renderDialog('local-copy-actions');
-    expect(screen.getByText('How the local copy works')).toBeInTheDocument();
+    expect(screen.getByText('How the Local copy works')).toBeInTheDocument();
     expect(screen.getByText(/Gitignored files/)).toBeInTheDocument();
+  });
+
+  it('says once, below the options, that one Quick Command can run somewhere else', () => {
+    renderDialog('remote');
+
+    const hints = screen.getAllByText(/override/i);
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toHaveTextContent(
+      'Want one command somewhere else, such as a dev server or test run? Override this default for that Quick Command under Advanced.'
+    );
+    expect(
+      screen.getByRole('group', { name: 'Where Terminal Commands run' })
+    ).toHaveAccessibleDescription(hints[0].textContent ?? '');
+    const local = screen.getByRole('button', { name: 'This computer' });
+    expect(local.compareDocumentPosition(hints[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows the SSH host on the remote option without changing its name', () => {
@@ -112,5 +123,16 @@ describe('SshCommandExecutionLocationDialog', () => {
 
     const remote = screen.getByRole('button', { name: 'Remote machine' });
     expect(remote).toHaveTextContent('devbox');
+  });
+
+  it('keeps agents and Git on the remote machine whichever location is selected', () => {
+    renderDialog('local-copy-actions', 'devbox');
+
+    expect(screen.getByRole('button', { name: 'Remote machine' })).toHaveTextContent(
+      'Agents and Git stay here'
+    );
+    expect(screen.getByRole('button', { name: 'This computer' })).toHaveTextContent(
+      'Synced from devbox, one way'
+    );
   });
 });

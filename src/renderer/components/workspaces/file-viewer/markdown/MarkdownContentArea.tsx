@@ -24,6 +24,7 @@ import {
   subscribeMarkdownViewMode,
 } from './markdown-view-mode';
 
+import type { MarkdownFileLinks } from './markdown-links';
 import type { MarkdownViewMode } from './markdown-view-mode';
 import type { MarkdownEditorHandle } from './RichMarkdownEditor';
 
@@ -46,6 +47,8 @@ interface MarkdownContentAreaProps {
   onChange?: (content: string) => void;
   onMarkdownEditorMount?: (handle: MarkdownEditorHandle | null) => void;
   readImage: (path: string) => Promise<{ data: string; mimeType: string }>;
+  /** Opens the workspace files links point to. */
+  fileLinks?: MarkdownFileLinks;
   /** The Monaco editor for Source mode. */
   sourceEditor: React.ReactNode;
   /** Buttons shown before the view toggle. */
@@ -109,6 +112,7 @@ export function MarkdownContentArea({
   onChange,
   onMarkdownEditorMount,
   readImage,
+  fileLinks,
   sourceEditor,
   actions,
   trailingActions,
@@ -244,6 +248,7 @@ export function MarkdownContentArea({
               readOnly={readOnly}
               onChange={onChange}
               readImage={readImage}
+              fileLinks={fileLinks}
               autoFocus={focusNewView}
               focusRequested={focusRequested}
               onFocused={onFocused}

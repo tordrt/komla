@@ -689,4 +689,212 @@ describe('RichMarkdownEditor', () => {
       expect(openExternal).toHaveBeenCalledWith('https://example.com');
     });
   });
+
+  describe('links', () => {
+    const openExternal = vi.fn();
+
+    beforeEach(() => {
+      openExternal.mockReset();
+      window.api = {
+        openExternal,
+        platform: 'linux',
+      } as unknown as typeof window.api;
+      // jsdom doesn't lay out, so it has no scrollIntoView.
+      Element.prototype.scrollIntoView = vi.fn();
+    });
+
+    /** Clicks the link with the given text, holding Ctrl unless told otherwise. */
+    function clickLink(
+      editor: Editor,
+      dom: HTMLElement,
+      text: string,
+      modifiers: { ctrlKey?: boolean; metaKey?: boolean } = { ctrlKey: true }
+    ) {
+      const link = [...dom.querySelectorAll('a')].find((a) => a.textContent === text);
+      if (!link) throw new Error(`No link ${text}`);
+      // jsdom doesn't lay out, so it can't tell which position is under the pointer.
+      vi.spyOn(editor.view, 'posAtCoords').mockReturnValue({
+        pos: 2,
+        inside: -1,
+      });
+      fireEvent.mouseDown(link, { button: 0, ...modifiers });
+      fireEvent.mouseUp(link, { button: 0, ...modifiers });
+      return link;
+    }
+
+    it('opens a file a link points to, relative to the Markdown file', () => {
+      const fileLinks = { canOpen: vi.fn(() => true), open: vi.fn() };
+      const { dom, editor } = renderEditor({
+        content: '[setup](../setup.md#install)\n',
+        fileLinks,
+      });
+
+      clickLink(editor, dom, 'setup', {});
+      expect(fileLinks.open).not.toHaveBeenCalled();
+
+      clickLink(editor, dom, 'setup');
+      expect(fileLinks.open).toHaveBeenCalledWith('setup.md');
+      expect(openExternal).not.toHaveBeenCalled();
+    });
+
+    it('opens a linked file with a plain click when read-only', () => {
+      const fileLinks = { canOpen: vi.fn(() => true), open: vi.fn() };
+      const { dom, editor } = renderEditor({
+        readOnly: true,
+        content: '[auth](./api/auth.ts)\n',
+        fileLinks,
+      });
+
+      clickLink(editor, dom, 'auth', {});
+      expect(fileLinks.open).toHaveBeenCalledWith('docs/api/auth.ts');
+    });
+
+    it('jumps to the heading a link to #its-anchor names', () => {
+      const { dom, editor } = renderEditor({
+        content: '[later](#notes-1)\n\n## Notes\n\nFirst.\n\n## Notes\n\nSecond.\n',
+      });
+
+      clickLink(editor, dom, 'later');
+      const { $from } = editor.state.selection;
+      expect($from.parent.type.name).toBe('heading');
+      // The second of the two headings, as GitHub numbers them.
+      expect($from.before()).toBe(
+        editor.state.doc.child(0).nodeSize +
+          editor.state.doc.child(1).nodeSize +
+          editor.state.doc.child(2).nodeSize
+      );
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('numbers a repeated heading past one whose own text ends in a number, as GitHub does', () => {
+      const { dom, editor } = renderEditor({
+        content: '[third](#notes-2)\n\n## Notes\n\n## Notes 1\n\n## Notes\n',
+      });
+
+      clickLink(editor, dom, 'third');
+      const { doc } = editor.state;
+      expect(editor.state.selection.$from.before()).toBe(
+        doc.child(0).nodeSize + doc.child(1).nodeSize + doc.child(2).nodeSize
+      );
+    });
+
+    it("leaves a file the host won't show to the editor", () => {
+      const fileLinks = {
+        canOpen: vi.fn((path: string) => path !== 'docs/LICENSE'),
+        open: vi.fn(),
+      };
+      const { dom, editor } = renderEditor({ content: '[license](LICENSE)\n', fileLinks });
+
+      clickLink(editor, dom, 'license');
+      expect(fileLinks.open).not.toHaveBeenCalled();
+    });
+
+    it('opens no link with the Windows or Super key, outside macOS', () => {
+      const { container, dom, editor } = renderEditor({
+        content: '[docs](https://example.com)\n',
+      });
+
+      clickLink(editor, dom, 'docs', { metaKey: true });
+      expect(openExternal).not.toHaveBeenCalled();
+      fireEvent.keyDown(window, { key: 'Meta', metaKey: true });
+      expect(container.querySelector('[data-markdown-scroller]')).not.toHaveAttribute(
+        'data-link-modifier'
+      );
+    });
+
+    it("leaves a link it can't open to the editor", () => {
+      const fileLinks = { canOpen: vi.fn(() => true), open: vi.fn() };
+      const { dom, editor } = renderEditor({
+        content: '[ftp](ftp://example.com/a) [missing](#nowhere)\n',
+        fileLinks,
+      });
+
+      clickLink(editor, dom, 'ftp');
+      clickLink(editor, dom, 'missing');
+      expect(openExternal).not.toHaveBeenCalled();
+      expect(fileLinks.open).not.toHaveBeenCalled();
+    });
+
+    it("doesn't open a file link where there's nowhere to show it", () => {
+      const { dom, editor } = renderEditor({
+        content: '[setup](../setup.md)\n',
+      });
+      clickLink(editor, dom, 'setup');
+      expect(openExternal).not.toHaveBeenCalled();
+    });
+
+    it('keeps the page from following a link itself', () => {
+      const { dom } = renderEditor({
+        readOnly: true,
+        content: '[docs](https://example.com)\n',
+      });
+      const link = dom.querySelector('a') as HTMLElement;
+      // false: the click's default, which would open the link a second time, was prevented.
+      expect(fireEvent.click(link)).toBe(false);
+    });
+
+    describe('hint', () => {
+      function scroller(container: HTMLElement): HTMLElement {
+        return container.querySelector('[data-markdown-scroller]') as HTMLElement;
+      }
+
+      it('says how to open a link while editing', () => {
+        const { container, dom } = renderEditor({
+          content: '[docs](https://example.com) and [ftp](ftp://example.com)\n',
+        });
+        const [docs, ftp] = dom.querySelectorAll('a');
+
+        fireEvent.mouseOver(docs);
+        expect(scroller(container)).toHaveAttribute('title', 'Ctrl+Click to open');
+        fireEvent.mouseOver(dom.querySelector('p') as HTMLElement);
+        expect(scroller(container)).not.toHaveAttribute('title');
+        fireEvent.mouseOver(ftp);
+        expect(scroller(container)).not.toHaveAttribute('title');
+      });
+
+      it("has nothing to say about a file the host won't show", () => {
+        const fileLinks = { canOpen: (path: string) => path !== 'docs/LICENSE', open: vi.fn() };
+        const { container, dom } = renderEditor({
+          content: '[license](LICENSE) and [setup](setup.md)\n',
+          fileLinks,
+        });
+        const [license, setup] = dom.querySelectorAll('a');
+
+        fireEvent.mouseOver(license);
+        expect(scroller(container)).not.toHaveAttribute('title');
+        fireEvent.mouseOver(setup);
+        expect(scroller(container)).toHaveAttribute('title', 'Ctrl+Click to open');
+      });
+
+      it('has nothing to say when a plain click opens the link', () => {
+        const { container, dom } = renderEditor({
+          readOnly: true,
+          content: '[docs](https://example.com)\n',
+        });
+        fireEvent.mouseOver(dom.querySelector('a') as HTMLElement);
+        expect(scroller(container)).not.toHaveAttribute('title');
+      });
+
+      it('shows links as clickable while the key that opens them is held', () => {
+        window.api = {
+          openExternal,
+          platform: 'darwin',
+        } as unknown as typeof window.api;
+        const { container } = renderEditor();
+
+        fireEvent.keyDown(window, { key: 'Meta', metaKey: true });
+        expect(scroller(container)).toHaveAttribute('data-link-modifier');
+        fireEvent.keyUp(window, { key: 'Meta' });
+        expect(scroller(container)).not.toHaveAttribute('data-link-modifier');
+
+        // Ctrl+click on macOS opens the context menu, not the link.
+        fireEvent.keyDown(window, { key: 'Control', ctrlKey: true });
+        expect(scroller(container)).not.toHaveAttribute('data-link-modifier');
+
+        fireEvent.keyDown(window, { key: 'Meta', metaKey: true });
+        fireEvent.blur(window);
+        expect(scroller(container)).not.toHaveAttribute('data-link-modifier');
+      });
+    });
+  });
 });

@@ -550,6 +550,10 @@ html[data-status-bar-row='large'] [data-status-bar] {
   .markdown-editor a {
     @apply cursor-text;
   }
+  /* While Cmd/Ctrl, which opens a link with a click, is held. */
+  [data-link-modifier] .markdown-editor a {
+    @apply cursor-pointer;
+  }
   .markdown-editor[contenteditable='false'] a {
     @apply cursor-pointer;
   }

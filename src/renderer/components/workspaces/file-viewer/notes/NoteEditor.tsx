@@ -2,6 +2,7 @@ import { FolderSimplePlus, NoteBlank } from '@phosphor-icons/react';
 import React, { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { linkedFileOpener } from '@/components/terminal/file-panel';
 import { usePaneDragBar } from '@/components/terminal/PaneDragGrip';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -385,6 +386,8 @@ function NoteEditorContent({
         onMarkdownEditorMount={setRichEditor}
         // Relative image paths resolve against the project, as if the note were at its root.
         readImage={(path) => window.api.readWorkspaceImageFile(workspace.id, path)}
+        // And so do links to files.
+        fileLinks={linkedFileOpener(workspace.id)}
         actions={
           <IconButton
             label="Save to project"

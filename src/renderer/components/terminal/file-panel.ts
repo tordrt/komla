@@ -1,7 +1,11 @@
 import { getFileLanguage } from '@/components/workspaces/file-viewer/file-viewer-utils';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
+import { useWorkspacesStore } from '@/stores/workspaces.store';
+import { isSshWorkspace } from '@/types';
 
 import { getViewableFileKind, isMediaFile, isPdfFile } from '../../../shared/image-utils';
+
+import type { MarkdownFileLinks } from '@/components/workspaces/file-viewer/markdown/markdown-links';
 
 /**
  * Whether the file panel can show a workspace file. It reads a file of a type it doesn't know as
@@ -37,4 +41,20 @@ export function openInFilePanel(
   fileViewer.requestInlineFilePreviewNav(workspaceId, 'browse', filePath, lineNumber, {
     browseTree: true,
   });
+}
+
+/**
+ * Opens the workspace files that links in a Markdown file point to, in the file panel. Unlike a
+ * terminal's link, one the panel doesn't show doesn't open: quick look reads through a terminal.
+ */
+export function linkedFileOpener(workspaceId: string): MarkdownFileLinks {
+  return {
+    canOpen: (filePath) => {
+      const workspace = useWorkspacesStore
+        .getState()
+        .workspaces.find(({ id }) => id === workspaceId);
+      return !!workspace && filePanelShows(filePath, isSshWorkspace(workspace) ? 'ssh' : 'local');
+    },
+    open: (filePath) => openInFilePanel(workspaceId, filePath, undefined),
+  };
 }

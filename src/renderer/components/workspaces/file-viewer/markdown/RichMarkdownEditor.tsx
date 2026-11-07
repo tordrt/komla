@@ -20,12 +20,14 @@ import { forwardAppShortcut } from '@/lib/monaco-shortcut-forwarding';
 import { useEditorSurfaceBackground } from '@/lib/palette-runtime';
 import { claimShortcutEvent } from '@/lib/shortcut-claims';
 import { cn } from '@/lib/utils';
+import { formatShortcutForDisplay } from '@/stores/shortcuts.store';
 
 import { MarkdownClipboard } from './markdown-clipboard';
 import { codeHighlightKey, MarkdownCodeHighlight } from './markdown-code-highlight';
 import { MarkdownCodec } from './markdown-codec';
 import { createMarkdownExtensions } from './markdown-extensions';
 import { createImageNodeView, resolveMarkdownImagePath } from './markdown-image-view';
+import { findHeading, resolveMarkdownLink } from './markdown-links';
 import { INLINE_NODE, MarkdownSearch } from './markdown-search';
 import { MarkdownSlashCommands } from './markdown-slash-commands';
 import { MarkdownSoftBreaks } from './markdown-soft-breaks';
@@ -35,6 +37,7 @@ import { MarkdownSlashMenu } from './MarkdownSlashMenu';
 import { MarkdownToolbar } from './MarkdownToolbar';
 
 import type { MarkdownSnapshot } from './markdown-codec';
+import type { MarkdownFileLinks } from './markdown-links';
 import type { SlashMenuState } from './markdown-slash-commands';
 import type { FindRequest } from './MarkdownFindBar';
 import type { Editor } from '@tiptap/core';
@@ -60,6 +63,8 @@ interface RichMarkdownEditorProps {
   readOnly: boolean;
   onChange?: (content: string) => void;
   readImage: (path: string) => Promise<{ data: string; mimeType: string }>;
+  /** Opens the workspace files links point to. Without it, links to files don't open. */
+  fileLinks?: MarkdownFileLinks;
   autoFocus?: boolean;
   /** Moves keyboard focus into the editor, then calls onFocused. */
   focusRequested?: boolean;
@@ -86,6 +91,7 @@ export function RichMarkdownEditor({
   readOnly,
   onChange,
   readImage,
+  fileLinks,
   autoFocus = false,
   focusRequested = false,
   onFocused,
@@ -104,6 +110,7 @@ export function RichMarkdownEditor({
   const onChangeRef = useRef(onChange);
   const savedContentRef = useRef(savedContent);
   const readImageRef = useRef(readImage);
+  const fileLinksRef = useRef(fileLinks);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [slashMenu, setSlashMenu] = useState<SlashMenuState | null>(null);
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
@@ -114,6 +121,7 @@ export function RichMarkdownEditor({
     onChangeRef.current = onChange;
     savedContentRef.current = savedContent;
     readImageRef.current = readImage;
+    fileLinksRef.current = fileLinks;
   });
 
   const report = useCallback(
@@ -183,7 +191,18 @@ export function RichMarkdownEditor({
         class: 'markdown-preview markdown-editor mx-auto min-h-full max-w-3xl px-8 py-6',
         'aria-label': 'Markdown editor',
       },
-      handleClick: (view, _position, event) => openClickedLink(view, event),
+      handleClick: (view, _position, event) =>
+        openClickedLink(view, event, filePath, fileLinksRef.current),
+      handleDOMEvents: {
+        // Links open only through handleClick. Followed by the page, a link would open a web
+        // page a second time, and a relative one as a page that isn't there.
+        click: (_view, event) => {
+          if (event.target instanceof Element && event.target.closest('a[href]')) {
+            event.preventDefault();
+          }
+          return false;
+        },
+      },
     },
     onUpdate: ({ editor }) => handleUpdate(editor),
     onBlur: ({ editor }) => flush(editor),
@@ -272,6 +291,41 @@ export function RichMarkdownEditor({
       scroller.removeEventListener('mousedown', focusEnd);
     };
   }, [editor]);
+
+  // While editing, a link says how to open it, and shows as clickable while the key is held.
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const hint = `${formatShortcutForDisplay('Cmd+Click', window.api?.platform)} to open`;
+    const syncModifier = (event: KeyboardEvent | MouseEvent) => {
+      scroller.toggleAttribute('data-link-modifier', isLinkModifier(event));
+    };
+    const clearModifier = () => scroller.removeAttribute('data-link-modifier');
+    // On the scroller, outside the editor's own DOM, which would read a change as an edit.
+    const syncHint = (event: MouseEvent) => {
+      syncModifier(event);
+      const link = clickedLink(event);
+      if (
+        link &&
+        editor.isEditable &&
+        linkTarget(editor.view, link, filePath, fileLinksRef.current)
+      ) {
+        scroller.title = hint;
+      } else {
+        scroller.removeAttribute('title');
+      }
+    };
+    window.addEventListener('keydown', syncModifier);
+    window.addEventListener('keyup', syncModifier);
+    window.addEventListener('blur', clearModifier);
+    scroller.addEventListener('mouseover', syncHint);
+    return () => {
+      window.removeEventListener('keydown', syncModifier);
+      window.removeEventListener('keyup', syncModifier);
+      window.removeEventListener('blur', clearModifier);
+      scroller.removeEventListener('mouseover', syncHint);
+    };
+  }, [editor, filePath]);
 
   // Cmd+F opens the find bar from anywhere in the editor, the toolbar and the bar included.
   useEffect(() => {
@@ -380,16 +434,54 @@ function isFindShortcut(event: KeyboardEvent): boolean {
   return mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f';
 }
 
-/** Links open with Cmd/Ctrl+click while editing, or a plain click when read-only. */
-function openClickedLink(view: EditorView, event: MouseEvent): boolean {
-  const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
-  if (!link || !isPrimaryClick(event) || (view.editable && !event.metaKey && !event.ctrlKey)) {
-    return false;
-  }
-  event.preventDefault();
-  const href = link.getAttribute('href') ?? '';
-  if (/^(?:https?|mailto):/i.test(href)) void window.api.openExternal(href);
-  return true;
+/**
+ * The key a click opens a link with while editing: Cmd on macOS, where Ctrl+click is a
+ * right-click, and Ctrl elsewhere, where the Windows or Super key belongs to the system.
+ */
+function isLinkModifier(event: { metaKey: boolean; ctrlKey: boolean }): boolean {
+  return window.api?.platform === 'darwin' ? event.metaKey : event.ctrlKey;
+}
+
+function clickedLink(event: MouseEvent): Element | null {
+  return event.target instanceof Element ? event.target.closest('a[href]') : null;
+}
+
+type LinkTarget =
+  | { kind: 'web'; url: string }
+  | { kind: 'heading'; position: number }
+  | { kind: 'file'; path: string };
+
+/** Where a link goes, when it can open there: a file only where the host shows it. */
+function linkTarget(
+  view: EditorView,
+  link: Element,
+  filePath: string,
+  fileLinks: MarkdownFileLinks | undefined
+): LinkTarget | null {
+  const target = resolveMarkdownLink(filePath, link.getAttribute('href') ?? '');
+  if (target?.kind === 'file') return fileLinks?.canOpen(target.path) ? target : null;
+  if (target?.kind !== 'heading') return target;
+  const position = findHeading(view.state.doc, target.slug);
+  return position === null ? null : { kind: 'heading', position };
+}
+
+/**
+ * Links open with Cmd/Ctrl+click while editing, or a plain click when read-only. A link that
+ * can't open is left to the editor, which puts the cursor in it.
+ */
+function openClickedLink(
+  view: EditorView,
+  event: MouseEvent,
+  filePath: string,
+  fileLinks: MarkdownFileLinks | undefined
+): boolean {
+  const link = clickedLink(event);
+  if (!link || !isPrimaryClick(event) || (view.editable && !isLinkModifier(event))) return false;
+  const target = linkTarget(view, link, filePath, fileLinks);
+  if (target?.kind === 'web') void window.api.openExternal(target.url);
+  else if (target?.kind === 'file') fileLinks?.open(target.path);
+  else if (target?.kind === 'heading') revealPosition(view, target.position, 'start');
+  return target !== null;
 }
 
 function revealLine(editor: Editor, snapshot: MarkdownSnapshot, line: number): void {
@@ -402,14 +494,14 @@ function revealLine(editor: Editor, snapshot: MarkdownSnapshot, line: number): v
   index = Math.min(index, doc.childCount - 1);
   let position = 0;
   for (let child = 0; child < index; child++) position += doc.child(child).nodeSize;
-  editor
-    .chain()
-    .focus()
-    .command(({ tr }) => {
-      tr.setSelection(Selection.near(tr.doc.resolve(position)));
-      return true;
-    })
-    .run();
-  const element = editor.view.nodeDOM(position);
-  if (element instanceof HTMLElement) element.scrollIntoView({ block: 'center' });
+  editor.commands.focus();
+  revealPosition(editor.view, position, 'center');
+}
+
+/** Puts the cursor in the block at `position` and scrolls it into view. */
+function revealPosition(view: EditorView, position: number, block: ScrollLogicalPosition): void {
+  const { tr } = view.state;
+  view.dispatch(tr.setSelection(Selection.near(tr.doc.resolve(position))));
+  const element = view.nodeDOM(position);
+  if (element instanceof HTMLElement) element.scrollIntoView({ block });
 }

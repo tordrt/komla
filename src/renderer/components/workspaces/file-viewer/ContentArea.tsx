@@ -2,6 +2,7 @@ import { Code, GitDiff, Globe, WarningCircle } from '@phosphor-icons/react';
 import React, { Suspense, useEffect, useReducer, useSyncExternalStore } from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { linkedFileOpener } from '@/components/terminal/file-panel';
 import { Button } from '@/components/ui/button';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Spinner } from '@/components/ui/spinner';
@@ -591,6 +592,7 @@ export function ContentArea({
               ? window.api.readWorkspaceImageFile(workspaceId, path)
               : window.api.readImageFile(workingDirectory, path)
           }
+          fileLinks={workspaceId ? linkedFileOpener(workspaceId) : undefined}
           sourceEditor={editorPane}
         />
       );

@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
+import { pinPlatform } from '../../helpers/platform';
 import { createTerminal, createWorkspace } from '../../factories';
 
 import type { Workspace, WorkspaceAttention } from '../../../src/shared/types';
@@ -128,12 +129,6 @@ vi.mock('../../../src/main/services/window.service', () => ({
   },
 }));
 
-const originalPlatform = process.platform;
-
-function setPlatform(platform: NodeJS.Platform): void {
-  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
-}
-
 function attention(kind: WorkspaceAttention['kind']): WorkspaceAttention {
   return { kind, source: 'claude-code', updatedAt: 1 };
 }
@@ -207,11 +202,7 @@ describe('agentsMenuBarService', () => {
     electron.nativeTheme.handlers.clear();
     electron.nativeTheme.shouldUseDarkColors = false;
     workspaces = [waiting as Workspace];
-    setPlatform('darwin');
-  });
-
-  afterEach(() => {
-    setPlatform(originalPlatform);
+    pinPlatform('darwin');
   });
 
   async function startService() {
@@ -223,7 +214,7 @@ describe('agentsMenuBarService', () => {
   }
 
   it('shows only on macOS', async () => {
-    setPlatform('linux');
+    pinPlatform('linux');
     await startService();
 
     expect(electron.trays).toHaveLength(0);

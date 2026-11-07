@@ -1,8 +1,9 @@
 import { execFile } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { pinPlatform } from '../../helpers/platform';
 import { refusingExecFile } from '../../helpers/windows-refusal';
 
 vi.mock('child_process', async (importOriginal) => ({
@@ -37,7 +38,6 @@ const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
 const _mockMkdirSync = vi.mocked(mkdirSync);
-const originalPlatform = process.platform;
 
 describe('CodexSettingsService', () => {
   function normalizeSlashes(value: string): string {
@@ -76,10 +76,6 @@ describe('CodexSettingsService', () => {
     });
   }
 
-  function setPlatform(platform: NodeJS.Platform): void {
-    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
-  }
-
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
@@ -89,10 +85,6 @@ describe('CodexSettingsService', () => {
       if (mockExistsSync(path)) return '';
       throw Object.assign(new Error(`ENOENT: ${String(path)}`), { code: 'ENOENT' });
     });
-  });
-
-  afterEach(() => {
-    setPlatform(originalPlatform);
   });
 
   it('preserves unrelated hooks sharing a matcher when explicitly updating', async () => {
@@ -226,7 +218,7 @@ describe('CodexSettingsService', () => {
   });
 
   it('should add PowerShell-safe Windows commands when enabling notifications on Windows', async () => {
-    setPlatform('win32');
+    pinPlatform('win32');
     mockFiles({ settings: '' });
 
     const { codexSettingsService } =
@@ -254,7 +246,7 @@ describe('CodexSettingsService', () => {
   });
 
   it('runs notify.js through PowerShell when Windows blocks the CLI', async () => {
-    setPlatform('win32');
+    pinPlatform('win32');
     mockFiles({ settings: '' });
     const { codexSettingsService } =
       await import('../../../src/main/services/codex-settings.service');
@@ -841,7 +833,7 @@ describe('CodexSettingsService', () => {
   });
 
   it('should invoke the installed Komla CLI on Unix', async () => {
-    setPlatform('linux');
+    pinPlatform('linux');
     const { codexSettingsService } =
       await import('../../../src/main/services/codex-settings.service');
 

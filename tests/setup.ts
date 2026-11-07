@@ -11,6 +11,8 @@ import { join } from 'node:path';
 
 import { vi, beforeEach, afterEach } from 'vitest';
 
+import { restoreHostPlatform } from './helpers/platform';
+
 // Inherited from `git rebase --exec`, hooks or `git -c`, these would point the
 // real-git fixture tests at the caller's repository instead of their temp dirs.
 for (const key of [
@@ -40,9 +42,12 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// Restore real timers after each test (in case fake timers were used)
+// Restore real timers after each test (in case fake timers were used), and the host's platform
+// (in case a test pinned another), which would otherwise reach the worker's next file in the
+// dom project, whose files share a `process`.
 afterEach(() => {
   vi.useRealTimers();
+  restoreHostPlatform();
 });
 
 /**

@@ -1,8 +1,9 @@
 import { execFile } from 'child_process';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { pinPlatform } from '../../helpers/platform';
 import { refusingExecFile } from '../../helpers/windows-refusal';
 
 vi.mock('child_process', async (importOriginal) => ({
@@ -40,16 +41,11 @@ vi.mock('../../../src/main/lib/logger', () => ({
 
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
-const originalPlatform = process.platform;
 const hooksPath = join('/mock/home', '.gemini', 'config', 'hooks.json');
 const mcpPath = join('/mock/home', '.gemini', 'config', 'mcp_config.json');
 const settingsPath = join('/mock/home', '.gemini', 'antigravity-cli', 'settings.json');
 
 let files: Map<string, string>;
-
-function setPlatform(platform: NodeJS.Platform): void {
-  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
-}
 
 function writtenJson(path: string): Record<string, any> {
   const call = mockWriteFileSync.mock.calls.findLast(([target]) => target === path);
@@ -82,13 +78,9 @@ describe('AntigravitySettingsService', () => {
     });
   });
 
-  afterEach(() => {
-    setPlatform(originalPlatform);
-  });
-
   it('writes a komla hook set for model calls, tool results and stops', async () => {
     // The Windows commands are covered below.
-    setPlatform('linux');
+    pinPlatform('linux');
     const service = await loadService();
 
     service.enableNotificationHook();
@@ -214,7 +206,7 @@ describe('AntigravitySettingsService', () => {
   });
 
   it('runs the CLI directly on Windows when cmd needs no quoting for its path', async () => {
-    setPlatform('win32');
+    pinPlatform('win32');
     paths.komlaBase = 'C:\\Users\\dev\\.komla';
     const service = await loadService();
 
@@ -224,7 +216,7 @@ describe('AntigravitySettingsService', () => {
   });
 
   it('runs hooks through an encoded PowerShell command when the Windows path needs quoting', async () => {
-    setPlatform('win32');
+    pinPlatform('win32');
     paths.komlaBase = 'C:\\Users\\Jane Doe\\.komla';
     const service = await loadService();
 
@@ -240,7 +232,7 @@ describe('AntigravitySettingsService', () => {
   });
 
   it('runs notify.js once Windows blocks the CLI, and offers that as an update', async () => {
-    setPlatform('win32');
+    pinPlatform('win32');
     paths.komlaBase = 'C:\\Users\\dev\\.komla';
     const service = await loadService();
     const { probeKomlaCli } = await import('../../../src/main/lib/komla-cli');
@@ -260,7 +252,7 @@ describe('AntigravitySettingsService', () => {
   });
 
   it('quotes notify.js in an encoded PowerShell command when the Windows path needs it', async () => {
-    setPlatform('win32');
+    pinPlatform('win32');
     paths.komlaBase = 'C:\\Users\\Jane Doe\\.komla';
     const service = await loadService();
     const { probeKomlaCli } = await import('../../../src/main/lib/komla-cli');

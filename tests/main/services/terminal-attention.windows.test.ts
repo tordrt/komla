@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
+import { pinPlatform } from '../../helpers/platform';
 import { electronAttentionWindows } from '../../../src/main/services/terminal-attention/windows';
 import { IPC } from '../../../src/shared/constants/ipc-channels';
 import { createMockBrowserWindow, type MockBrowserWindow } from '../../mocks/electron';
@@ -11,25 +12,16 @@ vi.mock('electron', async () => (await import('../../mocks/electron')).mockElect
 const { isUserAway } = vi.hoisted(() => ({ isUserAway: vi.fn(() => false) }));
 vi.mock('../../../src/main/lib/user-presence', () => ({ isUserAway }));
 
-const originalPlatform = process.platform;
 const getAllWindows = BrowserWindow.getAllWindows as unknown as Mock<() => MockBrowserWindow[]>;
-
-function onPlatform(platform: NodeJS.Platform): void {
-  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
-}
 
 beforeEach(() => {
   vi.clearAllMocks();
   getAllWindows.mockReturnValue([]);
 });
 
-afterEach(() => {
-  onPlatform(originalPlatform);
-});
-
 describe('badge', () => {
   it('waits for the app to be ready, then shows the latest count', async () => {
-    onPlatform('linux');
+    pinPlatform('linux');
     const isReady = app.isReady as unknown as Mock<() => boolean>;
     const whenReady = app.whenReady as unknown as Mock<() => Promise<void>>;
     let ready!: () => void;
@@ -49,7 +41,7 @@ describe('badge', () => {
   });
 
   it('shows the count on the macOS dock, and clears it at zero', () => {
-    onPlatform('darwin');
+    pinPlatform('darwin');
 
     electronAttentionWindows.badge(1);
     expect(app.dock.setBadge).toHaveBeenLastCalledWith('1');
@@ -60,7 +52,7 @@ describe('badge', () => {
   });
 
   it.each(['win32', 'linux'] as const)('never sets the dock badge on %s', (platform) => {
-    onPlatform(platform);
+    pinPlatform(platform);
 
     electronAttentionWindows.badge(1);
     electronAttentionWindows.badge(0);
@@ -69,7 +61,7 @@ describe('badge', () => {
   });
 
   it('flashes the focused window on Windows while attention is needed', () => {
-    onPlatform('win32');
+    pinPlatform('win32');
     const background = createMockBrowserWindow();
     const focused = createMockBrowserWindow({ isFocused: vi.fn(() => true) });
     getAllWindows.mockReturnValue([background, focused]);
@@ -83,7 +75,7 @@ describe('badge', () => {
   });
 
   it('flashes the first window on Windows when none is focused', () => {
-    onPlatform('win32');
+    pinPlatform('win32');
     const first = createMockBrowserWindow();
     const second = createMockBrowserWindow();
     getAllWindows.mockReturnValue([first, second]);
@@ -95,13 +87,13 @@ describe('badge', () => {
   });
 
   it('does nothing on Windows without a window', () => {
-    onPlatform('win32');
+    pinPlatform('win32');
 
     expect(() => electronAttentionWindows.badge(1)).not.toThrow();
   });
 
   it('sets the badge count on Linux', () => {
-    onPlatform('linux');
+    pinPlatform('linux');
 
     electronAttentionWindows.badge(1);
     expect(app.setBadgeCount).toHaveBeenLastCalledWith(1);

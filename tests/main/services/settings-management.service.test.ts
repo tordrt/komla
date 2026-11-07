@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { onPlatform } from '../../helpers/platform';
 import {
   SettingsManagementError,
   SettingsManagementService,
@@ -308,17 +309,6 @@ function fixture() {
   };
 }
 
-// Local copy never runs on Windows, so tests that expect it pin the platform.
-function onPlatform<T>(platform: NodeJS.Platform, run: () => T): T {
-  const original = process.platform;
-  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
-  try {
-    return run();
-  } finally {
-    Object.defineProperty(process, 'platform', { value: original, configurable: true });
-  }
-}
-
 describe('SettingsManagementService', () => {
   it('names the project a request is about, preferring its terminal, then workspace, then cwd', () => {
     const { service, projects } = fixture();
@@ -348,6 +338,7 @@ describe('SettingsManagementService', () => {
   });
 
   it('reports available environments and marks where new workspaces start', () => {
+    // Local copy never runs on Windows, so tests that expect it pin the platform.
     const { service, environmentConfiguration } = fixture();
     environmentConfiguration.sshHosts.push({ id: 'ssh-1' });
 

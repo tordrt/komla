@@ -2,6 +2,7 @@ import { join, win32 } from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { pinPlatform } from '../../helpers/platform';
 import { deleteReleasingOpenCodeLocation } from '../../../src/main/lib/opencode-service';
 import { OPENCODE_HOLDS_WORKTREE_ERROR_PREFIX } from '../../../src/shared/types/workspace';
 
@@ -23,16 +24,11 @@ vi.mock('../../../src/main/lib/logger', () => ({
 const DIRECTORY = win32.join('C:/', 'worktrees', 'repo', 'ws');
 const SERVICE = { url: 'http://127.0.0.1:45278', pid: 4242, password: 'secret' };
 const AUTH = { Authorization: `Basic ${Buffer.from('opencode:secret').toString('base64')}` };
-const originalPlatform = process.platform;
 
 function busy(): NodeJS.ErrnoException {
   return Object.assign(new Error(`EBUSY: resource busy or locked, rmdir '${DIRECTORY}'`), {
     code: 'EBUSY',
   });
-}
-
-function setPlatform(platform: NodeJS.Platform): void {
-  Object.defineProperty(process, 'platform', { value: platform });
 }
 
 /** The service lists `loaded` (one list per call, the last repeating) and answers releases. */
@@ -60,7 +56,7 @@ function releases(): string[] {
 describe('deleteReleasingOpenCodeLocation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    setPlatform('win32');
+    pinPlatform('win32');
     mocks.isWslMode.mockReturnValue(false);
     mocks.readFileSync.mockReturnValue(JSON.stringify(SERVICE));
     mocks.removePath.mockResolvedValue(undefined);
@@ -71,7 +67,6 @@ describe('deleteReleasingOpenCodeLocation', () => {
   });
 
   afterEach(() => {
-    setPlatform(originalPlatform);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -96,10 +91,10 @@ describe('deleteReleasingOpenCodeLocation', () => {
 
   it('rethrows a folder in use off native Windows', async () => {
     for (const setUp of [
-      () => setPlatform('darwin'),
+      () => pinPlatform('darwin'),
       () => mocks.isWslMode.mockReturnValue(true),
     ]) {
-      setPlatform('win32');
+      pinPlatform('win32');
       mocks.isWslMode.mockReturnValue(false);
       setUp();
       const error = busy();

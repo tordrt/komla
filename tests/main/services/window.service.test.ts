@@ -2,6 +2,7 @@ import { join } from 'path';
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+import { pinPlatform } from '../../helpers/platform';
 import { createMockBrowserWindow } from '../../mocks/electron';
 
 type AnyFn = (...args: any[]) => any;
@@ -21,12 +22,7 @@ interface WindowDouble {
 const createdWindows: WindowDouble[] = [];
 let windowCounter = 0;
 const mainFrameNavigation = { isMainFrame: true, isSameDocument: false };
-const originalPlatform = process.platform;
 const originalResourcesPath = process.resourcesPath;
-
-function setPlatform(platform: NodeJS.Platform): void {
-  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
-}
 
 function setResourcesPath(resourcesPath: string | undefined): void {
   Object.defineProperty(process, 'resourcesPath', {
@@ -153,12 +149,10 @@ describe('WindowService', () => {
     vi.clearAllMocks();
     vi.resetModules();
     paneCloseShortcut = 'Cmd+W';
-    setPlatform(originalPlatform);
     setResourcesPath('/mock/resources');
   });
 
   afterEach(() => {
-    setPlatform(originalPlatform);
     setResourcesPath(originalResourcesPath);
   });
 
@@ -215,7 +209,7 @@ describe('WindowService', () => {
   });
 
   it('handles ready-to-show and pane-close shortcut side effects', async () => {
-    setPlatform('darwin');
+    pinPlatform('darwin');
     const { windowService } = await import('../../../src/main/services/window.service');
 
     windowService.createWindow();
@@ -243,7 +237,7 @@ describe('WindowService', () => {
   });
 
   it('does not intercept Ctrl+W when pane close is remapped on Windows/Linux', async () => {
-    setPlatform('linux');
+    pinPlatform('linux');
     paneCloseShortcut = 'Cmd+Alt+W';
     const { windowService } = await import('../../../src/main/services/window.service');
 
@@ -269,7 +263,7 @@ describe('WindowService', () => {
   });
 
   it('intercepts the configured pane-close shortcut on Windows/Linux', async () => {
-    setPlatform('linux');
+    pinPlatform('linux');
     paneCloseShortcut = 'Cmd+Alt+W';
     const { windowService } = await import('../../../src/main/services/window.service');
 
@@ -295,7 +289,7 @@ describe('WindowService', () => {
   });
 
   it('forwards macOS Ctrl+R to the focused terminal', async () => {
-    setPlatform('darwin');
+    pinPlatform('darwin');
     const { windowService } = await import('../../../src/main/services/window.service');
 
     windowService.createWindow();
@@ -321,7 +315,7 @@ describe('WindowService', () => {
   });
 
   it('does not intercept macOS Ctrl+R when a terminal is not focused', async () => {
-    setPlatform('darwin');
+    pinPlatform('darwin');
     const { windowService } = await import('../../../src/main/services/window.service');
 
     windowService.createWindow();
@@ -346,7 +340,7 @@ describe('WindowService', () => {
   });
 
   it('only clears terminal focus for the terminal that lost it', async () => {
-    setPlatform('darwin');
+    pinPlatform('darwin');
     const { windowService } = await import('../../../src/main/services/window.service');
 
     windowService.createWindow();
@@ -373,7 +367,7 @@ describe('WindowService', () => {
   });
 
   it('uses the macOS traffic-light position offset', async () => {
-    setPlatform('darwin');
+    pinPlatform('darwin');
 
     const { windowService } = await import('../../../src/main/services/window.service');
 
@@ -387,7 +381,7 @@ describe('WindowService', () => {
   });
 
   it('broadcasts fullscreen state changes on macOS', async () => {
-    setPlatform('darwin');
+    pinPlatform('darwin');
 
     const { windowService } = await import('../../../src/main/services/window.service');
 
@@ -408,7 +402,7 @@ describe('WindowService', () => {
   });
 
   it('broadcasts fullscreen state changes on Linux', async () => {
-    setPlatform('linux');
+    pinPlatform('linux');
 
     const { windowService } = await import('../../../src/main/services/window.service');
 
@@ -750,7 +744,7 @@ describe('WindowService', () => {
     });
 
     it('keeps readiness, unsaved files and terminal focus when an iframe loads', async () => {
-      setPlatform('darwin');
+      pinPlatform('darwin');
       const { windowService } = await import('../../../src/main/services/window.service');
       const { windowId } = windowService.createWindow();
       const double = createdWindows[0];

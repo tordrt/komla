@@ -367,6 +367,8 @@ const landingTest = base.extend<ScreenshotFixtures>({
       fs.writeFileSync(
         path.join(SANDBOX_DIR, 'config.json'),
         JSON.stringify({
+          // Stopped workspaces stay in the sidebar, as these recordings expect.
+          hideStoppedWorkspaces: false,
           agentSetupComplete: true,
           usageTelemetryConsentAnswered: true,
           aiHelpersOffDismissed: true,

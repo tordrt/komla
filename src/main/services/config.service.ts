@@ -372,7 +372,7 @@ const DEFAULT_CONFIG: AppConfig = {
   webLinkOpenTarget: 'external',
   workspaceGrouping: 'project',
   recentFolders: [],
-  hideStoppedWorkspaces: false,
+  hideStoppedWorkspaces: true,
   hideWorkingWorkspaces: false,
   restoreRunningWorkspaces: 'ask',
   hiddenWorkspaceHostIds: [],

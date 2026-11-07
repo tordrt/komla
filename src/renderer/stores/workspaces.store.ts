@@ -844,7 +844,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   isLoading: false,
   hasLoaded: false,
   error: null,
-  hideStopped: false,
+  hideStopped: true,
   hideWorking: false,
   collapsedSections: new Set(),
   collapsedWorkspaceGroupKeys: readStoredCollapsedGroups(),

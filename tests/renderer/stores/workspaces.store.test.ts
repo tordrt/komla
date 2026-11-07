@@ -182,6 +182,11 @@ describe('workspaces.store', () => {
   });
 
   describe('moving a project whose group a launch brings into sight to the top', () => {
+    // These fixtures have no running terminals; keep them listed despite "Hide stopped".
+    beforeEach(() => {
+      useWorkspacesStore.setState({ hideStopped: false });
+    });
+
     const shown = createWorkspace({ id: 'ws-shown', windowId: 'window-1', projectId: 'p-1' });
 
     function launchInto(projectId: string, before: ReturnType<typeof createWorkspace>[]) {
@@ -1522,10 +1527,10 @@ describe('workspaces.store', () => {
     const api = createApiMock();
     (globalThis as { window: { api: ApiMock } }).window = { api };
 
-    useWorkspacesStore.getState().setHideStopped(true);
+    useWorkspacesStore.getState().setHideStopped(false);
 
-    expect(useWorkspacesStore.getState().hideStopped).toBe(true);
-    expect(api.updateConfig).toHaveBeenCalledWith({ hideStoppedWorkspaces: true });
+    expect(useWorkspacesStore.getState().hideStopped).toBe(false);
+    expect(api.updateConfig).toHaveBeenCalledWith({ hideStoppedWorkspaces: false });
   });
 
   it('persists the sidebar grouping', () => {
@@ -3718,6 +3723,11 @@ describe('workspaces.store', () => {
   });
 
   describe('multi-select', () => {
+    // These fixtures have no running terminals; keep them listed despite "Hide stopped".
+    beforeEach(() => {
+      useWorkspacesStore.setState({ hideStopped: false });
+    });
+
     it('enters selection mode and selects the given workspace', () => {
       const ws1 = createWorkspace({ id: 'ws-1' });
       useWorkspacesStore.setState({ workspaces: [ws1] });

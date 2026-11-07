@@ -44,7 +44,7 @@ const DEFAULT_CONFIG: AppConfig = {
   directRemoteLocalAccess: true,
   directRemotePasskeyWindowMinutes: DEFAULT_REMOTE_PASSKEY_WINDOW_MINUTES,
   workspaceGrouping: 'project',
-  hideStoppedWorkspaces: false,
+  hideStoppedWorkspaces: true,
   hideWorkingWorkspaces: false,
   restoreRunningWorkspaces: 'ask',
   remoteBranchesExpanded: false,

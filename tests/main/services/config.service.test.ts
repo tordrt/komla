@@ -65,7 +65,7 @@ describe('ConfigService', () => {
         webLinkOpenTarget: 'external',
         workspaceGrouping: 'project',
         recentFolders: [],
-        hideStoppedWorkspaces: false,
+        hideStoppedWorkspaces: true,
         restoreRunningWorkspaces: 'ask',
         hideWorkingWorkspaces: false,
         hiddenWorkspaceHostIds: [],
@@ -179,7 +179,7 @@ describe('ConfigService', () => {
       expect(config.theme).toBe('light');
       expect(config.scrollbackLines).toBe(10000); // default
       expect(config.notificationPort).toBe(53724); // default
-      expect(config.hideStoppedWorkspaces).toBe(false); // default
+      expect(config.hideStoppedWorkspaces).toBe(true); // default
       expect(config.usageTelemetryEnabled).toBe(false); // default: opt-in
       expect(config.usageTelemetryConsentAnswered).toBe(false); // default
       expect(config.alwaysShowBranchNameInWorkspaceCards).toBe(true); // default
@@ -440,12 +440,12 @@ describe('ConfigService', () => {
 
     it('should persist stopped workspace visibility', async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({ hideStoppedWorkspaces: true }));
+      mockReadFileSync.mockReturnValue(JSON.stringify({ hideStoppedWorkspaces: false }));
 
       const { configService } = await import('../../../src/main/services/config.service');
       const config = configService.get();
 
-      expect(config.hideStoppedWorkspaces).toBe(true);
+      expect(config.hideStoppedWorkspaces).toBe(false);
     });
 
     it('keeps the sidebar grouping, falling back to projects for anything else', async () => {

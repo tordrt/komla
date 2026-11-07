@@ -17,6 +17,8 @@ vi.mock('../../../src/renderer/stores/window.store', () => ({
 describe('selectAllWorkspaces', () => {
   beforeEach(() => {
     useWorkspacesStore.setState(useWorkspacesStore.getInitialState(), true);
+    // These fixtures have no running terminals; keep them listed despite "Hide stopped".
+    useWorkspacesStore.setState({ hideStopped: false });
   });
 
   it('skips workspaces the sidebar is not showing, such as those in collapsed groups', () => {

@@ -298,7 +298,7 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
 
   // Restore stopped workspace visibility from persisted config
   useEffect(() => {
-    const hideStopped = config?.hideStoppedWorkspaces ?? false;
+    const hideStopped = config?.hideStoppedWorkspaces ?? true;
     useWorkspacesStore.setState({ hideStopped });
   }, [config?.hideStoppedWorkspaces]);
 

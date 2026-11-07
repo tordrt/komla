@@ -51,11 +51,23 @@ notify` for news once, such as a run that ended; `komla status set` for a value 
 A workspace has one tag, and its card has room for a word or two. Keep tags and notification
 titles short, reuse the tags `komla tags` lists, and notify only when something changes.
 `komla notify -- <command>` says Done or Failed by itself, and a background Quick Command notifies
-without it. Their `--help` shows icons, tones and spinners. A Quick Command that runs the tests:
+without it, from how the command exits. Their `--help` shows icons, tones and spinners. A tag
+shows only what is under way; how it ended is a notification. A Quick Command that runs the tests
+in a tab, whose traps take the tag off however they end, on Ctrl+C too. Quitting Komla, or a stop
+on Windows, skips them and leaves the tag for the user to take off:
 
 ```sh
-komla tag "Testing" --spinner --tone info; if komla notify -- npm run test:e2e; then komla untag "Testing"; else komla tag "Failing" --tone error --if "Testing"; fi
+komla tag "Testing" --spinner --tone info; (trap 'komla untag "Testing"' EXIT; trap 'exit 130' INT; komla notify -- npm run test:e2e)
 ```
+
+A background one leaves out `komla notify --`, which would notify a second time:
+
+```sh
+komla tag "Testing" --spinner --tone info; (trap 'komla untag "Testing"' EXIT; trap 'exit 130' INT; npm run test:e2e)
+```
+
+Quick Commands run in the user's shell. These are for bash and zsh; in fish or PowerShell, write
+the same steps in its syntax.
 
 ## Hooks
 

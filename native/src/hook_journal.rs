@@ -409,7 +409,18 @@ mod tests {
         let recent = journal.join("recent");
         std::fs::create_dir_all(&old).unwrap();
         std::fs::create_dir_all(&recent).unwrap();
-        std::fs::File::open(&old)
+        let mut folder = std::fs::OpenOptions::new();
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            // Windows opens a folder only with FILE_FLAG_BACKUP_SEMANTICS, and sets its time
+            // only with FILE_WRITE_ATTRIBUTES.
+            folder.access_mode(0x100).custom_flags(0x0200_0000);
+        }
+        #[cfg(not(windows))]
+        folder.read(true);
+        folder
+            .open(&old)
             .unwrap()
             .set_modified(SystemTime::now() - Duration::from_secs(15 * 24 * 60 * 60))
             .unwrap();

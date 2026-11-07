@@ -139,7 +139,16 @@ fn run_finishes_starting_the_desktop_after_ctrl_c() {
     )
     .unwrap();
     std::fs::set_permissions(&xvnc, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut run = Command::new(env!("CARGO_BIN_EXE_komla"))
+    let mut run = Command::new(env!("CARGO_BIN_EXE_komla"));
+    // Ctrl+C stops `desktop run` in a terminal, though these tests may have started ignoring it,
+    // as a shell's `&` does.
+    unsafe {
+        run.pre_exec(|| {
+            libc::signal(libc::SIGINT, libc::SIG_DFL);
+            Ok(())
+        });
+    }
+    let mut run = run
         .args(["desktop", "run", "--", "/bin/true"])
         .env("DISPLAY", "localhost:10.0")
         .env_remove("WAYLAND_DISPLAY")

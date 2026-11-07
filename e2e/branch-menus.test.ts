@@ -109,9 +109,13 @@ test.describe('Branch menus', () => {
     const trigger = appWindow.getByRole('button', { name: 'main', exact: true }).last();
     const filter = appWindow.getByPlaceholder('Filter or create branch...');
 
+    // The pointer stays off the menu, where Create left it: as the branches load, items that move
+    // under a resting pointer take the focus from the filter.
+    await appWindow.mouse.move(0, 0);
     // The menu opens with its filter focused, and a filter finds remote branches though their
     // section is collapsed.
-    await trigger.click();
+    await trigger.focus();
+    await appWindow.keyboard.press('Enter');
     await expect(filter).toBeFocused();
     await appWindow.keyboard.type('top');
     await expect(appWindow.getByRole('menuitem', { name: /^topic/ })).toBeVisible();
@@ -130,9 +134,8 @@ test.describe('Branch menus', () => {
     await appWindow.keyboard.press('Enter');
     await expect.poll(() => workspaceTarget(appWindow)).toBe('other');
 
-    await appWindow.getByRole('button', { name: 'other', exact: true }).last().click();
-    // Off the menu, so the items Reset moves don't pass under the pointer, which focuses the menu.
-    await appWindow.mouse.move(0, 0);
+    await appWindow.getByRole('button', { name: 'other', exact: true }).last().focus();
+    await appWindow.keyboard.press('Enter');
     await expect(filter).toBeFocused();
     // The branches load as the menu opens, below Reset.
     const remote = appWindow.getByRole('menuitem', { name: /^Remote \(/ });

@@ -775,6 +775,32 @@ describe('TerminalPane SSH reconnect', () => {
     expect(screen.getByTestId('pane-outline')).not.toHaveAttribute('data-attention');
   });
 
+  it('clears the notification waiting on a pane when its context menu opens', () => {
+    const clearTerminalAttention = vi.fn().mockResolvedValue(undefined);
+    Object.assign(window.api, { clearTerminalAttention });
+    workspace.terminals = [
+      {
+        ...workspace.terminals[0],
+        attention: { kind: 'input-required', source: 'claude-code', updatedAt: 1 },
+      },
+    ];
+
+    // A lone pane hides the border, so a split from this menu would otherwise bring it out.
+    render(
+      <TerminalPane
+        paneId="pane-2"
+        terminalId="terminal-1"
+        workspaceId="workspace-1"
+        isTabActive={true}
+        isOnlyPane
+      />
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('terminal-view'));
+
+    expect(clearTerminalAttention).toHaveBeenCalledWith('terminal-1');
+  });
+
   it('outlines the focused pane of a split tab in the accent', () => {
     mocks.terminalConfig = {
       colors: { background: '#282c34' },

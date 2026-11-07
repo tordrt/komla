@@ -386,12 +386,14 @@ export const TerminalPane = React.memo(function TerminalPane({
   // The Action run becomes the one the menu rows repeat; one that asks for input, once it's given.
   const { runAction, actionInputDialog } = useActionLauncher(actionWorkspace?.id);
 
-  const handleFocus = () => {
+  // Focusing a pane, by a click or its context menu, sees the notification waiting on it.
+  const hasAttention = !!terminal?.attention;
+  const handleFocus = useCallback(() => {
     setFocusedPane(paneId);
-    if (terminal?.attention) {
+    if (hasAttention) {
       void window.api.clearTerminalAttention(terminalId);
     }
-  };
+  }, [hasAttention, paneId, setFocusedPane, terminalId]);
 
   // Pane drag-and-drop: drag the header onto another pane to reorganize.
   // dragstart fires on the draggable header, so it can't tell whether the grab
@@ -541,7 +543,7 @@ export const TerminalPane = React.memo(function TerminalPane({
       if (open) {
         // Context-menu gestures do not fire the pane's click handler. Focus the
         // pane as the menu opens so terminal-scoped actions target this pane.
-        setFocusedPane(paneId);
+        handleFocus();
         void loadActions();
         void loadPresets();
         loadSkills();
@@ -557,7 +559,7 @@ export const TerminalPane = React.memo(function TerminalPane({
         setContextMenuLink(null);
       }
     },
-    [loadActions, loadPresets, loadSkills, paneId, setFocusedPane, terminalId]
+    [handleFocus, loadActions, loadPresets, loadSkills, terminalId]
   );
 
   // Radix calls onOpenChange only for closes it makes itself.

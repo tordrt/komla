@@ -1185,36 +1185,41 @@ html[data-status-bar-row='large'] [data-status-bar] {
   background: transparent;
 }
 
-.work-column:has(.empty-work-area) :is([data-komla-title-bar], [data-testid='work-area']) {
+/* The status page draws the sidebar's edge line a gutter into the column, as the empty page does,
+   so its title bar drops its line too, which would run past the edge line into that gutter. */
+.work-column:has(.empty-work-area) :is([data-komla-title-bar], [data-testid='work-area']),
+.work-column:has(.workspace-status-page) [data-komla-title-bar] {
   border-color: transparent;
 }
 
 /* With no workspace open, the empty page shares the sidebar's chrome, so a clear line, as along
-   the bottom row's top, runs down the sidebar's edge to set it apart. It sits just past the
-   sidebar, clear of its panels' outlines, and stops at the status bar, where the short line between
-   the sidebar's footer and the status bar moves over to carry it on. With the status bar off, it
-   runs on to the window's bottom in place of that short line. A workspace that restarts or sets up
-   shows its status page first, so the line stays until the panes take over. The Overview hides the
-   sidebar; a collapsed sidebar draws nothing. */
+   the bottom row's top, runs down the sidebar's edge to set it apart. It sits a pane gap past the
+   sidebar, where a pane's edge would be, as far from the panels' outlines as the panes are, and
+   stops at the status bar's line, above the short line that stays between the sidebar's footer and
+   the status bar. With the status bar off, it runs on to the window's bottom, and that short line
+   turns into a piece of the footer's top line, carrying it over the gutter to meet it. A workspace that restarts or sets up shows its status page first, so the
+   line stays until the panes take over. The Overview hides the sidebar; a collapsed sidebar draws
+   nothing. */
 .window-chrome:has(:is(.empty-work-area:not(.overview-surface), .workspace-status-page))
   > .sidebar-surface::after {
   content: '';
   position: absolute;
   top: 0;
-  right: -1px;
+  right: calc(-1px - var(--pane-gap));
   bottom: var(--status-bar-height, 0px);
   width: 1px;
   background-color: oklch(var(--foreground) / 0.14);
   pointer-events: none;
 }
-.window-chrome:has(:is(.empty-work-area:not(.overview-surface), .workspace-status-page))
-  [data-sidebar-footer]::after {
-  right: -1px;
-}
 :root:not(:has([data-status-bar]))
   .window-chrome:has(:is(.empty-work-area:not(.overview-surface), .workspace-status-page))
   [data-sidebar-footer]::after {
-  content: none;
+  top: 0;
+  right: calc(-1px - var(--pane-gap));
+  width: calc(var(--pane-gap) + 1px);
+  height: 1px;
+  transform: none;
+  background-color: oklch(var(--foreground) / 0.14);
 }
 
 /* The Overview's card-colored controls match its --chrome page, and its buttons hover on

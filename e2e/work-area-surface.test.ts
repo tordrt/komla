@@ -279,4 +279,47 @@ test.describe('Work area surface', () => {
     expect(browser.tabOutline).toMatch(faint);
     expect(browser.addressLine).toMatch(faint);
   });
+
+  // With no workspace open, a line marks the sidebar's edge. It stands where a pane's edge stands
+  // once one opens, a gutter past the sidebar, so it keeps as clear of the sidebar's panels as the
+  // panes do. The bottom row's short divider stays at the sidebar's edge either way.
+  test("draws the sidebar's edge line where a pane's edge stands", async ({ appWindow }) => {
+    const newWorkspace = appWindow.getByRole('button', { name: 'New Workspace' }).first();
+    await expect(newWorkspace).toBeVisible({ timeout: 15_000 });
+    await expect(appWindow.locator('.empty-work-area')).toBeVisible();
+    // With no workspaces yet, the sidebar starts collapsed.
+    await appWindow.getByRole('button', { name: 'Expand sidebar' }).click();
+    await expect(appWindow.locator('.sidebar-surface')).toBeVisible();
+
+    const edge = await appWindow.evaluate(() => {
+      const sidebar = document.querySelector<HTMLElement>('.sidebar-surface')!;
+      const line = getComputedStyle(sidebar, '::after');
+      const footer = document.querySelector<HTMLElement>('[data-sidebar-footer]')!;
+      const divider = getComputedStyle(footer, '::after');
+      const sidebarRight = sidebar.getBoundingClientRect().right;
+      return {
+        lineDrawn: line.content !== 'none',
+        lineLeft: Math.round(sidebarRight - parseFloat(line.right) - parseFloat(line.width)),
+        dividerLeft: Math.round(
+          footer.getBoundingClientRect().right -
+            parseFloat(divider.right) -
+            parseFloat(divider.width)
+        ),
+        sidebarRight: Math.round(sidebarRight),
+      };
+    });
+
+    await newWorkspace.click();
+    const dialog = appWindow.getByRole('dialog', { name: 'Create Workspace' });
+    await dialog.locator('input[placeholder$="swift-fox"]').fill('work-area-surface/edge');
+    await dialog.getByRole('button', { name: /^(Launch|Create)/ }).click();
+    const pane = appWindow.getByTestId('pane-outline').filter({ visible: true });
+    await expect(pane).toHaveCount(1, { timeout: 10_000 });
+    const paneLeft = Math.round((await pane.boundingBox())!.x);
+
+    expect(edge.lineDrawn).toBe(true);
+    expect(paneLeft).toBe(edge.sidebarRight + 6);
+    expect(edge.lineLeft).toBe(paneLeft);
+    expect(edge.dividerLeft).toBe(edge.sidebarRight - 1);
+  });
 });

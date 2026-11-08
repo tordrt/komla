@@ -108,13 +108,13 @@ case $1 in
   migrate)
     todo=$(pending)
     [ -n "$todo" ] || exit 0
-    komla tag "Migrating" --spinner --tone info
+    komla progress "Migrating" --tone info
     for name in $todo; do
       # The demo's stand-in for `psql "$DATABASE_URL" -f "$dir/$name.sql"`.
       sleep 2
       echo "$name" >>"$applied"
     done
-    komla untag "Migrating"
+    komla progress --clear "Migrating"
     komla status refresh migrations.pending
     komla notify "Migrations applied" --body "$db is up to date" --color success
     ;;

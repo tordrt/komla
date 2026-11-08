@@ -39,13 +39,10 @@ beforeEach(() => {
 });
 
 describe('WorkspaceTagsCard', () => {
-  it('turns a spinner on and off for a tag', () => {
+  it("offers no spinner for a tag: work under way is a script's progress", () => {
     renderCard([{ name: 'CI running', tone: 'info' }]);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show a spinner on CI running' }));
-    expect(savedTags()).toEqual([{ name: 'CI running', tone: 'info', spinner: true }]);
-    fireEvent.click(screen.getByRole('button', { name: 'Stop CI running spinning' }));
-    expect(savedTags()?.[0].spinner).toBeUndefined();
+    expect(screen.queryByRole('button', { name: /spinner|spinning/i })).toBeNull();
   });
 
   it('takes an image file as the icon, refuses another file, and removes it', async () => {

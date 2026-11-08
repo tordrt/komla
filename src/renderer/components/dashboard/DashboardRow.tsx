@@ -60,7 +60,12 @@ import {
   stripAgentTitleGlyphs,
   WorkspaceInfoCardContent,
 } from '@/components/workspaces/WorkspaceInfoCard';
-import { TagSubmenu, WorkspaceTagPill } from '@/components/workspaces/WorkspaceTagMenu';
+import { WorkspaceProgressPill } from '@/components/workspaces/WorkspaceProgress';
+import {
+  ClearProgressMenuItem,
+  TagSubmenu,
+  WorkspaceTagPill,
+} from '@/components/workspaces/WorkspaceTagMenu';
 import { formatRelativeTime } from '@/lib/format-time';
 import { cn } from '@/lib/utils';
 import { getUnreadBadge, getWorkspaceAttentionAppearance } from '@/lib/workspace-attention';
@@ -213,7 +218,7 @@ function RowStatus({
     );
   }
 
-  if (!workspace.tag) {
+  if (!workspace.tag && !workspace.progress) {
     return (
       <IdleRowStatus workspace={workspace} displayTitle={displayTitle} searchQuery={searchQuery} />
     );
@@ -221,12 +226,19 @@ function RowStatus({
   return (
     <div className="flex min-w-0 items-center gap-3">
       <span className={STATE_SLOT_CLASS}>
-        <WorkspaceTagPill
-          tag={workspace.tag}
-          fromPullRequest={workspace.tagSource === 'pull-request'}
-          tooltip={workspace.tagTooltip}
-          className="max-w-40"
-        />
+        {/* Progress shows in the tag's place while a script says work is under way. */}
+        {workspace.progress ? (
+          <WorkspaceProgressPill progress={workspace.progress} className="max-w-40" />
+        ) : (
+          workspace.tag && (
+            <WorkspaceTagPill
+              tag={workspace.tag}
+              fromPullRequest={workspace.tagSource === 'pull-request'}
+              tooltip={workspace.tagTooltip}
+              className="max-w-40"
+            />
+          )
+        )}
       </span>
       <IdleRowStatus
         workspace={workspace}
@@ -431,6 +443,7 @@ function DashboardRowMenuContent({
         currentTag={workspace.tag}
         anyTagged={!!workspace.tag}
       />
+      <ClearProgressMenuItem workspaceId={workspace.id} progress={workspace.progress} />
       {/* A project's workspaces show its color. */}
       {!workspace.isWorktree && !workspace.projectId && onColorChange && (
         <ColorPickerSubmenu currentColor={workspace.color} onColorChange={onColorChange} />

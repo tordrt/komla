@@ -373,3 +373,58 @@ Connection: close\r\n\r\n",
     server.join().unwrap();
     assert!(queued(&outbox).is_empty());
 }
+
+// Progress ends with Komla, so it never waits on the host, and it never overtakes commands there
+// that would undo it, such as an untag of a CI run before it.
+#[test]
+fn progress_neither_waits_on_the_host_nor_overtakes_commands_there() {
+    let temporary = TempDir::new().unwrap();
+    let inbox = temporary.path().join("companion/inbox");
+
+    for arguments in [
+        &["progress", "CI running"][..],
+        &["tag", "CI running", "--spinner"][..],
+    ] {
+        let output = run_while_away(Some(&inbox), arguments);
+        assert!(!output.status.success(), "{arguments:?}: {output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("Komla isn't connected"),
+            "{arguments:?}: {output:?}"
+        );
+    }
+    let outbox = temporary.path().join("companion/outbox");
+    assert!(queued(&outbox).is_empty());
+
+    assert!(run_while_away(Some(&inbox), &["untag", "CI running"])
+        .status
+        .success());
+    let komla = TcpListener::bind("127.0.0.1:0").unwrap();
+    komla.set_nonblocking(true).unwrap();
+    let progress = Command::new(env!("CARGO_BIN_EXE_komla"))
+        .args(["progress", "CI running"])
+        .env_clear()
+        .envs(windows_essentials())
+        .env(
+            "KOMLA_API_URL",
+            format!(
+                "http://{}/terminals/terminal-1",
+                komla.local_addr().unwrap()
+            ),
+        )
+        .env("KOMLA_TERMINAL_ID", "terminal-1")
+        .env("KOMLA_COMPANION_INBOX", &inbox)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(!progress.status.success(), "{progress:?}");
+    assert!(
+        String::from_utf8_lossy(&progress.stderr).contains("earlier commands"),
+        "{progress:?}"
+    );
+    assert_eq!(
+        komla.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    assert_eq!(queued(&outbox).len(), 1);
+}

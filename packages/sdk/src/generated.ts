@@ -7,7 +7,7 @@ export const KOMLA_CAPABILITIES = [
   { id: 'agent.launch.tab', description: 'Launch an AI coding agent in a new tab in the current workspace.' },
   { id: 'workspace.title', description: 'Set the title and description shown for the current workspace.' },
   { id: 'workspace.snooze', description: 'Snooze the current workspace until a time or its next notification. Waking it stays allowed.' },
-  { id: 'workspace.tag', description: 'Tag the current workspace to say what it waits on, such as "Waiting for review", or take its tag off.' },
+  { id: 'workspace.tag', description: 'Tag the current workspace to say what it waits on, such as "Waiting for review", or show work under way there, such as CI running (komla progress), or take either off.' },
   { id: 'workspace.trash', description: 'Move the current workspace to the Trash once the agent’s turn ends, stopping its terminals. The user can restore it for 7 days.' },
   { id: 'workspace.link', description: 'Link the current workspace to other workspaces, so agents can read and edit their files through its linked-workspaces folder, or unlink them.' },
   { id: 'folder.open', description: 'Open a folder on this computer in Komla, as its own workspace.' },
@@ -34,6 +34,7 @@ export const KOMLA_OPERATION_TYPES = [
   'workspace.list',
   'tag.list',
   'workspace.tag',
+  'workspace.progress',
   'workspace.notify',
   'workspace.trash',
   'workspace.link',
@@ -227,7 +228,7 @@ export interface TagListRequest {
   type: 'tag.list';
 }
 
-/** Gives the workspace its one tag, or takes it off without `tag`. A tag the user's list lacks joins it with `tone`, `icon` and `spinner`. */
+/** Gives the workspace its one tag, or takes it off without `tag`. A tag the user's list lacks joins it with `tone` and `icon`. */
 export interface WorkspaceTagRequest {
   type: 'workspace.tag';
   /**
@@ -243,13 +244,36 @@ export interface WorkspaceTagRequest {
   tone?: 'neutral' | 'info' | 'attention' | 'success' | 'warning' | 'error';
   /** @maxLength 98304 */
   icon?: string;
+  /** Shows `tag` as the workspace's progress instead, as `workspace.progress` does, leaving its tag and the user's list be. */
   spinner?: boolean;
   /**
-   * Changes only a workspace that has this tag.
+   * Changes only a workspace that has this tag or shows progress of this label, which the tag replaces, or which comes off without `tag`.
    * @minLength 1
    * @maxLength 40
    */
   ifTag?: string;
+}
+
+/** Shows work under way, such as CI running, with a spinner in the tag's place until it ends, or takes it off without `label`, which `tone` and `tooltip` need. It isn't a tag: the workspace keeps its tag, and progress ends with Komla. */
+export interface WorkspaceProgressRequest {
+  type: 'workspace.progress';
+  /**
+   * @minLength 1
+   * @maxLength 40
+   */
+  label?: string;
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  tooltip?: string;
+  tone?: 'neutral' | 'info' | 'attention' | 'success' | 'warning' | 'error';
+  /**
+   * Changes only a workspace that shows progress of this label.
+   * @minLength 1
+   * @maxLength 40
+   */
+  ifLabel?: string;
 }
 
 /** Shows a notification on the workspace, as `komla notify <title>` does: its badge on the sidebar card and its color on the pane border. */
@@ -463,6 +487,7 @@ export type KomlaOperationRequest =
   | WorkspaceListRequest
   | TagListRequest
   | WorkspaceTagRequest
+  | WorkspaceProgressRequest
   | WorkspaceNotifyRequest
   | WorkspaceTrashRequest
   | WorkspaceLinkRequest
@@ -700,6 +725,8 @@ export interface WorkspaceListResult {
     /** The attention the workspace shows. */
     attention?: 'input-required' | 'turn-complete' | 'error' | 'idle' | 'generic';
     tag?: string;
+    /** The label of the progress it shows. */
+    progress?: string;
     linkedWorkspaceIds?: string[];
   }>;
 }
@@ -712,6 +739,7 @@ export interface TagListResult {
     /** Komla puts this tag on workspaces whose pull request stands so. */
     pullRequestState?: 'in-review' | 'needs-changes';
     hasIcon?: true;
+    /** Never set now: a spinner is `workspace.progress`, not a tag. */
     spinner?: true;
     /** The sidebar moves this tag's workspaces to its Filtered shelf. */
     hidden?: true;
@@ -728,6 +756,25 @@ export interface WorkspaceTagResult {
     changed: boolean;
     /** The tag joined the user's list. */
     added?: boolean;
+  };
+  /** Set when the call showed progress or took it off, as `spinner` and `ifTag` do. */
+  progress?: {
+    workspaceId: string;
+    /** The label of the workspace's progress afterward. */
+    label: string | null;
+    /** False when `ifLabel` named progress the workspace didn't show. */
+    changed: boolean;
+  };
+}
+
+/** What `workspace.progress` resolves to. */
+export interface WorkspaceProgressResult {
+  progress: {
+    workspaceId: string;
+    /** The label of the workspace's progress afterward. */
+    label: string | null;
+    /** False when `ifLabel` named progress the workspace didn't show. */
+    changed: boolean;
   };
 }
 
@@ -857,6 +904,7 @@ export interface KomlaOperationResults {
   'workspace.list': WorkspaceListResult;
   'tag.list': TagListResult;
   'workspace.tag': WorkspaceTagResult;
+  'workspace.progress': WorkspaceProgressResult;
   'workspace.notify': WorkspaceNotifyResult;
   'workspace.trash': WorkspaceTrashResult;
   'workspace.link': WorkspaceLinkResult;
@@ -887,6 +935,7 @@ export const KOMLA_OPERATION_CAPABILITIES = {
   'workspace.list': null,
   'tag.list': null,
   'workspace.tag': 'workspace.tag',
+  'workspace.progress': 'workspace.tag',
   'workspace.notify': null,
   'workspace.trash': 'workspace.trash',
   'workspace.link': 'workspace.link',

@@ -7,10 +7,8 @@ import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { ActivitySpinner, StillActivityGlyph } from '@/components/workspaces/activity-spinners';
 import { TagGlyph } from '@/components/workspaces/WorkspaceTagBadge';
 import { TagToneSwatches, WORKSPACE_TAGS_CARD } from '@/components/workspaces/WorkspaceTagMenu';
-import { cn } from '@/lib/utils';
 import {
   deleteWorkspaceTag,
   PULL_REQUEST_TAG_STATE_LABELS,
@@ -157,7 +155,7 @@ async function tagIconFromFile(file: File): Promise<{ icon?: string; error?: str
   return isWorkspaceTagIcon(icon) ? { icon } : { error: "Couldn't read that icon." };
 }
 
-/** The icon and spinner a tag shows in place of the tag glyph. */
+/** The icon a tag shows in place of the tag glyph. */
 function TagLookButtons({ tag }: { tag: WorkspaceTagDefinition }) {
   const input = useRef<HTMLInputElement>(null);
   return (
@@ -194,23 +192,6 @@ function TagLookButtons({ tag }: { tag: WorkspaceTagDefinition }) {
           <X />
         </IconButton>
       )}
-      <IconButton
-        label={tag.spinner ? `Stop ${tag.name} spinning` : `Show a spinner on ${tag.name}`}
-        aria-pressed={tag.spinner === true}
-        className={cn(tag.spinner ? 'bg-komla/15 text-komla' : 'text-muted-foreground')}
-        onClick={() =>
-          updateWorkspaceTag(tag.name, {
-            spinner: tag.spinner ? undefined : true,
-          })
-        }
-      >
-        {/* Still while off, so the button doesn't read as loading. */}
-        {tag.spinner ? (
-          <ActivitySpinner className="size-4" />
-        ) : (
-          <StillActivityGlyph className="size-4" />
-        )}
-      </IconButton>
     </div>
   );
 }

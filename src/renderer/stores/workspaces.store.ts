@@ -1,5 +1,6 @@
 import { create, type StateCreator, type StoreApi } from 'zustand';
 
+import { sameWorkspaceProgress } from '../../shared/lib/workspace-progress';
 import {
   DEFAULT_WORKSPACE_TAGS,
   UNTAGGED_WORKSPACE_TAG_KEY,
@@ -407,6 +408,8 @@ interface WorkspacesState {
   setGrouping: (grouping: WorkspaceGrouping) => void;
   setDashboardFilterProject: (projectName: string | null) => void;
   toggleWorkspaceHostVisibility: (hostId: string) => void;
+  /** Takes off progress a script left showing, as the user can when it never ended it. */
+  clearProgress: (workspaceId: string) => void;
   /** Lists the tag's workspaces in the sidebar again, or moves them to the Filtered shelf. */
   toggleWorkspaceTagShown: (tag: string) => void;
   /** Lists only the workspaces whose tags aren't these, the rest going to the Filtered shelf. */
@@ -774,6 +777,7 @@ type WorkspaceMarks = Partial<
     | 'tag'
     | 'tagSource'
     | 'tagTooltip'
+    | 'progress'
     | 'snoozedUntil'
     | 'wakesOnNotification'
   >
@@ -1981,6 +1985,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       previous.pinned === workspace.pinned &&
       previous.tag === workspace.tag &&
       previous.tagSource === workspace.tagSource &&
+      sameWorkspaceProgress(previous.progress, workspace.progress) &&
       previous.snoozedUntil === workspace.snoozedUntil &&
       previous.wakesOnNotification === workspace.wakesOnNotification &&
       previous.unread?.reason === workspace.unread?.reason &&
@@ -1990,6 +1995,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
         pinned: workspace.pinned,
         tag: workspace.tag,
         tagSource: workspace.tagSource,
+        progress: workspace.progress,
         snoozedUntil: workspace.snoozedUntil,
         wakesOnNotification: workspace.wakesOnNotification,
         unread: workspace.unread,
@@ -2019,6 +2025,10 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       tagTooltip: undefined,
     };
     saveWorkspaceMarks(set, new Map(workspaceIds.map((id) => [id, marks])));
+  },
+
+  clearProgress: (workspaceId) => {
+    saveWorkspaceMarks(set, new Map([[workspaceId, { progress: undefined }]]));
   },
 
   snoozeWorkspace: (workspaceId, until, wakesOnNotification) => {

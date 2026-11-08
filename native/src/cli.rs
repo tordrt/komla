@@ -875,6 +875,7 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 | "wake"
                 | "tag"
                 | "untag"
+                | "progress"
                 | "tags"
                 | "trash"
                 | "open"
@@ -1186,7 +1187,9 @@ fn run_command_with_hook_input(
         Some("settings") => settings_command(&args[1..], &environment, api, input, output),
         Some("skill") => skill_command(&args[1..], api, output, errors),
         Some("context") => context_command(&args[1..], &environment, api, output),
-        Some(operation @ ("title" | "snooze" | "wake" | "tag" | "untag" | "trash")) => {
+        Some(
+            operation @ ("title" | "snooze" | "wake" | "tag" | "untag" | "progress" | "trash"),
+        ) => {
             let mut options = vec![operation.to_owned()];
             options.extend_from_slice(&args[1..]);
             workspace_command(&options, &environment, api, output, errors)
@@ -1388,7 +1391,7 @@ fn workspace_command(
     errors: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let operation = args.first().context(
-        "usage: komla workspace <list|title|snooze|wake|tag|untag|trash|link|unlink> [arguments]",
+        "usage: komla workspace <list|title|snooze|wake|tag|untag|progress|trash|link|unlink> [arguments]",
     )?;
     let mut options = args[1..].to_vec();
     match operation.as_str() {
@@ -1438,6 +1441,9 @@ without their tags or links."
                 if let Some(tag) = text("tag") {
                     line.push_str(&format!("  ({tag})"));
                 }
+                if let Some(progress) = text("progress") {
+                    line.push_str(&format!("  ({progress}, under way)"));
+                }
                 writeln!(output, "{line}")?;
             }
             Ok(())
@@ -1483,6 +1489,7 @@ without their tags or links."
         }
         "tag" | "untag" => {
             let json_output = take_flag(&mut options, "--json")?;
+            let spinner = operation == "tag" && take_flag(&mut options, "--spinner")?;
             let request = if operation == "tag" {
                 let tooltip = take_option(&mut options, "--tooltip")?
                     .map(|value| value.trim().to_owned())
@@ -1497,7 +1504,6 @@ without their tags or links."
                 let icon = take_option(&mut options, "--icon")?
                     .map(|value| status_icon(&value))
                     .transpose()?;
-                let spinner = take_flag(&mut options, "--spinner")?;
                 let if_tag = take_option(&mut options, "--if")?
                     .map(|value| tag_name(&value, "--if"))
                     .transpose()?;
@@ -1519,7 +1525,47 @@ without their tags or links."
                 }
                 request
             };
+            // A spinner shows progress, which a queue would replay long after the work it showed.
+            if spinner {
+                let result = execute_unqueued(api, environment, request)?;
+                return write_operation_result(&result, json_output, output);
+            }
             execute_or_queue(api, environment, request, json_output, output)
+        }
+        "progress" => {
+            let json_output = take_flag(&mut options, "--json")?;
+            let clear = take_flag(&mut options, "--clear")?;
+            let mut request = json!({"type": "workspace.progress"});
+            if clear {
+                if options.iter().any(|option| option.starts_with("--")) {
+                    bail!("usage: komla progress --clear [<label>] [--json]");
+                }
+                // Only that progress, so a script leaves alone progress another one shows since.
+                if !options.is_empty() {
+                    request["ifLabel"] = json!(label(&options.join(" "), "--clear", "a label", PROGRESS_USAGE)?);
+                }
+            } else {
+                let tooltip = take_option(&mut options, "--tooltip")?
+                    .map(|value| value.trim().to_owned())
+                    .filter(|value| !value.is_empty())
+                    .map(|value| truncate_utf16(&value, MAX_TAG_TOOLTIP));
+                let tone = take_option(&mut options, "--tone")?;
+                if let Some(tone) = &tone {
+                    if !TAG_TONES.contains(&tone.as_str()) {
+                        bail!("--tone is {}, not {tone}", TAG_TONES.join(", "));
+                    }
+                }
+                let if_label = take_option(&mut options, "--if")?
+                    .map(|value| label(&value, "--if", "a label", PROGRESS_USAGE))
+                    .transpose()?;
+                // A label of several words may come unquoted, as separate arguments.
+                request["label"] = json!(label(&options.join(" "), "progress", "a label", PROGRESS_USAGE)?);
+                insert_json_optional(&mut request, "tooltip", tooltip);
+                insert_json_optional(&mut request, "tone", tone);
+                insert_json_optional(&mut request, "ifLabel", if_label);
+            }
+            let result = execute_unqueued(api, environment, request)?;
+            write_operation_result(&result, json_output, output)
         }
         "trash" => {
             let json_output = take_flag(&mut options, "--json")?;
@@ -1547,7 +1593,7 @@ without their tags or links."
             write_operation_result(&result, json_output, output)
         }
         _ => bail!(
-            "workspace operation must be list, title, snooze, wake, tag, untag, trash, link or unlink"
+            "workspace operation must be list, title, snooze, wake, tag, untag, progress, trash, link or unlink"
         ),
     }
 }
@@ -1578,9 +1624,6 @@ fn tags_command(
         if tag.get("hasIcon").and_then(Value::as_bool) == Some(true) {
             looks.push("icon");
         }
-        if tag.get("spinner").and_then(Value::as_bool) == Some(true) {
-            looks.push("spinner");
-        }
         match tag.get("pullRequestState").and_then(Value::as_str) {
             Some("in-review") => looks.push("pull requests in review"),
             Some("needs-changes") => looks.push("pull requests needing changes"),
@@ -1595,13 +1638,21 @@ fn tags_command(
     Ok(())
 }
 
-// Komla counts the length as JavaScript does, in UTF-16 code units.
+const TAG_USAGE: &str = "komla tag <tag> [--tooltip <text>] [--tone <tone>] [--icon <file|svg>] [--spinner] [--if <tag>] [--json]";
+const PROGRESS_USAGE: &str = "komla progress <label> [--tooltip <text>] [--tone <tone>] [--if <label>] [--json], or komla progress --clear [<label>] [--json]";
+
 fn tag_name(value: &str, what: &str) -> anyhow::Result<String> {
-    let tag = value.trim();
-    if tag.is_empty() || tag.encode_utf16().count() > MAX_TAG {
-        bail!("{what} takes a tag of at most {MAX_TAG} characters; usage: komla tag <tag> [--tooltip <text>] [--tone <tone>] [--icon <file|svg>] [--spinner] [--if <tag>] [--json]");
+    label(value, what, "a tag", TAG_USAGE)
+}
+
+/// A tag's name or progress's label, trimmed. Komla counts its length as JavaScript does, in
+/// UTF-16 code units.
+fn label(value: &str, what: &str, noun: &str, usage: &str) -> anyhow::Result<String> {
+    let label = value.trim();
+    if label.is_empty() || label.encode_utf16().count() > MAX_TAG {
+        bail!("{what} takes {noun} of at most {MAX_TAG} characters; usage: {usage}");
     }
-    Ok(tag.to_owned())
+    Ok(label.to_owned())
 }
 
 fn status_item_id(id: String) -> anyhow::Result<String> {
@@ -3376,6 +3427,21 @@ fn execute_or_queue(
     Ok(())
 }
 
+/// Runs a command that only matters while Komla runs, such as progress, which ends with it: it
+/// never waits on this SSH host, nor overtakes commands that do, which might undo it.
+fn execute_unqueued(
+    api: &mut dyn KomlaApi,
+    environment: &CliEnvironment,
+    operation: Value,
+) -> anyhow::Result<Value> {
+    if api.has_queued_offline() && api.wait_for_queued_offline() {
+        bail!(
+            "Komla hasn't received earlier commands from this host yet, and this can't wait behind them; run it again once Komla has them."
+        );
+    }
+    execute_operation(api, environment, operation)
+}
+
 /// Refuses a command the user turned off, as the desktop last told this host, rather than
 /// queue what Komla would reject.
 fn refuse_if_turned_off(api: &dyn KomlaApi, operation: &Value) -> anyhow::Result<()> {
@@ -3631,6 +3697,23 @@ fn write_operation_result(
             }
             (None, Some(true)) => writeln!(output, "Workspace woken.")?,
             (None, _) => writeln!(output, "The workspace wasn't snoozed.")?,
+        }
+        return Ok(());
+    }
+    // Before a tag left as it was: `komla untag` reports both when it took progress off.
+    let tag_changed = result.pointer("/tag/changed").and_then(Value::as_bool) == Some(true);
+    if let Some(progress) = result.get("progress").filter(|_| !tag_changed) {
+        let label = progress.get("label").and_then(Value::as_str);
+        if progress.get("changed").and_then(Value::as_bool) == Some(false) {
+            match label {
+                Some(label) => writeln!(output, "Left alone: the workspace shows {label}.")?,
+                None => writeln!(output, "Left alone: the workspace shows no progress.")?,
+            }
+            return Ok(());
+        }
+        match label {
+            Some(label) => writeln!(output, "Showing {label} under way.")?,
+            None => writeln!(output, "Progress cleared.")?,
         }
         return Ok(());
     }
@@ -5392,6 +5475,107 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
     }
 
     #[test]
+    fn progress_commands_send_workspace_operations() {
+        for (args, expected) in [
+            // A label of several words may come unquoted.
+            (
+                vec!["progress", "CI", "running"],
+                json!({"type": "workspace.progress", "label": "CI running"}),
+            ),
+            (
+                vec![
+                    "workspace",
+                    "progress",
+                    "Deploying",
+                    "--tone",
+                    "info",
+                    "--tooltip",
+                    " build 7 of 9 ",
+                    "--if",
+                    "CI running",
+                    "--json",
+                ],
+                json!({
+                    "type": "workspace.progress",
+                    "label": "Deploying",
+                    "tone": "info",
+                    "tooltip": "build 7 of 9",
+                    "ifLabel": "CI running",
+                }),
+            ),
+            (
+                vec!["progress", "--clear"],
+                json!({"type": "workspace.progress"}),
+            ),
+            // Only that progress, so a script leaves alone progress shown since.
+            (
+                vec!["progress", "--clear", "CI", "running"],
+                json!({"type": "workspace.progress", "ifLabel": "CI running"}),
+            ),
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+            run_with(&mut api, &args, "").unwrap_or_else(|error| panic!("{args:?}: {error}"));
+            assert_eq!(request_body(&api, 0), expected, "{args:?}");
+        }
+        let too_long = "x".repeat(41);
+        for args in [
+            vec!["progress"],
+            vec!["progress", "  "],
+            vec!["progress", &too_long],
+            vec!["progress", "CI", "--tone", "purple"],
+            vec!["progress", "CI", "--if", " "],
+            vec!["progress", "--clear", "CI", "--tone", "info"],
+            vec!["progress", "--clear", &too_long],
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+            assert!(run_with(&mut api, &args, "").is_err(), "{args:?}");
+            assert!(api.requests.is_empty(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn progress_results_say_what_changed() {
+        for (result, expected) in [
+            (
+                json!({"progress": {"label": "CI running", "changed": true}}),
+                "Showing CI running under way.\n",
+            ),
+            (
+                json!({"progress": {"label": null, "changed": true}}),
+                "Progress cleared.\n",
+            ),
+            (
+                json!({"progress": {"label": "Deploying", "changed": false}}),
+                "Left alone: the workspace shows Deploying.\n",
+            ),
+            (
+                json!({"progress": {"label": null, "changed": false}}),
+                "Left alone: the workspace shows no progress.\n",
+            ),
+            // `komla untag` that took progress off says so, not that it left the tag be.
+            (
+                json!({
+                    "tag": {"tag": "Blocked", "changed": false},
+                    "progress": {"label": null, "changed": true},
+                }),
+                "Progress cleared.\n",
+            ),
+            // A tag that replaced progress says what it tagged.
+            (
+                json!({
+                    "tag": {"tag": "In review", "changed": true, "added": false},
+                    "progress": {"label": null, "changed": true},
+                }),
+                "Tagged In review.\n",
+            ),
+        ] {
+            let mut output = Vec::new();
+            write_operation_result(&result, false, &mut output).unwrap();
+            assert_eq!(String::from_utf8(output).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn tag_results_say_what_changed() {
         for (result, expected) in [
             (
@@ -5526,13 +5710,13 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
     fn workspace_list_prints_ids_names_branches_and_tags() {
         let result = json!({"ok": true, "result": {"workspaces": [
             {"id": "w1", "name": "Add search", "branch": "add-search", "tag": "In review"},
-            {"id": "w2", "name": "Notes"},
+            {"id": "w2", "name": "Notes", "progress": "CI running"},
         ]}});
         let mut api = fake_api(vec![result.clone()]);
         let output = run_with(&mut api, &["workspace", "list"], "").unwrap();
         assert_eq!(
             output,
-            "w1  Add search  [add-search]  (In review)\nw2  Notes\n"
+            "w1  Add search  [add-search]  (In review)\nw2  Notes  (CI running, under way)\n"
         );
         assert_eq!(request_body(&api, 0), json!({"type": "workspace.list"}));
         assert!(!api.requests[0].allow_long_running);
@@ -5550,14 +5734,14 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
     fn tags_lists_names_with_their_looks() {
         let result = json!({"ok": true, "result": {"tags": [
             {"name": "In review", "tone": "info", "pullRequestState": "in-review"},
-            {"name": "CI running", "tone": "info", "hasIcon": true, "spinner": true},
+            {"name": "CI running", "tone": "info", "hasIcon": true},
             {"name": "Blocked", "tone": "error", "hidden": true},
         ]}});
         let mut api = fake_api(vec![result.clone()]);
         let output = run_with(&mut api, &["tags"], "").unwrap();
         assert_eq!(
             output,
-            "In review  (info, pull requests in review)\nCI running  (info, icon, spinner)\nBlocked  (error, hidden in the sidebar)\n"
+            "In review  (info, pull requests in review)\nCI running  (info, icon)\nBlocked  (error, hidden in the sidebar)\n"
         );
         assert_eq!(request_body(&api, 0), json!({"type": "tag.list"}));
         assert!(!api.requests[0].allow_long_running);

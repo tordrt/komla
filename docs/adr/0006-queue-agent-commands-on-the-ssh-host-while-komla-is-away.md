@@ -49,7 +49,10 @@ operations of its own.
   tags, which only the desktop knows.
 - **What doesn't queue.** Commands that answer with the desktop's data or act on its screen, such
   as `status`, `preview`, `open` and `komla agent launch` with `--preset`, `--mode` or
-  `--project`, still need a connected desktop.
+  `--project`, still need a connected desktop. Workspace Progress, from `komla progress` or
+  `komla tag --spinner`, isn't queued either: it ends with Komla, so a replay would show work
+  under way long after it ended. While earlier commands still wait, it fails rather than overtake
+  them, as one of them might clear it.
 
 ## Considered options
 

@@ -22,6 +22,11 @@ import {
 } from '../../../shared/lib/launch-mode-permissions';
 import { levelPickerOf, shownReasoningLevels } from '../../../shared/lib/level-picker';
 import {
+  normalizeWorkspaceProgressLabel,
+  showsWorkspaceProgress,
+  type WorkspaceProgress,
+} from '../../../shared/lib/workspace-progress';
+import {
   findWorkspaceTag,
   MAX_WORKSPACE_TAGS,
   normalizeWorkspaceTagName,
@@ -86,6 +91,8 @@ import type {
 import type { TerminalText } from '../../lib/terminal-text';
 
 const MAX_SNOOZE_MS = 365 * 24 * 60 * 60 * 1000;
+type ProgressResult = KomlaOperationResults['workspace.progress']['progress'];
+
 /** Lets `komla trash` reply before the Trash stops the terminal it runs in. */
 export const TRASH_WITHOUT_TURN_DELAY_MS = 1000;
 /** A turn that runs longer, as with a spinner no Stop turns off, keeps its workspace. */
@@ -287,6 +294,7 @@ export interface KomlaOperationWorkspace {
   customName?: string;
   branchName?: string;
   tag?: string;
+  progress?: WorkspaceProgress;
   provisioning?: boolean;
   snoozedUntil?: number;
   wakesOnNotification?: boolean;
@@ -491,9 +499,10 @@ export type KomlaOperation =
   | { type: 'workspace.snooze'; until?: string; untilNotified?: true }
   | { type: 'workspace.wake' }
   /**
-   * Without a tag, takes the workspace's tag off. A tag missing from the list joins it with `tone`,
-   * `icon` (a base64 image data URL) and `spinner`; one in the list keeps the user's look. With
-   * `ifTag`, changes only a workspace that has that tag.
+   * Without a tag, takes the workspace's tag off. A tag missing from the list joins it with `tone`
+   * and `icon` (a base64 image data URL); one in the list keeps the user's look. With `ifTag`,
+   * changes only a workspace that has that tag. `spinner` shows the tag as `workspace.progress`
+   * does, and `ifTag` names progress too, as scripts asked before progress had its own operation.
    */
   | {
       type: 'workspace.tag';
@@ -503,6 +512,14 @@ export type KomlaOperation =
       icon?: string;
       spinner?: boolean;
       ifTag?: string;
+    }
+  /** Without a label, takes progress off. With `ifLabel`, changes only progress of that label. */
+  | {
+      type: 'workspace.progress';
+      label?: string;
+      tooltip?: string;
+      tone?: WorkspaceTagTone;
+      ifLabel?: string;
     }
   | { type: 'workspace.trash' }
   /** `icon` is a base64 image data URL. */
@@ -629,6 +646,11 @@ export class KomlaOperationError extends Error {
 export class KomlaOperationService {
   /** The terminals ('' for none) whose agents asked to trash each workspace, by its id. */
   private readonly pendingTrashes = new Map<string, Set<string>>();
+  /**
+   * The progress each workspace shows from `komla tag --spinner`, by its id: a later tag or bare
+   * untag replaces it, as it replaced the spinning tag before progress had its own operation.
+   */
+  private readonly spinnerProgress = new Map<string, string>();
 
   constructor(private readonly dependencies: KomlaOperationDependencies) {}
 
@@ -663,6 +685,8 @@ export class KomlaOperationService {
         return this.wakeWorkspace(context);
       case 'workspace.tag':
         return this.tagWorkspace(context, operation);
+      case 'workspace.progress':
+        return this.showProgress(context, operation);
       case 'workspace.trash':
         return this.trashWorkspace(context);
       case 'workspace.notify':
@@ -1009,13 +1033,40 @@ export class KomlaOperationService {
     if (input !== undefined && !name) {
       throw new KomlaOperationError('INVALID_TAG', 'Name the tag.', 400);
     }
-    // A script that finished late leaves alone a tag put on since.
-    if (
+    const unchangedTag = { workspaceId: workspace.id, tag: workspace.tag ?? null, changed: false };
+    // `ifTag` names the tag or the progress, as the card shows either in one place: a script from
+    // before progress had its own operation showed it as a spinning tag.
+    const progressNamed = ifTag !== undefined && showsWorkspaceProgress(workspace, ifTag);
+    const tagNamed =
       ifTag !== undefined &&
-      (!workspace.tag || workspaceTagKey(workspace.tag) !== workspaceTagKey(ifTag))
-    ) {
-      return { tag: { workspaceId: workspace.id, tag: workspace.tag ?? null, changed: false } };
+      workspace.tag !== undefined &&
+      workspaceTagKey(workspace.tag) === workspaceTagKey(ifTag);
+    // A spinner is progress, which leaves the tag and the user's list be.
+    if (name && spinner) {
+      if (ifTag !== undefined && !progressNamed && !tagNamed) {
+        return { tag: unchangedTag, progress: this.unchangedProgress(workspace) };
+      }
+      const progress = this.applyProgress(workspace, { label: name, tone, tooltip });
+      this.spinnerProgress.set(workspace.id, workspaceTagKey(name));
+      return { tag: unchangedTag, progress };
     }
+    const replacesProgress =
+      progressNamed || (ifTag === undefined && this.showsSpinnerProgress(workspace));
+    const clearedProgress = { workspaceId: workspace.id, label: null, changed: true };
+    // `untag` takes off progress a spinner showed, and a tag of that name with it.
+    if (!name && replacesProgress) {
+      this.updateAndPublish(workspace.id, {
+        progress: undefined,
+        ...(tagNamed && { tag: undefined, tagSource: undefined }),
+      });
+      this.spinnerProgress.delete(workspace.id);
+      return {
+        tag: tagNamed ? { workspaceId: workspace.id, tag: null, changed: true } : unchangedTag,
+        progress: clearedProgress,
+      };
+    }
+    // A script that finished late leaves alone a tag put on since.
+    if (ifTag !== undefined && !tagNamed && !progressNamed) return { tag: unchangedTag };
     if (!name) {
       this.updateAndPublish(workspace.id, { tag: undefined, tagSource: undefined });
       return { tag: { workspaceId: workspace.id, tag: null, changed: true } };
@@ -1034,13 +1085,75 @@ export class KomlaOperationService {
         withWorkspaceTag(tags, name, {
           tone: tone ?? 'neutral',
           ...(icon !== undefined && { icon }),
-          ...(spinner && { spinner }),
         })
       );
     }
     const tag = existing?.name ?? name;
-    this.updateAndPublish(workspace.id, { tag, tagSource: undefined, tagTooltip: tooltip });
-    return { tag: { workspaceId: workspace.id, tag, changed: true, added: !existing } };
+    // A tag replaces a spinner's progress, as it replaced a spinning tag.
+    this.updateAndPublish(workspace.id, {
+      tag,
+      tagSource: undefined,
+      tagTooltip: tooltip,
+      ...(replacesProgress && { progress: undefined }),
+    });
+    if (replacesProgress) this.spinnerProgress.delete(workspace.id);
+    return {
+      tag: { workspaceId: workspace.id, tag, changed: true, added: !existing },
+      ...(replacesProgress && { progress: clearedProgress }),
+    };
+  }
+
+  private showProgress(
+    context: KomlaOperationContext,
+    {
+      label: input,
+      tooltip,
+      tone,
+      ifLabel,
+    }: Extract<KomlaOperation, { type: 'workspace.progress' }>
+  ): KomlaOperationResults['workspace.progress'] {
+    const workspace = this.requireWorkspace(context);
+    const label = input === undefined ? undefined : normalizeWorkspaceProgressLabel(input);
+    if (input !== undefined && !label) {
+      throw new KomlaOperationError('INVALID_PROGRESS', 'Name the progress.', 400);
+    }
+    // Without a label it clears the progress, which a tone or tooltip meant for it would hide.
+    if (!label && (tone !== undefined || tooltip !== undefined)) {
+      throw new KomlaOperationError(
+        'INVALID_PROGRESS',
+        'Name the progress the tone or tooltip is for.',
+        400
+      );
+    }
+    // A script that finished late leaves alone progress another one shows since.
+    if (ifLabel !== undefined && !showsWorkspaceProgress(workspace, ifLabel)) {
+      return { progress: this.unchangedProgress(workspace) };
+    }
+    const progress = this.applyProgress(workspace, { label, tone, tooltip });
+    this.spinnerProgress.delete(workspace.id);
+    return { progress };
+  }
+
+  /** Shows this progress on the workspace, or takes its progress off without a label. */
+  private applyProgress(
+    workspace: KomlaOperationWorkspace,
+    { label, tone, tooltip }: { label?: string; tone?: WorkspaceTagTone; tooltip?: string }
+  ): ProgressResult {
+    const progress: WorkspaceProgress | undefined = label
+      ? { label, tone: tone ?? 'neutral', ...(tooltip && { tooltip }) }
+      : undefined;
+    this.updateAndPublish(workspace.id, { progress });
+    return { workspaceId: workspace.id, label: label ?? null, changed: true };
+  }
+
+  /** Whether the workspace still shows the progress `komla tag --spinner` put on it. */
+  private showsSpinnerProgress(workspace: KomlaOperationWorkspace): boolean {
+    const label = this.spinnerProgress.get(workspace.id);
+    return label !== undefined && showsWorkspaceProgress(workspace, label);
+  }
+
+  private unchangedProgress(workspace: KomlaOperationWorkspace): ProgressResult {
+    return { workspaceId: workspace.id, label: workspace.progress?.label ?? null, changed: false };
   }
 
   /**
@@ -2190,6 +2303,7 @@ export class KomlaOperationService {
           agentActive: workspace.agentActive === true,
           ...(workspace.attention && { attention: workspace.attention.kind }),
           ...(workspace.tag && { tag: workspace.tag }),
+          ...(workspace.progress && { progress: workspace.progress.label }),
           ...(workspace.linkedWorkspaceIds?.length && {
             linkedWorkspaceIds: workspace.linkedWorkspaceIds,
           }),
@@ -2209,7 +2323,6 @@ export class KomlaOperationService {
       tone: tag.tone,
       ...(tag.pullRequestState && { pullRequestState: tag.pullRequestState }),
       ...(tag.icon && { hasIcon: true as const }),
-      ...(tag.spinner && { spinner: true as const }),
       ...(hidden.has(workspaceTagKey(tag.name)) && { hidden: true as const }),
     }));
     return { tags };

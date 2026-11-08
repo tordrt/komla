@@ -133,8 +133,10 @@ import { SIDEBAR_CARD_LIGHT_HOVER, SIDEBAR_SELECTED_CARD_FILL } from './sidebar-
 import { CustomSnoozeDialog, SnoozeCountdown, SnoozeSubmenu, useCiRunning } from './SnoozeMenu';
 import { SIDEBAR_CARD_DRAG_ATTRIBUTE } from './workspace-list-ordering';
 import { getWorkspaceDynamicTitle, WorkspaceInfoCardContent } from './WorkspaceInfoCard';
-import { TagSubmenu, WorkspaceTagPill } from './WorkspaceTagMenu';
+import { WorkspaceProgressPill } from './WorkspaceProgress';
+import { ClearProgressMenuItem, TagSubmenu, WorkspaceTagPill } from './WorkspaceTagMenu';
 
+import type { WorkspaceProgress } from '../../../shared/lib/workspace-progress';
 import type { GitBranchQuickStatus, Workspace, WorkspaceAttention } from '@/types';
 
 // Lazy so the file viewer's code loads on first open rather than at startup.
@@ -466,6 +468,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
       tag={workspace.tag}
       tagFromPullRequest={workspace.tagSource === 'pull-request'}
       tagTooltip={workspace.tagTooltip}
+      progress={workspace.progress}
     />
   );
 
@@ -1192,6 +1195,7 @@ function TitleAdornment({
   tag,
   tagFromPullRequest,
   tagTooltip,
+  progress,
 }: {
   attention: WorkspaceAttention | undefined;
   attentionAppearance: AttentionAppearance;
@@ -1203,6 +1207,8 @@ function TitleAdornment({
   tag?: string;
   tagFromPullRequest?: boolean;
   tagTooltip?: string;
+  /** Shows in the tag's place while a script says work is under way. */
+  progress?: WorkspaceProgress;
 }) {
   const states = stateCounts(collapsed, otherAgents, restarting);
   const workingCommands = otherAgents.filter(
@@ -1226,6 +1232,9 @@ function TitleAdornment({
   );
   if (!badge && states.length === 0) {
     // Half the row at most: a tag runs longer than an agent's badge, and the title comes first.
+    if (progress) {
+      return <WorkspaceProgressPill progress={progress} className="ml-auto max-w-[50%]" />;
+    }
     return tag ? (
       <WorkspaceTagPill
         tag={tag}
@@ -2065,6 +2074,7 @@ function WorkspaceMenuItems({
         currentTag={workspace.tag}
         anyTagged={!!workspace.tag}
       />
+      <ClearProgressMenuItem workspaceId={workspace.id} progress={workspace.progress} />
       {/* A project's workspaces show its color. */}
       {!workspace.isWorktree && !workspace.projectId && (
         <ColorPickerSubmenu currentColor={workspace.color} onColorChange={onColorChange} />

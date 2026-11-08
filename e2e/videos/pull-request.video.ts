@@ -1,6 +1,6 @@
 /**
  * Landing video: "Ship it and know when CI is done". The agent pushes and opens a pull request,
- * and the hooks guide's CI script tags its card "CI running" with a spinner. We look at another
+ * and the hooks guide's CI script shows "CI running" on its card with a spinner. We look at another
  * workspace until the checks pass and the CI badge lands on the card, then go back to find it
  * tagged In review.
  */

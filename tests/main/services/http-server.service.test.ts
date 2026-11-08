@@ -1519,7 +1519,7 @@ describe('HttpServerService', () => {
           { 'content-type': 'application/json' }
         );
 
-      const { res } = await tag({ icon: '<svg/>', spinner: true, tone: 'info' });
+      const { res } = await tag({ icon: '<svg/>', tone: 'info' });
       expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
       expect(mockConfigService.update).toHaveBeenCalledWith({
         workspaceTags: [
@@ -1527,7 +1527,6 @@ describe('HttpServerService', () => {
             name: 'CI running',
             tone: 'info',
             icon: `data:image/svg+xml;base64,${Buffer.from('<svg/>').toString('base64')}`,
-            spinner: true,
           },
         ],
       });

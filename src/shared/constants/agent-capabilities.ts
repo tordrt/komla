@@ -29,7 +29,7 @@ export const AGENT_CAPABILITIES = [
     id: 'workspace.tag',
     command: 'komla tag',
     description:
-      'Tag the current workspace to say what it waits on, such as "Waiting for review", or take its tag off.',
+      'Tag the current workspace to say what it waits on, such as "Waiting for review", or show work under way there, such as CI running (komla progress), or take either off.',
   },
   {
     id: 'workspace.trash',

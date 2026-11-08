@@ -14,14 +14,16 @@ const komla = connectKomla({ capabilities: ['workspace.tag', 'status.set'] });
 
 const { workspaces } = await komla.workspace.list();
 for (const workspace of workspaces) {
-  await komla.workspace.tag({ tag: 'CI running', spinner: true }, { workspace: workspace.id });
+  await komla.workspace.tag({ tag: 'Waiting for review' }, { workspace: workspace.id });
 }
+// Work under way spins in the tag's place, and leaves the tag be.
+await komla.workspace.progress({ label: 'CI running', tone: 'info' });
 await komla.status.set({ id: 'tests', text: '142/150 passing', tone: 'warning' });
 // Notifying needs no capability, as `komla notify` needs none.
 await komla.workspace.notify({ title: 'CI passed', badge: 'CI', color: 'success' });
 
 try {
-  await komla.workspace.tag({ tag: 'Deploying', spinner: true, ifTag: 'CI running' });
+  await komla.workspace.progress({ label: 'Deploying', ifLabel: 'CI running' });
 } catch (error) {
   if (error instanceof KomlaError && error.code === 'CAPABILITY_DISABLED') {
     // The user turned `komla tag` off in Settings.

@@ -7,6 +7,7 @@ import {
   TRASH_WITHOUT_TURN_DELAY_MS,
   komlaCommandContext,
   KomlaOperationService,
+  type KomlaOperation,
   type KomlaOperationDependencies,
   type KomlaOperationWorkspace,
 } from '../../../src/main/services/komla-operation/operation';
@@ -16,6 +17,7 @@ import { IPC } from '../../../src/shared/constants/ipc-channels';
 import {
   DEFAULT_WORKSPACE_TAGS,
   MAX_WORKSPACE_TAGS,
+  pullRequestTagUpdate,
   type WorkspaceTagDefinition,
 } from '../../../src/shared/lib/workspace-tags';
 
@@ -1885,11 +1887,10 @@ describe('KomlaOperationService', () => {
         tag: 'CI running',
         tone: 'info',
         icon,
-        spinner: true,
         tooltip: 'build 7 of 9',
       }
     );
-    expect(tags.at(-1)).toEqual({ name: 'CI running', tone: 'info', icon, spinner: true });
+    expect(tags.at(-1)).toEqual({ name: 'CI running', tone: 'info', icon });
     expect(updateWorkspace).toHaveBeenLastCalledWith('workspace-1', {
       tag: 'CI running',
       tagSource: undefined,
@@ -1900,13 +1901,289 @@ describe('KomlaOperationService', () => {
     await expect(
       service.execute(
         { terminalId: 'terminal-1' },
-        { type: 'workspace.tag', tag: 'blocked', tone: 'success', spinner: true }
+        { type: 'workspace.tag', tag: 'blocked', tone: 'success' }
       )
     ).resolves.toEqual({
       tag: { workspaceId: 'workspace-1', tag: 'Blocked', changed: true, added: false },
     });
     expect(saveWorkspaceTags).toHaveBeenCalledOnce();
     expect(tags.find((tag) => tag.name === 'Blocked')).toEqual({ name: 'Blocked', tone: 'error' });
+  });
+
+  it("shows a script's spinner as progress, leaving the tag and the tag list be", async () => {
+    let tags: readonly WorkspaceTagDefinition[] = DEFAULT_WORKSPACE_TAGS;
+    const saveWorkspaceTags = vi.fn((next: readonly WorkspaceTagDefinition[]) => {
+      tags = next;
+    });
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1', tag: 'Blocked' };
+    const updateWorkspace = vi.fn((_id: string, updates: Record<string, unknown>) => {
+      workspace = { ...workspace, ...updates };
+      return workspace;
+    });
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        workspaceTags: () => tags,
+        saveWorkspaceTags,
+        updateWorkspace,
+      })
+    );
+
+    // As `komla tag --spinner` asked before progress had its own command.
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        {
+          type: 'workspace.tag',
+          tag: 'CI running',
+          spinner: true,
+          tone: 'info',
+          tooltip: 'build 7 of 9',
+        }
+      )
+    ).resolves.toEqual({
+      tag: { workspaceId: 'workspace-1', tag: 'Blocked', changed: false },
+      progress: { workspaceId: 'workspace-1', label: 'CI running', changed: true },
+    });
+    expect(saveWorkspaceTags).not.toHaveBeenCalled();
+    expect(workspace.tag).toBe('Blocked');
+    expect(workspace.progress).toEqual({
+      label: 'CI running',
+      tone: 'info',
+      tooltip: 'build 7 of 9',
+    });
+
+    // `komla untag "CI running"` takes it off again, and the tag stays.
+    await expect(
+      service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.tag', ifTag: 'ci running' })
+    ).resolves.toEqual({
+      tag: { workspaceId: 'workspace-1', tag: 'Blocked', changed: false },
+      progress: { workspaceId: 'workspace-1', label: null, changed: true },
+    });
+    expect(workspace.progress).toBeUndefined();
+    expect(workspace.tag).toBe('Blocked');
+
+    // `komla tag "In review" --if "CI running"` replaces the progress, as it did the spinning tag.
+    await service.execute(
+      { terminalId: 'terminal-1' },
+      { type: 'workspace.tag', tag: 'CI running', spinner: true }
+    );
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'workspace.tag', tag: 'In review', ifTag: 'CI running' }
+      )
+    ).resolves.toEqual({
+      tag: { workspaceId: 'workspace-1', tag: 'In review', changed: true, added: false },
+      progress: { workspaceId: 'workspace-1', label: null, changed: true },
+    });
+    expect(workspace).toMatchObject({ tag: 'In review', progress: undefined });
+  });
+
+  it("leaves a workspace's pull request free to tag it while CI is under way", async () => {
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1' };
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+
+    await service.execute(
+      { terminalId: 'terminal-1' },
+      { type: 'workspace.tag', tag: 'CI running', spinner: true }
+    );
+    // The pull request goes into review while CI runs, then CI ends.
+    workspace = {
+      ...workspace,
+      ...pullRequestTagUpdate(workspace, 'in-review', DEFAULT_WORKSPACE_TAGS),
+    };
+    await service.execute(
+      { terminalId: 'terminal-1' },
+      { type: 'workspace.tag', ifTag: 'CI running' }
+    );
+
+    expect(workspace).toMatchObject({ tag: 'In review', tagSource: 'pull-request' });
+    expect(workspace.progress).toBeUndefined();
+  });
+
+  it('lets a script from before progress replace its spinner as it did the spinning tag', async () => {
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1', tag: 'Blocked' };
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+    const run = (operation: KomlaOperation) =>
+      service.execute({ terminalId: 'terminal-1' }, operation);
+
+    // A tag put on without --if replaces it.
+    await run({ type: 'workspace.tag', tag: 'CI running', spinner: true });
+    await run({ type: 'workspace.tag', tag: 'CI passed' });
+    expect(workspace).toMatchObject({ tag: 'CI passed', progress: undefined });
+
+    // A bare untag takes it off, and the tag shows again.
+    await run({ type: 'workspace.tag', tag: 'CI running', spinner: true });
+    await expect(run({ type: 'workspace.tag' })).resolves.toEqual({
+      tag: { workspaceId: 'workspace-1', tag: 'CI passed', changed: false },
+      progress: { workspaceId: 'workspace-1', label: null, changed: true },
+    });
+    expect(workspace).toMatchObject({ tag: 'CI passed', progress: undefined });
+
+    // Progress shown with its own command stays through another script's tags.
+    await run({ type: 'workspace.progress', label: 'Deploying' });
+    await run({ type: 'workspace.tag', tag: 'Blocked' });
+    await run({ type: 'workspace.tag' });
+    expect(workspace).toMatchObject({ tag: undefined, progress: { label: 'Deploying' } });
+  });
+
+  it("still replaces a spinner's progress after a tag the full list refused", async () => {
+    const tags = Array.from({ length: MAX_WORKSPACE_TAGS }, (_, index) => ({
+      name: `Tag ${index}`,
+      tone: 'neutral' as const,
+    }));
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1' };
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        workspaceTags: () => tags,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+    const run = (operation: KomlaOperation) =>
+      service.execute({ terminalId: 'terminal-1' }, operation);
+
+    await run({ type: 'workspace.tag', tag: 'CI running', spinner: true });
+    await expect(run({ type: 'workspace.tag', tag: 'New' })).rejects.toMatchObject({
+      code: 'TAG_LIST_FULL',
+    });
+    await run({ type: 'workspace.tag', tag: 'Tag 3' });
+
+    expect(workspace).toMatchObject({ tag: 'Tag 3', progress: undefined });
+  });
+
+  it('takes off both a tag and progress that untag names', async () => {
+    // A tag saved from a spinner before progress had its own field is a plain tag now.
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1', tag: 'CI running' };
+    const publish = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({
+        publish,
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+
+    await service.execute(
+      { terminalId: 'terminal-1' },
+      { type: 'workspace.tag', tag: 'CI running', spinner: true }
+    );
+    publish.mockClear();
+    await expect(
+      service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.tag', ifTag: 'CI running' })
+    ).resolves.toEqual({
+      tag: { workspaceId: 'workspace-1', tag: null, changed: true },
+      progress: { workspaceId: 'workspace-1', label: null, changed: true },
+    });
+    expect(workspace).toMatchObject({ tag: undefined, progress: undefined });
+    // In one update, so the card never shows the tag in the progress's place.
+    expect(publish).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a tone or tooltip for progress without its label', async () => {
+    let workspace: KomlaOperationWorkspace = {
+      id: 'workspace-1',
+      progress: { label: 'CI running', tone: 'info' },
+    };
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'workspace.progress', tooltip: 'build 8 of 9' }
+      )
+    ).rejects.toMatchObject({ code: 'INVALID_PROGRESS', statusCode: 400 });
+    expect(workspace.progress).toEqual({ label: 'CI running', tone: 'info' });
+  });
+
+  it('shows progress on the current workspace and takes it off', async () => {
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1', tag: 'Blocked' };
+    const updateWorkspace = vi.fn((_id: string, updates: Record<string, unknown>) => {
+      workspace = { ...workspace, ...updates };
+      return workspace;
+    });
+    const publish = vi.fn();
+    const saveWorkspaceTags = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace,
+        publish,
+        saveWorkspaceTags,
+      })
+    );
+
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'workspace.progress', label: '  CI   running ', tooltip: 'build 7 of 9' }
+      )
+    ).resolves.toEqual({
+      progress: { workspaceId: 'workspace-1', label: 'CI running', changed: true },
+    });
+    expect(workspace.progress).toEqual({
+      label: 'CI running',
+      tone: 'neutral',
+      tooltip: 'build 7 of 9',
+    });
+
+    // A script that finished late leaves alone progress another one shows since.
+    await service.execute(
+      { terminalId: 'terminal-1' },
+      { type: 'workspace.progress', label: 'Deploying', tone: 'info' }
+    );
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'workspace.progress', ifLabel: 'CI running' }
+      )
+    ).resolves.toEqual({
+      progress: { workspaceId: 'workspace-1', label: 'Deploying', changed: false },
+    });
+    expect(workspace.progress).toEqual({ label: 'Deploying', tone: 'info' });
+
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'workspace.progress', ifLabel: 'deploying' }
+      )
+    ).resolves.toEqual({ progress: { workspaceId: 'workspace-1', label: null, changed: true } });
+    expect(workspace.progress).toBeUndefined();
+    expect(workspace.tag).toBe('Blocked');
+    expect(saveWorkspaceTags).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledTimes(3);
+  });
+
+  it('refuses progress when the user turned tagging off', async () => {
+    const updateWorkspace = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => ({ id: 'workspace-1' }),
+        updateWorkspace,
+        getConfig: () => ({ agentDisabledCapabilities: ['workspace.tag'] }),
+      })
+    );
+
+    await expect(
+      service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.progress', label: 'CI' })
+    ).rejects.toMatchObject({ code: 'CAPABILITY_DISABLED', statusCode: 403 });
+    expect(updateWorkspace).not.toHaveBeenCalled();
   });
 
   it('refuses a new tag once the list is full, but uses one it has', async () => {
@@ -2056,12 +2333,7 @@ describe('KomlaOperationService', () => {
       createDependencies({
         workspaceTags: () => [
           { name: 'In review', tone: 'info', pullRequestState: 'in-review' },
-          {
-            name: 'CI running',
-            tone: 'info',
-            icon: 'data:image/svg+xml;base64,PHN2Zy8+',
-            spinner: true,
-          },
+          { name: 'CI running', tone: 'info', icon: 'data:image/svg+xml;base64,PHN2Zy8+' },
           { name: 'Blocked', tone: 'error' },
         ],
         // Tags belong to the user, not to a workspace, so turning tagging off leaves them listed.
@@ -2076,7 +2348,7 @@ describe('KomlaOperationService', () => {
       await expect(service.execute(context, { type: 'tag.list' })).resolves.toEqual({
         tags: [
           { name: 'In review', tone: 'info', pullRequestState: 'in-review' },
-          { name: 'CI running', tone: 'info', hasIcon: true, spinner: true },
+          { name: 'CI running', tone: 'info', hasIcon: true },
           { name: 'Blocked', tone: 'error', hidden: true },
         ],
       });

@@ -63,10 +63,16 @@ test.describe('Komla SDK', () => {
       .toMatchObject({ id: workspaceId, branch: 'sdk/ci', agentActive: false });
 
     await expect(
-      komla.workspace.tag({ tag: 'CI running', spinner: true }, { workspace: workspaceId })
-    ).resolves.toEqual({
-      tag: { workspaceId, tag: 'CI running', changed: true, added: true },
-    });
+      komla.workspace.tag({ tag: 'Blocked' }, { workspace: workspaceId })
+    ).resolves.toEqual({ tag: { workspaceId, tag: 'Blocked', changed: true, added: false } });
+    await expect(
+      komla.workspace.progress({ label: 'CI running', tone: 'info' }, { workspace: workspaceId })
+    ).resolves.toEqual({ progress: { workspaceId, label: 'CI running', changed: true } });
+    // It spins in the tag's place on the card until the notification below takes that place.
+    const progress = appWindow.locator('[data-workspace-progress]').filter({ hasText: 'CI running' });
+    await expect(progress.first()).toBeVisible();
+    await expect(progress.first().locator('.activity-glyph')).toHaveCount(1);
+    await appWindow.screenshot({ path: test.info().outputPath('sdk-progress.png') });
     await expect(
       komla.workspace.notify(
         { title: 'CI failed', badge: 'CI', body: '3 tests failed.', kind: 'error' },
@@ -80,13 +86,20 @@ test.describe('Komla SDK', () => {
           const workspace = (await window.api.getWorkspaces()).find((w) => w.id === id);
           return {
             tag: workspace?.tag,
+            progress: workspace?.progress?.label,
             kind: workspace?.attention?.kind,
             title: workspace?.attention?.title,
             badge: workspace?.attention?.badge,
           };
         }, workspaceId)
       )
-      .toEqual({ tag: 'CI running', kind: 'error', title: 'CI failed', badge: 'CI' });
+      .toEqual({
+        tag: 'Blocked',
+        progress: 'CI running',
+        kind: 'error',
+        title: 'CI failed',
+        badge: 'CI',
+      });
     await expect(appWindow.getByText('CI', { exact: true }).first()).toBeVisible();
     await appWindow.screenshot({ path: test.info().outputPath('sdk-notification.png') });
 

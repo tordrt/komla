@@ -31,6 +31,8 @@ export const KOMLA_OPERATION_CAPABILITIES = {
   // Waking only undoes a snooze, so a job's hook can still end one.
   'workspace.wake': null,
   'workspace.tag': 'workspace.tag',
+  // Shown in the tag's place, so the user turns both off with one toggle.
+  'workspace.progress': 'workspace.tag',
   'workspace.trash': 'workspace.trash',
   // As `komla notify`: no Agent Capability, but off with the hooks endpoint.
   'workspace.notify': null,

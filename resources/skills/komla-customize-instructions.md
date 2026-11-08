@@ -45,25 +45,26 @@ SSH host or in a VM can belong to another Komla.
 ## Tags, notifications and status items
 
 Quick Commands, hooks and status bar items run where the `komla` CLI is, so they can tell the user
-what they see: `komla tag` for a state that holds, such as a spinner while tests run; `komla
+what they see: `komla tag` for a state that holds, such as Waiting for review; `komla progress` for
+work under way, such as tests running, which spins in the tag's place and leaves the tag be; `komla
 notify` for news once, such as a run that ended; `komla status set` for a value to keep in view.
 
 A workspace has one tag, and its card has room for a word or two. Keep tags and notification
 titles short, reuse the tags `komla tags` lists, and notify only when something changes.
 `komla notify -- <command>` says Done or Failed by itself, and a background Quick Command notifies
-without it, from how the command exits. Their `--help` shows icons, tones and spinners. A tag
-shows only what is under way; how it ended is a notification. A Quick Command that runs the tests
-in a tab, whose traps take the tag off however they end, on Ctrl+C too. Quitting Komla, or a stop
-on Windows, skips them and leaves the tag for the user to take off:
+without it, from how the command exits. Their `--help` shows icons and tones. Progress shows only
+what is under way; how it ended is a notification. A Quick Command that runs the tests in a tab,
+whose traps clear the progress however they end, on Ctrl+C too. Quitting Komla ends progress
+anyway; a stop on Windows skips the traps and leaves it for the user to clear from the card's menu:
 
 ```sh
-komla tag "Testing" --spinner --tone info; (trap 'komla untag "Testing"' EXIT; trap 'exit 130' INT; komla notify -- npm run test:e2e)
+komla progress "Testing" --tone info; (trap 'komla progress --clear "Testing"' EXIT; trap 'exit 130' INT; komla notify -- npm run test:e2e)
 ```
 
 A background one leaves out `komla notify --`, which would notify a second time:
 
 ```sh
-komla tag "Testing" --spinner --tone info; (trap 'komla untag "Testing"' EXIT; trap 'exit 130' INT; npm run test:e2e)
+komla progress "Testing" --tone info; (trap 'komla progress --clear "Testing"' EXIT; trap 'exit 130' INT; npm run test:e2e)
 ```
 
 Quick Commands run in the user's shell. These are for bash and zsh; in fish or PowerShell, write
@@ -74,7 +75,7 @@ the same steps in its syntax.
 A hook runs a command when an agent finishes, needs input or fails, when a prompt is sent to it,
 when a workspace is created or moved to the Trash, or on a timer. Use one to act outside what Komla
 already shows, such as telling a phone or a team chat that an agent needs input
-(`"runOn": "local"`), or tagging each workspace while its pull request's checks run and notifying
+(`"runOn": "local"`), or showing progress on each workspace while its pull request's checks run and notifying
 how they ended. To update a status bar item or sidebar panel when something happens, give it
 `refreshOn` with the events instead of a hook or a short interval; `komla skill integrations` says
 how.

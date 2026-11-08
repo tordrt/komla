@@ -24,8 +24,8 @@ export const FINISH = 'finish';
 export const DARK_MODE: VideoWorkspace = { ...DARK_MODE_ACCEPT_EDITS, minutesAgo: 6 };
 
 /**
- * Its checks pass, and a reviewer has approved it, so the hooks guide's CI script just drops its
- * CI running tag: no review tag, which Komla doesn't apply unless the user asks it to.
+ * Its checks pass, and a reviewer has approved it, so the hooks guide's CI script just clears its
+ * CI running progress: no review tag, which Komla doesn't apply unless the user asks it to.
  */
 export const PULL_REQUEST_APPROVED: VideoPullRequest = {
   ...PULL_REQUEST_PASSED,

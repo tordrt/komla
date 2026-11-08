@@ -68,6 +68,7 @@ const workspacesState = {
   markUnread: vi.fn(),
   setPinned: vi.fn(),
   setTag: vi.fn(),
+  clearProgress: vi.fn(),
   snoozeWorkspace: vi.fn(),
   selectionMode: false,
   selectedWorkspaceIds: new Set<string>(),
@@ -1232,25 +1233,45 @@ describe('WorkspaceCard', () => {
     expect(screen.getByLabelText('Agent processing')).toBeInTheDocument();
   });
 
-  it('leads a tag with its spinner or icon, and says what a script added on hover', () => {
+  it('leads a tag with its icon, and says what a script added on hover', () => {
     configState.config.workspaceTags = [
-      { name: 'CI running', tone: 'info', spinner: true },
       { name: 'Deployed', tone: 'success', icon: 'data:image/svg+xml;base64,PHN2Zy8+' },
     ];
-    const workspace = createWorktreeWorkspace({ tag: 'CI running', tagTooltip: 'build 7 of 9' });
-    const { rerender } = render(<WorkspaceCard workspace={workspace} />);
+    const workspace = createWorktreeWorkspace({ tag: 'Deployed', tagTooltip: 'to staging' });
+    render(<WorkspaceCard workspace={workspace} />);
     const pill = document.querySelector('[data-workspace-tag]') as HTMLElement;
+    expect(pill.querySelector('[data-tag-icon]')).not.toBeNull();
+    expect(pill.querySelector('.activity-glyph')).toBeNull();
+    expect(
+      screen
+        .getAllByTestId('tooltip-content')
+        .some((tooltip) => tooltip.textContent === 'Tagged Deployed · to staging')
+    ).toBe(true);
+  });
+
+  it("spins progress in the tag's place, keeps the tag in the hover card, and clears it", () => {
+    const workspace = createWorktreeWorkspace({
+      tag: 'Blocked',
+      progress: { label: 'CI running', tone: 'info', tooltip: 'build 7 of 9' },
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    expect(document.querySelector('[data-workspace-tag]')).toBeNull();
+    const pill = document.querySelector('[data-workspace-progress]') as HTMLElement;
+    expect(pill).toHaveTextContent('CI running');
     expect(pill.querySelector('.activity-glyph')).not.toBeNull();
     expect(
       screen
         .getAllByTestId('tooltip-content')
-        .some((tooltip) => tooltip.textContent === 'Tagged CI running · build 7 of 9')
+        .some((tooltip) => tooltip.textContent === 'CI running, under way · build 7 of 9')
     ).toBe(true);
 
-    rerender(
-      <WorkspaceCard workspace={{ ...workspace, tag: 'Deployed', tagTooltip: undefined }} />
-    );
-    expect(document.querySelector('[data-workspace-tag] [data-tag-icon]')).not.toBeNull();
+    fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
+    const progress = document.querySelector('[data-workspace-info-progress]');
+    expect(progress?.parentElement).toHaveTextContent('CI runningbuild 7 of 9');
+    expect(document.querySelector('[data-workspace-info-tag]')).toHaveTextContent('Blocked');
+
+    fireEvent.click(screen.getByText('Clear CI running'));
+    expect(workspacesState.clearProgress).toHaveBeenCalledWith(workspace.id);
   });
 
   it("keeps the tag and a script's note in the hover card while a notification has its place", () => {

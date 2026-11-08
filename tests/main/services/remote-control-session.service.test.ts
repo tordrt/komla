@@ -951,10 +951,10 @@ describe('RemoteControlSessionService', () => {
     });
     const older = makeFixture({ device: { credentialId: 'phone' } });
     for (const { workspace, config } of [agreed, older]) {
-      workspace.tag = 'ci running';
+      workspace.tag = 'in review';
       config.get.mockReturnValue({
         defaultLaunchModeId: 'mode-1',
-        workspaceTags: [{ name: 'CI running', tone: 'warning', spinner: true }],
+        workspaceTags: [{ name: 'In review', tone: 'info' }],
       } as never);
     }
 
@@ -963,11 +963,20 @@ describe('RemoteControlSessionService', () => {
     await flush();
 
     expect(agreed.peer.sent[0]).toHaveProperty('workspaces.0.tag', {
+      name: 'In review',
+      tone: 'info',
+    });
+    expect(older.peer.sent[0]).not.toHaveProperty('workspaces.0.tag');
+
+    // Progress spins in the tag's place, as the card shows it.
+    agreed.workspace.progress = { label: 'CI running', tone: 'warning' };
+    agreed.peer.emitJson({ type: 'app:workspaces:list', requestId: 'r2' });
+    await flush();
+    expect(agreed.peer.sent[1]).toHaveProperty('workspaces.0.tag', {
       name: 'CI running',
       tone: 'warning',
       spinner: true,
     });
-    expect(older.peer.sent[0]).not.toHaveProperty('workspaces.0.tag');
   });
 
   it("fills in a Saved Prompt's values as the desktop does, leaving the user's input as typed", async () => {

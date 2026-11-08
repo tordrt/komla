@@ -68,20 +68,20 @@ const COMMANDS: &[Command] = &[
         usages: &["<tag> [options]"],
         summary: "Say on its card what it waits on",
         description: &[
-            "Tags the current workspace to say what it waits on, such as \"In review\", or what a script sees, such as \"CI running\". The tag shows on its card while no agent is busy there, until it's taken off or replaced. A workspace has one tag, so this replaces the user's.",
-            "A tag the user doesn't have yet joins their list with --tone, --icon and --spinner; one they have keeps the look they gave it. `komla tags` lists them.",
+            "Tags the current workspace to say what it waits on, such as \"In review\", or how something a script saw ended, such as \"CI failed\". The tag shows on its card while no agent is busy there, until it's taken off or replaced. A workspace has one tag, so this replaces the user's.",
+            "A tag the user doesn't have yet joins their list with --tone and --icon; one they have keeps the look they gave it. `komla tags` lists them. For work under way, such as CI running, use `komla progress`, which leaves the tag be.",
         ],
         options: &[
             ("--tone <tone>", "neutral, info, attention, success, warning or error."),
             ("--icon <file|svg>", "An image in place of the tag glyph, in the tag's color: a file or SVG markup."),
-            ("--spinner", "A spinner in place of the glyph, for work under way."),
+            ("--spinner", "Show it as progress instead, as `komla progress` does, leaving the tag be, until a later tag replaces it or it's taken off, as a spinning tag was."),
             ("--tooltip <text>", "More on hover, until the tag changes."),
-            ("--if <tag>", "Change only a workspace that has that tag, so a script leaves alone a tag the user put on since."),
+            ("--if <tag>", "Change only a workspace that has that tag, so a script leaves alone a tag the user put on since, or that shows progress of that label, which the tag replaces."),
             JSON,
         ],
         examples: &[
-            "komla tag \"CI running\" --spinner --tone info",
-            "komla tag \"Deploying\" --spinner --tone info --if \"CI running\"",
+            "komla tag \"Waiting for design\" --tone attention",
+            "komla tag \"CI failed\" --tone error --if \"In review\"",
         ],
     },
     Command {
@@ -90,9 +90,31 @@ const COMMANDS: &[Command] = &[
         index: "[<tag>]",
         usages: &["[<tag>] [--json]"],
         summary: "Take its tag off",
-        description: &["Takes the current workspace's tag off, or only that tag, so a script leaves alone a tag the user put on since."],
+        description: &["Takes the current workspace's tag off, or only that tag, so a script leaves alone a tag the user put on since. Given the label of the progress it shows, it takes that off too, as `komla progress --clear` does."],
         options: &[JSON],
-        examples: &["komla untag \"CI running\""],
+        examples: &["komla untag \"Waiting for design\""],
+    },
+    Command {
+        group: Group::Workspaces,
+        name: "progress",
+        index: "<label>",
+        usages: &["<label> [options]", "--clear [<label>] [--json]"],
+        summary: "Show work under way on its card, such as CI",
+        description: &[
+            "Shows work under way in the current workspace, such as \"CI running\", with a spinner in its tag's place on the card while no agent is busy there, until it's cleared. It isn't a tag: it never joins the user's list, the workspace keeps its tag, and it ends when Komla quits.",
+            "--clear takes it off, or only progress of that label, so a script that finishes late leaves alone progress another one shows since. The user can also clear it from the card's menu.",
+        ],
+        options: &[
+            ("--tone <tone>", "neutral, info, attention, success, warning or error."),
+            ("--tooltip <text>", "More on hover, until it changes."),
+            ("--if <label>", "Change only a workspace that shows progress of that label."),
+            ("--clear", "Take it off, or only progress of the label given."),
+            JSON,
+        ],
+        examples: &[
+            "komla progress \"CI running\" --tone info --tooltip \"build 7 of 9\"",
+            "komla progress --clear \"CI running\"",
+        ],
     },
     Command {
         group: Group::Workspaces,
@@ -139,7 +161,7 @@ const COMMANDS: &[Command] = &[
         usages: &["[--all] [--json]"],
         summary: "List workspaces and their ids, for --workspace",
         description: &[
-            "Lists the workspaces with their ids, branches, attention and tags. `komla workspace <title|snooze|wake|tag|untag|trash>` is the same as the command without `workspace`.",
+            "Lists the workspaces with their ids, branches, attention, tags and progress. `komla workspace <title|snooze|wake|tag|untag|progress|trash>` is the same as the command without `workspace`.",
             "On an SSH host that can't reach Komla, it lists the host's own workspaces, without the tags, links, attention and agent state only Komla knows.",
         ],
         options: &[("--all", "Also list those in the Trash."), JSON],
@@ -551,7 +573,9 @@ pub(crate) fn index() -> String {
 pub(crate) fn command(words: &[&str]) -> Option<String> {
     // `workspace tag` and the rest are `tag` and the rest for another workspace.
     let words = match words {
-        ["workspace", "title" | "snooze" | "wake" | "tag" | "untag" | "trash", ..] => &words[1..],
+        ["workspace", "title" | "snooze" | "wake" | "tag" | "untag" | "progress" | "trash", ..] => {
+            &words[1..]
+        }
         _ => words,
     };
     if words.is_empty() {
@@ -704,7 +728,7 @@ mod tests {
         );
         assert!(tag.contains("\noptions:\n  --tone <tone>"), "{tag}");
         assert!(
-            tag.contains("\nexamples:\n  komla tag \"CI running\" --spinner --tone info\n"),
+            tag.contains("\nexamples:\n  komla tag \"Waiting for design\" --tone attention\n"),
             "{tag}"
         );
         assert!(!tag.contains("untag"), "{tag}");

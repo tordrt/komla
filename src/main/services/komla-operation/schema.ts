@@ -310,14 +310,35 @@ export const komlaOperationSchema = z.discriminatedUnion('type', [
       tone: z.enum(WORKSPACE_TAG_TONES).optional(),
       // Saved with the tag as the base64 data URL a status item's icon is.
       icon: statusIconSchema.transform((icon) => statusIconDataUrl(icon) as string).optional(),
-      spinner: z.boolean().optional(),
+      spinner: z
+        .boolean()
+        .optional()
+        .describe(
+          "Shows `tag` as the workspace's progress instead, as `workspace.progress` does, leaving its tag and the user's list be."
+        ),
       ifTag: workspaceTagNameSchema
         .optional()
-        .describe('Changes only a workspace that has this tag.'),
+        .describe(
+          'Changes only a workspace that has this tag or shows progress of this label, which the tag replaces, or which comes off without `tag`.'
+        ),
     })
     .strict()
     .describe(
-      "Gives the workspace its one tag, or takes it off without `tag`. A tag the user's list lacks joins it with `tone`, `icon` and `spinner`."
+      "Gives the workspace its one tag, or takes it off without `tag`. A tag the user's list lacks joins it with `tone` and `icon`."
+    ),
+  z
+    .object({
+      type: z.literal('workspace.progress'),
+      label: workspaceTagNameSchema.optional(),
+      tooltip: z.string().trim().min(1).max(MAX_WORKSPACE_TAG_TOOLTIP).optional(),
+      tone: z.enum(WORKSPACE_TAG_TONES).optional(),
+      ifLabel: workspaceTagNameSchema
+        .optional()
+        .describe('Changes only a workspace that shows progress of this label.'),
+    })
+    .strict()
+    .describe(
+      "Shows work under way, such as CI running, with a spinner in the tag's place until it ends, or takes it off without `label`, which `tone` and `tooltip` need. It isn't a tag: the workspace keeps its tag, and progress ends with Komla."
     ),
   z
     .object({

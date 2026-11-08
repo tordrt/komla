@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tags the workspace "CI running" while its pull request's checks run, then says how they ended.
+# Shows "CI running" on the workspace while its pull request's checks run, then says how they ended.
 out=$(gh pr view --json state,reviewDecision,statusCheckRollup --jq '
   [.statusCheckRollup[]? | if .__typename == "StatusContext" then
       (if .state == "SUCCESS" then "pass" elif .state == "FAILURE" or .state == "ERROR" then "fail" else "pending" end)
@@ -23,29 +23,29 @@ case $ci in
 esac
 state="${TMPDIR:-/tmp}/komla-ci-$KOMLA_WORKSPACE_ID"
 last=$(cat "$state" 2>/dev/null)
-# No open pull request with checks, such as one merged or a branch without one: its tag goes.
+# No open pull request with checks, such as one merged or a branch without one: its progress goes.
 if [ "$ci" = none ]; then
-  [ "$last" = pending ] && komla untag "CI running"
+  [ "$last" = pending ] && komla progress --clear "CI running"
   rm -f "$state"
   exit 0
 fi
 [ "$ci" = "$last" ] && exit 0
 echo "$ci" > "$state"
 if [ "$ci" = pending ]; then
-  komla tag "CI running" --spinner --tone info
+  komla progress "CI running" --tone info
   exit 0
 fi
 # Checks that ended before this script saw them run are no news.
 [ "$last" = pending ] || exit 0
 # A failure waits on a fix, which the notification says, not on review.
 if [ "$ci" = fail ]; then
-  komla untag "CI running"
+  komla progress --clear "CI running"
   komla notify "CI failed" --badge CI --color error
   exit 0
 fi
 case $review in
   CHANGES_REQUESTED) komla tag "Needs changes" --if "CI running" ;;
-  APPROVED) komla untag "CI running" ;;
+  APPROVED) komla progress --clear "CI running" ;;
   *) komla tag "In review" --if "CI running" ;;
 esac
 komla notify "CI passed" --badge CI --color success

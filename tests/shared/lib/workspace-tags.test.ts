@@ -14,6 +14,8 @@ import {
   workspaceTagKey,
 } from '../../../src/shared/lib/workspace-tags';
 
+import { workspaceCardTagAppearance } from '../../../src/shared/lib/workspace-progress';
+
 import type { PullRequestSummary } from '../../../src/shared/types/pull-request';
 
 describe('normalizeWorkspaceTags', () => {
@@ -55,7 +57,7 @@ describe('normalizeWorkspaceTags', () => {
 });
 
 describe('normalizeWorkspaceTags looks', () => {
-  it('keeps a spinner and an image data URL icon, and drops anything else', () => {
+  it('keeps an image data URL icon and drops anything else, an old spinner too', () => {
     const icon = 'data:image/png;base64,iVBORw0KGgo=';
     expect(
       normalizeWorkspaceTags([
@@ -64,7 +66,7 @@ describe('normalizeWorkspaceTags looks', () => {
         { name: 'Huge', icon: `data:image/png;base64,${'A'.repeat(64 * 1024)}` },
       ])
     ).toEqual([
-      { name: 'CI running', tone: 'info', icon, spinner: true },
+      { name: 'CI running', tone: 'info', icon },
       { name: 'Odd', tone: 'neutral' },
       { name: 'Huge', tone: 'neutral' },
     ]);
@@ -90,18 +92,27 @@ describe('withWorkspaceTag', () => {
 });
 
 describe('workspaceTagAppearance', () => {
-  it("takes the listed tag's name, color and spinner, and shows an unlisted one gray", () => {
-    const tags = [
-      { name: 'In review', tone: 'info' as const },
-      { name: 'CI running', tone: 'warning' as const, spinner: true },
-    ];
+  it("takes the listed tag's name and color, and shows an unlisted one gray", () => {
+    const tags = [{ name: 'In review', tone: 'info' as const }];
     expect(workspaceTagAppearance(tags, 'in REVIEW')).toEqual({ name: 'In review', tone: 'info' });
-    expect(workspaceTagAppearance(tags, 'CI running')).toEqual({
+    expect(workspaceTagAppearance(tags, 'Gone')).toEqual({ name: 'Gone', tone: 'neutral' });
+  });
+});
+
+describe('workspaceCardTagAppearance', () => {
+  it("shows progress, spinning, in the tag's place, and else the tag", () => {
+    const tags = [{ name: 'Blocked', tone: 'error' as const }];
+    const progress = { label: 'CI running', tone: 'info' as const, tooltip: 'build 7 of 9' };
+    expect(workspaceCardTagAppearance(tags, { tag: 'blocked', progress })).toEqual({
       name: 'CI running',
-      tone: 'warning',
+      tone: 'info',
       spinner: true,
     });
-    expect(workspaceTagAppearance(tags, 'Gone')).toEqual({ name: 'Gone', tone: 'neutral' });
+    expect(workspaceCardTagAppearance(tags, { tag: 'blocked' })).toEqual({
+      name: 'Blocked',
+      tone: 'error',
+    });
+    expect(workspaceCardTagAppearance(tags, {})).toBeUndefined();
   });
 });
 

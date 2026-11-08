@@ -29,10 +29,8 @@ import { IPC } from '../../shared/constants/ipc-channels';
 import { fillActionText } from '../../shared/lib/action-injection';
 import { actionLastUse, byRecentUse } from '../../shared/lib/action-order';
 import { projectColorHex } from '../../shared/lib/project-color';
-import {
-  workspaceTagAppearance,
-  type WorkspaceTagDefinition,
-} from '../../shared/lib/workspace-tags';
+import { workspaceCardTagAppearance } from '../../shared/lib/workspace-progress';
+import { type WorkspaceTagDefinition } from '../../shared/lib/workspace-tags';
 import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
 import {
   needsAttention,
@@ -1661,17 +1659,14 @@ class RemoteControlAppSession implements RemoteControlSession {
     return color ? ({ [key]: color } as Partial<Record<K, string>>) : {};
   }
 
-  /** The workspace's tag as the tag list shows it, for a page that agreed to tags. */
+  /**
+   * The workspace's tag as the tag list shows it, for a page that agreed to tags, or its progress,
+   * spinning, which the card shows in the tag's place.
+   */
   private tagField(workspace: Workspace): Pick<RemoteWorkspaceSummary, 'tag'> {
-    if (
-      !workspace.tag ||
-      !this.device?.capabilities?.includes(REMOTE_CAPABILITIES.WORKSPACE_TAGS)
-    ) {
-      return {};
-    }
-    return {
-      tag: workspaceTagAppearance(this.deps.config.get().workspaceTags ?? [], workspace.tag),
-    };
+    if (!this.device?.capabilities?.includes(REMOTE_CAPABILITIES.WORKSPACE_TAGS)) return {};
+    const tag = workspaceCardTagAppearance(this.deps.config.get().workspaceTags ?? [], workspace);
+    return tag ? { tag } : {};
   }
 
   private async summarizeWorkspace(workspace: Workspace): Promise<RemoteWorkspaceSummary> {

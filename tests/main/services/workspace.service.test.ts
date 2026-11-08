@@ -18035,6 +18035,32 @@ describe('WorkspaceService', () => {
       workspaceService.update(workspace.id, { tag: 'CI failed' });
       expect(workspaceService.get(workspace.id)?.tagTooltip).toBeUndefined();
     });
+
+    it('shows progress beside the tag but never saves it, so it ends with Komla', async () => {
+      mockConfigService.get.mockReturnValue({ autoNameWorkspaces: 'off' });
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const workspace = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir-progress',
+      });
+      workspaceService.update(workspace.id, {
+        tag: 'Blocked',
+        progress: { label: 'CI running', tone: 'info' },
+      });
+      expect(workspaceService.get(workspace.id)).toMatchObject({
+        tag: 'Blocked',
+        progress: { label: 'CI running', tone: 'info' },
+      });
+
+      mockWriteFileAtomic.mockClear();
+      await workspaceService.saveWorkspacesImmediate();
+      const [[, saved]] = workspaceFileWrites().slice(-1);
+      const persisted = (JSON.parse(saved) as Array<{ id: string }>).find(
+        (entry) => entry.id === workspace.id
+      );
+      expect(persisted).toMatchObject({ tag: 'Blocked' });
+      expect(persisted).not.toHaveProperty('progress');
+    });
   });
 
   describe('prompt-submit rename history', () => {

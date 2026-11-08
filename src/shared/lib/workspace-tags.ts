@@ -26,8 +26,6 @@ export interface WorkspaceTagDefinition {
   pullRequestState?: PullRequestTagState;
   /** An image data URL shown in place of the tag glyph, its shape in the tag's color. */
   icon?: string;
-  /** Shows a spinner in place of the glyph, for work under way such as CI running. */
-  spinner?: boolean;
 }
 
 export const MAX_WORKSPACE_TAG_LENGTH = 40;
@@ -81,7 +79,10 @@ export function findWorkspaceTag(
   return tags.find((tag) => workspaceTagKey(tag.name) === key);
 }
 
-/** A workspace's tag as its card shows it, for a device without the tag list. */
+/**
+ * A workspace's tag as its card shows it, for a device without the tag list. It spins for the
+ * workspace's progress, which shows in the tag's place.
+ */
 export interface WorkspaceTagAppearance {
   name: string;
   tone: WorkspaceTagTone;
@@ -94,11 +95,7 @@ export function workspaceTagAppearance(
   name: string
 ): WorkspaceTagAppearance {
   const tag = findWorkspaceTag(tags, name);
-  return {
-    name: tag?.name ?? name,
-    tone: tag?.tone ?? 'neutral',
-    ...(tag?.spinner ? { spinner: true as const } : {}),
-  };
+  return { name: tag?.name ?? name, tone: tag?.tone ?? 'neutral' };
 }
 
 /** A tag on some of the workspaces, as a filter offers it. */
@@ -150,13 +147,16 @@ export function withWorkspaceTag(
   return [...tags, tag];
 }
 
-/** The saved tag list, or the defaults when it was never saved; scrubs a hand-edited file. */
+/**
+ * The saved tag list, or the defaults when it was never saved; scrubs a hand-edited file. A tag
+ * saved with `spinner`, from before progress was set apart from tags, stays as a plain tag.
+ */
 export function normalizeWorkspaceTags(raw: unknown): WorkspaceTagDefinition[] {
   if (!Array.isArray(raw)) return DEFAULT_WORKSPACE_TAGS.map((tag) => ({ ...tag }));
   const tags: WorkspaceTagDefinition[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== 'object') continue;
-    const { name, tone, pullRequestState, icon, spinner } = entry as Record<string, unknown>;
+    const { name, tone, pullRequestState, icon } = entry as Record<string, unknown>;
     if (typeof name !== 'string') continue;
     const normalized = normalizeWorkspaceTagName(name);
     if (!normalized || findWorkspaceTag(tags, normalized)) continue;
@@ -173,7 +173,6 @@ export function normalizeWorkspaceTags(raw: unknown): WorkspaceTagDefinition[] {
         : 'neutral',
       ...(state ? { pullRequestState: state } : {}),
       ...(isWorkspaceTagIcon(icon) ? { icon } : {}),
-      ...(spinner === true ? { spinner } : {}),
     });
   }
   return tags.slice(0, MAX_WORKSPACE_TAGS);

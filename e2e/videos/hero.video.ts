@@ -1,7 +1,7 @@
 /**
  * Landing hero: a working session. Agents work across two projects, each
  * workspace laid out its own way. Claude Code ticks off its plan beside Codex;
- * Yearly Billing shipped and is tagged CI running, and its status bar item
+ * Yearly Billing shipped and shows CI running, and its status bar item
  * shows how its checks stand. Dark Mode stops for permission and we answer it,
  * Rate Limiting finishes, and then Yearly Billing's checks pass. All of it runs
  * on an SSH host.
@@ -185,7 +185,7 @@ test('hero', async ({ appWindow: page, electronApp, director }) => {
     await expect(billing.getByText('CI', { exact: true })).toBeVisible({ timeout: 1000 });
   }).toPass({ intervals: [1000], timeout: 30_000 });
   director.speed(1);
-  // The hook's next run finds them passed and drops the CI running tag.
+  // The hook's next run finds them passed and clears CI running.
   tagCi();
   await director.moveTo(billing.getByText('CI', { exact: true }), { duration: 0.7 });
   await expect(billing.getByText('CI running', { exact: true })).toBeHidden({ timeout: 15_000 });

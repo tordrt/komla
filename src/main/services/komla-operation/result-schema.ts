@@ -19,6 +19,14 @@ const environment = z.discriminatedUnion('kind', [
 
 const named = z.object({ id: z.string(), name: z.string() }).strict();
 
+const progressResult = z
+  .object({
+    workspaceId: z.string(),
+    label: z.string().nullable().describe("The label of the workspace's progress afterward."),
+    changed: z.boolean().describe("False when `ifLabel` named progress the workspace didn't show."),
+  })
+  .strict();
+
 const statusSegment = z.union([
   z
     .object({ text: z.string(), color: z.string().optional(), bold: z.boolean().optional() })
@@ -206,6 +214,7 @@ export const komlaOperationResultSchemas = {
               .optional()
               .describe('The attention the workspace shows.'),
             tag: z.string().optional(),
+            progress: z.string().optional().describe('The label of the progress it shows.'),
             linkedWorkspaceIds: z.array(z.string()).optional(),
           })
           .strict()
@@ -224,7 +233,10 @@ export const komlaOperationResultSchemas = {
               .optional()
               .describe('Komla puts this tag on workspaces whose pull request stands so.'),
             hasIcon: z.literal(true).optional(),
-            spinner: z.literal(true).optional(),
+            spinner: z
+              .literal(true)
+              .optional()
+              .describe('Never set now: a spinner is `workspace.progress`, not a tag.'),
             hidden: z
               .literal(true)
               .optional()
@@ -276,8 +288,12 @@ export const komlaOperationResultSchemas = {
           added: z.boolean().optional().describe("The tag joined the user's list."),
         })
         .strict(),
+      progress: progressResult
+        .optional()
+        .describe('Set when the call showed progress or took it off, as `spinner` and `ifTag` do.'),
     })
     .strict(),
+  'workspace.progress': z.object({ progress: progressResult }).strict(),
   'workspace.trash': z
     .object({
       trash: z

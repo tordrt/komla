@@ -11,8 +11,6 @@ import {
   type WorkspaceTagDefinition,
 } from '../../../shared/lib/workspace-tags';
 
-import { ActivitySpinner } from './activity-spinners';
-
 /** A tag in its color, led by its glyph, as its pill and the workspace's hover card show it. */
 export const WorkspaceTagBadge = forwardRef<
   HTMLSpanElement,
@@ -36,15 +34,14 @@ export const WorkspaceTagBadge = forwardRef<
   );
 });
 
-/** What leads a tag's name: a spinner, its icon's shape in the tag's color, or the tag glyph. */
+/** What leads a tag's name: its icon's shape in the tag's color, or the tag glyph. */
 export function TagGlyph({
   tag,
   className,
 }: {
-  tag: Pick<WorkspaceTagDefinition, 'icon' | 'spinner'> | undefined;
+  tag: Pick<WorkspaceTagDefinition, 'icon'> | undefined;
   className?: string;
 }) {
-  if (tag?.spinner) return <ActivitySpinner className={cn('shrink-0', className)} />;
   if (tag?.icon) {
     const mask = `url("${tag.icon}") center / contain no-repeat`;
     return (

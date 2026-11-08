@@ -66,8 +66,8 @@ workspace: a terminal has `KOMLA_TERMINAL_ID`, and a background step `KOMLA_WORK
 
 `komla workspace list [--all] [--json]` lists the workspaces, with those in the Trash under
 `--all`: each one's `id`, `name`, `project`, `branch`, `path`, `environment`, `agentActive`, the
-`attention` it shows, its `tag` and the `linkedWorkspaceIds` it's linked to. Through an SSH host's tunnel it lists that host's
-workspaces only. `--workspace <id>` makes any command that acts on a workspace (`tag`, `title`,
+`attention` it shows, its `tag` and the `linkedWorkspaceIds` it's linked to, and the label of the `progress` it shows. Through an SSH host's tunnel it lists that host's
+workspaces only. `--workspace <id>` makes any command that acts on a workspace (`tag`, `progress`, `title`,
 `snooze`, `status set`, `notify`, `launch`, `context` and the rest) act on that one in
 place of the calling terminal's, so one script can keep every workspace current. It never
 reaches past the SSH host a request came from. `trash` refuses it, as does `notify -- <command>`,
@@ -83,28 +83,40 @@ Both print the ids the workspace is linked to afterward, and the user can turn t
 `workspace.link` in Settings → Integrations & MCP.
 
 `komla tag <tag>` gives the workspace its one tag, shown on its card while no agent is busy there
-until it's taken off or replaced, so scripts use tags for what stays, such as CI under way, and
-`komla notify` for how the work ended:
+until it's taken off or replaced, so scripts use tags for what stays, such as what a workspace
+waits on. `komla progress <label>` shows work under way, such as CI running, with a spinner in the
+tag's place, and `komla notify` says how the work ended:
 
 ```bash
-komla tag "CI running" --spinner --tone info --tooltip "build 7 of 9" --workspace "$id"
-# The checks ended: take the tag off, unless the user has changed it since, and say how.
-komla untag "CI running" --workspace "$id"
+komla progress "CI running" --tone info --tooltip "build 7 of 9" --workspace "$id"
+# The checks ended: clear the progress, unless another script has shown its own since, and say how.
+komla progress --clear "CI running" --workspace "$id"
 komla notify "CI failed" --badge CI --color error --workspace "$id"
 ```
 
 A tag Komla doesn't have yet joins the user's tag list, with `--tone` (`neutral`, `info`,
-`attention`, `success`, `warning` or `error`), `--icon` (as `status set` takes it, its shape shown
-in the tag's color) and `--spinner`, which shows Komla's spinner in place of the tag glyph; a tag in
-the list keeps the look the user gave it in Settings. A full list (50 tags) refuses new ones
-(`TAG_LIST_FULL`). `--tooltip` adds hover text for this workspace, until its tag changes. `--if
-<tag>` changes only a workspace that has that tag, and `untag <tag>` takes off only that tag, so a
-script that finishes late leaves alone a tag the user put on since. The user removes any tag from
-the card's Tag menu.
+`attention`, `success`, `warning` or `error`) and `--icon` (as `status set` takes it, its shape
+shown in the tag's color); a tag in the list keeps the look the user gave it in Settings. A full
+list (50 tags) refuses new ones (`TAG_LIST_FULL`). `--tooltip` adds hover text for this workspace,
+until its tag changes. `--if <tag>` changes only a workspace that has that tag, and `untag <tag>`
+takes off only that tag, so a script that finishes late leaves alone a tag the user put on since.
+The user removes any tag from the card's Tag menu.
+
+Progress isn't a tag. It never joins the tag list, the sidebar's filters or the Filtered shelf, and
+the workspace keeps its tag, which shows again once the progress is cleared; the hover card shows
+both. It isn't saved, so it ends when Komla quits. It takes `--tone` and `--tooltip` as `tag` does,
+but only with a label. `--if <label>` changes only a workspace that shows progress of that label,
+and `progress --clear <label>` clears only that, so a script that finishes late leaves alone
+progress another one shows since, and `tag <tag> --if <label>` puts the tag on in its place, as when
+the checks end in a review. The user clears it from the card's menu.
+
+`tag --spinner`, from before progress had its own command, shows progress in the same way and leaves
+the tag and the list be. That progress goes as the spinning tag did: a later `tag` without `--if` or
+a bare `untag` replaces it, and `untag <label>` clears it, and a tag of that label too.
 
 `komla tags [--json]` lists the user's tags in the list's order, so an agent can pick a tag the
-user already has. Each tag has its `name` and `tone`; `hasIcon` and `spinner` mark the rest of its
-look, `pullRequestState` (`in-review` or `needs-changes`) marks a tag Komla puts on workspaces whose
+user already has. Each tag has its `name` and `tone`; `hasIcon` marks one with an icon,
+`pullRequestState` (`in-review` or `needs-changes`) marks a tag Komla puts on workspaces whose
 pull request stands so, and `hidden` marks one the user hides in the sidebar, whose workspaces move
 to the Filtered shelf while nothing there needs the user. The list belongs to the user, so `tags`
 takes no `--workspace` and works the same through an SSH host's tunnel.
@@ -448,7 +460,7 @@ import { connectKomla } from '@komla/sdk';
 
 const komla = connectKomla({ capabilities: ['workspace.tag'] });
 const { workspaces } = await komla.workspace.list();
-await komla.workspace.tag({ tag: 'CI running', spinner: true }, { workspace: workspaces[0].id });
+await komla.workspace.progress({ label: 'CI running' }, { workspace: workspaces[0].id });
 ```
 
 Each method is one operation, named by its type: `komla.workspace.tag(input)` sends
@@ -674,6 +686,10 @@ the setting changes. See [ADR 0006](adr/0006-queue-agent-commands-on-the-ssh-hos
 `komla workspace list` on an SSH host that can't reach Komla lists the workspaces whose manifests
 are on the host, newest first, without the tags, links, attention and agent state only the desktop knows,
 and says so on stderr.
+
+`komla progress` and `tag --spinner` never queue, as progress ends with Komla: they fail while Komla
+can't be reached, and while earlier commands still wait on the host, rather than overtake commands
+that might undo them.
 
 Komla's HTTP server listens on 127.0.0.1 only and answers only requests whose `Host` header is an
 IP address or `localhost` or a `.localhost` name, on any port, since SSH tunnels arrive through

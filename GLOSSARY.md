@@ -39,6 +39,19 @@ so their places go; a pane closed before the stop doesn't come back.
 A command that must succeed in the workspace before it moves to the Trash. Success then discards any
 Local copy; failure leaves both the workspace and Local copy intact.
 
+**Tag**:
+A label from the user's tag list, such as "In review" or "Blocked", that sorts a workspace by what
+it waits on: it shows on the card, the sidebar's filters offer it, and a hidden tag moves its
+workspaces to the Filtered shelf. A workspace has one tag, put on by the user, a script, or Komla from
+the branch's pull request. A tag says what stays; work under way is Workspace Progress.
+_Avoid_: Label, status, spinner tag
+
+**Workspace Progress**:
+Work under way in a workspace that a script shows, such as "CI running", with a spinner in the tag's
+place until the script clears it. It isn't a Tag: it never joins the tag list or a filter, the
+workspace keeps its tag, and it isn't saved, so it ends when Komla quits.
+_Avoid_: Spinner tag, activity (the agent's working spinner), status (a status bar item)
+
 ## Workspace Files
 
 **Imported files**:

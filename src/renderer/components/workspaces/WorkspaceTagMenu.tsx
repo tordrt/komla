@@ -1,4 +1,4 @@
-import { Tag } from '@phosphor-icons/react';
+import { Tag, X } from '@phosphor-icons/react';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,8 @@ import {
 } from '../../../shared/lib/workspace-tags';
 
 import { WorkspaceTagBadge } from './WorkspaceTagBadge';
+
+import type { WorkspaceProgress } from '../../../shared/lib/workspace-progress';
 
 /** The Settings card that lists the tags, which Tag ▸ Edit Tags... opens. */
 export const WORKSPACE_TAGS_CARD = 'Workspace tags';
@@ -265,5 +267,22 @@ export function WorkspaceTagPill({
         {tooltip && <span className="text-muted-foreground"> · {tooltip}</span>}
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/** Takes off progress a script left showing, such as one that ended without saying so. */
+export function ClearProgressMenuItem({
+  workspaceId,
+  progress,
+}: {
+  workspaceId: string;
+  progress: WorkspaceProgress | undefined;
+}) {
+  if (!progress) return null;
+  return (
+    <ContextMenuItem onClick={() => useWorkspacesStore.getState().clearProgress(workspaceId)}>
+      <X />
+      <span className="truncate">Clear {progress.label}</span>
+    </ContextMenuItem>
   );
 }

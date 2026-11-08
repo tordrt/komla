@@ -173,7 +173,7 @@ turn, and check again.
 Run, with its id:
 
 ```sh
-komla tag "CI running" --spinner --tone info --tooltip "Komla tour: a pretend CI run" --workspace <id> --json
+komla progress "CI running" --tone info --tooltip "Komla tour: a pretend CI run" --workspace <id> --json
 ```
 
 Then give the Demo Workspace a status bar item with the details the card has no room for: a page
@@ -221,20 +221,18 @@ runs on this computer rather than on an SSH host:
 komla status set ci --segments '[{"text":"\uf110","color":"info"},{"text":" CI 2/4"}]' --popover-file <path> --workspace <id>
 ```
 
-Point out the CI running tag on the Demo Workspace's card, and the tooltip on hover. Then ask the
+Point out CI running on the Demo Workspace's card, and the tooltip on hover. Then ask the
 user to open the Demo Workspace and click the CI item in its status bar, which shows while that
 workspace is open: the popover shows the checks so far, and, when it has a link, its button opens
 the pretend CI run page. Explain that the page is plain HTML and CSS in Komla's theme colors, such
 as `var(--success)`, shown in a sandbox: it loads nothing from the web, and its links open on a
 click. Ask them to come back to this tab afterwards. If Komla refuses the item, report it, leave out
-the parts about it and carry on without it. When the result says `added` is true, the tag is new to
-the user's list and spins. Otherwise the user already had it: run `komla tags --json` and describe
-its look from there. If it's `hidden`, the card moved to the Filtered shelf: ask the user to open
-that shelf to see it, and in stage 2 say the card moves from there. If Komla refuses the tag because
-the user's list is full, relay its hint and carry on without the tag, leaving it out of stage 2.
-Explain that a tag stays until it's taken off, so it suits states that last, such as CI running,
-Deploying or Waiting for review, and that a workspace has one tag at a time. End the turn and wait
-for the user to ask to continue.
+the parts about it and carry on without it. Point out CI running spinning on the card, in the
+place its tag takes. Explain that this is progress, for work under way such as CI running or
+Deploying: it isn't one of the user's tags, so it never joins their tag list or filters, the
+workspace keeps its tag, which shows again once the progress is cleared, and it ends when Komla
+quits. A tag is for a state that lasts, such as Waiting for review, and a workspace has one at a
+time. End the turn and wait for the user to ask to continue.
 
 ### Stage 2: snooze until CI ends
 
@@ -245,7 +243,7 @@ shelf at the bottom of the sidebar. Then run:
 komla snooze 1h --until-notified --workspace <id>
 ```
 
-Point out the Snoozed shelf and ask the user to open it: the card is there, its tag still on it.
+Point out the Snoozed shelf and ask the user to open it: the card is there, still showing CI running.
 Explain that a workspace waiting on something out of the user's hands gets out of the way and comes
 back at its next notification, in an hour at the latest, or sooner if an agent there needs input;
 `komla wake --workspace <id>` brings it back without a notification.
@@ -259,7 +257,7 @@ Before running anything, tell the user to watch the Demo Workspace come back int
 run:
 
 ```sh
-komla untag "CI running" --workspace <id>
+komla progress --clear "CI running" --workspace <id>
 komla notify "CI passed" --body "Komla tour: all checks passed" --color success --workspace <id>
 ```
 
@@ -270,9 +268,9 @@ becomes `<span class="pill success">Passed</span>`, every bar segment and check 
 5m 02s and build 1m 15s with the passed icon, and the subtitle reads `komla-demo · 9m 08s in all`.
 
 Point out that the Demo Workspace is back in the list with a CI passed badge: the notification woke
-it. Explain that `untag` with a name takes off only that tag, so a slow script
-leaves alone a tag the user put on since, and that `tag --if "CI running"` replaces one the same
-way. Explain how the pieces split the work: the tag and the badge say at a glance where CI stands,
+it. Explain that `progress --clear` with a label clears only that progress, so a slow script
+leaves alone progress another one shows since, and that `progress --if "CI running"` replaces it the
+same way. Explain how the pieces split the work: the progress and the badge say at a glance where CI stands,
 from the sidebar, and the status bar item keeps the details and the way to the CI run page, setting
 the same id again as each check finishes.
 
@@ -294,8 +292,8 @@ Say the agent now builds a small Komla tour plugin: a status bar item that takes
 tour's progress item and opens a sidebar panel on a click, and that panel, a Komla CLI playground
 whose buttons run `komla` commands, on two pages:
 
-- **Workspaces.** **Run mock tests** puts a spinning Tests running tag on the Demo Workspace's card
-  with `komla tag --spinner`, then takes it off and gives the card a Tests passed badge with
+- **Workspaces.** **Run mock tests** shows Tests running, spinning, on the Demo Workspace's card
+  with `komla progress`, then clears it and gives the card a Tests passed badge with
   `komla notify`. **Mock deploy** counts an item in this status bar from Deploying 1/3 to 3/3 with
   `komla status set`, shows Deployed, then clears it. **Snooze it a minute** moves the Demo
   Workspace to the Snoozed shelf with `komla snooze 1m`, and it comes back by itself.
@@ -341,7 +339,7 @@ as text. Both pages start with this style:
 ```html
 <div class="head"><b>Komla CLI playground</b><span class="pill">1 of 2 · Workspaces</span></div>
 <p class="lead muted">This panel is no built-in: it's a plugin the tour agent just wrote, one <code>komla-plugin.json</code>, and each button runs <code>komla</code> commands. Watch the sidebar and the status bar.</p>
-<div class="row"><span class="icon">&#xf110;</span><div><b>Run mock tests</b><span class="muted"><code>komla tag --spinner</code> spins a tag on the Demo Workspace's card for a few seconds, then <code>komla notify</code> gives it a Tests passed badge.</span></div></div>
+<div class="row"><span class="icon">&#xf110;</span><div><b>Run mock tests</b><span class="muted"><code>komla progress</code> spins Tests running on the Demo Workspace's card for a few seconds, then <code>komla notify</code> gives it a Tests passed badge.</span></div></div>
 <div class="row"><span class="icon">&#xf135;</span><div><b>Mock deploy</b><span class="muted"><code>komla status set</code> counts an item in this status bar from 1/3 to 3/3, then shows Deployed.</span></div></div>
 <div class="row"><span class="icon">&#xf186;</span><div><b>Snooze it a minute</b><span class="muted"><code>komla snooze 1m</code> moves the Demo Workspace to the Snoozed shelf, and it comes back by itself.</span></div></div>
 <p class="yours"><b>Build your own.</b> <span class="muted">Ask your agent for a plugin that fits your work, such as your CI's checks, your pull requests or a deploy, with buttons that hand an agent the next step.</span></p>
@@ -395,7 +393,7 @@ buttons last picked, from the `page` file the `agents` and `workspaces` commands
               "command": "cat \"<dir>/page-$(cat '<dir>/page' 2>/dev/null || echo 1).json\"",
               "intervalSeconds": 300,
               "commands": {
-                "tests": "komla tag 'Tests running' --spinner --tone info --tooltip 'Komla tour: mock tests' --workspace <demo id> && sleep 6 && komla untag 'Tests running' --workspace <demo id> && komla notify 'Tests passed' --body 'Komla tour: 4 of 4 mock checks passed' --color success --workspace <demo id>",
+                "tests": "komla progress 'Tests running' --tone info --tooltip 'Komla tour: mock tests' --workspace <demo id> && sleep 6 && komla progress --clear 'Tests running' --workspace <demo id> && komla notify 'Tests passed' --body 'Komla tour: 4 of 4 mock checks passed' --color success --workspace <demo id>",
                 "deploy": "for step in 1 2 3; do komla status set deploy \"Deploying $step/3\" --tone info; sleep 2; done; komla status set deploy 'Deployed' --tone success; sleep 4; komla status clear deploy",
                 "snooze": "komla snooze 1m --workspace <demo id>",
                 "agents": "echo 2 > '<dir>/page'",
@@ -467,8 +465,8 @@ Recap the visible effects by the three sides from the start, an agent in its own
 script driving another and a plugin Komla keeps, then clean up, running only what has something to undo. Run
 `komla status clear tour` unless step 5 already cleared it, and `komla status clear deploy` if the
 playground's deploy was cut short. If step 4 found the Demo Workspace but stage 3 didn't finish,
-run `komla untag "CI running" --workspace <id>`; if the playground's mock tests were cut short, run
-`komla untag "Tests running"` the same way. When either left it snoozed, run
+run `komla progress --clear "CI running" --workspace <id>`; if the playground's mock tests were cut
+short, run `komla progress --clear "Tests running"` the same way. When either left it snoozed, run
 `komla wake --workspace <id> --json`; when the result says `woke` is true, say the Demo Workspace
 came back marked Woke. If `komla status set ci` succeeded, run
 `komla status clear ci --workspace <id>`. If step 5's plugin was applied, take it out without asking,
@@ -522,6 +520,4 @@ End by showing the user how to remove the tour's two workspaces, the Demo Worksp
 - Suggest removing the Demo Workspace first and this one last, since moving this one to the Trash
   stops this agent.
 
-When stage 1's tag was `added`, say that CI running joined the user's tags and that the agent can't
-remove a tag from the list: they can keep it for a real CI hook, or delete it with the delete button
-beside it in **Settings → General → Workspace tags**. Stop there.
+Stop there.

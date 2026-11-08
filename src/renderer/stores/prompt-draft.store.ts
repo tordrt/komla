@@ -17,6 +17,13 @@ interface PromptDraftState {
   hosts: PromptDraftHost[];
   /** Whether the draft takes focus once it shows. */
   focusRequested: boolean;
+  /**
+   * Files being copied in for references, the latest last, which the draft shows while any are.
+   * Kept here, as the draft remounts moving between the window and a viewer while they copy.
+   */
+  uploads: { label: string }[];
+  /** Shows `label` while files copy in; the function returned ends it. */
+  startUpload: (label: string) => () => void;
   setText: (text: string) => void;
   /** Shows the draft and gives it focus. */
   show: () => void;
@@ -35,6 +42,12 @@ export const usePromptDraftStore = create<PromptDraftState>((set, get) => ({
   copied: false,
   hosts: [],
   focusRequested: false,
+  uploads: [],
+  startUpload: (label) => {
+    const upload = { label };
+    set((state) => ({ uploads: [...state.uploads, upload] }));
+    return () => set((state) => ({ uploads: state.uploads.filter((u) => u !== upload) }));
+  },
   setText: (text) => set({ text }),
   show: () => set({ isOpen: true, focusRequested: true }),
   hide: ({ copied = false } = {}) => {

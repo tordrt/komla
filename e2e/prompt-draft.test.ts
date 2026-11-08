@@ -1,4 +1,7 @@
-import { test as base, expect, seedDefaultProject } from './electron-app';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { test as base, expect, SANDBOX_DIR, seedDefaultProject } from './electron-app';
 
 const test = base.extend({
   seedSandbox: async ({ cleanSandbox: _cleanSandbox }, provide) => {
@@ -118,4 +121,52 @@ test('drafts a prompt over the full file viewer, referring to the lines selected
   await expect(viewer.getByRole('region', { name: 'Notes' })).toContainText('Keep this plan');
   await appWindow.keyboard.press(`${mod}+Shift+X`);
   await expect(prompt).toHaveValue('');
+});
+
+test('refers to a file dragged from the tree and copies in a pasted screenshot', async ({
+  electronApp,
+  appWindow,
+}) => {
+  await appWindow.getByRole('button', { name: 'New Workspace' }).first().click();
+  const createDialog = appWindow.getByRole('dialog', { name: 'Create Workspace' });
+  await createDialog.locator('input[placeholder$="swift-fox"]').fill('prompt-draft/files');
+  await createDialog.getByRole('button', { name: /^(Launch|Create)/ }).click();
+  await expect(appWindow.locator('.xterm').filter({ visible: true }).first()).toBeVisible({
+    timeout: 10_000,
+  });
+
+  await appWindow.keyboard.press(`${mod}+Shift+E`);
+  // Named for the file it shows, with none yet.
+  const viewer = appWindow.getByRole('dialog').filter({ has: appWindow.getByRole('tree') });
+  const file = viewer.getByRole('treeitem', { name: 'server.ts' });
+  await expect(file).toBeVisible({ timeout: 10_000 });
+  await appWindow.keyboard.press(`${mod}+Shift+X`);
+  const draft = viewer.getByRole('dialog', { name: 'Prompt draft' });
+  const prompt = draft.getByRole('textbox', { name: 'Prompt' });
+  await expect(prompt).toBeFocused();
+  await appWindow.keyboard.type('Explain');
+
+  await file.dragTo(prompt);
+  await expect(prompt).toHaveValue('Explain @server.ts ');
+
+  // A screenshot only on the clipboard, which the draft can't hand an agent itself.
+  await electronApp.evaluate(async ({ clipboard, ClipboardItem, nativeImage }) => {
+    const png = nativeImage
+      .createFromDataURL(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=='
+      )
+      .toPNG();
+    await clipboard.write([
+      new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) }),
+    ]);
+  });
+  await prompt.focus();
+  await appWindow.keyboard.press('End');
+  await appWindow.keyboard.press(`${mod}+V`);
+  await expect(prompt).toHaveValue(/^Explain @server\.ts @\.komla-files\/[^ ]+\.png $/, {
+    timeout: 10_000,
+  });
+  const imported = (await prompt.inputValue()).match(/@(\.komla-files\/[^ ]+\.png)/)![1];
+  const worktree = path.join(SANDBOX_DIR, 'worktrees', 'seed-repo', 'prompt-draft-files');
+  expect(fs.existsSync(path.join(worktree, imported))).toBe(true);
 });

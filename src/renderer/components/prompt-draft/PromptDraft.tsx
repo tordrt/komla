@@ -5,6 +5,8 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -14,25 +16,42 @@ import { titleBarHeightPx } from '@/components/layout/title-bar-metrics';
 import { Button } from '@/components/ui/button';
 import { IconButton, ignoreFocusAfterPointer } from '@/components/ui/icon-button';
 import { Kbd } from '@/components/ui/kbd';
+import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  getTransferFiles,
+  hasClipboardImage,
+  readableFilePaths,
+} from '@/components/workspaces/NewWorkspacePromptAttachments';
+import { hasFileDrop, uploadingLabel } from '@/lib/file-drop';
+import {
+  couldNotUploadMessage,
+  importFilesAsReferences,
+  refreshFileListAfterImport,
+} from '@/lib/file-imports';
 import { forwardAppShortcut } from '@/lib/monaco-shortcut-forwarding';
 import { createNote } from '@/lib/notes';
 import {
   clampDraftRect,
   closePromptDraft,
+  cursorAfterInsert,
   defaultDraftRect,
   DRAFT_HANDLE_OUTSET,
   openPromptDraft,
   DRAFT_MIN_HEIGHT,
   DRAFT_MIN_WIDTH,
   PROMPT_DRAFT_ATTRIBUTE,
+  positionAfterInsert,
   readStoredDraftRect,
+  referencePlace,
   resizeDraftRect,
   spaceReference,
   storeDraftRect,
+  type DraftCursor,
   type DraftEdge,
   type DraftRect,
 } from '@/lib/prompt-draft';
+import { AT_PATH_MIME, consumeTreeDragActive, isTreeDragActive } from '@/lib/tree-drag-token';
 import { usePromptDraftStore } from '@/stores/prompt-draft.store';
 import { formatShortcutForDisplay, useShortcutsStore } from '@/stores/shortcuts.store';
 import { useToastStore } from '@/stores/toast.store';
@@ -43,6 +62,13 @@ const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Shift', 'Alt']);
 // Where the cursor was in the draft, for when it shows again: it remounts as it moves between the
 // window and a viewer over it.
 let selection: { start: number; end: number } | null = null;
+
+// Where each reference still on its way goes, as the cursor was when it was asked for. Kept up to
+// date as others go in, here as they outlast the draft remounting.
+const pendingCursors = new Set<DraftCursor>();
+
+// The draft's text box on screen, for references on their way to go into, wherever it moved since.
+let mountedTextarea: HTMLTextAreaElement | null = null;
 
 /**
  * Where the prompt draft shows while this is the top of what's on screen: the window, or a viewer
@@ -111,6 +137,16 @@ function initialRect(): DraftRect {
   );
 }
 
+function cursorIn(textarea: HTMLTextAreaElement): DraftCursor {
+  return { text: textarea.value, start: textarea.selectionStart, end: textarea.selectionEnd };
+}
+
+/** What a drag over the draft would put in: a `@path` from the file panel, or files from outside. */
+function dropKind(dataTransfer: DataTransfer): 'path' | 'files' | null {
+  if (isTreeDragActive() && dataTransfer.types.includes(AT_PATH_MIME)) return 'path';
+  return hasFileDrop(dataTransfer) ? 'files' : null;
+}
+
 /** Keeps focus where it is, such as in the draft or on the lines selected in a file. */
 function keepFocus(event: ReactMouseEvent) {
   event.preventDefault();
@@ -128,6 +164,8 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
   const viewed = useViewedFileStore((s) => selectViewedFile(s, workspaceId));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [saving, setSaving] = useState(false);
+  const [dropFeedback, setDropFeedback] = useState<'path' | 'files' | null>(null);
+  const upload = usePromptDraftStore((s) => s.uploads.at(-1)?.label);
   const [rect, setRect] = useState(initialRect);
   const rectRef = useRef(rect);
   useLayoutEffect(() => {
@@ -156,6 +194,14 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
     }
     return () => {
       selection = { start: textarea.selectionStart, end: textarea.selectionEnd };
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    mountedTextarea = textarea;
+    return () => {
+      if (mountedTextarea === textarea) mountedTextarea = null;
     };
   }, []);
 
@@ -197,8 +243,194 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
     );
   };
 
+  /**
+   * Puts in text that took a while to make, such as a dropped file's reference once it's copied,
+   * spaced from the words beside it unless `spaced` is false, where `then` says the cursor was
+   * when it was asked for. With the draft closed, or moving to a viewer, it goes into the text
+   * kept for it.
+   */
+  const insertLater = (reference: string, then: DraftCursor, spaced = true) => {
+    const textarea = mountedTextarea;
+    const store = usePromptDraftStore.getState();
+    const now = textarea
+      ? cursorIn(textarea)
+      : { text: store.text, start: store.text.length, end: store.text.length };
+    const place = referencePlace(then, now);
+    const value = spaced ? spaceReference(now.text, place.start, place.end, reference) : reference;
+    const after = now.text.slice(0, place.start) + value + now.text.slice(place.end);
+    for (const pending of pendingCursors) {
+      if (pending !== then) {
+        Object.assign(pending, cursorAfterInsert(pending, now.text, place, value.length, after));
+      }
+    }
+    if (!textarea) {
+      store.setText(after);
+      return;
+    }
+    textarea.setSelectionRange(place.start, place.end);
+    if (document.activeElement === textarea) {
+      replaceSelection(textarea, value);
+    } else {
+      // Without focus, which it would take from where the user is now; this can't be undone.
+      textarea.setRangeText(value, place.start, place.end, 'end');
+      setText(textarea.value);
+    }
+    // Back where the user has the cursor, moved along if the reference went in before it.
+    textarea.setSelectionRange(
+      positionAfterInsert(now.start, place, value.length),
+      positionAfterInsert(now.end, place, value.length)
+    );
+  };
+
+  /**
+   * Copies files from outside Komla into the workspace on screen, its SSH host's for a remote
+   * one, and puts in their `@path`s once copied.
+   */
+  const importFiles = (files: File[], then: DraftCursor) => {
+    if (files.length === 0) return;
+    const endUpload = usePromptDraftStore.getState().startUpload(uploadingLabel(files));
+    pendingCursors.add(then);
+    void importFilesAsReferences(files, (sourcePath, preferredName) =>
+      window.api.importWorkspaceExternalFile(workspaceId, sourcePath, preferredName)
+    )
+      .then((references) => {
+        if (!references) return;
+        refreshFileListAfterImport(workspaceId);
+        insertLater(references.trimEnd(), then);
+      })
+      .catch((err: unknown) => {
+        console.warn('Failed to import files into the prompt draft:', err);
+        useToastStore
+          .getState()
+          .addToast(couldNotUploadMessage(files.map((file) => file.name)), 'error');
+      })
+      .finally(() => {
+        pendingCursors.delete(then);
+        endUpload();
+      });
+  };
+
+  /** Copies the image on the clipboard into the workspace on screen, putting in its `@path`. */
+  const importScreenshot = (then: DraftCursor) => {
+    const endUpload = usePromptDraftStore.getState().startUpload('Pasting the image…');
+    pendingCursors.add(then);
+    window.api
+      .importClipboardImage(workspaceId)
+      .then((path) => {
+        if (!path) return;
+        refreshFileListAfterImport(workspaceId);
+        insertLater(`@${path}`, then);
+      })
+      .catch((err: unknown) => {
+        console.warn('Failed to paste clipboard image:', err);
+        useToastStore.getState().addToast('Couldn’t paste the image', 'error');
+      })
+      .finally(() => {
+        pendingCursors.delete(then);
+        endUpload();
+      });
+  };
+
+  const onDragOver = (event: ReactDragEvent) => {
+    // A note being saved would miss what a drop puts in.
+    if (saving) return;
+    const kind = dropKind(event.dataTransfer);
+    if (!kind) return;
+    // Not the viewers' behind it, which take drops of their own.
+    event.preventDefault();
+    event.stopPropagation();
+    // The file panel allows only moves, for its own, and a copy it doesn't allow takes no drop.
+    if (kind === 'files') event.dataTransfer.dropEffect = 'copy';
+    setDropFeedback(kind);
+  };
+
+  const onDragLeave = (event: ReactDragEvent) => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setDropFeedback(null);
+  };
+
+  /**
+   * Puts in the `@path` of a file dragged from the file panel, or copies files dropped from
+   * outside Komla into the workspace and puts in theirs.
+   */
+  const onDrop = (event: ReactDragEvent) => {
+    setDropFeedback(null);
+    const textarea = textareaRef.current;
+    if (!textarea || saving) return;
+    // Only the file panel's own drag: anything can claim its type.
+    if (consumeTreeDragActive()) {
+      const reference = event.dataTransfer.getData(AT_PATH_MIME).trim();
+      if (!reference) return;
+      event.preventDefault();
+      event.stopPropagation();
+      textarea.focus();
+      const { selectionStart: start, selectionEnd: end, value } = textarea;
+      replaceSelection(textarea, spaceReference(value, start, end, reference));
+      return;
+    }
+    if (!hasFileDrop(event.dataTransfer)) return;
+    const files = getTransferFiles(event.dataTransfer, window.api.getPathForFile);
+    // Nothing on disk, such as an image from a web page: the text box takes its text, if any.
+    if (files.length === 0 && event.dataTransfer.types.includes('text/plain')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    textarea.focus();
+    importFiles(
+      files.map(({ file }) => file),
+      cursorIn(textarea)
+    );
+  };
+
+  /**
+   * Copies files pasted from outside Komla into the workspace, as dropped ones, and a screenshot
+   * on the clipboard too, as the draft can't hand an agent the image itself.
+   */
+  const onPaste = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    // Read-only, as a note being saved would miss it.
+    if (saving) return;
+    const then = cursorIn(event.currentTarget);
+    const files = getTransferFiles(event.clipboardData, window.api.getPathForFile);
+    if (files.length > 0) {
+      event.preventDefault();
+      // What a paste would have put in, for folders that turn out not to be files.
+      const pasted = event.clipboardData.getData('text/plain');
+      pendingCursors.add(then);
+      void readableFilePaths(files).then((paths) => {
+        const readable = files.filter(({ path }) => paths.includes(path));
+        pendingCursors.delete(then);
+        if (readable.length > 0) {
+          importFiles(
+            readable.map(({ file }) => file),
+            then
+          );
+        } else if (pasted) {
+          insertLater(pasted, then, false);
+        }
+      });
+      return;
+    }
+    // Text wins, as in terminals: apps that copy both, like spreadsheets, mean the text.
+    if (
+      event.clipboardData.types.includes('text/plain') ||
+      !hasClipboardImage(event.clipboardData)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    importScreenshot(then);
+  };
+
+  /** Whether files are still copying in, whose references the prompt would miss; says so if so. */
+  const waitForUploads = () => {
+    if (!usePromptDraftStore.getState().uploads.length) return false;
+    useToastStore.getState().addToast('Wait for the upload to finish', 'info');
+    return true;
+  };
+
   /** Copies the whole prompt and closes, for it to be pasted where focus goes back to. */
   const copyAndClose = () => {
+    if (waitForUploads()) return;
     const prompt = (textareaRef.current?.value ?? text).trimEnd();
     if (!prompt.trim()) return;
     window.api.copyToClipboard(prompt);
@@ -212,7 +444,7 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
    */
   const saveAsNote = async () => {
     const content = textareaRef.current?.value ?? text;
-    if (saving || !content.trim()) return;
+    if (saving || !content.trim() || waitForUploads()) return;
     setSaving(true);
     const saved = await createNote(workspaceId, content);
     setSaving(false);
@@ -328,6 +560,9 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
         minHeight: DRAFT_MIN_HEIGHT,
       }}
       onKeyDown={onKeyDown}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
     >
       {/* Clipped to the rounded corners; the resize handles reach outside them. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[calc(var(--radius-lg)-1px)]">
@@ -341,7 +576,7 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
           <IconButton
             label="Save as note"
             size="xs"
-            disabled={saving || !text.trim()}
+            disabled={saving || !text.trim() || !!upload}
             onMouseDown={keepFocus}
             onClick={() => void saveAsNote()}
           >
@@ -351,7 +586,7 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
             label="Copy and close"
             shortcut={copyShortcut}
             size="xs"
-            disabled={!text.trim()}
+            disabled={!text.trim() || !!upload}
             onMouseDown={keepFocus}
             onClick={copyAndClose}
           >
@@ -373,12 +608,28 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
           value={text}
           readOnly={saving}
           onChange={(event) => setText(event.target.value)}
+          onPaste={onPaste}
           // Paths and code would be underlined as misspelled.
           spellCheck={false}
           placeholder={`Draft a prompt to paste into an agent. ${insertShortcut} puts in the file you're looking at.`}
           className="thin-scrollbar min-h-0 flex-1 resize-none bg-transparent px-3 py-2 font-mono text-[13px] leading-5 text-foreground outline-hidden placeholder:text-muted-foreground"
         />
       </div>
+      {dropFeedback && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg border-2 border-primary/60 bg-background/60 text-sm font-medium text-foreground backdrop-blur-[1px] reduce-effects:bg-background/90">
+          {dropFeedback === 'files' ? 'Drop to upload' : 'Drop to insert path'}
+        </div>
+      )}
+      {upload && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute right-4 bottom-3 z-20 flex max-w-[calc(100%-2rem)] items-center gap-1.5 rounded-md border bg-card/95 px-2 py-1 text-xs text-foreground shadow-sm"
+        >
+          <Spinner size="xs" className="text-primary" />
+          <span className="truncate">{upload}</span>
+        </div>
+      )}
       {/* Covers the handles too, for a native preview to step aside from. */}
       <div
         aria-hidden="true"

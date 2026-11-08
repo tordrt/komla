@@ -39,6 +39,13 @@ const MAX_FILE_EXTENSION_LENGTH = 4;
 const MAX_WINDOW_CHARS = 2048;
 // TUIs such as Claude Code pad their content, so wrapped rows can stop short of the edge.
 const MAX_RIGHT_MARGIN_CELLS = 2;
+// Rows above and below a row whose right ends show where a TUI narrower than the terminal wraps.
+const WRAP_EDGE_ROWS = 30;
+// Rows of plain text that must end in a row's last column, besides the rows next to it, to
+// make it an edge.
+const MIN_EDGE_ROWS = 2;
+// Shorter output, such as a list of names, wraps at no edge.
+const MIN_WRAP_WIDTH_CELLS = 30;
 
 type LinkHandler = (event: MouseEvent, uri: string) => void;
 type FileLinkHandler = (
@@ -353,6 +360,7 @@ function buildLogicalWindow(
 ): LogicalWindow | null {
   const currentLine = readIndexedLine(buffer, lineIndex, terminalColumns);
   if (!currentLine) return null;
+  const reachesEdge = wrapEdgeTest(buffer, terminalColumns);
 
   // Gather rows above that could continue into this one, then confirm hard wraps
   // top-down so every row of a wrapped URL resolves to the same window.
@@ -362,7 +370,7 @@ function buildLogicalWindow(
   while (candidates[0].y > 0) {
     const first = candidates[0];
     const previous = readIndexedLine(buffer, first.y - 1, terminalColumns);
-    if (!previous || !(first.isWrapped || hardWrapJoin(previous, first))) break;
+    if (!previous || !(first.isWrapped || hardWrapJoin(previous, first, reachesEdge))) break;
     if (charCount >= MAX_WINDOW_CHARS) {
       truncatedStart = true;
       break;
@@ -384,7 +392,7 @@ function buildLogicalWindow(
       append(line, false);
       return true;
     }
-    const hardWrap = hardWrapJoin(lines[lines.length - 1], line, chain);
+    const hardWrap = hardWrapJoin(lines[lines.length - 1], line, reachesEdge, chain);
     if (!hardWrap) return false;
     append(withoutIndent(line, hardWrap.indent), hardWrap.fillsRow);
     return true;
@@ -404,7 +412,8 @@ function buildLogicalWindow(
     const next = readIndexedLine(buffer, y, terminalColumns);
     if (!next) break;
     if (charCount >= MAX_WINDOW_CHARS) {
-      truncatedEnd = next.isWrapped || hardWrapJoin(lines[lines.length - 1], next, chain) !== null;
+      truncatedEnd =
+        next.isWrapped || hardWrapJoin(lines[lines.length - 1], next, reachesEdge, chain) !== null;
       break;
     }
     if (!join(next)) break;
@@ -427,10 +436,9 @@ function buildLogicalWindow(
 function hardWrapJoin(
   above: IndexedLine,
   below: IndexedLine,
+  reachesEdge: (line: IndexedLine) => boolean,
   chain?: HardWrapChain
 ): HardWrapJoin | null {
-  if (above.trailingBlankCells > MAX_RIGHT_MARGIN_CELLS) return null;
-
   const tail = above.text.match(TRAILING_TOKEN_REGEX)?.[0];
   const indent = below.text.length - below.text.trimStart().length;
   const rest = below.text.slice(indent);
@@ -447,16 +455,17 @@ function hardWrapJoin(
       filePath = true;
     }
   }
-
   // Continuation rows align with the wrapped block, never right of where the token began.
   const tailStartX = above.chars[above.text.length - tail.length].start.x;
   const headStartX = below.chars[indent].start.x;
   if (headStartX > tailStartX) return null;
+  // After the checks that read only these two rows, as it reads the rows around them.
+  if (!reachesEdge(above)) return null;
 
   // Middle rows of a split token fill the wrap width, ending where the row above ends.
   const headFillsRow = head === rest;
-  const aboveEndX = above.chars[above.text.length - 1].end.x;
-  const belowEndX = below.chars[below.text.length - 1].end.x;
+  const aboveEndX = rowEndX(above);
+  const belowEndX = rowEndX(below);
   if (headFillsRow && belowEndX === aboveEndX && /[A-Za-z0-9]/.test(head)) {
     return { indent, fillsRow: true };
   }
@@ -478,6 +487,62 @@ function hardWrapJoin(
   // A file path cut before its name continues with the rest of it, even when text follows.
   if (filePath && FILE_PATH_STRUCTURE_REGEX.test(head)) return { indent, fillsRow: false };
   return null;
+}
+
+/**
+ * Says whether a row's text runs to where its lines wrap. That is the terminal's edge, or, for
+ * a TUI drawn narrower than the terminal, as Claude Code can be inside tmux, the column where
+ * the TUI's dividers and full rows of prose end:
+ * - Two rows of plain text end in that column. Rows ending in a path don't count, so a listing
+ *   of paths of one length doesn't read as one wrapped path, and neither do the rows next to
+ *   it, so two lines of similar length can't vouch for each other.
+ * - No row ends further right, unless it runs to the terminal's edge, as tmux's status line does.
+ */
+function wrapEdgeTest(
+  buffer: BufferLike,
+  terminalColumns: number | undefined
+): (line: IndexedLine) => boolean {
+  const rows = new Map<number, IndexedLine | null>();
+  const row = (y: number) => {
+    if (!rows.has(y)) rows.set(y, readIndexedLine(buffer, y, terminalColumns));
+    return rows.get(y);
+  };
+  const verdicts = new Map<number, boolean>();
+
+  const reachesEdge = (line: IndexedLine): boolean => {
+    if (line.trailingBlankCells <= MAX_RIGHT_MARGIN_CELLS) return true;
+    const endX = rowEndX(line);
+    if (endX === undefined || endX + 1 < MIN_WRAP_WIDTH_CELLS) return false;
+
+    let matches = 0;
+    for (let y = Math.max(0, line.y - WRAP_EDGE_ROWS); y <= line.y + WRAP_EDGE_ROWS; y++) {
+      const other = y === line.y ? null : row(y);
+      const otherEndX = other ? rowEndX(other) : undefined;
+      if (!other || otherEndX === undefined) continue;
+      if (otherEndX > endX + MAX_RIGHT_MARGIN_CELLS) {
+        if (other.trailingBlankCells > MAX_RIGHT_MARGIN_CELLS) return false;
+        continue;
+      }
+      if (otherEndX !== endX || Math.abs(y - line.y) <= 1) continue;
+      const tail = other.text.match(TRAILING_TOKEN_REGEX)?.[0] ?? '';
+      if (!FILE_PATH_STRUCTURE_REGEX.test(tail)) matches++;
+    }
+    return matches >= MIN_EDGE_ROWS;
+  };
+
+  return (line) => {
+    let verdict = verdicts.get(line.y);
+    if (verdict === undefined) {
+      verdict = reachesEdge(line);
+      verdicts.set(line.y, verdict);
+    }
+    return verdict;
+  };
+}
+
+/** The last cell a row's text covers. */
+function rowEndX(line: IndexedLine): number | undefined {
+  return line.chars[line.text.length - 1]?.end.x;
 }
 
 function continuesUrlScheme(token: string, head: string): boolean {

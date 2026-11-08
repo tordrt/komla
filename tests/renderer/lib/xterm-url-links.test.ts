@@ -344,6 +344,31 @@ describe('xterm URL links', () => {
     ]);
   });
 
+  it('reconstructs a URL hard-wrapped by a TUI narrower than the terminal', () => {
+    const cols = 100;
+    const divider = '─'.repeat(85);
+    const { terminal } = terminalFromLines(
+      [
+        '  The preview is up. Open it on your phone or in the browser here, then sign in:',
+        '  https://preview.example.com/workspaces/8d1691d5-e58b-4234-b02a-89e94ae69fa7/screens',
+        '  ?tab=diff',
+        '  and the passkey prompt shows on the first visit only.',
+        '',
+        divider,
+        '❯ ',
+        divider,
+      ].map((row) => new MockLine(row, false, cols)),
+      cols
+    );
+
+    for (const lineIndex of [1, 2]) {
+      const links = computeWrappedUrlLinks(terminal, lineIndex, vi.fn());
+      expect(links.map((link) => link.text)).toEqual([
+        'https://preview.example.com/workspaces/8d1691d5-e58b-4234-b02a-89e94ae69fa7/screens?tab=diff',
+      ]);
+    }
+  });
+
   it('does not join edge-aligned prose onto a URL without wrap flags', () => {
     const { terminal } = terminalFromLines([
       new MockLine('for the setup steps see https://example.com/docs'),
@@ -598,6 +623,108 @@ describe('xterm file links', () => {
       ]);
       expect(links[0].range).toEqual({ start: { x: 12, y: 1 }, end: { x: 20, y: 2 } });
     }
+  });
+
+  /**
+   * Claude Code in a tmux window sized for a smaller client, 85 columns wide, with its prompt box
+   * and tmux's status line, which spans the whole terminal.
+   */
+  function narrowTui(rows: string[], cols: number) {
+    const divider = '─'.repeat(85);
+    const status = '[komla] 0:claude*'.padEnd(cols - 14) + '14:23 08-Nov-26';
+    return terminalFromLines(
+      [...rows, '', divider, '❯ land it', divider, '  ◆ Opus 5.5 high', status].map(
+        (row) => new MockLine(row, false, cols)
+      ),
+      cols
+    );
+  }
+
+  it.each([3, 15, 60])(
+    'reconstructs a file path hard-wrapped by a TUI %i columns narrower than the terminal',
+    (margin) => {
+      const { terminal } = narrowTui(
+        [
+          '  Proof: the screenshots compare main with this branch in the built app, with the',
+          '  draft at the same size on both sides.',
+          '  - /tmp/claude-1001/-home-agent--komla-worktrees-komla-west-grass/8d1691d5-e58b-4234',
+          '    -b02a-89e94ae69fa7/scratchpad/round2/marked/2-dropped-and-pasted/side-by-side.png',
+          '    : the same draft after the drop and a screenshot paste. The box is the text: main',
+          '    still reads "Explain", while the branch reads Explain @server.ts',
+        ],
+        85 + margin
+      );
+
+      for (const lineIndex of [2, 3, 4]) {
+        const links = computeWrappedFileLinks(terminal, lineIndex, vi.fn());
+        expect(links.map((link) => link.text)).toEqual([
+          '/tmp/claude-1001/-home-agent--komla-worktrees-komla-west-grass/8d1691d5-e58b-4234-b02a-89e94ae69fa7/scratchpad/round2/marked/2-dropped-and-pasted/side-by-side.png',
+        ]);
+        expect(links[0].range).toEqual({ start: { x: 5, y: 3 }, end: { x: 85, y: 4 } });
+      }
+    }
+  );
+
+  it.each([
+    [
+      'ls -C columns',
+      [
+        '$ ls -C src',
+        'components/   middleware/   renderer/   services/   shared/   utils/   lib/',
+        'index.ts   main.tsx   preload.ts   server.ts   types.ts   app.ts',
+      ],
+    ],
+    [
+      'ls -CF columns whose last names are one length',
+      [
+        '$ ls -CF',
+        'CHANGELOG.md     CONTRIBUTING.md     README-translations.md     NEWS',
+        'LICENSE.txt      Makefile            package-lock.json          bin/',
+        'SECURITY.md      build/              scripts-and-tools/         src/',
+        'tests/           tsconfig.json       vitest.config.ts           lib/',
+        'docs/            e2e/                packages-workspace/        TODO',
+        'assets/          index.html          remote-web/                INSTALL.md',
+      ],
+    ],
+    [
+      'a listing of folders of one length',
+      [
+        '$ ls -d src/renderer/components/*/',
+        'src/renderer/components/terminal/',
+        'src/renderer/components/settings/',
+        'src/renderer/components/overview/',
+        'src/renderer/components/sidebars/',
+      ],
+    ],
+    [
+      'two log lines of about the same length',
+      ['Build finished. Wrote output to build/assets/', 'manifest.json written, 12 files total'],
+    ],
+  ])('does not join %s that stop short of the terminal edge', (_, rows) => {
+    const cols = 80;
+    const { terminal } = terminalFromLines(
+      rows.map((row) => new MockLine(row, false, cols)),
+      cols
+    );
+
+    rows.forEach((row, lineIndex) => {
+      const alone = terminalFromLines([new MockLine(row)]).terminal;
+      const expected = computeWrappedFileLinks(alone, 0, vi.fn()).map((link) => link.text);
+      const links = computeWrappedFileLinks(terminal, lineIndex, vi.fn());
+      expect(links.map((link) => link.text)).toEqual(expected);
+    });
+  });
+
+  it('does not join short rows that no wrap edge explains', () => {
+    const cols = 80;
+    const { terminal } = terminalFromLines(
+      ['$ ls -d src/app/', 'src/app/', 'main.ts', '$'].map((row) => new MockLine(row, false, cols)),
+      cols
+    );
+
+    expect(computeWrappedFileLinks(terminal, 1, vi.fn()).map((link) => link.text)).toEqual([
+      'src/app/',
+    ]);
   });
 
   it.each([30, 26])('reconstructs a file path hard-wrapped in a padded %i-column TUI', (cols) => {

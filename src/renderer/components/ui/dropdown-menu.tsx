@@ -72,13 +72,22 @@ const DropdownMenuContent = React.forwardRef<
     // Radix's menu passes this through to its FocusScope but leaves it out of the public types.
     onOpenAutoFocus?: (event: Event) => void;
   }
->(({ className, sideOffset = 4, ...props }, ref) => (
+>(({ className, sideOffset = 4, onCloseAutoFocus, ...props }, ref) => (
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
       data-native-overlay="menu"
       ref={ref}
       sideOffset={sideOffset}
       className={cn(menuContentClass, className)}
+      onCloseAutoFocus={(event) => {
+        // Radix hands the focus back to the trigger a task after the menu unmounts. On a busy
+        // renderer a menu can open again first, and taking the focus from it would close it.
+        if (document.activeElement?.closest('[role="menu"]')) {
+          event.preventDefault();
+          return;
+        }
+        onCloseAutoFocus?.(event);
+      }}
       {...props}
     />
   </DropdownMenuPrimitive.Portal>

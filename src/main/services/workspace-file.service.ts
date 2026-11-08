@@ -1,6 +1,16 @@
 import { createHash, randomUUID } from 'crypto';
-import { createWriteStream } from 'fs';
-import { lstat, readdir, readFile, readlink, realpath, rename, rm, stat } from 'fs/promises';
+import { constants as fsConstants, createWriteStream } from 'fs';
+import {
+  access,
+  lstat,
+  readdir,
+  readFile,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  stat,
+} from 'fs/promises';
 import { homedir, tmpdir } from 'os';
 import { dirname, isAbsolute, join, parse, posix as pathPosix, relative, resolve, sep } from 'path';
 import { promisify } from 'util';
@@ -179,6 +189,26 @@ function shellQuoteTerminalPath(path: string): string {
   return path.startsWith('~/')
     ? `"$HOME"/${shellQuotePosix(path.slice(2))}`
     : shellQuotePosix(path);
+}
+
+// The remote shell takes a script that checks terminal paths over SSH as one argument, which
+// Linux caps at 128 KiB: room is left for the command around it.
+const TERMINAL_FILE_CHECK_SCRIPT_BYTES = 96 * 1024;
+
+/** The indexes of `sizes` in batches that add up to at most `max`, leaving out larger ones. */
+function batchesWithin(sizes: number[], max: number): number[][] {
+  const batches: number[][] = [];
+  let total = Infinity;
+  sizes.forEach((size, index) => {
+    if (size > max) return;
+    if (total + size > max) {
+      batches.push([]);
+      total = 0;
+    }
+    batches[batches.length - 1].push(index);
+    total += size;
+  });
+  return batches;
 }
 
 /** The folder a viewer path lists: itself for a path ending in a slash, else its parent. */
@@ -1013,13 +1043,70 @@ class WorkspaceFileService {
       : listLocalViewerFolder(expandTerminalHome(folder));
   }
 
+  /**
+   * Whether the file viewer can show each path a terminal printed, where the terminal runs: a
+   * readable folder for a path ending in a slash, else a readable file that isn't a symlink. Over
+   * SSH the check never prompts; null for a path too long to send, or in a batch the host didn't
+   * answer.
+   */
+  async terminalFilesExist(
+    workspaceId: string,
+    terminalId: string,
+    fullPaths: string[]
+  ): Promise<(boolean | null)[]> {
+    if (fullPaths.length === 0) return [];
+    // Each path is checked as one a viewer would read.
+    const [{ workspace, terminal }] = fullPaths.map((fullPath) =>
+      this.getTerminalFileSource(workspaceId, terminalId, fullPath)
+    );
+    const run = this.getTerminalFileRunner(workspace, terminal, { quiet: true });
+    if (!run) {
+      return Promise.all(
+        fullPaths.map((fullPath) => {
+          const path = expandTerminalHome(fullPath);
+          const folder = fullPath.endsWith('/');
+          return (folder ? stat(path) : lstat(path))
+            .then((info) => (folder ? info.isDirectory() : info.isFile()))
+            .then((shown) => shown && access(path, fsConstants.R_OK).then(() => true))
+            .catch(() => false);
+        })
+      );
+    }
+    const tests = fullPaths.map((fullPath) => {
+      const path = shellQuoteTerminalPath(fullPath);
+      const there = fullPath.endsWith('/')
+        ? `[ -d ${path} ] && [ -r ${path} ]`
+        : `[ -f ${path} ] && [ ! -L ${path} ] && [ -r ${path} ]`;
+      return `if ${there}; then found="\${found}1"; else found="\${found}0"; fi`;
+    });
+    const found: (boolean | null)[] = fullPaths.map(() => null);
+    // Sized as the remote shell gets them, quoted once more.
+    const sizes = tests.map((test) => Buffer.byteLength(shellQuotePosix(test)) + 1);
+    // The answers of the batches the host answered stand, whatever happened to the others.
+    await Promise.allSettled(
+      batchesWithin(sizes, TERMINAL_FILE_CHECK_SCRIPT_BYTES).map(async (batch) => {
+        const script = ['found=', ...batch.map((index) => tests[index])];
+        script.push('printf "FOUND=%s\\n" "$found"');
+        const flags = this.parseKeyValueOutput(await run(script.join('\n'))).get('FOUND') ?? '';
+        if (!/^[01]*$/.test(flags) || flags.length !== batch.length) {
+          throw new Error('Failed to check terminal files');
+        }
+        batch.forEach((index, position) => (found[index] = flags[position] === '1'));
+      })
+    );
+    return found;
+  }
+
   /** Runs a script where a terminal's files are, or returns null when that is this computer. */
   private getTerminalFileRunner(
     workspace: Workspace,
-    terminal: Workspace['terminals'][number]
+    terminal: Workspace['terminals'][number],
+    { quiet = false }: { quiet?: boolean } = {}
   ): ((script: string) => Promise<string>) | null {
     if (isSshWorkspace(workspace) && terminal.executionLocation !== 'local-copy') {
-      return (script) => this.runSsh(workspace, script);
+      return quiet
+        ? (script) => this.runSshQuietly(workspace, script)
+        : (script) => this.runSsh(workspace, script);
     }
     return null;
   }
@@ -1425,6 +1512,20 @@ class WorkspaceFileService {
       : sshWorkspaceService.runWithInput(host, command, input, {
           purpose: { kind: 'interactive' },
         });
+  }
+
+  /**
+   * Runs a script nobody asked for on an SSH workspace's host: behind the user's own reads, and
+   * failing instead of asking for a password, passphrase or new host key. It runs in the home
+   * folder, not the workspace's, so a workspace folder that's gone can't fail it.
+   */
+  private async runSshQuietly(workspace: Workspace, script: string): Promise<string> {
+    if (!isSshWorkspace(workspace)) throw new Error('Workspace is not an SSH workspace');
+    const host = sshWorkspaceService.getHost(workspace.backend.hostId);
+    return sshWorkspaceService.run(host, script, {
+      purpose: { kind: 'background' },
+      prompt: false,
+    });
   }
 
   private async runSshWithFile(

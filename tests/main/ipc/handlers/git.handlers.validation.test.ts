@@ -110,6 +110,7 @@ const mockWorkspaceFileService = {
   readViewerFile: vi.fn(),
   getViewerPreviewUrl: vi.fn(),
   listViewerFolder: vi.fn(),
+  terminalFilesExist: vi.fn(),
   writeFile: vi.fn(),
   deletePath: vi.fn(),
 };
@@ -441,6 +442,35 @@ describe('git IPC validation', () => {
       'term-ssh',
       source
     );
+  });
+
+  it('checks only terminal paths, each a full path, for a terminal', async () => {
+    mockWorkspaceFileService.terminalFilesExist.mockResolvedValue([true, false]);
+    const { registerGitHandlers } = await import('../../../../src/main/ipc/handlers/git.handlers');
+    const { ipcMain } = (await import('electron')) as unknown as {
+      ipcMain: { _invoke: (channel: string, ...args: unknown[]) => Promise<unknown> };
+    };
+    registerGitHandlers();
+    const channel = 'workspace:terminal-files-exist';
+
+    for (const args of [
+      ['ws-ssh', null, ['/tmp/a.png']],
+      ['ws-ssh', 'term-ssh', ['relative/a.png']],
+      ['ws-ssh', 'term-ssh', ['/tmp/a\0.png']],
+      ['ws-ssh', 'term-ssh', '/tmp/a.png'],
+      ['ws-ssh', 'term-ssh', Array.from({ length: 201 }, (_, index) => `/tmp/${index}.png`)],
+    ]) {
+      await expect(ipcMain._invoke(channel, ...args)).rejects.toThrow();
+    }
+    expect(mockWorkspaceFileService.terminalFilesExist).not.toHaveBeenCalled();
+
+    await expect(
+      ipcMain._invoke(channel, 'ws-ssh', 'term-ssh', ['/tmp/a.png', '~/b.png'])
+    ).resolves.toEqual([true, false]);
+    expect(mockWorkspaceFileService.terminalFilesExist).toHaveBeenCalledWith('ws-ssh', 'term-ssh', [
+      '/tmp/a.png',
+      '~/b.png',
+    ]);
   });
 
   it('preserves whitespace in workspace import source paths', async () => {

@@ -45,6 +45,7 @@ const context = {
 const listViewerFolder = vi.fn();
 const readViewerFile = vi.fn();
 const getViewerPreviewUrl = vi.fn();
+const terminalFilesExist = vi.fn();
 
 function renderButton() {
   return render(
@@ -81,6 +82,7 @@ beforeEach(() => {
   resetRememberedServers();
   vi.spyOn(Date, 'now').mockReturnValue(NOW);
   listViewerFolder.mockResolvedValue([]);
+  terminalFilesExist.mockImplementation(async (_w, _t, paths: string[]) => paths.map(() => true));
   output.mockReturnValue([]);
   useWorkspacesStore.setState({
     workspaces: [
@@ -111,6 +113,7 @@ beforeEach(() => {
     listViewerFolder,
     readViewerFile,
     getViewerPreviewUrl,
+    terminalFilesExist,
     updateWorkspace: vi.fn(async () => undefined),
     detectDevPreviewServices: vi.fn(async () => ({
       services: [],
@@ -300,6 +303,141 @@ describe("the globe's Files section", () => {
       }))
     );
     expect(await screen.findByText('No running servers, links or files yet.')).toBeInTheDocument();
+  });
+
+  it('drops files outside the workspace that are not there, checked where their terminal runs', async () => {
+    terminalFilesExist.mockImplementation(async (_workspaceId, _terminalId, paths: string[]) =>
+      paths.map((path) => !path.includes('scratchpad'))
+    );
+    print(
+      ['Saved /tmp/out.log', 'Saved a1-3f/scratchpad/shots/after.log', 'Saved /scratchpad/x.log'],
+      [NOW, NOW - 1_000, NOW - 2_000]
+    );
+    act(() => {
+      openTerminalFileLink(
+        '/tmp/s/scratchpad/opened.txt',
+        undefined,
+        { type: 'external', fullPath: '/tmp/s/scratchpad/opened.txt' },
+        't1',
+        context
+      );
+    });
+    renderButton();
+    openList();
+
+    await waitFor(() => expect(shownFiles()).toEqual(['/tmp/out.log']));
+    expect(terminalFilesExist).toHaveBeenCalledWith('ws-1', 't1', [
+      '/tmp/out.log',
+      '/scratchpad/x.log',
+      '/tmp/s/scratchpad/opened.txt',
+    ]);
+
+    // Made since, it's listed again on a look once the check is old, the files the check left
+    // out included.
+    terminalFilesExist.mockClear();
+    terminalFilesExist.mockImplementation(async (_w, _t, paths: string[]) => paths.map(() => true));
+    act(() => rememberTerminalFiles('ws-1'));
+    expect(terminalFilesExist).not.toHaveBeenCalled();
+    vi.mocked(Date.now).mockReturnValue(NOW + 10_000);
+    act(() => rememberTerminalFiles('ws-1'));
+    await waitFor(() =>
+      expect(shownFiles()).toEqual([
+        '/tmp/s/scratchpad/opened.txt',
+        '/tmp/out.log',
+        '/scratchpad/x.log',
+      ])
+    );
+  });
+
+  it('keeps a file opened while a check that missed it was under way', async () => {
+    let answer: (found: boolean[]) => void = () => {};
+    terminalFilesExist.mockImplementation(
+      () => new Promise<boolean[]>((resolve) => (answer = resolve))
+    );
+    print(['Saved /tmp/shot.txt'], [NOW]);
+    act(() => rememberTerminalFiles('ws-1'));
+    // The file is made, and opened, before the check answers.
+    act(() => {
+      openTerminalFileLink(
+        '/tmp/shot.txt',
+        undefined,
+        { type: 'external', fullPath: '/tmp/shot.txt' },
+        't1',
+        context
+      );
+    });
+    await act(async () => answer([false]));
+
+    const { result } = renderHook(() => useTerminalFiles('ws-1'));
+    expect(result.current.all.map((file) => file.path)).toEqual(['/tmp/shot.txt']);
+  });
+
+  it("doesn't check a file again straight after finding it gone", async () => {
+    terminalFilesExist.mockImplementation(async (_w, _t, paths: string[]) => paths.map(() => false));
+    print(['Saved /tmp/out.log'], [NOW]);
+    act(() => rememberTerminalFiles('ws-1'));
+    await waitFor(() =>
+      expect(useTerminalFilesStore.getState().byWorkspace['ws-1'][0].missing).toBe(true)
+    );
+    act(() => rememberTerminalFiles('ws-1'));
+
+    await act(async () => {});
+    expect(terminalFilesExist).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes a path it could not check as it was', async () => {
+    terminalFilesExist.mockImplementation(async (_w, _t, paths: string[]) => paths.map(() => null));
+    print(['Saved /tmp/out.log'], [NOW]);
+    act(() => rememberTerminalFiles('ws-1'));
+    await waitFor(() => expect(terminalFilesExist).toHaveBeenCalledTimes(1));
+
+    const { result } = renderHook(() => useTerminalFiles('ws-1'));
+    expect(result.current.all.map((file) => file.path)).toEqual(['/tmp/out.log']);
+  });
+
+  it("doesn't check files whose terminal has closed", async () => {
+    print(['Saved /tmp/out.log'], [NOW], 't1');
+    act(() => rememberTerminalFiles('ws-1'));
+    await waitFor(() => expect(terminalFilesExist).toHaveBeenCalledTimes(1));
+    act(() =>
+      useWorkspacesStore.setState((state) => ({
+        workspaces: state.workspaces.map((w) => ({ ...w, terminals: [] })),
+      }))
+    );
+    vi.mocked(Date.now).mockReturnValue(NOW + 10_000);
+    act(() => rememberTerminalFiles('ws-1'));
+
+    await act(async () => {});
+    expect(terminalFilesExist).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps listing files outside the workspace when it cannot check them', async () => {
+    terminalFilesExist.mockRejectedValue(new Error('Host unreachable'));
+    print(['Saved /tmp/out.log'], [NOW]);
+    renderButton();
+    openList();
+
+    await waitFor(() => expect(terminalFilesExist).toHaveBeenCalled());
+    expect(shownFiles()).toEqual(['/tmp/out.log']);
+
+    // Nor does it try again on every look.
+    act(() => rememberTerminalFiles('ws-1'));
+    await act(async () => {});
+    expect(terminalFilesExist).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the list as it was when a check finds what it found before', async () => {
+    print(['Saved /tmp/out.log'], [NOW]);
+    act(() => rememberTerminalFiles('ws-1'));
+    await waitFor(() => expect(terminalFilesExist).toHaveBeenCalledTimes(1));
+    const { result } = renderHook(() => useTerminalFiles('ws-1'));
+    const before = result.current;
+
+    vi.mocked(Date.now).mockReturnValue(NOW + 10_000);
+    act(() => rememberTerminalFiles('ws-1'));
+    await waitFor(() => expect(terminalFilesExist).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(result.current).toBe(before);
   });
 
   it('opens a pick as its link would, and lists it as opened', () => {

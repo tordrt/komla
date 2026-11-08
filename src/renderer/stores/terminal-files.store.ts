@@ -23,9 +23,14 @@ export interface TerminalFile {
   printedAt?: number;
   /** When it was last opened from a terminal link or the files list. */
   openedAt?: number;
+  /**
+   * Set when a check didn't find a path outside the workspace where its terminal runs. A print
+   * or open makes the entry anew, unchecked.
+   */
+  missing?: true;
 }
 
-export type TerminalFilePrint = Omit<TerminalFile, 'openedAt'>;
+export type TerminalFilePrint = Omit<TerminalFile, 'openedAt' | 'missing'>;
 
 interface TerminalFilesState {
   /**
@@ -39,7 +44,15 @@ interface TerminalFilesState {
    */
   notePrinted: (workspaceId: string, prints: TerminalFilePrint[]) => void;
   /** Marks a file as opened now, with the line it was opened at, leaving it in its place. */
-  noteOpened: (workspaceId: string, file: Omit<TerminalFile, 'printedAt' | 'openedAt'>) => void;
+  noteOpened: (
+    workspaceId: string,
+    file: Omit<TerminalFile, 'printedAt' | 'openedAt' | 'missing'>
+  ) => void;
+  /**
+   * Records whether a check found each file there. A file printed or opened again since the check
+   * started is a new entry, which keeps its own state.
+   */
+  noteChecked: (workspaceId: string, found: Map<TerminalFile, boolean>) => void;
 }
 
 /** One entry per file: a workspace file by its path, any other by its terminal and path. */
@@ -119,6 +132,23 @@ export const useTerminalFilesStore = create<TerminalFilesState>((set) => ({
         ? files.map((candidate) => (candidate === known ? opened : candidate))
         : [...files, opened];
       return { byWorkspace: { ...byWorkspace, [workspaceId]: capped(next) } };
+    });
+  },
+
+  noteChecked: (workspaceId, found) => {
+    set(({ byWorkspace }) => {
+      const files = byWorkspace[workspaceId];
+      if (!files) return {};
+      let changed = false;
+      const next = files.map((file) => {
+        const there = found.get(file);
+        if (there === undefined || there !== !!file.missing) return file;
+        changed = true;
+        if (!there) return { ...file, missing: true as const };
+        const { missing: _missing, ...rest } = file;
+        return rest;
+      });
+      return changed ? { byWorkspace: { ...byWorkspace, [workspaceId]: next } } : {};
     });
   },
 }));

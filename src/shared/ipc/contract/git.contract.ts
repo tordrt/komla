@@ -13,6 +13,7 @@ import {
   workspaceListFilesArgsSchema,
   workspaceImportExternalFileArgsSchema,
   workspaceViewerFileArgsSchema,
+  workspaceTerminalFilesExistArgsSchema,
   workspaceViewerPreviewUrlArgsSchema,
   workspaceReadFileArgsSchema,
   workspaceSearchContentArgsSchema,
@@ -140,6 +141,9 @@ export const gitContract = {
   ).returns<string>(),
   [IPC.WORKSPACE_LIST_VIEWER_FOLDER]: invoke(workspaceViewerFileArgsSchema).returns<
     ViewerFolderFile[]
+  >(),
+  [IPC.WORKSPACE_TERMINAL_FILES_EXIST]: invoke(workspaceTerminalFilesExistArgsSchema).returns<
+    (boolean | null)[]
   >(),
   [IPC.WORKSPACE_READ_FILE]: invoke(workspaceReadFileArgsSchema).returns<string>(),
   [IPC.WORKSPACE_SEARCH_CONTENT]: invoke(workspaceSearchContentArgsSchema).returns<

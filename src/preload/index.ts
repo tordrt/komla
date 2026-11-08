@@ -916,6 +916,14 @@ const api = {
   ): Promise<ViewerFolderFile[]> =>
     ipcRenderer.invoke(IPC.WORKSPACE_LIST_VIEWER_FOLDER, workspaceId, terminalId, source),
 
+  /** Whether each path a terminal printed is there, where the terminal runs, or null if unknown. */
+  terminalFilesExist: (
+    workspaceId: string,
+    terminalId: string,
+    fullPaths: string[]
+  ): Promise<(boolean | null)[]> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_TERMINAL_FILES_EXIST, workspaceId, terminalId, fullPaths),
+
   getDirectoryInfo: (path: string): Promise<DirectoryInfo> =>
     ipcRenderer.invoke(IPC.GIT_GET_DIRECTORY_INFO, path),
 

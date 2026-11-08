@@ -333,6 +333,12 @@ export function registerGitHandlers(): void {
     }
   );
 
+  handleIpc(
+    IPC.WORKSPACE_TERMINAL_FILES_EXIST,
+    async (_, [workspaceId, terminalId, fullPaths]): Promise<(boolean | null)[]> =>
+      workspaceFileService.terminalFilesExist(workspaceId, terminalId, fullPaths)
+  );
+
   handleIpc(IPC.WORKSPACE_READ_FILE, async (_, [workspaceId, filePath]): Promise<string> => {
     assertSafeRelativePath('/workspace', filePath, 'filePath');
     return workspaceFileService.readFile(workspaceId, filePath);

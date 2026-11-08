@@ -102,6 +102,12 @@ export const workspaceViewerFileArgsSchema = z.tuple([
   idSchema.nullable(),
   viewerFileSourceSchema,
 ]);
+export const workspaceTerminalFilesExistArgsSchema = z.tuple([
+  idSchema,
+  idSchema,
+  // As many as the files list keeps of a workspace.
+  z.array(terminalSourcePathSchema).max(200),
+]);
 export const workspaceViewerPreviewUrlArgsSchema = z.tuple([
   idSchema,
   idSchema.nullable(),

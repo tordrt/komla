@@ -1278,6 +1278,108 @@ describe('workspaceFileService', () => {
   );
 
   itWithTerminalFiles(
+    'tells which paths a terminal printed are there, here and by script',
+    async () => {
+      const { execFileSync } =
+        await vi.importActual<typeof import('child_process')>('child_process');
+      const directory = await createViewerFolder();
+      await mkdir(join(directory, 'shots'));
+      await symlink(join(directory, 'notes.md'), join(directory, 'linked.md'));
+      await symlink(join(directory, 'gone.md'), join(directory, 'dangling.md'));
+      await writeFile(join(directory, 'locked.md'), 'contents');
+      await chmod(join(directory, 'locked.md'), 0o000);
+      // Root reads any file, so a locked one is there for it.
+      const readsLocked = process.getuid?.() === 0;
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      // As the viewer reads them: a folder by a path ending in a slash, else a file, not a symlink.
+      const paths = [
+        join(directory, 'notes.md'),
+        join(directory, 'gone.png'),
+        `${join(directory, 'shots')}/`,
+        `${join(directory, 'notes.md')}/`,
+        join(directory, 'shots'),
+        join(directory, 'linked.md'),
+        join(directory, 'dangling.md'),
+        join(directory, 'locked.md'),
+        join(directory, 'gone', 'after.png'),
+        "/it's/not/here.png",
+      ];
+      const expected = [true, false, true, false, false, false, false, readsLocked, false, false];
+
+      workspaceServiceMock.get.mockReturnValue(localWorkspace);
+      await expect(
+        workspaceFileService.terminalFilesExist('ws-local', 'term-local', paths)
+      ).resolves.toEqual(expected);
+      expect(execFileMock).not.toHaveBeenCalled();
+
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
+        execFileSync('/bin/sh', ['-c', command.replace(/^cd '[^']*' \|\| exit 1; /, '')], {
+          encoding: 'utf8',
+        })
+      );
+      await expect(
+        workspaceFileService.terminalFilesExist('ws-ssh', 'term-ssh', paths)
+      ).resolves.toEqual(expected);
+      expect(sshWorkspaceServiceMock.run).toHaveBeenCalledTimes(1);
+
+      await expect(
+        workspaceFileService.terminalFilesExist('ws-ssh', 'missing', paths)
+      ).rejects.toThrow('not found in workspace');
+    }
+  );
+
+  itWithTerminalFiles(
+    'checks many long paths over SSH in commands short enough for the host, without prompting',
+    async () => {
+      const { execFileSync } =
+        await vi.importActual<typeof import('child_process')>('child_process');
+      const { shellQuotePosix } = await import('../../../src/shared/lib/shell-quote');
+      const real = await createSourceFile('there.png');
+      const { workspaceFileService } =
+        await import('../../../src/main/services/workspace-file.service');
+      // Three bytes a character, and quotes the remote shell's quoting grows again.
+      const long = `/${'図'.repeat(1_000)}/${"it's".repeat(250)}`;
+      const paths = [
+        ...Array.from({ length: 198 }, (_, index) => `${long}/${index}.png`),
+        // Too long to send at all, quoted twice over, so it's taken as there.
+        `/${"'".repeat(4_000)}`,
+        real,
+      ];
+
+      workspaceServiceMock.get.mockReturnValue(sshWorkspace);
+      sshWorkspaceServiceMock.run.mockImplementation(async (_host, command: string) =>
+        execFileSync('/bin/sh', ['-c', command.replace(/^cd '[^']*' \|\| exit 1; /, '')], {
+          encoding: 'utf8',
+        })
+      );
+      const found = await workspaceFileService.terminalFilesExist('ws-ssh', 'term-ssh', paths);
+
+      expect(found).toEqual([...paths.slice(0, -2).map(() => false), null, true]);
+      const calls = sshWorkspaceServiceMock.run.mock.calls;
+      expect(calls.length).toBeGreaterThan(1);
+      for (const [, command, options] of calls) {
+        // The remote shell gets the command quoted once more, in one argument of at most 128 KiB.
+        expect(Buffer.byteLength(`sh -lc ${shellQuotePosix(command)}`)).toBeLessThan(128 * 1024);
+        expect(options).toEqual({ purpose: { kind: 'background' }, prompt: false });
+      }
+
+      // A batch the host doesn't answer leaves its paths unknown; the others' answers stand.
+      sshWorkspaceServiceMock.run.mockClear();
+      const answer = sshWorkspaceServiceMock.run.getMockImplementation()!;
+      sshWorkspaceServiceMock.run.mockImplementation(async (host, command: string) =>
+        sshWorkspaceServiceMock.run.mock.calls.length === 1
+          ? Promise.reject(new Error('Connection reset'))
+          : answer(host, command)
+      );
+      const partly = await workspaceFileService.terminalFilesExist('ws-ssh', 'term-ssh', paths);
+      expect(partly.slice(0, 3)).toEqual([null, null, null]);
+      expect(partly.at(-1)).toBe(true);
+    }
+  );
+
+  itWithTerminalFiles(
     'lists a host terminal folder itself when its path ends in a slash',
     async () => {
       const directory = await createViewerFolder();

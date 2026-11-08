@@ -109,6 +109,7 @@ export const IPC = {
   WORKSPACE_DOWNLOAD_VIEWER_FILE: 'workspace:download-viewer-file',
   WORKSPACE_GET_VIEWER_PREVIEW_URL: 'workspace:get-viewer-preview-url',
   WORKSPACE_LIST_VIEWER_FOLDER: 'workspace:list-viewer-folder',
+  WORKSPACE_TERMINAL_FILES_EXIST: 'workspace:terminal-files-exist',
   WORKSPACE_GET_BRANCH_STATUS: 'workspace:get-branch-status',
   WORKSPACE_LIST_BRANCHES: 'workspace:list-branches',
   WORKSPACE_GET_COMMIT_GRAPH: 'workspace:get-commit-graph',

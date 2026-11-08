@@ -11,7 +11,13 @@ export type FileViewerTransition =
         | { kind: 'browser-file'; filePath: string }
         | { kind: 'browse-file'; filePath: string; lineNumber?: number; enableBlame?: boolean }
         | { kind: 'diff-file'; filePath: string }
-        | { kind: 'commit'; commitHash: string; filePath?: string };
+        | {
+            kind: 'commit';
+            commitHash: string;
+            filePath?: string;
+            /** A commit HEAD lacks, so the history never lists it and isn't searched for it. */
+            outsideHistory?: boolean;
+          };
     }
   | {
       kind: 'file';

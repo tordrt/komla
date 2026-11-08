@@ -4038,6 +4038,47 @@ describe('sshWorkspaceService', () => {
     }
   });
 
+  itWithPosixShell(
+    'reads the commits a remote workspace lacks from the target branch and the upstream',
+    async () => {
+      const repo = createTargetBranchTestRepo();
+      runGit(['push', '-u', 'origin', 'feature'], repo.featurePath);
+      const initial = runGit(['rev-parse', 'main'], repo.seedPath);
+      for (let i = 1; i <= 51; i++) {
+        runGit(['commit', '--allow-empty', '-m', `main ${i}`], repo.seedPath);
+      }
+      runGit(['push', 'origin', 'main'], repo.seedPath);
+      runGit(['fetch', 'origin'], repo.seedPath);
+      runGit(['switch', 'feature'], repo.seedPath);
+      // Newer than main's, so it comes before main's line: the newest line shows first.
+      vi.stubEnv('GIT_COMMITTER_DATE', '2090-01-01T00:00:00Z');
+      try {
+        runGit(['commit', '--allow-empty', '-m', 'pushed from elsewhere'], repo.seedPath);
+      } finally {
+        vi.stubEnv('GIT_COMMITTER_DATE', undefined);
+      }
+      runGit(['push', 'origin', 'feature'], repo.seedPath);
+      runGit(['--git-dir', repo.remoteRepoPath, 'fetch', 'origin']);
+      mockRemoteShell(repo.root);
+
+      try {
+        const graph = await sshWorkspaceGit.getCommitGraph(repo.backend, {
+          limit: 50,
+          targetBranch: 'main',
+        });
+
+        expect(graph.commits.map((commit) => commit.message)).toEqual(['feature', 'initial']);
+        expect(graph.incoming).toHaveLength(50);
+        expect(graph.incoming[0].message).toBe('pushed from elsewhere');
+        // The oldest main commit shown joins the fork point, past the one left out.
+        const oldestMain = graph.incoming.filter((commit) => commit.message.startsWith('main '));
+        expect(oldestMain.at(-1)?.parentHashes).toEqual([initial]);
+      } finally {
+        rmSync(repo.root, { recursive: true, force: true });
+      }
+    }
+  );
+
   itWithPosixShell("reads a remote commit's changes, a merge's against its first parent", async () => {
     const repo = createTargetBranchTestRepo();
     runGit(['switch', '-c', 'side'], repo.featurePath);
@@ -4232,7 +4273,13 @@ describe('sshWorkspaceService', () => {
         { limit: 50 }
       );
 
-      expect(graph).toEqual({ commits: [], hasMore: false, currentBranch: null, upstream: null });
+      expect(graph).toEqual({
+        commits: [],
+        hasMore: false,
+        currentBranch: null,
+        upstream: null,
+        incoming: [],
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

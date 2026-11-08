@@ -127,8 +127,16 @@ export const workspaceCommitGraphArgsSchema = z.tuple([
       skip: z.number().int().nonnegative().max(1_000_000).optional(),
       ref: refNameSchema.optional(),
       path: untrimmedSafePathSchema.optional(),
+      targetBranch: refNameSchema.optional(),
     })
-    .strict(),
+    .strict()
+    // Incoming commits are only read beside HEAD's newest commits.
+    .refine(
+      (query) =>
+        query.targetBranch === undefined ||
+        (query.ref === undefined && query.skip === undefined && query.path === undefined),
+      'targetBranch goes without ref, skip and path'
+    ),
 ]);
 export const workspaceCommitDiffArgsSchema = z.tuple([idSchema, commitHashSchema]);
 export const workspaceCommitFileDiffArgsSchema = z.tuple([

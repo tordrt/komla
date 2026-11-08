@@ -122,6 +122,7 @@ describe('GitHistoryService', () => {
         hasMore: false,
         currentBranch: 'feature',
         upstream: 'origin/feature',
+        incoming: [],
       });
       const logArgs = execSpy.mock.calls.find(([, args]) => args.includes('log'))![1];
       expect(logArgs).toEqual(expect.arrayContaining(['--topo-order', '-z', 'HEAD']));
@@ -191,6 +192,70 @@ describe('GitHistoryService', () => {
       await expect(gitHistoryService.getCommitGraph('/repo', { limit: 50 })).rejects.toThrow(
         'git exploded'
       );
+    });
+  });
+
+  describe('incoming commits', () => {
+    it('reads them from the local target branch and its origin copy, however the target is named', async () => {
+      const { incomingStarts } = await import('../../../../src/main/services/git/git-history');
+
+      for (const targetBranch of ['main', 'origin/main', 'refs/remotes/origin/main']) {
+        expect(incomingStarts({ limit: 1, targetBranch }, 'refs/remotes/origin/feature\n')).toEqual(
+          ['main', 'origin/main', 'refs/remotes/origin/feature']
+        );
+      }
+    });
+
+    it('reads none from a target that would read as an option once its remote is taken off', async () => {
+      const { incomingStarts } = await import('../../../../src/main/services/git/git-history');
+
+      for (const targetBranch of ['origin/--output=/tmp/x', 'refs/heads/-x', 'origin/']) {
+        expect(incomingStarts({ limit: 1, targetBranch }, null)).toEqual([]);
+      }
+    });
+
+    it('keeps a merge a merge when its left-out parents join the same fork point', async () => {
+      const { joinForkPoints } = await import('../../../../src/main/services/git/git-history');
+      const merge = {
+        hash: 'm',
+        parentHashes: ['cut-1', 'cut-2'],
+        author: 'A',
+        timestamp: 1,
+        message: 'Merge',
+        refs: [],
+      };
+
+      const commits = joinForkPoints(
+        [merge],
+        new Map([
+          ['cut-1', 'fork'],
+          ['cut-2', 'fork'],
+        ])
+      );
+
+      expect(commits[0].parentHashes).toEqual(['fork', 'fork']);
+    });
+
+    it('leaves a left-out parent with no fork point as it is', async () => {
+      const { joinForkPoints } = await import('../../../../src/main/services/git/git-history');
+      const orphan = {
+        hash: 'm',
+        parentHashes: ['first', 'unrelated'],
+        author: 'A',
+        timestamp: 1,
+        message: 'Merge unrelated history',
+        refs: [],
+      };
+
+      const commits = joinForkPoints(
+        [orphan],
+        new Map([
+          ['first', 'fork'],
+          ['unrelated', null],
+        ])
+      );
+
+      expect(commits[0].parentHashes).toEqual(['fork', 'unrelated']);
     });
   });
 

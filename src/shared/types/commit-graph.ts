@@ -23,6 +23,11 @@ export interface CommitGraphQuery {
   ref?: string;
   /** Follows the file across renames; its commits then have no lanes to draw between them. */
   path?: string;
+  /**
+   * The workspace's target branch, to also read the commits that it, its copy on origin and the
+   * upstream have and HEAD lacks. Not with `ref`, `skip` or `path`.
+   */
+  targetBranch?: string;
 }
 
 /** The newest commits reachable from HEAD or the queried ref, children before parents. */
@@ -34,4 +39,9 @@ export interface CommitGraph {
   currentBranch: string | null;
   /** The current branch's upstream, such as `origin/feature`. */
   upstream: string | null;
+  /**
+   * The newest commits HEAD lacks from the queried target branch and the upstream, children
+   * before parents. When some are left out, the oldest shown joins the fork point instead.
+   */
+  incoming: CommitGraphCommit[];
 }

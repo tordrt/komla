@@ -16,6 +16,9 @@ describe('workspace commit IPC schemas', () => {
       'ws',
       { limit: 1 },
     ]);
+    expect(
+      workspaceCommitGraphArgsSchema.parse(['ws', { limit: 1, targetBranch: 'release/1.x' }])
+    ).toEqual(['ws', { limit: 1, targetBranch: 'release/1.x' }]);
     expect(workspaceCommitFileDiffArgsSchema.parse(['ws', HASH, 'src/a.ts '])).toEqual([
       'ws',
       HASH,
@@ -26,6 +29,9 @@ describe('workspace commit IPC schemas', () => {
   it('rejects refs that read as options or that git would refuse, and queries out of bounds', () => {
     for (const ref of ['-x', '--output=/tmp/x', 'a b', 'a\\b', 'a:b', 'a~1', '', 'x'.repeat(257)]) {
       expect(() => workspaceCommitGraphArgsSchema.parse(['ws', { limit: 1, ref }])).toThrow();
+      expect(() =>
+        workspaceCommitGraphArgsSchema.parse(['ws', { limit: 1, targetBranch: ref }])
+      ).toThrow();
     }
     for (const query of [
       { limit: 0 },
@@ -34,6 +40,10 @@ describe('workspace commit IPC schemas', () => {
       { limit: 1, skip: 1e21 },
       { limit: 1, path: 'a\0b' },
       { limit: 1, extra: true },
+      // Incoming commits are only read beside HEAD's newest.
+      { limit: 1, targetBranch: 'main', ref: 'feature' },
+      { limit: 1, targetBranch: 'main', skip: 100 },
+      { limit: 1, targetBranch: 'main', path: 'a.ts' },
     ]) {
       expect(() => workspaceCommitGraphArgsSchema.parse(['ws', query])).toThrow();
     }

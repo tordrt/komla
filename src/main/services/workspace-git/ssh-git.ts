@@ -14,7 +14,14 @@ import {
   type GitBatchRunner,
 } from '../git/git-branch-cleanup';
 import { activeConflictMessage, NO_PROMPT_GIT_ENV, stripGitTransferNoise } from '../git/git-exec';
-import { commitGraphLogArgs, toCommitGraph } from '../git/git-history';
+import {
+  commitGraphLogArgs,
+  incomingLogArgs,
+  incomingStarts,
+  joinForkPoints,
+  parseIncomingLog,
+  toCommitGraph,
+} from '../git/git-history';
 import { remoteCompanionService } from '../remote-companion.service';
 import { sshWorkspaceService } from '../ssh-workspace.service';
 
@@ -32,7 +39,11 @@ import type {
   SshHost,
   SshWorkspaceBackend,
 } from '../../../shared/types';
-import type { CommitGraph, CommitGraphQuery } from '../../../shared/types/commit-graph';
+import type {
+  CommitGraph,
+  CommitGraphCommit,
+  CommitGraphQuery,
+} from '../../../shared/types/commit-graph';
 import type { BranchInfo, GitBranchQuickStatus } from '../git.service';
 
 const logger = createLogger('SshWorkspaceGit');
@@ -186,6 +197,9 @@ function gitBatchScript(repoPath: string, marker: string, commands: GitBatchComm
 }
 
 const ORIGIN_REFS_CHANGED_MARKER = '__KOMLA_ORIGIN_REFS_CHANGED__';
+// Stands in for the upstream among the incoming commits' starts, filled in on the host, where git
+// would read it the same way if it ever got through.
+const UPSTREAM = '@{upstream}';
 
 /**
  * A script that fetches origin's `branches`, or every branch, in `repoPath` without asking for
@@ -406,16 +420,75 @@ class SshWorkspaceGit {
     const host = sshWorkspaceService.getHost(backend.hostId);
     const log = `git ${commitGraphLogArgs(query).map(shellQuotePosix).join(' ')}`;
     // The upstream's ref on the first line, then the history once HEAD has a commit.
-    const output = await sshWorkspaceService.run(
-      host,
-      [
-        `cd ${shellQuotePosix(backend.remoteDirectory)} || exit $?`,
-        `printf '%s\\n' "$(git rev-parse --symbolic-full-name '@{upstream}' 2>/dev/null)"`,
-        `if git rev-parse --verify --quiet HEAD >/dev/null; then ${log}; fi`,
-      ].join('\n')
-    );
+    const [output, incoming] = await Promise.all([
+      sshWorkspaceService.run(
+        host,
+        [
+          `cd ${shellQuotePosix(backend.remoteDirectory)} || exit $?`,
+          `printf '%s\\n' "$(git rev-parse --symbolic-full-name '@{upstream}' 2>/dev/null)"`,
+          `if git rev-parse --verify --quiet HEAD >/dev/null; then ${log}; fi`,
+        ].join('\n')
+      ),
+      this.readIncoming(backend, query),
+    ]);
     const newline = output.indexOf('\n');
-    return toCommitGraph(output.slice(newline + 1), output.slice(0, newline) || null, query);
+    return toCommitGraph(
+      output.slice(newline + 1),
+      output.slice(0, newline) || null,
+      query,
+      incoming
+    );
+  }
+
+  /** The commits HEAD lacks, read alongside the history: the upstream is read on the host. */
+  private async readIncoming(
+    backend: SshWorkspaceBackend,
+    query: CommitGraphQuery
+  ): Promise<CommitGraphCommit[]> {
+    const starts = incomingStarts(query, null);
+    if (starts.length === 0) return [];
+    const host = sshWorkspaceService.getHost(backend.hostId);
+    const cd = `cd ${shellQuotePosix(backend.remoteDirectory)} || exit $?`;
+    // The upstream goes in by its full ref name, read on the host, when there is one.
+    const args = incomingLogArgs([...starts, UPSTREAM]).map((arg) =>
+      arg === UPSTREAM ? '${u:+"$u"}' : shellQuotePosix(arg)
+    );
+    const output = await sshWorkspaceService
+      .run(
+        host,
+        [
+          cd,
+          `u=$(git rev-parse --symbolic-full-name '@{upstream}' 2>/dev/null)`,
+          `if git rev-parse --verify --quiet HEAD >/dev/null; then git ${args.join(' ')}; fi`,
+        ].join('\n')
+      )
+      .catch(() => '');
+    const { incoming, cutParents } = parseIncomingLog(output);
+    if (cutParents.length === 0) return incoming;
+    // Each left-out parent and its fork point, a line each.
+    const forkPoints = await sshWorkspaceService
+      .run(
+        host,
+        [
+          cd,
+          `for p in ${cutParents.map(shellQuotePosix).join(' ')}; do`,
+          `  printf '%s %s\\n' "$p" "$(git merge-base HEAD "$p" 2>/dev/null)"`,
+          'done',
+        ].join('\n')
+      )
+      .catch(() => '');
+    return joinForkPoints(
+      incoming,
+      new Map(
+        forkPoints
+          .split('\n')
+          .filter((line) => line.trim())
+          .map((line) => {
+            const [parent, forkPoint] = line.trim().split(' ');
+            return [parent, forkPoint || null] as const;
+          })
+      )
+    );
   }
 
   async inspectCommitScope(backend: SshWorkspaceBackend): Promise<CommitScopeResult> {

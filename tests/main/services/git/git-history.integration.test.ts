@@ -119,6 +119,90 @@ describe('GitHistoryService with real git', () => {
     expect(await subjects({ limit: 2, skip: 4, path: 'b.txt' })).toEqual(['one']);
   });
 
+  it('shows the commits HEAD lacks from the target branch, its origin copy and the upstream', async () => {
+    await execFileAsync('git', ['init', '-q', '-b', 'main', repo]);
+    const base = await commit('a.txt', 'base');
+    await git('switch', '-q', '-c', 'feature');
+    const mine = await commit('b.txt', 'mine');
+    await git('switch', '-q', 'main');
+    await commit('c.txt', 'on main');
+    const fetched = await commit('d.txt', 'fetched from origin');
+    await git('update-ref', 'refs/remotes/origin/main', fetched);
+    await git('reset', '-q', '--hard', 'HEAD~1');
+    await git('switch', '-q', 'feature');
+    const pushed = await commit('e.txt', 'pushed from elsewhere');
+    await git('remote', 'add', 'origin', join(tempDir, 'origin.git'));
+    await git('update-ref', 'refs/remotes/origin/feature', pushed);
+    await git('branch', '-q', '--set-upstream-to=origin/feature');
+    await git('reset', '-q', '--hard', mine);
+    const { gitHistoryService } = await import('../../../../src/main/services/git/git-history');
+
+    const graph = await gitHistoryService.getCommitGraph(repo, {
+      limit: 50,
+      targetBranch: 'main',
+    });
+
+    expect(graph.commits.map((c) => c.message)).toEqual(['mine', 'base']);
+    expect(graph.incoming.map((c) => c.message).sort()).toEqual([
+      'fetched from origin',
+      'on main',
+      'pushed from elsewhere',
+    ]);
+    expect(graph.incoming.find((c) => c.message === 'pushed from elsewhere')?.parentHashes).toEqual(
+      [mine]
+    );
+    expect(graph.incoming.find((c) => c.message === 'on main')?.parentHashes).toEqual([base]);
+  });
+
+  it('joins the oldest incoming commit it shows to the fork point when it leaves some out', async () => {
+    await execFileAsync('git', ['init', '-q', '-b', 'main', repo]);
+    const base = await commit('a.txt', 'base');
+    await git('switch', '-q', '-c', 'feature');
+    await commit('b.txt', 'mine');
+    await git('switch', '-q', 'main');
+    for (let i = 1; i <= 52; i++) await git('commit', '-q', '--allow-empty', '-m', `main ${i}`);
+    await git('switch', '-q', 'feature');
+    const { gitHistoryService } = await import('../../../../src/main/services/git/git-history');
+
+    const graph = await gitHistoryService.getCommitGraph(repo, {
+      limit: 50,
+      targetBranch: 'main',
+    });
+
+    expect(graph.incoming).toHaveLength(50);
+    expect(graph.incoming[0].message).toBe('main 52');
+    expect(graph.incoming.at(-1)).toMatchObject({ message: 'main 3', parentHashes: [base] });
+    expect(graph.commits.map((c) => c.message)).toEqual(['mine', 'base']);
+  });
+
+  it('shows nothing incoming when the target branch is missing', async () => {
+    await execFileAsync('git', ['init', '-q', '-b', 'feature', repo]);
+    await commit('a.txt', 'base');
+    const { gitHistoryService } = await import('../../../../src/main/services/git/git-history');
+
+    const graph = await gitHistoryService.getCommitGraph(repo, {
+      limit: 50,
+      targetBranch: 'main',
+    });
+
+    expect(graph.incoming).toEqual([]);
+    expect(graph.commits.map((c) => c.message)).toEqual(['base']);
+  });
+
+  it('shows nothing incoming on a branch without commits yet', async () => {
+    await execFileAsync('git', ['init', '-q', '-b', 'main', repo]);
+    await commit('a.txt', 'base');
+    await git('checkout', '-q', '--orphan', 'fresh');
+    const { gitHistoryService } = await import('../../../../src/main/services/git/git-history');
+
+    const graph = await gitHistoryService.getCommitGraph(repo, {
+      limit: 50,
+      targetBranch: 'main',
+    });
+
+    expect(graph).toMatchObject({ commits: [], incoming: [] });
+  });
+
   it('reads a signed commit while git is set to show signatures', async () => {
     await execFileAsync('git', ['init', '-q', '-b', 'main', repo]);
     const base = await commit('a.txt', 'base');

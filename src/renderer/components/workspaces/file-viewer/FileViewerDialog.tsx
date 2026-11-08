@@ -294,6 +294,10 @@ export function FileViewerDialog({
         void state.diff.selectFileByPath(after.filePath);
         return;
       }
+      if (after.outsideHistory) {
+        void state.diff.selectCommit(after.commitHash, after.filePath);
+        return;
+      }
       void state.diff.loadCommitsUntil(after.commitHash).then(() => {
         void state.diff.selectCommit(after.commitHash, after.filePath);
       });

@@ -1,10 +1,12 @@
 import { isImageFile, getMimeType } from '../../../shared/image-utils';
+import { toLocalBranchName } from '../../../shared/types/workspace';
 
 import { gitExec } from './git-exec';
 
 import type { FileChange } from './git-diff';
 import type {
   CommitGraph,
+  CommitGraphCommit,
   CommitGraphQuery,
   CommitGraphRef,
 } from '../../../shared/types/commit-graph';
@@ -271,11 +273,88 @@ export function commitGraphLogArgs({
   ];
 }
 
+/** How many of the commits HEAD lacks the graph shows, so they never crowd out HEAD's own. */
+export const INCOMING_LIMIT = 50;
+
+/**
+ * Where the commits HEAD lacks come from: the target branch, named as a local branch or on
+ * origin, both copies of it, and the upstream, by its full ref name since `--ignore-missing`
+ * doesn't pass over a missing `@{upstream}`. None from a name that would read as an option once
+ * its remote is taken off, as `origin/--output=x` would.
+ */
+export function incomingStarts(
+  { targetBranch, ref, skip, path }: CommitGraphQuery,
+  upstreamRef: string | null
+): string[] {
+  if (!targetBranch || ref || skip || path) return [];
+  const branch = toLocalBranchName(targetBranch);
+  if (!branch || branch.startsWith('-')) return [];
+  const upstream = upstreamRef?.trim();
+  return [...new Set([branch, `origin/${branch}`, ...(upstream ? [upstream] : [])])];
+}
+
+/**
+ * `git log` arguments for the newest commits on `starts` that HEAD lacks, one more than shown to
+ * tell whether there are older ones. A start that doesn't exist is passed over, and so is HEAD
+ * without commits yet: run it only once HEAD has one.
+ */
+export function incomingLogArgs(starts: string[]): string[] {
+  return [
+    'log',
+    '--no-show-signature',
+    '--no-color',
+    '--topo-order',
+    '--decorate=full',
+    '-z',
+    `--format=${GRAPH_FORMAT}`,
+    '-n',
+    String(INCOMING_LIMIT + 1),
+    '--ignore-missing',
+    ...starts,
+    '^HEAD',
+    '--',
+  ];
+}
+
+/**
+ * The incoming commits in `incomingLogArgs` output, and the parents they name but leave out:
+ * once some are left out, those may be incoming commits too, never drawn.
+ */
+export function parseIncomingLog(output: string): {
+  incoming: CommitGraphCommit[];
+  cutParents: string[];
+} {
+  const read = parseCommitGraphLog(output).commits;
+  const incoming = read.slice(0, INCOMING_LIMIT);
+  if (read.length <= INCOMING_LIMIT) return { incoming, cutParents: [] };
+  const shown = new Set(incoming.map((commit) => commit.hash));
+  const parents = new Set(incoming.flatMap((commit) => commit.parentHashes));
+  return { incoming, cutParents: [...parents].filter((parent) => !shown.has(parent)) };
+}
+
+/**
+ * Points each left-out parent at its fork point, where it meets HEAD's history, so the line
+ * joins it instead of running on to a commit never drawn. A parent HEAD has is its own fork
+ * point; one with none stays as it is. A merge keeps all its parents, even ones joining the same
+ * fork point, so it's still drawn as a merge.
+ */
+export function joinForkPoints(
+  incoming: CommitGraphCommit[],
+  forkPoints: Map<string, string | null>
+): CommitGraphCommit[] {
+  if (forkPoints.size === 0) return incoming;
+  return incoming.map((commit) => ({
+    ...commit,
+    parentHashes: commit.parentHashes.map((parent) => forkPoints.get(parent) ?? parent),
+  }));
+}
+
 /** The graph from `commitGraphLogArgs` output and the full ref name of the upstream, if any. */
 export function toCommitGraph(
   logOutput: string,
   upstreamRef: string | null,
-  { limit, skip = 0, path }: CommitGraphQuery
+  { limit, skip = 0, path }: CommitGraphQuery,
+  incoming: CommitGraphCommit[] = []
 ): CommitGraph {
   const { commits: read, currentBranch } = parseCommitGraphLog(logOutput);
   const commits = path ? read.slice(skip) : read;
@@ -284,6 +363,7 @@ export function toCommitGraph(
     hasMore: commits.length > limit,
     currentBranch,
     upstream: upstreamRef ? (shortRefName(upstreamRef.trim())?.name ?? null) : null,
+    incoming,
   };
 }
 
@@ -363,6 +443,9 @@ class GitHistoryService {
     const readUpstream = gitExec
       .execGitAsync(worktreePath, ['rev-parse', '--symbolic-full-name', '@{upstream}'])
       .catch(() => null);
+    const readIncoming = readUpstream.then((upstream) =>
+      this.readIncoming(worktreePath, incomingStarts(query, upstream))
+    );
     let output: string;
     try {
       output = await gitExec.execGitAsync(worktreePath, commitGraphLogArgs(query));
@@ -377,7 +460,26 @@ class GitHistoryService {
       if (hasHead) throw error;
       output = '';
     }
-    return toCommitGraph(output, await readUpstream, query);
+    return toCommitGraph(output, await readUpstream, query, await readIncoming);
+  }
+
+  private async readIncoming(worktreePath: string, starts: string[]): Promise<CommitGraphCommit[]> {
+    if (starts.length === 0) return [];
+    // Without a HEAD to compare with, nothing is incoming.
+    const head = await execOrEmpty(worktreePath, ['rev-parse', '--verify', '--quiet', 'HEAD']);
+    if (!head.trim()) return [];
+    const output = await execOrEmpty(worktreePath, incomingLogArgs(starts));
+    const { incoming, cutParents } = parseIncomingLog(output);
+    const forkPoints = await Promise.all(
+      cutParents.map(
+        async (parent) =>
+          [
+            parent,
+            (await execOrEmpty(worktreePath, ['merge-base', 'HEAD', parent])).trim() || null,
+          ] as const
+      )
+    );
+    return joinForkPoints(incoming, new Map(forkPoints));
   }
 
   /**

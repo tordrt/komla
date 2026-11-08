@@ -1,5 +1,5 @@
 import { CaretRight, Copy, GitCommit } from '@phosphor-icons/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   layoutCommitGraph,
@@ -42,6 +42,8 @@ const PAGE_SIZE = 100;
 // The most the main process hands out at once.
 const MAX_COMMITS = 500;
 const SHOWN_REFS = 2;
+// How many of the commits HEAD lacks show above its own when the menu opens; the rest scroll.
+const INCOMING_PEEK = 3;
 
 /** C, or the key in C's place on a layout without Latin letters. */
 function isCopyKey(event: React.KeyboardEvent): boolean {
@@ -327,8 +329,11 @@ function CommitRow({
   );
 }
 
-/** Reads the workspace's history while the menu is open, again whenever its repository changes. */
-function useCommitGraph(workspace: Workspace, open: boolean, limit: number) {
+/**
+ * Reads the workspace's history, and the commits its target branch has and it lacks, while the
+ * menu is open, again whenever its repository changes.
+ */
+function useCommitGraph(workspace: Workspace, open: boolean, limit: number, targetBranch: string) {
   const repositoryRevision = useWorkspaceObservationStore(
     (s) => s.projections.get(workspace.id)?.repositoryRevision
   );
@@ -337,7 +342,7 @@ function useCommitGraph(workspace: Workspace, open: boolean, limit: number) {
   useEffect(() => {
     if (!open) return;
     let current = true;
-    window.api.getWorkspaceCommitGraph(workspaceId, { limit }).then(
+    window.api.getWorkspaceCommitGraph(workspaceId, { limit, targetBranch }).then(
       (graph: CommitGraph) => {
         if (current) setResult({ graph, error: null });
       },
@@ -350,7 +355,7 @@ function useCommitGraph(workspace: Workspace, open: boolean, limit: number) {
     return () => {
       current = false;
     };
-  }, [open, workspaceId, limit, repositoryRevision]);
+  }, [open, workspaceId, limit, targetBranch, repositoryRevision]);
   return result;
 }
 
@@ -359,8 +364,6 @@ function CommitGraphMenu({ workspace }: { workspace: Workspace }) {
   const [limit, setLimit] = useState(PAGE_SIZE);
   const openedViewer = useRef(false);
   const details = useCommitDetails();
-  const result = useCommitGraph(workspace, open, limit);
-  const graph = result?.graph ?? null;
   const historyShortcut = useShortcutsStore((s) => s.getDisplayShortcut('history.toggle'));
   const projectBaseBranch = useProjectsStore(
     (s) => s.projects.find((project) => project.id === workspace.projectId)?.baseBranch
@@ -370,10 +373,12 @@ function CommitGraphMenu({ workspace }: { workspace: Workspace }) {
   );
   const targetBranch =
     resolveWorkspaceTargetBranch(workspace, projectBaseBranch, statusTargetBranch) || 'main';
+  const result = useCommitGraph(workspace, open, limit, targetBranch);
+  const graph = result?.graph ?? null;
   const rows = useMemo(
     () =>
       graph
-        ? layoutCommitGraph(graph.commits, {
+        ? layoutCommitGraph([...graph.incoming, ...graph.commits], {
             currentBranch: graph.currentBranch,
             upstream: graph.upstream,
             targetBranch,
@@ -382,6 +387,28 @@ function CommitGraphMenu({ workspace }: { workspace: Workspace }) {
     [graph, targetBranch]
   );
   const branch = graph ? graph.currentBranch : workspace.branchName;
+  const headHash = graph?.commits[0]?.hash;
+  const incomingHashes = useMemo(
+    () => new Set(graph?.incoming.map((commit) => commit.hash)),
+    [graph]
+  );
+  // Opens on HEAD's commits, with the newest incoming ones peeking above, and keeps HEAD where it
+  // is as incoming commits come and go, before they're painted.
+  // State, not a ref: the list mounts a render after the menu opens, and again on each opening.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  // How many incoming commits the list showed above HEAD's when it last scrolled.
+  const incomingAboveHead = useRef<{ list: HTMLDivElement; count: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!graph || !scroller) return;
+    const count = graph.incoming.length;
+    const last = incomingAboveHead.current;
+    if (last?.list === scroller) {
+      scroller.scrollTop += (count - last.count) * COMMIT_GRAPH_ROW_HEIGHT;
+    } else {
+      scroller.scrollTop = Math.max(0, count - INCOMING_PEEK) * COMMIT_GRAPH_ROW_HEIGHT;
+    }
+    incomingAboveHead.current = { list: scroller, count };
+  }, [scroller, graph]);
   const openHistory = (commitHash?: string) => {
     openedViewer.current = true;
     useFileViewerStore.getState().requestFileViewerTransition({
@@ -389,7 +416,9 @@ function CommitGraphMenu({ workspace }: { workspace: Workspace }) {
       workspaceId: workspace.id,
       mode: 'diff',
       diffSubMode: 'history',
-      after: commitHash ? { kind: 'commit', commitHash } : undefined,
+      after: commitHash
+        ? { kind: 'commit', commitHash, outsideHistory: incomingHashes.has(commitHash) }
+        : undefined,
     });
   };
 
@@ -397,15 +426,16 @@ function CommitGraphMenu({ workspace }: { workspace: Workspace }) {
   if (rows.length > 0 && graph) {
     body = (
       <DropdownMenuGroup
+        ref={setScroller}
         className="thin-scrollbar max-h-[min(30rem,60vh)] overflow-y-auto"
         // Scrolling puts another commit under the pointer.
         onScroll={details.hide}
       >
-        {rows.map((row, index) => (
+        {rows.map((row) => (
           <CommitRow
             key={row.commit.hash}
             row={row}
-            isHead={index === 0}
+            isHead={row.commit.hash === headHash}
             details={details.shown?.hash === row.commit.hash ? details.shown : null}
             cardRef={details.card}
             onRest={(element) => details.rest(row.commit.hash, element)}

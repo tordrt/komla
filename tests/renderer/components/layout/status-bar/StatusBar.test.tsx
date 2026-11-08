@@ -2124,6 +2124,7 @@ describe('StatusBar', () => {
       hasMore: true,
       currentBranch: 'login-fix',
       upstream: null,
+      incoming: [],
     };
 
     function openWorkspace(overrides: Parameters<typeof createWorkspace>[0] = {}) {
@@ -2149,7 +2150,7 @@ describe('StatusBar', () => {
       await user.click(screen.getByRole('button', { name: 'Commit graph' }));
 
       const fix = await screen.findByRole('menuitem', { name: /Fix the login redirect/ });
-      expect(getWorkspaceCommitGraph).toHaveBeenCalledWith(workspace.id, { limit: 100 });
+      expect(getWorkspaceCommitGraph).toHaveBeenCalledWith(workspace.id, { limit: 100, targetBranch: 'main' });
       expect(screen.getByText('login-fix', { selector: '.font-mono' })).toBeInTheDocument();
       expect(within(fix).getByText('login-fix')).toBeInTheDocument();
       // The target branch first; origin/main only repeats main; one more ref than fits.
@@ -2171,6 +2172,143 @@ describe('StatusBar', () => {
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
       // Focus is left to the viewer, not handed back to the button behind it.
       expect(screen.getByRole('button', { name: 'Commit graph' })).not.toHaveFocus();
+    });
+
+    it('shows the commits the target branch has and HEAD lacks above HEAD', async () => {
+      const user = userEvent.setup();
+      const workspace = openWorkspace({ baseBranch: 'develop' });
+      const getWorkspaceCommitGraph = vi.fn(() =>
+        Promise.resolve({
+          ...GRAPH,
+          incoming: [
+            {
+              hash: 'b'.repeat(40),
+              parentHashes: [INITIAL],
+              author: 'Cy',
+              timestamp: 1_700_000_200,
+              message: 'Bump the dependencies',
+              refs: [{ kind: 'branch', name: 'develop' }],
+            },
+          ],
+        } satisfies CommitGraph)
+      );
+      mockApi({ getWorkspaceCommitGraph });
+
+      renderStatusBar();
+      await user.click(screen.getByRole('button', { name: 'Commit graph' }));
+
+      await screen.findByRole('menuitem', { name: /Bump the dependencies/ });
+      expect(getWorkspaceCommitGraph).toHaveBeenCalledWith(workspace.id, {
+        limit: 100,
+        targetBranch: 'develop',
+      });
+      const subjects = screen
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent ?? '')
+        .filter((text) => /Bump|Fix the login|Initial/.test(text))
+        .map((text) => text.match(/Bump the dependencies|Fix the login redirect|Initial commit/)![0]);
+      expect(subjects).toEqual([
+        'Bump the dependencies',
+        'Fix the login redirect',
+        'Initial commit',
+      ]);
+      // HEAD's commit stands out, not the newest one shown.
+      expect(screen.getByText('Fix the login redirect')).toHaveClass('font-medium');
+      expect(screen.getByText('Bump the dependencies')).not.toHaveClass('font-medium');
+    });
+
+    it("opens on HEAD's commits, with the newest incoming ones peeking above", async () => {
+      const user = userEvent.setup();
+      openWorkspace();
+      const incoming = Array.from({ length: 5 }, (_, i) => ({
+        hash: String(i + 1).repeat(40),
+        parentHashes: [i === 4 ? FIX : String(i + 2).repeat(40)],
+        author: 'Cy',
+        timestamp: 1_700_000_200 - i,
+        message: `On main ${i + 1}`,
+        refs: [],
+      }));
+      mockApi({ getWorkspaceCommitGraph: vi.fn(() => Promise.resolve({ ...GRAPH, incoming })) });
+
+      renderStatusBar();
+      await user.click(screen.getByRole('button', { name: 'Commit graph' }));
+
+      const head = await screen.findByRole('menuitem', { name: /Fix the login redirect/ });
+      // Two rows of 24px scrolled past, so three incoming ones stay above HEAD's.
+      expect(head.closest('[role="group"]')!.scrollTop).toBe(48);
+
+      // Opened again, it starts on HEAD before the commits are read again.
+      await user.keyboard('{Escape}');
+      vi.mocked(window.api.getWorkspaceCommitGraph).mockReturnValue(new Promise(() => {}));
+      await user.click(screen.getByRole('button', { name: 'Commit graph' }));
+      const again = await screen.findByRole('menuitem', { name: /Fix the login redirect/ });
+      expect(again.closest('[role="group"]')!.scrollTop).toBe(48);
+    });
+
+    it('opens an incoming commit in History without searching HEAD\'s history for it', async () => {
+      const user = userEvent.setup();
+      openWorkspace();
+      const bump = 'b'.repeat(40);
+      mockApi({
+        getWorkspaceCommitGraph: vi.fn(() =>
+          Promise.resolve({
+            ...GRAPH,
+            incoming: [
+              {
+                hash: bump,
+                parentHashes: [INITIAL],
+                author: 'Cy',
+                timestamp: 1_700_000_200,
+                message: 'Bump the dependencies',
+                refs: [],
+              },
+            ],
+          } satisfies CommitGraph)
+        ),
+      });
+
+      renderStatusBar();
+      await user.click(screen.getByRole('button', { name: 'Commit graph' }));
+      await user.click(await screen.findByRole('menuitem', { name: /Bump the dependencies/ }));
+
+      expect(useFileViewerStore.getState().pendingFileViewerTransition).toMatchObject({
+        after: { kind: 'commit', commitHash: bump, outsideHistory: true },
+      });
+    });
+
+    it('keeps HEAD in place when incoming commits arrive while it is open', async () => {
+      const user = userEvent.setup();
+      const workspace = openWorkspace();
+      const incoming = Array.from({ length: 6 }, (_, i) => ({
+        hash: String(i + 1).repeat(40),
+        parentHashes: [i === 5 ? FIX : String(i + 2).repeat(40)],
+        author: 'Cy',
+        timestamp: 1_700_000_200 - i,
+        message: `On main ${i + 1}`,
+        refs: [],
+      }));
+      const getWorkspaceCommitGraph = vi
+        .fn()
+        .mockResolvedValueOnce({ ...GRAPH, incoming: incoming.slice(2) })
+        .mockResolvedValue({ ...GRAPH, incoming });
+      mockApi({ getWorkspaceCommitGraph });
+
+      renderStatusBar();
+      await user.click(screen.getByRole('button', { name: 'Commit graph' }));
+      const head = await screen.findByRole('menuitem', { name: /Fix the login redirect/ });
+      const scroller = head.closest('[role="group"]')!;
+      expect(scroller.scrollTop).toBe(24);
+      act(() =>
+        useWorkspaceObservationStore.getState().applyProjection({
+          workspaceId: workspace.id,
+          revision: 2,
+          repositoryRevision: 2,
+        } as WorkspaceObservationProjection)
+      );
+
+      await screen.findByRole('menuitem', { name: /On main 1/ });
+      // Two rows came in above, so it scrolls two rows further.
+      expect(scroller.scrollTop).toBe(72);
     });
 
     it('gives focus back to its button when closed with Escape', async () => {
@@ -2356,7 +2494,10 @@ describe('StatusBar', () => {
       await user.click(screen.getByRole('button', { name: 'Commit graph' }));
       await user.click(await screen.findByRole('menuitem', { name: 'Show older commits' }));
 
-      expect(getWorkspaceCommitGraph).toHaveBeenLastCalledWith(expect.any(String), { limit: 200 });
+      expect(getWorkspaceCommitGraph).toHaveBeenLastCalledWith(expect.any(String), {
+        limit: 200,
+        targetBranch: 'main',
+      });
       expect(screen.getByRole('menu')).toBeInTheDocument();
     });
 
@@ -2408,7 +2549,7 @@ describe('StatusBar', () => {
       act(() => initial.focus());
       await user.keyboard('{Control>}c{/Control}');
 
-      expect(getWorkspaceCommitGraph).toHaveBeenCalledWith(workspace.id, { limit: 100 });
+      expect(getWorkspaceCommitGraph).toHaveBeenCalledWith(workspace.id, { limit: 100, targetBranch: 'main' });
       expect(copyToClipboard).toHaveBeenCalledWith(INITIAL);
       expect(useToastStore.getState().toasts[0].message).toBe('Copied commit aaaaaaa');
       expect(screen.getByRole('menu')).toBeInTheDocument();

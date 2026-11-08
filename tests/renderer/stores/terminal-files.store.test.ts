@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  latestFirst,
   queuePrintedFileHyperlink,
   takeQueuedFileHyperlinks,
   useTerminalFilesStore,
@@ -20,31 +19,22 @@ afterEach(() => {
 });
 
 describe('terminal-files.store', () => {
-  it('orders files by when they were last opened or printed, untimed ones last', () => {
-    const file = (fullPath: string, times: { printedAt?: number; openedAt?: number }) => ({
-      ...printed(fullPath, times.printedAt),
-      openedAt: times.openedAt,
-    });
-    const files = [
-      // Opened a while ago, inside and outside the workspace.
-      file('/tmp/old.md', { printedAt: 5, openedAt: 10 }),
-      {
-        ...file('src/older.ts', { openedAt: 8 }),
-        target: { type: 'workspace' as const, filePath: 'src/older.ts' },
-      },
-      file('/tmp/untimed.md', {}),
-      // Printed together just now, and the one of them just opened.
-      file('/tmp/b.md', { printedAt: 50 }),
-      file('/tmp/c.md', { printedAt: 50 }),
-      file('/tmp/a.md', { printedAt: 50, openedAt: 60 }),
-    ];
+  it('keeps files in the order printed, the latest first, untimed ones last', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(100);
+    const { notePrinted, noteOpened } = useTerminalFilesStore.getState();
+    // One read of a terminal, newest line first, all written in one go.
+    notePrinted('ws-1', [printed('/tmp/b.md', 50), printed('/tmp/c.md', 50)]);
+    // A later read finds a line written in the same go, so below the others.
+    notePrinted('ws-1', [printed('/tmp/a.md', 50)]);
+    notePrinted('ws-1', [printed('/tmp/untimed.md'), printed('/tmp/old.md', 5)]);
+    // Opening a file leaves it where it was printed.
+    noteOpened('ws-1', printed('/tmp/c.md'));
 
-    expect(latestFirst(files).map((f) => f.path)).toEqual([
+    expect(useTerminalFilesStore.getState().byWorkspace['ws-1'].map((f) => f.path)).toEqual([
       '/tmp/a.md',
       '/tmp/b.md',
       '/tmp/c.md',
       '/tmp/old.md',
-      'src/older.ts',
       '/tmp/untimed.md',
     ]);
   });
@@ -99,6 +89,9 @@ describe('terminal-files.store', () => {
     const files = useTerminalFilesStore.getState().byWorkspace['ws-1'];
     expect(files).toHaveLength(200);
     expect(files.some((file) => file.path === '/tmp/opened.png')).toBe(true);
+    // Still in the order printed, the opened one, never printed, last.
+    expect(files[0].path).toBe('/tmp/249.png');
+    expect(files.at(-1)!.path).toBe('/tmp/opened.png');
   });
 
   it('takes the line and terminal of the latest print of a file', () => {

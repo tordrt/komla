@@ -28,13 +28,17 @@ export interface TerminalFile {
 export type TerminalFilePrint = Omit<TerminalFile, 'openedAt'>;
 
 interface TerminalFilesState {
+  /**
+   * Each workspace's files in the order the terminals printed them, the latest first: by time,
+   * and among files printed at the same time, as their terminal shows them, the lowest first.
+   */
   byWorkspace: Record<string, TerminalFile[]>;
   /**
-   * Adds what terminals printed, newest first. A newer print of a known file takes its place,
-   * with its line and terminal; an untimed one changes nothing.
+   * Adds what terminals printed, newest first. A newer print of a known file moves it to that
+   * print's place, with its line and terminal; an untimed one changes nothing.
    */
   notePrinted: (workspaceId: string, prints: TerminalFilePrint[]) => void;
-  /** Marks a file as opened now, with the line it was opened at. */
+  /** Marks a file as opened now, with the line it was opened at, leaving it in its place. */
   noteOpened: (workspaceId: string, file: Omit<TerminalFile, 'printedAt' | 'openedAt'>) => void;
 }
 
@@ -52,27 +56,28 @@ function lastSeen(file: TerminalFile): number {
   return Math.max(file.printedAt ?? 0, file.openedAt ?? 0);
 }
 
-/**
- * The files, the one a terminal last printed or opened first, so a file just opened from a link
- * sits by the others printed with it. Untimed ones stay last, in their order.
- */
-export function latestFirst(files: TerminalFile[]): TerminalFile[] {
-  return [...files].sort((a, b) => lastSeen(b) - lastSeen(a));
+/** The latest printed first, untimed ones last; files printed at the same time keep their order. */
+function byPrintTime(a: TerminalFile, b: TerminalFile): number {
+  return (b.printedAt ?? -Infinity) - (a.printedAt ?? -Infinity) || 0;
 }
 
 /**
- * The newest MAX_FILES_PER_WORKSPACE files, opened ones first, so a burst of printed paths, most
- * of which the list never shows, can't push them out. Untimed ones count as the oldest.
+ * The newest MAX_FILES_PER_WORKSPACE files, in their order, opened ones kept first, so a burst of
+ * printed paths, most of which the list never shows, can't push them out. Untimed ones count as
+ * the oldest.
  */
 function capped(files: TerminalFile[]): TerminalFile[] {
   if (files.length <= MAX_FILES_PER_WORKSPACE) return files;
-  return [...files]
-    .sort(
-      (a, b) =>
-        Number(b.openedAt !== undefined) - Number(a.openedAt !== undefined) ||
-        lastSeen(b) - lastSeen(a)
-    )
-    .slice(0, MAX_FILES_PER_WORKSPACE);
+  const kept = new Set(
+    [...files]
+      .sort(
+        (a, b) =>
+          Number(b.openedAt !== undefined) - Number(a.openedAt !== undefined) ||
+          lastSeen(b) - lastSeen(a)
+      )
+      .slice(0, MAX_FILES_PER_WORKSPACE)
+  );
+  return files.filter((file) => kept.has(file));
 }
 
 export const useTerminalFilesStore = create<TerminalFilesState>((set) => ({
@@ -81,25 +86,25 @@ export const useTerminalFilesStore = create<TerminalFilesState>((set) => ({
   notePrinted: (workspaceId, prints) => {
     if (prints.length === 0) return;
     set(({ byWorkspace }) => {
-      const files = [...(byWorkspace[workspaceId] ?? [])];
-      const indexes = new Map(files.map((file, index) => [terminalFileKey(file), index]));
-      let changed = false;
+      const files = byWorkspace[workspaceId] ?? [];
+      const known = new Map(files.map((file) => [terminalFileKey(file), file]));
+      const fresh = new Map<string, TerminalFile>();
       for (const print of prints) {
         const key = terminalFileKey(print);
-        const index = indexes.get(key);
-        if (index === undefined) {
-          indexes.set(key, files.length);
-          files.push(print);
-          changed = true;
-        } else if (
-          print.printedAt !== undefined &&
-          print.printedAt > (files[index].printedAt ?? 0)
-        ) {
-          files[index] = { ...print, openedAt: files[index].openedAt };
-          changed = true;
+        const seen = fresh.get(key) ?? known.get(key);
+        if (!seen) {
+          fresh.set(key, print);
+        } else if (print.printedAt !== undefined && print.printedAt > (seen.printedAt ?? 0)) {
+          fresh.set(key, { ...print, openedAt: known.get(key)?.openedAt });
         }
       }
-      return changed ? { byWorkspace: { ...byWorkspace, [workspaceId]: capped(files) } } : {};
+      if (fresh.size === 0) return {};
+      // A file read now, printed at the same time as one read before, is lower in its terminal.
+      const next = [
+        ...fresh.values(),
+        ...files.filter((file) => !fresh.has(terminalFileKey(file))),
+      ].sort(byPrintTime);
+      return { byWorkspace: { ...byWorkspace, [workspaceId]: capped(next) } };
     });
   },
 
@@ -109,15 +114,11 @@ export const useTerminalFilesStore = create<TerminalFilesState>((set) => ({
       const files = byWorkspace[workspaceId] ?? [];
       const known = files.find((candidate) => terminalFileKey(candidate) === key);
       const opened: TerminalFile = { ...file, printedAt: known?.printedAt, openedAt: Date.now() };
-      return {
-        byWorkspace: {
-          ...byWorkspace,
-          [workspaceId]: capped([
-            opened,
-            ...files.filter((candidate) => terminalFileKey(candidate) !== key),
-          ]),
-        },
-      };
+      // It keeps its place among the printed files; one never printed goes with the untimed.
+      const next = known
+        ? files.map((candidate) => (candidate === known ? opened : candidate))
+        : [...files, opened];
+      return { byWorkspace: { ...byWorkspace, [workspaceId]: capped(next) } };
     });
   },
 }));

@@ -15,7 +15,11 @@ vi.mock('@/lib/terminal-renderer-runtime', () => ({
 
 import { resetRememberedServers } from '@/components/terminal/BrowserLinksList';
 import { BrowserLinksPopover } from '@/components/terminal/BrowserLinksPopover';
-import { useTerminalFiles } from '@/components/terminal/terminal-files';
+import {
+  rememberTerminalFiles,
+  useTerminalFiles,
+  useTerminalFileViewerItems,
+} from '@/components/terminal/terminal-files';
 import { openTerminalFileLink } from '@/components/terminal/TerminalView';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { resetAheadChecks } from '@/hooks/useDevPreviewServices';
@@ -412,5 +416,54 @@ describe("the globe's Files section", () => {
       { kind: 'terminal', fullPath: '/tmp/mock.html' },
       { replacesPrevious: true }
     );
+  });
+});
+
+describe("the file viewer's Recent list", () => {
+  it('lists the files as the terminals show them, the latest printed first', () => {
+    // Top line first, all written in one go: the times can't tell them apart.
+    print(
+      ['Saved /tmp/before.png', 'Edited src/app.ts', 'Saved /tmp/after.png'],
+      [NOW - 5_000, NOW - 5_000, NOW - 5_000]
+    );
+    act(() => rememberTerminalFiles('ws-1'));
+    // A later read finds the line under them, written in the same go.
+    print(['Saved /tmp/last.png'], [NOW - 5_000]);
+    act(() => rememberTerminalFiles('ws-1'));
+    // Opening a file from its link leaves it where it was printed.
+    act(() => {
+      openTerminalFileLink(
+        '/tmp/before.png',
+        undefined,
+        { type: 'external', fullPath: '/tmp/before.png' },
+        't1',
+        context
+      );
+    });
+
+    const { result } = renderHook(() => useTerminalFileViewerItems('ws-1'));
+    expect(result.current.map((item) => item.path)).toEqual([
+      '/tmp/last.png',
+      '/tmp/after.png',
+      'src/app.ts',
+      '/tmp/before.png',
+    ]);
+  });
+
+  it('lists a file opened but never printed last, though the file tree leaves it out', () => {
+    print(['Edited src/app.ts'], [NOW - 5_000]);
+    act(() => rememberTerminalFiles('ws-1'));
+    act(() => {
+      openTerminalFileLink(
+        'src/new.ts',
+        undefined,
+        { type: 'workspace', filePath: 'src/new.ts' },
+        't1',
+        context
+      );
+    });
+
+    const { result } = renderHook(() => useTerminalFileViewerItems('ws-1'));
+    expect(result.current.map((item) => item.path)).toEqual(['src/app.ts', 'src/new.ts']);
   });
 });

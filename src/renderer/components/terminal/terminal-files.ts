@@ -4,7 +4,6 @@ import { scanWorkspaceTerminalsForFiles } from '@/lib/scan-terminal-files';
 import { useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 import {
-  latestFirst,
   takeQueuedFileHyperlinks,
   terminalFileLinkContext,
   useTerminalFilesStore,
@@ -91,23 +90,18 @@ function listedPaths(list: FileList | undefined, showsIgnored: boolean): Set<str
   return paths;
 }
 
-type Order = (a: TerminalFile, b: TerminalFile) => number;
-
 /**
  * Files outside the workspace before the workspace's own: an agent points outside it for
  * something to look at, such as a mock-up or a page it made, and inside it while working on files.
  */
-const outsideFirst =
-  (order: Order): Order =>
-  (a, b) =>
-    Number(a.target.type === 'workspace') - Number(b.target.type === 'workspace') || order(a, b);
-const byOpened = outsideFirst((a, b) => (b.openedAt ?? 0) - (a.openedAt ?? 0));
-// Untimed prints stay after timed ones, in the order they were read, newest line first.
-const byPrinted = outsideFirst(
-  (a, b) => (b.printedAt ?? -Infinity) - (a.printedAt ?? -Infinity) || 0
-);
+const outsideFirst = (a: TerminalFile, b: TerminalFile): number =>
+  Number(a.target.type === 'workspace') - Number(b.target.type === 'workspace');
+const byOpened = (a: TerminalFile, b: TerminalFile): number =>
+  outsideFirst(a, b) || (b.openedAt ?? 0) - (a.openedAt ?? 0);
 
 export interface TerminalFileGroups {
+  /** All of them, the latest printed first, as the terminals show them. */
+  all: TerminalFile[];
   /** Files opened from a terminal link or the list, outside the workspace first, the latest first. */
   opened: TerminalFile[];
   /** Files printed but not opened, outside the workspace first, the latest printed first. */
@@ -140,22 +134,21 @@ export function useTerminalFiles(workspaceId: string): TerminalFileGroups {
   return useMemo(() => {
     const listed = listedPaths(list, showsIgnored);
     const liveTerminals = new Set(terminalIds.split('\n'));
-    const shown = files.filter(({ target, terminalId }) =>
-      target.type === 'workspace' ? true : liveTerminals.has(terminalId)
+    const all = files.filter(
+      (file) =>
+        (file.target.type !== 'workspace' && liveTerminals.has(file.terminalId)) ||
+        (file.target.type === 'workspace' &&
+          (file.openedAt !== undefined ||
+            !listed ||
+            listed.has(file.target.filePath) ||
+            // The list leaves out linked workspaces' files, which agents name through here.
+            isInLinkedWorkspaces(file.target.filePath)))
     );
     return {
-      opened: shown.filter((file) => file.openedAt !== undefined).sort(byOpened),
-      mentioned: shown
-        .filter(
-          (file) =>
-            file.openedAt === undefined &&
-            (file.target.type !== 'workspace' ||
-              !listed ||
-              listed.has(file.target.filePath) ||
-              // The list leaves out linked workspaces' files, which agents name through here.
-              isInLinkedWorkspaces(file.target.filePath))
-        )
-        .sort(byPrinted),
+      all,
+      opened: all.filter((file) => file.openedAt !== undefined).sort(byOpened),
+      // In the order printed already, as the store keeps them.
+      mentioned: all.filter((file) => file.openedAt === undefined).sort(outsideFirst),
     };
   }, [files, terminalIds, list, showsIgnored]);
 }
@@ -177,13 +170,10 @@ export function terminalFileViewerItem(file: TerminalFile): QuickLookItem {
 
 /**
  * The workspace's files from terminals as the file viewer's sidebar lists them: the files the
- * files dropdown lists, but by time alone, the latest opened or printed first, so stepping on from
- * a file just opened goes through the others printed with it rather than files opened before.
+ * files dropdown lists, but in the order printed alone, as the terminals show them, so the file
+ * after the one on screen is the one printed before it. Opening a file leaves it in its place.
  */
 export function useTerminalFileViewerItems(workspaceId: string): QuickLookListed {
-  const { opened, mentioned } = useTerminalFiles(workspaceId);
-  return useMemo(
-    () => latestFirst([...opened, ...mentioned]).map(terminalFileViewerItem),
-    [opened, mentioned]
-  );
+  const { all } = useTerminalFiles(workspaceId);
+  return useMemo(() => all.map(terminalFileViewerItem), [all]);
 }

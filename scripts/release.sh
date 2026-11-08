@@ -1454,6 +1454,38 @@ phase_cleanup() {
 
 # ---- build orchestration ---------------------------------------------------
 
+# Electron's zips come from the cache, but @electron/get fetches SHASUMS256.txt from GitHub on
+# every build to check them, so a GitHub outage failed builds whose Electron was already on disk.
+# electron-builder reads SHASUMS256.txt-<version> at a cache root instead, so each Electron
+# version's checksums are fetched once and kept: the host's cache, and the one build-linux.sh
+# mounts into Docker.
+seed_electron_checksums() {
+  local version
+  version=$(node -p "require('electron/package.json').version")
+  local roots=("${HOME}/Library/Caches/electron" "${HOME}/.cache/komla-release/electron")
+  local root seeded="" url="https://github.com/electron/electron/releases/download/v${version}/SHASUMS256.txt"
+  for root in "${roots[@]}"; do
+    local file="${root}/SHASUMS256.txt-${version}"
+    if grep -q " \*electron-v${version}-darwin-arm64.zip$" "$file" 2>/dev/null; then
+      seeded="$file"
+      continue
+    fi
+    mkdir -p "$root"
+    if [[ -n "$seeded" ]]; then
+      cp "$seeded" "$file"
+    elif curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -m 60 -o "${file}.tmp" "$url" \
+      && grep -q " \*electron-v${version}-darwin-arm64.zip$" "${file}.tmp"; then
+      mv "${file}.tmp" "$file"
+      seeded="$file"
+    else
+      rm -f "${file}.tmp"
+      warn "Could not fetch Electron ${version}'s checksums; the build will fetch them from GitHub"
+      return 0
+    fi
+  done
+  success "Electron ${version}'s checksums are cached"
+}
+
 build_all_platforms() {
   # Check if any platform actually needs rebuilding before running Vite compilation
   local any_needs_build=false
@@ -1480,6 +1512,8 @@ build_all_platforms() {
     success "All platform artifacts exist, skipping build (use --force to rebuild)"
     return 0
   fi
+
+  seed_electron_checksums
 
   info "Compiling app..."
   info "Building Komla CLI and Remote Companion matrix..."

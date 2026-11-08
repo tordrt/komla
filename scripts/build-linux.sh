@@ -49,7 +49,7 @@ if ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
 fi
 
 # Ensure persistent Electron cache directory exists (survives reboots unlike /tmp)
-mkdir -p "${HOME}/.cache/komla-release/electron"
+mkdir -p "${HOME}/.cache/komla-release/electron" "${HOME}/.cache/komla-release/electron-builder"
 
 echo "==> Building Linux $ARCH using Docker (platform: $PLATFORM)"
 
@@ -68,6 +68,7 @@ docker run --rm \
   -v "$PROJECT_ROOT":/project \
   -v "$VOLUME_NAME":/project/node_modules \
   -v "${HOME}/.cache/komla-release/electron":/tmp/electron-cache/electron \
+  -v "${HOME}/.cache/komla-release/electron-builder":/tmp/electron-cache/electron-builder \
   -e "electron_config_cache=/tmp/electron-cache/electron" \
   -e "XDG_CACHE_HOME=/tmp/electron-cache" \
   -w /project \

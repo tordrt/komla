@@ -428,7 +428,12 @@ vi.mock('../../../src/main/services/ssh-port-forward.service', () => ({
 }));
 
 vi.mock('../../../src/main/services/window.service', () => ({
-  windowService: { getMainWindowId: vi.fn(() => 'main-window') },
+  windowService: {
+    getMainWindowId: vi.fn(() => 'main-window'),
+    // On Windows the attention badge flashes the window the user is in, or the first.
+    getActiveWindow: vi.fn(() => undefined),
+    getAllWindows: vi.fn(() => []),
+  },
 }));
 
 const mockWorkspaceLinksService = {

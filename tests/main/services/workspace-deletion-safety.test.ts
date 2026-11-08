@@ -77,7 +77,12 @@ describe('Workspace Stale Cleanup', () => {
     }));
 
     vi.doMock('../../../src/main/services/window.service', () => ({
-      windowService: { getMainWindowId: vi.fn(() => 'main-window') },
+      windowService: {
+        getMainWindowId: vi.fn(() => 'main-window'),
+        // On Windows the attention badge flashes the window the user is in, or the first.
+        getActiveWindow: vi.fn(() => undefined),
+        getAllWindows: vi.fn(() => []),
+      },
     }));
 
     vi.doMock('../../../src/main/services/paths', () => ({

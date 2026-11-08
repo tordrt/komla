@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync, symlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../src/main/lib/logger', () => ({
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
@@ -811,6 +811,77 @@ describe('createDevPreviewServiceDetector', () => {
       { port: 5173, scheme: 'http' },
       { port: 8000, scheme: null },
     ]);
+  });
+
+  describe('with a server outside Komla on port 4000', () => {
+    const withServer: ListeningPortSnapshot = {
+      processes: [...snapshot.processes, { pid: 400, ppid: 1, name: 'node' }],
+      listeners: [...snapshot.listeners, { pid: 400, address: '127.0.0.1', port: 4000 }],
+    };
+    const probedPorts = () => deps.probeHttpScheme.mock.calls.map(([port]) => port).sort();
+
+    beforeEach(() => {
+      deps.collectListeningPorts.mockResolvedValue(withServer);
+    });
+    afterEach(() => {
+      deps.collectListeningPorts.mockResolvedValue(snapshot);
+    });
+
+    it('probes a server once for all the workspaces on its machine', async () => {
+      const detector = createDevPreviewServiceDetector(deps);
+
+      await detector.detect('ws-1', []);
+      workspace = { workingDirectory: '/work/ws-2', isWorktree: true, terminals: [] };
+      await detector.detect('ws-2', []);
+      // Back to the first, whose own servers the second's check left known.
+      workspace = { ...workspace, terminals: [terminal('terminal-a'), terminal('terminal-b')] };
+      clock = 5_000;
+      await detector.detect('ws-1', []);
+
+      expect(probedPorts()).toEqual([4000, 5173, 8000]);
+    });
+
+    it('keeps what a later scan found when an earlier one answers after it', async () => {
+      let answerEarlier!: (value: ListeningPortSnapshot) => void;
+      deps.collectListeningPorts.mockReturnValueOnce(
+        new Promise((resolve) => (answerEarlier = resolve))
+      );
+      const detector = createDevPreviewServiceDetector(deps);
+
+      // ws-2's scan starts before the server does, and answers after ws-1's, which found it.
+      const earlier = detector.detect('ws-2', []);
+      clock = 1;
+      await detector.detect('ws-1', []);
+      answerEarlier(snapshot);
+      await earlier;
+      clock = 5_000;
+      await detector.detect('ws-1', []);
+
+      expect(probedPorts()).toEqual([4000, 5173, 8000]);
+    });
+
+    it('keeps what it knows through a scan that lists no listeners', async () => {
+      const detector = createDevPreviewServiceDetector(deps);
+
+      await detector.detect('ws-1', []);
+      deps.collectListeningPorts.mockResolvedValueOnce({ processes: [], listeners: [] });
+      clock = 5_000;
+      await detector.detect('ws-1', []);
+      clock = 10_000;
+      await detector.detect('ws-1', []);
+
+      expect(probedPorts()).toEqual([4000, 5173, 8000]);
+    });
+  });
+
+  it('probes a remote server once for all the workspaces on its SSH host', async () => {
+    workspace = { ...sshWorkspace, terminals: [terminal('remote-a')] };
+    const detector = createDevPreviewServiceDetector(deps);
+
+    await detector.detect('ws-1', [], []);
+    await detector.detect('ws-2', [], []);
+
+    expect(deps.probeRemoteHttpSchemes.mock.calls).toEqual([['host-1', [3000, 6379]]]);
   });
 
   it('probes each remote listener once and asks again about ports it could not check', async () => {

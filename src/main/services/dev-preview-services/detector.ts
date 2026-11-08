@@ -351,36 +351,62 @@ export function createDevPreviewServiceDetector(
   // Probing a port can log errors in the server holding it (workerd prints an
   // RPC error for each HTTP request on its internal ports), so each listener
   // is probed once and its answer kept while the same process holds the port.
-  const knownSchemes = new Map<string, Map<string, Promise<HttpScheme | undefined>>>();
+  // Answers are kept by machine, as every workspace on it sees the same servers,
+  // and a port that never answers costs a probe its whole timeout.
+  const knownSchemes = new Map<
+    string,
+    { schemes: Map<string, Promise<HttpScheme | undefined>>; prunedBy: number }
+  >();
+  // Orders the scans, as the clock can step back.
+  let scans = 0;
+  const listenerKey = ({ pid, port }: { pid: number; port: number }): string => `${pid}:${port}`;
 
   /**
-   * The scheme of each listener, probing only those `scope` has not seen.
-   * Undefined marks a port the probe could not check; it is probed again next time.
+   * The scheme of each listener, probing only those not yet seen on the machine
+   * (`scope`), whose `snapshot`, the `scan`th begun, says which listeners still hold
+   * their ports. Undefined marks a port the probe could not check; it is probed again
+   * next time.
    */
   async function probeOnce(
     scope: string,
+    snapshot: ListeningPortSnapshot,
+    scan: number,
     listeners: Listener[],
     probe: (ports: number[]) => Promise<Map<number, HttpScheme>>
   ): Promise<Array<HttpScheme | undefined>> {
-    const listenerKey = ({ pid, port }: Listener): string => `${pid}:${port}`;
-    const previous = knownSchemes.get(scope);
-    const unprobed = listeners.filter((listener) => !previous?.has(listenerKey(listener)));
+    let entry = knownSchemes.get(scope);
+    if (!entry) {
+      entry = { schemes: new Map(), prunedBy: 0 };
+      knownSchemes.set(scope, entry);
+    }
+    const known = entry.schemes;
+    // Another workspace's scan, begun later, may have found listeners this one predates,
+    // and a scan that lists none more likely failed than found every server stopped.
+    if (scan > entry.prunedBy && snapshot.listeners.length > 0) {
+      entry.prunedBy = scan;
+      const holding = new Set(snapshot.listeners.map(listenerKey));
+      for (const key of known.keys()) {
+        if (!holding.has(key)) known.delete(key);
+      }
+    }
+    const unprobed = listeners.filter((listener) => !known.has(listenerKey(listener)));
     const probed =
       unprobed.length > 0
         ? probe(unprobed.map(({ port }) => port)).catch(() => new Map<number, HttpScheme>())
         : Promise.resolve(new Map<number, HttpScheme>());
     const entries = listeners.map((listener) => {
       const key = listenerKey(listener);
-      const scheme: Promise<HttpScheme | undefined> =
-        previous?.get(key) ?? probed.then((schemes) => schemes.get(listener.port));
+      let scheme = known.get(key);
+      if (!scheme) {
+        scheme = probed.then((schemes) => schemes.get(listener.port));
+        known.set(key, scheme);
+      }
       return [key, scheme] as const;
     });
-    const known = new Map(entries);
-    knownSchemes.set(scope, known);
 
     const schemes = await Promise.all(entries.map(([, scheme]) => scheme));
-    entries.forEach(([key], index) => {
-      if (schemes[index] === undefined) known.delete(key);
+    entries.forEach(([key, scheme], index) => {
+      if (schemes[index] === undefined && known.get(key) === scheme) known.delete(key);
     });
     return schemes;
   }
@@ -417,6 +443,7 @@ export function createDevPreviewServiceDetector(
       workspace.backend?.kind !== 'ssh' &&
       claimsProcessesInFolder(workspace, workspace.workingDirectory);
     let snapshot: ListeningPortSnapshot;
+    const scan = ++scans;
     try {
       snapshot = await deps.collectListeningPorts({ cwds: claimsFolder });
     } catch (error) {
@@ -444,7 +471,9 @@ export function createDevPreviewServiceDetector(
       ? findOutsideListeners(snapshot, withFolderTrees(snapshot, inKomla, inFolder), launchers)
       : [];
     const schemes = await probeOnce(
-      `local:${workspaceId}`,
+      'local',
+      snapshot,
+      scan,
       [...listeners, ...outside],
       async (ports) =>
         new Map(
@@ -465,7 +494,6 @@ export function createDevPreviewServiceDetector(
   }
 
   async function findRemoteServers(
-    workspaceId: string,
     workspace: DetectorWorkspace,
     remotePorts: number[]
   ): Promise<{
@@ -486,6 +514,7 @@ export function createDevPreviewServiceDetector(
     });
 
     let snapshot: RemoteListeningPortSnapshot;
+    const scan = ++scans;
     try {
       snapshot = await deps.collectRemoteListeningPorts(hostId);
     } catch (error) {
@@ -507,11 +536,16 @@ export function createDevPreviewServiceDetector(
       : new Map<number, TerminalRoot>();
     const listeners = attributeListeners(snapshot, roots, new Set(remotePorts), inFolder);
     const outside = findOutsideListeners(snapshot, withFolderTrees(snapshot, inKomla, inFolder));
-    const schemes = await probeOnce(`ssh:${workspaceId}`, [...listeners, ...outside], (ports) =>
-      deps.probeRemoteHttpSchemes(hostId, ports).catch((error: unknown) => {
-        logger.warn('Failed to probe ports on SSH host', { error: errorMessage(error) });
-        throw error;
-      })
+    const schemes = await probeOnce(
+      `ssh:${hostId}`,
+      snapshot,
+      scan,
+      [...listeners, ...outside],
+      (ports) =>
+        deps.probeRemoteHttpSchemes(hostId, ports).catch((error: unknown) => {
+          logger.warn('Failed to probe ports on SSH host', { error: errorMessage(error) });
+          throw error;
+        })
     );
     // A port the probe could not check is offered as HTTP rather than hidden.
     const services = ownServices(
@@ -557,7 +591,7 @@ export function createDevPreviewServiceDetector(
     // The SSH host is read alongside, so local checks never wait on it.
     const [localResult, remote] = await Promise.all([
       local,
-      findRemoteServers(workspaceId, workspace, remotePorts),
+      findRemoteServers(workspace, remotePorts),
     ]);
     const own = workspace.backend?.kind === 'ssh' ? remote.ownPorts : localResult.ownPorts;
     return {

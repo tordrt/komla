@@ -18118,21 +18118,19 @@ describe('WorkspaceService', () => {
       expect(workspaceService.get(workspace.id)?.tagTooltip).toBeUndefined();
     });
 
-    it('shows progress beside the tag but never saves it, so it ends with Komla', async () => {
+    it('saves markers beside the tag, but not progress, which ends with Komla', async () => {
       mockConfigService.get.mockReturnValue({ autoNameWorkspaces: 'off' });
       const { workspaceService } = await import('../../../src/main/services/workspace.service');
       const workspace = await workspaceService.create({
         mode: 'directory',
-        directoryPath: '/mock/dir-progress',
+        directoryPath: '/mock/dir-markers',
       });
+      const pr = { key: 'pr', label: 'PR #12', tone: 'info', tooltip: 'Fix login' } as const;
       workspaceService.update(workspace.id, {
         tag: 'Blocked',
-        progress: { label: 'CI running', tone: 'info' },
+        markers: [pr, { key: 'progress', label: 'CI running', tone: 'info', spinner: true }],
       });
-      expect(workspaceService.get(workspace.id)).toMatchObject({
-        tag: 'Blocked',
-        progress: { label: 'CI running', tone: 'info' },
-      });
+      expect(workspaceService.get(workspace.id)?.markers).toHaveLength(2);
 
       mockWriteFileAtomic.mockClear();
       await workspaceService.saveWorkspacesImmediate();
@@ -18140,8 +18138,31 @@ describe('WorkspaceService', () => {
       const persisted = (JSON.parse(saved) as Array<{ id: string }>).find(
         (entry) => entry.id === workspace.id
       );
-      expect(persisted).toMatchObject({ tag: 'Blocked' });
-      expect(persisted).not.toHaveProperty('progress');
+      expect(persisted).toMatchObject({ tag: 'Blocked', markers: [pr] });
+    });
+
+    it("takes a marker off main's own list, keeping one a script put on meanwhile", async () => {
+      mockConfigService.get.mockReturnValue({ autoNameWorkspaces: 'off' });
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const workspace = await workspaceService.create({
+        mode: 'directory',
+        directoryPath: '/mock/dir-remove-marker',
+      });
+      workspaceService.update(workspace.id, {
+        markers: [
+          { key: 'pr', label: 'PR #12', tone: 'info' },
+          // Put on after the renderer last heard of the markers.
+          { key: 'deploy', label: 'Staging', tone: 'neutral' },
+        ],
+      });
+
+      workspaceService.removeMarker(workspace.id, 'pr');
+      expect(workspaceService.get(workspace.id)?.markers).toEqual([
+        { key: 'deploy', label: 'Staging', tone: 'neutral' },
+      ]);
+      workspaceService.removeMarker(workspace.id, 'missing');
+      workspaceService.removeMarker(workspace.id, 'deploy');
+      expect(workspaceService.get(workspace.id)?.markers).toBeUndefined();
     });
   });
 

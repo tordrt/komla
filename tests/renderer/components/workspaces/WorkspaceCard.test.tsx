@@ -68,7 +68,7 @@ const workspacesState = {
   markUnread: vi.fn(),
   setPinned: vi.fn(),
   setTag: vi.fn(),
-  clearProgress: vi.fn(),
+  removeMarker: vi.fn(),
   snoozeWorkspace: vi.fn(),
   selectionMode: false,
   selectedWorkspaceIds: new Set<string>(),
@@ -1249,29 +1249,63 @@ describe('WorkspaceCard', () => {
     ).toBe(true);
   });
 
-  it("spins progress in the tag's place, keeps the tag in the hover card, and clears it", () => {
+  it("shows a marker in the tag's place, work under way first, counting what it hides", () => {
     const workspace = createWorktreeWorkspace({
       tag: 'Blocked',
-      progress: { label: 'CI running', tone: 'info', tooltip: 'build 7 of 9' },
+      markers: [
+        { key: 'pr', label: 'PR #12', tone: 'info', tooltip: 'Fix login' },
+        { key: 'deploy', label: 'Staging', tone: 'neutral' },
+        { key: 'progress', label: 'CI running', tone: 'info', tooltip: 'build 7 of 9', spinner: true },
+      ],
     });
     render(<WorkspaceCard workspace={workspace} />);
+    // One pill, as a spinning tag showed: the tag waits behind it, counted with the rest.
     expect(document.querySelector('[data-workspace-tag]')).toBeNull();
+    expect(
+      [...document.querySelectorAll('[data-workspace-marker]')].map((pill) => pill.textContent)
+    ).toEqual(['CI running']);
     const pill = document.querySelector('[data-workspace-progress]') as HTMLElement;
     expect(pill).toHaveTextContent('CI running');
     expect(pill.querySelector('.activity-glyph')).not.toBeNull();
-    expect(
-      screen
-        .getAllByTestId('tooltip-content')
-        .some((tooltip) => tooltip.textContent === 'CI running, under way · build 7 of 9')
-    ).toBe(true);
+    expect(document.querySelector('[data-workspace-more-markers]')).toHaveTextContent('+3');
+    const tooltips = screen.getAllByTestId('tooltip-content').map((tip) => tip.textContent);
+    expect(tooltips).toContain('CI running, under way · build 7 of 9');
+    expect(tooltips).toContain('PR #12 · Staging · Blocked');
 
     fireEvent.focus(screen.getByRole('button', { name: /^Workspace details for/ }));
-    const progress = document.querySelector('[data-workspace-info-progress]');
-    expect(progress?.parentElement).toHaveTextContent('CI runningbuild 7 of 9');
+    const listed = [...document.querySelectorAll('[data-workspace-info-marker]')];
+    expect(listed.map((marker) => marker.parentElement?.textContent)).toEqual([
+      'CI runningbuild 7 of 9',
+      'PR #12Fix login',
+      'Staging',
+    ]);
     expect(document.querySelector('[data-workspace-info-tag]')).toHaveTextContent('Blocked');
 
     fireEvent.click(screen.getByText('Clear CI running'));
-    expect(workspacesState.clearProgress).toHaveBeenCalledWith(workspace.id);
+    expect(workspacesState.removeMarker).toHaveBeenCalledWith(workspace.id, 'progress');
+    fireEvent.click(screen.getByText('Remove PR #12'));
+    expect(workspacesState.removeMarker).toHaveBeenCalledWith(workspace.id, 'pr');
+  });
+
+  it('shows a marker without a tag, and no spinner for one that is not under way', () => {
+    const workspace = createWorktreeWorkspace({
+      markers: [{ key: 'pr', label: 'PR #12', tone: 'info' }],
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    const pill = document.querySelector('[data-workspace-marker="pr"]') as HTMLElement;
+    expect(pill).toHaveTextContent('PR #12');
+    expect(pill.querySelector('.activity-glyph')).toBeNull();
+    expect(document.querySelector('[data-workspace-progress]')).toBeNull();
+    expect(document.querySelector('[data-workspace-tag]')).toBeNull();
+    expect(document.querySelector('[data-workspace-more-markers]')).toBeNull();
+  });
+
+  it('shows the tag in its place again once the markers are gone', () => {
+    const workspace = createWorktreeWorkspace({ tag: 'Blocked' });
+    render(<WorkspaceCard workspace={workspace} />);
+    expect(document.querySelector('[data-workspace-tag]')).toHaveTextContent('Blocked');
+    expect(document.querySelector('[data-workspace-marker]')).toBeNull();
+    expect(document.querySelector('[data-workspace-more-markers]')).toBeNull();
   });
 
   it("keeps the tag and a script's note in the hover card while a notification has its place", () => {

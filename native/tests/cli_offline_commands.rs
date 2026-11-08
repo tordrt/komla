@@ -66,6 +66,8 @@ fn workspace_commands_wait_on_the_host_while_komla_is_away() {
         Some(&inbox),
         &["snooze", "30m", "--until-notified", "--json"],
     );
+    // A marker stays, as a tag does, so it waits too.
+    let mark = run_while_away(Some(&inbox), &["mark", "pr", "PR #12"]);
 
     assert!(title.status.success(), "{title:?}");
     assert_eq!(
@@ -83,6 +85,7 @@ fn workspace_commands_wait_on_the_host_while_komla_is_away() {
         String::from_utf8(snooze.stdout).unwrap(),
         "{\"queued\":true}\n"
     );
+    assert!(mark.status.success(), "{mark:?}");
     let commands = queued(&temporary.path().join("companion/outbox"));
     let operations: Vec<_> = commands
         .iter()
@@ -94,6 +97,7 @@ fn workspace_commands_wait_on_the_host_while_komla_is_away() {
             json!({"type": "workspace.title", "title": "Fix the cache"}),
             json!({"type": "workspace.tag", "tag": "Ready for review"}),
             json!({"type": "workspace.snooze", "until": "30m", "untilNotified": true}),
+            json!({"type": "workspace.mark", "key": "pr", "label": "PR #12"}),
         ]
     );
     assert_eq!(commands[0]["path"], "/api/v1/commands");
@@ -213,7 +217,11 @@ fn commands_the_user_turned_off_are_refused_rather_than_queued() {
 Integrations & MCP → MCP and CLI access.";
     fs::write(
         &config,
-        serde_json::to_vec(&json!({"turnedOffCommands": {"workspace.tag": turned_off}})).unwrap(),
+        serde_json::to_vec(&json!({"turnedOffCommands": {
+            "workspace.tag": turned_off,
+            "workspace.mark": turned_off,
+        }}))
+        .unwrap(),
     )
     .unwrap();
     fs::write(
@@ -225,6 +233,9 @@ Integrations & MCP → MCP and CLI access.";
 
     let tag = run_while_away(Some(&inbox), &["tag", "Blocked", "--json"]);
     let title = run_while_away(Some(&inbox), &["title", "Fix the cache"]);
+    // The tag's toggle turns markers off too, as they show beside it.
+    let mark = run_while_away(Some(&inbox), &["mark", "pr", "PR #12"]);
+    assert!(!mark.status.success(), "{mark:?}");
 
     assert!(!tag.status.success(), "{tag:?}");
     let error: Value = serde_json::from_slice(&tag.stdout).unwrap();
@@ -384,6 +395,9 @@ fn progress_neither_waits_on_the_host_nor_overtakes_commands_there() {
     for arguments in [
         &["progress", "CI running"][..],
         &["tag", "CI running", "--spinner"][..],
+        &["mark", "ci", "CI running", "--spinner"][..],
+        // Clearing it doesn't wait either, as `komla progress --clear` never did.
+        &["unmark", "progress"][..],
     ] {
         let output = run_while_away(Some(&inbox), arguments);
         assert!(!output.status.success(), "{arguments:?}: {output:?}");

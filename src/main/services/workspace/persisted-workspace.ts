@@ -8,6 +8,10 @@ import {
 } from '../../../shared/lib/terminal-execution-state';
 import { normalizeVirtualDesktops } from '../../../shared/lib/virtual-desktops';
 import {
+  normalizePersistedWorkspaceMarkers,
+  savedWorkspaceMarkers,
+} from '../../../shared/lib/workspace-markers';
+import {
   MAX_WORKSPACE_TAG_TOOLTIP,
   normalizeWorkspaceTagName,
   PULL_REQUEST_TAG_STATES,
@@ -98,6 +102,8 @@ export type PersistedWorkspace = {
   tag?: string;
   tagSource?: Workspace['tagSource'];
   tagTooltip?: string;
+  /** Markers without a spinner: work under way ends with Komla. */
+  markers?: Workspace['markers'];
   pullRequestState?: Workspace['pullRequestState'];
   snoozedUntil?: number;
   wakesOnNotification?: boolean;
@@ -389,6 +395,7 @@ export function hydrateWorkspace(rawPersisted: PersistedWorkspace): {
       persisted.tag && typeof persisted.tagTooltip === 'string'
         ? persisted.tagTooltip.slice(0, MAX_WORKSPACE_TAG_TOOLTIP) || undefined
         : undefined,
+    markers: normalizePersistedWorkspaceMarkers(persisted.markers),
     pullRequestState: PULL_REQUEST_TAG_STATES.includes(
       persisted.pullRequestState as PullRequestTagState
     )
@@ -535,6 +542,7 @@ export function serializeWorkspace(
     tag: w.tag,
     tagSource: w.tag ? w.tagSource : undefined,
     tagTooltip: w.tag ? w.tagTooltip : undefined,
+    markers: savedWorkspaceMarkers(w.markers),
     pullRequestState: w.pullRequestState,
     snoozedUntil: w.snoozedUntil,
     wakesOnNotification: w.wakesOnNotification,

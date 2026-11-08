@@ -436,6 +436,10 @@ export function registerWorkspaceHandlers(): void {
     return result;
   });
 
+  handleIpc(IPC.WORKSPACE_REMOVE_MARKER, (_, [workspaceId, key]) => {
+    workspaceService.removeMarker(workspaceId, key);
+  });
+
   // Notify all other windows that workspace data has changed (used after bulk operations)
   handleIpc(IPC.WORKSPACE_NOTIFY_CHANGED, (event) => {
     const senderId = event.sender?.id;

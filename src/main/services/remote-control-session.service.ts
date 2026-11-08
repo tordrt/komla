@@ -29,7 +29,7 @@ import { IPC } from '../../shared/constants/ipc-channels';
 import { fillActionText } from '../../shared/lib/action-injection';
 import { actionLastUse, byRecentUse } from '../../shared/lib/action-order';
 import { projectColorHex } from '../../shared/lib/project-color';
-import { workspaceCardTagAppearance } from '../../shared/lib/workspace-progress';
+import { workspaceCardTagAppearance } from '../../shared/lib/workspace-markers';
 import { type WorkspaceTagDefinition } from '../../shared/lib/workspace-tags';
 import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
 import {

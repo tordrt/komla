@@ -314,6 +314,10 @@ const api = {
   updateWorkspace: (workspaceId: string, updates: Partial<Workspace>): Promise<Workspace> =>
     ipcRenderer.invoke(IPC.WORKSPACE_UPDATE, workspaceId, updates),
 
+  /** Takes a marker off as the user does from the card's menu. */
+  removeWorkspaceMarker: (workspaceId: string, key: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_REMOVE_MARKER, workspaceId, key),
+
   notifyWorkspacesChanged: (): Promise<void> => ipcRenderer.invoke(IPC.WORKSPACE_NOTIFY_CHANGED),
 
   updateTerminal: (terminalId: string, updates: Partial<Terminal>): Promise<Terminal> =>

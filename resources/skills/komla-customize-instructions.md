@@ -45,12 +45,17 @@ SSH host or in a VM can belong to another Komla.
 ## Tags, notifications and status items
 
 Quick Commands, hooks and status bar items run where the `komla` CLI is, so they can tell the user
-what they see: `komla tag` for a state that holds, such as Waiting for review; `komla progress` for
-work under way, such as tests running, which spins in the tag's place and leaves the tag be; `komla
+what they see: `komla tag` for a state that holds and sorts workspaces, such as Waiting for
+review; `komla mark <key> <label>` for anything else that matters only on that workspace, such as
+its pull request's number, which shows on its card without joining the user's tag list;
+`komla progress` for work under way, such as tests running, which spins on the card and leaves the tag be; `komla
 notify` for news once, such as a run that ended; `komla status set` for a value to keep in view.
+When the thing a marker shows is over, `komla unmark <key>` takes it off, often followed by a
+`komla notify` that says how it ended; `komla unmark --all` clears every marker at once.
 
-A workspace has one tag, and its card has room for a word or two. Keep tags and notification
-titles short, reuse the tags `komla tags` lists, and notify only when something changes.
+A workspace has one tag, and its card has room for a word or two. Keep tags, markers and
+notification titles short, reuse the tags `komla tags` lists rather than add one per pull request
+or ticket, which is a marker's job, and notify only when something changes.
 `komla notify -- <command>` says Done or Failed by itself, and a background Quick Command notifies
 without it, from how the command exits. Their `--help` shows icons and tones. Progress shows only
 what is under way; how it ended is a notification. A Quick Command that runs the tests in a tab,

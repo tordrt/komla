@@ -65,10 +65,17 @@ test.describe('Komla SDK', () => {
     await expect(
       komla.workspace.tag({ tag: 'Blocked' }, { workspace: workspaceId })
     ).resolves.toEqual({ tag: { workspaceId, tag: 'Blocked', changed: true, added: false } });
+    // A marker shows in the tag's place, as a spinning tag did, and counts the tag it hides.
+    await expect(
+      komla.workspace.mark({ key: 'pr', label: 'PR #12', tone: 'info' }, { workspace: workspaceId })
+    ).resolves.toEqual({ marker: { workspaceId, key: 'pr', label: 'PR #12', changed: true } });
+    await expect(appWindow.locator('[data-workspace-marker="pr"]').first()).toBeVisible();
+    await expect(appWindow.locator('[data-workspace-more-markers]').first()).toHaveText('+1');
+    await appWindow.screenshot({ path: test.info().outputPath('sdk-marker.png') });
     await expect(
       komla.workspace.progress({ label: 'CI running', tone: 'info' }, { workspace: workspaceId })
     ).resolves.toEqual({ progress: { workspaceId, label: 'CI running', changed: true } });
-    // It spins in the tag's place on the card until the notification below takes that place.
+    // It spins in the tag's place, ahead of the marker, until the notification below takes it.
     const progress = appWindow.locator('[data-workspace-progress]').filter({ hasText: 'CI running' });
     await expect(progress.first()).toBeVisible();
     await expect(progress.first().locator('.activity-glyph')).toHaveCount(1);
@@ -86,7 +93,7 @@ test.describe('Komla SDK', () => {
           const workspace = (await window.api.getWorkspaces()).find((w) => w.id === id);
           return {
             tag: workspace?.tag,
-            progress: workspace?.progress?.label,
+            progress: workspace?.markers?.find((marker) => marker.key === 'progress')?.label,
             kind: workspace?.attention?.kind,
             title: workspace?.attention?.title,
             badge: workspace?.attention?.badge,

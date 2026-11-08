@@ -43,13 +43,24 @@ Local copy; failure leaves both the workspace and Local copy intact.
 A label from the user's tag list, such as "In review" or "Blocked", that sorts a workspace by what
 it waits on: it shows on the card, the sidebar's filters offer it, and a hidden tag moves its
 workspaces to the Filtered shelf. A workspace has one tag, put on by the user, a script, or Komla from
-the branch's pull request. A tag says what stays; work under way is Workspace Progress.
+the branch's pull request. A tag says what stays and sorts; anything a script shows only on its
+workspace is a Workspace Marker.
 _Avoid_: Label, status, spinner tag
 
+**Workspace Marker**:
+Text a script or agent shows on one workspace's card, such as "PR #12" or "Waiting on design",
+in the tag's place until the script removes it. It isn't a Tag: it never joins the tag list, a
+filter or the Filtered shelf, and the workspace keeps its tag, which shows again once the markers
+are gone. A workspace has a few, each under a key the script
+names, so one script's marker never replaces another's. A marker is saved with its workspace, except
+one with a spinner, which is Workspace Progress. The user removes any marker from the card's menu.
+_Avoid_: Label, annotation, badge (a notification's badge or a Panel Badge), marks (the sidebar's own
+pins, tags and snoozes)
+
 **Workspace Progress**:
-Work under way in a workspace that a script shows, such as "CI running", with a spinner in the tag's
-place until the script clears it. It isn't a Tag: it never joins the tag list or a filter, the
-workspace keeps its tag, and it isn't saved, so it ends when Komla quits.
+Work under way in a workspace that a script shows, such as "CI running": a Workspace Marker with a
+spinner. It isn't saved, so it ends when Komla quits. `komla progress` shows the one under the key
+`progress`.
 _Avoid_: Spinner tag, activity (the agent's working spinner), status (a status bar item)
 
 ## Workspace Files

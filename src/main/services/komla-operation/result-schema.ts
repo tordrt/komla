@@ -214,7 +214,23 @@ export const komlaOperationResultSchemas = {
               .optional()
               .describe('The attention the workspace shows.'),
             tag: z.string().optional(),
-            progress: z.string().optional().describe('The label of the progress it shows.'),
+            markers: z
+              .array(
+                z
+                  .object({
+                    key: z.string(),
+                    label: z.string(),
+                    tone: z.enum(WORKSPACE_TAG_TONES),
+                    spinner: z.literal(true).optional().describe('Work under way.'),
+                  })
+                  .strict()
+              )
+              .optional()
+              .describe('What scripts show on its card.'),
+            progress: z
+              .string()
+              .optional()
+              .describe('The label of the progress it shows, its `progress` marker.'),
             linkedWorkspaceIds: z.array(z.string()).optional(),
           })
           .strict()
@@ -294,6 +310,32 @@ export const komlaOperationResultSchemas = {
     })
     .strict(),
   'workspace.progress': z.object({ progress: progressResult }).strict(),
+  'workspace.mark': z
+    .object({
+      marker: z
+        .object({
+          workspaceId: z.string(),
+          key: z.string(),
+          label: z.string().nullable().describe("The label of the workspace's marker afterward."),
+          changed: z
+            .boolean()
+            .describe(
+              "False when nothing changed: `ifLabel` named a label the marker didn't show, or there was no marker to take off."
+            ),
+        })
+        .strict()
+        .optional()
+        .describe('Set for a call that names a `key`.'),
+      cleared: z
+        .object({
+          workspaceId: z.string(),
+          keys: z.array(z.string()).describe('The keys of the markers it took off.'),
+        })
+        .strict()
+        .optional()
+        .describe('Set for a call with `all`.'),
+    })
+    .strict(),
   'workspace.trash': z
     .object({
       trash: z

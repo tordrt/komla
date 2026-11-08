@@ -69,7 +69,7 @@ const COMMANDS: &[Command] = &[
         summary: "Say on its card what it waits on",
         description: &[
             "Tags the current workspace to say what it waits on, such as \"In review\", or how something a script saw ended, such as \"CI failed\". The tag shows on its card while no agent is busy there, until it's taken off or replaced. A workspace has one tag, so this replaces the user's.",
-            "A tag the user doesn't have yet joins their list with --tone and --icon; one they have keeps the look they gave it. `komla tags` lists them. For work under way, such as CI running, use `komla progress`, which leaves the tag be.",
+            "A tag the user doesn't have yet joins their list with --tone and --icon; one they have keeps the look they gave it. `komla tags` lists them. For anything that matters only on this workspace, such as its pull request's number, use `komla mark`, and for work under way, such as CI running, `komla progress`: both leave the tag and the user's list be.",
         ],
         options: &[
             ("--tone <tone>", "neutral, info, attention, success, warning or error."),
@@ -96,12 +96,48 @@ const COMMANDS: &[Command] = &[
     },
     Command {
         group: Group::Workspaces,
+        name: "mark",
+        index: "<key> <label>",
+        usages: &["<key> <label> [options]"],
+        summary: "Show anything else on its card, such as PR #12",
+        description: &[
+            "Shows a marker in the tag's place on the current workspace's card while no agent is busy there, such as \"PR #12\" or \"Waiting on design\", until it's taken off. It isn't a tag: it never joins the user's list or the sidebar's filters, and the workspace keeps its tag, which shows again once its markers are gone.",
+            "The key is your name for it, up to 40 letters, digits, dots, dashes and underscores, such as pr: marking a key again replaces its marker, and markers under other keys stay. A workspace has at most 5 besides its progress, whose key, progress, takes only a marker with --spinner. A marker is saved with the workspace, except one with --spinner, which ends when Komla quits. The user can also remove it from the card's menu.",
+        ],
+        options: &[
+            ("--tone <tone>", "neutral, info, attention, success, warning or error."),
+            ("--tooltip <text>", "More on hover, until it changes."),
+            ("--spinner", "Show it as work under way, as `komla progress` does."),
+            ("--if <label>", "Change only a marker under that key that shows that label, so a script leaves alone one another run put on since."),
+            JSON,
+        ],
+        examples: &[
+            "komla mark pr \"PR #12\" --tone info --tooltip \"Fix the login redirect\"",
+            "komla unmark pr && komla notify \"PR #12 merged\" --color success",
+        ],
+    },
+    Command {
+        group: Group::Workspaces,
+        name: "unmark",
+        index: "<key>",
+        usages: &["<key> [--if <label>] [--json]", "--all [--json]"],
+        summary: "Take a marker off, or all of them",
+        description: &["Takes the current workspace's marker under that key off. With --if, only while it shows that label, so a script that finishes late leaves alone a marker another run put on since. --all takes every marker off, progress too, and leaves the tag be."],
+        options: &[
+            ("--if <label>", "Take it off only while it shows that label."),
+            ("--all", "Take every marker off, in place of a key."),
+            JSON,
+        ],
+        examples: &["komla unmark pr", "komla unmark --all"],
+    },
+    Command {
+        group: Group::Workspaces,
         name: "progress",
         index: "<label>",
         usages: &["<label> [options]", "--clear [<label>] [--json]"],
         summary: "Show work under way on its card, such as CI",
         description: &[
-            "Shows work under way in the current workspace, such as \"CI running\", with a spinner in its tag's place on the card while no agent is busy there, until it's cleared. It isn't a tag: it never joins the user's list, the workspace keeps its tag, and it ends when Komla quits.",
+            "Shows work under way in the current workspace, such as \"CI running\", with a spinner in its tag's place on the card while no agent is busy there, until it's cleared. It's the workspace's `progress` marker, as `komla mark progress <label> --spinner` shows it: it never joins the user's list, the workspace keeps its tag, and it ends when Komla quits.",
             "--clear takes it off, or only progress of that label, so a script that finishes late leaves alone progress another one shows since. The user can also clear it from the card's menu.",
         ],
         options: &[
@@ -161,7 +197,7 @@ const COMMANDS: &[Command] = &[
         usages: &["[--all] [--json]"],
         summary: "List workspaces and their ids, for --workspace",
         description: &[
-            "Lists the workspaces with their ids, branches, attention, tags and progress. `komla workspace <title|snooze|wake|tag|untag|progress|trash>` is the same as the command without `workspace`.",
+            "Lists the workspaces with their ids, branches, attention, tags, markers and progress. `komla workspace <title|snooze|wake|tag|untag|mark|unmark|progress|trash>` is the same as the command without `workspace`.",
             "On an SSH host that can't reach Komla, it lists the host's own workspaces, without the tags, links, attention and agent state only Komla knows.",
         ],
         options: &[("--all", "Also list those in the Trash."), JSON],
@@ -573,9 +609,8 @@ pub(crate) fn index() -> String {
 pub(crate) fn command(words: &[&str]) -> Option<String> {
     // `workspace tag` and the rest are `tag` and the rest for another workspace.
     let words = match words {
-        ["workspace", "title" | "snooze" | "wake" | "tag" | "untag" | "progress" | "trash", ..] => {
-            &words[1..]
-        }
+        ["workspace", "title" | "snooze" | "wake" | "tag" | "untag" | "mark" | "unmark" | "progress"
+        | "trash", ..] => &words[1..],
         _ => words,
     };
     if words.is_empty() {

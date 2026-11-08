@@ -16,7 +16,9 @@ const { workspaces } = await komla.workspace.list();
 for (const workspace of workspaces) {
   await komla.workspace.tag({ tag: 'Waiting for review' }, { workspace: workspace.id });
 }
-// Work under way spins in the tag's place, and leaves the tag be.
+// A marker shows on the card under the script's own key, and never joins the tag list.
+await komla.workspace.mark({ key: 'pr', label: 'PR #12', tone: 'info' });
+// Work under way spins on the card, and leaves the tag be.
 await komla.workspace.progress({ label: 'CI running', tone: 'info' });
 await komla.status.set({ id: 'tests', text: '142/150 passing', tone: 'warning' });
 // Notifying needs no capability, as `komla notify` needs none.

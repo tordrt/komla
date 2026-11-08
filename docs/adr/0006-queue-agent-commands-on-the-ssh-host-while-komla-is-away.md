@@ -8,8 +8,8 @@ Agents on an SSH host keep working while no Komla installation is connected: the
 the network drops, the user is away. Their hooks already wait in the Pending Terminal Hook mailbox
 (ADR 0001), and `komla agent launch --new-workspace` already starts a workspace on the host by
 itself. The other commands that change a workspace, `komla title`, `snooze`, `wake`, `tag`,
-`untag` and `trash`, failed with "Komla is not running", so an agent that finished its work could
-not say so.
+`untag` and `trash`, and later `mark` and `unmark`, failed with "Komla is not running", so an
+agent that finished its work could not say so.
 
 When such a command can't reach Komla from a managed terminal on the host, the CLI queues it
 instead. It writes the typed operation it would have sent, with the terminal, workspace and cwd it
@@ -49,9 +49,10 @@ operations of its own.
   tags, which only the desktop knows.
 - **What doesn't queue.** Commands that answer with the desktop's data or act on its screen, such
   as `status`, `preview`, `open` and `komla agent launch` with `--preset`, `--mode` or
-  `--project`, still need a connected desktop. Workspace Progress, from `komla progress` or
-  `komla tag --spinner`, isn't queued either: it ends with Komla, so a replay would show work
-  under way long after it ended. While earlier commands still wait, it fails rather than overtake
+  `--project`, still need a connected desktop. A Workspace Marker from `komla mark` queues, as a
+  tag does, since it stays until a script takes it off. Workspace Progress, from `komla progress`,
+  `komla tag --spinner` or `komla mark --spinner`, isn't queued: it ends with Komla, so a replay
+  would show work under way long after it ended. While earlier commands still wait, it fails rather than overtake
   them, as one of them might clear it.
 
 ## Considered options

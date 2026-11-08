@@ -5,6 +5,7 @@ import {
   MAX_VIRTUAL_DESKTOP_NAME_LENGTH,
   MAX_VNC_PASSWORD_LENGTH,
 } from '../../../shared/lib/virtual-desktops';
+import { WORKSPACE_MARKER_KEY_PATTERN } from '../../../shared/lib/workspace-markers';
 import {
   MAX_WORKSPACE_TAG_LENGTH,
   MAX_WORKSPACE_TAG_TOOLTIP,
@@ -338,7 +339,41 @@ export const komlaOperationSchema = z.discriminatedUnion('type', [
     })
     .strict()
     .describe(
-      "Shows work under way, such as CI running, with a spinner in the tag's place until it ends, or takes it off without `label`, which `tone` and `tooltip` need. It isn't a tag: the workspace keeps its tag, and progress ends with Komla."
+      "Shows work under way, such as CI running: the `progress` marker, with a spinner, until it ends, or takes it off without `label`, which `tone` and `tooltip` need. It isn't a tag: the workspace keeps its tag, and progress ends with Komla."
+    ),
+  z
+    .object({
+      type: z.literal('workspace.mark'),
+      key: z
+        .string()
+        .regex(
+          WORKSPACE_MARKER_KEY_PATTERN,
+          'Marker keys are up to 40 letters, digits, dots, dashes and underscores.'
+        )
+        .optional()
+        .describe(
+          "The script's name for the marker, such as `pr`: up to 40 letters, digits, dots, dashes and underscores. Every call names one, except one with `all`."
+        ),
+      all: z
+        .literal(true)
+        .optional()
+        .describe(
+          'Takes every marker off the workspace, progress too, in place of naming a `key`. It takes nothing else.'
+        ),
+      label: workspaceTagNameSchema.optional(),
+      tooltip: z.string().trim().min(1).max(MAX_WORKSPACE_TAG_TOOLTIP).optional(),
+      tone: z.enum(WORKSPACE_TAG_TONES).optional(),
+      spinner: z
+        .boolean()
+        .optional()
+        .describe('Shows the marker as work under way, which ends with Komla.'),
+      ifLabel: workspaceTagNameSchema
+        .optional()
+        .describe('Changes only a marker under `key` that shows this label.'),
+    })
+    .strict()
+    .describe(
+      "Shows text on the workspace's card, such as a pull request's number, under `key`, replacing the marker of that key, or takes it off without `label`, which `tone`, `tooltip` and `spinner` need. With `all` in place of `key`, takes every marker off. It isn't a tag: it never joins the user's list or a filter. A marker is saved with the workspace, except one with a spinner."
     ),
   z
     .object({

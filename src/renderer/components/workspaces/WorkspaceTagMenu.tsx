@@ -26,6 +26,7 @@ import { useSettingsDialogStore } from '@/stores/settings-dialog.store';
 import { useWorkspaceTagDialogStore } from '@/stores/workspace-tag-dialog.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
+import { shownWorkspaceMarkers, type WorkspaceMarker } from '../../../shared/lib/workspace-markers';
 import {
   findWorkspaceTag,
   MAX_WORKSPACE_TAG_LENGTH,
@@ -35,9 +36,10 @@ import {
   type WorkspaceTagTone,
 } from '../../../shared/lib/workspace-tags';
 
+import { HiddenMarks, WorkspaceMarkerPill } from './WorkspaceMarkers';
 import { WorkspaceTagBadge } from './WorkspaceTagBadge';
 
-import type { WorkspaceProgress } from '../../../shared/lib/workspace-progress';
+import type { Workspace } from '@/types';
 
 /** The Settings card that lists the tags, which Tag ▸ Edit Tags... opens. */
 export const WORKSPACE_TAGS_CARD = 'Workspace tags';
@@ -270,19 +272,54 @@ export function WorkspaceTagPill({
   );
 }
 
-/** Takes off progress a script left showing, such as one that ended without saying so. */
-export function ClearProgressMenuItem({
+/**
+ * One pill in the tag's place while no agent is busy, as a spinning tag showed before markers: the
+ * first marker, work under way first, or else the tag, with a count of what it hides.
+ */
+export function WorkspaceMarkerOrTag({
+  workspace,
+  className,
+}: {
+  workspace: Pick<Workspace, 'markers' | 'tag' | 'tagSource' | 'tagTooltip'>;
+  className?: string;
+}) {
+  const [first, ...rest] = shownWorkspaceMarkers(workspace.markers);
+  if (!first) {
+    return workspace.tag ? (
+      <WorkspaceTagPill
+        tag={workspace.tag}
+        fromPullRequest={workspace.tagSource === 'pull-request'}
+        tooltip={workspace.tagTooltip}
+        className={className}
+      />
+    ) : null;
+  }
+  const hidden = [...rest.map((marker) => marker.label), ...(workspace.tag ? [workspace.tag] : [])];
+  return (
+    <span className={cn('flex min-w-0 items-center gap-1', className)}>
+      <WorkspaceMarkerPill marker={first} className="min-w-0 shrink" />
+      <HiddenMarks labels={hidden} />
+    </span>
+  );
+}
+
+/** Takes off each marker a script left showing, such as one that ended without saying so. */
+export function RemoveMarkerMenuItems({
   workspaceId,
-  progress,
+  markers,
 }: {
   workspaceId: string;
-  progress: WorkspaceProgress | undefined;
+  markers: WorkspaceMarker[] | undefined;
 }) {
-  if (!progress) return null;
-  return (
-    <ContextMenuItem onClick={() => useWorkspacesStore.getState().clearProgress(workspaceId)}>
+  return shownWorkspaceMarkers(markers).map((marker) => (
+    <ContextMenuItem
+      key={marker.key}
+      onClick={() => useWorkspacesStore.getState().removeMarker(workspaceId, marker.key)}
+    >
       <X />
-      <span className="truncate">Clear {progress.label}</span>
+      <span className="truncate">
+        {marker.spinner ? 'Clear' : 'Remove'} {marker.label}
+      </span>
     </ContextMenuItem>
-  );
+  ));
 }

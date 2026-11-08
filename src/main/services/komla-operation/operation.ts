@@ -22,10 +22,17 @@ import {
 } from '../../../shared/lib/launch-mode-permissions';
 import { levelPickerOf, shownReasoningLevels } from '../../../shared/lib/level-picker';
 import {
-  normalizeWorkspaceProgressLabel,
+  findWorkspaceMarker,
+  markerShows,
+  MAX_WORKSPACE_MARKERS,
+  normalizeWorkspaceMarkerLabel,
+  PROGRESS_MARKER_KEY,
   showsWorkspaceProgress,
-  type WorkspaceProgress,
-} from '../../../shared/lib/workspace-progress';
+  withoutWorkspaceMarker,
+  withWorkspaceMarker,
+  workspaceProgress,
+  type WorkspaceMarker,
+} from '../../../shared/lib/workspace-markers';
 import {
   findWorkspaceTag,
   MAX_WORKSPACE_TAGS,
@@ -92,6 +99,7 @@ import type { TerminalText } from '../../lib/terminal-text';
 
 const MAX_SNOOZE_MS = 365 * 24 * 60 * 60 * 1000;
 type ProgressResult = KomlaOperationResults['workspace.progress']['progress'];
+type MarkerResult = NonNullable<KomlaOperationResults['workspace.mark']['marker']>;
 
 /** Lets `komla trash` reply before the Trash stops the terminal it runs in. */
 export const TRASH_WITHOUT_TURN_DELAY_MS = 1000;
@@ -294,7 +302,7 @@ export interface KomlaOperationWorkspace {
   customName?: string;
   branchName?: string;
   tag?: string;
-  progress?: WorkspaceProgress;
+  markers?: WorkspaceMarker[];
   provisioning?: boolean;
   snoozedUntil?: number;
   wakesOnNotification?: boolean;
@@ -513,12 +521,29 @@ export type KomlaOperation =
       spinner?: boolean;
       ifTag?: string;
     }
-  /** Without a label, takes progress off. With `ifLabel`, changes only progress of that label. */
+  /**
+   * Shows the `progress` marker with a spinner, or takes it off without a label. With `ifLabel`,
+   * changes only progress of that label.
+   */
   | {
       type: 'workspace.progress';
       label?: string;
       tooltip?: string;
       tone?: WorkspaceTagTone;
+      ifLabel?: string;
+    }
+  /**
+   * Shows the marker under `key`, or takes it off without a label. With `ifLabel`, changes only a
+   * marker that shows that label. `all`, in place of `key`, takes every marker off.
+   */
+  | {
+      type: 'workspace.mark';
+      key?: string;
+      all?: true;
+      label?: string;
+      tooltip?: string;
+      tone?: WorkspaceTagTone;
+      spinner?: boolean;
       ifLabel?: string;
     }
   | { type: 'workspace.trash' }
@@ -687,6 +712,8 @@ export class KomlaOperationService {
         return this.tagWorkspace(context, operation);
       case 'workspace.progress':
         return this.showProgress(context, operation);
+      case 'workspace.mark':
+        return this.markWorkspace(context, operation);
       case 'workspace.trash':
         return this.trashWorkspace(context);
       case 'workspace.notify':
@@ -1056,7 +1083,7 @@ export class KomlaOperationService {
     // `untag` takes off progress a spinner showed, and a tag of that name with it.
     if (!name && replacesProgress) {
       this.updateAndPublish(workspace.id, {
-        progress: undefined,
+        markers: withoutWorkspaceMarker(workspace.markers, PROGRESS_MARKER_KEY),
         ...(tagNamed && { tag: undefined, tagSource: undefined }),
       });
       this.spinnerProgress.delete(workspace.id);
@@ -1094,7 +1121,9 @@ export class KomlaOperationService {
       tag,
       tagSource: undefined,
       tagTooltip: tooltip,
-      ...(replacesProgress && { progress: undefined }),
+      ...(replacesProgress && {
+        markers: withoutWorkspaceMarker(workspace.markers, PROGRESS_MARKER_KEY),
+      }),
     });
     if (replacesProgress) this.spinnerProgress.delete(workspace.id);
     return {
@@ -1113,7 +1142,7 @@ export class KomlaOperationService {
     }: Extract<KomlaOperation, { type: 'workspace.progress' }>
   ): KomlaOperationResults['workspace.progress'] {
     const workspace = this.requireWorkspace(context);
-    const label = input === undefined ? undefined : normalizeWorkspaceProgressLabel(input);
+    const label = input === undefined ? undefined : normalizeWorkspaceMarkerLabel(input);
     if (input !== undefined && !label) {
       throw new KomlaOperationError('INVALID_PROGRESS', 'Name the progress.', 400);
     }
@@ -1139,11 +1168,137 @@ export class KomlaOperationService {
     workspace: KomlaOperationWorkspace,
     { label, tone, tooltip }: { label?: string; tone?: WorkspaceTagTone; tooltip?: string }
   ): ProgressResult {
-    const progress: WorkspaceProgress | undefined = label
-      ? { label, tone: tone ?? 'neutral', ...(tooltip && { tooltip }) }
-      : undefined;
-    this.updateAndPublish(workspace.id, { progress });
-    return { workspaceId: workspace.id, label: label ?? null, changed: true };
+    const { label: shown } = this.applyMarker(
+      workspace,
+      PROGRESS_MARKER_KEY,
+      label ? { label, tone, tooltip, spinner: true } : undefined
+    );
+    // Cleared even when none showed, as `komla progress --clear` always said: false means `ifLabel`.
+    return { workspaceId: workspace.id, label: shown, changed: true };
+  }
+
+  private markWorkspace(
+    context: KomlaOperationContext,
+    operation: Extract<KomlaOperation, { type: 'workspace.mark' }>
+  ): KomlaOperationResults['workspace.mark'] {
+    const workspace = this.requireWorkspace(context);
+    // A key left out never means every marker: a script asks for that by name.
+    if (operation.all) return this.clearMarkers(workspace, operation);
+    const { key, label: input, tooltip, tone, spinner, ifLabel } = operation;
+    if (key === undefined) {
+      throw new KomlaOperationError(
+        'INVALID_MARKER',
+        "Name the marker's key, or take every marker off with `all`.",
+        400
+      );
+    }
+    const label = input === undefined ? undefined : normalizeWorkspaceMarkerLabel(input);
+    if (input !== undefined && !label) {
+      throw new KomlaOperationError('INVALID_MARKER', 'Name the marker.', 400);
+    }
+    // Without a label it takes the marker off, which a look meant for it would hide.
+    if (!label && (tone !== undefined || tooltip !== undefined || spinner)) {
+      throw new KomlaOperationError(
+        'INVALID_MARKER',
+        'Name the marker the tone, tooltip or spinner is for.',
+        400
+      );
+    }
+    // Progress is work under way, which ends with Komla: a marker that stays takes another key.
+    if (key === PROGRESS_MARKER_KEY && label && !spinner) {
+      throw new KomlaOperationError(
+        'INVALID_MARKER',
+        'The progress marker shows work under way: add `spinner`, as `komla progress` does, or use another key.',
+        400
+      );
+    }
+    const current = findWorkspaceMarker(workspace, key);
+    // A script that finished late leaves alone a marker another run put on since.
+    if (ifLabel !== undefined && !markerShows(current, ifLabel)) {
+      return {
+        marker: { workspaceId: workspace.id, key, label: current?.label ?? null, changed: false },
+      };
+    }
+    // As `komla progress` does, so a later tag leaves alone progress `komla tag --spinner` didn't show.
+    if (key === PROGRESS_MARKER_KEY) this.spinnerProgress.delete(workspace.id);
+    return {
+      marker: this.applyMarker(
+        workspace,
+        key,
+        label ? { label, tone, tooltip, spinner } : undefined
+      ),
+    };
+  }
+
+  /** Takes every marker off, as `komla unmark --all` asks. */
+  private clearMarkers(
+    workspace: KomlaOperationWorkspace,
+    {
+      key,
+      label,
+      tooltip,
+      tone,
+      spinner,
+      ifLabel,
+    }: Extract<KomlaOperation, { type: 'workspace.mark' }>
+  ): KomlaOperationResults['workspace.mark'] {
+    // `spinner: false`, as a client that sends its defaults does, asks for no look.
+    const others = [key, label, tooltip, tone, ifLabel].some((value) => value !== undefined);
+    if (others || spinner) {
+      throw new KomlaOperationError(
+        'INVALID_MARKER',
+        '`all` takes every marker off, so it takes no key, label or look.',
+        400
+      );
+    }
+    const keys = (workspace.markers ?? []).map((marker) => marker.key);
+    if (keys.length > 0) this.updateAndPublish(workspace.id, { markers: undefined });
+    this.spinnerProgress.delete(workspace.id);
+    return { cleared: { workspaceId: workspace.id, keys } };
+  }
+
+  /** Shows the marker under this key, or takes it off without a label. */
+  private applyMarker(
+    workspace: KomlaOperationWorkspace,
+    key: string,
+    shown:
+      | { label: string; tone?: WorkspaceTagTone; tooltip?: string; spinner?: boolean }
+      | undefined
+  ): MarkerResult {
+    if (!shown) {
+      const shownBefore = findWorkspaceMarker(workspace, key) !== undefined;
+      if (shownBefore) {
+        this.updateAndPublish(workspace.id, {
+          markers: withoutWorkspaceMarker(workspace.markers, key),
+        });
+      }
+      return { workspaceId: workspace.id, key, label: null, changed: shownBefore };
+    }
+    const { label, tone, tooltip, spinner } = shown;
+    // Progress has its own place, so `komla progress` shows whatever other scripts marked.
+    const others = (workspace.markers ?? []).filter((marker) => marker.key !== PROGRESS_MARKER_KEY);
+    if (
+      key !== PROGRESS_MARKER_KEY &&
+      !findWorkspaceMarker(workspace, key) &&
+      others.length >= MAX_WORKSPACE_MARKERS
+    ) {
+      throw new KomlaOperationError(
+        'MARKERS_FULL',
+        `The workspace shows ${MAX_WORKSPACE_MARKERS} markers already, so it can't add ${key}. Take one off with \`komla unmark\`, or replace one under its key.`,
+        409
+      );
+    }
+    const marker: WorkspaceMarker = {
+      key,
+      label,
+      tone: tone ?? 'neutral',
+      ...(tooltip && { tooltip }),
+      ...(spinner && { spinner: true as const }),
+    };
+    this.updateAndPublish(workspace.id, {
+      markers: withWorkspaceMarker(workspace.markers, marker),
+    });
+    return { workspaceId: workspace.id, key, label, changed: true };
   }
 
   /** Whether the workspace still shows the progress `komla tag --spinner` put on it. */
@@ -1153,7 +1308,11 @@ export class KomlaOperationService {
   }
 
   private unchangedProgress(workspace: KomlaOperationWorkspace): ProgressResult {
-    return { workspaceId: workspace.id, label: workspace.progress?.label ?? null, changed: false };
+    return {
+      workspaceId: workspace.id,
+      label: workspaceProgress(workspace)?.label ?? null,
+      changed: false,
+    };
   }
 
   /**
@@ -2292,6 +2451,7 @@ export class KomlaOperationService {
         const project = workspace.projectId
           ? this.dependencies.getProject(workspace.projectId)
           : undefined;
+        const progress = workspaceProgress(workspace);
         return {
           id: workspace.id,
           name: workspace.customName || workspace.name || '',
@@ -2303,7 +2463,15 @@ export class KomlaOperationService {
           agentActive: workspace.agentActive === true,
           ...(workspace.attention && { attention: workspace.attention.kind }),
           ...(workspace.tag && { tag: workspace.tag }),
-          ...(workspace.progress && { progress: workspace.progress.label }),
+          ...(workspace.markers?.length && {
+            markers: workspace.markers.map(({ key, label, tone, spinner }) => ({
+              key,
+              label,
+              tone,
+              ...(spinner && { spinner }),
+            })),
+          }),
+          ...(progress && { progress: progress.label }),
           ...(workspace.linkedWorkspaceIds?.length && {
             linkedWorkspaceIds: workspace.linkedWorkspaceIds,
           }),

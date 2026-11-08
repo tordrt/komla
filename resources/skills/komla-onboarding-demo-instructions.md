@@ -228,11 +228,11 @@ the pretend CI run page. Explain that the page is plain HTML and CSS in Komla's 
 as `var(--success)`, shown in a sandbox: it loads nothing from the web, and its links open on a
 click. Ask them to come back to this tab afterwards. If Komla refuses the item, report it, leave out
 the parts about it and carry on without it. Point out CI running spinning on the card, in the
-place its tag takes. Explain that this is progress, for work under way such as CI running or
-Deploying: it isn't one of the user's tags, so it never joins their tag list or filters, the
-workspace keeps its tag, which shows again once the progress is cleared, and it ends when Komla
-quits. A tag is for a state that lasts, such as Waiting for review, and a workspace has one at a
-time. End the turn and wait for the user to ask to continue.
+place its tag takes. Explain that this is progress, for work under way such as CI running or Deploying: a
+marker with a spinner, so it isn't one of the user's tags, never joins their tag list or filters,
+leaves the workspace its tag, and ends when Komla quits. A tag is for a state that lasts and sorts
+workspaces, such as Waiting for review, and a workspace has one at a time; `komla mark` shows
+anything else a script wants on one workspace, such as its pull request's number. End the turn and wait for the user to ask to continue.
 
 ### Stage 2: snooze until CI ends
 

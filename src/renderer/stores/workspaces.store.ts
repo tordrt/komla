@@ -1,6 +1,6 @@
 import { create, type StateCreator, type StoreApi } from 'zustand';
 
-import { sameWorkspaceProgress } from '../../shared/lib/workspace-progress';
+import { sameWorkspaceMarkers, withoutWorkspaceMarker } from '../../shared/lib/workspace-markers';
 import {
   DEFAULT_WORKSPACE_TAGS,
   UNTAGGED_WORKSPACE_TAG_KEY,
@@ -412,8 +412,8 @@ interface WorkspacesState {
   setDashboardHiddenProjects: (projectNames: Iterable<string>) => void;
   setDashboardHiddenWorkspaceTags: (tagKeys: Iterable<string>) => void;
   toggleWorkspaceHostVisibility: (hostId: string) => void;
-  /** Takes off progress a script left showing, as the user can when it never ended it. */
-  clearProgress: (workspaceId: string) => void;
+  /** Takes off a marker a script left showing, as the user can when it never took it off. */
+  removeMarker: (workspaceId: string, key: string) => void;
   /** Lists the tag's workspaces in the sidebar again, or moves them to the Filtered shelf. */
   toggleWorkspaceTagShown: (tag: string) => void;
   /** Lists only the workspaces whose tags aren't these, the rest going to the Filtered shelf. */
@@ -781,7 +781,7 @@ type WorkspaceMarks = Partial<
     | 'tag'
     | 'tagSource'
     | 'tagTooltip'
-    | 'progress'
+    | 'markers'
     | 'snoozedUntil'
     | 'wakesOnNotification'
   >
@@ -1991,7 +1991,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       previous.pinned === workspace.pinned &&
       previous.tag === workspace.tag &&
       previous.tagSource === workspace.tagSource &&
-      sameWorkspaceProgress(previous.progress, workspace.progress) &&
+      sameWorkspaceMarkers(previous.markers, workspace.markers) &&
       previous.snoozedUntil === workspace.snoozedUntil &&
       previous.wakesOnNotification === workspace.wakesOnNotification &&
       previous.unread?.reason === workspace.unread?.reason &&
@@ -2001,7 +2001,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
         pinned: workspace.pinned,
         tag: workspace.tag,
         tagSource: workspace.tagSource,
-        progress: workspace.progress,
+        markers: workspace.markers,
         snoozedUntil: workspace.snoozedUntil,
         wakesOnNotification: workspace.wakesOnNotification,
         unread: workspace.unread,
@@ -2033,8 +2033,16 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     saveWorkspaceMarks(set, new Map(workspaceIds.map((id) => [id, marks])));
   },
 
-  clearProgress: (workspaceId) => {
-    saveWorkspaceMarks(set, new Map([[workspaceId, { progress: undefined }]]));
+  removeMarker: (workspaceId, key) => {
+    // Shown at once; main takes it off its own list, which keeps a marker put on meanwhile.
+    set((state) => ({
+      workspaces: state.workspaces.map((w) =>
+        w.id === workspaceId ? { ...w, markers: withoutWorkspaceMarker(w.markers, key) } : w
+      ),
+    }));
+    window.api.removeWorkspaceMarker(workspaceId, key).catch((error) => {
+      console.error('Failed to remove the marker:', error);
+    });
   },
 
   snoozeWorkspace: (workspaceId, until, wakesOnNotification) => {

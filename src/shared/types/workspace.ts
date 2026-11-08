@@ -5,7 +5,7 @@
 import type { Project } from './project';
 import type { Terminal, TerminalExecutionLocation } from './terminal';
 import type { DesiredWorkspaceEnvironment } from '../lib/agent-environment';
-import type { WorkspaceProgress } from '../lib/workspace-progress';
+import type { WorkspaceMarker } from '../lib/workspace-markers';
 import type { PullRequestTagState } from '../lib/workspace-tags';
 
 export type WorkspaceStatus = 'active' | 'trashed';
@@ -423,10 +423,10 @@ export interface Workspace {
   /** What a script said about this workspace's tag, shown on hover; goes when the tag changes. */
   tagTooltip?: string;
   /**
-   * Work under way that a script shows, such as "CI running", in the tag's place. Never saved, so
-   * it ends with Komla.
+   * What scripts show on the card, such as "PR #12", each under its own key. One with a spinner
+   * is work under way, such as "CI running", and isn't saved, so it ends with Komla.
    */
-  progress?: WorkspaceProgress;
+  markers?: WorkspaceMarker[];
   /**
    * Where the branch's pull request stood at the last read, so a tag the user took off stays off
    * until the pull request moves on.

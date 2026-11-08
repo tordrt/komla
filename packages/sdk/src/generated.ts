@@ -7,7 +7,7 @@ export const KOMLA_CAPABILITIES = [
   { id: 'agent.launch.tab', description: 'Launch an AI coding agent in a new tab in the current workspace.' },
   { id: 'workspace.title', description: 'Set the title and description shown for the current workspace.' },
   { id: 'workspace.snooze', description: 'Snooze the current workspace until a time or its next notification. Waking it stays allowed.' },
-  { id: 'workspace.tag', description: 'Tag the current workspace to say what it waits on, such as "Waiting for review", or show work under way there, such as CI running (komla progress), or take either off.' },
+  { id: 'workspace.tag', description: 'Tag the current workspace to say what it waits on, such as "Waiting for review", mark it with anything else a script shows there, such as a pull request\'s number (komla mark), or show work under way, such as CI running (komla progress), or take any of them off.' },
   { id: 'workspace.trash', description: 'Move the current workspace to the Trash once the agent’s turn ends, stopping its terminals. The user can restore it for 7 days.' },
   { id: 'workspace.link', description: 'Link the current workspace to other workspaces, so agents can read and edit their files through its linked-workspaces folder, or unlink them.' },
   { id: 'folder.open', description: 'Open a folder on this computer in Komla, as its own workspace.' },
@@ -35,6 +35,7 @@ export const KOMLA_OPERATION_TYPES = [
   'tag.list',
   'workspace.tag',
   'workspace.progress',
+  'workspace.mark',
   'workspace.notify',
   'workspace.trash',
   'workspace.link',
@@ -254,7 +255,7 @@ export interface WorkspaceTagRequest {
   ifTag?: string;
 }
 
-/** Shows work under way, such as CI running, with a spinner in the tag's place until it ends, or takes it off without `label`, which `tone` and `tooltip` need. It isn't a tag: the workspace keeps its tag, and progress ends with Komla. */
+/** Shows work under way, such as CI running: the `progress` marker, with a spinner, until it ends, or takes it off without `label`, which `tone` and `tooltip` need. It isn't a tag: the workspace keeps its tag, and progress ends with Komla. */
 export interface WorkspaceProgressRequest {
   type: 'workspace.progress';
   /**
@@ -270,6 +271,37 @@ export interface WorkspaceProgressRequest {
   tone?: 'neutral' | 'info' | 'attention' | 'success' | 'warning' | 'error';
   /**
    * Changes only a workspace that shows progress of this label.
+   * @minLength 1
+   * @maxLength 40
+   */
+  ifLabel?: string;
+}
+
+/** Shows text on the workspace's card, such as a pull request's number, under `key`, replacing the marker of that key, or takes it off without `label`, which `tone`, `tooltip` and `spinner` need. With `all` in place of `key`, takes every marker off. It isn't a tag: it never joins the user's list or a filter. A marker is saved with the workspace, except one with a spinner. */
+export interface WorkspaceMarkRequest {
+  type: 'workspace.mark';
+  /**
+   * The script's name for the marker, such as `pr`: up to 40 letters, digits, dots, dashes and underscores. Every call names one, except one with `all`.
+   * @pattern ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$
+   */
+  key?: string;
+  /** Takes every marker off the workspace, progress too, in place of naming a `key`. It takes nothing else. */
+  all?: true;
+  /**
+   * @minLength 1
+   * @maxLength 40
+   */
+  label?: string;
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  tooltip?: string;
+  tone?: 'neutral' | 'info' | 'attention' | 'success' | 'warning' | 'error';
+  /** Shows the marker as work under way, which ends with Komla. */
+  spinner?: boolean;
+  /**
+   * Changes only a marker under `key` that shows this label.
    * @minLength 1
    * @maxLength 40
    */
@@ -488,6 +520,7 @@ export type KomlaOperationRequest =
   | TagListRequest
   | WorkspaceTagRequest
   | WorkspaceProgressRequest
+  | WorkspaceMarkRequest
   | WorkspaceNotifyRequest
   | WorkspaceTrashRequest
   | WorkspaceLinkRequest
@@ -725,7 +758,15 @@ export interface WorkspaceListResult {
     /** The attention the workspace shows. */
     attention?: 'input-required' | 'turn-complete' | 'error' | 'idle' | 'generic';
     tag?: string;
-    /** The label of the progress it shows. */
+    /** What scripts show on its card. */
+    markers?: Array<{
+      key: string;
+      label: string;
+      tone: 'neutral' | 'info' | 'attention' | 'success' | 'warning' | 'error';
+      /** Work under way. */
+      spinner?: true;
+    }>;
+    /** The label of the progress it shows, its `progress` marker. */
     progress?: string;
     linkedWorkspaceIds?: string[];
   }>;
@@ -775,6 +816,25 @@ export interface WorkspaceProgressResult {
     label: string | null;
     /** False when `ifLabel` named progress the workspace didn't show. */
     changed: boolean;
+  };
+}
+
+/** What `workspace.mark` resolves to. */
+export interface WorkspaceMarkResult {
+  /** Set for a call that names a `key`. */
+  marker?: {
+    workspaceId: string;
+    key: string;
+    /** The label of the workspace's marker afterward. */
+    label: string | null;
+    /** False when nothing changed: `ifLabel` named a label the marker didn't show, or there was no marker to take off. */
+    changed: boolean;
+  };
+  /** Set for a call with `all`. */
+  cleared?: {
+    workspaceId: string;
+    /** The keys of the markers it took off. */
+    keys: string[];
   };
 }
 
@@ -905,6 +965,7 @@ export interface KomlaOperationResults {
   'tag.list': TagListResult;
   'workspace.tag': WorkspaceTagResult;
   'workspace.progress': WorkspaceProgressResult;
+  'workspace.mark': WorkspaceMarkResult;
   'workspace.notify': WorkspaceNotifyResult;
   'workspace.trash': WorkspaceTrashResult;
   'workspace.link': WorkspaceLinkResult;
@@ -936,6 +997,7 @@ export const KOMLA_OPERATION_CAPABILITIES = {
   'tag.list': null,
   'workspace.tag': 'workspace.tag',
   'workspace.progress': 'workspace.tag',
+  'workspace.mark': 'workspace.tag',
   'workspace.notify': null,
   'workspace.trash': 'workspace.trash',
   'workspace.link': 'workspace.link',

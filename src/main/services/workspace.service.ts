@@ -14,6 +14,7 @@ import {
   sessionEndedHere,
 } from '../../shared/lib/terminal-execution-state';
 import { normalizeVirtualDesktops } from '../../shared/lib/virtual-desktops';
+import { withoutWorkspaceMarker } from '../../shared/lib/workspace-markers';
 import {
   normalizeWorkspaceTags,
   pullRequestTagUpdate,
@@ -719,6 +720,19 @@ class WorkspaceService {
   onAttentionRaised(listener: (event: WorkspaceAttentionEvent) => void): () => void {
     this.attentionListeners.add(listener);
     return () => this.attentionListeners.delete(listener);
+  }
+
+  /**
+   * Takes the marker under this key off, from main's own copy of the markers, so one a script put
+   * on while the user's click was on its way stays.
+   */
+  removeMarker(workspaceId: string, key: string): void {
+    const workspace = workspaceStore.workspaces.get(workspaceId);
+    if (!workspace?.markers?.some((marker) => marker.key === key)) return;
+    const updated = this.update(workspaceId, {
+      markers: withoutWorkspaceMarker(workspace.markers, key),
+    });
+    workspaceStore.broadcastWorkspaceUpdate(updated);
   }
 
   update(workspaceId: string, updates: Partial<Omit<Workspace, 'id' | 'terminals'>>): Workspace {

@@ -20,6 +20,7 @@ export const IPC = {
   WORKSPACE_LIST: 'workspace:list',
   WORKSPACE_GET: 'workspace:get',
   WORKSPACE_UPDATE: 'workspace:update',
+  WORKSPACE_REMOVE_MARKER: 'workspace:remove-marker',
   WORKSPACE_UPDATE_TERMINAL: 'workspace:update-terminal',
   WORKSPACE_RESTART: 'workspace:restart',
   WORKSPACE_LIST_RUNNING_AT_LAST_QUIT: 'workspace:list-running-at-last-quit',

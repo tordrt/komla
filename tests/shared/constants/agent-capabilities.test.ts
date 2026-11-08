@@ -29,6 +29,9 @@ describe('agentCapabilitiesUpdate', () => {
     ).toEqual({
       'workspace.tag':
         '`komla tag` is turned off in Komla. Ask the user to turn it on in Settings → Integrations & MCP → MCP and CLI access.',
+      // A marker shows beside the tag, so the tag's toggle turns `komla mark` off too.
+      'workspace.mark':
+        '`komla tag` is turned off in Komla. Ask the user to turn it on in Settings → Integrations & MCP → MCP and CLI access.',
     });
     expect(turnedOffQueuedCommands({})).toEqual({});
   });

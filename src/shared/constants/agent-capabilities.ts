@@ -29,7 +29,7 @@ export const AGENT_CAPABILITIES = [
     id: 'workspace.tag',
     command: 'komla tag',
     description:
-      'Tag the current workspace to say what it waits on, such as "Waiting for review", or show work under way there, such as CI running (komla progress), or take either off.',
+      'Tag the current workspace to say what it waits on, such as "Waiting for review", mark it with anything else a script shows there, such as a pull request\'s number (komla mark), or show work under way, such as CI running (komla progress), or take any of them off.',
   },
   {
     id: 'workspace.trash',
@@ -121,16 +121,25 @@ const QUEUED_COMMAND_CAPABILITIES = [
   'workspace.trash',
 ] as const satisfies readonly AgentCapabilityId[];
 
+/** Queued operations whose type isn't their capability's id, by type. */
+const QUEUED_OPERATION_CAPABILITIES: Readonly<Record<string, AgentCapabilityId>> = {
+  // Shown beside the tag, so the user turns both off with one toggle.
+  'workspace.mark': 'workspace.tag',
+};
+
 /**
  * The queued commands the user turned off, by operation type, with what the CLI answers in
- * their place. Their capability ids are their operation types.
+ * their place. Most capability ids are their operation types.
  */
 export function turnedOffQueuedCommands(config: AgentCapabilityConfig): Record<string, string> {
+  const operations: Array<[string, AgentCapabilityId]> = [
+    ...QUEUED_COMMAND_CAPABILITIES.map((id): [string, AgentCapabilityId] => [id, id]),
+    ...Object.entries(QUEUED_OPERATION_CAPABILITIES),
+  ];
   return Object.fromEntries(
-    QUEUED_COMMAND_CAPABILITIES.filter((id) => !isAgentCapabilityEnabled(id, config)).map((id) => [
-      id,
-      turnedOffCapabilityMessage(id),
-    ])
+    operations
+      .filter(([, id]) => !isAgentCapabilityEnabled(id, config))
+      .map(([type, id]) => [type, turnedOffCapabilityMessage(id)])
   );
 }
 

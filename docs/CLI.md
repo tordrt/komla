@@ -66,8 +66,9 @@ workspace: a terminal has `KOMLA_TERMINAL_ID`, and a background step `KOMLA_WORK
 
 `komla workspace list [--all] [--json]` lists the workspaces, with those in the Trash under
 `--all`: each one's `id`, `name`, `project`, `branch`, `path`, `environment`, `agentActive`, the
-`attention` it shows, its `tag` and the `linkedWorkspaceIds` it's linked to, and the label of the `progress` it shows. Through an SSH host's tunnel it lists that host's
-workspaces only. `--workspace <id>` makes any command that acts on a workspace (`tag`, `progress`, `title`,
+`attention` it shows, its `tag` and the `linkedWorkspaceIds` it's linked to, its `markers` (each
+one's `key`, `label` and `spinner`), and the label of the `progress` it shows. Through an SSH host's tunnel it lists that host's
+workspaces only. `--workspace <id>` makes any command that acts on a workspace (`tag`, `mark`, `progress`, `title`,
 `snooze`, `status set`, `notify`, `launch`, `context` and the rest) act on that one in
 place of the calling terminal's, so one script can keep every workspace current. It never
 reaches past the SSH host a request came from. `trash` refuses it, as does `notify -- <command>`,
@@ -83,15 +84,19 @@ Both print the ids the workspace is linked to afterward, and the user can turn t
 `workspace.link` in Settings → Integrations & MCP.
 
 `komla tag <tag>` gives the workspace its one tag, shown on its card while no agent is busy there
-until it's taken off or replaced, so scripts use tags for what stays, such as what a workspace
-waits on. `komla progress <label>` shows work under way, such as CI running, with a spinner in the
-tag's place, and `komla notify` says how the work ended:
+until it's taken off or replaced, so scripts use tags for a state that sorts workspaces, such as
+what one waits on. `komla mark <key> <label>` shows anything else a script wants on that one
+workspace, such as its pull request's number, on its card; `komla progress <label>` shows work
+under way, such as CI running, with a spinner; and `komla notify` says how the work ended:
 
 ```bash
+komla mark pr "PR #12" --tone info --tooltip "Fix the login redirect" --workspace "$id"
 komla progress "CI running" --tone info --tooltip "build 7 of 9" --workspace "$id"
 # The checks ended: clear the progress, unless another script has shown its own since, and say how.
 komla progress --clear "CI running" --workspace "$id"
 komla notify "CI failed" --badge CI --color error --workspace "$id"
+# The pull request merged: take its marker off, and say so.
+komla unmark pr --workspace "$id" && komla notify "PR #12 merged" --badge PR --color success --workspace "$id"
 ```
 
 A tag Komla doesn't have yet joins the user's tag list, with `--tone` (`neutral`, `info`,
@@ -102,13 +107,28 @@ until its tag changes. `--if <tag>` changes only a workspace that has that tag, 
 takes off only that tag, so a script that finishes late leaves alone a tag the user put on since.
 The user removes any tag from the card's Tag menu.
 
-Progress isn't a tag. It never joins the tag list, the sidebar's filters or the Filtered shelf, and
-the workspace keeps its tag, which shows again once the progress is cleared; the hover card shows
-both. It isn't saved, so it ends when Komla quits. It takes `--tone` and `--tooltip` as `tag` does,
-but only with a label. `--if <label>` changes only a workspace that shows progress of that label,
-and `progress --clear <label>` clears only that, so a script that finishes late leaves alone
-progress another one shows since, and `tag <tag> --if <label>` puts the tag on in its place, as when
-the checks end in a review. The user clears it from the card's menu.
+A marker isn't a tag. It never joins the tag list, the sidebar's filters or the Filtered shelf, and
+the workspace keeps its tag. The card shows one marker in the tag's place while no agent is busy
+there, as a spinning tag showed, work under way first, with a count of the other markers and the
+tag it hides; the hover card shows them all, and the tag shows again once the markers are gone. Its key is the script's own name for it, up to 40 letters,
+digits, dots, dashes and underscores, such as `pr` or `deploy`, so scripts that use different keys
+never replace each other's markers, and `mark` with a key the workspace has replaces that marker
+in its place. A workspace has at most 5 markers besides its progress, and refuses another (`MARKERS_FULL`). `mark` takes
+`--tone` and `--tooltip` as `tag` does, and `--spinner` shows the marker as work under way. A
+marker is saved with its workspace, but one with a spinner isn't: it ends when Komla quits.
+`komla unmark <key>` takes the marker off; `--if <label>`, on `mark` or `unmark`, changes only a
+marker that still shows that label, so a script that finishes late leaves alone a marker another
+run put on since. `komla unmark --all` takes every marker off, progress too, and leaves the tag be;
+it's asked for by name (`all: true` in the `workspace.mark` operation), as a key left out is an
+error rather than every marker. The user removes any marker from the card's menu.
+
+Progress is the marker under the key `progress`, with a spinner: `komla progress <label>` is
+`komla mark progress <label> --spinner`, and `progress --clear` is `komla unmark progress`. That
+key takes only a marker with a spinner, and progress never counts toward the 5. It
+takes `--tone` and `--tooltip` as `mark` does, but only with a label. `--if <label>` changes only a
+workspace that shows progress of that label, and `progress --clear <label>` clears only that, so a
+script that finishes late leaves alone progress another one shows since, and `tag <tag> --if
+<label>` puts the tag on in its place, as when the checks end in a review.
 
 `tag --spinner`, from before progress had its own command, shows progress in the same way and leaves
 the tag and the list be. That progress goes as the spinning tag did: a later `tag` without `--if` or
@@ -665,8 +685,8 @@ to typed CLI commands, their MCP equivalents and SDK calls.
 The HTTP MCP server runs inline in Komla's HTTP server on port 52863 using Streamable HTTP. The
 installed executable exposes the same adapter over stdio with `komla mcp`.
 
-In a managed terminal on an SSH host, `komla title`, `snooze`, `wake`, `tag`, `untag` and `trash`
-queue when Komla can't be reached, because it is away or a sandbox blocks the connection, and
+In a managed terminal on an SSH host, `komla title`, `snooze`, `wake`, `tag`, `untag`, `mark`,
+`unmark` and `trash` queue when Komla can't be reached, because it is away or a sandbox blocks the connection, and
 answer `Komla couldn't be reached, so this waits on the host until it can.` (`{"queued":true}` with
 `--json`). A command run while earlier ones still wait queues behind them, answering `Komla hasn't
 received earlier commands from this host yet, so this waits behind them.`, except that while the
@@ -687,8 +707,8 @@ the setting changes. See [ADR 0006](adr/0006-queue-agent-commands-on-the-ssh-hos
 are on the host, newest first, without the tags, links, attention and agent state only the desktop knows,
 and says so on stderr.
 
-`komla progress` and `tag --spinner` never queue, as progress ends with Komla: they fail while Komla
-can't be reached, and while earlier commands still wait on the host, rather than overtake commands
+`komla progress`, `tag --spinner` and `mark --spinner` never queue, as progress ends with Komla: they
+fail while Komla can't be reached, and while earlier commands still wait on the host, rather than overtake commands
 that might undo them.
 
 Komla's HTTP server listens on 127.0.0.1 only and answers only requests whose `Host` header is an

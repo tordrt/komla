@@ -968,8 +968,11 @@ describe('RemoteControlSessionService', () => {
     });
     expect(older.peer.sent[0]).not.toHaveProperty('workspaces.0.tag');
 
-    // Progress spins in the tag's place, as the card shows it.
-    agreed.workspace.progress = { label: 'CI running', tone: 'warning' };
+    // Progress spins in the tag's place, as the phone shows no other markers.
+    agreed.workspace.markers = [
+      { key: 'pr', label: 'PR #12', tone: 'info' },
+      { key: 'progress', label: 'CI running', tone: 'warning', spinner: true },
+    ];
     agreed.peer.emitJson({ type: 'app:workspaces:list', requestId: 'r2' });
     await flush();
     expect(agreed.peer.sent[1]).toHaveProperty('workspaces.0.tag', {

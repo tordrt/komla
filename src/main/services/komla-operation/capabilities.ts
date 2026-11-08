@@ -33,6 +33,7 @@ export const KOMLA_OPERATION_CAPABILITIES = {
   'workspace.tag': 'workspace.tag',
   // Shown in the tag's place, so the user turns both off with one toggle.
   'workspace.progress': 'workspace.tag',
+  'workspace.mark': 'workspace.tag',
   'workspace.trash': 'workspace.trash',
   // As `komla notify`: no Agent Capability, but off with the hooks endpoint.
   'workspace.notify': null,

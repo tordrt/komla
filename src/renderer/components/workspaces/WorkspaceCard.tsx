@@ -133,10 +133,8 @@ import { SIDEBAR_CARD_LIGHT_HOVER, SIDEBAR_SELECTED_CARD_FILL } from './sidebar-
 import { CustomSnoozeDialog, SnoozeCountdown, SnoozeSubmenu, useCiRunning } from './SnoozeMenu';
 import { SIDEBAR_CARD_DRAG_ATTRIBUTE } from './workspace-list-ordering';
 import { getWorkspaceDynamicTitle, WorkspaceInfoCardContent } from './WorkspaceInfoCard';
-import { WorkspaceProgressPill } from './WorkspaceProgress';
-import { ClearProgressMenuItem, TagSubmenu, WorkspaceTagPill } from './WorkspaceTagMenu';
+import { RemoveMarkerMenuItems, TagSubmenu, WorkspaceMarkerOrTag } from './WorkspaceTagMenu';
 
-import type { WorkspaceProgress } from '../../../shared/lib/workspace-progress';
 import type { GitBranchQuickStatus, Workspace, WorkspaceAttention } from '@/types';
 
 // Lazy so the file viewer's code loads on first open rather than at startup.
@@ -465,10 +463,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
       collapsed={collapsedBadge}
       otherAgents={otherAgents}
       restarting={isRestarting}
-      tag={workspace.tag}
-      tagFromPullRequest={workspace.tagSource === 'pull-request'}
-      tagTooltip={workspace.tagTooltip}
-      progress={workspace.progress}
+      workspace={workspace}
     />
   );
 
@@ -1192,10 +1187,7 @@ function TitleAdornment({
   collapsed,
   otherAgents,
   restarting,
-  tag,
-  tagFromPullRequest,
-  tagTooltip,
-  progress,
+  workspace,
 }: {
   attention: WorkspaceAttention | undefined;
   attentionAppearance: AttentionAppearance;
@@ -1203,12 +1195,8 @@ function TitleAdornment({
   collapsed: CollapsedBadge | null;
   otherAgents: Agent[];
   restarting: boolean;
-  /** Shows in the badge's place when no agent has anything to show. */
-  tag?: string;
-  tagFromPullRequest?: boolean;
-  tagTooltip?: string;
-  /** Shows in the tag's place while a script says work is under way. */
-  progress?: WorkspaceProgress;
+  /** Its marker or tag shows in the badge's place when no agent has anything to show. */
+  workspace?: Pick<Workspace, 'markers' | 'tag' | 'tagSource' | 'tagTooltip'>;
 }) {
   const states = stateCounts(collapsed, otherAgents, restarting);
   const workingCommands = otherAgents.filter(
@@ -1232,16 +1220,8 @@ function TitleAdornment({
   );
   if (!badge && states.length === 0) {
     // Half the row at most: a tag runs longer than an agent's badge, and the title comes first.
-    if (progress) {
-      return <WorkspaceProgressPill progress={progress} className="ml-auto max-w-[50%]" />;
-    }
-    return tag ? (
-      <WorkspaceTagPill
-        tag={tag}
-        fromPullRequest={tagFromPullRequest}
-        tooltip={tagTooltip}
-        className="ml-auto max-w-[50%]"
-      />
+    return workspace ? (
+      <WorkspaceMarkerOrTag workspace={workspace} className="ml-auto max-w-[50%]" />
     ) : null;
   }
 
@@ -2074,7 +2054,7 @@ function WorkspaceMenuItems({
         currentTag={workspace.tag}
         anyTagged={!!workspace.tag}
       />
-      <ClearProgressMenuItem workspaceId={workspace.id} progress={workspace.progress} />
+      <RemoveMarkerMenuItems workspaceId={workspace.id} markers={workspace.markers} />
       {/* A project's workspaces show its color. */}
       {!workspace.isWorktree && !workspace.projectId && (
         <ColorPickerSubmenu currentColor={workspace.color} onColorChange={onColorChange} />

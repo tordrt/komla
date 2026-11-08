@@ -10,7 +10,7 @@ import {
   getWorkspaceLiveTitle,
 } from '../../../shared/lib/workspace-title';
 
-import { WorkspaceProgressBadge } from './WorkspaceProgress';
+import { WorkspaceMarkerList } from './WorkspaceMarkers';
 import { WorkspaceTagBadge } from './WorkspaceTagBadge';
 
 import type { SshHost, Workspace } from '@/types';
@@ -74,21 +74,8 @@ export function WorkspaceInfoCardContent({
             {workspace.customDescription}
           </div>
         )}
-        {/* Here too, as a notification, a busy agent or progress takes the tag's place. */}
-        {workspace.progress && (
-          <div className="mt-2 flex min-w-0 items-baseline gap-1.5 text-xs">
-            <WorkspaceProgressBadge
-              data-workspace-info-progress
-              progress={workspace.progress}
-              className="max-w-full shrink-0"
-            />
-            {workspace.progress.tooltip && (
-              <span className="min-w-0 break-words text-muted-foreground">
-                {workspace.progress.tooltip}
-              </span>
-            )}
-          </div>
-        )}
+        {/* Here too, as a notification or a busy agent takes their place on the card. */}
+        <WorkspaceMarkerList markers={workspace.markers} />
         {workspace.tag && (
           <div className="mt-2 flex min-w-0 items-baseline gap-1.5 text-xs">
             <WorkspaceTagBadge

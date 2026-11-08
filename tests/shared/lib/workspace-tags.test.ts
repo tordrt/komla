@@ -14,8 +14,6 @@ import {
   workspaceTagKey,
 } from '../../../src/shared/lib/workspace-tags';
 
-import { workspaceCardTagAppearance } from '../../../src/shared/lib/workspace-progress';
-
 import type { PullRequestSummary } from '../../../src/shared/types/pull-request';
 
 describe('normalizeWorkspaceTags', () => {
@@ -96,23 +94,6 @@ describe('workspaceTagAppearance', () => {
     const tags = [{ name: 'In review', tone: 'info' as const }];
     expect(workspaceTagAppearance(tags, 'in REVIEW')).toEqual({ name: 'In review', tone: 'info' });
     expect(workspaceTagAppearance(tags, 'Gone')).toEqual({ name: 'Gone', tone: 'neutral' });
-  });
-});
-
-describe('workspaceCardTagAppearance', () => {
-  it("shows progress, spinning, in the tag's place, and else the tag", () => {
-    const tags = [{ name: 'Blocked', tone: 'error' as const }];
-    const progress = { label: 'CI running', tone: 'info' as const, tooltip: 'build 7 of 9' };
-    expect(workspaceCardTagAppearance(tags, { tag: 'blocked', progress })).toEqual({
-      name: 'CI running',
-      tone: 'info',
-      spinner: true,
-    });
-    expect(workspaceCardTagAppearance(tags, { tag: 'blocked' })).toEqual({
-      name: 'Blocked',
-      tone: 'error',
-    });
-    expect(workspaceCardTagAppearance(tags, {})).toBeUndefined();
   });
 });
 

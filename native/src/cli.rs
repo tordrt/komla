@@ -137,6 +137,8 @@ const MAX_SNOOZE_UNTIL: usize = 40;
 // As MAX_WORKSPACE_TAG_LENGTH in Komla's shared/lib/workspace-tags.ts.
 const MAX_TAG: usize = 40;
 const MAX_TAG_TOOLTIP: usize = 500;
+/// The marker `komla progress` shows.
+const PROGRESS_MARKER_KEY: &str = "progress";
 const TAG_TONES: [&str; 6] = [
     "neutral",
     "info",
@@ -875,6 +877,8 @@ fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 | "wake"
                 | "tag"
                 | "untag"
+                | "mark"
+                | "unmark"
                 | "progress"
                 | "tags"
                 | "trash"
@@ -1188,7 +1192,8 @@ fn run_command_with_hook_input(
         Some("skill") => skill_command(&args[1..], api, output, errors),
         Some("context") => context_command(&args[1..], &environment, api, output),
         Some(
-            operation @ ("title" | "snooze" | "wake" | "tag" | "untag" | "progress" | "trash"),
+            operation @ ("title" | "snooze" | "wake" | "tag" | "untag" | "mark" | "unmark"
+            | "progress" | "trash"),
         ) => {
             let mut options = vec![operation.to_owned()];
             options.extend_from_slice(&args[1..]);
@@ -1391,7 +1396,7 @@ fn workspace_command(
     errors: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let operation = args.first().context(
-        "usage: komla workspace <list|title|snooze|wake|tag|untag|progress|trash|link|unlink> [arguments]",
+        "usage: komla workspace <list|title|snooze|wake|tag|untag|mark|unmark|progress|trash|link|unlink> [arguments]",
     )?;
     let mut options = args[1..].to_vec();
     match operation.as_str() {
@@ -1441,8 +1446,28 @@ without their tags or links."
                 if let Some(tag) = text("tag") {
                     line.push_str(&format!("  ({tag})"));
                 }
-                if let Some(progress) = text("progress") {
-                    line.push_str(&format!("  ({progress}, under way)"));
+                // Each marker, work under way first, as the card shows them.
+                let markers = workspace
+                    .get("markers")
+                    .and_then(Value::as_array)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                let spins = |marker: &Value| marker.get("spinner").and_then(Value::as_bool) == Some(true);
+                for marker in markers.iter().filter(|marker| spins(marker)).chain(markers.iter().filter(|marker| !spins(marker))) {
+                    let Some(label) = marker.get("label").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    if spins(marker) {
+                        line.push_str(&format!("  ({label}, under way)"));
+                    } else {
+                        line.push_str(&format!("  ({label}, marked)"));
+                    }
+                }
+                // From a Komla that lists progress without its markers.
+                if markers.is_empty() {
+                    if let Some(progress) = text("progress") {
+                        line.push_str(&format!("  ({progress}, under way)"));
+                    }
                 }
                 writeln!(output, "{line}")?;
             }
@@ -1491,16 +1516,7 @@ without their tags or links."
             let json_output = take_flag(&mut options, "--json")?;
             let spinner = operation == "tag" && take_flag(&mut options, "--spinner")?;
             let request = if operation == "tag" {
-                let tooltip = take_option(&mut options, "--tooltip")?
-                    .map(|value| value.trim().to_owned())
-                    .filter(|value| !value.is_empty())
-                    .map(|value| truncate_utf16(&value, MAX_TAG_TOOLTIP));
-                let tone = take_option(&mut options, "--tone")?;
-                if let Some(tone) = &tone {
-                    if !TAG_TONES.contains(&tone.as_str()) {
-                        bail!("--tone is {}, not {tone}", TAG_TONES.join(", "));
-                    }
-                }
+                let (tooltip, tone) = tooltip_and_tone(&mut options)?;
                 let icon = take_option(&mut options, "--icon")?
                     .map(|value| status_icon(&value))
                     .transpose()?;
@@ -1532,6 +1548,59 @@ without their tags or links."
             }
             execute_or_queue(api, environment, request, json_output, output)
         }
+        "mark" | "unmark" => {
+            let json_output = take_flag(&mut options, "--json")?;
+            let usage = if operation == "mark" { MARK_USAGE } else { UNMARK_USAGE };
+            let if_label = take_option(&mut options, "--if")?
+                .map(|value| label(&value, "--if", "a label", usage))
+                .transpose()?;
+            let all = operation == "unmark" && take_flag(&mut options, "--all")?;
+            let (tooltip, tone, spinner) = if operation == "mark" {
+                let (tooltip, tone) = tooltip_and_tone(&mut options)?;
+                (tooltip, tone, take_flag(&mut options, "--spinner")?)
+            } else {
+                (None, None, false)
+            };
+            if let Some(option) = options.iter().find(|option| option.starts_with("--")) {
+                bail!("{operation} doesn't take {option}; usage: {usage}");
+            }
+            // Every marker only when asked by name, never for a key left out.
+            if all {
+                if !options.is_empty() || if_label.is_some() {
+                    bail!("unmark --all takes every marker off, so it takes no key or --if; usage: {usage}");
+                }
+                let request = json!({"type": "workspace.mark", "all": true});
+                return execute_or_queue(api, environment, request, json_output, output);
+            }
+            let Some((key, rest)) = options.split_first() else {
+                bail!("{operation} takes the marker's key; usage: {usage}");
+            };
+            let key = marker_key(key, usage)?;
+            // Komla refuses it, so it mustn't wait on the host to be refused.
+            if operation == "mark" && key == PROGRESS_MARKER_KEY && !spinner {
+                bail!("the progress marker shows work under way: add --spinner, or use komla progress or another key; usage: {usage}");
+            }
+            let mut request = json!({"type": "workspace.mark", "key": key});
+            if operation == "mark" {
+                // A label of several words may come unquoted, as separate arguments.
+                request["label"] = json!(label(&rest.join(" "), "mark", "a label", usage)?);
+                insert_json_optional(&mut request, "tooltip", tooltip);
+                insert_json_optional(&mut request, "tone", tone);
+                if spinner {
+                    request["spinner"] = json!(true);
+                }
+            } else if !rest.is_empty() {
+                bail!("unmark takes only the marker's key; usage: {usage}");
+            }
+            insert_json_optional(&mut request, "ifLabel", if_label);
+            // A spinner shows progress, which a queue would replay long after the work it showed,
+            // and progress is cleared unqueued, as `komla progress --clear` is.
+            if spinner || key == PROGRESS_MARKER_KEY {
+                let result = execute_unqueued(api, environment, request)?;
+                return write_operation_result(&result, json_output, output);
+            }
+            execute_or_queue(api, environment, request, json_output, output)
+        }
         "progress" => {
             let json_output = take_flag(&mut options, "--json")?;
             let clear = take_flag(&mut options, "--clear")?;
@@ -1545,16 +1614,7 @@ without their tags or links."
                     request["ifLabel"] = json!(label(&options.join(" "), "--clear", "a label", PROGRESS_USAGE)?);
                 }
             } else {
-                let tooltip = take_option(&mut options, "--tooltip")?
-                    .map(|value| value.trim().to_owned())
-                    .filter(|value| !value.is_empty())
-                    .map(|value| truncate_utf16(&value, MAX_TAG_TOOLTIP));
-                let tone = take_option(&mut options, "--tone")?;
-                if let Some(tone) = &tone {
-                    if !TAG_TONES.contains(&tone.as_str()) {
-                        bail!("--tone is {}, not {tone}", TAG_TONES.join(", "));
-                    }
-                }
+                let (tooltip, tone) = tooltip_and_tone(&mut options)?;
                 let if_label = take_option(&mut options, "--if")?
                     .map(|value| label(&value, "--if", "a label", PROGRESS_USAGE))
                     .transpose()?;
@@ -1593,7 +1653,7 @@ without their tags or links."
             write_operation_result(&result, json_output, output)
         }
         _ => bail!(
-            "workspace operation must be list, title, snooze, wake, tag, untag, progress, trash, link or unlink"
+            "workspace operation must be list, title, snooze, wake, tag, untag, mark, unmark, progress, trash, link or unlink"
         ),
     }
 }
@@ -1639,6 +1699,25 @@ fn tags_command(
 }
 
 const TAG_USAGE: &str = "komla tag <tag> [--tooltip <text>] [--tone <tone>] [--icon <file|svg>] [--spinner] [--if <tag>] [--json]";
+/// The --tooltip and --tone a tag, marker or progress takes: the tooltip trimmed and cut to what
+/// Komla keeps, the tone one of the tag tones.
+fn tooltip_and_tone(options: &mut Vec<String>) -> anyhow::Result<(Option<String>, Option<String>)> {
+    let tooltip = take_option(options, "--tooltip")?
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .map(|value| truncate_utf16(&value, MAX_TAG_TOOLTIP));
+    let tone = take_option(options, "--tone")?;
+    if let Some(tone) = &tone {
+        if !TAG_TONES.contains(&tone.as_str()) {
+            bail!("--tone is {}, not {tone}", TAG_TONES.join(", "));
+        }
+    }
+    Ok((tooltip, tone))
+}
+
+const MARK_USAGE: &str = "komla mark <key> <label> [--tooltip <text>] [--tone <tone>] [--spinner] [--if <label>] [--json]";
+const UNMARK_USAGE: &str =
+    "komla unmark <key> [--if <label>] [--json], or komla unmark --all [--json]";
 const PROGRESS_USAGE: &str = "komla progress <label> [--tooltip <text>] [--tone <tone>] [--if <label>] [--json], or komla progress --clear [<label>] [--json]";
 
 fn tag_name(value: &str, what: &str) -> anyhow::Result<String> {
@@ -1655,15 +1734,28 @@ fn label(value: &str, what: &str, noun: &str, usage: &str) -> anyhow::Result<Str
     Ok(label.to_owned())
 }
 
-fn status_item_id(id: String) -> anyhow::Result<String> {
+/// A marker's key, as a status item's id is.
+fn marker_key(key: &str, usage: &str) -> anyhow::Result<String> {
+    if !is_short_id(key) {
+        bail!("marker keys are up to 40 letters, digits, dots, dashes and underscores, such as pr or deploy; usage: {usage}");
+    }
+    Ok(key.to_owned())
+}
+
+/// Up to 40 letters, digits, dots, dashes and underscores, led by a letter or digit, as Komla takes
+/// a status item's id and a marker's key.
+fn is_short_id(id: &str) -> bool {
     let mut characters = id.chars();
-    let valid = characters
+    characters
         .next()
         .is_some_and(|first| first.is_ascii_alphanumeric())
         && characters
             .all(|character| character.is_ascii_alphanumeric() || "._-".contains(character))
-        && id.len() <= 40;
-    if !valid {
+        && id.len() <= 40
+}
+
+fn status_item_id(id: String) -> anyhow::Result<String> {
+    if !is_short_id(&id) {
         bail!("status item ids are up to 40 letters, digits, dots, dashes and underscores, such as tests or pr");
     }
     Ok(id)
@@ -3700,6 +3792,34 @@ fn write_operation_result(
         }
         return Ok(());
     }
+    if let Some(cleared) = result.get("cleared") {
+        let count = cleared
+            .get("keys")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        match count {
+            0 => writeln!(output, "The workspace has no markers.")?,
+            1 => writeln!(output, "Took off 1 marker.")?,
+            count => writeln!(output, "Took off {count} markers.")?,
+        }
+        return Ok(());
+    }
+    if let Some(marker) = result.get("marker") {
+        let label = marker.get("label").and_then(Value::as_str);
+        let key = marker.get("key").and_then(Value::as_str).unwrap_or("");
+        if marker.get("changed").and_then(Value::as_bool) == Some(false) {
+            match label {
+                Some(label) => writeln!(output, "Left alone: the {key} marker shows {label}.")?,
+                None => writeln!(output, "Left alone: the workspace has no {key} marker.")?,
+            }
+            return Ok(());
+        }
+        match label {
+            Some(label) => writeln!(output, "Marked {label}.")?,
+            None => writeln!(output, "Took off the {key} marker.")?,
+        }
+        return Ok(());
+    }
     // Before a tag left as it was: `komla untag` reports both when it took progress off.
     let tag_changed = result.pointer("/tag/changed").and_then(Value::as_bool) == Some(true);
     if let Some(progress) = result.get("progress").filter(|_| !tag_changed) {
@@ -5576,6 +5696,119 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
     }
 
     #[test]
+    fn mark_commands_send_workspace_operations() {
+        for (args, expected) in [
+            // A label of several words may come unquoted.
+            (
+                vec!["mark", "pr", "PR", "#12"],
+                json!({"type": "workspace.mark", "key": "pr", "label": "PR #12"}),
+            ),
+            (
+                vec![
+                    "workspace",
+                    "mark",
+                    "ci.deploy",
+                    "Deploying",
+                    "--tone",
+                    "info",
+                    "--tooltip",
+                    " to staging ",
+                    "--spinner",
+                    "--if",
+                    "Queued",
+                    "--json",
+                ],
+                json!({
+                    "type": "workspace.mark",
+                    "key": "ci.deploy",
+                    "label": "Deploying",
+                    "tone": "info",
+                    "tooltip": "to staging",
+                    "spinner": true,
+                    "ifLabel": "Queued",
+                }),
+            ),
+            (
+                vec!["unmark", "pr"],
+                json!({"type": "workspace.mark", "key": "pr"}),
+            ),
+            // Only that label, so a script leaves alone a marker another run put on since.
+            (
+                vec!["unmark", "pr", "--if", "PR #12"],
+                json!({"type": "workspace.mark", "key": "pr", "ifLabel": "PR #12"}),
+            ),
+            (
+                vec!["workspace", "unmark", "--all", "--json"],
+                json!({"type": "workspace.mark", "all": true}),
+            ),
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+            run_with(&mut api, &args, "").unwrap_or_else(|error| panic!("{args:?}: {error}"));
+            assert_eq!(request_body(&api, 0), expected, "{args:?}");
+        }
+        let too_long = "x".repeat(41);
+        for args in [
+            vec!["mark"],
+            vec!["mark", "pr"],
+            vec!["mark", "pr", "  "],
+            vec!["mark", "pr", &too_long],
+            vec!["mark", "has space", "x"],
+            vec!["mark", &too_long, "x"],
+            vec!["mark", "pr", "x", "--tone", "purple"],
+            vec!["mark", "pr", "x", "--bogus"],
+            vec!["unmark"],
+            vec!["unmark", "pr", "PR #12"],
+            vec!["unmark", "pr", "--tone", "info"],
+            vec!["unmark", "pr", "--if", " "],
+            // Every marker only when asked by name.
+            vec!["unmark", "--all", "pr"],
+            vec!["unmark", "--all", "--if", "PR #12"],
+            vec!["mark", "--all"],
+            // The progress marker spins, as Komla would refuse it otherwise.
+            vec!["mark", "progress", "CI running"],
+        ] {
+            let mut api = FakeApi::responding(json!({"ok": true, "result": {}}));
+            assert!(run_with(&mut api, &args, "").is_err(), "{args:?}");
+            assert!(api.requests.is_empty(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn mark_results_say_what_changed() {
+        for (result, expected) in [
+            (
+                json!({"marker": {"key": "pr", "label": "PR #12", "changed": true}}),
+                "Marked PR #12.\n",
+            ),
+            (
+                json!({"marker": {"key": "pr", "label": null, "changed": true}}),
+                "Took off the pr marker.\n",
+            ),
+            (
+                json!({"marker": {"key": "pr", "label": "PR #13", "changed": false}}),
+                "Left alone: the pr marker shows PR #13.\n",
+            ),
+            (
+                json!({"marker": {"key": "pr", "label": null, "changed": false}}),
+                "Left alone: the workspace has no pr marker.\n",
+            ),
+            (
+                json!({"cleared": {"keys": ["pr", "progress"]}}),
+                "Took off 2 markers.\n",
+            ),
+            (json!({"cleared": {"keys": ["pr"]}}), "Took off 1 marker.\n"),
+            (
+                json!({"cleared": {"keys": []}}),
+                "The workspace has no markers.\n",
+            ),
+        ] {
+            let mut output = Vec::new();
+            write_operation_result(&result, false, &mut output).unwrap();
+            assert_eq!(String::from_utf8(output).unwrap(), expected);
+        }
+    }
+
+    #[test]
     fn tag_results_say_what_changed() {
         for (result, expected) in [
             (
@@ -5711,12 +5944,17 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
         let result = json!({"ok": true, "result": {"workspaces": [
             {"id": "w1", "name": "Add search", "branch": "add-search", "tag": "In review"},
             {"id": "w2", "name": "Notes", "progress": "CI running"},
+            {"id": "w3", "name": "Login", "tag": "Blocked", "progress": "CI running", "markers": [
+                {"key": "pr", "label": "PR #12", "tone": "info"},
+                {"key": "progress", "label": "CI running", "tone": "info", "spinner": true},
+            ]},
         ]}});
         let mut api = fake_api(vec![result.clone()]);
         let output = run_with(&mut api, &["workspace", "list"], "").unwrap();
+        // Work under way first, as the card shows it, and progress once, from its marker.
         assert_eq!(
             output,
-            "w1  Add search  [add-search]  (In review)\nw2  Notes  (CI running, under way)\n"
+            "w1  Add search  [add-search]  (In review)\nw2  Notes  (CI running, under way)\nw3  Login  (Blocked)  (CI running, under way)  (PR #12, marked)\n"
         );
         assert_eq!(request_body(&api, 0), json!({"type": "workspace.list"}));
         assert!(!api.requests[0].allow_long_running);

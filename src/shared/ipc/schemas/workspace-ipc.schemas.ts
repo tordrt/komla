@@ -9,11 +9,8 @@ import {
 import { NOTE_NAME_PATTERN } from '../../lib/notes';
 import { MAX_RECENT_LINKS } from '../../lib/recent-links';
 import { MAX_SAVED_LAYOUT_PANES } from '../../lib/saved-layout';
-import {
-  MAX_WORKSPACE_TAG_LENGTH,
-  MAX_WORKSPACE_TAG_TOOLTIP,
-  WORKSPACE_TAG_TONES,
-} from '../../lib/workspace-tags';
+import { WORKSPACE_MARKER_KEY_PATTERN } from '../../lib/workspace-markers';
+import { MAX_WORKSPACE_TAG_LENGTH, MAX_WORKSPACE_TAG_TOOLTIP } from '../../lib/workspace-tags';
 import { STATUS_ITEM_ID_PATTERN } from '../../types/status-items';
 import { MAX_PROMPT_ATTACHMENTS } from '../../types/workspace';
 
@@ -178,14 +175,6 @@ export const workspaceUpdateSchema = z
     tag: z.string().trim().min(1).max(MAX_WORKSPACE_TAG_LENGTH).optional(),
     tagSource: z.literal('pull-request').optional(),
     tagTooltip: z.string().max(MAX_WORKSPACE_TAG_TOOLTIP).optional(),
-    progress: z
-      .object({
-        label: z.string().trim().min(1).max(MAX_WORKSPACE_TAG_LENGTH),
-        tone: z.enum(WORKSPACE_TAG_TONES),
-        tooltip: z.string().max(MAX_WORKSPACE_TAG_TOOLTIP).optional(),
-      })
-      .strip()
-      .optional(),
     snoozedUntil: z.number().int().optional(),
     wakesOnNotification: z.boolean().optional(),
     status: z.enum(['active', 'trashed']).optional(),
@@ -311,6 +300,11 @@ export const workspaceDeleteArgsSchema = z.tuple([
 ]);
 export const workspaceGetArgsSchema = z.tuple([idSchema]);
 export const workspaceUpdateArgsSchema = z.tuple([idSchema, workspaceUpdateSchema]);
+/** Main takes it off its own list, so a marker a script put on meanwhile stays. */
+export const workspaceRemoveMarkerArgsSchema = z.tuple([
+  idSchema,
+  z.string().regex(WORKSPACE_MARKER_KEY_PATTERN),
+]);
 export const workspaceUpdateTerminalArgsSchema = z.tuple([idSchema, terminalUpdateSchema]);
 export const workspaceRestartArgsSchema = z.tuple([idSchema]);
 export const workspaceReorderArgsSchema = z.tuple([idSchema, z.number().int()]);

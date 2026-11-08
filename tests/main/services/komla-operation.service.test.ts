@@ -15,11 +15,24 @@ import { komlaOperationResultSchemas } from '../../../src/main/services/komla-op
 import { parseKomlaOperation } from '../../../src/main/services/komla-operation/schema';
 import { IPC } from '../../../src/shared/constants/ipc-channels';
 import {
+  MAX_WORKSPACE_MARKERS,
+  workspaceProgress,
+} from '../../../src/shared/lib/workspace-markers';
+import {
   DEFAULT_WORKSPACE_TAGS,
   MAX_WORKSPACE_TAGS,
   pullRequestTagUpdate,
   type WorkspaceTagDefinition,
 } from '../../../src/shared/lib/workspace-tags';
+
+/** The progress the workspace shows, as `komla progress` set it. */
+function progressOf(workspace: KomlaOperationWorkspace) {
+  const marker = workspaceProgress(workspace);
+  if (!marker) return undefined;
+  expect(marker.spinner).toBe(true);
+  const { key: _key, spinner: _spinner, ...progress } = marker;
+  return progress;
+}
 
 function createDependencies(
   overrides: Partial<KomlaOperationDependencies> = {}
@@ -1947,7 +1960,7 @@ describe('KomlaOperationService', () => {
     });
     expect(saveWorkspaceTags).not.toHaveBeenCalled();
     expect(workspace.tag).toBe('Blocked');
-    expect(workspace.progress).toEqual({
+    expect(progressOf(workspace)).toEqual({
       label: 'CI running',
       tone: 'info',
       tooltip: 'build 7 of 9',
@@ -1960,7 +1973,7 @@ describe('KomlaOperationService', () => {
       tag: { workspaceId: 'workspace-1', tag: 'Blocked', changed: false },
       progress: { workspaceId: 'workspace-1', label: null, changed: true },
     });
-    expect(workspace.progress).toBeUndefined();
+    expect(progressOf(workspace)).toBeUndefined();
     expect(workspace.tag).toBe('Blocked');
 
     // `komla tag "In review" --if "CI running"` replaces the progress, as it did the spinning tag.
@@ -1977,7 +1990,7 @@ describe('KomlaOperationService', () => {
       tag: { workspaceId: 'workspace-1', tag: 'In review', changed: true, added: false },
       progress: { workspaceId: 'workspace-1', label: null, changed: true },
     });
-    expect(workspace).toMatchObject({ tag: 'In review', progress: undefined });
+    expect(workspace).toMatchObject({ tag: 'In review', markers: undefined });
   });
 
   it("leaves a workspace's pull request free to tag it while CI is under way", async () => {
@@ -2004,7 +2017,7 @@ describe('KomlaOperationService', () => {
     );
 
     expect(workspace).toMatchObject({ tag: 'In review', tagSource: 'pull-request' });
-    expect(workspace.progress).toBeUndefined();
+    expect(progressOf(workspace)).toBeUndefined();
   });
 
   it('lets a script from before progress replace its spinner as it did the spinning tag', async () => {
@@ -2021,7 +2034,7 @@ describe('KomlaOperationService', () => {
     // A tag put on without --if replaces it.
     await run({ type: 'workspace.tag', tag: 'CI running', spinner: true });
     await run({ type: 'workspace.tag', tag: 'CI passed' });
-    expect(workspace).toMatchObject({ tag: 'CI passed', progress: undefined });
+    expect(workspace).toMatchObject({ tag: 'CI passed', markers: undefined });
 
     // A bare untag takes it off, and the tag shows again.
     await run({ type: 'workspace.tag', tag: 'CI running', spinner: true });
@@ -2029,13 +2042,14 @@ describe('KomlaOperationService', () => {
       tag: { workspaceId: 'workspace-1', tag: 'CI passed', changed: false },
       progress: { workspaceId: 'workspace-1', label: null, changed: true },
     });
-    expect(workspace).toMatchObject({ tag: 'CI passed', progress: undefined });
+    expect(workspace).toMatchObject({ tag: 'CI passed', markers: undefined });
 
     // Progress shown with its own command stays through another script's tags.
     await run({ type: 'workspace.progress', label: 'Deploying' });
     await run({ type: 'workspace.tag', tag: 'Blocked' });
     await run({ type: 'workspace.tag' });
-    expect(workspace).toMatchObject({ tag: undefined, progress: { label: 'Deploying' } });
+    expect(workspace.tag).toBeUndefined();
+    expect(progressOf(workspace)).toMatchObject({ label: 'Deploying' });
   });
 
   it("still replaces a spinner's progress after a tag the full list refused", async () => {
@@ -2060,7 +2074,7 @@ describe('KomlaOperationService', () => {
     });
     await run({ type: 'workspace.tag', tag: 'Tag 3' });
 
-    expect(workspace).toMatchObject({ tag: 'Tag 3', progress: undefined });
+    expect(workspace).toMatchObject({ tag: 'Tag 3', markers: undefined });
   });
 
   it('takes off both a tag and progress that untag names', async () => {
@@ -2086,7 +2100,7 @@ describe('KomlaOperationService', () => {
       tag: { workspaceId: 'workspace-1', tag: null, changed: true },
       progress: { workspaceId: 'workspace-1', label: null, changed: true },
     });
-    expect(workspace).toMatchObject({ tag: undefined, progress: undefined });
+    expect(workspace).toMatchObject({ tag: undefined, markers: undefined });
     // In one update, so the card never shows the tag in the progress's place.
     expect(publish).toHaveBeenCalledOnce();
   });
@@ -2094,7 +2108,7 @@ describe('KomlaOperationService', () => {
   it('refuses a tone or tooltip for progress without its label', async () => {
     let workspace: KomlaOperationWorkspace = {
       id: 'workspace-1',
-      progress: { label: 'CI running', tone: 'info' },
+      markers: [{ key: 'progress', label: 'CI running', tone: 'info', spinner: true }],
     };
     const service = new KomlaOperationService(
       createDependencies({
@@ -2109,7 +2123,7 @@ describe('KomlaOperationService', () => {
         { type: 'workspace.progress', tooltip: 'build 8 of 9' }
       )
     ).rejects.toMatchObject({ code: 'INVALID_PROGRESS', statusCode: 400 });
-    expect(workspace.progress).toEqual({ label: 'CI running', tone: 'info' });
+    expect(progressOf(workspace)).toEqual({ label: 'CI running', tone: 'info' });
   });
 
   it('shows progress on the current workspace and takes it off', async () => {
@@ -2137,7 +2151,7 @@ describe('KomlaOperationService', () => {
     ).resolves.toEqual({
       progress: { workspaceId: 'workspace-1', label: 'CI running', changed: true },
     });
-    expect(workspace.progress).toEqual({
+    expect(progressOf(workspace)).toEqual({
       label: 'CI running',
       tone: 'neutral',
       tooltip: 'build 7 of 9',
@@ -2156,7 +2170,7 @@ describe('KomlaOperationService', () => {
     ).resolves.toEqual({
       progress: { workspaceId: 'workspace-1', label: 'Deploying', changed: false },
     });
-    expect(workspace.progress).toEqual({ label: 'Deploying', tone: 'info' });
+    expect(progressOf(workspace)).toEqual({ label: 'Deploying', tone: 'info' });
 
     await expect(
       service.execute(
@@ -2164,10 +2178,19 @@ describe('KomlaOperationService', () => {
         { type: 'workspace.progress', ifLabel: 'deploying' }
       )
     ).resolves.toEqual({ progress: { workspaceId: 'workspace-1', label: null, changed: true } });
-    expect(workspace.progress).toBeUndefined();
+    expect(progressOf(workspace)).toBeUndefined();
     expect(workspace.tag).toBe('Blocked');
     expect(saveWorkspaceTags).not.toHaveBeenCalled();
     expect(publish).toHaveBeenCalledTimes(3);
+  });
+
+  it('says progress was cleared even when none showed, as it always did', async () => {
+    const service = new KomlaOperationService(
+      createDependencies({ findWorkspaceByTerminalId: () => ({ id: 'workspace-1' }) })
+    );
+    await expect(
+      service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.progress' })
+    ).resolves.toEqual({ progress: { workspaceId: 'workspace-1', label: null, changed: true } });
   });
 
   it('refuses progress when the user turned tagging off', async () => {
@@ -2182,6 +2205,230 @@ describe('KomlaOperationService', () => {
 
     await expect(
       service.execute({ terminalId: 'terminal-1' }, { type: 'workspace.progress', label: 'CI' })
+    ).rejects.toMatchObject({ code: 'CAPABILITY_DISABLED', statusCode: 403 });
+    expect(updateWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('marks the workspace under each key, leaving its tag, the tag list and other keys be', async () => {
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1', tag: 'In review' };
+    const publish = vi.fn();
+    const saveWorkspaceTags = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({
+        publish,
+        saveWorkspaceTags,
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+    const run = (operation: KomlaOperation) =>
+      service.execute({ terminalId: 'terminal-1' }, operation);
+
+    await expect(
+      run({ type: 'workspace.mark', key: 'pr', label: ' PR  #12 ', tone: 'info', tooltip: 'Fix' })
+    ).resolves.toEqual({
+      marker: { workspaceId: 'workspace-1', key: 'pr', label: 'PR #12', changed: true },
+    });
+    await run({ type: 'workspace.mark', key: 'deploy', label: 'Staging' });
+    // The same key replaces its marker in its place.
+    await run({ type: 'workspace.mark', key: 'pr', label: 'PR #12 approved', tone: 'success' });
+    expect(workspace.markers).toEqual([
+      { key: 'pr', label: 'PR #12 approved', tone: 'success' },
+      { key: 'deploy', label: 'Staging', tone: 'neutral' },
+    ]);
+    expect(workspace.tag).toBe('In review');
+    expect(saveWorkspaceTags).not.toHaveBeenCalled();
+
+    // A script that finished late leaves alone a marker another run put on since.
+    await expect(run({ type: 'workspace.mark', key: 'pr', ifLabel: 'PR #12' })).resolves.toEqual({
+      marker: { workspaceId: 'workspace-1', key: 'pr', label: 'PR #12 approved', changed: false },
+    });
+    await expect(
+      run({ type: 'workspace.mark', key: 'pr', ifLabel: 'pr #12 APPROVED' })
+    ).resolves.toEqual({
+      marker: { workspaceId: 'workspace-1', key: 'pr', label: null, changed: true },
+    });
+    expect(workspace.markers).toEqual([{ key: 'deploy', label: 'Staging', tone: 'neutral' }]);
+
+    // Taking off a marker the workspace lacks changes nothing, and says so.
+    publish.mockClear();
+    await expect(run({ type: 'workspace.mark', key: 'pr' })).resolves.toEqual({
+      marker: { workspaceId: 'workspace-1', key: 'pr', label: null, changed: false },
+    });
+    expect(publish).not.toHaveBeenCalled();
+    await run({ type: 'workspace.mark', key: 'deploy' });
+    expect(workspace.markers).toBeUndefined();
+  });
+
+  it('shows progress as the progress marker, which `komla mark` sees as any other', async () => {
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1' };
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+    const run = (operation: KomlaOperation) =>
+      service.execute({ terminalId: 'terminal-1' }, operation);
+
+    await run({ type: 'workspace.mark', key: 'pr', label: 'PR #12' });
+    await run({ type: 'workspace.progress', label: 'CI running', tone: 'info' });
+    expect(workspace.markers).toEqual([
+      { key: 'pr', label: 'PR #12', tone: 'neutral' },
+      { key: 'progress', label: 'CI running', tone: 'info', spinner: true },
+    ]);
+    // `komla mark ci "Deploying" --spinner` is progress under its own key.
+    await run({ type: 'workspace.mark', key: 'ci', label: 'Deploying', spinner: true });
+    await run({ type: 'workspace.mark', key: 'progress', ifLabel: 'CI running' });
+    expect(workspace.markers).toEqual([
+      { key: 'pr', label: 'PR #12', tone: 'neutral' },
+      { key: 'ci', label: 'Deploying', tone: 'neutral', spinner: true },
+    ]);
+  });
+
+  it('takes every marker off with all, leaving the tag, and only when asked by name', async () => {
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1', tag: 'In review' };
+    const publish = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({
+        publish,
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+    const run = (operation: KomlaOperation) =>
+      service.execute({ terminalId: 'terminal-1' }, operation);
+
+    await run({ type: 'workspace.mark', key: 'pr', label: 'PR #12' });
+    await run({ type: 'workspace.progress', label: 'CI running' });
+    await expect(run({ type: 'workspace.mark', all: true })).resolves.toEqual({
+      cleared: { workspaceId: 'workspace-1', keys: ['pr', 'progress'] },
+    });
+    expect(workspace.markers).toBeUndefined();
+    expect(workspace.tag).toBe('In review');
+
+    // None left: nothing to publish.
+    publish.mockClear();
+    await expect(run({ type: 'workspace.mark', all: true })).resolves.toEqual({
+      cleared: { workspaceId: 'workspace-1', keys: [] },
+    });
+    expect(publish).not.toHaveBeenCalled();
+
+    // A forgotten key never means every marker, and all takes nothing else.
+    await run({ type: 'workspace.mark', key: 'pr', label: 'PR #12' });
+    for (const operation of [
+      { type: 'workspace.mark' },
+      { type: 'workspace.mark', all: true, key: 'pr' },
+      { type: 'workspace.mark', all: true, ifLabel: 'PR #12' },
+      { type: 'workspace.mark', all: true, label: 'PR #13' },
+    ] as const) {
+      await expect(run(operation)).rejects.toMatchObject({ code: 'INVALID_MARKER' });
+    }
+    expect(workspace.markers).toHaveLength(1);
+    expect(parseKomlaOperation({ type: 'workspace.mark', all: true })).toEqual({
+      type: 'workspace.mark',
+      all: true,
+    });
+    // A client that sends its defaults asks for no look.
+    await expect(run({ type: 'workspace.mark', all: true, spinner: false })).resolves.toEqual({
+      cleared: { workspaceId: 'workspace-1', keys: ['pr'] },
+    });
+  });
+
+  it("forgets that `tag --spinner` showed progress once `komla mark` changes it", async () => {
+    let workspace: KomlaOperationWorkspace = { id: 'workspace-1' };
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+    const run = (operation: KomlaOperation) =>
+      service.execute({ terminalId: 'terminal-1' }, operation);
+
+    for (const clear of [
+      { type: 'workspace.mark', all: true },
+      { type: 'workspace.mark', key: 'progress' },
+    ] as const) {
+      await run({ type: 'workspace.tag', tag: 'CI running', spinner: true });
+      await run(clear);
+      // Progress the spinner never showed stays through a tag put on after.
+      await run({ type: 'workspace.mark', key: 'progress', label: 'CI running', spinner: true });
+      await run({ type: 'workspace.tag', tag: 'Done' });
+      expect(progressOf(workspace)).toMatchObject({ label: 'CI running' });
+      await run({ type: 'workspace.progress' });
+    }
+  });
+
+  it('refuses a look for a marker without its label, and a marker past the limit', async () => {
+    let workspace: KomlaOperationWorkspace = {
+      id: 'workspace-1',
+      markers: Array.from({ length: MAX_WORKSPACE_MARKERS }, (_, index) => ({
+        key: `m${index}`,
+        label: `Marker ${index}`,
+        tone: 'neutral' as const,
+      })),
+    };
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => workspace,
+        updateWorkspace: (_id, updates) => (workspace = { ...workspace, ...updates }),
+      })
+    );
+    const run = (operation: KomlaOperation) =>
+      service.execute({ terminalId: 'terminal-1' }, operation);
+
+    for (const operation of [
+      { type: 'workspace.mark', key: 'm0', tone: 'info' },
+      { type: 'workspace.mark', key: 'm0', tooltip: 'why' },
+      { type: 'workspace.mark', key: 'm0', spinner: true },
+      { type: 'workspace.mark', key: 'm0', label: '   ' },
+      // The progress key is for work under way, which ends with Komla.
+      { type: 'workspace.mark', key: 'progress', label: 'Deploy' },
+      { type: 'workspace.mark', key: 'progress', label: 'Deploy', spinner: false },
+    ] as const) {
+      await expect(run(operation)).rejects.toMatchObject({
+        code: 'INVALID_MARKER',
+        statusCode: 400,
+      });
+    }
+    await expect(run({ type: 'workspace.mark', key: 'pr', label: 'PR #12' })).rejects.toMatchObject(
+      { code: 'MARKERS_FULL', statusCode: 409 }
+    );
+    // Progress has its own place, so scripts' markers never keep it off the card.
+    await expect(run({ type: 'workspace.progress', label: 'CI' })).resolves.toMatchObject({
+      progress: { label: 'CI', changed: true },
+    });
+    await run({ type: 'workspace.progress' });
+    // A key the workspace has replaces its marker, full or not.
+    await run({ type: 'workspace.mark', key: 'm4', label: 'Replaced' });
+    expect(workspace.markers).toHaveLength(MAX_WORKSPACE_MARKERS);
+    expect(workspace.markers?.at(-1)).toEqual({ key: 'm4', label: 'Replaced', tone: 'neutral' });
+  });
+
+  it('refuses a marker key outside the pattern, and markers when tagging is off', async () => {
+    expect(() =>
+      parseKomlaOperation({ type: 'workspace.mark', key: 'has space', label: 'x' })
+    ).toThrow();
+    expect(() => parseKomlaOperation({ type: 'workspace.mark', key: 'x'.repeat(41) })).toThrow();
+    expect(parseKomlaOperation({ type: 'workspace.mark', key: 'pr.12_a-b' })).toEqual({
+      type: 'workspace.mark',
+      key: 'pr.12_a-b',
+    });
+
+    const updateWorkspace = vi.fn();
+    const service = new KomlaOperationService(
+      createDependencies({
+        findWorkspaceByTerminalId: () => ({ id: 'workspace-1' }),
+        updateWorkspace,
+        getConfig: () => ({ agentDisabledCapabilities: ['workspace.tag'] }),
+      })
+    );
+    await expect(
+      service.execute(
+        { terminalId: 'terminal-1' },
+        { type: 'workspace.mark', key: 'pr', label: 'PR #12' }
+      )
     ).rejects.toMatchObject({ code: 'CAPABILITY_DISABLED', statusCode: 403 });
     expect(updateWorkspace).not.toHaveBeenCalled();
   });
@@ -2286,6 +2533,10 @@ describe('KomlaOperationService', () => {
             workingDirectory: '/w/add-search',
             agentActive: true,
             tag: 'In review',
+            markers: [
+              { key: 'pr', label: 'PR #12', tone: 'info', tooltip: 'Fix login' },
+              { key: 'progress', label: 'CI running', tone: 'info', spinner: true },
+            ],
             attention: { kind: 'turn-complete', source: 'claude-code', updatedAt: 0 },
           },
           { id: 'w2', name: 'trashed', status: 'trashed' },
@@ -2306,6 +2557,11 @@ describe('KomlaOperationService', () => {
           agentActive: true,
           attention: 'turn-complete',
           tag: 'In review',
+          markers: [
+            { key: 'pr', label: 'PR #12', tone: 'info' },
+            { key: 'progress', label: 'CI running', tone: 'info', spinner: true },
+          ],
+          progress: 'CI running',
         },
         {
           id: 'w3',

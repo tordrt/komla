@@ -4,7 +4,8 @@ import '@xterm/xterm/css/xterm.css';
 
 import { Spinner } from '@/components/ui/spinner';
 import { getDetector, configKeyToEventKey } from '@/lib/double-tap-detector';
-import { hasFileDrop } from '@/lib/file-drop';
+import { hasFileDrop, uploadingLabel } from '@/lib/file-drop';
+import { importFilesAsReferences, refreshFileListAfterImport } from '@/lib/file-imports';
 import { openTerminalUrl } from '@/lib/open-terminal-url';
 import {
   buildTerminalTheme,
@@ -51,7 +52,6 @@ import {
 import { useTerminalSearchStore } from '@/stores/terminal-search.store';
 import { useToastStore } from '@/stores/toast.store';
 import { useVoiceStore } from '@/stores/voice.store';
-import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import { isNewWorkspaceDialogShortcut } from '../../../shared/constants/shortcut-scopes';
 import { buildTerminalFontFamily } from '../../../shared/constants/terminal';
@@ -452,16 +452,6 @@ export function getTerminalClipboardShortcutAction(
   return null;
 }
 
-/** Imports land in `.komla-files`, which the Remote Companion ignores, so re-list the tree. */
-function refreshFileListAfterImport(workspaceId: string): void {
-  const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
-  if (!workspace) return;
-  void useFileListStore
-    .getState()
-    .fetchFileList(workspace.workingDirectory, false, workspaceId)
-    .catch(() => undefined);
-}
-
 export async function pasteClipboardIntoTerminal(
   terminalId: string,
   options: TerminalPasteOptions = {}
@@ -701,52 +691,6 @@ export function xtermKeyHandler(event: KeyboardEvent): boolean {
 
   const isMac = window.api?.platform === 'darwin';
   return !tryExecuteModifierShortcut(event, shortcuts, isMac);
-}
-
-export function isDroppedRegularFile(filePath: string): boolean {
-  return filePath.length > 0;
-}
-
-const LARGE_FILE_TRANSFER_BYTES = 100 * 1024 * 1024;
-
-export async function getDroppedFileAtPathInput(
-  files: readonly File[],
-  getPathForFile: (file: File) => string,
-  importExternalFile: ((sourcePath: string, preferredName?: string) => Promise<string>) | undefined,
-  confirmLargeTransfer?: (files: readonly File[], totalBytes: number) => Promise<boolean>
-): Promise<string | null> {
-  if (!importExternalFile) return null;
-
-  const importableFiles = files
-    .map((file) => ({ file, sourcePath: getPathForFile(file) }))
-    .filter(({ sourcePath }) => isDroppedRegularFile(sourcePath));
-
-  const totalBytes = importableFiles.reduce((total, { file }) => total + file.size, 0);
-  if (
-    totalBytes >= LARGE_FILE_TRANSFER_BYTES &&
-    confirmLargeTransfer &&
-    !(await confirmLargeTransfer(
-      importableFiles.map(({ file }) => file),
-      totalBytes
-    ))
-  ) {
-    return null;
-  }
-
-  const refs = await Promise.all(
-    importableFiles.map(async ({ file, sourcePath }) => {
-      try {
-        const relativePath = await importExternalFile(sourcePath, file.name);
-        return `@${relativePath} `;
-      } catch (err) {
-        console.warn('Failed to import dropped file:', err);
-        return null;
-      }
-    })
-  );
-
-  const input = refs.filter((ref): ref is string => ref !== null).join('');
-  return input || null;
 }
 
 export function TerminalView({
@@ -1022,44 +966,9 @@ export function TerminalView({
               window.api.importExternalFile(workingDirectory, sourcePath, preferredName)
           : undefined;
       if (!baseImportExternalFile) return;
-      const failedFiles: string[] = [];
-      const importExternalFile = async (sourcePath: string, preferredName?: string) => {
-        try {
-          return await baseImportExternalFile(sourcePath, preferredName);
-        } catch (err) {
-          failedFiles.push(preferredName ?? 'file');
-          throw err;
-        }
-      };
-      setUploadLabel(
-        files.length === 1 ? `Uploading ${files[0].name}…` : `Uploading ${files.length} files…`
-      );
-      void getDroppedFileAtPathInput(
-        files,
-        window.api.getPathForFile,
-        importExternalFile,
-        async (largeFiles, totalBytes) =>
-          (await window.api.showMessageBox({
-            type: 'warning',
-            title: 'Transfer large files?',
-            message: `Transfer ${largeFiles.length === 1 ? largeFiles[0].name : `${largeFiles.length} files`} (${(totalBytes / (1024 * 1024)).toFixed(1)} MB)?`,
-            detail: 'Large file transfers may take a while, especially for remote workspaces.',
-            buttons: ['Transfer', 'Cancel'],
-            defaultId: 1,
-            cancelId: 1,
-          })) === 0
-      )
+      setUploadLabel(uploadingLabel(files));
+      void importFilesAsReferences(files, baseImportExternalFile)
         .then((fileAtPathInput) => {
-          if (failedFiles.length > 0) {
-            useToastStore
-              .getState()
-              .addToast(
-                failedFiles.length === 1
-                  ? `Couldn’t upload ${failedFiles[0]}`
-                  : `Couldn’t upload ${failedFiles.length} files`,
-                'error'
-              );
-          }
           if (!fileAtPathInput) return;
           if (workspaceId) refreshFileListAfterImport(workspaceId);
           window.api.sendInput(terminalId, fileAtPathInput);

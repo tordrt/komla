@@ -111,7 +111,10 @@ describe('PromptDraft', () => {
     expect(screen.getByRole('button', { name: 'Open a file to refer to it' })).toBeDisabled();
 
     view('main.ts', '@src/main.ts:4-8');
-    await userEvent.click(screen.getByRole('button', { name: 'Insert @path to main.ts' }));
+    const insert = screen.getByRole('button', { name: 'Insert @path to main.ts' });
+    // Not the file's name, which named in the tooltip leaves the header free to drag the draft by.
+    expect(insert).toHaveTextContent(/^@path$/);
+    await userEvent.click(insert);
     expect(prompt()).toHaveValue('Look at @src/main.ts:4-8 ');
     expect(prompt()).toHaveFocus();
 

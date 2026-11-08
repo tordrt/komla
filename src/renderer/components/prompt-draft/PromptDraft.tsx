@@ -1,4 +1,4 @@
-import { At, ChatText, Copy, NotePencil, X } from '@phosphor-icons/react';
+import { ChatText, Copy, NotePencil, X } from '@phosphor-icons/react';
 import {
   useEffect,
   useId,
@@ -408,7 +408,10 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-/** Puts in a reference to the file the user is looking at, with its selected lines. */
+/**
+ * Puts in a reference to the file the user is looking at, with its selected lines. A short
+ * "@path", with the file named in its tooltip, as a long name would leave little to drag by.
+ */
 function ReferenceButton({
   viewed,
   shortcut,
@@ -423,17 +426,17 @@ function ReferenceButton({
     <Tooltip>
       <TooltipTrigger asChild onFocus={ignoreFocusAfterPointer}>
         {/* A disabled button gets no pointer events, so its tooltip goes on a wrapper. */}
-        <span className="min-w-0 shrink">
+        <span className="shrink-0">
           <Button
+            type="button"
             variant="ghost"
             aria-label={label}
             disabled={!viewed}
             onMouseDown={keepFocus}
             onClick={onInsert}
-            className="h-6 max-w-40 min-w-0 gap-1 px-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
+            className="h-6 px-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
           >
-            <At className="size-3.5 shrink-0" />
-            <span className="truncate">{viewed?.name ?? 'File'}</span>
+            @path
           </Button>
         </span>
       </TooltipTrigger>

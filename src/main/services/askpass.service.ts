@@ -84,15 +84,20 @@ class AskpassService {
   private sshMarksServerPrompts: Promise<boolean> | null = null;
   private isStarted = false;
   private stopListening: (() => void) | null = null;
+  /** The Komla window a passphrase is asked in: the focused one, or any, unless start says. */
+  private selectWindow: () => BrowserWindow | undefined = () =>
+    BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
 
   /**
    * Start the askpass service.
-   * Creates a Unix socket and helper script for SSH_ASKPASS.
+   * Creates a Unix socket and helper script for SSH_ASKPASS. `selectWindow` picks the window to
+   * ask in, which another window of Komla's with focus, such as the popped-out prompt draft, isn't.
    */
-  async start(): Promise<void> {
+  async start(selectWindow?: () => BrowserWindow | undefined): Promise<void> {
     if (this.isStarted) {
       return;
     }
+    if (selectWindow) this.selectWindow = selectWindow;
 
     // Generate unique socket path
     const socketId = randomUUID();
@@ -378,7 +383,7 @@ class AskpassService {
       }
     }
 
-    const window = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    const window = this.selectWindow();
     if (!window) {
       logger.warn('No windows available for passphrase dialog');
       this.answer(socket, null);

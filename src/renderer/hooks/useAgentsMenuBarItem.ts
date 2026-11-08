@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 
 import { drawAgentsMenuBarImage } from '@/lib/agents-menu-bar-image';
+import { watchRootTheme } from '@/lib/root-theme';
 import { useConfigStore } from '@/stores/config.store';
 
 /**
@@ -25,12 +26,6 @@ export function useAgentsMenuBarItem(): void {
 
   useEffect(() => {
     if (!enabled) return;
-    const root = document.documentElement;
-    const send = () =>
-      window.api.setAgentsMenuBarTheme({ className: root.className, style: root.style.cssText });
-    send();
-    const observer = new MutationObserver(send);
-    observer.observe(root, { attributes: true, attributeFilter: ['class', 'style'] });
-    return () => observer.disconnect();
+    return watchRootTheme((theme) => window.api.setAgentsMenuBarTheme(theme));
   }, [enabled]);
 }

@@ -77,8 +77,10 @@ A floating window for writing a prompt while looking at files, to copy into an a
 references to the file on screen, to files dragged from the file panel, and to files and screenshots
 dropped or pasted in, which become Imported files of the workspace on screen. There's one per
 window, kept in memory until copied over or Komla quits, and it floats over Quick Look and the file
-viewer too. A note is the lasting kind: a file Komla keeps for the workspace outside the repository,
-which a draft can be saved as.
+viewer too. It can pop out into a window of its own that stays on top of other apps, such as a
+browser, taking its text with it until it's put back; popped out, it refers to the Komla window
+used last. A note is the lasting kind: a file Komla keeps for the workspace outside the
+repository, which a draft can be saved as.
 _Avoid_: Scratchpad, prompt composer
 
 ## Terminals

@@ -436,6 +436,31 @@ export const IPC = {
   AGENTS_MENU_BAR_CLOSE: 'agents-menu-bar:close', // popover page → main
   AGENTS_MENU_BAR_THEME: 'agents-menu-bar:theme', // app window → main
 
+  // The prompt draft, popped out into a window of its own that stays over other apps
+  PROMPT_DRAFT_POP_OUT: 'prompt-draft:pop-out', // app window → main
+  PROMPT_DRAFT_SHOW: 'prompt-draft:show', // app window → main
+  PROMPT_DRAFT_HIDE: 'prompt-draft:hide', // app window → main
+  PROMPT_DRAFT_STATUS_REQUEST: 'prompt-draft:status-request', // app window → main
+  PROMPT_DRAFT_STATUS: 'prompt-draft:status', // main → app windows
+  PROMPT_DRAFT_CONTEXT: 'prompt-draft:context', // app window → main
+  PROMPT_DRAFT_REFERENCE_REQUEST: 'prompt-draft:reference-request', // main → app window
+  PROMPT_DRAFT_REFERENCE: 'prompt-draft:reference', // app window → main
+  PROMPT_DRAFT_SAVE_AS_NOTE: 'prompt-draft:save-as-note', // main → app window
+  PROMPT_DRAFT_NOTE_SAVED: 'prompt-draft:note-saved', // app window → main
+  PROMPT_DRAFT_COPIED: 'prompt-draft:copied', // main → app window
+  PROMPT_DRAFT_POPPED_IN: 'prompt-draft:popped-in', // main → app window
+  PROMPT_DRAFT_WINDOW_STATE_REQUEST: 'prompt-draft-window:state-request', // draft page → main
+  PROMPT_DRAFT_WINDOW_DRAFT: 'prompt-draft-window:draft', // main → draft page
+  PROMPT_DRAFT_WINDOW_CONTEXT: 'prompt-draft-window:context', // main → draft page
+  PROMPT_DRAFT_WINDOW_READY: 'prompt-draft-window:ready', // draft page → main
+  PROMPT_DRAFT_WINDOW_TEXT: 'prompt-draft-window:text', // draft page → main
+  PROMPT_DRAFT_WINDOW_REQUEST_REFERENCE: 'prompt-draft-window:request-reference', // draft page → main
+  PROMPT_DRAFT_WINDOW_INSERT: 'prompt-draft-window:insert', // main → draft page
+  PROMPT_DRAFT_WINDOW_SAVE_AS_NOTE: 'prompt-draft-window:save-as-note', // draft page → main
+  PROMPT_DRAFT_WINDOW_NOTE_SAVED: 'prompt-draft-window:note-saved', // main → draft page
+  PROMPT_DRAFT_WINDOW_CLOSE: 'prompt-draft-window:close', // draft page → main
+  PROMPT_DRAFT_WINDOW_POP_IN: 'prompt-draft-window:pop-in', // draft page → main
+
   // Toast layer drawn above browser previews
   TOAST_OVERLAY_SHOW: 'toast-overlay:show',
   TOAST_OVERLAY_HIDE: 'toast-overlay:hide',

@@ -99,6 +99,8 @@ export default defineConfig({
           'toast-overlay': resolve('src/renderer/toast-overlay.html'),
           // The macOS menu bar's agents popover (see agents-menu-bar.service.ts).
           'agents-menu-bar': resolve('src/renderer/agents-menu-bar.html'),
+          // The prompt draft, popped out into a window of its own (see prompt-draft-window.service.ts).
+          'prompt-draft': resolve('src/renderer/prompt-draft.html'),
         },
       },
       // AudioWorklet processors must be emitted as standalone files — Vite's

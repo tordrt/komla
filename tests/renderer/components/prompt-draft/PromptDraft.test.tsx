@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PromptDraftOutlet } from '../../../../src/renderer/components/prompt-draft/PromptDraft';
 import { TooltipProvider } from '../../../../src/renderer/components/ui/tooltip';
-import { openPromptDraft } from '../../../../src/renderer/lib/prompt-draft';
+import { openPromptDraft, popInPromptDraft } from '../../../../src/renderer/lib/prompt-draft';
 import { registerShortcutAction } from '../../../../src/renderer/lib/shortcut-actions';
 import { AT_PATH_MIME, setTreeDragActive } from '../../../../src/renderer/lib/tree-drag-token';
 import { usePromptDraftStore } from '../../../../src/renderer/stores/prompt-draft.store';
@@ -17,6 +17,8 @@ import { useViewedFileStore } from '../../../../src/renderer/stores/viewed-file.
 
 const api = {
   copyToClipboard: vi.fn(),
+  popOutPromptDraft: vi.fn(),
+  showPromptDraftWindow: vi.fn(),
   platform: 'linux',
   getPathForFile: vi.fn((_file: File) => ''),
   importWorkspaceExternalFile: vi.fn(
@@ -583,7 +585,7 @@ describe('PromptDraft', () => {
       expect(api.importWorkspaceExternalFile).not.toHaveBeenCalled();
     });
 
-    it('waits for files still copying before it saves or copies, which would miss them', async () => {
+    it('waits for files still copying before it saves, copies or pops out, which would miss them', async () => {
       const finish = pendingImport();
       renderDraft();
       act(() => openPromptDraft());
@@ -591,6 +593,8 @@ describe('PromptDraft', () => {
       fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/cat.png') });
       expect(screen.getByRole('button', { name: 'Save as note' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Copy and close' })).toBeDisabled();
+      // Their @paths would go into this window's draft, not the one popped out.
+      expect(screen.getByRole('button', { name: 'Pop out over other apps' })).toBeDisabled();
       await userEvent.keyboard('{Control>}{Enter}{/Control}');
       expect(api.copyToClipboard).not.toHaveBeenCalled();
       expect(queryDraft()).toBeInTheDocument();
@@ -693,5 +697,40 @@ describe('PromptDraft', () => {
       await waitFor(() => expect(toastMessages()).toEqual(['Couldn’t paste the image']));
       expect(prompt()).toHaveValue('');
     });
+  });
+
+  it('pops out just where it is, taking the text and the cursor with it', async () => {
+    Object.assign(window, { innerWidth: 1200, innerHeight: 800 });
+    renderDraft();
+    act(() => openPromptDraft());
+    await userEvent.type(prompt(), 'Fix the header');
+    prompt().setSelectionRange(4, 7);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Pop out over other apps' }));
+
+    expect(api.popOutPromptDraft).toHaveBeenCalledWith(
+      { text: 'Fix the header', selectionStart: 4, selectionEnd: 7 },
+      { x: 736, y: 472, width: 440, height: 280 }
+    );
+    expect(queryDraft()).toBeNull();
+    expect(draftText()).toBe('');
+    // Its own window shows it from now on.
+    act(() => openPromptDraft());
+    expect(api.showPromptDraftWindow).toHaveBeenCalledTimes(1);
+    expect(queryDraft()).toBeNull();
+  });
+
+  it('pops back in where the cursor was, after any text written here meanwhile', async () => {
+    renderDraft();
+    act(() => popInPromptDraft({ text: 'Fix the header', selectionStart: 4, selectionEnd: 7 }));
+    expect(prompt()).toHaveValue('Fix the header');
+    expect(prompt()).toHaveFocus();
+    expect([prompt().selectionStart, prompt().selectionEnd]).toEqual([4, 7]);
+
+    await userEvent.keyboard('{Escape}');
+    act(() => usePromptDraftStore.getState().setText('Written here'));
+    act(() => popInPromptDraft({ text: 'Popped out', selectionStart: 6, selectionEnd: 6 }));
+    expect(prompt()).toHaveValue('Written here\n\nPopped out');
+    expect(prompt().selectionStart).toBe('Written here\n\nPopped'.length);
   });
 });

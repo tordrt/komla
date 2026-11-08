@@ -1,5 +1,6 @@
 import { createLogger } from '../../lib/logger';
 import { askpassService } from '../../services/askpass.service';
+import { windowService } from '../../services/window.service';
 
 const logger = createLogger('AskpassHandlers');
 
@@ -15,9 +16,13 @@ const logger = createLogger('AskpassHandlers');
 export function registerAskpassHandlers(): void {
   // Start the askpass service when the app starts
   // This ensures the socket is ready before any git operations
-  askpassService.start().catch((err) => {
-    logger.error('Failed to start askpass service', err);
-  });
+  // Asked in the Komla window the user is in, never another window of Komla's, such as the
+  // popped-out prompt draft.
+  askpassService
+    .start(() => windowService.getActiveWindow() ?? windowService.getAllWindows()[0])
+    .catch((err) => {
+      logger.error('Failed to start askpass service', err);
+    });
 
   // The askpass:response handler is registered in AskpassService.start()
   // because it needs access to the pending requests map.

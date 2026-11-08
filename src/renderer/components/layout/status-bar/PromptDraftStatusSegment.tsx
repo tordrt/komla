@@ -8,15 +8,23 @@ import { useWorkspacesStore } from '@/stores/workspaces.store';
 
 import { StatusBarButton } from './StatusBarButton';
 
-/** Shows or hides the prompt draft, while a workspace is on screen for it to show over. */
+/**
+ * Shows or hides the prompt draft, while a workspace is on screen for it to show over, or while it's
+ * popped out into a window of its own.
+ */
 export function PromptDraftStatusSegment() {
   const hasWorkspace = useWorkspacesStore((s) =>
     s.workspaces.some((w) => w.id === s.selectedWorkspaceId)
   );
   const workspaceId = usePromptDraftStore(selectPromptDraftWorkspace);
-  const open = usePromptDraftStore((s) => s.isOpen);
+  const poppedOut = usePromptDraftStore((s) => s.poppedOut);
+  // A draft still open here as another popped out closes first, as the shortcut closes it.
+  const open = usePromptDraftStore(
+    (s) => s.isOpen || (s.poppedOut.poppedOut && s.poppedOut.visible)
+  );
   const shortcut = useShortcutsStore((s) => s.getDisplayShortcut('promptDraft.toggle'));
-  if (!hasWorkspace || !workspaceId) return null;
+  // Popped out, it shows in its own window, with or without a workspace here.
+  if (!poppedOut.poppedOut && (!hasWorkspace || !workspaceId)) return null;
 
   return (
     <StatusBarButton

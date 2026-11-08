@@ -11,6 +11,7 @@ import { registerHooksHandlers } from './hooks.handlers';
 import { registerNotesHandlers } from './notes.handlers';
 import { registerPluginsHandlers } from './plugins.handlers';
 import { registerProjectHandlers } from './project.handlers';
+import { registerPromptDraftHandlers } from './prompt-draft.handlers';
 import { registerRemoteControlHandlers } from './remote-control.handlers';
 import { registerSettingsHandlers } from './settings.handlers';
 import { registerShellHandlers } from './shell.handlers';
@@ -37,6 +38,7 @@ export function registerIpcHandlers(): void {
   registerDevPreviewHandlers();
   registerToastOverlayHandlers();
   registerAgentsMenuBarHandlers();
+  registerPromptDraftHandlers();
   registerAppHandlers();
   registerWindowHandlers();
   registerAskpassHandlers();

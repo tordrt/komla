@@ -11,6 +11,7 @@ import { gitContract } from './git.contract';
 import { notesContract } from './notes.contract';
 import { pluginsContract } from './plugins.contract';
 import { projectContract } from './project.contract';
+import { promptDraftContract } from './prompt-draft.contract';
 import { remoteControlContract } from './remote-control.contract';
 import { settingsContract } from './settings.contract';
 import { shellContract } from './shell.contract';
@@ -49,6 +50,7 @@ export const ipcContract = {
   ...notesContract,
   ...pluginsContract,
   ...projectContract,
+  ...promptDraftContract,
   ...remoteControlContract,
   ...settingsContract,
   ...shellContract,

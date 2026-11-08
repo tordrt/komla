@@ -239,6 +239,15 @@ export type {
   AgentsMenuBarTheme,
 } from './agents-menu-bar';
 
+// The prompt draft, popped out into a window of its own
+export { PROMPT_DRAFT_MAX_LENGTH, PROMPT_DRAFT_MIN_SIZE } from './prompt-draft-window';
+export type {
+  PromptDraftRect,
+  PromptDraftText,
+  PromptDraftWindowContext,
+  PromptDraftWindowStatus,
+} from './prompt-draft-window';
+
 // Toast layer drawn above native browser previews
 export { TOAST_OVERLAY_MESSAGE_MAX_LENGTH } from './toast-overlay';
 export type {

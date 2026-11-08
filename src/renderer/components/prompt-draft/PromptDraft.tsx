@@ -1,4 +1,4 @@
-import { ChatText, Copy, NotePencil, X } from '@phosphor-icons/react';
+import { ArrowSquareOut, ChatText } from '@phosphor-icons/react';
 import {
   useEffect,
   useId,
@@ -7,17 +7,12 @@ import {
   useState,
   type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 
 import { titleBarHeightPx } from '@/components/layout/title-bar-metrics';
-import { Button } from '@/components/ui/button';
-import { IconButton, ignoreFocusAfterPointer } from '@/components/ui/icon-button';
-import { Kbd } from '@/components/ui/kbd';
+import { IconButton } from '@/components/ui/icon-button';
 import { Spinner } from '@/components/ui/spinner';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   getTransferFiles,
   hasClipboardImage,
@@ -40,6 +35,7 @@ import {
   openPromptDraft,
   DRAFT_MIN_HEIGHT,
   DRAFT_MIN_WIDTH,
+  popOutPromptDraft,
   PROMPT_DRAFT_ATTRIBUTE,
   positionAfterInsert,
   readStoredDraftRect,
@@ -53,15 +49,13 @@ import {
 } from '@/lib/prompt-draft';
 import { AT_PATH_MIME, consumeTreeDragActive, isTreeDragActive } from '@/lib/tree-drag-token';
 import { usePromptDraftStore } from '@/stores/prompt-draft.store';
-import { formatShortcutForDisplay, useShortcutsStore } from '@/stores/shortcuts.store';
+import { useShortcutsStore } from '@/stores/shortcuts.store';
 import { useToastStore } from '@/stores/toast.store';
-import { selectViewedFile, useViewedFileStore, type ViewedFile } from '@/stores/viewed-file.store';
+import { selectViewedFile, useViewedFileStore } from '@/stores/viewed-file.store';
 
-const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Shift', 'Alt']);
+import { PROMPT_DRAFT_MAX_LENGTH } from '../../../shared/types';
 
-// Where the cursor was in the draft, for when it shows again: it remounts as it moves between the
-// window and a viewer over it.
-let selection: { start: number; end: number } | null = null;
+import { insertReference, keepFocus, PromptDraftPanel, replaceSelection } from './PromptDraftPanel';
 
 // Where each reference still on its way goes, as the cursor was when it was asked for. Kept up to
 // date as others go in, here as they outlast the draft remounting.
@@ -147,11 +141,6 @@ function dropKind(dataTransfer: DataTransfer): 'path' | 'files' | null {
   return hasFileDrop(dataTransfer) ? 'files' : null;
 }
 
-/** Keeps focus where it is, such as in the draft or on the lines selected in a file. */
-function keepFocus(event: ReactMouseEvent) {
-  event.preventDefault();
-}
-
 /**
  * A floating window for writing a prompt while looking at files, to copy into an agent. There's
  * one per window, across its workspaces, whose text stays until copied over or Komla quits.
@@ -172,10 +161,6 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
     rectRef.current = rect;
   });
 
-  const platform = window.api?.platform;
-  const copyShortcut = formatShortcutForDisplay('Cmd+Enter', platform);
-  const insertShortcut = formatShortcutForDisplay('Cmd+Shift+C', platform);
-
   // Back where the cursor was, or at the end. Once copied, all of it, for the next prompt to
   // replace as it's typed.
   useLayoutEffect(() => {
@@ -186,14 +171,16 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
       store.clearCopied();
       textarea.select();
     } else {
-      const { start, end } = selection ?? {
+      const { start, end } = store.selection ?? {
         start: textarea.value.length,
         end: textarea.value.length,
       };
       textarea.setSelectionRange(start, end);
     }
     return () => {
-      selection = { start: textarea.selectionStart, end: textarea.selectionEnd };
+      // Not once it has popped out, which took the text and the cursor with it.
+      if (usePromptDraftStore.getState().poppedOut.poppedOut) return;
+      store.setSelection({ start: textarea.selectionStart, end: textarea.selectionEnd });
     };
   }, []);
 
@@ -219,28 +206,11 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
 
   const setText = (value: string) => usePromptDraftStore.getState().setText(value);
 
-  /**
-   * Replaces the selection of the textarea, which has focus. execCommand is deprecated, but it is
-   * the only edit the textarea's own undo can take back; the fallback can't be undone.
-   */
-  const replaceSelection = (textarea: HTMLTextAreaElement, value: string) => {
-    const inserted =
-      typeof document.execCommand === 'function' &&
-      document.execCommand(value ? 'insertText' : 'delete', false, value);
-    if (inserted) return;
-    textarea.setRangeText(value, textarea.selectionStart, textarea.selectionEnd, 'end');
-    setText(textarea.value);
-  };
-
-  const insertReference = () => {
+  const onInsertReference = () => {
     const reference = viewed?.getReference();
     const textarea = textareaRef.current;
     if (!textarea || !reference) return;
-    textarea.focus();
-    replaceSelection(
-      textarea,
-      spaceReference(textarea.value, textarea.selectionStart, textarea.selectionEnd, reference)
-    );
+    insertReference(textarea, reference, setText);
   };
 
   /**
@@ -269,7 +239,7 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
     }
     textarea.setSelectionRange(place.start, place.end);
     if (document.activeElement === textarea) {
-      replaceSelection(textarea, value);
+      replaceSelection(textarea, value, setText);
     } else {
       // Without focus, which it would take from where the user is now; this can't be undone.
       textarea.setRangeText(value, place.start, place.end, 'end');
@@ -366,7 +336,7 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
       event.stopPropagation();
       textarea.focus();
       const { selectionStart: start, selectionEnd: end, value } = textarea;
-      replaceSelection(textarea, spaceReference(value, start, end, reference));
+      replaceSelection(textarea, spaceReference(value, start, end, reference), setText);
       return;
     }
     if (!hasFileDrop(event.dataTransfer)) return;
@@ -453,56 +423,24 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
     closePromptDraft();
   };
 
-  const close = () => closePromptDraft();
-
-  /** Whether Cmd+C takes the whole prompt: with nothing, or all of it, selected. */
-  const copiesWhole = (textarea: HTMLTextAreaElement) => {
-    const { selectionStart: start, selectionEnd: end, value } = textarea;
-    return start === end || (start === 0 && end === value.length);
-  };
-
-  const onKeyDown = (event: ReactKeyboardEvent) => {
-    const native = event.nativeEvent;
-    if (native.isComposing) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      close();
-      return;
-    }
-    if (MODIFIER_KEYS.has(event.key)) return;
-    // Whatever it is bound to, as the window's shortcuts pass over a textarea.
-    if (useShortcutsStore.getState().matchesEvent('promptDraft.toggle', native)) {
-      event.preventDefault();
-      event.stopPropagation();
-      close();
-      return;
-    }
-    // Other keys without Cmd are typing, such as Option+N starting an ñ.
-    if (!(event.metaKey || event.ctrlKey)) return;
-    // The viewers behind take keys like these for their own shortcuts, such as Cmd+C copying a
-    // file's @path; here they edit the draft.
-    event.stopPropagation();
-    const plain = !event.shiftKey && !event.altKey;
+  /** Into a window of its own just where it is, which stays over other apps, as a browser. */
+  const popOut = () => {
+    // Their references would go into this window's draft, not the one popped out.
+    if (waitForUploads()) return;
     const textarea = textareaRef.current;
-    // Cmd+C as the platform has it, in the text: on a button it's no copy.
-    const copyKey = platform === 'darwin' ? event.metaKey && !event.ctrlKey : event.ctrlKey;
-    if (
-      (event.key === 'Enter' && plain) ||
-      (plain &&
-        copyKey &&
-        event.key.toLowerCase() === 'c' &&
-        event.target === textarea &&
-        copiesWhole(textarea))
-    ) {
-      event.preventDefault();
-      copyAndClose();
-    } else if (event.shiftKey && !event.altKey && event.key.toLowerCase() === 'c') {
-      event.preventDefault();
-      insertReference();
-    } else if (forwardAppShortcut(native)) {
-      event.preventDefault();
+    const value = textarea?.value ?? text;
+    if (value.length > PROMPT_DRAFT_MAX_LENGTH) {
+      useToastStore.getState().addToast('This draft is too long to pop out', 'error');
+      return;
     }
+    popOutPromptDraft(
+      {
+        text: value,
+        selectionStart: textarea?.selectionStart ?? value.length,
+        selectionEnd: textarea?.selectionEnd ?? value.length,
+      },
+      rectRef.current
+    );
   };
 
   /** Follows the pointer from a press, changing the rect as `apply` says for how far it moved. */
@@ -559,62 +497,35 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
         minWidth: DRAFT_MIN_WIDTH,
         minHeight: DRAFT_MIN_HEIGHT,
       }}
-      onKeyDown={onKeyDown}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      {/* Clipped to the rounded corners; the resize handles reach outside them. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[calc(var(--radius-lg)-1px)]">
-        <div
-          className="flex h-8 shrink-0 cursor-grab items-center gap-0.5 border-b pr-1 pl-2.5 select-none active:cursor-grabbing"
-          onPointerDown={startMove}
-        >
-          <ChatText aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-          <h2 className="mr-1 ml-1.5 min-w-0 flex-1 truncate text-xs font-medium">Prompt draft</h2>
-          <ReferenceButton viewed={viewed} shortcut={insertShortcut} onInsert={insertReference} />
-          <IconButton
-            label="Save as note"
-            size="xs"
-            disabled={saving || !text.trim() || !!upload}
-            onMouseDown={keepFocus}
-            onClick={() => void saveAsNote()}
-          >
-            <NotePencil className="size-3.5" />
-          </IconButton>
-          <IconButton
-            label="Copy and close"
-            shortcut={copyShortcut}
-            size="xs"
-            disabled={!text.trim() || !!upload}
-            onMouseDown={keepFocus}
-            onClick={copyAndClose}
-          >
-            <Copy className="size-3.5" />
-          </IconButton>
-          <IconButton
-            label="Close"
-            shortcut="Esc"
-            size="xs"
-            onMouseDown={keepFocus}
-            onClick={close}
-          >
-            <X className="size-3.5" />
-          </IconButton>
-        </div>
-        <textarea
-          ref={textareaRef}
-          aria-label="Prompt"
-          value={text}
-          readOnly={saving}
-          onChange={(event) => setText(event.target.value)}
-          onPaste={onPaste}
-          // Paths and code would be underlined as misspelled.
-          spellCheck={false}
-          placeholder={`Draft a prompt to paste into an agent. ${insertShortcut} puts in the file you're looking at.`}
-          className="thin-scrollbar min-h-0 flex-1 resize-none bg-transparent px-3 py-2 font-mono text-[13px] leading-5 text-foreground outline-hidden placeholder:text-muted-foreground"
-        />
-      </div>
+      <PromptDraftPanel
+        textareaRef={textareaRef}
+        text={text}
+        onTextChange={setText}
+        onPaste={onPaste}
+        viewedFileName={viewed?.name ?? null}
+        noFileLabel="Open a file to refer to it"
+        saving={saving}
+        uploading={!!upload}
+        canSaveAsNote
+        onInsertReference={onInsertReference}
+        onSaveAsNote={() => void saveAsNote()}
+        onCopy={copyAndClose}
+        onClose={() => closePromptDraft()}
+        popButton={{
+          label: 'Pop out over other apps',
+          icon: <ArrowSquareOut className="size-3.5" />,
+          onClick: popOut,
+        }}
+        headerProps={{
+          className: 'cursor-grab active:cursor-grabbing',
+          onPointerDown: startMove,
+        }}
+        onOtherShortcut={forwardAppShortcut}
+      />
       {dropFeedback && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg border-2 border-primary/60 bg-background/60 text-sm font-medium text-foreground backdrop-blur-[1px] reduce-effects:bg-background/90">
           {dropFeedback === 'files' ? 'Drop to upload' : 'Drop to insert path'}
@@ -656,47 +567,5 @@ function PromptDraftWindow({ workspaceId }: { workspaceId: string }) {
         <path d="M7 1 1 7M7 4 4 7" stroke="currentColor" strokeLinecap="round" fill="none" />
       </svg>
     </section>
-  );
-}
-
-/**
- * Puts in a reference to the file the user is looking at, with its selected lines. A short
- * "@path", with the file named in its tooltip, as a long name would leave little to drag by.
- */
-function ReferenceButton({
-  viewed,
-  shortcut,
-  onInsert,
-}: {
-  viewed: ViewedFile | null;
-  shortcut: string;
-  onInsert: () => void;
-}) {
-  const label = viewed ? `Insert @path to ${viewed.name}` : 'Open a file to refer to it';
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild onFocus={ignoreFocusAfterPointer}>
-        {/* A disabled button gets no pointer events, so its tooltip goes on a wrapper. */}
-        <span className="shrink-0">
-          <Button
-            type="button"
-            variant="ghost"
-            aria-label={label}
-            disabled={!viewed}
-            onMouseDown={keepFocus}
-            onClick={onInsert}
-            className="h-6 px-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
-          >
-            @path
-          </Button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>
-        <span className="flex items-center gap-2">
-          {label}
-          {viewed && <Kbd>{shortcut}</Kbd>}
-        </span>
-      </TooltipContent>
-    </Tooltip>
   );
 }

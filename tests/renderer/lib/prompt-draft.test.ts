@@ -353,4 +353,33 @@ describe('opening and closing the draft', () => {
     expect(closeFocusedPromptDraft()).toBe(true);
     expect(isOpen()).toBe(false);
   });
+
+  it('shows and hides its own window while popped out, with or without a workspace here', () => {
+    const api = { showPromptDraftWindow: vi.fn(), hidePromptDraftWindow: vi.fn() };
+    Object.defineProperty(window, 'api', { value: api, configurable: true });
+    usePromptDraftStore.getState().setPoppedOut({ poppedOut: true, visible: false });
+    usePromptDraftStore.getState().updateHost('window', null);
+
+    togglePromptDraft();
+    openPromptDraft();
+    closePromptDraft();
+
+    expect(api.showPromptDraftWindow).toHaveBeenCalledTimes(2);
+    expect(api.hidePromptDraftWindow).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(false);
+  });
+
+  it("closes a draft still open here as another window's pops out, leaving that one be", () => {
+    const api = { showPromptDraftWindow: vi.fn(), hidePromptDraftWindow: vi.fn() };
+    Object.defineProperty(window, 'api', { value: api, configurable: true });
+    openPromptDraft();
+    usePromptDraftStore.getState().setPoppedOut({ poppedOut: true, visible: true });
+
+    closePromptDraft();
+    expect(isOpen()).toBe(false);
+    expect(api.hidePromptDraftWindow).not.toHaveBeenCalled();
+
+    closePromptDraft();
+    expect(api.hidePromptDraftWindow).toHaveBeenCalledTimes(1);
+  });
 });

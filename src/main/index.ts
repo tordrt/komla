@@ -65,6 +65,7 @@ import { startPluginHost, stopPluginHost } from './services/plugin-host';
 import { loadPluginSettings, stopFeedingPluginSettings } from './services/plugin-settings-store';
 import { stopWatchingPlugins, watchPlugins } from './services/plugins.service';
 import { projectService } from './services/project.service';
+import { promptDraftWindowService } from './services/prompt-draft-window.service';
 import { ptyService } from './services/pty.service';
 import { pullRequestStatusService } from './services/pull-request-status.service';
 import {
@@ -227,8 +228,9 @@ app.on('second-instance', (_event, argv, workingDirectory) => {
     return;
   }
 
-  // A second instance was launched — focus or create a window in this (first) instance
-  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  // A second instance was launched — focus or create a window in this (first) instance: one of
+  // Komla's own, not the popped-out prompt draft's.
+  const win = windowService.getActiveWindow() ?? windowService.getAllWindows()[0];
   if (win) {
     if (win.isMinimized()) win.restore();
     win.focus();
@@ -290,13 +292,23 @@ shortcutsService.onGlobalShortcut = (action) => {
   windowService.sendWhenReady(windowId, IPC.MENU_NEW_WORKSPACE);
 };
 
-// Menu clicks hand over the focused BaseWindow; only BrowserWindows host the renderer.
+// Menu clicks hand over the focused BaseWindow; only Komla's windows host the app. With another
+// of Komla's focused, such as the popped-out prompt draft, the Komla window used last comes forward.
 function sendToMenuWindow(
   window: Electron.BaseWindow | undefined,
   channel: string,
   ...args: unknown[]
 ): void {
-  if (window instanceof BrowserWindow) window.webContents.send(channel, ...args);
+  if (!(window instanceof BrowserWindow)) return;
+  if (windowService.getWindowId(window.webContents.id)) {
+    window.webContents.send(channel, ...args);
+    return;
+  }
+  const active = windowService.getActiveWindow();
+  if (!active) return;
+  active.show();
+  active.focus();
+  active.webContents.send(channel, ...args);
 }
 
 const HOLD_TO_QUIT_PLATFORM = process.platform === 'darwin' || process.platform === 'linux';
@@ -619,6 +631,7 @@ void app.whenReady().then(async () => {
   });
   keepAwakeService.setMode(configService.get().keepAwakeMode);
   keepAwakeWhileAgentsWork(() => workspaceService.list());
+  promptDraftWindowService.init();
   agentsMenuBarService.init({
     listWorkspaces: () => workspaceService.list(),
     getWorkspace: (workspaceId) => workspaceService.get(workspaceId),
@@ -660,6 +673,7 @@ void app.whenReady().then(async () => {
 
   // Reassign orphaned workspaces when a window closes and notify remaining windows
   windowService.onWindowClosed = (closedWindowId) => {
+    promptDraftWindowService.appWindowClosed(closedWindowId);
     // Use main window as target (will elect new one if needed)
     const targetWindowId = windowService.getMainWindowId();
     const affected = workspaceService.reassignWindowWorkspaces(closedWindowId, targetWindowId);
@@ -691,9 +705,10 @@ void app.whenReady().then(async () => {
   // Refresh git status less often while nobody can see it: every window hidden or
   // minimized and no remote-control device connected (the phone view uses it too).
   worktreeWatcherService.isBackgroundOnly = () => {
-    const anyWindowVisible = BrowserWindow.getAllWindows().some(
-      (window) => window.isVisible() && !window.isMinimized()
-    );
+    // Komla's own windows: the popped-out prompt draft floats over other apps.
+    const anyWindowVisible = windowService
+      .getAllWindows()
+      .some((window) => window.isVisible() && !window.isMinimized());
     if (anyWindowVisible) return false;
     return !remoteDeviceConnected();
   };

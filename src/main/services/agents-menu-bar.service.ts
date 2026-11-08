@@ -285,10 +285,13 @@ class AgentsMenuBarService {
     this.show(counts);
   }
 
-  /** Whether a Komla window has focus; the popover's own doesn't count. */
+  /**
+   * Whether a Komla window has focus. The popover's own doesn't count, nor the popped-out prompt
+   * draft's, which floats over other apps.
+   */
   private komlaInFront(): boolean {
     const focused = BrowserWindow.getFocusedWindow();
-    return !!focused && !this.isPopover(focused.webContents.id);
+    return !!focused && !!windowService.getWindowId(focused.webContents.id);
   }
 
   private watchFocus(): void {

@@ -100,6 +100,9 @@ vi.mock('../../src/renderer/hooks/useVirtualDesktopHint', () => ({
   useVirtualDesktopHint: vi.fn(),
 }));
 vi.mock('../../src/renderer/hooks/useGitProgressEvents', () => ({ useGitProgressEvents: vi.fn() }));
+vi.mock('../../src/renderer/hooks/usePoppedOutPromptDraft', () => ({
+  usePoppedOutPromptDraft: vi.fn(),
+}));
 vi.mock('../../src/renderer/hooks/useWindowTitle', () => ({ useWindowTitle: vi.fn() }));
 vi.mock('../../src/renderer/lib/palette-runtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/lib/palette-runtime')>()),

@@ -2,6 +2,11 @@ import { getFocusedPromptTerminalId } from '@/lib/focused-terminal';
 import { focusTerminalRenderer } from '@/lib/terminal-renderer-runtime';
 import { selectPromptDraftWorkspace, usePromptDraftStore } from '@/stores/prompt-draft.store';
 
+import { appendDraft } from '../../shared/lib/prompt-draft-text';
+import { PROMPT_DRAFT_MIN_SIZE } from '../../shared/types';
+
+import type { PromptDraftRect, PromptDraftText } from '../../shared/types';
+
 /** Marks the prompt draft's window, which viewers it floats over leave its keys and clicks to. */
 export const PROMPT_DRAFT_ATTRIBUTE = 'data-prompt-draft';
 
@@ -18,9 +23,17 @@ function isPromptDraftFocused(): boolean {
 // the draft closes over that workspace. Weakly held, as a pane can go with the draft still open.
 let returnFocusTo: { element: WeakRef<HTMLElement>; workspaceId: string } | null = null;
 
-/** Shows the prompt draft and gives it focus, while a workspace is on screen for it to show over. */
+/**
+ * Shows the prompt draft and gives it focus, while a workspace is on screen for it to show over,
+ * or in its own window while it's popped out. A draft open in this window as another popped out
+ * stays here until closed.
+ */
 export function openPromptDraft(): void {
   const store = usePromptDraftStore.getState();
+  if (store.poppedOut.poppedOut && !store.isOpen) {
+    window.api.showPromptDraftWindow();
+    return;
+  }
   const workspaceId = selectPromptDraftWorkspace(store);
   if (!workspaceId) return;
   const active = document.activeElement;
@@ -36,6 +49,10 @@ export function openPromptDraft(): void {
  */
 export function closePromptDraft(options?: { copied?: boolean }): void {
   const store = usePromptDraftStore.getState();
+  if (store.poppedOut.poppedOut && !store.isOpen) {
+    window.api.hidePromptDraftWindow();
+    return;
+  }
   const draft = document.activeElement?.closest(`[${PROMPT_DRAFT_ATTRIBUTE}]`);
   // The workspace on screen, as the draft closes: what had focus in another one is hidden now.
   const workspaceId = selectPromptDraftWorkspace(store);
@@ -55,10 +72,42 @@ export function closePromptDraft(options?: { copied?: boolean }): void {
   if (terminalId) focusTerminalRenderer(terminalId);
 }
 
-/** Shows the prompt draft, or gives it focus if it's open; closes it if it has focus. */
+/**
+ * Shows the prompt draft, or gives it focus if it's open; closes it if it has focus. Popped out,
+ * it has focus in its own window, which takes the shortcut there.
+ */
 export function togglePromptDraft(): void {
   if (usePromptDraftStore.getState().isOpen && isPromptDraftFocused()) closePromptDraft();
   else openPromptDraft();
+}
+
+/**
+ * Pops the draft out into a window of its own, which stays over other apps, just where it shows
+ * in this one: `rect`. Its text goes with it, until it pops back in.
+ */
+export function popOutPromptDraft(draft: PromptDraftText, rect: PromptDraftRect): void {
+  const store = usePromptDraftStore.getState();
+  window.api.popOutPromptDraft(draft, rect);
+  returnFocusTo = null;
+  // Until main says so, for the shortcut to go to the new window meanwhile.
+  store.setPoppedOut({ poppedOut: true, visible: true });
+  store.hide();
+  store.setText('');
+  store.setSelection(null);
+}
+
+/**
+ * Puts the popped-out draft back in this window and opens it. Text written here meanwhile, in a
+ * window other than the one it popped out of, comes first.
+ */
+export function popInPromptDraft(draft: PromptDraftText): void {
+  const store = usePromptDraftStore.getState();
+  store.setPoppedOut({ poppedOut: false, visible: false });
+  store.clearCopied();
+  const joined = appendDraft(store.text, draft);
+  store.setText(joined.text);
+  store.setSelection({ start: joined.selectionStart, end: joined.selectionEnd });
+  openPromptDraft();
 }
 
 /** Closes the prompt draft if it has focus, as Cmd+W does; returns whether it did. */
@@ -138,15 +187,10 @@ export function cursorAfterInsert(
   return { text: after, start, end };
 }
 
-export interface DraftRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+export type DraftRect = PromptDraftRect;
 
-export const DRAFT_MIN_WIDTH = 280;
-export const DRAFT_MIN_HEIGHT = 140;
+export const DRAFT_MIN_WIDTH = PROMPT_DRAFT_MIN_SIZE.width;
+export const DRAFT_MIN_HEIGHT = PROMPT_DRAFT_MIN_SIZE.height;
 /** How far the draft's resize handles reach outside its border. */
 export const DRAFT_HANDLE_OUTSET = 6;
 // Kept this far inside the window, so the header can always be grabbed, and its resize handles

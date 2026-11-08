@@ -2072,6 +2072,26 @@ describe('StatusBar', () => {
       await user.keyboard('{Enter}');
       expect(usePromptDraftStore.getState().isOpen).toBe(false);
     });
+
+    it('shows and hides its own window while popped out, with or without a workspace open', async () => {
+      const user = userEvent.setup();
+      const showPromptDraftWindow = vi.fn();
+      const hidePromptDraftWindow = vi.fn();
+      mockApi({ showPromptDraftWindow, hidePromptDraftWindow });
+      act(() => usePromptDraftStore.getState().setPoppedOut({ poppedOut: true, visible: false }));
+      renderStatusBar();
+
+      const button = await screen.findByRole('button', { name: 'Prompt draft' });
+      expect(button).toHaveAttribute('aria-expanded', 'false');
+      await user.click(button);
+      expect(showPromptDraftWindow).toHaveBeenCalledTimes(1);
+
+      act(() => usePromptDraftStore.getState().setPoppedOut({ poppedOut: true, visible: true }));
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+      await user.click(button);
+      expect(hidePromptDraftWindow).toHaveBeenCalledTimes(1);
+      expect(usePromptDraftStore.getState().isOpen).toBe(false);
+    });
   });
 
   describe('commit graph', () => {

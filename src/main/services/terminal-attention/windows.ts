@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
 import { isUserAway } from '../../lib/user-presence';
+import { windowService } from '../window.service';
 
 import type { TerminalAttentionWindows } from './terminal-attention';
 import type { WorkspaceAttentionEvent } from '../../../shared/types/workspace';
@@ -21,8 +22,8 @@ function showBadge(count: number): void {
   if (process.platform === 'darwin') {
     app.dock?.setBadge(count > 0 ? count.toString() : '');
   } else if (process.platform === 'win32') {
-    const windows = BrowserWindow.getAllWindows();
-    const target = windows.find((w) => w.isFocused()) ?? windows[0];
+    // One of Komla's own, not the popped-out prompt draft's, which isn't on the taskbar.
+    const target = windowService.getActiveWindow() ?? windowService.getAllWindows()[0];
     if (target) {
       target.flashFrame(count > 0);
     }

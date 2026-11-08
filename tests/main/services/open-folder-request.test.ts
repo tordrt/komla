@@ -4,7 +4,6 @@ import { join } from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const focused: { webContents: { id: number } } | null = null;
 const window = {
   isDestroyed: () => false,
   isMinimized: () => true,
@@ -15,11 +14,10 @@ const window = {
 let ready = true;
 vi.mock('electron', () => ({
   app: { isReady: () => ready },
-  BrowserWindow: { getFocusedWindow: () => focused },
 }));
 vi.mock('../../../src/main/services/window.service', () => ({
   windowService: {
-    getWindowId: vi.fn(),
+    getActiveWindowId: vi.fn((): string | undefined => undefined),
     getMainWindowId: vi.fn(() => 'main'),
     getWindow: vi.fn(() => window),
     sendToWindowOrNext: vi.fn(),
@@ -77,6 +75,16 @@ describe('open folder requests', () => {
       );
       expect(window.restore).toHaveBeenCalled();
       expect(window.focus).toHaveBeenCalled();
+    });
+
+    it('opens in the Komla window the user is in', () => {
+      vi.mocked(windowService.getActiveWindowId).mockReturnValueOnce('second');
+      requestOpenFolder(root);
+      expect(windowService.sendToWindowOrNext).toHaveBeenCalledWith(
+        'second',
+        'menu:open-folder',
+        root
+      );
     });
 
     it('falls back to the main window', () => {

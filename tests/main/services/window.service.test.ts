@@ -156,6 +156,30 @@ describe('WindowService', () => {
     setResourcesPath(originalResourcesPath);
   });
 
+  it("finds the Komla window the user is in, the one used last while another of Komla's has focus", async () => {
+    const getFocusedWindow = vi.fn((): unknown => null);
+    Object.assign(browserWindowCtor, { getFocusedWindow });
+    const { windowService } = await import('../../../src/main/services/window.service');
+    windowService.createWindow();
+    windowService.createWindow();
+    const [first, second] = createdWindows;
+
+    expect(windowService.getActiveWindow()).toBeUndefined();
+
+    getFocusedWindow.mockReturnValue(first.window);
+    expect(windowService.getActiveWindow()).toBe(first.window);
+
+    first.emitWindow('focus');
+    second.emitWindow('focus');
+    // Such as the popped-out prompt draft, which isn't one of Komla's windows.
+    getFocusedWindow.mockReturnValue({ webContents: { id: 999 } });
+    expect(windowService.getActiveWindow()).toBe(second.window);
+
+    // Else the main one.
+    second.emitWindow('closed');
+    expect(windowService.getActiveWindow()).toBe(first.window);
+  });
+
   it('creates BrowserWindow with renderer sandbox enabled', async () => {
     const { windowService } = await import('../../../src/main/services/window.service');
 

@@ -197,6 +197,9 @@ const mockWindowService = {
   // The workspace shows, so `--app` opens the VNC app right away.
   isWorkspaceShown: vi.fn(() => true),
   broadcastToAll: vi.fn(),
+  // No window has focus; Komla's windows are all the windows.
+  getActiveWindow: vi.fn((): unknown => undefined),
+  getAllWindows: vi.fn(() => electronMock.BrowserWindow.getAllWindows()),
 };
 vi.mock('../../../src/main/services/window.service', () => ({
   windowService: mockWindowService,

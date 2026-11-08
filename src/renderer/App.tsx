@@ -49,6 +49,7 @@ import { useAgentsMenuBarItem } from '@/hooks/useAgentsMenuBarItem';
 import { useAppLifecycle } from '@/hooks/useAppLifecycle';
 import { useAskpassRequests } from '@/hooks/useAskpassRequests';
 import { useGitProgressEvents } from '@/hooks/useGitProgressEvents';
+import { usePoppedOutPromptDraft } from '@/hooks/usePoppedOutPromptDraft';
 import { useVirtualDesktopHint } from '@/hooks/useVirtualDesktopHint';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
 import { useWorkspaceObservations } from '@/hooks/useWorkspaceObservations';
@@ -233,6 +234,7 @@ export default function App() {
   useVirtualDesktopHint();
   useGitProgressEvents();
   useAgentsMenuBarItem();
+  usePoppedOutPromptDraft();
   useWindowTitle();
 
   // Open the new-workspace dialog from anywhere with optional prefill (e.g. fork from a workspace card).

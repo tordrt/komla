@@ -20,6 +20,12 @@ vi.mock('electron', () => electronMock);
 vi.mock('../../src/main/services/window.service', () => ({
   windowService: {
     createWindow: vi.fn(() => ({ window: createMockBrowserWindow(), windowId: 'mock-id' })),
+    // Komla's windows are all the windows here.
+    getActiveWindow: () =>
+      (
+        electronMock.BrowserWindow as unknown as { getFocusedWindow: () => unknown }
+      ).getFocusedWindow() ?? undefined,
+    getAllWindows: () => electronMock.BrowserWindow.getAllWindows(),
   },
 }));
 vi.mock('../../src/main/services/customization.service', () => ({

@@ -1,7 +1,7 @@
 import { statSync } from 'fs';
 import { resolve } from 'path';
 
-import { app, BrowserWindow } from 'electron';
+import { app } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
 import { isSamePath } from '../lib/same-path';
@@ -50,10 +50,9 @@ export function requestOpenFolder(path: string, windowId?: string | null): boole
   if (!isFolder(path)) return false;
   const open = (id: string | null | undefined) =>
     id && windowService.getWindow(id) ? id : undefined;
-  const focused = BrowserWindow.getFocusedWindow();
   let target =
     open(windowId) ??
-    open(focused ? windowService.getWindowId(focused.webContents.id) : undefined) ??
+    open(windowService.getActiveWindowId()) ??
     windowService.getMainWindowId() ??
     undefined;
   if (!target && app.isReady() && openWindow) target = openWindow();

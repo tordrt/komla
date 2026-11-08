@@ -126,6 +126,8 @@ vi.mock('../../../src/main/services/window.service', () => ({
     showWorkspace: mocks.showWorkspace,
     getMainWindowId: mocks.getMainWindowId,
     sendToWindowOrNext: mocks.sendToWindowOrNext,
+    // Komla's window has web contents 1; any other is another window, such as the draft's.
+    getWindowId: (webContentsId: number) => (webContentsId === 1 ? 'main-window' : undefined),
   },
 }));
 
@@ -280,6 +282,15 @@ describe('agentsMenuBarService', () => {
     expect(electron.trays).toHaveLength(2);
     expect(electron.trays[1].setImage.mock.calls.map(([image]) => image.frame)).toEqual(['AAAA']);
     expect(mocks.sendToWindowOrNext).not.toHaveBeenCalled();
+  });
+
+  it('shows while the popped-out prompt draft has focus, over other apps', async () => {
+    const service = await startService();
+    service.setImage({ counts: input, dataUrl: png('AAAA'), width: 30, height: 18 });
+    electron.focus.window = { webContents: { id: 7 } };
+    service.setInBackgroundOnly(true);
+    expect(electron.trays).toHaveLength(1);
+    expect(electron.trays[0].destroy).not.toHaveBeenCalled();
   });
 
   it("stays away as Komla quits, though hiding Komla's windows blurs them", async () => {

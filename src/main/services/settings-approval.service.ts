@@ -67,7 +67,7 @@ class SettingsApprovalService {
     const workspaceWindow = request.workspace?.windowId
       ? windowService.getWindow(request.workspace.windowId)
       : undefined;
-    return workspaceWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+    return workspaceWindow ?? windowService.getActiveWindow() ?? windowService.getAllWindows()[0];
   }
 
   /** Asks the user in a Komla window to apply the changes; true once they do. */

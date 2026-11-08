@@ -98,6 +98,10 @@ import type {
   AgentsMenuBarImage,
   AgentsMenuBarState,
   AgentsMenuBarTheme,
+  PromptDraftRect,
+  PromptDraftText,
+  PromptDraftWindowContext,
+  PromptDraftWindowStatus,
   ToastOverlayContent,
   ToastOverlayEvent,
   ToastOverlayState,
@@ -2285,6 +2289,112 @@ const api = {
     ipcRenderer.send(IPC.AGENTS_MENU_BAR_OPEN, workspaceId, terminalId),
 
   closeAgentsMenuBar: (): void => ipcRenderer.send(IPC.AGENTS_MENU_BAR_CLOSE),
+
+  // The prompt draft, popped out into a window of its own: from Komla's windows.
+  popOutPromptDraft: (draft: PromptDraftText, rect: PromptDraftRect): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_POP_OUT, draft, rect),
+
+  showPromptDraftWindow: (): void => ipcRenderer.send(IPC.PROMPT_DRAFT_SHOW),
+
+  hidePromptDraftWindow: (): void => ipcRenderer.send(IPC.PROMPT_DRAFT_HIDE),
+
+  getPromptDraftWindowStatus: (): Promise<PromptDraftWindowStatus> =>
+    ipcRenderer.invoke(IPC.PROMPT_DRAFT_STATUS_REQUEST),
+
+  onPromptDraftWindowStatus: (
+    callback: (status: PromptDraftWindowStatus) => void
+  ): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, status: PromptDraftWindowStatus): void =>
+      callback(status);
+    ipcRenderer.on(IPC.PROMPT_DRAFT_STATUS, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_STATUS, handler);
+  },
+
+  setPromptDraftContext: (context: PromptDraftWindowContext): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_CONTEXT, context),
+
+  onPromptDraftReferenceRequest: (callback: () => void): (() => void) => {
+    const handler = (): void => callback();
+    ipcRenderer.on(IPC.PROMPT_DRAFT_REFERENCE_REQUEST, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_REFERENCE_REQUEST, handler);
+  },
+
+  sendPromptDraftReference: (reference: string | null): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_REFERENCE, reference),
+
+  onPromptDraftSaveAsNote: (
+    callback: (workspaceId: string, text: string) => void
+  ): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, workspaceId: string, text: string): void =>
+      callback(workspaceId, text);
+    ipcRenderer.on(IPC.PROMPT_DRAFT_SAVE_AS_NOTE, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_SAVE_AS_NOTE, handler);
+  },
+
+  sendPromptDraftNoteSaved: (saved: boolean): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_NOTE_SAVED, saved),
+
+  onPromptDraftCopied: (callback: () => void): (() => void) => {
+    const handler = (): void => callback();
+    ipcRenderer.on(IPC.PROMPT_DRAFT_COPIED, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_COPIED, handler);
+  },
+
+  onPromptDraftPoppedIn: (callback: (draft: PromptDraftText) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, draft: PromptDraftText): void => callback(draft);
+    ipcRenderer.on(IPC.PROMPT_DRAFT_POPPED_IN, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_POPPED_IN, handler);
+  },
+
+  // The popped-out prompt draft's own page.
+  requestPromptDraftWindowState: (): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_WINDOW_STATE_REQUEST),
+
+  onPromptDraftWindowDraft: (callback: (draft: PromptDraftText) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, draft: PromptDraftText): void => callback(draft);
+    ipcRenderer.on(IPC.PROMPT_DRAFT_WINDOW_DRAFT, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_WINDOW_DRAFT, handler);
+  },
+
+  onPromptDraftWindowContext: (
+    callback: (context: PromptDraftWindowContext | null) => void
+  ): (() => void) => {
+    const handler = (
+      _: Electron.IpcRendererEvent,
+      context: PromptDraftWindowContext | null
+    ): void => callback(context);
+    ipcRenderer.on(IPC.PROMPT_DRAFT_WINDOW_CONTEXT, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_WINDOW_CONTEXT, handler);
+  },
+
+  promptDraftWindowReady: (): void => ipcRenderer.send(IPC.PROMPT_DRAFT_WINDOW_READY),
+
+  setPromptDraftWindowText: (draft: PromptDraftText): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_WINDOW_TEXT, draft),
+
+  requestPromptDraftWindowReference: (): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_WINDOW_REQUEST_REFERENCE),
+
+  onPromptDraftWindowInsert: (callback: (reference: string) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, reference: string): void => callback(reference);
+    ipcRenderer.on(IPC.PROMPT_DRAFT_WINDOW_INSERT, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_WINDOW_INSERT, handler);
+  },
+
+  savePromptDraftWindowAsNote: (text: string): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_WINDOW_SAVE_AS_NOTE, text),
+
+  onPromptDraftWindowNoteSaved: (callback: (saved: boolean) => void): (() => void) => {
+    const handler = (_: Electron.IpcRendererEvent, saved: boolean): void => callback(saved);
+    ipcRenderer.on(IPC.PROMPT_DRAFT_WINDOW_NOTE_SAVED, handler);
+    return () => ipcRenderer.removeListener(IPC.PROMPT_DRAFT_WINDOW_NOTE_SAVED, handler);
+  },
+
+  closePromptDraftWindow: (options: { copied: boolean }): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_WINDOW_CLOSE, options),
+
+  popInPromptDraft: (draft: PromptDraftText): void =>
+    ipcRenderer.send(IPC.PROMPT_DRAFT_WINDOW_POP_IN, draft),
 
   showToastOverlay: (state: ToastOverlayState): void =>
     ipcRenderer.send(IPC.TOAST_OVERLAY_SHOW, state),

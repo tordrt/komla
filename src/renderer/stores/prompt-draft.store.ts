@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import type { PromptDraftWindowStatus } from '../../shared/types';
+
 /** A place the prompt draft can show: the window, or a viewer that covers it. */
 interface PromptDraftHost {
   id: string;
@@ -24,6 +26,13 @@ interface PromptDraftState {
   uploads: { label: string }[];
   /** Shows `label` while files copy in; the function returned ends it. */
   startUpload: (label: string) => () => void;
+  /** Where the cursor was in the draft, for when it shows again. */
+  selection: { start: number; end: number } | null;
+  /**
+   * Whether the draft is popped out of Komla's windows, into one of its own that stays over other
+   * apps, and whether that shows. The text is there meanwhile, not here.
+   */
+  poppedOut: PromptDraftWindowStatus;
   setText: (text: string) => void;
   /** Shows the draft and gives it focus. */
   show: () => void;
@@ -31,6 +40,8 @@ interface PromptDraftState {
   hide: (options?: { copied?: boolean }) => void;
   clearFocusRequest: () => void;
   clearCopied: () => void;
+  setSelection: (selection: { start: number; end: number } | null) => void;
+  setPoppedOut: (status: PromptDraftWindowStatus) => void;
   addHost: (id: string, workspaceId: string | null) => void;
   updateHost: (id: string, workspaceId: string | null) => void;
   removeHost: (id: string) => void;
@@ -48,6 +59,8 @@ export const usePromptDraftStore = create<PromptDraftState>((set, get) => ({
     set((state) => ({ uploads: [...state.uploads, upload] }));
     return () => set((state) => ({ uploads: state.uploads.filter((u) => u !== upload) }));
   },
+  selection: null,
+  poppedOut: { poppedOut: false, visible: false },
   setText: (text) => set({ text }),
   show: () => set({ isOpen: true, focusRequested: true }),
   hide: ({ copied = false } = {}) => {
@@ -56,6 +69,12 @@ export const usePromptDraftStore = create<PromptDraftState>((set, get) => ({
   },
   clearFocusRequest: () => set({ focusRequested: false }),
   clearCopied: () => set({ copied: false }),
+  setSelection: (selection) => set({ selection }),
+  setPoppedOut: (poppedOut) => {
+    const current = get().poppedOut;
+    if (current.poppedOut === poppedOut.poppedOut && current.visible === poppedOut.visible) return;
+    set({ poppedOut });
+  },
   addHost: (id, workspaceId) =>
     set((state) => ({
       hosts: [...state.hosts.filter((host) => host.id !== id), { id, workspaceId }],

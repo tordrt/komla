@@ -11,12 +11,33 @@ import type { WorkspaceAttentionEvent } from '../../../src/shared/types';
 vi.mock('electron', async () => (await import('../../mocks/electron')).mockElectron());
 const { isUserAway } = vi.hoisted(() => ({ isUserAway: vi.fn(() => false) }));
 vi.mock('../../../src/main/lib/user-presence', () => ({ isUserAway }));
+// Komla's windows are all the windows here, but for the one `komla.draft` names.
+const komla = vi.hoisted(() => ({ draft: null as unknown }));
+vi.mock('../../../src/main/services/window.service', async () => {
+  const { BrowserWindow } = await import('electron');
+  const windows = () =>
+    (BrowserWindow.getAllWindows() as unknown as MockBrowserWindow[]).filter(
+      (window) => window !== komla.draft
+    );
+  return {
+    windowService: {
+      getAllWindows: windows,
+      // The focused one, or Komla's first while the draft has focus.
+      getActiveWindow: () => {
+        const all = BrowserWindow.getAllWindows() as unknown as MockBrowserWindow[];
+        const focused = all.find((window) => window.isFocused());
+        return focused === komla.draft ? windows()[0] : focused;
+      },
+    },
+  };
+});
 
 const getAllWindows = BrowserWindow.getAllWindows as unknown as Mock<() => MockBrowserWindow[]>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   getAllWindows.mockReturnValue([]);
+  komla.draft = null;
 });
 
 describe('badge', () => {
@@ -72,6 +93,19 @@ describe('badge', () => {
     electronAttentionWindows.badge(0);
     expect(focused.flashFrame).toHaveBeenLastCalledWith(false);
     expect(background.flashFrame).not.toHaveBeenCalled();
+  });
+
+  it("flashes Komla's window on Windows while the popped-out prompt draft has focus", () => {
+    pinPlatform('win32');
+    const komlaWindow = createMockBrowserWindow();
+    const draft = createMockBrowserWindow({ isFocused: vi.fn(() => true) });
+    komla.draft = draft;
+    getAllWindows.mockReturnValue([draft, komlaWindow]);
+
+    electronAttentionWindows.badge(1);
+
+    expect(komlaWindow.flashFrame).toHaveBeenCalledWith(true);
+    expect(draft.flashFrame).not.toHaveBeenCalled();
   });
 
   it('flashes the first window on Windows when none is focused', () => {

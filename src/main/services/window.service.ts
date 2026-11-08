@@ -27,6 +27,26 @@ import { shortcutsService } from './shortcuts.service';
 const HIDE_WINDOWS = process.env.NODE_ENV === 'test' && process.env.KOMLA_E2E_HIDE_WINDOWS === '1';
 const HIDE_FROM_SCREEN = HIDE_WINDOWS && process.platform !== 'linux';
 
+/** Shows a window, or in an e2e run that hides windows, shows it out of sight as above. */
+export function showWindow(window: BrowserWindow): void {
+  if (HIDE_WINDOWS) {
+    window.showInactive();
+    if (HIDE_FROM_SCREEN) window.setOpacity(0);
+    window.setIgnoreMouseEvents(true);
+  } else {
+    window.show();
+  }
+}
+
+/** Whether windows take focus: not in an e2e run that hides them, as above. */
+export const WINDOWS_TAKE_FOCUS = !HIDE_WINDOWS;
+
+/** What a window can't do, in an e2e run that hides windows, as above. */
+export const HIDDEN_WINDOW_OPTIONS = HIDE_FROM_SCREEN ? { focusable: false } : {};
+
+/** What a window's renderer turns off, in an e2e run that hides windows, as above. */
+export const HIDDEN_WINDOW_WEB_PREFERENCES = HIDE_WINDOWS ? { backgroundThrottling: false } : {};
+
 /** The default palette's --chrome from globals.css (OKLCH → hex), the window's surface. */
 function coldStartChromeHex(isDark: boolean): string {
   return isDark ? '#090d10' : '#f0f0f0';
@@ -77,7 +97,7 @@ class WindowService {
       minWidth: 380,
       minHeight: 300,
       show: false,
-      ...(HIDE_FROM_SCREEN && { focusable: false }),
+      ...HIDDEN_WINDOW_OPTIONS,
       // Avoid Electron's default white background flashing through when the
       // renderer hasn't painted (cold start, reload, or shutdown teardown).
       // Matches the cold-start titleBarOverlay palette below.
@@ -108,7 +128,7 @@ class WindowService {
         contextIsolation: true,
         nodeIntegration: false,
         plugins: true,
-        ...(HIDE_WINDOWS && { backgroundThrottling: false }),
+        ...HIDDEN_WINDOW_WEB_PREFERENCES,
       },
     });
 
@@ -143,13 +163,7 @@ class WindowService {
       // Apply saved zoom level from config
       const zoomLevel = configService.get().zoomLevel ?? 0;
       window.webContents.setZoomLevel(zoomLevel);
-      if (HIDE_WINDOWS) {
-        window.showInactive();
-        if (HIDE_FROM_SCREEN) window.setOpacity(0);
-        window.setIgnoreMouseEvents(true);
-      } else {
-        window.show();
-      }
+      showWindow(window);
     });
 
     window.webContents.setWindowOpenHandler((details) => {
@@ -324,6 +338,25 @@ class WindowService {
 
   getWindow(windowId: string): BrowserWindow | undefined {
     return this.windows.get(windowId);
+  }
+
+  /**
+   * The Komla window the user is in: the focused one, or while another window of Komla's has
+   * focus, such as the popped-out prompt draft or a popover, the Komla window used last, else the
+   * main one. Undefined while no window of Komla's has focus.
+   */
+  getActiveWindowId(): string | undefined {
+    const focused = BrowserWindow.getFocusedWindow();
+    if (!focused) return undefined;
+    const windowId = this.getWindowId(focused.webContents.id) ?? this.getLastFocusedWindowId();
+    const window = windowId ? this.windows.get(windowId) : undefined;
+    return window && !window.isDestroyed() ? (windowId ?? undefined) : undefined;
+  }
+
+  /** The window `getActiveWindowId` names. */
+  getActiveWindow(): BrowserWindow | undefined {
+    const windowId = this.getActiveWindowId();
+    return windowId ? this.windows.get(windowId) : undefined;
   }
 
   /**

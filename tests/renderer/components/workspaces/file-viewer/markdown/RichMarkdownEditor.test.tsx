@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createRef } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PaneDragBarProvider } from '../../../../../../src/renderer/components/terminal/PaneDragGrip';
 import { TooltipProvider } from '../../../../../../src/renderer/components/ui/tooltip';
@@ -357,6 +357,52 @@ describe('RichMarkdownEditor', () => {
       unregister();
       useShortcutsStore.setState({ config: null });
     }
+  });
+
+  describe('Escape', () => {
+    // jsdom has no scrollIntoView, which the slash menu calls to keep its selection in view.
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    beforeEach(() => {
+      Element.prototype.scrollIntoView = vi.fn();
+    });
+    afterEach(() => {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    });
+
+    // ProseMirror marks every Escape handled, which kept the file preview from closing on it.
+    it('leaves it to the view around the editor', () => {
+      const { dom } = renderEditor();
+      expect(fireEvent.keyDown(dom, { key: 'Escape', keyCode: 27 })).toBe(true);
+    });
+
+    it('takes it to close the slash menu', async () => {
+      const { dom, editor } = renderEditor();
+      act(() => {
+        editor.chain().setTextSelection(endOfBlock(editor, 1)).splitBlock().insertContent('/').run();
+      });
+      const menu = await screen.findByRole('listbox', { name: 'Insert block' });
+
+      expect(fireEvent.keyDown(dom, { key: 'Escape', keyCode: 27 })).toBe(false);
+      await waitFor(() => expect(menu).not.toBeInTheDocument());
+      expect(fireEvent.keyDown(dom, { key: 'Escape', keyCode: 27 })).toBe(true);
+    });
+
+    it('leaves a slash command nothing matches, and passes the key on', async () => {
+      const { dom, editor } = renderEditor();
+      act(() => {
+        editor.chain().setTextSelection(endOfBlock(editor, 1)).splitBlock().insertContent('/hzz').run();
+      });
+      expect(fireEvent.keyDown(dom, { key: 'Escape', keyCode: 27 })).toBe(true);
+
+      // Once left, it stays dismissed as the query shrinks to one that matches.
+      act(() => {
+        const { from } = editor.state.selection;
+        editor.commands.deleteRange({ from: from - 2, to: from });
+      });
+      expect(editor.state.doc.child(2).textContent).toBe('/h');
+      await act(async () => {});
+      expect(screen.queryByRole('listbox', { name: 'Insert block' })).toBeNull();
+    });
   });
 
   it('jumps to the block a line of the file is in', () => {

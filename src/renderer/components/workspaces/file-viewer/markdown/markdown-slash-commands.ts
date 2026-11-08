@@ -12,7 +12,7 @@ import {
   TextT,
 } from '@phosphor-icons/react';
 import { Extension } from '@tiptap/core';
-import { PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
 import Suggestion, { exitSuggestion } from '@tiptap/suggestion';
 
 import type { Icon } from '@phosphor-icons/react';
@@ -134,9 +134,11 @@ export const MarkdownSlashCommands = Extension.create<SlashCommandsOptions>({
     const { onChange } = this.options;
     let props: SuggestionProps<SlashCommand, SlashCommand> | null = null;
     let selected = 0;
+    // A slash command with nothing matching it shows no menu.
+    const menuOpen = () => !!props?.items.length;
     const publish = () => {
       onChange(
-        props?.items.length
+        props && menuOpen()
           ? {
               commands: props.items,
               selected,
@@ -168,9 +170,9 @@ export const MarkdownSlashCommands = Extension.create<SlashCommandsOptions>({
             props = null;
             publish();
           },
-          onKeyDown: ({ event, view }) => {
-            const count = props?.items.length ?? 0;
-            if (!props || !count) return false;
+          onKeyDown: ({ event }) => {
+            if (!props || !menuOpen()) return false;
+            const count = props.items.length;
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               selected = (selected + (event.key === 'ArrowDown' ? 1 : count - 1)) % count;
               publish();
@@ -180,13 +182,26 @@ export const MarkdownSlashCommands = Extension.create<SlashCommandsOptions>({
               props.command(props.items[selected]);
               return true;
             }
-            if (event.key === 'Escape') {
-              exitSuggestion(view, slashMenuKey);
-              return true;
-            }
             return false;
           },
         }),
+      }),
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            // ProseMirror marks every Escape handled, though it does nothing with one, and the
+            // file preview around the editor wouldn't close on it. So the editor's Escape is all
+            // here: it leaves a slash command, and only an open menu keeps the key.
+            keydown: (view, event) => {
+              if (event.key !== 'Escape' || event.isComposing) return false;
+              if (props) {
+                if (menuOpen()) event.preventDefault();
+                exitSuggestion(view, slashMenuKey);
+              }
+              return true;
+            },
+          },
+        },
       }),
     ];
   },

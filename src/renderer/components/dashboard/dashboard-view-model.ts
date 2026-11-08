@@ -12,7 +12,7 @@ import {
 
 import {
   getWorkspaceTagOptions,
-  UNTAGGED_WORKSPACE_TAG_KEY,
+  workspaceTagKey,
   workspaceTagKeyOf,
   type WorkspaceTagDefinition,
   type WorkspaceTagOption,
@@ -60,6 +60,7 @@ export interface DashboardProjectFilter {
   name: string;
   color: string;
   icon?: string;
+  kind?: 'directory';
   count: number;
 }
 
@@ -67,12 +68,10 @@ export interface BuildDashboardOverviewParams {
   workspaces: Workspace[];
   projects: Project[];
   currentWindowId: string | null;
-  filterProjectName?: string | null;
-  /**
-   * Only workspaces with this tag, by key, or the untagged key for those without one. Left out
-   * while no chip offers it.
-   */
-  filterTagKey?: string | null;
+  /** Projects whose workspaces are left out, by the name the Overview shows them under. */
+  hiddenProjectNames?: ReadonlySet<string>;
+  /** Tags whose workspaces are left out, by key; the untagged key leaves out those without one. */
+  hiddenTagKeys?: ReadonlySet<string>;
   /** The user's tag list, for the tag filters' names and colors. */
   tags?: readonly WorkspaceTagDefinition[];
   hiddenWorkspaceHostIds?: ReadonlySet<string>;
@@ -86,14 +85,36 @@ export interface DashboardOverview {
   visibleCount: number;
   sections: DashboardSection[];
   projectFilters: DashboardProjectFilter[];
-  /** The tags in use, offered while any is. */
+  /** The whole tag list, unused tags counting 0, then tags in use that the list lacks. */
   tagFilters: WorkspaceTagOption[];
   /** The workspaces without a tag, for the Untagged filter beside the tags. */
   untaggedCount: number;
-  /** Untagged is offered beside the tags in use, and only while some workspace has no tag. */
-  untaggedOffered: boolean;
-  /** The tag filter that applies: the one asked for while a chip offers it, else null. */
-  tagFilterKey: string | null;
+}
+
+/**
+ * What a filter still shows, for its chip: up to two names, else the one or two it hides, else
+ * how many of all.
+ */
+export function describeShown(shown: readonly string[], hidden: readonly string[]): string {
+  if (shown.length === 0) return 'none';
+  if (shown.length <= 2) return shown.join(', ');
+  if (hidden.length <= 2) return `not ${hidden.join(', ')}`;
+  return `${shown.length} of ${shown.length + hidden.length}`;
+}
+
+/** Every tag on the list, so one can be picked before any workspace has it, then those in use. */
+function getTagFilters(
+  tags: readonly WorkspaceTagDefinition[],
+  workspaces: readonly Workspace[]
+): WorkspaceTagOption[] {
+  const inUse = getWorkspaceTagOptions(tags, workspaces);
+  const inUseByKey = new Map(inUse.map((option) => [option.key, option]));
+  const listed = tags.map((tag) => {
+    const key = workspaceTagKey(tag.name);
+    return inUseByKey.get(key) ?? { key, name: tag.name, tone: tag.tone, count: 0 };
+  });
+  const listedKeys = new Set(listed.map((option) => option.key));
+  return [...listed, ...inUse.filter((option) => !listedKeys.has(option.key))];
 }
 
 export function getProjectInfo(
@@ -177,8 +198,8 @@ export function buildDashboardOverview({
   workspaces,
   projects,
   currentWindowId,
-  filterProjectName,
-  filterTagKey = null,
+  hiddenProjectNames = new Set(),
+  hiddenTagKeys = new Set(),
   tags = [],
   hiddenWorkspaceHostIds = new Set(),
   pinnedOnly = false,
@@ -199,16 +220,21 @@ export function buildDashboardOverview({
       lastActivityAt: getWorkspaceLastTouchedAt(workspace),
     }));
 
-  // Project chips count every group, before the project filter applies.
-  const projectCountMap = new Map<string, { color: string; icon?: string; count: number }>();
+  // Project counts take in every group, before the project filter applies.
+  const projectCountMap = new Map<string, Omit<DashboardProjectFilter, 'name'>>();
   for (const item of hostVisibleItems) {
     if (item.projectInfo) {
       const existing = projectCountMap.get(item.projectInfo.name);
       if (existing) {
         existing.count++;
       } else {
-        const { color, icon } = item.projectInfo;
-        projectCountMap.set(item.projectInfo.name, { color, ...(icon && { icon }), count: 1 });
+        const { color, icon, kind } = item.projectInfo;
+        projectCountMap.set(item.projectInfo.name, {
+          color,
+          ...(icon && { icon }),
+          ...(kind && { kind }),
+          count: 1,
+        });
       }
     }
   }
@@ -216,21 +242,15 @@ export function buildDashboardOverview({
     .map(([name, info]) => ({ name, ...info }))
     .sort((a, b) => b.count - a.count);
 
-  // Like the project chips, tag chips count every group before the filters apply.
+  // Like the project counts, tag counts take in every group before the filters apply.
   const hostVisibleWorkspaces = hostVisibleItems.map((item) => item.workspace);
-  const tagFilters = getWorkspaceTagOptions(tags, hostVisibleWorkspaces);
+  const tagFilters = getTagFilters(tags, hostVisibleWorkspaces);
   const untaggedCount = hostVisibleWorkspaces.filter((workspace) => !workspace.tag).length;
-  const untaggedOffered = tagFilters.length > 0 && untaggedCount > 0;
-  const tagFilterOffered =
-    filterTagKey === UNTAGGED_WORKSPACE_TAG_KEY
-      ? untaggedOffered
-      : tagFilters.some((tag) => tag.key === filterTagKey);
-  const tagFilterKey = tagFilterOffered ? filterTagKey : null;
 
   const filteredItems = hostVisibleItems.filter(
     (item) =>
-      (!filterProjectName || item.projectInfo?.name === filterProjectName) &&
-      (tagFilterKey === null || workspaceTagKeyOf(item.workspace) === tagFilterKey) &&
+      !(item.projectInfo && hiddenProjectNames.has(item.projectInfo.name)) &&
+      !hiddenTagKeys.has(workspaceTagKeyOf(item.workspace)) &&
       (!pinnedOnly || item.workspace.pinned === true)
   );
   const query = searchQuery?.trim();
@@ -258,7 +278,5 @@ export function buildDashboardOverview({
     projectFilters,
     tagFilters,
     untaggedCount,
-    untaggedOffered,
-    tagFilterKey,
   };
 }

@@ -328,11 +328,16 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
     useWorkspacesStore.setState({ hiddenProjectIds: new Set(ids) });
   }, [config?.hiddenProjectIds]);
 
-  // Restore the dashboard project filter from persisted config
+  // Restore the Overview's project and tag filters from persisted config
   useEffect(() => {
-    const project = config?.dashboardFilterProject ?? null;
-    useWorkspacesStore.setState({ dashboardFilterProject: project });
-  }, [config?.dashboardFilterProject]);
+    const names = config?.dashboardHiddenProjects ?? [];
+    useWorkspacesStore.setState({ dashboardHiddenProjects: new Set(names) });
+  }, [config?.dashboardHiddenProjects]);
+
+  useEffect(() => {
+    const tags = config?.dashboardHiddenWorkspaceTags ?? [];
+    useWorkspacesStore.setState({ dashboardHiddenWorkspaceTags: new Set(tags) });
+  }, [config?.dashboardHiddenWorkspaceTags]);
 
   // Load workspaces on mount so hasLoaded flips to true even when the user
   // completes the setup wizard without creating a project — otherwise the

@@ -12,34 +12,29 @@ import { createSshWorkspace, createTerminal, createWorktreeWorkspace } from '../
 let mockProjectFilters: { name: string; color: string; count: number }[] = [];
 let mockTagFilters: { key: string; name: string; tone: 'info' | 'error'; count: number }[] = [];
 let mockUntaggedCount = 0;
-let lastFilterTagKey: string | null | undefined;
-// As the overview model offers them: a tag in use, or Untagged beside one.
-const offersTag = (key: string | null | undefined): key is string =>
-  key === ''
-    ? mockTagFilters.length > 0 && mockUntaggedCount > 0
-    : mockTagFilters.some((tag) => tag.key === key);
+let lastHiddenTagKeys: ReadonlySet<string> | undefined;
 type MockWorkspace = ReturnType<typeof createWorktreeWorkspace>;
 let mockSections:
   | ((workspaces: MockWorkspace[]) => { key: string; title: string; items: MockWorkspace[] }[])
   | null = null;
 
 vi.mock('../../../../src/renderer/components/dashboard/dashboard-view-model', () => ({
+  describeShown: (shown: string[], hidden: string[]) =>
+    shown.length <= 2 ? shown.join(', ') : `not ${hidden.join(', ')}`,
   buildDashboardOverview: ({
     workspaces,
-    filterTagKey,
+    hiddenTagKeys,
   }: {
     workspaces: MockWorkspace[];
-    filterTagKey?: string | null;
+    hiddenTagKeys?: ReadonlySet<string>;
   }) => {
-    lastFilterTagKey = filterTagKey;
+    lastHiddenTagKeys = hiddenTagKeys;
     return {
       totalWindowCount: workspaces.length,
       visibleCount: workspaces.length,
       projectFilters: mockProjectFilters,
       tagFilters: mockTagFilters,
       untaggedCount: mockUntaggedCount,
-      untaggedOffered: mockTagFilters.length > 0 && mockUntaggedCount > 0,
-      tagFilterKey: offersTag(filterTagKey) ? filterTagKey : null,
       sections: (
         mockSections?.(workspaces) ?? [{ key: 'stopped', title: 'Stopped', items: workspaces }]
       ).map((section) => ({
@@ -83,8 +78,8 @@ vi.mock('../../../../src/renderer/components/workspaces/QuickCreateMenu', () => 
   QuickCreateMenu: () => null,
 }));
 
-vi.mock('../../../../src/renderer/components/workspaces/WorkspaceHostFilterMenu', () => ({
-  WorkspaceHostFilterMenu: () => null,
+vi.mock('../../../../src/renderer/components/workspaces/workspace-host-options', () => ({
+  useWorkspaceHostOptions: () => [{ id: 'local', name: 'Local' }],
 }));
 
 const workspace = createWorktreeWorkspace({
@@ -105,10 +100,17 @@ const workspacesState = {
   deleteWorkspace: vi.fn(),
   setPinned: vi.fn(),
   markUnread: vi.fn(),
-  dashboardFilterProject: null,
+  dashboardHiddenProjects: new Set<string>(),
+  dashboardHiddenWorkspaceTags: new Set<string>(),
   dashboardHiddenWorkspaceHostIds: new Set<string>(),
   showAllDashboardWorkspaceHosts: vi.fn(),
-  setDashboardFilterProject: vi.fn(),
+  toggleDashboardWorkspaceHostVisibility: vi.fn(),
+  setDashboardHiddenProjects: vi.fn((names: Iterable<string>) => {
+    workspacesState.dashboardHiddenProjects = new Set(names);
+  }),
+  setDashboardHiddenWorkspaceTags: vi.fn((keys: Iterable<string>) => {
+    workspacesState.dashboardHiddenWorkspaceTags = new Set(keys);
+  }),
   selectionMode: false,
   selectedWorkspaceIds: new Set<string>(),
   enterSelectionMode: vi.fn(),
@@ -122,7 +124,11 @@ const workspacesState = {
 };
 
 vi.mock('../../../../src/renderer/stores/workspaces.store', () => ({
-  useWorkspacesStore: Object.assign(() => workspacesState, { setState: vi.fn() }),
+  useWorkspacesStore: Object.assign(
+    <T,>(selector?: (state: typeof workspacesState) => T) =>
+      selector ? selector(workspacesState) : workspacesState,
+    { setState: vi.fn() }
+  ),
 }));
 
 vi.mock('../../../../src/renderer/stores/projects.store', () => ({
@@ -159,6 +165,12 @@ vi.mock('../../../../src/renderer/stores/toast.store', () => ({
   useToastStore: { getState: () => ({ addToast: vi.fn() }) },
 }));
 
+async function openFilterMenu() {
+  const trigger = screen.getByRole('button', { name: /^Filter workspaces/ });
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+  await screen.findByRole('menu');
+}
+
 describe('DashboardView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -168,7 +180,9 @@ describe('DashboardView', () => {
     mockUntaggedCount = 0;
     mockSections = null;
     workspacesState.workspaces = [workspace];
-    workspacesState.dashboardFilterProject = null;
+    workspacesState.dashboardHiddenProjects = new Set();
+    workspacesState.dashboardHiddenWorkspaceTags = new Set();
+    workspacesState.dashboardHiddenWorkspaceHostIds = new Set();
     workspacesState.selectionMode = false;
     workspacesState.selectedWorkspaceIds = new Set<string>();
   });
@@ -238,68 +252,160 @@ describe('DashboardView', () => {
     expect(rowRenderIds).toEqual(['ws-working']);
   });
 
-  it('shows project filters as toggle buttons', () => {
+  it('offers projects and the whole tag list in one filter menu', async () => {
     mockProjectFilters = [
       { name: 'acme-api', color: '#ff0000', count: 3 },
       { name: 'acme-web', color: '#00ff00', count: 1 },
     ];
-    (workspacesState as { dashboardFilterProject: string | null }).dashboardFilterProject =
-      'acme-api';
-
-    render(<DashboardView />);
-    const selected = screen.getByRole('button', { name: /acme-api/ });
-    const unselected = screen.getByRole('button', { name: /acme-web/ });
-
-    expect(selected).toHaveAttribute('aria-pressed', 'true');
-    expect(unselected).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(selected);
-    expect(workspacesState.setDashboardFilterProject).toHaveBeenLastCalledWith(null);
-    fireEvent.click(unselected);
-    expect(workspacesState.setDashboardFilterProject).toHaveBeenLastCalledWith('acme-web');
-  });
-
-  it('filters by one tag at a time, Untagged among them', () => {
     mockTagFilters = [
-      { key: 'in review', name: 'In review', tone: 'info', count: 2 },
+      { key: 'in review', name: 'In review', tone: 'info', count: 0 },
       { key: 'blocked', name: 'Blocked', tone: 'error', count: 1 },
     ];
     mockUntaggedCount = 4;
 
     render(<DashboardView />);
-    expect(lastFilterTagKey).toBeNull();
+    await openFilterMenu();
 
-    fireEvent.click(screen.getByRole('button', { name: /In review/ }));
-    expect(lastFilterTagKey).toBe('in review');
-    expect(screen.getByRole('button', { name: /In review/ })).toHaveAttribute(
+    expect(
+      screen.getAllByRole('menuitemcheckbox').map((row) => row.getAttribute('aria-label'))
+    ).toEqual(['acme-api (3)', 'acme-web (1)', 'In review (0)', 'Blocked (1)', 'Untagged (4)']);
+    // One host has nothing to choose between.
+    expect(screen.queryByText('Hosts')).toBeNull();
+
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'acme-web (1)' }));
+    expect(workspacesState.setDashboardHiddenProjects).toHaveBeenLastCalledWith(
+      new Set(['acme-web'])
+    );
+  });
+
+  it('shows only one tag from its Only button, keeping tags it does not offer', async () => {
+    mockTagFilters = [
+      { key: 'in review', name: 'In review', tone: 'info', count: 2 },
+      { key: 'blocked', name: 'Blocked', tone: 'error', count: 1 },
+    ];
+    mockUntaggedCount = 4;
+    workspacesState.dashboardHiddenWorkspaceTags = new Set(['elsewhere']);
+
+    render(<DashboardView />);
+    await openFilterMenu();
+    fireEvent.click(screen.getByRole('button', { name: 'Show only Blocked' }));
+
+    expect(workspacesState.setDashboardHiddenWorkspaceTags).toHaveBeenLastCalledWith([
+      'elsewhere',
+      'in review',
+      '',
+    ]);
+  });
+
+  it('shows one project from its chip, and every project again from that chip or All', () => {
+    mockProjectFilters = [
+      { name: 'acme-api', color: '#ff0000', count: 3 },
+      { name: 'acme-web', color: '#00ff00', count: 1 },
+    ];
+    workspacesState.dashboardHiddenProjects = new Set(['elsewhere']);
+
+    const { rerender } = render(<DashboardView />);
+    expect(screen.getByRole('button', { name: /^All/ })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: /^acme-web/ }));
+    // Projects the Overview doesn't list keep their state.
+    expect(workspacesState.setDashboardHiddenProjects).toHaveBeenLastCalledWith([
+      'elsewhere',
+      'acme-api',
+    ]);
+
+    rerender(<DashboardView onNewWorkspaceDialogChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /^acme-web/ })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
-
-    fireEvent.click(screen.getByRole('button', { name: /Untagged/ }));
-    expect(lastFilterTagKey).toBe('');
-    expect(screen.getByRole('button', { name: /In review/ })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /^acme-api/ })).toHaveAttribute(
       'aria-pressed',
       'false'
     );
+    // The chips say it, so no Projects filter chip says it again.
+    expect(screen.queryByRole('button', { name: 'Remove the projects filter' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /Untagged/ }));
-    expect(lastFilterTagKey).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^acme-web/ }));
+    expect(workspacesState.setDashboardHiddenProjects).toHaveBeenLastCalledWith(['elsewhere']);
+    workspacesState.dashboardHiddenProjects = new Set(['acme-api']);
+    rerender(<DashboardView />);
+    fireEvent.click(screen.getByRole('button', { name: /^All/ }));
+    expect(workspacesState.setDashboardHiddenProjects).toHaveBeenLastCalledWith([]);
   });
 
-  it('drops a tag filter once no workspace has that tag', () => {
+  it('names the filters on under the search, and takes one or all off', () => {
+    mockProjectFilters = [
+      { name: 'acme-api', color: '#ff0000', count: 3 },
+      { name: 'acme-web', color: '#00ff00', count: 1 },
+    ];
     mockTagFilters = [{ key: 'blocked', name: 'Blocked', tone: 'error', count: 1 }];
+    mockUntaggedCount = 4;
+    workspacesState.dashboardHiddenProjects = new Set(['acme-web']);
+    workspacesState.dashboardHiddenWorkspaceTags = new Set(['']);
+
+    const { rerender } = render(<DashboardView />);
+    expect(lastHiddenTagKeys).toEqual(new Set(['']));
+    expect(screen.getByRole('button', { name: 'Filter workspaces (2 filters on)' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove the tags filter' }));
+    expect(workspacesState.setDashboardHiddenWorkspaceTags).toHaveBeenLastCalledWith([]);
+
+    rerender(<DashboardView onNewWorkspaceDialogChange={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Clear all' })).toBeNull();
+    workspacesState.dashboardHiddenWorkspaceTags = new Set(['blocked']);
+    rerender(<DashboardView />);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+    expect(workspacesState.setDashboardHiddenProjects).toHaveBeenLastCalledWith([]);
+    expect(workspacesState.setDashboardHiddenWorkspaceTags).toHaveBeenLastCalledWith([]);
+  });
+
+  it('keeps a hidden Untagged to show again once no tag is in use', () => {
+    mockUntaggedCount = 2;
+    workspacesState.dashboardHiddenWorkspaceTags = new Set(['']);
+
     render(<DashboardView />);
-    fireEvent.click(screen.getByRole('button', { name: /Blocked/ }));
-    expect(lastFilterTagKey).toBe('blocked');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove the tags filter' }));
 
-    // Untagged by now; typing a search builds the overview again.
-    mockTagFilters = [];
-    fireEvent.change(screen.getByRole('textbox', { name: 'Filter workspaces' }), {
-      target: { value: 'task' },
-    });
+    expect(workspacesState.setDashboardHiddenWorkspaceTags).toHaveBeenLastCalledWith([]);
+  });
 
-    expect(lastFilterTagKey).toBeNull();
+  it('keeps a hidden host to show again once it is the only one', () => {
+    workspacesState.dashboardHiddenWorkspaceHostIds = new Set(['local']);
+
+    render(<DashboardView />);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove the hosts filter' }));
+
+    expect(workspacesState.showAllDashboardWorkspaceHosts).toHaveBeenCalled();
+  });
+
+  it('shows all workspaces again, projects it no longer lists among them', async () => {
+    mockProjectFilters = [
+      { name: 'acme-api', color: '#ff0000', count: 3 },
+      { name: 'acme-web', color: '#00ff00', count: 1 },
+    ];
+    // Hidden twice: its workspaces are all on the hidden host, so the menu doesn't list it.
+    workspacesState.dashboardHiddenProjects = new Set(['acme-docs']);
+    workspacesState.dashboardHiddenWorkspaceHostIds = new Set(['local']);
+
+    render(<DashboardView />);
+    await openFilterMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Show all workspaces' }));
+
+    expect(workspacesState.showAllDashboardWorkspaceHosts).toHaveBeenCalled();
+    expect(workspacesState.setDashboardHiddenProjects).toHaveBeenLastCalledWith([]);
+  });
+
+  it('counts no filter for a project it no longer offers', () => {
+    mockProjectFilters = [
+      { name: 'acme-api', color: '#ff0000', count: 3 },
+      { name: 'acme-web', color: '#00ff00', count: 1 },
+    ];
+    workspacesState.dashboardHiddenProjects = new Set(['gone']);
+
+    render(<DashboardView />);
+
+    expect(screen.getByRole('button', { name: 'Filter workspaces' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Remove the/ })).toBeNull();
   });
 
   it('trashes every workspace in a stale group after confirming', async () => {

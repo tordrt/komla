@@ -182,6 +182,11 @@ const appConfigUpdateSchema = z
       .optional(),
     tagsFromPullRequests: z.boolean().optional(),
     dashboardHiddenWorkspaceHostIds: z.array(idSchema).optional(),
+    dashboardHiddenProjects: z.array(z.string().max(1024)).max(1000).optional(),
+    dashboardHiddenWorkspaceTags: z
+      .array(z.string().max(MAX_WORKSPACE_TAG_LENGTH * 2))
+      .max(MAX_WORKSPACE_TAGS * 2)
+      .optional(),
     remoteBranchesExpanded: z.boolean().optional(),
     diffHideUnchangedRegions: z.boolean().optional(),
     anonymousTelemetryEnabled: z.boolean().optional(),
@@ -204,7 +209,6 @@ const appConfigUpdateSchema = z
     inboxMode: z.boolean().optional(),
     defaultSearchOpenMode: z.enum(['viewer', 'preview', 'current']).optional(),
     hiddenProjectIds: z.array(idSchema).optional(),
-    dashboardFilterProject: z.string().nullable().optional(),
     defaultEditor: z.string().optional(),
     showEditorInToolbar: z.boolean().optional(),
     showTipsInToolbar: z.boolean().optional(),

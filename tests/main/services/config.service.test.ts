@@ -127,7 +127,8 @@ describe('ConfigService', () => {
           inputRequiredSound: 'bell',
         },
         recentProjectIds: [],
-        dashboardFilterProject: null,
+        dashboardHiddenProjects: [],
+        dashboardHiddenWorkspaceTags: [],
         statusBarSize: 'medium',
         workspaceNamingPrompt: '',
         commitMessagePrompt: '',
@@ -671,13 +672,13 @@ describe('ConfigService', () => {
         // View choices only the renderer reads
         remoteBranchesExpanded: true,
         diffHideUnchangedRegions: false,
-        dashboardFilterProject: 'Komla',
+        dashboardHiddenProjects: ['Komla'],
       });
 
       expect(updated).toMatchObject({
         remoteBranchesExpanded: true,
         diffHideUnchangedRegions: false,
-        dashboardFilterProject: 'Komla',
+        dashboardHiddenProjects: ['Komla'],
       });
       expect(updated.gitDefaults).toEqual({ branchPrefix: 'me/' });
       expect(updated.workspaceNamingPrompt).toBe('Name it briefly.');

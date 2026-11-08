@@ -247,6 +247,8 @@ export interface AppConfig {
   hiddenWorkspaceTags?: string[]; // Tags (lowercased) whose workspaces sit on the sidebar's Filtered shelf
   tagsFromPullRequests?: boolean; // Tag pushed worktrees from their GitHub pull requests, read with gh
   dashboardHiddenWorkspaceHostIds?: string[];
+  dashboardHiddenProjects?: string[]; // Project names whose workspaces the Overview leaves out
+  dashboardHiddenWorkspaceTags?: string[]; // Tags (lowercased) whose workspaces the Overview leaves out
   telemetryPingSent?: boolean;
   lastHeartbeatDate?: string; // YYYY-MM-DD date string for daily heartbeat dedup
   telemetryDistinctId?: string; // Anonymous random ID for app telemetry uniqueness
@@ -270,7 +272,6 @@ export interface AppConfig {
   inboxMode?: boolean; // Workspaces that need the user lead their sidebar group, above a line
   defaultSearchOpenMode?: 'viewer' | 'preview' | 'current'; // Default target when opening search results ('current' = match the active view)
   hiddenProjectIds?: string[]; // Project IDs hidden from the sidebar workspace list
-  dashboardFilterProject?: string | null; // Last selected project filter in dashboard
   remoteBranchesExpanded?: boolean; // Branch pickers list remote branches too
   diffHideUnchangedRegions?: boolean; // Collapse unchanged regions in diff viewer
   defaultEditor?: string; // Editor ID to use for "Open in Editor" (e.g. 'vscode', 'cursor')
@@ -380,6 +381,8 @@ const DEFAULT_CONFIG: AppConfig = {
   hiddenWorkspaceTags: [...DEFAULT_HIDDEN_WORKSPACE_TAGS],
   tagsFromPullRequests: false,
   dashboardHiddenWorkspaceHostIds: [],
+  dashboardHiddenProjects: [],
+  dashboardHiddenWorkspaceTags: [],
   telemetryPingSent: false,
   lastHeartbeatDate: undefined,
   telemetryDistinctId: undefined,
@@ -502,6 +505,8 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     hiddenWorkspaceTags: pickWithDefault(rawConfig, 'hiddenWorkspaceTags'),
     tagsFromPullRequests: pickWithDefault(rawConfig, 'tagsFromPullRequests'),
     dashboardHiddenWorkspaceHostIds: pickWithDefault(rawConfig, 'dashboardHiddenWorkspaceHostIds'),
+    dashboardHiddenProjects: pickWithDefault(rawConfig, 'dashboardHiddenProjects'),
+    dashboardHiddenWorkspaceTags: pickWithDefault(rawConfig, 'dashboardHiddenWorkspaceTags'),
     telemetryPingSent: pickWithDefault(rawConfig, 'telemetryPingSent'),
     lastHeartbeatDate: pickWithDefault(rawConfig, 'lastHeartbeatDate'),
     telemetryDistinctId: pickWithDefault(rawConfig, 'telemetryDistinctId'),
@@ -530,7 +535,6 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
     inboxMode: pickWithDefault(rawConfig, 'inboxMode'),
     defaultSearchOpenMode: pickWithDefault(rawConfig, 'defaultSearchOpenMode'),
     hiddenProjectIds: pickWithDefault(rawConfig, 'hiddenProjectIds'),
-    dashboardFilterProject: (rawConfig.dashboardFilterProject as string | null | undefined) ?? null,
     remoteBranchesExpanded: pickWithDefault(rawConfig, 'remoteBranchesExpanded'),
     diffHideUnchangedRegions: pickWithDefault(rawConfig, 'diffHideUnchangedRegions'),
     defaultEditor: pickWithDefault(rawConfig, 'defaultEditor'),

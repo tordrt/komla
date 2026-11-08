@@ -198,6 +198,8 @@ export interface AppConfig {
   /** Set through `setSshHostConnected`, which also closes or opens what Komla keeps on the host. */
   disconnectedSshHostIds?: string[];
   dashboardHiddenWorkspaceHostIds?: string[];
+  dashboardHiddenProjects?: string[]; // Project names whose workspaces the Overview leaves out
+  dashboardHiddenWorkspaceTags?: string[]; // Tags (lowercased) whose workspaces the Overview leaves out
   remoteBranchesExpanded?: boolean;
   diffHideUnchangedRegions?: boolean; // Collapse unchanged regions in diff viewer
   anonymousTelemetryEnabled?: boolean; // Send the anonymous install ping and daily heartbeat (on unless turned off)
@@ -214,7 +216,6 @@ export interface AppConfig {
   inboxMode?: boolean; // Workspaces that need the user lead their sidebar group, above a line
   defaultSearchOpenMode?: 'viewer' | 'preview' | 'current'; // Default target when opening search results ('current' = match the active view)
   hiddenProjectIds?: string[]; // Project IDs hidden from the sidebar workspace list
-  dashboardFilterProject?: string | null; // Last selected project filter in dashboard
   defaultEditor?: string; // Editor ID to use for "Open in Editor" (e.g. 'vscode', 'cursor')
   showEditorInToolbar?: boolean; // Show Open in editor in the status bar and title bar; ignored while the status bar is off
   showTipsInToolbar?: boolean; // Show the Tips button in the status bar; Tips moves to the settings menu when off

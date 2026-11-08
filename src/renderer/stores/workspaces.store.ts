@@ -236,7 +236,6 @@ interface WorkspacesState {
   collapsedWorkspaceGroupKeys: Set<string>;
   /** The sidebar sets each project on a panel, or lists every workspace together. */
   grouping: WorkspaceGrouping;
-  dashboardFilterProject: string | null;
   hiddenProjectIds: Set<string>;
   hiddenWorkspaceHostIds: Set<string>;
   /**
@@ -245,6 +244,10 @@ interface WorkspacesState {
    */
   hiddenWorkspaceTags: Set<string>;
   dashboardHiddenWorkspaceHostIds: Set<string>;
+  /** Projects whose workspaces the Overview leaves out, by the name it shows them under. */
+  dashboardHiddenProjects: Set<string>;
+  /** Tags whose workspaces the Overview leaves out, by key, as `hiddenWorkspaceTags` has them. */
+  dashboardHiddenWorkspaceTags: Set<string>;
   displayOrderedWorkspaceIds: string[] | null;
   restartingWorkspaceIds: Set<string>;
   reconnectingSshWorkspaceIds: Set<string>;
@@ -406,7 +409,8 @@ interface WorkspacesState {
   toggleCollapsedSection: (key: string) => void;
   toggleWorkspaceGroupCollapsed: (groupKey: string) => void;
   setGrouping: (grouping: WorkspaceGrouping) => void;
-  setDashboardFilterProject: (projectName: string | null) => void;
+  setDashboardHiddenProjects: (projectNames: Iterable<string>) => void;
+  setDashboardHiddenWorkspaceTags: (tagKeys: Iterable<string>) => void;
   toggleWorkspaceHostVisibility: (hostId: string) => void;
   /** Takes off progress a script left showing, as the user can when it never ended it. */
   clearProgress: (workspaceId: string) => void;
@@ -828,13 +832,14 @@ function saveWorkspaceMarks(
 }
 
 /**
- * Shows and saves the hidden tags, keeping only those still in the tag list or on a workspace, so
- * renamed and deleted tags don't pile up.
+ * Shows and saves the hidden tags of the sidebar or the Overview, keeping only those still in the
+ * tag list or on a workspace, so renamed and deleted tags don't pile up.
  */
 function saveHiddenWorkspaceTags(
   set: WorkspacesSet,
   get: WorkspacesGet,
-  hidden: ReadonlySet<string>
+  hidden: ReadonlySet<string>,
+  key: 'hiddenWorkspaceTags' | 'dashboardHiddenWorkspaceTags' = 'hiddenWorkspaceTags'
 ): void {
   const known = new Set([
     UNTAGGED_WORKSPACE_TAG_KEY,
@@ -845,9 +850,9 @@ function saveHiddenWorkspaceTags(
       ...get().workspaces.flatMap((workspace) => (workspace.tag ? [workspace.tag] : [])),
     ].map(workspaceTagKey),
   ]);
-  const next = new Set([...hidden].filter((key) => known.has(key)));
-  set({ hiddenWorkspaceTags: next });
-  void window.api.updateConfig({ hiddenWorkspaceTags: Array.from(next) }).catch((error) => {
+  const next = new Set([...hidden].filter((tag) => known.has(tag)));
+  set({ [key]: next });
+  void window.api.updateConfig({ [key]: Array.from(next) }).catch((error) => {
     console.error('Failed to persist hidden workspace tags:', error);
   });
 }
@@ -1124,11 +1129,12 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   collapsedSections: new Set(),
   collapsedWorkspaceGroupKeys: readStoredCollapsedGroups(),
   grouping: 'project',
-  dashboardFilterProject: null,
   hiddenProjectIds: new Set(),
   hiddenWorkspaceHostIds: new Set(),
   hiddenWorkspaceTags: new Set(),
   dashboardHiddenWorkspaceHostIds: new Set(),
+  dashboardHiddenProjects: new Set(),
+  dashboardHiddenWorkspaceTags: new Set(),
   displayOrderedWorkspaceIds: null,
   restartingWorkspaceIds: new Set(),
   reconnectingSshWorkspaceIds: new Set(),
@@ -2214,11 +2220,21 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
     });
   },
 
-  setDashboardFilterProject: (projectName) => {
-    set({ dashboardFilterProject: projectName });
-    void window.api.updateConfig({ dashboardFilterProject: projectName }).catch((error) => {
-      console.error('Failed to persist dashboard filter project:', error);
+  setDashboardHiddenProjects: (projectNames) => {
+    const next = new Set(projectNames);
+    set({ dashboardHiddenProjects: next });
+    void window.api.updateConfig({ dashboardHiddenProjects: Array.from(next) }).catch((error) => {
+      console.error('Failed to persist the Overview project filter:', error);
     });
+  },
+
+  setDashboardHiddenWorkspaceTags: (tagKeys) => {
+    saveHiddenWorkspaceTags(
+      set,
+      get,
+      new Set([...tagKeys].map(workspaceTagKey)),
+      'dashboardHiddenWorkspaceTags'
+    );
   },
 
   toggleWorkspaceHostVisibility: (hostId) => {
@@ -2261,10 +2277,16 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
   },
 
   moveHiddenWorkspaceTag: (from, to) => {
-    const next = new Set(get().hiddenWorkspaceTags);
-    if (!next.delete(workspaceTagKey(from))) return;
-    if (to) next.add(workspaceTagKey(to));
-    saveHiddenWorkspaceTags(set, get, next);
+    const move = (hidden: ReadonlySet<string>) => {
+      const next = new Set(hidden);
+      if (!next.delete(workspaceTagKey(from))) return null;
+      if (to) next.add(workspaceTagKey(to));
+      return next;
+    };
+    const sidebar = move(get().hiddenWorkspaceTags);
+    if (sidebar) saveHiddenWorkspaceTags(set, get, sidebar);
+    const overview = move(get().dashboardHiddenWorkspaceTags);
+    if (overview) get().setDashboardHiddenWorkspaceTags(overview);
   },
 
   showAllWorkspaceHosts: () => {

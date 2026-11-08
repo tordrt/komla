@@ -1723,6 +1723,48 @@ describe('workspaces.store', () => {
     expect(useWorkspacesStore.getState().hiddenWorkspaceTags.size).toBe(0);
   });
 
+  it('saves the Overview project and tag filters apart from the sidebar', () => {
+    useWorkspacesStore.setState({ hiddenWorkspaceTags: new Set() });
+
+    useWorkspacesStore.getState().setDashboardHiddenProjects(['acme-api']);
+    useWorkspacesStore.getState().setDashboardHiddenWorkspaceTags(['Blocked', '']);
+
+    expect(useWorkspacesStore.getState().dashboardHiddenProjects).toEqual(new Set(['acme-api']));
+    expect(useWorkspacesStore.getState().dashboardHiddenWorkspaceTags).toEqual(
+      new Set(['blocked', ''])
+    );
+    expect(useWorkspacesStore.getState().hiddenWorkspaceTags.size).toBe(0);
+    expect(window.api.updateConfig).toHaveBeenCalledWith({ dashboardHiddenProjects: ['acme-api'] });
+    expect(window.api.updateConfig).toHaveBeenCalledWith({
+      dashboardHiddenWorkspaceTags: ['blocked', ''],
+    });
+  });
+
+  it('forgets Overview tag filters for tags no longer around', () => {
+    useWorkspacesStore.setState({ workspaces: [createWorkspace({ id: 'ws-1', tag: 'Mine' })] });
+
+    useWorkspacesStore.getState().setDashboardHiddenWorkspaceTags(['deploying', 'Mine', 'Blocked']);
+
+    expect(useWorkspacesStore.getState().dashboardHiddenWorkspaceTags).toEqual(
+      new Set(['mine', 'blocked'])
+    );
+  });
+
+  it('keeps a tag the Overview hides hidden under its new name', () => {
+    useWorkspacesStore.setState({
+      workspaces: [createWorkspace({ id: 'ws-1', tag: 'QA' })],
+      hiddenWorkspaceTags: new Set(),
+      dashboardHiddenWorkspaceTags: new Set(['waiting for qa']),
+    });
+
+    useWorkspacesStore.getState().moveHiddenWorkspaceTag('Waiting for QA', 'QA');
+    expect(useWorkspacesStore.getState().dashboardHiddenWorkspaceTags).toEqual(new Set(['qa']));
+    expect(useWorkspacesStore.getState().hiddenWorkspaceTags.size).toBe(0);
+
+    useWorkspacesStore.getState().moveHiddenWorkspaceTag('QA', undefined);
+    expect(useWorkspacesStore.getState().dashboardHiddenWorkspaceTags.size).toBe(0);
+  });
+
   it('sets every hidden tag at once, by key', () => {
     useWorkspacesStore.setState({
       workspaces: [

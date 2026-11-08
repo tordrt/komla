@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ignoreFocusAfterPointer } from '@/components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useWorkspaceHostOptions } from '@/components/workspaces/WorkspaceHostFilterMenu';
+import { useWorkspaceHostOptions } from '@/components/workspaces/workspace-host-options';
 import { ToneDot, UntaggedDot } from '@/components/workspaces/WorkspaceTagMenu';
 import { getProjectColor } from '@/lib/project-colors';
 import { getProjectMoveIndex } from '@/lib/project-order';
@@ -74,7 +74,7 @@ function OnlyButton({ name, onOnly }: { name: string; onOnly: () => void }) {
 }
 
 /** A row's count, with its Only button before it while there are other rows to uncheck. */
-function CountWithOnly({
+export function CountWithOnly({
   name,
   count,
   onOnly,
@@ -605,7 +605,7 @@ function ProjectFilterItems({
 }
 
 /** A tag's dot in a box of a project icon's size, so tag names line up with project names. */
-function DotBox({ children }: { children: ReactNode }) {
+export function DotBox({ children }: { children: ReactNode }) {
   return <span className="flex size-3.5 shrink-0 items-center justify-center">{children}</span>;
 }
 

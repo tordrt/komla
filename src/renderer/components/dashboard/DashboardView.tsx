@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  PushPin,
   CaretDown,
   CaretRight,
   MagnifyingGlass,
@@ -21,7 +20,6 @@ import React, {
   useState,
 } from 'react';
 
-import { ProjectMark } from '@/components/projects/ProjectMark';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
@@ -35,8 +33,6 @@ import {
   needsBulkTrashConfirmation,
 } from '@/components/workspaces/BulkTrashDialog';
 import { QuickCreateMenu } from '@/components/workspaces/QuickCreateMenu';
-import { WorkspaceHostFilterMenu } from '@/components/workspaces/WorkspaceHostFilterMenu';
-import { ToneDot, UntaggedDot } from '@/components/workspaces/WorkspaceTagMenu';
 import { executeShortcutAction } from '@/lib/shortcut-actions';
 import { cn } from '@/lib/utils';
 import { getWorkspaceHostId } from '@/lib/workspace-host';
@@ -49,14 +45,17 @@ import { useWindowStore } from '@/stores/window.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { canStop, type SshHost, type Workspace } from '@/types';
 
-import { UNTAGGED_WORKSPACE_TAG_KEY } from '../../../shared/lib/workspace-tags';
-
 import {
   buildDashboardOverview,
   type DashboardProjectInfo,
   type DashboardSection,
   type DashboardSectionKey,
 } from './dashboard-view-model';
+import {
+  DashboardActiveFilters,
+  DashboardFilterMenu,
+  useOverviewFilters,
+} from './DashboardFilterMenu';
 import { DashboardRow } from './DashboardRow';
 
 interface DashboardViewProps {
@@ -70,52 +69,6 @@ const STALE_SECTIONS: ReadonlySet<DashboardSectionKey> = new Set(['week', 'month
 // Enough rows to fill a tall window. The rest mount in a transition after the first frame, so the
 // Overview opens without waiting for every row.
 const FIRST_FRAME_ROW_COUNT = 40;
-
-/** A project or tag filter above the list: one of each kind is picked at a time. */
-function FilterChip({
-  selected,
-  onToggle,
-  count,
-  color,
-  children,
-}: {
-  selected: boolean;
-  onToggle: () => void;
-  count: number;
-  /** Tints the chip while it's on, as the project's color. */
-  color?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onToggle}
-      style={
-        selected && color
-          ? ({
-              backgroundColor: `color-mix(in oklch, ${color} 16%, transparent)`,
-              // The ring's resting color; keyboard focus still turns it the focus ring's.
-              '--chip-ring': `color-mix(in oklch, ${color} 55%, transparent)`,
-            } as React.CSSProperties)
-          : undefined
-      }
-      className={cn(
-        'inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs ring-1 transition-colors ring-inset',
-        'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden',
-        selected
-          ? cn(
-              'bg-foreground/10 text-foreground',
-              color ? 'ring-(--chip-ring)' : 'ring-foreground/25'
-            )
-          : 'text-muted-foreground ring-border/70 hover:bg-foreground/5 hover:text-foreground'
-      )}
-    >
-      {children}
-      <span className="text-2xs text-muted-foreground tabular-nums">{count}</span>
-    </button>
-  );
-}
 
 type WorkspacesStoreState = ReturnType<typeof useWorkspacesStore.getState>;
 
@@ -271,10 +224,9 @@ export const DashboardView = memo(function DashboardView({
     deleteWorkspace,
     setPinned,
     markUnread,
-    dashboardFilterProject: filterProjectName,
+    dashboardHiddenProjects,
+    dashboardHiddenWorkspaceTags,
     dashboardHiddenWorkspaceHostIds,
-    showAllDashboardWorkspaceHosts,
-    setDashboardFilterProject: setFilterProjectName,
     selectionMode,
     selectedWorkspaceIds,
     enterSelectionMode,
@@ -291,7 +243,6 @@ export const DashboardView = memo(function DashboardView({
   const { windowId: currentWindowId } = useWindowStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
-  const [filterTagKey, setFilterTagKey] = useState<string | null>(null);
   const tags = useWorkspaceTags();
   const [foldedSections, setFoldedSections] = useState<ReadonlySet<DashboardSectionKey>>(
     () => new Set(INITIALLY_FOLDED)
@@ -311,8 +262,8 @@ export const DashboardView = memo(function DashboardView({
       workspaces,
       projects,
       currentWindowId,
-      filterProjectName,
-      filterTagKey,
+      hiddenProjectNames: dashboardHiddenProjects,
+      hiddenTagKeys: dashboardHiddenWorkspaceTags,
       tags,
       hiddenWorkspaceHostIds: dashboardHiddenWorkspaceHostIds,
       pinnedOnly: showPinnedOnly,
@@ -322,8 +273,8 @@ export const DashboardView = memo(function DashboardView({
     workspaces,
     projects,
     currentWindowId,
-    filterProjectName,
-    filterTagKey,
+    dashboardHiddenProjects,
+    dashboardHiddenWorkspaceTags,
     tags,
     dashboardHiddenWorkspaceHostIds,
     showPinnedOnly,
@@ -331,6 +282,12 @@ export const DashboardView = memo(function DashboardView({
   ]);
 
   const pinnedCount = useMemo(() => workspaces.filter((w) => w.pinned).length, [workspaces]);
+  const filters = useOverviewFilters({
+    overview,
+    pinnedCount,
+    pinnedOnly: showPinnedOnly,
+    setPinnedOnly: setShowPinnedOnly,
+  });
 
   // The overview toggle returns to the previous workspace (or the first running one).
   const overviewShortcut = useShortcutsStore((s) => s.getDisplayShortcut('workspace.overview'));
@@ -345,14 +302,6 @@ export const DashboardView = memo(function DashboardView({
   useEffect(() => {
     if (pinnedCount === 0) setShowPinnedOnly(false);
   }, [pinnedCount]);
-
-  // A picked tag that no workspace has any more leaves no chip to unpick, so the overview already
-  // leaves it out; forget it too, so it doesn't come back with the tag.
-  const tagFilterDropped = filterTagKey !== null && overview.tagFilterKey === null;
-  useEffect(() => {
-    if (tagFilterDropped) setFilterTagKey(null);
-  }, [tagFilterDropped]);
-  const toggleTagFilter = (key: string) => setFilterTagKey(filterTagKey === key ? null : key);
 
   const isFolded = useCallback(
     (key: DashboardSectionKey) => !searchQuery.trim() && foldedSections.has(key),
@@ -458,7 +407,7 @@ export const DashboardView = memo(function DashboardView({
       if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
         e.preventDefault();
         // Select only the rows visible in the dashboard (respects search,
-        // project filter, pinned-only, and folded groups)
+        // the filters, and folded groups)
         if (orderedDashboardIds.length > 0) {
           useWorkspacesStore.setState({
             selectionMode: true,
@@ -656,21 +605,7 @@ export const DashboardView = memo(function DashboardView({
               </button>
             )}
           </div>
-          <WorkspaceHostFilterMenu scope="dashboard" />
-          {pinnedCount > 0 && (
-            <IconButton
-              label={
-                showPinnedOnly
-                  ? `Showing pinned (${pinnedCount})`
-                  : `Show pinned only (${pinnedCount})`
-              }
-              aria-pressed={showPinnedOnly}
-              className={cn(showPinnedOnly && 'text-foreground')}
-              onClick={() => setShowPinnedOnly(!showPinnedOnly)}
-            >
-              <PushPin className="size-3.5" weight={showPinnedOnly ? 'fill' : 'regular'} />
-            </IconButton>
-          )}
+          <DashboardFilterMenu filters={filters} />
           {onNewWorkspaceDialogChange && (
             <div className="flex items-center gap-0.5">
               <Button
@@ -686,58 +621,7 @@ export const DashboardView = memo(function DashboardView({
             </div>
           )}
         </div>
-        {(overview.projectFilters.length > 0 || overview.tagFilters.length > 0) && (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            {overview.projectFilters.length > 1 && (
-              <FilterChip
-                selected={filterProjectName === null}
-                onToggle={() => setFilterProjectName(null)}
-                count={overview.projectFilters.reduce((sum, project) => sum + project.count, 0)}
-              >
-                All
-              </FilterChip>
-            )}
-            {overview.projectFilters.map((project) => {
-              const isSelected = filterProjectName === project.name;
-              return (
-                <FilterChip
-                  key={project.name}
-                  selected={isSelected}
-                  onToggle={() => setFilterProjectName(isSelected ? null : project.name)}
-                  count={project.count}
-                  color={project.color}
-                >
-                  <ProjectMark project={project} iconClassName="size-3" />
-                  {project.name}
-                </FilterChip>
-              );
-            })}
-            {overview.projectFilters.length > 0 && overview.tagFilters.length > 0 && (
-              <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
-            )}
-            {overview.tagFilters.map((tag) => (
-              <FilterChip
-                key={tag.key}
-                selected={filterTagKey === tag.key}
-                onToggle={() => toggleTagFilter(tag.key)}
-                count={tag.count}
-              >
-                <ToneDot tone={tag.tone} />
-                {tag.name}
-              </FilterChip>
-            ))}
-            {overview.untaggedOffered && (
-              <FilterChip
-                selected={filterTagKey === UNTAGGED_WORKSPACE_TAG_KEY}
-                onToggle={() => toggleTagFilter(UNTAGGED_WORKSPACE_TAG_KEY)}
-                count={overview.untaggedCount}
-              >
-                <UntaggedDot />
-                Untagged
-              </FilterChip>
-            )}
-          </div>
-        )}
+        <DashboardActiveFilters filters={filters} />
       </div>
       <ScrollArea className={cn('min-h-0 flex-1', selectionMode && 'select-none')}>
         <div className="mx-auto w-full max-w-[60rem] px-6 pt-2 pb-8">
@@ -748,15 +632,13 @@ export const DashboardView = memo(function DashboardView({
               description={
                 searchQuery
                   ? 'Try a different search term or clear the search to see all workspaces.'
-                  : dashboardHiddenWorkspaceHostIds.size > 0
-                    ? 'Choose another host or show all hosts.'
-                    : 'Clear the project, tag or pinned filter to see every workspace.'
+                  : 'Clear the filters to see every workspace.'
               }
               action={
                 !searchQuery &&
-                dashboardHiddenWorkspaceHostIds.size > 0 && (
-                  <Button variant="outline" size="sm" onClick={showAllDashboardWorkspaceHosts}>
-                    Show all hosts
+                filters.active.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={filters.clearAll}>
+                    Clear filters
                   </Button>
                 )
               }

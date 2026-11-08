@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildDashboardOverview,
+  describeShown,
   type BuildDashboardOverviewParams,
 } from '../../../../src/renderer/components/dashboard/dashboard-view-model';
 import { createTerminal, createWorkspace } from '../../../factories';
@@ -266,7 +267,7 @@ describe('dashboard-view-model', () => {
     expect(sectionIds(overview)).toEqual({ stopped: ['ws-remote'] });
   });
 
-  it('filters by project and counts every project across all groups', () => {
+  it('hides the projects asked for and counts every project across all groups', () => {
     const projects = [
       {
         id: 'p-api',
@@ -300,7 +301,7 @@ describe('dashboard-view-model', () => {
       }),
     ];
 
-    const overview = build({ workspaces, projects, filterProjectName: 'acme-web' });
+    const overview = build({ workspaces, projects, hiddenProjectNames: new Set(['acme-api']) });
 
     expect(overview.projectFilters).toEqual([
       { name: 'acme-web', color: '#ff0000', count: 2 },
@@ -309,10 +310,11 @@ describe('dashboard-view-model', () => {
     expect(sectionIds(overview)).toEqual({ stopped: ['ws-web-1'], trash: ['ws-web-2'] });
   });
 
-  it('offers the tags in use with counts, and filters by one or by none', () => {
+  it('offers the whole tag list with counts, unused tags too, and hides the tags asked for', () => {
     const tags = [
       { name: 'In review', tone: 'info' as const },
       { name: 'Blocked', tone: 'error' as const },
+      { name: 'On hold', tone: 'neutral' as const },
     ];
     const workspaces = [
       createWorkspace({ id: 'ws-blocked', windowId: 'window-1', tag: 'blocked' }),
@@ -325,23 +327,33 @@ describe('dashboard-view-model', () => {
     expect(all.tagFilters).toEqual([
       { key: 'in review', name: 'In review', tone: 'info', count: 1 },
       { key: 'blocked', name: 'Blocked', tone: 'error', count: 1 },
+      { key: 'on hold', name: 'On hold', tone: 'neutral', count: 0 },
       { key: 'mine', name: 'Mine', tone: 'neutral', count: 1 },
     ]);
     expect(all.untaggedCount).toBe(1);
 
-    const blocked = build({ workspaces, tags, filterTagKey: 'blocked' });
-    expect(sectionIds(blocked)).toEqual({ stopped: ['ws-blocked'] });
-    // The chips keep counting every workspace.
-    expect(blocked.tagFilters).toEqual(all.tagFilters);
-
-    expect(sectionIds(build({ workspaces, tags, filterTagKey: '' }))).toEqual({
-      stopped: ['ws-plain'],
+    const blockedOnly = build({
+      workspaces,
+      tags,
+      hiddenTagKeys: new Set(['in review', 'mine', '']),
     });
+    expect(sectionIds(blockedOnly)).toEqual({ stopped: ['ws-blocked'] });
+    // The menu keeps counting every workspace.
+    expect(blockedOnly.tagFilters).toEqual(all.tagFilters);
 
-    // A tag no workspace has filters nothing, as no chip offers it.
-    const gone = build({ workspaces, tags, filterTagKey: 'needs changes' });
-    expect(gone.tagFilterKey).toBeNull();
-    expect(gone.visibleCount).toBe(4);
+    expect(
+      sectionIds(build({ workspaces, tags, hiddenTagKeys: new Set(['in review', 'blocked']) }))
+    ).toEqual({ stopped: ['ws-plain', 'ws-own'] });
+  });
+
+  it('offers the tags in use even with an empty tag list', () => {
+    const overview = build({
+      workspaces: [createWorkspace({ id: 'ws-own', windowId: 'window-1', tag: 'Mine' })],
+      tags: [],
+    });
+    expect(overview.tagFilters).toEqual([
+      { key: 'mine', name: 'Mine', tone: 'neutral', count: 1 },
+    ]);
   });
 
   it('shows only pinned workspaces when asked', () => {
@@ -415,5 +427,13 @@ describe('dashboard-view-model', () => {
     });
 
     expect(overview.visibleCount).toBe(2);
+  });
+
+  it('names what a filter shows: a few names, the few it hides, or how many of all', () => {
+    expect(describeShown(['acme'], ['web', 'api', 'docs'])).toBe('acme');
+    expect(describeShown(['acme', 'web'], ['api', 'docs'])).toBe('acme, web');
+    expect(describeShown(['acme', 'web', 'api'], ['docs'])).toBe('not docs');
+    expect(describeShown(['a', 'b', 'c', 'd'], ['e', 'f', 'g'])).toBe('4 of 7');
+    expect(describeShown([], ['acme'])).toBe('none');
   });
 });

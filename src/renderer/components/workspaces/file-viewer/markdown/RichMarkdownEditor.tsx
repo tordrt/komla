@@ -101,6 +101,8 @@ export function RichMarkdownEditor({
   const codec = getCodec();
   // Later content arrives through the reload effect below.
   const [initial] = useState(() => codec.load(content));
+  // Where the focus was as the editor began to open, for an editor opened to take it.
+  const [focusedAtOpen] = useState(() => document.activeElement);
   const snapshotRef = useRef<MarkdownSnapshot>(initial.snapshot);
   const lastReportedRef = useRef(content);
   // Reports the file viewer may not have rendered back yet, so they aren't mistaken for disk changes.
@@ -184,7 +186,17 @@ export function RichMarkdownEditor({
     }),
     content: initial.doc,
     editable: !readOnly,
-    autofocus: autoFocus ? 'start' : false,
+    // TipTap's own autofocus lands a frame or two after the editor is created, whatever the user
+    // did meanwhile: the address of the browser Setup opened beside a new note lost what was
+    // typed into it. The focus waits as TipTap's does, and is left where the user typed since.
+    onCreate: ({ editor }) => {
+      if (!autoFocus) return;
+      requestAnimationFrame(() => {
+        if (editor.isDestroyed || typingElsewhere(editor.view.dom, focusedAtOpen)) return;
+        editor.view.dispatch(editor.state.tr.setSelection(Selection.atStart(editor.state.doc)));
+        editor.view.focus();
+      });
+    },
     shouldRerenderOnTransaction: false,
     editorProps: {
       attributes: {
@@ -419,6 +431,20 @@ export function RichMarkdownEditor({
       )}
       {slashMenu && <MarkdownSlashMenu menu={slashMenu} container={container} />}
     </div>
+  );
+}
+
+/**
+ * Whether the focus went to a field outside the editor since `focusedBefore`. A menu handing
+ * the focus back to its trigger as it closes is not typing, so the editor still takes it then.
+ */
+function typingElsewhere(editorDom: HTMLElement, focusedBefore: Element | null): boolean {
+  const active = document.activeElement;
+  if (!active || active === focusedBefore || editorDom.contains(active)) return false;
+  return (
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement ||
+    (active instanceof HTMLElement && active.isContentEditable)
   );
 }
 

@@ -165,6 +165,41 @@ describe('RichMarkdownEditor', () => {
     expect(focus).toHaveBeenCalled();
   });
 
+  // A blank note Setup opened beside a browser took the focus a frame after it was created, from
+  // the address field the user had just clicked into, and the address typed went into the note.
+  describe('opened to take focus', () => {
+    function frames(count: number) {
+      return Array.from({ length: count }).reduce<Promise<unknown>>(
+        (chain) => chain.then(() => new Promise((resolve) => requestAnimationFrame(resolve))),
+        Promise.resolve()
+      );
+    }
+
+    it('takes it once it shows', async () => {
+      const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+      const { dom } = renderEditor({ autoFocus: true });
+
+      await waitFor(() => expect(focus.mock.contexts).toContain(dom));
+      focus.mockRestore();
+    });
+
+    it('leaves it to a field the user went to as it opened', async () => {
+      const address = document.createElement('input');
+      document.body.append(address);
+      const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+      const { dom } = renderEditor({ autoFocus: true });
+      address.focus();
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await frames(3);
+
+      expect(focus.mock.contexts).not.toContain(dom);
+      expect(document.activeElement).toBe(address);
+      focus.mockRestore();
+      address.remove();
+    });
+  });
+
   it("leaves a focus request that didn't land", async () => {
     const onFocused = vi.fn();
     const { editor } = renderEditor({ focusRequested: true, onFocused });

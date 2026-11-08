@@ -44,16 +44,16 @@ export async function importFilesAsReferences(
     confirmLargeFileTransfer
   );
   if (failedFiles.length > 0) {
-    useToastStore
-      .getState()
-      .addToast(
-        failedFiles.length === 1
-          ? `Couldn’t upload ${failedFiles[0]}`
-          : `Couldn’t upload ${failedFiles.length} files`,
-        'error'
-      );
+    useToastStore.getState().addToast(couldNotUploadMessage(failedFiles), 'error');
   }
   return input;
+}
+
+/** The error for files that couldn't be copied in, by name. */
+export function couldNotUploadMessage(names: readonly string[]): string {
+  return names.length === 1
+    ? `Couldn’t upload ${names[0]}`
+    : `Couldn’t upload ${names.length} files`;
 }
 
 /** Imports land in `.komla-files`, which the Remote Companion ignores, so re-list the tree. */

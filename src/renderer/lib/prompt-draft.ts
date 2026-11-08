@@ -78,6 +78,66 @@ export function spaceReference(text: string, start: number, end: number, referen
   return `${before}${reference}${after}`;
 }
 
+/** The draft's text and the selection in it, or the cursor where `start` and `end` are one. */
+export interface DraftCursor {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * Where a reference that took a while to make goes in, such as a dropped file's once it's copied:
+ * where the cursor was when it was asked for, if the text before that hasn't changed, replacing
+ * the selection then only if nothing has. Otherwise at the cursor now, after any selection, which
+ * the user may be about to copy.
+ */
+export function referencePlace(
+  then: DraftCursor,
+  now: DraftCursor
+): { start: number; end: number } {
+  if (now.text === then.text) return { start: then.start, end: then.end };
+  if (now.text.startsWith(then.text.slice(0, then.start))) {
+    return { start: then.start, end: then.start };
+  }
+  return { start: now.end, end: now.end };
+}
+
+/**
+ * Where a place in the text is once `length` characters replace `place`: after them if it was
+ * where they went or inside what they replaced.
+ */
+export function positionAfterInsert(
+  position: number,
+  place: { start: number; end: number },
+  length: number
+): number {
+  if (position < place.start) return position;
+  if (position >= place.end) return position + length - (place.end - place.start);
+  return place.start + length;
+}
+
+/**
+ * Where a reference still on its way goes once another went in, turning `before` into `after`:
+ * after that one, if it was asked for at the same place, so references dropped one after another
+ * go in that order. A place whose text before it has changed already stays as it was.
+ */
+export function cursorAfterInsert(
+  cursor: DraftCursor,
+  before: string,
+  place: { start: number; end: number },
+  insertedLength: number,
+  after: string
+): DraftCursor {
+  if (!before.startsWith(cursor.text.slice(0, cursor.start))) return cursor;
+  const start = positionAfterInsert(cursor.start, place, insertedLength);
+  // Its selection is kept only if nothing else had changed, as `referencePlace` replaces it then.
+  const end =
+    cursor.text === before
+      ? Math.max(start, positionAfterInsert(cursor.end, place, insertedLength))
+      : start;
+  return { text: after, start, end };
+}
+
 export interface DraftRect {
   x: number;
   y: number;

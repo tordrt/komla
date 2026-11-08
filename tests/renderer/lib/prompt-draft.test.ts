@@ -23,6 +23,8 @@ import {
   DRAFT_MIN_WIDTH,
   openPromptDraft,
   readStoredDraftRect,
+  positionAfterInsert,
+  referencePlace,
   resizeDraftRect,
   spaceReference,
   storeDraftRect,
@@ -51,6 +53,51 @@ describe('spaceReference', () => {
   it('replaces a selection, spaced from what is left on either side', () => {
     expect(spaceReference('see THIS now', 4, 8, '@a.ts')).toBe('@a.ts');
     expect(spaceReference('seeTHISnow', 3, 7, '@a.ts')).toBe(' @a.ts ');
+  });
+});
+
+describe('referencePlace', () => {
+  const at = (text: string, start: number, end = start) => ({ text, start, end });
+
+  it('goes where the cursor was when it was asked for, with the text as it was', () => {
+    expect(referencePlace(at('Look at', 7), at('Look at', 2))).toEqual({ start: 7, end: 7 });
+    expect(referencePlace(at('see THIS', 4, 8), at('see THIS', 8))).toEqual({ start: 4, end: 8 });
+  });
+
+  it('stays there with typing after it, replacing nothing then', () => {
+    expect(referencePlace(at('Look at', 7), at('Look at and fix', 15))).toEqual({
+      start: 7,
+      end: 7,
+    });
+    expect(referencePlace(at('see THIS', 4, 8), at('see THIS now', 12))).toEqual({
+      start: 4,
+      end: 4,
+    });
+  });
+
+  it('goes to the cursor now once the text before it has changed, after what is selected', () => {
+    expect(referencePlace(at('Look at', 7), at('Look', 4))).toEqual({ start: 4, end: 4 });
+    // Never over a selection made since, which the user may be about to copy.
+    expect(referencePlace(at('Look at', 7), at('Now look at', 2, 5))).toEqual({
+      start: 5,
+      end: 5,
+    });
+  });
+});
+
+describe('positionAfterInsert', () => {
+  it('keeps a place before the insert, and moves one after it along', () => {
+    expect(positionAfterInsert(2, { start: 4, end: 8 }, 10)).toBe(2);
+    expect(positionAfterInsert(4, { start: 4, end: 8 }, 10)).toBe(14);
+    expect(positionAfterInsert(12, { start: 4, end: 8 }, 10)).toBe(18);
+  });
+
+  it('puts a place inside what was replaced after the insert, not inside it', () => {
+    expect(positionAfterInsert(6, { start: 4, end: 8 }, 10)).toBe(14);
+  });
+
+  it('puts a place where the insert goes after it', () => {
+    expect(positionAfterInsert(4, { start: 4, end: 4 }, 3)).toBe(7);
   });
 });
 

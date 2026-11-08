@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,12 +9,25 @@ import { PromptDraftOutlet } from '../../../../src/renderer/components/prompt-dr
 import { TooltipProvider } from '../../../../src/renderer/components/ui/tooltip';
 import { openPromptDraft } from '../../../../src/renderer/lib/prompt-draft';
 import { registerShortcutAction } from '../../../../src/renderer/lib/shortcut-actions';
+import { AT_PATH_MIME, setTreeDragActive } from '../../../../src/renderer/lib/tree-drag-token';
 import { usePromptDraftStore } from '../../../../src/renderer/stores/prompt-draft.store';
 import { useShortcutsStore } from '../../../../src/renderer/stores/shortcuts.store';
 import { useToastStore } from '../../../../src/renderer/stores/toast.store';
 import { useViewedFileStore } from '../../../../src/renderer/stores/viewed-file.store';
 
-const api = { copyToClipboard: vi.fn(), platform: 'linux' };
+const api = {
+  copyToClipboard: vi.fn(),
+  platform: 'linux',
+  getPathForFile: vi.fn((_file: File) => ''),
+  importWorkspaceExternalFile: vi.fn(
+    (_workspaceId: string, _sourcePath: string, preferredName?: string): Promise<string> =>
+      Promise.resolve(`.komla-files/${preferredName}`)
+  ),
+  importClipboardImage: vi.fn((_workspaceId: string): Promise<string | null> =>
+    Promise.resolve(null)
+  ),
+  showMessageBox: vi.fn(),
+};
 
 const { createNote } = vi.hoisted(() => ({ createNote: vi.fn(() => Promise.resolve(true)) }));
 vi.mock('../../../../src/renderer/lib/notes', () => ({ createNote }));
@@ -34,6 +47,60 @@ const prompt = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'P
 const queryDraft = () => screen.queryByRole('dialog', { name: 'Prompt draft' });
 const draftText = () => usePromptDraftStore.getState().text;
 
+/** Files from the OS at these paths, as a drop or a paste carries them. */
+function osFiles(...paths: string[]) {
+  const files = paths.map((path) => new File(['x'], path.split('/').pop()!));
+  api.getPathForFile.mockImplementation((file: File) => paths[files.indexOf(file)] ?? '');
+  return {
+    types: ['Files'],
+    files,
+    items: files.map((file) => ({
+      kind: 'file',
+      type: file.type,
+      getAsFile: () => file,
+      webkitGetAsEntry: () => ({ isDirectory: false }),
+    })),
+    getData: () => '',
+    dropEffect: 'none',
+  };
+}
+
+/** A file dragged from the file panel, which carries its `@path`. */
+function fromFilePanel(atPath: string) {
+  setTreeDragActive(true);
+  return {
+    types: [AT_PATH_MIME],
+    files: [],
+    items: [],
+    getData: (type: string) => (type === AT_PATH_MIME ? atPath : ''),
+    dropEffect: 'none',
+  };
+}
+
+/** A screenshot on the clipboard, which exists only in memory, with `types` as it has them. */
+function clipboardImage(types = ['Files']) {
+  const file = new File(['x'], 'image.png', { type: 'image/png' });
+  return {
+    types,
+    files: [file],
+    items: [
+      { kind: 'file', type: 'image/png', getAsFile: () => file, webkitGetAsEntry: () => null },
+    ],
+    getData: () => '',
+  };
+}
+
+/** An import that finishes when the test says. */
+function pendingImport() {
+  let finish!: (path: string) => void;
+  api.importWorkspaceExternalFile.mockReturnValueOnce(
+    new Promise<string>((resolve) => (finish = resolve))
+  );
+  return (path: string) => act(async () => finish(path));
+}
+
+const toastMessages = () => useToastStore.getState().toasts.map((toast) => toast.message);
+
 /** A file on screen in ws-1, as a viewer reports it. */
 function view(name: string, reference: string) {
   act(() =>
@@ -51,6 +118,8 @@ describe('PromptDraft', () => {
     usePromptDraftStore.setState(usePromptDraftStore.getInitialState(), true);
     useViewedFileStore.setState({ viewed: [] });
     useToastStore.setState({ toasts: [] });
+    api.getPathForFile.mockImplementation(() => '');
+    setTreeDragActive(false);
   });
 
   it('shows once opened, with focus, ready to type', async () => {
@@ -350,6 +419,279 @@ describe('PromptDraft', () => {
       y: 506,
       width: 440,
       height: 280,
+    });
+  });
+  describe('files dropped or pasted in', () => {
+    it('puts in the @path of a file dragged from the file panel, at the cursor', async () => {
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'Look at');
+      const transfer = fromFilePanel('@src/main.ts ');
+      expect(fireEvent.dragOver(prompt(), { dataTransfer: transfer })).toBe(false);
+      expect(screen.getByText('Drop to insert path')).toBeInTheDocument();
+      // The file panel's drags allow only a move, so a copy would take no drop.
+      expect(transfer.dropEffect).toBe('none');
+      expect(fireEvent.drop(prompt(), { dataTransfer: transfer })).toBe(false);
+      expect(prompt()).toHaveValue('Look at @src/main.ts ');
+      expect(screen.queryByText('Drop to insert path')).toBeNull();
+    });
+
+    it('leaves a drag that only claims to come from the file panel to the text box', () => {
+      renderDraft();
+      act(() => openPromptDraft());
+      const transfer = { types: [AT_PATH_MIME], files: [], items: [], getData: () => '@x ' };
+      expect(fireEvent.dragOver(prompt(), { dataTransfer: transfer })).toBe(true);
+      expect(screen.queryByText('Drop to insert path')).toBeNull();
+      fireEvent.drop(prompt(), { dataTransfer: transfer });
+      expect(prompt()).toHaveValue('');
+    });
+
+    it('copies files dropped on it into the workspace on screen, putting in their @paths', async () => {
+      const finish = pendingImport();
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'See');
+      const transfer = osFiles('/Users/ada/cat.png');
+      expect(fireEvent.dragOver(prompt(), { dataTransfer: transfer })).toBe(false);
+      expect(screen.getByText('Drop to upload')).toBeInTheDocument();
+      expect(transfer.dropEffect).toBe('copy');
+      expect(fireEvent.drop(prompt(), { dataTransfer: transfer })).toBe(false);
+      expect(screen.queryByText('Drop to upload')).toBeNull();
+      expect(api.importWorkspaceExternalFile).toHaveBeenCalledWith(
+        'ws-1',
+        '/Users/ada/cat.png',
+        'cat.png'
+      );
+      expect(screen.getByRole('status')).toHaveTextContent('Uploading cat.png…');
+
+      await finish('.komla-files/cat.png');
+      expect(prompt()).toHaveValue('See @.komla-files/cat.png ');
+      expect(prompt()).toHaveFocus();
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('puts the @paths where the files were dropped, as typing goes on', async () => {
+      const finish = pendingImport();
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'Look at');
+      fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/cat.png') });
+      await userEvent.type(prompt(), ' and fix it');
+
+      await finish('.komla-files/cat.png');
+      expect(prompt()).toHaveValue('Look at @.komla-files/cat.png and fix it');
+      // The cursor stays after what was typed.
+      expect(prompt().selectionStart).toBe(prompt().value.length);
+    });
+
+    it('names a file it could not copy, putting in the others', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      api.importWorkspaceExternalFile
+        .mockResolvedValueOnce('.komla-files/a.txt')
+        .mockRejectedValueOnce(new Error('Host unreachable'));
+      renderDraft();
+      act(() => openPromptDraft());
+      fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/a.txt', '/Users/ada/b.txt') });
+      await waitFor(() => expect(prompt()).toHaveValue('@.komla-files/a.txt '));
+      expect(toastMessages()).toEqual(['Couldn’t upload b.txt']);
+    });
+
+    it('keeps the @paths of files that finish copying once it has closed', async () => {
+      const finish = pendingImport();
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'See');
+      fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/cat.png') });
+      await userEvent.keyboard('{Escape}');
+      expect(queryDraft()).toBeNull();
+
+      await finish('.komla-files/cat.png');
+      expect(draftText()).toBe('See @.komla-files/cat.png ');
+    });
+
+    it('puts in files dropped one after another at the same place in that order', async () => {
+      const finishA = pendingImport();
+      const finishB = pendingImport();
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'See');
+      fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/a.png') });
+      fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/b.png') });
+      await finishA('.komla-files/a.png');
+      await finishB('.komla-files/b.png');
+      expect(prompt()).toHaveValue('See @.komla-files/a.png @.komla-files/b.png ');
+    });
+
+    it('takes no drops while it saves as a note, which would miss them', async () => {
+      let finish!: (saved: boolean) => void;
+      createNote.mockReturnValueOnce(new Promise<boolean>((resolve) => (finish = resolve)));
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'A plan');
+      await userEvent.click(screen.getByRole('button', { name: 'Save as note' }));
+      const transfer = osFiles('/Users/ada/cat.png');
+      expect(fireEvent.dragOver(prompt(), { dataTransfer: transfer })).toBe(true);
+      fireEvent.drop(prompt(), { dataTransfer: transfer });
+      fireEvent.paste(prompt(), { clipboardData: clipboardImage() });
+      expect(api.importWorkspaceExternalFile).not.toHaveBeenCalled();
+      expect(api.importClipboardImage).not.toHaveBeenCalled();
+      await act(async () => finish(true));
+    });
+
+    it('still shows the files copying in once it moves over a viewer', async () => {
+      const finish = pendingImport();
+      renderDraft();
+      act(() => openPromptDraft());
+      fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/cat.png') });
+      const viewer = render(
+        <TooltipProvider>
+          <div data-testid="viewer">
+            <PromptDraftOutlet workspaceId="ws-1" />
+          </div>
+        </TooltipProvider>
+      );
+      expect(screen.getByTestId('viewer')).toContainElement(queryDraft());
+      expect(screen.getByRole('status')).toHaveTextContent('Uploading cat.png…');
+      await finish('.komla-files/cat.png');
+      expect(screen.queryByRole('status')).toBeNull();
+      expect(prompt()).toHaveValue('@.komla-files/cat.png ');
+      viewer.unmount();
+    });
+
+    it('pastes the text of a folder copied in, which it can not copy in itself', async () => {
+      // A folder that Chromium doesn't flag as one: reading it fails.
+      const folder = {
+        name: 'src',
+        size: 0,
+        type: '',
+        slice: () => ({ arrayBuffer: () => Promise.reject(new Error('EISDIR')) }),
+      } as unknown as File;
+      api.getPathForFile.mockImplementation((file: File) =>
+        file === folder ? '/Users/ada/src' : ''
+      );
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'In');
+      const clipboardData = {
+        types: ['text/plain', 'Files'],
+        files: [folder],
+        items: [{ kind: 'file', type: '', getAsFile: () => folder, webkitGetAsEntry: () => null }],
+        getData: (type: string) => (type === 'text/plain' ? '/Users/ada/src' : ''),
+      };
+      fireEvent.paste(prompt(), { clipboardData });
+      await waitFor(() => expect(prompt()).toHaveValue('In/Users/ada/src'));
+      expect(api.importWorkspaceExternalFile).not.toHaveBeenCalled();
+    });
+
+    it('waits for files still copying before it saves or copies, which would miss them', async () => {
+      const finish = pendingImport();
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'See');
+      fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/cat.png') });
+      expect(screen.getByRole('button', { name: 'Save as note' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Copy and close' })).toBeDisabled();
+      await userEvent.keyboard('{Control>}{Enter}{/Control}');
+      expect(api.copyToClipboard).not.toHaveBeenCalled();
+      expect(queryDraft()).toBeInTheDocument();
+      expect(toastMessages()).toEqual(['Wait for the upload to finish']);
+
+      await finish('.komla-files/cat.png');
+      await userEvent.keyboard('{Control>}{Enter}{/Control}');
+      expect(api.copyToClipboard).toHaveBeenCalledWith('See @.komla-files/cat.png');
+    });
+
+    it('puts in the @path where it was dropped once it has moved over a viewer', async () => {
+      const finish = pendingImport();
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'Look at');
+      fireEvent.drop(prompt(), { dataTransfer: osFiles('/Users/ada/cat.png') });
+      const viewer = render(
+        <TooltipProvider>
+          <div data-testid="viewer">
+            <PromptDraftOutlet workspaceId="ws-1" />
+          </div>
+        </TooltipProvider>
+      );
+      await userEvent.type(prompt(), ' it');
+      prompt().setSelectionRange(2, 2);
+
+      await finish('.komla-files/cat.png');
+      expect(prompt()).toHaveValue('Look at @.komla-files/cat.png it');
+      // Where the user has it, in the draft over the viewer.
+      expect([prompt().selectionStart, prompt().selectionEnd]).toEqual([2, 2]);
+      viewer.unmount();
+    });
+
+    it('says so when files could not be copied at all', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      api.showMessageBox.mockRejectedValueOnce(new Error('Window closed'));
+      renderDraft();
+      act(() => openPromptDraft());
+      const transfer = osFiles('/Users/ada/big.zip');
+      Object.defineProperty(transfer.files[0], 'size', { value: 150 * 1024 * 1024 });
+      fireEvent.drop(prompt(), { dataTransfer: transfer });
+      await waitFor(() => expect(toastMessages()).toEqual(['Couldn’t upload big.zip']));
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('leaves a drop without files on disk, such as a web page image, to the text box', () => {
+      renderDraft();
+      act(() => openPromptDraft());
+      const image = new File(['x'], 'photo.png', { type: 'image/png' });
+      const transfer = {
+        types: ['text/plain', 'Files'],
+        files: [image],
+        items: [
+          { kind: 'file', type: 'image/png', getAsFile: () => image, webkitGetAsEntry: () => null },
+        ],
+        getData: (type: string) => (type === 'text/plain' ? 'https://example.com/photo.png' : ''),
+        dropEffect: 'none',
+      };
+      expect(fireEvent.drop(prompt(), { dataTransfer: transfer })).toBe(true);
+      expect(api.importWorkspaceExternalFile).not.toHaveBeenCalled();
+    });
+
+    it('copies files pasted in, as dropped ones', async () => {
+      renderDraft();
+      act(() => openPromptDraft());
+      const clipboardData = osFiles('/Users/ada/notes.txt');
+      expect(fireEvent.paste(prompt(), { clipboardData })).toBe(false);
+      await waitFor(() => expect(prompt()).toHaveValue('@.komla-files/notes.txt '));
+      expect(api.importWorkspaceExternalFile).toHaveBeenCalledWith(
+        'ws-1',
+        '/Users/ada/notes.txt',
+        'notes.txt'
+      );
+    });
+
+    it('copies a pasted screenshot into the workspace, putting in its @path', async () => {
+      api.importClipboardImage.mockResolvedValueOnce('.komla-files/clipboard-1.png');
+      renderDraft();
+      act(() => openPromptDraft());
+      await userEvent.type(prompt(), 'Why');
+      expect(fireEvent.paste(prompt(), { clipboardData: clipboardImage() })).toBe(false);
+      expect(api.importClipboardImage).toHaveBeenCalledWith('ws-1');
+      await waitFor(() => expect(prompt()).toHaveValue('Why @.komla-files/clipboard-1.png '));
+    });
+
+    it('pastes the text, not the image, from a clipboard with both', () => {
+      renderDraft();
+      act(() => openPromptDraft());
+      const clipboardData = clipboardImage(['text/plain', 'Files']);
+      expect(fireEvent.paste(prompt(), { clipboardData })).toBe(true);
+      expect(api.importClipboardImage).not.toHaveBeenCalled();
+    });
+
+    it('says so when the screenshot could not be pasted', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      api.importClipboardImage.mockRejectedValueOnce(new Error('Host unreachable'));
+      renderDraft();
+      act(() => openPromptDraft());
+      fireEvent.paste(prompt(), { clipboardData: clipboardImage() });
+      await waitFor(() => expect(toastMessages()).toEqual(['Couldn’t paste the image']));
+      expect(prompt()).toHaveValue('');
     });
   });
 });

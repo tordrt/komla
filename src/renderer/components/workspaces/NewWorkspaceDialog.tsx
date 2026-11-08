@@ -2518,6 +2518,15 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
           overlayClassName="bg-black/60 light:bg-black/12"
           showCloseButton={false}
           floating={false}
+          onOpenAutoFocus={(event) => {
+            // The prompt's `autoFocus` runs before a dialog underneath, such as Quick Look, lets
+            // go of the focus, so its trap takes the focus back; without this, Radix would then
+            // focus the project picker. `autoFocus` stays for a prompt that shows later.
+            const prompt = promptTextareaRef.current;
+            if (!prompt) return;
+            event.preventDefault();
+            prompt.focus({ preventScroll: true });
+          }}
           onKeyDown={handleDialogKeyDown}
         >
           <DialogTitle className="sr-only">Create Workspace</DialogTitle>

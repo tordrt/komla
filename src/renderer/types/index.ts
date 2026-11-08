@@ -393,6 +393,8 @@ export interface BranchInfo {
 export interface ShortcutsConfig {
   shortcuts: Record<string, string>;
   isUSKeyboardLayout?: boolean;
+  /** Global shortcut actions whose keys the system refused, such as ones another app holds. */
+  unavailableGlobalShortcuts?: string[];
 }
 
 export type { McpStatus } from '../../shared/types/mcp-status';

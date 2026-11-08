@@ -282,6 +282,14 @@ function stepSavedZoomLevel(direction: 1 | -1): void {
   saveZoomLevel(stepZoomLevel(configService.get().zoomLevel ?? 0, direction));
 }
 
+// Pressed in any app: the Komla window used last comes forward with New Workspace open.
+shortcutsService.onGlobalShortcut = (action) => {
+  if (action !== 'workspace.newFromAnywhere') return;
+  const windowId = windowService.getLastFocusedWindowId();
+  if (!windowId || !windowService.bringToFront(windowId)) return;
+  windowService.sendWhenReady(windowId, IPC.MENU_NEW_WORKSPACE);
+};
+
 // Menu clicks hand over the focused BaseWindow; only BrowserWindows host the renderer.
 function sendToMenuWindow(
   window: Electron.BaseWindow | undefined,
@@ -878,6 +886,8 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (!windowService.confirmQuit()) return;
   isCleaningUp = true;
+  // Pressed while quitting, they would show a window that is closing.
+  shortcutsService.releaseGlobalShortcuts();
   // Before any terminals stop, so the next launch can offer to restart these.
   workspaceService.rememberRunningAtQuit();
 

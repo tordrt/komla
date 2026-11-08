@@ -374,6 +374,10 @@ export function mockElectron(overrides: Partial<MockElectronModule> = {}): MockE
       buildFromTemplate: vi.fn(() => ({})),
       setApplicationMenu: vi.fn(),
     },
+    globalShortcut: {
+      register: vi.fn(() => true),
+      unregister: vi.fn(),
+    },
     ...overrides,
   };
 }
@@ -404,5 +408,9 @@ export interface MockElectronModule {
   Menu: {
     buildFromTemplate: ReturnType<typeof vi.fn>;
     setApplicationMenu: ReturnType<typeof vi.fn>;
+  };
+  globalShortcut: {
+    register: ReturnType<typeof vi.fn>;
+    unregister: ReturnType<typeof vi.fn>;
   };
 }

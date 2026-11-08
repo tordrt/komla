@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from '
 import { createRequire } from 'module';
 import { join } from 'path';
 
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, globalShortcut } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
 import { isUSLayout, UNIVERSAL_SHORTCUT_OVERRIDES } from '../../shared/constants/keyboard-layouts';
@@ -11,6 +11,7 @@ import {
   type NewWorkspaceDialogAction,
 } from '../../shared/constants/shortcut-scopes';
 import { writeFileAtomicSync } from '../lib/atomic-write';
+import { GlobalShortcuts } from '../lib/global-shortcuts';
 import { migrate } from '../lib/migration';
 
 import { FileWatcher } from './file-watcher';
@@ -65,6 +66,8 @@ export interface ShortcutsConfig {
   _version?: number;
   shortcuts: Record<string, string>;
   isUSKeyboardLayout?: boolean;
+  /** Global shortcut actions whose keys the system refused, such as ones another app holds. */
+  unavailableGlobalShortcuts?: string[];
 }
 
 // Only while the new workspace dialog is open. An empty string is unbound.
@@ -99,6 +102,8 @@ const DEFAULT_SHORTCUTS: ShortcutsConfig = {
     // Not Cmd+Shift+J: Windows/Linux use it for pane.focusPrev.
     'workspace.nextAttention': 'Cmd+Shift+A',
     'workspace.new': 'Cmd+N',
+    // Unbound: keys taken system-wide stop working in every other app.
+    'workspace.newFromAnywhere': '',
     'workspace.overview': 'Cmd+Shift+O',
     'commandCenter.open': 'Cmd+P',
     // Not Cmd+B, the file tree panel's on macOS, nor Cmd+Alt+B: Option+B types ∫ on macOS and
@@ -184,6 +189,9 @@ export class ShortcutsService {
   private forceRedetect = false;
   private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly SAVE_DEBOUNCE_MS = 500;
+  private globalShortcuts: GlobalShortcuts;
+  /** Called when a global shortcut is pressed, in whichever app has focus. */
+  onGlobalShortcut: ((action: string) => void) | null = null;
 
   constructor(
     private layoutProvider?: { getCurrentKeyboardLayout: () => string },
@@ -197,12 +205,23 @@ export class ShortcutsService {
 
     this.ensureSettingsDirectory();
     this.config = this.loadConfig();
+    this.globalShortcuts = new GlobalShortcuts(globalShortcut, platform, (action) =>
+      this.onGlobalShortcut?.(action)
+    );
   }
 
+  /** Call once the app is ready: global shortcuts can be registered only then. */
   async init(): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
+    this.globalShortcuts.apply(this.config.shortcuts);
     await this.startWatcher();
+  }
+
+  /** `saved` by the user, so keys the system refused are asked for again. */
+  private applyGlobalShortcuts(saved: boolean): void {
+    if (this.initialized)
+      this.globalShortcuts.apply(this.config.shortcuts, { retryRefused: saved });
   }
 
   /**
@@ -418,6 +437,7 @@ export class ShortcutsService {
     this.watcher = new FileWatcher(this.shortcutsPath, () => {
       const newConfig = this.loadConfig();
       this.config = newConfig;
+      this.applyGlobalShortcuts(false);
       this.notifyRenderer(IPC.SHORTCUTS_CHANGED, this.getConfig());
     });
     await this.watcher.start();
@@ -435,9 +455,11 @@ export class ShortcutsService {
   // Public API
 
   getConfig(): ShortcutsConfig {
+    const unavailableGlobalShortcuts = this.globalShortcuts.unavailableActions();
     return {
       shortcuts: { ...this.config.shortcuts },
       isUSKeyboardLayout: this.isUSKeyboardLayout(),
+      ...(unavailableGlobalShortcuts.length > 0 && { unavailableGlobalShortcuts }),
     };
   }
 
@@ -452,6 +474,7 @@ export class ShortcutsService {
         ...updates.shortcuts,
       };
     }
+    this.applyGlobalShortcuts(true);
     this.writeConfig(this.config);
     return this.getConfig();
   }
@@ -463,11 +486,18 @@ export class ShortcutsService {
 
     const defaults = this.getDefaults();
     this.config = { shortcuts: { ...defaults.shortcuts } };
+    this.applyGlobalShortcuts(true);
     this.writeConfig(this.config);
     return this.getConfig();
   }
 
+  /** Gives the global shortcuts' keys back to other apps for good, as Komla starts quitting. */
+  releaseGlobalShortcuts(): void {
+    this.globalShortcuts.dispose();
+  }
+
   async dispose(): Promise<void> {
+    this.globalShortcuts.dispose();
     if (this.watcher) {
       await this.watcher.stop();
       this.watcher = null;

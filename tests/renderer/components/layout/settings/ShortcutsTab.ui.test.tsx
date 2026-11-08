@@ -168,4 +168,59 @@ describe('ShortcutsTab', () => {
       });
     });
   });
+
+  describe('New Workspace from any app', () => {
+    const updateShortcuts = vi.fn();
+    const label = 'New Workspace from any app';
+
+    beforeEach(() => {
+      updateShortcuts.mockReset();
+      useShortcutsStore.setState({
+        updateShortcuts,
+        config: {
+          shortcuts: {
+            'workspace.newFromAnywhere': 'Cmd+Shift+ ',
+            'voice.record': 'DoubleTap+Meta',
+          },
+        },
+      });
+    });
+
+    it('records the key pressed with Option, not the character it types', () => {
+      renderTab();
+
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(`Change shortcut for ${label}`) }));
+      expect(screen.getByText('Press keys...')).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: '˚', code: 'KeyK', metaKey: true, altKey: true });
+
+      expect(updateShortcuts).toHaveBeenCalledWith({
+        shortcuts: { 'workspace.newFromAnywhere': 'Alt+Cmd+K' },
+      });
+    });
+
+    it('never swaps a double tap onto it, which no other app can be given', () => {
+      renderTab();
+
+      fireEvent.click(
+        screen.getByRole('button', { name: /Change shortcut for Toggle voice input/ })
+      );
+      fireEvent.keyDown(document, { key: ' ', code: 'Space', metaKey: true, shiftKey: true });
+
+      expect(screen.getByText(/Already used by/)).toHaveTextContent(label);
+      expect(screen.getByRole('button', { name: 'Replace' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Swap' })).not.toBeInTheDocument();
+    });
+
+    it('says when the system refused its keys', () => {
+      useShortcutsStore.setState({
+        config: {
+          shortcuts: { 'workspace.newFromAnywhere': 'Cmd+Shift+ ' },
+          unavailableGlobalShortcuts: ['workspace.newFromAnywhere'],
+        },
+      });
+      renderTab();
+
+      expect(screen.getByText(/Your system won’t give Komla these keys/)).toBeInTheDocument();
+    });
+  });
 });

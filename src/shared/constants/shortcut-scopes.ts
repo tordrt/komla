@@ -26,9 +26,24 @@ export function isNewWorkspaceDialogShortcut(action: string): boolean {
   return action.startsWith(NEW_WORKSPACE_DIALOG_PREFIX);
 }
 
+/** Actions that answer to their keys in any app, not only while a Komla window has focus. */
+export const GLOBAL_SHORTCUT_ACTIONS = ['workspace.newFromAnywhere'] as const;
+
+export function isGlobalShortcut(action: string): boolean {
+  return (GLOBAL_SHORTCUT_ACTIONS as readonly string[]).includes(action);
+}
+
+/**
+ * Whether a double tap of a modifier can be the action's keys: not in the new workspace dialog,
+ * nor in other apps.
+ */
+export function takesDoubleTap(action: string): boolean {
+  return !isNewWorkspaceDialogShortcut(action) && !isGlobalShortcut(action);
+}
+
 // The main process catches these keys before any page sees them, so they act
 // even while the dialog is open.
-const CAUGHT_BEFORE_THE_PAGE = new Set(['pane.close']);
+const CAUGHT_BEFORE_THE_PAGE = new Set<string>(['pane.close', ...GLOBAL_SHORTCUT_ACTIONS]);
 
 /** Whether both actions can be pressed in the same place, so must not share keys. */
 export function shortcutsShareScope(a: string, b: string): boolean {

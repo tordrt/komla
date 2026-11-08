@@ -28,6 +28,7 @@ export const shortcutEntries: ShortcutEntry[] = [
   { action: 'commandCenter.open', label: 'Command center', group: 'Workspace' },
   { action: 'workspace.overview', label: 'Overview', group: 'Workspace' },
   { action: 'workspace.new', label: 'New Workspace', group: 'Workspace' },
+  { action: 'workspace.newFromAnywhere', label: 'New Workspace from any app', group: 'Workspace' },
   { action: 'workspace.openFolder', label: 'Open folder', group: 'Workspace' },
   { action: 'workspace.stop', label: 'Stop workspace', group: 'Workspace' },
   { action: 'workspace.trash', label: 'Move workspace to Trash', group: 'Workspace' },

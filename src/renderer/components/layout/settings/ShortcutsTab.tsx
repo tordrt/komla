@@ -17,6 +17,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { shortcutEntries, groupOrder, type ShortcutEntry } from '@/constants/shortcut-entries';
 import {
   keyEventToConfigFormat,
+  keyEventToGlobalConfigFormat,
   findConflict,
   isModifierOnly,
   extractRangeModifier,
@@ -25,7 +26,12 @@ import {
 import { useShortcutsStore } from '@/stores/shortcuts.store';
 import { useToastStore } from '@/stores/toast.store';
 
-import { isNewWorkspaceDialogShortcut } from '../../../../shared/constants/shortcut-scopes';
+import {
+  isGlobalShortcut,
+  isNewWorkspaceDialogShortcut,
+  takesDoubleTap,
+} from '../../../../shared/constants/shortcut-scopes';
+import { toAccelerator } from '../../../../shared/lib/global-shortcut-accelerator';
 
 import { ResetToDefaultsButton } from './ResetToDefaultsButton';
 
@@ -113,9 +119,13 @@ export function ShortcutsTab({ onDirtyChange }: ShortcutsTabProps) {
           isNewWorkspaceDialogShortcut(recordingAction) ===
             isNewWorkspaceDialogShortcut(conflictResult.action);
         const previous = config.shortcuts[recordingAction];
+        // Other apps can't be given keys such as a double tap.
+        const conflictTakesPrevious =
+          !isGlobalShortcut(conflictResult.action) || Boolean(toAccelerator(previous, platform));
         const canSwap =
           canReplace &&
           Boolean(previous) &&
+          conflictTakesPrevious &&
           !findConflict(
             previous,
             conflictResult.action,
@@ -143,8 +153,10 @@ export function ShortcutsTab({ onDirtyChange }: ShortcutsTabProps) {
     // Fresh double-tap recorder for each recording session
     const dtRecorder = new DoubleTapRecorder();
     doubleTapRecorderRef.current = dtRecorder;
-    // The new workspace dialog takes Shift+Tab but not double taps.
+    // The new workspace dialog takes Shift+Tab.
     const inDialog = isNewWorkspaceDialogShortcut(recordingAction);
+    const global = isGlobalShortcut(recordingAction);
+    const doubleTaps = takesDoubleTap(recordingAction);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
@@ -170,8 +182,13 @@ export function ShortcutsTab({ onDirtyChange }: ShortcutsTabProps) {
 
       // Regular combo detected — reset double-tap state and accept
       dtRecorder.reset();
-      const combo = keyEventToConfigFormat(e, platform);
-      tryAcceptCombo(combo);
+      if (global) {
+        const combo = keyEventToGlobalConfigFormat(e, platform);
+        // Keys Electron has no name for keep the recording going.
+        if (toAccelerator(combo, platform)) tryAcceptCombo(combo);
+        return;
+      }
+      tryAcceptCombo(keyEventToConfigFormat(e, platform));
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -180,7 +197,7 @@ export function ShortcutsTab({ onDirtyChange }: ShortcutsTabProps) {
 
       // Feed to double-tap recorder — returns config string if double-tap completed
       const doubleTapCombo = dtRecorder.handleKeyUp(e);
-      if (doubleTapCombo && !inDialog) {
+      if (doubleTapCombo && doubleTaps) {
         tryAcceptCombo(doubleTapCombo);
       }
     };
@@ -270,7 +287,8 @@ export function ShortcutsTab({ onDirtyChange }: ShortcutsTabProps) {
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Click a shortcut to record a new one. Esc cancels. New workspace dialog shortcuts only
-            act in that dialog, so they can reuse keys from elsewhere.
+            act in that dialog, so they can reuse keys from elsewhere. New Workspace from any app
+            takes its keys from every other app.
           </p>
         </div>
 
@@ -281,6 +299,7 @@ export function ShortcutsTab({ onDirtyChange }: ShortcutsTabProps) {
               <ShortcutRow
                 key={entry.action}
                 entry={entry}
+                unavailable={config.unavailableGlobalShortcuts?.includes(entry.action) ?? false}
                 getDisplayShortcut={getDisplayShortcut}
                 isRecording={recordingAction === entry.action}
                 recordedCombo={recordingAction === entry.action ? recordedCombo : null}
@@ -350,6 +369,7 @@ const CONFLICT_BUTTON_CLASS =
 /** Individual shortcut row — normal, recording, or conflict state */
 function ShortcutRow({
   entry,
+  unavailable,
   getDisplayShortcut,
   isRecording,
   recordedCombo,
@@ -359,6 +379,8 @@ function ShortcutRow({
   onClear,
 }: {
   entry: ShortcutEntry;
+  /** A global shortcut whose keys the system refused. */
+  unavailable: boolean;
   getDisplayShortcut: (action: string) => string;
   isRecording: boolean;
   recordedCombo: string | null;
@@ -422,9 +444,9 @@ function ShortcutRow({
         <span className="text-sm">{entry.label}</span>
         <div className="flex items-center gap-2">
           <span className="animate-pulse text-xs text-primary/80">
-            {isNewWorkspaceDialogShortcut(entry.action)
-              ? 'Press keys...'
-              : 'Press keys or double-tap a modifier...'}
+            {takesDoubleTap(entry.action)
+              ? 'Press keys or double-tap a modifier...'
+              : 'Press keys...'}
           </span>
           <span className="text-2xs text-muted-foreground-50">Esc to cancel</span>
         </div>
@@ -459,36 +481,43 @@ function ShortcutRow({
   const display = getDisplayShortcut(entry.action);
 
   return (
-    <div className="group/row flex items-center justify-between !py-2.5 transition-colors hover:bg-accent/50">
-      <span className="text-sm">{entry.label}</span>
-      <div className="flex items-center gap-1">
-        {display && (
-          <IconButton
-            label={`Remove shortcut for ${entry.label}`}
-            size="xs"
-            className="text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
-            onClick={() => onClear(entry.action)}
-          >
-            <X className="size-3" />
-          </IconButton>
-        )}
-        <button
-          type="button"
-          aria-label={`Change shortcut for ${entry.label} (${display || 'not set'})`}
-          onClick={() => onStartRecording(entry.action)}
-          className={SHORTCUT_CHIP_BUTTON_CLASS}
-        >
-          {display ? (
-            <Kbd className={SHORTCUT_CHIP_CLASS}>{display}</Kbd>
-          ) : (
-            <Kbd
-              className={`${SHORTCUT_CHIP_CLASS} border-dashed bg-transparent text-muted-foreground-60`}
+    <div className="group/row !py-2.5 transition-colors hover:bg-accent/50">
+      <div className="flex items-center justify-between">
+        <span className="text-sm">{entry.label}</span>
+        <div className="flex items-center gap-1">
+          {display && (
+            <IconButton
+              label={`Remove shortcut for ${entry.label}`}
+              size="xs"
+              className="text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100"
+              onClick={() => onClear(entry.action)}
             >
-              Not set
-            </Kbd>
+              <X className="size-3" />
+            </IconButton>
           )}
-        </button>
+          <button
+            type="button"
+            aria-label={`Change shortcut for ${entry.label} (${display || 'not set'})`}
+            onClick={() => onStartRecording(entry.action)}
+            className={SHORTCUT_CHIP_BUTTON_CLASS}
+          >
+            {display ? (
+              <Kbd className={SHORTCUT_CHIP_CLASS}>{display}</Kbd>
+            ) : (
+              <Kbd
+                className={`${SHORTCUT_CHIP_CLASS} border-dashed bg-transparent text-muted-foreground-60`}
+              >
+                Not set
+              </Kbd>
+            )}
+          </button>
+        </div>
       </div>
+      {unavailable && display && (
+        <div className="pt-1 text-xs text-error">
+          Your system won’t give Komla these keys. Another app may use them.
+        </div>
+      )}
     </div>
   );
 }

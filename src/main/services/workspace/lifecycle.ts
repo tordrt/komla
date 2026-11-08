@@ -23,7 +23,7 @@ import { workspaceSetupService } from '../workspace-setup.service';
 import { workspaceStatusService } from '../workspace-status.service';
 import { worktreeWatcherService } from '../worktree-watcher.service';
 
-import { resolvePreset } from './agent-launch';
+import { resolveContinueCommand, resolvePreset } from './agent-launch';
 import { moveFolderIntoProject, workspaceProject } from './projects';
 import { workspaceStore } from './store';
 
@@ -223,21 +223,11 @@ export class WorkspaceLifecycle {
     }
 
     // Build continue command from workspace's preset
-    let command: string | null = null;
-    const activePreset = resolvePreset(null, workspace);
-    const continueCommand = activePreset?.continueCommand || null;
-    if (activePreset && continueCommand && continueCommand.trim()) {
-      command = agentPresetService.resolvePresetCommand(
-        activePreset,
-        'continue',
-        workspace.launchModeId,
-        undefined,
-        undefined,
-        workspace.reasoningLevelId,
-        undefined,
-        workspace.modelId
-      );
-    }
+    const command = resolveContinueCommand(
+      resolvePreset(null, workspace),
+      workspace,
+      workspace.launchModeId
+    );
 
     // Re-apply setup steps for worktree workspaces with a project
     const primaryTerminal = workspaceSetupService.start(workspace, command, 'start');

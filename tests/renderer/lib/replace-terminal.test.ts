@@ -155,6 +155,10 @@ describe('replaceTerminal', () => {
       [{ kind: 'local-copy-shell' } as const, 'Local Terminal'],
       [{ kind: 'ssh-shell' } as const, 'SSH Terminal'],
       [{ kind: 'remote-retry', plainShell: false } as const, 'a new agent session'],
+      [
+        { kind: 'remote-retry', plainShell: false, resume: true } as const,
+        "the agent's last session",
+      ],
       [{ kind: 'remote-retry', plainShell: true } as const, 'a remote shell'],
     ])('asks before a %o replacement', async (replacement, name) => {
       seed({ agentActive: true }, { backend: sshBackend });
@@ -271,6 +275,21 @@ describe('replaceTerminal', () => {
       expect(restartTerminal).toHaveBeenNthCalledWith(2, 'term-1', undefined, undefined, 120, 30, {
         plainShell: true,
         replaceSession: true,
+      });
+    });
+
+    it("resumes a remote agent's last session, replacing the remote session", async () => {
+      seed({ status: 'stopped' }, { backend: sshBackend });
+
+      await replaceTerminal(
+        'term-1',
+        { kind: 'remote-retry', plainShell: false, resume: true },
+        answer(true)
+      );
+
+      expect(restartTerminal).toHaveBeenCalledWith('term-1', undefined, undefined, 120, 30, {
+        replaceSession: true,
+        resumeAgent: true,
       });
     });
   });

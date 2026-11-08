@@ -105,6 +105,7 @@ import {
   type TerminalContextMenuLink,
 } from './TerminalView';
 import { useConfirmDialog } from './useConfirmDialog';
+import { retryResumesAgent } from './workspace-restart-description';
 
 import type { ActionPlace } from '@/lib/action-launch';
 import type { AgentPreset, PaneId } from '@/types';
@@ -215,6 +216,7 @@ export const TerminalPane = React.memo(function TerminalPane({
 
   const presets = useAgentPresetsStore((s) => s.presets);
   const activePresets = useAgentPresetsStore((s) => s.activePresets);
+  const activePreset = useAgentPresetsStore((s) => s.activePreset);
   const loadPresets = useAgentPresetsStore((s) => s.loadPresets);
 
   const launchablePresets = useMemo(
@@ -297,6 +299,17 @@ export const TerminalPane = React.memo(function TerminalPane({
   );
   const remoteWorkspace =
     actionWorkspace && isSshWorkspace(actionWorkspace) ? actionWorkspace : null;
+  // Read as a boolean so new prompts re-render the pane only when the first one arrives. The
+  // agent is found as main finds it: the workspace's own, else the active one.
+  const retryResumes = useWorkspacesStore((s) => {
+    if (offer.stopped !== 'restart') return false;
+    const workspace = s.workspaces.find(
+      (w) => w.id === (effectiveWorkspaceId || s.selectedWorkspaceId)
+    );
+    if (!workspace) return false;
+    const preset = presets.find((candidate) => candidate.id === workspace.presetId) ?? activePreset;
+    return retryResumesAgent(workspace, terminalId, preset);
+  });
   const revealableTerminalFilePath = (() => {
     if (contextMenuLink?.type !== 'file' || !actionWorkspace) {
       return null;
@@ -647,8 +660,14 @@ export const TerminalPane = React.memo(function TerminalPane({
 
   const handleRestartSsh = useCallback(
     (plainShell: boolean) =>
-      replaceTerminal(terminalId, { kind: 'remote-retry', plainShell }, confirm),
-    [confirm, terminalId]
+      replaceTerminal(
+        terminalId,
+        plainShell
+          ? { kind: 'remote-retry', plainShell }
+          : { kind: 'remote-retry', plainShell, resume: retryResumes },
+        confirm
+      ),
+    [confirm, retryResumes, terminalId]
   );
 
   const handleReconnectSsh = useCallback(async () => {
@@ -1144,12 +1163,12 @@ export const TerminalPane = React.memo(function TerminalPane({
                         {busyReason === 'remote-agent' ? (
                           <>
                             <Spinner size="md" />
-                            Retrying agent…
+                            {retryResumes ? 'Resuming agent…' : 'Retrying agent…'}
                           </>
                         ) : (
                           <>
                             <ArrowClockwise className="size-4" />
-                            Retry agent
+                            {retryResumes ? 'Resume agent' : 'Retry agent'}
                           </>
                         )}
                       </button>

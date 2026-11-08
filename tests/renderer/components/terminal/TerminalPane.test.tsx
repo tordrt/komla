@@ -84,6 +84,15 @@ const mocks = vi.hoisted(() => ({
     isBuiltin: boolean;
   }>,
   activePresets: [] as Array<{ presetId: string; lastUsedAt: number }>,
+  activePreset: null as {
+    id: string;
+    name: string;
+    openCommand: string;
+    continueCommand: string;
+    promptCommand: string;
+    launchModes: never[];
+    isBuiltin: boolean;
+  } | null,
   terminalConfig: null as {
     colors: { background: string };
     showPaneHeaders?: boolean;
@@ -113,6 +122,10 @@ const workspace = {
       remoteSessionActive: false,
     },
   ],
+  presetId: undefined as string | undefined,
+  promptSubmits: undefined as
+    | Array<{ prompt: string; submittedAt: number; terminalId?: string }>
+    | undefined,
 };
 
 const workspaceStoreState = {
@@ -253,12 +266,14 @@ vi.mock('../../../../src/renderer/stores/agent-presets.store', () => ({
       selector: (state: {
         presets: typeof mocks.presets;
         activePresets: typeof mocks.activePresets;
+        activePreset: typeof mocks.activePreset;
         loadPresets: () => void;
       }) => unknown
     ) =>
       selector({
         presets: mocks.presets,
         activePresets: mocks.activePresets,
+        activePreset: mocks.activePreset,
         loadPresets: vi.fn(),
       }),
     {
@@ -395,6 +410,8 @@ describe('TerminalPane SSH reconnect', () => {
         remoteSessionActive: false,
       },
     ];
+    workspace.presetId = undefined;
+    workspace.promptSubmits = undefined;
     mocks.launchAction.mockReset().mockResolvedValue('launched');
     mocks.addTerminal.mockReset();
     mocks.addTerminalCommand.mockReset();
@@ -435,6 +452,7 @@ describe('TerminalPane SSH reconnect', () => {
     mocks.actions.length = 0;
     mocks.presets.length = 0;
     mocks.activePresets.length = 0;
+    mocks.activePreset = null;
     useTerminalCloseStore.setState(useTerminalCloseStore.getInitialState(), true);
     useTerminalBusyStore.setState(useTerminalBusyStore.getInitialState(), true);
     useToastStore.setState(useToastStore.getInitialState(), true);
@@ -2150,6 +2168,116 @@ describe('TerminalPane SSH reconnect', () => {
     expect(screen.getByText('Couldn’t connect to the remote workspace')).toBeInTheDocument();
     expect(screen.getByText('host unreachable')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Reconnect' })).not.toBeInTheDocument();
+  });
+
+  describe('retrying the agent of a pane whose session ended', () => {
+    function claudePreset(continueCommand = 'claude --resume') {
+      return {
+        id: 'claude',
+        name: 'Claude Code',
+        openCommand: 'claude',
+        continueCommand,
+        promptCommand: 'claude',
+        launchModes: [] as never[],
+        isBuiltin: true,
+      };
+    }
+
+    function addClaudePreset(continueCommand?: string) {
+      mocks.presets.push(claudePreset(continueCommand));
+      workspace.presetId = 'claude';
+    }
+
+    const promptInThisPane = {
+      prompt: 'Fix the flaky test',
+      submittedAt: 1,
+      terminalId: 'terminal-1',
+    };
+
+    function renderPane() {
+      render(
+        <TerminalPane
+          paneId="pane-1"
+          terminalId="terminal-1"
+          workspaceId="workspace-1"
+          isTabActive={true}
+        />
+      );
+    }
+
+    it("resumes the agent's last session once a prompt was submitted in the pane", async () => {
+      addClaudePreset();
+      workspace.promptSubmits = [promptInThisPane];
+      let finishRestart!: () => void;
+      mocks.restartTerminal.mockReturnValue(
+        new Promise<void>((resolve) => {
+          finishRestart = resolve;
+        })
+      );
+      renderPane();
+
+      expect(screen.queryByRole('button', { name: 'Retry agent' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Resume agent' }));
+
+      expect(screen.getByRole('button', { name: 'Resuming agent…' })).toBeDisabled();
+      expect(mocks.restartTerminal).toHaveBeenCalledWith(
+        'terminal-1',
+        undefined,
+        undefined,
+        120,
+        30,
+        { replaceSession: true, resumeAgent: true }
+      );
+      await act(async () => {
+        finishRestart();
+      });
+    });
+
+    it('starts a new session in a workspace with no prompt submitted yet', async () => {
+      addClaudePreset();
+      mocks.restartTerminal.mockResolvedValue(true);
+      renderPane();
+
+      expect(screen.queryByRole('button', { name: 'Resume agent' })).not.toBeInTheDocument();
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Retry agent' }));
+      });
+
+      expect(mocks.restartTerminal).toHaveBeenCalledWith(
+        'terminal-1',
+        undefined,
+        undefined,
+        120,
+        30,
+        { replaceSession: true }
+      );
+    });
+
+    it('starts a new session for an agent whose continue command only starts one', () => {
+      addClaudePreset('claude');
+      workspace.promptSubmits = [promptInThisPane];
+      renderPane();
+
+      expect(screen.getByRole('button', { name: 'Retry agent' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Resume agent' })).not.toBeInTheDocument();
+    });
+
+    it("starts a new session rather than take over another pane's", () => {
+      addClaudePreset();
+      workspace.promptSubmits = [{ ...promptInThisPane, terminalId: 'terminal-2' }];
+      renderPane();
+
+      expect(screen.getByRole('button', { name: 'Retry agent' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Resume agent' })).not.toBeInTheDocument();
+    });
+
+    it('resumes the active agent when the workspace names none, as main does', () => {
+      mocks.activePreset = claudePreset();
+      workspace.promptSubmits = [promptInThisPane];
+      renderPane();
+
+      expect(screen.getByRole('button', { name: 'Resume agent' })).toBeEnabled();
+    });
   });
 
   it('retries only the selected stopped agent pane', async () => {

@@ -115,6 +115,8 @@ export interface RestartTerminalOptions {
   commandKind?: CommandKind;
   plainShell?: boolean;
   replaceSession?: boolean;
+  /** Resumes the agent's last session with its continue command, where it has one. */
+  resumeAgent?: boolean;
   /**
    * `local-copy` replaces an SSH terminal's remote session with a plain Local copy shell;
    * `workspace` moves a Local copy terminal back to a shell on the SSH host.

@@ -22,7 +22,12 @@ import { remoteWorkspaceObservationService } from '../remote-workspace-observati
 import { sshWorkspaceService } from '../ssh-workspace.service';
 import { worktreeWatcherService } from '../worktree-watcher.service';
 
-import { resolveAgentCommand, resolveLaunchModeId, resolvePreset } from './agent-launch';
+import {
+  resolveAgentCommand,
+  resolveContinueCommand,
+  resolveLaunchModeId,
+  resolvePreset,
+} from './agent-launch';
 import { moveFolderIntoProject } from './projects';
 import { workspaceStore } from './store';
 
@@ -40,6 +45,27 @@ import type { TerminalAttention } from '../terminal-attention/terminal-attention
 const logger = createLogger('WorkspaceService');
 
 const TERMINAL_ID_RANDOM_BYTES = 9;
+
+/** Without an agent named, a restart starts the workspace's own agent in its launch mode. */
+function restartLaunchModeId(
+  workspace: Workspace,
+  presetId: string | undefined,
+  launchModeId: string | undefined
+): string | undefined {
+  if (presetId) return launchModeId;
+  return launchModeId ?? workspace.launchModeId ?? undefined;
+}
+
+/** A restarted agent resumes its last session when asked to and it can; otherwise it starts one. */
+function restartAgentCommand(
+  preset: ReturnType<typeof resolvePreset> | null | undefined,
+  workspace: Workspace,
+  launchModeId: string | undefined,
+  resume: boolean | undefined
+): string | null {
+  const continueCommand = resume ? resolveContinueCommand(preset, workspace, launchModeId) : null;
+  return continueCommand ?? resolveAgentCommand(preset ?? null, undefined, launchModeId);
+}
 
 export interface WorkspaceTerminalsDeps {
   attention: TerminalAttention;
@@ -499,7 +525,10 @@ export class WorkspaceTerminals {
       : options.command !== undefined && !presetId
         ? undefined
         : resolvePreset(presetId, workspace);
-    const command = options?.command ?? resolveAgentCommand(activePreset, undefined, launchModeId);
+    const agentLaunchModeId = restartLaunchModeId(workspace, presetId, launchModeId);
+    const command =
+      options.command ??
+      restartAgentCommand(activePreset, workspace, agentLaunchModeId, options.resumeAgent);
     const resolved = location.buildCommand(command, {
       commandKind: options?.commandKind ?? 'agent',
       terminalId,
@@ -521,13 +550,13 @@ export class WorkspaceTerminals {
         workspace.presetId = activePreset.id;
         persistChanges = true;
       }
-      const resolvedLaunchModeId = resolveLaunchModeId(activePreset, launchModeId);
+      const resolvedLaunchModeId = resolveLaunchModeId(activePreset, agentLaunchModeId);
       if (activePreset && (workspace.launchModeId ?? null) !== resolvedLaunchModeId) {
         workspace.launchModeId = resolvedLaunchModeId;
         persistChanges = true;
       }
       if (persistChanges) workspaceStore.saveWorkspaces();
-      if (activePreset) agentPresetService.recordPresetUsage?.(activePreset.id, launchModeId);
+      if (activePreset) agentPresetService.recordPresetUsage?.(activePreset.id, agentLaunchModeId);
       return terminal;
     };
     if (!location.managesSession) {

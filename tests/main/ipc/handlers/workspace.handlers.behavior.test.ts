@@ -1379,6 +1379,25 @@ describe('workspace IPC behavior', () => {
       );
     });
 
+    it("delegates a remote session replacement that resumes the agent's last session", async () => {
+      const ipcMain = await setup();
+      mockWorkspaceService.restartTerminal.mockReturnValue({ id: 'term-1' });
+
+      await ipcMain._invoke('workspace:restart-terminal', 'term-1', undefined, undefined, 120, 30, {
+        replaceSession: true,
+        resumeAgent: true,
+      });
+
+      expect(mockWorkspaceService.restartTerminal).toHaveBeenCalledWith(
+        'term-1',
+        undefined,
+        undefined,
+        120,
+        30,
+        { resumeAgent: true, sshAction: 'replace' }
+      );
+    });
+
     it('delegates a Local copy conversion request', async () => {
       const ipcMain = await setup();
       mockWorkspaceService.restartTerminal.mockReturnValue({ id: 'term-1' });

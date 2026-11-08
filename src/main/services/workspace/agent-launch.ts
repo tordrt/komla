@@ -83,6 +83,28 @@ export function resolveAgentCommand(
 }
 
 /**
+ * The command that resumes the agent's last session in the workspace, with the workspace's
+ * reasoning level and model; null when the agent has no continue command.
+ */
+export function resolveContinueCommand(
+  preset: ReturnType<typeof resolvePreset> | null | undefined,
+  workspace: Workspace,
+  launchModeId: string | null | undefined
+): string | null {
+  if (!preset?.continueCommand?.trim()) return null;
+  return agentPresetService.resolvePresetCommand(
+    preset,
+    'continue',
+    launchModeId,
+    undefined,
+    undefined,
+    workspace.reasoningLevelId,
+    undefined,
+    workspace.modelId
+  );
+}
+
+/**
  * Resolve the first terminal's command from initialCommand / preset /
  * launch mode / initialPrompt. initialCommand always wins; otherwise the
  * preset's launch mode (when matched) drives, falling back to the prompt

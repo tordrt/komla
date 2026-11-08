@@ -278,6 +278,7 @@ const restartTerminalOptionsSchema = z.union([
     .object({
       plainShell: z.boolean().optional(),
       replaceSession: z.boolean().optional(),
+      resumeAgent: z.boolean().optional(),
       executionLocation: z.enum(['local-copy', 'workspace']).optional(),
     })
     .strict(),

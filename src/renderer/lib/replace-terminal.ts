@@ -30,7 +30,9 @@ export type TerminalReplacement =
   | { kind: 'local-copy-shell' }
   /** A shell on the SSH host, in place of a Local copy terminal. */
   | { kind: 'ssh-shell' }
-  | { kind: 'remote-retry'; plainShell: boolean };
+  | { kind: 'remote-retry'; plainShell: true }
+  /** An agent on the SSH host, resuming its last session when `resume` is set. */
+  | { kind: 'remote-retry'; plainShell: false; resume?: boolean };
 
 export type TerminalReplacementOutcome = 'replaced' | 'declined' | 'closing' | 'failed';
 
@@ -172,7 +174,8 @@ function replacementName(replacement: TerminalReplacement): string {
     case 'ssh-shell':
       return 'SSH Terminal';
     case 'remote-retry':
-      return replacement.plainShell ? 'a remote shell' : 'a new agent session';
+      if (replacement.plainShell) return 'a remote shell';
+      return replacement.resume ? "the agent's last session" : 'a new agent session';
     default:
       return replacement.name;
   }
@@ -221,8 +224,9 @@ function restartArguments(
         options: { plainShell: true, replaceSession: true, executionLocation: 'workspace' },
       };
     case 'remote-retry':
+      if (replacement.plainShell) return { options: { plainShell: true, replaceSession: true } };
       return {
-        options: { ...(replacement.plainShell ? { plainShell: true } : {}), replaceSession: true },
+        options: { replaceSession: true, ...(replacement.resume ? { resumeAgent: true } : {}) },
       };
   }
 }

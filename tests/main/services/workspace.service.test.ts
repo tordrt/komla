@@ -12137,6 +12137,88 @@ describe('WorkspaceService', () => {
       expect(workspaceService.get('ws-1')?.presetId).toBe(mockPlanPreset.id);
     });
 
+    describe("restarting the workspace's own agent", () => {
+      async function setUpWorkspaceWithLaunchMode() {
+        vfs.setFile(
+          '/mock/home/.komla/workspaces.json',
+          JSON.stringify([
+            {
+              id: 'ws-1',
+              name: 'Workspace',
+              workingDirectory: '/ws1',
+              isWorktree: false,
+              projectId: null,
+              presetId: mockArgumentPreset.id,
+              launchModeId: 'plan',
+              windowId: null,
+              categoryId: null,
+              createdAt: 1000,
+              lastActivityAt: 1000,
+              order: 0,
+            },
+          ])
+        );
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+        const terminal = workspaceService.addTerminal('ws-1', 'Terminal 1');
+        mockPtyService.restart.mockClear();
+        return { workspaceService, terminal };
+      }
+
+      it('keeps the workspace launch mode', async () => {
+        const { workspaceService, terminal } = await setUpWorkspaceWithLaunchMode();
+
+        workspaceService.restartTerminal(terminal.id);
+
+        expect(mockPtyService.restart).toHaveBeenCalledWith(
+          terminal.id,
+          '/ws1',
+          'claude --permission-mode plan',
+          'ws-1',
+          undefined,
+          undefined
+        );
+        expect(workspaceService.get('ws-1')?.launchModeId).toBe('plan');
+      });
+
+      it("resumes the agent's last session when asked to", async () => {
+        const { workspaceService, terminal } = await setUpWorkspaceWithLaunchMode();
+
+        workspaceService.restartTerminal(terminal.id, undefined, undefined, 95, 42, {
+          resumeAgent: true,
+        });
+
+        expect(mockPtyService.restart).toHaveBeenCalledWith(
+          terminal.id,
+          '/ws1',
+          'claude --resume --permission-mode plan',
+          'ws-1',
+          95,
+          42
+        );
+        expect(workspaceService.get('ws-1')?.launchModeId).toBe('plan');
+      });
+
+      it('starts a new session for an agent with no continue command', async () => {
+        const { workspaceService, terminal } = await setUpWorkspaceWithLaunchMode();
+        mockAgentPresetService.get.mockImplementationOnce(() =>
+          createClaudePreset({ ...mockArgumentPreset, continueCommand: '  ' })
+        );
+
+        workspaceService.restartTerminal(terminal.id, undefined, undefined, 95, 42, {
+          resumeAgent: true,
+        });
+
+        expect(mockPtyService.restart).toHaveBeenCalledWith(
+          terminal.id,
+          '/ws1',
+          'claude --permission-mode plan',
+          'ws-1',
+          95,
+          42
+        );
+      });
+    });
+
     it('forwards the terminal dimensions so the PTY is born at the right size', async () => {
       const existingWorkspaces = [
         {

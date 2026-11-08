@@ -1,4 +1,4 @@
-import type { AgentPreset } from '@/types';
+import type { AgentPreset, Workspace } from '@/types';
 
 export type WorkspaceRestartAgent = 'resume' | 'start' | 'none';
 
@@ -10,6 +10,22 @@ export function getWorkspaceRestartAgent(
   if (!continueCommand) return 'none';
   // A continue command that only repeats the open command starts a new session.
   return continueCommand === preset?.openCommand?.trim() ? 'start' : 'resume';
+}
+
+/**
+ * Retrying an agent whose session ended resumes its last session once a prompt has been
+ * submitted in its Terminal. Before that there is no session of its own to resume, so it starts
+ * one rather than take over another pane's.
+ */
+export function retryResumesAgent(
+  workspace: Pick<Workspace, 'promptSubmits'>,
+  terminalId: string,
+  preset: Parameters<typeof getWorkspaceRestartAgent>[0]
+): boolean {
+  return (
+    !!workspace.promptSubmits?.some((submit) => submit.terminalId === terminalId) &&
+    getWorkspaceRestartAgent(preset) === 'resume'
+  );
 }
 
 const RESTART_DESCRIPTIONS: Record<WorkspaceRestartAgent, { local: string; ssh: string }> = {

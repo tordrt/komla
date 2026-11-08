@@ -421,6 +421,8 @@ function useBrowserLinks(
     [answered, isSsh, previews, snapshot]
   );
   const titleAnswered = (candidate: PreviewUrlCandidate) => {
+    // A server outside Komla keeps its place whatever its title, so the list never waits on it.
+    if (candidate.otherServer) return true;
     const target = candidatePreviewTarget(candidate, isSsh);
     return !target || answered.has(linkPreviewKey(target));
   };

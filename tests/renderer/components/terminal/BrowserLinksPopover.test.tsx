@@ -812,6 +812,29 @@ describe('BrowserLinksPopover', () => {
     expect(screen.getByText('Acme Admin')).toBeTruthy();
   });
 
+  it("shows the workspace's servers without waiting on the titles of those outside Komla", async () => {
+    detectDevPreviewServices.mockResolvedValue({
+      services: [],
+      openPorts: [5173],
+      otherServers: [
+        { port: 8765, scheme: 'http', processName: 'python3', executionLocation: 'workspace' },
+      ],
+    });
+    getLinkPreview.mockImplementation(({ url }: { url: string }) =>
+      url === 'http://localhost:8765/' ? new Promise(() => {}) : Promise.resolve(null)
+    );
+    vi.useFakeTimers();
+    try {
+      renderPopover();
+      fireEvent.click(screen.getByRole('button', { name: 'Links' }));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+
+      expect(screen.getByText('localhost:5173')).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('remembers the servers it found though a page never answers for its title', async () => {
     detectDevPreviewServices.mockResolvedValue({
       services: [],

@@ -595,6 +595,8 @@ describe('NewWorkspaceDialog UI fixes', () => {
           "Kimi Code can't start with a prompt, so it opens without one"
         )
       ).toBeInTheDocument();
+      // Files would have no prompt to reach the agent in.
+      expect(screen.queryByRole('button', { name: 'Attach files' })).not.toBeInTheDocument();
     });
 
     it('starts the workspace with the picked saved prompt as its default action', async () => {

@@ -1,6 +1,9 @@
-import { resolve } from 'path';
+import { rmSync } from 'fs';
+import { mkdir, mkdtemp, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi, type Mock } from 'vitest';
 
 import {
   DUPLICATE_WORKSPACE_ERROR_PREFIX,
@@ -217,6 +220,63 @@ describe('workspace IPC behavior', () => {
 
     expect(method).toHaveBeenCalledWith(...args);
     expect(result).toEqual(returns);
+  });
+
+  describe('workspace:select-prompt-attachments', () => {
+    const tempDir = async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'komla-attach-'));
+      onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+      return dir;
+    };
+
+    it('returns the files chosen in a multi-select file picker over the window', async () => {
+      const dir = await tempDir();
+      const files = [join(dir, 'spec.pdf'), join(dir, 'log.txt')];
+      await Promise.all(files.map((file) => writeFile(file, 'x')));
+      const ipcMain = await setup();
+      const { dialog, BrowserWindow } = (await import('electron')) as unknown as {
+        dialog: { showOpenDialog: Mock };
+        BrowserWindow: { fromWebContents: Mock };
+      };
+      const window = { id: 1 };
+      BrowserWindow.fromWebContents.mockReturnValueOnce(window);
+      dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: files });
+
+      const result = await ipcMain._invoke('workspace:select-prompt-attachments');
+
+      expect(result).toEqual(files);
+      expect(dialog.showOpenDialog).toHaveBeenCalledWith(
+        window,
+        expect.objectContaining({
+          // macOS opens a package, like Notes.rtfd, as the folder it is rather than offering it.
+          properties: ['openFile', 'multiSelections', 'treatPackageAsDirectory'],
+        })
+      );
+    });
+
+    // macOS lets a file picker choose a package, like Notes.rtfd, which is a folder on disk.
+    it('leaves out a folder the picker returns as a file', async () => {
+      const dir = await tempDir();
+      const file = join(dir, 'spec.pdf');
+      const pkg = join(dir, 'Notes.rtfd');
+      await writeFile(file, 'x');
+      await mkdir(pkg);
+      const ipcMain = await setup();
+      const { dialog } = (await import('electron')) as unknown as {
+        dialog: { showOpenDialog: Mock };
+      };
+      dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [pkg, file] });
+
+      await expect(ipcMain._invoke('workspace:select-prompt-attachments')).resolves.toEqual([
+        file,
+      ]);
+    });
+
+    it('returns no files when the picker is cancelled', async () => {
+      const ipcMain = await setup();
+
+      await expect(ipcMain._invoke('workspace:select-prompt-attachments')).resolves.toEqual([]);
+    });
   });
 
   describe('workspace:create', () => {

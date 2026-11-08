@@ -4,7 +4,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { NewWorkspaceDialog } from '../../../../src/renderer/components/workspaces/NewWorkspaceDialog';
 import { useAgentSkillsStore } from '../../../../src/renderer/stores/agent-skills.store';
@@ -17,6 +17,7 @@ import { useSettingsDialogStore } from '../../../../src/renderer/stores/settings
 import { useShortcutsStore } from '../../../../src/renderer/stores/shortcuts.store';
 import { useSkillUsageStore } from '../../../../src/renderer/stores/skill-usage.store';
 import { handleCreateError } from '../../../../src/renderer/utils/workspace-error';
+import { MAX_PROMPT_ATTACHMENTS } from '../../../../src/shared/types/workspace';
 import { seedShortcuts } from '../../../helpers/shortcuts';
 import { useSshHostDialogStore } from '../../../../src/renderer/stores/ssh-host-dialog.store';
 
@@ -838,6 +839,83 @@ describe('NewWorkspaceDialog', () => {
       });
 
       expect(notPrevented).toBe(true);
+    });
+
+    it('attaches files chosen from the attach button', async () => {
+      const user = userEvent.setup();
+      window.api.selectPromptAttachments = vi
+        .fn()
+        .mockResolvedValueOnce(['/docs/spec.pdf', 'C:\\logs\\log.txt'])
+        .mockResolvedValueOnce(['/docs/spec.pdf', '/docs/notes.md']);
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.click(screen.getByRole('button', { name: 'Attach files' }));
+      await waitFor(() => expect(attachmentNames()).toEqual(['spec.pdf', 'log.txt']));
+      // Choosing a file again doesn't attach it twice.
+      await user.click(screen.getByRole('button', { name: 'Attach files' }));
+      await waitFor(() => expect(attachmentNames()).toEqual(['spec.pdf', 'log.txt', 'notes.md']));
+
+      await user.click(getLaunchButton());
+      await waitFor(() =>
+        expect(mockCreateWorkspace).toHaveBeenCalledWith(
+          expect.objectContaining({
+            attachments: ['/docs/spec.pdf', 'C:\\logs\\log.txt', '/docs/notes.md'],
+          })
+        )
+      );
+    });
+
+    it('turns the attach button off, saying why, once the prompt holds the most attachments', async () => {
+      const paths = Array.from({ length: MAX_PROMPT_ATTACHMENTS }, (_, i) => `/docs/${i}.txt`);
+      window.api.selectPromptAttachments = vi.fn().mockResolvedValue(paths);
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.click(screen.getByRole('button', { name: 'Attach files' }));
+
+      // aria-disabled rather than disabled, so its tooltip still shows.
+      const full = await screen.findByRole('button', {
+        name: `A prompt holds up to ${MAX_PROMPT_ATTACHMENTS} files`,
+      });
+      expect(full).toHaveAttribute('aria-disabled', 'true');
+      await user.click(full);
+      expect(window.api.selectPromptAttachments).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens one file picker at a time', async () => {
+      let choose!: (paths: string[]) => void;
+      window.api.selectPromptAttachments = vi.fn(
+        () => new Promise<string[]>((resolve) => (choose = resolve))
+      );
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.dblClick(screen.getByRole('button', { name: 'Attach files' }));
+      expect(window.api.selectPromptAttachments).toHaveBeenCalledTimes(1);
+
+      act(() => choose(['/docs/spec.pdf']));
+      await waitFor(() => expect(attachmentNames()).toEqual(['spec.pdf']));
+      await user.click(screen.getByRole('button', { name: 'Attach files' }));
+      expect(window.api.selectPromptAttachments).toHaveBeenCalledTimes(2);
+    });
+
+    it('says so when the file picker fails', async () => {
+      window.api.selectPromptAttachments = vi.fn().mockRejectedValue(new Error('no portal'));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      onTestFinished(() => warn.mockRestore());
+      const user = userEvent.setup();
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      await screen.findByPlaceholderText(/what should the agent work on/i);
+
+      await user.click(screen.getByRole('button', { name: 'Attach files' }));
+
+      await waitFor(() =>
+        expect(mockAddToast).toHaveBeenCalledWith('Couldn’t open the file picker', 'error')
+      );
+      expect(attachmentNames()).toEqual([]);
     });
 
     it('launches without attachments when none were added', async () => {

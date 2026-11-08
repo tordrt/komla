@@ -5,6 +5,7 @@ import {
   Plus,
   Folder,
   NotePencil,
+  Paperclip,
   PuzzlePiece,
   Sparkle,
   Robot,
@@ -130,6 +131,7 @@ import { resolveBranchPrefix } from '../../../shared/lib/project-git-defaults';
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
 import { generateBranchSuffix, branchSuffixToName } from '../../../shared/lib/random-names';
 import { orderByRecentUse, withRecentProject } from '../../../shared/lib/recent-projects';
+import { MAX_PROMPT_ATTACHMENTS } from '../../../shared/types/workspace';
 
 import type { NewWorkspaceDialogAction } from '../../../shared/constants/shortcut-scopes';
 import type { AgentSkill, AgentSkillFamily } from '../../../shared/types/agent-skill';
@@ -2059,6 +2061,24 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       });
   };
 
+  // A click before the picker shows, or a double-click, would open a second one behind it.
+  const pickingAttachmentsRef = useRef(false);
+  const handlePickAttachments = () => {
+    if (pickingAttachmentsRef.current) return;
+    pickingAttachmentsRef.current = true;
+    void window.api
+      .selectPromptAttachments()
+      .then(attachFiles)
+      .catch((err) => {
+        console.warn('Failed to open the file picker:', err);
+        useToastStore.getState().addToast('Couldn’t open the file picker', 'error');
+      })
+      .finally(() => {
+        pickingAttachmentsRef.current = false;
+        promptTextareaRef.current?.focus();
+      });
+  };
+
   const isDraggingFiles = useWindowFileDrop(open && hasAgent, (dataTransfer) => {
     attachTransferFiles(getTransferFiles(dataTransfer, window.api.getPathForFile));
     promptTextareaRef.current?.focus();
@@ -2573,6 +2593,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                   onPromptSelect={handlePromptSelect}
                   onPromptPaste={handlePromptPaste}
                   attachments={attachments}
+                  onPickAttachments={handlePickAttachments}
                   onRemoveAttachment={(path) =>
                     setAttachments((current) => current.filter((p) => p !== path))
                   }
@@ -2902,6 +2923,8 @@ interface PromptAreaProps {
   onPromptSelect: (e: React.SyntheticEvent<HTMLTextAreaElement>) => void;
   onPromptPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   attachments: string[];
+  /** Opens a file picker whose files join the attachments */
+  onPickAttachments: () => void;
   onRemoveAttachment: (path: string) => void;
   onCloseSlashMenu: () => void;
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -2939,6 +2962,7 @@ function PromptArea({
   onPromptSelect,
   onPromptPaste,
   attachments,
+  onPickAttachments,
   onRemoveAttachment,
   onCloseSlashMenu,
   promptTextareaRef,
@@ -2969,6 +2993,7 @@ function PromptArea({
     [skills, skillFamily, skillLastUsed]
   );
   const closeSlashMenuTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attachmentsFull = attachments.length >= MAX_PROMPT_ATTACHMENTS;
 
   useEffect(() => {
     return () => {
@@ -3017,92 +3042,113 @@ function PromptArea({
             rows={1}
             autoFocus
           />
-          {(promptActions.length > 0 || (skillFamily && sortedSkills.length > 0)) && (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <IconButton
-                  label="Quick Commands"
-                  size="xs"
-                  tooltipSide="bottom"
-                  className={cn(
-                    'mt-1.5 rounded-md',
-                    actionId
-                      ? 'bg-muted/50 text-foreground'
-                      : 'text-muted-foreground-60 hover:bg-muted/30 hover:text-muted-foreground'
-                  )}
-                >
-                  <NotePencil className="size-4" />
-                </IconButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="max-h-[min(60vh,420px)] max-w-[min(420px,calc(100vw-2rem))] overflow-y-auto"
-                onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
+          {/* Attach files sits above Quick Commands, as more prompts use it. */}
+          <div className="mt-1.5 flex shrink-0 flex-col gap-0.5">
+            {/* Files would have no prompt to reach the agent in. */}
+            {!promptlessAgentName && (
+              <IconButton
+                label={
+                  attachmentsFull
+                    ? `A prompt holds up to ${MAX_PROMPT_ATTACHMENTS} files`
+                    : 'Attach files'
+                }
+                size="xs"
+                tooltipSide="bottom"
+                // aria-disabled, not disabled, so the tooltip still says why.
+                aria-disabled={attachmentsFull || undefined}
+                className="rounded-md text-muted-foreground-60 hover:bg-muted/30 hover:text-muted-foreground aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground-60"
+                onClick={attachmentsFull ? undefined : onPickAttachments}
               >
-                {actionId && (
-                  <>
-                    <DropdownMenuItem onSelect={() => onActionSelect('')}>None</DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                {promptActions.length > 0 && (
-                  <>
-                    <DropdownMenuLabel className="flex items-center gap-1.5">
-                      <Sparkle className="size-3" />
-                      Saved Prompts
-                    </DropdownMenuLabel>
-                    {promptActions.map((a) => (
-                      <DropdownMenuItem
-                        key={a.id}
-                        className="group"
-                        onSelect={() => onActionSelect(a.id)}
-                      >
-                        <Sparkle />
-                        <span className="min-w-0 flex-1 truncate">{a.title}</span>
-                        <MenuRowCopy title={a.title} getText={() => a.content} />
-                        {a.id === actionId && <Check />}
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                {skillFamily && sortedSkills.length > 0 && (
-                  <>
-                    <DropdownMenuLabel className="flex items-center gap-1.5">
-                      <PuzzlePiece className="size-3" />
-                      Skills
-                    </DropdownMenuLabel>
-                    {sortedSkills.map((skill) => (
-                      <DropdownMenuItem
-                        key={skill.name}
-                        className="group"
-                        title={skill.description || undefined}
-                        onSelect={() => onSkillPick(skill)}
-                      >
-                        <span className="max-w-[60%] shrink-0 truncate">
-                          {skillInvocation(skillFamily, skill.name)}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                          {skill.description}
-                        </span>
-                        <MenuRowCopy
-                          title={skillInvocation(skillFamily, skill.name)}
-                          getText={() => readSkill(skill)}
-                        />
-                      </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                <DropdownMenuItem
-                  onSelect={onOpenActionsSettings}
-                  className="text-muted-foreground"
+                <Paperclip className="size-4" />
+              </IconButton>
+            )}
+            {(promptActions.length > 0 || (skillFamily && sortedSkills.length > 0)) && (
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <IconButton
+                    label="Quick Commands"
+                    size="xs"
+                    tooltipSide="bottom"
+                    className={cn(
+                      'rounded-md',
+                      actionId
+                        ? 'bg-muted/50 text-foreground'
+                        : 'text-muted-foreground-60 hover:bg-muted/30 hover:text-muted-foreground'
+                    )}
+                  >
+                    <NotePencil className="size-4" />
+                  </IconButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="max-h-[min(60vh,420px)] max-w-[min(420px,calc(100vw-2rem))] overflow-y-auto"
+                  onCloseAutoFocus={(e) => focusPromptOnMenuClose(e, promptTextareaRef.current)}
                 >
-                  Manage Quick Commands…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+                  {actionId && (
+                    <>
+                      <DropdownMenuItem onSelect={() => onActionSelect('')}>None</DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  {promptActions.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="flex items-center gap-1.5">
+                        <Sparkle className="size-3" />
+                        Saved Prompts
+                      </DropdownMenuLabel>
+                      {promptActions.map((a) => (
+                        <DropdownMenuItem
+                          key={a.id}
+                          className="group"
+                          onSelect={() => onActionSelect(a.id)}
+                        >
+                          <Sparkle />
+                          <span className="min-w-0 flex-1 truncate">{a.title}</span>
+                          <MenuRowCopy title={a.title} getText={() => a.content} />
+                          {a.id === actionId && <Check />}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  {skillFamily && sortedSkills.length > 0 && (
+                    <>
+                      <DropdownMenuLabel className="flex items-center gap-1.5">
+                        <PuzzlePiece className="size-3" />
+                        Skills
+                      </DropdownMenuLabel>
+                      {sortedSkills.map((skill) => (
+                        <DropdownMenuItem
+                          key={skill.name}
+                          className="group"
+                          title={skill.description || undefined}
+                          onSelect={() => onSkillPick(skill)}
+                        >
+                          <span className="max-w-[60%] shrink-0 truncate">
+                            {skillInvocation(skillFamily, skill.name)}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                            {skill.description}
+                          </span>
+                          <MenuRowCopy
+                            title={skillInvocation(skillFamily, skill.name)}
+                            getText={() => readSkill(skill)}
+                          />
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  <DropdownMenuItem
+                    onSelect={onOpenActionsSettings}
+                    className="text-muted-foreground"
+                  >
+                    Manage Quick Commands…
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </div>
         <PromptAttachmentList attachments={attachments} onRemove={onRemoveAttachment} />
 

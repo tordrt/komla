@@ -295,6 +295,10 @@ const api = {
   generateBranchName: (promptText: string): Promise<string | null> =>
     ipcRenderer.invoke(IPC.WORKSPACE_GENERATE_BRANCH_NAME, promptText),
 
+  /** Asks for files to attach to a new workspace's prompt; none when cancelled. */
+  selectPromptAttachments: (): Promise<string[]> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_SELECT_PROMPT_ATTACHMENTS),
+
   regenerateWorkspaceName: (workspaceId: string): Promise<Workspace> =>
     ipcRenderer.invoke(IPC.WORKSPACE_REGENERATE_NAME, workspaceId),
 

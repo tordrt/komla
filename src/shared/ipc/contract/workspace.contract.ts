@@ -115,6 +115,7 @@ export const workspaceContract = {
   [IPC.WORKSPACE_GENERATE_BRANCH_NAME]: invoke(generateBranchNameArgsSchema).returns<
     string | null
   >(),
+  [IPC.WORKSPACE_SELECT_PROMPT_ATTACHMENTS]: invoke().returns<string[]>(),
   [IPC.WORKSPACE_REGENERATE_NAME]: invoke(regenerateWorkspaceNameArgsSchema).returns<Workspace>(),
   [IPC.WORKSPACE_CANCEL_BRANCH_NAMING]: invoke().returns<void>(),
   [IPC.WORKSPACE_LINK]: invoke(workspaceLinkArgsSchema).returns<void>(),

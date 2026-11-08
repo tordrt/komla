@@ -1,9 +1,9 @@
 import { execFile } from 'child_process';
-import { realpath } from 'fs/promises';
+import { realpath, stat } from 'fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'path';
 import { promisify } from 'util';
 
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, dialog } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
 import {
@@ -496,6 +496,29 @@ export function registerWorkspaceHandlers(): void {
 
   handleIpc(IPC.WORKSPACE_UNLINK, async (_, [originId, targetId]): Promise<void> => {
     await workspaceLinksService.unlink(originId, targetId);
+  });
+
+  // Files for a new workspace's prompt. Folders are left out, as paste and drop leave them out.
+  // macOS opens a package, like Notes.rtfd, as a folder; a folder that still gets through is dropped.
+  handleIpc(IPC.WORKSPACE_SELECT_PROMPT_ATTACHMENTS, async (event): Promise<string[]> => {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Attach Files',
+      properties: ['openFile', 'multiSelections', 'treatPackageAsDirectory'],
+    };
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const result = await (window
+      ? dialog.showOpenDialog(window, options)
+      : dialog.showOpenDialog(options));
+    if (result.canceled) return [];
+    const isFile = await Promise.all(
+      result.filePaths.map((path) =>
+        stat(path).then(
+          (stats) => stats.isFile(),
+          () => false
+        )
+      )
+    );
+    return result.filePaths.filter((_, i) => isFile[i]);
   });
 
   handleIpc(IPC.WORKSPACE_LINK_PATHS, (_, [workspaceId]): Promise<WorkspaceLinkPath[]> =>

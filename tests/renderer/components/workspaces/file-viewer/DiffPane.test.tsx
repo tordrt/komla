@@ -290,6 +290,12 @@ describe('DiffPane', () => {
     useCustomizationStore.setState({ terminalConfig: null });
   });
 
+  // Monaco otherwise asks, in a native dialog, to strip a file's U+2028 and U+2029 characters.
+  it('leaves Line and Paragraph Separators in the file without asking', () => {
+    render(<DiffPane {...baseProps} selectedFile="demo.ts" fileContent={textDiff()} />);
+    expect(diffEditorProps.options.at(-1)).toMatchObject({ unusualLineTerminators: 'off' });
+  });
+
   // The editor applies each new options object it gets, so a re-render must not make one.
   it('hands the editor the same options until one changes', () => {
     const { rerender } = render(

@@ -16,7 +16,11 @@ const vim = vi.hoisted(() => ({
 }));
 const mountedEditor = vi.hoisted(() => ({
   current: null as unknown,
-  props: null as null | { value?: string; defaultValue?: string; options?: { fontSize?: number } },
+  props: null as null | {
+    value?: string;
+    defaultValue?: string;
+    options?: { fontSize?: number; unusualLineTerminators?: string };
+  },
   onChange: undefined as undefined | ((value: string) => void),
 }));
 
@@ -128,6 +132,12 @@ describe('EditorPane', () => {
     render(<EditorPane filePath="demo.ts" fileContent={'x\n'.repeat(lines - 1) + 'x'} />);
 
     expect(screen.getByText('Editor')).toHaveAttribute('data-line-number-chars', String(chars));
+  });
+
+  // Monaco otherwise asks, in a native dialog, to strip a file's U+2028 and U+2029 characters.
+  it('leaves Line and Paragraph Separators in the file without asking', () => {
+    render(<EditorPane filePath="demo.ts" fileContent="hello" />);
+    expect(mountedEditor.props?.options).toMatchObject({ unusualLineTerminators: 'off' });
   });
 
   it('sizes its text a pixel under the terminal font, as at the 14px default', () => {

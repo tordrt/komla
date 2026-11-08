@@ -123,6 +123,9 @@ export const KOMLA_EDITOR_BASE_OPTIONS: monacoEditor.IEditorOptions = {
   hideCursorInOverviewRuler: true,
   // A wrapped line's continuation is indented, so it can't be taken for a new line.
   wrappingIndent: 'indent',
+  // Monaco otherwise asks, in a native dialog, to strip U+2028 and U+2029 from any file holding
+  // them, and asks again for each new diff of it. Such files, as tests of JSON escaping, mean them.
+  unusualLineTerminators: 'off',
   scrollbar: {
     verticalScrollbarSize: 10,
     horizontalScrollbarSize: 10,

@@ -33,6 +33,7 @@ vi.mock('@phosphor-icons/react', async (importOriginal) => {
     GitBranch: (props: React.SVGProps<SVGSVGElement>) => (
       <svg data-testid="branch-icon" {...props} />
     ),
+    GitFork: (props: React.SVGProps<SVGSVGElement>) => <svg data-testid="fork-icon" {...props} />,
   };
 });
 
@@ -538,6 +539,21 @@ describe('WorkspaceCard', () => {
 
       expect(within(cardText()).getByText(status)).toBeInTheDocument();
       expect(screen.queryByText(branchName)).toBeNull();
+    });
+
+    it.each([
+      ['a remote', createSshWorkspace({ isWorktree: true, provisioning: true }), 'cloud-icon'],
+      ['a local', createWorktreeWorkspace({ provisioning: true }), 'branch-icon'],
+      [
+        'a branched-from',
+        createWorktreeWorkspace({ provisioning: true, branchedFrom: 'source-branch' }),
+        'fork-icon',
+      ],
+    ])('marks the setup line of %s workspace with its branch line icon', (_, workspace, testId) => {
+      render(<WorkspaceCard workspace={workspace} />);
+
+      const line = within(cardText()).getByText('Setting up...').closest('div')!;
+      expect(line.querySelectorAll(`[data-testid="${testId}"]`)).toHaveLength(1);
     });
 
     it('keeps a setup failure beside a notification body, which takes the line', () => {

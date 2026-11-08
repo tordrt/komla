@@ -1365,9 +1365,10 @@ function isProvisioningOrFailed(workspace: Workspace): boolean {
 
 function ProvisionLine({ workspace }: { workspace: Workspace }) {
   if (workspace.provisioning) {
+    const Icon = branchLineIcon(workspace);
     return (
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-70">
-        <GitBranch className="mr-1 inline size-3" />
+        <Icon className="mr-1 inline size-3" />
         <span className="animate-pulse truncate">
           {workspace.provisionStatus ?? 'Setting up...'}
         </span>
@@ -1381,9 +1382,14 @@ function ProvisionLine({ workspace }: { workspace: Workspace }) {
   );
 }
 
+/** The icon a card's branch line wears, from setup on, so it doesn't change once setup ends. */
+function branchLineIcon(workspace: Workspace) {
+  if (isSshWorkspace(workspace)) return Cloud;
+  return workspace.branchedFrom ? GitFork : GitBranch;
+}
+
 function BranchLine({ workspace }: { workspace: Workspace }) {
-  const isRemote = isSshWorkspace(workspace);
-  const Icon = isRemote ? Cloud : workspace.branchedFrom ? GitFork : GitBranch;
+  const Icon = branchLineIcon(workspace);
   return (
     // A step under the title, so a stopped card's name still reads above its branch.
     <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-70">

@@ -72,11 +72,11 @@ describe('parseRemoteSnapshot', () => {
         'LISTEN 0 511 10.0.0.5:9000 0.0.0.0:* users:(("node",pid=501,fd=21))',
         'LISTEN 0 128 0.0.0.0:22 0.0.0.0:*',
         '@@komla-cwds',
-        '#proc',
-        '501 /srv/my app',
+        '#ls',
+        'lrwxrwxrwx 1 me me 0 Nov  8 19:40 /proc/501/cwd -> /srv/my app',
         // A process whose working directory was removed.
-        '502 /srv/old (deleted)',
-        'not-a-pid /x',
+        'lrwxrwxrwx 1 me me 0 Nov  8 19:40 /proc/502/cwd -> /srv/old (deleted)',
+        'lrwxrwxrwx 1 me me 0 Nov  8 19:40 /proc/not-a-pid/cwd -> /x',
       ].join('\n')
     );
 

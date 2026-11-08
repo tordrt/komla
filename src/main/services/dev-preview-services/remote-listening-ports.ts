@@ -50,7 +50,8 @@ export const REMOTE_SNAPSHOT_COMMAND = [
   `if command -v ss >/dev/null 2>&1 && listeners=$(ss -ltnp 2>/dev/null); then printf '%s\\n' '#ss' "$listeners"; pids=$(printf '%s\\n' "$listeners" | grep -o 'pid=[0-9]*'); elif command -v lsof >/dev/null 2>&1; then listeners=$(lsof -nP -iTCP -sTCP:LISTEN -Fpn 2>/dev/null); printf '%s\\n' '#lsof' "$listeners"; pids=$(printf '%s\\n' "$listeners" | grep '^p'); fi`,
   `printf '%s\\n' '${CWDS_SECTION}'`,
   `seen=' '; list=; for pid in $pids; do pid=\${pid#pid=}; pid=\${pid#p}; case "$seen" in *" $pid "*) continue ;; esac; seen="$seen$pid "; list="\${list:+$list,}$pid"; done`,
-  `if [ -d /proc/self ]; then printf '%s\\n' '#proc'; for pid in $seen; do cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null) && printf '%s %s\\n' "$pid" "$cwd"; done; elif [ -n "$list" ] && command -v lsof >/dev/null 2>&1; then printf '%s\\n' '#lsof'; lsof -a -d cwd -Fn -p "$list" 2>/dev/null; fi`,
+  // One ls for them all, as a readlink each would fork once per process, which took most of the scan.
+  `if [ -d /proc/self ]; then printf '%s\\n' '#ls'; set --; for pid in $seen; do set -- "$@" "/proc/$pid/cwd"; done; [ "$#" -gt 0 ] && LC_ALL=C QUOTING_STYLE=literal ls -ldn "$@" 2>/dev/null; elif [ -n "$list" ] && command -v lsof >/dev/null 2>&1; then printf '%s\\n' '#lsof'; lsof -a -d cwd -Fn -p "$list" 2>/dev/null; fi`,
   'true',
 ].join('\n');
 
@@ -132,7 +133,8 @@ export function parseRemoteSnapshot(output: string): RemoteListeningPortSnapshot
       ? parseLsofCwds(cwdLines.join('\n'))
       : new Map(
           cwdLines.flatMap((line): Array<[number, string]> => {
-            const match = /^(\d+) (.+)$/.exec(line);
+            // `ls -ld /proc/<pid>/cwd` prints the link as `… /proc/<pid>/cwd -> <directory>`.
+            const match = / \/proc\/(\d+)\/cwd -> (.+)$/.exec(line);
             if (!match) return [];
             const cwd = parseProcCwd(match[2]);
             return cwd === null ? [] : [[Number(match[1]), cwd]];

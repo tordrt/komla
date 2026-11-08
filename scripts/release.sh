@@ -854,11 +854,17 @@ require_green_ci() {
       return 0
     fi
     info "Waiting for CI on ${short}: $url"
-    # The run's status, read below, decides; watch only waits for it.
-    gh run watch "$run_id" --interval 30 >/dev/null 2>&1 || true
-    read -r status conclusion < <(gh run view "$run_id" --json status,conclusion \
-      --jq '"\(.status) \(if (.conclusion // "") == "" then "-" else .conclusion end)"') \
-      || die "Could not read CI run $url — check it, then run the release again"
+    # The run's status, read below, decides; watch only waits for it. Watch gives up on a failed
+    # GitHub API call while the run goes on, so watch again until the run is done or an hour passes.
+    local deadline=$((SECONDS + 3600))
+    while :; do
+      gh run watch "$run_id" --interval 30 >/dev/null 2>&1 || true
+      read -r status conclusion < <(gh run view "$run_id" --json status,conclusion \
+        --jq '"\(.status) \(if (.conclusion // "") == "" then "-" else .conclusion end)"') \
+        || die "Could not read CI run $url — check it, then run the release again"
+      [[ "$status" == "completed" || $SECONDS -ge $deadline ]] && break
+      sleep 30
+    done
     [[ "$status" == "completed" ]] \
       || die "Stopped waiting for CI run $url while it was ${status} — run the release again"
   fi

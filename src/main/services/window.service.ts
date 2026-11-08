@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { join } from 'path';
 
 import { is } from '@electron-toolkit/utils';
-import { BrowserWindow, dialog, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
 import { describeUnsavedFiles } from '../../shared/lib/unsaved-files';
@@ -52,6 +52,7 @@ export interface WindowInfo {
 class WindowService {
   private windows: Map<string, BrowserWindow> = new Map();
   private mainWindowId: string | null = null;
+  private lastFocusedWindowId: string | null = null;
   private displayNumbers: Map<string, number> = new Map();
   private nextDisplayNumber = 1;
   private readyWindows: Set<string> = new Set();
@@ -221,6 +222,10 @@ class WindowService {
       this.mainWindowId = windowId;
     }
 
+    window.on('focus', () => {
+      this.lastFocusedWindowId = windowId;
+    });
+
     // Its workspaces move to another window or stop, without the unsaved edits.
     window.on('close', (event) => {
       const names = this.unsavedFiles.get(windowId);
@@ -360,6 +365,29 @@ class WindowService {
       this.mainWindowId = this.windows.keys().next().value ?? null;
     }
     return this.mainWindowId;
+  }
+
+  /** The window that had focus last, even while another app has it, else the main window. */
+  getLastFocusedWindowId(): string | null {
+    if (this.lastFocusedWindowId && this.windows.has(this.lastFocusedWindowId)) {
+      return this.lastFocusedWindowId;
+    }
+    return this.getMainWindowId();
+  }
+
+  /**
+   * Brings the window in front of every app's, as after a global shortcut pressed elsewhere.
+   * False when the window is gone.
+   */
+  bringToFront(windowId: string): boolean {
+    const window = this.windows.get(windowId);
+    if (!window || window.isDestroyed()) return false;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    // macOS leaves another app active when only the window is focused.
+    if (process.platform === 'darwin') app.focus({ steal: true });
+    window.focus();
+    return true;
   }
 
   getAllWindows_info(): WindowInfo[] {

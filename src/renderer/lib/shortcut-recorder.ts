@@ -128,6 +128,45 @@ function normalizeKey(event: KeyboardEvent): string {
   return key;
 }
 
+// Where a key sits rather than what it types: Option+K types ˚ on macOS, and AZERTY's A key
+// types æ there with Option.
+const PHYSICAL_KEYS: Record<string, string> = {
+  Space: ' ',
+  Minus: '-',
+  Equal: '=',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Backslash: '\\',
+  Semicolon: ';',
+  Quote: "'",
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+  Backquote: '`',
+};
+
+function physicalKey(event: KeyboardEvent): string | undefined {
+  if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3);
+  if (/^Digit\d$/.test(event.code)) return event.code.slice(5);
+  return PHYSICAL_KEYS[event.code];
+}
+
+const TYPED_ASCII = /^[!-~ ]$/;
+
+/**
+ * The config format for a global shortcut, which Electron registers by key rather than by the
+ * character typed. macOS registers keys by where they sit, as on a US keyboard, and so does
+ * everything else for the digit row, which types & for 1 on AZERTY. Elsewhere the character
+ * typed names the key, unless it's one the layout makes, such as AltGr's €.
+ */
+export function keyEventToGlobalConfigFormat(event: KeyboardEvent, platform: string): string {
+  const typed = normalizeKey(event);
+  const byPosition = platform === 'darwin' || /^Digit\d$/.test(event.code);
+  const usesTyped = !byPosition && (typed.length > 1 || TYPED_ASCII.test(typed));
+  const key = (usesTyped ? undefined : physicalKey(event)) ?? typed;
+  return [...collectModifiers(event, platform), key].join('+');
+}
+
 /**
  * Convert a KeyboardEvent to the config format string (e.g., "Cmd+Shift+K").
  * Uses "Cmd" as the platform-agnostic modifier — Meta on Mac, Ctrl on Win/Linux.

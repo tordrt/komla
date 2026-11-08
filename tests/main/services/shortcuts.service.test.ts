@@ -627,6 +627,63 @@ describe('ShortcutsService', () => {
     expect(cache.isUS).toBe(true);
   });
 
+  it('leaves New Workspace from any app unbound, so it takes no keys from other apps', async () => {
+    await shortcutsService.init();
+    expect(shortcutsService.getConfig().shortcuts['workspace.newFromAnywhere']).toBe('');
+    expect(electronMock.globalShortcut.register).not.toHaveBeenCalled();
+  });
+
+  it('registers New Workspace from any app system-wide once ready, and on each change', async () => {
+    const pressed = vi.fn();
+    shortcutsService.onGlobalShortcut = pressed;
+    shortcutsService.updateConfig({ shortcuts: { 'workspace.newFromAnywhere': 'Cmd+Shift+ ' } });
+    expect(electronMock.globalShortcut.register).not.toHaveBeenCalled();
+
+    await shortcutsService.init();
+    expect(electronMock.globalShortcut.register).toHaveBeenCalledWith(
+      'CommandOrControl+Shift+Space',
+      expect.any(Function)
+    );
+    electronMock.globalShortcut.register.mock.calls[0][1]();
+    expect(pressed).toHaveBeenCalledWith('workspace.newFromAnywhere');
+
+    shortcutsService.updateConfig({ shortcuts: { 'workspace.newFromAnywhere': 'Alt+Cmd+N' } });
+    expect(electronMock.globalShortcut.unregister).toHaveBeenCalledWith(
+      'CommandOrControl+Shift+Space'
+    );
+    expect(electronMock.globalShortcut.register).toHaveBeenLastCalledWith(
+      'CommandOrControl+Alt+N',
+      expect.any(Function)
+    );
+
+    shortcutsService.resetConfig();
+    expect(electronMock.globalShortcut.unregister).toHaveBeenLastCalledWith(
+      'CommandOrControl+Alt+N'
+    );
+  });
+
+  it('reports keys the system refuses for New Workspace from any app', async () => {
+    await shortcutsService.init();
+    electronMock.globalShortcut.register.mockReturnValueOnce(false);
+    const config = shortcutsService.updateConfig({
+      shortcuts: { 'workspace.newFromAnywhere': 'Cmd+Shift+ ' },
+    });
+    expect(config.unavailableGlobalShortcuts).toEqual(['workspace.newFromAnywhere']);
+
+    // Reading back the config it saved doesn't ask the system again; saving shortcuts does.
+    vi.advanceTimersByTime(1000);
+    mockWatcherCallback?.();
+    expect(electronMock.globalShortcut.register).toHaveBeenCalledTimes(1);
+    const retried = shortcutsService.updateConfig({ shortcuts: { 'tab.next': 'Cmd+]' } });
+    expect(electronMock.globalShortcut.register).toHaveBeenCalledTimes(2);
+    expect(retried.unavailableGlobalShortcuts).toBeUndefined();
+
+    const cleared = shortcutsService.updateConfig({
+      shortcuts: { 'workspace.newFromAnywhere': '' },
+    });
+    expect(cleared.unavailableGlobalShortcuts).toBeUndefined();
+  });
+
   it('notifies renderer on file change', async () => {
     const window = createMockBrowserWindow();
     (

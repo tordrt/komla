@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   keyEventToConfigFormat,
+  keyEventToGlobalConfigFormat,
   findConflict,
   isModifierOnly,
   extractRangeModifier,
@@ -86,6 +87,35 @@ describe('shortcut-recorder', () => {
     });
   });
 
+  describe('keyEventToGlobalConfigFormat', () => {
+    it('names the key pressed with Option on macOS, not the character it types', () => {
+      const optionK = makeKeyEvent({ key: '˚', code: 'KeyK', metaKey: true, altKey: true });
+      expect(keyEventToGlobalConfigFormat(optionK, 'darwin')).toBe('Alt+Cmd+K');
+      const optionN = makeKeyEvent({ key: 'Dead', code: 'KeyN', ctrlKey: true, altKey: true });
+      expect(keyEventToGlobalConfigFormat(optionN, 'darwin')).toBe('Ctrl+Alt+N');
+    });
+
+    it('names Space and other keys by where they sit on macOS', () => {
+      const space = makeKeyEvent({ key: ' ', code: 'Space', metaKey: true, shiftKey: true });
+      expect(keyEventToGlobalConfigFormat(space, 'darwin')).toBe('Cmd+Shift+ ');
+      const digit = makeKeyEvent({ key: '!', code: 'Digit1', metaKey: true, shiftKey: true });
+      expect(keyEventToGlobalConfigFormat(digit, 'darwin')).toBe('Cmd+Shift+1');
+      const arrow = makeKeyEvent({ key: 'ArrowUp', code: 'ArrowUp', metaKey: true });
+      expect(keyEventToGlobalConfigFormat(arrow, 'darwin')).toBe('Cmd+ArrowUp');
+    });
+
+    it('names the character typed elsewhere, unless only the layout makes it', () => {
+      // AZERTY's A key sits where QWERTY has Q.
+      const azertyA = makeKeyEvent({ key: 'a', code: 'KeyQ', ctrlKey: true, shiftKey: true });
+      expect(keyEventToGlobalConfigFormat(azertyA, 'win32')).toBe('Cmd+Shift+A');
+      // AZERTY's 1 key types &, which Electron would take for Shift+7.
+      const azerty1 = makeKeyEvent({ key: '&', code: 'Digit1', ctrlKey: true });
+      expect(keyEventToGlobalConfigFormat(azerty1, 'win32')).toBe('Cmd+1');
+      const altGrE = makeKeyEvent({ key: '€', code: 'KeyE', ctrlKey: true, altKey: true });
+      expect(keyEventToGlobalConfigFormat(altGrE, 'win32')).toBe('Alt+Cmd+E');
+    });
+  });
+
   describe('findConflict', () => {
     const shortcuts: Record<string, string> = {
       'workspace.new': 'Cmd+N',
@@ -133,6 +163,17 @@ describe('shortcut-recorder', () => {
         action: 'pane.close',
         label: 'Close pane',
       });
+    });
+
+    it('finds a conflict between New Workspace from any app and a dialog action', () => {
+      expect(
+        findConflict(
+          'Cmd+Shift+Space',
+          'newWorkspace.cycleProject',
+          { 'workspace.newFromAnywhere': 'Cmd+Shift+Space' },
+          labels
+        )
+      ).toEqual({ action: 'workspace.newFromAnywhere', label: 'workspace.newFromAnywhere' });
     });
 
     it('finds a conflict when modifiers are ordered differently', () => {

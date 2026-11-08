@@ -1,9 +1,10 @@
 import { generateKeyPairSync, randomBytes, sign as nodeSign } from 'crypto';
-import { request } from 'http';
+import { createServer, request } from 'http';
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import type { Socket } from 'net';
+import type { Server } from 'http';
+import type { AddressInfo, Socket } from 'net';
 
 import {
   Peer,
@@ -81,6 +82,7 @@ function makeService(
     pairingOfferTimeoutMs?: number;
     heartbeatPingMs?: number;
     heartbeatTimeoutMs?: number;
+    createServer?: typeof createServer;
   } = {}
 ): {
   service: RemoteControlDirectService;
@@ -119,6 +121,7 @@ function makeService(
     pairingOfferTimeoutMs: options.pairingOfferTimeoutMs,
     heartbeatPingMs: options.heartbeatPingMs,
     heartbeatTimeoutMs: options.heartbeatTimeoutMs,
+    createServer: options.createServer,
     webAssetDir,
     emitStateChange,
     terminalPresentationTracking,
@@ -497,11 +500,31 @@ describe('RemoteControlDirectService', () => {
   });
 
   it('rejects non-HTTPS public origins', async () => {
-    await expect(service.start({ publicOrigin: 'http://mac.local' })).rejects.toThrow(/https:\/\//);
-    expect(service.getInfo()).toBeNull();
+    // Expecting the next start to get the preferred port would also expect no
+    // other process to hold 52864, and a test run in another worktree can.
+    // Check instead that the rejected start left no server listening.
+    const trackedCreateServer = vi.fn(createServer);
+    const listeningPorts = () =>
+      trackedCreateServer.mock.results
+        .map((result) => result.value as Server)
+        .filter((server) => server.listening)
+        .map((server) => (server.address() as AddressInfo).port);
+    const { service: localService } = makeService(webAssetDir, {
+      createServer: trackedCreateServer,
+    });
 
-    const info = await service.start();
-    expect(info.port).toBe(info.preferredPort);
+    try {
+      await expect(localService.start({ publicOrigin: 'http://mac.local' })).rejects.toThrow(
+        /https:\/\//
+      );
+      expect(localService.getInfo()).toBeNull();
+      expect(listeningPorts()).toEqual([]);
+
+      const info = await localService.start();
+      expect(listeningPorts()).toEqual([info.port]);
+    } finally {
+      await localService.stop();
+    }
   });
 
   it('serializes concurrent starts and enables terminal tracking once', async () => {

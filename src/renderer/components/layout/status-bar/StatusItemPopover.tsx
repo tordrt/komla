@@ -14,6 +14,7 @@ import {
 } from '@/components/command-page/command-page';
 import { IconButton } from '@/components/ui/icon-button';
 import { Spinner } from '@/components/ui/spinner';
+import { openLinkExternally } from '@/lib/open-terminal-url';
 import {
   keepStatusPopover,
   setStatusPopover,
@@ -96,7 +97,7 @@ export function AgentItemPopover({
       )}
       <CommandPageButtons
         buttons={link ? [{ label: `Open ${linkHost(link)}`, link }] : []}
-        onPress={() => link && void window.api.openExternal(link)}
+        onPress={() => link && void openLinkExternally(link, { workspaceId: item.workspaceId })}
         busy={null}
       />
     </>

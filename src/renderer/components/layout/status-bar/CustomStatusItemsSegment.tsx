@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useNamedActionRunner } from '@/hooks/useNamedActionRunner';
 import { useOpenProject } from '@/hooks/useProject';
 import { REFRESH_ON_SETTLE_MS, refreshesOn } from '@/hooks/useRunWhileVisible';
+import { openLinkExternally } from '@/lib/open-terminal-url';
 import { isHiddenInProject } from '@/lib/project-hidden-items';
 import { panelView } from '@/lib/sidebar-tabs';
 import { statusItemColorProps } from '@/lib/status-item-color';
@@ -31,6 +32,7 @@ import {
   isStatusGapSegment,
   isStatusIconSegment,
   isStatusTextSegment,
+  runsOnThisComputer,
 } from '../../../../shared/types/status-items';
 
 import { isStatusBarItemShown } from './status-bar-items';
@@ -352,16 +354,22 @@ function AgentHtmlItem({ item, itemKey }: { item: WindowStatusItem; itemKey: str
   );
 }
 
-/** A link item opens its link; any other item only shows. */
-function LinkItem(
-  item: Pick<StatusItemButtonProps, 'itemKey' | 'content' | 'label' | 'staleReason'>
-) {
+/**
+ * A link item opens its link; any other item only shows. An agent's item passes its workspace,
+ * so a localhost link from an SSH host opens through a tunnel to that host.
+ */
+function LinkItem({
+  workspaceId,
+  ...item
+}: Pick<StatusItemButtonProps, 'itemKey' | 'content' | 'label' | 'staleReason'> & {
+  workspaceId?: string;
+}) {
   const { link } = item.content;
   return (
     <StatusItemButton
       {...item}
       hint={link ? `opens ${linkHost(link)}` : undefined}
-      onClick={link ? () => void window.api.openExternal(link) : undefined}
+      onClick={link ? () => void openLinkExternally(link, { workspaceId }) : undefined}
     />
   );
 }
@@ -535,7 +543,16 @@ export function useCustomStatusItems(): {
         />
       );
     } else {
-      rendered.set(key, <LinkItem key={key} {...item} />);
+      // Its link opens through the SSH host's tunnel when its command ran there.
+      const runsInWorkspace = !runsOnThisComputer(command.runOn);
+      rendered.set(
+        key,
+        <LinkItem
+          key={key}
+          {...item}
+          workspaceId={runsInWorkspace ? (workspaceId ?? undefined) : undefined}
+        />
+      );
     }
   }
   for (const item of agentItems) {
@@ -550,7 +567,7 @@ export function useCustomStatusItems(): {
           {() => <AgentItemPopover item={item} />}
         </PopoverItem>
       ) : (
-        <LinkItem key={key} itemKey={key} content={item} />
+        <LinkItem key={key} itemKey={key} content={item} workspaceId={item.workspaceId} />
       )
     );
   }

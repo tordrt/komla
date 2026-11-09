@@ -40,7 +40,7 @@ export function openTerminalUrl(
   }
   const executionLocation = context.executionLocation ?? 'workspace';
   if (target === 'external' || !workspaceId) {
-    void openExternally(normalized, context);
+    void openLinkExternally(normalized, context);
   } else if (target === 'preview') {
     openInBrowserPane(workspaceId, normalized, executionLocation);
   } else {
@@ -48,10 +48,17 @@ export function openTerminalUrl(
   }
 }
 
-async function openExternally(
-  url: string,
+/**
+ * Opens a link in the default browser: the external half of openTerminalUrl, for links that don't
+ * come from a terminal, such as a status item's. A localhost link from a workspace on an SSH host
+ * opens through a tunnel to that host. It leaves the workspace's recent links and dev server
+ * offers alone.
+ */
+export async function openLinkExternally(
+  rawUrl: string,
   { workspaceId, executionLocation }: TerminalUrlContext
 ): Promise<void> {
+  const url = normalizeLocalDevServerUrl(rawUrl);
   const toasts = useToastStore.getState();
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
   const intent = parseLoopbackForwardIntent(url);

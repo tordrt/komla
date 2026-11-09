@@ -13,12 +13,14 @@
 - The globe button lists your dev servers faster, most noticeably in SSH workspaces and when several workspaces share a machine.
 - A remote workspace shows its cloud icon from the moment it starts setting up.
 - The sidebar always lists workspaces with the tighter compact spacing, so the setting for it is gone.
+- Launch mode pickers are less crowded: "Dangerously skip permissions" is now called YOLO for Claude Code and Amp, as it already was for other agents. It's still red and passes the same flags.
 
 ### Fixes
 
 - Escape closes the file preview while you're typing in the Markdown editor or a note.
 - Opening a diff of a file containing Unicode line or paragraph separators no longer pops up a dialog offering to remove them.
 - The files list no longer shows files outside the workspace that have since been deleted.
+- A status item an agent on an SSH host sets with a localhost link now opens through a tunnel to that host, instead of a page that isn't there on your own computer.
 - With more than one Komla attached to the same SSH host, a Done you've seen in one no longer shows as unread in the others.
 
 ## [1.0.0]

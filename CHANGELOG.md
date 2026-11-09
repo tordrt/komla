@@ -13,6 +13,7 @@
 - The globe button lists your dev servers faster, most noticeably in SSH workspaces and when several workspaces share a machine.
 - A remote workspace shows its cloud icon from the moment it starts setting up.
 - The sidebar always lists workspaces with the tighter compact spacing, so the setting for it is gone.
+- The macOS installer now shows a "Drag Komla into Applications" background, with an arrow from the app to the Applications folder.
 - Launch mode pickers are less crowded: "Dangerously skip permissions" is now called YOLO for Claude Code and Amp, as it already was for other agents. It's still red and passes the same flags.
 
 ### Fixes

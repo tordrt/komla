@@ -15,7 +15,7 @@ import {
   type WorkspaceCreateResult,
 } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
-import { removePath } from '../../lib/remove-path';
+import { removePathInChild } from '../../lib/remove-path';
 import { buildTerminalEnv } from '../../lib/shell';
 import { getConfiguredShellCommand } from '../../lib/shell-command';
 import { configService } from '../../services/config.service';
@@ -130,7 +130,7 @@ async function runSimpleRmRfScript(paths: string[], cwd: string): Promise<void> 
     if (relativeParent !== '' && (relativeParent.startsWith('..') || isAbsolute(relativeParent))) {
       throw new Error(`Refusing to remove path outside workspace: ${path}`);
     }
-    await removePath(target, { recursive: true, force: true });
+    await removePathInChild(target);
   }
 }
 

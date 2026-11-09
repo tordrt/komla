@@ -40,9 +40,11 @@ vi.mock('../../../../src/main/lib/shell', () => ({
 
 vi.mock('fs/promises', async (importOriginal) => ({
   ...(await importOriginal<typeof import('fs/promises')>()),
-  rm: mockRm,
   realpath: mockRealpath,
 }));
+
+// Deleting runs in a child process so a big node_modules can't hold up the main process.
+vi.mock('../../../../src/main/lib/remove-path', () => ({ removePathInChild: mockRm }));
 
 const mockWorkspaceService = {
   create: vi.fn(),
@@ -611,14 +613,8 @@ describe('workspace IPC behavior', () => {
       expect(mockProjectService.get).toHaveBeenCalledWith('proj-1');
       expect(mockExecFile).not.toHaveBeenCalled();
       // The handler resolves each path, which on Windows puts it on the current drive.
-      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'node_modules'), {
-        recursive: true,
-        force: true,
-      });
-      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'dist'), {
-        recursive: true,
-        force: true,
-      });
+      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'node_modules'));
+      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'dist'));
       expect(mockWorkspaceService.update).toHaveBeenCalledWith('ws-1', { status: 'trashed' });
     });
 
@@ -942,14 +938,8 @@ describe('workspace IPC behavior', () => {
       await ipcMain._invoke('workspace:update', 'ws-1', { status: 'trashed' });
 
       // node_modules deletes normally; ghost/missing is silently skipped.
-      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'node_modules'), {
-        recursive: true,
-        force: true,
-      });
-      expect(mockRm).not.toHaveBeenCalledWith(
-        resolve('/tmp/repo', 'ghost', 'missing'),
-        expect.anything()
-      );
+      expect(mockRm).toHaveBeenCalledWith(resolve('/tmp/repo', 'node_modules'));
+      expect(mockRm).not.toHaveBeenCalledWith(resolve('/tmp/repo', 'ghost', 'missing'));
     });
 
     it('falls back to shell when the rm script contains shell metacharacters', async () => {

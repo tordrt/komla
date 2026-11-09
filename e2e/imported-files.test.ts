@@ -35,10 +35,13 @@ async function openWorkspace(page: Page): Promise<string> {
   await dialog.locator('input[placeholder$="swift-fox"]').fill('imported-files/one');
   await dialog.getByRole('button', { name: /^(Launch|Create)/ }).click();
   await expect(dialog).toBeHidden({ timeout: 10_000 });
-  return page.evaluate(async () => {
-    const workspaces = await window.api.getWorkspaces();
-    return workspaces[0].workingDirectory;
-  });
+  // The workspace has no directory until its worktree is made, which can outlast the dialog.
+  let cwd = '';
+  await expect(async () => {
+    cwd = await page.evaluate(async () => (await window.api.getWorkspaces())[0].workingDirectory);
+    expect(cwd).not.toBe('');
+  }).toPass({ timeout: 15_000 });
+  return cwd;
 }
 
 /** Reloads, so the file list starts empty, selects the workspace again and opens its file panel. */

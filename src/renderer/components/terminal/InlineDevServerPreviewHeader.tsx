@@ -185,6 +185,8 @@ export function InlineDevServerPreviewHeader({
   // Several browsers can show at once.
   const autoReloadStatusId = useId();
   const addressFieldRef = useRef<HTMLInputElement>(null);
+  // Set while the user edits the address, which the page's own updates then leave alone.
+  const editingAddressRef = useRef(false);
   const pickerListRef = useRef<HTMLDivElement>(null);
   const [remotePortDialogOpen, setRemotePortDialogOpen] = useState(false);
   const [draftRemotePort, setDraftRemotePort] = useState(
@@ -209,7 +211,7 @@ export function InlineDevServerPreviewHeader({
           ? mapForwardedNavigationUrl(state.url, activeForwardUrl, activeForwardTargetUrl)
           : state.url;
       setNavigationState({ ...state, url: displayUrl });
-      if (isBrowserUrl(displayUrl)) setDraftUrl(displayUrl);
+      if (isBrowserUrl(displayUrl) && !editingAddressRef.current) setDraftUrl(displayUrl);
     });
   }, [activeForwardTargetUrl, activeForwardUrl, isForwardedTab, tabId, workspaceId]);
 
@@ -227,6 +229,7 @@ export function InlineDevServerPreviewHeader({
     // visible so the user can fix it.
     const trimmed = toBrowserUrl(draftUrl);
     if (!trimmed) return;
+    editingAddressRef.current = false;
     if (isRemoteSshPreview && isLoopbackUrl(trimmed)) {
       const intent = parseLoopbackForwardIntent(trimmed);
       if (!intent) return;
@@ -416,6 +419,7 @@ export function InlineDevServerPreviewHeader({
                 type="text"
                 value={draftUrl}
                 onChange={(e) => {
+                  editingAddressRef.current = true;
                   setDraftUrl(e.target.value);
                   setPickerOpen(false);
                 }}
@@ -437,6 +441,7 @@ export function InlineDevServerPreviewHeader({
                 onBlur={() => {
                   // Leaving the field unchanged is not a request to forward.
                   if (draftUrl.trim() !== persistedCurrentUrl.trim()) submitUrl();
+                  editingAddressRef.current = false;
                 }}
                 placeholder={DEFAULT_URL}
                 spellCheck={false}

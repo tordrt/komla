@@ -444,6 +444,31 @@ describe('InlineDevServerPreviewHeader', () => {
     expect(tabWrites).toContainEqual(tabUpdate('http://localhost:8080'));
   });
 
+  it('keeps an address being typed when the open page reports its own', async () => {
+    render(header());
+
+    const input = screen.getByDisplayValue('http://localhost:5173') as HTMLInputElement;
+    input.focus();
+    fireEvent.change(input, { target: { value: 'http://localhost:8080' } });
+    // The page still loading as the user types, such as its title arriving.
+    act(() =>
+      navigationStateCallback?.({
+        workspaceId: 'ws-1',
+        tabId: TAB_1,
+        title: 'Dashboard',
+        loadError: null,
+        url: 'http://localhost:5173/',
+        canGoBack: false,
+        canGoForward: false,
+      })
+    );
+    await waitFor(() => expect(screen.getByLabelText('Go back')).toBeDisabled());
+    expect(input.value).toBe('http://localhost:8080');
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(tabWrites).toContainEqual(tabUpdate('http://localhost:8080'));
+  });
+
   it('does not persist when the submitted URL equals the current URL', () => {
     render(header());
 

@@ -167,10 +167,11 @@ function selectTreeItem(item: FileTreeItemHandle): void {
  * Focuses a row, by default pierre's focused one (the one tabbable row), so
  * arrow keys and the row shortcuts work without a click first, and then calls
  * `then`. Rows render a moment after the model changes, so this retries for up
- * to half a second before falling back to the tree's container. Returns a
- * cleanup that stops waiting.
+ * to half a second before falling back to the tree's container. A key or a
+ * pointer press meanwhile that moves the focus, such as the prompt draft's
+ * shortcut, leaves it there. Returns a cleanup that stops waiting.
  */
-function focusTreeRowSoon(
+export function focusTreeRowSoon(
   treeHostRef: React.RefObject<HTMLElement | null>,
   containerRef: React.RefObject<HTMLElement | null>,
   path?: string,
@@ -181,17 +182,32 @@ function focusTreeRowSoon(
   const selector = path
     ? `[role="treeitem"][data-item-path="${CSS.escape(`${path}/`)}"], [role="treeitem"][data-item-path="${CSS.escape(path)}"]`
     : '[data-type="item"][tabindex="0"]';
+  // Where the focus was as the user first acted, before the action could move it.
+  let focusAtAction: Element | null | undefined;
+  const onUserAction = () => {
+    if (focusAtAction === undefined) focusAtAction = document.activeElement;
+  };
+  window.addEventListener('keydown', onUserAction, true);
+  window.addEventListener('pointerdown', onUserAction, true);
+  const focusMovedByUser = () =>
+    focusAtAction !== undefined && document.activeElement !== focusAtAction;
   let attempts = 0;
   const interval = setInterval(() => {
     const row = treeHostRef.current
       ?.querySelector('file-tree-container')
       ?.shadowRoot?.querySelector<HTMLElement>(selector);
-    if (!row && ++attempts < 10) return;
-    clearInterval(interval);
-    (row ?? containerRef.current)?.focus();
+    const yieldFocus = focusMovedByUser();
+    if (!row && !yieldFocus && ++attempts < 10) return;
+    stop();
+    if (!yieldFocus) (row ?? containerRef.current)?.focus();
     then?.();
   }, 50);
-  return () => clearInterval(interval);
+  function stop() {
+    clearInterval(interval);
+    window.removeEventListener('keydown', onUserAction, true);
+    window.removeEventListener('pointerdown', onUserAction, true);
+  }
+  return stop;
 }
 
 function expandTreeItem(item: FileTreeItemHandle | null): void {

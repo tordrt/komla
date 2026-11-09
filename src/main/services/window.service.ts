@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { join } from 'path';
 
 import { is } from '@electron-toolkit/utils';
-import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, dialog, nativeTheme, screen, shell } from 'electron';
 
 import { IPC } from '../../shared/constants/ipc-channels';
 import { describeUnsavedFiles } from '../../shared/lib/unsaved-files';
@@ -23,6 +23,10 @@ import { shortcutsService } from './shortcuts.service';
 // Cmd-Tab or a focus() call don't land in an invisible app. Linux keeps both off:
 // it has no window opacity, transparency set at show there drops the window to
 // the same slow paint rate, and an unfocusable window stays on top everywhere.
+// It's moved off the displays too, as far as the system lets it, leaving a corner past their
+// bottom left on macOS: macOS still sends a see-through, click-through window the real pointer's
+// moves and exits, which closed a test's submenu or hid what it hovered whenever the pointer of
+// someone at the computer crossed the window.
 // Test runs only, so a shipped app can't be left without a visible window.
 const HIDE_WINDOWS = process.env.NODE_ENV === 'test' && process.env.KOMLA_E2E_HIDE_WINDOWS === '1';
 const HIDE_FROM_SCREEN = HIDE_WINDOWS && process.platform !== 'linux';
@@ -31,7 +35,15 @@ const HIDE_FROM_SCREEN = HIDE_WINDOWS && process.platform !== 'linux';
 export function showWindow(window: BrowserWindow): void {
   if (HIDE_WINDOWS) {
     window.showInactive();
-    if (HIDE_FROM_SCREEN) window.setOpacity(0);
+    if (HIDE_FROM_SCREEN) {
+      window.setOpacity(0);
+      // Once shown, as showing a window brings it back onto a display.
+      const { width } = window.getBounds();
+      const bounds = screen.getAllDisplays().map((d) => d.bounds);
+      const left = Math.min(...bounds.map((b) => b.x));
+      const bottom = Math.max(...bounds.map((b) => b.y + b.height));
+      window.setPosition(left - width - 100, bottom + 100);
+    }
     window.setIgnoreMouseEvents(true);
   } else {
     window.show();

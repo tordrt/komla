@@ -1177,13 +1177,15 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     }
   }, [slashMenuOpen, slashMenuIndex]);
 
-  // Focus branch input when dialog opens without an agent (prompt textarea gets autoFocus otherwise)
+  // Focus branch input when dialog opens without an agent (prompt textarea gets autoFocus otherwise).
+  // Not while the project search is open, as New workspace pressed again at once opens it before
+  // this runs, and focus leaving the search closes it: the branch input gets the focus once it does.
   useEffect(() => {
-    if (open && !hasAgent) {
+    if (open && !hasAgent && !projectPickerOpen) {
       const timer = window.setTimeout(() => branchInputRef.current?.focus(), 0);
       return () => window.clearTimeout(timer);
     }
-  }, [open, hasAgent]);
+  }, [open, hasAgent, projectPickerOpen]);
 
   // Set default project and generate random branch name when dialog opens
   useEffect(() => {

@@ -4595,6 +4595,27 @@ describe('NewWorkspaceDialog', () => {
       await waitFor(() => expect(branchInput).toHaveFocus());
     });
 
+    it('keeps the project search focused when opened as the dialog opens without an agent', async () => {
+      mockPresetStore.activePreset = {
+        id: 'shell-only',
+        name: 'Shell Only',
+        openCommand: '',
+        launchModes: [],
+      };
+      render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+      // New workspace pressed again at once, before the branch name has taken the focus.
+      fireEvent.keyDown(screen.getByPlaceholderText('komla/swift-fox'), {
+        key: 'n',
+        ctrlKey: true,
+      });
+
+      const search = await screen.findByRole('combobox', { name: /search projects/i });
+      await waitFor(() => expect(screen.getByPlaceholderText('komla/swift-fox')).toBeVisible());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(search).toBeInTheDocument();
+      expect(search).toHaveFocus();
+    });
+
     it('moves focus out of an open menu when switching projects without an agent', async () => {
       mockPresetStore.activePreset = {
         id: 'shell-only',

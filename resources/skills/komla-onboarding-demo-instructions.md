@@ -23,6 +23,11 @@ step's first command, tell the user in one or two sentences what is about to hap
 Komla to look. After every operation, inspect the result; describe visible effects only after
 success. On failure, report the error and stop. Never construct manual HTTP requests.
 
+Whenever the tour changes something in Komla, such as naming, tagging or snoozing a workspace,
+setting a status bar item or launching an agent, tell the user the `komla` command that did it, in
+code, right after it ran, so they see how to do the same from their own scripts. A short form is
+enough for a long command, such as `komla status set tour "Komla tour 2/5" --popover-file -`.
+
 ## 1. Name the workspace and show progress
 
 Run `komla context --json` and `komla agent presets --json`. Confirm that the context identifies the
@@ -66,11 +71,17 @@ click. Explain that agents use the same `komla` command for everything in this t
 and that `komla --help` lists every command. What they could build: an agent that keeps a long
 task's progress in the status bar, such as a migration's files done of those to do.
 
-At the start of each later step, set the item again the same way, with the step's number in the
-text and the pill, the bar and rows before it marked `done` with the `&#xf058;` icon, and its own
-marked `now`.
+The item only changes when you set it again, so steps 2 to 5 each begin with this, before anything
+else in the step: run `komla status set tour "Komla tour N/5" --tone info --popover-file -` with
+the step 1 page as a heredoc, where N is the step's number. In that page, change the pill to
+`Step N of 5`, give the bar's segments before the step's the class `done` and the step's own `now`,
+and mark the rows before the step's `done` with the `&#xf058;` icon and its own `now` with
+`&#xf192;`. Check that the command succeeded. Do not skip this if the user is waiting or came back
+from another workspace: the status bar is how they see where the tour stands.
 
 ## 2. Hand a task to a new workspace
+
+First update the status bar item to `Komla tour 2/5`, as step 1 describes.
 
 Explain that the new workspace appears in the sidebar. Git-backed projects get a separate branch
 and working directory; directory-backed projects share the project directory.
@@ -102,6 +113,8 @@ on Windows and Linux for switching workspaces. Opening it also clears its Done b
 otherwise cover what step 4 shows on its card. End the turn.
 
 ## 3. Find a dev server with the globe button
+
+First update the status bar item to `Komla tour 3/5`, as step 1 describes.
 
 Explain that the agent will start a small dev server for the user to find and open themselves. Use a
 newly created, uniquely named temporary directory for it. Record its exact path; never overwrite an
@@ -147,6 +160,8 @@ fails too, report the error and go on to step 4, which doesn't need it.
 
 ## 4. Drive another workspace from a script
 
+First update the status bar item to `Komla tour 4/5`, as step 1 describes.
+
 This step is the heart of the tour: take it slowly and make sure the user knows why it matters.
 Before any command, explain that the commands it shows are how custom integrations extend Komla: a
 CI watcher, a deploy script, a pull request bot or a hook Komla runs on a timer can put their own
@@ -157,7 +172,11 @@ workspaces wait on what, without opening each one. Any script reaches any worksp
 `status set` and the other workspace commands at it.
 
 Say the agent now plays a CI script for the Demo Workspace in three stages, pausing after each so
-the user can watch the sidebar. Ask them to keep an eye on the Demo Workspace's card.
+the user can watch the sidebar. Ask them to keep an eye on the Demo Workspace's card. Make clear
+that CI is only an example of what they can create: Komla has no CI feature and watches no CI
+system. The CI running progress, the CI item with its popover and the CI passed badge below are
+all plain `komla` commands the agent runs by hand, standing in for the script or hook the user
+would write for their real CI, deploys or anything else they want on a workspace.
 
 Run `komla workspace list --json` and find the Demo Workspace by its id. If it isn't listed, say so
 and go to step 5. Its agent must be finished before the snooze in stage 2, since that agent's
@@ -176,8 +195,9 @@ Run, with its id:
 komla progress "CI running" --tone info --tooltip "Komla tour: a pretend CI run" --workspace <id> --json
 ```
 
-Then give the Demo Workspace a status bar item with the details the card has no room for: a page
-of the checks, and a button to the CI run page. Write this page to `ci-popover.html` in step 3's
+Say once more that Komla built none of this in. Then give the Demo Workspace a status bar item
+with the details the card has no room for: a page of the checks, and a button to the CI run page,
+all made up by this demo. Write this page to `ci-popover.html` in step 3's
 temporary directory, or in a new uniquely named one if step 3 made none:
 
 <!-- prettier-ignore -->
@@ -214,8 +234,9 @@ temporary directory, or in a new uniquely named one if step 3 made none:
 <p class="note muted">Komla tour: set by a pretend CI script.</p>
 ```
 
-Run, with its id and that file's path, adding `--link <root URL>/ci-run.html` when step 3's server
-runs on this computer rather than on an SSH host:
+Run, with its id and that file's path, and `--link <root URL>/ci-run.html` for the button. On an SSH
+host, Komla opens that localhost link through a tunnel to the host, as it does for the globe
+button, so leave nothing out and tell the user nothing about links failing there:
 
 ```sh
 komla status set ci --segments '[{"text":"\uf110","color":"info"},{"text":" CI 2/4"}]' --popover-file <path> --workspace <id>
@@ -282,11 +303,16 @@ ask to continue. End the turn.
 
 ## 5. Build a plugin that drives Komla
 
+First update the status bar item to `Komla tour 5/5`, as step 1 describes.
+
 Explain that everything so far ran because an agent or a script ran a command, and lasts until
 Komla quits. A plugin is how it becomes part of Komla: one folder whose `komla-plugin.json` bundles
 status bar items, sidebar panels and hooks, which Komla runs itself and keeps across restarts, and
 which the user turns on and off as one. Its commands and buttons have the same `komla` CLI, so a
-plugin can do anything this tour did, including handing work to agents.
+plugin can do anything this tour did, including handing work to agents. But a plugin doesn't need
+Komla's commands at all: a panel is whatever its command prints, so it can list the user's GitHub
+issues and pull requests, their CI's checks, their error tracker or anything else with an API or a
+command line, and the CLI is only there for buttons that act on Komla.
 
 Say the agent now builds a small Komla tour plugin: a status bar item that takes the place of the
 tour's progress item and opens a sidebar panel on a click, and that panel, a Komla CLI playground
@@ -294,9 +320,8 @@ whose buttons run `komla` commands, on two pages:
 
 - **Workspaces.** **Run mock tests** shows Tests running, spinning, on the Demo Workspace's card
   with `komla progress`, then clears it and gives the card a Tests passed badge with
-  `komla notify`. **Mock deploy** counts an item in this status bar from Deploying 1/3 to 3/3 with
-  `komla status set`, shows Deployed, then clears it. **Snooze it a minute** moves the Demo
-  Workspace to the Snoozed shelf with `komla snooze 1m`, and it comes back by itself.
+  `komla notify`. **Snooze it a minute** moves the Demo Workspace to the Snoozed shelf with
+  `komla snooze 1m`, and it comes back by itself.
 - **Agents.** **Ask the tour agent** types a question into this terminal with `komla send`, as one
   agent steers another, and this agent answers it. **Draft a task** opens New Workspace with a task
   filled in, with `komla launch --draft`, for the user to start or cancel. **Open the dev server**
@@ -332,17 +357,16 @@ as text. Both pages start with this style:
 ```
 
 `page-1.json`'s page goes on with this, and its buttons are `Run mock tests` (`tests`),
-`Mock deploy` (`deploy`), `Snooze it a minute` (`snooze`) and `Agents →` (`agents`), each as
+`Snooze it a minute` (`snooze`) and `Agents →` (`agents`), each as
 `{"label": "<label>", "run": "<command>"}`:
 
 <!-- prettier-ignore -->
 ```html
 <div class="head"><b>Komla CLI playground</b><span class="pill">1 of 2 · Workspaces</span></div>
-<p class="lead muted">This panel is no built-in: it's a plugin the tour agent just wrote, one <code>komla-plugin.json</code>, and each button runs <code>komla</code> commands. Watch the sidebar and the status bar.</p>
+<p class="lead muted">This panel is no built-in: it's a plugin the tour agent just wrote, one <code>komla-plugin.json</code>, and each button runs <code>komla</code> commands. Watch the sidebar and the status bar. A panel is just what its command prints, so yours could show anything.</p>
 <div class="row"><span class="icon">&#xf110;</span><div><b>Run mock tests</b><span class="muted"><code>komla progress</code> spins Tests running on the Demo Workspace's card for a few seconds, then <code>komla notify</code> gives it a Tests passed badge.</span></div></div>
-<div class="row"><span class="icon">&#xf135;</span><div><b>Mock deploy</b><span class="muted"><code>komla status set</code> counts an item in this status bar from 1/3 to 3/3, then shows Deployed.</span></div></div>
 <div class="row"><span class="icon">&#xf186;</span><div><b>Snooze it a minute</b><span class="muted"><code>komla snooze 1m</code> moves the Demo Workspace to the Snoozed shelf, and it comes back by itself.</span></div></div>
-<p class="yours"><b>Build your own.</b> <span class="muted">Ask your agent for a plugin that fits your work, such as your CI's checks, your pull requests or a deploy, with buttons that hand an agent the next step.</span></p>
+<p class="yours"><b>Build your own.</b> <span class="muted">Ask your agent for a plugin that fits your work: your GitHub issues and pull requests, your CI's checks, your error tracker, or any system with an API. It needn't touch Komla at all, and a button can hand an agent the next step.</span></p>
 ```
 
 `page-2.json`'s page goes on with this, and its buttons are `Ask the tour agent` (`ask`),
@@ -356,7 +380,7 @@ as text. Both pages start with this style:
 <div class="row"><span class="icon">&#xf0fe;</span><div><b>Draft a task</b><span class="muted"><code>komla launch --draft</code> opens New Workspace with a task filled in, for you to start or cancel.</span></div></div>
 <div class="row"><span class="icon">&#xf0ac;</span><div><b>Open the dev server</b><span class="muted"><code>komla preview --open</code> opens the tour's page in Komla's browser.</span></div></div>
 <p class="also muted">Also: <code>komla read</code> and <code>komla wait</code> follow another agent, <code>komla workspace link</code> links workspaces, <code>komla desktop run</code> runs a GUI app, and <code>komla settings apply</code> changes Komla once you approve.</p>
-<p class="yours"><b>Build your own.</b> <span class="muted">Ask your agent for a plugin that fits your work, such as your CI's checks, your pull requests or a deploy, with buttons that hand an agent the next step.</span></p>
+<p class="yours"><b>Build your own.</b> <span class="muted">Ask your agent for a plugin that fits your work: your GitHub issues and pull requests, your CI's checks, your error tracker, or any system with an API. It needn't touch Komla at all, and a button can hand an agent the next step.</span></p>
 ```
 
 Then write this to `plugin.json` in that directory, with that project id, the directory's absolute
@@ -394,7 +418,6 @@ buttons last picked, from the `page` file the `agents` and `workspaces` commands
               "intervalSeconds": 300,
               "commands": {
                 "tests": "komla progress 'Tests running' --tone info --tooltip 'Komla tour: mock tests' --workspace <demo id> && sleep 6 && komla progress --clear 'Tests running' --workspace <demo id> && komla notify 'Tests passed' --body 'Komla tour: 4 of 4 mock checks passed' --color success --workspace <demo id>",
-                "deploy": "for step in 1 2 3; do komla status set deploy \"Deploying $step/3\" --tone info; sleep 2; done; komla status set deploy 'Deployed' --tone success; sleep 4; komla status clear deploy",
                 "snooze": "komla snooze 1m --workspace <demo id>",
                 "agents": "echo 2 > '<dir>/page'",
                 "ask": "komla send <terminal id> 'A button in the Komla tour plugin sent this. Give the user one tip for the komla CLI in two sentences, then say they can try the other buttons or ask to continue.'",
@@ -450,8 +473,12 @@ again.
 
 Make clear that this panel isn't a Komla feature they found, but one the agent wrote in a minute,
 and that they can have any agent build one for their own work by asking in plain words, such as
-"Make a Komla plugin that lists my failing CI checks, with a button that asks an agent to fix one".
-Explain what a real one does: its commands ask a service, such as the user's CI, on their interval
+"Make a Komla plugin that lists my open GitHub issues and pull requests, with a button that asks an
+agent to work on one" or "...that lists my failing CI checks". Stress that a plugin can show and do
+anything: it needn't use the `komla` CLI at all, and can integrate any other system the user works
+with, from an issue tracker to monitoring, a database or a deploy pipeline, with Komla only
+hosting the panel and the status bar item. Explain what a real one does: its commands ask a
+service, such as GitHub or the user's CI, on their interval
 or at once on events such as `branch.changed`, so it keeps working across restarts without a
 script; its buttons hand an agent the task the page shows, such as "Fix this failing check"; and a
 plugin can have a page of its own and code of its own that feeds it, with settings such as an API
@@ -463,8 +490,7 @@ continue.
 
 Recap the visible effects by the three sides from the start, an agent in its own workspace, a
 script driving another and a plugin Komla keeps, then clean up, running only what has something to undo. Run
-`komla status clear tour` unless step 5 already cleared it, and `komla status clear deploy` if the
-playground's deploy was cut short. If step 4 found the Demo Workspace but stage 3 didn't finish,
+`komla status clear tour` unless step 5 already cleared it. If step 4 found the Demo Workspace but stage 3 didn't finish,
 run `komla progress --clear "CI running" --workspace <id>`; if the playground's mock tests were cut
 short, run `komla progress --clear "Tests running"` the same way. When either left it snoozed, run
 `komla wake --workspace <id> --json`; when the result says `woke` is true, say the Demo Workspace

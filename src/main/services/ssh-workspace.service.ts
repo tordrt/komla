@@ -441,6 +441,8 @@ function remoteMcpCommand(basePath: string): { command: string; args: string[] }
 }
 
 function parseJsonObject(value: string, remotePath: string): Record<string, unknown> {
+  // Some agents create their config empty, as the local reader also allows.
+  if (value.trim() === '') return {};
   try {
     const parsed = JSON.parse(value);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {

@@ -51,6 +51,9 @@ test('drafts a prompt over Quick Look, opened from a /tmp link in a terminal', a
     expect(box).not.toBeNull();
     // A file link opens on Cmd+click, Ctrl+click on Windows and Linux.
     await appWindow.keyboard.down(mod);
+    // From below, so each try moves onto the path: the terminal finds a link only as the pointer
+    // moves, and a move made before the path was printed found none.
+    await appWindow.mouse.move(box!.x + 40, box!.y + box!.height / 2);
     await appWindow.mouse.move(box!.x + 40, box!.y + 8);
     await appWindow.mouse.click(box!.x + 40, box!.y + 8);
     await appWindow.keyboard.up(mod);

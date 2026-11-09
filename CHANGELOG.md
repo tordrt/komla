@@ -16,6 +16,7 @@
 - The macOS installer now shows a "Drag Komla into Applications" background, with an arrow from the app to the Applications folder.
 - A workspace card keeps a small spinner for work still under way, such as running tests, even while a notification badge or a busy agent holds its title row.
 - Dragging a workspace or project group near the top or bottom of the sidebar scrolls the list, so you can reach a spot that's out of view without dropping it first.
+- When an agent uses `komla send` to type into another terminal, Komla now asks you first, showing the exact text and where it's going. A page-steered agent can no longer run commands in your shell tabs or answer another agent's prompt on its own.
 - Launch mode pickers are less crowded: "Dangerously skip permissions" is now called YOLO for Claude Code and Amp, as it already was for other agents. It's still red and passes the same flags.
 
 ### Fixes

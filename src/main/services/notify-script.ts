@@ -113,7 +113,7 @@ function mapKind(source, event, parsed) {
   return "generic";
 }
 
-function extractMessage(source, event, parsed) {
+function extractMessage(source, event, parsed, kind) {
   if (messageOption !== undefined) return cleanMessage(messageOption);
   if (event === "StopFailure") {
     var failureFields = ["last_assistant_message", "error_details", "error"];
@@ -131,6 +131,8 @@ function extractMessage(source, event, parsed) {
     return cleanMessage(stopMsg);
   }
   if (event === "UserPromptSubmit" || event === "BeforeAgent") return cleanMessage(parsed.prompt);
+  // Antigravity has no prompt hook: its turn's first model call carries the prompt.
+  if (source === "antigravity" && kind === "prompt-submit") return cleanMessage(parsed.lastUserInput);
   if (event === "PermissionRequest") {
     var toolInput = parsed && typeof parsed.tool_input === "object" && parsed.tool_input ? parsed.tool_input : {};
     // Claude asks its questions through a permission prompt, too.
@@ -233,14 +235,15 @@ function send(input) {
       delete parsed.tool_response;
       inputBytes = Buffer.byteLength(JSON.stringify(parsed));
     }
+    var kind = mapKind(source, event, parsed);
     var payload = JSON.stringify({
       workspaceId: process.env.KOMLA_WORKSPACE_ID || undefined,
       terminalId: process.env.KOMLA_TERMINAL_ID || undefined,
       cwd: extractCwd(source, parsed),
-      kind: mapKind(source, event, parsed),
+      kind: kind,
       source: source,
       hookInput: forwardedHookInput(parsed, inputBytes),
-      message: extractMessage(source, event, parsed)
+      message: extractMessage(source, event, parsed, kind)
     });
     var notifyHost = ${hostExpr};
     var req = require("http").request("http://" + notifyHost + ":" + port + "/api/v1/notify", {

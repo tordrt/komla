@@ -1388,8 +1388,7 @@ export class TerminalAttention {
       }
       // The attached installation names the workspace from the prompt, and the name syncs.
       if (payload.copy) return matchingWorkspace;
-      const prompt =
-        typeof payload.hookInput?.prompt === 'string' ? payload.hookInput.prompt : payload.message;
+      const prompt = submittedPrompt(payload);
       if (!prompt) {
         logger.debug('Prompt-submit received with no message, ignoring');
         return matchingWorkspace;
@@ -1601,8 +1600,7 @@ export class TerminalAttention {
         // Like any prompt, it dismisses what the Terminal showed, such as the last turn's error.
         this.reportProgram(workspace, terminalId, { kind: 'prompt-submit' });
       }
-      const prompt =
-        typeof hook.hookInput?.prompt === 'string' ? hook.hookInput.prompt : hook.message;
+      const prompt = submittedPrompt(hook);
       if (prompt && !hook.copy) {
         this.deps.promptSubmitted(workspace.id, prompt, terminalId ?? namedTerminalId);
       }
@@ -1894,8 +1892,7 @@ export class TerminalAttention {
       });
     }
     if (hook.kind === 'prompt-submit') {
-      const prompt =
-        typeof hook.hookInput?.prompt === 'string' ? hook.hookInput.prompt : hook.message;
+      const prompt = submittedPrompt(hook);
       // Claude resumes after background work with a synthetic prompt, which no user sent.
       if (prompt && CLAUDE_RESUME_PROMPT.test(prompt.trimStart())) return 'taken';
       // Like any prompt, it dismisses what the Terminal showed, such as the last turn's error.
@@ -2681,6 +2678,14 @@ const STAND_IN_DONE_MESSAGES = new Set([
   'OpenCode finished',
   'Compacted the conversation',
 ]);
+
+/** The prompt a prompt-submit hook carries, with its lines, or else its one-line message. */
+function submittedPrompt(hook: AgentHook): string | undefined {
+  // Antigravity's prompt comes with its turn's first model call, as lastUserInput.
+  const field = hook.source === 'antigravity' ? 'lastUserInput' : 'prompt';
+  const prompt = hook.hookInput?.[field];
+  return typeof prompt === 'string' ? prompt : hook.message;
+}
 
 /** The reply in an agent's done hook, or else the done's message unless it is a stand-in. */
 function agentReply(hook: AgentHook): string | undefined {

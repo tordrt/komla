@@ -28,7 +28,7 @@ const MAX_CLI_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_HOOK_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_FORWARDED_HOOK_INPUT_BYTES: usize = 64 * 1024;
 // As notify.js caps hook messages; a Bash command can be a whole heredoc.
-const MAX_PERMISSION_MESSAGE_UTF16_UNITS: usize = 8192;
+const MAX_HOOK_MESSAGE_UTF16_UNITS: usize = 8192;
 const MAX_NOTIFICATION_TITLE_UTF16_UNITS: usize = 256;
 const MAX_NOTIFICATION_BODY_UTF16_UNITS: usize = 64 * 1024;
 const MAX_NOTIFICATION_COLOR_UTF16_UNITS: usize = 256;
@@ -2646,6 +2646,8 @@ fn notify_command(
         .then(|| hook_workspace(&source, &hook_input))
         .flatten()
         .unwrap_or_else(|| environment.cwd.clone());
+    // Read before an oversized input is compacted, which drops the prompt.
+    let hook_prompt = prompt_from_hook(&source, event.as_deref(), &hook_input);
     let mut hook_input = compact_hook_input(&source, hook_input, hook_input_was_oversized);
     if let Some(event_name) = event.as_ref() {
         if !hook_input.is_object() {
@@ -2676,6 +2678,7 @@ fn notify_command(
         .unwrap_or_else(|| "generic".to_owned());
     let message = message_option
         .or_else(|| message_from_hook(&source, event.as_deref(), &hook_input))
+        .or_else(|| hook_prompt.filter(|_| kind == "prompt-submit"))
         // Komla records a prompt-submit's message as the user's prompt, so an
         // event name must not stand in for missing prompt text.
         .or_else(|| event.filter(|_| kind != "prompt-submit"))
@@ -3206,16 +3209,27 @@ fn message_from_hook(source: &str, event: Option<&str>, hook_input: &Value) -> O
     field.and_then(Value::as_str).map(str::to_owned)
 }
 
+/// Antigravity has no prompt hook: its turn's first model call carries the prompt.
+fn prompt_from_hook(source: &str, event: Option<&str>, hook_input: &Value) -> Option<String> {
+    if source != "antigravity" || event != Some("PreInvocation") {
+        return None;
+    }
+    one_line_message(hook_input.get("lastUserInput"))
+}
+
+/// A hook's text on one line and short enough for a notification.
+fn one_line_message(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|text| !text.is_empty())
+        .map(|text| truncate_utf16(&text, MAX_HOOK_MESSAGE_UTF16_UNITS))
+}
+
 /// What Claude's permission prompt asks: the question it puts to the user, or the tool call it
 /// wants to make, on one line and short enough for a notification.
 fn claude_permission_message(hook_input: &Value) -> String {
-    let text = |value: Option<&Value>| {
-        value
-            .and_then(Value::as_str)
-            .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|text| !text.is_empty())
-            .map(|text| truncate_utf16(&text, MAX_PERMISSION_MESSAGE_UTF16_UNITS))
-    };
+    let text = one_line_message;
     let tool_input = hook_input.get("tool_input");
     let question = tool_input
         .and_then(|input| input.get("questions"))
@@ -7454,6 +7468,65 @@ KOMLA_COMPANION_INBOX=/remote/inbox\n-KOMLA_UNUSED\n",
             body["hookInput"],
             json!({"hook_event_name": "Stop", "fullyIdle": true})
         );
+    }
+
+    #[test]
+    fn antigravity_sends_the_prompt_of_its_first_model_call_only() {
+        for (input, message) in [
+            (
+                r#"{"lastUserInput":"Fix the\n  failing test"}"#,
+                "Fix the failing test",
+            ),
+            // A later call is activity, which the CLI names by its event.
+            (
+                r#"{"invocationNum":1,"lastUserInput":"Fix the test"}"#,
+                "PreInvocation",
+            ),
+        ] {
+            let mut api = FakeApi::responding(json!({"accepted": true}));
+            run_with(
+                &mut api,
+                &[
+                    "notify",
+                    "--source",
+                    "antigravity",
+                    "--event",
+                    "PreInvocation",
+                ],
+                input,
+            )
+            .unwrap();
+
+            let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+            assert_eq!(body["message"], message, "{input}");
+        }
+    }
+
+    #[test]
+    fn oversized_antigravity_prompts_still_send_the_prompt() {
+        let prompt = format!("Fix this: {}", "x".repeat(70000));
+        let input = json!({"lastUserInput": prompt}).to_string();
+        let mut api = FakeApi::responding(json!({"accepted": true}));
+
+        run_with(
+            &mut api,
+            &[
+                "notify",
+                "--source",
+                "antigravity",
+                "--event",
+                "PreInvocation",
+            ],
+            &input,
+        )
+        .unwrap();
+
+        let body: Value = serde_json::from_slice(&api.requests[0].body).unwrap();
+        assert_eq!(body["kind"], "prompt-submit");
+        assert!(body["hookInput"].get("lastUserInput").is_none());
+        let message = body["message"].as_str().unwrap();
+        assert!(message.starts_with("Fix this: xxx"));
+        assert!(message.encode_utf16().count() <= 8192);
     }
 
     #[test]

@@ -911,6 +911,20 @@ describe('Terminal Attention State: the status any program reports in its Termin
     });
   });
 
+  it('names the workspace from the prompt Antigravity sends with its first model call', async () => {
+    const { attention, promptSubmitted, toTerminal } = harness();
+    attention.programStatusChanged('t1', { app: 'antigravity', state: 'idle' });
+
+    await attention.hook(toTerminal('t1'), {
+      cwd: '/projects/my-app',
+      source: 'antigravity',
+      kind: 'prompt-submit',
+      hookInput: { hook_event_name: 'PreInvocation', lastUserInput: 'Fix the\ntests' },
+    });
+
+    expect(promptSubmitted).toHaveBeenCalledWith('ws-1', 'Fix the\ntests', 't1');
+  });
+
   it("leaves Antigravity's approval alerts to the status it reports", () => {
     const { attention, terminal } = harness();
 

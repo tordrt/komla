@@ -50,6 +50,24 @@ afterEach(() => {
 });
 
 describe('agent hooks', () => {
+  it("names the workspace from Antigravity's prompt, keeping its lines", async () => {
+    const harness = createAttentionHarness([localWorkspace()]);
+
+    await harness.settle(harness.toTerminal('term-1'), {
+      cwd: '/projects/my-app',
+      source: 'antigravity',
+      kind: 'prompt-submit',
+      message: 'Fix the failing test',
+      hookInput: { hook_event_name: 'PreInvocation', lastUserInput: 'Fix the\nfailing test' },
+    });
+
+    expect(harness.promptSubmitted).toHaveBeenCalledWith(
+      'ws-1',
+      'Fix the\nfailing test',
+      'term-1'
+    );
+  });
+
   it.each(['codex', 'claude-code'])(
     'turns on the spinner for %s activity without naming the workspace or raising attention',
     async (source) => {

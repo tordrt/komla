@@ -307,7 +307,7 @@ prompt arrives or the terminal title shows the agent working again. A `komla` CL
 hooks, which an SSH host keeps when another device prepared it last, sends them as `generic`; Komla
 reads them by `hook_event_name` in the same way, and drops an automatic `PostCompact`.
 With `--source antigravity`, `PreInvocation` starts the turn on its first model call (a prompt
-submit without prompt text, since Antigravity's payload has none) and is `activity` after that, `PostToolUse` is `activity`, and `Stop` completes the turn only when
+submit, whose prompt is the payload's `lastUserInput`) and is `activity` after that, `PostToolUse` is `activity`, and `Stop` completes the turn only when
 `fullyIdle` is true. Antigravity runs hooks from the folder containing `hooks.json`, so the CLI takes
 the workspace from `workspacePaths` instead of the current directory. Antigravity has no hook for
 approval prompts or questions, so while its turn is working, a terminal alert from the same terminal

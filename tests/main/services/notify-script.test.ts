@@ -360,6 +360,25 @@ describe('notify.js', () => {
     expect(posted).toMatchObject({ kind, cwd: '/work/agy' });
   });
 
+  it("reports the prompt of Antigravity's first model call, and none after", async () => {
+    const first = await runNotify(
+      ['--source', 'antigravity', '--event', 'PreInvocation'],
+      JSON.stringify({ lastUserInput: 'Fix the\n  failing test', workspacePaths: ['/work/agy'] })
+    );
+    expect(first.posted).toMatchObject({
+      kind: 'prompt-submit',
+      message: 'Fix the failing test',
+      hookInput: { lastUserInput: 'Fix the\n  failing test' },
+    });
+
+    const later = await runNotify(
+      ['--source', 'antigravity', '--event', 'PreInvocation'],
+      JSON.stringify({ invocationNum: 1, lastUserInput: 'Fix the failing test' })
+    );
+    expect(later.posted).toMatchObject({ kind: 'activity' });
+    expect(later.posted?.message).toBeUndefined();
+  });
+
   it('sends the hook input once it parses, though the hook runner leaves stdin open', async () => {
     const { port, script, firstBody } = await startKomla();
     const child = spawn(

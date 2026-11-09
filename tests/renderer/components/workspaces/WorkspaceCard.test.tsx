@@ -1335,6 +1335,50 @@ describe('WorkspaceCard', () => {
     );
   });
 
+  it('keeps a spinner for work under way beside a notification that has the pill’s place', () => {
+    const workspace = createWorktreeWorkspace({
+      attention: { kind: 'turn-complete', source: 'claude-code', updatedAt: 2000 },
+      markers: [
+        { key: 'pr', label: 'PR #12', tone: 'info' },
+        { key: 'progress', label: 'CI running', tone: 'info', tooltip: 'build 7 of 9', spinner: true },
+      ],
+    });
+    const { rerender } = render(<WorkspaceCard workspace={workspace} />);
+    // The pill itself still waits behind the notification; only the work under way shows.
+    expect(document.querySelector('[data-workspace-marker]')).toBeNull();
+    const glyph = document.querySelector('[data-workspace-progress-glyph]') as HTMLElement;
+    expect(glyph).not.toBeNull();
+    expect(glyph.querySelector('.activity-glyph')).not.toBeNull();
+    expect(glyph).toHaveTextContent('CI running, under way');
+    expect(
+      screen
+        .getAllByTestId('tooltip-content')
+        .some((tip) => tip.textContent === 'CI running, under way · build 7 of 9')
+    ).toBe(true);
+
+    // Not for a marker that isn't work under way, and not once the pill has its place back.
+    rerender(
+      <WorkspaceCard
+        workspace={{ ...workspace, markers: [{ key: 'pr', label: 'PR #12', tone: 'info' }] }}
+      />
+    );
+    expect(document.querySelector('[data-workspace-progress-glyph]')).toBeNull();
+    rerender(<WorkspaceCard workspace={{ ...workspace, attention: undefined }} />);
+    expect(document.querySelector('[data-workspace-progress-glyph]')).toBeNull();
+    expect(document.querySelector('[data-workspace-progress]')).not.toBeNull();
+  });
+
+  it('keeps the spinner for work under way beside a busy agent’s spinner', () => {
+    const workspace = createWorktreeWorkspace({
+      agentActive: true,
+      terminals: [createTerminal({ id: 't1', agentActive: true })],
+      markers: [{ key: 'progress', label: 'CI running', tone: 'info', spinner: true }],
+    });
+    render(<WorkspaceCard workspace={workspace} />);
+    expect(screen.getByLabelText('Agent processing')).toBeInTheDocument();
+    expect(document.querySelector('[data-workspace-progress-glyph]')).not.toBeNull();
+  });
+
   it('tags and untags from the context menu', () => {
     const workspace = createWorktreeWorkspace({ tag: 'Blocked' });
     render(<WorkspaceCard workspace={workspace} />);

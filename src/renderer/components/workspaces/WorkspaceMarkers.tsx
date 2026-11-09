@@ -23,6 +23,16 @@ export const WorkspaceMarkerBadge = forwardRef<
   );
 });
 
+/** What a marker's tooltip says: its label, that it's under way if it is, and its script's note. */
+function MarkerTooltipText({ marker }: { marker: WorkspaceMarker }) {
+  return (
+    <>
+      {marker.spinner ? `${marker.label}, under way` : marker.label}
+      {marker.tooltip && <span className="text-muted-foreground"> · {marker.tooltip}</span>}
+    </>
+  );
+}
+
 /** One of a workspace's markers, as the card and the dashboard's row show it. */
 export function WorkspaceMarkerPill({
   marker,
@@ -42,8 +52,32 @@ export function WorkspaceMarkerPill({
         />
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-sm">
-        {marker.spinner ? `${marker.label}, under way` : marker.label}
-        {marker.tooltip && <span className="text-muted-foreground"> · {marker.tooltip}</span>}
+        <MarkerTooltipText marker={marker} />
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Just the spinner of work under way, in its marker's color, for a card whose title row a
+ * notification or a busy agent has taken: the pill waits behind them, and this says it's still on.
+ */
+export function WorkspaceProgressGlyph({ marker }: { marker: WorkspaceMarker }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          data-workspace-progress-glyph
+          tone={marker.tone}
+          variant="outline"
+          className="shrink-0 px-1"
+        >
+          <ActivitySpinner className="size-2.5 shrink-0" />
+          <span className="sr-only">{`${marker.label}, under way`}</span>
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-sm">
+        <MarkerTooltipText marker={marker} />
       </TooltipContent>
     </Tooltip>
   );

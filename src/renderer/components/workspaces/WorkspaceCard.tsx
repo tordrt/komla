@@ -133,6 +133,7 @@ import { SIDEBAR_CARD_LIGHT_HOVER, SIDEBAR_SELECTED_CARD_FILL } from './sidebar-
 import { CustomSnoozeDialog, SnoozeCountdown, SnoozeSubmenu, useCiRunning } from './SnoozeMenu';
 import { SIDEBAR_CARD_DRAG_ATTRIBUTE } from './workspace-list-ordering';
 import { getWorkspaceDynamicTitle, WorkspaceInfoCardContent } from './WorkspaceInfoCard';
+import { WorkspaceProgressGlyph } from './WorkspaceMarkers';
 import { RemoveMarkerMenuItems, TagSubmenu, WorkspaceMarkerOrTag } from './WorkspaceTagMenu';
 
 import type { GitBranchQuickStatus, Workspace, WorkspaceAttention } from '@/types';
@@ -1190,18 +1191,25 @@ function TitleAdornment({
   collapsed: CollapsedBadge | null;
   otherAgents: Agent[];
   restarting: boolean;
-  /** Its marker or tag shows in the badge's place when no agent has anything to show. */
+  /**
+   * Its marker or tag shows in the badge's place when no agent has anything to show; its work
+   * under way keeps a spinner beside the badge otherwise.
+   */
   workspace?: Pick<Workspace, 'markers' | 'tag' | 'tagSource' | 'tagTooltip'>;
 }) {
   const states = stateCounts(collapsed, otherAgents, restarting);
   const workingCommands = otherAgents.filter(
     (agent) => agent.state === 'working' && agent.terminal?.commandActive
   ).length;
+  // Work under way a script shows, which keeps a spinner here while these have the pill's place.
+  const progress = workspace?.markers?.find((marker) => marker.spinner);
+  const progressGlyph = progress && <WorkspaceProgressGlyph marker={progress} />;
   // Agents that all share the badge's state keep it, with their count.
   if (collapsed?.state && states.length === 1) {
     const { state, count } = states[0];
     return (
-      <span className="ml-auto flex shrink-0 items-center">
+      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {progressGlyph}
         <AttentionBadge
           attention={collapsed.attention}
           appearance={collapsed.appearance}
@@ -1222,6 +1230,7 @@ function TitleAdornment({
 
   return (
     <span className="ml-auto flex shrink-0 items-center gap-1.5">
+      {progressGlyph}
       {badge}
       {collapsed && !collapsed.state && <NoticeGlyph badge={collapsed} />}
       {states.map(({ state, count }) => (

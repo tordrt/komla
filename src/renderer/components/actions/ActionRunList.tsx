@@ -271,7 +271,6 @@ export function ActionRunList({
             )}
             {group.actions.map((action) => {
               const skill = isSkillAction(action) ? action.skill : null;
-              const Icon = action.type === 'command' ? Terminal : Sparkle;
               // A skill names the folder it's in, which says which agents find it, not the agent
               // it starts, which is just whichever of them ran last.
               const tag = skill
@@ -291,7 +290,6 @@ export function ActionRunList({
                   title={skill?.description || getActionPreview(action)}
                   className="group/action-row flex cursor-default items-center gap-2 rounded-md px-2 py-1 aria-selected:bg-foreground/8"
                 >
-                  {!skill && <Icon className="size-3.5 shrink-0 text-muted-foreground" />}
                   <span
                     className={cn(
                       'min-w-0 truncate text-[13px] leading-[18px] text-foreground',

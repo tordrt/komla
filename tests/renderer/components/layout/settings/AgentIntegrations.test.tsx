@@ -978,8 +978,9 @@ describe('AgentIntegrationsPanel', () => {
     render(<AgentIntegrationsPanel openSection="codex" />);
     await waitForLoad();
 
+    // The row's status arrives after the page's own loading text clears.
     expect(
-      within(agentRow('Hooks', 'Codex CLI')).getByRole('button', { name: /^Enable$/ })
+      await within(agentRow('Hooks', 'Codex CLI')).findByRole('button', { name: /^Enable$/ })
     ).toBeVisible();
     expect(
       within(screen.getByRole('group', { name: 'Other agents' })).getByRole('button', {

@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useDragAutoScroll } from '@/hooks/useDragAutoScroll';
 import { getProjectColor } from '@/lib/project-colors';
 import { getProjectMoveIndex } from '@/lib/project-order';
 import { PINNED_GROUP_KEY } from '@/lib/sidebar-collapsed-groups';
@@ -1461,6 +1462,10 @@ export function WorkspaceList({
     hasProjects: projects.length > 0,
   });
 
+  // Dragging near the list's top or bottom edge scrolls it, to reach cards and groups out of view.
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  useDragAutoScroll(listScrollRef, !paneEmptyReason);
+
   const handleShowHiddenProjects = () => {
     unhideProjectGroups(hiddenProjectIdsWithWorkspaces);
   };
@@ -1525,6 +1530,7 @@ export function WorkspaceList({
         </div>
       ) : (
         <ScrollArea
+          ref={listScrollRef}
           type="scroll"
           className={cn(
             'min-h-0 flex-1 [&>[data-radix-scroll-area-scrollbar]]:w-1 [&>[data-radix-scroll-area-viewport]]:scroll-fade-y [&_[data-radix-scroll-area-viewport]>div]:!block',

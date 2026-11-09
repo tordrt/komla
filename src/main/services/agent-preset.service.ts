@@ -88,7 +88,7 @@ export const BUILTIN_PRESETS: Omit<AgentPreset, 'id'>[] = [
       },
       {
         id: randomUUID(),
-        name: 'Dangerously skip permissions',
+        name: 'YOLO',
         arguments: '--dangerously-skip-permissions',
         color: 'red',
       },
@@ -187,7 +187,7 @@ export const BUILTIN_PRESETS: Omit<AgentPreset, 'id'>[] = [
       },
       {
         id: randomUUID(),
-        name: 'Dangerously skip permissions',
+        name: 'YOLO',
         arguments: '--dangerously-skip-permissions',
         color: 'red',
       },
@@ -341,7 +341,7 @@ export const BUILTIN_PRESETS: Omit<AgentPreset, 'id'>[] = [
     launchModes: [
       {
         id: randomUUID(),
-        name: 'Dangerously allow all',
+        name: 'YOLO',
         arguments: '--dangerously-allow-all',
         color: 'red',
       },

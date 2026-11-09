@@ -18,6 +18,7 @@
 
 ### Fixes
 
+- Switching to another workspace right after trashing one no longer lags while the trashed workspace's files are deleted.
 - Escape closes the file preview while you're typing in the Markdown editor or a note.
 - Opening a diff of a file containing Unicode line or paragraph separators no longer pops up a dialog offering to remove them.
 - The files list no longer shows files outside the workspace that have since been deleted.

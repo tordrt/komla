@@ -490,7 +490,7 @@ describe('AgentPresetService', () => {
           arguments: '--mode accept-edits',
         }),
         expect.objectContaining({
-          name: 'Dangerously skip permissions',
+          name: 'YOLO',
           arguments: '--dangerously-skip-permissions',
         }),
       ]);
@@ -665,7 +665,7 @@ describe('AgentPresetService', () => {
         promptCommand: 'echo {{prompt}} | amp {{launchMode}}',
         launchModes: [
           expect.objectContaining({
-            name: 'Dangerously allow all',
+            name: 'YOLO',
             arguments: '--dangerously-allow-all',
           }),
         ],

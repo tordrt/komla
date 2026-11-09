@@ -127,7 +127,7 @@ const CLAUDE_VERSION_COMMAND = [
 const SSH_DATA_MARKER_FILE = '.komla-managed';
 const SSH_DATA_MARKER_CONTENT = 'komla-ssh-data-v1';
 const TMUX_HISTORY_LIMIT = 10_000;
-const TMUX_CONFIG_VERSION = 10;
+const TMUX_CONFIG_VERSION = 11;
 // Komla's terminals always decode UTF-8, so the client writes it even when the remote command's
 // locale names none, as zsh gets on RHEL-family hosts. Clients of other devices stay attached
 // where the window takes the size of the client used last, tmux's default since 3.1; before it,
@@ -503,7 +503,9 @@ function remoteTmuxServerSetupCommand(): string {
     `  tmux -L ${TMUX_SOCKET_NAME} unbind-key -T root MouseDown3Pane 2>/dev/null || true`,
     `  tmux -L ${TMUX_SOCKET_NAME} set-option -g prefix None`,
     `  tmux -L ${TMUX_SOCKET_NAME} set-option -g mouse on`,
-    `  tmux -L ${TMUX_SOCKET_NAME} set-option -s set-clipboard external`,
+    // Copies Komla's terminal receives as OSC 52: tmux's own and, with `on` rather than
+    // `external`, those the program in the pane makes, as Pi's.
+    `  tmux -L ${TMUX_SOCKET_NAME} set-option -s set-clipboard on`,
     // Passes OSC 8 hyperlinks through to Komla's terminal. tmux before 3.4 drops them, and
     // before 3.2 has no terminal-features option.
     `  tmux -L ${TMUX_SOCKET_NAME} set-option -as terminal-features '*:hyperlinks' 2>/dev/null || true`,
@@ -525,6 +527,9 @@ function remoteTmuxServerSetupCommand(): string {
     `    tmux -L ${TMUX_SOCKET_NAME} set-option -ga terminal-overrides ',xterm-256color:Tc'`,
     '  fi',
     `  if tmux -L ${TMUX_SOCKET_NAME} set-option -s extended-keys always 2>/dev/null; then`,
+    // Hands modified keys to the pane in the CSI u form Pi expects, the one S-Enter sends below,
+    // rather than xterm's. tmux before 3.5 has no extended-keys-format and sends xterm's.
+    `    tmux -L ${TMUX_SOCKET_NAME} set-option -s extended-keys-format csi-u 2>/dev/null || true`,
     `    tmux -L ${TMUX_SOCKET_NAME} bind-key -n S-Enter send-keys -l "$(printf '\\033[13;2u')"`,
     `    tmux -L ${TMUX_SOCKET_NAME} bind-key -n BTab send-keys -l "$(printf '\\033[Z')"`,
     '  fi',

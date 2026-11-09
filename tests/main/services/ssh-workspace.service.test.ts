@@ -579,10 +579,16 @@ describe("generateTmuxServerScript", () => {
           "-L komla-v1 set-option -g allow-passthrough on",
         );
         expect(calls).toContain(
+          "-L komla-v1 set-option -s set-clipboard on",
+        );
+        expect(calls).toContain(
+          "-L komla-v1 set-option -s extended-keys-format csi-u",
+        );
+        expect(calls).toContain(
           '-L komla-v1 set-hook -g client-attached run-shell -b "kill -CONT #{pane_pid} 2>/dev/null || true"',
         );
         expect(calls.at(-1)).toBe(
-          "-L komla-v1 set-option -g @komla_config_version 10",
+          "-L komla-v1 set-option -g @komla_config_version 11",
         );
       } finally {
         rmSync(tempPath, { recursive: true, force: true });
@@ -1896,9 +1902,9 @@ describe("sshWorkspaceService", () => {
     expect(command).toContain("tmux -L komla-v1 new-session -d -s");
     expect(command).toContain("komla-term-inline");
     expect(command).toMatch(
-      /@komla_config_version 2>[^\n]+ != ['"]+10['"]+ \]; then/,
+      /@komla_config_version 2>[^\n]+ != ['"]+11['"]+ \]; then/,
     );
-    expect(command).toMatch(/set-option -g @komla_config_version ['"]+10['"]+/);
+    expect(command).toMatch(/set-option -g @komla_config_version ['"]+11['"]+/);
     expect(command).toContain("tmux -L komla-v1 set-option -g set-titles on");
     expect(command).toContain(
       'tmux -L komla-v1 set-option -g set-titles-string "#{pane_title}"',
@@ -2317,7 +2323,7 @@ describe("sshWorkspaceService", () => {
           call.includes(" bind-key -n User0 "),
         );
         const configured = calls.indexOf(
-          "-L komla-v1 set-option -g @komla_config_version 10",
+          "-L komla-v1 set-option -g @komla_config_version 11",
         );
 
         expect(result.status, result.stderr).toBe(0);

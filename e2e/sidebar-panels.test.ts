@@ -504,11 +504,15 @@ test.describe('Sidebar panels', () => {
       { timeout: 30_000 }
     );
 
-    await page.locator('#ping').click();
-    await expect(page.locator('#reply')).toHaveText(
-      JSON.stringify({ echo: { ping: 1 }, activated: true }),
-      { timeout: 15_000 }
-    );
+    // A click can land while the panel is still settling and never reach the page, so click again
+    // until the page answers; each answer is the same.
+    await expect(async () => {
+      await page.locator('#ping').click({ timeout: 2_000 });
+      await expect(page.locator('#reply')).toHaveText(
+        JSON.stringify({ echo: { ping: 1 }, activated: true }),
+        { timeout: 2_000 }
+      );
+    }).toPass({ timeout: 20_000 });
     if (SCREENSHOTS)
       await appWindow.screenshot({ path: path.join(SCREENSHOTS, 'plugin-code-panel.png') });
   });

@@ -183,6 +183,12 @@ export interface WorkspaceAttention {
    * only as its pane's border; a prompt or error is never seen this way.
    */
   seen?: boolean;
+  /**
+   * The delivery of the hook that raised it, or that ended the turn whose done a program reported.
+   * Every Komla installation showing the Terminal took that hook, so it names the done to them
+   * when the user sees it on one.
+   */
+  deliveryId?: string;
 }
 
 export interface WorkspaceAttentionEvent {

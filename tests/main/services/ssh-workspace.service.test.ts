@@ -2683,6 +2683,39 @@ describe('sshWorkspaceService', () => {
     );
   });
 
+  it('has the companion relay a seen done to the other installations', async () => {
+    execFileMock.mockImplementation((_file, _args, _options, callback) => {
+      callback(null, { stdout: '', stderr: '' });
+    });
+    const { sshWorkspaceService } =
+      await import('../../../src/main/services/ssh-workspace.service');
+    const backend = {
+      kind: 'ssh' as const,
+      hostId: 'ssh-dev',
+      remoteDirectory: '/home/dev/.komla/worktrees/app/fix',
+      remoteRepoPath: '/home/dev/.komla/repos/app/repo.git',
+      remoteProjectRoot: '/home/dev/.komla/worktrees/app',
+      gitUrl: 'https://github.com/acme/app.git',
+      projectName: 'app',
+    };
+
+    await sshWorkspaceService.relaySeen(
+      backend,
+      {
+        executable: '/home/dev/.komla/helpers/bin/protocol-1/digest/komla',
+        hookInbox: '/home/dev/.komla/helpers/companion/key/inbox',
+      },
+      'term-a',
+      'claude-code',
+      'd1'
+    );
+
+    const remoteCommand = (execFileMock.mock.calls[0][1] as string[]).at(-1) ?? '';
+    expect(remoteCommand).toMatch(
+      /digest\/komla'.*'__relay-seen'.*companion\/key\/inbox'.*'term-a'.*'claude-code'.*'d1'/
+    );
+  });
+
   it('uses askpass for background SSH commands when available', async () => {
     askpassMock.isRunning.mockReturnValue(true);
     askpassMock.getHelperScriptPath.mockReturnValue('/tmp/komla-askpass.sh');

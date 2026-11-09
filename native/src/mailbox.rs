@@ -21,6 +21,9 @@ const SCAN_INTERVAL_MS: u64 = 1_000;
 const RECEIVING_FILE: &str = "receiving";
 const RECEIVING_REFRESH_MS: u64 = 10_000;
 const RECEIVING_FRESH_FOR: Duration = Duration::from_secs(30);
+/// An installation whose desktop last answered this long ago is gone, not asleep, as the Hook
+/// Journal forgets a terminal after as long.
+const ASLEEP_FOR_AT_MOST: Duration = Duration::from_secs(14 * 24 * 60 * 60);
 
 pub(crate) struct HookMailbox {
     inbox: Option<PathBuf>,
@@ -281,12 +284,17 @@ pub(crate) fn has_pending(inbox: &Path) -> bool {
 }
 
 pub(crate) fn is_receiving(companion: &Path) -> bool {
+    received_within(companion, RECEIVING_FRESH_FOR)
+}
+
+/// Whether the companion's desktop answered within `within`. One that quit removed its marker.
+fn received_within(companion: &Path, within: Duration) -> bool {
     fs::metadata(companion.join(RECEIVING_FILE))
         .and_then(|metadata| metadata.modified())
         .is_ok_and(|modified| match modified.elapsed() {
-            Ok(age) => age < RECEIVING_FRESH_FOR,
+            Ok(age) => age < within,
             // After the clock steps back, a marker is briefly in the future.
-            Err(error) => error.duration() < RECEIVING_FRESH_FOR,
+            Err(error) => error.duration() < within,
         })
 }
 
@@ -371,7 +379,7 @@ pub(crate) fn ingest(args: &[String]) -> anyhow::Result<()> {
 /// that aren't.
 pub(crate) fn deliver(inbox: &Path, hook: &PendingTerminalHook) -> anyhow::Result<()> {
     ingest_pending(inbox, hook)?;
-    let copied_to = copy_to_other_devices(inbox, hook);
+    let copied_to = copy_to(inbox, hook, Recipients::Receiving);
     hook_journal::record(inbox, hook, &copied_to);
     Ok(())
 }
@@ -381,26 +389,70 @@ pub(crate) fn deliver(inbox: &Path, hook: &PendingTerminalHook) -> anyhow::Resul
 /// source's interrupt replaces whatever hook that source still has waiting for a device, so
 /// undelivered activity can't turn the spinner back on.
 pub(crate) fn relay_interrupt(inbox: &Path, terminal_id: &str, sources: &[String]) {
+    for source in sources {
+        relay(
+            inbox,
+            terminal_id,
+            "interrupted",
+            source,
+            serde_json::json!({}),
+            Recipients::Receiving,
+        );
+    }
+}
+
+/// Tells the other installations showing a terminal that the user saw, on the installation that
+/// owns `inbox`, the done `delivery_id` delivered from `source`, so that it doesn't wait for them
+/// there too. Seeing it is no agent hook, so the desktop relays it. It goes to the mailboxes of
+/// installations away too: one attached to the terminal reads no journal of it, and takes the
+/// done from its own mailbox when it's back.
+pub(crate) fn relay_seen(inbox: &Path, terminal_id: &str, source: &str, delivery_id: &str) {
+    relay(
+        inbox,
+        terminal_id,
+        "seen",
+        source,
+        serde_json::json!({ "seen_delivery_id": delivery_id }),
+        Recipients::Asleep,
+    );
+}
+
+/// Passes on to `recipients` and the Hook Journal what the desktop that owns `inbox` relays.
+fn relay(
+    inbox: &Path,
+    terminal_id: &str,
+    kind: &str,
+    source: &str,
+    hook_input: serde_json::Value,
+    recipients: Recipients,
+) {
     // Copies are matched by terminal, but Komla rejects a hook without a folder.
     let cwd = std::env::current_dir()
         .map(|dir| dir.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "/".to_owned());
-    for source in sources {
-        let hook = PendingTerminalHook::new(
-            terminal_id.to_owned(),
-            cwd.clone(),
-            "interrupted".to_owned(),
-            source.clone(),
-            String::new(),
-            serde_json::json!({}),
-        );
-        let copied_to = copy_to_other_devices(inbox, &hook);
-        hook_journal::record(inbox, &hook, &copied_to);
-    }
+    let hook = PendingTerminalHook::new(
+        terminal_id.to_owned(),
+        cwd,
+        kind.to_owned(),
+        source.to_owned(),
+        String::new(),
+        hook_input,
+    );
+    let copied_to = copy_to(inbox, &hook, recipients);
+    hook_journal::record(inbox, &hook, &copied_to);
+}
+
+/// The other installations' companions a hook is copied to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Recipients {
+    /// Those whose desktop answers, as its receiving marker says.
+    Receiving,
+    /// Those too whose desktop answered within two weeks, as one whose computer sleeps.
+    Asleep,
 }
 
 /// Returns the keys of the companions it copied the hook to.
-fn copy_to_other_devices(inbox: &Path, hook: &PendingTerminalHook) -> Vec<String> {
+fn copy_to(inbox: &Path, hook: &PendingTerminalHook, recipients: Recipients) -> Vec<String> {
     let mut copied_to = Vec::new();
     let Some(owner) = inbox.parent() else {
         return copied_to;
@@ -419,7 +471,13 @@ fn copy_to_other_devices(inbox: &Path, hook: &PendingTerminalHook) -> Vec<String
     };
     for companion in companions.filter_map(Result::ok) {
         if Some(companion.file_name().as_os_str()) == owner.file_name()
-            || !is_receiving(&companion.path())
+            || !received_within(
+                &companion.path(),
+                match recipients {
+                    Recipients::Receiving => RECEIVING_FRESH_FOR,
+                    Recipients::Asleep => ASLEEP_FOR_AT_MOST,
+                },
+            )
         {
             continue;
         }
@@ -438,6 +496,10 @@ pub(crate) fn ingest_pending(inbox: &Path, hook: &PendingTerminalHook) -> anyhow
     key.update(hook.terminal_id.as_bytes());
     key.update(b"\0");
     key.update(hook.source.as_bytes());
+    // Word that the user saw a done waits beside the agent's next turn, not in its place.
+    if hook.kind == "seen" {
+        key.update(b"\0seen");
+    }
     let suffix = if hook.kind == "prompt-submit" {
         "prompt.json"
     } else {
@@ -489,6 +551,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;
+    use std::time::{Duration, SystemTime};
 
     use tempfile::tempdir;
 
@@ -719,6 +782,80 @@ mod tests {
         assert_eq!(copied[0]["source"], "claude-code");
         assert_eq!(copied[0]["copy"], true);
         assert!(pending_hooks(&gone.join("inbox")).is_empty());
+    }
+
+    #[test]
+    fn a_seen_done_reaches_the_other_installations_asleep_too_beside_their_pending_activity() {
+        let temp = tempdir().unwrap();
+        let helpers = temp.path().join("helpers");
+        let root = helpers.join("companion");
+        let (owner, other) = (root.join("owner"), root.join("other"));
+        let (asleep, gone) = (root.join("asleep"), root.join("gone"));
+        for companion in [&owner, &other, &asleep, &gone] {
+            std::fs::create_dir_all(companion.join("inbox")).unwrap();
+        }
+        super::mark_receiving(&owner);
+        super::mark_receiving(&other);
+        for (companion, ago) in [(&asleep, 60 * 60), (&gone, 15 * 24 * 60 * 60)] {
+            super::mark_receiving(companion);
+            std::fs::File::options()
+                .write(true)
+                .open(companion.join(super::RECEIVING_FILE))
+                .unwrap()
+                .set_modified(SystemTime::now() - Duration::from_secs(ago))
+                .unwrap();
+        }
+        super::deliver(&owner.join("inbox"), &hook("activity")).unwrap();
+
+        super::relay_seen(&owner.join("inbox"), "terminal", "claude-code", "d1");
+
+        assert_eq!(pending_hooks(&owner.join("inbox")).len(), 1);
+        let mut copied = pending_hooks(&other.join("inbox"));
+        copied.sort_by_key(|hook| hook["kind"].as_str().unwrap().to_owned());
+        assert_eq!(
+            copied.len(),
+            2,
+            "the next turn's activity must survive word of the last turn's done"
+        );
+        assert_eq!(copied[0]["kind"], "activity");
+        assert_eq!(copied[1]["kind"], "seen");
+        assert_eq!(copied[1]["terminalId"], "terminal");
+        assert_eq!(copied[1]["source"], "claude-code");
+        assert_eq!(copied[1]["hookInput"]["seen_delivery_id"], "d1");
+        assert_eq!(copied[1]["copy"], true);
+        // Asleep, as an attached installation's computer, it takes it in when it's back.
+        let waiting = pending_hooks(&asleep.join("inbox"));
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0]["kind"], "seen");
+        assert!(pending_hooks(&gone.join("inbox")).is_empty());
+
+        // An installation away takes it in from the journal.
+        let journal = helpers
+            .join(crate::hook_journal::JOURNAL_DIRECTORY)
+            .join(crate::hook_journal::terminal_directory_name("terminal"));
+        let seen = pending_hooks(&journal)
+            .into_iter()
+            .find(|entry| entry["hook"]["kind"] == "seen")
+            .unwrap();
+        assert_eq!(seen["hook"]["hookInput"]["seen_delivery_id"], "d1");
+    }
+
+    #[test]
+    fn a_newer_seen_done_replaces_one_still_waiting() {
+        let temp = tempdir().unwrap();
+        let root = temp.path().join("helpers").join("companion");
+        let (owner, other) = (root.join("owner"), root.join("other"));
+        for companion in [&owner, &other] {
+            std::fs::create_dir_all(companion.join("inbox")).unwrap();
+        }
+        super::mark_receiving(&other);
+
+        super::relay_seen(&owner.join("inbox"), "terminal", "claude-code", "d1");
+        super::relay_seen(&owner.join("inbox"), "terminal", "claude-code", "d2");
+
+        let copied = pending_hooks(&other.join("inbox"));
+        assert_eq!(copied.len(), 1);
+        assert_eq!(copied[0]["hookInput"]["seen_delivery_id"], "d2");
     }
 
     #[test]

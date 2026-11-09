@@ -160,6 +160,7 @@ function normalizePersistedAttention(value: unknown): WorkspaceAttention | undef
     ...(typeof attention.message === 'string' ? { message: attention.message } : {}),
     ...(typeof attention.terminalId === 'string' ? { terminalId: attention.terminalId } : {}),
     ...(attention.seen === true ? { seen: true } : {}),
+    ...(typeof attention.deliveryId === 'string' ? { deliveryId: attention.deliveryId } : {}),
   };
 }
 

@@ -86,6 +86,15 @@ fn run() -> anyhow::Result<()> {
             mailbox::relay_interrupt(std::path::Path::new(inbox), terminal_id, &args[4..]);
             Ok(())
         }
+        // Run by the desktop over SSH when its user sees an agent's done.
+        Some("__relay-seen") => {
+            let [inbox, terminal_id, source, delivery_id] = args.get(2..6).unwrap_or_default()
+            else {
+                bail!("usage: komla __relay-seen <inbox> <terminal-id> <source> <delivery-id>");
+            };
+            mailbox::relay_seen(std::path::Path::new(inbox), terminal_id, source, delivery_id);
+            Ok(())
+        }
         // Run by the desktop over SSH to search an SSH workspace's file contents.
         Some("__search") => search::run(&args[2..]),
         // Started by the desktop over its SSH session to run its shell commands (ADR 0003).

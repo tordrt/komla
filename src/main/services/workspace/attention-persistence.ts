@@ -9,7 +9,7 @@ import { sshWorkspaceService } from '../ssh-workspace.service';
 
 import { workspaceStore } from './store';
 
-import type { Workspace } from '../../../shared/types';
+import type { SshWorkspaceBackend, Workspace } from '../../../shared/types';
 
 const logger = createLogger('WorkspaceService');
 
@@ -67,33 +67,66 @@ export class SshAttentionPersistence {
 
 /** Tells the other devices showing an SSH tab that its agent was interrupted here. */
 export function relayInterrupt(workspace: Workspace, terminalId: string, sources: string[]): void {
-  const terminal = workspace.terminals.find((candidate) => candidate.id === terminalId);
-  if (
-    !isSshWorkspace(workspace) ||
-    !terminal ||
-    !executionLocations.managesSession(workspace, terminal.executionLocation)
-  ) {
-    return;
-  }
-  const { backend } = workspace;
-  void (async () => {
+  void relayThroughCompanion(workspace, terminalId, 'an interrupt', (backend, companion) =>
+    sshWorkspaceService.relayInterrupt(backend, companion, terminalId, sources)
+  );
+}
+
+/**
+ * Tells the other installations showing an SSH tab that the user saw its agent's done here.
+ * Resolves whether it did.
+ */
+export function relaySeen(
+  workspace: Workspace,
+  terminalId: string,
+  source: string,
+  deliveryId: string
+): Promise<boolean> {
+  return relayThroughCompanion(workspace, terminalId, 'a seen done', (backend, companion) =>
+    sshWorkspaceService.relaySeen(backend, companion, terminalId, source, deliveryId)
+  );
+}
+
+/**
+ * Has this installation's companion on the tab's host pass something on to the other
+ * installations' mailboxes and Hook Journal, for a tab backed by a Managed Remote Terminal
+ * Session. Resolves whether it did; a failure is logged.
+ */
+async function relayThroughCompanion(
+  workspace: Workspace,
+  terminalId: string,
+  what: string,
+  relay: (
+    backend: SshWorkspaceBackend,
+    companion: { executable: string; hookInbox: string }
+  ) => Promise<void>
+): Promise<boolean> {
+  try {
+    const terminal = workspace.terminals.find((candidate) => candidate.id === terminalId);
+    if (
+      !isSshWorkspace(workspace) ||
+      !terminal ||
+      !executionLocations.managesSession(workspace, terminal.executionLocation)
+    ) {
+      return false;
+    }
+    const { backend } = workspace;
     const host = sshWorkspaceService.getHost(backend.hostId);
     // The inbox this device's terminals use, at <base>/helpers/companion/<key>/inbox.
     const { hookInbox } = remoteWorkspaceObservationService.companionForWorkspace(backend);
     const remoteBasePath = pathPosix.join(hookInbox, '..', '..', '..', '..');
-    // Only through a companion already installed: stopping a tab mustn't upload one.
+    // Only through a companion already installed: a relay mustn't upload one.
     const executable = await remoteCompanionService.installedPath(host, remoteBasePath);
     if (!executable) {
-      logger.info('Not relaying an interrupt: no companion installed on its host yet', {
+      logger.info(`Not relaying ${what}: no companion installed on its host yet`, {
         hostId: backend.hostId,
       });
-      return;
+      return false;
     }
-    await sshWorkspaceService.relayInterrupt(
-      backend,
-      { executable, hookInbox },
-      terminalId,
-      sources
-    );
-  })().catch((error) => logger.warn('Could not tell other devices about an interrupt:', error));
+    await relay(backend, { executable, hookInbox });
+    return true;
+  } catch (error) {
+    logger.warn(`Could not tell other installations about ${what}:`, error);
+    return false;
+  }
 }

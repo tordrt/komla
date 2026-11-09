@@ -69,7 +69,11 @@ import { FolderTrustWatch } from './terminal-attention/folder-trust-watch';
 import { TerminalAttention, type AgentHook } from './terminal-attention/terminal-attention';
 import { electronAttentionWindows } from './terminal-attention/windows';
 import { resolveAgentCommand, resolvePreset } from './workspace/agent-launch';
-import { relayInterrupt, SshAttentionPersistence } from './workspace/attention-persistence';
+import {
+  relayInterrupt,
+  relaySeen,
+  SshAttentionPersistence,
+} from './workspace/attention-persistence';
 import {
   checkWorkspacesForCleanup,
   getBranchCleanupScope,
@@ -284,6 +288,8 @@ class WorkspaceService {
       relay: {
         interrupted: (workspace, terminalId, sources) =>
           relayInterrupt(workspace, terminalId, sources),
+        seen: (workspace, terminalId, source, deliveryId) =>
+          relaySeen(workspace, terminalId, source, deliveryId),
       },
       promptSubmitted: (workspaceId, prompt, terminalId) => {
         this.naming.recordPromptSubmit(workspaceId, prompt, terminalId);

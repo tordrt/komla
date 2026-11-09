@@ -17,6 +17,20 @@ describe('a Hook Journal entry', () => {
     });
   });
 
+  it('names the done the user saw, as the companion journals word of one it relays', () => {
+    const entry = parseHookJournalEntry(
+      '{"owner":"a","copiedTo":[],"writtenAtMs":1794062730999,"hook":{"deliveryId":"34b5","terminalId":"t1","cwd":"/repo","kind":"seen","source":"claude-code","message":"","hookInput":{"seen_delivery_id":"34b4"}}}'
+    );
+
+    expect(entry?.hook).toEqual(
+      expect.objectContaining({
+        kind: 'seen',
+        copy: true,
+        hookInput: { seen_delivery_id: '34b4' },
+      })
+    );
+  });
+
   it('is none for what the companion wouldn’t write', () => {
     const hook = { terminalId: 't1', cwd: '/repo', kind: 'activity', source: 'claude-code' };
 

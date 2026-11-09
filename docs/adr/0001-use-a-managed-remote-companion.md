@@ -26,7 +26,13 @@ attached to the terminal. Every hook is also copied to the mailbox of every othe
 whose companion refreshed its receiving marker recently, which it does only while its desktop
 answers, so those installations show alerts and the agent working too. No hook reports an agent
 interrupted by a keystroke or a session stopped or replaced, so the installation that did it relays
-an interrupt to the others through its companion over SSH. The others also stop the spinner when
+an interrupt to the others through its companion over SSH. Which done the user has seen is each
+installation's own, so the installation where the user sees one, on screen or focused, relays that
+too, naming the delivery of the hook that ended the turn, which every installation took. The others
+then show that done only on its pane, not as unread on its card, while a done no installation's user
+saw still shows there. Word of it waits in a mailbox beside the agent's next hook rather than in its
+place, and goes to installations away as well, since the one attached to the terminal reads no
+journal of it. The others also stop the spinner when
 the terminal's session is gone and after a long stretch without hooks. Copies aren't written while
 an installation is away, so while another installation's companion is on the host, the companion
 also keeps a Hook Journal beside the companions' folders, of what Komla reads of a copy: each

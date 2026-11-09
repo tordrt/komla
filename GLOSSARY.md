@@ -252,7 +252,8 @@ What a Komla Remote Companion keeps on its SSH host of each terminal's current t
 prompt and its newest hooks since, whichever installation they went to. Hooks are copied only to the
 installations connected when they run, so one that connects reads the journal of the terminals it
 isn't attached to and takes in the hooks it missed, as it would have taken the copies, without
-announcing them. A prompt starts an agent's journal over.
+announcing them, along with word that the user saw a done on another installation. A prompt starts
+an agent's journal over.
 _Avoid_: Hook log, hook history
 
 **SSH Exec Channel**:

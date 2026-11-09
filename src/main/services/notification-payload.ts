@@ -30,11 +30,13 @@ const NOTIFICATION_KIND_VALUES = [
   'prompt-submit',
   'activity',
   'interrupted',
+  'seen',
 ] as const satisfies readonly (
   | WorkspaceAttentionKind
   | 'prompt-submit'
   | 'activity'
   | 'interrupted'
+  | 'seen'
 )[];
 
 const notificationKindSchema = z.enum(NOTIFICATION_KIND_VALUES);
@@ -85,6 +87,8 @@ export const notificationPayloadSchema = z
         prompt_id: z.string().min(1).max(MAX_ID_LEN).optional(),
         agent_id: z.string().max(MAX_ID_LEN).optional(),
         hook_event_name: z.string().min(1).max(MAX_NAME_LEN).optional(),
+        /** On a `seen`: the delivery of the done the user saw. */
+        seen_delivery_id: z.string().min(1).max(MAX_ID_LEN).optional(),
       })
       .catchall(z.unknown())
       .optional(),
@@ -104,6 +108,11 @@ export const notificationPayloadSchema = z
       message: 'An interrupt is only accepted from an agent hook or as a copy',
       path: ['kind'],
     }
-  );
+  )
+  // Another installation's word that the user saw a done there, which only its companion relays.
+  .refine((payload) => payload.kind !== 'seen' || payload.copy === true, {
+    message: 'A seen done is only accepted as a copy from another installation',
+    path: ['kind'],
+  });
 
 export type NotificationPayload = z.infer<typeof notificationPayloadSchema>;

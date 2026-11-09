@@ -521,6 +521,7 @@ const mockSshWorkspaceService = {
     }
   ),
   relayInterrupt: vi.fn(() => Promise.resolve()),
+  relaySeen: vi.fn(() => Promise.resolve()),
   warmConnections: vi.fn(),
   supportsPersistentTerminalSessions: vi.fn(() => Promise.resolve(true)),
   ensureRemoteNotificationScript: vi.fn(() => Promise.resolve()),
@@ -11484,6 +11485,39 @@ describe('WorkspaceService', () => {
           't1',
           ['claude-code']
         );
+      });
+
+      it('tells the other installations when the user sees its done here', async () => {
+        mockPtyService.getStatus.mockReturnValue(undefined);
+        persistSshWorkspace();
+        mockRemoteCompanionService.installedPath.mockReturnValue(Promise.resolve(companionPath));
+        const { workspaceService } = await import('../../../src/main/services/workspace.service');
+        const stop = hookTerminal(workspaceService, 't1', {
+          kind: 'turn-complete',
+          source: 'claude-code',
+          deliveryId: 'd1',
+          copy: true,
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+        await stop;
+
+        workspaceService.attention.terminalSeen('t1');
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mockSshWorkspaceService.relaySeen).toHaveBeenCalledWith(
+          expect.objectContaining({ hostId: 'ssh-dev' }),
+          {
+            executable: companionPath,
+            hookInbox: '/home/dev/.komla/helpers/companion/deterministic-installation/inbox',
+          },
+          't1',
+          'claude-code',
+          'd1'
+        );
+        // Saved, so that word of it reaching this installation after a restart still names it.
+        await workspaceService.persistSshAttention('ws-42');
+        const saved = JSON.parse(mockWriteFileAtomic.mock.calls.at(-1)?.[1] as string);
+        expect(saved[0].terminals[0].attention.deliveryId).toBe('d1');
       });
 
       it('does not install a companion to relay an interrupt', async () => {

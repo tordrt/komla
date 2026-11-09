@@ -76,7 +76,13 @@ const LAUNCH_SOURCE = 'launch';
 const CLAUDE_RESUME_PROMPT = /^<(?:task-notification|agent-message)[\s>]/;
 
 /** What an agent hook reports, as the notify endpoint received it. */
-export type AgentHookKind = WorkspaceAttentionKind | 'prompt-submit' | 'activity' | 'interrupted';
+export type AgentHookKind =
+  | WorkspaceAttentionKind
+  | 'prompt-submit'
+  | 'activity'
+  | 'interrupted'
+  /** Another installation's word that the user saw a done there; see seenElsewhere. */
+  | 'seen';
 
 // Hooks that show an agent's turn running or just ending. Idle is a reminder sent after the
 // turn, a generic notification says nothing about one, and an interrupt also reports Claude
@@ -101,6 +107,8 @@ interface ProgramTurn {
   startedServer?: boolean;
   /** The reply its Stop carried, for the done the program reports after it. */
   reply?: string;
+  /** Its Stop's delivery, which names that done to the other installations; see deliveryId. */
+  stopDelivery?: string;
   /** The command its approval hook asked about, for a blocked that names none. */
   approval?: string;
   /** Its Stop arrived. */
@@ -270,6 +278,17 @@ export interface TerminalAttentionRelay {
    * Best effort; it applies only to Terminals backed by a Managed Remote Terminal Session.
    */
   interrupted(workspace: Workspace, terminalId: string, sources: string[]): void;
+  /**
+   * Tells the other Komla installations showing a Terminal that the user saw here the done that
+   * `deliveryId` delivered, from the agent `source`. Best effort, as `interrupted`; resolves
+   * whether it did.
+   */
+  seen(
+    workspace: Workspace,
+    terminalId: string,
+    source: string,
+    deliveryId: string
+  ): Promise<boolean>;
 }
 
 export interface TerminalAttentionDependencies {
@@ -324,6 +343,10 @@ export class TerminalAttention {
   private readonly replaying = new Set<string>();
   /** Terminals whose Hook Journal was read since Komla started, or their host last reconnected. */
   private readonly journalsRead = new Set<string>();
+  /** The dones each Terminal's user saw on another installation, by the delivery that ended them. */
+  private readonly seenTurns = new Map<string, Set<string>>();
+  /** The done the user saw here that telling each Terminal's other installations of failed. */
+  private readonly unrelayedSeen = new Map<string, string>();
   /** The agents each Terminal's Hook Journal last read has hooks of. */
   private readonly journalSources = new Map<string, Set<string>>();
   /** Stops copied spinners no session check confirmed, by host, or '' for all of them. */
@@ -362,6 +385,11 @@ export class TerminalAttention {
    * changes has been written.
    */
   async hook(target: HookTarget, hook: AgentHook): Promise<HookOutcome> {
+    // Not one of the agent's hooks, so not the newest copy its journal holds of them either.
+    if (hook.kind === 'seen') {
+      if (hook.copy && target.terminalId) this.seenElsewhere(target.terminalId, hook);
+      return 'ignored';
+    }
     if (hook.copy && hook.deliveryId && target.terminalId) {
       // Its journal brought it already, and newer ones since, while it waited in the mailbox.
       if (
@@ -814,6 +842,8 @@ export class TerminalAttention {
     this.sessionReports.delete(terminalId);
     this.newestCopies.delete(terminalId);
     this.replayedDeliveries.delete(terminalId);
+    this.seenTurns.delete(terminalId);
+    this.unrelayedSeen.delete(terminalId);
     this.journalsRead.delete(terminalId);
     this.journalSources.delete(terminalId);
     this.dropCopiedAgentActivity(terminalId);
@@ -912,13 +942,9 @@ export class TerminalAttention {
   terminalSeen(terminalId: string): void {
     const workspace = this.findWorkspaceByTerminalId(terminalId);
     const terminal = workspace?.terminals.find((t) => t.id === terminalId);
-    const attention = terminal?.attention;
-    if (!workspace || !terminal || !attention) return;
-    if (attention.seen || isWorkspaceAttentionActionable(attention)) return;
-    terminal.attention = { ...attention, seen: true };
-    if (workspace.attention?.terminalId === terminalId) this.showTerminalsAttention(workspace);
-    this.deps.store.broadcast(workspace);
-    if (isSshWorkspace(workspace)) this.deps.store.save();
+    if (!workspace || !terminal) return;
+    this.relaySeen(workspace, terminal);
+    this.markSeen(workspace, terminal);
   }
 
   /**
@@ -927,7 +953,94 @@ export class TerminalAttention {
    */
   dismissed(terminalId: string): void {
     if (this.awaitsAnswer(terminalId)) return;
+    const workspace = this.findWorkspaceByTerminalId(terminalId);
+    const terminal = workspace?.terminals.find((t) => t.id === terminalId);
+    if (workspace && terminal) this.relaySeen(workspace, terminal);
     this.clearTerminalAttention(terminalId);
+  }
+
+  /** Shows the Terminal's done, idle or notice only on its pane; see terminalSeen. */
+  private markSeen(workspace: Workspace, terminal: Terminal): void {
+    const attention = terminal.attention;
+    if (!attention || attention.seen || isWorkspaceAttentionActionable(attention)) return;
+    terminal.attention = { ...attention, seen: true };
+    if (workspace.attention?.terminalId === terminal.id) this.showTerminalsAttention(workspace);
+    this.deps.store.broadcast(workspace);
+    if (isSshWorkspace(workspace)) this.deps.store.save();
+  }
+
+  /**
+   * Tells the other installations showing the Terminal that the user saw its done here, so that it
+   * doesn't wait for them there. They tell dones apart by the hook that delivered them, so one a
+   * program showed before its Stop arrived is told of once the Stop names it; see
+   * lateStopArrived. A done already seen was told of then, or came from them, unless telling them
+   * failed.
+   */
+  private relaySeen(workspace: Workspace, terminal: Terminal): void {
+    const attention = terminal.attention;
+    const deliveryId = attention?.deliveryId;
+    if (!isSshWorkspace(workspace) || attention?.kind !== 'turn-complete' || !deliveryId) return;
+    if (attention.seen && this.unrelayedSeen.get(terminal.id) !== deliveryId) return;
+    if (this.wasSeenElsewhere(terminal.id, deliveryId)) return;
+    this.sendSeen(workspace, terminal.id, attention.source, deliveryId);
+  }
+
+  private sendSeen(
+    workspace: Workspace,
+    terminalId: string,
+    source: string,
+    deliveryId: string
+  ): void {
+    this.unrelayedSeen.delete(terminalId);
+    void this.deps.relay.seen(workspace, terminalId, source, deliveryId).then((relayed) => {
+      // Seeing it again tries again.
+      if (!relayed && this.getTerminal(terminalId)) this.unrelayedSeen.set(terminalId, deliveryId);
+    });
+  }
+
+  /**
+   * Another installation's word that the user saw there the done its `seen_delivery_id` delivered.
+   * Here too that done shows only on its pane, as one the user saw here does, and one that still
+   * settles shows so; see wasSeenElsewhere. Word of an older turn's done leaves a newer one be.
+   */
+  private seenElsewhere(terminalId: string, hook: AgentHook): void {
+    const deliveryId = hook.hookInput?.seen_delivery_id;
+    if (typeof deliveryId !== 'string') return;
+    // A journal read late can bring word of an older one, and each agent of the Terminal has one.
+    const seen = new Set(this.seenTurns.get(terminalId));
+    seen.delete(deliveryId);
+    seen.add(deliveryId);
+    this.seenTurns.set(terminalId, new Set([...seen].slice(-16)));
+    const workspace = this.findWorkspaceByTerminalId(terminalId);
+    const terminal = workspace?.terminals.find((t) => t.id === terminalId);
+    const attention = terminal?.attention;
+    if (!workspace || !terminal || attention?.kind !== 'turn-complete') return;
+    if (attention.deliveryId === deliveryId) this.markSeen(workspace, terminal);
+  }
+
+  /** Whether the user saw on another installation the Terminal's done that `deliveryId` delivered. */
+  private wasSeenElsewhere(terminalId: string, deliveryId: string | undefined): boolean {
+    return !!deliveryId && !!this.seenTurns.get(terminalId)?.has(deliveryId);
+  }
+
+  /**
+   * The Stop of a turn whose done its program already reported names that done, which the other
+   * installations showing the Terminal take from the Stop. A done the user saw here meanwhile is
+   * told of now; one dismissed meanwhile is gone, so isn't.
+   */
+  private lateStopArrived(workspace: Workspace, terminalId: string, hook: AgentHook): void {
+    const terminal = workspace.terminals.find((t) => t.id === terminalId);
+    const attention = terminal?.attention;
+    const { deliveryId } = hook;
+    if (!terminal || !deliveryId || attention?.kind !== 'turn-complete' || attention.deliveryId) {
+      return;
+    }
+    if (attention.source !== toAttentionSource(hook.source)) return;
+    terminal.attention = { ...attention, deliveryId };
+    if (workspace.attention === attention) workspace.attention = terminal.attention;
+    if (attention.seen) this.sendSeen(workspace, terminalId, attention.source, deliveryId);
+    else if (this.wasSeenElsewhere(terminalId, deliveryId)) this.markSeen(workspace, terminal);
+    if (isSshWorkspace(workspace)) this.deps.store.save();
   }
 
   /** The user opened the Terminal from the phone remote, which is seeing its attention too. */
@@ -1081,13 +1194,19 @@ export class TerminalAttention {
     { hookSince = false, installationKey }: { hookSince?: boolean; installationKey?: string } = {}
   ): Promise<void> {
     if (this.programStatuses.has(terminalId)) return;
-    const sources = journal.flatMap(({ hook }) => (hook.source ? [hook.source] : []));
+    // Word that the user saw a done tells of no turn, so the agents' hooks are read without it.
+    const hooks = journal.filter(({ hook }) => hook.kind !== 'seen');
+    // First, so that a done the replay brings comes in seen.
+    for (const { hook, owner } of journal) {
+      if (hook.kind === 'seen' && owner !== installationKey) this.seenElsewhere(terminalId, hook);
+    }
+    const sources = hooks.flatMap(({ hook }) => (hook.source ? [hook.source] : []));
     this.journalSources.set(terminalId, new Set(sources));
-    if (journal.length > 0) this.unconfirmedCopies.delete(terminalId);
+    if (hooks.length > 0) this.unconfirmedCopies.delete(terminalId);
     const terminal = this.getTerminal(terminalId);
     if (hookSince || !terminal) return;
     this.journalsRead.add(terminalId);
-    const missed = this.missedJournalEntries(terminal, journal, installationKey);
+    const missed = this.missedJournalEntries(terminal, hooks, installationKey);
     if (missed.length === 0 || this.replaying.has(terminalId)) return;
     this.noteReplayed(terminalId, missed);
     this.replaying.add(terminalId);
@@ -1302,7 +1421,14 @@ export class TerminalAttention {
       this.recordReply(matchingWorkspace.id, reply, terminalId);
     }
 
-    const attention = buildAttention(payload, terminalId);
+    const built = buildAttention(payload, terminalId);
+    // The user saw this done on another installation before it showed here.
+    const attention =
+      built.kind === 'turn-complete' &&
+      built.terminalId &&
+      this.wasSeenElsewhere(built.terminalId, built.deliveryId)
+        ? { ...built, seen: true }
+        : built;
     // Terminal-scoped done/idle notifications are authoritative for the whole
     // terminal. Legacy notifications without a terminal id fall back to the
     // workspace scope. A stale terminal id is old attribution; it must not
@@ -1372,7 +1498,7 @@ export class TerminalAttention {
       );
     }
     // What a Hook Journal replays was for the installations connected when it ran.
-    if (payload.replayedAt === undefined) {
+    if (payload.replayedAt === undefined && !attention.seen) {
       this.deps.windows.attentionRaised({
         workspaceId: matchingWorkspace.id,
         attention,
@@ -1513,11 +1639,17 @@ export class TerminalAttention {
     if (terminalId && status && turn && (turn.startedServer || status.serving)) {
       status.turn = undefined;
       status.serving = true;
-      const { kind, message, hookInput, copy } = hook;
-      this.reportProgram(workspace, terminalId, { kind, message, hookInput, copy });
+      const { kind, message, hookInput, copy, deliveryId } = hook;
+      this.reportProgram(workspace, terminalId, { kind, message, hookInput, copy, deliveryId });
       return 'taken';
     }
-    if (turn && hook.kind === 'turn-complete') turn.reply = hook.message;
+    if (turn && hook.kind === 'turn-complete') {
+      turn.reply = hook.message;
+      turn.stopDelivery = hook.deliveryId;
+    } else if (terminalId && status && hook.kind === 'turn-complete') {
+      // Codex reports its done without waiting for the Stop.
+      this.lateStopArrived(workspace, terminalId, hook);
+    }
     const reply = hook.kind === 'turn-complete' ? agentReply(hook) : undefined;
     if (!hook.copy) this.recordReply(workspace.id, reply, status ? terminalId : namedTerminalId);
     return 'taken';
@@ -1668,11 +1800,16 @@ export class TerminalAttention {
     message: string | undefined
   ): void {
     const reply = current.turn?.reply;
+    const deliveryId = current.turn?.stopDelivery;
     this.releaseHeldDone(current);
     current.turn = current.interruptedAt = undefined;
     current.summary = 'awaited';
     if (message) this.recordSummary(workspace, terminalId, current, message);
-    this.reportProgram(workspace, terminalId, { kind: 'turn-complete', message: reply ?? message });
+    this.reportProgram(workspace, terminalId, {
+      kind: 'turn-complete',
+      message: reply ?? message,
+      deliveryId,
+    });
   }
 
   private failProgramTurn(
@@ -1777,7 +1914,8 @@ export class TerminalAttention {
         const reply = hook.kind === 'turn-complete' ? agentReply(hook) : undefined;
         if (!hook.copy) this.recordReply(workspace.id, reply, terminalId);
         const kind = hook.kind === 'turn-complete' ? 'turn-complete' : 'error';
-        this.reportProgram(workspace, terminalId, { kind, message: hook.message });
+        const { message, deliveryId } = hook;
+        this.reportProgram(workspace, terminalId, { kind, message, deliveryId });
       }
       return 'taken';
     }
@@ -1791,9 +1929,14 @@ export class TerminalAttention {
     // A Stop; a manual /compact sends none, and Claude's PostCompact stands in for it.
     if (hook.kind === 'turn-complete') {
       if (!hook.copy) this.recordReply(workspace.id, agentReply(hook), terminalId);
-      if (!turn || !status) return 'taken';
+      if (!turn || !status) {
+        // Later than its done waited for.
+        if (own) this.lateStopArrived(workspace, terminalId, hook);
+        return 'taken';
+      }
       turn.stopped = true;
       turn.reply = hook.message;
+      turn.stopDelivery = hook.deliveryId;
       turn.waitsForBackgroundWork = waitsForBackgroundWork(hook);
       if (status.heldDone && !turn.waitsForBackgroundWork) {
         this.completeProgramTurn(workspace, terminalId, status, status.heldDone.message);
@@ -1834,7 +1977,7 @@ export class TerminalAttention {
   private reportProgram(
     workspace: Workspace,
     terminalId: string,
-    hook: Pick<AgentHook, 'kind' | 'message' | 'hookInput' | 'copy'>
+    hook: Pick<AgentHook, 'kind' | 'message' | 'hookInput' | 'copy' | 'deliveryId'>
   ): void {
     const source = this.programStatuses.get(terminalId)?.source ?? 'codex';
     this.handleHook(
@@ -2032,13 +2175,14 @@ export class TerminalAttention {
   ): void {
     const workspace = this.deps.store.get(workspaceId);
     if (!workspace) return;
-    workspace.attention = attention;
-    workspace.needsAttention = needsAttention(attention);
-    if (terminalId) {
-      const terminal = workspace.terminals.find((t) => t.id === terminalId);
-      if (terminal) {
-        terminal.attention = attention;
-      }
+    const terminal = terminalId ? workspace.terminals.find((t) => t.id === terminalId) : undefined;
+    if (terminal) terminal.attention = attention;
+    // One the user saw shows only on its pane.
+    if (terminal && attention.seen) {
+      if (workspace.attention?.terminalId === terminal.id) this.showTerminalsAttention(workspace);
+    } else {
+      workspace.attention = attention;
+      workspace.needsAttention = needsAttention(attention);
     }
     publishRemoteWorkspaceChange();
     if (isSshWorkspace(workspace)) this.deps.store.save();
@@ -2569,6 +2713,7 @@ function buildAttention(hook: AgentHook, terminalId: string | undefined): Worksp
     ...(hook.iconColor ? { iconColor: hook.iconColor } : {}),
     message: hook.message,
     ...(terminalId ? { terminalId } : {}),
+    ...(hook.deliveryId ? { deliveryId: hook.deliveryId } : {}),
   };
 }
 
@@ -2579,7 +2724,8 @@ function attentionKind(hook: AgentHook): WorkspaceAttentionKind {
     hook.kind &&
     hook.kind !== 'prompt-submit' &&
     hook.kind !== 'activity' &&
-    hook.kind !== 'interrupted'
+    hook.kind !== 'interrupted' &&
+    hook.kind !== 'seen'
   ) {
     return hook.kind;
   }

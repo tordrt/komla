@@ -3011,6 +3011,24 @@ class SshWorkspaceService {
     );
   }
 
+  /** Has the companion tell the other installations that the user saw a terminal's done here. */
+  async relaySeen(
+    backend: SshWorkspaceBackend,
+    companion: { executable: string; hookInbox: string },
+    terminalId: string,
+    source: string,
+    deliveryId: string
+  ): Promise<void> {
+    const host = this.getHost(backend.hostId);
+    await this.run(
+      host,
+      [companion.executable, '__relay-seen', companion.hookInbox, terminalId, source, deliveryId]
+        .map(shellQuotePosix)
+        .join(' '),
+      { purpose: { kind: 'background' } }
+    );
+  }
+
   async supportsPersistentTerminalSessions(backend: SshWorkspaceBackend): Promise<boolean> {
     const host = this.getHost(backend.hostId);
     return (await this.getCachedRemoteTmuxStatus(host)).status === 'available';

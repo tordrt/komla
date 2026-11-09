@@ -2611,6 +2611,31 @@ describe('HttpServerService', () => {
         }
       );
 
+      it('accepts word of a done seen on another installation only as a copy', async () => {
+        const seen = { terminalId: 'term-1', kind: 'seen', hookInput: { seen_delivery_id: 'd1' } };
+
+        const { res } = await sendRequest(
+          'POST',
+          '/api/v1/notify',
+          JSON.stringify({ cwd: '/home/dev/repo', source: 'claude-code', ...seen })
+        );
+
+        expect(res.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
+
+        const workspace = sshWorkspace([createTerminal({ id: 'term-1' })]);
+        mockWorkspaceService.list.mockReturnValue([workspace]);
+        mockWorkspaceService.findWorkspaceByTerminalId.mockReturnValue(workspace);
+        mockWorkspaceService.get.mockReturnValue(workspace);
+        hook.mockResolvedValueOnce('ignored');
+        const copy = await copied(seen);
+
+        expect(copy.res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
+        expect(hook).toHaveBeenCalledWith(
+          expect.objectContaining({ terminalId: 'term-1' }),
+          expect.objectContaining({ kind: 'seen', hookInput: { seen_delivery_id: 'd1' } })
+        );
+      });
+
       it('rejects a copy flag that is not a boolean', async () => {
         const { res } = await copied({ terminalId: 'term-1', kind: 'turn-complete', copy: 'true' });
 

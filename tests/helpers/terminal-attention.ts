@@ -27,6 +27,14 @@ export function createAttentionHarness(initial: Workspace[] = []) {
   };
   const relay = {
     interrupted: vi.fn<(workspace: Workspace, terminalId: string, sources: string[]) => void>(),
+    seen: vi.fn<
+      (
+        workspace: Workspace,
+        terminalId: string,
+        source: string,
+        deliveryId: string
+      ) => Promise<boolean>
+    >(() => Promise.resolve(true)),
   };
   const promptSubmitted =
     vi.fn<(workspaceId: string, prompt: string, terminalId?: string) => void>();

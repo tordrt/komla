@@ -37,6 +37,7 @@ const KEPT_INPUT: &[&str] = &[
     "tool_name",
     "tool_input",
     "permissionID",
+    "seen_delivery_id",
 ];
 /// A larger text or input value is left out, so that reading every journal stays small.
 const MAX_VALUE_BYTES: usize = 4 * 1024;
@@ -85,9 +86,15 @@ fn try_record(
         written_at_ms: now_ms,
         hook: trimmed(hook),
     })?;
+    if hook.kind == "seen" {
+        // Only the newest counts, and it doesn't take the place of the agent's hooks.
+        write_atomically(&directory, &format!("{source}.seen.json"), &entry)?;
+        return Ok(());
+    }
     if hook.kind == "prompt-submit" {
-        // The hooks there were the last turn's.
-        for name in hook_names(&directory, source)? {
+        // The hooks there, and word that the user saw how the turn ended, were the last turn's.
+        let seen = format!("{source}.seen.json");
+        for name in hook_names(&directory, source)?.into_iter().chain([seen]) {
             match fs::remove_file(directory.join(name)) {
                 Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.into()),
                 _ => {}
@@ -118,7 +125,10 @@ fn hook_names(directory: &Path, source: &str) -> io::Result<Vec<String>> {
         .filter_map(Result::ok)
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|name| {
-            name.starts_with(&prefix) && name.ends_with(".json") && !name.ends_with(".prompt.json")
+            name.starts_with(&prefix)
+                && name.ends_with(".json")
+                && !name.ends_with(".prompt.json")
+                && !name.ends_with(".seen.json")
         })
         .collect();
     names.sort();
@@ -325,6 +335,30 @@ mod tests {
             .collect();
         written.sort_unstable();
         assert_eq!(written, [1, 4, 5, 6, 7, 8, 9, 10, 11]);
+    }
+
+    #[test]
+    fn keeps_only_the_newest_word_of_a_seen_done_beside_the_hooks_of_the_turn() {
+        let temp = tempdir().unwrap();
+        let helpers = temp.path().join("helpers");
+        let inbox = owner_inbox(&helpers);
+
+        super::try_record(&inbox, &hook("prompt-submit", "claude-code"), &[], 1).unwrap();
+        for at in 2..=9 {
+            super::try_record(&inbox, &hook("activity", "claude-code"), &[], at).unwrap();
+        }
+        super::try_record(&inbox, &hook("seen", "claude-code"), &[], 10).unwrap();
+        super::try_record(&inbox, &hook("seen", "claude-code"), &[], 11).unwrap();
+
+        let mut written: Vec<u64> = journal(&helpers)
+            .iter()
+            .map(|(_, entry)| entry["writtenAtMs"].as_u64().unwrap())
+            .collect();
+        written.sort_unstable();
+        assert_eq!(written, [1, 2, 3, 4, 5, 6, 7, 8, 9, 11]);
+
+        super::try_record(&inbox, &hook("prompt-submit", "claude-code"), &[], 12).unwrap();
+        assert_eq!(kinds(&helpers), ["prompt-submit"]);
     }
 
     #[test]

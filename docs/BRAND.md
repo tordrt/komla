@@ -61,6 +61,7 @@ One komla on its own (`brand/komla.svg`) is decoration, not the logo. The app do
 | --- | --- |
 | `resources/icon.svg` | The app icon master: tile plus mark. |
 | `scripts/generate-icons.mjs` | Renders `icon.png`, `.icns`, `.ico` and `resources/icons/` from the master, writes the three `docs/brand/komla-mark*.svg` files, and renders the site's favicons when `KOMLA_SITE_PUBLIC_DIR` points at the site's `public/` folder. |
+| `scripts/generate-dmg-background.mjs` | Renders `resources/dmg-background.png` and `@2x`, the macOS installer window's background. `electron-builder.yml` sets the icon positions to match. |
 | `src/renderer/components/ui/komla-mark.tsx` | `KomlaMark`, the in-app mark. |
 | `docs/brand/` | Standalone SVGs with transparent backgrounds. `komla.svg` is drawn by hand; the rest are generated. |
 

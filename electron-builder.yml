@@ -66,6 +66,18 @@ win:
   signExts:
     - .dll
     - .node
+# The installer window's background comes from scripts/generate-dmg-background.mjs, which also
+# sets the window's size. The icon positions below are laid out for that image; change them together.
+dmg:
+  background: resources/dmg-background.png
+  iconSize: 112
+  contents:
+    - x: 180
+      y: 230
+    - x: 480
+      y: 230
+      type: link
+      path: /Applications
 nsis:
   artifactName: ${name}-${version}-${arch}-setup.${ext}
   shortcutName: Komla

@@ -1,6 +1,6 @@
 import type { AppearanceSettings } from './customization';
 
-export type SettingsApprovalOperation = 'add' | 'edit' | 'delete' | 'change';
+export type SettingsApprovalOperation = 'add' | 'edit' | 'delete' | 'change' | 'send';
 
 export type SettingsApprovalChangeKind =
   | 'action'
@@ -19,7 +19,8 @@ export type SettingsApprovalChangeKind =
   | 'terminal-setting'
   | 'agent-preset'
   | 'automation'
-  | 'project-setting';
+  | 'project-setting'
+  | 'terminal-message';
 
 export interface SettingsApprovalDetail {
   label: string;
@@ -62,6 +63,8 @@ export interface SettingsApprovalPrompt {
     | 'automations'
     | 'appearance'
     | 'project-settings'
+    /** Not settings: a message `komla send` would type into a terminal. */
+    | 'terminal-send'
     | SettingsFileResource;
   target: string;
   /** Who proposes the change and why, in place of saying an agent wants it. */

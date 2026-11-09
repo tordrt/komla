@@ -46,6 +46,8 @@ function settingsApprovalTarget(request: SettingsApprovalRequest): string {
       return `${project} Automations`;
     case 'project-settings':
       return `${project} settings`;
+    case 'terminal-send':
+      return 'Terminal message';
     default:
       return request.project ? `${request.project.name} Quick Commands` : 'Global Quick Commands';
   }

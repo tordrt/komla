@@ -301,7 +301,8 @@ const COMMANDS: &[Command] = &[
         summary: "Type a message into another terminal and submit it",
         description: &[
             "Types the text's lines into the terminal, as one paste where its agent takes pasted text (a plain shell takes each line as typed), and presses Enter, as to steer an agent you started with `komla launch --here`. Put the first task in launch's prompt instead: an agent still starting can lose a message.",
-            "It refuses an agent waiting for the user, such as on a permission prompt: read it and ask the user rather than answering for them. --force sends anyway.",
+            "Komla asks the user to allow the message in its window the first time you message a terminal, and waits up to two minutes: if they decline (TERMINAL_SEND_DECLINED) or don't answer (TERMINAL_SEND_UNAPPROVED), nothing is typed, so don't retry until you've told them why you need to. Once allowed, later messages to that terminal go straight through until it exits.",
+            "It refuses an agent waiting for the user, such as on a permission prompt: read it and ask the user rather than answering for them. --force sends anyway once the user allows that message, and each one asks again.",
             "With --wait it then waits as `komla wait` does, for the turn the message starts, past one under way; not_started means none began within 10 seconds of the agent being idle, so read the terminal before sending again.",
         ],
         options: &[

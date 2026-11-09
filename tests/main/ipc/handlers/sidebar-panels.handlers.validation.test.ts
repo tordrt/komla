@@ -150,7 +150,7 @@ describe('sidebar panels IPC validation', () => {
       })
     );
     expect(mockExecute).toHaveBeenCalledWith(
-      { workspaceId: 'ws-1' },
+      { workspaceId: 'ws-1', userConfirmed: true },
       expect.objectContaining({ type: 'agent.launch' })
     );
   });

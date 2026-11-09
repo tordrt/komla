@@ -3,6 +3,7 @@ import { resolve } from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  TERMINAL_SEND_APPROVAL_MS,
   TRASH_TURN_LIMIT_MS,
   TRASH_WITHOUT_TURN_DELAY_MS,
   komlaCommandContext,
@@ -75,12 +76,14 @@ function createDependencies(
     unlinkWorkspace: vi.fn(async () => {}),
     readTerminalText: vi.fn(async () => ({ text: '', bracketedPaste: false })),
     submitToTerminal: vi.fn(async () => {}),
+    approveTerminalSend: vi.fn(async () => 'apply' as const),
     isTerminalRunning: () => true,
     onWorkspaceUpdated: () => () => {},
     onAttentionRaised: () => () => {},
     onPromptSubmitted: () => () => {},
     onTerminalOutput: () => () => {},
     onTerminalExit: () => () => {},
+    onTerminalReset: () => () => {},
     notify: vi.fn(async () => {}),
     ...overrides,
   };
@@ -4456,6 +4459,433 @@ describe('KomlaOperationService terminals', () => {
     expect(submitToTerminal).not.toHaveBeenCalled();
     await service.execute({ terminalId: 'lead' }, { ...send, force: true });
     expect(submitToTerminal).toHaveBeenCalledOnce();
+  });
+
+  describe('approving a message before it is typed', () => {
+    const lead = { id: 'lead', name: 'Claude' };
+    const send = { type: 'terminal.send' as const, terminal: 'review', text: 'rm -rf build' };
+
+    function approvingService(
+      decisions: Array<'apply' | 'cancel' | 'unanswered'>,
+      terminals: NonNullable<KomlaOperationWorkspace['terminals']> = [
+        lead,
+        { id: 'review', name: 'Codex' },
+      ]
+    ) {
+      const submitToTerminal = vi.fn(async () => {});
+      const approveTerminalSend = vi.fn(async () => decisions.shift() ?? 'cancel');
+      const service = serviceFor(workspaceWith(terminals), {
+        submitToTerminal,
+        approveTerminalSend,
+      });
+      return { service, submitToTerminal, approveTerminalSend };
+    }
+
+    it('asks the user first, naming the sender, the terminal and the text', async () => {
+      const { service, submitToTerminal, approveTerminalSend } = approvingService(['apply']);
+
+      await service.execute({ terminalId: 'lead' }, send);
+
+      expect(approveTerminalSend).toHaveBeenCalledWith(
+        {
+          workspaceId: 'workspace-1',
+          callerTerminalId: 'lead',
+          callerWorkspaceId: 'workspace-1',
+          terminal: { id: 'review', name: 'Codex', state: 'idle' },
+          text: 'rm -rf build',
+          forced: false,
+        },
+        expect.any(AbortSignal)
+      );
+      expect(submitToTerminal).toHaveBeenCalledOnce();
+    });
+
+    it('types nothing when the user declines, and says so', async () => {
+      const { service, submitToTerminal } = approvingService(['cancel']);
+
+      await expect(service.execute({ terminalId: 'lead' }, send)).rejects.toMatchObject({
+        code: 'TERMINAL_SEND_DECLINED',
+        statusCode: 403,
+      });
+      expect(submitToTerminal).not.toHaveBeenCalled();
+    });
+
+    it('types nothing when the prompt ends unanswered', async () => {
+      const { service, submitToTerminal } = approvingService(['unanswered']);
+
+      await expect(service.execute({ terminalId: 'lead' }, send)).rejects.toMatchObject({
+        code: 'TERMINAL_SEND_UNAPPROVED',
+        statusCode: 403,
+      });
+      expect(submitToTerminal).not.toHaveBeenCalled();
+    });
+
+    it('asks once per sender and terminal, then lets later messages through', async () => {
+      const { service, submitToTerminal, approveTerminalSend } = approvingService(['apply']);
+
+      await service.execute({ terminalId: 'lead' }, send);
+      await service.execute({ terminalId: 'lead' }, { ...send, text: 'again' });
+
+      expect(approveTerminalSend).toHaveBeenCalledOnce();
+      expect(submitToTerminal).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not remember a declined message', async () => {
+      const { service, approveTerminalSend } = approvingService(['cancel', 'apply']);
+
+      await expect(service.execute({ terminalId: 'lead' }, send)).rejects.toMatchObject({
+        code: 'TERMINAL_SEND_DECLINED',
+      });
+      await service.execute({ terminalId: 'lead' }, send);
+
+      expect(approveTerminalSend).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks again for another terminal, and for another sender', async () => {
+      const { service, approveTerminalSend } = approvingService(
+        ['apply', 'apply', 'apply'],
+        [lead, { id: 'review', name: 'Codex' }, { id: 'fix', name: 'Pi' }, { id: 'other' }]
+      );
+
+      await service.execute({ terminalId: 'lead' }, send);
+      await service.execute({ terminalId: 'lead' }, { ...send, terminal: 'fix' });
+      await service.execute({ terminalId: 'other' }, send);
+
+      expect(approveTerminalSend).toHaveBeenCalledTimes(3);
+    });
+
+    it('names the workspace the sender runs in, which `--workspace` can make another one', async () => {
+      const callerWorkspace = { id: 'ws-caller', terminals: [lead] };
+      const targetWorkspace = { id: 'ws-target', terminals: [{ id: 'review', name: 'Codex' }] };
+      const approveTerminalSend = vi.fn(async () => 'apply' as const);
+      const service = new KomlaOperationService(
+        createDependencies({
+          findWorkspaceByTerminalId: (id) => (id === 'lead' ? callerWorkspace : undefined),
+          getWorkspace: (id) => (id === 'ws-target' ? targetWorkspace : callerWorkspace),
+          approveTerminalSend,
+        })
+      );
+
+      await service.execute(
+        komlaCommandContext({ terminalId: 'lead', targetWorkspaceId: 'ws-target' }),
+        send
+      );
+
+      expect(approveTerminalSend.mock.calls[0][0]).toMatchObject({
+        workspaceId: 'ws-target',
+        callerTerminalId: 'lead',
+        callerWorkspaceId: 'ws-caller',
+      });
+    });
+
+    it('asks about a sender outside any terminal, and remembers it as its own', async () => {
+      const { service, approveTerminalSend } = approvingService(['apply']);
+
+      await service.execute({ workspaceId: 'workspace-1' }, send);
+      await service.execute({ workspaceId: 'workspace-1' }, send);
+
+      expect(approveTerminalSend).toHaveBeenCalledOnce();
+      expect(approveTerminalSend.mock.calls[0][0]).not.toHaveProperty('callerTerminalId');
+      expect(approveTerminalSend.mock.calls[0][0]).not.toHaveProperty('callerWorkspaceId');
+    });
+
+    it('forgets an approval once either terminal exits', async () => {
+      let exited: (terminalId: string) => void = () => {};
+      const approveTerminalSend = vi.fn(async () => 'apply' as const);
+      const service = serviceFor(workspaceWith([lead, { id: 'review', name: 'Codex' }]), {
+        approveTerminalSend,
+        onTerminalExit: (listener) => {
+          exited = listener;
+          return () => {};
+        },
+      });
+
+      await service.execute({ terminalId: 'lead' }, send);
+      exited('review');
+      await service.execute({ terminalId: 'lead' }, send);
+      expect(approveTerminalSend).toHaveBeenCalledTimes(2);
+      exited('lead');
+      await service.execute({ terminalId: 'lead' }, send);
+      expect(approveTerminalSend).toHaveBeenCalledTimes(3);
+    });
+
+    it('forgets an approval once a terminal’s program is replaced under the same id', async () => {
+      let reset: (terminalId: string) => void = () => {};
+      const approveTerminalSend = vi.fn(async () => 'apply' as const);
+      const service = serviceFor(workspaceWith([lead, { id: 'review', name: 'Codex' }]), {
+        approveTerminalSend,
+        onTerminalReset: (listener) => {
+          reset = listener;
+          return () => {};
+        },
+      });
+
+      await service.execute({ terminalId: 'lead' }, send);
+      reset('review');
+      await service.execute({ terminalId: 'lead' }, send);
+      expect(approveTerminalSend).toHaveBeenCalledTimes(2);
+      reset('lead');
+      await service.execute({ terminalId: 'lead' }, send);
+      expect(approveTerminalSend).toHaveBeenCalledTimes(3);
+    });
+
+    it('asks every time when forced, naming the question it would answer', async () => {
+      const waiting = {
+        id: 'review',
+        name: 'Codex',
+        attention: {
+          kind: 'input-required' as const,
+          source: 'codex',
+          updatedAt: 1,
+          message: 'Run rm -rf?',
+        },
+      };
+      const { service, submitToTerminal, approveTerminalSend } = approvingService(
+        ['apply', 'apply'],
+        [lead, waiting]
+      );
+      const forced = { ...send, text: 'yes', force: true };
+
+      await service.execute({ terminalId: 'lead' }, forced);
+      await service.execute({ terminalId: 'lead' }, forced);
+
+      expect(approveTerminalSend).toHaveBeenCalledTimes(2);
+      expect(approveTerminalSend.mock.calls[0][0]).toMatchObject({
+        forced: true,
+        terminal: { id: 'review', state: 'blocked', message: 'Run rm -rf?' },
+      });
+      expect(submitToTerminal).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not remember a forced approval for later messages', async () => {
+      const review: NonNullable<KomlaOperationWorkspace['terminals']>[number] = {
+        id: 'review',
+        name: 'Codex',
+        attention: {
+          kind: 'input-required',
+          source: 'codex',
+          updatedAt: 1,
+          message: 'Run rm -rf?',
+        },
+      };
+      const approveTerminalSend = vi.fn(async () => 'apply' as const);
+      const service = serviceFor(workspaceWith([lead, review]), { approveTerminalSend });
+
+      await service.execute({ terminalId: 'lead' }, { ...send, force: true });
+      review.attention = undefined;
+      await service.execute({ terminalId: 'lead' }, send);
+
+      expect(approveTerminalSend).toHaveBeenCalledTimes(2);
+    });
+
+    it('treats --force on a terminal that is not waiting as an ordinary message', async () => {
+      const { service, approveTerminalSend } = approvingService(['apply']);
+
+      await service.execute({ terminalId: 'lead' }, { ...send, force: true });
+      await service.execute({ terminalId: 'lead' }, { ...send, force: true });
+
+      expect(approveTerminalSend).toHaveBeenCalledOnce();
+      expect(approveTerminalSend.mock.calls[0][0]).toMatchObject({ forced: false });
+    });
+
+    it('refuses a message the terminal can’t take without asking the user', async () => {
+      const { service, approveTerminalSend } = approvingService(['apply']);
+
+      await expect(
+        service.execute({ terminalId: 'lead' }, { ...send, terminal: 'lead' })
+      ).rejects.toMatchObject({ code: 'TERMINAL_IS_CALLER' });
+      await expect(
+        service.execute({ terminalId: 'lead' }, { ...send, text: '\x03' })
+      ).rejects.toMatchObject({ code: 'EMPTY_MESSAGE' });
+      expect(approveTerminalSend).not.toHaveBeenCalled();
+    });
+
+    it('won’t answer a question the agent raised while the user was deciding', async () => {
+      const review: NonNullable<KomlaOperationWorkspace['terminals']>[number] = {
+        id: 'review',
+        name: 'Codex',
+      };
+      const submitToTerminal = vi.fn(async () => {});
+      const service = serviceFor(workspaceWith([lead, review]), {
+        submitToTerminal,
+        approveTerminalSend: vi.fn(async () => {
+          review.attention = {
+            kind: 'input-required',
+            source: 'codex',
+            updatedAt: 1,
+            message: 'Run rm -rf?',
+          };
+          return 'apply' as const;
+        }),
+      });
+
+      await expect(service.execute({ terminalId: 'lead' }, send)).rejects.toMatchObject({
+        code: 'TERMINAL_BLOCKED',
+      });
+      expect(submitToTerminal).not.toHaveBeenCalled();
+    });
+
+    it('checks the terminal it asked about after the prompt, not whichever tab now has the name', async () => {
+      const review: NonNullable<KomlaOperationWorkspace['terminals']>[number] = {
+        id: 'review',
+        name: 'Codex',
+      };
+      const other: NonNullable<KomlaOperationWorkspace['terminals']>[number] = {
+        id: 'other',
+        name: 'Pi',
+      };
+      const submitToTerminal = vi.fn(async () => {});
+      const service = serviceFor(workspaceWith([lead, review, other]), {
+        submitToTerminal,
+        approveTerminalSend: vi.fn(async () => {
+          // While the user decides, the tabs swap names and Codex asks a question.
+          review.name = 'Old';
+          other.name = 'Codex';
+          review.attention = {
+            kind: 'input-required',
+            source: 'codex',
+            updatedAt: 1,
+            message: 'Run rm -rf?',
+          };
+          return 'apply' as const;
+        }),
+      });
+
+      await expect(
+        service.execute({ terminalId: 'lead' }, { ...send, terminal: 'Codex' })
+      ).rejects.toMatchObject({ code: 'TERMINAL_BLOCKED' });
+      expect(submitToTerminal).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['the terminal it goes to exits', 'exit', 'review'],
+      ['the terminal it comes from exits', 'exit', 'lead'],
+      ['the terminal it goes to starts another program', 'reset', 'review'],
+      ['the terminal it comes from starts another program', 'reset', 'lead'],
+    ] as const)(
+      'types nothing, and remembers no approval, when %s while the user decides',
+      async (_name, event, changed) => {
+        const listeners = { exit: new Set<(id: string) => void>(), reset: new Set<(id: string) => void>() };
+        const submitToTerminal = vi.fn(async () => {});
+        let decide: () => void = () => {};
+        const approveTerminalSend = vi.fn(async () => {
+          decide();
+          return 'apply' as const;
+        });
+        const service = serviceFor(workspaceWith([lead, { id: 'review', name: 'Codex' }]), {
+          submitToTerminal,
+          approveTerminalSend,
+          onTerminalExit: (listener) => {
+            listeners.exit.add(listener);
+            return () => listeners.exit.delete(listener);
+          },
+          onTerminalReset: (listener) => {
+            listeners.reset.add(listener);
+            return () => listeners.reset.delete(listener);
+          },
+        });
+        decide = () => {
+          for (const listener of listeners[event]) listener(changed);
+        };
+
+        await expect(service.execute({ terminalId: 'lead' }, send)).rejects.toMatchObject({
+          code: 'TERMINAL_CHANGED',
+          statusCode: 409,
+        });
+        expect(submitToTerminal).not.toHaveBeenCalled();
+
+        decide = () => {};
+        await service.execute({ terminalId: 'lead' }, send);
+        expect(approveTerminalSend).toHaveBeenCalledTimes(2);
+      }
+    );
+
+    it('won’t let a forced message answer a different question from the one the user saw', async () => {
+      const review: NonNullable<KomlaOperationWorkspace['terminals']>[number] = {
+        id: 'review',
+        name: 'Codex',
+        attention: {
+          kind: 'input-required',
+          source: 'codex',
+          updatedAt: 1,
+          message: 'Run ls?',
+        },
+      };
+      const submitToTerminal = vi.fn(async () => {});
+      const service = serviceFor(workspaceWith([lead, review]), {
+        submitToTerminal,
+        approveTerminalSend: vi.fn(async () => {
+          review.attention = {
+            kind: 'input-required',
+            source: 'codex',
+            updatedAt: 2,
+            message: 'Run rm -rf?',
+          };
+          return 'apply' as const;
+        }),
+      });
+
+      await expect(
+        service.execute({ terminalId: 'lead' }, { ...send, text: 'yes', force: true })
+      ).rejects.toMatchObject({ code: 'TERMINAL_CHANGED' });
+      expect(submitToTerminal).not.toHaveBeenCalled();
+    });
+
+    it('does not ask again when the user has just agreed to it, nor count that as an allowance', async () => {
+      const { service, submitToTerminal, approveTerminalSend } = approvingService(['apply']);
+
+      await service.execute({ terminalId: 'lead', userConfirmed: true }, send);
+      await service.execute(
+        { terminalId: 'lead', userConfirmed: true },
+        { ...send, text: 'yes', force: true }
+      );
+      expect(approveTerminalSend).not.toHaveBeenCalled();
+      expect(submitToTerminal).toHaveBeenCalledTimes(2);
+
+      await service.execute({ terminalId: 'lead' }, send);
+      expect(approveTerminalSend).toHaveBeenCalledOnce();
+    });
+
+    it('stops asking when the caller goes away, and when the user takes too long', async () => {
+      vi.useFakeTimers();
+      try {
+        const signals: AbortSignal[] = [];
+        const pending = () =>
+          new Promise<'unanswered'>((resolve) => {
+            const signal = signals.at(-1) as AbortSignal;
+            signal.addEventListener('abort', () => resolve('unanswered'));
+          });
+        const service = serviceFor(workspaceWith([lead, { id: 'review', name: 'Codex' }]), {
+          approveTerminalSend: vi.fn(async (_request, signal) => {
+            signals.push(signal as AbortSignal);
+            return pending();
+          }),
+        });
+
+        const caller = new AbortController();
+        const disconnected = service.execute(
+          { terminalId: 'lead', signal: caller.signal },
+          send
+        );
+        const disconnectedResult = expect(disconnected).rejects.toMatchObject({
+          code: 'TERMINAL_SEND_UNAPPROVED',
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(signals[0].aborted).toBe(false);
+        caller.abort();
+        await disconnectedResult;
+        expect(signals[0].aborted).toBe(true);
+
+        const slow = expect(
+          service.execute({ terminalId: 'lead' }, send)
+        ).rejects.toMatchObject({ code: 'TERMINAL_SEND_UNAPPROVED' });
+        await vi.advanceTimersByTimeAsync(TERMINAL_SEND_APPROVAL_MS);
+        await slow;
+        expect(signals[1].aborted).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it('refuses to send to or wait on the terminal it runs in', async () => {

@@ -25,7 +25,7 @@ komla open ~/notes                        # opens a folder on this computer in K
 komla title "Login fix" --description "Fix the flaky login test"
 komla terminals                           # this workspace's terminals, and what each agent is doing
 komla read <terminal>                     # what another terminal shows
-komla send <terminal> "Recheck the fix"   # types it in and submits it; --wait waits for its turn
+komla send <terminal> "Recheck the fix"   # types it in and submits it once the user allows it; --wait waits for its turn
 komla wait <terminal>                     # until its turn ends or it needs the user; never sleep
 komla desktop run -- <app command>        # on an SSH host, shows the app on a virtual desktop
 ```

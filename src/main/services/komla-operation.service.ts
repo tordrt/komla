@@ -22,6 +22,7 @@ import { ptyService } from './pty.service';
 import { sshHostService } from './ssh-host.service';
 import { statusCommandsService } from './status-commands.service';
 import { statusItemsService } from './status-items.service';
+import { approveTerminalSend } from './terminal-send-approval';
 import { getVncAppName, openInVncApp } from './virtual-desktop.service';
 import { windowService } from './window.service';
 import {
@@ -223,6 +224,7 @@ const productionDependencies: KomlaOperationDependencies = {
     ),
   readTerminalText: (terminalId, history) => ptyService.readText(terminalId, history),
   submitToTerminal: (terminalId, text, bracketed) => ptyService.submit(terminalId, text, bracketed),
+  approveTerminalSend,
   // A PTY still starting runs, as far as a wait is concerned.
   isTerminalRunning: (terminalId) => {
     const status = ptyService.getStatus(terminalId);
@@ -236,6 +238,7 @@ const productionDependencies: KomlaOperationDependencies = {
   onTerminalOutput: (listener) =>
     ptyService.onData((terminalId, data) => listener(terminalId, data)),
   onTerminalExit: (listener) => ptyService.onExit((terminalId) => listener(terminalId)),
+  onTerminalReset: (listener) => ptyService.onReset((terminalId) => listener(terminalId)),
   requestOpenFolder,
   requestTrash: (request) =>
     windowService.sendToWindowOrNext(

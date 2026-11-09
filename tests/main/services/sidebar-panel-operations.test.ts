@@ -108,6 +108,45 @@ describe('runSidebarPanelOperation', () => {
     });
   });
 
+  it('tells the operation the user agreed, so a message into a terminal isn’t asked about twice', async () => {
+    const dependencies = setup({ ...board, capabilities: ['terminal.send'] });
+    const send = { type: 'terminal.send', terminal: 'review', text: 'Recheck' };
+
+    await runSidebarPanelOperation(dependencies, {
+      workspaceId: 'ws-1',
+      panelId: 'board',
+      request: send,
+      targetWorkspaceId: 'ws-2',
+      activated: true,
+    });
+
+    expect(dependencies.confirm).toHaveBeenCalledOnce();
+    expect(dependencies.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'ws-2', targeted: true, userConfirmed: true }),
+      send
+    );
+  });
+
+  it('does not say the user agreed to what it never asked about, or what they declined', async () => {
+    const dependencies = setup({ ...board, capabilities: ['terminal.send'] }, false);
+    await runSidebarPanelOperation(dependencies, {
+      workspaceId: 'ws-1',
+      panelId: 'board',
+      request: { type: 'terminal.send', terminal: 'review', text: 'Recheck' },
+      activated: true,
+    });
+    expect(dependencies.execute).not.toHaveBeenCalled();
+
+    const reading = setup();
+    await runSidebarPanelOperation(reading, {
+      workspaceId: 'ws-1',
+      panelId: 'board',
+      request: { type: 'workspace.list' },
+      activated: true,
+    });
+    expect(reading.execute).toHaveBeenCalledWith({ workspaceId: 'ws-1' }, { type: 'workspace.list' });
+  });
+
   it('drafts a launch from a click without asking, as the user starts it', async () => {
     const dependencies = setup({ ...board, capabilities: ['agent.launch.workspace'] }, false);
     const draft = { type: 'agent.launch', destination: 'workspace', prompt: 'Fix it', draft: true };

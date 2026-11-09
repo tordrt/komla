@@ -64,7 +64,7 @@ export const AGENT_CAPABILITIES = [
     id: 'terminal.send',
     command: 'komla send',
     description:
-      'Type a message into another terminal in the current workspace and submit it, as to steer an agent another agent started. It never answers an agent waiting for you unless forced.',
+      'Type a message into another terminal in the current workspace and submit it, as to steer an agent another agent started. Komla asks you first, the first time a sender messages a terminal and for every message that answers an agent waiting for you.',
   },
   {
     id: 'preview.open',

@@ -97,6 +97,8 @@ export async function runSidebarPanelOperation(
     );
   }
   const source = panel.plugin ? `the plugin ${panel.plugin.name}` : 'sidebar-panels.json';
+  // The user agreed to the operation as the confirmation showed it.
+  let userConfirmed = false;
   try {
     const operation = dependencies.parse(request);
     const capability = dependencies.capabilityOf(operation);
@@ -124,6 +126,7 @@ export async function runSidebarPanelOperation(
           action: ACTIONS[capability] ?? operation.type,
           detail: describeRequest(operation, targetWorkspaceId),
         }));
+      userConfirmed = agreed && !drafted;
       if (!agreed) {
         return failure(
           'DECLINED',
@@ -135,7 +138,10 @@ export async function runSidebarPanelOperation(
       }
     }
     const result = await dependencies.execute(
-      komlaCommandContext({ workspaceId, targetWorkspaceId }),
+      {
+        ...komlaCommandContext({ workspaceId, targetWorkspaceId }),
+        ...(userConfirmed && { userConfirmed }),
+      },
       operation
     );
     return { ok: true, result };

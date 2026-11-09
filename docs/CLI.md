@@ -249,6 +249,21 @@ CLI exits 0 for `done`,
 disconnects. With `--workspace`, the CLI still names its own terminal (`X-Komla-Caller-Terminal-Id`),
 which `send` and `wait` refuse.
 
+`send` asks the user before it types, in a prompt in the window showing the workspace that names the
+sender, the terminal and the text. Allowing it lets that sender, a terminal or a caller outside any
+terminal, message that terminal until either exits or Komla restarts, so a loop of `send --wait`
+asks once. A message `--force` sends to a waiting agent always asks, shows the question it would
+answer, and isn't remembered. The user declining is `TERMINAL_SEND_DECLINED`; no answer within two
+minutes, the caller disconnecting or no window to ask in is `TERMINAL_SEND_UNAPPROVED`. Nothing is
+typed in either case. Nothing is typed either, and no allowance is kept, when either terminal
+exits or starts another program while the prompt is open, or when a forced message's question
+changes (`TERMINAL_CHANGED`); a question an agent raises meanwhile still refuses an unforced
+message (`TERMINAL_BLOCKED`). An allowance is also forgotten when a terminal is restarted. A sidebar
+panel's own confirmation before it sends counts, so a click there asks once and starts no allowance.
+A caller names its own terminal in a header, and Komla has no token to check it against, so this
+stops an agent sending without the user knowing, not a local program that claims an allowed
+sender's identity.
+
 `terminals`, `read` and `wait` belong to the `terminal.read` capability and `send` to
 `terminal.send`, which the user can turn off in Settings → Integrations & MCP. They have no MCP tools.
 

@@ -177,6 +177,58 @@ describe('SettingsApprovalDialog', () => {
     await waitFor(() => expect(useCustomizationStore.getState().theme).toBe(appliedTheme));
   });
 
+  it('asks whether to send a message into a terminal, not whether to apply settings', async () => {
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+
+    act(() =>
+      onRequested?.({
+        id: 'send-1',
+        resource: 'terminal-send',
+        target: 'Terminal message',
+        description: 'An agent wants to type this into Codex and press Enter.',
+        warning: 'Codex is waiting for you: Run rm -rf?. This message answers it.',
+        changes: [
+          {
+            operation: 'send',
+            kind: 'terminal-message',
+            title: 'Codex',
+            content: 'yes',
+            details: [],
+          },
+        ],
+      })
+    );
+
+    expect(screen.getByRole('heading', { name: 'Allow this message?' })).toBeInTheDocument();
+    expect(screen.getByText('An agent wants to type this into Codex and press Enter.')).toBeVisible();
+    expect(screen.getByText(/This message answers it/)).toBeVisible();
+    expect(screen.getByText('yes')).toBeVisible();
+    expect(screen.getByText('Send', { selector: 'span' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(resolveSettingsApproval).toHaveBeenCalledWith('send-1', 'apply');
+  });
+
+  it('calls a message waiting in the corner a message, not settings changes', async () => {
+    const user = userEvent.setup();
+    render(<SettingsApprovalDialog />);
+    act(() =>
+      onRequested?.({
+        id: 'send-2',
+        resource: 'terminal-send',
+        target: 'Terminal message',
+        changes: [],
+      })
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Outside' }));
+
+    expect(screen.getByRole('region', { name: 'Message waiting' })).toBeInTheDocument();
+  });
+
   it('keeps previewing while the user clicks outside the dialog to look around', async () => {
     const user = userEvent.setup();
     render(<SettingsApprovalDialog />);

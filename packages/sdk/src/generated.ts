@@ -13,7 +13,7 @@ export const KOMLA_CAPABILITIES = [
   { id: 'folder.open', description: 'Open a folder on this computer in Komla, as its own workspace.' },
   { id: 'status.set', description: 'Show a short status, such as test results or a pull request link, in the status bar while the current workspace is open.' },
   { id: 'terminal.read', description: 'List the terminals in the current workspace, read what one shows, and wait for its agent to finish or need you (komla terminals, read and wait).' },
-  { id: 'terminal.send', description: 'Type a message into another terminal in the current workspace and submit it, as to steer an agent another agent started. It never answers an agent waiting for you unless forced.' },
+  { id: 'terminal.send', description: 'Type a message into another terminal in the current workspace and submit it, as to steer an agent another agent started. Komla asks you first, the first time a sender messages a terminal and for every message that answers an agent waiting for you.' },
   { id: 'preview.open', description: 'Offer the user a page, such as a dev server, or open it in the workspace\'s browser.' },
 ] as const;
 

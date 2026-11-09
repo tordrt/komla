@@ -59,6 +59,7 @@ import { komlaOperationCapability } from './capabilities';
 import {
   terminalAgentState,
   waitForTerminal,
+  type TerminalAgentState,
   type TerminalWaitOptions,
   type TerminalWaitReason,
   type TerminalWaitResult,
@@ -109,6 +110,8 @@ export const TRASH_TURN_LIMIT_MS = 30 * 60 * 1000;
 export const TERMINAL_WAIT_DEFAULT_MS = 180_000;
 /** How long a sent message's turn may take to start before `send --wait` says it hasn't. */
 export const TERMINAL_SEND_START_MS = 10_000;
+/** How long `komla send` waits for the user to allow a message before it gives up. */
+export const TERMINAL_SEND_APPROVAL_MS = 120_000;
 /** A terminal this new may still be starting its agent, whose first turn `komla wait` waits for. */
 export const TERMINAL_STARTUP_MS = 60_000;
 /** History lines `komla read` shows above the screen by default. */
@@ -267,6 +270,11 @@ export interface KomlaOperationContext {
   signal?: AbortSignal;
   /** The terminal the command runs in, also when `--workspace` names where it acts. */
   callerTerminalId?: string;
+  /**
+   * The user has just agreed to this very operation, as to a sidebar panel's confirmation, so
+   * `send` doesn't ask again. Only code in this process sets it, never a request.
+   */
+  userConfirmed?: boolean;
 }
 
 /**
@@ -326,6 +334,20 @@ export interface KomlaOperationProject {
   name: string;
   kind?: string;
   baseBranch?: string;
+}
+
+/** What the user is asked to allow before `komla send` types into a terminal. */
+export interface TerminalSendApprovalRequest {
+  /** The workspace the message goes to. */
+  workspaceId: string;
+  /** The terminal the command ran in; absent for a caller outside any managed terminal. */
+  callerTerminalId?: string;
+  /** The workspace that terminal belongs to, which `--workspace` can make another one. */
+  callerWorkspaceId?: string;
+  terminal: { id: string; name?: string; state: TerminalAgentState; message?: string };
+  text: string;
+  /** The message answers a question the agent is waiting on. */
+  forced: boolean;
 }
 
 export interface KomlaOperationDependencies {
@@ -434,6 +456,14 @@ export interface KomlaOperationDependencies {
   readTerminalText(terminalId: string, history: number): Promise<TerminalText | undefined>;
   /** Types text into a terminal, bracketed as a paste when `bracketed`, then presses Enter. */
   submitToTerminal(terminalId: string, text: string, bracketed: boolean): Promise<void>;
+  /**
+   * Asks the user in a Komla window to allow a message into a terminal. `unanswered` when the
+   * prompt ended without their choice, as when `signal` aborts or no window could show it.
+   */
+  approveTerminalSend(
+    request: TerminalSendApprovalRequest,
+    signal: AbortSignal
+  ): Promise<'apply' | 'cancel' | 'unanswered'>;
   /** Whether the terminal's program still runs. */
   isTerminalRunning(terminalId: string): boolean;
   /** Returns a function that unsubscribes. */
@@ -446,6 +476,11 @@ export interface KomlaOperationDependencies {
   onTerminalOutput(listener: (terminalId: string, data: string) => void): () => void;
   /** Returns a function that unsubscribes. */
   onTerminalExit(listener: (terminalId: string) => void): () => void;
+  /**
+   * Each time a program starts under a terminal's id, as when a restart replaces the one before
+   * it, which doesn't exit first. Returns a function that unsubscribes.
+   */
+  onTerminalReset(listener: (terminalId: string) => void): () => void;
   /** Asks the window showing the workspace to move it to the Trash, or to say why it wasn't. */
   requestTrash(request: WorkspaceTrashRequest): void;
   /** Opens the folder in the window, or another, as Open Folder does. False when it's no folder. */
@@ -676,6 +711,17 @@ export class KomlaOperationService {
    * untag replaces it, as it replaced the spinning tag before progress had its own operation.
    */
   private readonly spinnerProgress = new Map<string, string>();
+
+  /**
+   * The senders ('' for one outside any terminal) the user allowed to message each terminal, as
+   * `komla send` first does, by the terminal's id. Forgotten when either terminal exits or starts
+   * another program, since a pane's id outlives its program.
+   */
+  private readonly allowedTerminalSenders = new Map<string, Set<string>>();
+  /** How many times each terminal has exited or started another program, once watched. */
+  private readonly terminalEpochs = new Map<string, number>();
+  /** Set at the first prompt, since nothing needs to watch terminals before. */
+  private watchingTerminals = false;
 
   constructor(private readonly dependencies: KomlaOperationDependencies) {}
 
@@ -2570,15 +2616,22 @@ export class KomlaOperationService {
         400
       );
     }
-    const described = this.describeTerminal(terminal);
-    if (described.state === 'exited') throw this.terminalNotRunning(terminal);
-    if (described.state === 'blocked' && operation.force !== true) {
-      throw new KomlaOperationError(
-        'TERMINAL_BLOCKED',
-        `${terminalLabel(terminal)} is waiting for the user${described.message ? `: ${described.message}` : ''}. Read it with \`komla read ${terminal.id}\` and ask the user; don't answer for them. --force sends anyway.`,
-        409,
-        { terminal: described }
-      );
+    let described = this.describeSendTarget(terminal, operation.force === true);
+    const sender = callerTerminal(context) ?? '';
+    // `--force` only matters to an agent waiting for the user, whose question the message answers.
+    const forced = operation.force === true && described.state === 'blocked';
+    if (
+      !context.userConfirmed &&
+      (forced || !this.allowedTerminalSenders.get(terminal.id)?.has(sender))
+    ) {
+      described = await this.confirmTerminalSend(context, {
+        workspaceId: workspace.id,
+        terminal,
+        described,
+        sender,
+        text,
+        forced,
+      });
     }
     // Agents enable bracketed paste, so a message of several lines arrives as one.
     const screen = await this.dependencies.readTerminalText(terminal.id, 0);
@@ -2596,6 +2649,146 @@ export class KomlaOperationService {
     await this.dependencies.submitToTerminal(terminal.id, text, screen.bracketedPaste);
     if (!waiting) return { sent: true, terminal: this.describeTerminal(terminal) };
     return { sent: true, ...this.waitResult(workspace.id, terminal, await waiting) };
+  }
+
+  /**
+   * Has the user allow the message, then checks the terminal is still the one they were asked
+   * about. Returns the terminal as it is then; throws unless it can take the message.
+   */
+  private async confirmTerminalSend(
+    context: KomlaOperationContext,
+    {
+      workspaceId,
+      terminal,
+      described,
+      sender,
+      text,
+      forced,
+    }: {
+      workspaceId: string;
+      terminal: OperationTerminal;
+      described: ReturnType<KomlaOperationService['describeTerminal']>;
+      sender: string;
+      text: string;
+      forced: boolean;
+    }
+  ): Promise<ReturnType<KomlaOperationService['describeTerminal']>> {
+    this.watchTerminalChanges();
+    const targetEpoch = this.terminalEpoch(terminal.id);
+    const senderEpoch = this.terminalEpoch(sender);
+    const callerWorkspaceId = sender
+      ? this.dependencies.findWorkspaceByTerminalId(sender)?.id
+      : undefined;
+    await this.requireTerminalSendApproval(context, {
+      workspaceId,
+      ...(sender ? { callerTerminalId: sender } : {}),
+      ...(callerWorkspaceId ? { callerWorkspaceId } : {}),
+      terminal: described,
+      text,
+      forced,
+    });
+    // The user took their time: what they allowed may not be what is there now.
+    const current = this.dependencies
+      .getWorkspace(workspaceId)
+      ?.terminals?.find((candidate) => candidate.id === terminal.id);
+    if (
+      !current ||
+      targetEpoch !== this.terminalEpoch(terminal.id) ||
+      senderEpoch !== this.terminalEpoch(sender)
+    ) {
+      throw this.terminalChanged(terminal);
+    }
+    const now = this.describeSendTarget(current, forced);
+    // A forced message was allowed as the answer to the question the user saw.
+    if (forced && (now.state !== 'blocked' || now.message !== described.message)) {
+      throw this.terminalChanged(terminal);
+    }
+    if (!forced) this.allowTerminalSender(terminal.id, sender);
+    return now;
+  }
+
+  private allowTerminalSender(terminalId: string, sender: string): void {
+    const senders = this.allowedTerminalSenders.get(terminalId) ?? new Set<string>();
+    senders.add(sender);
+    this.allowedTerminalSenders.set(terminalId, senders);
+  }
+
+  /** Starts forgetting allowed senders as terminals exit or start another program. */
+  private watchTerminalChanges(): void {
+    if (this.watchingTerminals) return;
+    this.watchingTerminals = true;
+    const changed = (terminalId: string): void => {
+      this.terminalEpochs.set(terminalId, this.terminalEpoch(terminalId) + 1);
+      this.allowedTerminalSenders.delete(terminalId);
+      for (const allowed of this.allowedTerminalSenders.values()) allowed.delete(terminalId);
+    };
+    this.dependencies.onTerminalExit(changed);
+    this.dependencies.onTerminalReset(changed);
+  }
+
+  /** How many times a terminal has exited or started another program since Komla watched. */
+  private terminalEpoch(terminalId: string): number {
+    return this.terminalEpochs.get(terminalId) ?? 0;
+  }
+
+  private terminalChanged(terminal: OperationTerminal): KomlaOperationError {
+    return new KomlaOperationError(
+      'TERMINAL_CHANGED',
+      `${terminalLabel(terminal)} changed while the user decided, so nothing was typed. Read it with \`komla read ${terminal.id}\` and send again if it still fits.`,
+      409
+    );
+  }
+
+  /** The terminal as it is, unless `komla send` can't type into it now. */
+  private describeSendTarget(
+    terminal: OperationTerminal,
+    forced: boolean
+  ): ReturnType<KomlaOperationService['describeTerminal']> {
+    const described = this.describeTerminal(terminal);
+    if (described.state === 'exited') throw this.terminalNotRunning(terminal);
+    if (described.state === 'blocked' && !forced) {
+      throw new KomlaOperationError(
+        'TERMINAL_BLOCKED',
+        `${terminalLabel(terminal)} is waiting for the user${described.message ? `: ${described.message}` : ''}. Read it with \`komla read ${terminal.id}\` and ask the user; don't answer for them. --force sends anyway.`,
+        409,
+        { terminal: described }
+      );
+    }
+    return described;
+  }
+
+  /** Waits for the user to allow the message; throws unless they do. */
+  private async requireTerminalSendApproval(
+    context: KomlaOperationContext,
+    request: TerminalSendApprovalRequest
+  ): Promise<void> {
+    const prompt = new AbortController();
+    const giveUp = (): void => prompt.abort();
+    if (context.signal?.aborted) giveUp();
+    context.signal?.addEventListener('abort', giveUp, { once: true });
+    const timer = setTimeout(giveUp, TERMINAL_SEND_APPROVAL_MS);
+    let decision: Awaited<ReturnType<KomlaOperationDependencies['approveTerminalSend']>>;
+    try {
+      decision = await this.dependencies.approveTerminalSend(request, prompt.signal);
+    } finally {
+      clearTimeout(timer);
+      context.signal?.removeEventListener('abort', giveUp);
+      // Ends the prompt if the dependency left it open.
+      prompt.abort();
+    }
+    if (decision === 'apply') return;
+    const label = terminalLabel(request.terminal);
+    throw decision === 'cancel'
+      ? new KomlaOperationError(
+          'TERMINAL_SEND_DECLINED',
+          `The user declined to let this message into ${label}. Ask them before sending it again.`,
+          403
+        )
+      : new KomlaOperationError(
+          'TERMINAL_SEND_UNAPPROVED',
+          `The user didn't answer Komla's request to allow this message into ${label}, or no Komla window could show it. Nothing was typed.`,
+          403
+        );
   }
 
   private async waitForTerminal(

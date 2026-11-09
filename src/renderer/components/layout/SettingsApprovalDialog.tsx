@@ -43,6 +43,7 @@ const operationLabels = {
   edit: 'Edit',
   delete: 'Delete',
   change: 'Change',
+  send: 'Send',
 } as const;
 
 const operationTones: Record<keyof typeof operationLabels, BadgeTone> = {
@@ -50,7 +51,25 @@ const operationTones: Record<keyof typeof operationLabels, BadgeTone> = {
   edit: 'info',
   delete: 'error',
   change: 'info',
+  send: 'info',
 };
+
+/** What a prompt calls itself and its buttons: settings changes, or a message into a terminal. */
+function promptCopy(prompt: SettingsApprovalPrompt) {
+  return prompt.resource === 'terminal-send'
+    ? {
+        waiting: 'Message waiting',
+        title: 'Allow this message?',
+        confirm: 'Send message',
+        confirming: 'Sending…',
+      }
+    : {
+        waiting: 'Settings changes waiting',
+        title: 'Review settings changes',
+        confirm: 'Apply changes',
+        confirming: 'Applying…',
+      };
+}
 
 const MAX_VISIBLE_CHANGES = 12;
 
@@ -272,7 +291,7 @@ function WaitingCard({
         </div>
         <div className="min-w-0 flex-1 space-y-0.5 text-xs text-muted-foreground">
           <h2 id={titleId} className="text-sm font-semibold text-foreground">
-            Settings changes waiting
+            {promptCopy(prompt).waiting}
           </h2>
           <p className="truncate">
             {prompt.target}
@@ -435,7 +454,7 @@ export function SettingsApprovalDialog() {
                     <ShieldCheck className="size-4" weight="duotone" />
                   </div>
                   <div className="min-w-0 space-y-1">
-                    <DialogTitle>Review settings changes</DialogTitle>
+                    <DialogTitle>{promptCopy(active).title}</DialogTitle>
                     <DialogDescription>
                       {active.description ?? (
                         <>
@@ -592,7 +611,9 @@ export function SettingsApprovalDialog() {
                   {submitting === 'cancel' ? 'Cancelling…' : 'Cancel'}
                 </Button>
                 <Button disabled={submitting !== null} onClick={() => void decide('apply')}>
-                  {submitting === 'apply' ? 'Applying…' : 'Apply changes'}
+                  {submitting === 'apply'
+                    ? promptCopy(active).confirming
+                    : promptCopy(active).confirm}
                 </Button>
               </DialogFooter>
             </>

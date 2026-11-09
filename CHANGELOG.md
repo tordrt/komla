@@ -14,6 +14,7 @@
 - A remote workspace shows its cloud icon from the moment it starts setting up.
 - The sidebar always lists workspaces with the tighter compact spacing, so the setting for it is gone.
 - The macOS installer now shows a "Drag Komla into Applications" background, with an arrow from the app to the Applications folder.
+- A workspace card keeps a small spinner for work still under way, such as running tests, even while a notification badge or a busy agent holds its title row.
 - Launch mode pickers are less crowded: "Dangerously skip permissions" is now called YOLO for Claude Code and Amp, as it already was for other agents. It's still red and passes the same flags.
 
 ### Fixes

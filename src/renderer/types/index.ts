@@ -212,7 +212,6 @@ export interface AppConfig {
   autoNameWorkspaces?: 'off' | 'first-prompt'; // Whether AI auto-naming runs from initial prompts
   autoNameBranches?: boolean; // Use AI to generate descriptive branch names from initial prompts
   alwaysShowBranchNameInWorkspaceCards?: boolean; // Off: a card shows its branch only when its activity row has room
-  compactWorkspaceList?: boolean; // Tighter workspace cards in the sidebar
   inboxMode?: boolean; // Workspaces that need the user lead their sidebar group, above a line
   defaultSearchOpenMode?: 'viewer' | 'preview' | 'current'; // Default target when opening search results ('current' = match the active view)
   hiddenProjectIds?: string[]; // Project IDs hidden from the sidebar workspace list

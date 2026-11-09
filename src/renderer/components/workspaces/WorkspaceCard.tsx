@@ -215,7 +215,6 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
   const availableWindows = useWindowStore((s) => s.availableWindows);
   const alwaysShowBranch =
     useConfigStore((state) => state.config?.alwaysShowBranchNameInWorkspaceCards) !== false;
-  const compact = useConfigStore((state) => state.config?.compactWorkspaceList) === true;
   const sshHosts = useSshHostsStore((state) => state.hosts);
   const automationName = useAutomationsStore(
     (state) => state.automationNameByWorkspace[workspace.id]
@@ -592,7 +591,6 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
     stopped: !shownRunning,
     selectionMode,
     isMultiSelected,
-    compact,
   });
 
   // The list it's in takes the drop, so the gaps between cards and its header take it too.
@@ -765,7 +763,6 @@ function getCardClassName({
   stopped,
   selectionMode,
   isMultiSelected,
-  compact,
 }: {
   isSelected: boolean;
   isDragging: boolean | undefined;
@@ -773,15 +770,13 @@ function getCardClassName({
   stopped: boolean;
   selectionMode: boolean;
   isMultiSelected: boolean;
-  compact: boolean;
 }): string {
   return cn(
     // The scroll margin keeps a card scrolled into view clear of the list's faded edges.
     // On a sidebar panel its corners are the panel's, which it runs flush to, and its side padding
     // keeps the content as far from the panel's edge as the panel's own padding used to. Shelf
     // headers below the list share that inset, so a shelf's cards line up with its header.
-    'relative group flex cursor-pointer items-center gap-2 rounded-xl px-2.5 scroll-my-10 workspace-card-hover',
-    compact ? 'py-2' : 'py-2.5',
+    'relative group flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 scroll-my-10 workspace-card-hover',
     // The selected card's highlight is its own layer, so the multi-select and drag styles stack
     // on it instead of replacing parts of it, and the hover fade doesn't catch a click
     // selection. `isolate` keeps it above the sidebar and under the card's content.

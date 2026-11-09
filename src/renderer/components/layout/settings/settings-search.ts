@@ -152,7 +152,6 @@ const SETTINGS_SEARCH_INDEX: Record<string, readonly SettingsSearchEntry[]> = {
     ...rows(
       'Workspace list',
       'Always show branch names on workspace cards',
-      'Compact workspace list',
       'Activity spinner style'
     ),
     card('Panes', 'split'),

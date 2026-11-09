@@ -285,7 +285,6 @@ describe('Sidebar', () => {
     expect(
       submenu.getByRole('menuitemcheckbox', { name: 'Always show branch names' })
     ).toBeTruthy();
-    expect(submenu.getByRole('menuitemcheckbox', { name: 'Compact list' })).toBeTruthy();
   });
 
   it('sets how workspace cards look from the filter menu', async () => {
@@ -305,13 +304,7 @@ describe('Sidebar', () => {
     fireEvent.click(alwaysShow);
     expect(updateConfig).toHaveBeenLastCalledWith({ alwaysShowBranchNameInWorkspaceCards: false });
 
-    const compact = screen.getByRole('menuitemcheckbox', { name: 'Compact list' });
-    expect(compact).toHaveAttribute('aria-checked', 'false');
-    fireEvent.click(compact);
-    expect(updateConfig).toHaveBeenLastCalledWith({ compactWorkspaceList: true });
-
     await waitFor(() => {
-      expect(compact).toHaveAttribute('aria-checked', 'true');
       expect(alwaysShow).toHaveAttribute('aria-checked', 'false');
     });
   });

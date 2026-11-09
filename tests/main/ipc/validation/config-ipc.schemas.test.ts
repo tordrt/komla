@@ -53,12 +53,6 @@ describe('configUpdateArgsSchema', () => {
     expect(updates).toEqual({ alwaysShowBranchNameInWorkspaceCards: false });
   });
 
-  it('preserves compactWorkspaceList updates', () => {
-    const [updates] = configUpdateArgsSchema.parse([{ compactWorkspaceList: true }]);
-
-    expect(updates).toEqual({ compactWorkspaceList: true });
-  });
-
   it('preserves sidebar grouping updates and rejects unknown groupings', () => {
     expect(configUpdateArgsSchema.parse([{ workspaceGrouping: 'none' }])).toEqual([
       { workspaceGrouping: 'none' },

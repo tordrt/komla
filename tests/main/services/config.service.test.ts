@@ -88,7 +88,6 @@ describe('ConfigService', () => {
         autoNameWorkspaces: 'first-prompt',
         autoNameBranches: false,
         alwaysShowBranchNameInWorkspaceCards: true,
-        compactWorkspaceList: false,
         inboxMode: false,
         defaultSearchOpenMode: 'current',
         hiddenProjectIds: [],
@@ -185,7 +184,6 @@ describe('ConfigService', () => {
       expect(config.usageTelemetryEnabled).toBe(false); // default: opt-in
       expect(config.usageTelemetryConsentAnswered).toBe(false); // default
       expect(config.alwaysShowBranchNameInWorkspaceCards).toBe(true); // default
-      expect(config.compactWorkspaceList).toBe(false); // default
       expect(config.activitySpinner).toBe('arc'); // default
       expect(config.utilityProvider).toBe('komla-managed'); // default
       expect(config.openRouterModel).toBe('anthropic/claude-haiku-5.5'); // default

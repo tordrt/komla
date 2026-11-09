@@ -740,14 +740,12 @@ function PaneEmptyState({
 // so it stands apart from the closed shelves' headers.
 function ShelfDock({
   shelves,
-  compact,
   onToggle,
   onOpenOverview,
   onEmptyTrash,
   renderCard,
 }: {
   shelves: Shelf[];
-  compact: boolean;
   onToggle: (shelf: Shelf) => void;
   onOpenOverview: () => void;
   onEmptyTrash: () => void;
@@ -780,7 +778,7 @@ function ShelfDock({
               className="min-h-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-scrollbar]]:w-1"
             >
               {/* Room under the last card for the selected card's shadow, which the viewport clips. */}
-              <div className={cn('pb-1', compact ? 'space-y-0.5' : 'space-y-1')}>
+              <div className="space-y-0.5 pb-1">
                 {shelf.shown.map(renderCard)}
                 {shelf.overflow > 0 && (
                   <Button
@@ -856,7 +854,6 @@ export function WorkspaceList({
   const hideStopped = useWorkspacesStore((s) => s.hideStopped);
   const grouping = useWorkspacesStore((s) => s.grouping);
   const hiddenWorkspaceHostIds = useWorkspacesStore((s) => s.hiddenWorkspaceHostIds);
-  const compact = useConfigStore((s) => s.config?.compactWorkspaceList) === true;
   const inboxMode = useConfigStore((s) => s.config?.inboxMode) === true;
   const hideWorking = useWorkspacesStore((s) => s.hideWorking);
   const hiddenWorkspaceTags = useWorkspacesStore((s) => s.hiddenWorkspaceTags);
@@ -1557,12 +1554,7 @@ export function WorkspaceList({
                   onToggle={() => toggleWorkspaceGroupCollapsed(PINNED_GROUP_KEY)}
                 />
                 {pinnedExpanded && (
-                  <div
-                    className={cn(
-                      'relative [clip-path:inset(-4px_-100vw)]',
-                      compact ? 'space-y-0.5' : 'space-y-1'
-                    )}
-                  >
+                  <div className="relative space-y-0.5 [clip-path:inset(-4px_-100vw)]">
                     {sections.pinned.map((workspace) =>
                       renderWorkspaceCard(workspace, getProjectInfo(workspace))
                     )}
@@ -1584,12 +1576,7 @@ export function WorkspaceList({
                     onDragOver={handleCardListDragOver}
                     onDrop={handleCardListDrop}
                   >
-                    <div
-                      className={cn(
-                        'relative [clip-path:inset(-4px_-100vw)]',
-                        compact ? 'space-y-0.5' : 'space-y-1'
-                      )}
-                    >
+                    <div className="relative space-y-0.5 [clip-path:inset(-4px_-100vw)]">
                       {renderGroupCards(group.workspaces, (workspace, dndEnabled) =>
                         renderWorkspaceCard(
                           workspace,
@@ -1666,12 +1653,7 @@ export function WorkspaceList({
                   {expanded && (
                     // The clip keeps a selection gliding in from another group from sweeping
                     // across the gap and this group's header.
-                    <div
-                      className={cn(
-                        'relative [clip-path:inset(-4px_-100vw)]',
-                        compact ? 'space-y-0.5' : 'space-y-1'
-                      )}
-                    >
+                    <div className="relative space-y-0.5 [clip-path:inset(-4px_-100vw)]">
                       {renderGroupCards(group.workspaces, (workspace, dndEnabled) =>
                         renderWorkspaceCard(workspace, null, group.isDirectory, dndEnabled)
                       )}
@@ -1686,7 +1668,6 @@ export function WorkspaceList({
       )}
       <ShelfDock
         shelves={shelves}
-        compact={compact}
         onToggle={(shelf) => setOpenShelf(shelf.open ? null : shelf.key)}
         onOpenOverview={() => void selectWorkspace(null)}
         onEmptyTrash={() => setEmptyTrashOpen(true)}

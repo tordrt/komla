@@ -205,7 +205,6 @@ const appConfigUpdateSchema = z
     autoNameWorkspaces: z.enum(['off', 'first-prompt']).optional(),
     autoNameBranches: z.boolean().optional(),
     alwaysShowBranchNameInWorkspaceCards: z.boolean().optional(),
-    compactWorkspaceList: z.boolean().optional(),
     inboxMode: z.boolean().optional(),
     defaultSearchOpenMode: z.enum(['viewer', 'preview', 'current']).optional(),
     hiddenProjectIds: z.array(idSchema).optional(),

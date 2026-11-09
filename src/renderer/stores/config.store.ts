@@ -54,7 +54,6 @@ const DEFAULT_CONFIG: AppConfig = {
   usageTelemetryConsentAnswered: false,
   errorReportingEnabled: true,
   alwaysShowBranchNameInWorkspaceCards: true,
-  compactWorkspaceList: false,
   inboxMode: false,
   showAgentSpinner: true,
   activitySpinner: DEFAULT_ACTIVITY_SPINNER,

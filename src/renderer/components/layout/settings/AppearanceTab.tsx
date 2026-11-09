@@ -336,16 +336,6 @@ export function AppearanceTab() {
         </SettingsRow>
 
         <SettingsRow
-          label="Compact workspace list"
-          description="Fit more workspaces in the left workspace list with tighter cards"
-        >
-          <Switch
-            checked={config?.compactWorkspaceList === true}
-            onCheckedChange={(checked) => void updateConfig({ compactWorkspaceList: checked })}
-          />
-        </SettingsRow>
-
-        <SettingsRow
           label="Activity spinner style"
           description={
             spinnerShown

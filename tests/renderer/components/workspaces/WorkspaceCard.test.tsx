@@ -40,7 +40,6 @@ vi.mock('@phosphor-icons/react', async (importOriginal) => {
 const configState = {
   config: {
     alwaysShowBranchNameInWorkspaceCards: true,
-    compactWorkspaceList: false,
     showAgentSpinner: true,
     statusBarHiddenItems: [] as string[],
     workspaceTags: undefined as WorkspaceTagDefinition[] | undefined,
@@ -429,7 +428,6 @@ describe('WorkspaceCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     configState.config.alwaysShowBranchNameInWorkspaceCards = true;
-    configState.config.compactWorkspaceList = false;
     configState.config.workspaceTags = undefined;
     configState.config.showAgentSpinner = true;
     configState.config.statusBarHiddenItems = [];
@@ -730,16 +728,6 @@ describe('WorkspaceCard', () => {
       render(<WorkspaceCard workspace={workspace} />);
       expect(screen.queryByText(branchName)).toBeNull();
     });
-  });
-
-  it('gives cards room by default and tightens them in the compact workspace list', () => {
-    const { container, rerender } = render(<WorkspaceCard workspace={createWorktreeWorkspace()} />);
-    expect(container.querySelector('.workspace-card-hover')).toHaveClass('py-2.5');
-
-    configState.config.compactWorkspaceList = true;
-    rerender(<WorkspaceCard workspace={createWorktreeWorkspace()} />);
-    expect(container.querySelector('.workspace-card-hover')).toHaveClass('py-2');
-    expect(container.querySelector('.workspace-card-hover')).not.toHaveClass('py-2.5');
   });
 
   it('says a workspace is missing from its host rather than that setup failed', () => {

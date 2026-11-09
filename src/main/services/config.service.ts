@@ -268,7 +268,6 @@ export interface AppConfig {
   autoNameWorkspaces?: AutoNameWorkspacesMode; // When to use AI to generate workspace names from prompts
   autoNameBranches?: boolean; // Use AI to generate descriptive branch names from initial prompts
   alwaysShowBranchNameInWorkspaceCards?: boolean; // Off: a card shows its branch only when its activity row has room
-  compactWorkspaceList?: boolean; // Tighter workspace cards in the sidebar
   inboxMode?: boolean; // Workspaces that need the user lead their sidebar group, above a line
   defaultSearchOpenMode?: 'viewer' | 'preview' | 'current'; // Default target when opening search results ('current' = match the active view)
   hiddenProjectIds?: string[]; // Project IDs hidden from the sidebar workspace list
@@ -399,7 +398,6 @@ const DEFAULT_CONFIG: AppConfig = {
   autoNameWorkspaces: 'first-prompt',
   autoNameBranches: false,
   alwaysShowBranchNameInWorkspaceCards: true,
-  compactWorkspaceList: false,
   inboxMode: false,
   defaultSearchOpenMode: 'current',
   hiddenProjectIds: [],
@@ -531,7 +529,6 @@ function normalizeConfig(rawConfig: Record<string, unknown>): NormalizedConfig {
       typeof rawConfig.alwaysShowBranchNameInWorkspaceCards === 'boolean'
         ? rawConfig.alwaysShowBranchNameInWorkspaceCards
         : DEFAULT_CONFIG.alwaysShowBranchNameInWorkspaceCards,
-    compactWorkspaceList: pickWithDefault(rawConfig, 'compactWorkspaceList'),
     inboxMode: pickWithDefault(rawConfig, 'inboxMode'),
     defaultSearchOpenMode: pickWithDefault(rawConfig, 'defaultSearchOpenMode'),
     hiddenProjectIds: pickWithDefault(rawConfig, 'hiddenProjectIds'),

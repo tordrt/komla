@@ -358,7 +358,6 @@ function CardOptionsSubmenu() {
   const alwaysShowBranch = useConfigStore(
     (s) => s.config?.alwaysShowBranchNameInWorkspaceCards !== false
   );
-  const compact = useConfigStore((s) => s.config?.compactWorkspaceList === true);
   const updateConfig = useConfigStore((s) => s.updateConfig);
   return (
     <DropdownMenuSub>
@@ -379,13 +378,6 @@ function CardOptionsSubmenu() {
           }
         >
           <span className="truncate">Always show branch names</span>
-        </DropdownMenuSwitchItem>
-        <DropdownMenuSwitchItem
-          checked={compact}
-          onSelect={(event) => event.preventDefault()}
-          onCheckedChange={(checked) => void updateConfig({ compactWorkspaceList: checked })}
-        >
-          <span className="truncate">Compact list</span>
         </DropdownMenuSwitchItem>
       </DropdownMenuSubContent>
     </DropdownMenuSub>

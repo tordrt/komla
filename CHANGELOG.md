@@ -12,6 +12,7 @@
 
 - The globe button lists your dev servers faster, most noticeably in SSH workspaces and when several workspaces share a machine.
 - A remote workspace shows its cloud icon from the moment it starts setting up.
+- The sidebar always lists workspaces with the tighter compact spacing, so the setting for it is gone.
 
 ### Fixes
 

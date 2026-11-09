@@ -581,6 +581,8 @@ describe("generateTmuxServerScript", () => {
         expect(calls).toContain(
           "-L komla-v1 set-option -s set-clipboard on",
         );
+        expect(calls).toContain("-L komla-v1 set-option -s escape-time 10");
+        expect(calls).toContain("-L komla-v1 set-option -s focus-events on");
         expect(calls).toContain(
           "-L komla-v1 set-option -s extended-keys-format csi-u",
         );

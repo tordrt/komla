@@ -506,6 +506,12 @@ function remoteTmuxServerSetupCommand(): string {
     // Copies Komla's terminal receives as OSC 52: tmux's own and, with `on` rather than
     // `external`, those the program in the pane makes, as Pi's.
     `  tmux -L ${TMUX_SOCKET_NAME} set-option -s set-clipboard on`,
+    // tmux before 3.5 holds an Escape 500ms to see whether a sequence follows, which delays
+    // interrupting an agent or leaving Vim's insert mode. 10ms is 3.5's default.
+    `  tmux -L ${TMUX_SOCKET_NAME} set-option -s escape-time 10`,
+    // Tells programs that ask, as Vim does to reload files changed elsewhere, when the terminal
+    // gains or loses focus. tmux before 1.9 has no focus-events.
+    `  tmux -L ${TMUX_SOCKET_NAME} set-option -s focus-events on 2>/dev/null || true`,
     // Passes OSC 8 hyperlinks through to Komla's terminal. tmux before 3.4 drops them, and
     // before 3.2 has no terminal-features option.
     `  tmux -L ${TMUX_SOCKET_NAME} set-option -as terminal-features '*:hyperlinks' 2>/dev/null || true`,

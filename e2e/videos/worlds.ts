@@ -91,6 +91,34 @@ export const ACME_API: VideoProject = {
   },
 };
 
+/** The web app and the API behind it, named plainly, as the hero names them. */
+export const WEB_APP: VideoProject = {
+  ...ACME_WEB,
+  name: 'web-app',
+  icon: 'web-app.svg',
+  files: {
+    ...ACME_WEB.files,
+    'package.json': JSON.stringify(
+      { ...JSON.parse(ACME_WEB.files['package.json']), name: 'web-app' },
+      null,
+      2
+    ),
+  },
+};
+export const API_SERVER: VideoProject = {
+  ...ACME_API,
+  name: 'api-server',
+  icon: 'api-server.svg',
+  files: {
+    ...ACME_API.files,
+    'package.json': JSON.stringify(
+      { ...JSON.parse(ACME_API.files['package.json']), name: 'api-server' },
+      null,
+      2
+    ),
+  },
+};
+
 /** Background workspaces that fill out the sidebar around a video's subject. */
 export const BACKGROUND_WORKSPACES: VideoWorkspace[] = [
   {

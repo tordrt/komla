@@ -1,10 +1,10 @@
 /**
  * The new-workspace video's world: Claude Code adds retries to card charges
- * while a dictated task starts a second Claude Code in a fresh workspace of
- * its own, and an agent in another workspace finishes.
+ * while a dictated task starts another agent in a fresh workspace of its own.
  */
 import { GO, HOLD, RETRIES as PANES_RETRIES } from './agent-panes.scene';
 import {
+  CLAUDE_PRESET,
   DEFAULT_AGENT,
   type AgentScene,
   type VideoWorkspace,
@@ -56,7 +56,7 @@ export async function sendReceipt(charge: { id: string; email: string; cents: nu
 `;
 
 /** Names its workspace and writes the receipts, still at work when the video ends. */
-const receiptsAgent: AgentScene = {
+export const receiptsAgent: AgentScene = {
   title: '✳ Receipt emails',
   turns: [
     {
@@ -101,12 +101,21 @@ export const CHECKOUT: VideoWorkspace = {
   },
 };
 
+/**
+ * Dictation needs macOS `say` for the microphone's speech; a Linux dry run types the task
+ * instead.
+ */
+export const DICTATES = process.platform === 'darwin';
+
 export const NEW_WORKSPACE_WORLD: VideoWorld = {
   sshHost: DEVBOX,
   projects: [ACME_WEB],
   workspaces: [RETRIES, CHECKOUT, ...OTHER_WORKSPACES],
-  // Just Claude Code, already set to skip permissions: it runs on the devbox.
+  // Claude Code, already set to skip permissions as it runs on the devbox.
+  presets: [CLAUDE_PRESET],
   spawnedAgents: { [RECEIPTS_AGENT]: receiptsAgent },
-  dictation: { speech: RECEIPTS_PROMPT, model: 'parakeet-tdt-0.6b-v2-int8' },
+  ...(DICTATES
+    ? { dictation: { speech: RECEIPTS_PROMPT, model: 'parakeet-tdt-0.6b-v2-int8' } }
+    : {}),
   terminal: { font: { size: 13 } },
 };

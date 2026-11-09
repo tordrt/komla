@@ -1,8 +1,10 @@
 /**
  * The command center video's world: eight workspaces across two projects, each
  * with a description of what it's for, which the command center searches. One
- * agent stops for permission and one has finished, so both wait under Needs
- * attention.
+ * agent waits on permission and one has finished, so both wait under Needs
+ * attention, while Claude Code and Codex work on card retries side by side.
+ *
+ * Local, not on the SSH host: descriptions can't be seeded there yet.
  */
 import {
   ASK,
@@ -11,16 +13,20 @@ import {
   RATE_LIMIT,
   SEARCH,
 } from './agent-status.scene';
+import { CODEX_TESTS, codexTestsAgent } from './agent-panes.scene';
+import { CARD_RETRIES } from './hero.scene';
 import type { VideoWorkspace, VideoWorld } from './video-fixtures';
 import { ACME_API, ACME_WEB, BACKGROUND_WORKSPACES } from './worlds';
 
-export { ASK, DARK_MODE, HOLD, RATE_LIMIT, SEARCH };
+export { ASK, CARD_RETRIES, CODEX_TESTS, DARK_MODE, HOLD, RATE_LIMIT, SEARCH };
 export { GO } from './agent-status.scene';
 
 const [CHECKOUT, , NAV] = BACKGROUND_WORKSPACES;
 
 /** What we search for: it's only in Stripe Webhooks' description. */
 export const QUERY = 'refund';
+/** What finds Card Retries again, by its title. */
+export const BACK_QUERY = 'retr';
 
 /** Found by its description, and done with its work, so it's quiet when we land on it. */
 export const WEBHOOKS: VideoWorkspace = {
@@ -58,18 +64,12 @@ export const COMMAND_CENTER_WORLD: VideoWorld = {
       minutesAgo: 14,
       description: 'Monthly / Yearly switch on the pricing page, yearly 20% off',
     },
-    {
-      id: 'ws-retries',
-      projectId: ACME_API.id,
-      title: 'Card Retries',
-      branch: 'card-retries',
-      minutesAgo: 21,
-      description: 'Retry gateway timeouts, never hard declines',
-    },
+    { ...CARD_RETRIES, minutesAgo: 21, description: 'Retry gateway timeouts, never hard declines' },
     { ...CHECKOUT, minutesAgo: 33, description: 'Hosted Stripe Checkout sessions for each plan' },
     WEBHOOKS,
     { ...NAV, minutesAgo: 95, description: 'Header links wrap below 360px wide' },
   ],
+  spawnedAgents: { [CODEX_TESTS]: codexTestsAgent },
   // A narrow window, so the terminal trades a little size for columns.
   terminal: { font: { size: 13 } },
 };

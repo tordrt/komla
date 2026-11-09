@@ -15,7 +15,8 @@
  * `--prompt` starts the first turn at launch, like `claude "…"`. Wrappers
  * named like a CLI pass `--as <cli>` and the arguments it was given, which
  * the agent shows as its command line and reads its permission mode from.
- * A scene's `look` picks Claude Code's TUI (the default) or Codex's.
+ * A scene's `look` picks Claude Code's TUI (the default), Codex's or Antigravity's. As `agy`,
+ * `-p /usage` prints the weekly quota lines the real CLI does, so a status item can read them.
  * Next to the scenes file live Komla's `port` file (local runs), the
  * `agent-status/` turn counts specs wait on, and `cues/` the director writes
  * to release `waitFor` events.
@@ -23,6 +24,7 @@
 import { exec, execFileSync, execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,6 +38,7 @@ const branch = execFileSync('git', ['branch', '--show-current'], { encoding: 'ut
 const sceneKey = argValue('--scene') ?? (scenes[branch] ? branch : 'default');
 const scene = scenes[sceneKey] ?? { turns: [] };
 const codex = scene.look === 'codex';
+const agy = scene.look === 'antigravity';
 // What followed the CLI's name, as typed; null when started without a wrapper.
 const cliArgs = args.includes('--') ? args.slice(args.indexOf('--') + 1) : null;
 // The prompt shows up as the first message instead.
@@ -46,7 +49,7 @@ const shownCommand =
         argValue('--as'),
         ...cliArgs.filter((a, i) => a !== '--prompt' && cliArgs[i - 1] !== '--prompt'),
       ].join(' ')
-    : `${codex ? 'codex' : 'claude'} --dangerously-skip-permissions`);
+    : `${codex ? 'codex' : agy ? 'agy' : 'claude'} --dangerously-skip-permissions`);
 // Status and cue files use the scene key, so a spec can address a default-scene agent.
 const branchKey = sceneKey.replace(/[^\w.-]/g, '_');
 const statusFile = path.join(scenesDir, 'agent-status', `${branchKey}.json`);
@@ -59,6 +62,25 @@ const GIT_IDENTITY = {
   GIT_COMMITTER_EMAIL: 'demo@komla.dev',
 };
 let turnsCompleted = 0;
+
+// `agy -p /usage`, as a script reads it: a line per model group, tab separated, with the share of
+// the weekly limit left and when it refreshes. The scene gives the groups; the refresh is relative
+// to now, as the real one is to the week's start. The account's, so any workspace answers with the
+// quota some scene gives.
+if (agy && ['-p', '--print'].includes(cliArgs?.[0]) && cliArgs[1] === '/usage') {
+  for (const group of Object.values(scenes).find((s) => s.usage)?.usage ?? []) {
+    const refresh = new Date(Date.now() + group.refreshHours * 3600_000);
+    console.log(
+      [
+        group.name,
+        'Weekly Limit Remaining',
+        `${group.remaining}%`,
+        `${refresh.toISOString().slice(0, 19)}Z`,
+      ].join('\t')
+    );
+  }
+  process.exit(0);
+}
 
 // ── Theme (Claude Code dark) ────────────────────────────────────────────────
 const rgb = (r, g, b) => `\x1b[38;2;${r};${g};${b}m`;
@@ -105,6 +127,24 @@ const X = {
   red: rgb(224, 108, 117),
   bg: bgRgb(44, 46, 51),
 };
+
+// Antigravity CLI: bright blue and grey, with a gradient logo.
+const A = {
+  blue: '\x1b[94m',
+  userBlue: '\x1b[34m',
+  grey: '\x1b[90m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  white: '\x1b[37m',
+};
+// The logo as the CLI draws it.
+const AGY_LOGO = [
+  '      \x1b[38;5;179m▄\x1b[38;5;208m\x1b[48;5;208m▀\x1b[38;5;203m\x1b[48;5;209m▀\x1b[49m▄\x1b[39m',
+  '     \x1b[38;5;149m\x1b[48;5;113m▀\x1b[38;5;143m\x1b[48;5;107m▀\x1b[38;5;173m\x1b[48;5;173m▀\x1b[38;5;209m\x1b[48;5;209m▀\x1b[38;5;203m\x1b[48;5;167m▀▀\x1b[39m\x1b[49m',
+  '    \x1b[38;5;107m\x1b[48;5;113m▀\x1b[38;5;71m\x1b[48;5;72m▀\x1b[38;5;72m\x1b[48;5;68m▀\x1b[38;5;67m\x1b[49m▀\x1b[38;5;103m▀\x1b[38;5;98m\x1b[48;5;68m▀\x1b[38;5;97m\x1b[48;5;62m▀\x1b[38;5;132m\x1b[48;5;97m▀\x1b[39m\x1b[49m',
+  '   \x1b[38;5;78m▄\x1b[48;5;74m▀\x1b[38;5;73m▀\x1b[39m\x1b[49m    \x1b[38;5;68m\x1b[48;5;69m▀▀\x1b[49m▄\x1b[39m',
+  '  \x1b[38;5;75m▄\x1b[38;5;79m\x1b[48;5;75m▀\x1b[38;5;75m\x1b[49m▀\x1b[39m      \x1b[38;5;69m▀\x1b[48;5;69m▀\x1b[49m▄\x1b[39m',
+];
 
 // ── Text helpers ────────────────────────────────────────────────────────────
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
@@ -160,6 +200,7 @@ let tick = 0;
 
 function liveLines() {
   if (codex) return codexLiveLines();
+  if (agy) return agyLiveLines();
   const width = cols();
   const lines = [];
   if (spinner) {
@@ -257,6 +298,32 @@ function codexLiveLines() {
   return lines;
 }
 
+/** Antigravity's status line, prompt between two rules, and footer. */
+function agyLiveLines() {
+  const width = cols();
+  const lines = [];
+  const model = scene.model ?? 'Gemini 3.8 Flash';
+  const rule = `${A.grey}${'─'.repeat(width)}${RESET}`;
+  const footer = (left) => {
+    const right = `${model} · ${(scene.effort ?? 'high').toLowerCase()}`;
+    const gap = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
+    return `${A.grey}${left}${RESET}${' '.repeat(gap)}\x1b[2m${right}${RESET}`;
+  };
+  if (spinner) {
+    const glyphs = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
+    const verb = `${spinner.verb}...`;
+    const band = tick % (verb.length + 4);
+    const shimmered = [...verb]
+      .map((ch, i) => (Math.abs(i - band + 2) <= 1 ? `${A.blue}${ch}` : `${A.grey}${ch}`))
+      .join('');
+    lines.push(`${glyphs[tick % glyphs.length]}  ${shimmered}${RESET}`);
+  }
+  const shown = input.length > width - 4 ? input.slice(input.length - (width - 4)) : input;
+  lines.push(rule, `${A.blue}>${RESET} ${shown}\x1b[7m \x1b[27m`, rule);
+  lines.push(footer(spinner ? 'esc to cancel' : '? for shortcuts'));
+  return lines;
+}
+
 function eraseLive() {
   if (liveHeight === 0) return '';
   return `${liveHeight > 1 ? `\x1b[${liveHeight - 1}A` : ''}\r\x1b[J`;
@@ -275,7 +342,16 @@ function drawLive() {
  */
 const history = [];
 function print(render) {
-  const lines = typeof render === 'function' ? render : () => render;
+  const rows = typeof render === 'function' ? render : () => render;
+  // Antigravity stacks its tool calls with no blank line between.
+  const lines = agy
+    ? () => {
+        const shown = rows();
+        return shown[0]?.startsWith(`${A.green}●`) && shown.at(-1) === ''
+          ? shown.slice(0, -1)
+          : shown;
+      }
+    : rows;
   history.push(lines);
   process.stdout.write(`${eraseLive()}${lines().join('\r\n')}\r\n`);
   liveHeight = 0;
@@ -297,6 +373,7 @@ function reflow() {
 function banner() {
   const cwd = scene.displayCwd ?? process.cwd().replace(process.env.HOME ?? '', '~');
   if (codex) return codexBanner(cwd);
+  if (agy) return agyBanner(cwd);
   const model = scene.model ?? 'Haiku 5.5';
   const effort = scene.effort ?? 'medium';
   return [
@@ -306,6 +383,21 @@ function banner() {
       `${C.claude}▝▜█████▛▘${RESET}  ${C.dim}${model} with ${effort} effort${RESET}`
     ),
     `${C.claude}  ▘▘ ▝▝${RESET}    ${C.dim}${cwd}${RESET}`,
+    '',
+  ];
+}
+
+function agyBanner(cwd) {
+  const model = scene.model ?? 'Gemini 3.8 Flash';
+  const effort = scene.effort ?? 'High';
+  return [
+    '',
+    ...AGY_LOGO,
+    '',
+    `  ${BOLD}${A.blue}Antigravity CLI ${scene.version ?? '1.5.3'}${RESET}`,
+    `  ${A.grey}${scene.account ?? 'demo@komla.dev (Antigravity Starter Quota)'}${RESET}`,
+    `  ${A.grey}${model} (${effort})${RESET}`,
+    `  ${A.grey}${cwd}${RESET}`,
     '',
   ];
 }
@@ -329,6 +421,14 @@ function codexBanner(cwd) {
 
 function userPrompt(text) {
   const width = cols();
+  if (agy) {
+    return [
+      `${A.grey}${'─'.repeat(width)}${RESET}`,
+      ...wrap(text, width - 4).map(
+        (line, i) => `${BOLD}${A.userBlue}${i === 0 ? '> ' : '  '}${line}${RESET}`
+      ),
+    ];
+  }
   const [first, bg] = codex ? [`${X.dim}›${X.text} `, X.bg] : ['> ', C.userBg];
   return wrap(text, width - 4).map((line, i) => {
     const body = `${i === 0 ? first : '  '}${line}`;
@@ -346,6 +446,11 @@ function resultLines(lines) {
 
 /** A tool call and its output; Codex groups reads under "Explored" and shows commands as "Ran". */
 function toolLines(name, arg, result = []) {
+  // Antigravity folds a command's output away.
+  if (agy)
+    return [
+      `${A.green}●${RESET} ${BOLD}${A.yellow}Ran${RESET} ${A.white}(${arg}) (ctrl+o to expand)${RESET}`,
+    ];
   if (!codex) return [toolHeader(name, arg), ...resultLines(result)];
   const [bullet, head, out] =
     name === 'Read'
@@ -391,6 +496,7 @@ function applyEdit(event) {
 
   const startLine = before.slice(0, index).split('\n').length + shared;
   const allLines = before.split('\n');
+  if (agy) return () => agyEdited(event.edit);
   return () => hunkLines(event.edit, allLines, startLine, removed, added);
 }
 
@@ -435,11 +541,26 @@ function hunkLines(file, allLines, startLine, removed, added) {
   return lines;
 }
 
+/** A file path as an event gives it: in the workspace, or under the home folder with `~/`. */
+function inWorkspace(file) {
+  return file.startsWith('~/')
+    ? path.join(os.homedir(), file.slice(2))
+    : path.join(process.cwd(), file);
+}
+
+/** Antigravity's one-line summary of a file it wrote or changed. */
+function agyEdited(file) {
+  return [
+    `${A.green}●${RESET} ${BOLD}${A.yellow}Edited${RESET} 1 file ${A.white}(${file})${RESET}`,
+  ];
+}
+
 function applyWrite(event) {
-  const filePath = path.join(process.cwd(), event.write);
+  const filePath = inWorkspace(event.write);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, event.content);
   const lines = event.content.split('\n');
+  if (agy) return agyEdited(event.write);
   if (codex) {
     const written = lines.at(-1) === '' ? lines.slice(0, -1) : lines;
     return [
@@ -584,11 +705,13 @@ function mcpHeader(tool, shown) {
 }
 
 function sayLines(text) {
+  if (agy) return ['', ...block(text, '  ', C.text)];
   return block(text, `${C.text}${codex ? '•' : '●'} `);
 }
 
 /** The end of a turn: Claude Code's "✻ Baked for 9s", Codex's rule. */
 function doneLine(claudeText, codexText) {
+  if (agy) return '';
   if (!codex) return `${C.dim}✻ ${claudeText}${RESET}`;
   const label = `─ ${codexText} `;
   return `${X.dim}${label}${'─'.repeat(Math.max(0, cols() - visibleWidth(label)))}${RESET}`;
@@ -621,7 +744,11 @@ async function runTurn(turn, promptText) {
   print(() => ['', ...userPrompt(promptText), '']);
   void notify('UserPromptSubmit', 'prompt-submit', promptText);
   const startedAt = Date.now();
-  spinner = { verb: turn.verb ?? (codex ? 'Working' : 'Thinking'), startedAt, tokens: 400 };
+  spinner = {
+    verb: turn.verb ?? (codex ? 'Working' : agy ? 'Generating' : 'Thinking'),
+    startedAt,
+    tokens: 400,
+  };
   let lastSay = null;
 
   for (const event of turn.events ?? []) {
@@ -679,7 +806,7 @@ async function runTurn(turn, promptText) {
       void notify('PreToolUse', 'activity');
       const resource = event.settings ?? 'appearance';
       const file = event.file ?? event.appearance;
-      const settings = JSON.parse(fs.readFileSync(path.join(process.cwd(), file)));
+      const settings = JSON.parse(fs.readFileSync(inWorkspace(file)));
       const reply = await postToKomla(
         `/settings/${resource}`,
         settings,

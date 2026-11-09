@@ -62,7 +62,6 @@ test('browser menu', async ({ appWindow: page, electronApp, director }) => {
   await director.click(globe);
   await expect(links).toBeVisible();
   await expect(server).toBeVisible();
-  await director.camera(links, { padding: 120, duration: 0.7 });
   await director.hold(0.6);
   await director.moveTo(desktop, { duration: 0.6 });
   await director.hold(0.8);
@@ -80,7 +79,6 @@ test('browser menu', async ({ appWindow: page, electronApp, director }) => {
   await director.click(page.getByRole('menuitem', { name: 'Open in Split Right' }), {
     duration: 0.5,
   });
-  await director.camera('full', { duration: 0.7 });
   director.speed(3);
   await waitForPageLoaded(electronApp);
   director.speed(1);

@@ -8,7 +8,10 @@
  * draws the macOS traffic lights, cursor, click ripples and shortcut badges
  * on top, then encodes an H.264 MP4, a smaller AV1 MP4 and a WebP poster.
  * A recording that lists further takes, such as one before Komla quits and one
- * after it reopens, plays them in order with a caption card between them.
+ * after it reopens, plays them in order with a caption card between them. A
+ * `desktop` recording instead puts the window on a drawn desktop with a dock:
+ * between takes the window closes, the caption shows on the empty desktop,
+ * and the cursor reopens Komla from the dock.
  *
  * Usage:
  *   node scripts/render-videos.mjs                 # every recording
@@ -45,6 +48,19 @@ const CURSOR_FADE_SECONDS = 0.25;
 const CUT_FADE_SECONDS = 0.35;
 const CUT_HOLD_SECONDS = 1.6;
 const CUT_BACKGROUND = '#0e0f12';
+// The desktop a `desktop` recording's window sits on.
+const WINDOW_RADIUS = 10;
+const WINDOW_CLOSE_SECONDS = 0.3;
+const WINDOW_OPEN_SECONDS = 0.35;
+// Between takes on the desktop: the window closes, the caption fades in and out, then the cursor
+// goes to the dock and clicks Komla, whose icon bounces as it launches.
+const DESKTOP_CAPTION = { in: 0.35, out: 2.0, fade: 0.3 };
+const DESKTOP_DOCK_MOVE = { start: 1.9, end: 2.6 };
+const DESKTOP_DOCK_CLICK = 2.65;
+const DESKTOP_BOUNCE_SECONDS = 0.8;
+const DESKTOP_INTERLUDE_SECONDS = DESKTOP_DOCK_CLICK + DESKTOP_BOUNCE_SECONDS;
+const ICON_FILE = path.join(ROOT, 'resources', 'icons', '256x256.png');
+const FULL_WINDOW = { scale: 1, opacity: 1 };
 // An AV1 copy for browsers that decode it, with the H.264 MP4 as the fallback. At crf 50
 // it is a quarter to two fifths smaller than the H.264 and scores a little higher on VMAF;
 // screen content mode (scm=1) took ten times as long for the same size.
@@ -80,6 +96,22 @@ function loadRecording(dir) {
   const rec = { ...timeline, frames, layerFrames, layouts, dir };
   rec.clock = timeMap(rec);
   for (const e of rec.events) e.o = rec.clock.toOutput(e.t);
+  // On a desktop, the cursor and camera move in screen coordinates, with the window inside them.
+  const desktop = timeline.output.desktop;
+  const offset = desktop?.window ?? { x: 0, y: 0 };
+  rec.desktop = desktop ?? null;
+  rec.space = desktop?.screen ?? timeline.viewport;
+  rec.windowRect = { ...offset, ...timeline.viewport };
+  if (desktop) {
+    for (const e of rec.events) {
+      if (e.type === 'camera') {
+        if (e.rect) e.rect = { ...e.rect, x: e.rect.x + offset.x, y: e.rect.y + offset.y };
+      } else if (typeof e.x === 'number') {
+        e.x += offset.x;
+        e.y += offset.y;
+      }
+    }
+  }
   return rec;
 }
 
@@ -137,9 +169,14 @@ function fitRect(rect, aspect, viewport) {
 }
 
 function cameraTrack(rec) {
-  const { output, viewport } = rec;
+  const { output, space, windowRect } = rec;
   const aspect = output.width / output.height;
-  const base = fitRect(output.frame ?? { x: 0, y: 0, ...viewport }, aspect, viewport);
+  const frame = output.frame && {
+    ...output.frame,
+    x: output.frame.x + windowRect.x,
+    y: output.frame.y + windowRect.y,
+  };
+  const base = fitRect(frame ?? windowRect, aspect, space);
   const keys = rec.events.filter((e) => e.type === 'camera');
   // Moves run on output time, so a speed-up right after one doesn't squeeze it into a snap.
   const valueAt = (state, o) => {
@@ -155,14 +192,15 @@ function cameraTrack(rec) {
     let state = { from: base, to: base, o0: 0, duration: 0 };
     for (const key of keys) {
       if (key.o > o) break;
-      const to = key.rect ? fitRect(key.rect, aspect, viewport) : base;
+      const to = key.rect ? fitRect(key.rect, aspect, space) : base;
       state = { from: valueAt(state, key.o), to, o0: key.o, duration: key.duration };
     }
     return valueAt(state, o);
   };
 }
 
-function cursorTrack(rec) {
+/** `fadeIn: false` for a take whose cursor is already on screen as it starts. */
+function cursorTrack(rec, { fadeIn = true } = {}) {
   const moves = rec.events.filter((e) => e.type === 'cursor');
   const hides = rec.events.filter((e) => e.type === 'cursorHide');
   return (t) => {
@@ -175,7 +213,9 @@ function cursorTrack(rec) {
     const opacity =
       shownAt == null || shownAt > t
         ? 1 - clamp((t - hide.t) / CURSOR_FADE_SECONDS, 0, 1)
-        : clamp((t - shownAt) / CURSOR_FADE_SECONDS, 0, 1);
+        : !hide && !fadeIn
+          ? 1
+          : clamp((t - shownAt) / CURSOR_FADE_SECONDS, 0, 1);
     const a = moves[i];
     const b = moves[i + 1];
     if (!b || b.t - a.t > 0.1) return { x: a.x, y: a.y, opacity };
@@ -195,26 +235,83 @@ function frameAt(frames, t) {
   return frames[lo];
 }
 
-function overlaySvg(rec, t, o, cam, cursorAt) {
-  const { width: W, height: H } = rec.output;
+/** Maps screen coordinates to output pixels for camera `cam`. */
+const outputMap = (W, cam) => {
   const s = W / cam.width;
-  const toOut = (p) => ({ x: (p.x - cam.x) * s, y: (p.y - cam.y) * s });
-  const parts = [];
+  return { s, toOut: (p) => ({ x: (p.x - cam.x) * s, y: (p.y - cam.y) * s }) };
+};
 
-  TRAFFIC_LIGHTS.colors.forEach((color, i) => {
+/** Maps window coordinates to output pixels, with the window scaled about its center by `win`. */
+function windowMap(rec, cam, win) {
+  const { s, toOut } = outputMap(rec.output.width, cam);
+  const wr = rec.windowRect;
+  const cx = wr.x + wr.width / 2;
+  const cy = wr.y + wr.height / 2;
+  return {
+    s: s * win.scale,
+    toOut: (p) =>
+      toOut({ x: cx + (wr.x + p.x - cx) * win.scale, y: cy + (wr.y + p.y - cy) * win.scale }),
+  };
+}
+
+const rippleSvg = (c, p, s) =>
+  `<circle cx="${c.x}" cy="${c.y}" r="${(6 + 16 * ease(p)) * s}" fill="rgba(255,255,255,${0.22 * (1 - p)})" stroke="rgba(255,255,255,${0.55 * (1 - p)})" stroke-width="${1.5 * s}"/>`;
+
+const cursorSvg = (c, s, opacity, pressed) =>
+  `<g transform="translate(${c.x} ${c.y}) scale(${s * 1.15 * (pressed ? 0.86 : 1)})" opacity="${opacity}" filter="url(#shadow)">` +
+  '<path d="M0 0 L0 17.2 L4.3 13.2 L7.1 19.6 L9.9 18.4 L7.2 12.2 L12.8 12.2 Z" fill="#111" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/>' +
+  '</g>';
+
+/** The window's traffic lights and, on a desktop, its hairline edge. */
+function windowChromeSvg(rec, cam, win) {
+  if (win.opacity <= 0) return '';
+  const { s, toOut } = windowMap(rec, cam, win);
+  const parts = TRAFFIC_LIGHTS.colors.map((color, i) => {
     const c = toOut({ x: TRAFFIC_LIGHTS.x + i * TRAFFIC_LIGHTS.gap, y: TRAFFIC_LIGHTS.y });
-    parts.push(
-      `<circle cx="${c.x}" cy="${c.y}" r="${TRAFFIC_LIGHTS.radius * s}" fill="${color}" stroke="rgba(0,0,0,0.25)" stroke-width="${0.5 * s}"/>`
-    );
+    return `<circle cx="${c.x}" cy="${c.y}" r="${TRAFFIC_LIGHTS.radius * s}" fill="${color}" stroke="rgba(0,0,0,0.25)" stroke-width="${0.5 * s}"/>`;
   });
+  if (rec.desktop) {
+    const o = toOut({ x: 0, y: 0 });
+    parts.push(
+      `<rect x="${o.x + 0.5}" y="${o.y + 0.5}" width="${rec.windowRect.width * s - 1}" height="${rec.windowRect.height * s - 1}" rx="${WINDOW_RADIUS * s}" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="1"/>`
+    );
+  }
+  return `<g opacity="${win.opacity}">${parts.join('')}</g>`;
+}
+
+let iconHref = null;
+
+/** The dock with Komla in it: `running` shows the dot under the icon, `lift` bounces it. */
+function dockSvg(rec, cam, { running = 1, lift = 0 } = {}) {
+  const { dock, icon } = rec.desktop;
+  const { s, toOut } = outputMap(rec.output.width, cam);
+  iconHref ??= `data:image/png;base64,${fs.readFileSync(ICON_FILE).toString('base64')}`;
+  const d = toOut(dock);
+  const i = toOut({ x: icon.x, y: icon.y - lift });
+  const dot = toOut({ x: icon.x + icon.size / 2, y: dock.y + dock.height - icon.size * 0.08 });
+  return (
+    `<rect x="${d.x}" y="${d.y}" width="${dock.width * s}" height="${dock.height * s}" rx="${icon.size * 0.36 * s}" fill="rgba(255,255,255,0.13)" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>` +
+    `<image x="${i.x}" y="${i.y}" width="${icon.size * s}" height="${icon.size * s}" href="${iconHref}" xlink:href="${iconHref}"/>` +
+    `<circle cx="${dot.x}" cy="${dot.y}" r="${Math.max(1.5, icon.size * 0.045 * s)}" fill="rgba(255,255,255,0.85)" opacity="${running}"/>`
+  );
+}
+
+const svgDocument = (W, H, parts) =>
+  Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}">` +
+      '<defs><filter id="shadow" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-opacity="0.45"/></filter></defs>' +
+      `${parts.join('')}</svg>`
+  );
+
+function overlaySvg(rec, t, o, cam, cursorAt, win) {
+  const { width: W, height: H } = rec.output;
+  const { s, toOut } = outputMap(W, cam);
+  const parts = [windowChromeSvg(rec, cam, win)];
+  if (rec.desktop) parts.push(dockSvg(rec, cam));
 
   for (const click of rec.events) {
     if (click.type !== 'click' || o < click.o || o > click.o + CLICK_RIPPLE_SECONDS) continue;
-    const p = (o - click.o) / CLICK_RIPPLE_SECONDS;
-    const c = toOut(click);
-    parts.push(
-      `<circle cx="${c.x}" cy="${c.y}" r="${(6 + 16 * ease(p)) * s}" fill="rgba(255,255,255,${0.22 * (1 - p)})" stroke="rgba(255,255,255,${0.55 * (1 - p)})" stroke-width="${1.5 * s}"/>`
-    );
+    parts.push(rippleSvg(toOut(click), (o - click.o) / CLICK_RIPPLE_SECONDS, s));
   }
 
   const cursor = cursorAt(t);
@@ -224,13 +321,7 @@ function overlaySvg(rec, t, o, cam, cursorAt) {
         ?.type === 'mouseDown';
     const pressed =
       held || rec.events.some((e) => e.type === 'click' && o >= e.o && o < e.o + 0.16);
-    const c = toOut(cursor);
-    const scale = s * 1.15 * (pressed ? 0.86 : 1);
-    parts.push(
-      `<g transform="translate(${c.x} ${c.y}) scale(${scale})" opacity="${cursor.opacity}" filter="url(#shadow)">` +
-        '<path d="M0 0 L0 17.2 L4.3 13.2 L7.1 19.6 L9.9 18.4 L7.2 12.2 L12.8 12.2 Z" fill="#111" stroke="#fff" stroke-width="1.3" stroke-linejoin="round"/>' +
-        '</g>'
-    );
+    parts.push(cursorSvg(toOut(cursor), s, cursor.opacity, pressed));
   }
 
   const keys = rec.events
@@ -263,11 +354,7 @@ function overlaySvg(rec, t, o, cam, cursorAt) {
     );
   }
 
-  return Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">` +
-      '<defs><filter id="shadow" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-opacity="0.45"/></filter></defs>' +
-      `${parts.join('')}</svg>`
-  );
+  return svgDocument(W, H, parts);
 }
 
 const layerCache = new Map();
@@ -307,20 +394,133 @@ async function sourceAt(rec, t, sourceScale) {
   return sharp(data, { raw: info });
 }
 
-async function renderFrame(rec, o, cameraAt, cursorAt, sourceScale) {
+const contains = (outer, inner) =>
+  inner.x >= outer.x - 0.01 &&
+  inner.y >= outer.y - 0.01 &&
+  inner.x + inner.width <= outer.x + outer.width + 0.01 &&
+  inner.y + inner.height <= outer.y + outer.height + 0.01;
+
+const wallpaperCache = new Map();
+
+/** The desktop's wallpaper at screen size, rendered once. */
+function wallpaper({ width, height }) {
+  const key = `${width}x${height}`;
+  if (!wallpaperCache.has(key)) {
+    const glow = (id, cx, cy, r, color, opacity) =>
+      `<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}"><stop offset="0" stop-color="${color}" stop-opacity="${opacity}"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></radialGradient>`;
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><defs>` +
+      '<linearGradient id="base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#171c2e"/><stop offset="0.55" stop-color="#0e121d"/><stop offset="1" stop-color="#1b1622"/></linearGradient>' +
+      glow('a', 0.2, 0.15, 0.65, '#5a6fd0', 0.42) +
+      glow('b', 0.88, 0.92, 0.6, '#2c8f96', 0.26) +
+      glow('c', 0.8, 0.1, 0.45, '#c47a4a', 0.2) +
+      '</defs>' +
+      ['base', 'a', 'b', 'c']
+        .map((id) => `<rect width="${width}" height="${height}" fill="url(#${id})"/>`)
+        .join('') +
+      '</svg>';
+    wallpaperCache.set(
+      key,
+      sharp(Buffer.from(svg)).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+    );
+  }
+  return wallpaperCache.get(key);
+}
+
+/**
+ * The desktop under camera `cam`, with the window drawn on it from `source` (none between takes),
+ * scaled and faded by `win`. Raw RGB at the output size.
+ */
+async function desktopFrame(rec, cam, source, win) {
+  const { width: W, height: H } = rec.output;
+  const { s } = outputMap(W, cam);
+  const { data, info } = await wallpaper(rec.space);
+  const left = clamp(Math.round(cam.x), 0, info.width - 1);
+  const top = clamp(Math.round(cam.y), 0, info.height - 1);
+  const backdrop = await sharp(data, { raw: info })
+    .extract({
+      left,
+      top,
+      width: clamp(Math.round(cam.x + cam.width), left + 1, info.width) - left,
+      height: clamp(Math.round(cam.y + cam.height), top + 1, info.height) - top,
+    })
+    .resize(W, H)
+    .raw()
+    .toBuffer();
+  if (!source || win.opacity <= 0) return backdrop;
+
+  const { toOut } = windowMap(rec, cam, win);
+  const corner = toOut({ x: 0, y: 0 });
+  const x = Math.round(corner.x);
+  const y = Math.round(corner.y);
+  const w = Math.round(rec.windowRect.width * s * win.scale);
+  const h = Math.round(rec.windowRect.height * s * win.scale);
+  const r = WINDOW_RADIUS * s * win.scale;
+  const mask = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="${w}" height="${h}" rx="${r}" fill="#fff"/></svg>`
+  );
+  let image = await (typeof source.resize === 'function' ? source : sharp(source))
+    .resize(w, h, { kernel: 'lanczos3' })
+    .ensureAlpha()
+    .composite([{ input: mask, blend: 'dest-in' }])
+    .png()
+    .toBuffer();
+  // Only the part of the window inside the frame can be composited.
+  const x0 = Math.max(0, x);
+  const y0 = Math.max(0, y);
+  const x1 = Math.min(W, x + w);
+  const y1 = Math.min(H, y + h);
+  if (x1 <= x0 || y1 <= y0) return backdrop;
+  if (x0 !== x || y0 !== y || x1 !== x + w || y1 !== y + h) {
+    image = await sharp(image)
+      .extract({ left: x0 - x, top: y0 - y, width: x1 - x0, height: y1 - y0 })
+      .png()
+      .toBuffer();
+  }
+  const blur = 22 * s * win.scale;
+  const shadow = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><filter id="f" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${blur}"/></filter></defs>` +
+      `<rect x="${x}" y="${y + blur * 0.6}" width="${w}" height="${h}" rx="${r}" fill="#000" opacity="0.55" filter="url(#f)"/></svg>`
+  );
+  const withWindow = await sharp(backdrop, { raw: { width: W, height: H, channels: 3 } })
+    .composite([{ input: shadow }, { input: image, left: x0, top: y0 }])
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+  return win.opacity < 1 ? blend(backdrop, withWindow, win.opacity) : withWindow;
+}
+
+async function renderFrame(rec, o, cameraAt, cursorAt, sourceScale, win = FULL_WINDOW) {
   const t = rec.clock.toSource(o);
   const cam = cameraAt(o);
   const source = await sourceAt(rec, t, sourceScale);
-  const region = {
-    left: Math.round(cam.x * sourceScale),
-    top: Math.round(cam.y * sourceScale),
-    width: Math.round(cam.width * sourceScale),
-    height: Math.round(cam.height * sourceScale),
-  };
-  return (typeof source === 'string' ? sharp(source) : source)
-    .extract(region)
-    .resize(rec.output.width, rec.output.height, { kernel: 'lanczos3' })
-    .composite([{ input: overlaySvg(rec, t, o, cam, cursorAt) }])
+  const { width: W, height: H } = rec.output;
+  let base;
+  if (!rec.desktop || (contains(rec.windowRect, cam) && win.scale === 1 && win.opacity === 1)) {
+    // The camera is inside the window: crop the frame. Edges rounded, not the size, so a region
+    // at the window's edge never ends a pixel past it.
+    const wr = rec.windowRect;
+    const maxW = Math.round(wr.width * sourceScale);
+    const maxH = Math.round(wr.height * sourceScale);
+    const left = clamp(Math.round((cam.x - wr.x) * sourceScale), 0, maxW - 1);
+    const top = clamp(Math.round((cam.y - wr.y) * sourceScale), 0, maxH - 1);
+    const region = {
+      left,
+      top,
+      width: Math.min(maxW, Math.round((cam.x - wr.x + cam.width) * sourceScale)) - left,
+      height: Math.min(maxH, Math.round((cam.y - wr.y + cam.height) * sourceScale)) - top,
+    };
+    base = await (typeof source === 'string' ? sharp(source) : source)
+      .extract(region)
+      .resize(W, H, { kernel: 'lanczos3' })
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+  } else {
+    base = await desktopFrame(rec, cam, source, win);
+  }
+  return sharp(base, { raw: { width: W, height: H, channels: 3 } })
+    .composite([{ input: overlaySvg(rec, t, o, cam, cursorAt, win) }])
     .removeAlpha()
     .raw()
     .toBuffer();
@@ -343,21 +543,99 @@ function captionCard(W, H, caption) {
   return sharp(Buffer.from(svg)).removeAlpha().raw().toBuffer();
 }
 
+/**
+ * Frames between two takes of a desktop recording: `before`'s window closes, the caption shows on
+ * the empty desktop, and the cursor goes to the dock and clicks Komla, which bounces as it opens.
+ */
+function desktopInterlude(before, caption, fps) {
+  const { rec } = before;
+  const { width: W, height: H } = rec.output;
+  const cam = before.cameraAt(before.duration);
+  const { s, toOut } = outputMap(W, cam);
+  const { icon, screen } = rec.desktop;
+  const last = before.cursorAt(rec.end);
+  const from = last ? { x: last.x, y: last.y } : { x: screen.width * 0.7, y: screen.height * 0.75 };
+  const target = { x: icon.x + icon.size / 2, y: icon.y + icon.size / 2 };
+  // A composited frame is a one-use pipeline, so keep it as a PNG for every closing frame.
+  const closingFrame = once(async () => {
+    const source = await sourceAt(rec, rec.end, before.sourceScale);
+    return typeof source === 'string' ? source : source.png().toBuffer();
+  });
+  const total = Math.round(DESKTOP_INTERLUDE_SECONDS * fps);
+  return Array.from({ length: total }, (_, n) => async () => {
+    const u = n / fps;
+    const closing = clamp(u / WINDOW_CLOSE_SECONDS, 0, 1);
+    const win = { scale: lerp(1, 0.97, ease(closing)), opacity: 1 - ease(closing) };
+    const base = await desktopFrame(rec, cam, win.opacity > 0 ? await closingFrame() : null, win);
+
+    const fade = (a, b) =>
+      clamp(Math.min((u - a) / DESKTOP_CAPTION.fade, (b - u) / DESKTOP_CAPTION.fade + 1), 0, 1);
+    const captionOpacity = ease(fade(DESKTOP_CAPTION.in, DESKTOP_CAPTION.out));
+    const move = ease(
+      clamp((u - DESKTOP_DOCK_MOVE.start) / (DESKTOP_DOCK_MOVE.end - DESKTOP_DOCK_MOVE.start), 0, 1)
+    );
+    const cursor = { x: lerp(from.x, target.x, move), y: lerp(from.y, target.y, move) };
+    const sinceClick = u - DESKTOP_DOCK_CLICK;
+    const bounce = clamp(sinceClick / DESKTOP_BOUNCE_SECONDS, 0, 1);
+    const lift =
+      sinceClick > 0
+        ? icon.size * 0.42 * Math.abs(Math.sin(2 * Math.PI * bounce)) * (1 - 0.35 * bounce)
+        : 0;
+    const running = sinceClick > 0 ? clamp(sinceClick / 0.2, 0, 1) : 1 - closing;
+
+    const size = Math.round(H * 0.042);
+    const center = toOut({ x: screen.width / 2, y: rec.windowRect.y + rec.windowRect.height / 2 });
+    const parts = [
+      windowChromeSvg(rec, cam, win),
+      dockSvg(rec, cam, { running, lift }),
+      `<text x="${center.x}" y="${center.y}" dy="0.36em" text-anchor="middle" font-family="SF Pro Display, Helvetica Neue, Helvetica, Arial" font-weight="500" font-size="${size}" fill="rgba(255,255,255,0.94)" opacity="${captionOpacity}" filter="url(#shadow)">${escapeXml(caption)}</text>`,
+    ];
+    if (sinceClick >= 0 && sinceClick <= CLICK_RIPPLE_SECONDS)
+      parts.push(rippleSvg(toOut(target), sinceClick / CLICK_RIPPLE_SECONDS, s));
+    parts.push(
+      cursorSvg(
+        toOut(cursor),
+        s,
+        last ? last.opacity || 1 : 1,
+        sinceClick >= 0 && sinceClick < 0.16
+      )
+    );
+    return sharp(base, { raw: { width: W, height: H, channels: 3 } })
+      .composite([{ input: svgDocument(W, H, parts) }])
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+  });
+}
+
 function once(fn) {
   let result;
   return () => (result ??= fn());
 }
 
-/** A take's frame count and renderer, at the video's frame rate. */
-async function prepareTake(rec, fps) {
+/**
+ * A take's frame count and renderer, at the video's frame rate. A desktop take after the first
+ * opens its window as it starts, with the cursor already on the dock.
+ */
+async function prepareTake(rec, fps, { reopened = false } = {}) {
   const { width: srcW } = await sharp(rec.frames[0].file).metadata();
   const sourceScale = srcW / rec.viewport.width;
   const cameraAt = cameraTrack(rec);
-  const cursorAt = cursorTrack(rec);
+  const opening = reopened && rec.desktop;
+  const cursorAt = cursorTrack(rec, { fadeIn: !opening });
+  const winAt = (o) => {
+    if (!opening) return FULL_WINDOW;
+    const p = ease(clamp(o / WINDOW_OPEN_SECONDS, 0, 1));
+    return p >= 1 ? FULL_WINDOW : { scale: lerp(0.92, 1, p), opacity: p };
+  };
   return {
     rec,
+    sourceScale,
+    cameraAt,
+    cursorAt,
+    duration: rec.clock.duration,
     total: Math.floor(rec.clock.duration * fps),
-    frame: (n) => renderFrame(rec, n / fps, cameraAt, cursorAt, sourceScale),
+    frame: (n) => renderFrame(rec, n / fps, cameraAt, cursorAt, sourceScale, winAt(n / fps)),
   };
 }
 
@@ -370,13 +648,17 @@ async function render(dir, publish) {
   if (W % 2 || H % 2) throw new Error(`${output.name}: output size must be even`);
 
   const takes = [rec, ...(rec.takes ?? []).map((take) => loadRecording(path.join(dir, take.dir)))];
-  const prepared = await Promise.all(takes.map((take) => prepareTake(take, fps)));
+  const prepared = await Promise.all(
+    takes.map((take, i) => prepareTake(take, fps, { reopened: i > 0 }))
+  );
 
   // Every output frame in order: each take's, with a caption card between takes.
   const jobs = [];
   let posterIndex = null;
   for (const [i, take] of prepared.entries()) {
-    if (i > 0) {
+    if (i > 0 && rec.desktop) {
+      jobs.push(...desktopInterlude(prepared[i - 1], rec.takes[i - 1].caption, fps));
+    } else if (i > 0) {
       // Rendered once each, when the first job needs them.
       const before = once(() => prepared[i - 1].frame(prepared[i - 1].total - 1));
       const after = once(() => take.frame(0));

@@ -97,7 +97,11 @@ export interface AgentTurn {
 
 export interface AgentScene {
   /** The CLI it looks like; Claude Code by default. */
-  look?: 'claude' | 'codex';
+  look?: 'claude' | 'codex' | 'antigravity';
+  /** What `agy -p /usage` prints for the account, whichever workspace asks; Antigravity only. */
+  usage?: Array<{ name: string; remaining: number; refreshHours: number }>;
+  /** The account line in Antigravity's banner. */
+  account?: string;
   /** Terminal tab title the agent sets, like Claude Code's "✳ <task>". */
   title?: string;
   /** Claude Code's permission mode; follows the launch mode's flags by default. */
@@ -137,6 +141,8 @@ export interface VideoWorkspace {
   commits?: Array<{ message: string; files: FileMap }>;
   /** Uncommitted changes present at launch. */
   changes?: FileMap;
+  /** Pushed to origin after its commits, so GitHub has the branch and can have a pull request for it. */
+  pushed?: boolean;
   minutesAgo?: number;
   /**
    * What the workspace is for, as the user would write it; the command center searches it. Local
@@ -158,6 +164,8 @@ export interface VideoPreset {
   launchModes?: Array<{ name: string; arguments: string; color?: string }>;
   /** Name of the launch mode it starts in; Default when omitted. */
   launchMode?: string;
+  /** Also on the SSH host's PATH, for scripts that run the CLI themselves, such as `agy -p /usage`. */
+  onPath?: boolean;
 }
 
 export const CLAUDE_PRESET: VideoPreset = {
@@ -165,7 +173,11 @@ export const CLAUDE_PRESET: VideoPreset = {
   command: 'claude',
   launchModes: [
     { name: 'Plan', arguments: '--permission-mode plan', color: 'blue' },
-    { name: 'Accept edits', arguments: '--permission-mode acceptEdits', color: 'purple' },
+    {
+      name: 'Accept edits',
+      arguments: '--permission-mode acceptEdits',
+      color: 'purple',
+    },
     { name: 'Auto', arguments: '--permission-mode auto', color: 'orange' },
     {
       name: 'Dangerously skip permissions',
@@ -186,8 +198,29 @@ export const CODEX_PRESET: VideoPreset = {
       arguments: '--sandbox workspace-write --ask-for-approval never',
       color: 'purple',
     },
-    { name: 'YOLO', arguments: '--dangerously-bypass-approvals-and-sandbox', color: 'red' },
+    {
+      name: 'YOLO',
+      arguments: '--dangerously-bypass-approvals-and-sandbox',
+      color: 'red',
+    },
   ],
+};
+
+/** Antigravity CLI, as Komla's own preset has it; its scene's `look` is `antigravity`. */
+export const ANTIGRAVITY_PRESET: VideoPreset = {
+  name: 'Antigravity CLI',
+  command: 'agy',
+  launchModes: [
+    { name: 'Plan', arguments: '--mode plan', color: 'blue' },
+    { name: 'Accept edits', arguments: '--mode accept-edits', color: 'purple' },
+    {
+      name: 'Dangerously skip permissions',
+      arguments: '--dangerously-skip-permissions',
+      color: 'red',
+    },
+  ],
+  launchMode: 'Dangerously skip permissions',
+  onPath: true,
 };
 
 export interface VideoWorld {
@@ -252,6 +285,13 @@ function placement(workspace: VideoWorkspace, order: number, now: number) {
   return { order, createdAt: lastActivityAt - 3_600_000, lastActivityAt };
 }
 
+/** Splits the focused pane down, as Komla binds it on this platform, for setup off camera. */
+export const SPLIT_DOWN =
+  process.platform === 'darwin' ? 'Meta+Shift+d' : 'Control+Shift+Backslash';
+
+/** Splits the focused pane right, as Komla binds it on this platform, for setup off camera. */
+export const SPLIT_RIGHT = process.platform === 'darwin' ? 'Meta+d' : 'Control+Backslash';
+
 /** The scene key for workspaces whose branch has no scene of its own. */
 export const DEFAULT_AGENT = 'default';
 
@@ -270,6 +310,13 @@ export async function waitForAgentTurn(branch: string, turns = 1, timeout = 30_0
       { timeout, intervals: [100] }
     )
     .toBeGreaterThanOrEqual(turns);
+}
+
+/** Releases the scripted agent on `branch` from its `{ waitFor: name }`. */
+export function cueAgent(branch: string, name: string): void {
+  const cueFile = path.join(SANDBOX_DIR, 'cues', branchKey(branch), name);
+  fs.mkdirSync(path.dirname(cueFile), { recursive: true });
+  fs.writeFileSync(cueFile, '');
 }
 
 /** Resolves once the scripted agent on `branch` is waiting at `{ waitFor: cue }`. */
@@ -292,20 +339,25 @@ export async function openBrowserBeside(page: Page): Promise<void> {
 /** Waits until a browser view on screen has finished loading a page whose URL contains `url`. */
 export async function waitForPageLoaded(
   electronApp: ElectronApplication,
-  url = 'http'
+  url = 'http',
+  { timeout = 30_000 } = {}
 ): Promise<void> {
   await expect
     .poll(
       () =>
-        electronApp.evaluate(({ BrowserWindow }, url) => {
-          const [win] = BrowserWindow.getAllWindows();
-          return win.contentView.children.some((view) => {
-            if (!('webContents' in view) || !view.getVisible()) return false;
-            const { webContents } = view as Electron.WebContentsView;
-            return webContents.getURL().includes(url) && !webContents.isLoading();
-          });
-        }, url),
-      { intervals: [50], timeout: 30_000 }
+        electronApp.evaluate(
+          ({ BrowserWindow }, url) =>
+            // Every window: after a relaunch the first one isn't always the workspace's.
+            BrowserWindow.getAllWindows().some((win) =>
+              win.contentView.children.some((view) => {
+                if (!('webContents' in view) || !view.getVisible()) return false;
+                const { webContents } = view as Electron.WebContentsView;
+                return webContents.getURL().includes(url) && !webContents.isLoading();
+              })
+            ),
+          url
+        ),
+      { intervals: [50], timeout }
     )
     .toBe(true);
 }
@@ -362,26 +414,38 @@ export interface VideoPullRequest {
   number: number;
   title: string;
   reviewDecision?: 'REVIEW_REQUIRED' | 'APPROVED' | 'CHANGES_REQUESTED';
-  checks: Array<{ name: string; workflowName?: string; state: 'pending' | 'passed' | 'failed' }>;
+  checks: Array<{
+    name: string;
+    workflowName?: string;
+    state: 'pending' | 'passed' | 'failed';
+  }>;
 }
 
 /**
  * Writes `bin/gh`, which stands in for the GitHub CLI, here and on the SSH host: `gh pr view` prints the
  * branch's pull request from setPullRequest() once the branch is pushed, as GitHub has one only
- * then, through its `--jq` filter, and other commands, such as `gh pr create`, do nothing.
+ * then, through its `--jq` filter. `gh run rerun` swaps in setRerun()'s pull request, and other
+ * commands, such as `gh pr create`, do nothing.
  */
 function writeGhStandIn(): void {
   fs.mkdirSync(BIN_DIR, { recursive: true });
   fs.mkdirSync(GITHUB_DIR, { recursive: true });
+  // The SSH host's user re-runs by writing here, too.
+  fs.chmodSync(GITHUB_DIR, 0o777);
   const script = `#!/bin/sh
+branch=$(git branch --show-current 2>/dev/null)
+file=${shellQuote(fs.realpathSync(GITHUB_DIR))}/$(printf %s "$branch" | tr -c 'A-Za-z0-9._-' _).json
+# A re-run puts what setRerun() gave in place of the pull request, as GitHub starts the jobs again.
+if [ "$1 $2" = "run rerun" ]; then
+  [ -f "\${file%.json}.rerun.json" ] && cp "\${file%.json}.rerun.json" "$file"
+  exit 0
+fi
 [ "$1 $2" = "pr view" ] || exit 0
 query=.
 while [ $# -gt 0 ]; do
   [ "$1" = --jq ] && query=$2
   shift
 done
-branch=$(git branch --show-current)
-file=${shellQuote(fs.realpathSync(GITHUB_DIR))}/$(printf %s "$branch" | tr -c 'A-Za-z0-9._-' _).json
 if git rev-parse --verify --quiet '@{u}' >/dev/null && [ -f "$file" ]; then exec jq -c -r "$query" "$file"; fi
 echo "no pull requests found for branch \\"$branch\\"" >&2
 exit 1
@@ -391,8 +455,24 @@ exit 1
 
 /** Sets what the stand-in `gh` says about the branch's pull request; see writeGhStandIn(). */
 export function setPullRequest(branch: string, pullRequest: VideoPullRequest): void {
+  writeGithubFile(`${branchKey(branch)}.json`, pullRequest);
+}
+
+/** What the branch's pull request becomes when `gh run rerun` runs: its failed jobs started again. */
+export function setRerun(branch: string, pullRequest: VideoPullRequest): void {
+  writeGithubFile(`${branchKey(branch)}.rerun.json`, pullRequest);
+}
+
+/** Writable by the SSH host's user, as `gh run rerun` copies over the pull request there. */
+function writeGithubFile(name: string, pullRequest: VideoPullRequest): void {
+  const file = path.join(GITHUB_DIR, name);
+  fs.writeFileSync(file, JSON.stringify(pullRequestJson(pullRequest)));
+  fs.chmodSync(file, 0o666);
+}
+
+function pullRequestJson(pullRequest: VideoPullRequest) {
   const { checks, ...rest } = pullRequest;
-  const json = {
+  return {
     ...rest,
     url: `https://github.com/acme/acme-web/pull/${pullRequest.number}`,
     state: 'OPEN',
@@ -407,11 +487,13 @@ export function setPullRequest(branch: string, pullRequest: VideoPullRequest): v
       detailsUrl: `https://github.com/acme/acme-web/actions/runs/${pullRequest.number}`,
     })),
   };
-  fs.writeFileSync(path.join(GITHUB_DIR, `${branchKey(branch)}.json`), JSON.stringify(json));
 }
 
 /** Komla's ids for a preset and for the launch mode it starts in. */
-function presetIds(preset: VideoPreset): { presetId: string; launchModeId: string | null } {
+function presetIds(preset: VideoPreset): {
+  presetId: string;
+  launchModeId: string | null;
+} {
   const presetId = `video-${preset.command}`;
   const mode = (preset.launchModes ?? []).findIndex(({ name }) => name === preset.launchMode);
   return { presetId, launchModeId: mode < 0 ? null : `${presetId}-${mode}` };
@@ -421,7 +503,10 @@ function presetIds(preset: VideoPreset): { presetId: string; launchModeId: strin
 function agentLaunchPin(preset: VideoPreset) {
   const { presetId, launchModeId } = presetIds(preset);
   return launchModeId
-    ? { agentLaunchDefaultPresetId: presetId, agentLaunchDefaultLaunchModeId: launchModeId }
+    ? {
+        agentLaunchDefaultPresetId: presetId,
+        agentLaunchDefaultLaunchModeId: launchModeId,
+      }
     : {};
 }
 
@@ -593,6 +678,7 @@ function seedWorld(world: VideoWorld): VideoSshHost | null {
   fs.writeFileSync(path.join(SHELL_DIR, '.zprofile'), binPath);
   writeGhStandIn();
 
+  const hostCommands = [path.join(BIN_DIR, 'gh')];
   const presets = (world.presets ?? [CLAUDE_PRESET]).map((preset) => {
     const { presetId: id, launchModeId } = presetIds(preset);
     const launchModes = (preset.launchModes ?? []).map((mode, i) => ({
@@ -600,6 +686,7 @@ function seedWorld(world: VideoWorld): VideoSshHost | null {
       ...mode,
     }));
     const wrapper = writeAgentWrapper(world, preset);
+    if (preset.onPath) hostCommands.push(wrapper);
     // The SSH host doesn't read the local rc, so it runs the wrapper by path.
     const command = world.sshHost ? wrapper : preset.command;
     return {
@@ -632,7 +719,7 @@ function seedWorld(world: VideoWorld): VideoSshHost | null {
   const host = startSshHost({
     sandboxDir: SANDBOX_DIR,
     ...world.sshHost,
-    commands: [path.join(BIN_DIR, 'gh')],
+    commands: hostCommands,
   });
   world.projects.forEach((project) => publishOrigin(repoDirs.get(project.id)!, project.name));
   return host;
@@ -650,6 +737,10 @@ async function createSshWorkspaces(
   // In the default preset's launch mode, which Komla then remembers as the last one used.
   const { presetId, launchModeId } = presetIds((world.presets ?? [CLAUDE_PRESET])[0]);
   const now = Date.now();
+  const placements: Array<{
+    id: string;
+    updates: ReturnType<typeof placement>;
+  }> = [];
   for (const [order, workspace] of world.workspaces.entries()) {
     const created = await page.evaluate((params) => window.api.createWorkspace(params), {
       mode: 'worktree' as const,
@@ -676,12 +767,13 @@ async function createSshWorkspaces(
       );
     }
     writeRemoteFiles(dir, workspace.changes ?? {});
-    // As seeded locally, rather than all just created, newest first.
+    if (workspace.pushed) {
+      hostExec(
+        `cd ${shellQuote(dir)} && git push --quiet -u origin ${shellQuote(workspace.branch)}`
+      );
+    }
     const { id } = created as { id: string };
-    await page.evaluate(({ id, updates }) => window.api.updateWorkspace(id, updates), {
-      id,
-      updates: placement(workspace, order, now),
-    });
+    placements.push({ id, updates: placement(workspace, order, now) });
     // Its agent's tmux session can still be starting, and come up after the stop
     // killed it, which fails the stop; again once it is up.
     if (workspace.stopped) {
@@ -691,11 +783,21 @@ async function createSshWorkspaces(
       });
     }
   }
+  // As seeded locally, rather than all just created, newest first. Only once all are created, as
+  // each new workspace moves the others down one.
+  for (const { id, updates } of placements) {
+    await page.evaluate(({ id, updates }) => window.api.updateWorkspace(id, updates), {
+      id,
+      updates,
+    });
+  }
   // Workspaces created over IPC don't reach the renderer's store until it reloads.
   await page.reload();
   await expect(
     world.workspaces.length
-      ? page.getByRole('button', { name: `Workspace details for ${world.workspaces[0].title}` })
+      ? page.getByRole('button', {
+          name: `Workspace details for ${world.workspaces[0].title}`,
+        })
       : page.getByRole('button', { name: 'New Workspace', exact: true }).first()
   ).toBeVisible({ timeout: 30_000 });
 }
@@ -752,8 +854,18 @@ async function showClaudeUsage(app: ElectronApplication, page: Page): Promise<vo
         'claude-code': {
           source: 'claude-code',
           windows: [
-            { name: '5-hour limit', short: '5h', usedPercent: 23, resetsAt: now + 3 * hour },
-            { name: 'Weekly limit', short: 'wk', usedPercent: 41, resetsAt: now + 74 * hour },
+            {
+              name: '5-hour limit',
+              short: '5h',
+              usedPercent: 23,
+              resetsAt: now + 3 * hour,
+            },
+            {
+              name: 'Weekly limit',
+              short: 'wk',
+              usedPercent: 41,
+              resetsAt: now + 74 * hour,
+            },
           ],
           plan: 'max',
           account: null,
@@ -816,6 +928,37 @@ export interface VideoOutput {
   frame?: Rect;
   /** Seconds of crossfade from the last frame back into the first, so loops are seamless. */
   loopFade?: number;
+  /**
+   * Puts the window on a desktop with a dock, which `camera('desktop')` pulls back to. Between
+   * takes the window quits and is reopened from the dock, instead of a caption card cutting in.
+   */
+  desktop?: boolean;
+}
+
+/**
+ * Where the window sits on the drawn desktop, in CSS px with the screen's top left at 0, 0. The
+ * screen keeps the window's aspect ratio, with room below for the dock.
+ */
+export function desktopLayout(viewport: { width: number; height: number }) {
+  const width = Math.round(viewport.width / 0.84);
+  const height = Math.round((width * viewport.height) / viewport.width);
+  const icon = Math.round(width * 0.03);
+  const pad = Math.round(icon * 0.2);
+  const dock = {
+    width: icon + pad * 2,
+    height: icon + pad * 2,
+    x: Math.round((width - icon - pad * 2) / 2),
+    y: height - icon - pad * 2 - Math.round(icon * 0.18),
+  };
+  return {
+    screen: { width, height },
+    window: {
+      x: Math.round((width - viewport.width) / 2),
+      y: Math.round((height - viewport.height) * 0.3),
+    },
+    dock,
+    icon: { x: dock.x + pad, y: dock.y + pad, size: icon },
+  };
 }
 
 type TimelineEvent = { t: number; type: string } & Record<string, unknown>;
@@ -834,9 +977,16 @@ async function startLayerCapture(app: ElectronApplication, dir: string): Promise
   fs.mkdirSync(path.join(dir, 'layers'), { recursive: true });
   await app.evaluate(async ({ BrowserWindow }, layerDir) => {
     const writeFile = process.getBuiltinModule('node:fs').writeFileSync;
-    const win = BrowserWindow.getAllWindows()[0];
+    // The workspace window: the largest one showing, as a relaunch can list another first.
+    const area = (w: Electron.BrowserWindow) => w.getBounds().width * w.getBounds().height;
+    const [win] = BrowserWindow.getAllWindows()
+      .filter((w) => w.isVisible())
+      .sort((a, b) => area(b) - area(a));
     const ids = new Map<unknown, number>();
-    const capture: LayerCapture & { stop?: () => void } = { frames: [], layouts: [] };
+    const capture: LayerCapture & { stop?: () => void } = {
+      frames: [],
+      layouts: [],
+    };
     const lastFrameAt = new Map<number, number>();
     const pending = new Map<
       number,
@@ -947,13 +1097,20 @@ class Recorder {
     this.cdp = await this.page.context().newCDPSession(this.page);
     this.cdp.on('Page.screencastFrame', (frame) => {
       const file = `frames/${String(this.frames.length).padStart(5, '0')}.jpg`;
-      this.frames.push({ file, t: frame.metadata.timestamp ?? this.now(), received: this.now() });
+      this.frames.push({
+        file,
+        t: frame.metadata.timestamp ?? this.now(),
+        received: this.now(),
+      });
       this.writes.push(fs.promises.writeFile(path.join(this.dir, file), frame.data, 'base64'));
-      void this.cdp!.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(
-        () => undefined
-      );
+      void this.cdp!.send('Page.screencastFrameAck', {
+        sessionId: frame.sessionId,
+      }).catch(() => undefined);
     });
-    await this.cdp.send('Page.startScreencast', { format: 'jpeg', quality: 92 });
+    await this.cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 92,
+    });
     await startLayerCapture(this.app, this.dir);
     this.startedAt = this.now();
   }
@@ -1054,8 +1211,11 @@ export class Director {
     this.takes.push({ recorder: this.recorder, caption });
   }
 
-  /** Starts the next take, in `page` of the relaunched `app`. */
-  async resume(app: ElectronApplication, page: Page): Promise<void> {
+  /**
+   * Starts the next take, in `page` of the relaunched `app`. In a `desktop` video, `fromDock`
+   * starts it pulled back to the whole desktop, the cursor on the dock icon it clicked.
+   */
+  async resume(app: ElectronApplication, page: Page, { fromDock = false } = {}): Promise<void> {
     this.page = page;
     this.cursor = null;
     this.recorder = new Recorder(
@@ -1063,14 +1223,27 @@ export class Director {
       page,
       path.join(this.outputDir, `take-${this.takes.length + 1}`)
     );
+    if (fromDock) {
+      const { icon, window } = desktopLayout(this.viewport);
+      this.recorder.log('camera', { rect: this.desktopRect(), duration: 0 });
+      this.cursor = {
+        x: icon.x + icon.size / 2 - window.x,
+        y: icon.y + icon.size / 2 - window.y,
+      };
+      this.recorder.log('cursor', this.cursor);
+    }
     await this.start();
   }
 
   async finish(output: VideoOutput): Promise<void> {
     await this.recorder.stop();
     const [first, ...later] = [...this.takes.map((take) => take.recorder), this.recorder];
+    if (output.desktop) Object.assign(output, { desktop: desktopLayout(this.viewport) });
     first.save(output, this.viewport, {
-      takes: this.takes.map((take, i) => ({ dir: `take-${i + 2}`, caption: take.caption })),
+      takes: this.takes.map((take, i) => ({
+        dir: `take-${i + 2}`,
+        caption: take.caption,
+      })),
     });
     for (const recorder of later) recorder.save(output, this.viewport);
   }
@@ -1088,8 +1261,15 @@ export class Director {
     for (;;) {
       const progress = Math.min(1, (Date.now() - startedAt) / total);
       const eased = easeInOut(progress);
-      const point = { x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased };
-      await this.page.mouse.move(point.x, point.y);
+      const point = {
+        x: from.x + (to.x - from.x) * eased,
+        y: from.y + (to.y - from.y) * eased,
+      };
+      // Coming from the dock, the drawn cursor starts below the window; the real one stays on it.
+      await this.page.mouse.move(
+        Math.min(Math.max(point.x, 0), this.viewport.width - 1),
+        Math.min(Math.max(point.y, 0), this.viewport.height - 1)
+      );
       this.recorder.log('cursor', point);
       if (progress >= 1) break;
       await this.page.waitForTimeout(12);
@@ -1110,7 +1290,9 @@ export class Director {
     const point = await this.moveTo(target, { duration });
     for (const key of modifiers) await this.page.keyboard.down(key);
     if (modifiers.length) {
-      this.recorder.log('keys', { keys: [...modifiers.map((key) => KEY_GLYPHS[key]), 'Click'] });
+      this.recorder.log('keys', {
+        keys: [...modifiers.map((key) => KEY_GLYPHS[key]), 'Click'],
+      });
     }
     await this.page.waitForTimeout(90);
     this.recorder.log('click', point);
@@ -1160,15 +1342,17 @@ export class Director {
 
   /**
    * Eases the camera onto a region (CSS px) over `duration` seconds of video,
-   * whatever the speed. `'full'` returns to the default framing. The renderer
-   * widens the region to the output aspect ratio.
+   * whatever the speed. `'full'` returns to the default framing, and `'desktop'`
+   * pulls back to the whole desktop of a `desktop` video. The renderer widens
+   * the region to the output aspect ratio.
    */
   async camera(
-    target: Locator | Rect | 'full',
+    target: Locator | Rect | 'full' | 'desktop',
     { duration = 0.9, padding = 24 } = {}
   ): Promise<void> {
     let rect: Rect | null = null;
-    if (target !== 'full') {
+    if (target === 'desktop') rect = this.desktopRect();
+    else if (target !== 'full') {
       const box = 'boundingBox' in target ? await target.boundingBox() : target;
       if (!box) throw new Error('camera target is not visible');
       rect = {
@@ -1183,9 +1367,7 @@ export class Director {
 
   /** Releases the scripted agent on `branch` waiting at `{ waitFor: name }`. */
   cue(branch: string, name: string): void {
-    const cueFile = path.join(SANDBOX_DIR, 'cues', branchKey(branch), name);
-    fs.mkdirSync(path.dirname(cueFile), { recursive: true });
-    fs.writeFileSync(cueFile, '');
+    cueAgent(branch, name);
   }
 
   /** Plays what follows at `factor`× in the video, until the next call (1 restores real time). */
@@ -1212,6 +1394,12 @@ export class Director {
     this.recorder.log('poster');
   }
 
+  /** The whole desktop in window coordinates. */
+  private desktopRect(): Rect {
+    const layout = desktopLayout(this.viewport);
+    return { x: -layout.window.x, y: -layout.window.y, ...layout.screen };
+  }
+
   private async pointOf(target: Target): Promise<{ x: number; y: number }> {
     if (!('boundingBox' in target)) return target;
     const box = await target.boundingBox();
@@ -1223,7 +1411,11 @@ export class Director {
 // ── Fixture ─────────────────────────────────────────────────────────────────
 
 async function launchApp(): Promise<ElectronApplication> {
-  const { CLAUDECODE: _claudeCode, ...env } = process.env;
+  // Recording from a Komla terminal, its KOMLA_* variables, such as the notify port, would reach
+  // the recorded app's own terminals, and their agents' hooks the recording machine's Komla.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key !== 'CLAUDECODE' && !key.startsWith('KOMLA_'))
+  );
   return _electron.launch({
     // Launch the repo as the app, as a dev run does, so the app path resolves
     // native/artifacts and SSH hosts get the companion that pushes
@@ -1236,8 +1428,9 @@ async function launchApp(): Promise<ElectronApplication> {
       // Keep recordings off Komla's servers.
       KOMLA_API_URL: 'http://localhost:0',
       // Shells run zsh with the sandbox's rc, also when recording from inside
-      // Komla, whose shells pass on the user's rc as __KOMLA_ORIG_ZDOTDIR.
-      SHELL: '/bin/zsh',
+      // Komla, whose shells pass on the user's rc as __KOMLA_ORIG_ZDOTDIR. A Linux
+      // dry run without zsh at /bin/zsh can point KOMLA_VIDEO_ZSH at one.
+      SHELL: process.env.KOMLA_VIDEO_ZSH ?? '/bin/zsh',
       ZDOTDIR: SHELL_DIR,
       __KOMLA_ORIG_ZDOTDIR: SHELL_DIR,
     },
@@ -1250,7 +1443,11 @@ async function sizeWindow(
   size: { width: number; height: number }
 ): Promise<void> {
   await app.evaluate(({ BrowserWindow }, size) => {
-    const win = BrowserWindow.getAllWindows()[0];
+    // The workspace window: the largest one showing, as a relaunch can list another first.
+    const area = (w: Electron.BrowserWindow) => w.getBounds().width * w.getBounds().height;
+    const [win] = BrowserWindow.getAllWindows()
+      .filter((w) => w.isVisible())
+      .sort((a, b) => area(b) - area(a));
     win.setContentSize(size.width, size.height);
     win.center();
   }, size);
@@ -1260,13 +1457,40 @@ async function sizeWindow(
 }
 
 /**
- * Opens Komla again on the same sandbox, as after quitting it, in a window of
- * `windowSize`. The test closes the app it returns.
+ * Quits Komla as ⌘Q would. Its shutdown can stall on Linux dry runs after an SSH session, so after
+ * 45s the process is killed; workspaces are saved as they change, so nothing is lost.
  */
-export async function relaunchApp(windowSize: {
-  width: number;
-  height: number;
-}): Promise<{ app: ElectronApplication; page: Page }> {
+export async function quitApp(app: ElectronApplication): Promise<void> {
+  const closed = app.close().catch(() => undefined);
+  const inTime = await Promise.race([
+    closed.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 45_000)),
+  ]);
+  if (inTime) return;
+  console.warn('Komla did not quit within 45s; killing it');
+  const child = app.process();
+  // close() doesn't settle once the process is killed, so wait on the process itself.
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolve();
+    else child.once('exit', () => resolve());
+  });
+  child.kill('SIGKILL');
+  await exited;
+}
+
+/**
+ * Opens Komla again on the same sandbox, as after quitting it, in a window of
+ * `windowSize`. `onWindow` runs as soon as the window is up, before Komla has
+ * loaded, so a take can show it starting up. The test closes the app it returns.
+ */
+export async function relaunchApp(
+  windowSize: { width: number; height: number },
+  {
+    onWindow,
+  }: {
+    onWindow?: (app: ElectronApplication, page: Page) => Promise<void>;
+  } = {}
+): Promise<{ app: ElectronApplication; page: Page }> {
   // Saved as shown, the usage item would read before showClaudeUsage() stubs it.
   const configFile = path.join(SANDBOX_DIR, 'config.json');
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
@@ -1274,6 +1498,7 @@ export async function relaunchApp(windowSize: {
   const app = await launchApp();
   const page = await firstRendererWindow(app);
   await sizeWindow(app, page, windowSize);
+  await onWindow?.(app, page);
   await showClaudeUsage(app, page);
   return { app, page };
 }
@@ -1304,7 +1529,7 @@ export const videoTest = base.extend<VideoFixtures>({
   electronApp: async ({ sshHost: _sshHost }, provide) => {
     const app = await launchApp();
     await provide(app);
-    await app.close().catch(() => undefined);
+    await quitApp(app);
   },
 
   appWindow: [

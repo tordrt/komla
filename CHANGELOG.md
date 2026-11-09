@@ -19,6 +19,7 @@
 - Escape closes the file preview while you're typing in the Markdown editor or a note.
 - Opening a diff of a file containing Unicode line or paragraph separators no longer pops up a dialog offering to remove them.
 - The files list no longer shows files outside the workspace that have since been deleted.
+- With more than one Komla attached to the same SSH host, a Done you've seen in one no longer shows as unread in the others.
 
 ## [1.0.0]
 

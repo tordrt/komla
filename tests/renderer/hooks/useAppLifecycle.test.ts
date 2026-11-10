@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAppLifecycle } from '../../../src/renderer/hooks/useAppLifecycle';
 import { useConfigStore } from '../../../src/renderer/stores/config.store';
 import { useProjectsStore } from '../../../src/renderer/stores/projects.store';
+import { useToastStore } from '../../../src/renderer/stores/toast.store';
 import { useWorkspacesStore } from '../../../src/renderer/stores/workspaces.store';
 
 import type { Workspace } from '../../../src/renderer/types';
@@ -199,6 +200,67 @@ describe('useAppLifecycle', () => {
       fetches.shift()?.([]);
     });
     expect(fetches).toHaveLength(0);
+  });
+
+  describe('an SSH workspace that could not be created', () => {
+    const update = (fields: Partial<Workspace>) => {
+      const handlers = new Map<string, (workspace: Workspace) => void>();
+      const api = new Proxy(
+        {},
+        {
+          get: (_target, key: string) =>
+            key.startsWith('on')
+              ? (handler: (workspace: Workspace) => void) => {
+                  handlers.set(key, handler);
+                  return () => {};
+                }
+              : vi.fn().mockResolvedValue(undefined),
+        }
+      );
+      Object.defineProperty(window, 'api', { value: api, configurable: true });
+      useToastStore.setState({ toasts: [] });
+      renderHook(() =>
+        useAppLifecycle({
+          sidebarElement: null,
+          mainElement: null,
+          setNewWorkspaceDialogOpen: () => {},
+          setFeedbackOpen: () => {},
+        })
+      );
+      act(() => {
+        handlers.get('onWorkspaceUpdated')?.({
+          ...workspace('ws-1', 'idle'),
+          backend: { kind: 'ssh', hostId: 'host-1', remoteDirectory: '/srv/ws-1' },
+          ...fields,
+        } as Workspace);
+      });
+      return useToastStore.getState().toasts.map((toast) => toast.message);
+    };
+
+    it('says so', () => {
+      expect(update({ provisionError: 'Branch "fix" already exists on the SSH host.' })).toEqual([
+        'Failed to create SSH workspace: Branch "fix" already exists on the SSH host.',
+      ]);
+    });
+
+    // Both keep their message on the workspace, which every later update of it carries.
+    it('says nothing of a workspace missing from its host', () => {
+      expect(
+        update({
+          provisionError: 'This workspace’s files are no longer on its SSH host.',
+          provisionErrorReason: 'missing-from-host',
+        })
+      ).toEqual([]);
+    });
+
+    it('says nothing of a workspace whose host is no longer configured', () => {
+      expect(
+        update({
+          provisionError: 'This workspace’s SSH host is no longer configured.',
+          provisionErrorReason: 'host-not-configured',
+        })
+      ).toEqual([]);
+    });
   });
 
   describe("what the window's first screen loaded", () => {

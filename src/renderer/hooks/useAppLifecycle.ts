@@ -450,7 +450,7 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
       window.api.onWorkspaceUpdated((workspace) => {
         useDialogsStore.getState().settleProvisioningWorkspacePrompt(workspace);
         const failure = workspaceProvisionFailure(workspace);
-        if (failure && isSshWorkspace(workspace)) {
+        if (failure?.kind === 'failed' && isSshWorkspace(workspace)) {
           useToastStore
             .getState()
             .addToast(`Failed to create SSH workspace: ${failure.error}`, 'error');

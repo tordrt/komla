@@ -3562,5 +3562,18 @@ describe('PtyService', () => {
       await vi.advanceTimersByTimeAsync(5_000);
       expect(pty.kill).not.toHaveBeenCalledWith('SIGKILL');
     });
+
+    it('types no pending startup command into a shell it is shutting down', async () => {
+      pinPlatform('win32');
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+      const command = `claude "${'x'.repeat(33_000)}"`;
+      ptyService.spawn('term-1', 'C:\\Users\\test', command);
+
+      void ptyService.killAll();
+      spawnedPtys[0]._simulateData('PS> ');
+      vi.advanceTimersByTime(5_000);
+
+      expect(spawnedPtys[0].write).not.toHaveBeenCalledWith(`${command}\r`);
+    });
   });
 });

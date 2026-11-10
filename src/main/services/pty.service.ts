@@ -1577,6 +1577,8 @@ class PtyService {
         clearTimeout(proc.pendingCommandTimeoutId);
         proc.pendingCommandTimeoutId = null;
       }
+      // Its shell is being killed: output it prints on the way out mustn't type the command in.
+      proc.pendingCommand = null;
       // Never pause again: the program may still be writing as it exits.
       this.resetFlowControl(proc, false);
 

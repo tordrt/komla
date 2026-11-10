@@ -7,6 +7,7 @@ import {
   Clipboard,
   ClockCounterClockwise,
   Copy,
+  DotsThree,
   DownloadSimple,
   Eye,
   EyeSlash,
@@ -36,6 +37,13 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { EmptyState } from '@/components/ui/empty-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { LoadingState } from '@/components/ui/loading-state';
@@ -1642,6 +1650,9 @@ export function SidebarFileTree({
         diffLoading={diffLoading}
         isRemoteWorkspace={isRemoteWorkspace}
         onCreateFile={onCreateFile}
+        onExpandAll={() => expandAll()}
+        onCollapseAll={() => collapseAll()}
+        onRollbackAll={onRollbackAll}
       />
       <ContextMenu>
         <ContextMenuTrigger asChild>
@@ -1820,6 +1831,9 @@ interface SidebarFileTreeHeaderProps {
   diffLoading?: boolean;
   isRemoteWorkspace: boolean;
   onCreateFile?: (parentDir: string) => void;
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
+  onRollbackAll?: () => void;
 }
 
 function SidebarFileTreeHeader({
@@ -1841,6 +1855,9 @@ function SidebarFileTreeHeader({
   diffLoading,
   isRemoteWorkspace,
   onCreateFile,
+  onExpandAll,
+  onCollapseAll,
+  onRollbackAll,
 }: SidebarFileTreeHeaderProps) {
   const showDiffSummary = !!changedFilesOnly && !!diffSummary && diffSummary.filesChanged > 0;
   return (
@@ -1922,6 +1939,39 @@ function SidebarFileTreeHeader({
             pressedClassName={TOGGLE_ON_CLASS}
           />
         )}
+        {/* The whole-tree actions of the empty-area menu, which a long tree
+            leaves no empty area to right-click for. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <IconButton
+              label="Tree actions"
+              size="xs"
+              tooltipSide="bottom"
+              className="text-muted-foreground-80 hover:text-foreground"
+            >
+              <DotsThree className="size-3.5" weight="bold" />
+            </IconButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onExpandAll}>
+              <ArrowsOutSimple />
+              Expand All
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={onCollapseAll}>
+              <ArrowsInSimple />
+              Collapse All
+            </DropdownMenuItem>
+            {onRollbackAll && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onRollbackAll} variant="destructive">
+                  <ArrowCounterClockwise />
+                  Rollback All Changes
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

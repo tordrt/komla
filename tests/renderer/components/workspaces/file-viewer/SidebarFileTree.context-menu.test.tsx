@@ -1173,6 +1173,55 @@ describe('SidebarFileTree context menu actions', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('reaches the whole-tree actions from a header menu, as a full tree leaves no empty area', async () => {
+    const onRollbackAll = vi.fn();
+    render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="/repo"
+        currentFile={null}
+        onFileSelect={vi.fn()}
+        changedFilesOnly
+        changedFiles={[{ path: 'src/components/Button.tsx', status: 'modified' }]}
+        onRollbackAll={onRollbackAll}
+      />
+    );
+    const openMenu = () =>
+      fireEvent.pointerDown(screen.getByRole('button', { name: 'Tree actions' }), {
+        button: 0,
+        ctrlKey: false,
+      });
+
+    openMenu();
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^collapse all$/i }));
+    expect(latestModel?.getDirectory('src/components').isExpanded()).toBe(false);
+
+    openMenu();
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^expand all$/i }));
+    expect(latestModel?.getDirectory('src/components').isExpanded()).toBe(true);
+
+    openMenu();
+    fireEvent.click(await screen.findByRole('menuitem', { name: /rollback all changes/i }));
+    expect(onRollbackAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves Rollback All Changes out of the header menu when there is nothing to roll back', async () => {
+    render(
+      <SidebarFileTree
+        workspaceId="workspace-1"
+        workingDirectory="/repo"
+        currentFile={null}
+        onFileSelect={vi.fn()}
+      />
+    );
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Tree actions' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(await screen.findByRole('menuitem', { name: /^expand all$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /rollback all changes/i })).toBeNull();
+  });
+
   it('keeps collapse and search buttons out of the header, in both views', () => {
     const tree = (changedFilesOnly: boolean) => (
       <SidebarFileTree

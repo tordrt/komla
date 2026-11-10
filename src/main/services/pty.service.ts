@@ -19,6 +19,18 @@ import { EscapeInterrupts } from '../lib/escape-interrupt';
 import { extractHostOsc, isLocalHost, splitPendingOsc } from '../lib/host-osc';
 import { createLogger } from '../lib/logger';
 import { powerShellCommandArgs } from '../lib/powershell-native-arguments';
+import {
+  exitWaiters,
+  isCurrent,
+  liveHolds,
+  nextPtyPhase,
+  reportedStatus,
+  type LiveHolds,
+  type PendingCommand,
+  type PtyEvent,
+  type PtyPhase,
+  type PtyStartupMode,
+} from '../lib/pty-phase';
 import { buildTerminalEnv, getShell, getShellArgs } from '../lib/shell';
 import { addToShellHistoryCommand } from '../lib/shell-history';
 import { isZshShell } from '../lib/shell-kind';
@@ -104,19 +116,14 @@ const SIZE_WAIT_MS = 1000;
 
 export type { TerminalStatus };
 
-type PtyStartupMode = 'echo-command' | 'wait-for-marker';
-
 interface PtyProcess {
   pty: pty.IPty;
   terminalId: string;
   lastOutput: string;
-  status: TerminalStatus;
+  /** Written only by PtyService.advance(). */
+  phase: PtyPhase;
   windowId: number | null; // Track which window owns this terminal
-  startupTimeoutId: NodeJS.Timeout | null; // Track startup timeout for race condition prevention
   startupMode: PtyStartupMode;
-  pendingCommand: string | null; // Command to write once shell emits first output (ready)
-  pendingCommandTimeoutId: NodeJS.Timeout | null; // Fallback timeout for pendingCommand
-  pendingCommandWriteAttempts: number;
   // Monotonic chunk counter. Incremented before each PTY_DATA broadcast so the
   // renderer can dedupe the buffer-snapshot replay against the live stream.
   seq: number;
@@ -144,8 +151,6 @@ interface PtyProcess {
   // terminal for about 3 s until it hears back. xterm answers only while a view is attached, so
   // the first output's query is answered here.
   answersConptyStartupQuery: boolean;
-  // Runs while the program is held stopped until its terminal has a size; see SIZE_WAIT_MS.
-  sizeWaitTimer: NodeJS.Timeout | null;
 }
 
 /** How a terminal's process ended by itself, unlike one Komla killed. */
@@ -347,19 +352,12 @@ class PtyService {
   private statusListeners: Array<(terminalId: string, status: TerminalStatus) => void> = [];
   private resetListeners: Array<(terminalId: string) => void> = [];
   private errorListeners: Array<(terminalId: string, message: string) => void> = [];
-  // PTYs removed from `processes` by kill()/restart() may not have delivered
-  // their native exit event yet. Keep their concrete instances until they do.
+  // PTYs in the 'exiting' phase: their terminals let go of them, and node-pty hasn't reported
+  // their exit yet. Kept in step with the phase by advance().
   private exitingProcesses: Set<PtyProcess> = new Set();
-  // Resolvers waiting for a specific PTY's native exit event during shutdown.
-  // Populated by killAll(), drained by handleExit(). Keyed by the PTY, not its
-  // terminal, so the exit of a PTY a restart replaced can't end the wait.
-  private shutdownExitResolvers: Map<PtyProcess, () => void> = new Map();
-  // Set by killAll(): programs may still be writing as they exit, so nothing pauses again.
+  // Set by killAll(): programs may still be writing as they exit, so a renderer's report no longer
+  // turns pausing on, for a PTY spawned after it too.
   private shuttingDown = false;
-  // Workspace deletion must not remove a terminal's cwd until node-pty has
-  // observed the native process exit. These resolvers are separate from the
-  // shutdown waiters because releaseTerminal() retains its immediate API.
-  private releaseExitResolvers: Map<PtyProcess, Set<() => void>> = new Map();
   private escapeInterrupts = new EscapeInterrupts((terminalId, confirmed) =>
     this.notifyAbort(terminalId, confirmed)
   );
@@ -399,35 +397,32 @@ class PtyService {
     }
   }
 
+  /** (Re)starts the wait before typing in a live PTY's startup command. */
   private schedulePendingCommandWrite(proc: PtyProcess, delayMs: number): void {
-    proc.pendingCommandTimeoutId = setTimeout(() => {
-      const currentProc = this.processes.get(proc.terminalId);
-      if (!currentProc || !currentProc.pendingCommand) return;
-
-      currentProc.pendingCommandTimeoutId = null;
-      this.flushPendingCommand(currentProc);
+    const holds = liveHolds(proc.phase);
+    const command = holds?.command;
+    if (!holds || !command) return;
+    if (command.timer) clearTimeout(command.timer);
+    // Leaving the live phases clears the timer, so it fires only while the command is pending.
+    command.timer = setTimeout(() => {
+      command.timer = null;
+      this.flushPendingCommand(proc, holds, command);
     }, delayMs);
   }
 
-  private flushPendingCommand(proc: PtyProcess): void {
-    if (!proc.pendingCommand) return;
-
-    const wrote = this.writeToPty(proc, `${proc.pendingCommand}\r`);
-    if (wrote) {
-      proc.pendingCommand = null;
-      proc.pendingCommandWriteAttempts = 0;
-      proc.pendingCommandTimeoutId = null;
+  private flushPendingCommand(proc: PtyProcess, holds: LiveHolds, command: PendingCommand): void {
+    if (this.writeToPty(proc, `${command.text}\r`)) {
+      holds.command = null;
       return;
     }
 
-    proc.pendingCommandWriteAttempts += 1;
-    if (proc.pendingCommandWriteAttempts >= MAX_PENDING_COMMAND_WRITE_ATTEMPTS) {
+    command.attempts += 1;
+    if (command.attempts >= MAX_PENDING_COMMAND_WRITE_ATTEMPTS) {
       logger.error('Dropping pending command after repeated PTY write failures', {
         terminalId: proc.terminalId,
-        attempts: proc.pendingCommandWriteAttempts,
+        attempts: command.attempts,
       });
-      proc.pendingCommand = null;
-      proc.pendingCommandTimeoutId = null;
+      holds.command = null;
       return;
     }
 
@@ -600,17 +595,21 @@ class PtyService {
     };
     const { ptyProcess, bundledConpty } = spawnPty(spawnShell, spawnArgs, spawnOptions, terminalId);
 
+    const starting: Extract<PtyPhase, { kind: 'starting' }> = {
+      kind: 'starting',
+      startupTimer: null,
+      holds: {
+        sizeWait: null,
+        command: pendingCommand ? { text: pendingCommand, timer: null, attempts: 0 } : null,
+      },
+    };
     const processInfo: PtyProcess = {
       pty: ptyProcess,
       terminalId,
       lastOutput: '',
-      status: 'starting',
+      phase: starting,
       windowId: windowId ?? null,
-      startupTimeoutId: null,
       startupMode,
-      pendingCommand,
-      pendingCommandTimeoutId: null,
-      pendingCommandWriteAttempts: 0,
       seq: initialSeq,
       lastHostname: null,
       oscCarry: '',
@@ -623,9 +622,8 @@ class PtyService {
       statusReporter: null,
       answersStatusQueries: process.platform !== 'win32' || bundledConpty,
       answersConptyStartupQuery: bundledConpty,
-      sizeWaitTimer: null,
     };
-    this.holdUntilSized(processInfo, sized);
+    this.holdUntilSized(processInfo, starting.holds, sized);
 
     this.processes.set(terminalId, processInfo);
     this.outputBuffers.set(terminalId, new TerminalReplayTail(OUTPUT_BUFFER_LIMIT));
@@ -648,25 +646,22 @@ class PtyService {
 
     ptyProcess.onExit(({ exitCode, signal }) => {
       this.flushHeldOutput(processInfo);
-      this.handleExit(terminalId, exitCode, signal, processInfo);
+      this.handleExit(processInfo, exitCode, signal);
     });
 
     // Local shells may be silent after startup, so do not leave their loading
     // state up indefinitely. SSH waits for the remote launcher marker so local
     // prompts and command echoes cannot finish the connection handoff.
     if (startupMode === 'echo-command') {
-      processInfo.startupTimeoutId = setTimeout(() => {
-        processInfo.startupTimeoutId = null;
-        if (processInfo.status === 'starting') {
-          this.updateStatus(terminalId, 'running');
-        }
+      // Leaving 'starting' clears it, so it fires only while the PTY is still starting.
+      starting.startupTimer = setTimeout(() => {
+        starting.startupTimer = null;
+        this.advance(processInfo, { kind: 'ready', signal: 'startup-timeout' });
       }, STARTUP_TIMEOUT_MS);
     }
 
     // Fallback for typed commands: write the pending command if the shell never emits output
-    if (pendingCommand) {
-      this.schedulePendingCommandWrite(processInfo, SHELL_READY_FALLBACK_MS);
-    }
+    this.schedulePendingCommandWrite(processInfo, SHELL_READY_FALLBACK_MS);
   }
 
   /**
@@ -694,23 +689,19 @@ class PtyService {
   }
 
   /** Stops an unsized terminal's program until it has a size; Windows has no signal for it. */
-  private holdUntilSized(processInfo: PtyProcess, sized: boolean): void {
+  private holdUntilSized(processInfo: PtyProcess, holds: LiveHolds, sized: boolean): void {
     if (sized || process.platform === 'win32') return;
     processInfo.pty.kill('SIGSTOP');
-    processInfo.sizeWaitTimer = setTimeout(() => this.endSizeWait(processInfo), SIZE_WAIT_MS);
+    holds.sizeWait = setTimeout(() => this.endSizeWait(processInfo), SIZE_WAIT_MS);
   }
 
-  /** Forgets the hold; says whether the program was still held. */
-  private clearSizeWait(processInfo: PtyProcess): boolean {
-    if (!processInfo.sizeWaitTimer) return false;
-    clearTimeout(processInfo.sizeWaitTimer);
-    processInfo.sizeWaitTimer = null;
-    return true;
-  }
-
-  /** Lets a program held by holdUntilSized() run; a stopped one wouldn't act on a kill's SIGHUP. */
+  /** Lets a program held by holdUntilSized() run, now that its terminal has a size. */
   private endSizeWait(processInfo: PtyProcess): void {
-    if (this.clearSizeWait(processInfo)) processInfo.pty.kill('SIGCONT');
+    const holds = liveHolds(processInfo.phase);
+    if (!holds?.sizeWait) return;
+    clearTimeout(holds.sizeWait);
+    holds.sizeWait = null;
+    processInfo.pty.kill('SIGCONT');
   }
 
   private queueOutput(process: PtyProcess, data: string): void {
@@ -718,7 +709,7 @@ class PtyService {
       process.heldOutput += data;
       return;
     }
-    this.handleOutput(process.terminalId, data, process);
+    this.handleOutput(process, data);
     this.openOutputWindow(process);
   }
 
@@ -735,7 +726,7 @@ class PtyService {
     const data = process.heldOutput;
     if (!data) return;
     process.heldOutput = '';
-    this.handleOutput(process.terminalId, data, process);
+    this.handleOutput(process, data);
   }
 
   /**
@@ -757,10 +748,10 @@ class PtyService {
     return query[1] + data.slice(query[0].length);
   }
 
-  private handleOutput(terminalId: string, data: string, expectedProcess?: PtyProcess): void {
-    const process = this.processes.get(terminalId);
-    if (!process) return;
-    if (expectedProcess && process !== expectedProcess) return;
+  private handleOutput(process: PtyProcess, data: string): void {
+    // A PTY its terminal let go of, such as one a replacement killed, prints nothing to it.
+    if (!isCurrent(process.phase)) return;
+    const { terminalId } = process;
 
     // Rejoin any OSC prefix held from the previous chunk, then peel off the
     // new trailing unterminated OSC (if any) to carry into the next chunk.
@@ -787,25 +778,13 @@ class PtyService {
     }
     buffer.append(data);
 
-    if (process.status === 'starting' && process.startupMode === 'echo-command') {
-      // Clear the fallback timeout to prevent duplicate status updates
-      if (process.startupTimeoutId) {
-        clearTimeout(process.startupTimeoutId);
-        process.startupTimeoutId = null;
-      }
-      this.updateStatus(terminalId, 'running');
-    }
+    this.advance(process, { kind: 'ready', signal: 'output' });
 
     // Debounce the pending command write: wait for shell output to settle so
     // the line editor has time to switch from canonical mode (MAX_CANON = 1024
     // byte limit) to raw mode (no limit).  Each new output event resets the
     // timer, so the command is only written after a quiet period.
-    if (process.pendingCommand) {
-      if (process.pendingCommandTimeoutId) {
-        clearTimeout(process.pendingCommandTimeoutId);
-      }
-      this.schedulePendingCommandWrite(process, PENDING_COMMAND_SETTLE_MS);
-    }
+    this.schedulePendingCommandWrite(process, PENDING_COMMAND_SETTLE_MS);
 
     // Send data to renderer (targeted to owning window).  Bump seq first so the
     // snapshot returned by getBuffer (which already includes this chunk) can be
@@ -890,9 +869,7 @@ class PtyService {
       }
     }
     const { remoteReady, cleaned: readinessCleaned } = extractRemoteReadyOsc(replacementCleaned);
-    if (remoteReady && process.status === 'starting' && process.startupMode === 'wait-for-marker') {
-      this.updateStatus(terminalId, 'running');
-    }
+    if (remoteReady) this.advance(process, { kind: 'ready', signal: 'remote-ready' });
     if (readinessCleaned.length === 0) return '';
 
     // Pull host-hostname OSC markers out of the stream before anyone else
@@ -933,84 +910,108 @@ class PtyService {
     return notificationCleaned;
   }
 
-  private handleExit(
-    terminalId: string,
-    exitCode: number,
-    signal?: number,
-    expectedProcess?: PtyProcess
-  ): void {
-    // Drain the shutdown resolver first, before any early-return: a concurrent
-    // user-facing kill(terminalId) may have already removed the process entry,
-    // and we still need to release the shutdown waiter when the native exit
-    // lands rather than wait for the timeout fallback.
-    const resolver = expectedProcess && this.shutdownExitResolvers.get(expectedProcess);
-    const isShutdownExit = resolver !== undefined;
-    if (resolver) {
-      this.shutdownExitResolvers.delete(expectedProcess);
-      resolver();
-    }
-    if (expectedProcess) {
-      this.exitingProcesses.delete(expectedProcess);
-      const releaseResolvers = this.releaseExitResolvers.get(expectedProcess);
-      this.releaseExitResolvers.delete(expectedProcess);
-      for (const releaseResolver of releaseResolvers ?? []) releaseResolver();
-    }
-
-    const process = this.processes.get(terminalId);
-    if (!process) return;
-    if (expectedProcess && process !== expectedProcess) return;
-
-    // Clear pending timeouts (prevents leak if exit happens before timeouts fire)
-    if (process.startupTimeoutId) {
-      clearTimeout(process.startupTimeoutId);
-      process.startupTimeoutId = null;
-    }
-    if (process.pendingCommandTimeoutId) {
-      clearTimeout(process.pendingCommandTimeoutId);
-      process.pendingCommandTimeoutId = null;
-    }
-    // The PID is free again, so nothing may signal it.
-    this.clearSizeWait(process);
-    this.resumeOutput(process);
-
-    this.updateStatus(terminalId, 'stopped');
-
-    if (exitCode !== 0) {
-      const message = `Process exited with code ${exitCode}`;
-      this.sendToRenderer(IPC.TERMINAL_ERROR, terminalId, message);
-      for (const listener of this.errorListeners) {
-        listener(terminalId, message);
+  private handleExit(proc: PtyProcess, exitCode: number, signal?: number): void {
+    const previous = proc.phase;
+    // A shutdown that still waits for this exit reports none of its own. Once it stops waiting,
+    // as when the kill failed, the exit is reported like any other.
+    const awaitedByShutdown = previous.kind === 'shutting-down' && previous.exitWaiters.size > 0;
+    const { terminalId } = proc;
+    // The error and exit go out while the terminal still has the PTY, reading 'stopped'.
+    const reportExit = (): void => {
+      if (exitCode !== 0) {
+        const message = `Process exited with code ${exitCode}`;
+        this.sendToRenderer(IPC.TERMINAL_ERROR, terminalId, message);
+        for (const listener of this.errorListeners) {
+          listener(terminalId, message);
+        }
       }
-    }
+      if (!awaitedByShutdown) {
+        this.sendToRenderer(IPC.TERMINAL_EXIT, terminalId, exitCode, signal);
+      }
+    };
+    // A PTY its terminal already let go of ends quietly.
+    if (!this.advance(proc, { kind: 'exit' }, reportExit) || !isCurrent(previous)) return;
 
-    if (!isShutdownExit) {
-      this.sendToRenderer(IPC.TERMINAL_EXIT, terminalId, exitCode, signal);
-    }
-    this.processes.delete(terminalId);
-    this.terminalLastSeq.set(terminalId, process.seq);
     const exit: PtyExit = {
       exitCode,
       output: this.outputBuffers.get(terminalId)?.toString(EXIT_OUTPUT_CHARS) ?? '',
     };
-    this.outputBuffers.delete(terminalId);
-    this.terminalPresentations.get(terminalId)?.dispose();
-    this.terminalPresentations.delete(terminalId);
-    this.terminalToWindow.delete(terminalId);
-    this.terminalFocusReportSuppressUntil.delete(terminalId);
-    this.terminalOscNotificationStates.delete(terminalId);
-    this.emitTitle(terminalId, null);
+    this.forgetPty(proc, { keepFocusSuppression: false });
 
     for (const listener of this.exitListeners) {
       listener(terminalId, exit);
     }
   }
 
-  private updateStatus(terminalId: string, status: TerminalStatus): void {
-    const process = this.processes.get(terminalId);
-    if (process) {
-      process.status = status;
+  /**
+   * The only writer of a PTY's phase. It ends what the phase it leaves was running, keeps
+   * `processes` and `exitingProcesses` in step, and reports the terminal's new status while
+   * getStatus() still reads it. `beforeLetGo` reports more while it still does, once the PTY is
+   * leaving its terminal.
+   */
+  private advance(proc: PtyProcess, event: PtyEvent, beforeLetGo?: () => void): boolean {
+    const previous = proc.phase;
+    const next = nextPtyPhase(previous, event, proc.startupMode);
+    if (!next) return false;
+    this.leavePhase(proc, previous, next);
+    proc.phase = next;
+
+    if (next.kind === 'exiting') this.exitingProcesses.add(proc);
+    else this.exitingProcesses.delete(proc);
+    if (!isCurrent(previous)) return true;
+    const status = reportedStatus(next);
+    if (status !== reportedStatus(previous)) this.reportStatus(proc.terminalId, status);
+    if (isCurrent(next)) return true;
+    beforeLetGo?.();
+    this.processes.delete(proc.terminalId);
+    return true;
+  }
+
+  /** Ends the timers and waits of a phase a PTY leaves that the next phase doesn't carry. */
+  private leavePhase(proc: PtyProcess, previous: PtyPhase, next: PtyPhase): void {
+    if (previous.kind === 'starting' && previous.startupTimer) {
+      clearTimeout(previous.startupTimer);
     }
 
+    const holds = liveHolds(previous);
+    if (holds && !liveHolds(next)) {
+      if (holds.command?.timer) clearTimeout(holds.command.timer);
+      if (holds.sizeWait) {
+        clearTimeout(holds.sizeWait);
+        // A stopped program wouldn't act on its kill's SIGHUP. Once it has exited, its PID is
+        // free again, so nothing may signal it.
+        if (next.kind !== 'exited') proc.pty.kill('SIGCONT');
+      }
+    }
+
+    if (next.kind === 'shutting-down' && previous.kind !== 'shutting-down') {
+      // Never pause again: the program may still be writing as it exits.
+      this.resetFlowControl(proc, false);
+    } else if (isCurrent(previous) && !isCurrent(next)) {
+      // node-pty reports a killed program's exit only once it has read the closed socket.
+      this.resumeOutput(proc);
+    }
+
+    if (next.kind === 'exited') {
+      // Each waiter removes itself as it runs, which a Set's iteration allows.
+      for (const waiter of exitWaiters(previous) ?? []) waiter();
+    }
+  }
+
+  /** Drops what a terminal kept for the PTY it no longer has; its seq carries on into the next. */
+  private forgetPty(proc: PtyProcess, options: { keepFocusSuppression: boolean }): void {
+    const { terminalId } = proc;
+    this.terminalLastSeq.set(terminalId, proc.seq);
+    this.outputBuffers.delete(terminalId);
+    this.terminalPresentations.get(terminalId)?.dispose();
+    this.terminalPresentations.delete(terminalId);
+    this.terminalToWindow.delete(terminalId);
+    if (!options.keepFocusSuppression) this.terminalFocusReportSuppressUntil.delete(terminalId);
+    this.terminalOscNotificationStates.delete(terminalId);
+    this.emitTitle(terminalId, null);
+  }
+
+  private reportStatus(terminalId: string, status: TerminalStatus): void {
     // Status changes broadcast to all windows since workspaces can be viewed from any window
     this.broadcastToAll(IPC.TERMINAL_STATUS_CHANGE, terminalId, status);
     for (const listener of this.statusListeners) {
@@ -1109,7 +1110,7 @@ class PtyService {
    */
   private checkStatusReporter(terminalId: string, proc: PtyProcess): void {
     setTimeout(() => {
-      if (this.processes.get(terminalId) !== proc || proc.statusReporter === null) return;
+      if (!isCurrent(proc.phase) || proc.statusReporter === null) return;
       if (foregroundProcess(proc.pty) === proc.statusReporter) return;
       proc.statusReporter = null;
       emitTerminalProgramStatus(terminalId, { state: 'clear' });
@@ -1281,7 +1282,7 @@ class PtyService {
   kill(terminalId: string): void {
     const process = this.processes.get(terminalId);
     if (!process) return;
-    this.terminateProcess(terminalId, process, true);
+    this.terminateProcess(process, true);
   }
 
   /**
@@ -1306,60 +1307,68 @@ class PtyService {
    * event. This is required before deleting the terminal's working directory.
    */
   async releaseTerminalAndWait(terminalId: string): Promise<void> {
-    const proc = this.processes.get(terminalId);
-    const processesToWaitFor = [...this.exitingProcesses].filter(
-      (exitingProcess) => exitingProcess.terminalId === terminalId
-    );
-    if (proc) processesToWaitFor.push(proc);
-
-    const exitPromises = processesToWaitFor.map(
-      (processToWaitFor) =>
-        new Promise<void>((resolve) => {
-          let escalateTimer: NodeJS.Timeout | null = null;
-          let abandonTimer: NodeJS.Timeout | null = null;
-
-          const finalize = (): void => {
-            if (escalateTimer) clearTimeout(escalateTimer);
-            if (abandonTimer) clearTimeout(abandonTimer);
-            this.exitingProcesses.delete(processToWaitFor);
-            const resolvers = this.releaseExitResolvers.get(processToWaitFor);
-            resolvers?.delete(finalize);
-            if (resolvers?.size === 0) this.releaseExitResolvers.delete(processToWaitFor);
-            resolve();
-          };
-
-          const resolvers = this.releaseExitResolvers.get(processToWaitFor) ?? new Set();
-          resolvers.add(finalize);
-          this.releaseExitResolvers.set(processToWaitFor, resolvers);
-          escalateTimer = setTimeout(() => {
-            escalateTimer = null;
-            if (process.platform !== 'win32') {
-              logger.warn('PTY did not exit before workspace deletion, escalating to SIGKILL', {
-                terminalId,
-              });
-              try {
-                processToWaitFor.pty.kill('SIGKILL');
-              } catch (err) {
-                logger.warn('SIGKILL escalation failed before workspace deletion', {
-                  terminalId,
-                  error: String(err),
-                });
-              }
-            }
-
-            abandonTimer = setTimeout(() => {
-              abandonTimer = null;
-              logger.warn('PTY exit event never arrived before workspace deletion; continuing', {
-                terminalId,
-              });
-              finalize();
-            }, SHUTDOWN_FORCE_KILL_GRACE_MS);
-          }, SHUTDOWN_EXIT_TIMEOUT_MS);
-        })
-    );
-
     this.releaseTerminal(terminalId);
-    await Promise.all(exitPromises);
+    const exiting = [...this.exitingProcesses].filter((proc) => proc.terminalId === terminalId);
+    await Promise.all(exiting.map((proc) => this.waitForExit(proc, 'release').exited));
+  }
+
+  /**
+   * Waits for node-pty to report the exit of a PTY that was killed. A program that ignores the
+   * kill gets SIGKILL after SHUTDOWN_EXIT_TIMEOUT_MS, except on Windows, where node-pty takes no
+   * signal and its kill already terminates the program. SHUTDOWN_FORCE_KILL_GRACE_MS later the
+   * wait gives up. `stopWaiting` gives up at once.
+   */
+  private waitForExit(
+    proc: PtyProcess,
+    waitingFor: 'shutdown' | 'release'
+  ): { exited: Promise<void>; stopWaiting: () => void } {
+    const waiters = exitWaiters(proc.phase);
+    if (!waiters) return { exited: Promise.resolve(), stopWaiting: () => {} };
+    const { terminalId } = proc;
+    let resolveExited: () => void = () => {};
+    const exited = new Promise<void>((resolve) => {
+      resolveExited = resolve;
+    });
+
+    const giveUp = (): void => {
+      logger.warn(
+        'PTY exit event never arrived, abandoning wait. What follows may race a pending TSFN.',
+        { terminalId, waitingFor }
+      );
+      stopWaiting();
+      // Once the last wait on a PTY its terminal let go of gives up, it counts as gone, so no
+      // later wait starts over on it. Other waits keep their own escalation until then.
+      if (waiters.size === 0) this.advance(proc, { kind: 'abandon' });
+    };
+    const escalate = (): void => {
+      if (process.platform !== 'win32') {
+        logger.warn('PTY did not exit after its kill, escalating to SIGKILL', {
+          terminalId,
+          waitingFor,
+        });
+        try {
+          proc.pty.kill('SIGKILL');
+        } catch (err) {
+          logger.warn('SIGKILL escalation failed', { terminalId, waitingFor, error: String(err) });
+        }
+      } else {
+        logger.warn('PTY did not exit after its kill on Windows, waiting on grace window', {
+          terminalId,
+          waitingFor,
+        });
+      }
+      timer = setTimeout(giveUp, SHUTDOWN_FORCE_KILL_GRACE_MS);
+    };
+    let timer = setTimeout(escalate, SHUTDOWN_EXIT_TIMEOUT_MS);
+
+    // leavePhase() calls it once the PTY exits; giveUp() and the caller when the wait ends early.
+    const stopWaiting = (): void => {
+      clearTimeout(timer);
+      waiters.delete(stopWaiting);
+      resolveExited();
+    };
+    waiters.add(stopWaiting);
+    return { exited, stopWaiting };
   }
 
   restart(
@@ -1382,7 +1391,7 @@ class PtyService {
     );
 
     if (process) {
-      this.terminateProcess(terminalId, process, false);
+      this.terminateProcess(process, false);
     } else {
       this.outputBuffers.delete(terminalId);
       this.terminalOscNotificationStates.delete(terminalId);
@@ -1403,54 +1412,29 @@ class PtyService {
       localLoginShell,
       addToHistory
     );
+    // Its terminal last reported 'stopped', so a replacement reports its reset and new status.
     this.broadcastToAll(IPC.TERMINAL_RESET, terminalId);
-    this.updateStatus(terminalId, 'starting');
+    this.reportStatus(terminalId, 'starting');
   }
 
-  private terminateProcess(
-    terminalId: string,
-    process: PtyProcess,
-    notifyExitListeners: boolean
-  ): void {
-    // Clear pending timeouts before cleanup
-    if (process.startupTimeoutId) {
-      clearTimeout(process.startupTimeoutId);
-      process.startupTimeoutId = null;
+  /** kill() and Terminal replacement: the terminal lets go of its PTY at once, and kills it. */
+  private terminateProcess(proc: PtyProcess, notifyExitListeners: boolean): void {
+    // Output still held for coalescing is the program's last; deliver it while it is still the
+    // terminal's PTY.
+    if (proc.outputWindowTimer) {
+      clearTimeout(proc.outputWindowTimer);
+      proc.outputWindowTimer = null;
     }
-    if (process.pendingCommandTimeoutId) {
-      clearTimeout(process.pendingCommandTimeoutId);
-      process.pendingCommandTimeoutId = null;
-    }
-    // Output still held for coalescing is the program's last; deliver it while the bookkeeping
-    // that routes it is still there.
-    if (process.outputWindowTimer) {
-      clearTimeout(process.outputWindowTimer);
-      process.outputWindowTimer = null;
-    }
-    this.flushHeldOutput(process);
-    // node-pty reports the exit only once it has read the closed socket.
-    this.resumeOutput(process);
-    // Remove bookkeeping before kill so a synchronous native onExit cannot
-    // tear down a replacement spawned under the same terminal ID.
-    this.updateStatus(terminalId, 'stopped');
-    this.terminalLastSeq.set(terminalId, process.seq);
-    this.processes.delete(terminalId);
-    this.outputBuffers.delete(terminalId);
-    this.terminalPresentations.get(terminalId)?.dispose();
-    this.terminalPresentations.delete(terminalId);
-    this.terminalToWindow.delete(terminalId);
-    this.terminalOscNotificationStates.delete(terminalId);
-    this.emitTitle(terminalId, null);
-    if (notifyExitListeners) {
-      this.terminalFocusReportSuppressUntil.delete(terminalId);
-    }
-    this.exitingProcesses.add(process);
-    this.endSizeWait(process);
-    process.pty.kill();
+    this.flushHeldOutput(proc);
+    this.advance(proc, { kind: 'kill' });
+    // A replacement keeps dropping the focus reports a restart can send.
+    this.forgetPty(proc, { keepFocusSuppression: !notifyExitListeners });
+    // An exit node-pty reports from inside kill() finds the PTY exiting, so it ends quietly.
+    proc.pty.kill();
 
     if (notifyExitListeners) {
       for (const listener of this.exitListeners) {
-        listener(terminalId);
+        listener(proc.terminalId);
       }
     }
   }
@@ -1542,12 +1526,12 @@ class PtyService {
 
   getStatus(terminalId: string): TerminalStatus | null {
     const process = this.processes.get(terminalId);
-    return process?.status || null;
+    return process ? reportedStatus(process.phase) : null;
   }
 
   isRunning(terminalId: string): boolean {
     const process = this.processes.get(terminalId);
-    return process?.status === 'running';
+    return process !== undefined && reportedStatus(process.phase) === 'running';
   }
 
   /** PID of the terminal's shell, the root of every process started in it. */
@@ -1562,92 +1546,27 @@ class PtyService {
    * Environment cleanup, which throws and aborts.
    *
    * Per-terminal `kill()` keeps its existing immediate semantics for user-driven
-   * close; this method does not delete from `this.processes` synchronously, so
+   * close; here each PTY moves to 'shutting-down' and stays its terminal's, so
    * `handleExit()` can run normally when the real exit lands.
    */
   killAll(): Promise<void> {
     this.shuttingDown = true;
-    const promises: Promise<void>[] = [];
-    for (const [terminalId, proc] of this.processes) {
-      if (proc.startupTimeoutId) {
-        clearTimeout(proc.startupTimeoutId);
-        proc.startupTimeoutId = null;
-      }
-      if (proc.pendingCommandTimeoutId) {
-        clearTimeout(proc.pendingCommandTimeoutId);
-        proc.pendingCommandTimeoutId = null;
-      }
-      // Its shell is being killed: output it prints on the way out mustn't type the command in.
-      proc.pendingCommand = null;
-      // Never pause again: the program may still be writing as it exits.
-      this.resetFlowControl(proc, false);
-
-      const exitPromise = new Promise<void>((resolve) => {
-        let escalateTimer: NodeJS.Timeout | null = null;
-        let abandonTimer: NodeJS.Timeout | null = null;
-
-        const finalize = (): void => {
-          if (escalateTimer) clearTimeout(escalateTimer);
-          if (abandonTimer) clearTimeout(abandonTimer);
-          this.shutdownExitResolvers.delete(proc);
-          resolve();
-        };
-
-        this.shutdownExitResolvers.set(proc, finalize);
-
-        // Stage 1: SIGHUP didn't reap the child within the grace period.
-        // Escalate to SIGKILL (POSIX only — node-pty's Windows backend rejects
-        // any signal argument, and its default kill() already calls
-        // TerminateProcess so escalation has nothing to add). Then give the
-        // kernel one more short window to deliver the native exit event
-        // before we give up.
-        escalateTimer = setTimeout(() => {
-          escalateTimer = null;
-          if (process.platform !== 'win32') {
-            logger.warn('PTY did not exit after SIGHUP, escalating to SIGKILL', {
-              terminalId,
-            });
-            try {
-              proc.pty.kill('SIGKILL');
-            } catch (err) {
-              logger.warn('SIGKILL escalation failed', {
-                terminalId,
-                error: String(err),
-              });
-            }
-          } else {
-            logger.warn('PTY did not exit after kill on Windows, waiting on grace window', {
-              terminalId,
-            });
-          }
-
-          abandonTimer = setTimeout(() => {
-            abandonTimer = null;
-            logger.warn(
-              'PTY exit event never arrived — abandoning wait. Subsequent app teardown may race a pending TSFN.',
-              { terminalId }
-            );
-            finalize();
-          }, SHUTDOWN_FORCE_KILL_GRACE_MS);
-        }, SHUTDOWN_EXIT_TIMEOUT_MS);
-      });
-      promises.push(exitPromise);
-
-      this.endSizeWait(proc);
+    const exits: Promise<void>[] = [];
+    for (const proc of this.processes.values()) {
+      this.advance(proc, { kind: 'shutdown' });
+      const { exited, stopWaiting } = this.waitForExit(proc, 'shutdown');
+      exits.push(exited);
       try {
         proc.pty.kill();
       } catch (err) {
         logger.warn('PTY kill failed during shutdown', {
-          terminalId,
+          terminalId: proc.terminalId,
           error: String(err),
         });
-        const resolver = this.shutdownExitResolvers.get(proc);
-        if (resolver) {
-          resolver();
-        }
+        stopWaiting();
       }
     }
-    return Promise.all(promises).then(() => undefined);
+    return Promise.all(exits).then(() => undefined);
   }
 
   getDiagnostics(): {
@@ -1662,8 +1581,9 @@ class PtyService {
     let runningCount = 0;
     let stoppedCount = 0;
     for (const process of this.processes.values()) {
-      if (process.status === 'starting') startingCount++;
-      else if (process.status === 'running') runningCount++;
+      const status = reportedStatus(process.phase);
+      if (status === 'starting') startingCount++;
+      else if (status === 'running') runningCount++;
       else stoppedCount++;
     }
 

@@ -2941,6 +2941,20 @@ describe('PtyService', () => {
       await killed;
     });
 
+    it('never pauses a terminal started after shutdown began', async () => {
+      const { ptyService, pty } = await spawnReportedTerminal();
+      const killed = ptyService.killAll();
+      pty._simulateExit(0);
+      await killed;
+
+      // Such as a reconnect an exit listener starts while Komla quits.
+      ptyService.restart('term-1', '/home/user', null, 'ws-1', 120, 30);
+      const late = spawnedPtys[1];
+      ptyService.acknowledgeOutput('term-1', 0);
+      late._simulateData('x'.repeat(600_000));
+      expect(late.pause).not.toHaveBeenCalled();
+    });
+
     it('never pauses on Windows, where closing a paused ConPTY can hang the main process', async () => {
       const originalPlatform = process.platform;
       Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
@@ -3527,6 +3541,54 @@ describe('PtyService', () => {
       spawnedPtys[1]._simulateExit(0);
       await shutdown;
       expect(ptyService.getDiagnostics()).toMatchObject({ processCount: 0 });
+    });
+
+    it('stops waiting on a released program it gave up on, even after SIGKILL', async () => {
+      pinPlatform('linux');
+      const { ptyService, spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      const released = ptyService.releaseTerminalAndWait('term-1');
+      await vi.advanceTimersByTimeAsync(1_250);
+      await released;
+      take();
+
+      let again = false;
+      void ptyService.releaseTerminalAndWait('term-1').then(() => {
+        again = true;
+      });
+      await settle();
+      expect(again).toBe(true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      pty._simulateExit(137);
+      expect(take()).toEqual([]);
+    });
+
+    it('gives each wait on a released program its own escalation', async () => {
+      pinPlatform('linux');
+      const { ptyService, spawn, take } = await recordLifecycle();
+      spawn();
+      let first = false;
+      void ptyService.releaseTerminalAndWait('term-1').then(() => {
+        first = true;
+      });
+      take();
+      await vi.advanceTimersByTimeAsync(500);
+      let second = false;
+      void ptyService.releaseTerminalAndWait('term-1').then(() => {
+        second = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(750);
+      await settle();
+      expect(first).toBe(true);
+      expect(second).toBe(false);
+      expect(take()).toEqual(['kill SIGKILL']);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(second).toBe(false);
+      expect(take()).toEqual(['kill SIGKILL']);
+      await vi.advanceTimersByTimeAsync(1);
+      await settle();
+      expect(second).toBe(true);
     });
 
     it('keeps waiting at shutdown for a replacement when the program it replaced exits', async () => {

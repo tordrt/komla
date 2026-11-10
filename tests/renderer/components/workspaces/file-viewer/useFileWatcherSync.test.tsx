@@ -39,7 +39,7 @@ function makeEditor(overrides: Partial<FileEditorState> = {}): FileEditorState {
     loadMediaPreview: vi.fn(),
     reloadFromDisk: vi.fn(),
     setFileContent: vi.fn(),
-    setDiskContent: vi.fn(),
+    markSaved: vi.fn(),
     setIsDirty: vi.fn(),
     setExternalChange: vi.fn(),
     setMissingOnDisk: vi.fn(),
@@ -164,6 +164,19 @@ describe('useFileWatcherSync', () => {
     expect(readFile).not.toHaveBeenCalled();
     expect(editor.setMissingOnDisk).toHaveBeenCalledWith(true);
     expect(editor.reloadFromDisk).not.toHaveBeenCalled();
+  });
+
+  it('looks at a video by its metadata even when it could not be shown', async () => {
+    const editor = makeEditor({ filePath: 'clip.mp4', diskContent: null, isMedia: false });
+    const { onWorktreeChanged, readFile, getFileMetadata } = setup(editor);
+    getFileMetadata.mockRejectedValue(new Error('ENOENT: no such file or directory'));
+
+    await act(async () => {
+      await onWorktreeChanged('ws-1');
+    });
+
+    expect(readFile).not.toHaveBeenCalled();
+    expect(getFileMetadata).toHaveBeenCalledWith('/repo', 'clip.mp4');
   });
 
   it('reloads a clean SSH file through the workspace API', async () => {

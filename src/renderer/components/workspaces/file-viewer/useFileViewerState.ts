@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useLayoutEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useReducer, useRef, useMemo } from 'react';
 
 import { useDiffComparison, type DiffComparisonScope } from '@/hooks/useDiffComparison';
 import { useConfigStore } from '@/stores/config.store';
@@ -6,13 +6,19 @@ import { useFileListStore } from '@/stores/file-list.store';
 import { useFileViewerStore } from '@/stores/file-viewer.store';
 
 import {
-  isBrowserPreviewableFile,
   isImageFile,
   isMediaFile,
   isPdfFile,
   isUnsupportedBinaryFile,
 } from '../../../../shared/image-utils';
 
+import {
+  bufferFilePath,
+  editorBufferFields,
+  editorBufferReducer,
+  INITIAL_EDITOR_BUFFER,
+  type BufferReadResult,
+} from './editor-buffer';
 import { matchFilePath } from './file-search-matcher';
 import { groupFilesByStage, isOneSidedDiff, getFileLanguage } from './file-viewer-utils';
 
@@ -247,7 +253,8 @@ export interface FileEditorState {
   fileContent: string | null;
   diskContent: string | null; // Content when last loaded from disk
   isDirty: boolean;
-  hasExternalChange: boolean; // File changed on disk since load
+  /** The file changed on disk under unsaved edits, until they're kept, saved or reloaded. */
+  hasExternalChange: boolean;
   missingOnDisk: boolean; // File was deleted or moved after being selected
   loadingFile: boolean;
   error: string | null;
@@ -268,7 +275,8 @@ export interface FileEditorState {
   loadMediaPreview: () => Promise<void>;
   reloadFromDisk: () => Promise<void>;
   setFileContent: (content: string) => void;
-  setDiskContent: (content: string) => void;
+  /** `content` was written to disk; `stillDirty` if the user typed on while it was. */
+  markSaved: (content: string, stillDirty: boolean) => void;
   setIsDirty: (dirty: boolean) => void;
   setExternalChange: (changed: boolean) => void;
   setMissingOnDisk: (missing: boolean) => void;
@@ -285,351 +293,169 @@ export function isMissingFileError(error: unknown): boolean {
   );
 }
 
+function readFailure(error: unknown, fallback: string): BufferReadResult {
+  if (isMissingFileError(error)) return { kind: 'missing' };
+  return { kind: 'error', message: error instanceof Error ? error.message : fallback };
+}
+
+/** Reads a file as what it shows as: text, an image, media or binary metadata. */
+async function readBufferContent(
+  path: string,
+  target: { workingDirectory: string; workspaceId?: string; readId: number }
+): Promise<BufferReadResult> {
+  const { workingDirectory, workspaceId, readId } = target;
+  const isRemoteWorkspace = workingDirectory.startsWith('ssh://');
+  if (isUnsupportedBinaryFile(path) || isPdfFile(path)) {
+    // An SSH file has no local metadata, so each read of one gets a version of its own.
+    if (isRemoteWorkspace) {
+      return { kind: 'loaded', content: { kind: 'binary', diskToken: `remote:${readId}` } };
+    }
+    try {
+      const metadata = await window.api.getFileMetadata(workingDirectory, path);
+      return { kind: 'loaded', content: { kind: 'binary', diskToken: getFileDiskToken(metadata) } };
+    } catch (err) {
+      return readFailure(err, 'Failed to read file metadata');
+    }
+  }
+  if (isImageFile(path)) {
+    try {
+      const result = workspaceId
+        ? await window.api.readWorkspaceImageFile(workspaceId, path)
+        : await window.api.readImageFile(workingDirectory, path);
+      return {
+        kind: 'loaded',
+        content: { kind: 'image', data: result.data, mimeType: result.mimeType },
+      };
+    } catch (err) {
+      return readFailure(err, 'Failed to read image file');
+    }
+  }
+  if (isMediaFile(path)) {
+    if (isRemoteWorkspace)
+      return { kind: 'error', message: 'Remote media preview is not supported' };
+    try {
+      const result = await window.api.getMediaFileMetadata(workingDirectory, path);
+      return {
+        kind: 'loaded',
+        content: {
+          kind: 'media',
+          mimeType: result.mimeType,
+          mediaKind: result.kind,
+          size: result.size,
+          diskToken: getFileDiskToken(result),
+          preview: { status: 'idle' },
+        },
+      };
+    } catch (err) {
+      return readFailure(err, 'Failed to read media metadata');
+    }
+  }
+  try {
+    const text = workspaceId
+      ? await window.api.readWorkspaceFile(workspaceId, path)
+      : await window.api.readFile(workingDirectory, path);
+    return { kind: 'loaded', content: { kind: 'text', text, savedText: text } };
+  } catch (err) {
+    return readFailure(err, 'Failed to read file');
+  }
+}
+
 export function useFileEditorState(
   workingDirectory: string,
   workspaceId?: string
 ): FileEditorState {
-  const [filePath, setFilePath] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState<string | null>(null);
-  const [diskContent, setDiskContent] = useState<string | null>(null);
-  const [isDirty, setIsDirty] = useState(false);
-  const [hasExternalChange, setHasExternalChange] = useState(false);
-  const [missingOnDisk, setMissingOnDisk] = useState(false);
-  const [loadingFile, setLoadingFile] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isBrowserPreviewable, setIsBrowserPreviewable] = useState(false);
-  const [isUnsupportedBinary, setIsUnsupportedBinary] = useState(false);
-  const [isImage, setIsImage] = useState(false);
-  const [imageData, setImageData] = useState<string | null>(null);
-  const [imageMimeType, setImageMimeType] = useState<string | null>(null);
-  const [isMedia, setIsMedia] = useState(false);
-  const [mediaData, setMediaData] = useState<string | null>(null);
-  const [mediaMimeType, setMediaMimeType] = useState<string | null>(null);
-  const [mediaKind, setMediaKind] = useState<'audio' | 'video' | null>(null);
-  const [mediaSize, setMediaSize] = useState<number | null>(null);
-  const [mediaPreviewLoading, setMediaPreviewLoading] = useState(false);
-  const [mediaPreviewError, setMediaPreviewError] = useState<string | null>(null);
+  const [buffer, dispatch] = useReducer(editorBufferReducer, INITIAL_EDITOR_BUFFER);
 
   const dirRef = useRef(workingDirectory);
   dirRef.current = workingDirectory;
   const workspaceIdRef = useRef(workspaceId);
   workspaceIdRef.current = workspaceId;
+  const bufferRef = useRef(buffer);
+  bufferRef.current = buffer;
+  // Ids for reads, so the reducer knows a read's result from a stale one.
+  const lastReadIdRef = useRef(0);
 
-  const filePathRef = useRef(filePath);
-  filePathRef.current = filePath;
-  const isDirtyRef = useRef(isDirty);
-  useLayoutEffect(() => {
-    isDirtyRef.current = isDirty;
-  }, [isDirty]);
-  const loadRequestIdRef = useRef(0);
-  // An SSH file has no local metadata, so each load of one gets a version of its own.
-  const remoteVersionRef = useRef(0);
+  const fields = editorBufferFields(buffer);
+  const language = useMemo(
+    () => (fields.filePath ? getFileLanguage(fields.filePath) : 'plaintext'),
+    [fields.filePath]
+  );
 
-  const language = useMemo(() => {
-    if (!filePath) return 'plaintext';
-    return getFileLanguage(filePath);
-  }, [filePath]);
-
-  const openFile = useCallback(async (path: string) => {
-    const requestId = ++loadRequestIdRef.current;
-    setFilePath(path);
-    setLoadingFile(true);
-    setIsDirty(false);
-    setHasExternalChange(false);
-    setMissingOnDisk(false);
-    setError(null);
-    const isRemoteWorkspace = dirRef.current.startsWith('ssh://');
-    setIsBrowserPreviewable(isBrowserPreviewableFile(path));
-    setIsUnsupportedBinary(isUnsupportedBinaryFile(path));
-    setIsImage(false);
-    setImageData(null);
-    setImageMimeType(null);
-    setIsMedia(false);
-    setMediaData(null);
-    setMediaMimeType(null);
-    setMediaKind(null);
-    setMediaSize(null);
-    setMediaPreviewLoading(false);
-    setMediaPreviewError(null);
-
-    if (isUnsupportedBinaryFile(path) || isPdfFile(path)) {
-      if (isRemoteWorkspace) {
-        setFileContent(null);
-        setDiskContent(`remote:${++remoteVersionRef.current}`);
-        setLoadingFile(false);
-        return;
-      }
-      try {
-        const metadata = await window.api.getFileMetadata(dirRef.current, path);
-        if (requestId !== loadRequestIdRef.current) return;
-        setFileContent(null);
-        setDiskContent(getFileDiskToken(metadata));
-      } catch (err) {
-        if (requestId !== loadRequestIdRef.current) return;
-        setFileContent(null);
-        setDiskContent(null);
-        if (isMissingFileError(err)) {
-          setMissingOnDisk(true);
-        } else {
-          setError(err instanceof Error ? err.message : 'Failed to read file metadata');
-        }
-      } finally {
-        if (requestId === loadRequestIdRef.current) {
-          setLoadingFile(false);
-        }
-      }
-      return;
-    }
-
-    if (isImageFile(path)) {
-      try {
-        const result = workspaceIdRef.current
-          ? await window.api.readWorkspaceImageFile(workspaceIdRef.current, path)
-          : await window.api.readImageFile(dirRef.current, path);
-        if (requestId !== loadRequestIdRef.current) return;
-        setIsImage(true);
-        setImageData(result.data);
-        setImageMimeType(result.mimeType);
-        setFileContent(null);
-        setDiskContent(null);
-      } catch (err) {
-        if (requestId !== loadRequestIdRef.current) return;
-        if (isMissingFileError(err)) {
-          setMissingOnDisk(true);
-        } else {
-          setError(err instanceof Error ? err.message : 'Failed to read image file');
-        }
-      } finally {
-        if (requestId === loadRequestIdRef.current) {
-          setLoadingFile(false);
-        }
-      }
-      return;
-    }
-
-    if (isMediaFile(path)) {
-      if (isRemoteWorkspace) {
-        setError('Remote media preview is not supported');
-        setLoadingFile(false);
-        return;
-      }
-      try {
-        const result = await window.api.getMediaFileMetadata(dirRef.current, path);
-        if (requestId !== loadRequestIdRef.current) return;
-        setIsMedia(true);
-        setMediaMimeType(result.mimeType);
-        setMediaKind(result.kind);
-        setMediaSize(result.size);
-        setDiskContent(getFileDiskToken(result));
-        setFileContent(null);
-      } catch (err) {
-        if (requestId !== loadRequestIdRef.current) return;
-        if (isMissingFileError(err)) {
-          setMissingOnDisk(true);
-        } else {
-          setError(err instanceof Error ? err.message : 'Failed to read media metadata');
-        }
-      } finally {
-        if (requestId === loadRequestIdRef.current) {
-          setLoadingFile(false);
-        }
-      }
-      return;
-    }
-
-    try {
-      const content = workspaceIdRef.current
-        ? await window.api.readWorkspaceFile(workspaceIdRef.current, path)
-        : await window.api.readFile(dirRef.current, path);
-      if (requestId !== loadRequestIdRef.current) return;
-      setFileContent(content);
-      setDiskContent(content);
-    } catch (err) {
-      if (requestId !== loadRequestIdRef.current) return;
-      setFileContent(null);
-      setDiskContent(null);
-      if (isMissingFileError(err)) {
-        setMissingOnDisk(true);
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to read file');
-      }
-    } finally {
-      if (requestId === loadRequestIdRef.current) {
-        setLoadingFile(false);
-      }
-    }
+  const read = useCallback(async (readId: number, path: string) => {
+    const result = await readBufferContent(path, {
+      workingDirectory: dirRef.current,
+      workspaceId: workspaceIdRef.current,
+      readId,
+    });
+    dispatch({ type: 'read', readId, result });
   }, []);
+
+  const openFile = useCallback(
+    async (path: string) => {
+      const readId = ++lastReadIdRef.current;
+      dispatch({ type: 'open', readId, filePath: path });
+      await read(readId, path);
+    },
+    [read]
+  );
+
+  // No loading state: the editor stays mounted and takes the new text as an edit, so the
+  // cursor, scroll position and undo history survive an agent rewriting the file.
+  const reloadFromDisk = useCallback(async () => {
+    const path = bufferFilePath(bufferRef.current);
+    if (!path) return;
+    const readId = ++lastReadIdRef.current;
+    dispatch({ type: 'reload', readId, filePath: path });
+    await read(readId, path);
+  }, [read]);
 
   const loadMediaPreview = useCallback(async () => {
-    const path = filePathRef.current;
+    const path = bufferFilePath(bufferRef.current);
     if (!path || !isMediaFile(path)) return;
-    const requestId = loadRequestIdRef.current;
-    setMediaPreviewLoading(true);
-    setMediaPreviewError(null);
+    // The preview belongs to the read that showed the file, so a newer one outdates it.
+    const readId = bufferRef.current.read.id;
+    dispatch({ type: 'media-preview-start', readId });
     try {
       const result = await window.api.readMediaFile(dirRef.current, path);
-      if (requestId !== loadRequestIdRef.current) return;
-      if (filePathRef.current !== path) return;
-      setMediaData(result.data);
-      setMediaMimeType(result.mimeType);
-      setMediaKind(result.kind);
+      dispatch({ type: 'media-preview-read', readId, result: { ok: true, ...result } });
     } catch (err) {
-      if (requestId !== loadRequestIdRef.current) return;
-      if (filePathRef.current !== path) return;
-      setMediaPreviewError(err instanceof Error ? err.message : 'Failed to read media file');
-    } finally {
-      if (requestId === loadRequestIdRef.current && filePathRef.current === path) {
-        setMediaPreviewLoading(false);
-      }
+      const message = err instanceof Error ? err.message : 'Failed to read media file';
+      dispatch({ type: 'media-preview-read', readId, result: { ok: false, message } });
     }
   }, []);
 
-  const reloadFromDisk = useCallback(async () => {
-    const path = filePathRef.current;
-    if (!path) return;
-    const requestId = ++loadRequestIdRef.current;
-    // No loading state: the editor stays mounted and takes the new text as an edit, so the
-    // cursor, scroll position and undo history survive an agent rewriting the file.
-    const startedDirty = isDirtyRef.current;
-    setError(null);
-    const isRemoteWorkspace = dirRef.current.startsWith('ssh://');
-    setIsBrowserPreviewable(isBrowserPreviewableFile(path));
-    setIsUnsupportedBinary(isUnsupportedBinaryFile(path));
-    try {
-      if (isUnsupportedBinaryFile(path) || isPdfFile(path)) {
-        const diskToken = isRemoteWorkspace
-          ? `remote:${++remoteVersionRef.current}`
-          : getFileDiskToken(await window.api.getFileMetadata(dirRef.current, path));
-        if (requestId !== loadRequestIdRef.current) return;
-        if (filePathRef.current !== path) return;
-        setFileContent(null);
-        setDiskContent(diskToken);
-        setIsDirty(false);
-        setHasExternalChange(false);
-        setMissingOnDisk(false);
-        return;
-      }
-      if (isImageFile(path)) {
-        const result = workspaceIdRef.current
-          ? await window.api.readWorkspaceImageFile(workspaceIdRef.current, path)
-          : await window.api.readImageFile(dirRef.current, path);
-        if (requestId !== loadRequestIdRef.current) return;
-        if (filePathRef.current !== path) return;
-        setImageData(result.data);
-        setImageMimeType(result.mimeType);
-        setIsDirty(false);
-        setHasExternalChange(false);
-        setMissingOnDisk(false);
-        return;
-      }
-      if (isMediaFile(path)) {
-        if (isRemoteWorkspace) {
-          throw new Error('Remote media preview is not supported');
-        }
-        const result = await window.api.getMediaFileMetadata(dirRef.current, path);
-        if (requestId !== loadRequestIdRef.current) return;
-        if (filePathRef.current !== path) return;
-        setMediaMimeType(result.mimeType);
-        setMediaKind(result.kind);
-        setMediaSize(result.size);
-        setDiskContent(getFileDiskToken(result));
-        setMediaData(null);
-        // A preview being read is of the outdated file, so its result is dropped.
-        setMediaPreviewLoading(false);
-        setMediaPreviewError(null);
-        setIsDirty(false);
-        setHasExternalChange(false);
-        setMissingOnDisk(false);
-        return;
-      }
-      const content = workspaceIdRef.current
-        ? await window.api.readWorkspaceFile(workspaceIdRef.current, path)
-        : await window.api.readFile(dirRef.current, path);
-      if (requestId !== loadRequestIdRef.current) return;
-      if (filePathRef.current !== path) return;
-      if (!startedDirty && isDirtyRef.current) {
-        // The user typed while the file was reread: keep their edits and offer the reload.
-        setHasExternalChange(true);
-        return;
-      }
-      setFileContent(content);
-      setDiskContent(content);
-      setIsDirty(false);
-      setHasExternalChange(false);
-      setMissingOnDisk(false);
-    } catch (err) {
-      if (requestId !== loadRequestIdRef.current) return;
-      if (filePathRef.current !== path) return;
-      setFileContent(null);
-      setDiskContent(null);
-      if (isMissingFileError(err)) {
-        setMissingOnDisk(true);
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to read file');
-      }
-    } finally {
-      if (requestId === loadRequestIdRef.current && filePathRef.current === path) {
-        setLoadingFile(false);
-      }
-    }
-  }, []);
-
-  const setExternalChange = useCallback((changed: boolean) => {
-    setHasExternalChange(changed);
-  }, []);
-
-  const reset = useCallback(() => {
-    // A read still in flight is for the file let go of.
-    loadRequestIdRef.current++;
-    setLoadingFile(false);
-    setFilePath(null);
-    setFileContent(null);
-    setDiskContent(null);
-    setIsDirty(false);
-    setHasExternalChange(false);
-    setMissingOnDisk(false);
-    setError(null);
-    setIsBrowserPreviewable(false);
-    setIsUnsupportedBinary(false);
-    setIsImage(false);
-    setImageData(null);
-    setImageMimeType(null);
-    setIsMedia(false);
-    setMediaData(null);
-    setMediaMimeType(null);
-    setMediaKind(null);
-    setMediaSize(null);
-    setMediaPreviewLoading(false);
-    setMediaPreviewError(null);
-  }, []);
+  const setFileContent = useCallback((text: string) => dispatch({ type: 'edit', text }), []);
+  const markSaved = useCallback(
+    (text: string, stillDirty: boolean) => dispatch({ type: 'saved', text, stillDirty }),
+    []
+  );
+  const setIsDirty = useCallback(
+    (dirty: boolean) => {
+      const endsConflict = !dirty && bufferRef.current.edits === 'conflict';
+      dispatch({ type: 'set-dirty', dirty });
+      // Edits undone under a change on disk leave a clean buffer, which takes the disk's version.
+      if (endsConflict) void reloadFromDisk();
+    },
+    [reloadFromDisk]
+  );
+  const setExternalChange = useCallback(
+    (changed: boolean) => dispatch({ type: 'external-change', changed }),
+    []
+  );
+  const setMissingOnDisk = useCallback(
+    (missing: boolean) => dispatch({ type: 'disk-presence', missing }),
+    []
+  );
+  const reset = useCallback(() => dispatch({ type: 'reset', readId: ++lastReadIdRef.current }), []);
 
   return {
-    filePath,
-    fileContent,
-    diskContent,
-    isDirty,
-    hasExternalChange,
-    missingOnDisk,
-    loadingFile,
-    error,
+    ...fields,
     language,
-    isBrowserPreviewable,
-    isUnsupportedBinary,
-    isImage,
-    imageData,
-    imageMimeType,
-    isMedia,
-    mediaData,
-    mediaMimeType,
-    mediaKind,
-    mediaSize,
-    mediaPreviewLoading,
-    mediaPreviewError,
     openFile,
     loadMediaPreview,
     reloadFromDisk,
     setFileContent,
-    setDiskContent,
+    markSaved,
     setIsDirty,
     setExternalChange,
     setMissingOnDisk,

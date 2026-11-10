@@ -295,6 +295,29 @@ describe('useFileEditorState edits and the disk', () => {
     });
   });
 
+  it("takes the disk's text once the edits under a conflict are undone", async () => {
+    const { result } = await openText('v1');
+    act(() => {
+      result.current.setFileContent('v1 typed');
+      result.current.setIsDirty(true);
+      result.current.setExternalChange(true);
+    });
+    api.readFile.mockResolvedValueOnce('v2');
+
+    // As the editor reports once undo brings it back to the saved text.
+    await act(async () => {
+      result.current.setFileContent('v1');
+      result.current.setIsDirty(false);
+    });
+
+    await vi.waitFor(() => expect(result.current.fileContent).toBe('v2'));
+    expect(result.current).toMatchObject({
+      diskContent: 'v2',
+      isDirty: false,
+      hasExternalChange: false,
+    });
+  });
+
   it('keeps the shown text of a file deleted from disk, and says it is missing', async () => {
     const { result } = await openText('v1');
 

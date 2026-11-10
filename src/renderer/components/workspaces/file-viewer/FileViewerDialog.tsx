@@ -235,8 +235,8 @@ export function FileViewerDialog({
   } | null>(null);
   const [createValue, setCreateValue] = useState('');
 
-  // Conflict resolution state
-  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  // Asks which to keep while the file has changed on disk under unsaved edits.
+  const conflictDialogOpen = open && state.editor.hasExternalChange;
 
   // Change navigation state
   const [currentChangeIndex, setCurrentChangeIndex] = useState(-1);
@@ -483,7 +483,6 @@ export function FileViewerDialog({
     setCopiedPath,
     setCurrentChangeIndex,
     setTotalChanges,
-    setConflictDialogOpen,
     pendingLineJumpRef,
     diffBaselineRef,
     extraReset: clearPendingTransition,
@@ -611,13 +610,6 @@ export function FileViewerDialog({
       cancelled = true;
     };
   }, [open]);
-
-  // Watch for conflicts and show dialog
-  useEffect(() => {
-    if (state.editor.hasExternalChange && state.editor.isDirty) {
-      setConflictDialogOpen(true);
-    }
-  }, [state.editor.hasExternalChange, state.editor.isDirty]);
 
   // Handle file selection - single click opens preview tab (for browse mode).
   // Re-clicking the preview tab promotes it to persistent, matching double-click.
@@ -1238,15 +1230,15 @@ export function FileViewerDialog({
       useToastStore.getState().addToast(`Saved ${fileName}`, 'success');
       // Edits typed while the write was in flight are still unsaved.
       const latest = readBuffer();
-      state.editor.setIsDirty(latest !== undefined && latest !== content);
+      const stillDirty = latest !== undefined && latest !== content;
       if (state.mode === 'diff') {
+        state.editor.setIsDirty(stillDirty);
         // Update baseline so dirty detection stays correct. The file watcher
         // will mark the cache as stale and trigger a background re-fetch, but
         // the DiffEditor ignores prop changes after mount, so no flicker.
         diffBaselineRef.current = content;
       } else {
-        state.editor.setDiskContent(content);
-        state.editor.setMissingOnDisk(false);
+        state.editor.markSaved(content, stillDirty);
       }
     } catch (err) {
       useToastStore
@@ -1918,15 +1910,13 @@ export function FileViewerDialog({
     [state.editor, state.mode, workspace.id, openTab]
   );
 
-  // Conflict resolution handlers
+  // Conflict resolution handlers: either answer ends the conflict, which closes the dialog.
   const handleKeepMyChanges = useCallback(() => {
-    setConflictDialogOpen(false);
-    state.editor.setExternalChange(false);
     // Keep editing - local changes preserved
+    state.editor.setExternalChange(false);
   }, [state.editor]);
 
   const handleReloadFromDisk = useCallback(() => {
-    setConflictDialogOpen(false);
     void state.editor.reloadFromDisk();
   }, [state.editor]);
 

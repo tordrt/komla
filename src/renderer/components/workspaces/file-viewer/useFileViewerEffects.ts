@@ -136,7 +136,6 @@ export function useResetOnClose(params: {
   setCopiedPath: (v: string | null) => void;
   setCurrentChangeIndex: (v: number) => void;
   setTotalChanges: (v: number) => void;
-  setConflictDialogOpen: (v: boolean) => void;
   pendingLineJumpRef: { current: number | null };
   diffBaselineRef: { current: string | null };
   extraReset?: () => void;
@@ -152,7 +151,6 @@ export function useResetOnClose(params: {
     setCopiedPath,
     setCurrentChangeIndex,
     setTotalChanges,
-    setConflictDialogOpen,
     pendingLineJumpRef,
     diffBaselineRef,
     extraReset,
@@ -169,7 +167,6 @@ export function useResetOnClose(params: {
     setCopiedPath(null);
     setCurrentChangeIndex(-1);
     setTotalChanges(0);
-    setConflictDialogOpen(false);
     pendingLineJumpRef.current = null;
     diffBaselineRef.current = null;
     if (extraReset) extraReset();
@@ -184,7 +181,6 @@ export function useResetOnClose(params: {
     setCopiedPath,
     setCurrentChangeIndex,
     setTotalChanges,
-    setConflictDialogOpen,
     pendingLineJumpRef,
     diffBaselineRef,
     extraReset,

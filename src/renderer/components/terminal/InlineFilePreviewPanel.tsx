@@ -37,12 +37,8 @@ import {
 } from '../workspaces/file-viewer/file-viewer-utils';
 import { setHtmlViewMode } from '../workspaces/file-viewer/html-view-mode';
 import { NoteEditor } from '../workspaces/file-viewer/notes/NoteEditor';
-import {
-  getFileDiskToken,
-  isMissingFileError,
-  usesFileMetadata,
-  useFileViewerState,
-} from '../workspaces/file-viewer/useFileViewerState';
+import { useFileViewerState } from '../workspaces/file-viewer/useFileViewerState';
+import { reconcileEditorWithDisk } from '../workspaces/file-viewer/useFileWatcherSync';
 
 import {
   getNextSeenWorktreeEventAt,
@@ -732,13 +728,13 @@ export function InlineFilePreviewPanel({
       useToastStore.getState().addToast(`Saved ${fileName}`, 'success');
       // Edits typed while the write was in flight are still unsaved.
       const latest = readBuffer();
-      editor.setIsDirty(latest !== undefined && latest !== content);
+      const stillDirty = latest !== undefined && latest !== content;
       if (mode === 'diff') {
+        editor.setIsDirty(stillDirty);
         diffBaselineRef.current = content;
         prevNewContentRef.current = content;
       } else {
-        editor.setDiskContent(content);
-        editor.setMissingOnDisk(false);
+        editor.markSaved(content, stillDirty);
       }
       setTimeout(() => {
         justSavedRef.current = false;
@@ -857,37 +853,10 @@ export function InlineFilePreviewPanel({
     }
 
     let cancelled = false;
-    void (async () => {
-      try {
-        const currentDisk =
-          usesFileMetadata(filePath, ed.isMedia) && !isRemoteWorkspace
-            ? getFileDiskToken(await window.api.getFileMetadata(workingDirectory, filePath))
-            : isRemoteWorkspace
-              ? await window.api.readWorkspaceFile(workspaceId, filePath)
-              : await window.api.readFile(workingDirectory, filePath);
-        if (cancelled) return;
-
-        ed.setMissingOnDisk(false);
-        if (currentDisk !== ed.diskContent) {
-          if (!ed.isDirty) {
-            void ed.reloadFromDisk();
-          } else {
-            ed.setExternalChange(true);
-          }
-        }
-      } catch (err) {
-        if (!cancelled && isMissingFileError(err)) {
-          ed.setMissingOnDisk(true);
-        }
-        if (!cancelled && ed.isDirty) {
-          ed.setExternalChange(true);
-        }
-      } finally {
-        if (!cancelled) {
-          markSeen();
-        }
-      }
-    })();
+    const target = { workspaceId, workingDirectory, isRemoteWorkspace };
+    void reconcileEditorWithDisk(ed, target, () => cancelled).finally(() => {
+      if (!cancelled) markSeen();
+    });
 
     return () => {
       cancelled = true;
@@ -920,27 +889,7 @@ export function InlineFilePreviewPanel({
           ) {
             return;
           }
-          const currentDisk =
-            usesFileMetadata(ed.filePath, ed.isMedia) && !isRemoteWorkspace
-              ? getFileDiskToken(await window.api.getFileMetadata(workingDirectory, ed.filePath))
-              : isRemoteWorkspace
-                ? await window.api.readWorkspaceFile(workspaceId, ed.filePath)
-                : await window.api.readFile(workingDirectory, ed.filePath);
-          ed.setMissingOnDisk(false);
-          if (currentDisk !== ed.diskContent) {
-            if (!ed.isDirty) {
-              void ed.reloadFromDisk();
-            } else {
-              ed.setExternalChange(true);
-            }
-          }
-        } catch (err) {
-          if (isMissingFileError(err)) {
-            ed.setMissingOnDisk(true);
-          }
-          if (ed.isDirty) {
-            ed.setExternalChange(true);
-          }
+          await reconcileEditorWithDisk(ed, { workspaceId, workingDirectory, isRemoteWorkspace });
         } finally {
           const latestEventAt =
             useWorktreeEventsStore.getState().lastEventByWorkspace[workspaceId] ?? 0;

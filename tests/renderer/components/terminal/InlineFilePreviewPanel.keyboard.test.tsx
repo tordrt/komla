@@ -37,7 +37,7 @@ const mocks = vi.hoisted(() => {
     openFile: () => Promise.resolve(),
     setFileContent: () => {},
     setIsDirty: () => {},
-    setDiskContent: () => {},
+    markSaved: () => {},
     setMissingOnDisk: () => {},
     setExternalChange: () => {},
     reloadFromDisk: () => Promise.resolve(),

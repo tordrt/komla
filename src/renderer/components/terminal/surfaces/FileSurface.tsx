@@ -192,10 +192,7 @@ export function FileSurface({
     // Edits typed while the write was in flight are still unsaved.
     const latest = readBuffer();
     const stillDirty = latest !== undefined && latest !== content;
-    editor.setDiskContent(content);
-    editor.setMissingOnDisk(false);
-    editor.setExternalChange(false);
-    editor.setIsDirty(stillDirty);
+    editor.markSaved(content, stillDirty);
     setFilePaneDraft(surfaceId, stillDirty ? latest : null);
   };
   const saveRef = useRef(save);
@@ -270,7 +267,7 @@ export function FileSurface({
           ),
         }
       )}
-      {editor.hasExternalChange && editor.isDirty && (
+      {editor.hasExternalChange && (
         <ChangedOnDiskBar
           deleted={editor.missingOnDisk}
           onKeep={() => editor.setExternalChange(false)}

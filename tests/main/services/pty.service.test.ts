@@ -3548,5 +3548,19 @@ describe('PtyService', () => {
       await shutdown;
       expect(take()).not.toContain('terminal:exit 0');
     });
+
+    it('lets every wait on a release finish once the program exits', async () => {
+      const { ptyService, spawn } = await recordLifecycle();
+      const pty = spawn();
+      let finished = 0;
+      void ptyService.releaseTerminalAndWait('term-1').then(() => finished++);
+      void ptyService.releaseTerminalAndWait('term-1').then(() => finished++);
+
+      pty._simulateExit(129);
+      await settle();
+      expect(finished).toBe(2);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(pty.kill).not.toHaveBeenCalledWith('SIGKILL');
+    });
   });
 });

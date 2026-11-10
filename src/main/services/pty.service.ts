@@ -359,7 +359,7 @@ class PtyService {
   // Workspace deletion must not remove a terminal's cwd until node-pty has
   // observed the native process exit. These resolvers are separate from the
   // shutdown waiters because releaseTerminal() retains its immediate API.
-  private releaseExitResolvers: Map<PtyProcess, () => void> = new Map();
+  private releaseExitResolvers: Map<PtyProcess, Set<() => void>> = new Map();
   private escapeInterrupts = new EscapeInterrupts((terminalId, confirmed) =>
     this.notifyAbort(terminalId, confirmed)
   );
@@ -951,11 +951,9 @@ class PtyService {
     }
     if (expectedProcess) {
       this.exitingProcesses.delete(expectedProcess);
-      const releaseResolver = this.releaseExitResolvers.get(expectedProcess);
-      if (releaseResolver) {
-        this.releaseExitResolvers.delete(expectedProcess);
-        releaseResolver();
-      }
+      const releaseResolvers = this.releaseExitResolvers.get(expectedProcess);
+      this.releaseExitResolvers.delete(expectedProcess);
+      for (const releaseResolver of releaseResolvers ?? []) releaseResolver();
     }
 
     const process = this.processes.get(terminalId);
@@ -1324,13 +1322,15 @@ class PtyService {
             if (escalateTimer) clearTimeout(escalateTimer);
             if (abandonTimer) clearTimeout(abandonTimer);
             this.exitingProcesses.delete(processToWaitFor);
-            if (this.releaseExitResolvers.get(processToWaitFor) === finalize) {
-              this.releaseExitResolvers.delete(processToWaitFor);
-            }
+            const resolvers = this.releaseExitResolvers.get(processToWaitFor);
+            resolvers?.delete(finalize);
+            if (resolvers?.size === 0) this.releaseExitResolvers.delete(processToWaitFor);
             resolve();
           };
 
-          this.releaseExitResolvers.set(processToWaitFor, finalize);
+          const resolvers = this.releaseExitResolvers.get(processToWaitFor) ?? new Set();
+          resolvers.add(finalize);
+          this.releaseExitResolvers.set(processToWaitFor, resolvers);
           escalateTimer = setTimeout(() => {
             escalateTimer = null;
             if (process.platform !== 'win32') {

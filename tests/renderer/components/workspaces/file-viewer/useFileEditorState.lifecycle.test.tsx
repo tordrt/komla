@@ -346,4 +346,30 @@ describe('useFileEditorState reads that finish late', () => {
       loadingFile: false,
     });
   });
+
+  it('stops loading a media preview that a reload of the file outdated', async () => {
+    const metadata = { mimeType: 'video/mp4', kind: 'video', size: 10, mtimeMs: 5 };
+    api.getMediaFileMetadata.mockResolvedValue(metadata);
+    const { result } = renderEditor();
+    await act(() => result.current.openFile('clip.mp4'));
+    const preview = deferred<{ data: string; mimeType: string; kind: 'video' }>();
+    api.readMediaFile.mockReturnValueOnce(preview.promise);
+    let loading: Promise<void> | undefined;
+    act(() => {
+      loading = result.current.loadMediaPreview();
+    });
+
+    api.getMediaFileMetadata.mockResolvedValue({ ...metadata, mtimeMs: 6 });
+    await act(() => result.current.reloadFromDisk());
+    await act(async () => {
+      preview.resolve({ data: 'old', mimeType: 'video/mp4', kind: 'video' });
+      await loading;
+    });
+
+    expect(result.current).toMatchObject({
+      diskContent: '10:6',
+      mediaData: null,
+      mediaPreviewLoading: false,
+    });
+  });
 });

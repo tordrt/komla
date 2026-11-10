@@ -534,6 +534,8 @@ export function useFileEditorState(
         setMediaSize(result.size);
         setDiskContent(getFileDiskToken(result));
         setMediaData(null);
+        // A preview being read is of the outdated file, so its result is dropped.
+        setMediaPreviewLoading(false);
         setMediaPreviewError(null);
         setIsDirty(false);
         setHasExternalChange(false);

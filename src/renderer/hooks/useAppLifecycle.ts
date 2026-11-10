@@ -8,6 +8,7 @@ import {
   retryPendingTerminalExits,
   retryPendingTerminalExitsOnChange,
 } from '@/lib/close-terminal-pane';
+import { coalesceRuns } from '@/lib/coalesce-runs';
 import {
   offerDevPreview,
   offerVirtualDesktop,
@@ -359,6 +360,11 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
   useEffect(() => {
     retryPendingTerminalExits();
 
+    // Main reports workspace changes in bursts, as agents start and stop their turns, and every
+    // reload fetches all the workspaces over IPC: a burst shares one reload after the one under
+    // way.
+    const reloadWorkspaces = coalesceRuns(() => loadWorkspaces());
+
     const cleanups = [
       retryPendingTerminalExitsOnChange(),
 
@@ -437,7 +443,7 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
       }),
 
       window.api.onWorkspaceCreated(() => {
-        void loadWorkspaces();
+        void reloadWorkspaces();
       }),
 
       window.api.onWorkspaceUpdated((workspace) => {
@@ -453,11 +459,11 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
         if (useWorkspacesStore.getState().receiveWorkspaceMarks(workspace)) {
           awaitUserReturn(() => useWorkspacesStore.getState().dismissWokeIfOpen(workspace.id));
         }
-        void loadWorkspaces();
+        void reloadWorkspaces();
       }),
 
       window.api.onWorkspacesChanged(() => {
-        void loadWorkspaces();
+        void reloadWorkspaces();
       }),
 
       window.api.onWorkspaceTrashRequested((request) => {
@@ -469,11 +475,11 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
         useToastStore
           .getState()
           .addToast(`Removed "${name}" — it was deleted on another device.`, 'info');
-        void loadWorkspaces();
+        void reloadWorkspaces();
       }),
 
       window.api.onWorkspaceLayoutChangedOnOtherDevice(({ workspaceId, terminalIds, arranged }) => {
-        void loadWorkspaces().then(() => {
+        void reloadWorkspaces().then(() => {
           const layoutStore = useLayoutStore.getState();
           const tabs = layoutStore.tabsByWorkspace[workspaceId];
           // A layout loadWorkspaces just restored from main already has the changes.
@@ -511,7 +517,7 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
       }),
 
       window.api.onAgentTabAdded(({ workspaceId, terminalId }) => {
-        void loadWorkspaces().then(() => {
+        void reloadWorkspaces().then(() => {
           const { addTab, activeTabByWorkspace } = useLayoutStore.getState();
           addTab(workspaceId, terminalId);
           // Activate the new tab within its workspace. We update activeTabByWorkspace

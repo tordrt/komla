@@ -147,6 +147,60 @@ describe('useAppLifecycle', () => {
       expect(reconnectAfterNetworkReturns).not.toHaveBeenCalled();
     });
   });
+  // Agents starting and stopping turns send these in bursts, and each reload fetches every
+  // workspace over IPC.
+  it('reloads the workspaces once more for a burst of changes, not once for each', async () => {
+    const fetches: Array<(workspaces: Workspace[]) => void> = [];
+    const handlers = new Map<string, () => void>();
+    const api = new Proxy(
+      {},
+      {
+        get: (_target, key: string) => {
+          if (key === 'getWorkspaces') {
+            return () => new Promise<Workspace[]>((resolve) => fetches.push(resolve));
+          }
+          if (key.startsWith('on')) {
+            return (handler: () => void) => {
+              handlers.set(key, handler);
+              return () => {};
+            };
+          }
+          return vi.fn().mockResolvedValue(undefined);
+        },
+      }
+    );
+    Object.defineProperty(window, 'api', { value: api, configurable: true });
+    renderHook(() =>
+      useAppLifecycle({
+        sidebarElement: null,
+        mainElement: null,
+        setNewWorkspaceDialogOpen: () => {},
+        setFeedbackOpen: () => {},
+      })
+    );
+    // The load as it subscribes.
+    await act(async () => {
+      fetches.shift()?.([]);
+    });
+    expect(fetches).toHaveLength(0);
+
+    act(() => {
+      for (let i = 0; i < 4; i++) handlers.get('onWorkspacesChanged')?.();
+      handlers.get('onWorkspaceCreated')?.();
+    });
+    expect(fetches).toHaveLength(1);
+
+    await act(async () => {
+      fetches.shift()?.([]);
+    });
+    // One more, started after the burst, so nothing it changed is missed.
+    expect(fetches).toHaveLength(1);
+    await act(async () => {
+      fetches.shift()?.([]);
+    });
+    expect(fetches).toHaveLength(0);
+  });
+
   describe("what the window's first screen loaded", () => {
     // The first screen loads them before React subscribes to their changes, so a change main
     // sent in between would be missed without loading them again. Loading as it subscribes, in

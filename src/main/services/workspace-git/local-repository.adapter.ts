@@ -14,6 +14,7 @@ import type {
   CommitScopeResult,
 } from '../../../shared/types';
 import type { CommitGraph, CommitGraphQuery } from '../../../shared/types/commit-graph';
+import type { GitSyncResult } from '../../../shared/types/git-sync';
 import type { Workspace } from '../../../shared/types/workspace';
 import type {
   BranchInfo,
@@ -123,7 +124,7 @@ class LocalWorkspaceRepositoryAdapter implements WorkspaceRepositoryAdapter {
     workspace: Workspace,
     branchName: string,
     options?: WorkspaceGitMergeOptions
-  ): Promise<WorkspaceGitResult> {
+  ): Promise<GitSyncResult> {
     return gitService.mergeFrom(workspace.workingDirectory, branchName, options);
   }
 
@@ -131,7 +132,7 @@ class LocalWorkspaceRepositoryAdapter implements WorkspaceRepositoryAdapter {
     workspace: Workspace,
     branchName: string,
     options?: WorkspaceGitMergeOptions
-  ): Promise<WorkspaceGitResult> {
+  ): Promise<GitSyncResult> {
     return gitService.rebaseOnBranch(workspace.workingDirectory, branchName, options);
   }
 
@@ -139,7 +140,7 @@ class LocalWorkspaceRepositoryAdapter implements WorkspaceRepositoryAdapter {
     return gitService.push(workspace.workingDirectory);
   }
 
-  pull(workspace: Workspace): Promise<WorkspaceGitResult> {
+  pull(workspace: Workspace): Promise<GitSyncResult> {
     return gitService.pull(workspace.workingDirectory);
   }
 

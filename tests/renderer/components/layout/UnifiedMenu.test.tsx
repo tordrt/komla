@@ -169,6 +169,7 @@ vi.mock('../../../../src/renderer/stores/actions.store', () => ({
 import { UnifiedMenu } from '../../../../src/renderer/components/layout/UnifiedMenu';
 import { useGitProgressStore } from '../../../../src/renderer/stores/git-progress.store';
 import { useWorkspacesStore } from '../../../../src/renderer/stores/workspaces.store';
+import { addRebaseFailureToast } from '../../../../src/renderer/utils/rebase-abort';
 
 const initialWorkspacesState = useWorkspacesStore.getState();
 
@@ -381,5 +382,101 @@ describe('UnifiedMenu Pull', () => {
     const pull = screen.getByRole('button', { name: /^pull$/i });
     expect(screen.queryByRole('button', { name: /^push$/i })).not.toBeInTheDocument();
     expect(pull.nextElementSibling?.tagName).toBe('HR');
+  });
+});
+
+// The menu reads how an operation ended from its result, never from the message's wording.
+describe('UnifiedMenu operation outcomes', () => {
+  beforeEach(() => {
+    rebaseWorkspaceOnBranch.mockClear();
+    branchPickerProps.mockClear();
+    addToast.mockClear();
+    vi.mocked(addRebaseFailureToast).mockClear();
+    gitState.rebaseInProgress = false;
+    gitState.behindRemote = 0;
+    gitState.hasOriginRemote = true;
+    useGitProgressStore.setState(useGitProgressStore.getInitialState(), true);
+    useWorkspacesStore.setState(initialWorkspacesState, true);
+    window.api = { rebaseWorkspaceOnBranch } as typeof window.api;
+  });
+
+  it('offers to stash and retry a rebase that uncommitted changes blocked', async () => {
+    rebaseWorkspaceOnBranch.mockResolvedValueOnce({
+      success: false,
+      message: 'Blocked',
+      outcome: { kind: 'uncommitted-changes' },
+    });
+    const user = userEvent.setup();
+    render(<UnifiedMenu />);
+
+    await user.click(screen.getByRole('button', { name: /rebase on trunk/i }));
+
+    expect(await screen.findByText(/this branch has uncommitted changes/i)).toBeInTheDocument();
+    expect(addRebaseFailureToast).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: /stash, rebase & unstash/i }));
+
+    await waitFor(() => {
+      expect(rebaseWorkspaceOnBranch).toHaveBeenLastCalledWith('ws', 'trunk', { stash: true });
+    });
+  });
+
+  it('reports a rebase that failed, however its message begins', async () => {
+    rebaseWorkspaceOnBranch.mockResolvedValueOnce({
+      success: false,
+      message: 'Commit or stash changes before rebasing',
+      outcome: { kind: 'failed' },
+    });
+    const user = userEvent.setup();
+    render(<UnifiedMenu />);
+
+    await user.click(screen.getByRole('button', { name: /rebase on trunk/i }));
+
+    await waitFor(() => {
+      expect(addRebaseFailureToast).toHaveBeenCalledWith(
+        'Commit or stash changes before rebasing',
+        expect.objectContaining({ id: 'ws' })
+      );
+    });
+    expect(screen.queryByText(/this branch has uncommitted changes/i)).not.toBeInTheDocument();
+  });
+
+  it('asks before deleting a branch Git reports as not fully merged', async () => {
+    const deleteBranch = vi.fn().mockResolvedValue({
+      success: false,
+      message: 'Unmerged',
+      errorCode: 'not-fully-merged',
+    });
+    window.api = { deleteBranch } as unknown as typeof window.api;
+    render(<UnifiedMenu />);
+
+    const { onDelete } = branchPickerProps.mock.lastCall![0] as {
+      onDelete: (branchName: string, isRemote: boolean) => Promise<void>;
+    };
+    await act(() => onDelete('topic', false));
+
+    expect(deleteBranch).toHaveBeenCalledWith('/repo', 'topic', false);
+    expect(await screen.findByText('Delete Unmerged Branch')).toBeInTheDocument();
+    expect(addToast).not.toHaveBeenCalled();
+  });
+
+  it('reports a branch deletion that failed for another reason', async () => {
+    const deleteBranch = vi.fn().mockResolvedValue({
+      success: false,
+      message: 'error: branch topic is not fully merged, and is locked',
+    });
+    window.api = { deleteBranch } as unknown as typeof window.api;
+    render(<UnifiedMenu />);
+
+    const { onDelete } = branchPickerProps.mock.lastCall![0] as {
+      onDelete: (branchName: string, isRemote: boolean) => Promise<void>;
+    };
+    await act(() => onDelete('topic', false));
+
+    expect(addToast).toHaveBeenCalledWith(
+      'error: branch topic is not fully merged, and is locked',
+      'error'
+    );
+    expect(screen.queryByText('Delete Unmerged Branch')).not.toBeInTheDocument();
   });
 });

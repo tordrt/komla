@@ -87,6 +87,7 @@ import type {
 } from '../../../renderer/types';
 import type { CommitGraph } from '../../types/commit-graph';
 import type { GitIdentityStatus } from '../../types/git-identity';
+import type { GitSyncResult } from '../../types/git-sync';
 import type { PullRequestStatus } from '../../types/pull-request';
 import type {
   CommitChangesResult,
@@ -187,23 +188,16 @@ export const gitContract = {
     success: boolean;
     message: string;
   }>(),
-  [IPC.WORKSPACE_MERGE_FROM]: invoke(workspaceMergeFromArgsSchema).returns<{
-    success: boolean;
-    message: string;
-  }>(),
-  [IPC.WORKSPACE_REBASE_ON_BRANCH]: invoke(workspaceRebaseOnBranchArgsSchema).returns<{
-    success: boolean;
-    message: string;
-  }>(),
+  [IPC.WORKSPACE_MERGE_FROM]: invoke(workspaceMergeFromArgsSchema).returns<GitSyncResult>(),
+  [IPC.WORKSPACE_REBASE_ON_BRANCH]: invoke(
+    workspaceRebaseOnBranchArgsSchema
+  ).returns<GitSyncResult>(),
   [IPC.WORKSPACE_PUSH]: invoke(workspacePushPullArgsSchema).returns<{
     success: boolean;
     message: string;
     errorCode?: 'rejected';
   }>(),
-  [IPC.WORKSPACE_PULL]: invoke(workspacePushPullArgsSchema).returns<{
-    success: boolean;
-    message: string;
-  }>(),
+  [IPC.WORKSPACE_PULL]: invoke(workspacePushPullArgsSchema).returns<GitSyncResult>(),
   [IPC.WORKSPACE_PUSH_TARGET_BRANCH]: invoke(workspaceTargetBranchActionArgsSchema).returns<{
     success: boolean;
     message: string;
@@ -225,10 +219,7 @@ export const gitContract = {
     success: boolean;
     message: string;
   }>(),
-  [IPC.GIT_MERGE_FROM]: invoke(mergeFromWithStashArgsSchema).returns<{
-    success: boolean;
-    message: string;
-  }>(),
+  [IPC.GIT_MERGE_FROM]: invoke(mergeFromWithStashArgsSchema).returns<GitSyncResult>(),
   [IPC.GIT_LIST_BRANCHES]: invoke(listBranchesArgsSchema).returns<BranchInfo[]>(),
   [IPC.GIT_HAS_ORIGIN_REMOTE]: invoke(repoPathArgsSchema).returns<boolean>(),
   [IPC.GIT_GET_MAIN_BRANCH]: invoke(repoPathArgsSchema).returns<string>(),
@@ -238,11 +229,8 @@ export const gitContract = {
     message: string;
     errorCode?: 'rejected';
   }>(),
-  [IPC.GIT_PULL]: invoke(worktreePathArgsSchema).returns<{ success: boolean; message: string }>(),
-  [IPC.GIT_PULL_REBASE]: invoke(worktreePathArgsSchema).returns<{
-    success: boolean;
-    message: string;
-  }>(),
+  [IPC.GIT_PULL]: invoke(worktreePathArgsSchema).returns<GitSyncResult>(),
+  [IPC.GIT_PULL_REBASE]: invoke(worktreePathArgsSchema).returns<GitSyncResult>(),
   [IPC.GIT_PUSH_TARGET_BRANCH]: invoke(worktreePathArgsSchema).returns<{
     success: boolean;
     message: string;
@@ -256,14 +244,10 @@ export const gitContract = {
     success: boolean;
     message: string;
   }>(),
-  [IPC.GIT_REBASE_ON_TARGET_BRANCH]: invoke(rebaseOnTargetBranchArgsSchema).returns<{
-    success: boolean;
-    message: string;
-  }>(),
-  [IPC.GIT_REBASE_ON_BRANCH]: invoke(rebaseOnBranchArgsSchema).returns<{
-    success: boolean;
-    message: string;
-  }>(),
+  [IPC.GIT_REBASE_ON_TARGET_BRANCH]: invoke(
+    rebaseOnTargetBranchArgsSchema
+  ).returns<GitSyncResult>(),
+  [IPC.GIT_REBASE_ON_BRANCH]: invoke(rebaseOnBranchArgsSchema).returns<GitSyncResult>(),
   [IPC.GIT_ABORT_REBASE]: invoke(worktreePathArgsSchema).returns<{
     success: boolean;
     message: string;
@@ -279,6 +263,7 @@ export const gitContract = {
   [IPC.GIT_DELETE_BRANCH]: invoke(deleteBranchArgsSchema).returns<{
     success: boolean;
     message: string;
+    errorCode?: 'not-fully-merged';
   }>(),
   [IPC.GIT_DELETE_REMOTE_BRANCH]: invoke(mergeFromArgsSchema).returns<{
     success: boolean;

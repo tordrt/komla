@@ -14,6 +14,7 @@ import type {
   CommitScopeResult,
 } from '../../../shared/types';
 import type { CommitGraph, CommitGraphQuery } from '../../../shared/types/commit-graph';
+import type { GitSyncResult } from '../../../shared/types/git-sync';
 import type { SshWorkspaceBackend, Workspace } from '../../../shared/types/workspace';
 import type {
   BranchInfo,
@@ -120,7 +121,7 @@ class SshWorkspaceRepositoryAdapter implements WorkspaceRepositoryAdapter {
     workspace: Workspace,
     branchName: string,
     options?: WorkspaceGitMergeOptions
-  ): Promise<WorkspaceGitResult> {
+  ): Promise<GitSyncResult> {
     const backend = getSshBackend(workspace);
     return sshWorkspaceGit.mergeFrom(backend, branchName, {
       ...options,
@@ -132,7 +133,7 @@ class SshWorkspaceRepositoryAdapter implements WorkspaceRepositoryAdapter {
     workspace: Workspace,
     branchName: string,
     options?: WorkspaceGitMergeOptions
-  ): Promise<WorkspaceGitResult> {
+  ): Promise<GitSyncResult> {
     const backend = getSshBackend(workspace);
     return sshWorkspaceGit.rebaseOnBranch(backend, branchName, {
       ...options,
@@ -144,7 +145,7 @@ class SshWorkspaceRepositoryAdapter implements WorkspaceRepositoryAdapter {
     return sshWorkspaceGit.push(getSshBackend(workspace));
   }
 
-  pull(workspace: Workspace): Promise<WorkspaceGitResult> {
+  pull(workspace: Workspace): Promise<GitSyncResult> {
     return sshWorkspaceGit.pull(getSshBackend(workspace));
   }
 

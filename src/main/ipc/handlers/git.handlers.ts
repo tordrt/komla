@@ -37,6 +37,7 @@ import type {
 } from '../../../shared/types';
 import type { CommitGraph } from '../../../shared/types/commit-graph';
 import type { GitIdentityStatus } from '../../../shared/types/git-identity';
+import type { GitSyncResult } from '../../../shared/types/git-sync';
 import type { PullRequestStatus } from '../../../shared/types/pull-request';
 import type { ViewerFile, ViewerFolderFile } from '../../../shared/types/viewer-file';
 import type { ContentSearchResult } from '../../services/search.service';
@@ -475,20 +476,14 @@ export function registerGitHandlers(): void {
 
   handleIpc(
     IPC.WORKSPACE_MERGE_FROM,
-    async (
-      _,
-      [workspaceId, branchName, options]
-    ): Promise<{ success: boolean; message: string }> => {
+    async (_, [workspaceId, branchName, options]): Promise<GitSyncResult> => {
       return workspaceGitService.mergeFrom(workspaceId, branchName, options);
     }
   );
 
   handleIpc(
     IPC.WORKSPACE_REBASE_ON_BRANCH,
-    async (
-      _,
-      [workspaceId, branchName, options]
-    ): Promise<{ success: boolean; message: string }> => {
+    async (_, [workspaceId, branchName, options]): Promise<GitSyncResult> => {
       return workspaceGitService.rebaseOnBranch(workspaceId, branchName, options);
     }
   );
@@ -512,12 +507,9 @@ export function registerGitHandlers(): void {
     }
   );
 
-  handleIpc(
-    IPC.WORKSPACE_PULL,
-    async (_, [workspaceId]): Promise<{ success: boolean; message: string }> => {
-      return workspaceGitService.pull(workspaceId);
-    }
-  );
+  handleIpc(IPC.WORKSPACE_PULL, async (_, [workspaceId]): Promise<GitSyncResult> => {
+    return workspaceGitService.pull(workspaceId);
+  });
 
   handleIpc(
     IPC.WORKSPACE_PUSH_TARGET_BRANCH,
@@ -575,10 +567,7 @@ export function registerGitHandlers(): void {
 
   handleIpc(
     IPC.GIT_MERGE_FROM,
-    async (
-      _,
-      [worktreePath, branchName, options]
-    ): Promise<{ success: boolean; message: string }> => {
+    async (_, [worktreePath, branchName, options]): Promise<GitSyncResult> => {
       assertLocalGitPath(worktreePath);
       return gitService.mergeFrom(worktreePath, branchName, options);
     }
@@ -638,41 +627,35 @@ export function registerGitHandlers(): void {
     }
   );
 
-  handleIpc(
-    IPC.GIT_PULL,
-    async (event, [worktreePath]): Promise<{ success: boolean; message: string }> => {
-      assertLocalGitPath(worktreePath);
-      const window = BrowserWindow.fromWebContents(event.sender);
-      return gitService.pull(worktreePath, (percent, stage) => {
-        if (window && !window.isDestroyed()) {
-          window.webContents.send(IPC.GIT_PROGRESS, {
-            operation: 'pull',
-            repoPath: worktreePath,
-            percent,
-            stage,
-          });
-        }
-      });
-    }
-  );
+  handleIpc(IPC.GIT_PULL, async (event, [worktreePath]): Promise<GitSyncResult> => {
+    assertLocalGitPath(worktreePath);
+    const window = BrowserWindow.fromWebContents(event.sender);
+    return gitService.pull(worktreePath, (percent, stage) => {
+      if (window && !window.isDestroyed()) {
+        window.webContents.send(IPC.GIT_PROGRESS, {
+          operation: 'pull',
+          repoPath: worktreePath,
+          percent,
+          stage,
+        });
+      }
+    });
+  });
 
-  handleIpc(
-    IPC.GIT_PULL_REBASE,
-    async (event, [worktreePath]): Promise<{ success: boolean; message: string }> => {
-      assertLocalGitPath(worktreePath);
-      const window = BrowserWindow.fromWebContents(event.sender);
-      return gitService.pullRebase(worktreePath, (percent, stage) => {
-        if (window && !window.isDestroyed()) {
-          window.webContents.send(IPC.GIT_PROGRESS, {
-            operation: 'pull',
-            repoPath: worktreePath,
-            percent,
-            stage,
-          });
-        }
-      });
-    }
-  );
+  handleIpc(IPC.GIT_PULL_REBASE, async (event, [worktreePath]): Promise<GitSyncResult> => {
+    assertLocalGitPath(worktreePath);
+    const window = BrowserWindow.fromWebContents(event.sender);
+    return gitService.pullRebase(worktreePath, (percent, stage) => {
+      if (window && !window.isDestroyed()) {
+        window.webContents.send(IPC.GIT_PROGRESS, {
+          operation: 'pull',
+          repoPath: worktreePath,
+          percent,
+          stage,
+        });
+      }
+    });
+  });
 
   handleIpc(
     IPC.GIT_PUSH_TARGET_BRANCH,
@@ -720,7 +703,7 @@ export function registerGitHandlers(): void {
 
   handleIpc(
     IPC.GIT_REBASE_ON_TARGET_BRANCH,
-    async (_, [worktreePath, options]): Promise<{ success: boolean; message: string }> => {
+    async (_, [worktreePath, options]): Promise<GitSyncResult> => {
       assertLocalGitPath(worktreePath);
       return gitService.rebaseOnTargetBranch(worktreePath, options);
     }
@@ -728,10 +711,7 @@ export function registerGitHandlers(): void {
 
   handleIpc(
     IPC.GIT_REBASE_ON_BRANCH,
-    async (
-      _,
-      [worktreePath, branchName, options]
-    ): Promise<{ success: boolean; message: string }> => {
+    async (_, [worktreePath, branchName, options]): Promise<GitSyncResult> => {
       assertLocalGitPath(worktreePath);
       return gitService.rebaseOnBranch(worktreePath, branchName, options);
     }
@@ -766,7 +746,7 @@ export function registerGitHandlers(): void {
     async (
       _,
       [worktreePath, branchName, force = false]
-    ): Promise<{ success: boolean; message: string }> => {
+    ): Promise<{ success: boolean; message: string; errorCode?: 'not-fully-merged' }> => {
       assertLocalGitPath(worktreePath);
       return gitService.deleteBranch(worktreePath, branchName, force);
     }

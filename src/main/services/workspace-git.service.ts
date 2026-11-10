@@ -29,6 +29,7 @@ import type {
 } from './workspace-git/repository.adapter';
 import type { CommitChangesResult, CommitDraftResult, CommitScopeResult } from '../../shared/types';
 import type { CommitGraph, CommitGraphQuery } from '../../shared/types/commit-graph';
+import type { GitSyncResult } from '../../shared/types/git-sync';
 import type { Workspace } from '../../shared/types/workspace';
 
 const logger = createLogger('WorkspaceGitService');
@@ -265,7 +266,7 @@ class WorkspaceGitService {
     workspaceId: string,
     branchName: string,
     options?: WorkspaceGitMergeOptions
-  ): Promise<WorkspaceGitResult> {
+  ): Promise<GitSyncResult> {
     return this.runMutation(workspaceId, (adapter, workspace) =>
       adapter.mergeFrom(workspace, branchName, options)
     );
@@ -275,7 +276,7 @@ class WorkspaceGitService {
     workspaceId: string,
     branchName: string,
     options?: WorkspaceGitMergeOptions
-  ): Promise<WorkspaceGitResult> {
+  ): Promise<GitSyncResult> {
     return this.runMutation(workspaceId, (adapter, workspace) =>
       adapter.rebaseOnBranch(workspace, branchName, options)
     );
@@ -290,7 +291,7 @@ class WorkspaceGitService {
     return this.syncLocalProjectAfterSshPush(workspace, result, onLocalProjectSync);
   }
 
-  pull(workspaceId: string): Promise<WorkspaceGitResult> {
+  pull(workspaceId: string): Promise<GitSyncResult> {
     return this.runMutation(workspaceId, (adapter, workspace) => adapter.pull(workspace));
   }
 

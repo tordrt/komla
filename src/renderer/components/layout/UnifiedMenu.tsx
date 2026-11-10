@@ -67,7 +67,6 @@ import { isSshWorkspace, resolveWorkspaceTargetBranch } from '@/types';
 import { pushWithAutoRecover } from '@/utils/push-with-recover';
 import { addRebaseFailureToast, requestRebaseAbort } from '@/utils/rebase-abort';
 
-import { UNCOMMITTED_CHANGES_PREFIX } from '../../../shared/constants/git';
 import {
   resolveAheadAction,
   resolveActionId,
@@ -571,7 +570,7 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
       const result = isRemoteWorkspace
         ? await window.api.rebaseWorkspaceOnBranch(activeWorkspace.id, targetBranch, options)
         : await window.api.rebaseOnTargetBranch(activeWorkspace.workingDirectory, options);
-      if (!result.success && result.message.startsWith(UNCOMMITTED_CHANGES_PREFIX)) {
+      if (result.outcome.kind === 'uncommitted-changes') {
         setStashDialog({
           open: true,
           operation: 'rebase',
@@ -599,7 +598,7 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
       const result = isRemoteWorkspace
         ? await window.api.rebaseWorkspaceOnBranch(activeWorkspace.id, branchName, options)
         : await window.api.rebaseOnBranch(activeWorkspace.workingDirectory, branchName, options);
-      if (!result.success && result.message.startsWith(UNCOMMITTED_CHANGES_PREFIX)) {
+      if (result.outcome.kind === 'uncommitted-changes') {
         setStashDialog({ open: true, operation: 'rebase', branchName });
         return;
       }
@@ -692,7 +691,7 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
       const result = isRemoteWorkspace
         ? await window.api.mergeWorkspaceFrom(activeWorkspace.id, branchName, options)
         : await window.api.mergeFrom(activeWorkspace.workingDirectory, branchName, options);
-      if (!result.success && result.message.startsWith(UNCOMMITTED_CHANGES_PREFIX)) {
+      if (result.outcome.kind === 'uncommitted-changes') {
         setStashDialog({ open: true, operation: 'merge', branchName });
         return;
       }
@@ -852,7 +851,7 @@ export function UnifiedMenu({ inStatusBar = false }: UnifiedMenuProps = {}) {
       );
 
       // If local branch isn't fully merged, show confirmation dialog
-      if (!result.success && result.message.includes('not fully merged')) {
+      if (result.errorCode === 'not-fully-merged') {
         setDeleteBranchDialog({
           open: true,
           branchName,

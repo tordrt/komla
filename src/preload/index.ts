@@ -122,6 +122,7 @@ import type {
 import type { CommitGraph, CommitGraphQuery } from '../shared/types/commit-graph';
 import type { VirtualDesktopStartedEvent } from '../shared/types/dev-preview';
 import type { GitIdentityStatus } from '../shared/types/git-identity';
+import type { GitSyncResult } from '../shared/types/git-sync';
 import type { KomlaEvent } from '../shared/types/komla-events';
 import type { KomlaSkillStatus } from '../shared/types/komla-skill';
 import type { NoteSummary } from '../shared/types/notes';
@@ -966,14 +967,14 @@ const api = {
     workspaceId: string,
     branchName: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> =>
+  ): Promise<GitSyncResult> =>
     ipcRenderer.invoke(IPC.WORKSPACE_MERGE_FROM, workspaceId, branchName, options),
 
   rebaseWorkspaceOnBranch: (
     workspaceId: string,
     branchName: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> =>
+  ): Promise<GitSyncResult> =>
     ipcRenderer.invoke(IPC.WORKSPACE_REBASE_ON_BRANCH, workspaceId, branchName, options),
 
   pushWorkspace: (
@@ -981,7 +982,7 @@ const api = {
   ): Promise<{ success: boolean; message: string; errorCode?: 'rejected' }> =>
     ipcRenderer.invoke(IPC.WORKSPACE_PUSH, workspaceId),
 
-  pullWorkspace: (workspaceId: string): Promise<{ success: boolean; message: string }> =>
+  pullWorkspace: (workspaceId: string): Promise<GitSyncResult> =>
     ipcRenderer.invoke(IPC.WORKSPACE_PULL, workspaceId),
 
   pushWorkspaceTargetBranch: (
@@ -1019,7 +1020,7 @@ const api = {
     worktreePath: string,
     branchName: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> =>
+  ): Promise<GitSyncResult> =>
     ipcRenderer.invoke(IPC.GIT_MERGE_FROM, worktreePath, branchName, options),
 
   listBranches: (repoPath: string, includeRemote = false): Promise<BranchInfo[]> =>
@@ -1039,10 +1040,10 @@ const api = {
   ): Promise<{ success: boolean; message: string; errorCode?: 'rejected' }> =>
     ipcRenderer.invoke(IPC.GIT_PUSH, worktreePath),
 
-  pull: (worktreePath: string): Promise<{ success: boolean; message: string }> =>
+  pull: (worktreePath: string): Promise<GitSyncResult> =>
     ipcRenderer.invoke(IPC.GIT_PULL, worktreePath),
 
-  pullRebase: (worktreePath: string): Promise<{ success: boolean; message: string }> =>
+  pullRebase: (worktreePath: string): Promise<GitSyncResult> =>
     ipcRenderer.invoke(IPC.GIT_PULL_REBASE, worktreePath),
 
   pushTargetBranch: (
@@ -1061,14 +1062,14 @@ const api = {
   rebaseOnTargetBranch: (
     worktreePath: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> =>
+  ): Promise<GitSyncResult> =>
     ipcRenderer.invoke(IPC.GIT_REBASE_ON_TARGET_BRANCH, worktreePath, options),
 
   rebaseOnBranch: (
     worktreePath: string,
     branchName: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> =>
+  ): Promise<GitSyncResult> =>
     ipcRenderer.invoke(IPC.GIT_REBASE_ON_BRANCH, worktreePath, branchName, options),
 
   abortRebase: (worktreePath: string): Promise<{ success: boolean; message: string }> =>
@@ -1087,7 +1088,7 @@ const api = {
     worktreePath: string,
     branchName: string,
     force?: boolean
-  ): Promise<{ success: boolean; message: string }> =>
+  ): Promise<{ success: boolean; message: string; errorCode?: 'not-fully-merged' }> =>
     ipcRenderer.invoke(IPC.GIT_DELETE_BRANCH, worktreePath, branchName, force ?? false),
 
   deleteRemoteBranch: (

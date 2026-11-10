@@ -5,6 +5,7 @@ import type {
   CommitScopeResult,
 } from '../../../shared/types';
 import type { CommitGraph, CommitGraphQuery } from '../../../shared/types/commit-graph';
+import type { GitSyncResult } from '../../../shared/types/git-sync';
 import type { Workspace } from '../../../shared/types/workspace';
 import type {
   BranchInfo,
@@ -60,14 +61,14 @@ export interface WorkspaceRepositoryAdapter {
     workspace: Workspace,
     branchName: string,
     options?: WorkspaceGitMergeOptions
-  ): Promise<WorkspaceGitResult>;
+  ): Promise<GitSyncResult>;
   rebaseOnBranch(
     workspace: Workspace,
     branchName: string,
     options?: WorkspaceGitMergeOptions
-  ): Promise<WorkspaceGitResult>;
+  ): Promise<GitSyncResult>;
   push(workspace: Workspace): Promise<WorkspaceGitPushResult>;
-  pull(workspace: Workspace): Promise<WorkspaceGitResult>;
+  pull(workspace: Workspace): Promise<GitSyncResult>;
   pushTargetBranch(workspace: Workspace): Promise<WorkspaceGitPushResult>;
   pullTargetBranch(workspace: Workspace): Promise<WorkspaceGitResult>;
   mergeTargetBranchFromRemote(workspace: Workspace): Promise<WorkspaceGitResult>;

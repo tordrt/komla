@@ -5247,7 +5247,7 @@ describe("sshWorkspaceService", () => {
     });
 
     const remoteCommand = execFileMock.mock.calls[0][1].at(-1);
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       success: true,
       message: "Merged main successfully",
     });
@@ -5299,7 +5299,7 @@ describe("sshWorkspaceService", () => {
           stash: true,
         });
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: true,
           message: "Merged main successfully",
         });
@@ -5384,7 +5384,7 @@ describe("sshWorkspaceService", () => {
 
         const result = await sshWorkspaceGit.mergeFrom(repo.backend, "main");
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: false,
           message:
             "Merge from main encountered conflicts in shared.txt. The merge was aborted.",
@@ -5412,7 +5412,7 @@ describe("sshWorkspaceService", () => {
           stash: true,
         });
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: false,
           message:
             "Merge from main encountered conflicts in shared.txt, and Git could not abort the merge. The merge is still active; resolve or abort it manually.",
@@ -5449,7 +5449,7 @@ describe("sshWorkspaceService", () => {
         expect(execFileMock.mock.calls.at(-1)?.[1]).toContain(
           "ControlPersist=600",
         );
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: false,
           message:
             "Rebase onto main encountered conflicts in shared.txt. The rebase was aborted.",
@@ -5506,7 +5506,7 @@ describe("sshWorkspaceService", () => {
           },
         );
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: true,
           message: "Rebased on main successfully",
         });
@@ -5546,7 +5546,7 @@ describe("sshWorkspaceService", () => {
           targetBranch: "main",
         });
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: true,
           message: "Merged main successfully",
         });
@@ -5588,7 +5588,7 @@ describe("sshWorkspaceService", () => {
           },
         );
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: true,
           message: "Already up to date",
         });
@@ -5623,7 +5623,7 @@ describe("sshWorkspaceService", () => {
           },
         );
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: true,
           message: "Already up to date",
         });
@@ -5659,7 +5659,7 @@ describe("sshWorkspaceService", () => {
           },
         );
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: false,
           message:
             "Rebase onto main encountered conflicts in shared.txt, and Git could not abort the rebase. The rebase is still active; resolve or abort it manually.",
@@ -6786,7 +6786,7 @@ describe("sshWorkspaceService", () => {
 
         const result = await sshWorkspaceGit.pull(repo.backend);
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: true,
           message: "Pulled from origin",
         });
@@ -6840,7 +6840,7 @@ describe("sshWorkspaceService", () => {
 
         const result = await sshWorkspaceGit.pull(repo.backend);
 
-        expect(result).toEqual({
+        expect(result).toMatchObject({
           success: false,
           message:
             "Pull paused because shared.txt has conflicts. Resolve the conflicts in this workspace, then complete the merge.",

@@ -328,6 +328,14 @@ describe('GitBranchService', () => {
       expect(execSpy).toHaveBeenCalledWith('/repo', ['branch', '-d', 'feature']);
     });
 
+    it('gives no error code to a deletion that fails for another reason', async () => {
+      const { gitBranchService, getCurrentBranchSpy, execSpy } = await setup();
+      getCurrentBranchSpy.mockResolvedValue('main');
+      execSpy.mockRejectedValue({ stderr: "error: branch 'feature' not found" });
+      const result = await gitBranchService.deleteBranch('/repo', 'feature');
+      expect(result).toEqual({ success: false, message: "error: branch 'feature' not found" });
+    });
+
     it('uses -D flag when force=true', async () => {
       const { gitBranchService, getCurrentBranchSpy, execSpy } = await setup();
       getCurrentBranchSpy.mockResolvedValue('main');
@@ -343,6 +351,7 @@ describe('GitBranchService', () => {
       const result = await gitBranchService.deleteBranch('/repo', 'feature');
       expect(result.success).toBe(false);
       expect(result.message).toContain('not fully merged');
+      expect(result.errorCode).toBe('not-fully-merged');
     });
   });
 
@@ -430,7 +439,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.mergeFrom('/repo', 'main');
 
-      expect(result).toEqual({ success: true, message: 'Merged main successfully' });
+      expect(result).toMatchObject({ success: true, message: 'Merged main successfully' });
       expect(execSpy).toHaveBeenCalledWith('/repo', ['merge', 'origin/main']);
     });
 
@@ -438,7 +447,10 @@ describe('GitBranchService', () => {
       const { gitBranchService, hasUncommittedChangesSpy } = await setupBranchUpdate();
       hasUncommittedChangesSpy.mockResolvedValue(true);
       const result = await gitBranchService.mergeFrom('/repo', 'feature');
-      expect(result).toEqual({ success: false, message: 'Commit or stash changes before merging' });
+      expect(result).toMatchObject({
+        success: false,
+        message: 'Commit or stash changes before merging',
+      });
     });
 
     it('reports already up to date', async () => {
@@ -446,7 +458,7 @@ describe('GitBranchService', () => {
       hasUncommittedChangesSpy.mockResolvedValue(false);
       execSpy.mockResolvedValue('Already up to date.');
       const result = await gitBranchService.mergeFrom('/repo', 'feature');
-      expect(result).toEqual({ success: true, message: 'Already up to date' });
+      expect(result).toMatchObject({ success: true, message: 'Already up to date' });
     });
 
     it('leaves merge conflicts active and lists all unmerged file states', async () => {
@@ -491,7 +503,7 @@ describe('GitBranchService', () => {
         .mockResolvedValueOnce("Merge made by the 'ort' strategy.") // merge
         .mockResolvedValueOnce(''); // stash apply <sha>
       const result = await gitBranchService.mergeFrom('/repo', 'feature', { stash: true });
-      expect(result).toEqual({ success: true, message: 'Merged feature successfully' });
+      expect(result).toMatchObject({ success: true, message: 'Merged feature successfully' });
       expect(execSpy).toHaveBeenCalledWith('/repo', ['stash', 'create']);
       expect(execSpy).toHaveBeenCalledWith('/repo', ['reset', '--hard', 'HEAD']);
       expect(execSpy).toHaveBeenCalledWith('/repo', ['stash', 'apply', 'abc123']);
@@ -529,7 +541,7 @@ describe('GitBranchService', () => {
         .mockResolvedValueOnce('') // merge --abort
         .mockResolvedValueOnce(''); // stash apply <sha>
       const result = await gitBranchService.mergeFrom('/repo', 'feature', { stash: true });
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: false,
         message: 'Merge failed and was aborted. The branch and saved local changes were restored.',
       });
@@ -621,7 +633,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.rebaseOnTargetBranch('/repo');
 
-      expect(result).toEqual({ success: true, message: 'Rebased on main successfully' });
+      expect(result).toMatchObject({ success: true, message: 'Rebased on main successfully' });
       expect(syncBranchWithRemoteSpy).toHaveBeenCalledWith('/repo', 'main');
       expect(execSpy).toHaveBeenCalledWith('/repo', ['rebase', rebaseRef]);
     });
@@ -648,7 +660,7 @@ describe('GitBranchService', () => {
       const { gitBranchService, hasUncommittedChangesSpy } = await setupBranchUpdate();
       hasUncommittedChangesSpy.mockResolvedValue(true);
       const result = await gitBranchService.rebaseOnTargetBranch('/repo');
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: false,
         message: 'Commit or stash changes before rebasing',
       });
@@ -661,7 +673,7 @@ describe('GitBranchService', () => {
       getTargetBranchSpy.mockResolvedValue('main');
       execSpy.mockResolvedValue('Current branch feature is up to date.');
       const result = await gitBranchService.rebaseOnTargetBranch('/repo');
-      expect(result).toEqual({ success: true, message: 'Already up to date' });
+      expect(result).toMatchObject({ success: true, message: 'Already up to date' });
     });
 
     it('stashes via create/apply when stash option is true and there are changes', async () => {
@@ -675,7 +687,7 @@ describe('GitBranchService', () => {
         .mockResolvedValueOnce('Successfully rebased') // rebase
         .mockResolvedValueOnce(''); // stash apply <sha>
       const result = await gitBranchService.rebaseOnTargetBranch('/repo', { stash: true });
-      expect(result).toEqual({ success: true, message: 'Rebased on main successfully' });
+      expect(result).toMatchObject({ success: true, message: 'Rebased on main successfully' });
       expect(execSpy).toHaveBeenCalledWith('/repo', ['stash', 'create']);
       expect(execSpy).toHaveBeenCalledWith('/repo', ['reset', '--hard', 'HEAD']);
       expect(execSpy).not.toHaveBeenCalledWith('/repo', ['clean', '-fd']);
@@ -691,7 +703,7 @@ describe('GitBranchService', () => {
         .mockResolvedValueOnce('') // stash create → empty (nothing to stash)
         .mockResolvedValueOnce('Successfully rebased'); // rebase
       const result = await gitBranchService.rebaseOnTargetBranch('/repo', { stash: true });
-      expect(result).toEqual({ success: true, message: 'Rebased on main successfully' });
+      expect(result).toMatchObject({ success: true, message: 'Rebased on main successfully' });
     });
 
     it('reports that saved changes need attention when stash apply fails after rebase', async () => {
@@ -881,7 +893,10 @@ describe('GitBranchService', () => {
       hasUncommittedChangesSpy.mockResolvedValue(false);
       getCurrentBranchSpy.mockResolvedValue('feature');
       const result = await gitBranchService.rebaseOnBranch('/repo', 'feature');
-      expect(result).toEqual({ success: false, message: 'Cannot rebase onto the current branch' });
+      expect(result).toMatchObject({
+        success: false,
+        message: 'Cannot rebase onto the current branch',
+      });
     });
 
     it('stashes via create/apply when stash option is true and there are changes', async () => {
@@ -895,7 +910,7 @@ describe('GitBranchService', () => {
         .mockResolvedValueOnce('Successfully rebased') // rebase
         .mockResolvedValueOnce(''); // stash apply <sha>
       const result = await gitBranchService.rebaseOnBranch('/repo', 'main', { stash: true });
-      expect(result).toEqual({ success: true, message: 'Rebased on main successfully' });
+      expect(result).toMatchObject({ success: true, message: 'Rebased on main successfully' });
       expect(execSpy).toHaveBeenCalledWith('/repo', ['stash', 'create']);
       expect(execSpy).toHaveBeenCalledWith('/repo', ['reset', '--hard', 'HEAD']);
       expect(execSpy).toHaveBeenCalledWith('/repo', ['stash', 'apply', 'abc123']);
@@ -1147,7 +1162,10 @@ describe('GitBranchService', () => {
       const { gitBranchService, hasUncommittedChangesSpy } = await setup();
       hasUncommittedChangesSpy.mockResolvedValue(true);
       const result = await gitBranchService.pull('/repo');
-      expect(result).toEqual({ success: false, message: 'Commit or stash changes before pulling' });
+      expect(result).toMatchObject({
+        success: false,
+        message: 'Commit or stash changes before pulling',
+      });
     });
 
     it('refuses without remote tracking branch', async () => {
@@ -1156,7 +1174,10 @@ describe('GitBranchService', () => {
         .mockRejectedValueOnce(new Error('no branch.feature.merge'))
         .mockRejectedValueOnce(new Error('no origin/feature'));
       const result = await gitBranchService.pull('/repo');
-      expect(result).toEqual({ success: false, message: 'No remote tracking branch configured' });
+      expect(result).toMatchObject({
+        success: false,
+        message: 'No remote tracking branch configured',
+      });
       expect(execGitWithProgressSpy).not.toHaveBeenCalled();
     });
 
@@ -1164,7 +1185,7 @@ describe('GitBranchService', () => {
     it('refuses on a detached HEAD', async () => {
       const { gitBranchService, execGitWithProgressSpy } = await setupPull({});
       const result = await gitBranchService.pull('/repo');
-      expect(result).toEqual({ success: false, message: 'No branch is checked out to pull' });
+      expect(result).toMatchObject({ success: false, message: 'No branch is checked out to pull' });
       expect(execGitWithProgressSpy).not.toHaveBeenCalled();
     });
 
@@ -1173,7 +1194,7 @@ describe('GitBranchService', () => {
       execSpy.mockResolvedValueOnce('refs/heads/feature');
       execGitWithProgressSpy.mockResolvedValue('Already up to date.');
       const result = await gitBranchService.pull('/repo');
-      expect(result).toEqual({ success: true, message: 'Already up to date' });
+      expect(result).toMatchObject({ success: true, message: 'Already up to date' });
       expect(execSpy).toHaveBeenCalledWith('/repo', ['config', '--get', 'branch.feature.merge']);
       expect(execGitWithProgressSpy).toHaveBeenCalledWith(
         '/repo',
@@ -1194,7 +1215,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.pull('/repo');
 
-      expect(result).toEqual({ success: true, message: 'Pulled changes successfully' });
+      expect(result).toMatchObject({ success: true, message: 'Pulled changes successfully' });
       expect(execSpy).toHaveBeenLastCalledWith('/repo', [
         'rev-parse',
         '--verify',
@@ -1230,7 +1251,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.pullRebase('/repo');
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: false,
         message: 'Commit or stash changes before pulling',
       });
@@ -1249,7 +1270,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.pullRebase('/repo');
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: false,
         message: 'Pull (rebase) is not allowed on main; use the main pull flow instead',
       });
@@ -1274,7 +1295,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.pullRebase('/repo');
 
-      expect(result).toEqual({ success: true, message: 'Rebased on remote changes' });
+      expect(result).toMatchObject({ success: true, message: 'Rebased on remote changes' });
       expect(execGitWithProgressSpy).toHaveBeenCalledWith(
         '/repo',
         ['pull', '--rebase', '--progress'],
@@ -1298,7 +1319,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.pullRebase('/repo');
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: false,
         message: 'No remote tracking branch configured',
       });
@@ -1325,7 +1346,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.pullRebase('/repo');
 
-      expect(result).toEqual({ success: true, message: 'Rebased on remote changes' });
+      expect(result).toMatchObject({ success: true, message: 'Rebased on remote changes' });
       expect(execGitWithProgressSpy).toHaveBeenCalledWith(
         '/repo',
         ['pull', '--rebase', 'origin', 'feature', '--progress'],
@@ -1351,7 +1372,7 @@ describe('GitBranchService', () => {
 
       const result = await gitBranchService.pullRebase('/repo');
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: false,
         message: 'No upstream tracking branch configured',
       });

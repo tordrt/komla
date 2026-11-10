@@ -28,6 +28,7 @@ import type {
 } from '../../../shared/types';
 import type { CommitGraph, CommitGraphQuery } from '../../../shared/types/commit-graph';
 import type { GitIdentityStatus } from '../../../shared/types/git-identity';
+import type { GitSyncResult } from '../../../shared/types/git-sync';
 import type { BranchDeletionResult, LeftoverBranches } from '../../../shared/types/project';
 
 // Re-export all interfaces/types
@@ -238,7 +239,7 @@ class GitService {
     worktreePath: string,
     branchName: string,
     force?: boolean
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{ success: boolean; message: string; errorCode?: 'not-fully-merged' }> {
     return gitBranchService.deleteBranch(worktreePath, branchName, force);
   }
   deleteRemoteBranch(
@@ -254,7 +255,7 @@ class GitService {
     worktreePath: string,
     branchName: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<GitSyncResult> {
     return gitBranchService.mergeFrom(worktreePath, branchName, options);
   }
   mergeToTargetBranch(worktreePath: string): Promise<{ success: boolean; message: string }> {
@@ -269,14 +270,14 @@ class GitService {
   rebaseOnTargetBranch(
     worktreePath: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<GitSyncResult> {
     return gitBranchService.rebaseOnTargetBranch(worktreePath, options);
   }
   rebaseOnBranch(
     worktreePath: string,
     branchName: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<GitSyncResult> {
     return gitBranchService.rebaseOnBranch(worktreePath, branchName, options);
   }
   abortRebase(worktreePath: string): Promise<{ success: boolean; message: string }> {
@@ -294,16 +295,10 @@ class GitService {
   ): Promise<{ success: boolean; message: string }> {
     return gitBranchService.pushTargetBranch(worktreePath, onProgress);
   }
-  pull(
-    worktreePath: string,
-    onProgress?: GitProgressCallback
-  ): Promise<{ success: boolean; message: string }> {
+  pull(worktreePath: string, onProgress?: GitProgressCallback): Promise<GitSyncResult> {
     return gitBranchService.pull(worktreePath, onProgress);
   }
-  pullRebase(
-    worktreePath: string,
-    onProgress?: GitProgressCallback
-  ): Promise<{ success: boolean; message: string }> {
+  pullRebase(worktreePath: string, onProgress?: GitProgressCallback): Promise<GitSyncResult> {
     return gitBranchService.pullRebase(worktreePath, onProgress);
   }
   pullTargetBranch(

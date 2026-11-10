@@ -44,6 +44,7 @@ import type {
   CommitGraphCommit,
   CommitGraphQuery,
 } from '../../../shared/types/commit-graph';
+import type { GitSyncOutcome, GitSyncResult } from '../../../shared/types/git-sync';
 import type { BranchInfo, GitBranchQuickStatus } from '../git.service';
 
 const logger = createLogger('SshWorkspaceGit');
@@ -92,6 +93,49 @@ function parseKeyValueOutput(output: string): Map<string, string> {
     values.set(key, line.slice(index + 1));
   }
   return values;
+}
+
+/**
+ * The result of a merge, rebase or pull script from what it printed: `status` is how the
+ * operation ended, and `stash` the stash commit holding saved changes it did not put back.
+ * A script that printed no status says nothing about what it left in the workspace.
+ */
+function parseSyncResult(values: Map<string, string>, message: string): GitSyncResult {
+  const status = values.get('status');
+  const stashSha = values.get('stash');
+  const recovery = stashSha ? { recovery: { status: 'stored' as const, stashSha } } : {};
+  switch (status) {
+    case 'success':
+    case 'up-to-date': {
+      const outcome: GitSyncOutcome = stashSha
+        ? { kind: 'completed-unrestored', recovery: { status: 'stored', stashSha } }
+        : { kind: 'completed', upToDate: status === 'up-to-date' };
+      return { success: true, message, outcome };
+    }
+    case 'uncommitted':
+      return { success: false, message, outcome: { kind: 'uncommitted-changes' } };
+    case 'aborted':
+      return { success: false, message, outcome: { kind: 'aborted', ...recovery } };
+    case 'abort-failed':
+      return {
+        success: false,
+        message,
+        outcome: { kind: 'abort-failed', operationState: 'active', ...recovery },
+      };
+    case 'failed':
+      return { success: false, message, outcome: { kind: 'failed', ...recovery } };
+    default:
+      return { success: false, message, outcome: { kind: 'unverified' } };
+  }
+}
+
+/** A merge, rebase or pull whose script never reported back, so what it left is unknown. */
+function unreportedSyncResult(error: unknown, fallback: string): GitSyncResult {
+  return {
+    success: false,
+    message: parseRemoteGitError(error, fallback),
+    outcome: { kind: 'unverified' },
+  };
 }
 
 function parseRemoteGitError(error: unknown, fallback: string): string {
@@ -151,6 +195,8 @@ function autoStashScript(message: string): string[] {
     '  git stash apply "$stash_sha" >/dev/null 2>&1 || return 1',
     `  stash_ref=$(git stash list --format='%gd %H' | awk -v h="$stash_sha" '$2 == h { print $1; exit }')`,
     '  if [ -n "$stash_ref" ]; then git stash drop "$stash_ref" >/dev/null 2>&1 || true; fi',
+    // From here on $stash_sha names saved changes that are not back in the working tree.
+    '  stash_sha=',
     '}',
   ];
 }
@@ -680,7 +726,7 @@ class SshWorkspaceGit {
     backend: SshWorkspaceBackend,
     branchName: string,
     options?: { stash?: boolean; targetBranch?: string }
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<GitSyncResult> {
     const host = sshWorkspaceService.getHost(backend.hostId);
     try {
       const targetRefScript =
@@ -706,37 +752,34 @@ class SshWorkspaceGit {
           `  conflict_files=$(git diff --name-only --diff-filter=U | awk 'BEGIN { ORS="" } { if (NR > 1) printf ", "; printf "%s", $0 }')`,
           '  if [ -n "$conflict_files" ]; then',
           '    if ! git merge --abort >/dev/null 2>&1; then',
-          '      printf "status=failed\\nmessage=Merge from %s encountered conflicts in %s, and Git could not abort the merge. The merge is still active; resolve or abort it manually.\\n" "$branch" "$conflict_files"',
+          '      printf "status=abort-failed\\nstash=%s\\nmessage=Merge from %s encountered conflicts in %s, and Git could not abort the merge. The merge is still active; resolve or abort it manually.\\n" "$stash_sha" "$branch" "$conflict_files"',
           '      exit 0',
           '    fi',
           '    restore_stash || stash_note=" Your saved local changes could not be re-applied; they are kept in git stash."',
-          '    printf "status=failed\\nmessage=Merge from %s encountered conflicts in %s. The merge was aborted.%s\\n" "$branch" "$conflict_files" "$stash_note"',
+          '    printf "status=aborted\\nstash=%s\\nmessage=Merge from %s encountered conflicts in %s. The merge was aborted.%s\\n" "$stash_sha" "$branch" "$conflict_files" "$stash_note"',
           '    exit 0',
           '  fi',
           '  merge_head=$(git rev-parse --git-path MERGE_HEAD)',
           '  if [ -f "$merge_head" ] && ! git merge --abort >/dev/null 2>&1; then',
-          '    printf "status=failed\\nmessage=Merge from %s failed, and Git could not abort the merge. The merge is still active; resolve or abort it manually.\\n" "$branch"',
+          '    printf "status=abort-failed\\nstash=%s\\nmessage=Merge from %s failed, and Git could not abort the merge. The merge is still active; resolve or abort it manually.\\n" "$stash_sha" "$branch"',
           '    exit 0',
           '  fi',
           '  restore_stash || stash_note=" Your saved local changes could not be re-applied; they are kept in git stash."',
-          '  printf "status=failed\\nmessage=%s%s\\n" "$merge_output" "$stash_note"',
+          '  printf "status=failed\\nstash=%s\\nmessage=%s%s\\n" "$stash_sha" "$merge_output" "$stash_note"',
           '  exit 0',
           'fi',
           'if ! restore_stash; then stash_note=", but stash could not be re-applied cleanly - resolve conflicts manually"; fi',
           'if printf "%s" "$merge_output" | grep -q "Already up to date"; then',
-          '  printf "status=success\\nmessage=Already up to date%s\\n" "$stash_note"',
+          '  printf "status=up-to-date\\nstash=%s\\nmessage=Already up to date%s\\n" "$stash_sha" "$stash_note"',
           'else',
-          '  printf "status=success\\nmessage=Merged %s successfully%s\\n" "$branch" "$stash_note"',
+          '  printf "status=success\\nstash=%s\\nmessage=Merged %s successfully%s\\n" "$stash_sha" "$branch" "$stash_note"',
           'fi',
         ].join('\n')
       );
       const values = parseKeyValueOutput(output);
-      return {
-        success: values.get('status') === 'success',
-        message: values.get('message') || 'Merge failed',
-      };
+      return parseSyncResult(values, values.get('message') || 'Merge failed');
     } catch (error) {
-      return { success: false, message: parseRemoteGitError(error, 'Merge failed') };
+      return unreportedSyncResult(error, 'Merge failed');
     }
   }
 
@@ -744,7 +787,7 @@ class SshWorkspaceGit {
     backend: SshWorkspaceBackend,
     branchName: string,
     options?: { stash?: boolean; targetBranch?: string }
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<GitSyncResult> {
     const host = sshWorkspaceService.getHost(backend.hostId);
     try {
       const targetRefScript =
@@ -772,39 +815,36 @@ class SshWorkspaceGit {
           `  conflict_files=$(git diff --name-only --diff-filter=U | awk 'BEGIN { ORS="" } { if (NR > 1) printf ", "; printf "%s", $0 }')`,
           '  if [ -n "$conflict_files" ]; then',
           '    if ! git rebase --abort >/dev/null 2>&1; then',
-          '      printf "status=failed\\nmessage=Rebase onto %s encountered conflicts in %s, and Git could not abort the rebase. The rebase is still active; resolve or abort it manually.\\n" "$branch" "$conflict_files"',
+          '      printf "status=abort-failed\\nstash=%s\\nmessage=Rebase onto %s encountered conflicts in %s, and Git could not abort the rebase. The rebase is still active; resolve or abort it manually.\\n" "$stash_sha" "$branch" "$conflict_files"',
           '      exit 0',
           '    fi',
           '    restore_stash || stash_note=" Your saved local changes could not be re-applied; they are kept in git stash."',
-          '    printf "status=failed\\nmessage=Rebase onto %s encountered conflicts in %s. The rebase was aborted.%s\\n" "$branch" "$conflict_files" "$stash_note"',
+          '    printf "status=aborted\\nstash=%s\\nmessage=Rebase onto %s encountered conflicts in %s. The rebase was aborted.%s\\n" "$stash_sha" "$branch" "$conflict_files" "$stash_note"',
           '    exit 0',
           '  fi',
           '  rebase_merge=$(git rev-parse --git-path rebase-merge)',
           '  rebase_apply=$(git rev-parse --git-path rebase-apply)',
           '  if { [ -d "$rebase_merge" ] || [ -d "$rebase_apply" ]; } && ! git rebase --abort >/dev/null 2>&1; then',
-          '    printf "status=failed\\nmessage=Rebase onto %s failed, and Git could not abort the rebase. The rebase is still active; resolve or abort it manually.\\n" "$branch"',
+          '    printf "status=abort-failed\\nstash=%s\\nmessage=Rebase onto %s failed, and Git could not abort the rebase. The rebase is still active; resolve or abort it manually.\\n" "$stash_sha" "$branch"',
           '    exit 0',
           '  fi',
           '  restore_stash || stash_note=" Your saved local changes could not be re-applied; they are kept in git stash."',
-          '  printf "status=failed\\nmessage=%s%s\\n" "$rebase_output" "$stash_note"',
+          '  printf "status=failed\\nstash=%s\\nmessage=%s%s\\n" "$stash_sha" "$rebase_output" "$stash_note"',
           '  exit 0',
           'fi',
           'if ! restore_stash; then stash_note=", but stash could not be re-applied cleanly - resolve conflicts manually"; fi',
           'if printf "%s" "$rebase_output" | grep -q "is up to date"; then',
-          '  printf "status=success\\nmessage=Already up to date%s\\n" "$stash_note"',
+          '  printf "status=up-to-date\\nstash=%s\\nmessage=Already up to date%s\\n" "$stash_sha" "$stash_note"',
           'else',
-          '  printf "status=success\\nmessage=Rebased on %s successfully%s\\n" "$branch" "$stash_note"',
+          '  printf "status=success\\nstash=%s\\nmessage=Rebased on %s successfully%s\\n" "$stash_sha" "$branch" "$stash_note"',
           'fi',
         ].join('\n'),
         { purpose: { kind: 'interactive' } }
       );
       const values = parseKeyValueOutput(output);
-      return {
-        success: values.get('status') === 'success',
-        message: values.get('message') || 'Rebase failed',
-      };
+      return parseSyncResult(values, values.get('message') || 'Rebase failed');
     } catch (error) {
-      return { success: false, message: parseRemoteGitError(error, 'Rebase failed') };
+      return unreportedSyncResult(error, 'Rebase failed');
     }
   }
 
@@ -851,7 +891,7 @@ class SshWorkspaceGit {
     }
   }
 
-  async pull(backend: SshWorkspaceBackend): Promise<{ success: boolean; message: string }> {
+  async pull(backend: SshWorkspaceBackend): Promise<GitSyncResult> {
     const host = sshWorkspaceService.getHost(backend.hostId);
     try {
       const output = await sshWorkspaceService.run(
@@ -874,7 +914,7 @@ class SshWorkspaceGit {
           '  exit 0',
           'fi',
           'if printf "%s" "$pull_output" | grep -q "Already up to date"; then',
-          '  printf "status=success\\nmessage=Already up to date\\n"',
+          '  printf "status=up-to-date\\nmessage=Already up to date\\n"',
           'else',
           '  printf "status=success\\nmessage=Pulled from origin\\n"',
           'fi',
@@ -883,21 +923,16 @@ class SshWorkspaceGit {
       const values = parseKeyValueOutput(output);
       const message = values.get('message') ?? '';
       if (values.get('status') === 'conflicted') {
+        const files = message.split('\n').filter(Boolean);
         return {
           success: false,
-          message: activeConflictMessage(
-            'Pull',
-            message.split('\n').filter(Boolean),
-            'complete the merge'
-          ),
+          message: activeConflictMessage('Pull', files, 'complete the merge'),
+          outcome: { kind: 'conflicts', files },
         };
       }
-      return {
-        success: values.get('status') === 'success',
-        message: stripGitTransferNoise(message) || 'Pull failed',
-      };
+      return parseSyncResult(values, stripGitTransferNoise(message) || 'Pull failed');
     } catch (error) {
-      return { success: false, message: parseRemoteGitError(error, 'Pull failed') };
+      return unreportedSyncResult(error, 'Pull failed');
     }
   }
 

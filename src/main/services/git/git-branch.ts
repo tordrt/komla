@@ -14,6 +14,12 @@ import {
 } from './git-exec';
 import { gitWorktreeService } from './git-worktree';
 
+import type {
+  GitSavedChangesRecovery,
+  GitSyncOutcome,
+  GitSyncResult,
+} from '../../../shared/types/git-sync';
+
 const logger = createLogger('GitBranch');
 
 /** How long a fetch of origin lets new worktrees start from its copy without fetching again. */
@@ -223,14 +229,50 @@ function unverifiedOperationMessage(
   return `${failure}. Komla could not verify whether Git left an operation active in ${worktreePath}: ${inspectionFailure}. Inspect the workspace before continuing.`;
 }
 
+/** A sync result, which succeeded only if the operation finished with nothing left to recover. */
+function syncResult(outcome: GitSyncOutcome, message: string): GitSyncResult {
+  return { success: outcome.kind === 'completed', message, outcome };
+}
+
+function savedChangesRecovery(stashSha: string, stored: boolean): GitSavedChangesRecovery {
+  return { status: stored ? 'stored' : 'store-failed', stashSha };
+}
+
+/** What differs between the merge and the rebase that bring another branch into a workspace. */
+const SYNC_OPERATIONS = {
+  merge: {
+    name: 'Merge',
+    blockedAction: 'merging',
+    storeMessage: 'komla-auto-stash-before-merge',
+    completion: 'complete the merge',
+    upToDateOutput: 'Already up to date',
+    pausedLabel: () => 'Merge',
+    completed: (branch: string) => `Merged ${branch}`,
+  },
+  rebase: {
+    name: 'Rebase',
+    blockedAction: 'rebasing',
+    storeMessage: 'komla-auto-stash-before-rebase',
+    completion: 'continue the rebase',
+    upToDateOutput: 'is up to date',
+    pausedLabel: (branch: string) => `Rebase onto ${branch}`,
+    completed: (branch: string) => `Rebased on ${branch}`,
+  },
+} as const;
+
+type SyncOperation = keyof typeof SYNC_OPERATIONS;
+
+/**
+ * Aborts a merge or rebase that failed after Komla saved the workspace's changes, and puts
+ * them back unless the operation is, or may be, still active.
+ */
 async function recoverStashAfterFailedOperation(
   worktreePath: string,
   stashSha: string,
-  storeMessage: string,
-  abortOperation: 'merge' | 'rebase',
-  operation: string,
+  abortOperation: SyncOperation,
   operationError: unknown
-): Promise<string> {
+): Promise<GitSyncResult> {
+  const { name: operation, storeMessage } = SYNC_OPERATIONS[abortOperation];
   try {
     await gitExec.execGitAsync(worktreePath, [abortOperation, '--abort']);
   } catch {
@@ -240,38 +282,74 @@ async function recoverStashAfterFailedOperation(
     if (operationState === 'inactive') {
       const stashResult = await applyStashOrStore(worktreePath, stashSha, storeMessage);
       const failure = extractGitError(operationError, `${operation} failed`);
-      return stashResult === 'applied'
-        ? `${failure}. Your saved local changes were restored.`
-        : stashRecoveryMessage(
-            `${failure}. The ${abortOperation} did not start`,
-            stashSha,
-            stashResult === 'stored'
-          );
+      if (stashResult === 'applied') {
+        return syncResult(
+          { kind: 'failed' },
+          `${failure}. Your saved local changes were restored.`
+        );
+      }
+      const stored = stashResult === 'stored';
+      return syncResult(
+        { kind: 'failed', recovery: savedChangesRecovery(stashSha, stored) },
+        stashRecoveryMessage(`${failure}. The ${abortOperation} did not start`, stashSha, stored)
+      );
     }
 
     const stored = await storeStashForRecovery(worktreePath, stashSha, storeMessage);
-    return operationState === 'active'
-      ? abortFailedWithStashMessage(operation, stashSha, stored)
-      : abortStateUnknownWithStashMessage(operation, abortOperation, stashSha, stored);
+    return syncResult(
+      {
+        kind: 'abort-failed',
+        operationState,
+        recovery: savedChangesRecovery(stashSha, stored),
+      },
+      operationState === 'active'
+        ? abortFailedWithStashMessage(operation, stashSha, stored)
+        : abortStateUnknownWithStashMessage(operation, abortOperation, stashSha, stored)
+    );
   }
 
   const stashResult = await applyStashOrStore(worktreePath, stashSha, storeMessage);
   gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-  return stashResult === 'applied'
-    ? restoredAfterAbortMessage(operation)
-    : stashRecoveryMessage(`${operation} was aborted`, stashSha, stashResult === 'stored');
+  if (stashResult === 'applied') {
+    return syncResult({ kind: 'aborted' }, restoredAfterAbortMessage(operation));
+  }
+  const stored = stashResult === 'stored';
+  return syncResult(
+    { kind: 'aborted', recovery: savedChangesRecovery(stashSha, stored) },
+    stashRecoveryMessage(`${operation} was aborted`, stashSha, stored)
+  );
 }
 
-async function restoreStashAfterSuccessfulOperation(
+/**
+ * How a merge, rebase or pull that failed with no saved changes left the workspace: with
+ * conflicts active for the user to resolve, in a state Komla could not inspect, or with nothing
+ * active. `operation` is what a pause would be completed as, and `label` names it in messages.
+ */
+async function inspectFailedOperation(
   worktreePath: string,
-  stashSha: string,
-  storeMessage: string,
-  completedOperation: string
-): Promise<string | undefined> {
-  const stashResult = await applyStashOrStore(worktreePath, stashSha, storeMessage);
-  return stashResult === 'applied'
-    ? undefined
-    : stashRecoveryMessage(completedOperation, stashSha, stashResult === 'stored');
+  operation: SyncOperation,
+  label: string,
+  operationError: unknown,
+  fallback: string
+): Promise<GitSyncResult> {
+  const inspection = await inspectConflicts(worktreePath);
+  if (inspection.status === 'error') {
+    gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
+    return syncResult(
+      { kind: 'unverified' },
+      unverifiedOperationMessage(label, worktreePath, operationError, inspection.error)
+    );
+  }
+  if (inspection.files.length > 0) {
+    // A paused rebase leaves HEAD detached.
+    if (operation === 'rebase') gitExec.invalidateCache(`currentBranch:${worktreePath}`);
+    gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
+    return syncResult(
+      { kind: 'conflicts', files: inspection.files },
+      activeConflictMessage(label, inspection.files, SYNC_OPERATIONS[operation].completion)
+    );
+  }
+  return syncResult({ kind: 'failed' }, extractGitError(operationError, fallback));
 }
 
 export interface BranchInfo {
@@ -484,7 +562,7 @@ class GitBranchService {
     worktreePath: string,
     branchName: string,
     force = false
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{ success: boolean; message: string; errorCode?: 'not-fully-merged' }> {
     try {
       // Don't allow deleting main/master
       if (branchName === 'main' || branchName === 'master') {
@@ -509,6 +587,7 @@ class GitBranchService {
         return {
           success: false,
           message: `Branch ${branchName} is not fully merged. Use force delete if you're sure.`,
+          errorCode: 'not-fully-merged',
         };
       }
       return { success: false, message: errMsg };
@@ -565,80 +644,82 @@ class GitBranchService {
     }
   }
 
-  async mergeFrom(
+  /**
+   * Merges `branchName` into the workspace's branch, or rebases the workspace's branch onto it,
+   * and reports how that ended. With `stash`, uncommitted changes are saved first and put back
+   * after, and a failed operation is aborted; with nothing saved, its conflicts stay active for
+   * the user to resolve. `resolveBranch` runs once uncommitted changes are known not to block.
+   */
+  private async updateFromBranch(
     worktreePath: string,
-    branchName: string,
-    options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> {
-    const STORE_MSG = 'komla-auto-stash-before-merge';
+    operation: SyncOperation,
+    options: { stash?: boolean } | undefined,
+    resolveBranch: () => Promise<string | GitSyncResult>
+  ): Promise<GitSyncResult> {
+    const spec = SYNC_OPERATIONS[operation];
     try {
       const hasChanges = await gitExec.hasUncommittedChanges(worktreePath);
       const shouldStash = !!(options?.stash && hasChanges);
 
       if (hasChanges && !shouldStash) {
-        return { success: false, message: `${UNCOMMITTED_CHANGES_PREFIX} merging` };
+        return syncResult(
+          { kind: 'uncommitted-changes' },
+          `${UNCOMMITTED_CHANGES_PREFIX} ${spec.blockedAction}`
+        );
       }
 
-      const mergeRef = await this.resolveUpdateRef(worktreePath, branchName);
+      const branchName = await resolveBranch();
+      if (typeof branchName !== 'string') return branchName;
+
+      const updateRef = await this.resolveUpdateRef(worktreePath, branchName);
       const stashSha = shouldStash ? await createStashAndReset(worktreePath) : undefined;
 
       let output: string;
       try {
-        output = await gitExec.execGitAsync(worktreePath, ['merge', mergeRef]);
+        output = await gitExec.execGitAsync(worktreePath, [operation, updateRef]);
       } catch (error) {
-        if (stashSha) {
-          return {
-            success: false,
-            message: await recoverStashAfterFailedOperation(
+        return stashSha
+          ? await recoverStashAfterFailedOperation(worktreePath, stashSha, operation, error)
+          : await inspectFailedOperation(
               worktreePath,
-              stashSha,
-              STORE_MSG,
-              'merge',
-              'Merge',
-              error
-            ),
-          };
-        }
-        const inspection = await inspectConflicts(worktreePath);
-        if (inspection.status === 'error') {
-          gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-          return {
-            success: false,
-            message: unverifiedOperationMessage('Merge', worktreePath, error, inspection.error),
-          };
-        }
-        if (inspection.files.length > 0) {
-          gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-          return {
-            success: false,
-            message: activeConflictMessage('Merge', inspection.files, 'complete the merge'),
-          };
-        }
-        return { success: false, message: extractGitError(error, 'Merge failed') };
+              operation,
+              spec.pausedLabel(branchName),
+              error,
+              `${spec.name} failed`
+            );
       }
 
       gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
 
       if (stashSha) {
-        const recoveryMessage = await restoreStashAfterSuccessfulOperation(
-          worktreePath,
-          stashSha,
-          STORE_MSG,
-          `Merged ${branchName}`
-        );
+        const stashResult = await applyStashOrStore(worktreePath, stashSha, spec.storeMessage);
         gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-        if (recoveryMessage) {
-          return { success: false, message: recoveryMessage };
+        if (stashResult !== 'applied') {
+          const stored = stashResult === 'stored';
+          return syncResult(
+            { kind: 'completed-unrestored', recovery: savedChangesRecovery(stashSha, stored) },
+            stashRecoveryMessage(spec.completed(branchName), stashSha, stored)
+          );
         }
       }
 
-      if (output.includes('Already up to date')) {
-        return { success: true, message: 'Already up to date' };
-      }
-      return { success: true, message: `Merged ${branchName} successfully` };
+      return output.includes(spec.upToDateOutput)
+        ? syncResult({ kind: 'completed', upToDate: true }, 'Already up to date')
+        : syncResult(
+            { kind: 'completed', upToDate: false },
+            `${spec.completed(branchName)} successfully`
+          );
     } catch (error) {
-      return { success: false, message: extractGitError(error, 'Merge failed') };
+      return syncResult({ kind: 'failed' }, extractGitError(error, `${spec.name} failed`));
     }
+  }
+
+  mergeFrom(
+    worktreePath: string,
+    branchName: string,
+    options?: { stash?: boolean }
+  ): Promise<GitSyncResult> {
+    return this.updateFromBranch(worktreePath, 'merge', options, async () => branchName);
   }
 
   async mergeToTargetBranch(worktreePath: string): Promise<{ success: boolean; message: string }> {
@@ -1156,181 +1237,26 @@ class GitBranchService {
     }
   }
 
-  async rebaseOnTargetBranch(
+  rebaseOnTargetBranch(
     worktreePath: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> {
-    const STORE_MSG = 'komla-auto-stash-before-rebase';
-    try {
-      const hasChanges = await gitExec.hasUncommittedChanges(worktreePath);
-      const shouldStash = !!(options?.stash && hasChanges);
-
-      if (hasChanges && !shouldStash) {
-        return { success: false, message: `${UNCOMMITTED_CHANGES_PREFIX} rebasing` };
-      }
-
-      const mainBranch = await gitExec.getTargetBranch(worktreePath);
-      const rebaseRef = await this.resolveUpdateRef(worktreePath, mainBranch);
-      const stashSha = shouldStash ? await createStashAndReset(worktreePath) : undefined;
-
-      let rebaseResult: string;
-      try {
-        rebaseResult = await gitExec.execGitAsync(worktreePath, ['rebase', rebaseRef]);
-      } catch (error) {
-        if (stashSha) {
-          return {
-            success: false,
-            message: await recoverStashAfterFailedOperation(
-              worktreePath,
-              stashSha,
-              STORE_MSG,
-              'rebase',
-              'Rebase',
-              error
-            ),
-          };
-        }
-        const inspection = await inspectConflicts(worktreePath);
-        if (inspection.status === 'error') {
-          gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-          return {
-            success: false,
-            message: unverifiedOperationMessage(
-              `Rebase onto ${mainBranch}`,
-              worktreePath,
-              error,
-              inspection.error
-            ),
-          };
-        }
-        if (inspection.files.length > 0) {
-          gitExec.invalidateCache(`currentBranch:${worktreePath}`);
-          gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-          return {
-            success: false,
-            message: activeConflictMessage(
-              `Rebase onto ${mainBranch}`,
-              inspection.files,
-              'continue the rebase'
-            ),
-          };
-        }
-        return { success: false, message: extractGitError(error, 'Rebase failed') };
-      }
-
-      gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-
-      if (stashSha) {
-        const recoveryMessage = await restoreStashAfterSuccessfulOperation(
-          worktreePath,
-          stashSha,
-          STORE_MSG,
-          `Rebased on ${mainBranch}`
-        );
-        gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-        if (recoveryMessage) {
-          return { success: false, message: recoveryMessage };
-        }
-      }
-
-      if (rebaseResult.includes('is up to date')) {
-        return { success: true, message: 'Already up to date' };
-      }
-      return { success: true, message: `Rebased on ${mainBranch} successfully` };
-    } catch (error) {
-      return { success: false, message: extractGitError(error, 'Rebase failed') };
-    }
+  ): Promise<GitSyncResult> {
+    return this.updateFromBranch(worktreePath, 'rebase', options, () =>
+      gitExec.getTargetBranch(worktreePath)
+    );
   }
 
-  async rebaseOnBranch(
+  rebaseOnBranch(
     worktreePath: string,
     branchName: string,
     options?: { stash?: boolean }
-  ): Promise<{ success: boolean; message: string }> {
-    const STORE_MSG = 'komla-auto-stash-before-rebase';
-    try {
-      const hasChanges = await gitExec.hasUncommittedChanges(worktreePath);
-      const shouldStash = !!(options?.stash && hasChanges);
-
-      if (hasChanges && !shouldStash) {
-        return { success: false, message: `${UNCOMMITTED_CHANGES_PREFIX} rebasing` };
-      }
-
+  ): Promise<GitSyncResult> {
+    return this.updateFromBranch(worktreePath, 'rebase', options, async () => {
       const currentBranch = await gitExec.getCurrentBranch(worktreePath);
-      if (currentBranch === branchName) {
-        return { success: false, message: 'Cannot rebase onto the current branch' };
-      }
-
-      const rebaseRef = await this.resolveUpdateRef(worktreePath, branchName);
-      const stashSha = shouldStash ? await createStashAndReset(worktreePath) : undefined;
-
-      let rebaseResult: string;
-      try {
-        rebaseResult = await gitExec.execGitAsync(worktreePath, ['rebase', rebaseRef]);
-      } catch (error) {
-        if (stashSha) {
-          return {
-            success: false,
-            message: await recoverStashAfterFailedOperation(
-              worktreePath,
-              stashSha,
-              STORE_MSG,
-              'rebase',
-              'Rebase',
-              error
-            ),
-          };
-        }
-        const inspection = await inspectConflicts(worktreePath);
-        if (inspection.status === 'error') {
-          gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-          return {
-            success: false,
-            message: unverifiedOperationMessage(
-              `Rebase onto ${branchName}`,
-              worktreePath,
-              error,
-              inspection.error
-            ),
-          };
-        }
-        if (inspection.files.length > 0) {
-          gitExec.invalidateCache(`currentBranch:${worktreePath}`);
-          gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-          return {
-            success: false,
-            message: activeConflictMessage(
-              `Rebase onto ${branchName}`,
-              inspection.files,
-              'continue the rebase'
-            ),
-          };
-        }
-        return { success: false, message: extractGitError(error, 'Rebase failed') };
-      }
-
-      gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-
-      if (stashSha) {
-        const recoveryMessage = await restoreStashAfterSuccessfulOperation(
-          worktreePath,
-          stashSha,
-          STORE_MSG,
-          `Rebased on ${branchName}`
-        );
-        gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-        if (recoveryMessage) {
-          return { success: false, message: recoveryMessage };
-        }
-      }
-
-      if (rebaseResult.includes('is up to date')) {
-        return { success: true, message: 'Already up to date' };
-      }
-      return { success: true, message: `Rebased on ${branchName} successfully` };
-    } catch (error) {
-      return { success: false, message: extractGitError(error, 'Rebase failed') };
-    }
+      return currentBranch === branchName
+        ? syncResult({ kind: 'failed' }, 'Cannot rebase onto the current branch')
+        : branchName;
+    });
   }
 
   async abortRebase(worktreePath: string): Promise<{ success: boolean; message: string }> {
@@ -1532,25 +1458,22 @@ class GitBranchService {
     }
   }
 
-  async pull(
-    worktreePath: string,
-    onProgress?: GitProgressCallback
-  ): Promise<{ success: boolean; message: string }> {
+  async pull(worktreePath: string, onProgress?: GitProgressCallback): Promise<GitSyncResult> {
     try {
       // Check for uncommitted changes first
       const hasChanges = await gitExec.hasUncommittedChanges(worktreePath);
       if (hasChanges) {
-        return { success: false, message: `${UNCOMMITTED_CHANGES_PREFIX} pulling` };
+        return syncResult({ kind: 'uncommitted-changes' }, `${UNCOMMITTED_CHANGES_PREFIX} pulling`);
       }
 
       // Read HEAD live: the cached branch can be stale after a checkout in a terminal.
       const branch = await gitExec.getCheckedOutBranch(worktreePath);
       if (!branch) {
-        return { success: false, message: 'No branch is checked out to pull' };
+        return syncResult({ kind: 'failed' }, 'No branch is checked out to pull');
       }
       const source = await this.resolvePullSource(worktreePath, branch);
       if (!source) {
-        return { success: false, message: 'No remote tracking branch configured' };
+        return syncResult({ kind: 'failed' }, 'No remote tracking branch configured');
       }
 
       const output = await gitExec.execGitWithProgress(
@@ -1565,53 +1488,34 @@ class GitBranchService {
 
       // Check if already up to date
       if (output.includes('Already up to date')) {
-        return { success: true, message: 'Already up to date' };
+        return syncResult({ kind: 'completed', upToDate: true }, 'Already up to date');
       }
 
-      return { success: true, message: 'Pulled changes successfully' };
+      return syncResult({ kind: 'completed', upToDate: false }, 'Pulled changes successfully');
     } catch (error) {
-      // Check for conflicts
-      const inspection = await inspectConflicts(worktreePath);
-      if (inspection.status === 'error') {
-        gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-        return {
-          success: false,
-          message: unverifiedOperationMessage('Pull', worktreePath, error, inspection.error),
-        };
-      }
-      if (inspection.files.length > 0) {
-        gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-        return {
-          success: false,
-          message: activeConflictMessage('Pull', inspection.files, 'complete the merge'),
-        };
-      }
-      return { success: false, message: extractGitError(error, 'Pull failed') };
+      return inspectFailedOperation(worktreePath, 'merge', 'Pull', error, 'Pull failed');
     }
   }
 
-  async pullRebase(
-    worktreePath: string,
-    onProgress?: GitProgressCallback
-  ): Promise<{ success: boolean; message: string }> {
+  async pullRebase(worktreePath: string, onProgress?: GitProgressCallback): Promise<GitSyncResult> {
     try {
       const hasChanges = await gitExec.hasUncommittedChanges(worktreePath);
       if (hasChanges) {
-        return { success: false, message: `${UNCOMMITTED_CHANGES_PREFIX} pulling` };
+        return syncResult({ kind: 'uncommitted-changes' }, `${UNCOMMITTED_CHANGES_PREFIX} pulling`);
       }
 
       const currentBranch = await gitExec.getCurrentBranch(worktreePath);
       const targetBranch = await gitExec.getTargetBranch(worktreePath);
       if (currentBranch === targetBranch) {
-        return {
-          success: false,
-          message: `Pull (rebase) is not allowed on ${targetBranch}; use the main pull flow instead`,
-        };
+        return syncResult(
+          { kind: 'failed' },
+          `Pull (rebase) is not allowed on ${targetBranch}; use the main pull flow instead`
+        );
       }
 
       const hasRemote = await gitExec.hasRemoteTrackingBranch(worktreePath);
       if (!hasRemote) {
-        return { success: false, message: 'No remote tracking branch configured' };
+        return syncResult({ kind: 'failed' }, 'No remote tracking branch configured');
       }
 
       let pullArgs = ['pull', '--rebase', '--progress'];
@@ -1632,7 +1536,7 @@ class GitBranchService {
           ]);
           pullArgs = ['pull', '--rebase', 'origin', currentBranch, '--progress'];
         } catch {
-          return { success: false, message: 'No upstream tracking branch configured' };
+          return syncResult({ kind: 'failed' }, 'No upstream tracking branch configured');
         }
       }
 
@@ -1643,44 +1547,27 @@ class GitBranchService {
       gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
 
       if (output.includes('Already up to date') || output.includes('is up to date')) {
-        return { success: true, message: 'Already up to date' };
+        return syncResult({ kind: 'completed', upToDate: true }, 'Already up to date');
       }
 
-      return { success: true, message: 'Rebased on remote changes' };
+      return syncResult({ kind: 'completed', upToDate: false }, 'Rebased on remote changes');
     } catch (error) {
-      const inspection = await inspectConflicts(worktreePath);
-      if (inspection.status === 'error') {
-        gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-        return {
-          success: false,
-          message: unverifiedOperationMessage(
-            'Pull with rebase',
-            worktreePath,
-            error,
-            inspection.error
-          ),
-        };
+      const result = await inspectFailedOperation(
+        worktreePath,
+        'rebase',
+        'Pull with rebase',
+        error,
+        'Pull with rebase failed'
+      );
+      if (result.outcome.kind === 'failed') {
+        // Clean up non-conflict failures if Git left rebase metadata behind.
+        try {
+          await gitExec.execGitAsync(worktreePath, ['rebase', '--abort']);
+        } catch {
+          // Ignore if no rebase in progress
+        }
       }
-      if (inspection.files.length > 0) {
-        gitExec.invalidateCache(`currentBranch:${worktreePath}`);
-        gitExec.invalidateCache(`hasUncommittedChanges:${worktreePath}`);
-        return {
-          success: false,
-          message: activeConflictMessage(
-            'Pull with rebase',
-            inspection.files,
-            'continue the rebase'
-          ),
-        };
-      }
-
-      // Clean up non-conflict failures if Git left rebase metadata behind.
-      try {
-        await gitExec.execGitAsync(worktreePath, ['rebase', '--abort']);
-      } catch {
-        // Ignore if no rebase in progress
-      }
-      return { success: false, message: extractGitError(error, 'Pull with rebase failed') };
+      return result;
     }
   }
 

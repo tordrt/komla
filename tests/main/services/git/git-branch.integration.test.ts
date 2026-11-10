@@ -447,6 +447,7 @@ describe('GitBranchService integration', () => {
     const result = await gitBranchService.mergeFrom(repoPath, 'topic', { stash: true });
 
     expect(result.success).toBe(false);
+    expect(result.outcome).toEqual({ kind: 'aborted' });
     expect(result.message).toContain('was aborted');
     expect(result.message).not.toContain('safely');
     expect(result.message).toContain('saved local changes were restored');
@@ -470,6 +471,7 @@ describe('GitBranchService integration', () => {
     const result = await gitBranchService.rebaseOnBranch(repoPath, baseBranch, { stash: true });
 
     expect(result.success).toBe(false);
+    expect(result.outcome).toEqual({ kind: 'aborted' });
     expect(result.message).toContain('was aborted');
     expect(result.message).not.toContain('safely');
     expect(result.message).toContain('saved local changes were restored');
@@ -504,7 +506,11 @@ describe('GitBranchService integration', () => {
 
     const result = await gitBranchService.rebaseOnTargetBranch(repoPath);
 
-    expect(result).toEqual({ success: true, message: 'Rebased on main successfully' });
+    expect(result).toEqual({
+      success: true,
+      message: 'Rebased on main successfully',
+      outcome: { kind: 'completed', upToDate: false },
+    });
     expect(await runGit(repoPath, ['rev-list', '--count', 'HEAD..origin/main'])).toBe('0');
     expect(await runGit(repoPath, ['rev-parse', 'main'])).toBe(
       await runGit(repoPath, ['rev-parse', 'origin/main'])
@@ -517,7 +523,11 @@ describe('GitBranchService integration', () => {
     const { gitBranchService } = await import('../../../../src/main/services/git/git-branch');
     const result = await gitBranchService.mergeFrom(repoPath, 'main');
 
-    expect(result).toEqual({ success: true, message: 'Merged main successfully' });
+    expect(result).toEqual({
+      success: true,
+      message: 'Merged main successfully',
+      outcome: { kind: 'completed', upToDate: false },
+    });
     expect(await runGit(repoPath, ['rev-list', '--count', 'HEAD..origin/main'])).toBe('0');
     expect(await runGit(repoPath, ['log', '-1', '--format=%s'])).toBe(
       "Merge branch 'main' into topic"
@@ -548,7 +558,11 @@ describe('GitBranchService integration', () => {
 
     const result = await gitBranchService.rebaseOnTargetBranch(repoPath);
 
-    expect(result).toEqual({ success: true, message: 'Rebased on develop successfully' });
+    expect(result).toEqual({
+      success: true,
+      message: 'Rebased on develop successfully',
+      outcome: { kind: 'completed', upToDate: false },
+    });
     expect(await runGit(repoPath, ['rev-list', '--count', 'HEAD..origin/develop'])).toBe('0');
   });
 
@@ -612,7 +626,11 @@ describe('GitBranchService integration', () => {
       const { gitBranchService } = await import('../../../../src/main/services/git/git-branch');
       const result = await gitBranchService.mergeFrom(repoPath, 'main');
 
-      expect(result).toEqual({ success: true, message: 'Merged main successfully' });
+      expect(result).toEqual({
+        success: true,
+        message: 'Merged main successfully',
+        outcome: { kind: 'completed', upToDate: false },
+      });
       expect(await runGit(repoPath, ['log', '-1', '--format=%s'])).toBe(
         "Merge remote-tracking branch 'origin/main' into topic"
       );
@@ -632,7 +650,11 @@ describe('GitBranchService integration', () => {
       const { gitBranchService } = await import('../../../../src/main/services/git/git-branch');
       const result = await gitBranchService.rebaseOnTargetBranch(repoPath);
 
-      expect(result).toEqual({ success: true, message: 'Rebased on main successfully' });
+      expect(result).toEqual({
+        success: true,
+        message: 'Rebased on main successfully',
+        outcome: { kind: 'completed', upToDate: false },
+      });
       expect(await runGit(repoPath, ['rev-list', '--count', 'HEAD..origin/main'])).toBe('0');
       expect(await runGit(targetPath, ['rev-parse', 'HEAD'])).toBe(localTargetCommit);
       expect(await runGit(targetPath, ['status', '--porcelain'])).toBe('');
@@ -654,7 +676,11 @@ describe('GitBranchService integration', () => {
     const { gitService } = await import('../../../../src/main/services/git');
     const result = await gitService.rebaseOnBranch(repoPath, baseBranch, { stash: true });
 
-    expect(result).toEqual({ success: true, message: `Rebased on ${baseBranch} successfully` });
+    expect(result).toEqual({
+      success: true,
+      message: `Rebased on ${baseBranch} successfully`,
+      outcome: { kind: 'completed', upToDate: false },
+    });
     expect(readFileSync(join(repoPath, 'local.txt'), 'utf8')).toBe('uncommitted\n');
   });
 

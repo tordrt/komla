@@ -132,6 +132,10 @@ import { resolveBranchPrefix } from '../../../shared/lib/project-git-defaults';
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
 import { generateBranchSuffix, branchSuffixToName } from '../../../shared/lib/random-names';
 import { orderByRecentUse, withRecentProject } from '../../../shared/lib/recent-projects';
+import {
+  isProvisioning,
+  workspaceProvisionFailure,
+} from '../../../shared/lib/workspace-provision-state';
 import { MAX_PROMPT_ATTACHMENTS } from '../../../shared/types/workspace';
 
 import type { NewWorkspaceDialogAction } from '../../../shared/constants/shortcut-scopes';
@@ -1342,11 +1346,11 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     try {
       const workspace = await createWorkspace(createParams);
       created = true;
-      if (!workspace.provisionError) {
+      if (!workspaceProvisionFailure(workspace)) {
         useDialogsStore.getState().setNewWorkspaceDialogAttachments([]);
         onLaunch?.(createParams.presetId ? [createParams.presetId] : []);
         if (undo) offerUndo([workspace], undo);
-        if (workspace.provisioning && submittedPrompt) {
+        if (isProvisioning(workspace) && submittedPrompt) {
           useDialogsStore
             .getState()
             .retainProvisioningWorkspacePrompt(workspace.id, submittedPrompt);
@@ -1391,13 +1395,15 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
       );
       onLaunch?.(
         createParams.flatMap((params, index) =>
-          params.presetId && !workspaces[index]?.provisionError ? [params.presetId] : []
+          params.presetId && !workspaceProvisionFailure(workspaces[index]) ? [params.presetId] : []
         )
       );
-      const hasProvisionError = workspaces.some((workspace) => workspace.provisionError);
+      const hasProvisionError = workspaces.some((workspace) =>
+        workspaceProvisionFailure(workspace)
+      );
       if (!hasProvisionError) {
         workspaces.forEach((workspace) => {
-          if (workspace.provisioning && submittedPrompt) {
+          if (isProvisioning(workspace) && submittedPrompt) {
             useDialogsStore
               .getState()
               .retainProvisioningWorkspacePrompt(workspace.id, submittedPrompt);

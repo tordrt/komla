@@ -15,6 +15,7 @@ import {
 } from '../../shared/lib/terminal-execution-state';
 import { normalizeVirtualDesktops } from '../../shared/lib/virtual-desktops';
 import { withoutWorkspaceMarker } from '../../shared/lib/workspace-markers';
+import { isProvisioning } from '../../shared/lib/workspace-provision-state';
 import {
   normalizeWorkspaceTags,
   pullRequestTagUpdate,
@@ -162,7 +163,7 @@ const AGENT_TURN_ACTIVITY_INTERVAL_MS = 60 * 1000;
 
 /** A local workspace outside the Trash that has finished being created, which a launch can restart. */
 function isRestorable(workspace: Workspace): boolean {
-  return workspace.status === 'active' && !workspace.provisioning && !isSshWorkspace(workspace);
+  return workspace.status === 'active' && !isProvisioning(workspace) && !isSshWorkspace(workspace);
 }
 
 /**

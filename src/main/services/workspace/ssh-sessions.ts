@@ -6,6 +6,10 @@ import {
   hostCheckStamp,
   needsHostCheck,
 } from '../../../shared/lib/terminal-execution-state';
+import {
+  isMissingFromHost,
+  workspaceProvisionFieldsAfter,
+} from '../../../shared/lib/workspace-provision-state';
 import { isSshWorkspace, type SshWorkspaceBackend } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
 import {
@@ -57,7 +61,7 @@ export class SshSessionRecovery {
     const checked = (workspace: Workspace) =>
       workspaceStore.workspaces.get(workspace.id) === workspace &&
       workspace.status === 'active' &&
-      !workspace.removedFromHost &&
+      !isMissingFromHost(workspace) &&
       !workspaceStore.isDeleting(workspace.id);
     const changed = new Set<Workspace>();
     let ended = false;
@@ -202,7 +206,10 @@ export class SshSessionRecovery {
         });
         throw error;
       });
-      workspace.provisionError = 'This workspace’s SSH host is no longer configured.';
+      Object.assign(
+        workspace,
+        workspaceProvisionFieldsAfter(workspace, { kind: 'host-not-configured' })
+      );
       workspaceStore.saveWorkspaces();
       workspaceStore.broadcastWorkspacesChanged();
       logger.warn('Skipping SSH session recovery for workspace with missing host', {
@@ -226,7 +233,10 @@ export class SshSessionRecovery {
         throw error;
       });
     if (recovery.hostMissing) {
-      workspace.provisionError = 'This workspace’s SSH host is no longer configured.';
+      Object.assign(
+        workspace,
+        workspaceProvisionFieldsAfter(workspace, { kind: 'host-not-configured' })
+      );
       workspaceStore.saveWorkspaces();
       workspaceStore.broadcastWorkspacesChanged();
       logger.warn('Skipping SSH session recovery for workspace with missing host', {

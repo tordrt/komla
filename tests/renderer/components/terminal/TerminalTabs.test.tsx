@@ -240,7 +240,7 @@ describe('TerminalTabs', () => {
         createWorkspace({
           id: WORKSPACE_ID,
           provisionError: 'This workspace’s files are no longer on its SSH host.',
-          removedFromHost: true,
+          provisionErrorReason: 'missing-from-host',
         }),
       ],
       selectedWorkspaceId: WORKSPACE_ID,

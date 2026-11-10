@@ -20,6 +20,7 @@ import { useToastStore } from '@/stores/toast.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 import { TRASH_RETENTION_DAYS } from '@/types';
 
+import { isProvisioning } from '../../../shared/lib/workspace-provision-state';
 import { getWorkspaceDisplayTitle } from '../../../shared/lib/workspace-title';
 import { isSshWorkspace } from '../../../shared/types';
 
@@ -104,7 +105,7 @@ function locationOf(workspace: Workspace): string {
 /** The project's workspaces that cleanup may offer. */
 function isCleanupCandidate(workspace: Workspace, projectId: string): boolean {
   return (
-    workspace.projectId === projectId && workspace.status === 'active' && !workspace.provisioning
+    workspace.projectId === projectId && workspace.status === 'active' && !isProvisioning(workspace)
   );
 }
 

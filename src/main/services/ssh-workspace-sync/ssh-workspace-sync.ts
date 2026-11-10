@@ -1,5 +1,6 @@
 import { posix as pathPosix } from 'path';
 
+import { isMissingFromHost } from '../../../shared/lib/workspace-provision-state';
 import { getWorkspaceDynamicTitle } from '../../../shared/lib/workspace-title';
 import {
   isSshWorkspace,
@@ -522,7 +523,7 @@ export class SshWorkspaceSync {
     if (!workspace || !isSshWorkspace(workspace)) {
       throw new Error(`SSH workspace ${workspaceId} not found`);
     }
-    if (!workspace.removedFromHost) {
+    if (!isMissingFromHost(workspace)) {
       throw new Error('This workspace’s files are on its SSH host again.');
     }
     const { backend } = workspace;
@@ -615,7 +616,7 @@ export class SshWorkspaceSync {
         isSshWorkspace(workspace) &&
         workspace.backend.hostId === hostId &&
         workspace.backend.remoteDirectory === remoteDirectory &&
-        !workspace.removedFromHost &&
+        !isMissingFromHost(workspace) &&
         !store.isDeleting(workspace.id)
       ) {
         return workspace;
@@ -648,7 +649,7 @@ export class SshWorkspaceSync {
       (workspace) => isSshWorkspace(workspace) && workspace.backend.hostId === hostId
     );
     for (const workspace of onHost) {
-      if (workspace.removedFromHost && isSshWorkspace(workspace)) {
+      if (isMissingFromHost(workspace) && isSshWorkspace(workspace)) {
         const { remoteDirectory } = workspace.backend;
         // A new workspace on the same branch can recreate the directory of one deleted without a trace.
         const reused = manifests.some(

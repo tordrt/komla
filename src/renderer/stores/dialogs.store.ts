@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 
+import {
+  type WorkspaceProvisionFields,
+  isProvisioning,
+  workspaceProvisionFailure,
+} from '../../shared/lib/workspace-provision-state';
+
 import type { NewWorkspaceDraft } from '../../shared/types/workspace';
 import type { LaunchTarget, WorkspaceEnvironmentTarget } from '@/lib/agent-launch';
 import type { Workspace } from '@/types';
@@ -62,7 +68,7 @@ interface DialogsState {
   setNewWorkspaceDialogPrefill: (prefill: NewWorkspaceDialogPrefill | null) => void;
   retainProvisioningWorkspacePrompt: (workspaceId: string, prompt: string) => void;
   settleProvisioningWorkspacePrompt: (
-    workspace: Pick<Workspace, 'id' | 'provisioning' | 'provisionError'>
+    workspace: Pick<Workspace, 'id'> & WorkspaceProvisionFields
   ) => void;
 }
 
@@ -105,7 +111,7 @@ export const useDialogsStore = create<DialogsState>((set) => ({
   },
 
   settleProvisioningWorkspacePrompt: (workspace) => {
-    if (workspace.provisioning) return;
+    if (isProvisioning(workspace)) return;
     set((state) => {
       const prompt = state.pendingWorkspacePrompts[workspace.id];
       if (!prompt) return state;
@@ -115,7 +121,7 @@ export const useDialogsStore = create<DialogsState>((set) => ({
       return {
         pendingWorkspacePrompts,
         newWorkspaceDialogPrompt:
-          workspace.provisionError && !state.newWorkspaceDialogPrompt
+          workspaceProvisionFailure(workspace) && !state.newWorkspaceDialogPrompt
             ? prompt
             : state.newWorkspaceDialogPrompt,
       };

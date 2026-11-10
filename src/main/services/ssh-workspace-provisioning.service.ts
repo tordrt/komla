@@ -1,3 +1,8 @@
+import {
+  isProvisioning,
+  workspaceProvisionFailure,
+  workspaceProvisionFieldsAfter,
+} from '../../shared/lib/workspace-provision-state';
 import { isSshWorkspace } from '../../shared/types/workspace';
 import { createLogger } from '../lib/logger';
 
@@ -213,7 +218,7 @@ export class SshWorkspaceProvisioningService {
             workspace,
             companion
           );
-          if (workspace.provisioning) {
+          if (isProvisioning(workspace)) {
             workspace.provisioningBranchCreated = createdBranch;
             workspace.provisioningWorktreeCreated = createdWorktree;
             await this.dependencies.persistWorkspaces();
@@ -248,9 +253,7 @@ export class SshWorkspaceProvisioningService {
   complete(workspace: Workspace): void {
     if (!isSshWorkspace(workspace))
       throw new Error('SSH workspace provisioning requires an SSH workspace');
-    workspace.provisioning = false;
-    workspace.provisionStatus = undefined;
-    workspace.provisionError = undefined;
+    Object.assign(workspace, workspaceProvisionFieldsAfter(workspace, { kind: 'completed' }));
     workspace.provisioningBranchCreated = undefined;
     workspace.provisioningWorktreeCreated = undefined;
   }
@@ -281,13 +284,17 @@ export class SshWorkspaceProvisioningService {
         reason,
         error,
       });
-      if (reason === 'interrupted') {
-        workspace.provisioning = false;
-        workspace.provisionStatus = undefined;
-        workspace.provisionError =
-          'Workspace setup was interrupted and its remote resources could not be cleaned up. Delete this workspace to retry cleanup.';
-      } else if (reason === 'failed') {
-        workspace.provisionError = `${workspace.provisionError} Remote cleanup also failed; delete this workspace to retry cleanup.`;
+      const message =
+        reason === 'interrupted'
+          ? 'Workspace setup was interrupted and its remote resources could not be cleaned up. Delete this workspace to retry cleanup.'
+          : reason === 'failed'
+            ? `${workspaceProvisionFailure(workspace)?.error} Remote cleanup also failed; delete this workspace to retry cleanup.`
+            : undefined;
+      if (message !== undefined) {
+        Object.assign(
+          workspace,
+          workspaceProvisionFieldsAfter(workspace, { kind: 'failed', error: message })
+        );
       }
       return 'retain';
     }

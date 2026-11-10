@@ -1122,8 +1122,8 @@ describe('SshWorkspaceSync', () => {
 
   it('checks again on a workspace whose files were missing', async () => {
     const { manifests, inspect, store, hold } = service();
-    const deleted = sshWorkspace({ removedFromHost: true, provisionError: 'gone' });
-    const back = sshWorkspace({ id: 'ws-50', removedFromHost: true, provisionError: 'gone' });
+    const deleted = sshWorkspace({ provisionErrorReason: 'missing-from-host', provisionError: 'gone' });
+    const back = sshWorkspace({ id: 'ws-50', provisionErrorReason: 'missing-from-host', provisionError: 'gone' });
     inspect.mockImplementation(async (_backend, workspaceId) =>
       workspaceId === 'ws-42' ? { state: 'deleted' } : { state: 'present' }
     );
@@ -1138,7 +1138,7 @@ describe('SshWorkspaceSync', () => {
 
   it('does not count files another workspace now uses as found again', async () => {
     const { manifests, inspect, read, store, hold } = service();
-    const missing = sshWorkspace({ removedFromHost: true, provisionError: 'gone' });
+    const missing = sshWorkspace({ provisionErrorReason: 'missing-from-host', provisionError: 'gone' });
     // Created later on the same branch, in the directory the missing one had.
     read.mockResolvedValue([fromOtherDevice(sshWorkspace({ id: 'ws-50' }))]);
     inspect.mockResolvedValue({ state: 'present' });

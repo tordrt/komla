@@ -7,6 +7,10 @@ import {
   normalizeSshStartPoint,
   normalizeSshTargetBranch,
 } from '../../../shared/lib/ssh-target-branch';
+import {
+  provisioningFailed,
+  workspaceProvisionFieldsAfter,
+} from '../../../shared/lib/workspace-provision-state';
 import { isSshWorkspace } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
 import { agentPresetService } from '../agent-preset.service';
@@ -642,9 +646,7 @@ export class WorkspaceProvisioning {
     workspace.branchName = branchName;
     workspace.baseBranch = baseBranch;
     workspace.name = branchSuffixToName(branchSuffixForName) || workspace.name;
-    workspace.provisioning = false;
-    workspace.provisionStatus = undefined;
-    workspace.provisionError = undefined;
+    Object.assign(workspace, workspaceProvisionFieldsAfter(workspace, { kind: 'completed' }));
     workspace.provisioningRepoPath = undefined;
     // SSH provisioning clears its own ownership flags once the workspace is safely persisted.
     if (!isSshWorkspace(workspace)) workspace.provisioningBranchCreated = undefined;
@@ -731,9 +733,7 @@ export class WorkspaceProvisioning {
       return;
     }
     if (ws) {
-      ws.provisioning = false;
-      ws.provisionStatus = undefined;
-      ws.provisionError = err instanceof Error ? err.message : 'Workspace setup failed';
+      Object.assign(ws, workspaceProvisionFieldsAfter(ws, provisioningFailed(err)));
       ws.provisioningRepoPath = undefined;
       try {
         workspaceStore.broadcastWorkspaceUpdate(ws);
@@ -786,8 +786,10 @@ export class WorkspaceProvisioning {
 
   private updateProvisionStatus(workspaceId: string, status: string): void {
     const workspace = workspaceStore.workspaces.get(workspaceId);
-    if (!workspace || !workspace.provisioning) return;
-    workspace.provisionStatus = status;
+    const progressed =
+      workspace && workspaceProvisionFieldsAfter(workspace, { kind: 'progressed', status });
+    if (!progressed) return;
+    Object.assign(workspace, progressed);
     workspaceStore.saveWorkspaces();
     try {
       workspaceStore.broadcastWorkspaceUpdate(workspace);

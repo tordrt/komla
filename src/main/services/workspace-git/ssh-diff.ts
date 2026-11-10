@@ -2,6 +2,7 @@ import { posix as pathPosix } from 'path';
 
 import { getMimeType, isImageFile } from '../../../shared/image-utils';
 import { shellQuotePosix } from '../../../shared/lib/shell-quote';
+import { hasWorkspaceFiles } from '../../../shared/lib/workspace-provision-state';
 import { commitInfoLogArgs, parseCommitInfo, toCommitDiff } from '../git/git-history';
 import { parseNameStatusZ, parseNumstatZ } from '../git/git-status';
 import { parsePorcelainZ, REMOTE_UNTRACKED_NUMSTAT_COMMAND } from '../ssh-git-status';
@@ -122,7 +123,7 @@ class SshWorkspaceDiff {
   private renameSources = new Map<string, Map<string, string>>();
 
   async getWorkingTreeDiff(workspace: Workspace): Promise<WorktreeDiff> {
-    if (workspace.provisioning || workspace.provisionError) {
+    if (!hasWorkspaceFiles(workspace)) {
       return { files: [], summary: { additions: 0, deletions: 0, filesChanged: 0 } };
     }
 
@@ -157,7 +158,7 @@ class SshWorkspaceDiff {
     branch: string,
     useMergeBase: boolean
   ): Promise<WorktreeDiff> {
-    if (workspace.provisioning || workspace.provisionError) {
+    if (!hasWorkspaceFiles(workspace)) {
       return { files: [], summary: { additions: 0, deletions: 0, filesChanged: 0 } };
     }
 

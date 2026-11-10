@@ -30,6 +30,7 @@ import { fillActionText } from '../../shared/lib/action-injection';
 import { actionLastUse, byRecentUse } from '../../shared/lib/action-order';
 import { projectColorHex } from '../../shared/lib/project-color';
 import { workspaceCardTagAppearance } from '../../shared/lib/workspace-markers';
+import { isProvisioning } from '../../shared/lib/workspace-provision-state';
 import { type WorkspaceTagDefinition } from '../../shared/lib/workspace-tags';
 import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
 import {
@@ -1695,7 +1696,7 @@ class RemoteControlAppSession implements RemoteControlSession {
       ...(workspace.branchName ? { branchName: workspace.branchName } : {}),
       ...this.tagField(workspace),
       status: workspace.status,
-      provisioning: workspace.provisioning === true,
+      provisioning: isProvisioning(workspace),
       ...(workspace.agentActive ? { agentActive: true } : {}),
       ...((attentionShown ? workspace.needsAttention : needsAttention(attention))
         ? { needsAttention: true }
@@ -1747,7 +1748,7 @@ class RemoteControlAppSession implements RemoteControlSession {
       !workspace.branchName ||
       !workspace.workingDirectory ||
       workspace.status !== 'active' ||
-      workspace.provisioning === true
+      isProvisioning(workspace)
     ) {
       return undefined;
     }

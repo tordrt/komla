@@ -1,5 +1,6 @@
 import { projectRepoPath } from '../../shared/lib/project-repo-path';
 import { toGitBranchQuickStatus } from '../../shared/lib/workspace-branch-status';
+import { hasWorkspaceFiles } from '../../shared/lib/workspace-provision-state';
 import { isSshWorkspace, resolveWorkspaceTargetBranch } from '../../shared/types/workspace';
 import { createLogger } from '../lib/logger';
 
@@ -57,7 +58,7 @@ class WorkspaceGitService {
   ): Promise<GitBranchQuickStatus> {
     const workspace = this.getWorkspace(workspaceId);
     logger.debug('getting workspace branch status', { workspaceId });
-    if (workspace.provisioning || workspace.provisionError) {
+    if (!hasWorkspaceFiles(workspace)) {
       return this.getProvisioningStatus(workspace);
     }
     if (workspace.backend?.kind === 'ssh') {

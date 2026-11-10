@@ -15,6 +15,12 @@ import {
   normalizeSshTargetBranch,
 } from '../../../shared/lib/ssh-target-branch';
 import {
+  encodeWorkspaceProvision,
+  isProvisioning,
+  provisioningFailed,
+  workspaceProvisionFieldsAfter,
+} from '../../../shared/lib/workspace-provision-state';
+import {
   isSshWorkspace,
   SshProjectNeedsRemoteError,
   type WorkspaceBackend,
@@ -574,7 +580,7 @@ export class WorkspaceCreation {
       : undefined;
 
     // Fail fast on branch conflicts when the caller didn't opt into auto-resolve.
-    // This lets API callers get an immediate error instead of a silent provisionError.
+    // This lets API callers get an immediate error instead of a workspace that silently failed.
     if (placeholderBranch && params.autoResolveBranchConflicts !== true) {
       const conflict = findBranchConflict(params.projectId!, placeholderBranch);
       if (conflict) {
@@ -623,7 +629,7 @@ export class WorkspaceCreation {
             modelId: resolveModelId(placeholderPreset, params.modelId),
           }
         : {}),
-      provisioning: true,
+      ...encodeWorkspaceProvision({ kind: 'provisioning' }),
       provisioningRepoPath:
         project.managed && project.managedRepoPath
           ? project.managedRepoPath
@@ -645,10 +651,8 @@ export class WorkspaceCreation {
     this.deps.provisioning.finishProvisioning(workspace.id, params, project).catch((err) => {
       logger.error(`Provisioning failed for workspace ${workspace.id}:`, err);
       const ws = workspaceStore.workspaces.get(workspace.id);
-      if (ws?.provisioning) {
-        ws.provisioning = false;
-        ws.provisionStatus = undefined;
-        ws.provisionError = err instanceof Error ? err.message : 'Workspace setup failed';
+      if (ws && isProvisioning(ws)) {
+        Object.assign(ws, workspaceProvisionFieldsAfter(ws, provisioningFailed(err)));
         ws.provisioningRepoPath = undefined;
         workspaceStore.saveWorkspaces();
         try {
@@ -760,8 +764,10 @@ export class WorkspaceCreation {
             modelId: resolveModelId(placeholderPreset, params.modelId),
           }
         : {}),
-      provisioning: true,
-      provisionStatus: providedBranch ? 'Checking remote branch' : 'Generating branch name',
+      ...encodeWorkspaceProvision({
+        kind: 'provisioning',
+        status: providedBranch ? 'Checking remote branch' : 'Generating branch name',
+      }),
     };
 
     workspaceStore.workspaces.set(workspace.id, workspace);

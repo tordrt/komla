@@ -735,7 +735,7 @@ describe('WorkspaceCard', () => {
       <WorkspaceCard
         workspace={createWorktreeWorkspace({
           provisionError: 'This workspace’s files are no longer on its SSH host.',
-          removedFromHost: true,
+          provisionErrorReason: 'missing-from-host',
         })}
       />
     );

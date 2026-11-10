@@ -1,5 +1,7 @@
 import { isSshWorkspace, type Workspace } from '../types/workspace';
 
+import { isProvisioning, type WorkspaceProvisionFields } from './workspace-provision-state';
+
 import type { Terminal, TerminalStatus } from '../types/terminal';
 
 /**
@@ -20,13 +22,13 @@ type ExecutionTerminal = Pick<
   | 'commandActive'
 >;
 
-type ExecutionWorkspace = Pick<Workspace, 'backend'> & {
-  terminals: readonly ExecutionTerminal[];
-  provisioning?: boolean;
-  agentActive?: boolean;
-  agentLaunching?: boolean;
-  showsPaneSurfaces?: boolean;
-};
+type ExecutionWorkspace = Pick<Workspace, 'backend'> &
+  Pick<WorkspaceProvisionFields, 'provisioning'> & {
+    terminals: readonly ExecutionTerminal[];
+    agentActive?: boolean;
+    agentLaunching?: boolean;
+    showsPaneSurfaces?: boolean;
+  };
 
 /** Callers ask the questions below; only tests and diagnostics should name a state. */
 export type TerminalExecutionState =
@@ -193,7 +195,7 @@ export function commandsWorkingHere(workspace: ExecutionWorkspace): number {
  * or by a sync, such as one another device opened, may still be running its agent.
  */
 export function isHiddenByHideStopped(workspace: ExecutionWorkspace): boolean {
-  if (workspace.provisioning || showsRunning(workspace)) return false;
+  if (isProvisioning(workspace) || showsRunning(workspace)) return false;
   return !workspace.terminals.some(
     (terminal) =>
       classifyTerminalExecution(workspace, terminal) === 'unchecked' &&

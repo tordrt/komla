@@ -33,6 +33,7 @@ import {
   workspaceProgress,
   type WorkspaceMarker,
 } from '../../../shared/lib/workspace-markers';
+import { isProvisioning } from '../../../shared/lib/workspace-provision-state';
 import {
   findWorkspaceTag,
   MAX_WORKSPACE_TAGS,
@@ -1462,7 +1463,7 @@ export class KomlaOperationService {
     for (const linked of [workspace, ...targets]) {
       if (
         (linked.status !== undefined && linked.status !== 'active') ||
-        linked.provisioning ||
+        isProvisioning(linked) ||
         !linked.workingDirectory
       ) {
         throw new KomlaOperationError(
@@ -1871,7 +1872,7 @@ export class KomlaOperationService {
     const created = await this.dependencies.createWorkspace(params);
     this.dependencies.publish(IPC.WORKSPACE_CREATED, created);
     return {
-      state: created.provisioning ? 'provisioning' : 'started',
+      state: isProvisioning(created) ? 'provisioning' : 'started',
       destination: {
         kind: 'workspace',
         workspaceId: created.id,

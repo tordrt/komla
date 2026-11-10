@@ -4,6 +4,7 @@ import { useWorkspacesExceptTitles } from '@/lib/workspace-except-titles';
 import { useSshHostsStore } from '@/stores/ssh-hosts.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
+import { isProvisioning } from '../../shared/lib/workspace-provision-state';
 import { isSshWorkspace } from '../../shared/types';
 
 /**
@@ -23,7 +24,7 @@ export function useProjectSshHosts(
       workspaces.flatMap((workspace) =>
         workspace.projectId === projectId &&
         isSshWorkspace(workspace) &&
-        (!activeOnly || (workspace.status === 'active' && !workspace.provisioning))
+        (!activeOnly || (workspace.status === 'active' && !isProvisioning(workspace)))
           ? [workspace.backend.hostId]
           : []
       )

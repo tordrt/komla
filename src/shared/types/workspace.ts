@@ -2,13 +2,15 @@
  * Workspace-related types shared between main and renderer processes.
  */
 
-import type { Project } from './project';
 import type { Terminal, TerminalExecutionLocation } from './terminal';
 import type { DesiredWorkspaceEnvironment } from '../lib/agent-environment';
 import type { WorkspaceMarker } from '../lib/workspace-markers';
 import type { PullRequestTagState } from '../lib/workspace-tags';
 
 export type WorkspaceStatus = 'active' | 'trashed';
+
+/** Why a workspace's files can't be used when it isn't that creating them failed. */
+export type WorkspaceProvisionErrorReason = 'missing-from-host' | 'host-not-configured';
 
 /** How long a workspace stays in the Trash before it's deleted for good. */
 export const TRASH_RETENTION_DAYS = 7;
@@ -453,10 +455,12 @@ export interface Workspace {
   trashedAt?: number;
   autoNaming?: boolean; // True while auto-naming is in progress
   promptSubmits?: WorkspacePromptSubmit[]; // Bounded local history of user prompts submitted in this workspace
-  provisioning?: boolean; // True while background worktree creation is in progress
+  // Workspace Provision State. Only src/shared/lib/workspace-provision-state.ts reads or
+  // writes these four; ask its questions instead.
+  provisioning?: boolean; // True while its files are being created
   provisionStatus?: string; // Human-readable current provisioning step
-  provisionError?: string; // Set when background provisioning fails
-  removedFromHost?: boolean; // With provisionError: the SSH workspace's files are gone, e.g. deleted on another device
+  provisionError?: string; // Why its files can't be used
+  provisionErrorReason?: WorkspaceProvisionErrorReason; // Why, unless creating its files failed
   provisioningRepoPath?: string; // Repo path used to clean up an interrupted provisioning worktree
   provisioningBranchCreated?: boolean; // True only when this provisioning attempt created the branch
   provisioningWorktreeCreated?: boolean; // True only when this provisioning attempt created the worktree
@@ -558,21 +562,6 @@ export function isSshWorkspace<T extends Pick<Workspace, 'backend'>>(
   workspace: T
 ): workspace is T & { backend: SshWorkspaceBackend } {
   return workspace.backend?.kind === 'ssh';
-}
-
-/** A workspace whose files are ready to read, on this computer or on its SSH host. */
-export function hasWorkspaceFiles(
-  workspace: Pick<Workspace, 'provisioning' | 'provisionError'>
-): boolean {
-  return !workspace.provisioning && !workspace.provisionError;
-}
-
-/** The workspace that asks for its project's icon, once its files are ready to read. */
-export function canPromptForProjectIcon(
-  project: Pick<Project, 'iconPromptWorkspaceId'>,
-  workspace: Pick<Workspace, 'id' | 'provisioning' | 'provisionError'>
-): boolean {
-  return project.iconPromptWorkspaceId === workspace.id && hasWorkspaceFiles(workspace);
 }
 
 export function resolveWorkspaceTargetBranch(

@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 
 import { isResumable } from '../../../shared/lib/terminal-execution-state';
+import { hasWorkspaceFiles } from '../../../shared/lib/workspace-provision-state';
 import { MAX_WORKSPACE_TAG_LENGTH, WORKSPACE_TAG_TONES } from '../../../shared/lib/workspace-tags';
 import {
   isSshWorkspace,
@@ -124,7 +125,7 @@ export function buildSshWorkspaceManifest(
   writtenBy?: string,
   syncs?: boolean
 ): SshWorkspaceManifest | undefined {
-  if (!isSshWorkspace(workspace) || workspace.provisioning || workspace.provisionError) {
+  if (!isSshWorkspace(workspace) || !hasWorkspaceFiles(workspace)) {
     return undefined;
   }
   const { remoteDirectory, remoteRepoPath, remoteProjectRoot, gitUrl } = workspace.backend;

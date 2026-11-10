@@ -1,6 +1,7 @@
 import { create, type StateCreator, type StoreApi } from 'zustand';
 
 import { sameWorkspaceMarkers, withoutWorkspaceMarker } from '../../shared/lib/workspace-markers';
+import { hasWorkspaceFiles, isProvisioning } from '../../shared/lib/workspace-provision-state';
 import {
   DEFAULT_WORKSPACE_TAGS,
   UNTAGGED_WORKSPACE_TAG_KEY,
@@ -1267,7 +1268,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
 
       // Pre-fetch file list for the new workspace (skip if still provisioning)
       const freshWorkspace = workspaces.find((w) => w.id === workspace.id);
-      if (freshWorkspace && !freshWorkspace.provisioning) {
+      if (freshWorkspace && !isProvisioning(freshWorkspace)) {
         prefetchWorkspaceFileList(freshWorkspace);
       }
 
@@ -1903,11 +1904,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
           await get().reconnectAllSshTerminals(workspaceId);
           return;
         }
-        if (
-          !isRunningHere(currentWorkspace) &&
-          !currentWorkspace.provisioning &&
-          !currentWorkspace.provisionError
-        ) {
+        if (!isRunningHere(currentWorkspace) && hasWorkspaceFiles(currentWorkspace)) {
           await restartStoppedWorkspace(workspaceId, set, get);
         }
       } finally {
@@ -1920,7 +1917,7 @@ const createWorkspacesState: StateCreator<WorkspacesState> = (set, get) => ({
       return;
     }
 
-    if (!isRunningHere(workspace) && !workspace.provisioning && !workspace.provisionError) {
+    if (!isRunningHere(workspace) && hasWorkspaceFiles(workspace)) {
       // Restart to spawn a new terminal with continueCommand
       await restartStoppedWorkspace(workspaceId, set, get);
       return;

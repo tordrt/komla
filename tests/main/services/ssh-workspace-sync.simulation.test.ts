@@ -236,14 +236,14 @@ function device(id: string, options: { syncs?: boolean; savedPath?: string } = {
     markMissing: (workspaceId) => {
       const local = workspaces.get(workspaceId);
       if (!local) return;
-      local.removedFromHost = true;
+      local.provisionErrorReason = 'missing-from-host';
       local.provisionError = 'This workspace’s files are no longer on its SSH host.';
       missing.add(workspaceId);
     },
     markFound: (workspaceId) => {
       const local = workspaces.get(workspaceId);
-      if (!local?.removedFromHost) return;
-      local.removedFromHost = undefined;
+      if (local?.provisionErrorReason !== 'missing-from-host') return;
+      local.provisionErrorReason = undefined;
       local.provisionError = undefined;
       missing.delete(workspaceId);
     },

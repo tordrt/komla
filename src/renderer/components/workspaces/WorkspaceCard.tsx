@@ -97,7 +97,13 @@ import {
 } from '@/types';
 
 import { countUnpushedBranchCommits } from '../../../shared/lib/workspace-branch-status';
-import { canDeleteWorkspaceBranch, hasWorkspaceFiles } from '../../../shared/types/workspace';
+import {
+  hasWorkspaceFiles,
+  isMissingFromHost,
+  isProvisioning,
+  workspaceProvisionState,
+} from '../../../shared/lib/workspace-provision-state';
+import { canDeleteWorkspaceBranch } from '../../../shared/types/workspace';
 
 import {
   AGENT_STATES,
@@ -542,7 +548,7 @@ export const WorkspaceCard = React.memo(function WorkspaceCard({
               'truncate',
               // As grey as the lines under it: the card's muted grey alone barely shows in dark mode.
               !shownRunning && !isVisuallySelected && 'text-muted-foreground-80',
-              (workspace.autoNaming || workspace.provisioning) &&
+              (workspace.autoNaming || isProvisioning(workspace)) &&
                 'animate-pulse text-muted-foreground'
             )}
           >
@@ -1321,7 +1327,7 @@ function LaunchUndoLink({
 }
 
 function provisionFailureLabel(workspace: Workspace): string {
-  return workspace.removedFromHost ? 'Missing from host' : 'Setup failed';
+  return isMissingFromHost(workspace) ? 'Missing from host' : 'Setup failed';
 }
 
 type SecondaryLineKind = 'attention' | 'path';
@@ -1373,14 +1379,13 @@ function isProvisioningOrFailed(workspace: Workspace): boolean {
 }
 
 function ProvisionLine({ workspace }: { workspace: Workspace }) {
-  if (workspace.provisioning) {
+  const provision = workspaceProvisionState(workspace);
+  if (provision.kind === 'provisioning') {
     const Icon = branchLineIcon(workspace);
     return (
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground-70">
         <Icon className="mr-1 inline size-3" />
-        <span className="animate-pulse truncate">
-          {workspace.provisionStatus ?? 'Setting up...'}
-        </span>
+        <span className="animate-pulse truncate">{provision.status ?? 'Setting up...'}</span>
       </div>
     );
   }
@@ -1962,7 +1967,7 @@ function WorkspaceMenuItems({
     workspace.isWorktree &&
     !!workspace.branchName &&
     !!workspace.projectId &&
-    !workspace.provisioning;
+    !isProvisioning(workspace);
   const spinnerActive = !!workspace.agentActive;
   const ciRunning = useCiRunning(
     workspace,

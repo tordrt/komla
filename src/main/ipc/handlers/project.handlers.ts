@@ -3,7 +3,11 @@ import { dirname } from 'path';
 import { BrowserWindow } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
-import { canPromptForProjectIcon, hasWorkspaceFiles, isSshWorkspace } from '../../../shared/types';
+import {
+  canPromptForProjectIcon,
+  hasWorkspaceFiles,
+} from '../../../shared/lib/workspace-provision-state';
+import { isSshWorkspace } from '../../../shared/types';
 import { createLogger } from '../../lib/logger';
 import { actionService } from '../../services/action.service';
 import { detectInstalledAgents } from '../../services/agent-detection.service';

@@ -11392,7 +11392,7 @@ describe('WorkspaceService', () => {
       workspaceService.markSshWorkspaceRemoved('ws-42');
 
       expect(workspaceService.get('ws-42')).toMatchObject({
-        removedFromHost: true,
+        provisionErrorReason: 'missing-from-host',
         provisionError: expect.stringContaining('no longer on its SSH host'),
       });
     });
@@ -11427,7 +11427,7 @@ describe('WorkspaceService', () => {
       workspaceService.markSshWorkspaceFound('ws-42');
 
       expect(workspaceService.get('ws-42')).toMatchObject({
-        removedFromHost: undefined,
+        provisionErrorReason: undefined,
         provisionError: undefined,
       });
     });

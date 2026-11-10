@@ -11,6 +11,7 @@ import {
   normalizePersistedWorkspaceMarkers,
   savedWorkspaceMarkers,
 } from '../../../shared/lib/workspace-markers';
+import { persistedWorkspaceProvision } from '../../../shared/lib/workspace-provision-state';
 import {
   MAX_WORKSPACE_TAG_TOOLTIP,
   normalizeWorkspaceTagName,
@@ -554,8 +555,7 @@ export function serializeWorkspace(
     status: w.status,
     trashedAt: w.trashedAt,
     promptSubmits: w.promptSubmits && w.promptSubmits.length > 0 ? w.promptSubmits : undefined,
-    provisioning: w.provisioning || undefined,
-    provisionStatus: w.provisioning ? w.provisionStatus : undefined,
+    ...persistedWorkspaceProvision(w),
     provisioningRepoPath: w.provisioningRepoPath,
     provisioningBranchCreated: w.provisioningBranchCreated,
     provisioningWorktreeCreated: w.provisioningWorktreeCreated,

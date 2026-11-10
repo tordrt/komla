@@ -12,7 +12,6 @@ export {
   attentionWakesSnooze,
   komlaSshRemoteDataPort,
   canDeleteWorkspaceBranch,
-  canPromptForProjectIcon,
   getWorkspaceCwdIdentity,
   isValidSshHostname,
   isSshWorkspace,
@@ -48,6 +47,16 @@ export {
   showsWorking,
   type PaneOffer,
 } from '../../shared/lib/terminal-execution-state';
+
+export {
+  canPromptForProjectIcon,
+  hasWorkspaceFiles,
+  isMissingFromHost,
+  isProvisioning,
+  workspaceProvisionFailure,
+  workspaceProvisionState,
+  type WorkspaceProvisionFields,
+} from '../../shared/lib/workspace-provision-state';
 
 export type {
   TerminalStatus,

@@ -1,5 +1,7 @@
 import { isSshWorkspace, type Workspace } from '@/types';
 
+import { isProvisioning } from '../../shared/lib/workspace-provision-state';
+
 /** Whether `peer` can be linked to `origin`: same backend (and SSH host), active and ready. */
 export function canLinkPair(origin: Workspace, peer: Workspace): boolean {
   if (isSshWorkspace(origin)) {
@@ -7,7 +9,7 @@ export function canLinkPair(origin: Workspace, peer: Workspace): boolean {
   } else if (isSshWorkspace(peer)) {
     return false;
   }
-  return peer.status === 'active' && !peer.provisioning && Boolean(peer.workingDirectory);
+  return peer.status === 'active' && !isProvisioning(peer) && Boolean(peer.workingDirectory);
 }
 
 export interface SelectionLinkChange {

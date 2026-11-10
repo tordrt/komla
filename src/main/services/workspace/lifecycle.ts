@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import { dirname } from 'path';
 
+import { isProvisioning } from '../../../shared/lib/workspace-provision-state';
 import { canDeleteWorkspaceBranch, isSshWorkspace } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
 import { deleteReleasingOpenCodeLocation } from '../../lib/opencode-service';
@@ -57,7 +58,7 @@ export class WorkspaceLifecycle {
       const ws = workspaceStore.workspaces.get(id);
       if (!ws) continue;
 
-      if (ws.provisioning && isSshWorkspace(ws)) {
+      if (isProvisioning(ws) && isSshWorkspace(ws)) {
         if ((await sshWorkspaceProvisioningService.recover(ws, 'interrupted')) === 'remove') {
           workspaceStore.workspaces.delete(id);
           this.deps.attention.workspaceDeleted(id);
@@ -68,7 +69,7 @@ export class WorkspaceLifecycle {
 
       // Remove workspaces that were mid-provisioning when app quit. If a worktree
       // already exists, delete it before dropping the orphaned workspace record.
-      if (ws.provisioning) {
+      if (isProvisioning(ws)) {
         if (ws.workingDirectory && ws.provisioningRepoPath && existsSync(ws.workingDirectory)) {
           try {
             await gitService.deleteWorktree(ws.provisioningRepoPath, ws.workingDirectory, true, {
@@ -164,7 +165,7 @@ export class WorkspaceLifecycle {
       throw new Error(`Workspace ${workspaceId} not found`);
     }
 
-    if (workspace.provisioning) {
+    if (isProvisioning(workspace)) {
       throw new Error(`Workspace ${workspaceId} is still being provisioned`);
     }
 
@@ -330,7 +331,7 @@ export class WorkspaceLifecycle {
     const stopPreviewForwardPromise = sshPortForwardService.stopPreviewForward(workspaceId);
 
     // Mark workspace as provisioning-cancelled so finishProvisioning will bail out early
-    if (workspace.provisioning) {
+    if (isProvisioning(workspace)) {
       this.deps.provisioning.markCancelled(workspaceId);
     }
 
@@ -361,7 +362,8 @@ export class WorkspaceLifecycle {
       if (
         project &&
         (existsSync(workspace.workingDirectory) ||
-          (!workspace.provisioning && this.canCleanUpMissingWorktree(workspace.workingDirectory)))
+          (!isProvisioning(workspace) &&
+            this.canCleanUpMissingWorktree(workspace.workingDirectory)))
       ) {
         // For managed projects, use the bare clone path
         const repoPath =

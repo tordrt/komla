@@ -21,6 +21,7 @@ import {
 import { getPaneSurfaceIdOfTab, isPaneSurfaceId } from '../../shared/lib/pane-surface-id';
 import { normalizeSavedLayout, savedLayoutPanes } from '../../shared/lib/saved-layout';
 import { describeUnsavedFiles } from '../../shared/lib/unsaved-files';
+import { isProvisioning } from '../../shared/lib/workspace-provision-state';
 import { getWorkspaceDisplayTitle } from '../../shared/lib/workspace-title';
 
 import { getBrowserTabLabel, updatePaneBrowserTabs } from './browser-tabs';
@@ -163,7 +164,7 @@ function awaitsTerminalTab(workspaceId: string): boolean {
   const workspace = useWorkspacesStore
     .getState()
     .workspaces.find((candidate) => candidate.id === workspaceId);
-  return !workspace || !!workspace.provisioning;
+  return !workspace || isProvisioning(workspace);
 }
 
 /**
@@ -662,7 +663,7 @@ export function closePaneSurface(workspaceId: string, surfaceId: string): void {
     .workspaces.find((candidate) => candidate.id === workspaceId);
   if (
     workspace &&
-    !workspace.provisioning &&
+    !isProvisioning(workspace) &&
     workspace.terminals.length === 0 &&
     !showsPaneSurface(useLayoutStore.getState().layoutsByTab[workspaceId])
   ) {

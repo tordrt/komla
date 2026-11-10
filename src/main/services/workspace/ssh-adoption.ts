@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 
 import { IPC } from '../../../shared/constants/ipc-channels';
+import { workspaceProvisionFieldsAfter } from '../../../shared/lib/workspace-provision-state';
 import { isSshWorkspace, type SshWorkspaceBackend } from '../../../shared/types/workspace';
 import { gitRemoteIdentity } from '../../lib/git-remote-identity';
 import { createLogger } from '../../lib/logger';
@@ -66,9 +67,11 @@ export class SshWorkspaceAdoption {
     ) {
       return;
     }
-    // provisionError keeps Komla from reconnecting or restarting it; removedFromHost names why.
-    workspace.removedFromHost = true;
-    workspace.provisionError = 'This workspace’s files are no longer on its SSH host.';
+    // Komla doesn't reconnect or restart a workspace whose files can't be used.
+    Object.assign(
+      workspace,
+      workspaceProvisionFieldsAfter(workspace, { kind: 'went-missing-from-host' })
+    );
     workspaceStore.saveWorkspaces();
     workspaceStore.broadcastWorkspacesChanged();
   }
@@ -76,9 +79,9 @@ export class SshWorkspaceAdoption {
   /** Clears the mark on an SSH workspace whose files are on its host again. */
   markSshWorkspaceFound(workspaceId: string): void {
     const workspace = workspaceStore.workspaces.get(workspaceId);
-    if (!workspace?.removedFromHost) return;
-    workspace.removedFromHost = undefined;
-    workspace.provisionError = undefined;
+    const found = workspace && workspaceProvisionFieldsAfter(workspace, { kind: 'found-on-host' });
+    if (!found) return;
+    Object.assign(workspace, found);
     workspaceStore.saveWorkspaces();
     workspaceStore.broadcastWorkspacesChanged();
   }

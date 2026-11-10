@@ -78,6 +78,7 @@ import { addBrowserTab, getBrowserTabs, recordBrowserTabPage } from '../../share
 import { isLoopbackUrl } from '../../shared/lib/loopback-url';
 import { getPaneSurfaceIdOfTab } from '../../shared/lib/pane-surface-id';
 import { DEFAULT_STATUS_BAR_SIZE } from '../../shared/lib/status-bar-size';
+import { workspaceProvisionFailure } from '../../shared/lib/workspace-provision-state';
 
 import { awaitUserReturn } from './useAwaitingUserReturn';
 import { useProjectAccent } from './useProjectAccent';
@@ -448,10 +449,11 @@ export function useAppLifecycle(options: AppLifecycleOptions): void {
 
       window.api.onWorkspaceUpdated((workspace) => {
         useDialogsStore.getState().settleProvisioningWorkspacePrompt(workspace);
-        if (workspace.provisionError && isSshWorkspace(workspace)) {
+        const failure = workspaceProvisionFailure(workspace);
+        if (failure && isSshWorkspace(workspace)) {
           useToastStore
             .getState()
-            .addToast(`Failed to create SSH workspace: ${workspace.provisionError}`, 'error');
+            .addToast(`Failed to create SSH workspace: ${failure.error}`, 'error');
         }
         reconcileRemovedTerminalPanes(workspace);
         // A workspace that wakes while open is seen once the user is back at it, as its

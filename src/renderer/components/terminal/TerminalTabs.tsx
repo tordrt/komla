@@ -115,6 +115,7 @@ import {
   isPaneSurfaceId,
   type PaneSurfaceKind,
 } from '../../../shared/lib/pane-surface-id';
+import { workspaceProvisionState } from '../../../shared/lib/workspace-provision-state';
 import { DashboardView } from '../dashboard';
 import { DiffStatsPills } from '../workspaces/file-viewer/DiffStatsPills';
 import { FileTypeIcon } from '../workspaces/file-viewer/file-icon-utils';
@@ -1106,13 +1107,14 @@ function renderTerminalTabsEmptyState(params: {
   }
 
   // Workspace is still being provisioned (worktree creation in progress)
-  if (selectedWorkspace.provisioning) {
+  const provision = workspaceProvisionState(selectedWorkspace);
+  if (provision.kind === 'provisioning') {
     return (
       <WorkspaceStatusPage>
         <Spinner size="lg" />
         <div className="text-sm">Setting up workspace...</div>
         <div className="text-xs text-muted-foreground-60">
-          {selectedWorkspace.provisionStatus ??
+          {provision.status ??
             (selectedWorkspace.branchName
               ? 'Creating worktree'
               : 'Generating branch name and creating worktree')}
@@ -1122,18 +1124,18 @@ function renderTerminalTabsEmptyState(params: {
   }
 
   // Workspace provisioning failed
-  if (selectedWorkspace.provisionError) {
+  if (provision.kind !== 'ready') {
     return (
       <WorkspaceStatusPage>
         <div className="text-sm">
-          {selectedWorkspace.removedFromHost
+          {provision.kind === 'missing-from-host'
             ? 'Workspace missing from host'
             : 'Workspace setup failed'}
         </div>
         <div className="max-w-md text-center text-xs text-muted-foreground-60">
-          {selectedWorkspace.provisionError}
+          {provision.error}
         </div>
-        {selectedWorkspace.removedFromHost && (
+        {provision.kind === 'missing-from-host' && (
           <RemoveFromThisDeviceButton workspaceId={selectedWorkspace.id} />
         )}
       </WorkspaceStatusPage>

@@ -3,13 +3,13 @@ import { join } from 'path';
 
 import { z } from 'zod';
 
+import { hasWorkspaceFiles } from '../../shared/lib/workspace-provision-state';
 import { HOOK_EVENTS, type HookEventDetails } from '../../shared/types/hooks';
 import {
   RUN_ON_VALUES,
   runsOnThisComputer,
   STATUS_ITEM_ID_PATTERN,
 } from '../../shared/types/status-items';
-import { hasWorkspaceFiles } from '../../shared/types/workspace';
 import { onHookEvent } from '../lib/hook-events';
 import { createLogger } from '../lib/logger';
 import { parseSettingsFile, readSettingsFile } from '../lib/settings-file';

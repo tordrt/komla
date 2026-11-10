@@ -1,9 +1,9 @@
 import { realpath } from 'fs/promises';
 
 import { projectRepoPath } from '../../../shared/lib/project-repo-path';
+import { hasWorkspaceFiles } from '../../../shared/lib/workspace-provision-state';
 import {
   getBranchesInUse,
-  hasWorkspaceFiles,
   isSshWorkspace,
   resolveWorkspaceTargetBranch,
   toLocalBranchName,

@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 
+import {
+  type WorkspaceProvisionFields,
+  workspaceProvisionFailure,
+} from '../../shared/lib/workspace-provision-state';
 import { isSshWorkspace } from '../../shared/types/workspace';
 import { resolveAgentBrand } from '../components/terminal/AgentPresetIcon';
 
@@ -76,7 +80,7 @@ function show(
   void updateConfig(updates);
 }
 
-type LaunchedWorkspace = Pick<Workspace, 'presetId' | 'backend' | 'provisionError'>;
+type LaunchedWorkspace = Pick<Workspace, 'presetId' | 'backend'> & WorkspaceProvisionFields;
 
 /**
  * After onboarding, the first local workspace launched with an agent that can't notify
@@ -93,7 +97,7 @@ async function nudgeWorkspace(workspace: LaunchedWorkspace): Promise<void> {
   if (checking || useAgentSetupNudgeStore.getState().open || !config) return;
   if (!config.notificationsNudgePending && !config.selfSetupNudgePending) return;
   // Integrations are set up per machine, and SSH workspaces run agents elsewhere.
-  if (workspace.provisionError || isSshWorkspace(workspace)) return;
+  if (workspaceProvisionFailure(workspace) || isSshWorkspace(workspace)) return;
   const agent = useAgentPresetsStore
     .getState()
     .presets.find((preset) => preset.id === workspace.presetId);

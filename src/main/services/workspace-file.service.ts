@@ -23,6 +23,7 @@ import {
   LINKED_WORKSPACES_DIR,
 } from '../../shared/lib/linked-workspaces';
 import { shellQuotePosix } from '../../shared/lib/shell-quote';
+import { hasWorkspaceFiles } from '../../shared/lib/workspace-provision-state';
 import {
   isLocalTerminalExecutionLocation,
   type TerminalExecutionLocation,
@@ -341,7 +342,7 @@ class WorkspaceFileService {
     if (!isSshWorkspace(workspace)) {
       return gitService.listFiles(workspace.workingDirectory, includeGitIgnored);
     }
-    if (workspace.provisioning || workspace.provisionError) {
+    if (!hasWorkspaceFiles(workspace)) {
       return { files: [], gitIgnoredFiles: [], emptyDirs: [] };
     }
 
@@ -408,7 +409,7 @@ class WorkspaceFileService {
     if (!isSshWorkspace(workspace)) {
       return searchService.searchContent(workspace.workingDirectory, query, options);
     }
-    if (!query.trim() || workspace.provisioning || workspace.provisionError) return [];
+    if (!query.trim() || !hasWorkspaceFiles(workspace)) return [];
 
     // Replace the previous search before awaiting anything, so searches stay in request order.
     this.contentSearches.get(workspaceId)?.abort();

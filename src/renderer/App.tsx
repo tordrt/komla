@@ -70,6 +70,8 @@ import { useSshHostDialogStore } from '@/stores/ssh-host-dialog.store';
 import { useWindowStore } from '@/stores/window.store';
 import { useWorkspacesStore } from '@/stores/workspaces.store';
 
+import { hasWorkspaceFiles } from '../shared/lib/workspace-provision-state';
+
 const FeedbackDialog = lazy(() =>
   import('@/components/layout/FeedbackDialog').then((module) => ({
     default: module.FeedbackDialog,
@@ -99,7 +101,7 @@ function selectTabsAtTop(s: WorkspacesState): boolean {
   const workspace = s.selectedWorkspaceId
     ? s.workspaces.find((w) => w.id === s.selectedWorkspaceId)
     : undefined;
-  if (!workspace || workspace.provisioning || workspace.provisionError) return false;
+  if (!workspace || !hasWorkspaceFiles(workspace)) return false;
   return !s.restartingWorkspaceIds.has(workspace.id);
 }
 

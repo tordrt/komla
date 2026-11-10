@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   useDiffViewerState,
   useFileEditorState,
+  useFileViewerState,
 } from '../../../../../src/renderer/components/workspaces/file-viewer/useFileViewerState';
 import { useFileListStore } from '../../../../../src/renderer/stores/file-list.store';
 import { useFileViewerStore } from '../../../../../src/renderer/stores/file-viewer.store';
@@ -336,5 +337,42 @@ describe('useDiffViewerState split/unified preference', () => {
     act(() => result.current.setHistoryViewMode('split'));
     expect(useFileViewerStore.getState().diffViewMode).toBe('split');
     expect(result.current.viewMode).toBe('split');
+  });
+});
+
+// Each workspace opened in the window keeps a file preview mounted, closed or not, and agents
+// writing files change the store several times a second.
+describe('useFileViewerState and the file list store', () => {
+  beforeEach(() => {
+    useFileListStore.setState(useFileListStore.getInitialState(), true);
+    useFileViewerStore.setState(useFileViewerStore.getInitialState(), true);
+  });
+
+  it("does not re-render for another workspace's files", async () => {
+    let renders = 0;
+    renderHook(() => {
+      renders += 1;
+      return useFileViewerState('/repo', false, 'browse', 'ws-quiet');
+    });
+    await act(async () => {});
+    const rendersBefore = renders;
+
+    act(() => {
+      useFileListStore.setState((state) => ({
+        cache: new Map(state.cache).set('/other', {
+          files: ['a.ts'],
+          gitIgnoredFiles: [],
+          emptyDirs: [],
+          isLoading: false,
+        } as never),
+        diffCache: new Map(state.diffCache).set('workspace:ws-other', {
+          data: { files: [], summary: { additions: 0, deletions: 0, filesChanged: 0 } },
+          isLoading: false,
+          hasFullDiff: true,
+        }),
+      }));
+    });
+
+    expect(renders).toBe(rendersBefore);
   });
 });

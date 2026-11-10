@@ -149,8 +149,12 @@ export function InlineFileTreePanel({
     hasInitializedDefaults.current = result.initialized;
   }, [isDataActive, workspaceId, isGitWorkspace, targetBranch, resolvedTargetBranch]);
 
-  const { getDiff, fetchDiffIfNeeded } = useFileListStore();
-  const cached = getDiff(workingDirectory, comparisonBranch, useMergeBase, workspaceId);
+  // Only this panel's diff: every workspace opened here keeps a panel mounted, and the store
+  // changes with each file any agent writes.
+  const fetchDiffIfNeeded = useFileListStore((s) => s.fetchDiffIfNeeded);
+  const cached = useFileListStore((s) =>
+    s.getDiff(workingDirectory, comparisonBranch, useMergeBase, workspaceId)
+  );
   const diffData = cached?.data;
   const [comparisonLoading, setComparisonLoading] = useState(false);
   const comparisonLoadingRef = useRef(false);

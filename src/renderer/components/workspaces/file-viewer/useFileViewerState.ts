@@ -87,9 +87,11 @@ export function useFileSearchState(
     []
   );
 
-  // Use the cached file list store
-  const { getFileList, fetchFileListIfNeeded, fetchFileList } = useFileListStore();
-  const cached = getFileList(workingDirectory);
+  // Use the cached file list store: this directory's list only, as the store changes with each
+  // file an agent writes in any workspace.
+  const fetchFileListIfNeeded = useFileListStore((s) => s.fetchFileListIfNeeded);
+  const fetchFileList = useFileListStore((s) => s.fetchFileList);
+  const cached = useFileListStore((s) => s.getFileList(workingDirectory));
 
   // Stable empty array reference to avoid dependency changes on every render
   const emptyArray = useMemo(() => [] as string[], []);
@@ -753,14 +755,11 @@ export function useDiffViewerState(
   comparisonScope: DiffComparisonScope = 'file-viewer'
 ): DiffViewerState {
   const { config, setDiffHideUnchangedRegions } = useConfigStore();
-  const {
-    getDiff: getCachedDiff,
-    fetchDiff,
-    fetchDiffIfNeeded,
-    getFileDiffContent: getCachedFileDiffContent,
-    fetchFileDiffContentIfNeeded,
-    invalidateFileDiffs,
-  } = useFileListStore();
+  const fetchDiff = useFileListStore((s) => s.fetchDiff);
+  const fetchDiffIfNeeded = useFileListStore((s) => s.fetchDiffIfNeeded);
+  const getCachedFileDiffContent = useFileListStore((s) => s.getFileDiffContent);
+  const fetchFileDiffContentIfNeeded = useFileListStore((s) => s.fetchFileDiffContentIfNeeded);
+  const invalidateFileDiffs = useFileListStore((s) => s.invalidateFileDiffs);
 
   // Restore persisted selections from store (survives close/reopen)
   const persistedSelections = useFileViewerStore.getState().getDiffSelections(workspaceId);
@@ -816,7 +815,9 @@ export function useDiffViewerState(
   const hideUnchangedRegions = config?.diffHideUnchangedRegions ?? true;
 
   // Get cached data from store
-  const cachedDiff = getCachedDiff(workingDirectory, comparisonBranch, useMergeBase, workspaceId);
+  const cachedDiff = useFileListStore((s) =>
+    s.getDiff(workingDirectory, comparisonBranch, useMergeBase, workspaceId)
+  );
   const diffData = cachedDiff?.data ?? null;
   const loading = cachedDiff?.isLoading ?? false;
 
@@ -849,15 +850,17 @@ export function useDiffViewerState(
   // invalidateFileDiffs marks entries as stale (preserving content) instead of
   // deleting them, so fileContent stays non-null during background re-fetches
   // and the DiffEditor never unmounts due to cache churn.
-  const cachedFileContent = selectedFile
-    ? getCachedFileDiffContent(
-        workingDirectory,
-        selectedFile,
-        comparisonBranch ?? false,
-        useMergeBase,
-        workspaceId
-      )
-    : undefined;
+  const cachedFileContent = useFileListStore((s) =>
+    selectedFile
+      ? s.getFileDiffContent(
+          workingDirectory,
+          selectedFile,
+          comparisonBranch ?? false,
+          useMergeBase,
+          workspaceId
+        )
+      : undefined
+  );
   const fileContent = cachedFileContent?.content ?? null;
   const loadingFile = cachedFileContent?.isLoading ?? false;
   const isStale = cachedFileContent?.isStale ?? false;

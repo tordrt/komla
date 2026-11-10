@@ -13,6 +13,7 @@ vi.mock('../../../../src/renderer/lib/terminal-renderer-runtime', () => ({
   disposeTerminalRenderers: vi.fn(),
   getTerminalRendererDimensions: vi.fn(() => undefined),
 }));
+const fileTreeRenders = vi.hoisted(() => ({ count: 0 }));
 vi.mock('../../../../src/renderer/components/workspaces/file-viewer/SidebarFileTree', async () => {
   const React = await import('react');
   return {
@@ -28,7 +29,8 @@ vi.mock('../../../../src/renderer/components/workspaces/file-viewer/SidebarFileT
       onRollbackAll?: () => void;
       onFileSelect?: (path: string) => void;
       showImportedFilesWithChanges?: boolean;
-    }) =>
+    }) => (
+      fileTreeRenders.count++,
       React.createElement(
         React.Fragment,
         null,
@@ -98,7 +100,8 @@ vi.mock('../../../../src/renderer/components/workspaces/file-viewer/SidebarFileT
           { onClick: () => props.onRollbackAll?.(), type: 'button' },
           'rollback all'
         )
-      ),
+      )
+    ),
   };
 });
 
@@ -148,6 +151,27 @@ describe('InlineFileTreePanel', () => {
         updateWorkspace: vi.fn().mockResolvedValue(undefined),
       },
     });
+  });
+
+  // Every workspace opened in this window keeps its panel mounted, and agents writing files
+  // change the store several times a second.
+  it("does not re-render for another workspace's changes", async () => {
+    render(<InlineFileTreePanel workspaceId="ws-1" workingDirectory="/repo" isGitWorkspace />);
+    await screen.findByRole('button', { name: 'toggle comparison' });
+    await act(async () => {});
+    const rendersBefore = fileTreeRenders.count;
+
+    act(() => {
+      useFileListStore.setState((state) => ({
+        diffCache: new Map(state.diffCache).set('workspace:ws-2', {
+          data: emptyDiff,
+          isLoading: false,
+          hasFullDiff: true,
+        }),
+      }));
+    });
+
+    expect(fileTreeRenders.count).toBe(rendersBefore);
   });
 
   it('loads each comparison before switching and disables repeated toggles', async () => {

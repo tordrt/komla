@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 
 import { createMockBrowserWindow, type MockBrowserWindow } from '../../mocks/electron';
 import { addToShellHistoryCommand } from '../../../src/main/lib/shell-history';
+import { pinPlatform } from '../../helpers/platform';
 
 const mockEmitTerminalOscNotification = vi.hoisted(() => vi.fn());
 const mockEmitTerminalTitle = vi.hoisted(() => vi.fn());
@@ -2482,6 +2483,13 @@ describe('PtyService', () => {
   });
 
   describe('terminal presentation', () => {
+    afterEach(async () => {
+      // These tests run on real timers, so a PTY left starting would report itself running in a
+      // later test.
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+      for (const terminalId of ['term-1', 'term-2']) ptyService.releaseTerminal(terminalId);
+    });
+
     it('does not track terminal output until remote presentation tracking is enabled', async () => {
       vi.useRealTimers();
       const { ptyService } = await import('../../../src/main/services/pty.service');
@@ -3114,6 +3122,406 @@ describe('PtyService', () => {
 
       // No stdin write — command was passed via -ilc
       expect(spawnedPtys[0].write).not.toHaveBeenCalled();
+    });
+  });
+
+  // What the service reports, and in which order, as a PTY starts, stops and is replaced.
+  describe('lifecycle', () => {
+    afterEach(() => {
+      mockEmitTerminalTitle.mockReset();
+    });
+
+    /** Records everything the service reports about term-1, in order. */
+    async function recordLifecycle() {
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+      const window = createMockBrowserWindow({ id: 1 });
+      mockWindows.push(window);
+      const events: string[] = [];
+      window.webContents.send.mockImplementation((channel: string, ...args: unknown[]) => {
+        if (channel === 'pty:data') events.push(`data ${String(args[1])}`);
+        else if (channel.startsWith('terminal:')) {
+          events.push([channel, ...args.slice(1).filter((arg) => arg !== undefined)].join(' '));
+        }
+      });
+      mockEmitTerminalTitle.mockImplementation((_terminalId: string, title: string | null) =>
+        events.push(`title ${String(title)}`)
+      );
+      ptyService.onStatus((_terminalId, status) =>
+        events.push(`status ${status} (reads ${String(ptyService.getStatus('term-1'))})`)
+      );
+      ptyService.onReset(() => events.push('reset'));
+      ptyService.onError((_terminalId, message) =>
+        events.push(`error ${message} (reads ${String(ptyService.getStatus('term-1'))})`)
+      );
+      ptyService.onExit((_terminalId, exit) =>
+        events.push(exit ? `exit listener ${exit.exitCode}` : 'exit listener')
+      );
+      const track = (index: number) => {
+        const pty = spawnedPtys[index];
+        pty.kill.mockImplementation((signal?: string) => events.push(`kill ${signal ?? 'SIGHUP'}`));
+        return pty;
+      };
+      const spawn = (startupMode: 'echo-command' | 'wait-for-marker' = 'echo-command') => {
+        const index = spawnedPtys.length;
+        ptyService.spawn('term-1', '/home/user', null, [], 1, 'ws-1', 0, 120, 30, startupMode);
+        return track(index);
+      };
+      const restart = () => {
+        const index = spawnedPtys.length;
+        ptyService.restart('term-1', '/home/user', null, 'ws-1', 120, 30);
+        return track(index);
+      };
+      const take = () => events.splice(0);
+      return { ptyService, events, spawn, restart, take };
+    }
+
+    it('reports nothing but a reset on spawn, then running once the startup fallback passes', async () => {
+      const { spawn, take } = await recordLifecycle();
+
+      spawn();
+      expect(take()).toEqual(['reset']);
+
+      vi.advanceTimersByTime(299);
+      expect(take()).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(take()).toEqual(['terminal:status-change running', 'status running (reads running)']);
+      vi.advanceTimersByTime(5_000);
+      expect(take()).toEqual([]);
+    });
+
+    it('reports running before the first output it takes for readiness', async () => {
+      const { spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      take();
+
+      pty._simulateData('$ ');
+      expect(take()).toEqual([
+        'terminal:status-change running',
+        'status running (reads running)',
+        'data $ ',
+      ]);
+      vi.advanceTimersByTime(5_000);
+      expect(take()).toEqual([]);
+    });
+
+    it('takes only the remote-ready marker for readiness when it waits for one', async () => {
+      const { spawn, take } = await recordLifecycle();
+      const pty = spawn('wait-for-marker');
+      take();
+
+      pty._simulateData('local prompt ');
+      vi.advanceTimersByTime(5_000);
+      expect(take()).toEqual(['data local prompt ']);
+
+      pty._simulateData('\x1b]7337;remote-ready\x07remote');
+      expect(take()).toEqual([
+        'terminal:status-change running',
+        'status running (reads running)',
+        'data remote',
+      ]);
+      pty._simulateData('\x1b]7337;remote-ready\x07');
+      expect(take()).toEqual([]);
+    });
+
+    it('ignores the remote-ready marker in a terminal that does not wait for one', async () => {
+      const { ptyService, spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      vi.advanceTimersByTime(300);
+      take();
+
+      pty._simulateData('\x1b]7337;remote-ready\x07');
+      expect(take()).toEqual([]);
+      expect(ptyService.getStatus('term-1')).toBe('running');
+    });
+
+    it('reports a program that ends by itself as stopped, then its error, exit and title', async () => {
+      const { ptyService, spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      vi.advanceTimersByTime(300);
+      pty._simulateData('first');
+      pty._simulateData('last words');
+      take();
+
+      pty._simulateExit(1, 9);
+
+      expect(take()).toEqual([
+        'data last words',
+        'terminal:status-change stopped',
+        'status stopped (reads stopped)',
+        'terminal:error Process exited with code 1',
+        'error Process exited with code 1 (reads stopped)',
+        'terminal:exit 1 9',
+        'title null',
+        'exit listener 1',
+      ]);
+      expect(ptyService.getStatus('term-1')).toBeNull();
+      expect(ptyService.getBuffer('term-1')).toEqual({ buffer: '', seq: 2 });
+    });
+
+    it('reports a program that ends while starting as stopped, and never as running', async () => {
+      const { spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      take();
+
+      pty._simulateExit(0);
+      vi.advanceTimersByTime(5_000);
+
+      expect(take()).toEqual([
+        'terminal:status-change stopped',
+        'status stopped (reads stopped)',
+        'terminal:exit 0',
+        'title null',
+        'exit listener 0',
+      ]);
+    });
+
+    it('reports a killed program stopped at once, and nothing when it exits later', async () => {
+      const { ptyService, spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      pty._simulateData('first');
+      pty._simulateData('last words');
+      take();
+
+      ptyService.kill('term-1');
+      expect(take()).toEqual([
+        'data last words',
+        'terminal:status-change stopped',
+        'status stopped (reads stopped)',
+        'title null',
+        'kill SIGHUP',
+        'exit listener',
+      ]);
+      expect(ptyService.getStatus('term-1')).toBeNull();
+
+      pty._simulateData('zsh: SIGHUP');
+      pty._simulateExit(129);
+      vi.advanceTimersByTime(5_000);
+      expect(take()).toEqual([]);
+      ptyService.kill('term-1');
+      expect(take()).toEqual([]);
+    });
+
+    it('never reports running for a program killed while starting', async () => {
+      const { ptyService, spawn, take } = await recordLifecycle();
+      spawn();
+      ptyService.kill('term-1');
+      take();
+
+      vi.advanceTimersByTime(5_000);
+      expect(take()).toEqual([]);
+    });
+
+    it('reports a replaced program stopped, then the reset, then its replacement starting', async () => {
+      const { ptyService, spawn, restart, take } = await recordLifecycle();
+      const original = spawn();
+      vi.advanceTimersByTime(300);
+      take();
+
+      const replacement = restart();
+      expect(take()).toEqual([
+        'terminal:status-change stopped',
+        'status stopped (reads stopped)',
+        'title null',
+        'kill SIGHUP',
+        'reset',
+        'terminal:reset',
+        'terminal:status-change starting',
+        'status starting (reads starting)',
+      ]);
+
+      original._simulateExit(129);
+      expect(take()).toEqual([]);
+      expect(ptyService.getStatus('term-1')).toBe('starting');
+
+      vi.advanceTimersByTime(300);
+      expect(take()).toEqual(['terminal:status-change running', 'status running (reads running)']);
+      replacement._simulateExit(0);
+      expect(take()).toContain('terminal:exit 0');
+    });
+
+    it('restarts a stopped terminal without reporting it stopped again', async () => {
+      const { spawn, restart, take } = await recordLifecycle();
+      spawn()._simulateExit(0);
+      take();
+
+      restart();
+      expect(take()).toEqual([
+        'title null',
+        'reset',
+        'terminal:reset',
+        'terminal:status-change starting',
+        'status starting (reads starting)',
+      ]);
+    });
+
+    it('reports nothing at shutdown until each program exits, and then no terminal exit', async () => {
+      const { ptyService, spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      take();
+
+      const shutdown = ptyService.killAll();
+      expect(take()).toEqual(['kill SIGHUP']);
+      expect(ptyService.getStatus('term-1')).toBe('starting');
+      vi.advanceTimersByTime(300);
+      expect(take()).toEqual([]);
+
+      // Still the terminal's program: what it prints goes out, and counts for readiness.
+      pty._simulateData('logout');
+      expect(take()).toEqual([
+        'terminal:status-change running',
+        'status running (reads running)',
+        'data logout',
+      ]);
+
+      pty._simulateExit(1);
+      await shutdown;
+      expect(take()).toEqual([
+        'terminal:status-change stopped',
+        'status stopped (reads stopped)',
+        'terminal:error Process exited with code 1',
+        'error Process exited with code 1 (reads stopped)',
+        'title null',
+        'exit listener 1',
+      ]);
+    });
+
+    it('reports a program killed during shutdown as stopped once, and still waits for its exit', async () => {
+      const { ptyService, spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      take();
+      const shutdown = ptyService.killAll();
+      let finished = false;
+      void shutdown.then(() => {
+        finished = true;
+      });
+
+      ptyService.kill('term-1');
+      expect(take()).toEqual([
+        'kill SIGHUP',
+        'terminal:status-change stopped',
+        'status stopped (reads stopped)',
+        'title null',
+        'kill SIGHUP',
+        'exit listener',
+      ]);
+      await Promise.resolve();
+      expect(finished).toBe(false);
+
+      pty._simulateExit(0);
+      await shutdown;
+      expect(take()).toEqual([]);
+    });
+
+    it('lets a held program run before the shutdown kill, and signals nothing after it exits', async () => {
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+      ptyService.spawn('term-1', '/home/user', null);
+      const pty = spawnedPtys[0];
+
+      const shutdown = ptyService.killAll();
+      expect(pty.kill.mock.calls).toEqual([['SIGSTOP'], ['SIGCONT'], []]);
+      pty._simulateExit(0);
+      await shutdown;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(pty.kill).toHaveBeenCalledTimes(3);
+    });
+
+    it('resolves a shutdown at once for a program the kill fails on', async () => {
+      const { ptyService, spawn } = await recordLifecycle();
+      const pty = spawn();
+      pty.kill.mockImplementation(() => {
+        throw new Error('kill ESRCH');
+      });
+
+      await ptyService.killAll();
+      expect(pty.kill).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['linux', 'darwin'] as const)(
+      'escalates to SIGKILL on %s when a released program ignores the kill, then gives up waiting',
+      async (platform) => {
+        pinPlatform(platform);
+        const { ptyService, spawn, take } = await recordLifecycle();
+        spawn();
+        take();
+
+        let released = false;
+        void ptyService.releaseTerminalAndWait('term-1').then(() => {
+          released = true;
+        });
+        expect(take()).toEqual([
+          'terminal:status-change stopped',
+          'status stopped (reads stopped)',
+          'title null',
+          'kill SIGHUP',
+          'exit listener',
+        ]);
+
+        await vi.advanceTimersByTimeAsync(999);
+        expect(take()).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(take()).toEqual(['kill SIGKILL']);
+        await vi.advanceTimersByTimeAsync(249);
+        expect(released).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(released).toBe(true);
+      }
+    );
+
+    it('only waits on Windows, where the kill already ends the program', async () => {
+      pinPlatform('win32');
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+      ptyService.spawn('term-1', 'C:\\Users\\user', null);
+      ptyService.spawn('term-2', 'C:\\Users\\user', null);
+
+      let released = false;
+      void ptyService.releaseTerminalAndWait('term-1').then(() => {
+        released = true;
+      });
+      let shutDown = false;
+      void ptyService.killAll().then(() => {
+        shutDown = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(1_249);
+      expect(released).toBe(false);
+      expect(shutDown).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(released).toBe(true);
+      expect(shutDown).toBe(true);
+      expect(spawnedPtys[0].kill.mock.calls).toEqual([[]]);
+      expect(spawnedPtys[1].kill.mock.calls).toEqual([[]]);
+    });
+
+    it('resolves a release at once for a terminal with no program', async () => {
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+
+      await ptyService.releaseTerminalAndWait('term-1');
+      ptyService.spawn('term-1', '/home/user', null, [], undefined, undefined, 0, 120, 30);
+      spawnedPtys[0]._simulateExit(0);
+      await ptyService.releaseTerminalAndWait('term-1');
+    });
+
+    it('counts terminals by what they report, through shutdown', async () => {
+      const { ptyService } = await import('../../../src/main/services/pty.service');
+      ptyService.spawn('term-1', '/home/user', null, [], undefined, undefined, 0, 120, 30);
+      ptyService.spawn('term-2', '/home/user', null, [], undefined, undefined, 0, 120, 30);
+      spawnedPtys[1]._simulateData('$ ');
+
+      const counts = {
+        processCount: 2,
+        startingCount: 1,
+        runningCount: 1,
+        stoppedCount: 0,
+      };
+      expect(ptyService.getDiagnostics()).toMatchObject(counts);
+      const shutdown = ptyService.killAll();
+      expect(ptyService.getDiagnostics()).toMatchObject(counts);
+      expect(ptyService.isRunning('term-2')).toBe(true);
+
+      spawnedPtys[0]._simulateExit(0);
+      spawnedPtys[1]._simulateExit(0);
+      await shutdown;
+      expect(ptyService.getDiagnostics()).toMatchObject({ processCount: 0 });
     });
   });
 });

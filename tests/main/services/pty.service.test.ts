@@ -3637,5 +3637,56 @@ describe('PtyService', () => {
 
       expect(spawnedPtys[0].write).not.toHaveBeenCalledWith(`${command}\r`);
     });
+
+    it('waits at shutdown for a killed program that has not exited yet', async () => {
+      const { ptyService, spawn, take } = await recordLifecycle();
+      const pty = spawn();
+      ptyService.kill('term-1');
+      take();
+      let finished = false;
+      const shutdown = ptyService.killAll();
+      void shutdown.then(() => {
+        finished = true;
+      });
+
+      await settle();
+      expect(finished).toBe(false);
+      pty._simulateExit(129);
+      await shutdown;
+      expect(take()).toEqual([]);
+    });
+
+    it('escalates at shutdown for a killed program that ignores its kill', async () => {
+      pinPlatform('linux');
+      const { ptyService, spawn, take } = await recordLifecycle();
+      spawn();
+      ptyService.kill('term-1');
+      take();
+      let finished = false;
+      void ptyService.killAll().then(() => {
+        finished = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(take()).toEqual(['kill SIGKILL']);
+      await vi.advanceTimersByTimeAsync(250);
+      expect(finished).toBe(true);
+    });
+
+    it('does not wait at shutdown for a killed program a release already gave up on', async () => {
+      pinPlatform('linux');
+      const { ptyService, spawn } = await recordLifecycle();
+      spawn();
+      const released = ptyService.releaseTerminalAndWait('term-1');
+      await vi.advanceTimersByTimeAsync(1_250);
+      await released;
+
+      let finished = false;
+      void ptyService.killAll().then(() => {
+        finished = true;
+      });
+      await settle();
+      expect(finished).toBe(true);
+    });
   });
 });

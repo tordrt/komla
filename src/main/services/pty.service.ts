@@ -1547,7 +1547,8 @@ class PtyService {
    *
    * Per-terminal `kill()` keeps its existing immediate semantics for user-driven
    * close; here each PTY moves to 'shutting-down' and stays its terminal's, so
-   * `handleExit()` can run normally when the real exit lands.
+   * `handleExit()` can run normally when the real exit lands. PTYs already
+   * exiting are waited for too, since their exit event is just as pending.
    */
   killAll(): Promise<void> {
     this.shuttingDown = true;
@@ -1565,6 +1566,10 @@ class PtyService {
         });
         stopWaiting();
       }
+    }
+    // PTYs kill() or a replacement already let go of are children whose exit is still pending.
+    for (const proc of this.exitingProcesses) {
+      exits.push(this.waitForExit(proc, 'shutdown').exited);
     }
     return Promise.all(exits).then(() => undefined);
   }

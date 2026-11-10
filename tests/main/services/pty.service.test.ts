@@ -3131,6 +3131,11 @@ describe('PtyService', () => {
       mockEmitTerminalTitle.mockReset();
     });
 
+    /** Lets every promise that can settle without a timer settle. */
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    }
+
     /** Records everything the service reports about term-1, in order. */
     async function recordLifecycle() {
       const { ptyService } = await import('../../../src/main/services/pty.service');
@@ -3404,7 +3409,7 @@ describe('PtyService', () => {
         'kill SIGHUP',
         'exit listener',
       ]);
-      await Promise.resolve();
+      await settle();
       expect(finished).toBe(false);
 
       pty._simulateExit(0);
@@ -3522,6 +3527,26 @@ describe('PtyService', () => {
       spawnedPtys[1]._simulateExit(0);
       await shutdown;
       expect(ptyService.getDiagnostics()).toMatchObject({ processCount: 0 });
+    });
+
+    it('keeps waiting at shutdown for a replacement when the program it replaced exits', async () => {
+      const { ptyService, spawn, restart, take } = await recordLifecycle();
+      const original = spawn();
+      const replacement = restart();
+      take();
+      let finished = false;
+      const shutdown = ptyService.killAll();
+      void shutdown.then(() => {
+        finished = true;
+      });
+
+      original._simulateExit(129);
+      await settle();
+      expect(finished).toBe(false);
+
+      replacement._simulateExit(0);
+      await shutdown;
+      expect(take()).not.toContain('terminal:exit 0');
     });
   });
 });

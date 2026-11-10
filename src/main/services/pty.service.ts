@@ -350,9 +350,10 @@ class PtyService {
   // PTYs removed from `processes` by kill()/restart() may not have delivered
   // their native exit event yet. Keep their concrete instances until they do.
   private exitingProcesses: Set<PtyProcess> = new Set();
-  // Resolvers waiting for a specific terminal's native exit event during
-  // shutdown. Populated by killAll(), drained by handleExit().
-  private shutdownExitResolvers: Map<string, () => void> = new Map();
+  // Resolvers waiting for a specific PTY's native exit event during shutdown.
+  // Populated by killAll(), drained by handleExit(). Keyed by the PTY, not its
+  // terminal, so the exit of a PTY a restart replaced can't end the wait.
+  private shutdownExitResolvers: Map<PtyProcess, () => void> = new Map();
   // Set by killAll(): programs may still be writing as they exit, so nothing pauses again.
   private shuttingDown = false;
   // Workspace deletion must not remove a terminal's cwd until node-pty has
@@ -942,10 +943,10 @@ class PtyService {
     // user-facing kill(terminalId) may have already removed the process entry,
     // and we still need to release the shutdown waiter when the native exit
     // lands rather than wait for the timeout fallback.
-    const resolver = this.shutdownExitResolvers.get(terminalId);
+    const resolver = expectedProcess && this.shutdownExitResolvers.get(expectedProcess);
     const isShutdownExit = resolver !== undefined;
     if (resolver) {
-      this.shutdownExitResolvers.delete(terminalId);
+      this.shutdownExitResolvers.delete(expectedProcess);
       resolver();
     }
     if (expectedProcess) {
@@ -1586,11 +1587,11 @@ class PtyService {
         const finalize = (): void => {
           if (escalateTimer) clearTimeout(escalateTimer);
           if (abandonTimer) clearTimeout(abandonTimer);
-          this.shutdownExitResolvers.delete(terminalId);
+          this.shutdownExitResolvers.delete(proc);
           resolve();
         };
 
-        this.shutdownExitResolvers.set(terminalId, finalize);
+        this.shutdownExitResolvers.set(proc, finalize);
 
         // Stage 1: SIGHUP didn't reap the child within the grace period.
         // Escalate to SIGKILL (POSIX only — node-pty's Windows backend rejects
@@ -1638,7 +1639,7 @@ class PtyService {
           terminalId,
           error: String(err),
         });
-        const resolver = this.shutdownExitResolvers.get(terminalId);
+        const resolver = this.shutdownExitResolvers.get(proc);
         if (resolver) {
           resolver();
         }

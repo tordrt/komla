@@ -52,12 +52,16 @@ vi.mock('../../../../src/renderer/components/terminal/InlineFileTreePanel', () =
 vi.mock('../../../../src/renderer/components/terminal/ActionTabButton', () => ({
   ActionTabButton: () => <button type="button">More quick commands</button>,
 }));
+const newTabButtonRenders = vi.hoisted(() => ({ count: 0 }));
 vi.mock('../../../../src/renderer/components/terminal/NewTabButton', () => ({
-  NewTabButton: ({ onNewTerminal }: { onNewTerminal: () => void }) => (
-    <button type="button" onClick={onNewTerminal}>
-      New tab
-    </button>
-  ),
+  NewTabButton: ({ onNewTerminal }: { onNewTerminal: () => void }) => {
+    newTabButtonRenders.count++;
+    return (
+      <button type="button" onClick={onNewTerminal}>
+        New tab
+      </button>
+    );
+  },
 }));
 vi.mock('../../../../src/renderer/components/ui/tooltip', () => ({
   Tooltip: ({ children }: React.PropsWithChildren) => <>{children}</>,
@@ -198,6 +202,35 @@ describe('TerminalTabs', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // An agent changes its terminal's title with every frame of its spinner.
+  it("does not re-render for the title of another workspace's terminal", () => {
+    setUpWorkspace(['t1']);
+    useWorkspacesStore.setState((state) => ({
+      workspaces: [
+        ...state.workspaces,
+        createWorkspace({
+          id: 'ws-background',
+          terminals: [createTerminal({ id: 'agent', name: 'Agent', dynamicTitle: '⠋ Working' })],
+        }),
+      ],
+    }));
+    render(<TerminalTabs />);
+    const rendersBefore = newTabButtonRenders.count;
+
+    act(() => useWorkspacesStore.getState().setTerminalDynamicTitle('agent', '⠙ Working'));
+
+    expect(newTabButtonRenders.count).toBe(rendersBefore);
+  });
+
+  it("shows a new title of the open workspace's terminal", () => {
+    setUpWorkspace(['t1']);
+    render(<TerminalTabs />);
+
+    act(() => useWorkspacesStore.getState().setTerminalDynamicTitle('t1', 'Fixing tests'));
+
+    expect(getTab('Fixing tests')).toBeInTheDocument();
   });
 
   it('removes a workspace whose files are gone from its host in one click', () => {

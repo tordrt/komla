@@ -91,6 +91,7 @@ import {
   getTerminalTabLabel,
   getWorkspaceAttentionAppearance,
 } from '@/lib/workspace-attention';
+import { useWorkspacesExceptTitles } from '@/lib/workspace-except-titles';
 import { getWorkspaceHostId } from '@/lib/workspace-host';
 import { isWorkspaceLayoutPlaceholder } from '@/lib/workspace-layout-hydration';
 import { useAgentPresetsStore } from '@/stores/agent-presets.store';
@@ -1286,8 +1287,9 @@ export const TerminalTabs = memo(function TerminalTabs({
   const activeTabByWorkspace = useLayoutStore((s) => s.activeTabByWorkspace);
   const focusedPaneByTab = useLayoutStore((s) => s.focusedPaneByTab);
 
-  // Get workspaces array for initialization effect
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  // Get workspaces array for initialization effect. Nothing read from it is a title, so the
+  // spinners of agents working in other workspaces don't re-render the tabs.
+  const workspaces = useWorkspacesStore(useWorkspacesExceptTitles((s) => s.workspaces));
   const workspaceById = useMemo(() => new Map(workspaces.map((w) => [w.id, w])), [workspaces]);
 
   // Get selected workspace terminals for getTabName

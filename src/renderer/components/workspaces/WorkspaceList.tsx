@@ -27,6 +27,7 @@ import { getProjectMoveIndex } from '@/lib/project-order';
 import { PINNED_GROUP_KEY } from '@/lib/sidebar-collapsed-groups';
 import { cn } from '@/lib/utils';
 import { summarizeWorkspaceAttention } from '@/lib/workspace-attention';
+import { useWorkspacesExceptTitles } from '@/lib/workspace-except-titles';
 import { isWorkspaceHostVisible } from '@/lib/workspace-host';
 import { useConfigStore } from '@/stores/config.store';
 import { openNewWorkspaceDialog } from '@/stores/dialogs.store';
@@ -842,10 +843,38 @@ function WorkspaceListEmptyState({
   );
 }
 
+/**
+ * A card with its workspace's titles as they are now. The list keeps a workspace from before its
+ * titles last changed, so that an agent's spinner re-renders one card and not the list.
+ */
+function TitledWorkspaceCard({ workspace, ...props }: React.ComponentProps<typeof WorkspaceCard>) {
+  const titled = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspace.id));
+  return <WorkspaceCard workspace={titled ?? workspace} {...props} />;
+}
+
+/**
+ * The dialog that empties the Trash, naming each workspace by its title as it is now: it lists
+ * what it deletes for good. It reads the workspaces only while open.
+ */
+function EmptyTrashDialog({ workspaces, ...props }: React.ComponentProps<typeof BulkDeleteDialog>) {
+  const current = useWorkspacesStore((s) => (props.open ? s.workspaces : null));
+  const titled = useMemo(
+    () =>
+      current
+        ? workspaces.map((workspace) => current.find((w) => w.id === workspace.id) ?? workspace)
+        : workspaces,
+    [current, workspaces]
+  );
+  return <BulkDeleteDialog workspaces={titled} {...props} />;
+}
+
 export function WorkspaceList({
   onNewWorkspaceDialogChange: _onNewWorkspaceDialogChange,
 }: WorkspaceListProps) {
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  // These workspaces can hold old titles: sorting every workspace into its groups and shelves
+  // with each frame of an agent's spinner is work for nothing. What shows a title reads its own,
+  // as TitledWorkspaceCard and EmptyTrashDialog do.
+  const workspaces = useWorkspacesStore(useWorkspacesExceptTitles((s) => s.workspaces));
   const selectedWorkspaceId = useWorkspacesStore((s) => s.selectedWorkspaceId);
   const selectWorkspace = useWorkspacesStore((s) => s.selectWorkspace);
   const collapsedGroupKeys = useWorkspacesStore((s) => s.collapsedWorkspaceGroupKeys);
@@ -1505,7 +1534,7 @@ export function WorkspaceList({
     hideDirectoryPath?: boolean,
     dndEnabled = !selectionMode
   ) => (
-    <WorkspaceCard
+    <TitledWorkspaceCard
       key={workspace.id}
       workspace={workspace}
       projectInfo={projectInfo}
@@ -1681,7 +1710,7 @@ export function WorkspaceList({
           renderWorkspaceCard(workspace, getProjectInfo(workspace), false, false)
         }
       />
-      <BulkDeleteDialog
+      <EmptyTrashDialog
         open={emptyTrashOpen}
         onOpenChange={setEmptyTrashOpen}
         workspaces={trashShelfWorkspaces}

@@ -577,6 +577,9 @@ export function useFileEditorState(
   }, []);
 
   const reset = useCallback(() => {
+    // A read still in flight is for the file let go of.
+    loadRequestIdRef.current++;
+    setLoadingFile(false);
     setFilePath(null);
     setFileContent(null);
     setDiskContent(null);

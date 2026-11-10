@@ -1,14 +1,16 @@
 import { create } from 'zustand';
 
 import { pathAfterMove, type FileTreeMove } from '@/lib/file-tree-moves';
+import {
+  decideInlinePreviewTransition,
+  type FileViewerTransitionRequest,
+  type InlinePreviewTransition,
+  type InlinePreviewTransitionDecision,
+  type PendingFileViewerTransition,
+} from '@/lib/file-viewer-transition';
 import { isImportedFilePath } from '@/lib/workspace-file-paths';
 
 import { useConfigStore } from './config.store';
-
-import type {
-  FileViewerTransitionRequest,
-  PendingFileViewerTransition,
-} from '@/lib/file-viewer-transition';
 
 /** File viewer mode: browse for file tree, diff for git changes */
 export type FileViewerMode = 'browse' | 'diff';
@@ -108,33 +110,10 @@ interface FileViewerState {
     }
   >;
   inlineFilePreviewNavRequestByWorkspace: Record<string, number>;
-  // Pending navigation request when the current preview has unsaved changes —
-  // the file tree click handler stages the target here instead of mutating
-  // filePath, so the panel can show a confirm dialog without the store ever
-  // pointing at the unconfirmed file.
-  inlineFilePreviewPendingNavByWorkspace: Record<
-    string,
-    {
-      mode: FileViewerMode;
-      filePath: string;
-      lineNumber?: number;
-      // When set, the staged nav also represents an "open in browser
-      // preview" action. confirmDiscard applies the additional mode flips
-      // (htmlViewMode + inlineFileTreeMode) only on confirm — flipping them
-      // up-front would leak browser mode if the user cancels the prompt.
-      htmlPreviewIntent?: boolean;
-      // When set, confirmDiscard also switches the tree to its files.
-      browseTree?: boolean;
-    } | null
-  >;
-  // Pending close request when the current preview has unsaved changes — used
-  // by the file tree to surface the unsaved-changes dialog when re-clicking
-  // the open dirty file (which would otherwise drop edits silently).
-  inlineFilePreviewPendingCloseByWorkspace: Record<string, boolean>;
-  // Pending mode change (diff ↔ browse) when the current preview has unsaved
-  // changes — flipping mode reloads the file in a different editor and would
-  // silently drop edits, so the dialog confirms before applying.
-  inlineFilePreviewPendingModeChangeByWorkspace: Record<string, FileViewerMode | null>;
+  // The file switch, mode change or close that waits on the preview's Unsaved Changes prompt,
+  // which shows while there is one. Nothing it would change has changed yet, so the file tree
+  // never points at a file the user hasn't agreed to open, and cancelling leaves nothing to undo.
+  inlineFilePreviewPendingTransitionByWorkspace: Record<string, InlinePreviewTransition | null>;
   // One pending full-screen transition. The mounted dialog owns dirty state
   // and consumes this through the transition module.
   pendingFileViewerTransition: PendingFileViewerTransition | null;
@@ -246,21 +225,18 @@ interface FileViewerState {
     lineNumber?: number,
     options?: { htmlPreviewIntent?: boolean; browseTree?: boolean; requestId?: number }
   ) => void;
-  clearInlineFilePreviewPendingNav: (workspaceId: string) => void;
   // Requests close of the inline preview. If the current preview is dirty, the
   // request is staged (panel shows confirm dialog); otherwise closes directly.
-  requestInlineFilePreviewClose: (workspaceId: string) => void;
-  clearInlineFilePreviewPendingClose: (workspaceId: string) => void;
+  // `unsaved` says the edits are unsaved where the panel knows better than the store.
+  requestInlineFilePreviewClose: (workspaceId: string, options?: { unsaved?: boolean }) => void;
   // Requests a tree+preview mode change. If the open preview is dirty and the
   // mode would actually change, the request is staged (panel shows confirm
   // dialog); otherwise both modes are applied directly.
   requestInlineFilePreviewModeChange: (workspaceId: string, nextMode: FileViewerMode) => void;
-  clearInlineFilePreviewPendingModeChange: (workspaceId: string) => void;
-  // Drops all three inline-preview pending discard slots for one workspace at
-  // once. Used by `confirmDiscard` to snapshot-then-clear-all-then-act so a
-  // sibling slot staged while the dialog was open can't survive past the
-  // current decision.
-  clearAllInlineFilePreviewPendingDiscardSlots: (workspaceId: string) => void;
+  /** Whether the preview would ask before `transition`, for a caller with more to do once it lands. */
+  inlineFilePreviewWouldAsk: (workspaceId: string, transition: InlinePreviewTransition) => boolean;
+  /** The Unsaved Changes prompt's answer: Discard applies the waiting transition, Cancel drops it. */
+  answerInlineFilePreviewPrompt: (workspaceId: string, answer: 'discard' | 'cancel') => void;
   requestFileViewerTransition: (request: FileViewerTransitionRequest) => void;
   clearPendingFileViewerTransition: () => void;
   requestFileViewerBlame: (workspaceId: string) => void;
@@ -358,6 +334,95 @@ function openClosedViewerForMode(
   }
 }
 
+type FileViewerStoreGet = () => FileViewerState;
+type FileViewerStoreSet = (partial: Partial<FileViewerState>) => void;
+
+/** The only writer of a workspace's pending inline preview transition, as a state patch. */
+function pendingInlineTransitionPatch(
+  state: FileViewerState,
+  workspaceId: string,
+  transition: InlinePreviewTransition | null
+): Pick<FileViewerState, 'inlineFilePreviewPendingTransitionByWorkspace'> {
+  return {
+    inlineFilePreviewPendingTransitionByWorkspace: {
+      ...state.inlineFilePreviewPendingTransitionByWorkspace,
+      [workspaceId]: transition,
+    },
+  };
+}
+
+function setPendingInlineTransition(
+  get: FileViewerStoreGet,
+  set: FileViewerStoreSet,
+  workspaceId: string,
+  transition: InlinePreviewTransition | null
+): void {
+  const state = get();
+  if ((state.inlineFilePreviewPendingTransitionByWorkspace[workspaceId] ?? null) === transition) {
+    return;
+  }
+  set(pendingInlineTransitionPatch(state, workspaceId, transition));
+}
+
+function decideFor(
+  get: FileViewerStoreGet,
+  workspaceId: string,
+  transition: InlinePreviewTransition,
+  unsaved?: boolean
+) {
+  const preview = get().inlineFilePreviewByWorkspace[workspaceId];
+  return decideInlinePreviewTransition(transition, {
+    open: !!preview?.open,
+    dirty: unsaved ?? !!preview?.isDirty,
+    filePath: preview?.filePath ?? null,
+    mode: preview?.mode ?? 'browse',
+  });
+}
+
+/** Applies a transition the preview needn't ask about, or else has it wait for the prompt. */
+function requestInlineTransition(
+  get: FileViewerStoreGet,
+  set: FileViewerStoreSet,
+  workspaceId: string,
+  transition: InlinePreviewTransition,
+  unsaved?: boolean
+): InlinePreviewTransitionDecision {
+  const decision = decideFor(get, workspaceId, transition, unsaved);
+  if (decision === 'apply') applyInlineTransition(get, workspaceId, transition);
+  if (decision === 'confirm') setPendingInlineTransition(get, set, workspaceId, transition);
+  return decision;
+}
+
+function applyInlineTransition(
+  get: FileViewerStoreGet,
+  workspaceId: string,
+  transition: InlinePreviewTransition
+): void {
+  const store = get();
+  switch (transition.kind) {
+    case 'file':
+      if (
+        (transition.browseTree || transition.htmlPreviewIntent) &&
+        store.inlineFileTreeByWorkspace[workspaceId]?.mode !== 'browse'
+      ) {
+        store.setInlineFileTreeMode(workspaceId, 'browse');
+      }
+      get().openInlineFilePreview(
+        workspaceId,
+        transition.mode,
+        transition.filePath,
+        transition.lineNumber
+      );
+      return;
+    case 'mode':
+      store.setInlineFileTreeMode(workspaceId, transition.mode);
+      get().setInlineFilePreviewMode(workspaceId, transition.mode);
+      return;
+    case 'close':
+      store.closeInlineFilePreview(workspaceId);
+  }
+}
+
 export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   fileViewerWorkspaceId: null,
   fileViewerMode: 'browse',
@@ -375,9 +440,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   inlineFileTreeWidthByWorkspace: {},
   inlineFilePreviewByWorkspace: {},
   inlineFilePreviewNavRequestByWorkspace: {},
-  inlineFilePreviewPendingNavByWorkspace: {},
-  inlineFilePreviewPendingCloseByWorkspace: {},
-  inlineFilePreviewPendingModeChangeByWorkspace: {},
+  inlineFilePreviewPendingTransitionByWorkspace: {},
   pendingFileViewerTransition: null,
   pendingFileViewerBlameRequest: null,
   inlineFilePreviewWidthByWorkspace: {},
@@ -704,12 +767,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
   },
 
   closeInlineFilePreview: (workspaceId) => {
-    const {
-      inlineFilePreviewByWorkspace,
-      inlineFilePreviewPendingNavByWorkspace,
-      inlineFilePreviewPendingCloseByWorkspace,
-      inlineFilePreviewPendingModeChangeByWorkspace,
-    } = get();
+    const { inlineFilePreviewByWorkspace } = get();
     const current = inlineFilePreviewByWorkspace[workspaceId];
     const defaults = {
       open: false,
@@ -726,18 +784,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
         // selectOnlyPath/focus are both no-ops on an already-active row).
         [workspaceId]: { ...defaults, ...current, open: false, filePath: null },
       },
-      inlineFilePreviewPendingNavByWorkspace: {
-        ...inlineFilePreviewPendingNavByWorkspace,
-        [workspaceId]: null,
-      },
-      inlineFilePreviewPendingCloseByWorkspace: {
-        ...inlineFilePreviewPendingCloseByWorkspace,
-        [workspaceId]: false,
-      },
-      inlineFilePreviewPendingModeChangeByWorkspace: {
-        ...inlineFilePreviewPendingModeChangeByWorkspace,
-        [workspaceId]: null,
-      },
+      ...pendingInlineTransitionPatch(get(), workspaceId, null),
     });
   },
 
@@ -824,169 +871,49 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     if (options?.requestId !== undefined) {
       if (get().inlineFilePreviewNavRequestByWorkspace[workspaceId] !== options.requestId) return;
     }
-    const current = get().inlineFilePreviewByWorkspace[workspaceId];
-    // Same-file mode swap (e.g. from browse to diff on the currently dirty
-    // file) also reloads the editor, so treat mode mismatch as a blocking
-    // transition.
-    const blockingDirty =
-      !!current?.open &&
-      !!current.isDirty &&
-      (current.filePath !== filePath || current.mode !== mode);
-    if (!blockingDirty) {
-      if (
-        options?.browseTree &&
-        (get().inlineFileTreeByWorkspace[workspaceId]?.mode ?? 'diff') === 'diff'
-      ) {
-        get().setInlineFileTreeMode(workspaceId, 'browse');
-      }
-      get().openInlineFilePreview(workspaceId, mode, filePath, lineNumber);
-      return;
-    }
-    if (options?.requestId === undefined) {
+    const transition: InlinePreviewTransition = {
+      kind: 'file',
+      mode,
+      filePath,
+      lineNumber,
+      htmlPreviewIntent: options?.htmlPreviewIntent,
+      browseTree: options?.browseTree,
+    };
+    const decision = requestInlineTransition(get, set, workspaceId, transition);
+    // A navigation still resolving its target is now older than this one.
+    if (decision === 'confirm' && options?.requestId === undefined) {
       get().reserveInlineFilePreviewNav(workspaceId);
     }
-    // Mutual exclusion: clear sibling pending slots so the latest staged
-    // intent always wins. Without this, a tree click → Cmd+W race could
-    // leave the close request next to a stale nav request, and
-    // confirmDiscard would act on the older one first.
-    set((state) => ({
-      inlineFilePreviewPendingNavByWorkspace: {
-        ...state.inlineFilePreviewPendingNavByWorkspace,
-        [workspaceId]: {
-          mode,
-          filePath,
-          lineNumber,
-          htmlPreviewIntent: options?.htmlPreviewIntent,
-          browseTree: options?.browseTree,
-        },
-      },
-      inlineFilePreviewPendingCloseByWorkspace: {
-        ...state.inlineFilePreviewPendingCloseByWorkspace,
-        [workspaceId]: false,
-      },
-      inlineFilePreviewPendingModeChangeByWorkspace: {
-        ...state.inlineFilePreviewPendingModeChangeByWorkspace,
-        [workspaceId]: null,
-      },
-    }));
   },
 
-  clearInlineFilePreviewPendingNav: (workspaceId) => {
-    const { inlineFilePreviewPendingNavByWorkspace } = get();
-    if (!inlineFilePreviewPendingNavByWorkspace[workspaceId]) return;
-    set({
-      inlineFilePreviewPendingNavByWorkspace: {
-        ...inlineFilePreviewPendingNavByWorkspace,
-        [workspaceId]: null,
-      },
-    });
-  },
-
-  requestInlineFilePreviewClose: (workspaceId) => {
-    const current = get().inlineFilePreviewByWorkspace[workspaceId];
-    if (!current?.open) return;
-    if (!current.isDirty) {
-      get().closeInlineFilePreview(workspaceId);
-      return;
-    }
-    set((state) => ({
-      inlineFilePreviewPendingCloseByWorkspace: {
-        ...state.inlineFilePreviewPendingCloseByWorkspace,
-        [workspaceId]: true,
-      },
-      inlineFilePreviewPendingNavByWorkspace: {
-        ...state.inlineFilePreviewPendingNavByWorkspace,
-        [workspaceId]: null,
-      },
-      inlineFilePreviewPendingModeChangeByWorkspace: {
-        ...state.inlineFilePreviewPendingModeChangeByWorkspace,
-        [workspaceId]: null,
-      },
-    }));
-  },
-
-  clearInlineFilePreviewPendingClose: (workspaceId) => {
-    const { inlineFilePreviewPendingCloseByWorkspace } = get();
-    if (!inlineFilePreviewPendingCloseByWorkspace[workspaceId]) return;
-    set({
-      inlineFilePreviewPendingCloseByWorkspace: {
-        ...inlineFilePreviewPendingCloseByWorkspace,
-        [workspaceId]: false,
-      },
-    });
+  requestInlineFilePreviewClose: (workspaceId, options) => {
+    requestInlineTransition(get, set, workspaceId, { kind: 'close' }, options?.unsaved);
   },
 
   requestInlineFilePreviewModeChange: (workspaceId, nextMode) => {
     const current = get().inlineFilePreviewByWorkspace[workspaceId];
-    const isOpen = !!current?.open;
-    const isDirty = !!current?.isDirty;
     // An imported file is out of git, so it has no diff to switch to: the tree alone changes.
     if (
       nextMode === 'diff' &&
-      isOpen &&
-      current?.filePath &&
+      current?.open &&
+      current.filePath &&
       isImportedFilePath(current.filePath)
     ) {
       get().setInlineFileTreeMode(workspaceId, nextMode);
       return;
     }
-    const wouldChange = !current || current.mode !== nextMode;
-
-    if (!isOpen || !isDirty || !wouldChange) {
-      // Safe to apply directly — preview is closed, clean, or already in the
-      // requested mode.
-      get().setInlineFileTreeMode(workspaceId, nextMode);
-      get().setInlineFilePreviewMode(workspaceId, nextMode);
-      return;
-    }
-
-    set((state) => ({
-      inlineFilePreviewPendingModeChangeByWorkspace: {
-        ...state.inlineFilePreviewPendingModeChangeByWorkspace,
-        [workspaceId]: nextMode,
-      },
-      inlineFilePreviewPendingNavByWorkspace: {
-        ...state.inlineFilePreviewPendingNavByWorkspace,
-        [workspaceId]: null,
-      },
-      inlineFilePreviewPendingCloseByWorkspace: {
-        ...state.inlineFilePreviewPendingCloseByWorkspace,
-        [workspaceId]: false,
-      },
-    }));
+    requestInlineTransition(get, set, workspaceId, { kind: 'mode', mode: nextMode });
   },
 
-  clearInlineFilePreviewPendingModeChange: (workspaceId) => {
-    const { inlineFilePreviewPendingModeChangeByWorkspace } = get();
-    if (!inlineFilePreviewPendingModeChangeByWorkspace[workspaceId]) return;
-    set({
-      inlineFilePreviewPendingModeChangeByWorkspace: {
-        ...inlineFilePreviewPendingModeChangeByWorkspace,
-        [workspaceId]: null,
-      },
-    });
-  },
+  inlineFilePreviewWouldAsk: (workspaceId, transition) =>
+    decideFor(get, workspaceId, transition) === 'confirm',
 
-  clearAllInlineFilePreviewPendingDiscardSlots: (workspaceId) => {
-    const {
-      inlineFilePreviewPendingNavByWorkspace,
-      inlineFilePreviewPendingCloseByWorkspace,
-      inlineFilePreviewPendingModeChangeByWorkspace,
-    } = get();
-    set({
-      inlineFilePreviewPendingNavByWorkspace: {
-        ...inlineFilePreviewPendingNavByWorkspace,
-        [workspaceId]: null,
-      },
-      inlineFilePreviewPendingCloseByWorkspace: {
-        ...inlineFilePreviewPendingCloseByWorkspace,
-        [workspaceId]: false,
-      },
-      inlineFilePreviewPendingModeChangeByWorkspace: {
-        ...inlineFilePreviewPendingModeChangeByWorkspace,
-        [workspaceId]: null,
-      },
-    });
+  answerInlineFilePreviewPrompt: (workspaceId, answer) => {
+    const transition = get().inlineFilePreviewPendingTransitionByWorkspace[workspaceId];
+    if (!transition) return;
+    // Cleared first: a request made while applying this one starts afresh.
+    setPendingInlineTransition(get, set, workspaceId, null);
+    if (answer === 'discard') applyInlineTransition(get, workspaceId, transition);
   },
 
   requestFileViewerTransition: (request) => {
@@ -1246,9 +1173,9 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     if (isDeletedPath(inlinePreview?.filePath)) {
       get().closeInlineFilePreview(workspaceId);
     } else {
-      const pendingNav = state.inlineFilePreviewPendingNavByWorkspace[workspaceId];
-      if (isDeletedPath(pendingNav?.filePath)) {
-        get().clearInlineFilePreviewPendingNav(workspaceId);
+      const pending = state.inlineFilePreviewPendingTransitionByWorkspace[workspaceId];
+      if (pending?.kind === 'file' && isDeletedPath(pending.filePath)) {
+        setPendingInlineTransition(get, set, workspaceId, null);
       }
     }
     return nextActive;
@@ -1336,9 +1263,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       inlineFilePreviewByWorkspace,
       inlineFilePreviewNavRequestByWorkspace,
       inlineFilePreviewWidthByWorkspace,
-      inlineFilePreviewPendingNavByWorkspace,
-      inlineFilePreviewPendingCloseByWorkspace,
-      inlineFilePreviewPendingModeChangeByWorkspace,
+      inlineFilePreviewPendingTransitionByWorkspace,
       diffSubModeByWorkspace,
       diffSelectedFileByWorkspace,
       diffSelectedCommitByWorkspace,
@@ -1361,9 +1286,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     const newInlineFilePreview = { ...inlineFilePreviewByWorkspace };
     const newInlineFilePreviewNavRequest = { ...inlineFilePreviewNavRequestByWorkspace };
     const newInlineFilePreviewWidths = { ...inlineFilePreviewWidthByWorkspace };
-    const newInlinePendingNav = { ...inlineFilePreviewPendingNavByWorkspace };
-    const newInlinePendingClose = { ...inlineFilePreviewPendingCloseByWorkspace };
-    const newInlinePendingModeChange = { ...inlineFilePreviewPendingModeChangeByWorkspace };
+    const newInlinePendingTransition = { ...inlineFilePreviewPendingTransitionByWorkspace };
     const newDiffSubMode = { ...diffSubModeByWorkspace };
     const newDiffSelectedFile = { ...diffSelectedFileByWorkspace };
     const newDiffSelectedCommit = { ...diffSelectedCommitByWorkspace };
@@ -1386,9 +1309,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
     delete newInlineFilePreview[workspaceId];
     delete newInlineFilePreviewNavRequest[workspaceId];
     delete newInlineFilePreviewWidths[workspaceId];
-    delete newInlinePendingNav[workspaceId];
-    delete newInlinePendingClose[workspaceId];
-    delete newInlinePendingModeChange[workspaceId];
+    delete newInlinePendingTransition[workspaceId];
     delete newDiffSubMode[workspaceId];
     delete newDiffSelectedFile[workspaceId];
     delete newDiffSelectedCommit[workspaceId];
@@ -1413,9 +1334,7 @@ export const useFileViewerStore = create<FileViewerState>((set, get) => ({
       inlineFilePreviewByWorkspace: newInlineFilePreview,
       inlineFilePreviewNavRequestByWorkspace: newInlineFilePreviewNavRequest,
       inlineFilePreviewWidthByWorkspace: newInlineFilePreviewWidths,
-      inlineFilePreviewPendingNavByWorkspace: newInlinePendingNav,
-      inlineFilePreviewPendingCloseByWorkspace: newInlinePendingClose,
-      inlineFilePreviewPendingModeChangeByWorkspace: newInlinePendingModeChange,
+      inlineFilePreviewPendingTransitionByWorkspace: newInlinePendingTransition,
       diffSubModeByWorkspace: newDiffSubMode,
       diffSelectedFileByWorkspace: newDiffSelectedFile,
       diffSelectedCommitByWorkspace: newDiffSelectedCommit,

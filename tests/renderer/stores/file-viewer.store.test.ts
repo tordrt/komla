@@ -24,6 +24,10 @@ function mockApi(): void {
   };
 }
 
+function pendingInline(workspaceId: string) {
+  return useFileViewerStore.getState().inlineFilePreviewPendingTransitionByWorkspace[workspaceId];
+}
+
 describe('file-viewer.store', () => {
   beforeEach(() => {
     resetStore();
@@ -473,13 +477,25 @@ describe('file-viewer.store', () => {
       );
     });
 
+    it('makes a navigation still resolving its target older than one that waits on the prompt', () => {
+      const store = useFileViewerStore.getState();
+      const snapshotRequestId = store.reserveInlineFilePreviewNav('ws-1');
+      store.openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
+      store.setInlineFilePreviewDirty('ws-1', true);
+
+      store.requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
+      store.requestInlineFilePreviewNav('ws-1', 'browse', '/path/older.ts', undefined, {
+        requestId: snapshotRequestId,
+      });
+
+      expect(pendingInline('ws-1')).toMatchObject({ kind: 'file', filePath: '/path/b.ts' });
+    });
+
     it('navigates directly when no preview is open', () => {
       useFileViewerStore.getState().requestInlineFilePreviewNav('ws-1', 'browse', '/path/a.ts');
       const preview = useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1'];
       expect(preview?.filePath).toBe('/path/a.ts');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingNavByWorkspace['ws-1']
-      ).toBeFalsy();
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('navigates directly when preview is clean', () => {
@@ -488,9 +504,7 @@ describe('file-viewer.store', () => {
       useFileViewerStore.getState().requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
       const preview = useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1'];
       expect(preview?.filePath).toBe('/path/b.ts');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingNavByWorkspace['ws-1']
-      ).toBeFalsy();
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('stages a pending nav when preview is dirty and target differs', () => {
@@ -501,10 +515,10 @@ describe('file-viewer.store', () => {
       const preview = useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1'];
       expect(preview?.filePath).toBe('/path/a.ts');
       // and the requested target is staged for the panel to surface a dialog
-      expect(useFileViewerStore.getState().inlineFilePreviewPendingNavByWorkspace['ws-1']).toEqual({
+      expect(pendingInline('ws-1')).toEqual({
+        kind: 'file',
         mode: 'browse',
         filePath: '/path/b.ts',
-        lineNumber: undefined,
       });
     });
 
@@ -521,9 +535,7 @@ describe('file-viewer.store', () => {
         });
 
       expect(useFileViewerStore.getState().inlineFileTreeByWorkspace['ws-1']?.mode).toBe('diff');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingNavByWorkspace['ws-1']
-      ).toMatchObject({ filePath: '/path/b.ts', browseTree: true });
+      expect(pendingInline('ws-1')).toMatchObject({ filePath: '/path/b.ts', browseTree: true });
 
       useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', false);
       useFileViewerStore
@@ -543,9 +555,7 @@ describe('file-viewer.store', () => {
       useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
       useFileViewerStore.getState().requestInlineFilePreviewNav('ws-1', 'browse', '/path/a.ts');
       // No-op nav (same file, same mode); no pending nav staged.
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingNavByWorkspace['ws-1']
-      ).toBeFalsy();
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('stages a pending nav when dirty and only the mode differs for the same file', () => {
@@ -553,10 +563,10 @@ describe('file-viewer.store', () => {
       useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
       // Same file, mode change — would unmount/reload Monaco, so it must prompt.
       useFileViewerStore.getState().requestInlineFilePreviewNav('ws-1', 'diff', '/path/a.ts');
-      expect(useFileViewerStore.getState().inlineFilePreviewPendingNavByWorkspace['ws-1']).toEqual({
+      expect(pendingInline('ws-1')).toEqual({
+        kind: 'file',
         mode: 'diff',
         filePath: '/path/a.ts',
-        lineNumber: undefined,
       });
       // Editor was not reloaded.
       expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']?.mode).toBe(
@@ -564,14 +574,13 @@ describe('file-viewer.store', () => {
       );
     });
 
-    it('clearInlineFilePreviewPendingNav drops a staged request', () => {
+    it('drops a staged nav to a file that is then deleted', () => {
       useFileViewerStore.getState().openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
       useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
       useFileViewerStore.getState().requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
-      useFileViewerStore.getState().clearInlineFilePreviewPendingNav('ws-1');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingNavByWorkspace['ws-1']
-      ).toBeNull();
+      useFileViewerStore.getState().removeDeletedPathFromViewers('ws-1', '/path/b.ts');
+      expect(pendingInline('ws-1')).toBeNull();
+      expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']?.open).toBe(true);
     });
 
     it('closeInlineFilePreview clears any staged pending nav', () => {
@@ -579,9 +588,7 @@ describe('file-viewer.store', () => {
       useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
       useFileViewerStore.getState().requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
       useFileViewerStore.getState().closeInlineFilePreview('ws-1');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingNavByWorkspace['ws-1']
-      ).toBeNull();
+      expect(pendingInline('ws-1')).toBeNull();
     });
   });
 
@@ -592,9 +599,7 @@ describe('file-viewer.store', () => {
       useFileViewerStore.getState().requestInlineFilePreviewClose('ws-1');
       const preview = useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1'];
       expect(preview?.open).toBe(false);
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingCloseByWorkspace['ws-1']
-      ).toBeFalsy();
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('stages a pending close when preview is dirty', () => {
@@ -605,26 +610,19 @@ describe('file-viewer.store', () => {
       const preview = useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1'];
       expect(preview?.open).toBe(true);
       expect(preview?.filePath).toBe('/path/a.ts');
-      expect(useFileViewerStore.getState().inlineFilePreviewPendingCloseByWorkspace['ws-1']).toBe(
-        true
-      );
+      expect(pendingInline('ws-1')).toEqual({ kind: 'close' });
+    });
+
+    it('stages a pending close for edits only the panel knows are unsaved', () => {
+      useFileViewerStore.getState().openInlineFilePreview('ws-1', 'diff', '/path/a.ts');
+      useFileViewerStore.getState().requestInlineFilePreviewClose('ws-1', { unsaved: true });
+      expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']?.open).toBe(true);
+      expect(pendingInline('ws-1')).toEqual({ kind: 'close' });
     });
 
     it('is a no-op when preview is not open', () => {
       useFileViewerStore.getState().requestInlineFilePreviewClose('ws-1');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingCloseByWorkspace['ws-1']
-      ).toBeFalsy();
-    });
-
-    it('clearInlineFilePreviewPendingClose drops a staged request', () => {
-      useFileViewerStore.getState().openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
-      useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
-      useFileViewerStore.getState().requestInlineFilePreviewClose('ws-1');
-      useFileViewerStore.getState().clearInlineFilePreviewPendingClose('ws-1');
-      expect(useFileViewerStore.getState().inlineFilePreviewPendingCloseByWorkspace['ws-1']).toBe(
-        false
-      );
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('closeInlineFilePreview clears any staged pending close', () => {
@@ -632,9 +630,7 @@ describe('file-viewer.store', () => {
       useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
       useFileViewerStore.getState().requestInlineFilePreviewClose('ws-1');
       useFileViewerStore.getState().closeInlineFilePreview('ws-1');
-      expect(useFileViewerStore.getState().inlineFilePreviewPendingCloseByWorkspace['ws-1']).toBe(
-        false
-      );
+      expect(pendingInline('ws-1')).toBeNull();
     });
   });
 
@@ -649,7 +645,7 @@ describe('file-viewer.store', () => {
       const state = useFileViewerStore.getState();
       expect(state.inlineFileTreeByWorkspace['ws-1']?.mode).toBe('diff');
       expect(state.inlineFilePreviewByWorkspace['ws-1']?.mode).toBe('browse');
-      expect(state.inlineFilePreviewPendingModeChangeByWorkspace['ws-1']).toBeFalsy();
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('still switches a project file to its diff', () => {
@@ -667,9 +663,7 @@ describe('file-viewer.store', () => {
       expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']?.mode).toBe(
         'browse'
       );
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingModeChangeByWorkspace['ws-1']
-      ).toBeFalsy();
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('applies immediately when preview is clean', () => {
@@ -680,9 +674,7 @@ describe('file-viewer.store', () => {
       expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']?.mode).toBe(
         'browse'
       );
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingModeChangeByWorkspace['ws-1']
-      ).toBeFalsy();
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('stages a pending change when dirty and mode would change', () => {
@@ -691,28 +683,14 @@ describe('file-viewer.store', () => {
       useFileViewerStore.getState().requestInlineFilePreviewModeChange('ws-1', 'browse');
       // Mode stays at 'diff' — no silent reload
       expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']?.mode).toBe('diff');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingModeChangeByWorkspace['ws-1']
-      ).toBe('browse');
+      expect(pendingInline('ws-1')).toEqual({ kind: 'mode', mode: 'browse' });
     });
 
     it('applies immediately when dirty but already in target mode', () => {
       useFileViewerStore.getState().openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
       useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
       useFileViewerStore.getState().requestInlineFilePreviewModeChange('ws-1', 'browse');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingModeChangeByWorkspace['ws-1']
-      ).toBeFalsy();
-    });
-
-    it('clearInlineFilePreviewPendingModeChange drops a staged request', () => {
-      useFileViewerStore.getState().openInlineFilePreview('ws-1', 'diff', '/path/a.ts');
-      useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
-      useFileViewerStore.getState().requestInlineFilePreviewModeChange('ws-1', 'browse');
-      useFileViewerStore.getState().clearInlineFilePreviewPendingModeChange('ws-1');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingModeChangeByWorkspace['ws-1']
-      ).toBeNull();
+      expect(pendingInline('ws-1')).toBeFalsy();
     });
 
     it('closeInlineFilePreview clears any staged mode change', () => {
@@ -720,102 +698,71 @@ describe('file-viewer.store', () => {
       useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
       useFileViewerStore.getState().requestInlineFilePreviewModeChange('ws-1', 'browse');
       useFileViewerStore.getState().closeInlineFilePreview('ws-1');
-      expect(
-        useFileViewerStore.getState().inlineFilePreviewPendingModeChangeByWorkspace['ws-1']
-      ).toBeNull();
+      expect(pendingInline('ws-1')).toBeNull();
     });
   });
 
-  describe('inline-preview pending discard slot mutual exclusion', () => {
-    it('requestInlineFilePreviewNav clears any prior pending close/mode-change', () => {
+  describe('the inline preview Unsaved Changes prompt', () => {
+    function dirtyPreview(workspaceId: string, filePath: string) {
+      useFileViewerStore.getState().openInlineFilePreview(workspaceId, 'browse', filePath);
+      useFileViewerStore.getState().setInlineFilePreviewDirty(workspaceId, true);
+    }
+
+    it('waits on the latest request only', () => {
+      dirtyPreview('ws-1', '/path/a.ts');
       const store = useFileViewerStore.getState();
-      store.openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
-      store.setInlineFilePreviewDirty('ws-1', true);
       store.requestInlineFilePreviewClose('ws-1');
       store.requestInlineFilePreviewModeChange('ws-1', 'diff');
-      // Now stage a nav — should win and drop the other two
+      expect(pendingInline('ws-1')).toEqual({ kind: 'mode', mode: 'diff' });
       store.requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
-      const s = useFileViewerStore.getState();
-      expect(s.inlineFilePreviewPendingNavByWorkspace['ws-1']).toEqual({
-        mode: 'browse',
-        filePath: '/path/b.ts',
-        lineNumber: undefined,
-      });
-      expect(s.inlineFilePreviewPendingCloseByWorkspace['ws-1']).toBe(false);
-      expect(s.inlineFilePreviewPendingModeChangeByWorkspace['ws-1']).toBeNull();
-    });
-
-    it('requestInlineFilePreviewClose clears any prior pending nav/mode-change', () => {
-      const store = useFileViewerStore.getState();
-      store.openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
-      store.setInlineFilePreviewDirty('ws-1', true);
-      store.requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
-      store.requestInlineFilePreviewModeChange('ws-1', 'diff');
+      expect(pendingInline('ws-1')).toMatchObject({ kind: 'file', filePath: '/path/b.ts' });
       store.requestInlineFilePreviewClose('ws-1');
-      const s = useFileViewerStore.getState();
-      expect(s.inlineFilePreviewPendingCloseByWorkspace['ws-1']).toBe(true);
-      expect(s.inlineFilePreviewPendingNavByWorkspace['ws-1']).toBeNull();
-      expect(s.inlineFilePreviewPendingModeChangeByWorkspace['ws-1']).toBeNull();
+      expect(pendingInline('ws-1')).toEqual({ kind: 'close' });
     });
 
-    it('requestInlineFilePreviewModeChange clears any prior pending nav/close', () => {
+    it("leaves other workspaces' requests alone", () => {
+      dirtyPreview('ws-1', '/path/a.ts');
+      dirtyPreview('ws-2', '/path/x.ts');
       const store = useFileViewerStore.getState();
-      store.openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
-      store.setInlineFilePreviewDirty('ws-1', true);
-      store.requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
-      store.requestInlineFilePreviewClose('ws-1');
-      store.requestInlineFilePreviewModeChange('ws-1', 'diff');
-      const s = useFileViewerStore.getState();
-      expect(s.inlineFilePreviewPendingModeChangeByWorkspace['ws-1']).toBe('diff');
-      expect(s.inlineFilePreviewPendingNavByWorkspace['ws-1']).toBeNull();
-      expect(s.inlineFilePreviewPendingCloseByWorkspace['ws-1']).toBe(false);
-    });
-
-    it('mutual-exclusion clears do not affect other workspaces', () => {
-      const store = useFileViewerStore.getState();
-      store.openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
-      store.setInlineFilePreviewDirty('ws-1', true);
-      store.openInlineFilePreview('ws-2', 'browse', '/path/x.ts');
-      store.setInlineFilePreviewDirty('ws-2', true);
       store.requestInlineFilePreviewClose('ws-2');
-      // Staging on ws-1 must not clear ws-2's pending close
       store.requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
-      const s = useFileViewerStore.getState();
-      expect(s.inlineFilePreviewPendingCloseByWorkspace['ws-2']).toBe(true);
-      expect(s.inlineFilePreviewPendingNavByWorkspace['ws-1']).toEqual({
-        mode: 'browse',
-        filePath: '/path/b.ts',
-        lineNumber: undefined,
-      });
+      store.answerInlineFilePreviewPrompt('ws-1', 'cancel');
+      expect(pendingInline('ws-2')).toEqual({ kind: 'close' });
     });
 
-    it('clearAllInlineFilePreviewPendingDiscardSlots wipes all three slots for one workspace', () => {
+    it('applies the waiting transition on Discard', () => {
+      dirtyPreview('ws-1', '/path/a.ts');
+      useFileViewerStore.getState().requestInlineFilePreviewModeChange('ws-1', 'diff');
+
+      useFileViewerStore.getState().answerInlineFilePreviewPrompt('ws-1', 'discard');
+
+      const state = useFileViewerStore.getState();
+      expect(pendingInline('ws-1')).toBeNull();
+      expect(state.inlineFileTreeByWorkspace['ws-1']?.mode).toBe('diff');
+      expect(state.inlineFilePreviewByWorkspace['ws-1']?.mode).toBe('diff');
+    });
+
+    it('drops the waiting transition on Cancel, leaving the preview as it was', () => {
+      dirtyPreview('ws-1', '/path/a.ts');
+      useFileViewerStore.getState().requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
+
+      useFileViewerStore.getState().answerInlineFilePreviewPrompt('ws-1', 'cancel');
+
+      expect(pendingInline('ws-1')).toBeNull();
+      expect(useFileViewerStore.getState().inlineFilePreviewByWorkspace['ws-1']?.filePath).toBe(
+        '/path/a.ts'
+      );
+    });
+
+    it('says whether a file switch would wait on it', () => {
       const store = useFileViewerStore.getState();
-      // Force all three slots populated using direct set to bypass mutual
-      // exclusion (simulates the pre-fix race condition state).
-      useFileViewerStore.setState({
-        inlineFilePreviewPendingNavByWorkspace: {
-          'ws-1': { mode: 'browse', filePath: '/path/b.ts' },
-          'ws-2': { mode: 'browse', filePath: '/path/y.ts' },
-        },
-        inlineFilePreviewPendingCloseByWorkspace: { 'ws-1': true, 'ws-2': true },
-        inlineFilePreviewPendingModeChangeByWorkspace: {
-          'ws-1': 'diff',
-          'ws-2': 'diff',
-        },
-      });
-      store.clearAllInlineFilePreviewPendingDiscardSlots('ws-1');
-      const s = useFileViewerStore.getState();
-      expect(s.inlineFilePreviewPendingNavByWorkspace['ws-1']).toBeNull();
-      expect(s.inlineFilePreviewPendingCloseByWorkspace['ws-1']).toBe(false);
-      expect(s.inlineFilePreviewPendingModeChangeByWorkspace['ws-1']).toBeNull();
-      // ws-2 untouched
-      expect(s.inlineFilePreviewPendingNavByWorkspace['ws-2']).toEqual({
-        mode: 'browse',
-        filePath: '/path/y.ts',
-      });
-      expect(s.inlineFilePreviewPendingCloseByWorkspace['ws-2']).toBe(true);
-      expect(s.inlineFilePreviewPendingModeChangeByWorkspace['ws-2']).toBe('diff');
+      const toB = { kind: 'file', mode: 'browse', filePath: '/path/b.ts' } as const;
+      expect(store.inlineFilePreviewWouldAsk('ws-1', toB)).toBe(false);
+      dirtyPreview('ws-1', '/path/a.ts');
+      expect(store.inlineFilePreviewWouldAsk('ws-1', toB)).toBe(true);
+      expect(store.inlineFilePreviewWouldAsk('ws-1', { ...toB, filePath: '/path/a.ts' })).toBe(
+        false
+      );
     });
   });
 
@@ -995,20 +942,14 @@ describe('file-viewer.store', () => {
     expect(useFileViewerStore.getState().inlineFilePreviewWidthByWorkspace['ws-2']).toBe(0.4);
   });
 
-  it('clearWorkspaceFileViewerState clears inline pending nav/close/mode-change maps', () => {
-    // Stage one of each kind of pending inline action.
+  it('clearWorkspaceFileViewerState clears the inline pending transition', () => {
     useFileViewerStore.getState().openInlineFilePreview('ws-1', 'browse', '/path/a.ts');
     useFileViewerStore.getState().setInlineFilePreviewDirty('ws-1', true);
     useFileViewerStore.getState().requestInlineFilePreviewNav('ws-1', 'browse', '/path/b.ts');
-    useFileViewerStore.getState().requestInlineFilePreviewClose('ws-1');
-    useFileViewerStore.getState().requestInlineFilePreviewModeChange('ws-1', 'diff');
 
     useFileViewerStore.getState().clearWorkspaceFileViewerState('ws-1');
 
-    const state = useFileViewerStore.getState();
-    expect(state.inlineFilePreviewPendingNavByWorkspace['ws-1']).toBeUndefined();
-    expect(state.inlineFilePreviewPendingCloseByWorkspace['ws-1']).toBeUndefined();
-    expect(state.inlineFilePreviewPendingModeChangeByWorkspace['ws-1']).toBeUndefined();
+    expect(pendingInline('ws-1')).toBeUndefined();
   });
 
   it('clearWorkspaceFileViewerState clears a matching pending transition', () => {

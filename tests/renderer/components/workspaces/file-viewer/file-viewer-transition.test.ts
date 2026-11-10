@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   decideFileViewerTransition,
+  decideInlinePreviewTransition,
   describeFileViewerTransition,
+  describeInlinePreviewTransition,
   type FileViewerTransition,
+  type InlinePreviewTransition,
 } from '../../../../../src/renderer/lib/file-viewer-transition';
 
 const cleanBrowse = { dirty: false, mode: 'browse' as const, diffSubMode: 'changes' as const };
@@ -68,5 +71,48 @@ describe('file viewer transitions', () => {
     expect(describeFileViewerTransition({ kind: 'file', filePath: 'x', browseAction: null })).toBe(
       'switch files'
     );
+  });
+});
+
+describe('file panel preview transitions', () => {
+  const closed = { open: false, dirty: false, filePath: null, mode: 'browse' as const };
+  const clean = { open: true, dirty: false, filePath: 'a.ts', mode: 'browse' as const };
+  const dirty = { ...clean, dirty: true };
+  const toB: InlinePreviewTransition = { kind: 'file', mode: 'browse', filePath: 'b.ts' };
+
+  it('opens a file or switches mode when nothing is open, and has nothing to close', () => {
+    expect(decideInlinePreviewTransition(toB, closed)).toBe('apply');
+    expect(decideInlinePreviewTransition({ kind: 'mode', mode: 'diff' }, closed)).toBe('apply');
+    expect(decideInlinePreviewTransition({ kind: 'close' }, closed)).toBe('ignore');
+  });
+
+  it('applies everything while the edits are saved', () => {
+    expect(decideInlinePreviewTransition(toB, clean)).toBe('apply');
+    expect(decideInlinePreviewTransition({ kind: 'mode', mode: 'diff' }, clean)).toBe('apply');
+    expect(decideInlinePreviewTransition({ kind: 'close' }, clean)).toBe('apply');
+  });
+
+  it('asks before anything that would drop unsaved edits', () => {
+    expect(decideInlinePreviewTransition(toB, dirty)).toBe('confirm');
+    expect(
+      decideInlinePreviewTransition({ kind: 'file', mode: 'diff', filePath: 'a.ts' }, dirty)
+    ).toBe('confirm');
+    expect(decideInlinePreviewTransition({ kind: 'mode', mode: 'diff' }, dirty)).toBe('confirm');
+    expect(decideInlinePreviewTransition({ kind: 'close' }, dirty)).toBe('confirm');
+  });
+
+  it('applies what keeps the same file in the same mode', () => {
+    expect(
+      decideInlinePreviewTransition({ kind: 'file', mode: 'browse', filePath: 'a.ts' }, dirty)
+    ).toBe('apply');
+    expect(decideInlinePreviewTransition({ kind: 'mode', mode: 'browse' }, dirty)).toBe('apply');
+  });
+
+  it('names each transition for the prompt', () => {
+    expect(describeInlinePreviewTransition(toB)).toBe('switch files');
+    expect(describeInlinePreviewTransition({ kind: 'mode', mode: 'diff' })).toBe(
+      'switch view mode'
+    );
+    expect(describeInlinePreviewTransition({ kind: 'close' })).toBe('close');
   });
 });

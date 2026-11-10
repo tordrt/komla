@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { describeInlinePreviewTransition } from '@/lib/file-viewer-transition';
 import { ensureMonacoInitialized } from '@/lib/monaco-loader';
 import { getNoteName } from '@/lib/notes';
 import { hasUnsavedFilePane } from '@/lib/pane-surfaces';
@@ -100,24 +101,17 @@ export function InlineFilePreviewPanel({
   const previewState = useFileViewerStore(
     (s) => s.inlineFilePreviewByWorkspace[workspaceId] ?? CLOSED_INLINE_FILE_PREVIEW
   );
-  const pendingNav = useFileViewerStore(
-    (s) => s.inlineFilePreviewPendingNavByWorkspace[workspaceId] ?? null
-  );
-  const pendingCloseFromStore = useFileViewerStore(
-    (s) => !!s.inlineFilePreviewPendingCloseByWorkspace[workspaceId]
-  );
-  const pendingModeChange = useFileViewerStore(
-    (s) => s.inlineFilePreviewPendingModeChangeByWorkspace[workspaceId] ?? null
+  // What waits on the Unsaved Changes prompt, which shows while there is one.
+  const pendingTransition = useFileViewerStore((s) =>
+    s.inlineFilePreviewByWorkspace[workspaceId]?.open
+      ? (s.inlineFilePreviewPendingTransitionByWorkspace[workspaceId] ?? null)
+      : null
   );
   const closeInlineFilePreview = useFileViewerStore((s) => s.closeInlineFilePreview);
   const requestFileViewerTransition = useFileViewerStore((s) => s.requestFileViewerTransition);
-  const openInlineFilePreview = useFileViewerStore((s) => s.openInlineFilePreview);
   const requestInlineFilePreviewNav = useFileViewerStore((s) => s.requestInlineFilePreviewNav);
-  const setInlineFileTreeMode = useFileViewerStore((s) => s.setInlineFileTreeMode);
-  const setInlineFilePreviewMode = useFileViewerStore((s) => s.setInlineFilePreviewMode);
-  const clearAllInlineFilePreviewPendingDiscardSlots = useFileViewerStore(
-    (s) => s.clearAllInlineFilePreviewPendingDiscardSlots
-  );
+  const requestInlineFilePreviewClose = useFileViewerStore((s) => s.requestInlineFilePreviewClose);
+  const answerInlineFilePreviewPrompt = useFileViewerStore((s) => s.answerInlineFilePreviewPrompt);
   const setInlineFilePreviewDirty = useFileViewerStore((s) => s.setInlineFilePreviewDirty);
   const lastWorktreeEventAt = useWorktreeEventsStore(
     (s) => s.lastEventByWorkspace[workspaceId] ?? 0
@@ -143,8 +137,6 @@ export function InlineFilePreviewPanel({
   const { mode, setMode, editor, diff } = state;
   const [isMonacoReady, setIsMonacoReady] = useState(false);
   const [monacoLoadError, setMonacoLoadError] = useState<string | null>(null);
-  const [unsavedConfirmOpen, setUnsavedConfirmOpen] = useState(false);
-  const [pendingClose, setPendingClose] = useState(false);
   const [totalChanges, setTotalChanges] = useState(0);
   const [currentChangeIndex, setCurrentChangeIndex] = useState(-1);
   const currentChangeIndexRef = useRef(-1);
@@ -782,16 +774,16 @@ export function InlineFilePreviewPanel({
     return editor.isDirty;
   }, [mode, editor.isDirty]);
 
-  // Close with unsaved-changes guard
+  // Close with unsaved-changes guard. A diff's edits are compared with what it loaded, which the
+  // store doesn't see, so this says whether they're unsaved.
   const handleClose = useCallback(() => {
     if (checkUnsaved()) {
-      setPendingClose(true);
-      setUnsavedConfirmOpen(true);
+      requestInlineFilePreviewClose(workspaceId, { unsaved: true });
       return;
     }
     editor.reset();
     closeInlineFilePreview(workspaceId);
-  }, [checkUnsaved, editor, closeInlineFilePreview, workspaceId]);
+  }, [checkUnsaved, editor, closeInlineFilePreview, requestInlineFilePreviewClose, workspaceId]);
 
   // Sync isDirty to store for tab bar display
   useEffect(() => {
@@ -808,112 +800,22 @@ export function InlineFilePreviewPanel({
     };
   }, [onCloseRef]);
 
-  // When the file tree stages a navigation request that's blocked by
-  // unsaved changes, surface it as the unsaved-changes dialog. The
-  // request lives in the store (not local state) so the file tree's
-  // dispatch and this dialog stay in sync without prop drilling.
-  useEffect(() => {
-    if (!pendingNav) return;
-    setUnsavedConfirmOpen(true);
-  }, [pendingNav]);
-
-  // Same pattern for tree-driven close requests (re-clicking the open dirty
-  // file). Mirror the store flag onto local pendingClose so confirmDiscard
-  // takes the close branch.
-  useEffect(() => {
-    if (!pendingCloseFromStore) return;
-    setPendingClose(true);
-    setUnsavedConfirmOpen(true);
-  }, [pendingCloseFromStore]);
-
-  // Mode-change requests staged when toggling the file tree's diff/browse
-  // tabs while the preview is dirty. confirmDiscard reads pendingModeChange
-  // directly from the store, so we just surface the dialog here.
-  useEffect(() => {
-    if (!pendingModeChange) return;
-    setUnsavedConfirmOpen(true);
-  }, [pendingModeChange]);
-
-  // The request can go away under the prompt, as when the preview closes or the file it would
-  // open is deleted. Discard would then only mark the edits clean, so the prompt goes too.
-  useEffect(() => {
-    if (!unsavedConfirmOpen) return;
-    const pending = pendingNav || pendingModeChange || pendingClose || pendingCloseFromStore;
-    if (previewState.open && pending) return;
-    setUnsavedConfirmOpen(false);
-    setPendingClose(false);
-  }, [
-    unsavedConfirmOpen,
-    previewState.open,
-    pendingNav,
-    pendingModeChange,
-    pendingClose,
-    pendingCloseFromStore,
-  ]);
-
-  // Cancel: drop the staged nav request. previewState.filePath was never
-  // changed, so the file tree highlight is already on the current file.
+  // Cancel leaves everything as it was: nothing the transition would change has changed yet.
   const cancelUnsavedConfirm = useCallback(() => {
-    setUnsavedConfirmOpen(false);
-    setPendingClose(false);
-    clearAllInlineFilePreviewPendingDiscardSlots(workspaceId);
-  }, [clearAllInlineFilePreviewPendingDiscardSlots, workspaceId]);
+    answerInlineFilePreviewPrompt(workspaceId, 'cancel');
+  }, [answerInlineFilePreviewPrompt, workspaceId]);
 
-  // Discard unsaved changes and proceed with the pending action. Snapshot
-  // every pending slot, clear them all, then dispatch — sibling slots that
-  // races set behind the open dialog must not survive the current decision.
+  // Discard the edits, then let the store apply the transition.
   const confirmDiscard = useCallback(() => {
-    const snapshotNav = pendingNav;
-    const snapshotMode = pendingModeChange;
-    const snapshotClose = pendingClose;
-
-    setUnsavedConfirmOpen(false);
-    setPendingClose(false);
-    clearAllInlineFilePreviewPendingDiscardSlots(workspaceId);
+    if (!pendingTransition) return;
     editor.setIsDirty(false);
-
-    if (snapshotNav) {
-      // The htmlPreviewIntent flag is set when the tree's "Open in Browser"
-      // action staged the nav, browseTree when a link opened a file. We hold the
-      // htmlViewMode + tree-mode flips until here so cancelling the prompt
-      // leaves them untouched.
-      if (snapshotNav.htmlPreviewIntent) setHtmlViewMode(workingDirectory, 'browser');
-      if (snapshotNav.htmlPreviewIntent || snapshotNav.browseTree) {
-        const store = useFileViewerStore.getState();
-        if (store.inlineFileTreeByWorkspace[workspaceId]?.mode !== 'browse') {
-          store.setInlineFileTreeMode(workspaceId, 'browse');
-        }
-      }
-      openInlineFilePreview(
-        workspaceId,
-        snapshotNav.mode,
-        snapshotNav.filePath,
-        snapshotNav.lineNumber
-      );
-      return;
+    // Held until now so cancelling the prompt leaves the file's view as it was.
+    if (pendingTransition.kind === 'file' && pendingTransition.htmlPreviewIntent) {
+      setHtmlViewMode(workingDirectory, 'browser');
     }
-    if (snapshotMode) {
-      setInlineFileTreeMode(workspaceId, snapshotMode);
-      setInlineFilePreviewMode(workspaceId, snapshotMode);
-      return;
-    }
-    if (snapshotClose) {
-      editor.reset();
-      closeInlineFilePreview(workspaceId);
-    }
-  }, [
-    editor,
-    pendingNav,
-    pendingModeChange,
-    pendingClose,
-    closeInlineFilePreview,
-    openInlineFilePreview,
-    setInlineFileTreeMode,
-    setInlineFilePreviewMode,
-    clearAllInlineFilePreviewPendingDiscardSlots,
-    workspaceId,
-    workingDirectory,
-  ]);
+    if (pendingTransition.kind === 'close') editor.reset();
+    answerInlineFilePreviewPrompt(workspaceId, 'discard');
+  }, [answerInlineFilePreviewPrompt, editor, pendingTransition, workspaceId, workingDirectory]);
 
   // Auto-refresh browse-mode editor on external file changes (e.g. AI edits).
   // Diff mode is handled by the global watcher's stale-cache mechanism, but
@@ -1065,9 +967,8 @@ export function InlineFilePreviewPanel({
       if (e.key === 'Escape') {
         // The unsaved-changes dialog manages its own dismiss path. Don't
         // re-fire handleClose here, otherwise Esc on the dialog would
-        // immediately re-open it (via setPendingClose=true) and trap the
-        // user.
-        if (unsavedConfirmOpen) return;
+        // immediately stage the close again and trap the user.
+        if (pendingTransition) return;
         // Escape that ends an IME composition (a rename in the tree) belongs to the input.
         if (e.isComposing) return;
         // Only Escape aimed at the preview or the file tree closes it. Escape
@@ -1086,7 +987,7 @@ export function InlineFilePreviewPanel({
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [isActive, previewState.open, saveFile, handleClose, unsavedConfirmOpen, workspaceId]);
+  }, [isActive, previewState.open, saveFile, handleClose, pendingTransition, workspaceId]);
 
   // A note has no path in the project to refer to.
   const viewedFileProps = useViewedFile(
@@ -1100,7 +1001,7 @@ export function InlineFilePreviewPanel({
       )
   );
 
-  if (!previewState.open && !unsavedConfirmOpen) return null;
+  if (!previewState.open) return null;
 
   // Diff-mode browser toggle: same gating as the full dialog — only
   // surface for directly renderable files whose working copy still exists.
@@ -1195,7 +1096,7 @@ export function InlineFilePreviewPanel({
 
       {/* Unsaved changes confirmation */}
       <Dialog
-        open={unsavedConfirmOpen}
+        open={pendingTransition !== null}
         onOpenChange={(open) => {
           if (!open) cancelUnsavedConfirm();
         }}
@@ -1205,7 +1106,7 @@ export function InlineFilePreviewPanel({
             <DialogTitle>Unsaved Changes</DialogTitle>
             <DialogDescription>
               You have unsaved changes. Are you sure you want to{' '}
-              {pendingModeChange ? 'switch view mode' : pendingNav ? 'switch files' : 'close'}?
+              {pendingTransition ? describeInlinePreviewTransition(pendingTransition) : 'close'}?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

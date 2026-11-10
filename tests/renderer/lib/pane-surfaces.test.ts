@@ -139,9 +139,7 @@ describe('openPaneSurface', () => {
 
     // As the panel's Unsaved Changes prompt answers: both clear the prompt, Discard then closes.
     function answerUnsavedPrompt(answer: 'discard' | 'cancel') {
-      const fileViewer = useFileViewerStore.getState();
-      fileViewer.clearAllInlineFilePreviewPendingDiscardSlots(WS);
-      if (answer === 'discard') fileViewer.closeInlineFilePreview(WS);
+      useFileViewerStore.getState().answerInlineFilePreviewPrompt(WS, answer);
       return Promise.resolve();
     }
 
@@ -160,7 +158,9 @@ describe('openPaneSurface', () => {
 
       const fileViewer = useFileViewerStore.getState();
       expect(fileViewer.inlineFilePreviewByWorkspace[WS]?.open).toBe(true);
-      expect(fileViewer.inlineFilePreviewPendingCloseByWorkspace[WS]).toBe(true);
+      expect(fileViewer.inlineFilePreviewPendingTransitionByWorkspace[WS]).toEqual({
+        kind: 'close',
+      });
       await answerUnsavedPrompt('cancel');
     });
 
@@ -346,9 +346,7 @@ describe('showNote', () => {
     expect(showNote(WS, 'a.md')).toBe(false);
     closePaneSurface(WS, id);
     // As the panel's Unsaved Changes prompt answers Discard.
-    const fileViewer = useFileViewerStore.getState();
-    fileViewer.clearAllInlineFilePreviewPendingDiscardSlots(WS);
-    fileViewer.closeInlineFilePreview(WS);
+    useFileViewerStore.getState().answerInlineFilePreviewPrompt(WS, 'discard');
 
     return Promise.resolve().then(() => {
       expect(preview()).toMatchObject({ open: true, filePath: getNotePath('a.md') });

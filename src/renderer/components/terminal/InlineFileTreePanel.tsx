@@ -108,17 +108,17 @@ export function InlineFileTreePanel({
   // unsaved-changes dialog leaves the wrong row focused. Bump this signal
   // whenever a staged nav clears (Cancel or Discard) so the file tree
   // realigns its focus with currentFile.
-  const pendingNav = useFileViewerStore(
-    (s) => s.inlineFilePreviewPendingNavByWorkspace[workspaceId] ?? null
+  const hasPendingNav = useFileViewerStore(
+    (s) => s.inlineFilePreviewPendingTransitionByWorkspace[workspaceId]?.kind === 'file'
   );
   const [focusAlignmentSignal, setFocusAlignmentSignal] = useState(0);
-  const prevPendingNavRef = useRef(pendingNav);
+  const prevPendingNavRef = useRef(hasPendingNav);
   useEffect(() => {
-    if (prevPendingNavRef.current && !pendingNav) {
+    if (prevPendingNavRef.current && !hasPendingNav) {
       setFocusAlignmentSignal((v) => v + 1);
     }
-    prevPendingNavRef.current = pendingNav;
-  }, [pendingNav]);
+    prevPendingNavRef.current = hasPendingNav;
+  }, [hasPendingNav]);
 
   // Initialize defaults from config once the workspace is active and branch data is ready.
   // Gated on isActive so hidden workspaces don't eagerly persist the 'main' fallback
@@ -602,19 +602,17 @@ export function InlineFileTreePanel({
   const handleOpenHtmlInBrowser = useCallback(
     (path: string) => {
       const store = useFileViewerStore.getState();
-      const current = store.inlineFilePreviewByWorkspace[workspaceId];
-      // Replicates the blocking check in requestInlineFilePreviewNav so we
-      // know whether the nav will defer behind a discard prompt. If it will,
-      // we must NOT flip the browser preview mode or tree mode up-front — cancelling
-      // the prompt would leak both flips and hide the dirty source buffer
-      // behind the iframe. Pass htmlPreviewIntent so confirmDiscard applies
-      // the flips when the nav actually lands.
-      const blockingDirty =
-        !!current?.open &&
-        !!current.isDirty &&
-        (current.filePath !== path || current.mode !== 'browse');
-
-      if (blockingDirty) {
+      // A nav that waits on the discard prompt must NOT flip the browser
+      // preview mode or tree mode up-front — cancelling the prompt would leak
+      // both flips and hide the dirty source buffer behind the iframe. Pass
+      // htmlPreviewIntent so the flips apply when the nav actually lands.
+      if (
+        store.inlineFilePreviewWouldAsk(workspaceId, {
+          kind: 'file',
+          mode: 'browse',
+          filePath: path,
+        })
+      ) {
         store.requestInlineFilePreviewNav(workspaceId, 'browse', path, undefined, {
           htmlPreviewIntent: true,
         });

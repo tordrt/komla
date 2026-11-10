@@ -82,3 +82,57 @@ export function describeFileViewerTransition(transition: FileViewerTransition | 
   if (transition.kind === 'file') return 'switch files';
   return 'close';
 }
+
+/**
+ * What the file panel's preview is asked to do that would drop its unsaved edits. While they're
+ * unsaved one waits for the Unsaved Changes prompt; a later request takes its place.
+ */
+export type InlinePreviewTransition =
+  | {
+      kind: 'file';
+      mode: FileViewerMode;
+      filePath: string;
+      lineNumber?: number;
+      /** Shows an HTML file as a page, which also switches the tree to its files. */
+      htmlPreviewIntent?: boolean;
+      /** Switches the tree to its files, as a link does. */
+      browseTree?: boolean;
+    }
+  | { kind: 'mode'; mode: FileViewerMode }
+  | { kind: 'close' };
+
+/** The file panel's preview as a transition sees it. */
+export interface InlinePreviewTransitionContext {
+  open: boolean;
+  dirty: boolean;
+  filePath: string | null;
+  mode: FileViewerMode;
+}
+
+/** `ignore`: there's nothing to do, as closing a preview that isn't open. */
+export type InlinePreviewTransitionDecision = 'apply' | 'confirm' | 'ignore';
+
+export function decideInlinePreviewTransition(
+  transition: InlinePreviewTransition,
+  preview: InlinePreviewTransitionContext
+): InlinePreviewTransitionDecision {
+  if (!preview.open) return transition.kind === 'close' ? 'ignore' : 'apply';
+  if (!preview.dirty) return 'apply';
+  switch (transition.kind) {
+    case 'file':
+      // Another mode loads the same file in another editor, which drops the edits too.
+      return transition.filePath === preview.filePath && transition.mode === preview.mode
+        ? 'apply'
+        : 'confirm';
+    case 'mode':
+      return transition.mode === preview.mode ? 'apply' : 'confirm';
+    case 'close':
+      return 'confirm';
+  }
+}
+
+export function describeInlinePreviewTransition(transition: InlinePreviewTransition): string {
+  if (transition.kind === 'file') return 'switch files';
+  if (transition.kind === 'mode') return 'switch view mode';
+  return 'close';
+}

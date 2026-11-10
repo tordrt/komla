@@ -89,7 +89,7 @@ function whenPanesUncovered(workspaceId: string, open: () => void, cancel?: () =
     return;
   }
   const unsubscribe = useFileViewerStore.subscribe((state) => {
-    if (state.inlineFilePreviewPendingCloseByWorkspace[workspaceId]) return;
+    if (state.inlineFilePreviewPendingTransitionByWorkspace[workspaceId]?.kind === 'close') return;
     unsubscribe();
     // Discarding clears the question before it closes the panel, in the same task.
     queueMicrotask(() => (isCovered() ? cancel?.() : open()));

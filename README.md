@@ -36,45 +36,6 @@ Komla is a desktop app for running AI coding agent CLIs side by side: Claude Cod
 
 It runs the real CLI in a real terminal, on your laptop or on your own servers over SSH. Komla is free and open source, with every feature, no limits and no account.
 
-> "I've tried so many different orchestrators, and I've not resonated with a single one until Komla. I typically sling 10+ terminal sessions across 4-5+ projects — I'm now moving all that to Komla."
->
-> — Samuel M., Software Engineering Technical Leader, Cisco
-
-## Work on everything at once. Focus on one thing at a time.
-
-Start a task the moment you think of it, step in only where you're needed, and open what it built in one click.
-
-<table>
-<tr>
-<td width="50%" valign="top">
-
-### Step in only where you're needed
-
-Every card shows whether its agent is working, done or waiting on you. When one asks a question you get a sound and a notification, so you never poll terminals to find out.
-
-<img src="docs/readme/focus.webp" alt="Agents ask for permission, their sidebar cards show Input, and clicking a card opens the question to answer it" width="100%" />
-
-</td>
-<td width="50%" valign="top">
-
-### Start a task the moment you think of it
-
-Type or dictate it, pick any agent CLI, and it starts in a workspace of its own, with its own worktree and branch, while you keep working.
-
-<img src="docs/readme/start.webp" alt="Typing a task into the new workspace dialog, launching Claude Code, and the new workspace appearing in the sidebar while the current agent keeps working" width="100%" />
-
-</td>
-</tr>
-</table>
-
-### Open what it built in one click
-
-The globe lists each workspace's dev servers, pages, reports and desktop apps, even on an SSH host. Open one beside the agent or in your browser.
-
-<p align="center">
-  <img src="docs/readme/check.webp" alt="The globe menu listing a workspace's dev server, a virtual desktop, a link and a file, then opening the dev server in a split beside the agent" width="100%" />
-</p>
-
 ## Your agents keep working when your laptop sleeps
 
 Run them on any Linux or macOS host over SSH. Diffs, agent status, previews and file upload and download work as if they ran on your laptop, and Komla forwards the ports so a dev server opens in your own browser. Add a VM or container as a host and let agents skip permission prompts, nowhere near your own files. [How remote workspaces work →](https://komla.dev/remote-workspaces)
@@ -83,18 +44,22 @@ Run them on any Linux or macOS host over SSH. Diffs, agent status, previews and 
   <img src="docs/readme/remote.webp" alt="An agent on an SSH host keeps editing a pricing page with its preview open beside it, the laptop sleeps, and the work is done when Komla reconnects" width="100%" />
 </p>
 
+## Build the tools your workflow needs
+
+Describe a status bar item or a sidebar panel and your agent builds it with the `komla` CLI. Each change shows up in a review dialog and applies only when you confirm it. Try a usage-limit indicator or a CI tab for pull request checks. [How agents extend Komla →](docs/CLI.md)
+
 ## Your agent CLIs, exactly as they ship
 
 Komla runs the real CLI, not a chat wrapper, so every new model, flag and slash command works the day it ships. Mix them however you like: Claude Code in one workspace, Codex in the next.
 
-<p>
-  <kbd>Claude Code</kbd> <kbd>Codex CLI</kbd> <kbd>OpenCode</kbd> <kbd>Antigravity CLI</kbd> <kbd>Gemini CLI</kbd> <kbd>Grok Build</kbd> <kbd>Cursor CLI</kbd> <kbd>GitHub Copilot CLI</kbd> <kbd>Hermes Agent</kbd> <kbd>Factory Droid</kbd> <kbd>Amp</kbd> <kbd>Mistral Vibe</kbd> <kbd>Pi</kbd> <kbd>Qwen Code</kbd> <kbd>Goose</kbd> <kbd>Auggie</kbd> <kbd>Devin</kbd> <kbd>Kiro CLI</kbd> <kbd>Kimi Code</kbd> <kbd>Kilo Code</kbd> <kbd>Cline</kbd> <kbd>Crush</kbd> <kbd>+ any terminal agent</kbd>
-</p>
+Claude Code, Codex CLI, OpenCode, Antigravity CLI, Gemini CLI, Cursor CLI, GitHub Copilot CLI, Amp, Goose and more ship as presets, and any other agent that runs in a terminal can be added.
 
 Claude Code, Codex CLI, OpenCode and Antigravity CLI get one-click notification setup. Any other agent can set up its own notifications with a self-integration skill, or you can add it as a custom command.
 
 ## Also in the box
 
+- **Agent status at a glance:** every workspace card shows whether its agent is working, done or waiting on you, with a sound and a notification when one needs you.
+- **One-click previews:** the globe lists each workspace's dev servers, pages and reports, even on an SSH host, and opens one beside the agent.
 - **[Komla CLI for agents](docs/CLI.md):** agents create workspaces, start other agents, open previews and add status bar items, with an optional MCP server.
 - **Diff viewer:** review an agent's changes split or unified, roll back a block or edit a line in place.
 - **Built-in Git GUI:** commit, pull, rebase, push and open pull requests, with commit history, blame and file history.
@@ -102,10 +67,9 @@ Claude Code, Codex CLI, OpenCode and Antigravity CLI get one-click notification 
 - **Command Center:** <kbd>⌘P</kbd> / <kbd>Ctrl+Shift+P</kbd> searches every workspace, command and shortcut, and finds files by name or content.
 - **Automations:** run an agent on a schedule, each run in its own workspace.
 - **Remote control (alpha):** check on agents and answer them from your phone over your own Tailscale network, with a push notification when one needs you.
-- **Browser preview:** dev servers open beside the agent, even over SSH.
 - **Local copy:** sync an SSH workspace to this computer to run desktop and mobile apps locally.
 - **Hooks and Quick Commands:** run your own commands when an agent finishes or needs input, and save prompts and commands for any workspace.
-- **Plugins, sidebar panels and a custom status bar:** bring your own integrations and live status items.
+- **Plugins, sidebar panels and a custom status bar:** bring your own integrations and live status items, or have an agent build them.
 - **File editor:** Monaco with optional Vim mode, a rich Markdown editor and per-workspace notes.
 - **Voice dictation:** dictate prompts offline, in 25 languages.
 - **Terminal tabs and splits, multiple windows, custom themes and rebindable shortcuts.**

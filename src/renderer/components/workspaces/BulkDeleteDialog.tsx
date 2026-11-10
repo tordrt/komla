@@ -192,6 +192,7 @@ export function BulkDeleteDialog({
   );
   const toDelete = checking ? [] : plan.toDelete;
   const runningCount = toDelete.filter(showsRunning).length;
+  const scratchCount = toDelete.filter((workspace) => workspace.scratch).length;
   const titleCount = checking ? workspaces.length : toDelete.length;
 
   return (
@@ -216,6 +217,13 @@ export function BulkDeleteDialog({
                 <span className="mt-2 block font-medium text-error">
                   {runningCount} of these {runningCount === 1 ? 'workspace is' : 'workspaces are'}{' '}
                   currently running and will be stopped.
+                </span>
+              )}
+              {scratchCount > 0 && (
+                <span className="mt-2 block font-medium text-error">
+                  {scratchCount === 1
+                    ? 'The scratch workspace’s folder and everything in it will be deleted too.'
+                    : `The folders of ${scratchCount} scratch workspaces and everything in them will be deleted too.`}
                 </span>
               )}
             </div>

@@ -14,7 +14,8 @@ const CHECKS_AT_ONCE = 4;
 
 /** Asks git what deleting the workspace would lose, or null when that can't be told. */
 export async function getUnsavedWork(workspace: Workspace): Promise<UnsavedWork | null> {
-  // Deleting a workspace that isn't a worktree leaves its directory alone.
+  // Deleting a workspace that isn't a worktree leaves its directory alone, or, for a Scratch
+  // workspace, deletes all of it, which git can't tell apart and the delete dialog says.
   if (!workspace.isWorktree) return { uncommittedFiles: 0, unpushedCommits: 0 };
   try {
     const [diff, status] = await Promise.all([

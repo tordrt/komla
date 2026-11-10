@@ -24,7 +24,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useDragAutoScroll } from '@/hooks/useDragAutoScroll';
 import { getProjectColor } from '@/lib/project-colors';
 import { getProjectMoveIndex } from '@/lib/project-order';
-import { PINNED_GROUP_KEY } from '@/lib/sidebar-collapsed-groups';
+import { createScratchWorkspace } from '@/lib/scratch-workspace';
+import { PINNED_GROUP_KEY, SCRATCH_GROUP_KEY } from '@/lib/sidebar-collapsed-groups';
 import { cn } from '@/lib/utils';
 import { summarizeWorkspaceAttention } from '@/lib/workspace-attention';
 import { useWorkspacesExceptTitles } from '@/lib/workspace-except-titles';
@@ -254,6 +255,19 @@ interface GroupHeaderActionProps {
 }
 
 function GroupHeaderAction({ group, groupProject }: GroupHeaderActionProps) {
+  if (group.key === SCRATCH_GROUP_KEY) {
+    return (
+      <IconButton
+        size="xs"
+        className="size-5 text-muted-foreground hover:text-foreground"
+        label="New scratch workspace"
+        tooltipSide="right"
+        onClick={() => void createScratchWorkspace()}
+      >
+        <Plus className="size-3" />
+      </IconButton>
+    );
+  }
   if (groupProject) {
     return (
       <IconButton
@@ -332,6 +346,7 @@ const GroupHeader = React.forwardRef<
       >
         <GroupHeaderIcon
           isDirectory={group.isDirectory ?? false}
+          scratch={group.key === SCRATCH_GROUP_KEY}
           expanded={expanded}
           color={group.projectInfo!.color}
           icon={group.projectInfo!.icon}
@@ -1006,6 +1021,7 @@ export function WorkspaceList({
   // Get project info (name, color and icon) for a workspace
   const getProjectInfo = useCallback(
     (workspace: Workspace): { name: string; color: string; icon?: string } | null => {
+      if (workspace.scratch) return { name: 'Scratch', color: getProjectColor('Scratch') };
       if (workspace.projectId) {
         const project = projectMap.get(workspace.projectId);
         if (project) {
@@ -1037,6 +1053,8 @@ export function WorkspaceList({
   // Get group key for a workspace
   const getGroupKey = useCallback(
     (workspace: Workspace): { key: string; projectId: string | null; isDirectory: boolean } => {
+      // Scratch workspaces share one group, whatever their folders are called.
+      if (workspace.scratch) return { key: SCRATCH_GROUP_KEY, projectId: null, isDirectory: false };
       if (workspace.projectId) {
         const project = projectMap.get(workspace.projectId);
         if (project)

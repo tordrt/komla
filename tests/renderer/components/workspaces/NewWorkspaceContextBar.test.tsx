@@ -33,6 +33,7 @@ function ContextBar({
   onSelectProject,
   onAddProject = vi.fn(),
   onOpenFolderWorkspace = vi.fn(),
+  onNewScratchWorkspace = vi.fn(),
   onSetUpSshHost = vi.fn(),
 }: {
   projectList?: Project[];
@@ -41,6 +42,7 @@ function ContextBar({
   onSelectProject?: (id: string) => void;
   onAddProject?: () => void;
   onOpenFolderWorkspace?: () => void;
+  onNewScratchWorkspace?: () => void;
   onSetUpSshHost?: () => void;
 }) {
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -70,6 +72,7 @@ function ContextBar({
         onProjectPickerOpenChange={setProjectPickerOpen}
         onAddProject={onAddProject}
         onOpenFolderWorkspace={onOpenFolderWorkspace}
+        onNewScratchWorkspace={onNewScratchWorkspace}
         flash={false}
         projectTriggerRef={projectTriggerRef}
         promptTextareaRef={promptTextareaRef}
@@ -203,9 +206,14 @@ describe('NewWorkspaceContextBar', () => {
   it.each([
     ['Add project…', 'onAddProject'],
     ['Open folder…', 'onOpenFolderWorkspace'],
+    ['New scratch workspace', 'onNewScratchWorkspace'],
   ] as const)('offers %s after the projects', async (name, handler) => {
     const user = userEvent.setup();
-    const callbacks = { onAddProject: vi.fn(), onOpenFolderWorkspace: vi.fn() };
+    const callbacks = {
+      onAddProject: vi.fn(),
+      onOpenFolderWorkspace: vi.fn(),
+      onNewScratchWorkspace: vi.fn(),
+    };
     render(<ContextBar {...callbacks} />);
     await user.click(screen.getByRole('button', { name: /Project one/ }));
 
@@ -215,17 +223,21 @@ describe('NewWorkspaceContextBar', () => {
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
   });
 
-  it('reaches Add project and Open folder with the arrow keys', async () => {
+  it.each([
+    ['Open folder', 2, 'onOpenFolderWorkspace'],
+    // The last row: further presses stay on it.
+    ['New scratch workspace', 4, 'onNewScratchWorkspace'],
+  ] as const)('reaches %s with the arrow keys', async (_name, presses, handler) => {
     const user = userEvent.setup();
-    const onOpenFolderWorkspace = vi.fn();
-    render(<ContextBar initialPickerOpen onOpenFolderWorkspace={onOpenFolderWorkspace} />);
+    const callbacks = { onOpenFolderWorkspace: vi.fn(), onNewScratchWorkspace: vi.fn() };
+    render(<ContextBar initialPickerOpen {...callbacks} />);
     const search = await screen.findByRole('combobox', { name: /search projects/i });
     await waitFor(() => expect(search).toHaveFocus());
 
     await user.type(search, 'ten');
-    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{Enter}');
+    await user.keyboard(`${'{ArrowDown}'.repeat(presses)}{Enter}`);
 
-    expect(onOpenFolderWorkspace).toHaveBeenCalledOnce();
+    expect(callbacks[handler]).toHaveBeenCalledOnce();
   });
 
   it('focuses the project search, listing every project', async () => {

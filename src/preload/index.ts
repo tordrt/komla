@@ -322,6 +322,10 @@ const api = {
   removeWorkspaceMarker: (workspaceId: string, key: string): Promise<void> =>
     ipcRenderer.invoke(IPC.WORKSPACE_REMOVE_MARKER, workspaceId, key),
 
+  /** Keeps a Scratch workspace's folder: it stops being deleted with it and joins a project. */
+  keepScratchWorkspace: (workspaceId: string): Promise<Workspace> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_KEEP_SCRATCH, workspaceId),
+
   notifyWorkspacesChanged: (): Promise<void> => ipcRenderer.invoke(IPC.WORKSPACE_NOTIFY_CHANGED),
 
   updateTerminal: (terminalId: string, updates: Partial<Terminal>): Promise<Terminal> =>

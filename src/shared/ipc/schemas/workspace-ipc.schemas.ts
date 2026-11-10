@@ -68,6 +68,7 @@ export const createWorkspaceParamsSchema = z
     useExactBranchName: z.boolean().optional(),
     autoResolveBranchConflicts: z.boolean().optional(),
     directoryPath: safePathSchema.optional(),
+    scratch: z.boolean().optional(),
     categoryId: idSchema.optional(),
     initialPrompt: z.string().optional(),
     attachments: z.array(untrimmedSafePathSchema).max(MAX_PROMPT_ATTACHMENTS).optional(),
@@ -305,6 +306,7 @@ export const workspaceRemoveMarkerArgsSchema = z.tuple([
   idSchema,
   z.string().regex(WORKSPACE_MARKER_KEY_PATTERN),
 ]);
+export const workspaceKeepScratchArgsSchema = z.tuple([idSchema]);
 export const workspaceUpdateTerminalArgsSchema = z.tuple([idSchema, terminalUpdateSchema]);
 export const workspaceRestartArgsSchema = z.tuple([idSchema]);
 export const workspaceReorderArgsSchema = z.tuple([idSchema, z.number().int()]);

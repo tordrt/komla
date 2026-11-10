@@ -230,6 +230,18 @@ describe('QuickCreateMenu action wiring', () => {
     );
   });
 
+  it('starts a scratch workspace in a folder of its own', async () => {
+    const user = userEvent.setup();
+    render(<QuickCreateMenu />);
+
+    await user.click(screen.getByRole('menuitem', { name: 'New Scratch Workspace' }));
+
+    expect(mockCreateWorkspace).toHaveBeenCalledExactlyOnceWith({
+      mode: 'directory',
+      scratch: true,
+    });
+  });
+
   it('lists Quick Commands most recently run or pasted first', async () => {
     mockExtraActions.push(
       { id: 'never', title: 'Never run', content: 'a', type: 'command' },

@@ -8,6 +8,7 @@ import {
   CheckSquare,
   Cloud,
   Folder,
+  FolderStar,
   GearSix,
   GitBranch,
   PencilSimple,
@@ -66,6 +67,7 @@ import {
   WorkspaceMarkerOrTag,
 } from '@/components/workspaces/WorkspaceTagMenu';
 import { formatRelativeTime } from '@/lib/format-time';
+import { keepScratchFolder } from '@/lib/scratch-workspace';
 import { cn } from '@/lib/utils';
 import { getUnreadBadge, getWorkspaceAttentionAppearance } from '@/lib/workspace-attention';
 import { getWorkspaceLastTouchedAt } from '@/lib/workspace-state-groups';
@@ -433,7 +435,7 @@ function DashboardRowMenuContent({
       />
       <RemoveMarkerMenuItems workspaceId={workspace.id} markers={workspace.markers} />
       {/* A project's workspaces show its color. */}
-      {!workspace.isWorktree && !workspace.projectId && onColorChange && (
+      {!workspace.isWorktree && !workspace.projectId && !workspace.scratch && onColorChange && (
         <ColorPickerSubmenu currentColor={workspace.color} onColorChange={onColorChange} />
       )}
       <ContextMenuSeparator />
@@ -444,6 +446,12 @@ function DashboardRowMenuContent({
         </ContextMenuItem>
       )}
       <CopyWorkspaceSubmenu workspace={workspace} />
+      {workspace.scratch && workspace.status === 'active' && (
+        <ContextMenuItem onClick={() => void keepScratchFolder(workspace.id)}>
+          <FolderStar />
+          Keep Folder
+        </ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       {showStop && (
         <ContextMenuItem onClick={onStopWorkspace}>
@@ -825,9 +833,11 @@ export function DashboardRow({
           <DialogHeader>
             <DialogTitle>Delete Workspace Permanently</DialogTitle>
             <DialogDescription>
-              {workspace.isWorktree
-                ? `Delete workspace "${workspace.name}"? This will also remove the ${isSshWorkspace(workspace) ? 'remote ' : ''}git worktree${isSshWorkspace(workspace) ? ' and its local copy' : ''}.`
-                : `Delete workspace "${workspace.name}"? The directory will NOT be deleted.`}
+              {workspace.scratch
+                ? `Delete scratch workspace "${workspace.name}"? Its folder and everything in it will be deleted too.`
+                : workspace.isWorktree
+                  ? `Delete workspace "${workspace.name}"? This will also remove the ${isSshWorkspace(workspace) ? 'remote ' : ''}git worktree${isSshWorkspace(workspace) ? ' and its local copy' : ''}.`
+                  : `Delete workspace "${workspace.name}"? The directory will NOT be deleted.`}
             </DialogDescription>
           </DialogHeader>
           {canDeleteBranch && (

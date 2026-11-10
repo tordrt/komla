@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { IPC } from '../../../src/shared/constants/ipc-channels';
 import {
   isResumable,
@@ -123,6 +123,13 @@ vi.mock('fs/promises', () => ({
   access: vi.fn(() => Promise.resolve()),
   stat: vi.fn(() => Promise.resolve({ isFile: () => true, isDirectory: () => false })),
   realpath: vi.fn((path: string) => Promise.resolve(path)),
+}));
+
+// Deletes a tree in a child process, which a test can't run.
+const mockRemovePathInChild = vi.hoisted(() => vi.fn((_path: string) => Promise.resolve()));
+vi.mock('../../../src/main/lib/remove-path', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../src/main/lib/remove-path')>()),
+  removePathInChild: mockRemovePathInChild,
 }));
 
 let mockUuidCounter = 0;
@@ -16065,6 +16072,204 @@ describe('WorkspaceService', () => {
 
       workspaceService.update('ws-1', { status: 'active' });
       expect(workspaceService.get('ws-1')?.trashedAt).toBeUndefined();
+    });
+  });
+
+  describe('Scratch workspaces', () => {
+    const scratchRoot = join('/mock/home/.komla', 'scratch');
+    const savedScratch = (id: string, extra = {}) => ({
+      id,
+      name: id,
+      workingDirectory: join(scratchRoot, id),
+      scratch: true,
+      isWorktree: false,
+      projectId: null,
+      windowId: null,
+      categoryId: null,
+      createdAt: 1000,
+      lastActivityAt: 1000,
+      order: 0,
+      ...extra,
+    });
+    const removedPaths = async () => mockRemovePathInChild.mock.calls.map(([path]) => path);
+
+    it('makes a folder of its own, outside any project', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      const workspace = await workspaceService.create({ mode: 'directory', scratch: true });
+
+      expect(workspace.scratch).toBe(true);
+      expect(workspace.isWorktree).toBe(false);
+      expect(workspace.projectId).toBeNull();
+      const folder = workspace.workingDirectory.slice(scratchRoot.length + 1);
+      expect(join(scratchRoot, folder)).toBe(workspace.workingDirectory);
+      expect(folder).toMatch(/^[a-z]+-[a-z]+/);
+      expect(vfs.mock.mkdirSync).toHaveBeenCalledWith(workspace.workingDirectory);
+      expect(workspace.name).not.toBe('Workspace');
+      expect(mockProjectService.findOrCreateDirectoryProject).not.toHaveBeenCalled();
+    });
+
+    it('refuses a folder or project given with it', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await expect(
+        workspaceService.create({ mode: 'directory', scratch: true, directoryPath: '/home/me' })
+      ).rejects.toThrow('makes its own folder');
+      await expect(
+        workspaceService.create({ mode: 'worktree', scratch: true, projectId: 'project-1' })
+      ).rejects.toThrow('makes its own folder');
+      expect(workspaceService.list()).toEqual([]);
+    });
+
+    it('stays scratch, out of any project, across a restart', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([savedScratch('swift-fox')])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      expect(workspaceService.get('swift-fox')).toMatchObject({ scratch: true, projectId: null });
+      expect(mockProjectService.findOrCreateDirectoryProject).not.toHaveBeenCalled();
+
+      workspaceService.update('swift-fox', { order: 2 });
+      await workspaceService.saveWorkspacesImmediate();
+      const written = JSON.parse(workspaceFileWrites().at(-1)![1]) as Array<
+        Record<string, unknown>
+      >;
+      expect(written[0]).toMatchObject({ scratch: true });
+    });
+
+    it('deletes its folder when deleted for good', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([savedScratch('swift-fox', { status: 'trashed', trashedAt: 1000 })])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await workspaceService.delete('swift-fox', true);
+
+      expect(await removedPaths()).toEqual([join(scratchRoot, 'swift-fox')]);
+      expect(workspaceService.get('swift-fox')).toBeUndefined();
+    });
+
+    it('never deletes an opened folder, or one outside the scratch root', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          savedScratch('opened', { scratch: undefined, workingDirectory: '/home/me/notes' }),
+          savedScratch('elsewhere', { workingDirectory: '/home/me/project' }),
+        ])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await workspaceService.delete('opened', true);
+      await workspaceService.delete('elsewhere', true);
+
+      expect(await removedPaths()).toEqual([]);
+    });
+
+    it('deletes the folder it made when creating the workspace fails', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', '[]');
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      mockAgentPresetService.recordPresetUsage.mockImplementationOnce(() => {
+        throw new Error('preset store unreadable');
+      });
+
+      await expect(workspaceService.create({ mode: 'directory', scratch: true })).rejects.toThrow(
+        'preset store unreadable'
+      );
+
+      const [made] = vi
+        .mocked(vfs.mock.mkdirSync)
+        .mock.calls.map(([path]) => String(path))
+        .filter((path) => path.startsWith(scratchRoot + sep));
+      expect(made).toBeDefined();
+      expect(await removedPaths()).toEqual([made]);
+      expect(workspaceService.list()).toEqual([]);
+    });
+
+    it('leaves its folder to another workspace or folder project that uses it', async () => {
+      const folder = join(scratchRoot, 'swift-fox');
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([
+          savedScratch('swift-fox'),
+          savedScratch('opened-too', { scratch: undefined, workingDirectory: folder }),
+          savedScratch('calm-river'),
+        ])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      mockProjectService.list.mockImplementation(() => [
+        createProject({
+          id: 'folder-9',
+          kind: 'directory',
+          repositoryPath: join(scratchRoot, 'calm-river'),
+        }),
+      ]);
+      try {
+        await workspaceService.delete('swift-fox', true);
+        await workspaceService.delete('calm-river', true);
+      } finally {
+        mockProjectService.list.mockImplementation(() => [mockProject]);
+      }
+
+      expect(await removedPaths()).toEqual([]);
+    });
+
+    it('refuses to keep a folder while its workspace is being deleted', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([savedScratch('swift-fox')]));
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      const { workspaceStore } = await import('../../../src/main/services/workspace/store');
+      workspaceStore.deletingWorkspaceIds.add('swift-fox');
+
+      await expect(workspaceService.keepScratch('swift-fox')).rejects.toThrow('being deleted');
+      expect(workspaceService.get('swift-fox')?.scratch).toBe(true);
+    });
+
+    it('keeps the folder only of a workspace that is not in the Trash', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([savedScratch('swift-fox', { status: 'trashed', trashedAt: 1000 })])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      await expect(workspaceService.keepScratch('swift-fox')).rejects.toThrow('Restore');
+      expect(workspaceService.get('swift-fox')?.scratch).toBe(true);
+    });
+
+    it('stays scratch, out of any project, when saving that it was kept fails', async () => {
+      vfs.setFile('/mock/home/.komla/workspaces.json', JSON.stringify([savedScratch('swift-fox')]));
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+      mockWriteFileAtomic.mockRejectedValueOnce(new Error('disk full'));
+
+      await expect(workspaceService.keepScratch('swift-fox')).rejects.toThrow('disk full');
+
+      expect(workspaceService.get('swift-fox')).toMatchObject({ scratch: true, projectId: null });
+      expect(mockProjectService.findOrCreateDirectoryProject).not.toHaveBeenCalled();
+    });
+
+    it('keeps its folder once kept, which then joins a folder project', async () => {
+      vfs.setFile(
+        '/mock/home/.komla/workspaces.json',
+        JSON.stringify([savedScratch('swift-fox')])
+      );
+      const { workspaceService } = await import('../../../src/main/services/workspace.service');
+
+      const kept = await workspaceService.keepScratch('swift-fox');
+
+      expect(kept.scratch).toBeUndefined();
+      // Saved at once, not after the save delay, so a crash can't forget it.
+      const written = JSON.parse(workspaceFileWrites().at(-1)![1]) as Array<Record<string, unknown>>;
+      expect(written[0]).not.toHaveProperty('scratch');
+      expect(kept.projectId).toBe('folder-1');
+      expect(mockProjectService.findOrCreateDirectoryProject).toHaveBeenCalledWith(
+        join(scratchRoot, 'swift-fox'),
+        undefined
+      );
+      await workspaceService.delete('swift-fox', true);
+      expect(await removedPaths()).toEqual([]);
     });
   });
 

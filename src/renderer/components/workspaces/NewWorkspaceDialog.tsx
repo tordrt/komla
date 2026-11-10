@@ -1,4 +1,5 @@
 import {
+  Flask,
   FolderOpen,
   CaretDown,
   Check,
@@ -1658,11 +1659,18 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     await pickFolder({
       onProject: (project) => selectProject(project.id),
       onAddProject: (path) => toggleInlineProjectForm(true, path),
-      onFolder: openFolderWorkspace,
+      onFolder: (directoryPath) => createInFolder({ directoryPath }),
     });
   };
 
-  const openFolderWorkspace = async (directoryPath: string) => {
+  // An immediate action, as Open folder is: a scratch folder needs nothing more picked.
+  const handleNewScratchWorkspace = () => {
+    setError(null);
+    void createInFolder({ scratch: true });
+  };
+
+  // A workspace in a folder, or in a scratch folder main makes, with what the composer holds.
+  const createInFolder = async (folder: { directoryPath: string } | { scratch: true }) => {
     const prompt = initialPromptText.trim() || undefined;
     const selectedAction = actions.find((a) => a.id === actionId);
     onOpenChange(false);
@@ -1670,7 +1678,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
     await finalizeCreate(
       {
         mode: 'directory',
-        directoryPath,
+        ...folder,
         initialPrompt: prompt,
         attachments: attachments.length > 0 ? attachments : undefined,
         launchModeId: effectiveLaunchModeId ?? undefined,
@@ -2570,6 +2578,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                     onProjectPickerOpenChange={setProjectPickerOpen}
                     onAddProject={() => toggleInlineProjectForm(true)}
                     onOpenFolderWorkspace={handleOpenFolderWorkspace}
+                    onNewScratchWorkspace={handleNewScratchWorkspace}
                     flash={
                       !!contextProject &&
                       !!activeWorkspaceProject &&
@@ -2643,6 +2652,7 @@ export function NewWorkspaceDialog({ open, onOpenChange }: NewWorkspaceDialogPro
                 isPushingSourceBranch={isPushingSourceBranch}
                 onPushSourceBranch={handlePushSourceBranch}
                 onOpenFolderWorkspace={handleOpenFolderWorkspace}
+                onNewScratchWorkspace={handleNewScratchWorkspace}
                 isSshLaunch={isSshLaunch}
                 error={error}
               />
@@ -3226,6 +3236,7 @@ interface ConfigSectionProps {
   isPushingSourceBranch: boolean;
   onPushSourceBranch: () => void;
   onOpenFolderWorkspace: () => void;
+  onNewScratchWorkspace: () => void;
   isSshLaunch: boolean;
   error: string | null;
 }
@@ -3257,6 +3268,7 @@ function ConfigSection({
   isPushingSourceBranch,
   onPushSourceBranch,
   onOpenFolderWorkspace,
+  onNewScratchWorkspace,
   isSshLaunch,
   error,
 }: ConfigSectionProps) {
@@ -3293,6 +3305,10 @@ function ConfigSection({
               <Button type="button" size="sm" variant="ghost" onClick={onOpenFolderWorkspace}>
                 <FolderOpen className="mr-1.5 size-3.5" />
                 Open Folder
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={onNewScratchWorkspace}>
+                <Flask className="mr-1.5 size-3.5" />
+                Scratch
               </Button>
             </>
           }

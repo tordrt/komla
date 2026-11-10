@@ -4,6 +4,7 @@ import { dirname } from 'path';
 import { canDeleteWorkspaceBranch, isSshWorkspace } from '../../../shared/types/workspace';
 import { createLogger } from '../../lib/logger';
 import { deleteReleasingOpenCodeLocation } from '../../lib/opencode-service';
+import { isSamePath } from '../../lib/same-path';
 import { agentPresetService } from '../agent-preset.service';
 import { configService } from '../config.service';
 import { executionLocations } from '../execution-location';
@@ -25,6 +26,7 @@ import { worktreeWatcherService } from '../worktree-watcher.service';
 
 import { resolveContinueCommand, resolvePreset } from './agent-launch';
 import { moveFolderIntoProject, workspaceProject } from './projects';
+import { removeScratchFolder } from './scratch';
 import { workspaceStore } from './store';
 
 import type { WorkspaceNaming } from './naming';
@@ -374,6 +376,9 @@ export class WorkspaceLifecycle {
           })
         );
       }
+    } else if (workspace.scratch && !this.scratchFolderInUse(workspace)) {
+      // Its folder is Komla's; failing keeps the workspace so deleting can be retried.
+      await removeScratchFolder(workspace);
     }
 
     // A workspace is not fully deleted until its local copy is gone. Keep
@@ -409,6 +414,28 @@ export class WorkspaceLifecycle {
       stopPreviewForwardPromise,
       isSshWorkspace(workspace) ? Promise.resolve() : localCopyService.remove(workspaceId),
     ]);
+  }
+
+  /**
+   * Whether something else uses a scratch workspace's folder: another workspace, or a folder
+   * project, as when the folder was opened with Open Folder too. Those say deleting leaves it.
+   */
+  private scratchFolderInUse(workspace: Workspace): boolean {
+    const folder = workspace.workingDirectory;
+    for (const other of workspaceStore.workspaces.values()) {
+      if (
+        other.id !== workspace.id &&
+        !isSshWorkspace(other) &&
+        isSamePath(other.workingDirectory, folder)
+      ) {
+        return true;
+      }
+    }
+    return projectService
+      .list()
+      .some(
+        (project) => project.kind === 'directory' && isSamePath(project.repositoryPath, folder)
+      );
   }
 
   /** Notes belong to their workspace; the trash keeps any still wanted. */

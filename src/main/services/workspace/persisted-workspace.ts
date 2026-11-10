@@ -64,6 +64,7 @@ export type PersistedWorkspace = {
   workingDirectory: string;
   backend?: WorkspaceBackend;
   lastKnownGitStatus?: WorkspaceGitStatusSnapshot;
+  scratch?: boolean;
   branchName?: string;
   isWorktree: boolean;
   projectId: string | null;
@@ -498,6 +499,7 @@ export function serializeWorkspace(
     workingDirectory: w.workingDirectory,
     backend: w.backend,
     lastKnownGitStatus: isSshWorkspace(w) ? w.lastKnownGitStatus : undefined,
+    scratch: w.scratch || undefined,
     branchName: w.branchName,
     isWorktree: w.isWorktree,
     projectId: w.projectId,

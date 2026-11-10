@@ -6,7 +6,9 @@ import {
   GitFork,
   PencilSimple,
   FolderOpen,
+  Flask,
   Folder,
+  FolderStar,
   Alarm,
   CalendarDots,
   Globe,
@@ -58,6 +60,7 @@ import { getDiffComparison } from '@/hooks/useDiffComparison';
 import { useNow } from '@/hooks/useNow';
 import { formatElapsed, formatRelativeTime } from '@/lib/format-time';
 import { openWorkspace } from '@/lib/open-workspace';
+import { keepScratchFolder } from '@/lib/scratch-workspace';
 import { waitsForNotification } from '@/lib/snooze';
 import { useSshHostDisconnected } from '@/lib/ssh-host-disconnected';
 import { cn } from '@/lib/utils';
@@ -825,6 +828,8 @@ function ProjectBadge({
     >
       {projectInfo.icon ? (
         <ProjectMark project={{ icon: projectInfo.icon }} iconClassName="size-3.5" />
+      ) : workspace.scratch ? (
+        <Flask className="light-darken size-3.5 shrink-0 text-[color:var(--project-color)]" />
       ) : !workspace.isWorktree ? (
         <Folder className="light-darken size-3.5 shrink-0 text-[color:var(--project-color)]" />
       ) : (
@@ -2065,8 +2070,8 @@ function WorkspaceMenuItems({
         anyTagged={!!workspace.tag}
       />
       <RemoveMarkerMenuItems workspaceId={workspace.id} markers={workspace.markers} />
-      {/* A project's workspaces show its color. */}
-      {!workspace.isWorktree && !workspace.projectId && (
+      {/* A project's workspaces show its color, and Scratch ones their group's. */}
+      {!workspace.isWorktree && !workspace.projectId && !workspace.scratch && (
         <ColorPickerSubmenu currentColor={workspace.color} onColorChange={onColorChange} />
       )}
       <ContextMenuSeparator />
@@ -2083,6 +2088,12 @@ function WorkspaceMenuItems({
         </ContextMenuItem>
       )}
       <CopyWorkspaceSubmenu workspace={workspace} />
+      {workspace.scratch && workspace.status === 'active' && (
+        <ContextMenuItem onClick={() => void keepScratchFolder(workspace.id)}>
+          <FolderStar />
+          Keep Folder
+        </ContextMenuItem>
+      )}
       {showStop && (
         <>
           <ContextMenuSeparator />
@@ -2164,6 +2175,9 @@ function getDeleteWorkspaceWarnings(uncommittedFileCount: number, unpushedCommit
 }
 
 function getDeleteWorkspaceDescription(workspace: Workspace, displayTitle: string): string {
+  if (workspace.scratch) {
+    return `Delete scratch workspace "${displayTitle}"? Its folder and everything in it will be deleted too.`;
+  }
   if (!workspace.isWorktree) {
     return `Delete workspace "${displayTitle}"? The directory will NOT be deleted.`;
   }

@@ -1,20 +1,38 @@
-import { Folder } from '@phosphor-icons/react';
+import { Flask, Folder } from '@phosphor-icons/react';
 
 import { ProjectMark } from '@/components/projects/ProjectMark';
 import { cn } from '@/lib/utils';
 
 interface GroupHeaderIconProps {
   isDirectory: boolean;
+  /** The Scratch group, which shows a flask. */
+  scratch?: boolean;
   expanded: boolean;
   color: string;
   icon?: string;
 }
 
 /**
- * What starts a sidebar group header: the project's icon, a folder for a directory project,
- * otherwise its color dot, which flattens to a dash while the group is collapsed.
+ * What starts a sidebar group header: the project's icon, a folder for a directory project, a
+ * flask for the Scratch group, otherwise its color dot, which flattens to a dash while the group
+ * is collapsed.
  */
-export function GroupHeaderIcon({ isDirectory, expanded, color, icon }: GroupHeaderIconProps) {
+export function GroupHeaderIcon({
+  isDirectory,
+  scratch,
+  expanded,
+  color,
+  icon,
+}: GroupHeaderIconProps) {
+  if (scratch) {
+    return (
+      <Flask
+        aria-hidden="true"
+        className={cn('light-darken size-5 shrink-0 transition-opacity', !expanded && 'opacity-60')}
+        style={{ color }}
+      />
+    );
+  }
   if (icon) {
     return (
       <ProjectMark

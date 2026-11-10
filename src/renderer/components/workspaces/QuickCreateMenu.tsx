@@ -3,6 +3,7 @@ import {
   CaretDown,
   CaretRight,
   Cloud,
+  Flask,
   FolderOpen,
   GitBranch,
   Sparkle,
@@ -29,6 +30,7 @@ import { startCommandInCreatedWorkspace } from '@/lib/action-launch';
 import { getActionMenuGroups } from '@/lib/action-menu-order';
 import { createFolderWorkspace, openFolder } from '@/lib/open-folder';
 import { qualifyBaseBranch, refreshIfBaseIsRemoteOnly } from '@/lib/remote-base-branch';
+import { createScratchWorkspace } from '@/lib/scratch-workspace';
 import { useActionsStore } from '@/stores/actions.store';
 import { useConfigStore } from '@/stores/config.store';
 import { useProjectsStore } from '@/stores/projects.store';
@@ -123,6 +125,17 @@ export function QuickCreateMenu({ className }: { className?: string }) {
     setIsCreating(true);
     try {
       await openFolder();
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleNewScratch = async () => {
+    if (isCreating) return;
+
+    setIsCreating(true);
+    try {
+      await createScratchWorkspace();
     } finally {
       setIsCreating(false);
     }
@@ -822,6 +835,10 @@ export function QuickCreateMenu({ className }: { className?: string }) {
           <DropdownMenuItem onClick={() => void handleOpenFolder()} disabled={isCreating}>
             <FolderOpen />
             Open Folder…
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void handleNewScratch()} disabled={isCreating}>
+            <Flask />
+            New Scratch Workspace
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

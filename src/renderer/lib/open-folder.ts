@@ -57,11 +57,11 @@ function rememberOpenedFolder(path: string): void {
 }
 
 /**
- * Creates a workspace in a folder project, or in a folder, which main puts in its project.
- * False when it couldn't, which it has told the user.
+ * Creates a workspace in a folder project, or in a folder, which main puts in its project, or
+ * in a scratch folder main makes. False when it couldn't, which it has told the user.
  */
 export async function createFolderWorkspace(
-  params: { directoryPath: string } | { projectId: string }
+  params: { directoryPath: string } | { projectId: string } | { scratch: true }
 ): Promise<boolean> {
   try {
     await useWorkspacesStore.getState().createWorkspace({ mode: 'directory', ...params });

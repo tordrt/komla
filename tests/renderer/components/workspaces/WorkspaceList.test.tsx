@@ -55,6 +55,10 @@ const { openNewWorkspaceDialog } = vi.hoisted(() => ({ openNewWorkspaceDialog: v
 
 vi.mock('../../../../src/renderer/stores/dialogs.store', () => ({ openNewWorkspaceDialog }));
 
+const { createScratchWorkspace } = vi.hoisted(() => ({ createScratchWorkspace: vi.fn() }));
+
+vi.mock('../../../../src/renderer/lib/scratch-workspace', () => ({ createScratchWorkspace }));
+
 vi.mock('../../../../src/renderer/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -1158,6 +1162,33 @@ describe('WorkspaceList group headers', () => {
     expect(add.parentElement?.closest('button')).toBeNull();
     fireEvent.click(add);
     expect(openNewWorkspaceDialog).toHaveBeenCalledWith({ prefill: { projectId: 'project-1' } });
+    expect(workspacesState.toggleWorkspaceGroupCollapsed).not.toHaveBeenCalled();
+  });
+
+  it('groups scratch workspaces under one Scratch header that starts another', () => {
+    workspacesState.workspaces = ['swift-fox', 'calm-river'].map((folder, order) =>
+      createWorktreeWorkspace({
+        id: folder,
+        windowId: 'window-1',
+        order,
+        scratch: true,
+        isWorktree: false,
+        branchName: undefined,
+        projectId: null,
+        workingDirectory: `/home/me/.komla/scratch/${folder}`,
+      })
+    );
+    render(<WorkspaceList />);
+
+    const header = screen.getByText('Scratch').closest('button')!;
+    expect(screen.getAllByRole('button', { expanded: true })).toEqual([header]);
+    expect(screen.getByTestId('card-swift-fox')).toBeInTheDocument();
+    expect(screen.getByTestId('card-calm-river')).toBeInTheDocument();
+    fireEvent.click(header);
+    expect(workspacesState.toggleWorkspaceGroupCollapsed).toHaveBeenCalledWith('scratch');
+    workspacesState.toggleWorkspaceGroupCollapsed.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'New scratch workspace' }));
+    expect(createScratchWorkspace).toHaveBeenCalledOnce();
     expect(workspacesState.toggleWorkspaceGroupCollapsed).not.toHaveBeenCalled();
   });
 

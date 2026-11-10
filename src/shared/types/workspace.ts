@@ -353,6 +353,8 @@ export interface Workspace {
   backend?: WorkspaceBackend;
   /** Last status pushed by an SSH workspace, retained for display while disconnected. */
   lastKnownGitStatus?: WorkspaceGitStatusSnapshot;
+  /** A Scratch workspace: its folder is Komla's, made for it, and is deleted along with it. */
+  scratch?: boolean;
 
   // Worktree info
   branchName?: string;
@@ -490,6 +492,8 @@ export interface CreateWorkspaceParams {
   autoResolveBranchConflicts?: boolean;
   // Directory mode
   directoryPath?: string;
+  // Directory mode: an empty folder Komla makes for a Scratch workspace, instead of directoryPath
+  scratch?: boolean;
   // Common
   categoryId?: string;
   initialPrompt?: string;

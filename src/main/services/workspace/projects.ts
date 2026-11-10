@@ -27,7 +27,8 @@ export function moveFoldersIntoProjects(): boolean {
 
 export function moveFolderIntoProject(workspace: Workspace): boolean {
   if (workspace.projectId || workspace.isWorktree || isSshWorkspace(workspace)) return false;
-  if (!workspace.workingDirectory) return false;
+  // A scratch folder joins a project only when the user keeps it.
+  if (workspace.scratch || !workspace.workingDirectory) return false;
   try {
     const project = projectService.findOrCreateDirectoryProject(
       workspace.workingDirectory,

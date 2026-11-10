@@ -46,6 +46,12 @@ import {
   resolveModelId,
 } from './agent-launch';
 import { initialSidebarView } from './initial-sidebar-view';
+import {
+  assertScratchParams,
+  createScratchFolder,
+  removeScratchFolderAt,
+  type ScratchFolder,
+} from './scratch';
 import { workspaceStore } from './store';
 import {
   AUTO_BRANCH_MAX_ATTEMPTS,
@@ -230,7 +236,36 @@ export class WorkspaceCreation {
 
   /** Creates from params `resolveWorkspaceCreationParams` already resolved. */
   private async createResolved(params: CreateWorkspaceParams): Promise<Workspace> {
+    assertScratchParams(params);
+    if (!params.scratch) return this.createResolvedIn(params);
     await assertPromptAttachmentsExist(params);
+    const folder = createScratchFolder();
+    try {
+      return await this.createResolvedIn(params, folder);
+    } catch (error) {
+      // Nothing else knows of a folder no workspace was published with, so nothing would delete it.
+      const published = [...workspaceStore.workspaces.values()].some(
+        (workspace) => workspace.workingDirectory === folder.path
+      );
+      if (!published) {
+        await removeScratchFolderAt(folder.path).catch((cleanupError: unknown) => {
+          logger.warn(
+            'Could not remove the folder of a scratch workspace not created',
+            cleanupError
+          );
+        });
+      }
+      throw error;
+    }
+  }
+
+  /** Creates the workspace, in `scratchFolder` for a Scratch workspace. */
+  private async createResolvedIn(
+    params: CreateWorkspaceParams,
+    scratchFolder?: ScratchFolder
+  ): Promise<Workspace> {
+    // createResolved checked a scratch workspace's, before making its folder.
+    if (!scratchFolder) await assertPromptAttachmentsExist(params);
     let workingDirectory: string;
     let branchName: string | undefined;
     let isWorktree: boolean;
@@ -364,6 +399,11 @@ export class WorkspaceCreation {
       isWorktree = true;
       projectId = params.projectId;
       repoName = project.name;
+    } else if (scratchFolder) {
+      workingDirectory = scratchFolder.path;
+      params.name ||= branchSuffixToName(scratchFolder.suffix);
+      isWorktree = false;
+      projectId = null;
     } else {
       workingDirectory = this.resolveDirectoryWorkingDirectory(params);
       isWorktree = false;
@@ -471,6 +511,7 @@ export class WorkspaceCreation {
       customNameSource: params.customName ? 'manual' : undefined,
       workingDirectory,
       ...(backend ? { backend } : {}),
+      ...(params.scratch ? { scratch: true } : {}),
       branchName,
       isWorktree,
       projectId,

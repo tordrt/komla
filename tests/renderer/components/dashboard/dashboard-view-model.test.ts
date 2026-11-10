@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDashboardOverview,
   describeShown,
+  getProjectInfo,
   type BuildDashboardOverviewParams,
 } from '../../../../src/renderer/components/dashboard/dashboard-view-model';
 import { createTerminal, createWorkspace } from '../../../factories';
@@ -37,6 +38,18 @@ function sectionIds(overview: ReturnType<typeof build>) {
 }
 
 describe('dashboard-view-model', () => {
+  it('names scratch workspaces Scratch, as the sidebar groups them, not after their folders', () => {
+    const info = (folder: string) =>
+      getProjectInfo(
+        createWorkspace({ scratch: true, workingDirectory: `/home/me/.komla/scratch/${folder}` }),
+        [],
+        new Map()
+      );
+
+    expect(info('swift-fox')).toEqual(info('calm-river'));
+    expect(info('swift-fox')?.name).toBe('Scratch');
+  });
+
   it('groups workspaces like the command center: notifications, running, stopped, put away', () => {
     const overview = build({
       workspaces: [

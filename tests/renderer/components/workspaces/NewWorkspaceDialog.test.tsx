@@ -2204,6 +2204,27 @@ describe('NewWorkspaceDialog', () => {
     });
   });
 
+  it('starts a scratch workspace with the prompt, without picking a folder', async () => {
+    const user = userEvent.setup();
+
+    render(<NewWorkspaceDialog open={true} onOpenChange={vi.fn()} />);
+    const prompt = await screen.findByPlaceholderText(/what should the agent work on/i);
+    await user.type(prompt, 'Try out the new API');
+    await pickFromProjectDropdown(user, /^new scratch workspace$/i);
+
+    await waitFor(() =>
+      expect(mockCreateWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'directory',
+          scratch: true,
+          initialPrompt: 'Try out the new API',
+        })
+      )
+    );
+    expect(mockCreateWorkspace.mock.calls[0][0]).not.toHaveProperty('directoryPath');
+    expect(window.api.selectAnyDirectory).not.toHaveBeenCalled();
+  });
+
   it('asks before opening a Git repository without a project, offering to add it', async () => {
     const user = userEvent.setup();
     vi.mocked(window.api.findProjectForFolder).mockResolvedValue({
@@ -4545,6 +4566,7 @@ describe('NewWorkspaceDialog', () => {
         'Komla Project',
         'Add project…',
         'Open folder…',
+        'New scratch workspace',
       ]);
       await user.keyboard('{Escape}');
 
@@ -4789,6 +4811,7 @@ describe('NewWorkspaceDialog', () => {
         'Komla Project',
         'Add project…',
         'Open folder…',
+        'New scratch workspace',
       ]);
     });
 
@@ -4804,6 +4827,7 @@ describe('NewWorkspaceDialog', () => {
         'Empty Prefix Project',
         'Add project…',
         'Open folder…',
+        'New scratch workspace',
       ]);
 
       await user.type(search, 'empty');
@@ -4811,6 +4835,7 @@ describe('NewWorkspaceDialog', () => {
         'Empty Prefix Project',
         'Add project…',
         'Open folder…',
+        'New scratch workspace',
       ]);
       await user.keyboard('{Enter}');
 

@@ -9,6 +9,12 @@ deleted for good, along with its branch unless that holds unpushed commits. Dele
 the Trash.
 _Avoid_: Archive
 
+**Scratch workspace**:
+A workspace in an empty folder Komla makes for it under `~/.komla/scratch/`, outside any project,
+for work that may not last. Deleting it for good, as the Trash does after seven days, deletes the
+folder too, unless the user chose Keep Folder, which makes it an opened folder like any other.
+_Avoid_: Temp workspace, sandbox
+
 **Workspace Setup**:
 A project's configuration for preparing and cleaning up its workspaces: Setup steps and Trash
 cleanup.

@@ -122,6 +122,8 @@ export function getProjectInfo(
   projects: Project[],
   projectMap: Map<string, Project>
 ): DashboardProjectInfo | null {
+  // As the sidebar's Scratch group shows them.
+  if (workspace.scratch) return { name: 'Scratch', color: getProjectColor('Scratch') };
   if (workspace.projectId) {
     const project = projectMap.get(workspace.projectId);
     if (project) {

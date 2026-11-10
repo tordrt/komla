@@ -3,6 +3,7 @@ import {
   Check,
   Cloud,
   Desktop,
+  Flask,
   Folder,
   FolderOpen,
   GitBranch,
@@ -83,6 +84,7 @@ interface ProjectSearchProps {
   onSelect: (id: string) => void;
   onAddProject: () => void;
   onOpenFolderWorkspace: () => void;
+  onNewScratchWorkspace: () => void;
 }
 
 interface ProjectSearchOption {
@@ -103,6 +105,7 @@ function ProjectSearch({
   onSelect,
   onAddProject,
   onOpenFolderWorkspace,
+  onNewScratchWorkspace,
 }: ProjectSearchProps) {
   const [query, setQuery] = useState('');
   // The selected row by key, so it stays put when the projects change while open. A row no
@@ -144,6 +147,17 @@ function ProjectSearch({
         <>
           <FolderOpen />
           Open folder…
+        </>
+      ),
+    },
+    {
+      key: 'new-scratch',
+      run: onNewScratchWorkspace,
+      className: 'text-muted-foreground',
+      content: (
+        <>
+          <Flask />
+          New scratch workspace
         </>
       ),
     },
@@ -447,6 +461,7 @@ export interface NewWorkspaceProjectPickerProps {
   onProjectPickerOpenChange: (open: boolean) => void;
   onAddProject: () => void;
   onOpenFolderWorkspace: () => void;
+  onNewScratchWorkspace: () => void;
   /** Draws the eye to a project other than the selected workspace's */
   flash: boolean;
   projectTriggerRef: React.RefObject<HTMLButtonElement | null>;
@@ -464,6 +479,7 @@ export function NewWorkspaceProjectPicker({
   onProjectPickerOpenChange,
   onAddProject,
   onOpenFolderWorkspace,
+  onNewScratchWorkspace,
   flash,
   projectTriggerRef,
   promptTextareaRef,
@@ -542,6 +558,7 @@ export function NewWorkspaceProjectPicker({
           }}
           onAddProject={runAndClose(onAddProject)}
           onOpenFolderWorkspace={runAndClose(onOpenFolderWorkspace)}
+          onNewScratchWorkspace={runAndClose(onNewScratchWorkspace)}
         />
       </PopoverContent>
     </Popover>

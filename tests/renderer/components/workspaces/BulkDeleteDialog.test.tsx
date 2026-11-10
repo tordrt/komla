@@ -48,6 +48,30 @@ describe('BulkDeleteDialog', () => {
       screen.getByText('2 of these workspaces are currently running and will be stopped.')
     ).toBeInTheDocument();
   });
+
+  it('says the folders of scratch workspaces are deleted with them', () => {
+    const scratch = (id: string) =>
+      createWorkspace({ id, scratch: true, workingDirectory: `/home/me/.komla/scratch/${id}` });
+    const dialog = (workspaces: ReturnType<typeof createWorkspace>[]) => (
+      <BulkDeleteDialog open onOpenChange={vi.fn()} onConfirm={vi.fn()} workspaces={workspaces} />
+    );
+    const opened = createWorkspace({ id: 'opened', workingDirectory: '/home/me/notes' });
+
+    const { rerender } = render(dialog([opened]));
+    expect(screen.queryByText(/will be deleted too/)).not.toBeInTheDocument();
+
+    rerender(dialog([opened, scratch('swift-fox')]));
+    expect(
+      screen.getByText('The scratch workspace’s folder and everything in it will be deleted too.')
+    ).toBeInTheDocument();
+
+    rerender(dialog([opened, scratch('swift-fox'), scratch('calm-river')]));
+    expect(
+      screen.getByText(
+        'The folders of 2 scratch workspaces and everything in them will be deleted too.'
+      )
+    ).toBeInTheDocument();
+  });
 });
 
 describe('BulkDeleteDialog keeping unsaved work', () => {

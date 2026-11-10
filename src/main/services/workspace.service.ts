@@ -91,6 +91,7 @@ import { WorkspaceNaming } from './workspace/naming';
 import { hydrateWorkspace } from './workspace/persisted-workspace';
 import {
   managedWorktree,
+  moveFolderIntoProject,
   moveFoldersIntoProjects,
   propagateProjectBaseBranch,
   registerBaseBranches,
@@ -739,6 +740,36 @@ class WorkspaceService {
       markers: withoutWorkspaceMarker(workspace.markers, key),
     });
     workspaceStore.broadcastWorkspaceUpdate(updated);
+  }
+
+  /**
+   * Keeps a Scratch workspace's folder where it is: deleting the workspace leaves the folder from
+   * now on, and the folder joins a folder project like any other opened folder.
+   */
+  async keepScratch(workspaceId: string): Promise<Workspace> {
+    const workspace = workspaceStore.workspaces.get(workspaceId);
+    if (!workspace) throw new Error(`Workspace ${workspaceId} not found`);
+    // Its folder may be gone already.
+    if (workspaceStore.isDeleting(workspaceId)) {
+      throw new Error(`Workspace ${workspaceId} is being deleted`);
+    }
+    if (!workspace.scratch) return workspace;
+    // Restoring from the Trash doesn't move a folder into its project.
+    if (workspace.status !== 'active') {
+      throw new Error('Restore the scratch workspace before keeping its folder');
+    }
+    workspace.scratch = undefined;
+    // Saved before it's reported kept: forgotten in a crash, the Trash would delete the folder.
+    try {
+      await workspaceStore.saveWorkspacesImmediateChecked();
+    } catch (error) {
+      workspace.scratch = true;
+      throw error;
+    }
+    // A crash before this is saved joins it at the next start, as any opened folder does.
+    if (moveFolderIntoProject(workspace)) workspaceStore.saveWorkspaces();
+    workspaceStore.broadcastWorkspaceUpdate(workspace);
+    return workspace;
   }
 
   update(workspaceId: string, updates: Partial<Omit<Workspace, 'id' | 'terminals'>>): Workspace {

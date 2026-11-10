@@ -834,6 +834,23 @@ export function InlineFilePreviewPanel({
     setUnsavedConfirmOpen(true);
   }, [pendingModeChange]);
 
+  // The request can go away under the prompt, as when the preview closes or the file it would
+  // open is deleted. Discard would then only mark the edits clean, so the prompt goes too.
+  useEffect(() => {
+    if (!unsavedConfirmOpen) return;
+    const pending = pendingNav || pendingModeChange || pendingClose || pendingCloseFromStore;
+    if (previewState.open && pending) return;
+    setUnsavedConfirmOpen(false);
+    setPendingClose(false);
+  }, [
+    unsavedConfirmOpen,
+    previewState.open,
+    pendingNav,
+    pendingModeChange,
+    pendingClose,
+    pendingCloseFromStore,
+  ]);
+
   // Cancel: drop the staged nav request. previewState.filePath was never
   // changed, so the file tree highlight is already on the current file.
   const cancelUnsavedConfirm = useCallback(() => {
